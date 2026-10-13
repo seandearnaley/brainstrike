@@ -64,6 +64,7 @@ import {
   joinInvalidNativeSettingsRetirement,
   prepareNativeSavedPause,
   readTrackedNativeSettings,
+  reconfigureNativeRoots,
   reconfigureNativeSavedSettings,
 } from './native-index-settings-preparation';
 import { NativeIndexSetupRequiredError as SetupRequired } from './native-index-setup-required';
@@ -934,15 +935,19 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       readerReady: () => readerReady,
     });
   };
-  const reconfigure = (): Promise<void> => {
+  const reconfigurationOwner = () => {
     const epoch = terminalEpoch;
-    return reconfigureNativeSavedSettings({
+    return {
       ...settingsOwner,
       assertAdmission: () => assertSettingsEpoch(epoch, 'configuration'),
-      invalidate: (error) => prepareInvalidSettings(error, epoch),
+      invalidate: (error: unknown) => prepareInvalidSettings(error, epoch),
+      sourcesHealthy: (current: Graph) =>
+        !startupFailed && lastError === undefined && current.watchFailures.size === 0,
       terminalRequested,
-    });
+    };
   };
+  const reconfigure = (): Promise<void> => reconfigureNativeSavedSettings(reconfigurationOwner());
+  const reconfigureRoots = (): Promise<void> => reconfigureNativeRoots(reconfigurationOwner());
   const readAuthority = createNativeIndexReadAuthority({
     acquireRead,
     assertCurrent,
@@ -991,6 +996,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     prepareSavedPause,
     rebuild: () => transition(true),
     reconfigure,
+    reconfigureRoots,
     resume,
     stopSources,
     withRead: readAuthority.withRead,

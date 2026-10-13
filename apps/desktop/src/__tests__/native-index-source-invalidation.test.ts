@@ -15,6 +15,7 @@ import {
   mocks,
   requestedScope,
   resetActivationFixture,
+  saveSettingsChange,
   storeId,
   unused,
   writer,
@@ -125,6 +126,9 @@ it.each(['reconfigure', 'invalid-settings', 'terminal'] as const)(
     if (operation === 'invalid-settings') {
       f.storage.getItem.mockResolvedValue('{}');
     }
+    if (operation === 'reconfigure') {
+      await saveSettingsChange(f.storage, { indexingPolicyPreset: 'full-root' });
+    }
     next = Promise.resolve(
       operation === 'terminal' ? f.activation.fenceTerminal() : f.activation.reconfigure()
     ).catch((error: unknown) => error);
@@ -169,6 +173,7 @@ it('retains an independent physical source-close failure after graph invalidatio
   await f.attached.promise;
   await new Promise<void>((resolve) => setImmediate(resolve));
   f.close.mockRejectedValueOnce(failure);
+  await saveSettingsChange(f.storage, { indexingPolicyPreset: 'full-root' });
   replacing = f.activation.reconfigure().catch((error: unknown) => error);
   await vi.waitFor(() => expect(f.close).toHaveBeenCalledOnce());
   expect(await initial).toMatchObject({ code: 'native-authority-transition' });
@@ -197,7 +202,7 @@ it('starts saved Pause cancellation while root registration owns an incomplete f
   });
   const registration = createNativeRootRegistration({
     isShuttingDown: () => false,
-    reconfigure: () => f.activation.reconfigure(),
+    reconfigureRoots: () => f.activation.reconfigureRoots(),
     reportError: vi.fn(),
     transition: transitions.transition,
   });
