@@ -31,6 +31,44 @@ import {
 } from './assistant-thread-tabs-workspace-test-support';
 
 describe('AssistantThreadTabsWorkspace', () => {
+  it('recovers an unavailable saved conversation and keeps New available after refused creation', async () => {
+    const current = {
+      createdAt: new Date(),
+      id: 'owned-current',
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+      title: 'Current conversation',
+      updatedAt: new Date(),
+    };
+    const host: AssistantThreadHostCapability = {
+      createThread: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Choose an available workspace folder.'))
+        .mockResolvedValueOnce(current),
+      deleteThread: vi.fn(async () => undefined),
+      listThreads: vi.fn(async () => []),
+      ownsThread: vi.fn(async () => true),
+      renameThread: vi.fn(),
+      renderThread: (threadId) => <div data-testid="host-thread">{threadId}</div>,
+      updateThreadBinding: vi.fn(),
+      workspaceRepository: (history) => history,
+    };
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: 'retired-thread' },
+      openThreadIdsByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: ['retired-thread'] },
+      selectedThreadByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: 'retired-thread' },
+    });
+    renderWorkspace({}, host);
+    expect(await screen.findByText(/Your saved conversation is unavailable/)).toBeVisible();
+    expect(screen.getByText('Choose an available workspace folder.')).toBeVisible();
+    expect(screen.queryByTestId('host-thread')).not.toBeInTheDocument();
+    const newChat = screen.getByRole('button', { name: 'New assistant thread' });
+    expect(newChat).toBeEnabled();
+    await userEvent.setup().click(newChat);
+    expect(await screen.findByTestId('host-thread')).toHaveTextContent('owned-current');
+    expect(screen.queryByText('Choose an available workspace folder.')).not.toBeInTheDocument();
+    expect(host.deleteThread).not.toHaveBeenCalled();
+  });
+
   it('does not reload the old thread catalog when reset remounts the workspace', async () => {
     renderWorkspace();
     await screen.findByRole('tab', { name: /Purchasing app search log/ });
@@ -126,7 +164,15 @@ describe('AssistantThreadTabsWorkspace', () => {
     const host: AssistantThreadHostCapability = {
       createThread: vi.fn(),
       deleteThread: vi.fn(async () => undefined),
-      listThreads: vi.fn(async () => []),
+      listThreads: vi.fn(async () => [
+        {
+          createdAt: new Date(),
+          id: 'host-current',
+          resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+          title: 'Current conversation',
+          updatedAt: new Date(),
+        },
+      ]),
       ownsThread: vi.fn(async () => false),
       renameThread: vi.fn(),
       renderThread,

@@ -79,7 +79,7 @@ describe('ElectronProcessExitGuard', () => {
     expect(() => guard.assertHealthy()).toThrow('during intentional close');
   });
 
-  it('accepts a forced exit after intentional teardown begins', () => {
+  it('rejects a forced exit after intentional teardown begins', () => {
     const guard = new ElectronProcessExitGuard();
     const process = new FakeElectronProcess();
     guard.observe(process);
@@ -87,7 +87,7 @@ describe('ElectronProcessExitGuard', () => {
 
     process.exit(null, 'SIGKILL');
 
-    expect(() => guard.assertHealthy()).not.toThrow();
+    expect(() => guard.assertHealthy()).toThrow('SIGKILL');
   });
 
   it('fails when the process exited before teardown but its exit event is still pending', () => {

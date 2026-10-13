@@ -38,10 +38,7 @@ export class ElectronProcessExitGuard {
       if (this.unexpectedExit) {
         return;
       }
-      if (
-        state.intentionalCloseStarted &&
-        ((code === 0 && signal === null) || signal === 'SIGKILL')
-      ) {
+      if (state.intentionalCloseStarted && code === 0 && signal === null) {
         return;
       }
       this.unexpectedExit = formatUnexpectedExit(code, signal, state.intentionalCloseStarted);

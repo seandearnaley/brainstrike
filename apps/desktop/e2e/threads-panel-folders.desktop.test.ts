@@ -8,13 +8,8 @@
  * inventory, `buildThreadListSections`' folder view, and the folder header's
  * "New thread here" bind. Nothing about the panel is mocked.
  *
- * SEEDING (see `utils/seed-threads.ts` for the full rationale): a thread's
- * folder binding is written at its FIRST REQUEST, so the only product gesture
- * that mints a bound thread is "New thread here" — which needs a folder
- * section, which needs a bound thread. The rows the first request would have
- * written are seeded through the renderer's `electronAPI.db` bridge instead,
- * against the DURABLE `roots.id` read back from the database rather than the
- * adapter root id seeded into main's ledger (W1 proved those diverge).
+ * Conversations are created and bound through the public host protocol, using
+ * the durable root identity returned by the real registry.
  *
  * Isolation: a fresh temp repo per test plus the fixture's per-test
  * `userDataDir`, so neither main's `rootsList` nor the PGlite database can
@@ -29,11 +24,7 @@ import { freshRepo as createFreshRepo, createTempDirTracker } from './utils/git-
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { seedRoot as seedWorkspaceRoot } from './utils/seed-root';
-import {
-  seedThreadRows,
-  waitForMastraMemorySchema,
-  waitForSingleWorkspaceRootRow,
-} from './utils/seed-threads';
+import { seedHostThreads, waitForSingleWorkspaceRootRow } from './utils/seed-threads';
 
 const tempDirs = createTempDirTracker();
 
@@ -145,32 +136,16 @@ function threadRow(page: Page, title: string) {
  * Seed one git root plus the three threads every test starts from (two bound
  * to that root, one unbound), and land in folder grouping with the panel open.
  */
-async function seedFoldersFixture(page: Page): Promise<{ repo: string }> {
+async function seedFoldersFixture(page: Page, userDataDir: string): Promise<{ repo: string }> {
   const repo = freshRepo('repo');
   await seedWorkspace(page, repo);
   const root = await waitForSingleWorkspaceRootRow(page);
   expect(root.displayName).toBe(path.basename(repo));
 
-  // Opening the panel first is what CREATES the Mastra memory schema (the
-  // renderer's assistant memory initialization); the probe turns that into a
-  // fact instead of a sleep, because a missing relation would abort the
-  // INSERT's transaction rather than merely fail it.
+  // The empty host catalog creates its initial unbound conversation before seeding.
   await openThreadsPanel(page);
-  await waitForMastraMemorySchema(page);
-  // The bootstrap thread is a PRECONDITION of the counts below, not a
-  // bystander. An EMPTY resource mints one — `loadResourceThreadsForGeneration`
-  // in `assistant-thread-store.ts` calls `createThread` when `listThreads`
-  // comes back empty — and both tests read `No folder` as TWO threads: that one
-  // plus the seeded unbound row. The schema probe proves only that the RELATION
-  // exists, and nothing orders these INSERTs against that `listThreads`, so
-  // seeding first could make it non-empty; the bootstrap thread would then
-  // never be created and `No folder` would render 1. Waiting for the row makes
-  // the ordering a fact rather than a race against `DatabaseWorkScheduler`.
-  // (`assistant-compaction.desktop.test.ts` gets the same ordering for free:
-  // `seedCompactionSummaryThread` reads `resourceId` off an existing
-  // `mastra_threads` row and throws when there is none.)
   await expect(page.getByTestId('thread-row')).toHaveCount(1, { timeout: 30_000 });
-  await seedThreadRows(page, [
+  await seedHostThreads(userDataDir, [
     { folder: null, title: UNBOUND_THREAD_TITLE },
     { folder: root, title: BOUND_THREAD_TITLES[0] },
     { folder: root, title: BOUND_THREAD_TITLES[1] },
@@ -197,10 +172,11 @@ test.afterAll(() => {
 
 test.describe('Threads panel folder grouping (desktop)', () => {
   test('@smoke groups threads by their folder, trails a No folder section, and badges the branch', async ({
+    electron,
     window: page,
   }) => {
     test.setTimeout(90_000);
-    const { repo } = await seedFoldersFixture(page);
+    const { repo } = await seedFoldersFixture(page, electron.getUserDataDir());
 
     // TWO sections: the root's own, and the trailing catch-all. The trailing
     // section is NOT decoration — it is where a thread with no binding has to
@@ -240,10 +216,11 @@ test.describe('Threads panel folder grouping (desktop)', () => {
   });
 
   test('starts a thread inside a folder and empties the list behind a Show only filter', async ({
+    electron,
     window: page,
   }) => {
     test.setTimeout(120_000);
-    const { repo } = await seedFoldersFixture(page);
+    const { repo } = await seedFoldersFixture(page, electron.getUserDataDir());
     const repoSection = folderHeader(page, path.basename(repo));
     await expect(repoSection.getByTestId('thread-folder-count')).toHaveText('2', {
       timeout: 30_000,

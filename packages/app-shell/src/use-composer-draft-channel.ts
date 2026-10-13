@@ -3,7 +3,6 @@ import {
   type AssistantComposerCommand,
   useAssistantComposerCommandStore,
 } from './assistant-composer-command-store';
-import { useStopRereadDraftCarry } from './use-stop-reread-draft-carry';
 
 /** One thread's composer draft channel, as the panel consumes it. */
 export interface ComposerDraftChannel {
@@ -11,16 +10,13 @@ export interface ComposerDraftChannel {
   readonly command: AssistantComposerCommand | undefined;
   /** Acknowledges a command only once its text is in the draft. */
   readonly onApplied: (commandId: string) => void;
-  /** Carries the live draft across a root Stop's re-read remount. */
-  readonly onStopReread: () => void;
   /** Records the live draft so prompt recall and the carry can read it. */
   readonly onTextChange: (text: string) => void;
 }
 
 /**
  * The per-thread composer draft channel: the queued prompt-library command,
- * its acknowledgement, the live-draft recorder, and the Stop re-read carry
- * (`use-stop-reread-draft-carry.ts`). One unit because they share the same
+ * its acknowledgement and the live-draft recorder. One unit because they share the same
  * thread-scoped store and the same lifetime; extracted from
  * `assistant-ui-panel-wrapper.tsx`, which owns none of this state itself.
  */
@@ -30,7 +26,6 @@ export function useComposerDraftChannel(threadId: string | undefined): ComposerD
   );
   const acknowledgeCommand = useAssistantComposerCommandStore((state) => state.acknowledge);
   const recordDraft = useAssistantComposerCommandStore((state) => state.recordDraft);
-  const onStopReread = useStopRereadDraftCarry(threadId);
   const onApplied = useCallback(
     (commandId: string) => {
       if (!command || command.id !== commandId) {
@@ -49,5 +44,5 @@ export function useComposerDraftChannel(threadId: string | undefined): ComposerD
     },
     [recordDraft, threadId]
   );
-  return { command, onApplied, onStopReread, onTextChange };
+  return { command, onApplied, onTextChange };
 }

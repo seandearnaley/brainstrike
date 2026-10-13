@@ -22,6 +22,7 @@ import { _electron, type ElectronApplication } from 'playwright';
 import { expect, onTestFinished } from 'vitest';
 import { z } from 'zod';
 import { HomePage } from '../../../e2e/page-objects/home-page';
+import { closeElectronApp } from '../../../e2e/utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from '../../../e2e/utils/layout-helpers';
 import {
   type ModelProviderRequest,
@@ -29,6 +30,7 @@ import {
 } from '../../../e2e/utils/model-provider-shim';
 import { createDisposableAppProfile } from './disposable-app-profile';
 import { launchAppWithLauncher } from './electron-launcher-watchdog';
+import { type OwnedTestProcess, retireOwnedTestProcesses } from './retire-owned-test-processes';
 
 const desktop = resolve(import.meta.dirname, '../../..');
 // Reuse the recorded public metadata fixture; no provider grant or inference.
@@ -43,7 +45,7 @@ const recordedModelMetadata = parseOpenRouterModelMetadata(
   Date.parse('2026-10-07T05:07:09.516Z')
 );
 
-// A graceful step that outlives these bounds is a leak: it is recorded, then killed.
+// A graceful step that outlives these bounds is a leak and fails the proof.
 const CLOSE_STEP_MS = 30_000;
 const RELEASE_HOOK_MS = 120_000;
 
@@ -107,12 +109,12 @@ export async function qualifyOrdinaryAppIndexedText(
   let failure: unknown;
   const errors: unknown[] = [];
   const outputs: string[] = [];
-  const owners: { pid: number; start: string }[] = [];
+  const owners: OwnedTestProcess[] = [];
   const capture = async (app: ElectronApplication): Promise<void> => {
     for (const { pid } of await app.evaluate(({ app }) => app.getAppMetrics())) {
       const start = processStartTime(pid);
       if (start && !owners.some((owner) => owner.pid === pid && owner.start === start)) {
-        owners.push({ pid, start });
+        owners.push({ kind: 'child', pid, start });
       }
     }
   };
@@ -149,8 +151,8 @@ export async function qualifyOrdinaryAppIndexedText(
   /**
    * Closes everything this proof started, once. It runs when the proof returns
    * or fails, and from Vitest's onTestFinished when the test times out, so the
-   * app never outlives the test. An owned process that survives the graceful
-   * close fails the proof and is then killed.
+   * proof retains any failure. App retirement uses SIGTERM only; a surviving
+   * process keeps its disposable profile for diagnosis.
    */
   const release = (): Promise<void> => {
     released ??= (async () => {
@@ -173,24 +175,24 @@ export async function qualifyOrdinaryAppIndexedText(
         errors.push(cause);
       }
       try {
-        await within(application?.close() ?? Promise.resolve(), 'The Electron app close');
+        if (application) {
+          await closeElectronApp({ app: application });
+        }
+      } catch (cause) {
+        errors.push(cause);
+      }
+      try {
+        await retireOwnedTestProcesses(owners, {
+          join: async ({ pid, start }) => {
+            await expect.poll(() => processStartTime(pid)).not.toBe(start);
+          },
+          signal: (pid, signal) => process.kill(pid, signal),
+          startTime: processStartTime,
+        });
       } catch (cause) {
         errors.push(cause);
       }
       remaining = owners.filter(({ pid, start }) => processStartTime(pid) === start);
-      if (remaining.length > 0) {
-        errors.push(new Error('Owned app or Root process remains live'));
-        for (const { pid } of remaining) {
-          try {
-            process.kill(pid, 'SIGKILL');
-          } catch (cause) {
-            errors.push(cause);
-          }
-        }
-        await expect
-          .poll(() => owners.filter(({ pid, start }) => processStartTime(pid) === start))
-          .toEqual([]);
-      }
       try {
         await model.close();
         providerClosed = await providerPortRefused(model.baseUrl);
@@ -246,7 +248,7 @@ export async function qualifyOrdinaryAppIndexedText(
     const appProcess = application.process();
     const appStart = appProcess.pid && processStartTime(appProcess.pid);
     if (appProcess.pid && appStart) {
-      owners.push({ pid: appProcess.pid, start: appStart });
+      owners.push({ kind: 'app', pid: appProcess.pid, start: appStart });
     }
     appProcess.stdout?.on('data', (data: Buffer) => outputs.push(data.toString()));
     appProcess.stderr?.on('data', (data: Buffer) => outputs.push(data.toString()));
@@ -336,7 +338,7 @@ export async function qualifyOrdinaryAppIndexedText(
     expect(record.pid).not.toBe(process.pid);
     const start = processStartTime(record.pid);
     if (start) {
-      owners.push({ pid: record.pid, start });
+      owners.push({ kind: 'child', pid: record.pid, start });
     }
     // Observe the host created by the app; never pre-start a replacement host.
     client = await attachAgentHost(record);

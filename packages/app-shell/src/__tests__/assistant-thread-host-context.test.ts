@@ -190,3 +190,19 @@ test('a bulk deletion closes the child tabs of each host thread it deleted, not 
   expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual([childTab('kept')]);
   expect(history.deleteThreads).toHaveBeenCalledExactlyOnceWith(['legacy-thread']);
 });
+
+test('desktop offers only the authoritative host catalog and web retains its repository', async () => {
+  const { history, host, repository } = repositories(vi.fn());
+  const current = {
+    createdAt: new Date(),
+    id: 'owned-thread',
+    resourceId: 'workspace',
+    title: 'Current conversation',
+    updatedAt: new Date(),
+  };
+  vi.mocked(host.listThreads).mockResolvedValue([current]);
+  vi.mocked(history.listThreads).mockResolvedValue([{ ...current, id: 'retired-thread' }]);
+  expect(await repository.listThreads('workspace')).toEqual([current]);
+  expect(history.listThreads).not.toHaveBeenCalled();
+  expect(withAssistantThreadHost(history, undefined)).toBe(history);
+});

@@ -181,4 +181,28 @@ describe('committed verdicts (host threads)', () => {
     expect(label).toHaveTextContent('Hook verdict: mixed');
     expect(label).toHaveAttribute('title', 'Graded');
   });
+
+  // BST-2000: a successful undo read as "Edit revert verdict: failed". The label is
+  // the run's (its work was rejected), so it stays 'failed'; the words say so.
+  it('says a full undo reverted the edits and marked the run failed', () => {
+    render(
+      <DerivedRunVerdict
+        verdict={{ detail: '1/1 edits reverted', source: 'edit_revert', verdict: 'failed' }}
+      />
+    );
+    const label = screen.getByTestId('run-verdict-derived');
+    expect(label).toHaveTextContent(/^Edits reverted · run marked failed$/);
+    expect(label).toHaveAttribute('title', '1/1 edits reverted');
+  });
+
+  it('says a partial undo reverted some edits and marked the run mixed', () => {
+    render(
+      <DerivedRunVerdict
+        verdict={{ detail: '1/2 edits reverted', source: 'edit_revert', verdict: 'mixed' }}
+      />
+    );
+    expect(screen.getByTestId('run-verdict-derived')).toHaveTextContent(
+      /^Some edits reverted · run marked mixed$/
+    );
+  });
 });

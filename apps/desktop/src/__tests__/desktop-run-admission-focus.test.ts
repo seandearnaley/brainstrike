@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HostRunAdmissionRequest } from '@brainstrike/agent-host';
 import { afterEach, beforeEach, expect, test } from 'vitest';
+import { z } from 'zod';
 import { createDesktopRunAdmission } from '../agent-host-platform/desktop-run-admission';
+import { PlatformClientConfigurationSchema } from '../agent-host-platform/platform-client-configuration';
 import { capturedIntent, mainReads } from './fixtures/desktop-admission-reads';
 
 interface Root {
@@ -89,4 +91,58 @@ test('a focus on a folder the workspace no longer mounts refuses the run', async
   await expect(admission([alpha]).readConfiguration(send('root-gone'))).rejects.toThrow(
     'The selected workspace root is no longer mounted'
   );
+});
+
+test('an unbound new chat with no mounted folders admits an empty workspace', async () => {
+  const request = send('root-gone');
+  const selected = await createDesktopRunAdmission(
+    mainReads(),
+    async () => undefined
+  ).readConfiguration({
+    configuration: capturedIntent({ model: 'gpt-6-sol', provider: 'openai' }),
+    modelId: request.modelId,
+    runId: request.runId,
+    signal: request.signal,
+    threadId: request.threadId,
+  });
+  try {
+    expect(selected.nativeRuntime.workspaceRoots).toEqual([]);
+    expect(selected.nativeRuntime).not.toHaveProperty('selectionFolderId');
+    expect(selected.nativeRuntime).not.toHaveProperty('boundWorkspaceRootId');
+  } finally {
+    await selected.close();
+  }
+});
+
+test('an explicit selection from an unavailable folder is refused even for an unbound chat', async () => {
+  const request = send('root-gone');
+  await expect(
+    createDesktopRunAdmission(mainReads(), async () => undefined).readConfiguration({
+      configuration: z.record(z.string(), z.json()).parse(
+        PlatformClientConfigurationSchema.parse({
+          ...request.configuration,
+          workspaceContext: {
+            files: [
+              {
+                approxTokens: null,
+                outputApproxTokens: null,
+                path: 'selected.md',
+                ranges: [],
+                rootId: 'root-gone',
+              },
+            ],
+            includeProjectTree: false,
+            projectTreeApproxTokens: null,
+            projectTreeTokenCountLoading: false,
+            selectedOutputApproxTokens: null,
+            selectedSourceApproxTokens: null,
+          },
+        })
+      ),
+      modelId: request.modelId,
+      runId: request.runId,
+      signal: request.signal,
+      threadId: request.threadId,
+    })
+  ).rejects.toThrow();
 });

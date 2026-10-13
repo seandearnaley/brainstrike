@@ -13,7 +13,6 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event';
 import { act, Fragment } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { assistantEndpointLogger } from '../assistant-endpoint';
 import type {
   ModelPickerModel,
   ModelPickerProvider,
@@ -21,6 +20,7 @@ import type {
 } from '../assistant-ui-panel';
 import { AssistantUiPanel, ProviderSettingsPanel } from '../assistant-ui-panel';
 import { AssistantRequestPreparationTimeoutError } from '../data-stream-runtime';
+import { webAssistantRequestLogger } from '../use-web-assistant-request-session';
 
 const useBrainstrikeDataStreamRuntimeMock = vi.fn((_options?: unknown) => ({
   runtime: 'test-runtime',
@@ -82,7 +82,6 @@ vi.mock('@assistant-ui/styles/index.css', () => ({}));
 vi.mock('../data-stream-runtime', () => ({
   AssistantRequestPreparationTimeoutError: class AssistantRequestPreparationTimeoutError extends Error {},
   AssistantRunAdmissionRejectedError: class AssistantRunAdmissionRejectedError extends Error {},
-  AssistantStreamReplayUnavailableError: class AssistantStreamReplayUnavailableError extends Error {},
   useBrainstrikeDataStreamRuntime: (options: unknown) =>
     useBrainstrikeDataStreamRuntimeMock(options),
 }));
@@ -453,13 +452,11 @@ const baseProps = {
 
 describe('AssistantUiPanel model picker', () => {
   beforeEach(() => {
-    Object.assign(window, { assistant: undefined });
     capturedLocalAdapterOptions = null;
     mockAuiState = createMockAuiState([completedReasoningPart]);
   });
 
   afterEach(() => {
-    Object.assign(window, { assistant: undefined });
     cleanup();
     vi.clearAllMocks();
     vi.useRealTimers();
@@ -489,16 +486,6 @@ describe('AssistantUiPanel model picker', () => {
         api: '/api/assistant',
         requestBodyLimitBytes: HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
       })
-    );
-  });
-
-  it('does not turn a malformed desktop bridge URL into an assistant endpoint', () => {
-    Object.assign(window, { assistant: { url: {} } });
-
-    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
-
-    expect(useBrainstrikeDataStreamRuntimeMock).toHaveBeenCalledWith(
-      expect.objectContaining({ api: '/api/assistant' })
     );
   });
 
@@ -724,86 +711,6 @@ describe('AssistantUiPanel model picker', () => {
     expect(prepareRequestData).toHaveBeenCalledTimes(1);
   });
 
-  it('persists the desktop replay cursor and supplies it after a renderer reload', async () => {
-    window.sessionStorage.clear();
-    Object.assign(window, {
-      assistant: {
-        getAuth: vi.fn(async () => ({
-          token: 'desktop-token',
-          url: 'http://127.0.0.1:9999',
-        })),
-      },
-    });
-    const prepareRequestData = vi.fn(async () => ({
-      memory: {
-        resourceId: 'workspace-1',
-        runId: 'run-1',
-        threadId: 'thread-1',
-      },
-    }));
-
-    const firstRender = render(
-      <AssistantUiPanel
-        {...baseProps}
-        onModelChange={() => {}}
-        prepareRequestData={prepareRequestData}
-        threadKey="thread-1"
-      />
-    );
-    await waitFor(() =>
-      expect(useBrainstrikeDataStreamRuntimeMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          api: 'http://127.0.0.1:9999/assistant',
-          resumeApi: 'http://127.0.0.1:9999/assistant/resume',
-        })
-      )
-    );
-    const firstOptions = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
-      body?: () => Promise<Record<string, unknown> | undefined>;
-      onResponse?: (response: Response) => void;
-    };
-    await firstOptions.body?.();
-    firstOptions.onResponse?.(
-      new Response(null, {
-        headers: {
-          'X-Brainstrike-Assistant-Event-Id': 'session-1:-1',
-          'X-Brainstrike-Assistant-Message-Id': 'assistant-1',
-        },
-      })
-    );
-    expect(
-      JSON.parse(
-        window.sessionStorage.getItem('brainstrike.assistant.active-run:thread-1') ?? 'null'
-      )
-    ).toEqual({
-      assistantMessageId: 'assistant-1',
-      eventId: 'session-1:-1',
-      runId: 'run-1',
-    });
-
-    firstRender.unmount();
-    render(
-      <AssistantUiPanel
-        {...baseProps}
-        onModelChange={() => {}}
-        prepareRequestData={prepareRequestData}
-        threadKey="thread-1"
-      />
-    );
-    await waitFor(() =>
-      expect(useBrainstrikeDataStreamRuntimeMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          activeRunSession: {
-            assistantMessageId: 'assistant-1',
-            eventId: 'session-1:-1',
-            runId: 'run-1',
-          },
-          resumeApi: 'http://127.0.0.1:9999/assistant/resume',
-        })
-      )
-    );
-  });
-
   it('completes hosted prepared requests from data stream terminal callbacks', async () => {
     const prepareRequestData = vi.fn(async () => ({
       memory: {
@@ -855,72 +762,6 @@ describe('AssistantUiPanel model picker', () => {
       undefined,
       false
     );
-  });
-
-  it('protects desktop Stop from abort errors until server cancellation settles', async () => {
-    Object.assign(window, {
-      assistant: {
-        getAuth: vi.fn(async () => ({
-          token: 'desktop-token',
-          url: 'http://127.0.0.1:43123',
-        })),
-      },
-    });
-    const cancellation = Promise.withResolvers<Response>();
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockReturnValue(cancellation.promise);
-    const prepareRequestData = vi.fn(async () => ({
-      memory: {
-        resourceId: 'workspace-1',
-        runId: 'run-cancel-1',
-        threadId: 'thread-1',
-      },
-    }));
-    const completePreparedRequest = vi.fn();
-
-    render(
-      <AssistantUiPanel
-        {...baseProps}
-        completePreparedRequest={completePreparedRequest}
-        onModelChange={() => {}}
-        prepareRequestData={prepareRequestData}
-      />
-    );
-
-    await waitFor(() =>
-      expect(useBrainstrikeDataStreamRuntimeMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({ api: 'http://127.0.0.1:43123/assistant' })
-      )
-    );
-    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
-      body?: () => Promise<Record<string, unknown> | undefined>;
-      onCancel?: (cancelled: { readonly messages: readonly unknown[] }) => void;
-      onError?: (error: Error) => void;
-    };
-    await options.body?.();
-    options.onCancel?.({ messages: [] });
-    options.onError?.(new Error('Assistant request was aborted.'));
-
-    expect(completePreparedRequest).not.toHaveBeenCalled();
-    cancellation.resolve(new Response(null, { status: 200 }));
-    await waitFor(() =>
-      expect(completePreparedRequest).toHaveBeenCalledWith(
-        expect.any(Object),
-        'cancelled',
-        undefined,
-        true
-      )
-    );
-    expect(completePreparedRequest).toHaveBeenCalledTimes(1);
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        new URL('http://127.0.0.1:43123/assistant/cancel'),
-        expect.objectContaining({
-          body: JSON.stringify({ runId: 'run-cancel-1' }),
-          method: 'POST',
-        })
-      )
-    );
-    fetchMock.mockRestore();
   });
 
   it('cancels a prepared run that resolves after Stop aborts preparation', async () => {
@@ -1012,7 +853,7 @@ describe('AssistantUiPanel model picker', () => {
     const prepareRequestData = vi.fn(() => deferred.promise);
     const completionError = new Error('failed to persist terminal run state');
     const completePreparedRequest = vi.fn().mockRejectedValue(completionError);
-    const logger = vi.spyOn(assistantEndpointLogger, 'error').mockImplementation(() => undefined);
+    const logger = vi.spyOn(webAssistantRequestLogger, 'error').mockImplementation(() => undefined);
 
     render(
       <AssistantUiPanel

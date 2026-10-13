@@ -1,6 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 import path from 'node:path';
-import type { Page, TestInfo } from '@playwright/test';
+import type { ElectronApplication, Page, TestInfo } from '@playwright/test';
 import type { ElectronAppContext } from '../utils/electron-helpers.mts';
 import { ElectronProcessExitGuard } from '../utils/electron-process-exit-guard';
 import { loadElectronHelpers } from '../utils/load-electron-helpers';
@@ -12,6 +12,7 @@ interface ElectronHarnessOptions {
 }
 
 export class ElectronHarness {
+  private app: ElectronApplication | null = null;
   private context: ElectronAppContext | null = null;
   private readonly exitGuard = new ElectronProcessExitGuard();
   private hasProvidedWindow = false;
@@ -38,6 +39,9 @@ export class ElectronHarness {
 
   async ensureContext(): Promise<ElectronAppContext> {
     if (!this.context) {
+      if (this.app) {
+        throw new Error('The harness still owns a failed launch; dispose it before relaunching');
+      }
       this.context = await this.launchContext();
       return this.context;
     }
@@ -67,11 +71,8 @@ export class ElectronHarness {
   }
 
   async restart(): Promise<ElectronAppContext> {
-    if (this.context) {
-      const context = this.context;
-      this.context = null;
-      this.hasProvidedWindow = false;
-      await this.closeAndAssert(context);
+    if (this.app) {
+      await this.dispose();
       await new Promise((resolve) => {
         setTimeout(resolve, 250);
       });
@@ -102,9 +103,9 @@ export class ElectronHarness {
    * test, a simulated crash) instead of the harness's graceful close. The exit is marked
    * intentional BEFORE `end` runs, so `ElectronProcessExitGuard` does not fail the test for it.
    * The harness keeps the app until the process is confirmed gone: if `end` throws, or returns
-   * with the process still running, the process is SIGKILLed and awaited before the failure is
+   * with the process still running, the process is SIGTERMed and awaited before the failure is
    * rethrown, because the fixture's teardown finds nothing to close once the context is forgotten.
-   * If that SIGKILL cannot be confirmed either, the context is kept for the teardown to close, and
+   * If that SIGTERM cannot be confirmed either, the context is kept for the teardown to close, and
    * both errors are thrown together. Afterwards the next `ensureContext()`/`restart()` launches a fresh process on the same userData.
    */
   async endOutOfBand(end: (mainProcess: ChildProcess) => Promise<void>): Promise<void> {
@@ -141,26 +142,23 @@ export class ElectronHarness {
   private forget(context: ElectronAppContext): void {
     if (this.context === context) {
       this.context = null;
+      this.app = null;
       this.hasProvidedWindow = false;
     }
   }
 
   /** Closes the app and resolves once its main process has exited; read the exit status afterwards. */
   async dispose(): Promise<void> {
-    if (!this.context) {
+    if (!this.app) {
       return;
     }
-
-    const context = this.context;
-    try {
-      await this.closeAndAssert(context);
-    } finally {
-      this.context = null;
-      this.hasProvidedWindow = false;
-    }
+    await this.closeAndAssert({ app: this.app });
+    this.context = null;
+    this.app = null;
+    this.hasProvidedWindow = false;
   }
 
-  private async closeAndAssert(context: ElectronAppContext): Promise<void> {
+  private async closeAndAssert(context: Pick<ElectronAppContext, 'app'>): Promise<void> {
     let closeError: unknown;
     let closeFailed = false;
     try {
@@ -193,29 +191,42 @@ export class ElectronHarness {
     }
   }
 
-  private async closeContext(context: ElectronAppContext): Promise<void> {
+  private async closeContext(context: Pick<ElectronAppContext, 'app'>): Promise<void> {
     const mainProcess = context.app.process();
     this.exitGuard.beginIntentionalClose(mainProcess);
-    // Listen before the close request, so the exit cannot be missed.
+    // Listen before the close request, so the physical exit cannot be missed.
+    let onExit = (): void => undefined;
     const exited = hasExited(mainProcess)
       ? Promise.resolve()
       : new Promise<void>((resolve) => {
-          mainProcess.once('exit', () => resolve());
+          onExit = resolve;
+          mainProcess.once('exit', onExit);
         });
-    const { closeElectronApp } = await loadElectronHelpers();
-    await closeElectronApp(context);
-    await exited;
+    try {
+      const { closeElectronApp } = await loadElectronHelpers();
+      await closeElectronApp(context);
+      await exited;
+    } finally {
+      mainProcess.off('exit', onExit);
+    }
   }
 
   private async launchContext(): Promise<ElectronAppContext> {
     const { launchElectronApp } = await loadElectronHelpers();
     const context = await launchElectronApp(this.debugPort, this.userDataDir, {
       disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
+      onAppAcquired: (app) => {
+        this.app = app;
+        this.exitGuard.observe(app.process());
+      },
       ...(this.electronEnv ? { env: this.electronEnv } : {}),
       ...(this.modelProvider ? { modelProvider: this.modelProvider } : {}),
       ...(this.workspaceRoot ? { workspaceRoot: this.workspaceRoot } : {}),
     });
-    this.exitGuard.observe(context.app.process());
+    if (this.app !== context.app) {
+      this.app = context.app;
+      this.exitGuard.observe(context.app.process());
+    }
     return context;
   }
 
@@ -326,7 +337,7 @@ function hasExited(process: ChildProcess): boolean {
   return process.exitCode !== null || process.signalCode !== null;
 }
 
-/** SIGKILLs the process if it is still alive and waits for its exit; a process that will not die is an error. */
+/** SIGTERMs the process if it is still alive and waits for its exit; a process that will not die is an error. */
 async function reapProcess(process: ChildProcess): Promise<void> {
   if (hasExited(process)) {
     return;
@@ -340,14 +351,14 @@ async function reapProcess(process: ChildProcess): Promise<void> {
     onError = (error) => reject(error);
     timer = setTimeout(() => {
       reject(
-        new Error(`The Electron main process did not exit within ${REAP_TIMEOUT_MS}ms of SIGKILL.`)
+        new Error(`The Electron main process did not exit within ${REAP_TIMEOUT_MS}ms of SIGTERM.`)
       );
     }, REAP_TIMEOUT_MS);
   });
   process.once('exit', onExit);
   process.once('error', onError);
   try {
-    process.kill('SIGKILL');
+    process.kill('SIGTERM');
     await reaped;
   } finally {
     clearTimeout(timer);

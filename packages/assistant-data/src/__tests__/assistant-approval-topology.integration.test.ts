@@ -1,8 +1,5 @@
 import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
-import {
-  type RediscoveredToolApproval,
-  TOOL_APPROVAL_RUN_CONFIG_KEY,
-} from '@brainstrike/assistant-contract/tool-approval';
+import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
 import { TOOL_SUSPEND_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-suspend';
 import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it } from 'vitest';
@@ -162,17 +159,6 @@ async function readEdges(
   return result.rows.map((row) => [row.message_id, row.parent_id]);
 }
 
-function makeApproval(overrides: Partial<RediscoveredToolApproval>): RediscoveredToolApproval {
-  return {
-    runId: 'run-1',
-    stale: false,
-    suspendedAt: '2026-08-10T17:19:40.000Z',
-    toolCallId: 'call-1',
-    toolName: 'brainstrike.executeCommand',
-    ...overrides,
-  };
-}
-
 describe('approval/suspend branch topology (BST-1243)', () => {
   let pgliteDataDir: string | undefined;
 
@@ -290,93 +276,6 @@ describe('approval/suspend branch topology (BST-1243)', () => {
       ['assistant-b', 'user-2'],
     ]);
     expect(history.headId).toBe('assistant-b');
-  });
-
-  it('keeps a post-restart rediscovered approval linear across the next reload', async () => {
-    const { db, makeAdapter, repository, threadId } = await makeHarness(
-      'rediscovered-approval-topology'
-    );
-
-    // Pre-restart state: user turn persisted with its edge; the assistant
-    // suspended at an approval, so its row exists but its edge was never
-    // appended. The app then restarted.
-    await repository.recordMessageParent?.({
-      messageId: 'user-1',
-      parentId: null,
-      resourceId: 'workspace-a',
-      threadId,
-    });
-    await insertMastraMessage(db, {
-      createdAt: '2026-08-10T17:17:22Z',
-      id: 'user-1',
-      role: 'user',
-      text: 'first prompt',
-      threadId,
-    });
-    await insertMastraMessage(db, {
-      createdAt: '2026-08-10T17:17:29Z',
-      id: 'assistant-a',
-      role: 'assistant',
-      text: 'working on it (suspended at approval)',
-      threadId,
-    });
-
-    const rediscoveryAdapter = createAssistantThreadHistoryAdapter({
-      discoverSuspendedRuns: async () => ({
-        approvals: [makeApproval({})],
-        suspends: [],
-      }),
-      repository,
-      resourceId: 'workspace-a',
-      threadId,
-    });
-    const rediscovered = await rediscoveryAdapter.load();
-    expect(rediscovered.headId).toBe('suspended-approval:run-1:call-1');
-
-    // The user approves from the rediscovered notice: the echo chains onto
-    // the SYNTHETIC pause message id, then the resume leg and next turn.
-    await rediscoveryAdapter.append(
-      approveEchoItem({ id: 'echo-1', parentId: 'suspended-approval:run-1:call-1' })
-    );
-    await insertMastraMessage(db, {
-      createdAt: '2026-08-10T17:20:01Z',
-      id: 'cont-after-restart',
-      role: 'assistant',
-      text: 'continuation after restart approval',
-      threadId,
-    });
-    await rediscoveryAdapter.append(
-      assistantAppendItem({ id: 'resume-leg-1', parentId: 'echo-1', text: 'continuation' })
-    );
-    await rediscoveryAdapter.append(
-      userAppendItem({ id: 'user-2', parentId: 'resume-leg-1', text: 'second prompt' })
-    );
-    await insertMastraMessage(db, {
-      createdAt: '2026-08-10T17:22:26Z',
-      id: 'user-2',
-      role: 'user',
-      text: 'second prompt',
-      threadId,
-    });
-
-    const edges = await readEdges(db, threadId);
-    expect(edges).toEqual(
-      expect.arrayContaining([
-        ['user-1', null],
-        ['assistant-a', 'user-1'],
-        ['user-2', 'assistant-a'],
-      ])
-    );
-    expect(edges).toHaveLength(3);
-
-    const history = await makeAdapter().load();
-    const roots = history.messages.filter((item) => item.parentId === null);
-    expect(roots.map((item) => item.message.id)).toEqual(['user-1']);
-    expect(history.messages.map((item) => [item.message.id, item.parentId])).toEqual([
-      ['user-1', null],
-      ['assistant-a', 'user-1'],
-      ['user-2', 'assistant-a'],
-    ]);
   });
 
   it('treats a suspend() typed-resume echo with the same durable-parent discipline', async () => {
@@ -752,99 +651,6 @@ describe('approval/suspend branch topology (BST-1243)', () => {
         ['assistant-1', 'user-1'],
       ])
     );
-  });
-
-  it('pins multi-pause rediscovery: approving an older notice continues from the durable head', async () => {
-    // PR #2392 review (Codex P1 #2) — SETTLED the other way, deliberately:
-    // a resumed old run's continuation rows land chronologically at the END
-    // of mastra_messages, so the durable topology anchors the follow-up at
-    // the thread head where that content actually hydrates. Re-parenting it
-    // under the old run's mid-thread assistant would fabricate a mid-thread
-    // branch whose content lives at the bottom — a worse corruption.
-    const { db, makeAdapter, repository, threadId } = await makeHarness('multi-pause-rediscovery');
-
-    for (const [id, text, role, createdAt] of [
-      ['user-1', 'first prompt', 'user', '2026-08-10T17:00:00Z'],
-      ['assistant-a', 'older suspended run', 'assistant', '2026-08-10T17:00:05Z'],
-      ['user-2', 'second prompt', 'user', '2026-08-10T17:01:00Z'],
-      ['assistant-b', 'newer suspended run', 'assistant', '2026-08-10T17:01:05Z'],
-    ] as const) {
-      await insertMastraMessage(db, { createdAt, id, role, text, threadId });
-    }
-    await repository.recordMessageParent?.({
-      messageId: 'user-1',
-      parentId: null,
-      resourceId: 'workspace-a',
-      threadId,
-    });
-    await repository.recordMessageParent?.({
-      messageId: 'user-2',
-      parentId: 'assistant-a',
-      resourceId: 'workspace-a',
-      threadId,
-    });
-
-    const adapter = createAssistantThreadHistoryAdapter({
-      discoverSuspendedRuns: async () => ({
-        approvals: [
-          makeApproval({
-            runId: 'run-a',
-            suspendedAt: '2026-08-10T17:00:06.000Z',
-            toolCallId: 'call-a',
-          }),
-          makeApproval({
-            runId: 'run-b',
-            suspendedAt: '2026-08-10T17:01:06.000Z',
-            toolCallId: 'call-b',
-          }),
-        ],
-        suspends: [],
-      }),
-      repository,
-      resourceId: 'workspace-a',
-      threadId,
-    });
-    await adapter.load();
-
-    // Approving the OLDER notice: the echo still appends at the thread tail
-    // (the newest synthetic), and resolves through the alias chain to the
-    // durable head assistant-b.
-    await adapter.append(
-      approveEchoItem({
-        id: 'echo-old',
-        // A rediscovered pause names no host leg: its leg ended at the restart.
-        nativeRunId: 'run-a',
-        parentId: 'suspended-approval:run-b:call-b',
-        toolCallId: 'call-a',
-      })
-    );
-    await adapter.append(
-      assistantAppendItem({ id: 'resume-leg-old', parentId: 'echo-old', text: 'continuation' })
-    );
-    await adapter.append(
-      userAppendItem({ id: 'user-3', parentId: 'resume-leg-old', text: 'third prompt' })
-    );
-    await insertMastraMessage(db, {
-      createdAt: '2026-08-10T17:02:00Z',
-      id: 'user-3',
-      role: 'user',
-      text: 'third prompt',
-      threadId,
-    });
-
-    const edges = await readEdges(db, threadId);
-    expect(edges).toEqual(
-      expect.arrayContaining([
-        ['user-1', null],
-        ['user-2', 'assistant-a'],
-        ['assistant-b', 'user-2'],
-        ['user-3', 'assistant-b'],
-      ])
-    );
-    expect(edges).toHaveLength(4);
-
-    const history = await makeAdapter().load();
-    expect(history.messages.filter((item) => item.parentId === null)).toHaveLength(1);
   });
 
   it('lets a child-continuation decision ride the edge its follow-up leg persisted', async () => {
