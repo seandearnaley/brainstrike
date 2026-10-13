@@ -6,6 +6,7 @@ import type { IndexSearchCapability } from '@brainstrike/indexing-contract/index
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
+import { FOREGROUND_PROBE_KEY, seedHostAdmissionRun } from './utils/foreground-host-fixture';
 import {
   type BenchDevice,
   describeEnvironment,
@@ -15,11 +16,11 @@ import {
   rendererMetrics,
   round3,
   seedPausedWorkspace,
-  seedRunningChatRun,
   showAppWindow,
 } from './utils/foreground-latency-bench';
 import {
   calibrateRendererFrameProbe,
+  closeMainHostProbe,
   installMainProbes,
   installRendererFrameProbe,
   markRendererPhase,
@@ -41,7 +42,7 @@ import { createIndexProgressWatch } from './utils/index-progress-watch';
  *
  * - renderer: rAF frame gaps and `longtask` entries in the visible window;
  * - main: event-loop lag (`monitorEventLoopDelay`);
- * - the chat path's per-step DB write (`recordDesktopAssistantRunEvent`);
+ * - public Main-to-host run/start admission/commit acknowledgement (terminal settlement excluded);
  * - an agent tool's read (the tool file reader plus a grep-tool index query);
  * - build throughput in chunks/s.
  *
@@ -55,6 +56,8 @@ import { createIndexProgressWatch } from './utils/index-progress-watch';
  * It REPORTS; it does not gate on the numbers. It fails only when the run
  * cannot produce valid numbers. See docs/performance/foreground-latency-under-index-build.md.
  */
+
+test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: FOREGROUND_PROBE_KEY } });
 
 const DEVICE_ENV = 'BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_DEVICE';
 const FILES_ENV = 'BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_FILES';
@@ -75,12 +78,6 @@ const BENCH_ROOT_ID = 'foreground-latency-benchmark-root';
 /** Root-relative and never written, so the grep's index work is identical idle and loaded. */
 const NEVER_INDEXED_GREP_PATH = 'packages/foreground-latency-probe/never-indexed.ts';
 const GREP_PATTERN = 'total +=';
-/**
- * The native index holds no PGlite Workspace Index set, so the tool read's
- * index half greps a set id with no rows: the same foreground PGlite read idle
- * and loaded.
- */
-const PROBE_EMBEDDING_SET_ID = 'foreground-latency-benchmark-no-set';
 /** How often the loaded window pauses to read the index counts (unmeasured). */
 const CHECK_EVERY_MS = 2000;
 /** Search & Indexing's execution choice for each benchmark device. */
@@ -222,7 +219,7 @@ test.describe('Foreground latency under a full index build', () => {
   test(
     'measures foreground latency while a full Workspace Index build runs',
     { tag: '@perf' },
-    async ({ electronApp, window: page }, testInfo) => {
+    async ({ electron, electronApp, modelProvider, window: page }, testInfo) => {
       test.setTimeout(55 * 60 * 1000);
       const device = readBenchDevice(DEVICE_ENV);
       const files = readFiles();
@@ -242,19 +239,38 @@ test.describe('Foreground latency under a full index build', () => {
           corpus.rootPath,
           BENCH_ROOT_ID,
           device,
-          'foreground-latency-benchmark-seeded'
+          'foreground-latency-benchmark-seeded',
+          electronApp.app
         );
         await configureNativeIndex(page, device);
-        const chatRunId = await seedRunningChatRun(page);
+        const hostRun = await seedHostAdmissionRun(page, electron.getUserDataDir(), modelProvider);
+        const nativeScope = await page.evaluate(async () => {
+          const capability = (
+            globalThis as typeof globalThis & { readonly indexSearch?: IndexSearchCapability }
+          ).indexSearch;
+          if (!capability) {
+            throw new Error('Native benchmark capability unavailable');
+          }
+          return await capability.status();
+        });
+        if (nativeScope.kind !== 'ready' || nativeScope.authorizedCollectionIds?.length !== 1) {
+          throw new Error('Native benchmark scope is not ready with one authorized collection');
+        }
+        const embeddingSetId = nativeScope.authorizedCollectionIds[0];
+        if (!embeddingSetId) {
+          throw new Error('Native benchmark collection is absent');
+        }
 
         await installRendererFrameProbe(page);
         await installMainProbes(electronApp.app, {
-          chatRunId,
-          embeddingSetId: PROBE_EMBEDDING_SET_ID,
+          embeddingSetId,
           grepFilePath: NEVER_INDEXED_GREP_PATH,
           grepPattern: GREP_PATTERN,
+          hostRun,
+          operation: 'host-native',
           periodMs: PROBE_PERIOD_MS,
           readTargetPath: corpus.readTargetPath,
+          rootIds: nativeScope.authorizedRootIds,
           rootPath: corpus.rootPath,
         });
 
@@ -334,7 +350,7 @@ test.describe('Foreground latency under a full index build', () => {
           );
         }
         for (const [name, values] of [
-          ['chat-path op', loadedMain.chatPathOpMs],
+          ['host run admission', loadedMain.chatPathOpMs],
           ['tool read', loadedMain.toolReadMs],
         ] as const) {
           if (values.length < MIN_LOADED_SAMPLES) {
@@ -384,11 +400,10 @@ test.describe('Foreground latency under a full index build', () => {
           environment: { ...environment, loadAverageAtEnd: os.loadavg().map(round3) },
           invalidReasons,
           metrics: {
-            chatPathOp: {
+            hostRunAdmission: {
               idleMs: idle.chatPathOpMs,
               loadedMs: loaded.chatPathOpMs,
-              operation:
-                'recordDesktopAssistantRunEvent(run.step.finished), foreground scheduler lane',
+              operation: 'main-host-run-start-admission-ack',
               p95DeltaMs: round3(loaded.chatPathOpMs.p95 - idle.chatPathOpMs.p95),
             },
             mainEventLoopLag: { idleMs: idle.eventLoopLagMs, loadedMs: loaded.eventLoopLagMs },
@@ -400,16 +415,17 @@ test.describe('Foreground latency under a full index build', () => {
               },
               idleMs: idle.toolReadMs,
               loadedMs: loaded.toolReadMs,
+              operation: 'shared-file-read-and-authorized-native-grep',
               p95LoadedOverIdle: round3(loaded.toolReadMs.p95 / idle.toolReadMs.p95),
             },
           },
           rawSamplesMs: {
             idle: {
-              chatPathOp: idleMain.chatPathOpMs.map(round3),
+              hostRunAdmission: idleMain.chatPathOpMs.map(round3),
               toolRead: idleMain.toolReadMs.map(round3),
             },
             loaded: {
-              chatPathOp: loadedMain.chatPathOpMs.map(round3),
+              hostRunAdmission: loadedMain.chatPathOpMs.map(round3),
               toolRead: loadedMain.toolReadMs.map(round3),
             },
           },
@@ -426,8 +442,8 @@ test.describe('Foreground latency under a full index build', () => {
             `renderer idle: frame gap p95=${idleRendererMetrics.frameGapMs.p95} max=${idleRendererMetrics.frameGapMs.max}, long tasks=${idleRendererMetrics.longTasks.count}`,
             `renderer loaded: frame gap p95=${loadedRendererMetrics.frameGapMs.p95} max=${loadedRendererMetrics.frameGapMs.max}, long tasks=${loadedRendererMetrics.longTasks.count} (${loadedRendererMetrics.longTasks.totalMs} ms)`,
             `main event-loop lag idle p95=${idle.eventLoopLagMs.p95} max=${idle.eventLoopLagMs.max}; loaded p95=${loaded.eventLoopLagMs.p95} max=${loaded.eventLoopLagMs.max}`,
-            formatSummary('chat-path op idle', idle.chatPathOpMs),
-            formatSummary('chat-path op loaded', loaded.chatPathOpMs),
+            formatSummary('host run admission idle', idle.chatPathOpMs),
+            formatSummary('host run admission loaded', loaded.chatPathOpMs),
             formatSummary('tool read idle', idle.toolReadMs),
             formatSummary('tool read loaded', loaded.toolReadMs),
             `tool read p95 loaded/idle = ${evidence.metrics.toolRead.p95LoadedOverIdle}`,
@@ -440,6 +456,7 @@ test.describe('Foreground latency under a full index build', () => {
           );
         }
       } finally {
+        await closeMainHostProbe(electronApp.app);
         rmSync(corpus.rootPath, { force: true, recursive: true });
       }
     }

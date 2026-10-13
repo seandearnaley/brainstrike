@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const DESKTOP_APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(DESKTOP_APP_ROOT, '../..');
 const INTEGRATED_BENCHMARK_LANE = 'test:e2e:lane:foreground-latency';
-const INTEGRATED_BENCHMARK_SCHEMA = 'brainstrike.foreground-latency-under-index-build.v1';
+const INTEGRATED_BENCHMARK_SCHEMA = 'brainstrike.foreground-latency-under-index-build.v2';
 const STAGE_BENCHMARK_MODES = new Set([
   'chunking-ceiling',
   'db-completion-ceiling',
@@ -262,6 +262,14 @@ export function summarizeIntegratedBenchmarkEvidence(evidence, options = {}) {
       `Evidence schema ${JSON.stringify(evidence?.schema)} is not foreground-latency benchmark evidence (${INTEGRATED_BENCHMARK_SCHEMA}).`
     );
   }
+  if (
+    evidence.metrics?.hostRunAdmission?.operation !== 'main-host-run-start-admission-ack' ||
+    evidence.metrics?.toolRead?.operation !== 'shared-file-read-and-authorized-native-grep'
+  ) {
+    throw new Error(
+      'Evidence does not measure current host admission and authorized native grep; legacy DB timings are not comparable.'
+    );
+  }
   if (evidence.status !== 'valid') {
     const reasons = Array.isArray(evidence.invalidReasons) ? evidence.invalidReasons : [];
     throw new Error(
@@ -497,7 +505,8 @@ async function runCli(argv = process.argv.slice(2)) {
       const evidence = JSON.parse(await readFile(options.evidencePath, 'utf8'));
       result = {
         evidencePath: options.evidencePath,
-        ...(evidence?.schema === INTEGRATED_BENCHMARK_SCHEMA
+        ...(typeof evidence?.schema === 'string' &&
+        evidence.schema.startsWith('brainstrike.foreground-latency-under-index-build.')
           ? summarizeIntegratedBenchmarkEvidence(evidence, options)
           : analyzeWorkspaceIndexEvidence(evidence, options)),
       };
