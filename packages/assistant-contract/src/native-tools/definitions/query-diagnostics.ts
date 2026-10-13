@@ -15,7 +15,7 @@ export const queryDiagnostics = defineNativeTool({
     riskCategory: 'read',
   },
   description:
-    'Query Brainstrike durable diagnostic events without re-running the app. Use mode=events for newest matching rows or mode=fingerprints to group recurring failures. Filters are exact severity/fingerprint/run/thread plus an inclusive ISO time window; results are hard-capped and output-budget truncation is explicit. Read-only',
+    'Query Brainstrike retained desktop diagnostic logs without re-running the app. Older rotated-out events are unavailable. Use mode=events for newest matching rows or mode=fingerprints to group recurring failures. Filters are exact severity/fingerprint/run/thread plus an inclusive ISO time window; results are hard-capped and output-budget truncation is explicit. Read-only',
   discovery: { family: 'diagnostics', namespace: 'database' },
   history: { recencyPrunable: true },
   id: 'brainstrike.queryDiagnostics',

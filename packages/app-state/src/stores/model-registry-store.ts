@@ -1,6 +1,11 @@
-import type { ProviderModelDefaultPolicy } from '@brainstrike/assistant-contract';
+import type {
+  CatalogModel,
+  CatalogProvider,
+  ModelCatalogCapability,
+  ModelCatalogSnapshot,
+  ProviderModelDefaultPolicy,
+} from '@brainstrike/assistant-contract';
 import { hasDownloadedBuiltInLocalLlmModel } from '@brainstrike/assistant-contract/local-llm-artifacts';
-import type { IDatabase } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import { createBrowserJsonStorage } from '@brainstrike/storage';
@@ -16,49 +21,32 @@ import { clearPersistedStorageForTests } from './persist-api';
 const logger = createLogger('ModelRegistryStore');
 let registryLoadPromise: Promise<void> | null = null;
 
-export interface DbProvider {
-  icon: string | null;
-  id: string;
-  isEnabled: boolean;
-  name: string;
-  sortOrder: number;
+export type DbProvider = CatalogProvider;
+export type DbModel = CatalogModel;
+export type ModelRegistrySource = DbHandle | ModelCatalogCapability;
+
+function isCatalogCapability(source: ModelRegistrySource): source is ModelCatalogCapability {
+  return 'read' in source;
 }
 
-export interface DbModel {
-  bestFor: string[] | null;
-  capabilities: {
-    type: 'llm' | 'embedding';
-    streaming?: boolean;
-    defaultDimension?: number;
-    /** A local embedding model's pooling (BST-1993); absent means 'mean'. */
-    pooling?: 'mean' | 'cls';
-    /** A local embedding model's card prompts (BST-1993); absent means none. */
-    prompts?: { document: string; query: string };
-    /** Image-input support (LLM rows only; backfilled by migration 061). */
-    vision?: boolean;
-  };
-  description: string | null;
-  icon: string | null;
-  id: string;
-  isEnabled: boolean;
-  name: string;
-  parameters: Record<string, unknown> | null;
-  providerId: string;
-  sortOrder: number;
-  tagline: string | null;
+function registrySnapshot(snapshot: ModelCatalogSnapshot): {
+  models: DbModel[];
+  providers: DbProvider[];
+} {
+  return { models: [...snapshot.models], providers: [...snapshot.providers] };
 }
 
 interface ModelRegistryState {
   downloadedModels: Record<string, boolean>;
   downloadProgress: Record<string, number>; // modelId -> progress %
-  ensureRegistry: (db: IDatabase) => Promise<void>;
+  ensureRegistry: (db: ModelRegistrySource) => Promise<void>;
   error: string | null;
 
   // Actions
-  fetchRegistry: (db: IDatabase) => Promise<void>;
+  fetchRegistry: (db: ModelRegistrySource) => Promise<void>;
   hasLoaded: boolean;
   initializeProviderModelDefaults: (
-    db: DbHandle,
+    db: ModelRegistrySource,
     providerId: string,
     policy: ProviderModelDefaultPolicy
   ) => Promise<'initialized' | 'preserved'>;
@@ -84,12 +72,12 @@ interface ModelRegistryState {
    * missing from the database (in which case nothing is written).
    */
   setModelsEnabled: (
-    db: DbHandle,
+    db: ModelRegistrySource,
     modelIds: readonly string[],
     enabled: boolean
   ) => Promise<ReadonlyMap<string, boolean>>;
-  toggleModel: (db: DbHandle, modelId: string, enabled: boolean) => Promise<void>;
-  toggleProvider: (db: DbHandle, providerId: string, enabled: boolean) => Promise<void>;
+  toggleModel: (db: ModelRegistrySource, modelId: string, enabled: boolean) => Promise<void>;
+  toggleProvider: (db: ModelRegistrySource, providerId: string, enabled: boolean) => Promise<void>;
 }
 
 // Raw DB types
@@ -199,6 +187,32 @@ function selectUntouchedLlmModelIds(rows: readonly RawProviderModelChoice[]): st
     }
   }
   return modelIds;
+}
+
+function validateSeedModelIds(
+  rows: readonly RawProviderModelChoice[],
+  providerId: string,
+  modelIds: readonly string[]
+): string[] {
+  // Dedupe + empty-throw first: this does not depend on the query, and
+  // an empty seed set against a curated provider must throw rather than
+  // silently return 'preserved' through the gate below.
+  const uniqueModelIds = Array.from(new Set(modelIds));
+  if (uniqueModelIds.length === 0) {
+    throw new Error(`No recommended model defaults were provided for ${providerId}.`);
+  }
+  // Validate seed/catalog drift BEFORE the curated-provider gate: a
+  // seed id absent from the DB must throw even when the provider is
+  // already curated, rather than being hidden behind an early
+  // 'preserved' return.
+  const choicesById = new Map(rows.map((row) => [row.id, row]));
+  const missingModelIds = uniqueModelIds.filter((modelId) => !choicesById.has(modelId));
+  if (missingModelIds.length > 0) {
+    throw new Error(
+      `Recommended ${providerId} models are missing from the catalog: ${missingModelIds.join(', ')}`
+    );
+  }
+  return uniqueModelIds;
 }
 
 interface FileSystemAccess {
@@ -329,7 +343,7 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
     (set, get) => ({
       ...initialState,
 
-      ensureRegistry: (db: IDatabase) => {
+      ensureRegistry: (db: ModelRegistrySource) => {
         const { error, hasLoaded, isLoading } = get();
         if (hasLoaded || isLoading) {
           return registryLoadPromise ?? Promise.resolve();
@@ -354,7 +368,7 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
         return registryLoadPromise;
       },
 
-      fetchRegistry: async (db: IDatabase) => {
+      fetchRegistry: async (db: ModelRegistrySource) => {
         set({ error: null, isLoading: true });
         try {
           const fetchErrorMessage = getModelRegistryFetchErrorTestOverride();
@@ -378,6 +392,17 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
               models: snapshotOverride.models ?? [],
               providers: snapshotOverride.providers ?? [],
             });
+            return;
+          }
+
+          if (isCatalogCapability(db)) {
+            const snapshot = registrySnapshot(await db.read());
+            const downloadedModels = await checkDownloadedModels(
+              snapshot.models,
+              get().modelCacheDir,
+              get().downloadedModels
+            );
+            set({ ...snapshot, downloadedModels, hasLoaded: true, isLoading: false });
             return;
           }
 
@@ -413,6 +438,12 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
       },
 
       initializeProviderModelDefaults: async (db, providerId, policy) => {
+        if (isCatalogCapability(db)) {
+          const result = await db.initializeProviderDefaults(providerId, policy);
+          set(registrySnapshot(result.snapshot));
+          return result.outcome;
+        }
+
         const choiceResult = await db.query<RawProviderModelChoice>(
           `SELECT id, is_enabled, capabilities, created_at, updated_at
            FROM models WHERE provider_id = $1`,
@@ -428,24 +459,7 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
         } else {
           // Starter kit: unchanged behaviour. One enabled or edited row in the
           // provider means the user has curated it; do not impose a set.
-          // Dedupe + empty-throw first: this does not depend on the query, and
-          // an empty seed set against a curated provider must throw rather than
-          // silently return 'preserved' through the gate below.
-          uniqueModelIds = Array.from(new Set(policy.modelIds));
-          if (uniqueModelIds.length === 0) {
-            throw new Error(`No recommended model defaults were provided for ${providerId}.`);
-          }
-          // Validate seed/catalog drift BEFORE the curated-provider gate: a
-          // seed id absent from the DB must throw even when the provider is
-          // already curated, rather than being hidden behind an early
-          // 'preserved' return.
-          const choicesById = new Map(choiceResult.rows.map((row) => [row.id, row]));
-          const missingModelIds = uniqueModelIds.filter((modelId) => !choicesById.has(modelId));
-          if (missingModelIds.length > 0) {
-            throw new Error(
-              `Recommended ${providerId} models are missing from the catalog: ${missingModelIds.join(', ')}`
-            );
-          }
+          uniqueModelIds = validateSeedModelIds(choiceResult.rows, providerId, policy.modelIds);
           if (hasExplicitProviderModelChoice(choiceResult.rows)) {
             return 'preserved';
           }
@@ -539,7 +553,11 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
         set({ modelCacheDir: dir });
       },
 
-      setModelsEnabled: async (db: DbHandle, modelIds: readonly string[], enabled: boolean) => {
+      setModelsEnabled: async (
+        db: ModelRegistrySource,
+        modelIds: readonly string[],
+        enabled: boolean
+      ) => {
         const uniqueIds = Array.from(new Set(modelIds));
         if (uniqueIds.length === 0) {
           throw new Error('Choose at least one model to update.');
@@ -557,6 +575,17 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
         }
         if (unknownIds.length > 0) {
           throw new Error(`These models are not in the loaded registry: ${unknownIds.join(', ')}`);
+        }
+
+        if (isCatalogCapability(db)) {
+          const result = await db.setModels(uniqueIds, enabled);
+          set(registrySnapshot(result.snapshot));
+          return new Map(
+            result.previous.map(({ modelId, enabled: previousEnabled }) => [
+              modelId,
+              previousEnabled,
+            ])
+          );
         }
 
         const applyStates = (resolve: (id: string) => boolean): void => {
@@ -597,7 +626,12 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
         }
       },
 
-      toggleModel: async (db: IDatabase, modelId: string, enabled: boolean) => {
+      toggleModel: async (db: ModelRegistrySource, modelId: string, enabled: boolean) => {
+        if (isCatalogCapability(db)) {
+          await get().setModelsEnabled(db, [modelId], enabled);
+          return;
+        }
+
         const previousModel = get().models.find((m) => m.id === modelId);
         const previousIsEnabled = previousModel?.isEnabled;
         try {
@@ -629,7 +663,12 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
         }
       },
 
-      toggleProvider: async (db: IDatabase, providerId: string, enabled: boolean) => {
+      toggleProvider: async (db: ModelRegistrySource, providerId: string, enabled: boolean) => {
+        if (isCatalogCapability(db)) {
+          set(registrySnapshot(await db.setProvider(providerId, enabled)));
+          return;
+        }
+
         try {
           // Optimistic update
           set((state) => ({

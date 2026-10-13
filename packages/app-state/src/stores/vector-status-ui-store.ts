@@ -42,8 +42,11 @@ export interface CachedCollection {
   modelId: string;
   modelKey: string;
   name: string | null;
+  statsAvailable?: boolean;
+  statsLastRefreshedAt?: string | null;
   systemRole?: 'workspace-index' | null;
   tags: string | null;
+  vectorStatsUnavailableReason?: string;
 }
 
 /**

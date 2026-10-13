@@ -24,13 +24,17 @@ test('ordinary app Main validates a committed host root through its actual catal
         const bridge = (
           window as Window & { agentHost?: { connect(requestId: string): Promise<void> } }
         ).agentHost;
-        const database = window.electronAPI?.db;
-        if (!(bridge && database)) {
+        const files = window.electronAPI?.fileSystem;
+        if (!(bridge && files)) {
           throw new Error('Ordinary app owner capabilities are unavailable');
         }
-        const rows = await database.query('SELECT id,path,status FROM roots WHERE id=$1', [
-          expectedRootId,
-        ]);
+        const rows = (await files.restoreRoots())
+          .filter((root) => root.rootId === expectedRootId)
+          .map((root) => ({
+            id: root.rootId,
+            path: root.handle.path,
+            permissionState: root.permissionState,
+          }));
         const requestId = crypto.randomUUID();
         const transferred = Promise.withResolvers<{
           port: MessagePort;
@@ -141,7 +145,7 @@ test('ordinary app Main validates a committed host root through its actual catal
             binding,
             current,
             rejected,
-            rootRows: rows.rows,
+            rootRows: rows,
             updates: committed.rows.filter(
               ({ event }) => event.type === 'workspace.binding.updated'
             ).length,
@@ -156,7 +160,7 @@ test('ordinary app Main validates a committed host root through its actual catal
       },
       { expectedPath: root, expectedRootId: rootId }
     );
-    expect(result.rootRows).toEqual([{ id: rootId, path: root, status: 'live' }]);
+    expect(result.rootRows).toEqual([{ id: rootId, path: root, permissionState: 'granted' }]);
     expect(result.accepted).toEqual({ accepted: true });
     expect(result.rejected).toBe(true);
     expect(result.current).toEqual({ binding: result.binding });

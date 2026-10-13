@@ -15,7 +15,6 @@ const owner = vi.hoisted(() => ({
   }),
   // The skills scan's home tier, kept inside the test's own directory.
   home: '',
-  query: vi.fn(),
 }));
 vi.mock('node:os', async (importOriginal) => ({
   ...(await importOriginal<typeof import('node:os')>()),
@@ -24,7 +23,11 @@ vi.mock('node:os', async (importOriginal) => ({
 vi.mock('@brainstrike/file-explorer-ui/preview', () => ({
   useWorkspaceContextCurationStore: { getState: () => ({ contextSnapshot: null }) },
 }));
-vi.mock('../db-main', () => ({ getDatabase: async () => ({ query: owner.query }) }));
+vi.mock('../db-main', () => ({
+  getDatabase: async () => {
+    throw new Error('PGlite must not be opened by host admission');
+  },
+}));
 vi.mock('../provider-api-key', () => ({ readProviderCredential: owner.credential }));
 vi.mock('../ipc-mcp', () => ({
   readDesktopMcpHostSnapshot: async (runtime: { host: { snapshot(): unknown } }) =>
@@ -32,31 +35,29 @@ vi.mock('../ipc-mcp', () => ({
 }));
 
 import { PlatformClientConfigurationSchema } from '../agent-host-platform/platform-wire';
-import { desktopAdmission } from './fixtures/desktop-admission';
+import { admissionCatalogFixture, admissionModelSnapshot } from './fixtures/admission-catalog';
+import { desktopAdmission as createDesktopAdmission } from './fixtures/desktop-admission';
 import lmStudioModels from './fixtures/lmstudio-v1-models.json';
 import ollamaTags from './fixtures/ollama-0.32.14-api-tags.json';
 
 const WORKTREE_TOOL_IDS = [NATIVE_TOOL_ID.listWorktrees, NATIVE_TOOL_ID.manageWorktree];
 let directory = '';
+const catalog = admissionCatalogFixture(() => [
+  { displayName: 'A', id: 'root-a', path: join(directory, 'a') },
+]);
+function desktopAdmission(
+  dependencies: Partial<Parameters<typeof createDesktopAdmission>[0]>,
+  ...rest: Parameters<typeof createDesktopAdmission> extends [unknown, ...infer Rest] ? Rest : never
+) {
+  return createDesktopAdmission({ ...catalog.services, ...dependencies }, ...rest);
+}
 
 beforeEach(async () => {
+  catalog.modelRead.mockImplementation(async () => admissionModelSnapshot());
   directory = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'bs-m3-worktree-tools-')));
   await fs.mkdir(join(directory, 'a'));
   owner.home = join(directory, 'home');
   await fs.mkdir(owner.home);
-  owner.query.mockImplementation(async (sql: string, params: readonly unknown[]) => {
-    // No auto-observer candidate is enabled in these admissions' catalog.
-    if (sql.includes('JOIN providers')) {
-      return { rows: [] };
-    }
-    if (sql.includes('FROM models')) {
-      return { rows: [{ isEnabled: true, providerId: params[1] }] };
-    }
-    if (sql.includes('FROM roots')) {
-      return { rows: [{ displayName: 'A', id: 'root-a', path: join(directory, 'a') }] };
-    }
-    throw new Error('Unexpected owner query in worktree tool control');
-  });
 });
 afterEach(async () => {
   vi.clearAllMocks();
@@ -274,15 +275,10 @@ const LM_STUDIO_CHAT_MODELS = lmStudioModels.data
 
 test('a model the local Ollama or LM Studio runtime lists is admitted without a catalog row', async () => {
   // Runtime-discovered models live in neither the models table nor the static catalog.
-  owner.query.mockImplementation(async (sql: string) => {
-    if (sql.includes('FROM models')) {
-      throw new Error('A local runtime model has no models row to read');
-    }
-    if (sql.includes('FROM roots')) {
-      return { rows: [{ displayName: 'A', id: 'root-a', path: join(directory, 'a') }] };
-    }
-    throw new Error('Unexpected owner query in local runtime admission');
-  });
+
+  catalog.modelRead.mockRejectedValue(
+    new Error('A local runtime model has no catalog row to read')
+  );
   expect(OLLAMA_CHAT_MODELS).toEqual(
     expect.arrayContaining(['gemma4:31b', 'glm-4.7-flash:latest', 'qwen3:30b'])
   );
@@ -308,17 +304,24 @@ test('a model the local Ollama or LM Studio runtime lists is admitted without a 
 test('the auto observer is the first auto candidate the model catalog has enabled', async () => {
   const eligible =
     vi.fn<(pairs: readonly unknown[]) => { providerId: string; modelId: string }[]>();
-  owner.query.mockImplementation(async (sql: string, params: readonly unknown[]) => {
-    if (sql.includes('JOIN providers')) {
-      return { rows: eligible(params) };
-    }
-    if (sql.includes('FROM models')) {
-      return { rows: [{ isEnabled: true, providerId: params[1] }] };
-    }
-    if (sql.includes('FROM roots')) {
-      return { rows: [{ displayName: 'A', id: 'root-a', path: join(directory, 'a') }] };
-    }
-    throw new Error('Unexpected owner query in observer admission');
+
+  catalog.modelRead.mockImplementation(async () => {
+    const snapshot = admissionModelSnapshot();
+    const enabled = new Set(eligible([]).map((pair) => `${pair.providerId}/${pair.modelId}`));
+    return {
+      ...snapshot,
+      models: snapshot.models.map((model) => ({
+        ...model,
+        isEnabled:
+          model.id === 'anthropic/claude-sonnet-4.6' ||
+          enabled.has(`${model.providerId}/${model.id}`) ||
+          model.providerId !== 'openrouter',
+      })),
+      providers: snapshot.providers.map((provider) => ({
+        ...provider,
+        isEnabled: provider.id === 'openrouter',
+      })),
+    };
   });
   const memory = async (target: { model: string; provider: string }) => {
     const captured = await desktopAdmission({}).readConfiguration(

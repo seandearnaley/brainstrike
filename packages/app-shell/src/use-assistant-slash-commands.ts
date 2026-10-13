@@ -1,6 +1,5 @@
 import type { SlashCommand } from '@brainstrike/assistant-ui';
 import type { CommandContext, RunCommand } from '@brainstrike/context-actions/commands';
-import { usePGliteDatabase } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
 import { useCallback, useMemo, useRef } from 'react';
@@ -49,9 +48,8 @@ const logger = createLogger('AssistantSlashCommands');
  * `execute` can read the live composer draft and write the expansion back.
  */
 export function useAssistantSlashCommands(threadId: string | undefined): readonly SlashCommand[] {
-  const db = usePGliteDatabase();
   const { toast } = useToast();
-  const handlers = useGlobalCommandHandlers(db);
+  const handlers = useGlobalCommandHandlers();
 
   // Stable for the window's lifetime (capability detection reads preload bridges
   // that exist before React mounts) — build once, single source of truth.

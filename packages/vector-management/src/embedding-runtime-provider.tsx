@@ -34,9 +34,15 @@ function toEmbeddingCoverageRepository(
   return null;
 }
 
-export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) {
-  const db = usePGliteDatabase();
-  const chunkRepository = useFileChunkRepository();
+export function EmbeddingRuntimeProvider({
+  children,
+  databaseEnabled = true,
+}: {
+  children: ReactNode;
+  databaseEnabled?: boolean;
+}) {
+  const db = usePGliteDatabase({ enabled: databaseEnabled });
+  const chunkRepository = useFileChunkRepository({ enabled: databaseEnabled });
   const devicePreference = useVectorPreferencesStore((state) => state.devicePref);
   const reinitEveryN = useVectorPreferencesStore((state) => state.reinitEveryN);
 

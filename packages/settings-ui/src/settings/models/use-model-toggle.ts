@@ -1,5 +1,5 @@
+import { useModelRegistrySource } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
-import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useToast } from '@brainstrike/ui';
 import { useCallback, useState } from 'react';
 
@@ -53,7 +53,7 @@ function errorDescription(error: unknown): string {
  *   rejection, leaving the UI showing a state the database never accepted.
  */
 export function useModelToggle(): ModelToggleController {
-  const db = usePGliteDatabase();
+  const db = useModelRegistrySource();
   const toggleModel = useModelRegistryStore((state) => state.toggleModel);
   const setModelsEnabled = useModelRegistryStore((state) => state.setModelsEnabled);
   const { toast } = useToast();

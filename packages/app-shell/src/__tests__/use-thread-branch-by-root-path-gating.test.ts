@@ -48,14 +48,10 @@ const INVENTORY: GitInventory = {
  */
 function stubBridge(inventory: () => Promise<{ ok: true; value: GitInventory }>): void {
   (window as unknown as { changes?: Partial<ChangesBridge> }).changes = {
-    applyRewind: vi.fn(),
     fileDiff: vi.fn(),
-    finalizeRewinds: vi.fn(),
     inventory,
     onInvalidated: vi.fn(() => () => {}),
-    redoRewind: vi.fn(),
     resolveView: vi.fn(),
-    rewindPreview: vi.fn(),
   };
 }
 

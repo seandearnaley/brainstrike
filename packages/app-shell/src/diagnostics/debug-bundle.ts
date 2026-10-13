@@ -33,6 +33,10 @@ const PROTECTED_WINDOW_RADIUS = 2;
 /** Structurally identical to `DiagnosticEventsDatabase` — re-exported under
  * the collector's own name per the brief's consumed-interface contract. */
 export type DebugBundleDatabase = DiagnosticEventsDatabase;
+export type DebugBundleDiagnosticsReader = Pick<
+  DiagnosticEventsRepository,
+  'queryEvents' | 'countByFingerprint'
+>;
 
 export interface ThreadDebugBundleData {
   readonly diagnosticEvents: readonly DiagnosticEvent[]; // run/thread-correlated ±5min
@@ -334,10 +338,13 @@ export async function collectThreadDebugBundleData(
     };
   });
 
-  const { diagnosticEvents, priorFailures } = await collectCorrelatedDiagnostics(db, {
-    run,
-    threadId,
-  });
+  const { diagnosticEvents, priorFailures } = await collectCorrelatedDiagnostics(
+    new DiagnosticEventsRepository(db),
+    {
+      run,
+      threadId,
+    }
+  );
 
   return {
     diagnosticEvents,
@@ -359,7 +366,7 @@ export async function collectThreadDebugBundleData(
  * bundle source, whichever owner recorded the run.
  */
 export async function collectCorrelatedDiagnostics(
-  db: DebugBundleDatabase,
+  repository: DebugBundleDiagnosticsReader,
   input: {
     readonly run: Pick<
       NonNullable<ThreadDebugBundleData['run']>,
@@ -369,7 +376,6 @@ export async function collectCorrelatedDiagnostics(
   }
 ): Promise<Pick<ThreadDebugBundleData, 'diagnosticEvents' | 'priorFailures'>> {
   const { run, threadId } = input;
-  const repository = new DiagnosticEventsRepository(db);
   const runIdCorrelated = run ? await repository.queryEvents({ runId: run.id }) : [];
   const threadCorrelated = await repository.queryEvents({ threadId });
   const startedAtMs = run?.startedAt ? new Date(run.startedAt).getTime() : null;

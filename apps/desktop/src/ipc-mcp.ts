@@ -77,6 +77,13 @@ export async function cleanupMcpRuntimeForShutdown(
   logger.info('MCP surfaces closed for shutdown');
 }
 
+/** Content clearing retires the host, but retains its durable MCP preferences. */
+export function suspendMcpSurfacesForContentClear(): Promise<void> {
+  mcpSurfacesOpen = false;
+  pendingConfigPathSelection = null;
+  return Promise.resolve();
+}
+
 /** Factory reset: close Main's surfaces, then the host retires its MCP settings. */
 export async function resetMcpRuntimeForFactoryReset(
   runtime: McpSettingsLifecycleRuntime = getMainMcpHostControl()

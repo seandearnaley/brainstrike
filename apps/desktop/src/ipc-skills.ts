@@ -1,4 +1,5 @@
 import type { SkillsScanResultSummary } from '@brainstrike/assistant-contract';
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { ipcMain } from 'electron';
 import { skillsContract } from './ipc-domains/skills.contract';
 import { createSkillsScanHandler } from './ipc-skills-handlers';
@@ -14,7 +15,8 @@ import {
  * skill (ok / invalid / shadowed) across the four tiers.
  */
 export function registerSkillsIpcHandlers(
-  scanSkills: () => Promise<SkillsScanResultSummary> = createSkillsScanHandler()
+  workspaceRoots: WorkspaceRootPort,
+  scanSkills: () => Promise<SkillsScanResultSummary> = createSkillsScanHandler(workspaceRoots)
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
   registerDomain(registry, 'skills', skillsContract, {

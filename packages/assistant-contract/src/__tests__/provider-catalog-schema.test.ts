@@ -57,6 +57,28 @@ describe('ProviderCatalogSchema', () => {
     expect(() => ProviderCatalogSchema.parse(catalogWith(WELL_FORMED_MODEL))).not.toThrow();
   });
 
+  it('preserves the qualified local embedding profile fields', () => {
+    const model = {
+      defaultDimension: 384,
+      execution: { wasm: 'q8', webgpu: 'fp16' },
+      id: 'onnx-community/granite-embedding-small-english-r2-ONNX',
+      pooling: 'cls',
+      prompts: { document: '', query: '' },
+      revision: '1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8',
+      supportsStandardDimension: false,
+      type: 'embedding',
+    };
+    expect(parseProviderCatalog(catalogWith(model))[0]?.models).toEqual([model]);
+    for (const malformed of [
+      { ...model, pooling: 'guessed' },
+      { ...model, execution: { webgpu: 'unknown' } },
+      { ...model, prompts: { document: '' } },
+      { ...model, prompts: { document: '', guess: true, query: '' } },
+    ]) {
+      expect(() => parseProviderCatalog(catalogWith(malformed))).toThrow();
+    }
+  });
+
   it('rejects an LLM model entry that omits the required vision capability', () => {
     expect(() => ProviderCatalogSchema.parse(catalogWith(modelWithout('vision')))).toThrowError(
       /"path":\s*\[\s*0,\s*"models",\s*0,\s*"vision"\s*\]/

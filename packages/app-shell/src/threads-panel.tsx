@@ -4,15 +4,14 @@ import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-regis
 import {
   ASSISTANT_THREAD_ICON_IDS,
   type AssistantMemoryThread,
+  type AssistantThreadCatalogRepository,
   type AssistantThreadColorId,
   type AssistantThreadGroup,
+  type AssistantThreadGroupsRepository,
   type AssistantThreadIconId,
   type AssistantThreadMetadata,
-  type AssistantThreadRepository,
   buildThreadListSections,
   buildThreadMembership,
-  createPgliteAssistantThreadGroupsRepository,
-  createPgliteAssistantThreadRepository,
   getGroupMemberIds,
   getThreadPrimaryRootId,
   type ThreadFilters,
@@ -26,13 +25,8 @@ import {
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
-import { ThreadSearchRepository } from '@brainstrike/db';
-import {
-  useDbInitializationStatus,
-  useDbInitializing,
-  useDbProviderError,
-  usePGliteDatabase,
-} from '@brainstrike/db/react';
+import type { ThreadSearchRepository } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 import { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
 import type { QueueAdapter } from '@brainstrike/queue';
 import {
@@ -64,9 +58,13 @@ import {
   X,
 } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
-import { useAssistantThreadHost, withAssistantThreadHost } from './assistant-thread-host-context';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  type AssistantThreadHostCapability,
+  createHostAssistantThreadRepository,
+  useAssistantThreadHost,
+  useAssistantThreadHostRuns,
+} from './assistant-thread-host-context';
 import {
   ASSISTANT_THREAD_COLOR_PALETTES,
   ASSISTANT_THREAD_COLOR_PRESENTATION,
@@ -75,18 +73,21 @@ import {
   resolveThreadRowStatusState,
 } from './assistant-thread-presentation';
 import { DelegatedSidebarCell } from './delegated-sidebar-cell';
-import { useCreateThreadInFolder } from './hooks/use-create-thread-in-folder';
+import { useCreateThreadInFolderRepository } from './hooks/use-create-thread-in-folder';
 import { type ForgePrCacheLookup, useForgePrCache } from './hooks/use-forge-pr-cache';
 import { useOnScreenThreadId } from './hooks/use-on-screen-thread';
 import type { ThreadBranchInfo } from './hooks/use-thread-branch-by-root-path';
 import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-path';
 import { useThreadFolderRows } from './hooks/use-thread-folder-rows';
-import { useThreadsAwaitingApproval } from './hooks/use-threads-awaiting-approval';
 import { useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
 import { HostChildSidebarCell } from './host-child-sidebar-cell';
 import { lookupThreadBranch, type ThreadBranchLookup } from './thread-branch-resolution';
 import { ThreadFolderHeader } from './thread-folder-header';
 import { lookupThreadForgePr } from './thread-forge-pr-resolution';
+import {
+  createNativeThreadGroupsRepository,
+  getThreadGroupsCapability,
+} from './thread-groups-capability';
 import {
   filterThreadsByThreadFilters,
   hasActiveThreadFilters,
@@ -104,6 +105,7 @@ import {
   type ThreadPanelVisibleRow,
 } from './thread-panel-visible-rows';
 import { type ThreadMoveTarget, ThreadRow } from './thread-row';
+import { readDesktopThreadSearchProfile } from './thread-search-profile';
 import { useThreadSearchStore } from './thread-search-store';
 import {
   resolveThreadsPanelDrop,
@@ -118,7 +120,6 @@ import {
 } from './threads-panel-dnd-elements';
 import { ThreadsPanelSearch } from './threads-panel-search';
 import { ThreadsViewOptionsPopover } from './threads-panel-view-options';
-import { useActiveAssistantThreadIds } from './use-active-assistant-thread-ids';
 import { useHostChildSidebar } from './use-host-child-sidebar';
 import { type ThreadPanelSelection, useThreadPanelSelection } from './use-thread-panel-selection';
 import { useThreadSearchController } from './use-thread-search-controller';
@@ -1445,7 +1446,7 @@ function ThreadsPanelContent({
     threadId: string,
     metadata: AssistantThreadMetadata
   ) => Promise<void>;
-  readonly repository: AssistantThreadRepository | null;
+  readonly repository: AssistantThreadCatalogRepository | null;
   readonly selectedThreadId: string | undefined;
   readonly selection: ThreadPanelSelection;
   readonly threadFiltersActive: boolean;
@@ -1648,38 +1649,32 @@ function ThreadsPanelToolbar({
   );
 }
 
-export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = {}): ReactElement {
+export interface ThreadsPanelSources {
+  readonly activeThreads: { readonly error: Error | null; readonly threadIds: ReadonlySet<string> };
+  readonly database: DbHandle | null;
+  readonly databaseError: Error | null;
+  readonly databaseStartupLoading: boolean;
+  readonly groupsRepository: AssistantThreadGroupsRepository | null;
+  readonly repository: AssistantThreadCatalogRepository | null;
+  readonly threadSearchRepository: ThreadSearchRepository | null;
+  readonly threadsAwaitingApproval: {
+    readonly error: Error | null;
+    readonly threadIds: ReadonlySet<string>;
+  };
+}
+export function ThreadsPanelCore({
+  loadEmbeddingQueue = null,
+  database,
+  repository,
+  groupsRepository,
+  threadSearchRepository,
+  databaseError,
+  databaseStartupLoading,
+  activeThreads,
+  threadsAwaitingApproval,
+}: ThreadsPanelProps & ThreadsPanelSources): ReactElement {
   const host = useAssistantThreadHost();
-  const database = usePGliteDatabase();
-  const databaseInitializing = useDbInitializing();
-  const databaseStatus = useDbInitializationStatus();
-  const databaseError = useDbProviderError();
-  // Assistant memory is workspace-global: one stable resource id, never the
-  // focused root path. Keying on the focused root wiped threads on focus change
-  // (e.g. adding a folder) and gated the assistant behind "open a folder first".
-  // See assistant-memory-resource.ts.
   const resourceId = WORKSPACE_MEMORY_RESOURCE_ID;
-  const repository = useMemo(
-    () =>
-      database
-        ? withAssistantThreadHost(createPgliteAssistantThreadRepository(database), host)
-        : null,
-    [database, host]
-  );
-  const groupsRepository = useMemo(
-    () => (database ? createPgliteAssistantThreadGroupsRepository(database) : null),
-    [database]
-  );
-  const threadSearchRepository = useMemo(
-    () => (database ? new ThreadSearchRepository(database) : null),
-    [database]
-  );
-  const databaseStartupLoading = shouldRenderAssistantThreadDatabaseStartupLoading({
-    databaseError,
-    databaseInitializing,
-    databaseStatus,
-    repositoryReady: Boolean(repository),
-  });
   const selectedThreadByResourceId = useAssistantThreadStore(
     (state) => state.selectedThreadByResourceId
   );
@@ -1696,11 +1691,6 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
   const selectedThreadId = selectedThreadByResourceId[resourceId];
   const threads = threadsByResourceId[resourceId] ?? EMPTY_THREADS;
   const loadState = loadStateByResourceId[resourceId] ?? { status: 'idle' };
-  const activeThreads = useActiveAssistantThreadIds({
-    database,
-    resourceId,
-    schemaReady: Object.hasOwn(threadsByResourceId, resourceId),
-  });
   const groupsByResourceId = useAssistantThreadGroupsStore((state) => state.groupsByResourceId);
   const placementsByThreadId = useAssistantThreadGroupsStore((state) => state.placementsByThreadId);
   const groupsLoadStateByResourceId = useAssistantThreadGroupsStore(
@@ -1758,11 +1748,6 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
   // The three list-wide run-state projections. ONE live query (or one batched
   // read) per signal, never one per row — and each reports its own failure
   // rather than an empty result that would read as "nothing to report".
-  const threadsAwaitingApproval = useThreadsAwaitingApproval({
-    database,
-    resourceId,
-    schemaReady: Object.hasOwn(threadsByResourceId, resourceId),
-  });
   const lastViewedAtByThreadId = useAssistantThreadStore((state) => state.lastViewedAtByThreadId);
   const unseenBaselineAt = useAssistantThreadStore((state) => state.unseenBaselineAt);
   // A list, not a transcript: this panel only READS which thread is on screen
@@ -1808,7 +1793,6 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
   // Gated on folder grouping exactly like the branch chips: the pill only
   // exists there, and an ungated live query would subscribe every panel mount.
   const { byRepoBranch: forgePrLookup, error: forgePrError } = useForgePrCache({
-    database,
     enabled: folderGrouping,
   });
   // "Has PR" can only ever match a thread while folder grouping is active AND
@@ -1945,11 +1929,12 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     hostSearchVectors: host?.searchVectors,
     loadEmbeddingQueue,
     localModelConfigMap,
+    readEmbeddingProfile: host ? readDesktopThreadSearchProfile : undefined,
     repository: threadSearchRepository,
     resourceId,
     searchHost: host?.searchThreads?.bind(host),
   });
-  const searchResultTitles = useThreadSearchTitles(threadSearchRepository, resourceId);
+  const searchResultTitles = useThreadSearchTitles(threadSearchRepository, resourceId, host);
   const selectSearchResult = useThreadSearchResultNavigation(
     threadSearchRepository,
     resourceId,
@@ -2051,7 +2036,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     },
     [groupsRepository, moveThreadToGroup, resourceId]
   );
-  const handleCreateThreadInFolder = useCreateThreadInFolder();
+  const handleCreateThreadInFolder = useCreateThreadInFolderRepository(repository);
   const handleSortByChange = (nextSortBy: ThreadsPanelSortBy): void => {
     if (sortPresentation === 'folder') {
       // Unreachable through the popover, which binds folder mode to
@@ -2310,5 +2295,61 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
         />
       </div>
     </section>
+  );
+}
+
+const WebThreadsPanel = lazy(() =>
+  import('./threads-panel-web').then((module) => ({ default: module.WebThreadsPanel }))
+);
+export function ThreadsPanel(props: ThreadsPanelProps = {}): ReactElement {
+  const host = useAssistantThreadHost();
+  return host ? (
+    <HostThreadsPanel {...props} host={host} />
+  ) : (
+    <Suspense fallback={<div role="status">Loading conversations.</div>}>
+      <WebThreadsPanel {...props} />
+    </Suspense>
+  );
+}
+function HostThreadsPanel({
+  host,
+  ...props
+}: ThreadsPanelProps & { readonly host: AssistantThreadHostCapability }): ReactElement {
+  const repository = useMemo(() => createHostAssistantThreadRepository(host), [host]);
+  const capability = getThreadGroupsCapability();
+  const groupsRepository = useMemo(
+    () => (capability ? createNativeThreadGroupsRepository(capability) : null),
+    [capability]
+  );
+  const runs = useAssistantThreadHostRuns();
+  const activeThreads = useMemo(
+    () => ({
+      error: null,
+      threadIds: new Set([...runs].filter(([, run]) => run.status === 'running').map(([id]) => id)),
+    }),
+    [runs]
+  );
+  const threadsAwaitingApproval = useMemo(
+    () => ({
+      error: null,
+      threadIds: new Set([...runs].filter(([, run]) => run.needsInput).map(([id]) => id)),
+    }),
+    [runs]
+  );
+  if (!groupsRepository) {
+    return <div role="alert">Thread groups capability unavailable</div>;
+  }
+  return (
+    <ThreadsPanelCore
+      {...props}
+      activeThreads={activeThreads}
+      database={null}
+      databaseError={null}
+      databaseStartupLoading={false}
+      groupsRepository={groupsRepository}
+      repository={repository}
+      threadSearchRepository={null}
+      threadsAwaitingApproval={threadsAwaitingApproval}
+    />
   );
 }

@@ -1,15 +1,13 @@
+// @vitest-environment node
+
 /**
- * Real git + real PGlite coverage for managed-worktree archive snapshots and
+ * Real git + real SQLite coverage for managed-worktree archive snapshots and
  * detached-worktree branch attachment.
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { runDrizzleMigrations as runMigrations } from '@brainstrike/db';
+import { StateStore, type WorktreeLedgerPort } from '@brainstrike/state-store';
 import type { GitInventory } from '@brainstrike/types';
-import { PGlite } from '@electric-sql/pglite';
-import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
-import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
-import { vector } from '@electric-sql/pglite-pgvector';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const runningBlockerCopy = vi.hoisted(() => ({ replacement: null as string | null }));
@@ -35,46 +33,44 @@ vi.mock('../../assistant-server/worktree-archive', async (importOriginal) => {
 
 import type { GitCommandRunner } from '../../assistant-server/git-service';
 import { captureArchiveSnapshot } from '../../assistant-server/worktree-archive';
-import {
-  createWorktreeLedger,
-  type WorktreeLedgerDatabase,
-} from '../../assistant-server/worktree-ledger';
+import { createWorktreeLedger } from '../../assistant-server/worktree-ledger';
 import { execFileGitRunner } from '../../git-ipc-handlers';
 import {
-  asLedgerDatabase,
+  asLedgerStore,
   buildTestService,
   createTestWorkspace,
   git,
 } from './worktree-service.shared';
 
-describe('WorktreeService archive and branch attachment (real git + real PGlite)', () => {
-  let db: PGlite;
+describe('WorktreeService archive and branch attachment (real git + real SQLite)', () => {
+  let db: StateStore;
   let managedDirectory: string;
   let repo: string;
   const workspace = createTestWorkspace();
-  const buildService = () => buildTestService({ db, managedDirectory, repo });
-
-  /** Seed the real migrated run relation and owning thread, never a stand-in table. */
-  const seedRun = async (threadId: string, runId: string, status = 'running'): Promise<void> => {
-    await db.query(
-      `INSERT INTO mastra_threads (id, "resourceId", title, "createdAt", "updatedAt")
-       VALUES ($1, 'workspace-archive', $2, NOW(), NOW())`,
-      [threadId, `Thread ${threadId}`]
+  const activeThreads = new Set<string>();
+  const buildService = () =>
+    buildTestService(
+      { db, managedDirectory, repo },
+      {
+        hasRunningThread: async (id) => {
+          const row = (await db.worktreeLedger({ id, operation: 'get' })).rows[0];
+          return (
+            row?.threadId !== null && row?.threadId !== undefined && activeThreads.has(row.threadId)
+          );
+        },
+      }
     );
-    await db.query(
-      `INSERT INTO brainstrike_assistant_thread_runs
-         (id, resource_id, thread_id, provider, model, runtime_kind, status,
-          started_at, created_at, updated_at)
-       VALUES ($1, 'workspace-archive', $2, 'anthropic', 'test-model', 'hosted', $3,
-               NOW(), NOW(), NOW())`,
-      [runId, threadId, status]
-    );
+  /** The archive consumes the run owner's decision; it no longer reads a retired SQL run table. */
+  const seedRun = async (threadId: string, _runId: string, status = 'running'): Promise<void> => {
+    if (status === 'running' || status === 'cancelling') {
+      activeThreads.add(threadId);
+    }
   };
 
   beforeEach(async () => {
+    activeThreads.clear();
     runningBlockerCopy.replacement = null;
-    db = new PGlite({ extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector } });
-    await runMigrations(db);
+    db = await StateStore.open(workspace.freshTempDir('bst-worktree-state-'));
     repo = workspace.freshRepo('archive-repo');
     // These fixtures assert authored LF bytes through Git's archive/restore pipeline.
     git(repo, ['config', '--local', 'core.autocrlf', 'false']);
@@ -491,18 +487,18 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       }
       const { worktree } = created.value;
       const snapshotRef = `refs/brainstrike/worktree-archive/${worktree.id}`;
-      const underlying = asLedgerDatabase(db);
-      const failingLedger: WorktreeLedgerDatabase = {
-        async query(sql, params) {
-          if (sql.includes('SET archived_at = NOW()')) {
+      const underlying = asLedgerStore(db);
+      const failingLedger: WorktreeLedgerPort = {
+        async worktreeLedger(request) {
+          if (request.operation === 'archive') {
             throw new Error('archive ledger unavailable');
           }
-          return await underlying.query(sql, params);
+          return await underlying.worktreeLedger(request);
         },
       };
       const service = buildTestService(
         { db, managedDirectory, repo },
-        { getDatabase: () => Promise.resolve(failingLedger) }
+        { getWorktreeStore: () => Promise.resolve(failingLedger) }
       );
 
       const failed = await service.archive({ worktreeId: worktree.id });
@@ -511,23 +507,14 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       expect(failed.ok === false && failed.error).toContain(`your snapshot is at ${snapshotRef}`);
       expect(existsSync(worktree.path)).toBe(false);
       expect(git(repo, ['rev-parse', '--verify', snapshotRef]).trim()).toMatch(/^[0-9a-f]{40}$/u);
-      const ledger = createWorktreeLedger(() => Promise.resolve(underlying));
+      const ledger = createWorktreeLedger(
+        () => Promise.resolve(underlying),
+        async () => false
+      );
       await expect(ledger.get(worktree.id)).resolves.toMatchObject({ archivedAt: null });
     });
 
-    /**
-     * BST-1651 review item 1: the "refuses by throwing" claim lives at the
-     * CALL SITE, not the callee.
-     *
-     * `hasRunningThread` used to answer `false` — "no run is using this
-     * worktree" — when `brainstrike_assistant_thread_runs` was absent, which is
-     * the fail-OPEN direction on a seam that removes a directory. Migration 118
-     * owns the relation so that branch was deleted, and the read now rejects.
-     * That is only an improvement if the rejection reaches something that
-     * ABORTS; if any frame between here and the safety check swallowed it into
-     * a default, the retirement would be a silent regression rather than a
-     * fix. Pin the whole path: refusal out, and the worktree still on disk.
-     */
+    // A failed live-host read must reach the archive caller before any removal.
     it('ABORTS the archive when the in-flight-run read rejects — never falls through to the removal', async () => {
       const created = await buildService().create({
         baseRef: 'main',
@@ -544,27 +531,16 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
         throw new Error(`setup failed: ${created.error}`);
       }
       const { worktree } = created.value;
-      const underlying = asLedgerDatabase(db);
-      // Counted, not just intercepted: `sql.includes(...)` would also catch a
-      // FUTURE archive-path read of the same relation, and this test would go
-      // green having exercised that one instead of the in-flight gate.
+      const underlying = asLedgerStore(db);
       let interceptedRunReads = 0;
-      const failingLedger: WorktreeLedgerDatabase = {
-        async query(sql, params) {
-          // Exactly what an unmigrated database does to `hasRunningThread`.
-          if (sql.includes('brainstrike_assistant_thread_runs')) {
-            interceptedRunReads += 1;
-            throw Object.assign(
-              new Error('relation "brainstrike_assistant_thread_runs" does not exist'),
-              { code: '42P01' }
-            );
-          }
-          return await underlying.query(sql, params);
-        },
-      };
       const service = buildTestService(
         { db, managedDirectory, repo },
-        { getDatabase: () => Promise.resolve(failingLedger) }
+        {
+          hasRunningThread: async () => {
+            interceptedRunReads += 1;
+            throw new Error('Host run authority is unavailable');
+          },
+        }
       );
 
       const refused = await service.archive({ worktreeId: worktree.id });
@@ -575,12 +551,15 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       // reason (setup drift, a path check) — and so would the survival
       // assertion below, leaving the test green while no longer exercising
       // this seam at all.
-      expect(refused.ok === false && refused.error).toMatch(/brainstrike_assistant_thread_runs/);
+      expect(refused.ok === false && refused.error).toContain('Host run authority is unavailable');
       // Exactly one read reached the gate, so the refusal came from there.
       expect(interceptedRunReads).toBe(1);
       // The point of the test: nothing was removed and nothing was archived.
       expect(existsSync(worktree.path)).toBe(true);
-      const ledger = createWorktreeLedger(() => Promise.resolve(underlying));
+      const ledger = createWorktreeLedger(
+        () => Promise.resolve(underlying),
+        async () => false
+      );
       await expect(ledger.get(worktree.id)).resolves.toMatchObject({ archivedAt: null });
     });
 
@@ -599,11 +578,8 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       git(repo, ['worktree', 'lock', created.value.worktree.path]);
       const refused = await service.archive({ worktreeId: created.value.worktree.id });
       expect(refused.ok).toBe(false);
-      const row = await db.query<{ archived_at: Date | null }>(
-        'SELECT archived_at FROM brainstrike_worktrees WHERE id = $1',
-        [created.value.worktree.id]
-      );
-      expect(row.rows[0]?.archived_at).toBeNull();
+      const row = await db.worktreeLedger({ id: created.value.worktree.id, operation: 'get' });
+      expect(row.rows[0]?.archivedAt).toBeNull();
     });
   });
 
@@ -911,109 +887,13 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       expect(failed.ok === false && failed.error).toContain('forced snapshot replay failure');
       expect(existsSync(created.value.worktree.path)).toBe(false);
       expect(git(repo, ['rev-parse', `refs/heads/${branch}`]).trim()).toBe(branchTipBeforeRestore);
-      const ledger = createWorktreeLedger(() => Promise.resolve(asLedgerDatabase(db)));
+      const ledger = createWorktreeLedger(
+        () => Promise.resolve(asLedgerStore(db)),
+        async () => false
+      );
       await expect(ledger.get(created.value.worktree.id)).resolves.toMatchObject({
         archivedAt: expect.any(String),
         archiveSnapshotRef: archived.value.snapshotRef,
-      });
-    });
-  });
-
-  describe('WorktreeService.createBranchHere', () => {
-    it('attaches a new branch to a detached managed worktree and updates the ledger', async () => {
-      const service = buildService();
-      const created = await service.create({
-        baseRef: 'main',
-        branch: { detached: true },
-        createdBy: 'user',
-        name: 'detached-success',
-        rootId: 'r-1',
-      });
-      expect(created.ok).toBe(true);
-      if (!created.ok) {
-        return;
-      }
-
-      const attached = await service.createBranchHere({
-        branch: 'bs/attached',
-        worktreeId: created.value.worktree.id,
-      });
-      expect(attached.ok).toBe(true);
-      if (!attached.ok) {
-        return;
-      }
-      expect(attached.value.branch).toBe('bs/attached');
-      expect(git(attached.value.path, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe(
-        'bs/attached'
-      );
-      const ledger = createWorktreeLedger(() => Promise.resolve(asLedgerDatabase(db)));
-      await expect(ledger.get(attached.value.id)).resolves.toMatchObject({ branch: 'bs/attached' });
-    });
-
-    it('refuses an existing local branch without mutating the detached worktree', async () => {
-      const service = buildService();
-      const created = await service.create({
-        baseRef: 'main',
-        branch: { detached: true },
-        createdBy: 'user',
-        name: 'detached-existing',
-        rootId: 'r-1',
-      });
-      expect(created.ok).toBe(true);
-      if (!created.ok) {
-        return;
-      }
-
-      const refused = await service.createBranchHere({
-        branch: 'main',
-        worktreeId: created.value.worktree.id,
-      });
-      expect(refused).toEqual({ error: 'local branch "main" already exists', ok: false });
-      expect(git(created.value.worktree.path, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe(
-        'HEAD'
-      );
-      const ledger = createWorktreeLedger(() => Promise.resolve(asLedgerDatabase(db)));
-      await expect(ledger.get(created.value.worktree.id)).resolves.toMatchObject({ branch: null });
-    });
-
-    it('refuses to create a branch when the managed worktree is already attached', async () => {
-      const service = buildService();
-      const created = await service.create({
-        baseRef: 'main',
-        branch: { name: 'bs/already-attached' },
-        createdBy: 'user',
-        name: 'already-attached',
-        rootId: 'r-1',
-      });
-      if (!created.ok) {
-        return;
-      }
-
-      const refused = await service.createBranchHere({
-        branch: 'bs/must-not-replace',
-        worktreeId: created.value.worktree.id,
-      });
-
-      expect(refused).toEqual({
-        error: `Managed worktree "${created.value.worktree.id}" is attached to branch "bs/already-attached"; createBranchHere requires a detached worktree.`,
-        ok: false,
-      });
-      expect(git(created.value.worktree.path, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe(
-        'bs/already-attached'
-      );
-      const ledger = createWorktreeLedger(() => Promise.resolve(asLedgerDatabase(db)));
-      await expect(ledger.get(created.value.worktree.id)).resolves.toMatchObject({
-        branch: 'bs/already-attached',
-      });
-    });
-
-    it('refuses an unknown worktree id', async () => {
-      const service = buildService();
-      await expect(
-        service.createBranchHere({ branch: 'bs/nope', worktreeId: 'unknown-worktree' })
-      ).resolves.toEqual({
-        error: 'Managed worktree "unknown-worktree" is not active.',
-        ok: false,
       });
     });
   });

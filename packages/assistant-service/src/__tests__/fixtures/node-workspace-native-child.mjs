@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { access, mkdir, readFile, realpath, rename, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
-  createNodeProfileDatabaseOwner,
   joinProfileDirectory,
   openExistingNodeWorkspaceServices,
 } from '@brainstrike/assistant-service/node-workspace-services';
@@ -20,7 +19,6 @@ const rootId = '630ae8f2-854e-41bc-86ab-e446aa02d063';
 const aliasId = '6f936fb9-1b3a-4491-9010-f8af5ba55e8b';
 const alias = path.join(fixture, 'existing-alias');
 let services;
-let seedOwner;
 let store;
 try {
   if (mode === 'seed') {
@@ -32,18 +30,15 @@ try {
   }
   store = await StateStore.open(profile, { home: fixture });
   if (mode === 'seed') {
-    seedOwner = createNodeProfileDatabaseOwner({ getLocation: () => location });
-    const db = await seedOwner.initialize();
-    await db.query(
-      'INSERT INTO roots(id,kind,display_name,path) VALUES ($1,$2,$3,$4),($5,$2,$6,$7)',
-      [rootId, 'path', 'Existing root', workspace, aliasId, 'Existing alias', alias]
-    );
-    const model = (await db.query('SELECT id FROM models ORDER BY id LIMIT 1')).rows[0];
-    assert.ok(model && typeof model.id === 'string');
-    await db.query('UPDATE models SET name = $1 WHERE id = $2', [
-      'Existing selected catalog sentinel',
-      model.id,
-    ]);
+    for (const [preferredId, rootPath, displayName] of [
+      [rootId, workspace, 'Existing root'],
+      [aliasId, alias, 'Existing alias'],
+    ]) {
+      await store.workspaceRoots({
+        operation: 'register',
+        root: { displayName, path: rootPath, preferredId },
+      });
+    }
     const roots = [
       { addedAt: 1_728_000_000_000, path: workspace, rootId },
       { addedAt: 1_728_000_000_001, path: alias, rootId: aliasId },
@@ -57,9 +52,6 @@ try {
         rootsList: JSON.stringify(roots),
       })
     );
-    await writeFile(path.join(fixture, 'fixture-model-id.json'), JSON.stringify(model.id));
-    await seedOwner.close();
-    seedOwner = undefined;
     await store.close();
     store = undefined;
     process.stdout.write(`${JSON.stringify({ aliasId, electron: false, rootId, seeded: true })}\n`);
@@ -106,11 +98,9 @@ try {
       roots.map((root) => root.rootId),
       [rootId]
     );
-    const modelId = JSON.parse(await readFile(path.join(fixture, 'fixture-model-id.json'), 'utf8'));
-    const model = await services.withCatalog((db) =>
-      db.query('SELECT name FROM models WHERE id = $1', [modelId])
-    );
-    assert.equal(model.rows[0]?.name, 'Existing selected catalog sentinel');
+    const catalog = await services.withCatalog(async (owner) => owner);
+    assert.equal(catalog, store);
+    await assert.rejects(access(path.join(profile, 'pgdata')));
     const lease = await services.borrowRoot(rootId);
     assert.equal(lease, await services.borrowRoot(rootId));
     const context = { requestId: 'actual-cold-native-read', signal: new AbortController().signal };
@@ -120,10 +110,10 @@ try {
     assert.deepEqual(await lease.readFile('inside.txt', 3, context), { status: 'oversized' });
     await assert.rejects(services.borrowRoot(aliasId));
     assert.equal(await readFile(ledger, 'utf8'), originalLedger);
-    const aliasRow = await services.withCatalog((db) =>
-      db.query('SELECT status FROM roots WHERE id = $1', [aliasId])
+    const aliasRow = await services.withCatalog((owner) =>
+      owner.workspaceRoots({ operation: 'list' })
     );
-    assert.equal(aliasRow.rows[0]?.status, 'disconnected');
+    assert.equal(aliasRow.roots.find((root) => root.id === aliasId)?.status, 'disconnected');
     if (mode === 'revoke') {
       const updated = JSON.parse(originalLedger);
       updated.rootsList = '[]';
@@ -133,10 +123,10 @@ try {
       assert.equal(lease.signal.aborted, true);
       await assert.rejects(services.revalidate([rootId]));
       await assert.rejects(lease.readFile('inside.txt', 100, context));
-      const row = await services.withCatalog((db) =>
-        db.query('SELECT status FROM roots WHERE id = $1', [rootId])
+      const row = await services.withCatalog((owner) =>
+        owner.workspaceRoots({ operation: 'list' })
       );
-      assert.equal(row.rows[0]?.status, 'disconnected');
+      assert.equal(row.roots.find((root) => root.id === rootId)?.status, 'disconnected');
     } else {
       await symlink('inside.txt', path.join(workspace, 'inside-link.txt'));
       assert.deepEqual(await lease.readFile('inside-link.txt', 100, context), {
@@ -160,7 +150,7 @@ try {
       admitted = resolve;
     });
     const pending = services.withCatalog(async (db) => {
-      await db.query('SELECT 1');
+      await db.workspaceRoots({ operation: 'list' });
       admitted();
       await gate;
     });
@@ -168,7 +158,7 @@ try {
     await entered;
     const closing = services.close();
     assert.equal(closing, services.close());
-    await access(path.join(profile, '.db-process.lock'));
+    await assert.rejects(access(path.join(profile, '.db-process.lock')));
     assert.equal(store.lock.isReleased, false);
     release();
     await rejected;
@@ -202,6 +192,5 @@ try {
   }
 } finally {
   await services?.close();
-  await seedOwner?.close();
   await store?.close();
 }

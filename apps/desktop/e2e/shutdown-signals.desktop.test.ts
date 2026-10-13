@@ -1,92 +1,42 @@
 import type { ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { existsSync, readFileSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
 import path from 'node:path';
-import type { Page } from '@playwright/test';
+import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { expect, test } from './fixtures/electron-fixture';
+import { readHostProcess, withAppHost } from './utils/agent-host-log';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
-/**
- * BST-1872 L2: every exit path reaches the database close. The dev tree (`pnpm dev` ->
- * turbo -> concurrently -> Electron) tears down by signalling EVERY process: `concurrently`
- * tree-kills main and each of its children, the DB host included, and the tty process group
- * delivers the same signal twice. Running the whole tree in CI is slow and flaky; the part under
- * our control is exactly this signal pattern, delivered here to the real app.
- */
-
-const CLEAN_SHUTDOWN_MARKER = '.db-clean-shutdown';
 const CLOSE_TIMEOUT_MS = 10_000;
-const PROBE_ROW_ID = 'shutdown-signal-probe-row';
-
-interface DatabaseIdentity {
-  readonly appDataDir: string;
-  readonly hostPid: number;
-  readonly previousShutdown: string;
-}
-
-// The graceful-shutdown completion record is info-level; the `test:e2e` scripts run at `warn`.
+const PROBE_TITLE = 'Shutdown signal committed thread';
 test.use({ electronEnv: { LOG_LEVEL: 'info' } });
 
-/** Waits for the DB host to open the database, then reports where it lives and how it was last closed. */
-async function waitForOpenDatabase(page: Page): Promise<DatabaseIdentity> {
-  await expect
-    .poll(async () => (await readDiagnostics(page)).previousShutdown, { timeout: 60_000 })
-    .not.toBeNull();
-  const { appDataDir, hostPid, previousShutdown } = await readDiagnostics(page);
-  if (
-    typeof appDataDir !== 'string' ||
-    typeof hostPid !== 'number' ||
-    typeof previousShutdown !== 'string'
-  ) {
-    throw new Error(
-      `DB diagnostics lack the host identity: ${JSON.stringify({ appDataDir, hostPid, previousShutdown })}`
-    );
-  }
-  return { appDataDir, hostPid, previousShutdown };
-}
-
-interface DiagnosticsProbe {
-  readonly appDataDir: unknown;
-  readonly hostPid: unknown;
-  readonly previousShutdown: unknown;
-}
-
-async function readDiagnostics(page: Page): Promise<DiagnosticsProbe> {
-  return await page.evaluate(async () => {
-    const database = window.electronAPI?.db;
-    if (!database?.diagnostics) {
-      throw new Error('Desktop database diagnostics bridge is unavailable');
-    }
-    // `hostPid` is the manager's own field, beyond the snapshot the bridge types.
-    const snapshot = (await database.diagnostics()) as unknown as Record<string, unknown>;
-    return {
-      appDataDir: snapshot['appDataDir'],
-      hostPid: snapshot['hostPid'],
-      previousShutdown: snapshot['previousShutdown'],
-    };
+async function commitProbe(userDataDir: string): Promise<string> {
+  return await withAppHost(userDataDir, async (host) => {
+    const { threadId } = await host.request('thread/start', { commandId: randomUUID() });
+    await host.request('thread/update', { commandId: randomUUID(), threadId, title: PROBE_TITLE });
+    return threadId;
   });
 }
 
-async function insertProbeRow(page: Page): Promise<void> {
-  await page.evaluate(async (id) => {
-    const database = window.electronAPI?.db;
-    if (!database) {
-      throw new Error('Desktop database bridge is unavailable');
-    }
-    await database.query('CREATE TABLE IF NOT EXISTS shutdown_signal_probe (id text PRIMARY KEY)');
-    await database.query('INSERT INTO shutdown_signal_probe (id) VALUES ($1)', [id]);
-  }, PROBE_ROW_ID);
+async function assertProbe(userDataDir: string, threadId: string): Promise<void> {
+  const snapshot = await withAppHost(userDataDir, (host) => host.request('thread/list', {}));
+  expect(snapshot.threads.find((thread) => thread.threadId === threadId)?.title).toBe(PROBE_TITLE);
 }
 
-async function readProbeRowIds(page: Page): Promise<string[]> {
-  return await page.evaluate(async () => {
-    const database = window.electronAPI?.db;
-    if (!database) {
-      throw new Error('Desktop database bridge is unavailable');
-    }
-    const result = await database.query('SELECT id FROM shutdown_signal_probe');
-    return result.rows.map((row) => String((row as { id: unknown }).id));
-  });
+/** Verify both the profile's published host record and its physical Root owner before signalling. */
+async function ownedHost(
+  userDataDir: string
+): Promise<{ pid: number; start: string; root: string }> {
+  const root = realpathSync(path.join(userDataDir, 'profiles', 'test'));
+  const host = await readHostProcess(userDataDir);
+  const lock = RootLock.inspect(root);
+  expect(lock?.owner).toMatchObject({ pid: host.pid, root, start: host.start });
+  expect(lock?.owner.released).not.toBe(true);
+  expect(processStartTime(host.pid)).toBe(host.start);
+  expect(RootLock.isFlockHeld(root)).toBe(true);
+  return { ...host, root };
 }
 
 function captureOutput(mainProcess: ChildProcess): () => string {
@@ -97,7 +47,6 @@ function captureOutput(mainProcess: ChildProcess): () => string {
   return () => chunks.join('');
 }
 
-/** A process that already exited is fine (the host closes and exits within milliseconds); anything else is not. */
 function signal(pid: number, name: NodeJS.Signals): void {
   try {
     process.kill(pid, name);
@@ -115,26 +64,19 @@ function requirePid(mainProcess: ChildProcess): number {
   return mainProcess.pid;
 }
 
-test.describe('Shutdown signals reach the database close', () => {
-  // Windows delivers no catchable POSIX signal: Node's `process.kill` there ends the process at
-  // once, so there is no graceful shutdown to observe. Linux runs; its first regression run is the
-  // measurement for the after-ready listener replacement (measured on macOS only).
-  test.skip(
-    process.platform === 'win32',
-    'Windows has no catchable POSIX signal: process.kill terminates the process outright.'
-  );
+test.describe('Shutdown signals join the profile owner', () => {
+  test.skip(process.platform === 'win32', 'Windows has no catchable POSIX process signals.');
   test.setTimeout(240_000);
 
-  test('a dev-tree teardown closes the database cleanly, and the next boot reads it as clean', async ({
+  test('a repeated dev-tree teardown releases the Root and committed state reopens', async ({
     electron,
     window,
   }, testInfo) => {
-    const { appDataDir, hostPid } = await waitForOpenDatabase(window);
-    await insertProbeRow(window);
-    const markerPath = path.join(appDataDir, CLEAN_SHUTDOWN_MARKER);
-    // Opening removes the marker: a running session is unclean until it closes.
-    expect(existsSync(markerPath)).toBe(false);
-
+    const { waitForAppReady } = await loadElectronHelpers();
+    await waitForAppReady(window);
+    const userDataDir = electron.getUserDataDir();
+    const threadId = await commitProbe(userDataDir);
+    const host = await ownedHost(userDataDir);
     let readOutput = () => '';
     let ended: { readonly code: number | null; readonly signal: NodeJS.Signals | null } | null =
       null;
@@ -142,17 +84,13 @@ test.describe('Shutdown signals reach the database close', () => {
       await electron.endOutOfBand(async (mainProcess) => {
         const mainPid = requirePid(mainProcess);
         readOutput = captureOutput(mainProcess);
-        // `close`, not `exit`: it fires once stdout has drained, so the log assertions below see the
-        // whole run, and the DB host (which inherits main's stdio) must be gone within the bound too.
         const closed = once(mainProcess, 'close', {
           signal: AbortSignal.timeout(CLOSE_TIMEOUT_MS),
         });
-        // What `concurrently`'s tree-kill and the tty group deliver: the host and main are both
-        // signalled, main more than once, then again with SIGTERM.
-        signal(hostPid, 'SIGINT');
+        signal(host.pid, 'SIGINT');
         signal(mainPid, 'SIGINT');
         signal(mainPid, 'SIGINT');
-        signal(hostPid, 'SIGTERM');
+        signal(host.pid, 'SIGTERM');
         signal(mainPid, 'SIGTERM');
         await closed;
         ended = { code: mainProcess.exitCode, signal: mainProcess.signalCode };
@@ -163,49 +101,50 @@ test.describe('Shutdown signals reach the database close', () => {
         contentType: 'text/plain',
       });
     }
-
-    const log = readOutput();
     expect(ended).toEqual({ code: 0, signal: null });
-    expect(log).toContain('Received shutdown signal');
-    expect(log).toContain('Shutdown already in progress; ignoring signal');
-    expect(log).toContain('Graceful shutdown completed');
-    expect(log).not.toContain('forcing exit');
-    expect(existsSync(markerPath)).toBe(true);
-    // Only the host writes the marker (main has no database to close by then), so its pid is the
-    // proof the HOST closed itself. The host's own log line and lifecycle message are best effort:
-    // a host that exits promptly can lose them, so nothing here depends on them.
-    expect(JSON.parse(readFileSync(markerPath, 'utf8'))).toMatchObject({ pid: hostPid });
-
-    const { waitForAppReady } = await loadElectronHelpers();
-    const relaunched = await electron.restart();
-    await waitForAppReady(relaunched.window);
-    expect((await waitForOpenDatabase(relaunched.window)).previousShutdown).toBe('clean');
-    expect(await readProbeRowIds(relaunched.window)).toEqual([PROBE_ROW_ID]);
+    expect(readOutput()).toContain('Received shutdown signal');
+    expect(readOutput()).toContain('Shutdown already in progress; ignoring signal');
+    expect(readOutput()).toContain('Graceful shutdown completed');
+    expect(readOutput()).not.toContain('forcing exit');
+    expect(processStartTime(host.pid)).not.toBe(host.start);
+    expect(RootLock.isFlockHeld(host.root)).toBe(false);
+    expect(RootLock.inspect(host.root)?.owner.released).toBe(true);
+    await waitForAppReady((await electron.restart()).window);
+    await assertProbe(userDataDir, threadId);
+    const reopened = await ownedHost(userDataDir);
+    expect(reopened.pid).not.toBe(host.pid);
   });
 
-  test('negative control: a crash leaves no marker, and the next boot reads it as unclean', async ({
+  test('negative control: a verified disposable host crash retains its stale record and committed state recovers', async ({
     electron,
     window,
-  }) => {
-    const { appDataDir, hostPid } = await waitForOpenDatabase(window);
-    const markerPath = path.join(appDataDir, CLEAN_SHUTDOWN_MARKER);
-
-    await electron.endOutOfBand(async (mainProcess) => {
-      const mainPid = requirePid(mainProcess);
-      // `exit`, not `close`: nothing is read from the output here, and a SIGKILLed tree can leave a
-      // sibling process (the DB host inherits main's stdout) holding the pipe open, which would
-      // delay `close` past the bound for a reason unrelated to the crash being simulated.
-      const closed = once(mainProcess, 'exit', { signal: AbortSignal.timeout(CLOSE_TIMEOUT_MS) });
-      // Main first, so it can never fork a replacement host in the gap; then the host itself.
-      signal(mainPid, 'SIGKILL');
-      signal(hostPid, 'SIGKILL');
-      await closed;
-    });
-
-    expect(existsSync(markerPath)).toBe(false);
+  }, testInfo) => {
     const { waitForAppReady } = await loadElectronHelpers();
-    const relaunched = await electron.restart();
-    await waitForAppReady(relaunched.window);
-    expect((await waitForOpenDatabase(relaunched.window)).previousShutdown).toBe('unclean');
+    await waitForAppReady(window);
+    const userDataDir = electron.getUserDataDir();
+    const threadId = await commitProbe(userDataDir);
+    const host = await ownedHost(userDataDir);
+    const context = await electron.ensureContext();
+    const readOutput = captureOutput(context.app.process());
+    // Owner-authorized abnormal child control. Main is never force-killed; PID/start/profile all match above.
+    signal(host.pid, 'SIGABRT');
+    await expect
+      .poll(() => processStartTime(host.pid), { timeout: CLOSE_TIMEOUT_MS })
+      .not.toBe(host.start);
+    expect(RootLock.inspect(host.root)?.owner).toMatchObject({ pid: host.pid, start: host.start });
+    expect(RootLock.inspect(host.root)?.owner.released).not.toBe(true);
+    try {
+      await electron.closeForStateSeeding();
+    } finally {
+      await testInfo.attach('crashed-host-process-log', {
+        body: readOutput(),
+        contentType: 'text/plain',
+      });
+    }
+    expect(RootLock.isFlockHeld(host.root)).toBe(false);
+    await waitForAppReady((await electron.restart()).window);
+    await assertProbe(userDataDir, threadId);
+    const recovered = await ownedHost(userDataDir);
+    expect(recovered.pid).not.toBe(host.pid);
   });
 });

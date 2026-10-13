@@ -10,6 +10,9 @@ import {
 import { type Contract, type Handlers, type IpcResult, ipcFailure, ipcOk } from './ipc-contract';
 
 export type DesktopIpcDomain =
+  | 'promptLibrary'
+  | 'threadGroups'
+  | 'viewFilterPresets'
   | 'agent'
   | 'browser'
   | 'changes'
@@ -28,6 +31,9 @@ export type DesktopIpcDomain =
   | 'llm-host'
   | 'logging'
   | 'mcp'
+  | 'collectionCatalog'
+  | 'sourceFiles'
+  | 'modelCatalog'
   | 'notesVault'
   | 'preferences'
   | 'providerAuth'

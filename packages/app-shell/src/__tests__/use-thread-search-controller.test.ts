@@ -124,6 +124,32 @@ describe('useThreadSearchController', () => {
     );
   }
 
+  it('searches the host with its unchanged profile and no history database', async () => {
+    const searchHost = vi.fn(async () => ({
+      messages: [FTS_MATCH],
+      similarMessages: [],
+      titles: [],
+    }));
+    const readEmbeddingProfile = vi.fn(async () => PROFILE);
+    renderHook(() =>
+      useThreadSearchController({
+        embedder: createEmbedder(),
+        loadEmbeddingQueue: async () => ({}) as never,
+        localModelConfigMap: new Map() as never,
+        readEmbeddingProfile,
+        repository: null,
+        resourceId: 'workspace-memory',
+        searchHost,
+      })
+    );
+    act(() => useThreadSearchStore.getState().setQuery('hnsw'));
+    await flushAsync();
+    expect(searchHost).toHaveBeenCalledTimes(1);
+    expect(readEmbeddingProfile).toHaveBeenCalled();
+    expect(useThreadSearchStore.getState().status).toBe('results');
+    expect(useThreadSearchStore.getState().results?.[0]?.threadId).toBe('thread-1');
+  });
+
   it('debounces the query and resolves hybrid results', async () => {
     const repository = createRepository();
     const embedder = createEmbedder();

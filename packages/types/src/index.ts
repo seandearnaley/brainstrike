@@ -31,3 +31,8 @@ export type FileContents = Record<string, string>;
 
 // Global module augmentation moved to lucide-react.d.ts
 // declare module 'lucide-react';
+
+export type { CollectionMetadata, CollectionRecord } from './collection.js';
+export type { ContentClearCapability, ContentClearResult } from './content-clear.js';
+export type { SourceFileRecord } from './source-file.js';
+export * from './thread-groups.js';

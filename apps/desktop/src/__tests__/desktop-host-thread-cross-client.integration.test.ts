@@ -9,6 +9,7 @@ import { withAssistantThreadHost } from '@brainstrike/app-shell/assistant-thread
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import {
   type AssistantThreadRepository,
+  EMPTY_WORKSPACE_SNAPSHOT,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { RootLock } from '@brainstrike/state-store';
@@ -145,4 +146,36 @@ test('a host thread keeps its title, colour and icon across a reload, a second c
   connect.mockResolvedValueOnce(await attachAgentHost(host.record));
   const restarted = createWindowThreadCapability(() => undefined);
   expect(await restarted.listThreads(WORKSPACE_MEMORY_RESOURCE_ID)).toEqual([presented]);
+});
+
+test('host workspace snapshots remain available without a history database and reject unowned writes', async () => {
+  vi.stubGlobal('window', frame);
+  root = await mkdtemp(join(tmpdir(), 'bs-native-workspace-snapshot-'));
+  host = await startAgentHost(
+    { lifetime: 'persistent', root },
+    {
+      close: async () => undefined,
+      readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
+    }
+  );
+  connect.mockResolvedValue(await attachAgentHost(host.record));
+  const capability = createWindowThreadCapability(() => undefined);
+  const thread = await capability.createThread(WORKSPACE_MEMORY_RESOURCE_ID);
+  const repository = capability.workspaceRepository();
+  const snapshot = {
+    ...EMPTY_WORKSPACE_SNAPSHOT,
+    roots: { focusedRootId: 'root-a', visibleRootIds: ['root-a'] },
+  };
+  await repository.setThreadWorkspace(thread.id, WORKSPACE_MEMORY_RESOURCE_ID, snapshot);
+  other = await attachAgentHost(host.record);
+  expect((await other.request('thread/workspace/read', { threadId: thread.id })).snapshot).toEqual(
+    snapshot
+  );
+  expect(await repository.getThreadWorkspace(thread.id)).toEqual(snapshot);
+  expect(await repository.getThreadWorkspaces([thread.id])).toEqual(
+    new Map([[thread.id, snapshot]])
+  );
+  await expect(
+    repository.setThreadWorkspace('unknown-thread', WORKSPACE_MEMORY_RESOURCE_ID, snapshot)
+  ).rejects.toThrow('not owned');
 });

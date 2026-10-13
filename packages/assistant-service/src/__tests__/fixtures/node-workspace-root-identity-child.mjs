@@ -68,16 +68,16 @@ try {
     rejection = cause instanceof Error ? cause.message : String(cause);
   }
   let catalogPaths;
-  let pgLockDuringAttempt = false;
+  const pgLockDuringAttempt = false;
   if (services) {
     catalogPaths = await services.withCatalog(async (database) => {
-      const rows = await database.query('SELECT path FROM roots WHERE id = $1', [
-        '630ae8f2-854e-41bc-86ab-e446aa02d063',
-      ]);
-      return rows.rows.map((row) => row.path);
+      const { roots } = await database.workspaceRoots({ operation: 'list' });
+      return roots
+        .filter((root) => root.id === '630ae8f2-854e-41bc-86ab-e446aa02d063')
+        .map((root) => root.path);
     });
-    await access(path.join(selectedProfile, '.db-process.lock'));
-    pgLockDuringAttempt = true;
+    await assert.rejects(access(path.join(selectedProfile, '.db-process.lock')));
+    await assert.rejects(access(path.join(selectedProfile, 'pgdata')));
   } else {
     await assert.rejects(access(path.join(selectedProfile, '.db-process.lock')));
   }

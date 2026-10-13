@@ -4,6 +4,7 @@
  */
 import { promises as fsPromises } from 'node:fs';
 import { createLogger } from '@brainstrike/logging';
+import type { WorktreeLedgerPort } from '@brainstrike/state-store';
 import type {
   GitInventory,
   GitResult,
@@ -12,8 +13,6 @@ import type {
   WorktreeSetupOutcome,
 } from '@brainstrike/types';
 import type { GitCommandRunner } from './git-service';
-import type { WorktreeLedgerDatabase } from './worktree-ledger';
-import type { WorktreeRunEventDeps } from './worktree-run-events';
 
 const logger = createLogger('WorktreeService');
 
@@ -43,8 +42,9 @@ export interface WorktreeSetupInput {
   readonly worktree: ManagedWorktreeRow;
 }
 
-export interface WorktreeServiceDeps extends WorktreeRunEventDeps {
-  readonly getDatabase: () => Promise<WorktreeLedgerDatabase>;
+export interface WorktreeServiceDeps {
+  readonly getWorktreeStore: () => Promise<WorktreeLedgerPort>;
+  readonly hasRunningThread: (worktreeId: string) => Promise<boolean>;
   readonly readSettings: () => Promise<WorktreeSettings>;
   /**
    * The cached inventory snapshot — the same one `window.changes.inventory()`

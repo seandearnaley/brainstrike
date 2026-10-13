@@ -1,17 +1,15 @@
+// @vitest-environment node
+
 /**
- * Real git + real PGlite. The whole point of this suite is that `git worktree
+ * Real git + real SQLite. The whole point of this suite is that `git worktree
  * add` actually runs and the ledger actually persists — a mocked runner would
  * prove only that the arguments were assembled.
  */
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { runDrizzleMigrations as runMigrations } from '@brainstrike/db';
+import { StateStore, type WorktreeLedgerPort } from '@brainstrike/state-store';
 import type { GitInventory } from '@brainstrike/types';
-import { PGlite } from '@electric-sql/pglite';
-import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
-import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
-import { vector } from '@electric-sql/pglite-pgvector';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const loggerErrorSpy = vi.hoisted(() => vi.fn());
@@ -26,21 +24,18 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   };
 });
 
-import {
-  createWorktreeLedger,
-  type WorktreeLedgerDatabase,
-} from '../../assistant-server/worktree-ledger';
+import { createWorktreeLedger } from '../../assistant-server/worktree-ledger';
 import { repositorySlug } from '../../assistant-server/worktree-paths';
 import type { createWorktreeService } from '../../assistant-server/worktree-service';
 import {
-  asLedgerDatabase,
+  asLedgerStore,
   buildTestService,
   createTestWorkspace,
   git,
 } from './worktree-service.shared';
 
-describe('WorktreeService (real git + real PGlite)', () => {
-  let db: PGlite;
+describe('WorktreeService (real git + real SQLite)', () => {
+  let db: StateStore;
   let repo: string;
   let managedDirectory: string;
   const workspace = createTestWorkspace();
@@ -50,8 +45,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
 
   beforeEach(async () => {
     loggerErrorSpy.mockClear();
-    db = new PGlite({ extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector } });
-    await runMigrations(db);
+    db = await StateStore.open(workspace.freshTempDir('bst-worktree-state-'));
     repo = workspace.freshRepo('repo');
     managedDirectory = workspace.freshManagedDir();
   });
@@ -120,7 +114,10 @@ describe('WorktreeService (real git + real PGlite)', () => {
         'This worktree was archived while missing on disk — there is nothing to restore. Create a new worktree instead.',
       ok: false,
     });
-    const ledger = createWorktreeLedger(() => Promise.resolve(asLedgerDatabase(db)));
+    const ledger = createWorktreeLedger(
+      () => Promise.resolve(asLedgerStore(db)),
+      async () => false
+    );
     await expect(ledger.get(created.value.worktree.id)).resolves.toMatchObject({
       archivedAt: expect.any(String),
       archiveSnapshotRef: archived.value.snapshotRef,
@@ -132,7 +129,10 @@ describe('WorktreeService (real git + real PGlite)', () => {
     const commonDir = realpathSync(
       git(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim()
     );
-    const ledger = createWorktreeLedger(() => Promise.resolve(asLedgerDatabase(db)));
+    const ledger = createWorktreeLedger(
+      () => Promise.resolve(asLedgerStore(db)),
+      async () => false
+    );
     await ledger.insert({
       archivedAt: null,
       archiveSnapshotRef: null,
@@ -217,10 +217,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
       'export const value'
     );
     expect(git(worktree.path, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe('bs/bright-fox');
-    const rows = await db.query<{ count: number }>(
-      'SELECT COUNT(*)::int AS count FROM brainstrike_worktrees WHERE archived_at IS NULL'
-    );
-    expect(rows.rows[0]?.count).toBe(1);
+    expect((await db.worktreeLedger({ operation: 'list-active' })).rows).toHaveLength(1);
   });
 
   it('creates a DETACHED worktree with a null branch [D2]', async () => {
@@ -338,7 +335,10 @@ describe('WorktreeService (real git + real PGlite)', () => {
       repositorySlug(repoRoot, commonDir),
       'ledger-race'
     );
-    const ledger = createWorktreeLedger(() => Promise.resolve(asLedgerDatabase(db)));
+    const ledger = createWorktreeLedger(
+      () => Promise.resolve(asLedgerStore(db)),
+      async () => false
+    );
     await ledger.insert({
       archivedAt: null,
       archiveSnapshotRef: null,
@@ -357,18 +357,18 @@ describe('WorktreeService (real git + real PGlite)', () => {
     });
 
     let hidDuplicateFromPreflight = false;
-    const underlying = asLedgerDatabase(db);
-    const staleReadDatabase: WorktreeLedgerDatabase = {
-      async query(sql, params) {
-        if (!hidDuplicateFromPreflight && sql.includes('WHERE path = $1')) {
+    const underlying = asLedgerStore(db);
+    const staleReadDatabase: WorktreeLedgerPort = {
+      async worktreeLedger(request) {
+        if (!hidDuplicateFromPreflight && request.operation === 'by-path') {
           hidDuplicateFromPreflight = true;
           return { rows: [] };
         }
-        return underlying.query(sql, params);
+        return underlying.worktreeLedger(request);
       },
     };
     const service = buildService({
-      getDatabase: () => Promise.resolve(staleReadDatabase),
+      getWorktreeStore: () => Promise.resolve(staleReadDatabase),
     });
     const created = await service.create({
       baseRef: 'main',
@@ -468,7 +468,10 @@ describe('WorktreeService (real git + real PGlite)', () => {
     });
     expect(created.value.worktree.setupReason).toBe('setup runner exploded');
     expect(created.value.worktree.setupStatus).toBe('failed');
-    const ledger = createWorktreeLedger(() => Promise.resolve(asLedgerDatabase(db)));
+    const ledger = createWorktreeLedger(
+      () => Promise.resolve(asLedgerStore(db)),
+      async () => false
+    );
     await expect(ledger.get(created.value.worktree.id)).resolves.toMatchObject({
       setupReason: 'setup runner exploded',
       setupStatus: 'failed',
@@ -485,17 +488,17 @@ describe('WorktreeService (real git + real PGlite)', () => {
 
   it('logs a setup-status write failure and returns the previously inserted worktree', async () => {
     const recordError = new Error('record setup write failed');
-    const underlying = asLedgerDatabase(db);
-    const recordSetupFailureDatabase: WorktreeLedgerDatabase = {
-      async query(sql, params) {
-        if (sql.includes('SET setup_status = $2')) {
+    const underlying = asLedgerStore(db);
+    const recordSetupFailureDatabase: WorktreeLedgerPort = {
+      async worktreeLedger(request) {
+        if (request.operation === 'setup') {
           throw recordError;
         }
-        return underlying.query(sql, params);
+        return underlying.worktreeLedger(request);
       },
     };
     const created = await buildService({
-      getDatabase: () => Promise.resolve(recordSetupFailureDatabase),
+      getWorktreeStore: () => Promise.resolve(recordSetupFailureDatabase),
       runSetup: () =>
         Promise.resolve({
           copiedPaths: ['package.json'],
@@ -519,7 +522,10 @@ describe('WorktreeService (real git + real PGlite)', () => {
     }
     expect(created.value.setup.status).toBe('succeeded');
     expect(created.value.worktree.setupStatus).toBe('none');
-    const ledger = createWorktreeLedger(() => Promise.resolve(underlying));
+    const ledger = createWorktreeLedger(
+      () => Promise.resolve(underlying),
+      async () => false
+    );
     await expect(ledger.get(created.value.worktree.id)).resolves.toMatchObject({
       setupOutput: null,
       setupReason: null,
@@ -818,7 +824,10 @@ describe('WorktreeService (real git + real PGlite)', () => {
     if (!created.ok) {
       return;
     }
-    const ledger = createWorktreeLedger(() => Promise.resolve(asLedgerDatabase(db)));
+    const ledger = createWorktreeLedger(
+      () => Promise.resolve(asLedgerStore(db)),
+      async () => false
+    );
     await ledger.insert({
       archivedAt: null,
       archiveSnapshotRef: null,
@@ -880,7 +889,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
   // `brainstrike_worktrees.path` is globally UNIQUE with no partial index
   // (migration 109) — an archived row at a path that gets recreated
   // externally must be refused, not fall through into a raw constraint
-  // violation on insert. Real git + real PGlite: the archived row's path is
+  // violation on insert. Real git + real SQLite: the archived row's path is
   // genuinely gone from disk (service.archive() ran `git worktree remove`),
   // then a real `git worktree add` recreates a DIFFERENT worktree at that
   // SAME path, so the inventory reports it again while the ledger still
@@ -968,8 +977,15 @@ describe('WorktreeService (real git + real PGlite)', () => {
       threadId: null,
       [field]: value,
     };
-    const ledger = createWorktreeLedger(() =>
-      Promise.resolve({ query: () => Promise.resolve({ rows: [row] }) })
+    const ledger = createWorktreeLedger(
+      () =>
+        Promise.resolve({
+          worktreeLedger: () =>
+            Promise.resolve({ rows: [row] } as unknown as Awaited<
+              ReturnType<WorktreeLedgerPort['worktreeLedger']>
+            >),
+        }),
+      async () => false
     );
 
     await expect(ledger.get(row['id'] as string)).rejects.toThrow(

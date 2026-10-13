@@ -89,8 +89,8 @@ function failureDetail(cause: unknown): string {
 
 /** Each root's restore point from the runs' committed turn starts, or why there is none. */
 function restorePoints(
-  threadRuns: readonly HostRunState[],
-  first: HostRunState
+  threadRuns: readonly Pick<HostRunState, 'id' | 'turnStart'>[],
+  first: Pick<HostRunState, 'id' | 'turnStart'>
 ): RewindTarget['files'] {
   const start = first.turnStart;
   if (!start) {
@@ -113,41 +113,83 @@ function restorePoints(
     : { fromRunId: first.id, targets: [...targets.values()] };
 }
 
+/** The same committed-event projection serves live commands and retention reads. */
+function foldRewind(rewind: ThreadRewind | undefined, event: HostEvent): ThreadRewind | undefined {
+  switch (event.type) {
+    case 'thread.rewind.started':
+      return { current: true, phase: 'rewinding', started: event };
+    case 'thread.rewound':
+    case 'thread.rewind.interrupted':
+      if (rewind?.started.rewindId === event.rewindId) {
+        rewind.phase = 'rewound';
+      }
+      break;
+    case 'thread.rewind.redo.started':
+      if (rewind?.started.rewindId === event.rewindId) {
+        rewind.phase = 'redoing';
+      }
+      break;
+    case 'thread.rewind.redone':
+      if (rewind?.started.rewindId === event.rewindId) {
+        rewind.phase = 'redone';
+      }
+      break;
+    case 'run.started':
+      if (rewind) {
+        rewind.current = false;
+      }
+      break;
+    default:
+      break;
+  }
+  return rewind;
+}
+
+/** Read-only retention targets from one thread's committed log; never a second writer. */
+export function pendingRewindSnapshotTargets(
+  rows: readonly HostLogRow[]
+): readonly HostTurnSnapshot[] {
+  let rewind: ThreadRewind | undefined;
+  const runs = new Map<string, Pick<HostRunState, 'id' | 'turnStart'>>();
+  for (const row of rows) {
+    rewind = foldRewind(rewind, row.event);
+    const event = row.event;
+    if (event.type === 'run.started' && !runs.has(event.runId)) {
+      runs.set(event.runId, { id: event.runId });
+    }
+    if (event.type === 'workspace.snapshot.recorded' && event.boundary === 'turn-start') {
+      runs.set(event.runId, { id: event.runId, turnStart: event });
+    }
+  }
+  if (
+    !(
+      rewind?.current &&
+      rewind.phase !== 'redone' &&
+      rewind.started.mode === 'conversation-and-files'
+    )
+  ) {
+    return [];
+  }
+  const first = runs.get(rewind.started.runId);
+  if (!first) {
+    throw new Error(`Pending rewind ${rewind.started.rewindId} has no recorded target run`);
+  }
+  const points = restorePoints([...runs.values()], first);
+  if ('reason' in points) {
+    throw new Error(points.reason);
+  }
+  return points.targets;
+}
+
 export class HostThreadRewinds {
   private readonly latest = new Map<string, ThreadRewind>();
 
   constructor(private readonly ports: HostThreadRewindPorts) {}
 
   fold(row: HostLogRow): void {
-    const { event, threadId } = row;
-    const rewind = this.latest.get(threadId);
-    switch (event.type) {
-      case 'thread.rewind.started':
-        this.latest.set(threadId, { current: true, phase: 'rewinding', started: event });
-        return;
-      case 'thread.rewound':
-      case 'thread.rewind.interrupted':
-        if (rewind?.started.rewindId === event.rewindId) {
-          rewind.phase = 'rewound';
-        }
-        return;
-      case 'thread.rewind.redo.started':
-        if (rewind?.started.rewindId === event.rewindId) {
-          rewind.phase = 'redoing';
-        }
-        return;
-      case 'thread.rewind.redone':
-        if (rewind?.started.rewindId === event.rewindId) {
-          rewind.phase = 'redone';
-        }
-        return;
-      case 'run.started':
-        if (rewind) {
-          rewind.current = false;
-        }
-        return;
-      default:
-        return;
+    const next = foldRewind(this.latest.get(row.threadId), row.event);
+    if (next) {
+      this.latest.set(row.threadId, next);
     }
   }
 

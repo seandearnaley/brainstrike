@@ -615,7 +615,7 @@ export function RootLayoutContent({
   databaseTabChunkingMode = 'local',
   preloadDatabaseTabOnMount = false,
 }: RootLayoutContentProps): ReactElement {
-  const db = usePGliteDatabase();
+  const db = usePGliteDatabase({ enabled: !platformDeleteRootData });
   const deleteRootData = useCallback(
     (rootIdToDelete: string): Promise<void> =>
       deleteOwnedRootData(db, rootIdToDelete, platformDeleteRootData),
@@ -721,7 +721,7 @@ export function RootLayoutContent({
               <TabChordHost />
               <WorkspaceConnectHost />
               <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
-                <EmbeddingRuntimeProvider>
+                <EmbeddingRuntimeProvider databaseEnabled={!nativeIndexSearch}>
                   {/* One shared embedder cache for every semantic-search surface. The
                 machinery is lazy (models load on first embed), so this
                 always-mounted provider is free until the first query. It

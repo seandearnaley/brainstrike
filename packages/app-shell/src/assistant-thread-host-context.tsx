@@ -5,6 +5,7 @@ import type {
 } from '@brainstrike/assistant-contract';
 import type {
   AssistantMemoryThread,
+  AssistantThreadCatalogRepository,
   AssistantThreadMetadata,
   AssistantThreadRepository,
   AssistantThreadRunStatus,
@@ -193,7 +194,7 @@ export interface AssistantThreadHostCapability {
    * the host does not own rejects before a request, never reaching history.
    */
   updateThreadBinding(threadId: string, metadata: AssistantThreadMetadata): Promise<void>;
-  workspaceRepository(history: ThreadWorkspaceRepository): ThreadWorkspaceRepository;
+  workspaceRepository(): ThreadWorkspaceRepository;
 }
 export const AssistantThreadHostContext = createContext<AssistantThreadHostCapability | undefined>(
   undefined
@@ -237,6 +238,42 @@ function closeDeletedChildTabs(threadIds: readonly string[]): void {
   if (closing.length > 0) {
     workspace.closeApps(closing);
   }
+}
+
+/** Desktop catalog operations belong only to the attached host. */
+export function createHostAssistantThreadRepository(
+  host: AssistantThreadHostCapability
+): AssistantThreadCatalogRepository {
+  const assertOwned = async (threadId: string): Promise<void> => {
+    if (!(await host.ownsThread(threadId))) {
+      throw new Error('This conversation is not owned by the attached agent host.');
+    }
+  };
+  const deleteThread = async (threadId: string): Promise<void> => {
+    const deleted = await host.deleteThread(threadId);
+    if (!deleted) {
+      throw new Error('This conversation is not owned by the attached agent host.');
+    }
+    closeDeletedChildTabs(deleted);
+  };
+  return {
+    createThread: (resourceId) => host.createThread(resourceId),
+    deleteThread,
+    deleteThreads: async (threadIds) => {
+      for (const threadId of threadIds) {
+        await deleteThread(threadId);
+      }
+    },
+    listThreads: (resourceId) => host.listThreads(resourceId),
+    renameThread: async (threadId, title) => {
+      await assertOwned(threadId);
+      await host.renameThread(threadId, title);
+    },
+    updateThreadMetadata: async (threadId, metadata) => {
+      await assertOwned(threadId);
+      await host.updateThreadBinding(threadId, metadata);
+    },
+  };
 }
 
 /** Desktop lists conversations from its sole runtime owner; web keeps its repository. */

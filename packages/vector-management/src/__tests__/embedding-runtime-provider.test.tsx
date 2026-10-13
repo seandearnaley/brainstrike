@@ -47,6 +47,8 @@ vi.mock('../vector-status/vector-queue-service', () => ({
 describe('EmbeddingRuntimeProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    usePGliteDatabaseMock.mockReset();
+    useFileChunkRepositoryMock.mockReset();
     usePGliteDatabaseMock.mockReturnValue({ dialect: 'pglite' });
     useFileChunkRepositoryMock.mockReturnValue({
       clearEmbeddingsForSet: vi.fn(),
@@ -63,6 +65,30 @@ describe('EmbeddingRuntimeProvider', () => {
     useEmbeddingRuntimeControllerMock.mockReturnValue({
       ensureStarted: vi.fn(),
     });
+  });
+
+  it('keeps the native host controller without requesting a PG repository', () => {
+    usePGliteDatabaseMock.mockImplementation((options) => {
+      if (options?.enabled !== false) {
+        throw new Error('Desktop requested PG database');
+      }
+      return null;
+    });
+    useFileChunkRepositoryMock.mockImplementation((options) => {
+      if (options?.enabled !== false) {
+        throw new Error('Desktop requested PG chunks');
+      }
+      return null;
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <EmbeddingRuntimeProvider databaseEnabled={false}>{children}</EmbeddingRuntimeProvider>
+    );
+    const { result } = renderHook(() => useSharedEmbeddingRuntime(), { wrapper });
+    expect(result.current.service).toBeNull();
+    expect(createVectorQueueServiceMock).not.toHaveBeenCalled();
+    expect(useEmbeddingRuntimeControllerMock).toHaveBeenCalledWith(
+      expect.objectContaining({ db: null, service: null })
+    );
   });
 
   it('throws when the shared runtime hook is used outside the provider', () => {

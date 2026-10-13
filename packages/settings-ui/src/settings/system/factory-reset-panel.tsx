@@ -18,8 +18,8 @@ export interface FactoryResetPanelProps {
 
 type DesktopResetBridge = () => Promise<{ message?: string; success: boolean }>;
 interface DesktopResetCapability {
-  readonly factoryResetUnavailableReason?: string;
   readonly resetLocal?: DesktopResetBridge;
+  readonly unavailableReason?: string;
 }
 
 async function requestFactoryResetReload(reason: string): Promise<void> {
@@ -41,10 +41,10 @@ function getDesktopResetCapability(): DesktopResetCapability | undefined {
   return (
     window as Window & {
       electronAPI?: {
-        db?: DesktopResetCapability;
+        factoryReset?: DesktopResetCapability;
       };
     }
-  ).electronAPI?.db;
+  ).electronAPI?.factoryReset;
 }
 
 function getDesktopResetBridge(): DesktopResetBridge | null {
@@ -79,19 +79,19 @@ async function runDesktopFactoryReset(desktopResetBridge: DesktopResetBridge): P
 
 export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelProps) {
   const { toast } = useToast();
-  const providerFactoryReset = useFactoryReset();
+  const providerFactoryReset = useFactoryReset({ enabled: !getDesktopResetCapability() });
   const [running, setRunning] = useState(false);
   const resetFn = useMemo(
     () => doFactoryReset ?? providerFactoryReset,
     [doFactoryReset, providerFactoryReset]
   );
   const desktopResetAvailable = getDesktopResetBridge() !== null;
-  const unavailableReason = getDesktopResetCapability()?.factoryResetUnavailableReason;
+  const unavailableReason = getDesktopResetCapability()?.unavailableReason;
   const resetAvailable =
     !unavailableReason && (desktopResetAvailable || typeof resetFn === 'function');
 
   const handleClick = useCallback(async () => {
-    if (getDesktopResetCapability()?.factoryResetUnavailableReason) {
+    if (getDesktopResetCapability()?.unavailableReason) {
       return;
     }
     const desktopResetBridge = getDesktopResetBridge();

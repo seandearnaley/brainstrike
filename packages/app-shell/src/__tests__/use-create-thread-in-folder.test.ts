@@ -155,7 +155,9 @@ describe('useCreateThreadInFolder', () => {
       updateThreadBinding: vi.fn(async () => {
         throw refusal;
       }),
-      workspaceRepository: (repository) => repository,
+      workspaceRepository: () => {
+        throw new Error('Unexpected workspace snapshot access in this fixture');
+      },
     };
     const wrapper = ({ children }: { readonly children: ReactNode }) =>
       createElement(AssistantThreadHostContext.Provider, { value: host }, children);

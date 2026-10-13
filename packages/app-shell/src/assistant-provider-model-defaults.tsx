@@ -1,7 +1,9 @@
-import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
+import {
+  useEnsureModelRegistry,
+  useModelRegistrySource,
+} from '@brainstrike/app-state/hooks/use-model-registry';
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useAssistantProviderSource } from './hooks/assistant-provider-source';
 import { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
 import { useProviderModelDefaults } from './hooks/use-provider-model-defaults';
@@ -19,7 +21,7 @@ export function AssistantProviderModelDefaults({
 }): null {
   const source = useAssistantProviderSource();
   const { providers } = useConfiguredAssistantProviders();
-  const database = usePGliteDatabase();
+  const database = useModelRegistrySource();
   const secretsVersion = useSecretsStore((state) => state.secretsVersion);
   // The policy waits for the registry, which no thread panel may have loaded yet.
   useEnsureModelRegistry();

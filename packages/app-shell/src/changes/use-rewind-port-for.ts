@@ -1,19 +1,21 @@
 import { useMemo } from 'react';
 import { useAssistantThreadHost } from '../assistant-thread-host-context';
+import { resolveChangesBridge } from './changes-bridge';
 import type { RewindPort } from './rewind-port';
-import { useLegacyRewindPort } from './use-legacy-rewind-port';
 
-/**
- * Each thread's rewind owner, as thread ownership already routes: a thread
- * the host owns rewinds through the host's port; any other thread is
- * history's, rewound by Main's legacy service. Null where the desktop changes
- * bridge is absent (web), since both owners' previews resolve through it.
- */
+/** Rewinds belong to the thread's agent host; unknown ownership refuses. */
 export function useRewindPortFor(): ((threadId: string) => RewindPort) | null {
   const host = useAssistantThreadHost();
-  const legacy = useLegacyRewindPort();
-  return useMemo(
-    () => (legacy ? (threadId: string) => host?.rewindPort?.(threadId) ?? legacy : null),
-    [host, legacy]
-  );
+  return useMemo(() => {
+    if (!(host && resolveChangesBridge())) {
+      return null;
+    }
+    return (threadId: string): RewindPort => {
+      const port = host.rewindPort?.(threadId);
+      if (!port) {
+        throw new Error('This thread is not owned by the agent host.');
+      }
+      return port;
+    };
+  }, [host]);
 }

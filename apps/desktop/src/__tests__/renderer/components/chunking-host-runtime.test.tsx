@@ -35,7 +35,7 @@ describe('ChunkingHostRuntime', () => {
   let onRequestCallback: RequestListener | null;
   const reportResponseMock = vi.fn();
   const reportStatusMock = vi.fn();
-  const dbQueryMock = vi.fn();
+  const readSourceMock = vi.fn();
   const chunkFileMock = vi.fn();
 
   beforeEach(() => {
@@ -60,19 +60,7 @@ describe('ChunkingHostRuntime', () => {
       },
     });
 
-    (
-      window as unknown as {
-        electronAPI?: {
-          db?: {
-            query?: typeof dbQueryMock;
-          };
-        };
-      }
-    ).electronAPI = {
-      db: {
-        query: dbQueryMock,
-      },
-    };
+    vi.stubGlobal('sourceFiles', { read: readSourceMock });
 
     window.history.replaceState({}, '', '/?mode=chunking-host&runtimeId=test-runtime');
   });
@@ -100,11 +88,14 @@ describe('ChunkingHostRuntime', () => {
       totalTokens: 4,
       type: 'result',
     });
-    dbQueryMock.mockResolvedValue({
-      rows: [
-        { content: 'mock file content', name: 'mock-file1.txt', path: '/mock/mock-file1.txt' },
-      ],
-    });
+    readSourceMock.mockResolvedValue([
+      {
+        content: 'mock file content',
+        fileId: 'file-1',
+        fileName: 'mock-file1.txt',
+        path: '/mock/mock-file1.txt',
+      },
+    ]);
 
     render(<ChunkingHostRuntime />);
 
@@ -134,9 +125,7 @@ describe('ChunkingHostRuntime', () => {
     });
 
     await waitFor(() => {
-      expect(dbQueryMock).toHaveBeenCalledWith(expect.stringContaining('FROM file_records'), [
-        'file-1',
-      ]);
+      expect(readSourceMock).toHaveBeenCalledWith(['file-1'], Number.MAX_SAFE_INTEGER);
       expect(chunkFileMock).toHaveBeenCalledWith(
         'file-1',
         'mock file content',
@@ -156,9 +145,9 @@ describe('ChunkingHostRuntime', () => {
   });
 
   it('fails fast when the file record content is missing', async () => {
-    dbQueryMock.mockResolvedValue({
-      rows: [{ content: null, name: 'mock-file1.txt', path: '/mock/mock-file1.txt' }],
-    });
+    readSourceMock.mockResolvedValue([
+      { content: null, fileId: 'file-1', fileName: 'mock-file1.txt', path: '/mock/mock-file1.txt' },
+    ]);
 
     render(<ChunkingHostRuntime />);
 
@@ -205,9 +194,9 @@ describe('ChunkingHostRuntime', () => {
       totalTokens: 0,
       type: 'result',
     });
-    dbQueryMock.mockResolvedValue({
-      rows: [{ content: '', name: 'empty.ts', path: '/mock/empty.ts' }],
-    });
+    readSourceMock.mockResolvedValue([
+      { content: '', fileId: 'file-empty', fileName: 'empty.ts', path: '/mock/empty.ts' },
+    ]);
 
     render(<ChunkingHostRuntime />);
 
@@ -247,10 +236,8 @@ describe('ChunkingHostRuntime', () => {
     });
   });
 
-  it('fails fast when the db bridge returns a malformed rows payload', async () => {
-    dbQueryMock.mockResolvedValue({
-      rows: null,
-    });
+  it('fails fast when the source bridge returns a malformed records payload', async () => {
+    readSourceMock.mockResolvedValue(null);
 
     render(<ChunkingHostRuntime />);
 
@@ -286,9 +273,11 @@ describe('ChunkingHostRuntime', () => {
   it('emits liveness progress while a chunk-file-by-id request is pending', async () => {
     vi.useFakeTimers();
     let resolveQuery:
-      | ((value: { rows: Array<{ content: string; name: string; path: string }> }) => void)
+      | ((
+          value: Array<{ fileId: string; content: string; fileName: string; path: string }>
+        ) => void)
       | null = null;
-    dbQueryMock.mockImplementation(
+    readSourceMock.mockImplementation(
       () =>
         new Promise((resolve) => {
           resolveQuery = resolve;
@@ -343,9 +332,9 @@ describe('ChunkingHostRuntime', () => {
     );
 
     await act(async () => {
-      resolveQuery?.({
-        rows: [{ content: '', name: 'mock-file1.txt', path: '/mock/mock-file1.txt' }],
-      });
+      resolveQuery?.([
+        { content: '', fileId: 'file-1', fileName: 'mock-file1.txt', path: '/mock/mock-file1.txt' },
+      ]);
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -376,11 +365,14 @@ describe('ChunkingHostRuntime', () => {
             });
         })
     );
-    dbQueryMock.mockResolvedValue({
-      rows: [
-        { content: 'mock file content', name: 'mock-file1.txt', path: '/mock/mock-file1.txt' },
-      ],
-    });
+    readSourceMock.mockResolvedValue([
+      {
+        content: 'mock file content',
+        fileId: 'file-1',
+        fileName: 'mock-file1.txt',
+        path: '/mock/mock-file1.txt',
+      },
+    ]);
 
     const view = render(<ChunkingHostRuntime />);
 

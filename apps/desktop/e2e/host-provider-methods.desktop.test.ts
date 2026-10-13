@@ -3,6 +3,7 @@ import path from 'node:path';
 import { writePrivateCredentialFile } from '@brainstrike/agent-host/file-credentials';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import { enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 
 const STORED_KEY = 'profile-store-openrouter-key';
@@ -47,15 +48,11 @@ test('the panel, Settings and the composer read provider facts from the host', a
 
   // Select the OpenRouter model without the availability override, so the
   // panel gates on the host's real status answer.
-  await page.evaluate(async (model) => {
+  await enableAssistantCatalogModel(page, `openrouter::${MODEL}`);
+  await page.evaluate((model) => {
     const globals = window as unknown as {
       __brainstrikeTestHooks__?: { setAssistantModel: (compositeKey: string) => void };
-      electronAPI: { db: { query: (sql: string, params: unknown[]) => Promise<unknown> } };
     };
-    await globals.electronAPI.db.query(
-      'UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2',
-      [model, 'openrouter']
-    );
     const hooks = globals.__brainstrikeTestHooks__;
     if (!hooks) {
       throw new Error('Brainstrike desktop test hooks are unavailable.');

@@ -1,5 +1,7 @@
+// @vitest-environment node
+
 /**
- * Real git + real PGlite coverage for per-repository worktree setup consent
+ * Real git + real SQLite coverage for per-repository worktree setup consent
  * (BST-1455): the repository/script identification surfaced to the create
  * sheet, and the renderer-attested decision pinned to main-resolved
  * repository identity.
@@ -7,11 +9,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { runDrizzleMigrations as runMigrations } from '@brainstrike/db';
-import { PGlite } from '@electric-sql/pglite';
-import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
-import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
-import { vector } from '@electric-sql/pglite-pgvector';
+import { StateStore } from '@brainstrike/state-store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { createWorktreeService } from '../../assistant-server/worktree-service';
 import { buildTestService, createTestWorkspace, git } from './worktree-service.shared';
@@ -23,8 +21,8 @@ function sha256(scriptContent: string): string {
 
 const SCRIPT_CONTENT = '#!/bin/sh\n';
 
-describe('WorktreeService repository setup consent (real git + real PGlite)', () => {
-  let db: PGlite;
+describe('WorktreeService repository setup consent (real git + real SQLite)', () => {
+  let db: StateStore;
   let repo: string;
   let managedDirectory: string;
   const workspace = createTestWorkspace();
@@ -33,8 +31,7 @@ describe('WorktreeService repository setup consent (real git + real PGlite)', ()
     buildTestService({ db, managedDirectory, repo }, overrides);
 
   beforeEach(async () => {
-    db = new PGlite({ extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector } });
-    await runMigrations(db);
+    db = await StateStore.open(workspace.freshTempDir('bst-worktree-state-'));
     repo = workspace.freshRepo('repo');
     managedDirectory = workspace.freshManagedDir();
   });

@@ -1,7 +1,7 @@
 import { ElectronFileRecordRepository, type FileRecordRepository } from '@brainstrike/db';
 import { useFileRecordRepository } from '@brainstrike/db/react';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDatabaseStatusSync } from '../hooks/use-database-status-sync';
 import {
   __resetDatabaseStatusStoreForTests,
@@ -29,6 +29,43 @@ vi.mock('@brainstrike/db/react', async () => {
 const mockUseFileRecordRepository = vi.mocked(useFileRecordRepository);
 
 describe('useDatabaseStatusSync', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it('reports the native writer only after its catalog read and disables the PG arm', async () => {
+    const pending = Promise.withResolvers<{ models: []; providers: [] }>();
+    vi.stubGlobal('modelCatalog', { read: () => pending.promise });
+    mockUseFileRecordRepository.mockImplementation((options) => {
+      if (options?.enabled !== false) {
+        throw new Error('Desktop requested PG repository');
+      }
+      return null;
+    });
+    renderHook(() => useDatabaseStatusSync());
+    expect(useDatabaseStatusStore.getState().loading).toBe(true);
+    await act(async () => pending.resolve({ models: [], providers: [] }));
+    expect(useDatabaseStatusStore.getState()).toMatchObject({
+      connected: true,
+      loading: false,
+      location: 'SQLite',
+    });
+  });
+  it('reports a failed native writer without selecting the PG arm', async () => {
+    vi.stubGlobal('modelCatalog', {
+      read: async () => {
+        throw new Error('Host unavailable');
+      },
+    });
+    mockUseFileRecordRepository.mockReturnValue(null);
+    renderHook(() => useDatabaseStatusSync());
+    await waitFor(() =>
+      expect(useDatabaseStatusStore.getState()).toMatchObject({
+        connected: false,
+        loading: false,
+        location: 'SQLite',
+        testResult: 'Host unavailable',
+      })
+    );
+    expect(mockUseFileRecordRepository).toHaveBeenCalledWith({ enabled: false });
+  });
   beforeEach(() => {
     __resetDatabaseStatusStoreForTests();
     mockUseFileRecordRepository.mockReset();

@@ -30,7 +30,9 @@ function host(
     renderThread: () => undefined,
     resolveChildThread,
     updateThreadBinding: refused,
-    workspaceRepository: (history) => history,
+    workspaceRepository: () => {
+      throw new Error('Unexpected workspace snapshot access in this fixture');
+    },
   };
 }
 

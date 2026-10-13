@@ -9,7 +9,7 @@ import {
 } from '@brainstrike/ui';
 
 interface ClearDatabaseDialogProps {
-  chunksCount: number;
+  chunksCount: number | null;
   clearing: boolean;
   countsPending?: boolean;
   onClear: () => Promise<void>;
@@ -39,7 +39,7 @@ export function ClearDatabaseDialog({
           <DialogDescription>
             {countsPending
               ? 'Collection counts are still loading. Wait for fresh counts before clearing data.'
-              : `This will permanently delete all imported files (${recordsCount}) and chunks (${chunksCount}), plus assistant conversations, working memory, semantic recall, suspended runs, prompts, run history, and diagnostics from the database. Configuration profiles remain. This action cannot be undone.`}
+              : `This will permanently delete all imported files (${recordsCount}) and chunks (${chunksCount ?? 'count unavailable'}), plus assistant conversations, working memory, semantic recall, suspended runs, prompts, run history, and diagnostics from the database. Configuration profiles remain. This action cannot be undone.`}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

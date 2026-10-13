@@ -14,12 +14,12 @@ import {
 import { EmbeddingHostRuntime } from '../../../renderer/components/embedding-host-runtime';
 import {
   commandListenerRef,
-  dbHandle,
   installEmbeddingHostRuntimeFixture,
   queryEmbeddingListenerRef,
+  readModelCatalogMock,
+  reopenEmbeddingQueueMock,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
-  startEmbeddingWorkerMock,
   storeState,
 } from './embedding-host-foreground-ownership-fixture';
 
@@ -45,18 +45,17 @@ function installRealQueryService() {
     vi.unstubAllGlobals();
   });
   storeState.hasHydrated = true;
-  dbHandle.query.mockImplementation(async (_sql: unknown, values: unknown[]) => ({
-    rows: [
-      {
-        capabilities: { defaultDimension: 2 },
-        description: '',
-        id: values[0],
-        name: 'Fixture model',
-        parameters: {},
-        providerId: 'local',
-      },
-    ],
-  }));
+  readModelCatalogMock.mockResolvedValue({
+    models: ['model-a', 'model-b'].map((id) => ({
+      capabilities: { defaultDimension: 2 },
+      description: '',
+      id,
+      name: 'Fixture model',
+      parameters: {},
+      providerId: 'local',
+    })),
+    providers: [],
+  });
   const add = vi.fn<QueueAdapter['add']>(async (task) => ({
     id: task.id,
     metadata: {
@@ -255,13 +254,13 @@ describe('foreground service ownership with the real public service', () => {
             createEmbeddingHostCommand('reset', 'test-runtime', 'next-runtime')
           );
         });
-        expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce();
+        expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
         expect(initialize).toHaveBeenCalledOnce();
         expect(dispose).toHaveBeenCalledOnce();
       } finally {
         oldDisposal.resolve();
       }
-      await waitFor(() => expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(2));
       await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(2));
       expect(
         reportQueryEmbeddingResponseMock.mock.calls.find(

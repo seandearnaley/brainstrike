@@ -1,4 +1,8 @@
-import type { AssistantPersonasListResult } from '@brainstrike/assistant-contract';
+import type {
+  AssistantPersonasListResult,
+  ModelCatalogCapability,
+} from '@brainstrike/assistant-contract';
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { ipcMain } from 'electron';
 import { userPersonasContract } from './ipc-domains/user-personas.contract';
 import { createUserPersonasListHandler } from './ipc-user-personas-handlers';
@@ -15,7 +19,12 @@ import {
  * `.brainstrike/agents` across the mounted roots and the home directory.
  */
 export function registerUserPersonasIpcHandlers(
-  listPersonas: () => Promise<AssistantPersonasListResult> = createUserPersonasListHandler()
+  workspaceRoots: WorkspaceRootPort,
+  modelCatalog: Pick<ModelCatalogCapability, 'read'>,
+  listPersonas: () => Promise<AssistantPersonasListResult> = createUserPersonasListHandler(
+    workspaceRoots,
+    modelCatalog
+  )
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
   registerDomain(registry, 'userPersonas', userPersonasContract, {

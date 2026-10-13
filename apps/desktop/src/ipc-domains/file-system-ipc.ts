@@ -9,12 +9,12 @@ import {
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { IFileNode, RootDescriptor } from '@brainstrike/types';
 import { ipcMain } from 'electron';
 import { disposeDesktopAndHostCommandSessionsForRoot } from '../agent-host-platform/host-command-session-client';
 import { evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
-import type { WorkspaceRootsQueryable } from '../assistant-server/workspace-roots';
 import {
   createFileReadErrorPayload,
   FILE_READ_ERROR_CODE_NOT_FOUND,
@@ -41,7 +41,7 @@ interface RegisterFileSystemIpcHandlersOptions {
    * server's workspace tools, so a handler without it would silently keep
    * serving disconnected folders.
    */
-  readonly getRootsDatabase: () => Promise<WorkspaceRootsQueryable>;
+  readonly getRootsCatalog: () => Promise<WorkspaceRootPort>;
   /**
    * Explicit test-harness seam for roots backed by the in-memory adapter.
    * Production callers omit it and only registered mock paths are synthetic.
@@ -321,7 +321,7 @@ export function createFileSystemIpcDomain({
   disposeCommandSessionsForRoot = disposeDesktopAndHostCommandSessionsForRoot,
   evictLspServersForRoot: evictLspServersForRootOverride,
   fileSystem,
-  getRootsDatabase,
+  getRootsCatalog,
   isSyntheticFileSystemPath = isMockFileSystemIpcPath,
   managedWorktreeAuthorizer,
   onWorkspaceRootGranted,
@@ -433,7 +433,7 @@ export function createFileSystemIpcDomain({
     },
     disposeCommandSessionsForRoot,
     evictLspServersForRoot: evictLspServerForRoot,
-    getRootsDatabase,
+    getRootsCatalog,
     onRootGranted: notifyRootGranted,
     pathExists: (rootPath) => ipcPathExists(fileSystem, rootPath),
     resolveCanonicalRoot: async (rootPath) => {

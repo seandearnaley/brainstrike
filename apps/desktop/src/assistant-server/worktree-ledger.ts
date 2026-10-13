@@ -1,22 +1,10 @@
-/**
- * Raw-SQL repository for `brainstrike_worktrees` (migration 109).
- *
- * Main-process-owned and raw-SQL by the same rule `conversation-compaction.ts`
- * records: desktop main keeps workspace packages EXTERNAL in its esbuild bundle
- * (`build-main-config.test.ts` pins the two audited inlined subpaths), so a new
- * `@brainstrike/assistant-data` repository import would need an alias entry and
- * a contract-test edit for no gain. The table NAME and the row TYPE come from
- * `@brainstrike/types`, which main already imports.
- *
- * The service is the only writer, and it serializes its mutations, so there is
- * no in-repository locking here.
- */
-import {
-  type ManagedWorktreeCreator,
-  type ManagedWorktreeRow,
-  type ManagedWorktreeSetupStatus,
-  WORKTREE_LEDGER_TABLE,
-  type WorktreeSetupOutcome,
+/** Managed worktrees are authoritative rows in the profile's single SQLite writer. */
+import type { WorktreeLedgerPort, WorktreeLedgerRequest } from '@brainstrike/state-store';
+import type {
+  ManagedWorktreeCreator,
+  ManagedWorktreeRow,
+  ManagedWorktreeSetupStatus,
+  WorktreeSetupOutcome,
 } from '@brainstrike/types';
 
 const MANAGED_WORKTREE_CREATORS = [
@@ -29,28 +17,6 @@ const MANAGED_WORKTREE_SETUP_STATUSES = [
   'skipped',
   'succeeded',
 ] as const satisfies readonly ManagedWorktreeSetupStatus[];
-
-/** Exactly the surface the SQL here needs — satisfied by db-main's handle and a bare PGlite. */
-export interface WorktreeLedgerDatabase {
-  readonly query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
-}
-
-const COLUMNS = `
-  id,
-  repo_common_dir AS "repoCommonDir",
-  path,
-  branch,
-  base_ref AS "baseRef",
-  created_by AS "createdBy",
-  thread_id AS "threadId",
-  run_id AS "runId",
-  setup_status AS "setupStatus",
-  setup_output AS "setupOutput",
-  setup_reason AS "setupReason",
-  created_at AS "createdAt",
-  archived_at AS "archivedAt",
-  archive_snapshot_ref AS "archiveSnapshotRef"
-`;
 
 function readRecord(row: unknown): Record<string, unknown> {
   if (typeof row !== 'object' || row === null || Array.isArray(row)) {
@@ -158,119 +124,32 @@ export interface WorktreeLedger {
 }
 
 export function createWorktreeLedger(
-  getDatabase: () => Promise<WorktreeLedgerDatabase>
+  getStore: () => Promise<WorktreeLedgerPort>,
+  hasRunningThread: (id: string) => Promise<boolean>
 ): WorktreeLedger {
-  async function query(sql: string, params: unknown[] = []): Promise<readonly unknown[]> {
-    const database = await getDatabase();
-    const result = await database.query(sql, params);
-    return result.rows;
+  async function rows(request: WorktreeLedgerRequest): Promise<readonly ManagedWorktreeRow[]> {
+    return (await (await getStore()).worktreeLedger(request)).rows.map(readRow);
   }
-
+  async function mutate(request: WorktreeLedgerRequest): Promise<ManagedWorktreeRow> {
+    return requireRow(await rows(request), 'id' in request ? request.id : 'insert');
+  }
   return {
-    async get(id) {
-      const rows = await query(`SELECT ${COLUMNS} FROM ${WORKTREE_LEDGER_TABLE} WHERE id = $1`, [
+    get: async (id) => (await rows({ id, operation: 'get' }))[0] ?? null,
+    getByPath: async (path) => (await rows({ operation: 'by-path', path }))[0] ?? null,
+    hasRunningThread,
+    insert: (row) => mutate({ operation: 'insert', row }),
+    listActive: () => rows({ operation: 'list-active' }),
+    listForRepository: (repoCommonDir) => rows({ operation: 'list-repository', repoCommonDir }),
+    markArchived: (id, snapshotRef) => mutate({ id, operation: 'archive', snapshotRef }),
+    markRestored: (id) => mutate({ id, operation: 'restore' }),
+    recordSetup: (id, outcome) =>
+      mutate({
         id,
-      ]);
-      return rows[0] ? readRow(rows[0]) : null;
-    },
-    async getByPath(worktreePath) {
-      const rows = await query(`SELECT ${COLUMNS} FROM ${WORKTREE_LEDGER_TABLE} WHERE path = $1`, [
-        worktreePath,
-      ]);
-      return rows[0] ? readRow(rows[0]) : null;
-    },
-    async hasRunningThread(id) {
-      // No probe (BST-1651): migration 118 owns
-      // `brainstrike_assistant_thread_runs`, so the probe-first relation rule
-      // no longer applies to it. The retired branch answered `false` — "no
-      // run is using this worktree" — for an absent relation, which is the
-      // fail-OPEN direction on a guard that exists to hold a worktree open.
-      const rows = await query(
-        `SELECT 1
-           FROM brainstrike_assistant_thread_runs AS runs
-           JOIN ${WORKTREE_LEDGER_TABLE} AS wt ON wt.thread_id = runs.thread_id
-          WHERE wt.id = $1 AND runs.status IN ('running', 'cancelling')
-          LIMIT 1`,
-        [id]
-      );
-      return rows.length > 0;
-    },
-    async insert(row) {
-      const rows = await query(
-        `INSERT INTO ${WORKTREE_LEDGER_TABLE}
-           (id, repo_common_dir, path, branch, base_ref, created_by, thread_id, run_id,
-            setup_status, setup_output, setup_reason, created_at, archived_at, archive_snapshot_ref)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NULL, NULL)
-         RETURNING ${COLUMNS}`,
-        [
-          row.id,
-          row.repoCommonDir,
-          row.path,
-          row.branch,
-          row.baseRef,
-          row.createdBy,
-          row.threadId,
-          row.runId,
-          row.setupStatus,
-          row.setupOutput,
-          row.setupReason,
-          new Date(row.createdAt),
-        ]
-      );
-      return requireRow(rows, row.id);
-    },
-    async listActive() {
-      const rows = await query(
-        `SELECT ${COLUMNS} FROM ${WORKTREE_LEDGER_TABLE}
-          WHERE archived_at IS NULL ORDER BY created_at DESC, id DESC`
-      );
-      return rows.map(readRow);
-    },
-    async listForRepository(repoCommonDir) {
-      const rows = await query(
-        `SELECT ${COLUMNS} FROM ${WORKTREE_LEDGER_TABLE}
-          WHERE repo_common_dir = $1 ORDER BY created_at DESC, id DESC`,
-        [repoCommonDir]
-      );
-      return rows.map(readRow);
-    },
-    async markArchived(id, snapshotRef) {
-      const rows = await query(
-        `UPDATE ${WORKTREE_LEDGER_TABLE}
-            SET archived_at = NOW(), archive_snapshot_ref = $2
-          WHERE id = $1 RETURNING ${COLUMNS}`,
-        [id, snapshotRef]
-      );
-      return requireRow(rows, id);
-    },
-    async markRestored(id) {
-      // The archive-consistency CHECK requires both archive columns to return
-      // to NULL together. The archive ref survives only until the next archive
-      // of this worktree, when the deterministic ref is update-ref'd again.
-      // After restore, this row no longer points to it, so an older snapshot is
-      // reflog-only hand-recovery. Task 18 is the home for durable event history.
-      const rows = await query(
-        `UPDATE ${WORKTREE_LEDGER_TABLE} SET archived_at = NULL, archive_snapshot_ref = NULL
-          WHERE id = $1 RETURNING ${COLUMNS}`,
-        [id]
-      );
-      return requireRow(rows, id);
-    },
-    async recordSetup(id, outcome) {
-      const rows = await query(
-        `UPDATE ${WORKTREE_LEDGER_TABLE}
-            SET setup_status = $2, setup_output = $3, setup_reason = $4
-          WHERE id = $1 RETURNING ${COLUMNS}`,
-        [id, outcome.status, outcome.output.length > 0 ? outcome.output : null, outcome.reason]
-      );
-      return requireRow(rows, id);
-    },
-    async updateBranch(id, branch) {
-      const rows = await query(
-        `UPDATE ${WORKTREE_LEDGER_TABLE} SET branch = $2 WHERE id = $1 RETURNING ${COLUMNS}`,
-        [id, branch]
-      );
-      return requireRow(rows, id);
-    },
+        operation: 'setup',
+        output: outcome.output.length > 0 ? outcome.output : null,
+        reason: outcome.reason,
+        status: outcome.status,
+      }),
+    updateBranch: (id, branch) => mutate({ branch, id, operation: 'branch' }),
   };
 }

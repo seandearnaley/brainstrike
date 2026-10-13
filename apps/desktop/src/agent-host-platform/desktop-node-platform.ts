@@ -37,6 +37,7 @@ import { createLogger } from '@brainstrike/logging';
 import { type NativeChild, observeNativeChildren } from '@brainstrike/state-store/native-children';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
+import { serveCollectionStore } from './collection-store';
 import { mainPlatformConnection } from './connection';
 import { desktopHostSharedTools } from './desktop-host-shared-tools';
 import {
@@ -48,6 +49,7 @@ import { mainQueryEmbedding } from './host-retrieval-clients';
 import { disposeHostTools, serveHostCommandSessions } from './host-tool-process';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
 import { desktopMemoryPreconditions } from './memory-readiness';
+import { serveModelChoiceStore } from './model-choice-store';
 import { parentPlatformPort } from './parent-platform-port';
 import {
   PlatformCatalogModelResultSchema,
@@ -61,7 +63,13 @@ import {
   PlatformTurnSnapshotResultSchema,
   PlatformWorkspaceAcquireResultSchema,
 } from './platform-wire';
+import { servePromptLibrary } from './prompt-library-store';
 import { IndexSearchResultSchema } from './retrieval-wire';
+import { serveSourceCatalogStore } from './source-catalog-store';
+import { serveThreadGroups } from './thread-groups-store';
+import { serveViewFilterPresets } from './view-filter-preset-store';
+import { serveWorkspaceRootStore } from './workspace-root-store';
+import { serveWorktreeForgeStore } from './worktree-forge-store';
 
 const logger = createLogger('DesktopNodePlatform');
 
@@ -245,6 +253,22 @@ export async function createDesktopHostConfiguration(
 ): Promise<DesktopHostConfiguration> {
   const port = await parentPlatformPort();
   const connection = mainPlatformConnection(port);
+  const workspaceRoots = serveWorkspaceRootStore(connection, startup.store);
+  await startup.register(workspaceRoots.close);
+  const sourceCatalog = serveSourceCatalogStore(connection, startup.store);
+  await startup.register(sourceCatalog.close);
+  const worktreeForge = serveWorktreeForgeStore(connection, startup.store);
+  await startup.register(worktreeForge.close);
+  const collections = serveCollectionStore(connection, startup.store);
+  await startup.register(collections.close);
+  const prompts = servePromptLibrary(connection, startup.store);
+  await startup.register(prompts.close);
+  const threadGroups = serveThreadGroups(connection, startup.store);
+  await startup.register(threadGroups.close);
+  const presets = serveViewFilterPresets(connection, startup.store);
+  await startup.register(presets.close);
+  const modelChoices = serveModelChoiceStore(connection, startup.store);
+  await startup.register(modelChoices.close);
   // The profile's one credential authority: the single writer, token holder and
   // OAuth refresher. Sign-in pages open through the requesting desktop client.
   const host = await createHostCapabilities({

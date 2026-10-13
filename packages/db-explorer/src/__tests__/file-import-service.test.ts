@@ -1,6 +1,7 @@
+import type { SourceFilesCapability } from '@brainstrike/assistant-contract';
 import type { IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileImportService } from '../base-file-import-service';
 import { FileImportError } from '../file-import/file-import-errors';
 
@@ -452,5 +453,110 @@ describe('useFileImportService', () => {
         expect.any(Function)
       );
     });
+  });
+});
+
+describe('canonical desktop source imports', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const file = {
+    chunksCount: null,
+    chunksProcessed: false,
+    content: 'hello',
+    contentHash: 'captured-hash',
+    createdAt: '2026-10-13T12:00:00.000Z',
+    embeddingSetId: 'collection',
+    fileId: 'canonical-file',
+    fileName: 'note.txt',
+    path: 'note.txt',
+    rootId: null,
+    stat: { mtimeMs: null, size: 5 },
+    updatedAt: '2026-10-13T12:00:00.000Z',
+  };
+  function install(importFiles: SourceFilesCapability['import']): void {
+    vi.stubGlobal('sourceFiles', {
+      chunks: async () => ({ kind: 'unavailable', reason: 'Not selected' }),
+      delete: vi.fn(),
+      import: importFiles,
+      list: vi.fn(),
+      read: vi.fn(),
+    } satisfies SourceFilesCapability);
+    mockDecodeFileSelection.mockReturnValue({ folderId: 'root', path: 'note.txt' });
+    mockBulkImport.mockImplementation(() => {
+      throw new Error('PG must not be used');
+    });
+    mockBulkImport.mockClear();
+  }
+  it('uses the actual native import receipt without a SQL repository', async () => {
+    const importFiles = vi
+      .fn<SourceFilesCapability['import']>()
+      .mockResolvedValue({ indexing: { kind: 'complete' }, items: [{ file, imported: true }] });
+    install(importFiles);
+    const onComplete = vi.fn();
+    const { result } = renderHook(() => useFileImportService({ onComplete }));
+    await act(() =>
+      result.current.importFiles(
+        new Set(['root:note.txt']),
+        [],
+        { 'root:note.txt': 'hello' },
+        'collection'
+      )
+    );
+    expect(importFiles).toHaveBeenCalledWith({
+      embeddingSetId: 'collection',
+      files: [{ content: 'hello', name: 'note.txt', path: 'note.txt', size: 5 }],
+    });
+    expect(onComplete).toHaveBeenCalledWith([
+      { chunksCreated: 0, existed: false, id: file.fileId, imported: true },
+    ]);
+    expect(mockBulkImport).not.toHaveBeenCalled();
+  });
+  it('retains committed import success while showing unavailable indexing', async () => {
+    const importFiles = vi.fn<SourceFilesCapability['import']>().mockResolvedValue({
+      indexing: {
+        kind: 'pending',
+        reason: 'Select this collection in native indexing Settings.',
+      },
+      items: [{ file, imported: true }],
+    });
+    install(importFiles);
+    const onComplete = vi.fn();
+    const { result } = renderHook(() => useFileImportService({ onComplete }));
+    await act(() =>
+      result.current.importFiles(
+        new Set(['root:note.txt']),
+        [],
+        { 'root:note.txt': 'hello' },
+        'collection'
+      )
+    );
+    expect(onComplete).toHaveBeenCalledWith([
+      {
+        chunksCreated: 0,
+        error: 'Select this collection in native indexing Settings.',
+        existed: false,
+        id: file.fileId,
+        imported: true,
+      },
+    ]);
+    expect(result.current.progress?.errors).toEqual([
+      { error: 'Select this collection in native indexing Settings.', file: 'note.txt' },
+    ]);
+    expect(mockBulkImport).not.toHaveBeenCalled();
+  });
+  it('reports native failure without trying the SQL importer', async () => {
+    const failure = new Error('source writer refused');
+    install(vi.fn<SourceFilesCapability['import']>().mockRejectedValue(failure));
+    const onError = vi.fn();
+    const { result } = renderHook(() => useFileImportService({ onError }));
+    await act(() =>
+      result.current.importFiles(
+        new Set(['root:note.txt']),
+        [],
+        { 'root:note.txt': 'hello' },
+        'collection'
+      )
+    );
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ cause: failure }));
+    expect(mockBulkImport).not.toHaveBeenCalled();
   });
 });

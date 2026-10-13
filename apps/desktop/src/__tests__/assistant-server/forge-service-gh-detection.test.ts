@@ -1,3 +1,4 @@
+import type { ForgeCachePort } from '@brainstrike/state-store';
 /**
  * `requireGh` behavior: gh install/auth detection, session memoization, the
  * R2 probe-rate bound, and R3's never-reject settlement. Split out of
@@ -5,8 +6,8 @@
  * keep both files under the repo's file-size guidance.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ForgeCacheReplySchema } from '../../agent-host-platform/worktree-forge-store';
 import type { ForgeCommandRun, ForgeCommandRunner } from '../../assistant-server/forge-gh-client';
-import type { ForgeCacheDatabase } from '../../assistant-server/forge-pr-cache';
 import {
   createForgeService,
   FORGE_AUTH_FAILURE_TTL_MS,
@@ -59,30 +60,17 @@ function resolver(
 }
 
 /** In-memory stand-in for `brainstrike_forge_prs`, keyed like the real PK. */
-function fakeDatabase(): ForgeCacheDatabase & {
-  readonly rows: Map<string, Record<string, unknown>>;
-} {
-  const rows = new Map<string, Record<string, unknown>>();
+function fakeDatabase(): ForgeCachePort & { readonly rows: Map<string, unknown> } {
+  const rows = new Map<string, unknown>();
   return {
-    query: async (sql: string, params: unknown[] = []) => {
-      const key = `${String(params[0])}\0${String(params[1])}`;
-      if (sql.includes('SELECT')) {
-        const row = rows.get(key);
-        return { rows: row ? [row] : [] };
+    forgeCache: async (request) => {
+      const key = `${request.repoCommonDir}\0${request.branch}`;
+      if (request.operation === 'write') {
+        rows.set(key, { observedAt: request.observedAt, pullRequest: request.pullRequest });
       }
-      rows.set(key, {
-        checksJson: params[8],
-        headSha: params[9],
-        isDraft: params[6],
-        number: params[2],
-        observedAt: params[10],
-        reviewDecision: params[7],
-        state: params[5],
-        title: params[4],
-        url: params[3],
-      });
-      return { rows: [] };
+      return ForgeCacheReplySchema.parse({ entry: rows.get(key) ?? null });
     },
+    forgeCacheSnapshot: async () => [],
     rows,
   };
 }
@@ -117,7 +105,7 @@ describe('createForgeService — gh detection/auth probing (requireGh)', () => {
   it('promotes an unlabelled enterprise host once gh authenticates for it', async () => {
     const run = ghRunner(HEALTHY_GH);
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver({ remoteUrl: 'git@git.acme.internal:acme/widgets.git' }),
@@ -138,7 +126,7 @@ describe('createForgeService — gh detection/auth probing (requireGh)', () => {
       stdout: '',
     }));
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -160,7 +148,7 @@ describe('createForgeService — gh detection/auth probing (requireGh)', () => {
       stdout: '',
     }));
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -178,7 +166,7 @@ describe('createForgeService — gh detection/auth probing (requireGh)', () => {
         : (HEALTHY_GH['--version'] as ForgeCommandRun)
     );
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -195,7 +183,7 @@ describe('createForgeService — gh detection/auth probing (requireGh)', () => {
         : (HEALTHY_GH['--version'] as ForgeCommandRun)
     );
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -214,7 +202,7 @@ describe('createForgeService — gh detection/auth probing (requireGh)', () => {
         : (HEALTHY_GH['--version'] as ForgeCommandRun)
     );
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -241,7 +229,7 @@ describe('createForgeService — gh detection/auth probing (requireGh)', () => {
       return HEALTHY_GH['--version'] as ForgeCommandRun;
     });
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -271,7 +259,7 @@ describe('createForgeService — gh detection/auth probing (requireGh)', () => {
       return HEALTHY_GH['--version'] as ForgeCommandRun;
     });
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -288,7 +276,7 @@ describe('createForgeService — gh detection/auth probing (requireGh)', () => {
   it('does not re-probe a cached successful auth on window/invalidation refreshes', async () => {
     const run = ghRunner(HEALTHY_GH);
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),

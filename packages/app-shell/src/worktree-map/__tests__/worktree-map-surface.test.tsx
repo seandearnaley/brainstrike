@@ -511,7 +511,9 @@ describe('WorktreeMapSurface', () => {
       renameThread: vi.fn(),
       renderThread: vi.fn(),
       updateThreadBinding: vi.fn(),
-      workspaceRepository: (repository) => repository,
+      workspaceRepository: () => {
+        throw new Error('Unexpected workspace snapshot access in this fixture');
+      },
     };
     // The store action creates through whatever repository it is handed.
     createThreadMock.mockImplementation(

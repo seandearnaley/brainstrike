@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SnapshotService } from '../../assistant-server/snapshot-service';
-import type { getDatabase } from '../../db-main';
 import { startSnapshotStartupMaintenance } from '../../main/snapshot-lifecycle';
 
 const mocks = vi.hoisted(() => ({
@@ -19,7 +18,7 @@ vi.mock('../../assistant-server/thread-run-startup-reaper', () => ({
   reapOrphanedThreadRuns: mocks.reap,
 }));
 
-const startedAt = new Date('2026-09-25T00:00:00.000Z');
+const readHostThreadRows = async () => [];
 const readHostThreadIds = async (): Promise<ReadonlySet<string>> => new Set(['host-thread']);
 const snapshotsBaseDir = '/profile/snapshots';
 
@@ -31,16 +30,12 @@ function setup() {
       return { kept: ['root-1'], removed: ['root-2'] };
     }),
   } as unknown as SnapshotService;
-  const database = {
-    query: vi.fn(async () => {
+  const workspaceRoots = {
+    workspaceRoots: vi.fn(async () => {
       events.push('roots');
-      return { rows: [{ id: 'root-1', path: '/workspace' }] };
+      return { roots: [{ id: 'root-1', path: '/workspace' }] };
     }),
   };
-  const getCurrentDatabase = vi.fn(async () => {
-    events.push('database');
-    return database;
-  }) as unknown as typeof getDatabase;
   const logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
   mocks.createRepository.mockReturnValue({});
   mocks.reap.mockImplementation(async () => {
@@ -59,71 +54,61 @@ function setup() {
       skippedInaccessibleRoots: [],
     };
   });
-  return { database, events, getCurrentDatabase, logger, service };
+  return { events, logger, service, workspaceRoots };
 }
 
 describe('snapshot startup lifecycle', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('starts ordered maintenance without blocking its caller', async () => {
-    const { database, events, getCurrentDatabase, logger, service } = setup();
+    const { workspaceRoots, events, logger, service } = setup();
     const returned = startSnapshotStartupMaintenance({
-      getDatabase: getCurrentDatabase,
       logger,
-      mainProcessStartedAt: startedAt,
       readHostThreadIds,
+      readHostThreadRows,
       snapshotService: service,
       snapshotsBaseDir,
+      workspaceRoots: workspaceRoots as never,
     });
 
     expect(returned).toBeUndefined();
     expect(mocks.gc).not.toHaveBeenCalled();
-    await vi.waitFor(() => expect(events).toEqual(['database', 'reap', 'roots', 'sweep', 'gc']));
-    expect(mocks.reap).toHaveBeenCalledWith(database, startedAt);
-    expect(database.query).toHaveBeenCalledWith('SELECT id, path FROM roots');
+    await vi.waitFor(() => expect(events).toEqual(['roots', 'sweep', 'gc']));
+    expect(mocks.reap).not.toHaveBeenCalled();
+    expect(workspaceRoots.workspaceRoots).toHaveBeenCalledWith({ operation: 'list' });
     expect(service.sweepOrphans).toHaveBeenCalledWith(snapshotsBaseDir, ['root-1']);
     expect(mocks.gc).toHaveBeenCalledWith({
-      db: database,
       liveRoots: [{ path: '/workspace', rootId: 'root-1' }],
       readHostThreadIds,
+      readHostThreadRows,
       readThreadChain: expect.any(Function),
-      snapshotRepository: expect.any(Object),
       snapshotService: service,
     });
-    expect(mocks.createRepository).toHaveBeenCalledWith(database);
+    expect(mocks.createRepository).not.toHaveBeenCalled();
     expect(logger.info).toHaveBeenCalledWith(
       'Workspace snapshot startup GC completed',
       expect.objectContaining({ failures: 0 })
     );
   });
 
-  it('logs a failed reap and still sweeps and runs GC', async () => {
-    const { events, getCurrentDatabase, logger, service } = setup();
-    const error = new Error('reap failed');
-    mocks.reap.mockImplementation(async () => {
-      events.push('reap');
-      throw error;
-    });
-
+  it('does not invoke retired database reaping during host-owned maintenance', async () => {
+    const { workspaceRoots, events, logger, service } = setup();
+    mocks.reap.mockRejectedValue(new Error('retired database owner'));
     startSnapshotStartupMaintenance({
-      getDatabase: getCurrentDatabase,
       logger,
-      mainProcessStartedAt: startedAt,
       readHostThreadIds,
+      readHostThreadRows,
       snapshotService: service,
       snapshotsBaseDir,
+      workspaceRoots: workspaceRoots as never,
     });
-
-    await vi.waitFor(() => expect(events).toEqual(['database', 'reap', 'roots', 'sweep', 'gc']));
-    expect(logger.error).toHaveBeenCalledWith('Startup thread-run reap failed', { error });
-    expect(logger.error).not.toHaveBeenCalledWith(
-      'Workspace snapshot orphan sweep failed',
-      expect.anything()
-    );
+    await vi.waitFor(() => expect(events).toEqual(['roots', 'sweep', 'gc']));
+    expect(mocks.reap).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
   });
 
   it('reports GC item failures without stopping the summary', async () => {
-    const { getCurrentDatabase, logger, service } = setup();
+    const { workspaceRoots, logger, service } = setup();
     const failure = { reason: 'unavailable' };
     mocks.gc.mockResolvedValue({
       deadThreadsPruned: [],
@@ -136,12 +121,12 @@ describe('snapshot startup lifecycle', () => {
     });
 
     startSnapshotStartupMaintenance({
-      getDatabase: getCurrentDatabase,
       logger,
-      mainProcessStartedAt: startedAt,
       readHostThreadIds,
+      readHostThreadRows,
       snapshotService: service,
       snapshotsBaseDir,
+      workspaceRoots: workspaceRoots as never,
     });
 
     await vi.waitFor(() =>
@@ -156,17 +141,14 @@ describe('snapshot startup lifecycle', () => {
     });
   });
 
-  it.each(['database', 'roots', 'sweep', 'gc'] as const)(
+  it.each(['roots', 'sweep', 'gc'] as const)(
     'reports a %s failure through the original outer catch and stops later stages',
     async (stage) => {
-      const { database, getCurrentDatabase, logger, service } = setup();
+      const { workspaceRoots, logger, service } = setup();
       const error = new Error(`${stage} failed`);
       switch (stage) {
-        case 'database':
-          vi.mocked(getCurrentDatabase).mockRejectedValue(error);
-          break;
         case 'roots':
-          database.query.mockRejectedValue(error);
+          workspaceRoots.workspaceRoots.mockRejectedValue(error);
           break;
         case 'sweep':
           vi.mocked(service.sweepOrphans).mockRejectedValue(error);
@@ -177,12 +159,12 @@ describe('snapshot startup lifecycle', () => {
       }
 
       startSnapshotStartupMaintenance({
-        getDatabase: getCurrentDatabase,
         logger,
-        mainProcessStartedAt: startedAt,
         readHostThreadIds,
+        readHostThreadRows,
         snapshotService: service,
         snapshotsBaseDir,
+        workspaceRoots: workspaceRoots as never,
       });
 
       await vi.waitFor(() =>
@@ -191,10 +173,7 @@ describe('snapshot startup lifecycle', () => {
           snapshotsBaseDir,
         })
       );
-      if (stage === 'database') {
-        expect(mocks.reap).not.toHaveBeenCalled();
-      }
-      if (stage === 'database' || stage === 'roots') {
+      if (stage === 'roots') {
         expect(service.sweepOrphans).not.toHaveBeenCalled();
       }
       if (stage !== 'gc') {

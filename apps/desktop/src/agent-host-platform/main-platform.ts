@@ -60,9 +60,12 @@ export interface DesktopPlatformCapabilities {
   readonly mcp: DesktopMcpPlatformCapabilities;
   /** ADR-0017: Main's supervisor of the native processes the host reports starting. */
   readonly nativeChildren?: NativeChildObserver;
+  refreshWorkspaceIndex?(rootId: string): Promise<void>;
   /** The live path of a mounted profile root; rejects an unknown root. */
   resolveWorkspaceRoot?(rootId: string): Promise<string>;
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
+  /** Private Main-to-writer borrow on this same generation's platform connection. */
+  readonly workspaceRoots?: { attach(connection: MessageConnection): () => void };
   /** Legacy turns' shadow-git owner, which also snapshots each host run's turn. */
   readonly workspaceSnapshots?: DesktopWorkspaceSnapshots;
 }

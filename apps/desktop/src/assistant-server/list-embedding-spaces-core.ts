@@ -130,6 +130,9 @@ export async function runListEmbeddingSpacesWith(
       modelKey: listing.modelKey,
       name: listing.name,
       nativeSearchAuthorized: isWorkspaceIndex,
+      ...(listing.statsUnavailableReason && !isWorkspaceIndex
+        ? { statsUnavailableReason: listing.statsUnavailableReason }
+        : {}),
       recommendedForWorkspaceSearch: isWorkspaceIndex,
     };
     if (isWorkspaceIndex) {

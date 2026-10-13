@@ -1,5 +1,5 @@
 import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
-import type { EmbeddingSet } from '@brainstrike/db';
+import type { EmbeddingSet, IEmbeddingSetsRepository } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
 import {
   Button,
@@ -11,16 +11,15 @@ import {
   DialogTitle,
   useToast,
 } from '@brainstrike/ui';
-import type { PGlite } from '@electric-sql/pglite';
 import { useState } from 'react';
 import { dispatchEmbeddingSetUpdated } from '../collection-select/embedding-set-events';
 
 interface DeleteEmbeddingSetDialogProps {
-  db: PGlite | null;
   embeddingSet: (EmbeddingSet & { chunkCount: number }) | null;
   onOpenChange: (open: boolean) => void;
   onSetDeleted?: (setId: string) => void;
   open: boolean;
+  repository: Pick<IEmbeddingSetsRepository, 'delete'> | null;
 }
 
 const logger = createLogger('DeleteEmbeddingSetDialog');
@@ -28,7 +27,7 @@ const logger = createLogger('DeleteEmbeddingSetDialog');
 export function DeleteEmbeddingSetDialog({
   open,
   onOpenChange,
-  db,
+  repository,
   embeddingSet,
   onSetDeleted,
 }: DeleteEmbeddingSetDialogProps) {
@@ -38,7 +37,7 @@ export function DeleteEmbeddingSetDialog({
   const removeCachedCollection = useVectorStatusUIStore((s) => s.removeCachedCollection);
 
   const handleDelete = async () => {
-    if (!(db && embeddingSet)) {
+    if (!(repository && embeddingSet)) {
       toast({
         description: 'Invalid configuration',
         title: 'Error',
@@ -52,11 +51,7 @@ export function DeleteEmbeddingSetDialog({
 
     setDeleting(true);
     try {
-      // Delete all chunks associated with this collection
-      await db.query('DELETE FROM file_chunks WHERE embedding_set_id = $1', [collectionId]);
-
-      // Delete the collection itself
-      await db.query('DELETE FROM embedding_sets WHERE id = $1', [collectionId]);
+      await repository.delete(collectionId);
 
       // Immediately update the Zustand cache to remove the deleted collection
       // This ensures UI updates instantly without waiting for live query refresh

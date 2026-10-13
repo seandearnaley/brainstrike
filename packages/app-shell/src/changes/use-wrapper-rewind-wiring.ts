@@ -4,9 +4,6 @@
  * source-file budget. This hook owns every rewind-adjacent fact the wrapper
  * reports and every rewind-adjacent input it forwards:
  *
- *   - finalization: composes `useRewindFinalization` around the wrapper's
- *     `prepareRequestData` seam and re-exposes `markUserAuthoredSend` for the
- *     composer's `onThreadRunStart`;
  *   - re-hydration: reads the rewind generation counter the panel uses as its
  *     `historyGeneration` key — rationale in `rewind-store.ts`'s own doc;
  *   - the standing "Last Turn" identity and the live mid-run refresh,
@@ -25,7 +22,6 @@ import { useCallback } from 'react';
 import { useChangesNavigationStore } from './changes-navigation-store';
 import { useRewindStore } from './rewind-store';
 import { useLastTurnFollower } from './use-last-turn-follower';
-import { type UseRewindFinalizationArgs, useRewindFinalization } from './use-rewind-finalization';
 
 /**
  * Matches the manageCanvas tool in BOTH wire forms — the dotted id on the
@@ -40,18 +36,12 @@ function isManageCanvasToolName(value: unknown): boolean {
 }
 
 export interface UseWrapperRewindWiringArgs {
-  /** The wrapper's raw run-creation seam. Returned wrapped, never replaced. */
-  readonly prepareRequestData: UseRewindFinalizationArgs['prepareRequestData'];
   readonly threadId: string | undefined;
 }
 
 export interface UseWrapperRewindWiringResult {
   /** Wire to the panel's `onRunEditActivity` seam. */
   readonly handleRunEditActivity: (event: AssistantRunEvent) => void;
-  /** Wire to the composer's submit (`onThreadRunStart`). Arms the next run. */
-  readonly markUserAuthoredSend: () => void;
-  /** `prepareRequestData` with rewind finalization composed after run creation. */
-  readonly prepareRequestData: UseRewindFinalizationArgs['prepareRequestData'];
   /**
    * Call from the wrapper's run-finished/run-failed callbacks to advance the
    * standing identity to the run that just reached a terminal state.
@@ -62,14 +52,8 @@ export interface UseWrapperRewindWiringResult {
 }
 
 export function useWrapperRewindWiring({
-  prepareRequestData,
   threadId,
 }: UseWrapperRewindWiringArgs): UseWrapperRewindWiringResult {
-  // Conversation Rewind finalization (BST-1115 W5 T4b): the hook owns the
-  // whole trigger (composer submit AND run creation, plus the failure
-  // surfacing) and hands back `prepareRequestData` with it composed in.
-  const { markUserAuthoredSend, prepareRequestData: prepareRequestDataWithFinalization } =
-    useRewindFinalization({ prepareRequestData, threadId });
   // Re-hydration after a rewind (BST-1115) — rationale in the store's own doc.
   const rewindGeneration = useRewindStore((state) => state.generation);
 
@@ -134,8 +118,6 @@ export function useWrapperRewindWiring({
 
   return {
     handleRunEditActivity,
-    markUserAuthoredSend,
-    prepareRequestData: prepareRequestDataWithFinalization,
     publishTerminalRunIdentity,
     rewindGeneration,
   };

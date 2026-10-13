@@ -368,19 +368,13 @@ export async function enableAssistantCatalogModel(
   const model = compositeModelKey.slice(separator + 2);
   const rows = await page.evaluate(
     async ([providerId, modelId]) => {
-      const db = window.electronAPI?.db;
-      if (!db) {
-        throw new Error('The ordinary desktop catalog DB bridge is unavailable');
+      const catalog = window.modelCatalog;
+      if (!catalog) {
+        throw new Error('The desktop model catalog capability is unavailable');
       }
-      await db.query('UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2', [
-        modelId,
-        providerId,
-      ]);
-      const after = await db.query(
-        'SELECT id, provider_id AS "providerId", is_enabled AS "isEnabled" FROM models WHERE id = $1 AND provider_id = $2',
-        [modelId, providerId]
-      );
-      return after.rows as readonly Record<string, unknown>[];
+      await catalog.setModels([modelId], true);
+      const after = await catalog.read();
+      return after.models.filter((row) => row.id === modelId && row.providerId === providerId);
     },
     [provider, model] as const
   );

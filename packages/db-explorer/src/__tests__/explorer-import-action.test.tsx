@@ -13,7 +13,7 @@ import { dispatchEmbeddingSetUpdated } from '@brainstrike/utils/browser-events';
 import { act, render as renderComponent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExplorerImportAction } from '../components/explorer-import-action';
 import {
   __resetImportActivitySnapshotForTests,
@@ -24,6 +24,7 @@ const {
   mockCollections,
   mockCollectionsFetchError,
   mockDatabase,
+  mockUsePGliteDatabase,
   mockImportFiles,
   mockImportServiceState,
   mockRefreshCollectionIndexingStats,
@@ -44,6 +45,7 @@ const {
   },
   mockRefreshCollectionIndexingStats: vi.fn().mockResolvedValue(undefined),
   mockSelectedFilePaths: { current: new Set<string>() },
+  mockUsePGliteDatabase: vi.fn(),
   mockUseSelectionActionBarPin: vi.fn(),
 }));
 
@@ -60,7 +62,7 @@ vi.mock('@brainstrike/db/react', async (importOriginal) => {
   return {
     ...actual,
     useEmbeddingSetsRepository: () => ({}),
-    usePGliteDatabase: () => mockDatabase,
+    usePGliteDatabase: mockUsePGliteDatabase,
   };
 });
 
@@ -228,7 +230,10 @@ async function reopenPicker(): Promise<HTMLElement> {
   return await screen.findByTestId('explorer-import-picker');
 }
 
+afterEach(() => vi.unstubAllGlobals());
+
 beforeEach(() => {
+  mockUsePGliteDatabase.mockReset().mockReturnValue(mockDatabase);
   __resetImportActivitySnapshotForTests();
   mockCollectionsFetchError.current = null;
   __resetVectorStatusUIStoreForTests();
@@ -623,4 +628,26 @@ describe('ExplorerImportAction', () => {
       expect(useVectorStatusUIStore.getState().activeEmbeddingSetId).toBe('created-set-id');
     });
   });
+});
+
+it('refreshes the native collection projection after import without acquiring or refreshing SQL', async () => {
+  vi.stubGlobal('sourceFiles', { import: vi.fn() });
+  mockUsePGliteDatabase.mockImplementation((options) => {
+    if (options?.enabled !== false) {
+      throw new Error('Desktop must not initialize PG');
+    }
+    return null;
+  });
+  const user = userEvent.setup();
+  const picker = await openPicker();
+  await user.click(within(picker).getByRole('option', { name: /Collection docs/ }));
+  await user.click(
+    within(picker).getByRole('button', { name: 'Import 2 files into the selected collection' })
+  );
+  mockCollections.current = [collection({ chunkCount: 12, fileCount: 4, id: 'docs' })];
+  await act(async () => {
+    await mockImportServiceState.emitComplete?.([]);
+  });
+  expect(mockRefreshCollectionIndexingStats).not.toHaveBeenCalled();
+  expect(useVectorStatusUIStore.getState().cachedCollections).toEqual(mockCollections.current);
 });

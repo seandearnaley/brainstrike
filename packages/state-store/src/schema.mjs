@@ -1,3 +1,8 @@
+import { COLLECTION_SCHEMA } from './collection-domain.mjs';
+import { MODEL_CHOICE_SCHEMA } from './model-choice-domain.mjs';
+import { PROMPT_CATALOG_SCHEMA } from './prompt-catalog-domain.mjs';
+import { THREAD_GROUPS_SCHEMA } from './thread-groups-domain.mjs';
+import { seedViewFilterPresets, VIEW_FILTER_PRESET_SCHEMA } from './view-filter-preset-domain.mjs';
 // @ts-check
 // The state DB schema and its upgrader. `PRAGMA user_version` is the schema version; `UPGRADES[v - 1]` takes the DB from
 // version v - 1 to v in one transaction, so a crash mid-upgrade leaves the previous version intact. Version 1 holds:
@@ -12,8 +17,10 @@
 import { AUTHORITATIVE_SCHEMA } from './authoritative-schema.mjs';
 import { MCP_TASK_THREAD_SCHEMA } from './mcp-task-domain.mjs';
 import { MEMORY_SCHEMA } from './memory-domain.mjs';
+import { SOURCE_CATALOG_SCHEMA } from './source-catalog-domain.mjs';
+import { WORKSPACE_ROOT_SCHEMA } from './workspace-root-domain.mjs';
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 13;
 
 const V1 = `
   CREATE TABLE IF NOT EXISTS run_events (
@@ -55,6 +62,13 @@ export const UPGRADES = [
   ALTER TABLE run_events ADD COLUMN hydrate INTEGER NOT NULL DEFAULT 1 CHECK (hydrate IN (0, 1));
   CREATE INDEX run_events_hydrate ON run_events (thread_id, seq) WHERE hydrate = 1;
 `,
+  WORKSPACE_ROOT_SCHEMA,
+  SOURCE_CATALOG_SCHEMA,
+  MODEL_CHOICE_SCHEMA,
+  COLLECTION_SCHEMA,
+  VIEW_FILTER_PRESET_SCHEMA,
+  THREAD_GROUPS_SCHEMA,
+  PROMPT_CATALOG_SCHEMA,
 ];
 
 /**
@@ -76,6 +90,9 @@ export function migrate(db) {
     }
     db.transaction(() => {
       db.exec(sql);
+      if (next === 11) {
+        seedViewFilterPresets(db);
+      }
       db.pragma(`user_version = ${next}`);
     })();
   }

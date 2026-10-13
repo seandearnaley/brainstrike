@@ -17,8 +17,8 @@ it('loads a newly added home persona using the production secure filesystem scan
     );
     const result = await listUserPersonas({
       fs,
-      getDatabase: async () => null,
       homedir: () => root,
+      workspaceRoots: { workspaceRoots: async () => ({ roots: [] }) },
     });
     expect(result.personas.find((persona) => persona.id === 'home-scan-proof')).toMatchObject({
       mode: 'worker',

@@ -5,7 +5,6 @@ import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-hel
 import {
   applyManagedCacheBatchMock,
   browserWindowMock,
-  closeDatabaseMock,
   createAuthorizedDbEvent,
   createCorruptionError,
   createFakeLiveQueryOwner,
@@ -22,9 +21,7 @@ import {
   loggerWarn,
   mockDb,
   resetDatabaseIpcHandlerMocks,
-  resetDesktopApplicationDataMock,
   resetLocalDatabaseMock,
-  storageClearMock,
 } from './ipc-handlers-db-test-fixture';
 
 function setBrowserWindows(...senders: unknown[]): void {
@@ -56,7 +53,7 @@ describe('database IPC handlers', () => {
 
   it('waits for scheduled desktop database work to drain before shutdown', async () => {
     const { runDesktopScheduledDatabaseWork, waitForDesktopDatabaseWorkSchedulerIdle } =
-      await import('../../ipc-handlers');
+      await import('../../platform/desktop-database-work');
 
     let releaseWork: (() => void) | null = null;
     const workStarted = new Promise<void>((resolve) => {
@@ -98,7 +95,7 @@ describe('database IPC handlers', () => {
       runDesktopScheduledDatabaseWork,
       runWithDesktopDatabaseResetBarrier,
       waitForDesktopDatabaseWorkSchedulerIdle,
-    } = await import('../../ipc-handlers');
+    } = await import('../../platform/desktop-database-work');
 
     let releaseReset: (() => void) | null = null;
     let resetBarrierPromise: Promise<void> | null = null;
@@ -259,7 +256,9 @@ describe('database IPC handlers', () => {
   it('schedules foreground db:query before queued background work during the quiet window', async () => {
     vi.useFakeTimers();
     try {
-      const { resetDesktopDatabaseWorkSchedulerForTests } = await import('../../ipc-handlers');
+      const { resetDesktopDatabaseWorkSchedulerForTests } = await import(
+        '../../platform/desktop-database-work'
+      );
       let now = 1000;
       resetDesktopDatabaseWorkSchedulerForTests({ foregroundQuietMs: 50, now: () => now });
       const handler = handlers.get('db:query');
@@ -299,7 +298,9 @@ describe('database IPC handlers', () => {
   it('defaults db:query calls from the embedding host to background priority', async () => {
     vi.useFakeTimers();
     try {
-      const { resetDesktopDatabaseWorkSchedulerForTests } = await import('../../ipc-handlers');
+      const { resetDesktopDatabaseWorkSchedulerForTests } = await import(
+        '../../platform/desktop-database-work'
+      );
       let now = 1000;
       resetDesktopDatabaseWorkSchedulerForTests({ foregroundQuietMs: 50, now: () => now });
       const handler = handlers.get('db:query');
@@ -388,7 +389,9 @@ describe('database IPC handlers', () => {
   it('schedules db:managed-cache:apply-batch as background when requested', async () => {
     vi.useFakeTimers();
     try {
-      const { resetDesktopDatabaseWorkSchedulerForTests } = await import('../../ipc-handlers');
+      const { resetDesktopDatabaseWorkSchedulerForTests } = await import(
+        '../../platform/desktop-database-work'
+      );
       let now = 1000;
       resetDesktopDatabaseWorkSchedulerForTests({ foregroundQuietMs: 50, now: () => now });
       const batchHandler = handlers.get('db:managed-cache:apply-batch');
@@ -486,7 +489,9 @@ describe('database IPC handlers', () => {
   it('schedules db:managed-cache:invalidate-by-identity as background when requested', async () => {
     vi.useFakeTimers();
     try {
-      const { resetDesktopDatabaseWorkSchedulerForTests } = await import('../../ipc-handlers');
+      const { resetDesktopDatabaseWorkSchedulerForTests } = await import(
+        '../../platform/desktop-database-work'
+      );
       let now = 1000;
       resetDesktopDatabaseWorkSchedulerForTests({ foregroundQuietMs: 50, now: () => now });
       const invalidationHandler = handlers.get('db:managed-cache:invalidate-by-identity');
@@ -594,7 +599,7 @@ describe('database IPC handlers', () => {
     }
     subscribedListener({ rows: [{ id: 2 }] });
     // Live query updates are dedup+batched; flush to deliver pending sends.
-    const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
+    const { flushPendingLiveUpdates } = await import('../../ipc-domains/db-ipc');
     setBrowserWindows(sender);
     flushPendingLiveUpdates();
     expect(sender.send).toHaveBeenCalledWith('db:live-query:update', {
@@ -945,64 +950,14 @@ describe('database IPC handlers', () => {
     expect(currentIntegrityState()).toEqual({ kind: 'healthy' });
   });
 
-  it('db:resetLocal delegates desktop application data reset and returns errors', async () => {
+  it('retained db:resetLocal delegates to its database owner and reports failure', async () => {
     const handler = handlers.get('db:resetLocal');
     if (!handler) {
       throw new Error('handler not registered');
     }
-
-    resetDesktopApplicationDataMock.mockResolvedValueOnce({
-      deletedPaths: [],
-      pendingDeletionPaths: [],
-      preservedPaths: [],
-    });
     await expect(handler(createAuthorizedDbEvent())).resolves.toEqual({ success: true });
-    expect(storageClearMock).toHaveBeenCalledOnce();
-    expect(resetDesktopApplicationDataMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        resetDatabaseProfile: expect.any(Function),
-        stopBackgroundRuntimes: expect.any(Function),
-        userDataPath: expect.any(String),
-      })
-    );
-    const typedResetMock = resetDesktopApplicationDataMock as unknown as Mock<
-      (options: { resetDatabaseProfile?: () => Promise<void> }) => Promise<unknown>
-    >;
-    const resetOptions = typedResetMock.mock.calls[0]?.[0];
-    if (typeof resetOptions?.resetDatabaseProfile !== 'function') {
-      throw new Error('resetDatabaseProfile callback was not passed to desktop reset');
-    }
-    const { runDesktopScheduledDatabaseWork } = await import('../../ipc-handlers');
-    let releaseWork: (() => void) | null = null;
-    const workStarted = new Promise<void>((resolve) => {
-      void runDesktopScheduledDatabaseWork(
-        { label: 'reset-drain-test', priority: 'normal' },
-        async () => {
-          resolve();
-          await new Promise<void>((release) => {
-            releaseWork = release;
-          });
-        }
-      );
-    });
-    await workStarted;
-
-    const resetProfilePromise = resetOptions.resetDatabaseProfile();
-    await Promise.resolve();
-    expect(resetLocalDatabaseMock).not.toHaveBeenCalled();
-    if (!releaseWork) {
-      throw new Error('Scheduled database work did not expose a release callback.');
-    }
-    const release: unknown = releaseWork;
-    if (typeof release !== 'function') {
-      throw new Error('Expected scheduled database work release callback.');
-    }
-    release();
-    await resetProfilePromise;
-    expect(resetLocalDatabaseMock).toHaveBeenCalledTimes(1);
-    expect(closeDatabaseMock).not.toHaveBeenCalled();
-
-    resetDesktopApplicationDataMock.mockRejectedValueOnce(new Error('fail reset'));
+    expect(resetLocalDatabaseMock).toHaveBeenCalledOnce();
+    resetLocalDatabaseMock.mockRejectedValueOnce(new Error('fail reset'));
     await expect(handler(createAuthorizedDbEvent())).resolves.toEqual({
       message: 'fail reset',
       success: false,
@@ -1512,7 +1467,7 @@ describe('database IPC handlers', () => {
     }
 
     it('keeps live-query subscriptions attached across background and foreground transitions', async () => {
-      const { setBackgrounded } = await import('../../ipc-handlers');
+      const { setBackgrounded } = await import('../../ipc-domains/db-ipc');
       const { liveHandle } = await setupLiveQuery();
 
       // subscribe called once during setup
@@ -1530,7 +1485,7 @@ describe('database IPC handlers', () => {
     });
 
     it('does not pause when setBackgrounded(false) is called while already foregrounded', async () => {
-      const { setBackgrounded } = await import('../../ipc-handlers');
+      const { setBackgrounded } = await import('../../ipc-domains/db-ipc');
       const { liveHandle } = await setupLiveQuery();
 
       // Already foregrounded — setting false again should not re-subscribe
@@ -1540,7 +1495,7 @@ describe('database IPC handlers', () => {
     });
 
     it('does not re-pause when setBackgrounded(true) is called while already backgrounded', async () => {
-      const { setBackgrounded } = await import('../../ipc-handlers');
+      const { setBackgrounded } = await import('../../ipc-domains/db-ipc');
       const { liveHandle } = await setupLiveQuery();
 
       setBackgrounded(true);
@@ -1555,7 +1510,7 @@ describe('database IPC handlers', () => {
     });
 
     it('does not call unsubscribe during background pause', async () => {
-      const { setBackgrounded } = await import('../../ipc-handlers');
+      const { setBackgrounded } = await import('../../ipc-domains/db-ipc');
       const { liveHandle } = await setupLiveQuery();
 
       liveHandle.unsubscribe.mockReturnValue(Promise.reject(new Error('pause failed')));
@@ -1573,7 +1528,7 @@ describe('database IPC handlers', () => {
     });
 
     it('does not call subscribe again during foreground resume', async () => {
-      const { setBackgrounded } = await import('../../ipc-handlers');
+      const { setBackgrounded } = await import('../../ipc-domains/db-ipc');
       const { liveHandle } = await setupLiveQuery();
 
       setBackgrounded(true);
@@ -1590,7 +1545,7 @@ describe('database IPC handlers', () => {
     });
 
     it('cleans up subscriptions when a backgrounded owner window is no longer available', async () => {
-      const { setBackgrounded } = await import('../../ipc-handlers');
+      const { setBackgrounded } = await import('../../ipc-domains/db-ipc');
       const { listener, liveHandle, sender } = await setupLiveQuery();
       const getAllWindowsMock = vi.mocked(browserWindowMock.getAllWindows);
 
@@ -1607,7 +1562,7 @@ describe('database IPC handlers', () => {
     });
 
     it('cleans up subscriptions when foreground sends fail because the render frame was disposed', async () => {
-      const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
+      const { flushPendingLiveUpdates } = await import('../../ipc-domains/db-ipc');
       const { listener, liveHandle, sender } = await setupLiveQuery();
       sender.send.mockImplementation(() => {
         throw new Error('Render frame was disposed before WebFrameMain could be accessed');
@@ -1623,7 +1578,7 @@ describe('database IPC handlers', () => {
     });
 
     it('does not retry disposed-frame sends while owner cleanup is still in flight', async () => {
-      const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
+      const { flushPendingLiveUpdates } = await import('../../ipc-domains/db-ipc');
       const { listener, liveHandle, sender } = await setupLiveQuery();
       let resolveCleanup: (() => void) | null = null;
       const cleanupInFlight = new Promise<void>((resolve) => {
@@ -1653,7 +1608,7 @@ describe('database IPC handlers', () => {
     });
 
     it('logs unexpected send errors and continues flushing healthy subscriptions', async () => {
-      const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
+      const { flushPendingLiveUpdates } = await import('../../ipc-domains/db-ipc');
       const failingSender = createLiveQuerySender(60);
       const healthySender = createLiveQuerySender(61);
       const failingSubscription = await setupLiveQuery(failingSender);
@@ -1689,7 +1644,7 @@ describe('database IPC handlers', () => {
     });
 
     it('keeps the owner reaper attached when disposed-frame cleanup runs before webContents teardown', async () => {
-      const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
+      const { flushPendingLiveUpdates } = await import('../../ipc-domains/db-ipc');
       const handler = handlers.get('db:live-query:start');
       if (!handler) {
         throw new Error('handler not registered');
@@ -1744,7 +1699,7 @@ describe('database IPC handlers', () => {
 
     it('resets live-query module state during shutdown cleanup', async () => {
       const { cleanupDesktopLiveSubscriptionsForShutdown, setBackgrounded } = await import(
-        '../../ipc-handlers'
+        '../../ipc-domains/db-ipc'
       );
       const first = await setupLiveQuery(createLiveQuerySender(70));
 
@@ -1759,7 +1714,7 @@ describe('database IPC handlers', () => {
       second.listener({ rows: [{ id: 2 }] });
 
       setBrowserWindows(second.sender);
-      const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
+      const { flushPendingLiveUpdates } = await import('../../ipc-domains/db-ipc');
       flushPendingLiveUpdates();
 
       expect(second.sender.send).toHaveBeenCalledWith('db:live-query:update', {

@@ -1,14 +1,14 @@
-import { isSupportedProvider } from '@brainstrike/assistant-contract';
+import { isSupportedProvider, type ModelCatalogCapability } from '@brainstrike/assistant-contract';
 import { listEmbeddingModels } from '@brainstrike/assistant-contract/provider-metadata';
 import {
   type CatalogEmbeddingModel,
   decodeCatalogEmbeddingModel,
 } from '@brainstrike/indexing-contract';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
-import { z } from 'zod';
-import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
+import type { RetrievalStore } from '../assistant-server/retrieval-store';
+import { loadWorkspaceRootsFromCatalog } from '../assistant-server/workspace-roots';
 import type { DesktopWorktreeServices } from '../assistant-server/worktree-tool-dependencies';
-import { getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { desktopHostToolServices } from './desktop-host-tool-runtime';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
@@ -22,7 +22,10 @@ export type DesktopCliOwnerIntentReader = NonNullable<DesktopAdmissionReads['cli
 /** Main's tool services for host threads, resolved per run (the worktree services lazily). */
 export interface DesktopHostToolServices extends DesktopWorktreeServices {
   readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | undefined;
+  readonly modelCatalog: Pick<ModelCatalogCapability, 'read'>;
   readonly nativeIndexSearch?: IndexSearchCapability | undefined;
+  readonly retrievalStore: RetrievalStore;
+  readonly workspaceRoots: WorkspaceRootPort;
 }
 
 /** A hosted recall embedder's catalog dimensions, from the provider registry. */
@@ -36,19 +39,14 @@ function readHostedEmbeddingDimensions(provider: string, modelId: string): numbe
   return model.defaultDimension;
 }
 
-/** A local recall embedder's DB catalog row: its dimensions, pooling and pins (BST-1993). */
+/** A local recall embedder's facts are projected from the one canonical model catalog. */
 async function readLocalEmbeddingModel(
-  db: Awaited<ReturnType<typeof getDatabase>>,
+  catalog: Pick<ModelCatalogCapability, 'read'>,
   modelId: string
 ): Promise<CatalogEmbeddingModel> {
-  const result = await db.query(
-    'SELECT id, capabilities, parameters FROM models WHERE id = $1 AND provider_id = $2 LIMIT 1',
-    [modelId, 'local']
+  const row = (await catalog.read()).models.find(
+    (model) => model.id === modelId && model.providerId === 'local'
   );
-  const row = z
-    .object({ capabilities: z.unknown(), id: z.string(), parameters: z.unknown() })
-    .optional()
-    .parse(result.rows[0]);
   if (!row) {
     throw new Error(`Local embedding model "${modelId}" is not in the model catalog.`);
   }
@@ -84,15 +82,10 @@ function desktopAdmissionReads(
       return await workspaceAuthority.acquire(request);
     },
     catalogModel: async ({ model, provider }) => {
-      // The UI composite is a selection key. The existing catalog owns the pair.
-      const result = await (await getDatabase()).query(
-        'SELECT provider_id AS "providerId", is_enabled AS "isEnabled" FROM models WHERE id = $1 AND provider_id = $2',
-        [model, provider]
+      const row = (await dependencies.modelCatalog.read()).models.find(
+        (candidate) => candidate.id === model && candidate.providerId === provider
       );
-      const row = result.rows[0];
-      return row === undefined
-        ? null
-        : z.strictObject({ isEnabled: z.boolean(), providerId: z.string() }).parse(row);
+      return row ? { isEnabled: row.isEnabled, providerId: row.providerId } : null;
     },
     ...(readCliOwnerIntent ? { cliOwnerIntent: readCliOwnerIntent } : {}),
     /**
@@ -101,33 +94,29 @@ function desktopAdmissionReads(
      * dropdown applies (main's resolveEffectiveObservationalMemorySettings).
      */
     enabledObservers: async (candidates) => {
-      const pairs = candidates.map((candidate) => {
-        const separator = candidate.indexOf('/');
-        return { modelId: candidate.slice(separator + 1), provider: candidate.slice(0, separator) };
-      });
-      const result = await (await getDatabase()).query(
-        `SELECT m.provider_id AS "providerId", m.id AS "modelId"
-           FROM models m JOIN providers p ON p.id = m.provider_id
-          WHERE p.is_enabled = true AND m.is_enabled = true
-            AND (m.capabilities::jsonb)->>'type' = 'llm'
-            AND m.provider_id = ANY($1) AND m.id = ANY($2)`,
-        [[...new Set(pairs.map((pair) => pair.provider))], pairs.map((pair) => pair.modelId)]
+      const snapshot = await dependencies.modelCatalog.read();
+      const enabledProviders = new Set(
+        snapshot.providers.filter((provider) => provider.isEnabled).map((provider) => provider.id)
       );
-      return z
-        .array(z.strictObject({ modelId: z.string(), providerId: z.string() }))
-        .parse(result.rows)
-        .map((row) => `${row.providerId}/${row.modelId}`);
+      return snapshot.models
+        .filter(
+          (model) =>
+            model.isEnabled &&
+            model.capabilities.type === 'llm' &&
+            enabledProviders.has(model.providerId) &&
+            candidates.includes(`${model.providerId}/${model.id}`)
+        )
+        .map((model) => `${model.providerId}/${model.id}`);
     },
-    liveWorkspaceRoots: async () => await loadWorkspaceRootsFromDatabase(await getDatabase()),
-    memoryVectors: async (settings, signal) => {
-      const db = await getDatabase();
-      return await resolveDesktopMemoryVectors(settings, {
+    liveWorkspaceRoots: async () =>
+      await loadWorkspaceRootsFromCatalog(dependencies.workspaceRoots),
+    memoryVectors: async (settings, signal) =>
+      await resolveDesktopMemoryVectors(settings, {
         readDimensions: async (provider, modelId) =>
           readHostedEmbeddingDimensions(provider, modelId),
         readLocalDevice: () => readLocalEmbeddingHostDevice(readLocalEmbeddingDevice, signal),
-        readLocalModel: (modelId) => readLocalEmbeddingModel(db, modelId),
-      });
-    },
+        readLocalModel: (modelId) => readLocalEmbeddingModel(dependencies.modelCatalog, modelId),
+      }),
     worktreesAvailable: async () => Boolean(dependencies.resolveWorktreeService?.()),
   };
 }
@@ -154,7 +143,7 @@ export function productionDesktopCapabilities(
       ? { localEmbedding: dependencies.embeddingHostManager }
       : {}),
     resolveWorkspaceRoot: async (rootId) => {
-      const root = (await loadWorkspaceRootsFromDatabase(await getDatabase())).find(
+      const root = (await loadWorkspaceRootsFromCatalog(dependencies.workspaceRoots)).find(
         (candidate) => candidate.rootId === rootId
       );
       if (!root) {

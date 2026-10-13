@@ -172,7 +172,7 @@ export function IndexingActivityCoordinator({
   const refreshDatabaseWorkRef = useRef<(() => void) | null>(null);
   const refreshManagedCollectionStatsRef = useRef<(() => void) | null>(null);
   const refreshQueueRef = useRef<(() => void) | null>(null);
-  const db = usePGliteDatabase();
+  const db = usePGliteDatabase({ enabled: !native });
   const backgroundDb = useMemo(
     () => (db && typeof db.query === 'function' ? createPriorityDbHandle(db, 'background') : db),
     [db]

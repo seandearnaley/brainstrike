@@ -1,10 +1,10 @@
 import path from 'node:path';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
+import type { WorkspaceRootPort, WorkspaceRootRecord } from '@brainstrike/state-store';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { vi } from 'vitest';
-import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
 
 /**
  * Shared seams for the file-system IPC domain suites. Each Vitest file gets its
@@ -42,13 +42,42 @@ export const electronMock = {
   },
 };
 
-// Shared roots-DB seam for the fs:removeRoot status transition. Resolves an
-// empty result by default; individual tests override with mock*Once.
-export const rootsDbQuery = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({
-  rows: [] as unknown[],
-}));
-export const rootsDatabase = { query: rootsDbQuery } as unknown as WorkspaceRootsQueryable;
-export const getRootsDatabase = vi.fn(async () => rootsDatabase);
+const roots = new Map<string, WorkspaceRootRecord>();
+export const rootsCatalogRequest = vi.fn<WorkspaceRootPort['workspaceRoots']>(async (request) => {
+  if (request.operation === 'list') {
+    return { roots: [...roots.values()] };
+  }
+  if (request.operation === 'register') {
+    const previous = roots.get(request.root.path);
+    const root: WorkspaceRootRecord = {
+      createdAt: 1,
+      displayName: request.root.displayName,
+      id: previous?.id ?? request.root.preferredId,
+      kind: 'path',
+      lastVerifiedAt: 1,
+      path: request.root.path,
+      status: 'live',
+    };
+    roots.set(root.path, root);
+    return { roots: [root] };
+  }
+  if (request.operation === 'disconnect-except') {
+    const disconnected = [...roots.values()]
+      .filter((root) => root.status === 'live' && !request.mountedPaths.includes(root.path))
+      .map((root): WorkspaceRootRecord => ({ ...root, status: 'disconnected' }));
+    for (const root of disconnected) {
+      roots.set(root.path, root);
+    }
+    return { roots: disconnected };
+  }
+  throw new Error('Unexpected content deletion in the filesystem grant fixture');
+});
+export const getRootsCatalog = vi.fn(async () => ({ workspaceRoots: rootsCatalogRequest }));
+export function resetRootsCatalog(): void {
+  roots.clear();
+  rootsCatalogRequest.mockClear();
+  getRootsCatalog.mockClear();
+}
 
 export function makeDirHandle(dirPath: string): DirectoryHandle {
   return {

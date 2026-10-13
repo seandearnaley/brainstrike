@@ -1,13 +1,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { HostCredentialStoreSelection } from '@brainstrike/host-capabilities/credentials';
 import type { HostAttachment } from '@brainstrike/host-lease';
 import { app, MessageChannelMain, type MessagePortMain } from 'electron';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import type { HostNativeChildren } from './agent-host-platform/host-native-children';
 import { createAgentHostPrivateClients } from './agent-host-private-clients';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
+import { resolveDevelopmentUserDataPath } from './database-location';
 import { desktopCredentialStoreSelection } from './desktop-credential-selection';
-import { resolveDesktopDatabaseProfileDirectory } from './desktop-database-location';
+import {
+  isIsolatedDesktopTestRun,
+  resolveDesktopDatabaseLocation,
+  resolveDesktopDatabaseProfileDirectory,
+} from './desktop-database-location';
 import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
 import { createDesktopProfileRuntime, type DesktopProfileRuntime } from './desktop-profile-runtime';
 import { isDesktopShuttingDown } from './desktop-shutdown-state';
@@ -35,6 +41,7 @@ interface PendingPlatform {
 export interface DesktopBootstrapRuntime {
   bindPlatform(binding: BindPlatform): void;
   bindSecondInstanceFocus(focus: () => void): void;
+  readonly credentialStore: HostCredentialStoreSelection;
   readonly environment: ReturnType<typeof getDesktopEnvironmentBootstrapResult>;
   readonly mainEntryPath: string;
   readonly privateClients: ReturnType<typeof createAgentHostPrivateClients>;
@@ -79,6 +86,29 @@ function applyExplicitPathIsolation(agentDevtoolsConfig: {
   return userDataDir;
 }
 
+function applyDevelopmentPathIsolation():
+  | {
+      readonly userData: string;
+      readonly credentialStore: HostCredentialStoreSelection;
+      readonly singleInstanceLockAcquired: boolean;
+    }
+  | undefined {
+  if (app.isPackaged || isIsolatedDesktopTestRun() || isElectronE2ETestMode()) {
+    return;
+  }
+  // Pin DB/Core first. Changing Electron paths must not change that authority.
+  const userData = resolveDevelopmentUserDataPath(resolveDesktopDatabaseLocation());
+  // Credentials stay shared across dev profiles, so their existing launch lock
+  // must also stay shared. Electron retains this lock after setPath below.
+  const credentialStore = desktopCredentialStoreSelection();
+  const singleInstanceLockAcquired = app.requestSingleInstanceLock();
+  const logs = path.join(userData, 'logs');
+  fs.mkdirSync(logs, { recursive: true });
+  app.setPath('userData', userData);
+  app.setPath('logs', logs);
+  return { credentialStore, singleInstanceLockAcquired, userData };
+}
+
 function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
   const environment = getDesktopEnvironmentBootstrapResult();
   const agentDevtoolsConfig = configureAgentDevtoolsCommandLine(
@@ -87,7 +117,11 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
     process.argv
   );
   registerPrivilegedSchemes();
-  const userDataDir = applyExplicitPathIsolation(agentDevtoolsConfig) ?? app.getPath('userData');
+  const explicitUserData = applyExplicitPathIsolation(agentDevtoolsConfig);
+  const development = explicitUserData ? undefined : applyDevelopmentPathIsolation();
+  const userDataDir = explicitUserData ?? development?.userData ?? app.getPath('userData');
+  const credentialStore =
+    development?.credentialStore ?? desktopCredentialStoreSelection(userDataDir);
   // Windows cannot rename Chromium's live files during factory reset. Give
   // its Session owner a separate container in ordinary launches too; reset
   // clears it through Electron before physically purging app-owned files.
@@ -95,7 +129,8 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
   fs.mkdirSync(sessionDataDir, { recursive: true });
   app.setPath('sessionData', sessionDataDir);
   const e2e = isElectronE2ETestMode();
-  const singleInstanceLockAcquired = e2e ? true : app.requestSingleInstanceLock();
+  const singleInstanceLockAcquired =
+    development?.singleInstanceLockAcquired ?? (e2e ? true : app.requestSingleInstanceLock());
   const mainEntryPath = resolveBundledSiblingPath('Desktop bootstrap', 'main.js');
   const workspaceOpenQueue = createWorkspaceOpenQueue(DESKTOP_IPC_CHANNELS.workspace.openPath);
   let focusSecondInstance: (() => void) | undefined;
@@ -201,7 +236,7 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
             resourcesPath: process.resourcesPath,
             userDataPath: app.getPath('userData'),
           },
-          credentialStore: desktopCredentialStoreSelection(),
+          credentialStore,
           ...(environment.failures.length > 0
             ? { envFileFailures: [...environment.failures] }
             : {}),
@@ -212,6 +247,7 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
     });
     return {
       acquire: lease.acquire,
+      clearAndRetireContent: lease.clearAndRetireContent,
       close: (reason?: unknown) => {
         // No Main capabilities were lent on an unbound port. Closing it rejects
         // the utility's queued readiness request before joining startup rollback.
@@ -239,6 +275,7 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
     bindSecondInstanceFocus: (focus) => {
       focusSecondInstance = focus;
     },
+    credentialStore,
     environment,
     mainEntryPath,
     privateClients,

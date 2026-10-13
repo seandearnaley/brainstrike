@@ -15,13 +15,15 @@
   embeddings in-process. Do not reintroduce workers there.
 - The hidden window is `?mode=embedding-host` on `hidden-preload.js` under the
   server-owned `embedding-host` role. That manifest carries the embedding bridge,
-  power snapshot/events, logging ingest, the database capabilities the
-  renderer-owned queue needs, the read-only database integrity state (BST-1870), and the scoped vector-preferences capability — never
+  power snapshot/events, logging ingest, read-only canonical model metadata,
+  and the scoped vector-preferences capability — never
   provider secrets, assistant-server credentials, or the visible UI's unrestricted
   `storage` bridge.
-- The host mounts `DbProvider` with `useElectronIPC=true`, runs
-  `startEmbeddingWorker()`, and pulls from the PGlite-backed `job_queue`. The
-  visible renderer drives it over `window.embeddingHost` and starts no worker.
+- The host opens only the native request queue; it mounts no `DbProvider`, exposes
+  no database bridge and starts no PostgreSQL background job worker. Native
+  indexing owns document production; the hidden renderer owns query/document
+  inference and joins its queue on Stop. Unpinned model reads use the read-only
+  canonical model catalog capability. The visible renderer starts no worker.
 - Only the hidden host disables background throttling; a macOS `powerSaveBlocker`
   runs only while it reports active embedding work, never on other platforms.
 
@@ -117,11 +119,15 @@ Guard: `embedding-input-plan.spec.ts`, `streaming-worker-client-completion.spec.
 - Local native document requests require the same validated plan and 1–64 unchanged
   texts; use document `generateEmbeddings` semantics and preserve output order.
   Pinned requests open the hidden request queue without starting the legacy
-  background worker or resolving its device preferences. A subsequent explicit
-  background start enables that worker in the same renderer, with the existing
-  preference checks; it does not replace an owner with native inference in flight.
+  background worker or resolving its device preferences. Every desktop host start
+  now opens this same native request runtime; the retired background-only command
+  refuses explicitly and cannot resurrect a PostgreSQL worker.
   Query and document work share one FIFO, cache identity and physical inference
   owner; both public query and document promises and pending identities settle only after completion or joined retirement on every outcome.
+- Unpinned query services retain their resolved device preference in the existing
+  service state. A warm service cannot be relabeled by later preference changes;
+  a fallback flag or selected/actual device mismatch publishes the existing typed
+  backend failure and stays failed until explicit reset.
 - Preserve caller cancellation reasons; distinguish the host's exact cancel code from independent failures. Aggregate Stop and every failed destruction attempt in the shared retirement outcome before publishing inference rejection. Sending cancel never proves settlement.
 - Restore a queue caller's abort reason only after settled worker-owned cancellation matches its exact task ID and discriminator; preserve independent errors, including unrelated `AbortError`s.
   Whole-hidden-owner retirement instead fences the private pool and joins its single
@@ -302,7 +308,7 @@ Evidence: `local-inference/embedding-queue-load-verification.md`.
   scheduler's monotonic snapshots; the claim starvation bypass uses renderer
   `performance.now()`. Wall-clock corrections must not extend either wait.
 - Keep one mounted-host query listener; retrieval/hybrid signals reach both embedding transports.
-  DB-unavailable requests fail explicitly; DB/run generations own query service/activity; stale completions cannot decrement current activity.
+  Missing catalog capability fails unpinned requests explicitly; native runtime generations own query service/activity; stale completions cannot decrement current activity.
   Request abort/timeout cancels the exact runtime/request; missing capability or notice delivery rejects explicitly. Canceled FIFO work skips preparation; active inference stays owned until settlement.
   Timeout/interruption logs include provider, stage, elapsed time; never query text, endpoints, credentials, or vectors.
 

@@ -1,10 +1,6 @@
 import Module from 'node:module';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  databaseChunkingContract,
-  databaseEmbeddingContract,
-  databaseIntegrityContract,
-} from '../ipc-domains/database.contract';
+import { sourceFilesContract } from '../ipc-domains/source-files.contract';
 
 const { exposeInMainWorldMock, invokeMock, onMock, removeListenerMock, sendMock } = vi.hoisted(
   () => ({
@@ -61,17 +57,28 @@ describe('hidden preload runtime capability manifest', () => {
   });
 
   it.each([
-    ['chunking-host', ['chunkingHost', 'electronAPI', 'logging', 'parserHost']],
-    ['embedding-host', ['databaseIntegrity', 'electronAPI', 'embeddingHost', 'logging', 'power']],
+    ['chunking-host', ['chunkingHost', 'sourceFiles', 'logging', 'parserHost']],
+    ['embedding-host', ['electronAPI', 'embeddingHost', 'logging', 'modelCatalog', 'power']],
     ['llm-host', ['llmHost', 'logging']],
   ] as const)('exposes only the %s capability manifest', async (role, expectedGlobals) => {
     const exposed = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}${role}`]);
 
     expect([...exposed.keys()].sort()).toEqual([...expectedGlobals].sort());
+    expect(exposed.has('viewFilterPresets')).toBe(false);
     expect(exposed.has('secrets')).toBe(false);
     expect(exposed.has('assistant')).toBe(false);
     // The MCP bridge (and with it `mcp.tasks` and `mcp.apps`) is visible-UI only.
     expect(exposed.has('mcp')).toBe(false);
+  });
+
+  it('gives native inference read-only catalog access without database authority', async () => {
+    const exposed = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}embedding-host`]);
+    const catalog = exposed.get('modelCatalog') as { read(): Promise<unknown> };
+    expect(Object.keys(catalog)).toEqual(['read']);
+    invokeMock.mockResolvedValueOnce({ ok: true, value: { models: [], providers: [] } });
+    await expect(catalog.read()).resolves.toEqual({ models: [], providers: [] });
+    expect(exposed.get('electronAPI')).not.toHaveProperty('db');
+    expect(exposed.has('databaseIntegrity')).toBe(false);
   });
 
   it('preserves the embedding host power snapshot capability', async () => {
@@ -86,28 +93,22 @@ describe('hidden preload runtime capability manifest', () => {
     expect(invokeMock).toHaveBeenCalledWith('app:power-snapshot');
   });
 
-  it.each([
-    ['chunking-host', databaseChunkingContract],
-    ['embedding-host', databaseEmbeddingContract],
-  ] as const)(
-    'derives the %s database capability without extra methods',
-    async (role, contract) => {
-      const exposed = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}${role}`]);
-      const electronAPI = exposed.get('electronAPI') as
-        | { db?: Record<string, (...args: unknown[]) => Promise<unknown>> }
-        | undefined;
-
-      expect(Object.keys(electronAPI?.db ?? {}).sort()).toEqual(Object.keys(contract).sort());
-      invokeMock.mockResolvedValueOnce({ rows: [] });
-      await electronAPI?.db?.['query']?.('SELECT 1');
-      expect(invokeMock).toHaveBeenLastCalledWith('db:query', 'SELECT 1');
-    }
-  );
+  it('gives chunking only canonical source reads without SQL or mutation authority', async () => {
+    const exposed = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}chunking-host`]);
+    const sources = exposed.get('sourceFiles') as {
+      read: (ids: readonly string[], maxBytes: number) => Promise<unknown>;
+    };
+    expect(Object.keys(sources)).toEqual(['read']);
+    expect(exposed.has('electronAPI')).toBe(false);
+    const ids = ['file-1'];
+    invokeMock.mockResolvedValueOnce({ ok: true, value: [] });
+    await expect(sources.read(ids, 1024)).resolves.toEqual([]);
+    expect(invokeMock).toHaveBeenLastCalledWith(sourceFilesContract.read.channel, ids, 1024);
+  });
   it('keeps each hidden role bridge at its exact runtime key set', async () => {
     const chunking = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}chunking-host`]);
-    const chunkingApi = chunking.get('electronAPI') as { db: object };
-    expect(Object.keys(chunkingApi).sort()).toEqual(['db']);
-    expect(Object.keys(chunkingApi.db).sort()).toEqual(['query']);
+    expect(chunking.has('electronAPI')).toBe(false);
+    expect(Object.keys(chunking.get('sourceFiles') as object)).toEqual(['read']);
     expect(Object.keys(chunking.get('chunkingHost') as object).sort()).toEqual([
       'onRequest',
       'reportResponse',
@@ -119,18 +120,8 @@ describe('hidden preload runtime capability manifest', () => {
       db: object;
       vectorPreferences: object;
     };
-    expect(Object.keys(embeddingApi).sort()).toEqual(['db', 'vectorPreferences']);
-    expect(Object.keys(embeddingApi.db).sort()).toEqual([
-      'applyManagedCacheBatch',
-      'diagnostics',
-      'exec',
-      'insertChunksAndEnqueueEmbeddingJobs',
-      'invalidateManagedCacheEntriesByIdentity',
-      'query',
-      'runTransaction',
-      'schedulerSnapshot',
-      'test',
-    ]);
+    expect(Object.keys(embeddingApi).sort()).toEqual(['vectorPreferences']);
+    expect(embeddingApi).not.toHaveProperty('db');
     expect(Object.keys(embeddingApi.vectorPreferences).sort()).toEqual(['clear', 'read', 'write']);
     expect(Object.keys(embedding.get('embeddingHost') as object).sort()).toEqual([
       'onCommand',
@@ -146,21 +137,16 @@ describe('hidden preload runtime capability manifest', () => {
     ]);
   });
 
-  it('gives the embedding host the read-only database integrity capability', async () => {
+  it('propagates catalog owner failure without database access', async () => {
     const exposed = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}embedding-host`]);
-    const integrity = exposed.get('databaseIntegrity') as Record<
-      string,
-      (...args: unknown[]) => unknown
-    >;
-
-    expect(Object.keys(integrity).sort()).toEqual(Object.keys(databaseIntegrityContract).sort());
-    const snapshot = { revision: 2, state: { kind: 'healthy' } };
-    invokeMock.mockResolvedValueOnce({ ok: true, value: snapshot });
-    await expect(integrity['getState']?.()).resolves.toEqual(snapshot);
-    expect(invokeMock).toHaveBeenLastCalledWith('db:integrity:state');
-
-    integrity['onChanged']?.(vi.fn());
-    expect(onMock).toHaveBeenCalledWith('db:integrity:changed', expect.any(Function));
+    const catalog = exposed.get('modelCatalog') as { read(): Promise<unknown> };
+    invokeMock.mockResolvedValueOnce({
+      error: { category: 'storage', code: 'closed', message: 'Catalog unavailable' },
+      ok: false,
+    });
+    await expect(catalog.read()).rejects.toMatchObject({ category: 'storage', code: 'closed' });
+    expect(invokeMock).toHaveBeenCalledOnce();
+    expect(exposed.has('databaseIntegrity')).toBe(false);
   });
 
   it('gives the embedding host a key-less vector preferences capability', async () => {

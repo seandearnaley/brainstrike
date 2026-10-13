@@ -137,6 +137,7 @@ export function fixture(selectedProfile: VectorProfile | null = null) {
     }),
     prepareFile: unused,
     prepareScopedFile: unused,
+    readScopedFilePage: unused,
     removeFile: unused,
     removeScopedFile: unused,
     replaceFileBindings: unused,

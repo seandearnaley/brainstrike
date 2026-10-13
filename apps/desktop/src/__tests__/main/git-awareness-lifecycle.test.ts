@@ -45,10 +45,16 @@ function createDeps() {
     broadcast,
     deps: {
       broadcast,
-      getDatabase: vi.fn(async () => ({}) as never),
+      hasRunningThread: vi.fn(async () => false),
       homePath: '/home/tester',
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() } as never,
       storage: {} as never,
+      workspaceRoots: {
+        forgeCache: vi.fn(async () => ({ entry: null })),
+        forgeCacheSnapshot: async () => [],
+        workspaceRoots: vi.fn(async () => ({ roots: [] })),
+        worktreeLedger: vi.fn(async () => ({ rows: [] })),
+      },
     },
     forgeService,
     gitInventoryService,

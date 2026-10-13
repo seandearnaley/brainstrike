@@ -65,17 +65,17 @@ async function readOrtWasmRequests(app: ElectronApplication): Promise<string[]> 
 
 async function readCollectionRows(page: Page): Promise<CollectionRow[]> {
   return await page.evaluate(async () => {
-    const api = window.electronAPI;
-    if (!api?.db.query) {
-      throw new Error('Desktop DB query bridge is unavailable.');
+    if (!window.collectionCatalog) {
+      throw new Error('Desktop collection catalog is unavailable');
     }
-
-    const result = await api.db.query<CollectionRow>(
-      `SELECT id, name, model_id, model_key, dimensions, system_role
-       FROM embedding_sets
-       ORDER BY created_at ASC`
-    );
-    return result.rows;
+    return (await window.collectionCatalog.list()).map((row) => ({
+      dimensions: row.dimensions,
+      id: row.id,
+      model_id: row.modelId,
+      model_key: row.modelKey,
+      name: row.name ?? '',
+      system_role: row.systemRole ?? null,
+    }));
   });
 }
 
@@ -105,25 +105,17 @@ async function readNativeStatus(
 
 async function createCatalogCollection(page: Page): Promise<string> {
   return await page.evaluate(async () => {
-    const query = window.electronAPI?.db.query;
-    if (!query) {
-      throw new Error('Desktop DB query bridge is unavailable.');
+    if (!window.collectionCatalog) {
+      throw new Error('Desktop collection catalog is unavailable');
     }
-    const id = crypto.randomUUID();
-    // Same migrated PG catalog input as the native qualification fixture; no native readiness is seeded.
-    await query(
-      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, name)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [
-        id,
-        'local::Xenova/bge-small-en-v1.5',
-        'Xenova/bge-small-en-v1.5',
-        384,
-        'cosine',
-        'Fresh collection',
-      ]
-    );
-    return id;
+    const collection = await window.collectionCatalog.create({
+      dimensions: 384,
+      distance: 'cosine',
+      metadata: { name: 'Fresh collection' },
+      modelId: 'Xenova/bge-small-en-v1.5',
+      modelKey: 'local::Xenova/bge-small-en-v1.5',
+    });
+    return collection.id;
   });
 }
 

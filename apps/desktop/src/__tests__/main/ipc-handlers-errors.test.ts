@@ -17,14 +17,8 @@ vi.mock('electron', () => ({
   },
 }));
 
-// Main records each folder it mounts (BST-1990); a double stands in for its database.
-vi.mock('../../db-main', async () => {
-  const { createRootsDatabaseDouble } = await import('./roots-database-double');
-  const database = createRootsDatabaseDouble();
-  return { getDatabase: async () => database };
-});
-
 import { registerIpcHandlers } from '../../ipc-handlers';
+import { getRootsCatalog, resetRootsCatalog } from '../ipc-domains/file-system-ipc-test-harness';
 
 describe('ipc-handlers error branches', () => {
   let fsAdapter: ElectronFileSystemAdapter;
@@ -33,6 +27,7 @@ describe('ipc-handlers error branches', () => {
 
   beforeEach(() => {
     handlers.clear();
+    resetRootsCatalog();
     vi.resetModules();
     vi.clearAllMocks();
     process.env['NODE_ENV'] = 'development';
@@ -61,6 +56,7 @@ describe('ipc-handlers error branches', () => {
     store = {};
 
     registerIpcHandlers(fsAdapter, storage, () => store as never, {
+      getRootsCatalog,
       isSyntheticFileSystemPath: () => true,
     });
   });

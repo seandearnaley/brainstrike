@@ -32,8 +32,7 @@ export interface RewindRequest {
    */
   readonly composerText: string | null;
   /**
-   * The thread's rewind owner: Main's rewind service for a legacy thread, the
-   * agent host for a host thread. The raiser knows which thread it serves.
+   * The thread's agent-host rewind owner. The raiser knows which thread it serves.
    */
   readonly port: RewindPort;
   /** How the raiser identified the target — see {@link RewindPreviewPayload}. */
@@ -44,21 +43,10 @@ export interface RewindNavigationState {
   /** Close the modal, discarding the request. Never applies anything. */
   readonly closeRewind: () => void;
   /**
-   * THE RE-HYDRATION COUNTER. A rewind's whole effect is in the DATABASE and on
-   * DISK: the tombstone rows, the file reverts. Every read path already excludes
-   * tombstoned messages, but the live assistant thread is not a read path — it
-   * is assistant-ui's in-memory state, hydrated ONCE by
-   * `ThreadHistoryAdapter.load()` when the runtime mounts. Nothing re-ran that,
-   * so before this counter a rewind was invisible until the user switched
-   * threads or restarted the app: the messages it hid stayed on screen and the
-   * Changes surface kept listing files it had just reverted.
-   *
-   * Consumers append this to the assistant runtime's `key` and to
-   * `useChangeset`'s load, so a bump remounts the runtime (re-running
-   * hydration against the now-filtered query) and re-resolves the changeset
-   * view. DISCARDING THE LIVE THREAD'S IN-MEMORY STATE IS THE POINT, not
-   * collateral: after a rewind the durable state IS the truth, and anything the
-   * runtime still held describes a conversation that no longer exists.
+   * THE RE-HYDRATION COUNTER. Rewind changes the host's committed conversation
+   * branch and may restore files. Consumers append this to the assistant
+   * runtime's key and to useChangeset's load so they read the committed branch
+   * and re-resolve the changeset instead of retaining the previous view.
    *
    * It is deliberately NOT folded into `threadKey`. Per-thread state across the
    * panel — the follow-up queue, `ActiveThreadKeyContext`, the viewport store's

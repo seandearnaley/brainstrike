@@ -59,6 +59,7 @@ beforeEach(() => {
   vi.resetModules();
   bootstrapEvents.length = 0;
   state.quitting = false;
+  runtime.singleInstanceLockAcquired = true;
   state.handlers.clear();
   state.exit.mockReset();
   state.reportHostFailure.mockReset();
@@ -182,4 +183,14 @@ it('does not reopen a failure dialog when Main rejects after an early quit', asy
   loaded.resolve();
   await vi.waitFor(() => expect(state.exit).toHaveBeenCalledWith(1));
   expect(state.showErrorBox).not.toHaveBeenCalled();
+});
+
+it('quits a rejected second launch without importing Main or starting a host', async () => {
+  runtime.singleInstanceLockAcquired = false;
+  appReady.current.resolve();
+  await import('../../main-bootstrap');
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(state.quit).toHaveBeenCalledOnce();
+  expect(runtime.profile.acquire).not.toHaveBeenCalled();
+  expect(bootstrapEvents).toEqual(['environment']);
 });

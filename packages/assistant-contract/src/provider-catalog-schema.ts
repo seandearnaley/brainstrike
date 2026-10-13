@@ -72,6 +72,25 @@ const TokenizerBackedMeasurementSchema = z.strictObject({
   tokenizer: TokenizerEncodingSchema,
 });
 
+const ProviderCatalogPresentationSchema = z.strictObject({
+  enabled: z.boolean(),
+  icon: z.string().nullable(),
+  name: z.string().min(1),
+  sortOrder: z.number().int(),
+});
+const ModelCatalogPresentationSchema = ProviderCatalogPresentationSchema.extend({
+  bestFor: z.array(z.string()).nullable(),
+  capabilities: z
+    .strictObject({
+      contextWindow: z.number().int().positive().optional(),
+      toolCalling: z.boolean().optional(),
+    })
+    .optional(),
+  description: z.string().nullable(),
+  parameters: z.record(z.string(), z.unknown()).nullable(),
+  tagline: z.string().nullable(),
+});
+
 const LlmModelSchema = z.strictObject({
   _note: NoteSchema.optional(),
   anthropicReasoning: z
@@ -84,6 +103,7 @@ const LlmModelSchema = z.strictObject({
     })
     .optional(),
   bedrockReasoning: z.enum(['adaptive', 'budget-tokens', 'max-reasoning-effort']).optional(),
+  catalog: ModelCatalogPresentationSchema.optional(),
   contextWindow: z.number(),
   default: z.boolean().optional(),
   id: z.string(),
@@ -135,16 +155,25 @@ const LlmModelSchema = z.strictObject({
 const EmbeddingModelSchema = z.strictObject({
   _note: NoteSchema.optional(),
   availableDimensions: z.array(z.number()).optional(),
+  catalog: ModelCatalogPresentationSchema.optional(),
   default: z.boolean().optional(),
   defaultDimension: z.number(),
   dimensionParameter: z
     .enum(['dimensions', 'output_dimensionality', 'output_dimension'])
+    .optional(),
+  execution: z
+    .strictObject({
+      wasm: z.enum(['fp16', 'fp32', 'q4', 'q8']).optional(),
+      webgpu: z.enum(['fp16', 'fp32', 'q4', 'q8']).optional(),
+    })
     .optional(),
   executionNotes: z
     .strictObject({ wasm: z.string().min(1).optional(), webgpu: z.string().min(1).optional() })
     .optional(),
   id: z.string(),
   label: z.string().optional(),
+  pooling: z.enum(['mean', 'cls']).optional(),
+  prompts: z.strictObject({ document: z.string(), query: z.string() }).optional(),
   recommendedExecution: z
     .strictObject({
       device: z.enum(['webgpu', 'wasm']),
@@ -152,6 +181,7 @@ const EmbeddingModelSchema = z.strictObject({
       reason: z.string().min(1),
     })
     .optional(),
+  revision: z.string().min(1).optional(),
   supportsCustomDimensions: z.boolean().optional(),
   supportsStandardDimension: z.boolean(),
   type: z.literal('embedding'),
@@ -167,6 +197,7 @@ const ProviderSchema = z.strictObject({
     llm: z.boolean(),
     streaming: z.boolean(),
   }),
+  catalog: ProviderCatalogPresentationSchema.optional(),
   deprecatedEnvKeys: z.array(z.string()).optional(),
   displayName: z.string(),
   docsUrl: z.string().optional(),

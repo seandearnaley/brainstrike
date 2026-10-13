@@ -3,7 +3,10 @@
  * from context and passes those seams here; this hook owns only the action
  * callbacks and their stated, user-visible error.
  */
-import type { AssistantMemoryThread, AssistantThreadRepository } from '@brainstrike/assistant-data';
+import type {
+  AssistantMemoryThread,
+  AssistantThreadCatalogRepository,
+} from '@brainstrike/assistant-data';
 import type { WorktreeArchiveConfirmation } from '@brainstrike/assistant-ui/worktree-archive-confirmation-dialog';
 import type { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
@@ -37,14 +40,14 @@ function errorMessage(error: unknown): string {
 export interface UseWorktreeMapCardActionsInput {
   readonly addRootDirectoryByPath: ReturnType<typeof useFileSystem>['addRootDirectoryByPath'];
   readonly createThread: (
-    repository: AssistantThreadRepository,
+    repository: AssistantThreadCatalogRepository,
     resourceId: string,
     title?: string
   ) => Promise<AssistantMemoryThread>;
   readonly openTerminalAt: TerminalTargetState['openTerminalAt'];
   readonly publishIntent: WorktreeCheckoutIntentState['publish'];
   readonly refresh: () => Promise<void>;
-  readonly repository: AssistantThreadRepository | null;
+  readonly repository: AssistantThreadCatalogRepository | null;
   readonly resourceId: string;
   readonly selectThread: (resourceId: string, threadId: string) => void;
   readonly worktrees: WorktreesBridge | null;

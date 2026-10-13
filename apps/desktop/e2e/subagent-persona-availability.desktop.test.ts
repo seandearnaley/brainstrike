@@ -3,11 +3,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
 import { SettingsPage } from './page-objects/settings-page';
+import { readHostRootRecords } from './utils/agent-host-log';
 import { seedRoot } from './utils/seed-root';
 
 test('shows actual host persona issues and refreshes an edited profile @smoke', async ({
   window,
   homePage,
+  electron,
 }) => {
   const root = await realpath(
     await mkdtemp(path.join(tmpdir(), 'brainstrike-persona-availability-'))
@@ -26,29 +28,11 @@ test('shows actual host persona issues and refreshes an edited profile @smoke', 
       rootId: 'bst1727-availability-root',
     });
     await expect
-      .poll(() =>
-        window.evaluate(async () => {
-          const bridge = (
-            globalThis.window as Window & {
-              electronAPI?: {
-                db?: {
-                  query: (
-                    sql: string,
-                    params: readonly unknown[]
-                  ) => Promise<{ rows: { status: string }[] }>;
-                };
-              };
-            }
-          ).electronAPI?.db;
-          if (!bridge) {
-            throw new Error('Missing production database bridge');
-          }
-          const result = await bridge.query('SELECT status FROM roots WHERE id = $1', [
-            'bst1727-availability-root',
-          ]);
-          const row = result.rows[0];
-          return row && typeof row === 'object' && 'status' in row ? row.status : undefined;
-        })
+      .poll(
+        async () =>
+          (await readHostRootRecords(electron.getUserDataDir())).find(
+            (row) => row.id === 'bst1727-availability-root'
+          )?.status
       )
       .toBe('live');
     await homePage.openSettings();

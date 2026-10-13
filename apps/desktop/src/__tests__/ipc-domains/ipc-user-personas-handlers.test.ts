@@ -46,6 +46,21 @@ beforeEach(() => {
 });
 
 describe('listUserPersonas', () => {
+  it('rejects an unavailable authoritative root catalog rather than returning built-ins', async () => {
+    const failure = new Error('Catalog unavailable');
+    await expect(
+      listUserPersonas({
+        fs: makeFs({}),
+        homedir: () => HOME,
+        workspaceRoots: {
+          workspaceRoots: async () => {
+            throw failure;
+          },
+        },
+      })
+    ).rejects.toBe(failure);
+  });
+
   it('lists built-ins first, then user personas with source metadata', async () => {
     const result = await listUserPersonas({
       fs: makeFs({
@@ -53,8 +68,8 @@ describe('listUserPersonas', () => {
           'sec.md': '---\ndescription: security\nmodel: anthropic::claude-haiku-4-5\n---\nBody.',
         },
       }),
-      getDatabase: () => Promise.resolve(null),
       homedir: () => HOME,
+      workspaceRoots: { workspaceRoots: async () => ({ roots: [] }) },
     });
 
     const builtInRows = result.personas.slice(0, BUILT_IN_PERSONAS.length);
@@ -80,8 +95,8 @@ describe('listUserPersonas', () => {
             '---\ndescription: surveys\ntools:\n  - readWorkspaceFile\n  - grepSearch\n---\nBody.',
         },
       }),
-      getDatabase: () => Promise.resolve(null),
       homedir: () => HOME,
+      workspaceRoots: { workspaceRoots: async () => ({ roots: [] }) },
     });
     const byId = new Map(result.personas.map((row) => [row.id, row]));
     const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
@@ -116,8 +131,8 @@ describe('listUserPersonas', () => {
           'bad.md': '---\ndescription: d\ntools: writeWorkspaceFile\n---\nBody.',
         },
       }),
-      getDatabase: () => Promise.resolve(null),
       homedir: () => HOME,
+      workspaceRoots: { workspaceRoots: async () => ({ roots: [] }) },
     });
     const invalid = result.personas.find((row) => row.status === 'invalid');
     expect(invalid).toBeDefined();
@@ -137,8 +152,8 @@ describe('listUserPersonas', () => {
           'reviewer.md': '---\ndescription: second\n---\nBody.',
         },
       }),
-      getDatabase: () => Promise.resolve(null),
       homedir: () => HOME,
+      workspaceRoots: { workspaceRoots: async () => ({ roots: [] }) },
     });
 
     expect(
@@ -164,8 +179,8 @@ describe('listUserPersonas', () => {
         }),
         readFile: () => ({ content: '---\ndescription: d\n---\nBody.', ok: true }) as const,
       },
-      getDatabase: () => Promise.resolve(null),
       homedir: () => HOME,
+      workspaceRoots: { workspaceRoots: async () => ({ roots: [] }) },
     });
 
     expect(result.incompleteDirs).toEqual([
@@ -176,8 +191,8 @@ describe('listUserPersonas', () => {
   it('returns only built-ins when no persona dirs exist', async () => {
     const result = await listUserPersonas({
       fs: makeFs({}),
-      getDatabase: () => Promise.resolve(null),
       homedir: () => HOME,
+      workspaceRoots: { workspaceRoots: async () => ({ roots: [] }) },
     });
     expect(result.personas).toHaveLength(BUILT_IN_PERSONAS.length);
   });
@@ -192,7 +207,6 @@ describe('host availability through the Settings list entry point', () => {
             '---\ndescription: ships\nmode: worker\nmodel: anthropic::missing-model\ntools: missing.edit, readWorkspaceFile\n---\nBody.',
         },
       }),
-      getDatabase: async () => null,
       homedir: () => HOME,
       inspectAvailability: (persona) =>
         inspectPersonaAvailability(persona, {
@@ -200,6 +214,7 @@ describe('host availability through the Settings list entry point', () => {
           models: [],
           readCredential: async () => undefined,
         }),
+      workspaceRoots: { workspaceRoots: async () => ({ roots: [] }) },
     });
     const row = result.personas.find((item) => item.id === 'shipper');
     expect(row).toMatchObject({
@@ -226,7 +241,6 @@ describe('host availability through the Settings list entry point', () => {
           'worker.md': '---\ndescription: Forged worker\nmodel: anthropic::missing\n---\nBody.',
         },
       }),
-      getDatabase: async () => null,
       homedir: () => HOME,
       inspectAvailability: (persona) =>
         inspectPersonaAvailability(persona, {
@@ -234,6 +248,7 @@ describe('host availability through the Settings list entry point', () => {
           models: [],
           readCredential: async () => undefined,
         }),
+      workspaceRoots: { workspaceRoots: async () => ({ roots: [] }) },
     });
     expect(result.personas.find((item) => item.id === 'worker')).toMatchObject({
       availability: { issues: [], status: 'request-dependent' },
@@ -333,7 +348,6 @@ describe('host availability through the Settings list entry point', () => {
             'embedding.md': `---\ndescription: Invalid agent model\nmodel: ${provider}::${modelId}\n---\nBody.`,
           },
         }),
-        getDatabase: async () => null,
         homedir: () => HOME,
         inspectAvailability: (persona) =>
           inspectPersonaAvailability(persona, {
@@ -341,6 +355,7 @@ describe('host availability through the Settings list entry point', () => {
             models: [{ id: modelId, providerId: provider, type: 'embedding' }],
             readCredential: async () => ({ key: 'configured', type: 'api_key' }),
           }),
+        workspaceRoots: { workspaceRoots: async () => ({ roots: [] }) },
       });
       expect(result.personas.find((item) => item.id === 'embedding')).toMatchObject({
         availability: {

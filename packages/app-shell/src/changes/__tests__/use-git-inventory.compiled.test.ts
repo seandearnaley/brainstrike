@@ -26,14 +26,10 @@ describe('useGitInventory under the React Compiler', () => {
     });
     // `resolveChangesBridge` requires a fully formed bridge.
     const bridge: ChangesBridge = {
-      applyRewind: vi.fn(),
       fileDiff: vi.fn(),
-      finalizeRewinds: vi.fn(),
       inventory,
       onInvalidated: vi.fn(() => () => {}),
-      redoRewind: vi.fn(),
       resolveView: vi.fn(),
-      rewindPreview: vi.fn(),
     };
     (window as unknown as { changes?: ChangesBridge }).changes = bridge;
 

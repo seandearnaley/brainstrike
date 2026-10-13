@@ -4,6 +4,7 @@ export {
   describeOpenRootTopology,
   enrichRuntimeDataWithWorkspaceRoots,
   getWorkspaceRoots,
+  loadWorkspaceRootsFromCatalog,
   loadWorkspaceRootsFromDatabase,
   markRootDisconnectedByPath,
   markRootsDisconnectedExcept,

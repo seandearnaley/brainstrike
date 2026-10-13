@@ -1,13 +1,9 @@
 import { WorkspaceBarHost } from '@brainstrike/app-shell';
 import {
+  createHostAssistantThreadRepository,
   useAssistantThreadHost,
-  withAssistantThreadHost,
 } from '@brainstrike/app-shell/assistant-thread-host-context';
-import {
-  createPgliteAssistantThreadRepository,
-  WORKSPACE_MEMORY_RESOURCE_ID,
-} from '@brainstrike/assistant-data';
-import { usePGliteDatabase } from '@brainstrike/db/react';
+import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { type ReactElement, useMemo } from 'react';
 
@@ -28,15 +24,13 @@ export function CommittedWorkspaceControls({
 }: {
   readonly threadId: string;
 }): ReactElement {
-  const database = usePGliteDatabase();
   const host = useAssistantThreadHost();
-  const repository = useMemo(
-    () =>
-      database
-        ? withAssistantThreadHost(createPgliteAssistantThreadRepository(database), host)
-        : null,
-    [database, host]
-  );
+  const repository = useMemo(() => {
+    if (!host) {
+      throw new Error('Committed workspace controls require the attached agent host.');
+    }
+    return createHostAssistantThreadRepository(host);
+  }, [host]);
   const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
   const mainRoot = useFileExplorerStoreSelector((state) => {
     const mainRootId = state.activeRootIds[0];
@@ -46,7 +40,7 @@ export function CommittedWorkspaceControls({
     <WorkspaceBarHost
       assistantThreadRepository={repository}
       {...(mainRoot ? { currentMainRoot: mainRoot } : {})}
-      database={database}
+      database={null}
       memoryResourceId={WORKSPACE_MEMORY_RESOURCE_ID}
       rootDescriptors={rootDescriptors}
       selectedMemoryThreadId={threadId}

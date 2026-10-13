@@ -1,11 +1,4 @@
 import type { DbHandle } from '@brainstrike/db/react';
-import {
-  ASSISTANT_THREAD_COLOR_IDS,
-  ASSISTANT_THREAD_ICON_IDS,
-  type AssistantThreadColorId,
-  type AssistantThreadIconId,
-} from './assistant-memory-repository';
-
 /**
  * User-defined thread groups (folders) for the Threads panel.
  *
@@ -16,27 +9,23 @@ import {
  * threads by id. `rank` values are fractional-index keys (`fractional-indexing`
  * `generateKeyBetween`), lexicographically ordered as text.
  */
-export interface AssistantThreadGroup {
-  readonly color: AssistantThreadColorId | null;
-  readonly icon: AssistantThreadIconId | null;
-  readonly id: string;
-  readonly name: string;
-  readonly rank: string;
-  readonly resourceId: string;
-}
+import type {
+  AssistantThreadGroup,
+  AssistantThreadGroupRankEntry,
+  AssistantThreadPlacement,
+} from '@brainstrike/types';
+import {
+  ASSISTANT_THREAD_COLOR_IDS,
+  ASSISTANT_THREAD_ICON_IDS,
+  type AssistantThreadColorId,
+  type AssistantThreadIconId,
+} from './assistant-memory-repository';
 
-export interface AssistantThreadPlacement {
-  readonly flatRank: string | null;
-  readonly groupId: string | null;
-  readonly rank: string;
-  readonly resourceId: string;
-  readonly threadId: string;
-}
-
-export interface AssistantThreadGroupRankEntry {
-  readonly groupId: string;
-  readonly rank: string;
-}
+export type {
+  AssistantThreadGroup,
+  AssistantThreadGroupRankEntry,
+  AssistantThreadPlacement,
+} from '@brainstrike/types';
 
 export interface AssistantThreadGroupsRepository {
   clearThreadPlacement: (threadId: string) => Promise<void>;

@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
 import { WorkspaceRootRegistry } from '../../ipc-domains/workspace-root-registry';
+import { createRegistryCatalogRequest } from './workspace-root-registry-test-helpers';
 
 function createStorage(): ElectronStorageAdapter {
   const values = new Map<string, string>();
@@ -50,13 +50,11 @@ describe('WorkspaceRootRegistry secure filesystem integration', () => {
     await symlink('missing.txt', path.join(workspace, 'dangling-link.txt'), 'file');
 
     const storage = createStorage();
-    const db = {
-      query: vi.fn(async () => ({ rows: [] })),
-    } as unknown as WorkspaceRootsQueryable;
+    const workspaceRoots = createRegistryCatalogRequest();
     const registry = new WorkspaceRootRegistry({
       disposeCommandSessionsForRoot: vi.fn(async () => 0),
       evictLspServersForRoot: vi.fn(async () => undefined),
-      getRootsDatabase: async () => db,
+      getRootsCatalog: async () => ({ workspaceRoots }),
       pathExists: async (rootPath) =>
         access(rootPath).then(
           () => true,
@@ -140,6 +138,6 @@ describe('WorkspaceRootRegistry secure filesystem integration', () => {
         rootId: descriptor.rootId,
       })
     ).rejects.toThrow('outside the selected workspace root');
-    registry.dispose();
+    await registry.dispose();
   });
 });

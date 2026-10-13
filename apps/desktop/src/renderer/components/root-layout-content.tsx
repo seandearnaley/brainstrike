@@ -27,7 +27,6 @@ import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { isWorktreesBridgeAvailable } from '@brainstrike/app-shell/worktrees/availability';
 import { McpTaskBridgeProvider } from '@brainstrike/assistant-ui/mcp-task-bridge-context';
 import { ToolResultRendererProvider } from '@brainstrike/assistant-ui/tool-result-renderer-context';
-import { usePGliteDatabase } from '@brainstrike/db/react';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 import { createLogger } from '@brainstrike/logging';
 import { McpAppsEnablementProvider, mcpAppToolResultRenderer } from '@brainstrike/mcp-app-host-ui';
@@ -37,8 +36,7 @@ import { McpAppsEnablementProvider, mcpAppToolResultRenderer } from '@brainstrik
 import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
 import { McpElicitationCapabilityProvider } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-capability';
 import { GitBranch, Globe, NotebookPen } from 'lucide-react';
-import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
-import { registerDesktopEmbeddingRuntimeConfig } from '../create-embedding-queue';
+import { type ReactElement, type ReactNode, useEffect, useMemo, useRef } from 'react';
 import { DesktopHostThreadProvider } from '../desktop-host-thread-provider';
 import {
   resolveDesktopMcpContent,
@@ -82,38 +80,15 @@ interface RendererMemoryPerformance extends Performance {
  * The token worker must be ready eagerly so background indexing starts immediately.
  */
 function TokenCacheWrapper({ children }: { children: ReactNode }) {
-  const db = usePGliteDatabase();
-  return <TokenCacheProvider db={db}>{children}</TokenCacheProvider>;
+  return <TokenCacheProvider db={null}>{children}</TokenCacheProvider>;
 }
 
 /** Stable identity: the provider value must not change between renders. */
 const MCP_APP_TOOL_RESULT_RENDERERS = Object.freeze([mcpAppToolResultRenderer]);
 
-/**
- * Desktop app root layout component.
- *
- * CRITICAL: This component creates the embedding queue flow for the entire app:
- *
- * 1. create-embedding-queue.ts is resolved lazily when DB/vector tooling needs it
- * 2. Passed to SharedRootLayoutContent as loadEmbeddingQueue prop
- * 3. Flows through RootLayoutContent → AgentSidebarPanel → DatabasePanel → DatabaseTab → DatabaseDemoPanel
- * 4. Database-facing views use it for embedding set management and import operations
- *
- * DO NOT remove the loadEmbeddingQueue prop! It's the single source of truth for all
- * embedding operations in the desktop app.
- *
- * TOKEN CACHE: The TokenCacheWrapper provides a shared token cache context that
- * enables background token indexing. It wraps the entire layout so both:
- * - FileExplorerPanel (indexes selected files via background worker)
- * - PreviewPanel in ContextExplorerPageContent (displays token counts from the shared cache)
- * can share the same context and see each other's updates.
- */
+/** Desktop shell; the host owns persistence and hidden hosts own inference. */
 export default function RootLayoutContent() {
-  const db = usePGliteDatabase();
-  const activeToolsTabRef = useRef<'database-ready' | 'initializing'>(
-    db ? 'database-ready' : 'initializing'
-  );
-  activeToolsTabRef.current = db ? 'database-ready' : 'initializing';
+  const activeToolsTabRef = useRef('host-owned');
 
   // Capability gate: only surface the Changes tab when the desktop
   // `window.changes` bridge is present (no isElectron check). Resolved once.
@@ -163,13 +138,6 @@ export default function RootLayoutContent() {
     }
     return items;
   }, [gitAvailable, notesAvailable, browserAvailable]);
-  const loadEmbeddingQueue = useCallback(
-    () => import('../create-embedding-queue').then((module) => module.getEmbeddingQueue()),
-    []
-  );
-
-  // CRITICAL: loadEmbeddingQueue from create-embedding-queue.ts must be passed through
-  // so the queue stays singleton while avoiding startup-time workerpool construction.
   const sharedProps: RootLayoutContentProps = {
     // Canvas render surface (BST-1173): needs only the DB (summaries/versions)
     // and the brainstrike-canvas: shell protocol, both unconditionally present
@@ -193,24 +161,8 @@ export default function RootLayoutContent() {
     ...(notesAvailable ? { notesPageContent: <NotesPageContent /> } : {}),
     ...(terminalAvailable ? { terminalPageContent: <TerminalPageContent /> } : {}),
     ...(worktreesAvailable ? { worktreeMapPageContent: <WorktreeMapPageContent /> } : {}),
-    loadEmbeddingQueue, // DO NOT REMOVE - See function docstring
   };
   const RootLayout = SharedRootLayoutContent as (props: RootLayoutContentProps) => ReactElement;
-
-  // Eagerly register the embedding runtime config + LAZY queue factory
-  // (mirrors web's registerWebEmbeddingRuntimeConfig): a local-model semantic
-  // search initializes the transformers backend from the visible renderer, and
-  // without this registration it throws "Embedding queue factory is not
-  // registered" until a database panel happens to load the queue.
-  useEffect(() => {
-    registerDesktopEmbeddingRuntimeConfig();
-  }, []);
-
-  useEffect(() => {
-    logger.info('Desktop database runtime availability changed', {
-      databaseReady: Boolean(db),
-    });
-  }, [db]);
 
   useEffect(() => {
     const performanceWithMemory = globalThis.performance as RendererMemoryPerformance | undefined;

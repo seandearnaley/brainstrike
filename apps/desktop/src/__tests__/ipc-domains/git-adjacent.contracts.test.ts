@@ -61,20 +61,10 @@ describe('Git-adjacent IPC contracts', () => {
       changeset,
       'src/index.ts',
     ]);
-    expect(
-      changesContract.rewindPreview.parseArgs([{ runId: 'run-1', threadId: 'thread-1' }])
-    ).toEqual([{ runId: 'run-1', threadId: 'thread-1' }]);
-    expect(
-      changesContract.applyRewind.parseArgs([
-        { messageId: 'message-1', mode: 'conversation-and-files', threadId: 'thread-1' },
-      ])
-    ).toEqual([{ messageId: 'message-1', mode: 'conversation-and-files', threadId: 'thread-1' }]);
-    expect(changesContract.redoRewind.parseArgs([{ rewindId: 'rewind-1' }])).toEqual([
-      { rewindId: 'rewind-1' },
-    ]);
-    expect(changesContract.finalizeRewinds.parseArgs([{ threadId: 'thread-1' }])).toEqual([
-      { threadId: 'thread-1' },
-    ]);
+    // Host thread/rewind owns conversation branches; no dead legacy IPC remains.
+    for (const removed of ['rewindPreview', 'applyRewind', 'redoRewind', 'finalizeRewinds']) {
+      expect(Reflect.has(changesContract, removed)).toBe(false);
+    }
   });
 
   it('parses every Forge invoke and keeps renderer-only refresh reasons', () => {

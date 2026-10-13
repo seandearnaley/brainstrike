@@ -19,14 +19,8 @@ vi.mock('electron', () => ({
   },
 }));
 
-// Main records each folder it mounts (BST-1990); a double stands in for its database.
-vi.mock('../../db-main', async () => {
-  const { createRootsDatabaseDouble } = await import('./roots-database-double');
-  const database = createRootsDatabaseDouble();
-  return { getDatabase: async () => database };
-});
-
 import { registerIpcHandlers } from '../../ipc-handlers';
+import { getRootsCatalog, resetRootsCatalog } from '../ipc-domains/file-system-ipc-test-harness';
 
 describe('ipc-handlers filesystem composition', () => {
   let fileSystem: ElectronFileSystemAdapter;
@@ -36,6 +30,7 @@ describe('ipc-handlers filesystem composition', () => {
 
   beforeEach(() => {
     handlers.clear();
+    resetRootsCatalog();
     vi.clearAllMocks();
     vi.stubEnv('NODE_ENV', 'development');
     vi.stubEnv('ELECTRON_IS_E2E_TEST', '');
@@ -64,6 +59,7 @@ describe('ipc-handlers filesystem composition', () => {
     } as unknown as ElectronStorageAdapter;
     managedWorktreeAuthorizer = vi.fn<ManagedWorktreeAuthorizer>(async () => 'unmanaged');
     registerIpcHandlers(fileSystem, storage, () => null, {
+      getRootsCatalog,
       isSyntheticFileSystemPath: () => true,
       managedWorktreeAuthorizer,
     });

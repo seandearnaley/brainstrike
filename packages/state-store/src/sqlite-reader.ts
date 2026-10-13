@@ -68,6 +68,15 @@ export class SqliteReader {
     ).map((r) => r.t);
   }
 
+  /** Content retained by the authoritative source catalog, independent of run events. */
+  sourceBlobRefs(): string[] {
+    const db = this.conn();
+    if (!db) {
+      throw new Error('State truth database does not exist');
+    }
+    return db.prepare('SELECT DISTINCT content_hash FROM file_records').pluck().all() as string[];
+  }
+
   watermark(id: string): number {
     const db = this.conn();
     if (!db) {

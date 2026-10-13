@@ -22,8 +22,10 @@ import {
   existsSync,
   fsyncSync,
   openSync,
+  readdirSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeSync,
 } from 'node:fs';
@@ -31,14 +33,27 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
+import { clearContentRows } from './clear-content.mjs';
+import { executeCollectionRequest } from './collection-domain.mjs';
 import { newRetryStats, retrySharing } from './fs-retry.mjs';
 import { exportJsonl, readJsonl } from './jsonl.mjs';
 import { executeMcpTaskRequest } from './mcp-task-domain.mjs';
 import { executeMemoryRequest, executeNativeMemoryRequest } from './memory-domain.mjs';
+import { executeModelChoiceRequest } from './model-choice-domain.mjs';
+import { executePromptCatalogRequest } from './prompt-catalog-domain.mjs';
 import { isCorrupt, RunLog, ThreadDamage, ThreadReadOnlyRefusal } from './run-log.mjs';
 import { blobsOf } from './run-log-format.mjs';
 import { migrate } from './schema.mjs';
+import { executeSourceCatalogRequest } from './source-catalog-domain.mjs';
 import { CheckpointBlockedError } from './sqlite-checkpoint.mjs';
+import { executeThreadGroups } from './thread-groups-domain.mjs';
+import { executeViewFilterPresetRequest } from './view-filter-preset-domain.mjs';
+import { executeWorkspaceRootRequest } from './workspace-root-domain.mjs';
+import {
+  executeForgeCacheRequest,
+  executeWorktreeLedgerRequest,
+  readForgeCacheSnapshot,
+} from './worktree-forge-domain.mjs';
 
 /**
  * @typedef {object} WriterConfig
@@ -295,6 +310,72 @@ function readAll() {
 /** @param {{ op: string; id: number; [k: string]: unknown }} m */
 async function handle(m) {
   switch (m.op) {
+    case 'clear-content': {
+      const receipt = clearContentRows(db);
+      unlinkBlobs(readdirSync(cfg.blobsDir));
+      return receipt;
+    }
+    case 'worktree-ledger':
+      return executeWorktreeLedgerRequest(
+        db,
+        /** @type {import('./worktree-forge-types.js').WorktreeLedgerRequest} */ (m['request'])
+      );
+    case 'forge-cache-snapshot':
+      return { entries: readForgeCacheSnapshot(db) };
+    case 'forge-cache':
+      return executeForgeCacheRequest(
+        db,
+        /** @type {import('./worktree-forge-types.js').ForgeCacheRequest} */ (m['request'])
+      );
+    case 'prompt-catalog':
+      return executePromptCatalogRequest(
+        db,
+        /** @type {import('./prompt-catalog-types.js').PromptCatalogRequest} */ (m['request'])
+      );
+    case 'collections':
+      return executeCollectionRequest(
+        db,
+        /** @type {import('./collection-types.js').CollectionRequest} */ (m['request'])
+      );
+    case 'thread-groups':
+      return executeThreadGroups(
+        db,
+        /** @type {import('@brainstrike/types').ThreadGroupsRequest} */ (m['request'])
+      );
+    case 'view-filter-presets':
+      return executeViewFilterPresetRequest(
+        db,
+        /** @type {import('@brainstrike/types').ViewFilterPresetRequest} */ (m['request'])
+      );
+    case 'model-choices':
+      return executeModelChoiceRequest(
+        db,
+        /** @type {import('./model-choice-types.js').ModelChoiceRequest} */ (m['request'])
+      );
+    case 'source-catalog':
+      return executeSourceCatalogRequest(
+        db,
+        /** @type {import('./source-catalog-types.js').SourceCatalogRequest} */ (m['request']),
+        {
+          put: putBlob,
+          read: (hash, maxBytes) => {
+            const path = join(cfg.blobsDir, hash);
+            if (statSync(path).size > maxBytes) {
+              return null;
+            }
+            const content = readFileSync(path, 'utf8');
+            if (createHash('sha256').update(content).digest('hex') !== hash) {
+              throw new Error('Canonical source blob checksum mismatch');
+            }
+            return content;
+          },
+        }
+      );
+    case 'workspace-roots':
+      return executeWorkspaceRootRequest(
+        db,
+        /** @type {import('./workspace-root-types.js').WorkspaceRootRequest} */ (m['request'])
+      );
     case 'memory':
       return handleMemory(
         /** @type {import('./memory-types.js').MemoryDomainRequest} */ (m['request'])
@@ -343,6 +424,15 @@ async function handle(m) {
           damage: damage ? errorReply(damage) : null,
         })),
       };
+    case 'sourceGcCandidates':
+      return { hashes: db.prepare('SELECT hash FROM source_blob_gc').pluck().all() };
+    case 'sourceGcAcknowledge':
+      db.prepare('DELETE FROM source_blob_gc WHERE hash IN (SELECT value FROM json_each(?))').run(
+        JSON.stringify(m['hashes'])
+      );
+      return {};
+    case 'sourceBlobRefs':
+      return { hashes: db.prepare('SELECT DISTINCT content_hash FROM file_records').pluck().all() };
     case 'storedBlobRefs':
       return { hashes: log.storedBlobRefs(String(m['threadId'])) };
     case 'damagedBlobRefs':

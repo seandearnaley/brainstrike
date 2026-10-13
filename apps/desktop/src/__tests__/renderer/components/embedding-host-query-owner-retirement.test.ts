@@ -2,12 +2,11 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import {
   closeQueryEmbeddingRuntimeOwner,
   createQueryEmbeddingRuntimeOwner,
-  type QueryEmbeddingRuntimeOwner,
   runOwnedQueryEmbeddingInference,
 } from '../../../renderer/components/embedding-host-query-owner';
 
 function createHeldInference() {
-  const owner = createQueryEmbeddingRuntimeOwner({} as QueryEmbeddingRuntimeOwner['db']);
+  const owner = createQueryEmbeddingRuntimeOwner(undefined);
   const execution = Promise.withResolvers<number[]>();
   const physical = Promise.withResolvers<void>();
   const retire = vi.fn(() => physical.promise);

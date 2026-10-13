@@ -1,19 +1,18 @@
+import { projectModelCatalog } from '@brainstrike/assistant-contract';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { createUserPersonasListHandler } from '../../ipc-user-personas-handlers';
 
 const host = vi.hoisted(() => ({
   content: '---\ndescription: Embedding pin\nmodel: openai::text-embedding-3-small\n---\nBody.',
   dispose: vi.fn(),
-  query: vi.fn(async (sql: string) => ({
-    rows: sql.includes('FROM models')
-      ? [{ id: 'text-embedding-3-small', providerId: 'openai', type: 'embedding' }]
-      : [],
-  })),
+  read: vi.fn(),
   readTools: vi.fn(async (): Promise<Record<string, { enabled: boolean; id: string }[]>> => ({})),
   ready: false,
 }));
 vi.mock('../../db-main', () => ({
-  getDatabase: async () => (host.ready ? { query: host.query } : null),
+  getDatabase: async () => {
+    throw new Error('PG forbidden');
+  },
 }));
 vi.mock('../../mcp/main-host-control', () => ({
   getMainMcpHostControl: () => ({ readTools: host.readTools }),
@@ -35,23 +34,39 @@ vi.mock('../../assistant-server/node-fs-scan-deps', () => ({
 
 beforeEach(() => {
   host.ready = false;
+  host.read.mockImplementation(async () => {
+    if (!host.ready) {
+      throw new Error('Persona availability requires the host model catalog');
+    }
+    return projectModelCatalog({ models: [], providers: [] });
+  });
   host.content =
     '---\ndescription: Embedding pin\nmodel: openai::text-embedding-3-small\n---\nBody.';
   host.readTools.mockClear();
+  host.read.mockClear();
+  host.dispose.mockClear();
 });
 
-it('refuses a host check without its database and disposes the scanner instead of returning unchecked success', async () => {
-  await expect(createUserPersonasListHandler()()).rejects.toThrow(
-    'Persona availability requires the host model catalog'
-  );
+it('refuses a host check without its model catalog and disposes the scanner instead of returning unchecked success', async () => {
+  await expect(
+    createUserPersonasListHandler(
+      { workspaceRoots: async () => ({ roots: [] }) },
+      { read: host.read }
+    )()
+  ).rejects.toThrow('Persona availability requires the host model catalog');
   expect(host.dispose).toHaveBeenCalledOnce();
-  expect(host.query).not.toHaveBeenCalled();
+  expect(host.read).toHaveBeenCalledOnce();
 });
 
-it('reads the persisted model kind at the production IPC entry and rejects an embedding pin', async () => {
+it('reads the canonical model kind at the production IPC entry and rejects an embedding pin', async () => {
   host.ready = true;
-  const result = await createUserPersonasListHandler()();
-  expect(host.query).toHaveBeenCalledWith(expect.stringContaining("capabilities->>'type'"));
+  const result = await createUserPersonasListHandler(
+    {
+      workspaceRoots: async () => ({ roots: [] }),
+    },
+    { read: host.read }
+  )();
+  expect(host.read).toHaveBeenCalledOnce();
   expect(result.personas.find((persona) => persona.id === 'embedding')).toMatchObject({
     availability: {
       issues: [expect.objectContaining({ code: 'model-unsupported' })],
@@ -66,7 +81,12 @@ it("reads MCP tool enablement from the host's tools, once per listing (BST-1930 
   host.content = '---\ndescription: Searches\nmode: worker\ntools: fixture.search\n---\nBody.';
   host.readTools.mockResolvedValueOnce({ fixture: [{ enabled: false, id: 'fixture.search' }] });
 
-  const result = await createUserPersonasListHandler()();
+  const result = await createUserPersonasListHandler(
+    {
+      workspaceRoots: async () => ({ roots: [] }),
+    },
+    { read: host.read }
+  )();
 
   expect(host.readTools).toHaveBeenCalledOnce();
   expect(result.personas.find((persona) => persona.id === 'embedding')).toMatchObject({

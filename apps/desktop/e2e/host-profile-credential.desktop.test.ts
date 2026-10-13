@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { writePrivateCredentialFile } from '@brainstrike/agent-host/file-credentials';
 import { expect, test } from './fixtures/electron-fixture';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 
 const FINAL_TEXT = 'PROFILE_STORE_CREDENTIAL_RESOLVED';
@@ -36,17 +36,7 @@ test('a host run authenticates from the profile credential store with no env key
     compositeModelKey: `openrouter::${MODEL}`,
     provider: 'openrouter',
   });
-  await page.evaluate(async (model) => {
-    const db = (
-      window as unknown as {
-        electronAPI: { db: { query: (sql: string, params: unknown[]) => Promise<unknown> } };
-      }
-    ).electronAPI.db;
-    await db.query('UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2', [
-      model,
-      'openrouter',
-    ]);
-  }, MODEL);
+  await enableAssistantCatalogModel(page, `openrouter::${MODEL}`);
   modelProvider.setScript({ finalText: FINAL_TEXT });
 
   await ensureAssistantShellVisible(page);

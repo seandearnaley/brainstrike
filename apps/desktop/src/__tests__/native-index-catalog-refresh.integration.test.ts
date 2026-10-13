@@ -26,19 +26,23 @@ import {
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
-import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
 import { createNativeIndexActivation } from '../native-index-activation';
 import {
   createNativeScopedSearchCapability,
   type NativeSearchAuthority,
 } from '../native-scoped-search';
+import {
+  createActivationCatalogFixture,
+  retainedCatalogRecords,
+  sourceRecord,
+} from './native-activation-catalog-fixture';
 import { createNativePublicationReceiptAssertions } from './native-publication-receipt-test-helpers';
 
+const catalogFixture = createActivationCatalogFixture();
 const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
   close: vi.fn(),
   coverageClosed: vi.fn(),
-  database: { query: vi.fn(), transaction: vi.fn() },
   holdCoverage: vi.fn(),
   manager: {
     attachCanonicalCollection: vi.fn(),
@@ -47,7 +51,11 @@ const mocks = vi.hoisted(() => ({
   },
   readyPort: vi.fn(),
 }));
-vi.mock('../db-main', () => ({ getDatabase: async () => mocks.database }));
+vi.mock('../db-main', () => ({
+  getDatabase: async () => {
+    throw new Error('Retired PG owner is unavailable.');
+  },
+}));
 vi.mock('../desktop-database-location', () => ({
   resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
 }));
@@ -86,21 +94,11 @@ vi.mock('../sqlite-query-host-manager', () => ({
 const scope = { embeddingSetId: 'selected', kind: 'collection' } as const;
 const source = 'retained canonical marker';
 const contentHash = createHash('sha256').update(source).digest('hex');
-function records(count: number): NativeCanonicalCatalogRecord[] {
-  return Array.from({ length: count }, (_, index) => ({
-    chunksProcessed: false,
-    content: null,
-    contentHash,
-    embeddingSetId: scope.embeddingSetId,
-    fileId: `retained-${index}`,
-    fileName: `retained-${index}.txt`,
-    path: null,
-    rootId: null,
-    stat: { mtimeMs: 1, size: source.length },
-  }));
-}
+const records = (count: number) =>
+  retainedCatalogRecords(count, contentHash, source.length, scope.embeddingSetId);
 async function fixture(withWorkspace = false) {
   vi.resetAllMocks();
+  catalogFixture.reset();
   const directory = await mkdtemp(path.join(os.tmpdir(), 'native-catalog-refresh-'));
   const native = await openIndexer(
     {
@@ -196,14 +194,14 @@ async function fixture(withWorkspace = false) {
   mocks.readyPort.mockReturnValue(writer);
   mocks.close.mockImplementation(() => native.close());
   mocks.manager.retireCanonicalSources.mockResolvedValue(undefined);
-  mocks.database.query.mockImplementation(async (sql: string, params: readonly unknown[] = []) => {
-    if (sql.includes('FROM embedding_sets')) {
-      return { rows: [{ id: scope.embeddingSetId }] };
+  if (withWorkspace) {
+    catalogFixture.setRoot();
+  }
+  catalogFixture.catalog.sourceCatalog.mockImplementation(async (request) => {
+    if (request.operation !== 'inventory' && request.operation !== 'read') {
+      throw new Error('Unexpected catalog mutation');
     }
-    if (sql.includes('FROM roots')) {
-      return { rows: withWorkspace ? [{ id: 'root', kind: 'path' }] : [] };
-    }
-    const ids = params[0];
+    const ids = request.operation === 'read' ? request.fileIds : undefined;
     const snapshot = state.files;
     if (!Array.isArray(ids) && state.holdInventoryAfterReads >= 0) {
       if (state.holdInventoryAfterReads === 0) {
@@ -226,9 +224,9 @@ async function fixture(withWorkspace = false) {
       sawNewInventory.resolve();
     }
     return {
-      rows: Array.isArray(ids)
-        ? state.files.filter((record) => ids.includes(record.fileId))
-        : snapshot,
+      files: (ids ? state.files.filter((record) => ids.includes(record.fileId)) : snapshot).map(
+        sourceRecord
+      ),
     };
   });
   const parent = new CanonicalUtilityParent(
@@ -381,7 +379,9 @@ async function fixture(withWorkspace = false) {
       },
       watches: { subscribe: async () => {} },
     } as unknown as ApplicationIpcDomain,
+    catalog: catalogFixture.catalog,
     embedding: { documentEmbeddings: vi.fn() },
+    modelCatalog: catalogFixture.modelCatalog,
     onError,
     profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
     storage: {

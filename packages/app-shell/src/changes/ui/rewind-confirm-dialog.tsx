@@ -75,14 +75,7 @@ const UNDO_WINDOW = 'Undo is available until you send your next message.';
  * What applying would do to the later messages, in the owner's own terms; the
  * count joins once the preview has resolved it.
  */
-function rewindConversationPreview(
-  kind: RewindConversationEffect['kind'],
-  effect: RewindConversationEffect | null
-): string {
-  if (kind === 'hidden') {
-    const count = effect?.kind === 'hidden' ? ` ${effect.messages} message(s) affected.` : '';
-    return `This message and everything after it will be hidden.${count}`;
-  }
+function rewindConversationPreview(effect: RewindConversationEffect | null): string {
   const count =
     effect?.kind === 'branched'
       ? ` ${effect.turns === 1 ? '1 turn leaves' : `${effect.turns} turns leave`} this conversation; switch back to ${effect.turns === 1 ? 'it' : 'them'} with the branch picker.`
@@ -239,7 +232,7 @@ function RewindConfirmBody({
       });
       return;
     }
-    // Durable state changed again (messages un-hidden, files put back), so the
+    // Durable state changed again (previous branch restored, files put back), so the
     // live thread and the Changes surface must re-read exactly as they do after
     // an apply — see `useRewindStore.generation`.
     useRewindStore.getState().markRewindApplied();
@@ -373,10 +366,7 @@ function RewindConfirmBody({
       <DialogHeader>
         <DialogTitle>Restore to before this message</DialogTitle>
         <DialogDescription>
-          {rewindConversationPreview(
-            request.port.conversation,
-            preview?.ok === true ? preview.conversation : null
-          )}
+          {rewindConversationPreview(preview?.ok === true ? preview.conversation : null)}
         </DialogDescription>
       </DialogHeader>
 

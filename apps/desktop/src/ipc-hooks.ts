@@ -1,12 +1,9 @@
 import { realpathSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { ipcMain } from 'electron';
 import { z } from 'zod';
-import {
-  loadWorkspaceRootsFromDatabase,
-  type WorkspaceRootsQueryable,
-} from './assistant-server/workspace-roots';
-import { getDatabase } from './db-main';
+import { loadWorkspaceRootsFromCatalog } from './assistant-server/workspace-roots';
 import type { DesktopHookTrust } from './desktop-hook-trust';
 import {
   type DbRootLite,
@@ -26,25 +23,29 @@ const VISIBLE_UI_POLICY = { roles: ['visible-ui'] } as const;
 const Sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
 
 /**
- * Load the mounted DB `roots` (id + path) so a reviewed/attested path can be
- * resolved to its canonical DB root id and containment-checked. The DB is the
+ * Load the mounted catalog roots (id + path) so a reviewed/attested path can be
+ * resolved to its canonical root id and containment-checked. The catalog is the
  * SAME source the assistant server resolves roots from, so the panel, the
  * attestation, and the server all key trust by one id.
  */
-async function loadDbRoots(getDb: () => Promise<WorkspaceRootsQueryable>): Promise<DbRootLite[]> {
-  const roots = await loadWorkspaceRootsFromDatabase(await getDb());
+async function loadDbRoots(workspaceRoots: WorkspaceRootPort): Promise<DbRootLite[]> {
+  const roots = await loadWorkspaceRootsFromCatalog(workspaceRoots);
   return roots.map((root) => ({ id: root.rootId, path: root.path }));
 }
 
 /** The mounted root containing `absPath`; trust names that root, never a renderer id. */
 async function containingDbRoot(
-  getDb: () => Promise<WorkspaceRootsQueryable>,
+  workspaceRoots: WorkspaceRootPort,
   absPath: unknown
 ): Promise<DbRootLite> {
   if (typeof absPath !== 'string' || !isAbsolute(absPath.trim())) {
     throw new Error('root path must be a non-empty absolute path');
   }
-  const dbRoot = resolveDbRootForPath(absPath.trim(), await loadDbRoots(getDb), realpathSync);
+  const dbRoot = resolveDbRootForPath(
+    absPath.trim(),
+    await loadDbRoots(workspaceRoots),
+    realpathSync
+  );
   if (!dbRoot) {
     throw new Error('root path is not within a mounted workspace root');
   }
@@ -53,7 +54,7 @@ async function containingDbRoot(
 
 export function registerHooksIpcHandlers(
   hookTrust: DesktopHookTrust,
-  getDb: () => Promise<WorkspaceRootsQueryable> = getDatabase
+  workspaceRoots: WorkspaceRootPort
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
@@ -62,7 +63,7 @@ export function registerHooksIpcHandlers(
     DESKTOP_IPC_CHANNELS.hooks.getProjectHooksForReview,
     UNAUTHENTICATED_SENDER_POLICY,
     async (_event, rootId: unknown, absPath: unknown): Promise<ProjectHooksReview> => {
-      const dbRoots = await loadDbRoots(getDb);
+      const dbRoots = await loadDbRoots(workspaceRoots);
       const review = getProjectHooksForReview(rootId, absPath, {
         resolveDbRoot: (path) => resolveDbRootForPath(path, dbRoots, realpathSync),
       });
@@ -81,7 +82,7 @@ export function registerHooksIpcHandlers(
     DESKTOP_IPC_CHANNELS.hooks.trustProjectHooks,
     VISIBLE_UI_POLICY,
     async (_event, absPath: unknown, sha256: unknown): Promise<void> => {
-      const dbRoot = await containingDbRoot(getDb, absPath);
+      const dbRoot = await containingDbRoot(workspaceRoots, absPath);
       await hookTrust.trust({
         path: dbRoot.path,
         rootId: dbRoot.id,
@@ -95,7 +96,7 @@ export function registerHooksIpcHandlers(
     DESKTOP_IPC_CHANNELS.hooks.untrustProjectHooks,
     VISIBLE_UI_POLICY,
     async (_event, absPath: unknown): Promise<void> => {
-      await hookTrust.untrust((await containingDbRoot(getDb, absPath)).id);
+      await hookTrust.untrust((await containingDbRoot(workspaceRoots, absPath)).id);
     }
   );
 

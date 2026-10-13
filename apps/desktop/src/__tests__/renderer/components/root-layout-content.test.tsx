@@ -293,9 +293,11 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('home-page-content')).toBeInTheDocument();
   });
 
-  it('registers the desktop embedding runtime config on mount so semantic search can build a local embedder before any database panel loads the queue', () => {
+  it('mounts without opening PGlite or a visible-renderer embedding queue', () => {
     render(<RootLayoutContent />);
-    expect(registerDesktopEmbeddingRuntimeConfigMock).toHaveBeenCalledTimes(1);
+    expect(usePGliteDatabaseMock).not.toHaveBeenCalled();
+    expect(registerDesktopEmbeddingRuntimeConfigMock).not.toHaveBeenCalled();
+    expect(sharedRootLayoutCapture.props).not.toHaveProperty('loadEmbeddingQueue');
   });
 
   it('does not configure the removed full-frame prompts route', () => {
@@ -429,7 +431,7 @@ describe('RootLayoutContent', () => {
     expect(loggerInfoMock).toHaveBeenCalledWith(
       'Desktop visible renderer heap changed materially',
       expect.objectContaining({
-        activeToolsTab: 'database-ready',
+        activeToolsTab: 'host-owned',
       })
     );
 
@@ -532,7 +534,7 @@ describe('RootLayoutContent', () => {
     expect(loggerWarnMock).toHaveBeenCalledWith(
       'Desktop visible renderer frame health degraded',
       expect.objectContaining({
-        activeToolsTab: 'database-ready',
+        activeToolsTab: 'host-owned',
         maxFrameGapMs: 650,
         usedJSHeapBytes: 100,
       })

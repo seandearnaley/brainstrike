@@ -1,5 +1,4 @@
 import './assistant-thread-tabs-workspace-test-support';
-import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -90,7 +89,7 @@ describe('AssistantThreadTabsWorkspace run state', () => {
 
   it('re-renders only the marks whose thread status changed when the selection moves', async () => {
     addThreadRow('thread-c', 'Release checklist');
-    renderWorkspace();
+    const workspace = renderWorkspace();
     await screen.findByRole('tab', { name: /Purchasing app search log/ });
     openThreadTabs('thread-b', 'thread-c', 'thread-a');
     await waitFor(() => expect(markRenders.get('thread-c')).toBeGreaterThan(0));
@@ -110,6 +109,7 @@ describe('AssistantThreadTabsWorkspace run state', () => {
 
     // Positive control: a status change re-renders exactly that thread's mark.
     dbMocks.activeRunRows = [{ threadId: 'thread-b' }];
+    workspace.rerender();
     openThreadTabs('thread-a');
     await screen.findByRole('tab', { name: 'Amazon Bedrock Converse, running' });
     expect(delta('thread-b')).toBeGreaterThan(0);
@@ -129,32 +129,17 @@ describe('AssistantThreadTabsWorkspace run completion', () => {
   const listReads = (): number =>
     mockDb.query.mock.calls.filter(([sql]) => sql.includes('FROM mastra_threads')).length;
 
-  async function renderWithBackgroundThreadB(): Promise<void> {
-    renderWorkspace();
+  async function renderWithBackgroundThreadB(): Promise<() => void> {
+    const workspace = renderWorkspace();
     await screen.findByRole('tab', { name: /Purchasing app search log/ });
     openThreadTabs('thread-b', 'thread-a');
     await screen.findByRole('tab', { name: 'Amazon Bedrock Converse' });
     await waitFor(() => expect(activeThreadId()).toBe('thread-a'));
-  }
-
-  /**
-   * Any workspace re-render (each call flips the tab order, as an identical one
-   * is a store no-op), with the active and so viewed thread unchanged.
-   */
-  function rerenderWorkspace(): void {
-    const flipped = useAssistantThreadStore
-      .getState()
-      .openThreadIdsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]?.slice()
-      .reverse();
-    act(() => {
-      useAssistantThreadStore
-        .getState()
-        .reorderThreadTabs(WORKSPACE_MEMORY_RESOURCE_ID, flipped ?? []);
-    });
+    return workspace.rerender;
   }
 
   it('badges a background thread finished when a terminal run write lands, with no title change', async () => {
-    await renderWithBackgroundThreadB();
+    const rerenderWorkspace = await renderWithBackgroundThreadB();
     expect(screen.queryByTestId('thread-unseen-glyph')).not.toBeInTheDocument();
 
     // The run row reaches its terminal status: the list read now sees it, and the
@@ -171,7 +156,7 @@ describe('AssistantThreadTabsWorkspace run completion', () => {
   });
 
   it('badges a failed run the same way', async () => {
-    await renderWithBackgroundThreadB();
+    const rerenderWorkspace = await renderWithBackgroundThreadB();
 
     Object.assign(
       threadRows.find((row) => row['id'] === 'thread-b') ?? {},
@@ -186,7 +171,7 @@ describe('AssistantThreadTabsWorkspace run completion', () => {
   });
 
   it('re-reads the thread list once per completion, and not for a projection that did not change', async () => {
-    await renderWithBackgroundThreadB();
+    const rerenderWorkspace = await renderWithBackgroundThreadB();
     const initialReads = listReads();
 
     // The same signature delivered again (an unrelated write re-ran the query).

@@ -22,13 +22,15 @@ import {
   type NativeIndexSources,
   retireNativeIndexSources,
 } from '../native-index-source-retirement';
+import { createActivationCatalogFixture } from './native-activation-catalog-fixture';
+
+const catalogFixture = createActivationCatalogFixture();
 
 const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
   close: vi.fn(),
   closeProfile: vi.fn(),
   closeReaders: vi.fn(),
-  database: { query: vi.fn(), transaction: vi.fn() },
   destroy: vi.fn(),
   manager: {
     attachCanonicalCollection: vi.fn(),
@@ -38,7 +40,11 @@ const mocks = vi.hoisted(() => ({
   },
   readyPort: vi.fn(),
 }));
-vi.mock('../db-main', () => ({ getDatabase: async () => mocks.database }));
+vi.mock('../db-main', () => ({
+  getDatabase: async () => {
+    throw new Error('Retired PG owner is unavailable.');
+  },
+}));
 vi.mock('../desktop-database-location', () => ({
   resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
 }));
@@ -122,6 +128,7 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
     }),
     prepareFile: unused,
     prepareScopedFile: unused,
+    readScopedFilePage: unused,
     removeFile: unused,
     removeScopedFile: unused,
     replaceFileBindings: async () => {},
@@ -164,7 +171,9 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
   const onReceipt = vi.fn();
   const activation = createNativeIndexActivation({
     application: applicationOverride ?? application,
+    catalog: catalogFixture.catalog,
     embedding: transport,
+    modelCatalog: catalogFixture.modelCatalog,
     onError: vi.fn(),
     onReceipt,
     profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
@@ -174,9 +183,8 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
 }
 beforeEach(() => {
   vi.resetAllMocks();
-  mocks.database.query.mockImplementation(async (sql: string) => ({
-    rows: sql.includes('FROM embedding_sets') ? [{ id: 'selected' }] : [],
-  }));
+  catalogFixture.reset();
+
   mocks.acquire.mockResolvedValue(writer());
   mocks.readyPort.mockReturnValue(writer());
   mocks.close.mockResolvedValue(undefined);
@@ -287,13 +295,7 @@ it.each([
       }
     );
     mocks.manager.retireCanonicalSources.mockImplementation(() => parent.retireAttachments());
-    mocks.database.query.mockImplementation(async (sql: string) => ({
-      rows: sql.includes('FROM roots')
-        ? [{ id: 'root', kind: 'path' }]
-        : sql.includes('FROM embedding_sets')
-          ? [{ id: 'selected' }]
-          : [],
-    }));
+    catalogFixture.setRoot();
     let unsubscribeFailed = false;
     const unsubscribe = vi.fn(async () => {
       watchEntered.resolve();

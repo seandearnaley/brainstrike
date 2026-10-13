@@ -3,11 +3,11 @@ import type {
   PromptItem,
   PromptItemFilter,
   PromptItemKind,
-  PromptItemRepository,
   PromptItemSimilarityResult,
   PromptItemUsageAction,
   UpdatePromptItemInput,
 } from '@brainstrike/db';
+import type { PromptItemRepositoryPort } from '@brainstrike/types/prompt-item';
 import {
   Button,
   cn,
@@ -60,7 +60,7 @@ import {
 } from './prompt-workbench-shared';
 
 export type PromptWorkbenchRepository = Pick<
-  PromptItemRepository,
+  PromptItemRepositoryPort,
   'create' | 'list' | 'recordUsage' | 'update'
 >;
 

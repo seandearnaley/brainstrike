@@ -1,4 +1,5 @@
 import {
+  type AssistantThreadCatalogRepository,
   createPgliteAssistantThreadRepository,
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
@@ -6,7 +7,10 @@ import {
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { toast } from '@brainstrike/ui';
 import { useCallback, useMemo } from 'react';
-import { useAssistantThreadHost, withAssistantThreadHost } from '../assistant-thread-host-context';
+import {
+  createHostAssistantThreadRepository,
+  useAssistantThreadHost,
+} from '../assistant-thread-host-context';
 
 export interface ThreadFolderBinding {
   readonly displayName: string;
@@ -24,20 +28,31 @@ export interface ThreadFolderBinding {
  * file-system-access root): the display name + durable root id ARE the
  * binding, and the path is display-only.
  */
-export function useCreateThreadInFolder(): ((folder: ThreadFolderBinding) => void) | null {
-  const database = usePGliteDatabase();
-  const resourceId = WORKSPACE_MEMORY_RESOURCE_ID;
+export function useCreateThreadInFolder(
+  providedRepository?: AssistantThreadCatalogRepository | null
+): ((folder: ThreadFolderBinding) => void) | null {
+  const host = useAssistantThreadHost();
+  const database = usePGliteDatabase({ enabled: !host && providedRepository === undefined });
   // The host's existing thread owner creates the thread and commits its folder
   // binding when the app has one. A refused binding is reported below; it never
   // falls back to a history thread.
-  const host = useAssistantThreadHost();
   const repository = useMemo(
     () =>
-      database
-        ? withAssistantThreadHost(createPgliteAssistantThreadRepository(database), host)
-        : null,
-    [database, host]
+      providedRepository === undefined
+        ? host
+          ? createHostAssistantThreadRepository(host)
+          : database
+            ? createPgliteAssistantThreadRepository(database)
+            : null
+        : providedRepository,
+    [database, host, providedRepository]
   );
+  return useCreateThreadInFolderRepository(repository);
+}
+export function useCreateThreadInFolderRepository(
+  repository: AssistantThreadCatalogRepository | null
+): ((folder: ThreadFolderBinding) => void) | null {
+  const resourceId = WORKSPACE_MEMORY_RESOURCE_ID;
   const createThread = useAssistantThreadStore((state) => state.createThread);
   const updateThreadMetadata = useAssistantThreadStore((state) => state.updateThreadMetadata);
   const createThreadInFolder = useCallback(

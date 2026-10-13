@@ -42,7 +42,8 @@ vi.mock('@brainstrike/db/react', () => ({
   usePGliteDatabase: vi.fn(() => null),
 }));
 
-vi.mock('@brainstrike/app-state/hooks/use-model-registry', () => ({
+vi.mock('@brainstrike/app-state/hooks/use-model-registry', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/app-state/hooks/use-model-registry')>()),
   useEnsureModelRegistry: vi.fn(),
 }));
 

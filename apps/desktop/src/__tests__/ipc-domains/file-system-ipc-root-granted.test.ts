@@ -17,8 +17,9 @@ import { registerFileSystemIpcHandlers } from '../../ipc-domains/file-system-ipc
 import {
   createFileSystem,
   createStorage,
-  getRootsDatabase,
+  getRootsCatalog,
   handlers,
+  resetRootsCatalog,
 } from './file-system-ipc-test-harness';
 import { loggerMock } from './workspace-root-registry-logger-test-helper';
 
@@ -38,6 +39,7 @@ async function invokeAddRootByPath(requestedPath: string): Promise<unknown> {
 
 describe('file system IPC root-granted notification', () => {
   beforeEach(() => {
+    resetRootsCatalog();
     handlers.clear();
     loggerMock.warn.mockClear();
   });
@@ -47,7 +49,7 @@ describe('file system IPC root-granted notification', () => {
     const onWorkspaceRootGranted = vi.fn();
     registerFileSystemIpcHandlers({
       fileSystem: createFileSystem(grantedPath),
-      getRootsDatabase,
+      getRootsCatalog,
       isSyntheticFileSystemPath: () => true,
       onWorkspaceRootGranted,
       storage: grantedStorage(grantedPath),
@@ -63,7 +65,7 @@ describe('file system IPC root-granted notification', () => {
     const onWorkspaceRootGranted = vi.fn();
     registerFileSystemIpcHandlers({
       fileSystem: createFileSystem(),
-      getRootsDatabase,
+      getRootsCatalog,
       isSyntheticFileSystemPath: () => true,
       onWorkspaceRootGranted,
       storage: createStorage(),
@@ -80,7 +82,7 @@ describe('file system IPC root-granted notification', () => {
     const subscriberError = new Error('menu subscriber failed');
     registerFileSystemIpcHandlers({
       fileSystem: createFileSystem(grantedPath),
-      getRootsDatabase,
+      getRootsCatalog,
       isSyntheticFileSystemPath: () => true,
       onWorkspaceRootGranted: () => {
         throw subscriberError;

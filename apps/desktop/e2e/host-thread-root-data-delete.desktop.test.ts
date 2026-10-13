@@ -13,8 +13,8 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { readHostProcess, readHostThreadTree } from './utils/agent-host-log';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { readHostProcess, readHostRootRecords, readHostThreadTree } from './utils/agent-host-log';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 
 const API_KEY = 'test-key-host-root-data-delete';
@@ -32,16 +32,7 @@ async function enableModel(page: Page): Promise<void> {
     compositeModelKey: `openrouter::${MODEL}`,
     provider: 'openrouter',
   });
-  await page.evaluate(async (model) => {
-    const db = window.electronAPI?.db;
-    if (!db) {
-      throw new Error('The app database query path is unavailable');
-    }
-    await db.query('UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2', [
-      model,
-      'openrouter',
-    ]);
-  }, MODEL);
+  await enableAssistantCatalogModel(page, `openrouter::${MODEL}`);
 }
 
 /** Text search through the visible Search & Indexing controls: deleting a folder's data needs it. */
@@ -64,19 +55,12 @@ async function enableTextIndexing(page: Page): Promise<void> {
 
 /** The durable `roots.id` of a mounted folder, from the app's own database. */
 async function rootIdOf(page: Page, rootPath: string): Promise<string> {
-  return await page.evaluate(async (wanted) => {
-    const db = window.electronAPI?.db;
-    if (!db) {
-      throw new Error('The app database query path is unavailable');
-    }
-    const { rows } = await db.query<{ id: string }>('SELECT id FROM roots WHERE path = $1', [
-      wanted,
-    ]);
-    if (rows.length !== 1 || !rows[0]) {
-      throw new Error(`Expected one roots row for ${wanted}, found ${rows.length}`);
-    }
-    return rows[0].id;
-  }, rootPath);
+  const userData = await page.evaluate(() => window.electronAPI!.getUserDataPath());
+  const rows = (await readHostRootRecords(userData)).filter((root) => root.path === rootPath);
+  if (rows.length !== 1 || !rows[0]) {
+    throw new Error(`Expected one canonical root for ${rootPath}`);
+  }
+  return rows[0].id;
 }
 
 /** The roots the native index has fully scanned and authorizes, or `not-ready`. */
@@ -98,15 +82,10 @@ async function scannedRoots(page: Page): Promise<readonly string[] | 'not-ready'
 /** How many indexed file records the app holds for a root. */
 async function indexedFileCount(page: Page, rootId: string): Promise<number> {
   return await page.evaluate(async (wanted) => {
-    const db = window.electronAPI?.db;
-    if (!db) {
-      throw new Error('The app database query path is unavailable');
+    if (!window.sourceFiles) {
+      throw new Error('Canonical source capability unavailable');
     }
-    const { rows } = await db.query<{ count: number }>(
-      'SELECT count(*)::int AS count FROM file_records WHERE root_id = $1',
-      [wanted]
-    );
-    return rows[0]?.count ?? -1;
+    return (await window.sourceFiles.list()).filter((file) => file.rootId === wanted).length;
   }, rootId);
 }
 

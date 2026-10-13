@@ -1,3 +1,4 @@
+import type { ForgeCachePort } from '@brainstrike/state-store';
 /**
  * Main-process forge (pull-request) awareness — D5 as settled: `gh`-first,
  * EVENT-TRIGGERED refreshes, a small `brainstrike_forge_prs` cache, and no
@@ -43,11 +44,7 @@ import {
   fetchForgePullRequest,
   probeGhAuth,
 } from './forge-gh-client';
-import {
-  type ForgeCacheDatabase,
-  readForgePrCacheEntry,
-  writeForgePrCacheEntry,
-} from './forge-pr-cache';
+import { readForgePrCacheEntry, writeForgePrCacheEntry } from './forge-pr-cache';
 import { desktopAssistantServerLogger as logger } from './logger';
 
 export type { ForgeIdentityState, ForgeRefreshReason } from '@brainstrike/types';
@@ -66,7 +63,7 @@ export type ForgeRepositoryResolver = (
 ) => Promise<ForgeResult<{ readonly context: GitForgeRepositoryContext; readonly cwd: string }>>;
 
 export interface ForgeServiceOptions {
-  readonly getDatabase: () => Promise<ForgeCacheDatabase>;
+  readonly getForgeCache: () => Promise<ForgeCachePort>;
   readonly now?: () => number;
   readonly onPrUpdated: (event: Omit<ForgePrUpdatedEvent, 'generation'>) => void;
   readonly resolveRepository: ForgeRepositoryResolver;
@@ -161,7 +158,7 @@ function isAbortError(error: unknown): boolean {
 }
 
 export function createForgeService(options: ForgeServiceOptions): ForgeService {
-  const { getDatabase, onPrUpdated, resolveRepository, run } = options;
+  const { getForgeCache, onPrUpdated, resolveRepository, run } = options;
   const now = options.now ?? (() => Date.now());
   const abortController = new AbortController();
   const inFlightOperations = new Set<Promise<unknown>>();
@@ -460,7 +457,7 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     let cached: Awaited<ReturnType<typeof readForgePrCacheEntry>> = null;
     try {
       assertRunning();
-      const database = await getDatabase();
+      const database = await getForgeCache();
       assertRunning();
       cached = await readForgePrCacheEntry(database, target.repoCommonDir, target.branch);
       assertRunning();
@@ -494,7 +491,7 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     let cached: Awaited<ReturnType<typeof readForgePrCacheEntry>>;
     try {
       assertRunning();
-      const database = await getDatabase();
+      const database = await getForgeCache();
       assertRunning();
       cached = await readForgePrCacheEntry(database, target.repoCommonDir, target.branch);
       assertRunning();
@@ -560,7 +557,7 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
       // a stale PR row the list-wide projection would still show.
       try {
         assertRunning();
-        const database = await getDatabase();
+        const database = await getForgeCache();
         assertRunning();
         await writeForgePrCacheEntry(database, {
           branch: target.branch,
@@ -599,7 +596,7 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     // failure is still visible.
     try {
       assertRunning();
-      const database = await getDatabase();
+      const database = await getForgeCache();
       assertRunning();
       await writeForgePrCacheEntry(database, {
         branch: target.branch,

@@ -8,7 +8,7 @@
  */
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import {
-  type AssistantThreadRepository,
+  type AssistantThreadCatalogRepository,
   createPgliteAssistantThreadRepository,
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
@@ -19,7 +19,10 @@ import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { Button } from '@brainstrike/ui';
 import type { ReactElement } from 'react';
 import { useMemo, useRef, useState } from 'react';
-import { useAssistantThreadHost, withAssistantThreadHost } from '../assistant-thread-host-context';
+import {
+  createHostAssistantThreadRepository,
+  useAssistantThreadHost,
+} from '../assistant-thread-host-context';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
@@ -44,7 +47,8 @@ export function WorktreeMapSurface(): ReactElement {
   const [sort, setSort] = useState<WorktreeSort>('name');
   const [page, setPage] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const database = usePGliteDatabase();
+  const host = useAssistantThreadHost();
+  const database = usePGliteDatabase({ enabled: !host });
   const resourceId = WORKSPACE_MEMORY_RESOURCE_ID;
   const threadsByResourceId = useAssistantThreadStore((state) => state.threadsByResourceId);
   const selectedThreadByResourceId = useAssistantThreadStore(
@@ -60,12 +64,13 @@ export function WorktreeMapSurface(): ReactElement {
   // Committed mode creates the thread through the host's existing thread
   // owner, exactly as the threads panel does; with no host the history
   // repository is returned unchanged.
-  const host = useAssistantThreadHost();
-  const repository = useMemo<AssistantThreadRepository | null>(
+  const repository = useMemo<AssistantThreadCatalogRepository | null>(
     () =>
-      database
-        ? withAssistantThreadHost(createPgliteAssistantThreadRepository(database), host)
-        : null,
+      host
+        ? createHostAssistantThreadRepository(host)
+        : database
+          ? createPgliteAssistantThreadRepository(database)
+          : null,
     [database, host]
   );
   const platform = useMemo(() => resolvePlatformBridge(), []);

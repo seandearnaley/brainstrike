@@ -286,3 +286,43 @@ describe('desktop host lease ownership', () => {
     child.exit(0);
   });
 });
+
+describe('parent-only content clear', () => {
+  it('waits for both the committed receipt and physical exit without posting ordinary close first', async () => {
+    const { createDesktopHostLease } = await import('../../host-lease-manager');
+    const child = new Child();
+    child.exitOnClose = false;
+    const owner = createDesktopHostLease({
+      fork: () => {
+        queueMicrotask(() => child.emit('message', { event: 'ready' }));
+        return child;
+      },
+      platformModule: '/fixture.js',
+      root,
+    });
+    await owner.acquire();
+    let settled = false;
+    const clearing = owner.clearAndRetireContent().then((receipt) => {
+      settled = true;
+      return receipt;
+    });
+    await vi.waitFor(() => expect(child.posts).toContainEqual({ method: 'clear-content' }));
+    expect(child.posts).not.toContainEqual({ method: 'close' });
+    child.emit('message', { deletedChunks: null, deletedFiles: 3, event: 'content-cleared' });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    child.exit(0);
+    expect(await clearing).toEqual({ deletedChunks: null, deletedFiles: 3 });
+    expect(attachment.close).toHaveBeenCalledOnce();
+    await expect(owner.acquire()).rejects.toThrow();
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+  it('refuses to clear a foreign attached host and never fabricates a receipt from exit alone', async () => {
+    const { createDesktopHostLease } = await import('../../host-lease-manager');
+    launch.mockResolvedValue(attachment);
+    const owner = createDesktopHostLease({ root });
+    await owner.acquire();
+    await expect(owner.clearAndRetireContent()).rejects.toThrow();
+    await owner.close();
+  });
+});

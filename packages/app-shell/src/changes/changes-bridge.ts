@@ -13,13 +13,7 @@
  * `isElectron()` check anywhere.
  */
 
-import type {
-  AssistantRewindFinalization,
-  AssistantRewindMode,
-  AssistantRewindPreviewResult,
-  AssistantRewindRedoResult,
-  AssistantRewindResult,
-} from '@brainstrike/assistant-contract';
+import type { AssistantRewindMode } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type {
   Changeset,
@@ -75,48 +69,14 @@ export interface RewindFinalizePayload {
 }
 
 export interface ChangesBridge {
-  /** Conversation Rewind: apply. See {@link RewindApplyPayload}. */
-  applyRewind: (payload: RewindApplyPayload) => Promise<GitResult<AssistantRewindResult>>;
   fileDiff: (
     rootId: string,
     changeset: Changeset,
     path: string
   ) => Promise<GitResult<StructuredFileDiff>>;
-  /**
-   * Conversation Rewind: end the redo window for a thread (W5 T4b). Fired when
-   * a USER-authored message starts a new run. `value.finalized === false` means
-   * the thread had no outstanding rewind — the ordinary case, not a failure.
-   */
-  finalizeRewinds: (
-    payload: RewindFinalizePayload
-  ) => Promise<GitResult<AssistantRewindFinalization>>;
-  /**
-   * Repository/worktree topology across the active workspace roots
-   * (BST-1114 T0). Powers the source picker's git scopes and the changed-files
-   * tree's root→repo→worktree grouping, and carries each worktree's
-   * `trust`/`trustReason` so the UI can state an unvalidated worktree's reason
-   * rather than silently degrading.
-   *
-   * `{ maxAgeMs: 0 }` forces a rebuild that STARTED AFTER the call rather than
-   * serving (or coalescing onto) a snapshot that predates it — what a caller
-   * which just registered a root needs for that root to be discovered and
-   * watched (BST-1397). Omit it for the ordinary TTL-cached read.
-   */
   inventory: (options?: { readonly maxAgeMs?: number }) => Promise<GitResult<GitInventory>>;
-  /**
-   * Live-refresh push channel (BST-1161, spec §6): subscribe to
-   * `changes:invalidated` events fired when the main-process git-metadata
-   * watcher observes external git activity on a repository. Returns the
-   * unsubscribe function (terminal `onData` precedent).
-   */
   onInvalidated: (listener: (event: ChangesInvalidationEvent) => void) => () => void;
-  /** Conversation Rewind: undo the newest rewind, one level, until finalization. */
-  redoRewind: (payload: RewindRedoPayload) => Promise<GitResult<AssistantRewindRedoResult>>;
   resolveView: (rootId: string, changeset: Changeset) => Promise<GitResult<ChangesetView>>;
-  /** Conversation Rewind: pre-apply preview (range, tombstones, conflicts, view). */
-  rewindPreview: (
-    payload: RewindPreviewPayload
-  ) => Promise<GitResult<AssistantRewindPreviewResult>>;
 }
 
 // Compile-time exact-set proof: `satisfies Record<keyof ChangesBridge, true>`
@@ -125,14 +85,10 @@ export interface ChangesBridge {
 // the interface. The runtime pin only checks preload ↔ constant; this closes
 // interface ↔ constant.
 const CHANGES_BRIDGE_REQUIRED_METHOD_SET = {
-  applyRewind: true,
   fileDiff: true,
-  finalizeRewinds: true,
   inventory: true,
   onInvalidated: true,
-  redoRewind: true,
   resolveView: true,
-  rewindPreview: true,
 } as const satisfies Record<keyof ChangesBridge, true>;
 
 /**

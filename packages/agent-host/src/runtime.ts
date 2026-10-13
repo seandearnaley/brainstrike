@@ -5,7 +5,11 @@ import {
   ResourceOwner,
   startHost,
 } from '@brainstrike/host-lease';
-import { StateStore, StateStoreStartupError } from '@brainstrike/state-store';
+import {
+  type ClearContentResult,
+  StateStore,
+  StateStoreStartupError,
+} from '@brainstrike/state-store';
 import {
   createMessageConnection,
   type Message,
@@ -22,6 +26,7 @@ import { AGENT_HOST_PROTOCOL_VERSION } from './protocol.js';
 export interface AgentHost extends HostRuntime {
   /** Binds a transport the launching parent supplied, as the given client origin. */
   bindClientConnection(connection: MessageConnection, origin: HostClientOrigin): () => void;
+  clearAndRetireContent(): Promise<ClearContentResult>;
   readonly core: HostCore;
 }
 export interface HostStartupContext {
@@ -162,6 +167,10 @@ export async function startAgentHost(
   };
   let runtime: HostRuntime | undefined;
   let core: HostCore | undefined;
+  let closing = false;
+  let clearContent = false;
+  let cleared: ClearContentResult | undefined;
+  let clearing: Promise<ClearContentResult> | undefined;
   const cancelled = (): void => {
     // BST-1977: a socket can already be authenticated while host.json's
     // publication acknowledgement is held. Fence that command owner now;
@@ -287,13 +296,20 @@ export async function startAgentHost(
             close: async () => {
               await closeHostStoreAfterCore(
                 async () => core?.close(),
-                () => store.close()
+                async () => {
+                  if (clearContent) {
+                    cleared = await store.clearContent();
+                    return;
+                  }
+                  await store.close();
+                }
               );
             },
             lock: store.lock,
           };
         },
         beginClose: () => {
+          closing = true;
           // The Root finalizer below joins this exact idempotent Core promise.
           // Observe early rejection without consuming it or releasing the store.
           void core?.close().catch(() => undefined);
@@ -329,6 +345,22 @@ export async function startAgentHost(
         origin,
         ...clientCapabilities(),
       });
+    },
+    clearAndRetireContent: () => {
+      if (clearing) {
+        return clearing;
+      }
+      if (closing) {
+        return Promise.reject(new Error('Host retirement has already started'));
+      }
+      clearContent = true;
+      clearing = runtime.close().then(() => {
+        if (!cleared) {
+          throw new Error('Host content clear did not produce a committed receipt');
+        }
+        return cleared;
+      });
+      return clearing;
     },
     get clientCount(): number {
       return runtime.clientCount;

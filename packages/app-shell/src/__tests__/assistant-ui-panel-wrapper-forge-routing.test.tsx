@@ -39,7 +39,9 @@ describe('AssistantUiPanelWrapper — forge writer routing', () => {
       renameThread: vi.fn(),
       renderThread: vi.fn(),
       updateThreadBinding,
-      workspaceRepository: (repository) => repository,
+      workspaceRepository: () => {
+        throw new Error('Unexpected workspace snapshot access in this fixture');
+      },
     };
     render(
       <AssistantThreadHostContext.Provider value={host}>

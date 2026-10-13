@@ -1,8 +1,12 @@
 #!/usr/bin/env node
-import { readdir, readFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
+import {
+  extractMigrationExportName,
+  readMigrationFiles,
+} from './model-catalog-migration-input.mjs';
 import {
   findModelsStatementEnd,
   insertColumnListWritesColumn,
@@ -11,8 +15,8 @@ import {
 } from './model-catalog-migration-sql-statements.mjs';
 import { parseTypeScriptSource } from './provider-registry-ast-helpers.mjs';
 
-const MIGRATION_EXPORT_PATTERN =
-  /export\s+const\s+(migration\d{3}[A-Za-z0-9_]*)\s*:\s*Migration\s*=/;
+export { readMigrationFiles } from './model-catalog-migration-input.mjs';
+
 // Keep this literal table list in sync with the model catalog schema. The check
 // intentionally scans whole migration files, including down blocks/comments, so
 // ambiguous catalog mentions fail closed instead of silently bypassing ledger checks.
@@ -51,8 +55,8 @@ export const STATIC_CATALOG_STALE_ROW_ALLOWLIST = new Set([]);
 // Providers whose final-snapshot rows are RECONSTRUCTION RESIDUE rather than a
 // pending catalog deletion. Migration 021 renamed `transformers` to `local`
 // with `UPDATE models SET provider_id = ...`, and the operation extractor
-// models only INSERT/DELETE, so every pre-021 row survives in the snapshot
-// under a provider id no catalog has declared since.
+// now models that reassignment. This historical exemption remains for inputs
+// that omit 021; the real complete manifest no longer produces that residue.
 //
 // This list is CLOSED. Any OTHER provider vanishing from the catalog is a real
 // deletion that owes a catalog migration plus MODEL_ID_MIGRATIONS /
@@ -147,10 +151,6 @@ export function findModelsUpdatedAtWriteFailures(migrationFiles) {
   }
 
   return failures;
-}
-
-function extractMigrationExportName(source) {
-  return source.match(MIGRATION_EXPORT_PATTERN)?.[1] ?? null;
 }
 
 function extractMigrationArrayNames(source) {
@@ -266,15 +266,14 @@ function extractNestedStringRecord(source, constName, fileName) {
   return record;
 }
 
-/**
- * Scope limit shared by every guard built on this function (pre-existing, not
- * a regression): only an `up` property with a plain string or
- * no-substitution template-literal initializer is read. A migration whose
- * `up` SQL is assembled via interpolation (a template literal with `${...}`)
- * or a helper function call is invisible to every guard in this file,
- * including `findModelsUpdatedAtWriteFailures`.
- */
+/** Repository reads supply exported SQL; literal fixtures use the same analyzer. */
 function extractMigrationUpSql(file) {
+  if (Object.hasOwn(file, 'upSql')) {
+    if (typeof file.upSql !== 'string' || file.upSql.trim().length === 0) {
+      throw new Error(`Migration SQL is not a nonempty string: ${file.file}`);
+    }
+    return file.upSql;
+  }
   const sourceFile = parseTypeScriptSource(file.source, file.file);
   let upSql = '';
 
@@ -642,12 +641,23 @@ function extractModelCatalogOperations(sql) {
     /DELETE\s+FROM\s+"?models"?[\s\S]*?\bWHERE\b[\s\S]*?\bprovider_id\s+IN\s*\(([\s\S]*?)\)/gi;
   const deleteProviderPattern =
     /DELETE\s+FROM\s+"?models"?[\s\S]*?\bWHERE\b[\s\S]*?\bprovider_id\s*=\s*'((?:''|[^'])*)'/gi;
+  const reassignProviderPattern =
+    /UPDATE\s+models\s+SET\s+provider_id\s*=\s*'((?:''|[^'])*)'\s+WHERE\s+provider_id\s*=\s*'((?:''|[^'])*)'\s*;?\s*$/gi;
   // The `[\s\S]*?` gaps above are lazy but unbounded: run on the whole `up`
   // block they cross `;` and match a WHERE clause in a later, unrelated
   // statement (BST-1703). Match per statement so every DELETE pattern stays
   // inside the statement it starts in; `iterateSqlStatements` skips `;`
   // inside string literals, which a `[^;]` gap would not.
   for (const statement of iterateSqlStatements(sql)) {
+    for (const match of statement.text.matchAll(reassignProviderPattern)) {
+      operations.push({
+        from: match[2].replaceAll("''", "'"),
+        index: statement.index + match.index,
+        kind: 'reassign-provider',
+        to: match[1].replaceAll("''", "'"),
+      });
+    }
+
     for (const match of statement.text.matchAll(deleteIdsPattern)) {
       operations.push({
         ids: extractSqlStringLiterals(match[1]),
@@ -770,6 +780,15 @@ function collectDeletedRowsRequiringRemaps(migrationSummaries) {
   for (const migration of migrationSummaries) {
     const collectDeletes = requiresRemovedModelRemaps(migration.file);
     for (const operation of migration.operations) {
+      if (operation.kind === 'reassign-provider') {
+        for (const row of snapshot.values()) {
+          if (row.providerId === operation.from) {
+            snapshot.set(row.id, { ...row, providerId: operation.to });
+          }
+        }
+        continue;
+      }
+
       if (operation.kind === 'delete-ids') {
         for (const id of operation.ids) {
           const existing = snapshot.get(id);
@@ -809,6 +828,15 @@ export function buildFinalCatalogSnapshot(migrationSummaries) {
 
   for (const migration of migrationSummaries) {
     for (const operation of migration.operations) {
+      if (operation.kind === 'reassign-provider') {
+        for (const row of snapshot.values()) {
+          if (row.providerId === operation.from) {
+            snapshot.set(row.id, { ...row, providerId: operation.to });
+          }
+        }
+        continue;
+      }
+
       if (operation.kind === 'delete-ids') {
         for (const id of operation.ids) {
           snapshot.delete(id);
@@ -975,22 +1003,6 @@ export function analyzeModelCatalogMigrationContract(input) {
     knownMigrationCount: migrationByName.size,
     migrations: [...migrationNames],
   };
-}
-
-export async function readMigrationFiles(rootDir) {
-  const migrationsDir = path.join(rootDir, 'packages/db/src/migrations');
-  const entries = await readdir(migrationsDir);
-  const migrationFiles = entries.filter((entry) => /^\d{3}-.*\.ts$/.test(entry)).sort();
-
-  return Promise.all(
-    migrationFiles.map(async (entry) => {
-      const file = path.posix.join('packages/db/src/migrations', entry);
-      return {
-        file,
-        source: await readFile(path.join(rootDir, file), 'utf8'),
-      };
-    })
-  );
 }
 
 export async function checkModelCatalogMigrationContract(rootDir = process.cwd()) {

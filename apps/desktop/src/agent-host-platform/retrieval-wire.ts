@@ -248,6 +248,7 @@ export const EmbeddingSpaceListingSchema = z.object({
       totalTokens: Count,
     })
     .exactOptional(),
+  statsUnavailableReason: z.string().exactOptional(),
 });
 
 export const FileRecordRowSchema = z.object({

@@ -1,10 +1,11 @@
+import { projectModelCatalog } from '@brainstrike/assistant-contract';
 import type {
   CanonicalOperationContext,
   CanonicalSourceScope,
 } from '@brainstrike/canonical-ingestion';
-import type { EmbeddingSet } from '@brainstrike/db';
 import type { SelectedEmbeddingRequestPlan } from '@brainstrike/embeddings/inference-plan';
 import type { VectorProfile } from '@brainstrike/indexer';
+import type { CollectionPort, CollectionRecord, CollectionReply } from '@brainstrike/state-store';
 import { describe, expect, it, vi } from 'vitest';
 import type { EmbeddingHostDocumentEmbeddingsPayload } from '../embedding-host-shared';
 import {
@@ -19,38 +20,31 @@ const metadata = {
   id: 'collection',
   modelId: 'Xenova/bge-small-en-v1.5',
   modelKey: 'local::Xenova/bge-small-en-v1.5',
-} as const satisfies Pick<EmbeddingSet, 'dimensions' | 'distance' | 'id' | 'modelId' | 'modelKey'>;
+} as const satisfies Pick<
+  CollectionRecord,
+  'dimensions' | 'distance' | 'id' | 'modelId' | 'modelKey'
+>;
 const selection = {
   device: 'wasm',
   dimensions: metadata.dimensions,
   dtype: 'q8',
   modelId: metadata.modelId,
 } as const satisfies SelectedEmbeddingRequestPlan;
-// The set row as the resolver reads it, joined to its catalog `models` row.
 const NONE = { document: '', query: '' };
-const setRow = (change: Record<string, unknown> = {}) => ({
+const setRow = (change: Partial<CollectionRecord> = {}): CollectionRecord => ({
   ...metadata,
-  catalogCapabilities: { defaultDimension: 384, prompts: NONE, type: 'embedding' },
-  catalogParameters: { size: '~34MB' },
+  createdAt: '2026-10-13T00:00:00.000Z',
   ...change,
 });
 const GRANITE_ID = 'onnx-community/granite-embedding-small-english-r2-ONNX';
 const GRANITE_REVISION = '1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8';
-const graniteRow = {
-  catalogCapabilities: { defaultDimension: 384, pooling: 'cls', prompts: NONE, type: 'embedding' },
-  catalogParameters: {
-    execution: { wasm: 'q8', webgpu: 'fp16' },
-    revision: GRANITE_REVISION,
-  },
-  dimensions: 384,
-  distance: 'cosine',
-  id: 'collection',
-  modelId: GRANITE_ID,
-  modelKey: `local::${GRANITE_ID}`,
-};
+const graniteRow = setRow({ modelId: GRANITE_ID, modelKey: `local::${GRANITE_ID}` });
+const catalogSnapshot = () => projectModelCatalog({ models: [], providers: [] });
 const scope: CanonicalSourceScope = { embeddingSetId: metadata.id, kind: 'collection' };
 // The catalog facts the resolver reads with the set: bge states no prompts in this fixture.
-const catalogModel = { dimensions: 384, id: metadata.modelId, prompts: NONE };
+const bgePrompts = catalogSnapshot().models.find((model) => model.id === metadata.modelId)!
+  .capabilities.prompts!;
+const catalogModel = { dimensions: 384, id: metadata.modelId, prompts: bgePrompts };
 const profile = (): VectorProfile =>
   resolveNativeCanonicalProfile(metadata, selection, catalogModel).profile;
 const request = (requestId = 'request') => ({
@@ -72,11 +66,15 @@ function deferred<T>() {
   return { promise, reject, resolve };
 }
 function fixture() {
-  const query = vi.fn(async (): Promise<{ rows: unknown[] }> => ({ rows: [setRow()] }));
+  const collections = vi.fn<CollectionPort['collections']>(async () => ({
+    collections: [setRow()],
+  }));
+  const readCatalog = vi.fn(async () => catalogSnapshot());
   const resolveEmbeddingSetId = vi.fn(async () => metadata.id);
   const readLocalSelection = vi.fn(async (): Promise<SelectedEmbeddingRequestPlan> => selection);
   const resolver = new NativeCanonicalProfileResolver({
-    query,
+    collections: { collections },
+    modelCatalog: { read: readCatalog },
     readLocalSelection,
     resolveEmbeddingSetId,
   });
@@ -92,9 +90,10 @@ function fixture() {
     transport: { documentEmbeddings },
   });
   return {
+    collections,
     documentEmbeddings,
     inference,
-    query,
+    readCatalog,
     readLocalSelection,
     resolveEmbeddingSetId,
     resolver,
@@ -181,7 +180,7 @@ describe('saved canonical profile identity', () => {
     ).toThrow();
   });
 
-  it('reads only the authorized PG set and has no side effects on preferences or inference', async () => {
+  it('reads only the authorized collection and has no side effects on preferences or inference', async () => {
     const f = fixture();
     const context: CanonicalOperationContext = {
       requestId: 'resolve',
@@ -189,12 +188,10 @@ describe('saved canonical profile identity', () => {
     };
     expect(await f.resolver.resolveProfile({ scope }, context)).toEqual(profile());
     expect(f.resolveEmbeddingSetId).toHaveBeenCalledWith(scope, context);
-    expect(f.query).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets e'), [
-      metadata.id,
-    ]);
+    expect(f.collections).toHaveBeenCalledWith({ id: metadata.id, operation: 'get' });
     expect(f.documentEmbeddings).not.toHaveBeenCalled();
     expect(f.readLocalSelection).toHaveBeenCalledWith(metadata, context);
-    expect(f.query).toHaveBeenCalledTimes(1);
+    expect(f.collections).toHaveBeenCalledTimes(1);
   });
 
   it('takes the granite pooling and pin from its catalog row into the profile and plan (BST-1993)', async () => {
@@ -206,7 +203,7 @@ describe('saved canonical profile identity', () => {
       modelId: GRANITE_ID,
       revision: GRANITE_REVISION,
     };
-    f.query.mockResolvedValue({ rows: [graniteRow] });
+    f.collections.mockResolvedValue({ collections: [graniteRow] });
     f.readLocalSelection.mockResolvedValue(chosen);
     const context = { requestId: 'resolve', signal: new AbortController().signal };
     expect(await f.resolver.resolve(scope, context)).toEqual({
@@ -224,7 +221,7 @@ describe('saved canonical profile identity', () => {
       workerPlan: { ...chosen, pooling: 'cls', prompts: NONE },
     });
     // The bge row states no pooling: its plan carries only its stated prompts (none).
-    f.query.mockResolvedValue({ rows: [setRow()] });
+    f.collections.mockResolvedValue({ collections: [setRow()] });
     f.readLocalSelection.mockResolvedValue(selection);
     expect(await f.resolver.resolve(scope, context)).toEqual(
       resolveNativeCanonicalProfile(metadata, selection, catalogModel)
@@ -237,10 +234,13 @@ describe('saved canonical profile identity', () => {
       document: '',
       query: 'Represent this sentence for searching relevant passages: ',
     };
-    f.query.mockResolvedValue({
-      rows: [
-        setRow({ catalogCapabilities: { defaultDimension: 384, prompts, type: 'embedding' } }),
-      ],
+    f.readCatalog.mockResolvedValue({
+      ...catalogSnapshot(),
+      models: catalogSnapshot().models.map((model) =>
+        model.id === metadata.modelId
+          ? { ...model, capabilities: { ...model.capabilities, prompts } }
+          : model
+      ),
     });
     const context = { requestId: 'resolve', signal: new AbortController().signal };
     const resolved = await f.resolver.resolve(scope, context);
@@ -251,7 +251,7 @@ describe('saved canonical profile identity', () => {
   it('refuses a granite selection without the catalog pin, and a local model outside the catalog', async () => {
     const f = fixture();
     const context = { requestId: 'resolve', signal: new AbortController().signal };
-    f.query.mockResolvedValueOnce({ rows: [graniteRow] });
+    f.collections.mockResolvedValueOnce({ collections: [graniteRow] });
     f.readLocalSelection.mockResolvedValueOnce({
       device: 'webgpu',
       dimensions: 384,
@@ -259,20 +259,18 @@ describe('saved canonical profile identity', () => {
       modelId: GRANITE_ID,
     });
     await expect(f.resolver.resolve(scope, context)).rejects.toThrow(/pinned revision/);
-    f.query.mockResolvedValueOnce({
-      rows: [setRow({ catalogCapabilities: null, catalogParameters: null })],
-    });
+    f.readCatalog.mockResolvedValueOnce({ models: [], providers: [] });
     await expect(f.resolver.resolve(scope, context)).rejects.toThrow(/not in the model catalog/);
   });
 
-  it('refuses absent, malformed or mismatched PG authority', async () => {
+  it('refuses absent, malformed or mismatched collection authority', async () => {
     const f = fixture();
     const context = { requestId: 'resolve', signal: new AbortController().signal };
-    f.query.mockResolvedValueOnce({ rows: [] });
+    f.collections.mockResolvedValueOnce({ collections: [] });
     await expect(f.resolver.resolve(scope, context)).rejects.toThrow(/missing/);
-    f.query.mockResolvedValueOnce({ rows: [setRow({ id: 'different' })] });
+    f.collections.mockResolvedValueOnce({ collections: [setRow({ id: 'different' })] });
     await expect(f.resolver.resolve(scope, context)).rejects.toThrow(/authorized/);
-    f.query.mockResolvedValueOnce({ rows: [setRow({ dimensions: Number.NaN })] });
+    f.collections.mockResolvedValueOnce({ collections: [setRow({ dimensions: Number.NaN })] });
     await expect(f.resolver.resolve(scope, context)).rejects.toThrow();
     expect(f.documentEmbeddings).not.toHaveBeenCalled();
   });
@@ -293,7 +291,7 @@ describe('canonical inference ownership', () => {
     expect(f.documentEmbeddings).toHaveBeenCalledWith(
       {
         dimensions: 384,
-        inferencePlan: { ...selection, prompts: NONE },
+        inferencePlan: { ...selection, prompts: bgePrompts },
         modelId: metadata.modelId,
         modelKey: metadata.modelKey,
         texts: input.chunks.map((chunk) => chunk.content),
@@ -354,7 +352,7 @@ describe('canonical inference ownership', () => {
       try {
         await expect(f.inference.generate({ ...request(), chunks })).rejects.toThrow(/sparse/);
         expect(f.resolveEmbeddingSetId).not.toHaveBeenCalled();
-        expect(f.query).not.toHaveBeenCalled();
+        expect(f.collections).not.toHaveBeenCalled();
         expect(f.readLocalSelection).not.toHaveBeenCalled();
         expect(f.documentEmbeddings).not.toHaveBeenCalled();
       } finally {
@@ -401,7 +399,7 @@ describe('canonical inference ownership', () => {
     'preserves %s metric while generating unchanged model vectors',
     async (distance) => {
       const f = fixture();
-      f.query.mockResolvedValueOnce({ rows: [setRow({ distance })] });
+      f.collections.mockResolvedValueOnce({ collections: [setRow({ distance })] });
       const result = await f.inference.generate({
         ...request(),
         profile: { ...profile(), distance },
@@ -444,9 +442,9 @@ describe('canonical inference ownership', () => {
 
   it('joins authority reads canceled before admission without sending texts', async () => {
     const f = fixture();
-    const held = deferred<{ rows: (typeof metadata)[] }>();
+    const held = deferred<CollectionReply>();
     const admitted = deferred<void>();
-    f.query.mockImplementationOnce(() => {
+    f.collections.mockImplementationOnce(() => {
       admitted.resolve();
       return held.promise;
     });
@@ -458,7 +456,7 @@ describe('canonical inference ownership', () => {
     canceled.then(retired);
     await Promise.resolve();
     expect(retired).not.toHaveBeenCalled();
-    held.resolve({ rows: [metadata] });
+    held.resolve({ collections: [setRow()] });
     await Promise.all([canceled, rejected]);
     expect(f.documentEmbeddings).not.toHaveBeenCalled();
   });
@@ -532,7 +530,8 @@ it.each(['openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio'] as const)
       modelKey: `${provider}::saved-model`,
     };
     const resolver = new NativeCanonicalProfileResolver({
-      query: async () => ({ rows: [saved] }),
+      collections: { collections: async () => ({ collections: [setRow(saved)] }) },
+      modelCatalog: { read: async () => catalogSnapshot() },
       readLocalSelection: async () => undefined,
       resolveEmbeddingSetId: async () => saved.id,
     });

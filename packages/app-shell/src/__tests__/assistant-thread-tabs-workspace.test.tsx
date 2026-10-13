@@ -50,7 +50,9 @@ describe('AssistantThreadTabsWorkspace', () => {
       renameThread: vi.fn(),
       renderThread: (threadId) => <div data-testid="host-thread">{threadId}</div>,
       updateThreadBinding: vi.fn(),
-      workspaceRepository: (history) => history,
+      workspaceRepository: () => {
+        throw new Error('Unexpected workspace snapshot access in this fixture');
+      },
     };
     useAssistantThreadStore.setState({
       activeThreadIdByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: 'retired-thread' },
@@ -177,7 +179,9 @@ describe('AssistantThreadTabsWorkspace', () => {
       renameThread: vi.fn(),
       renderThread,
       updateThreadBinding: vi.fn(),
-      workspaceRepository: (history) => history,
+      workspaceRepository: () => {
+        throw new Error('Unexpected workspace snapshot access in this fixture');
+      },
     };
     const providerReadErrors = { openai: 'The OpenAI key could not be read.' };
     renderWorkspace({ providerReadErrors }, host);

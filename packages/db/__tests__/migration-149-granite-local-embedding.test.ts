@@ -1,3 +1,4 @@
+import { listProviderEmbeddingModels } from '@brainstrike/assistant-contract';
 import { decodeCatalogEmbeddingModel } from '@brainstrike/indexing-contract';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -91,6 +92,27 @@ describe('migration 149: local embedding model facts and the recommended granite
       { id: 'jinaai/jina-embeddings-v2-base-code', prompts: none },
       { id: GRANITE_ID, prompts: none },
     ]);
+
+    // Compare the actual current-schema rows, not a second runtime catalog.
+    const storedModels = await db.query<CatalogRow>(
+      `SELECT id, capabilities, parameters FROM models
+       WHERE provider_id = 'local' AND capabilities->>'type' = 'embedding' ORDER BY id`
+    );
+    const definitions = listProviderEmbeddingModels('local');
+    expect(definitions.map(({ id }) => id).sort()).toEqual(storedModels.rows.map(({ id }) => id));
+    const catalogProfiles = definitions.map((model) => ({
+      dimensions: model.defaultDimension,
+      ...(model.execution === undefined ? {} : { execution: model.execution }),
+      id: model.id,
+      ...(model.pooling === undefined ? {} : { pooling: model.pooling }),
+      ...(model.prompts === undefined ? {} : { prompts: model.prompts }),
+      ...(model.revision === undefined ? {} : { revision: model.revision }),
+    }));
+    for (const row of storedModels.rows) {
+      expect(catalogProfiles.find(({ id }) => id === row.id)).toEqual(
+        decodeCatalogEmbeddingModel(row)
+      );
+    }
 
     // Re-applying keeps the user's toggle (database.md rule 3).
     const up = migrations.find(({ version }) => version === 149)?.up;

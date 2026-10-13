@@ -995,16 +995,10 @@ export function AssistantUiPanelWrapper({
   const disabledReason = runtimeDisabledReason ?? providerDraft.reason;
   const panelNotice = disabledReason ?? providerDiscoveryReason;
   // Conversation Rewind wiring (BST-1115), extracted whole into
-  // `changes/use-wrapper-rewind-wiring.ts`: finalization composed around the
-  // run-creation seam, the re-hydration generation, the standing "Last Turn"
+  // `changes/use-wrapper-rewind-wiring.ts`: the re-hydration generation and standing "Last Turn"
   // identity, and the live mid-run refresh. The wrapper only forwards seams.
-  const {
-    handleRunEditActivity,
-    markUserAuthoredSend,
-    prepareRequestData: prepareRequestDataWithFinalization,
-    publishTerminalRunIdentity,
-    rewindGeneration,
-  } = useWrapperRewindWiring({ prepareRequestData, threadId: selectedMemoryThreadId });
+  const { handleRunEditActivity, publishTerminalRunIdentity, rewindGeneration } =
+    useWrapperRewindWiring({ threadId: selectedMemoryThreadId });
   // Thread usage ledger (BST-1652), extracted whole into
   // `assistant-panel/use-assistant-usage-ledger.ts`: every write into the
   // session context-usage store, the durable run-usage rows, the cumulative
@@ -1025,7 +1019,7 @@ export function AssistantUiPanelWrapper({
     getProviderLlmModels,
     localChatTransport,
     memoryResourceId,
-    prepareRequestData: prepareRequestDataWithFinalization,
+    prepareRequestData,
     refreshThreadsAfterRun,
     selectedMemoryThreadId,
     selectedProvider,
@@ -1200,7 +1194,6 @@ export function AssistantUiPanelWrapper({
                 onRunFinished={handleRunFinished}
                 onStepUsage={handleStepUsage}
                 onStreamActivity={renewActiveAssistantForegroundActivity}
-                onThreadRunStart={markUserAuthoredSend}
                 onToolApprovalRequired={onToolApprovalRequired}
                 onUsage={handleUsage}
                 pickerModels={pickerModels}

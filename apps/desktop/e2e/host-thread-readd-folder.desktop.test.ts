@@ -10,7 +10,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { readHostRootRecords } from './utils/agent-host-log';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import type { ModelProviderRequest } from './utils/model-provider-shim';
@@ -28,16 +29,7 @@ async function enableModel(page: Page): Promise<void> {
     compositeModelKey: `openrouter::${MODEL}`,
     provider: 'openrouter',
   });
-  await page.evaluate(async (model) => {
-    const db = window.electronAPI?.db;
-    if (!db) {
-      throw new Error('The app database query path is unavailable');
-    }
-    await db.query('UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2', [
-      model,
-      'openrouter',
-    ]);
-  }, MODEL);
+  await enableAssistantCatalogModel(page, `openrouter::${MODEL}`);
 }
 
 function lastUserMessage({ messages }: ModelProviderRequest): string {
@@ -50,17 +42,10 @@ function lastUserMessage({ messages }: ModelProviderRequest): string {
 
 /** Every `roots` row for a folder path: one record, its id and status. */
 async function rootRows(page: Page, rootPath: string): Promise<{ id: string; status: string }[]> {
-  return await page.evaluate(async (wanted) => {
-    const db = window.electronAPI?.db;
-    if (!db) {
-      throw new Error('The app database query path is unavailable');
-    }
-    const { rows } = await db.query<{ id: string; status: string }>(
-      'SELECT id, status FROM roots WHERE path = $1',
-      [wanted]
-    );
-    return rows;
-  }, rootPath);
+  const userData = await page.evaluate(() => window.electronAPI!.getUserDataPath());
+  return (await readHostRootRecords(userData))
+    .filter((root) => root.path === rootPath)
+    .map(({ id, status }) => ({ id, status }));
 }
 
 /** Focus a workspace folder in the explorer, as any click inside its section does. */

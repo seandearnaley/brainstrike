@@ -119,19 +119,13 @@ async function enableCatalogModel(page: Page, provider: string, model: string): 
   // (precedent: mcp-packaged-core.desktop.test.ts).
   return await page.evaluate(
     async ([providerId, modelId]) => {
-      const db = window.electronAPI?.db;
-      if (!db) {
-        throw new Error('The ordinary desktop catalog DB bridge is unavailable');
+      if (!window.modelCatalog) {
+        throw new Error('Desktop model catalog unavailable');
       }
-      await db.query('UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2', [
-        modelId,
-        providerId,
-      ]);
-      const after = await db.query(
-        'SELECT id, provider_id AS "providerId", is_enabled AS "isEnabled" FROM models WHERE id = $1 AND provider_id = $2',
-        [modelId, providerId]
-      );
-      return after.rows;
+      await window.modelCatalog.setModels([modelId], true);
+      return (await window.modelCatalog.read()).models
+        .filter((row) => row.id === modelId && row.providerId === providerId)
+        .map((row) => ({ id: row.id, isEnabled: row.isEnabled, providerId: row.providerId }));
     },
     [provider, model] as const
   );

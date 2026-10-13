@@ -14,6 +14,7 @@ import {
 import { fetchCollectionsSnapshot } from '@brainstrike/vector-management';
 import { FileText } from 'lucide-react';
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
+import { getSourceFilesCapability } from '../file-import/native-source-import';
 import { useCollectionCacheSync } from '../hooks/use-collection-cache-sync';
 import { useCollectionDialogs } from '../hooks/use-collection-dialogs';
 import { createImportCompletionHandler } from '../hooks/use-import-completion';
@@ -81,7 +82,8 @@ export function ExplorerImportAction({
   embeddingQueue = null,
 }: ExplorerImportActionProps): ReactElement {
   const { toast } = useToast();
-  const dbContext = usePGliteDatabase();
+  const sourceFiles = getSourceFilesCapability();
+  const dbContext = usePGliteDatabase({ enabled: !sourceFiles });
   const embeddingSetsRepository = useEmbeddingSetsRepository();
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -120,36 +122,32 @@ export function ExplorerImportAction({
       // refresh is wired here (see createImportCompletionHandler).
       const handler = createImportCompletionHandler({
         refreshCollectionStats: async () => {
-          if (!dbContext) {
-            throw new Error('Import completion stats refresh requires an initialized database.');
-          }
           const importedCollectionId = importRunTargetRef.current;
           if (!importedCollectionId) {
             throw new Error(
               'Import completion stats refresh requires the collection the run targeted.'
             );
           }
-          await refreshCollectionIndexingStats(dbContext, [importedCollectionId], {
-            label: 'explorer import completion stats refresh',
-            priority: 'foreground',
-          });
+          if (!sourceFiles) {
+            if (!dbContext) {
+              throw new Error('Import completion stats refresh requires an initialized database.');
+            }
+            await refreshCollectionIndexingStats(dbContext, [importedCollectionId], {
+              label: 'explorer import completion stats refresh',
+              priority: 'foreground',
+            });
+          }
 
-          // Refreshing the rollup updates the DATABASE; the picker reads the
-          // shared `cachedCollections` store and only seeds it while it is EMPTY,
-          // on the assumption that a populated cache is kept current by whoever
-          // owns the live query. When the Database tab has never mounted nobody
-          // owns it, so without this the popover would keep showing pre-import
-          // file/chunk/embedding counts indefinitely. Folding the new rollup back
-          // in here is safe with the live owner mounted too: its sync effect
-          // compares before writing, and that comparison actually works now that
-          // timestamps are normalized.
+          // Native Main has joined its collection ingestion; read its authoritative
+          // projection. Web refreshes its SQL rollup above. Both replace the same
+          // picker cache, even when the Library tab has never mounted.
           setCachedCollections(await fetchCollectionsSnapshot(dbContext));
         },
         toast,
       });
       await handler(results);
     },
-    [dbContext, setCachedCollections, toast]
+    [dbContext, setCachedCollections, sourceFiles, toast]
   );
 
   const importFlow = useImportFlow({
@@ -336,7 +334,6 @@ export function ExplorerImportAction({
             />
           ) : null
         }
-        dbContext={dbContext}
         embeddingSetsRepository={embeddingSetsRepository}
         onActiveCollectionDeleted={handleActiveCollectionDeleted}
       />

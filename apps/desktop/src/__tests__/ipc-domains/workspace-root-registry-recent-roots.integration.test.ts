@@ -1,7 +1,10 @@
-import { migrate, wasmLoader } from '@brainstrike/db';
+// @vitest-environment node
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { StateStore } from '@brainstrike/state-store';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
 import {
   type StoredWorkspaceRoot,
   WorkspaceRootRegistry,
@@ -23,36 +26,53 @@ function createStorage(): ElectronStorageAdapter {
   } as unknown as ElectronStorageAdapter;
 }
 
-describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath (real PGlite)', () => {
-  let database: Awaited<ReturnType<typeof wasmLoader.createPGlite>>;
+describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath (real StateStore)', () => {
+  let database: StateStore;
+  let directory: string;
 
   beforeEach(async () => {
-    database = await wasmLoader.createPGlite(`memory://workspace-root-kinds-${Date.now()}`);
-    await migrate(database);
+    directory = await mkdtemp(path.join(tmpdir(), 'brainstrike-root-kinds-'));
+    database = await StateStore.open(directory);
   });
 
   afterEach(async () => {
     await database.close();
+    await rm(directory, { force: true, recursive: true });
   });
 
-  it('loads persisted worktree kinds through a typed ANY text-array query', async () => {
+  it('loads persisted worktree kinds through the canonical catalog', async () => {
     const storage = createStorage();
     const createRegistry = () =>
       new WorkspaceRootRegistry({
         createSecureRoot: async (rootPath) => secureRoot(rootPath),
         disposeCommandSessionsForRoot: vi.fn(async () => 0),
         evictLspServersForRoot: vi.fn(async () => undefined),
-        getRootsDatabase: async () => database as unknown as WorkspaceRootsQueryable,
+        getRootsCatalog: async () => database,
         pathExists: async () => true,
         resolveCanonicalRoot: async (rootPath) => rootPath,
         storage,
       });
     // The active managed-worktree ledger names the path, so Main's registry, the
     // one writer of `roots` (BST-1990), records the mount as a worktree.
-    await database.query(
-      `INSERT INTO brainstrike_worktrees (id, repo_common_dir, path, base_ref, created_by)
-       VALUES ('bright-fox', '/repo/.git', '/managed/app/bright-fox', 'main', 'agent')`
-    );
+    await database.worktreeLedger({
+      operation: 'insert',
+      row: {
+        archivedAt: null,
+        archiveSnapshotRef: null,
+        baseRef: 'main',
+        branch: null,
+        createdAt: '2026-10-13T00:00:00.000Z',
+        createdBy: 'agent',
+        id: 'bright-fox',
+        path: '/managed/app/bright-fox',
+        repoCommonDir: '/repo/.git',
+        runId: null,
+        setupOutput: null,
+        setupReason: null,
+        setupStatus: 'none',
+        threadId: null,
+      },
+    });
     const firstRegistry = createRegistry();
     firstRegistry.setManagedWorktreeAuthorizer(() => Promise.resolve('authorized'));
     const descriptor = await firstRegistry.addRootByPath('/managed/app/bright-fox');
@@ -82,5 +102,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath (real PGlite
     await relaunchedRegistry.restoreRoots();
 
     await expect(relaunchedRegistry.listRecentRoots()).resolves.toEqual([]);
+    await firstRegistry.dispose();
+    await relaunchedRegistry.dispose();
   });
 });

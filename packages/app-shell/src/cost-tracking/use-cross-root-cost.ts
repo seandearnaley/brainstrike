@@ -4,6 +4,8 @@ import {
 } from '@brainstrike/assistant-data';
 import { makeLiveQueryKey, usePGliteDatabase, usePGliteLiveQuery } from '@brainstrike/db/react';
 import { useMemo } from 'react';
+import { useThreadFolderRows } from '../hooks/use-thread-folder-rows';
+import { getThreadGroupsCapability } from '../thread-groups-capability';
 
 /**
  * Per-(root, provider, model) usage subtotal joined with the root's display
@@ -63,7 +65,13 @@ function nameHostRows(
 export function useCrossRootCost(
   hostRootUsage: readonly CrossRootUsageRow[] = NO_HOST_ROOT_USAGE
 ): CrossRootCostState {
-  const database = usePGliteDatabase();
+  const native = getThreadGroupsCapability();
+  const database = usePGliteDatabase({ enabled: !native });
+  const rootIds = useMemo(
+    () => (native ? hostRootUsage.flatMap((row) => (row.rootId === null ? [] : [row.rootId])) : []),
+    [native, hostRootUsage]
+  );
+  const folders = useThreadFolderRows(null, rootIds);
   const available = hasDurableAssistantUsageCapability();
   const namesQuery = usePGliteLiveQuery<Record<string, unknown>>({
     cacheKey: makeLiveQueryKey('cross-root-root-names'),
@@ -83,6 +91,22 @@ export function useCrossRootCost(
     }
   }, [available, hostRootUsage, namesQuery.rows]);
 
+  if (native) {
+    return {
+      available,
+      error: folders.error,
+      loading: folders.loading,
+      rows: available
+        ? hostRootUsage.map((row) => ({
+            ...row,
+            rootDisplayName:
+              (row.rootId === null
+                ? undefined
+                : folders.rowsByRootId.get(row.rootId)?.displayName) ?? row.rootDisplayName,
+          }))
+        : NO_HOST_ROOT_USAGE,
+    };
+  }
   return {
     available,
     error: namesQuery.error ?? mapped.error,

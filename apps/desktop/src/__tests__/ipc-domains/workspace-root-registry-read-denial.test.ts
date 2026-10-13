@@ -5,11 +5,11 @@ import { AccessError, type DirectoryHandle } from '@brainstrike/file-system';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { describe, expect, it, vi } from 'vitest';
-import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
 import {
   type SecureWorkspaceRoot,
   WorkspaceRootRegistry,
 } from '../../ipc-domains/workspace-root-registry';
+import { createRegistryCatalogRequest } from './workspace-root-registry-test-helpers';
 
 function createStorage(): ElectronStorageAdapter {
   const values = new Map<string, string>();
@@ -47,14 +47,12 @@ function secureRoot(canonicalPath: string): SecureWorkspaceRoot {
 function createRegistry(
   overrides: Partial<ConstructorParameters<typeof WorkspaceRootRegistry>[0]> = {}
 ): WorkspaceRootRegistry {
-  const db = {
-    query: vi.fn(async () => ({ rows: [] })),
-  } as unknown as WorkspaceRootsQueryable;
+  const catalog = { workspaceRoots: createRegistryCatalogRequest() };
   return new WorkspaceRootRegistry({
     createSecureRoot: async (rootPath) => secureRoot(rootPath),
     disposeCommandSessionsForRoot: vi.fn(async () => 0),
     evictLspServersForRoot: vi.fn(async () => undefined),
-    getRootsDatabase: async () => db,
+    getRootsCatalog: async () => catalog,
     pathExists: async () => true,
     resolveCanonicalRoot: async (rootPath) => path.normalize(rootPath),
     storage: createStorage(),

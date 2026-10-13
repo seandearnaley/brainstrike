@@ -1,15 +1,18 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import {
-  type AssistantThreadRepository,
+  type AssistantThreadCatalogRepository,
   createPgliteAssistantThreadRepository,
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import type { GlobalCommandHandlers } from '@brainstrike/context-actions/commands';
-import type { DbHandle } from '@brainstrike/db/react';
+import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
 import { useTheme } from '@brainstrike/ui';
 import { useCallback, useMemo } from 'react';
-import { useAssistantThreadHost, withAssistantThreadHost } from './assistant-thread-host-context';
+import {
+  createHostAssistantThreadRepository,
+  useAssistantThreadHost,
+} from './assistant-thread-host-context';
 import { useQuickOpenStore } from './stores/quick-open-store';
 import { useConnectFolder } from './workspace-connect/use-connect-folder';
 
@@ -33,7 +36,7 @@ import { useConnectFolder } from './workspace-connect/use-connect-folder';
  * NOT enforced by this hook's own signature. A future THIRD consumer mounted
  * above that provider would crash on render — check this before adding one.
  */
-export function useGlobalCommandHandlers(db: DbHandle | null): GlobalCommandHandlers {
+export function useGlobalCommandHandlers(providedDb?: DbHandle | null): GlobalCommandHandlers {
   const { openPicker } = useConnectFolder();
   const openSettings = usePanelLayoutStore((state) => state.openSettings);
   const { theme, setTheme } = useTheme();
@@ -43,10 +46,14 @@ export function useGlobalCommandHandlers(db: DbHandle | null): GlobalCommandHand
   // A new thread is created by the host's existing thread owner when the app
   // has one; with no host the history repository is unchanged.
   const host = useAssistantThreadHost();
-  const repository = useMemo<AssistantThreadRepository | null>(
-    () => (db ? withAssistantThreadHost(createPgliteAssistantThreadRepository(db), host) : null),
-    [db, host]
-  );
+  const contextDb = usePGliteDatabase({ enabled: !host && providedDb === undefined });
+  const db = providedDb === undefined ? contextDb : providedDb;
+  const repository = useMemo<AssistantThreadCatalogRepository | null>(() => {
+    if (host) {
+      return createHostAssistantThreadRepository(host);
+    }
+    return db ? createPgliteAssistantThreadRepository(db) : null;
+  }, [db, host]);
 
   // Bound only when the repository exists, so the closure captures a non-null
   // repository (no in-body null guard needed). When `db`/`repository` is null

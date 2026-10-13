@@ -27,5 +27,11 @@ export function bindDesktopPlatformPort(
 ): { close(): Promise<void> } {
   const connection = mainPlatformConnection(port);
   const owner = serveDesktopPlatform(connection, capabilities);
-  return owner;
+  const detach = capabilities.workspaceRoots?.attach(connection);
+  return {
+    close: async () => {
+      detach?.();
+      await owner.close();
+    },
+  };
 }

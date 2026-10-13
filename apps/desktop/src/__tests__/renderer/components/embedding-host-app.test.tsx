@@ -32,11 +32,11 @@ vi.mock('../../../renderer/components/embedding-host-runtime', () => ({
 }));
 
 describe('EmbeddingHostApp', () => {
-  it('renders the embedding host runtime inside the strict desktop host providers', () => {
+  it('renders the embedding host runtime inside its error boundary without a database provider', () => {
     render(<EmbeddingHostApp />);
 
     expect(screen.getByTestId('host-boundary')).toHaveAttribute('data-host', 'embedding-host');
-    expect(screen.getByTestId('db-provider')).toBeInTheDocument();
+    expect(screen.queryByTestId('db-provider')).not.toBeInTheDocument();
     expect(screen.getByText('Embedding host runtime')).toBeInTheDocument();
   });
 });

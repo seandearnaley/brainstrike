@@ -21,7 +21,7 @@ import { RESOLVE_VIEW_TIMEOUT_MS, useChangeset } from '../use-changeset';
 /** A port no test here calls: the store only holds it. */
 const PORT: RewindPort = {
   apply: () => Promise.reject(new Error('not used')),
-  conversation: 'hidden',
+  conversation: 'branched',
   fileDiff: () => Promise.reject(new Error('not used')),
   preview: () => Promise.reject(new Error('not used')),
   redo: () => Promise.reject(new Error('not used')),
@@ -40,20 +40,14 @@ function viewFixture(overrides: Partial<ChangesetView> = {}): ChangesetView {
 }
 
 /**
- * Accepts the changeset-diff half of the bridge and fills in the rewind half
- * (BST-1115) with inert mocks — these tests exercise `useChangeset`, which
- * never calls them, but `resolveChangesBridge` requires a FULLY formed bridge.
+ * Installs the desktop changes projection and its invalidation subscription.
  */
 function stubBridge(
   bridge: Pick<ChangesBridge, 'fileDiff' | 'inventory' | 'resolveView'> &
     Partial<Pick<ChangesBridge, 'onInvalidated'>>
 ): void {
   (window as unknown as { changes?: ChangesBridge }).changes = {
-    applyRewind: vi.fn(),
-    finalizeRewinds: vi.fn(),
     onInvalidated: vi.fn(() => () => {}),
-    redoRewind: vi.fn(),
-    rewindPreview: vi.fn(),
     ...bridge,
   };
 }

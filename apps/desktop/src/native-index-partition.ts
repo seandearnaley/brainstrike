@@ -5,7 +5,7 @@
  * set. Text search needs no model, so no collection is invented for it.
  */
 import type { IndexScope } from '@brainstrike/indexer';
-import { decodeSelectedCollections } from './native-index-pg-decoders';
+import type { CollectionPort } from '@brainstrike/state-store';
 import type { NativeIndexSettings } from './native-index-settings';
 
 type SavedPartition = Pick<NativeIndexSettings, 'managedCollectionId'>;
@@ -13,19 +13,13 @@ type SavedPartition = Pick<NativeIndexSettings, 'managedCollectionId'>;
 /** A saved collection exists exactly once in the application catalog; the TEXT partition has none. */
 export async function assertSavedCollection(
   { managedCollectionId }: SavedPartition,
-  query: (sql: string, params: unknown[]) => Promise<{ readonly rows: unknown[] }>,
+  catalog: CollectionPort,
   assertCurrent: () => void
 ): Promise<void> {
   if (managedCollectionId === null) {
     return;
   }
-  const collections = decodeSelectedCollections(
-    (
-      await query('SELECT id::text AS id FROM embedding_sets WHERE id::text=$1', [
-        managedCollectionId,
-      ])
-    ).rows
-  );
+  const { collections } = await catalog.collections({ id: managedCollectionId, operation: 'get' });
   assertCurrent();
   if (collections.length !== 1 || collections[0]?.id !== managedCollectionId) {
     throw new Error(

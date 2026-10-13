@@ -32,3 +32,20 @@ it('closes only the native owner for a root-data deletion and resumes on the sam
   }
   expect(mocks.closeProfile).toHaveBeenCalledOnce();
 });
+
+it('destroys retained native content while preserving the profile for its catalog clear', async () => {
+  mocks.manager.attachCanonicalCollection.mockImplementation(
+    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
+  );
+  const { activation } = fixture();
+  try {
+    await activation.acquire();
+    await activation.destroyNativeOwner();
+    expect(mocks.destroy).toHaveBeenCalledOnce();
+    expect(mocks.closeProfile).not.toHaveBeenCalled();
+    await expect(activation.acquire()).rejects.toMatchObject({ code: 'native-index-closed' });
+    expect(mocks.createProfileOwner).toHaveBeenCalledOnce();
+  } finally {
+    await activation.close();
+  }
+});

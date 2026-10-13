@@ -4,8 +4,8 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import {
   type AssistantMemoryThread,
+  type AssistantThreadCatalogRepository,
   type AssistantThreadMetadata,
-  type AssistantThreadRepository,
   assertBulkThreadMetadataPatch,
 } from './assistant-memory-repository';
 import { resolveAssistantMemoryResourceId } from './assistant-memory-resource';
@@ -30,23 +30,23 @@ interface AssistantThreadState {
   closeThreadTab: (resourceId: string, threadId: string) => void;
   closeThreadTabsToRight: (resourceId: string, threadId: string) => void;
   createThread: (
-    repository: Pick<AssistantThreadRepository, 'createThread'>,
+    repository: Pick<AssistantThreadCatalogRepository, 'createThread'>,
     resourceId: string,
     title?: string
   ) => Promise<AssistantMemoryThread>;
   deleteThread: (
-    repository: AssistantThreadRepository,
+    repository: AssistantThreadCatalogRepository,
     resourceId: string,
     threadId: string
   ) => Promise<void>;
   deleteThreads: (
-    repository: AssistantThreadRepository,
+    repository: AssistantThreadCatalogRepository,
     resourceId: string,
     threadIds: readonly string[]
   ) => Promise<void>;
   draftRuntimeByThreadId: Record<string, AssistantThreadDraftRuntime>;
   ensureResourceThreads: (
-    repository: AssistantThreadRepository,
+    repository: AssistantThreadCatalogRepository,
     resourceId: string
   ) => Promise<void>;
   lastViewedAtByThreadId: Record<string, number>;
@@ -55,11 +55,11 @@ interface AssistantThreadState {
   openThreadIdsByResourceId: Record<string, string[]>;
   openThreadTab: (resourceId: string, threadId: string) => void;
   refreshResourceThreads: (
-    repository: AssistantThreadRepository,
+    repository: AssistantThreadCatalogRepository,
     resourceId: string
   ) => Promise<void>;
   renameThread: (
-    repository: AssistantThreadRepository,
+    repository: AssistantThreadCatalogRepository,
     resourceId: string,
     threadId: string,
     title: string
@@ -86,13 +86,13 @@ interface AssistantThreadState {
    */
   unseenBaselineAt: number;
   updateThreadMetadata: (
-    repository: AssistantThreadRepository,
+    repository: AssistantThreadCatalogRepository,
     resourceId: string,
     threadId: string,
     metadata: AssistantThreadMetadata
   ) => Promise<void>;
   updateThreadsMetadata: (
-    repository: AssistantThreadRepository,
+    repository: AssistantThreadCatalogRepository,
     resourceId: string,
     threadIds: readonly string[],
     metadata: AssistantThreadMetadata
@@ -274,8 +274,8 @@ function requireLoadedThreads(
 }
 
 function requireBulkDelete(
-  repository: AssistantThreadRepository
-): NonNullable<AssistantThreadRepository['deleteThreads']> {
+  repository: AssistantThreadCatalogRepository
+): NonNullable<AssistantThreadCatalogRepository['deleteThreads']> {
   if (!repository.deleteThreads) {
     throw new Error('Assistant thread repository does not support atomic bulk deletion.');
   }
@@ -283,8 +283,8 @@ function requireBulkDelete(
 }
 
 function requireBulkMetadataUpdate(
-  repository: AssistantThreadRepository
-): NonNullable<AssistantThreadRepository['updateThreadsMetadata']> {
+  repository: AssistantThreadCatalogRepository
+): NonNullable<AssistantThreadCatalogRepository['updateThreadsMetadata']> {
   if (!repository.updateThreadsMetadata) {
     throw new Error('Assistant thread repository does not support atomic bulk metadata updates.');
   }
@@ -360,7 +360,7 @@ function normalizeDraftRuntime(config: AssistantThreadDraftRuntime): AssistantTh
 }
 
 async function loadResourceThreadsForGeneration(
-  repository: AssistantThreadRepository,
+  repository: AssistantThreadCatalogRepository,
   resourceId: string,
   loadGeneration: number
 ): Promise<AssistantMemoryThread[] | null> {
@@ -515,7 +515,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         });
       },
       createThread: async (
-        repository: Pick<AssistantThreadRepository, 'createThread'>,
+        repository: Pick<AssistantThreadCatalogRepository, 'createThread'>,
         resourceId: string,
         title?: string
       ) => {
@@ -578,7 +578,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         }
       },
       deleteThread: async (
-        repository: AssistantThreadRepository,
+        repository: AssistantThreadCatalogRepository,
         resourceId: string,
         threadId: string
       ): Promise<void> => {
@@ -631,7 +631,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         });
       },
       deleteThreads: async (
-        repository: AssistantThreadRepository,
+        repository: AssistantThreadCatalogRepository,
         resourceId: string,
         threadIds: readonly string[]
       ): Promise<void> => {
@@ -687,7 +687,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
       },
       draftRuntimeByThreadId: {},
       ensureResourceThreads: async (
-        repository: AssistantThreadRepository,
+        repository: AssistantThreadCatalogRepository,
         resourceId: string
       ): Promise<void> => {
         const existingLoad = resourceThreadLoadPromises.get(resourceId);
@@ -811,7 +811,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         }));
       },
       refreshResourceThreads: async (
-        repository: AssistantThreadRepository,
+        repository: AssistantThreadCatalogRepository,
         resourceId: string
       ): Promise<void> => {
         // Re-list already-loaded threads so titles set out-of-band (the
@@ -875,7 +875,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         });
       },
       renameThread: async (
-        repository: AssistantThreadRepository,
+        repository: AssistantThreadCatalogRepository,
         resourceId: string,
         threadId: string,
         title: string
@@ -925,7 +925,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
       unavailableSavedThreadByResourceId: {},
       unseenBaselineAt: Date.now(),
       updateThreadMetadata: async (
-        repository: AssistantThreadRepository,
+        repository: AssistantThreadCatalogRepository,
         resourceId: string,
         threadId: string,
         metadata: AssistantThreadMetadata
@@ -946,7 +946,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         }));
       },
       updateThreadsMetadata: async (
-        repository: AssistantThreadRepository,
+        repository: AssistantThreadCatalogRepository,
         resourceId: string,
         threadIds: readonly string[],
         metadata: AssistantThreadMetadata

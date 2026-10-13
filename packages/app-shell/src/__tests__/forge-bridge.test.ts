@@ -37,12 +37,13 @@ describe('resolveForgeBridge', () => {
     setBridge({ identity: () => undefined });
     expect(resolveForgeBridge()).toBeNull();
     expect(error).toHaveBeenCalledWith('window.forge bridge is malformed; PR awareness disabled', {
-      missing: ['onPrUpdated', 'prStatus', 'refresh'],
+      missing: ['cacheSnapshot', 'onPrUpdated', 'prStatus', 'refresh'],
     });
   });
 
   it('pins the exact method set', () => {
     expect([...FORGE_BRIDGE_REQUIRED_METHODS].sort()).toEqual([
+      'cacheSnapshot',
       'identity',
       'onPrUpdated',
       'prStatus',

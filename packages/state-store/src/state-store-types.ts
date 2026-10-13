@@ -1,3 +1,4 @@
+import type { PromptVectorPort } from '@brainstrike/types/prompt-item';
 // The store's public shapes: its options, the indexer port it drives, and what its reads, purges and exports report.
 // Split from state-store.ts so the facade stays one module of behaviour.
 import type { ThreadDamagedError } from './errors.js';
@@ -19,6 +20,7 @@ export interface IndexerPort {
     threads: readonly string[],
     hashes: readonly string[]
   ): Promise<Readonly<Record<string, number>>>;
+  readonly promptVectors?: PromptVectorPort['promptVectors'];
   reindex(threadId: string, seq: number): Promise<void>;
   /** Close every handle the indexer holds on the data root (factory reset). */
   reset(): Promise<void>;

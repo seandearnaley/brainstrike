@@ -22,6 +22,7 @@
  */
 import { type ExecFileException, execFile } from 'node:child_process';
 import { createLogger } from '@brainstrike/logging';
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { StructuredFileDiffParams } from '@brainstrike/types';
 import {
   createGitService,
@@ -32,6 +33,7 @@ import {
   type GitResult,
 } from './assistant-server/git-service';
 import {
+  loadWorkspaceRootsFromCatalog,
   loadWorkspaceRootsFromDatabase,
   type WorkspaceRootsQueryable,
 } from './assistant-server/workspace-roots';
@@ -254,6 +256,11 @@ export function createDatabaseRootResolver(
       return await loadWorkspaceRootsFromDatabase(db);
     },
   };
+}
+
+/** Reads the current host's durable root identity while Main retains path authorization. */
+export function createWorkspaceRootResolver(catalog: WorkspaceRootPort): WorkspaceRootResolver {
+  return { listRoots: async () => await loadWorkspaceRootsFromCatalog(catalog) };
 }
 
 export interface GitIpcHandlersOptions {

@@ -1,8 +1,10 @@
-import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
+import {
+  useEnsureModelRegistry,
+  useModelRegistrySource,
+} from '@brainstrike/app-state/hooks/use-model-registry';
 import type { DbModel } from '@brainstrike/app-state/stores/model-registry-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/db';
-import { usePGliteDatabase } from '@brainstrike/db/react';
 import type { EmbeddingModelConfig as ModelConfig } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import { Button, cn, useToast } from '@brainstrike/ui';
@@ -168,7 +170,7 @@ async function downloadModel(model: DbModel, deps: DownloadDeps): Promise<void> 
  * (the `useModelToggle` contract), never a silent no-op.
  */
 function useRegistryRefresh(): () => void {
-  const db = usePGliteDatabase();
+  const db = useModelRegistrySource();
   const fetchRegistry = useModelRegistryStore((state) => state.fetchRegistry);
   const { toast } = useToast();
   return useCallback((): void => {
@@ -209,7 +211,7 @@ export function ModelCatalogHeaderActions() {
 }
 
 export function ModelSelectionPage() {
-  const db = usePGliteDatabase();
+  const db = useModelRegistrySource();
   const {
     downloadedModels,
     downloadProgress,

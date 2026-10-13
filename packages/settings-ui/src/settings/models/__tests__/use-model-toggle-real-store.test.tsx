@@ -1,3 +1,4 @@
+import { type ModelCatalogCapability, projectModelCatalog } from '@brainstrike/assistant-contract';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -56,7 +57,51 @@ describe('useModelToggle against the real model-registry-store', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     __resetModelRegistryStoreForTests();
+  });
+
+  it('commits and reports refused desktop writes with no database', async () => {
+    db = null;
+    const snapshot = projectModelCatalog({ models: [], providers: [] });
+    const model = snapshot.models.find((row) => row.providerId === 'openai');
+    if (!model) {
+      throw new Error('Expected current OpenAI catalog row');
+    }
+    const committed = projectModelCatalog({
+      models: [{ enabled: true, modelId: model.id, providerId: model.providerId }],
+      providers: [],
+    });
+    const catalog: ModelCatalogCapability = {
+      initializeProviderDefaults: async () => ({ outcome: 'preserved', snapshot }),
+      read: async () => snapshot,
+      setModels: vi.fn(async () => ({
+        previous: [{ enabled: false, modelId: model.id }],
+        snapshot: committed,
+      })),
+      setProvider: async () => snapshot,
+    };
+    vi.stubGlobal('modelCatalog', catalog);
+    await useModelRegistryStore.getState().fetchRegistry(catalog);
+    const { result } = renderHook(() => useModelToggle());
+    await act(async () => {
+      expect(await result.current.toggleMany([model.id], true)).toEqual({
+        committed: true,
+        previous: new Map([[model.id, false]]),
+      });
+    });
+    expect(useModelRegistryStore.getState().models).toEqual(committed.models);
+    vi.mocked(catalog.setModels).mockRejectedValueOnce(new Error('catalog choice write refused'));
+    await act(async () => {
+      expect(await result.current.toggle(model.id, false)).toBe(false);
+    });
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        description: 'catalog choice write refused',
+        variant: 'destructive',
+      })
+    );
+    expect(useModelRegistryStore.getState().models).toEqual(committed.models);
   });
 
   it('resolves false and fires a destructive toast when the store write rejects', async () => {

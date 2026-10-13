@@ -1,10 +1,14 @@
+import type { ClearContentResult } from '@brainstrike/state-store';
+
 interface ProfileOwner<Attachment> {
   acquire(): Promise<Attachment>;
+  clearAndRetireContent?(): Promise<ClearContentResult>;
   close(reason?: unknown): Promise<void>;
 }
 
 export interface DesktopProfileRuntime<Attachment> {
   acquire(signal?: AbortSignal): Promise<Attachment>;
+  clearAndRetireContent(): Promise<ClearContentResult>;
   isRetiring(): boolean;
   retire(beforeClose?: Promise<void>, reason?: unknown): Promise<void>;
   retireFailed(): Promise<boolean>;
@@ -49,6 +53,39 @@ export function createDesktopProfileRuntime<Attachment>(
         }
         throw cause;
       }
+    },
+    clearAndRetireContent: () => {
+      if (retirement) {
+        return Promise.reject(new Error('Profile retirement is already in progress'));
+      }
+      retirementPending = true;
+      const clearing = (async (): Promise<ClearContentResult> => {
+        await retireFailed();
+        owner ??= createOwner();
+        const retained = owner;
+        acquisition ??= retained.acquire();
+        await acquisition;
+        if (!retained.clearAndRetireContent) {
+          throw new Error('This profile owner cannot clear content');
+        }
+        const result = await retained.clearAndRetireContent();
+        owner = undefined;
+        acquisition = undefined;
+        return result;
+      })();
+      retirement = clearing.then(() => undefined);
+      retirement.catch(() => undefined);
+      return clearing.then(
+        (result) => {
+          retirementPending = false;
+          retirement = undefined;
+          return result;
+        },
+        (cause: unknown) => {
+          retirementPending = false;
+          throw cause;
+        }
+      );
     },
     isRetiring: () => retirement !== undefined,
     retire: (beforeClose = Promise.resolve(), reason?: unknown) => {

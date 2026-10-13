@@ -28,7 +28,9 @@ test.each(['empty', 'current'] as const)(
       renameThread: vi.fn(),
       renderThread: (threadId) => <div data-testid="host-thread">{threadId}</div>,
       updateThreadBinding: vi.fn(),
-      workspaceRepository: (repository) => repository,
+      workspaceRepository: () => {
+        throw new Error('Unexpected workspace snapshot access in this fixture');
+      },
     };
     useAssistantThreadStore.setState({
       activeThreadIdByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: 'saved-current' },

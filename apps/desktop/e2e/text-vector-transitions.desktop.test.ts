@@ -168,17 +168,15 @@ async function savedCollection(page: Page): Promise<string | null> {
   }, PREFERENCES_KEY);
 }
 
-/** PG rows of the TEXT partition: rooted sources with no collection. */
+/** Canonical workspace source records in the TEXT partition. */
 async function textPartitionRows(page: Page): Promise<number> {
   return await page.evaluate(async () => {
-    const db = window.electronAPI?.db;
-    if (!db) {
-      throw new Error('The app database query path is unavailable');
+    if (!window.sourceFiles) {
+      throw new Error('Desktop source catalog is unavailable');
     }
-    const result = await db.query<{ count: number }>(
-      'SELECT count(*)::int AS count FROM file_records WHERE embedding_set_id IS NULL AND root_id IS NOT NULL'
-    );
-    return result.rows[0]?.count ?? 0;
+    return (await window.sourceFiles.list()).filter(
+      (file) => file.embeddingSetId === null && file.rootId !== null
+    ).length;
   });
 }
 

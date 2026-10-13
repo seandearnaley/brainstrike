@@ -13,10 +13,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, expect, test } from 'vitest';
-import type { MainQueryHandle } from '../../assistant-server/main-query-handle';
 import { listThreadSnapshotChain } from '../../assistant-server/snapshot-chains';
 import { execFileSnapshotGitRunner } from '../../assistant-server/snapshot-git';
-import type { SnapshotRepository } from '../../assistant-server/snapshot-repository';
 import {
   createSnapshotService,
   type ShadowRepoHandle,
@@ -89,32 +87,13 @@ async function blobExists(oid: string): Promise<boolean> {
 
 /** The startup GC over a profile with no legacy ledger rows, both host threads live. */
 function sweep(turnRing?: number) {
-  const unused = (): never => {
-    throw new Error('no ledger row exists in this profile');
-  };
-  const db: MainQueryHandle = {
-    query: async <T>(sql: string): Promise<{ rows: T[] }> => {
-      if (sql.includes('SELECT DISTINCT thread_id') || sql.includes('SELECT DISTINCT ON')) {
-        return { rows: [] };
-      }
-      throw new Error(`unexpected GC query: ${sql}`);
-    },
-  };
   return runSnapshotStartupGc({
-    db,
     isRootPathAccessible: async () => true,
     liveRoots: [{ path: rootPath, rootId: ROOT_ID }],
     readHostThreadIds: async () => new Set([RING_THREAD, SHORT_THREAD]),
+    readHostThreadRows: async () => [],
     readThreadChain: (repo, threadId) =>
       listThreadSnapshotChain(execFileSnapshotGitRunner, repo, threadId),
-    snapshotRepository: {
-      deleteByIds: unused,
-      deleteForThread: unused,
-      insertSnapshot: unused,
-      latestSnapshotFor: unused,
-      rootsForThread: unused,
-      snapshotsForThread: unused,
-    } satisfies SnapshotRepository,
     snapshotService: service,
     ...(turnRing === undefined ? {} : { turnRing }),
   });

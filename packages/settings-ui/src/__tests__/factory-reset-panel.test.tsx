@@ -108,9 +108,9 @@ describe('FactoryResetPanel', () => {
     Object.defineProperty(window, 'electronAPI', {
       configurable: true,
       value: {
-        db: {
-          factoryResetUnavailableReason: 'Factory reset is unavailable on Windows in this version.',
+        factoryReset: {
           resetLocal,
+          unavailableReason: 'Factory reset is unavailable on Windows in this version.',
         },
       },
       writable: true,
@@ -134,10 +134,11 @@ describe('FactoryResetPanel', () => {
     const resetLocal = vi.fn(async () => ({ success: true }));
     Object.defineProperty(window, 'electronAPI', {
       configurable: true,
-      value: { db: { resetLocal } },
+      value: { factoryReset: { resetLocal } },
       writable: true,
     });
     render(<FactoryResetPanel />);
+    expect(mockUseFactoryReset).toHaveBeenCalledWith({ enabled: false });
     fireEvent.click(screen.getByTestId('factory-reset-button'));
     expect(mockClearPersistentUiState).not.toHaveBeenCalled();
     expect(resetLocal).not.toHaveBeenCalled();
@@ -151,7 +152,7 @@ describe('FactoryResetPanel', () => {
     const resetLocal = vi.fn(async () => ({ success: true }));
     Object.defineProperty(window, 'electronAPI', {
       configurable: true,
-      value: { db: { resetLocal } },
+      value: { factoryReset: { resetLocal } },
       writable: true,
     });
     render(<FactoryResetPanel />);
@@ -306,7 +307,7 @@ describe('FactoryResetPanel', () => {
       Object.defineProperty(window, 'electronAPI', {
         configurable: true,
         value: {
-          db: { resetLocal },
+          factoryReset: { resetLocal },
         },
         writable: true,
       });
@@ -336,7 +337,7 @@ describe('FactoryResetPanel', () => {
       Object.defineProperty(window, 'electronAPI', {
         configurable: true,
         value: {
-          db: { resetLocal },
+          factoryReset: { resetLocal },
         },
         writable: true,
       });
@@ -371,7 +372,7 @@ describe('FactoryResetPanel', () => {
       Object.defineProperty(window, 'electronAPI', {
         configurable: true,
         value: {
-          db: { resetLocal },
+          factoryReset: { resetLocal },
         },
         writable: true,
       });

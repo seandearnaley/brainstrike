@@ -14,14 +14,10 @@ describe('useChangeset under the React Compiler', () => {
     const resolveView = vi.fn(async () => ({ error: 'snapshot missing', ok: false }) as const);
     // `resolveChangesBridge` requires a fully formed bridge.
     const bridge: ChangesBridge = {
-      applyRewind: vi.fn(),
       fileDiff: vi.fn(),
-      finalizeRewinds: vi.fn(),
       inventory: vi.fn(),
       onInvalidated: vi.fn(() => () => {}),
-      redoRewind: vi.fn(),
       resolveView,
-      rewindPreview: vi.fn(),
     };
     (window as unknown as { changes?: ChangesBridge }).changes = bridge;
 

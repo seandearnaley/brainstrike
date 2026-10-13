@@ -15,7 +15,6 @@ import {
   RunVerdictProvider,
   useRewindContext,
 } from '@brainstrike/assistant-ui';
-import { useOptionalPGliteDatabase } from '@brainstrike/db/react';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
 import { McpAppBridgeProvider } from '@brainstrike/mcp-app-host-ui';
 import {
@@ -162,7 +161,6 @@ function HostThread({
   const modelId = useRef(readModelId);
   const planMode = useRef(readPlanMode);
   // Legacy parity: a send binds an unbound thread to the Main root first.
-  const database = useOptionalPGliteDatabase();
   const bindRoot = useRef(async (): Promise<void> => undefined);
   useLayoutEffect(() => {
     bindRoot.current = () => {
@@ -170,12 +168,11 @@ function HostThread({
       const main = activeRootIds[0] ? rootDescriptors[activeRootIds[0]] : undefined;
       return bindHostThreadToMainRoot({
         client,
-        database,
-        mainRoot: main ? { displayName: main.displayName, path: main.path } : undefined,
+        mainRoot: main,
         threadId,
       });
     };
-  }, [client, database, explorer, threadId]);
+  }, [client, explorer, threadId]);
   useLayoutEffect(() => {
     configuration.current = readConfiguration;
     modelId.current = readModelId;
@@ -251,11 +248,14 @@ function HostThread({
   // The composer's last-24h budget burn-down and send gate, host usage included.
   const budgetGuardrail = useBudgetGuardrailBinding();
   // Debug pack and Copy debug bundle, built from the host's committed log on
-  // request; correlated diagnostics come from the renderer's diagnostic store.
-  const debugBundle = useMemo(
-    () => (database ? createHostDebugBundleBinding(client, threadId, database) : null),
-    [client, database, threadId]
-  );
+  // request; correlated diagnostics come from Main's retained diagnostic log.
+  const debugBundle = useMemo(() => {
+    const diagnostics = window.desktopDiagnostics;
+    if (!diagnostics) {
+      throw new Error('Desktop diagnostic reader unavailable');
+    }
+    return createHostDebugBundleBinding(client, threadId, diagnostics);
+  }, [client, threadId]);
   // Steer (BST-588): the queue holds the message at its front while Core ends
   // the run after its step in flight; the message then starts the next turn.
   const [steeredRunId, setSteeredRunId] = useState<string>();

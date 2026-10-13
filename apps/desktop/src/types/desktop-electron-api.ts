@@ -1,9 +1,9 @@
 import type { ElectronVectorPreferencesBridge } from '@brainstrike/app-state/stores/vector-preferences-store';
 import type { ChunkResult } from '@brainstrike/chunking-worker';
-import type { DatabaseWorkOptions, DesktopDatabaseBridge } from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
 import type {
+  ContentClearCapability,
   FileSystemWatchEvent,
   IFileNode,
   RecentRootEntry,
@@ -98,75 +98,21 @@ export interface DesktopFileSystemBridge {
   ) => Promise<{ health?: WatcherHealthTransition; watchId: string }>;
 }
 
-export interface DesktopLiveQueryBridge {
-  onUpdate: (callback: (payload: { id: number; results: unknown }) => void) => () => void;
-  refresh: (
-    payload: { id: number; limit?: number; offset?: number },
-    options?: DatabaseWorkOptions
-  ) => Promise<{ message?: string; success: boolean }>;
-  start: (
-    options: {
-      key?: string;
-      limit?: number;
-      mode?: 'query' | 'incremental';
-      offset?: number;
-      params?: readonly unknown[];
-      query: string;
-    },
-    workOptions?: DatabaseWorkOptions
-  ) => Promise<{ id: number; initialResults: { rows: unknown[]; totalCount?: number } }>;
-  stop: (id: number) => Promise<{ success: boolean } | undefined>;
+export interface DesktopFactoryResetBridge {
+  resetLocal: () => Promise<{ message?: string; success: boolean }>;
+  readonly unavailableReason: string | undefined;
 }
 
-type VisibleDesktopDatabaseBridge = Pick<
-  DesktopDatabaseBridge,
-  | 'applyManagedCacheBatch'
-  | 'clearAll'
-  | 'diagnostics'
-  | 'exec'
-  | 'factoryResetUnavailableReason'
-  | 'insertChunksAndEnqueueEmbeddingJobs'
-  | 'invalidateManagedCacheEntriesByIdentity'
-  | 'ping'
-  | 'query'
-  | 'resetLocal'
-  | 'runTransaction'
-  | 'schedulerSnapshot'
-  | 'test'
->;
-
-type ChunkingHostDatabaseBridge = Pick<DesktopDatabaseBridge, 'query'>;
-
-type EmbeddingHostDatabaseBridge = Pick<
-  DesktopDatabaseBridge,
-  | 'applyManagedCacheBatch'
-  | 'diagnostics'
-  | 'exec'
-  | 'insertChunksAndEnqueueEmbeddingJobs'
-  | 'invalidateManagedCacheEntriesByIdentity'
-  | 'query'
-  | 'runTransaction'
-  | 'schedulerSnapshot'
-  | 'test'
->;
-
-/** The exact `electronAPI` surface exposed to the visible desktop renderer. */
 export interface VisibleDesktopElectronApi extends LayoutElectronAPI {
-  db: VisibleDesktopDatabaseBridge;
-  dbLive: DesktopLiveQueryBridge;
+  content: ContentClearCapability;
+  factoryReset: DesktopFactoryResetBridge;
   fileSystem: DesktopFileSystemBridge;
   getUserDataPath: () => Promise<string>;
   storage: DesktopStorageBridge;
 }
 
-/** The exact `electronAPI` surface exposed to the hidden chunking renderer. */
-export interface ChunkingHostElectronApi {
-  db: ChunkingHostDatabaseBridge;
-}
-
 /** The exact `electronAPI` surface exposed to the hidden embedding renderer. */
 export interface EmbeddingHostElectronApi {
-  db: EmbeddingHostDatabaseBridge;
   vectorPreferences: ElectronVectorPreferencesBridge;
 }
 
@@ -263,7 +209,7 @@ export interface VisibleDesktopCapabilities {
 
 export interface ChunkingHostCapabilities {
   chunkingHost: ChunkingHostRuntimeBridge;
-  electronAPI: ChunkingHostElectronApi;
+  sourceFiles: Pick<import('@brainstrike/assistant-contract').SourceFilesCapability, 'read'>;
 }
 
 export interface EmbeddingHostCapabilities {
@@ -272,10 +218,7 @@ export interface EmbeddingHostCapabilities {
 }
 
 /** Every role that actually exposes `electronAPI`; the hidden LLM host does not. */
-export type DesktopRendererCapabilities =
-  | ChunkingHostCapabilities
-  | EmbeddingHostCapabilities
-  | VisibleDesktopCapabilities;
+export type DesktopRendererCapabilities = EmbeddingHostCapabilities | VisibleDesktopCapabilities;
 export type DesktopElectronApi = DesktopRendererCapabilities['electronAPI'];
 
 type ExactKeyList<Shape, Keys extends readonly (keyof Shape)[]> =
@@ -286,45 +229,20 @@ function defineExactKeys<Shape>() {
 }
 
 const VISIBLE_ELECTRON_API_KEYS = defineExactKeys<VisibleDesktopElectronApi>()([
-  'db',
-  'dbLive',
+  'content',
+  'factoryReset',
   'fileSystem',
   'getUserDataPath',
   'loadLayout',
   'saveLayout',
   'storage',
 ]);
-const VISIBLE_DATABASE_KEYS = defineExactKeys<VisibleDesktopDatabaseBridge>()([
-  'applyManagedCacheBatch',
-  'clearAll',
-  'diagnostics',
-  'exec',
-  'factoryResetUnavailableReason',
-  'insertChunksAndEnqueueEmbeddingJobs',
-  'invalidateManagedCacheEntriesByIdentity',
-  'ping',
-  'query',
+const FACTORY_RESET_KEYS = defineExactKeys<DesktopFactoryResetBridge>()([
   'resetLocal',
-  'runTransaction',
-  'schedulerSnapshot',
-  'test',
+  'unavailableReason',
 ]);
-const CHUNKING_ELECTRON_API_KEYS = defineExactKeys<ChunkingHostElectronApi>()(['db']);
-const CHUNKING_DATABASE_KEYS = defineExactKeys<ChunkingHostDatabaseBridge>()(['query']);
 const EMBEDDING_ELECTRON_API_KEYS = defineExactKeys<EmbeddingHostElectronApi>()([
-  'db',
   'vectorPreferences',
-]);
-const EMBEDDING_DATABASE_KEYS = defineExactKeys<EmbeddingHostDatabaseBridge>()([
-  'applyManagedCacheBatch',
-  'diagnostics',
-  'exec',
-  'insertChunksAndEnqueueEmbeddingJobs',
-  'invalidateManagedCacheEntriesByIdentity',
-  'query',
-  'runTransaction',
-  'schedulerSnapshot',
-  'test',
 ]);
 const VECTOR_PREFERENCES_KEYS = defineExactKeys<ElectronVectorPreferencesBridge>()([
   'clear',
@@ -332,7 +250,7 @@ const VECTOR_PREFERENCES_KEYS = defineExactKeys<ElectronVectorPreferencesBridge>
   'write',
 ]);
 
-export type DesktopElectronApiRole = 'chunking-host' | 'embedding-host' | 'visible-ui';
+export type DesktopElectronApiRole = 'embedding-host' | 'visible-ui';
 
 function assertExactKeys(label: string, value: object, expectedKeys: readonly PropertyKey[]): void {
   const actual = Object.keys(value).sort();
@@ -350,10 +268,6 @@ export function assertDesktopElectronApiKeyParity(
   api: VisibleDesktopElectronApi
 ): void;
 export function assertDesktopElectronApiKeyParity(
-  role: 'chunking-host',
-  api: ChunkingHostElectronApi
-): void;
-export function assertDesktopElectronApiKeyParity(
   role: 'embedding-host',
   api: EmbeddingHostElectronApi
 ): void;
@@ -364,18 +278,15 @@ export function assertDesktopElectronApiKeyParity(
   if (role === 'visible-ui') {
     const visibleApi = api as VisibleDesktopElectronApi;
     assertExactKeys('visible-ui electronAPI', visibleApi, VISIBLE_ELECTRON_API_KEYS);
-    assertExactKeys('visible-ui electronAPI.db', visibleApi.db, VISIBLE_DATABASE_KEYS);
-    return;
-  }
-  if (role === 'chunking-host') {
-    const chunkingApi = api as ChunkingHostElectronApi;
-    assertExactKeys('chunking-host electronAPI', chunkingApi, CHUNKING_ELECTRON_API_KEYS);
-    assertExactKeys('chunking-host electronAPI.db', chunkingApi.db, CHUNKING_DATABASE_KEYS);
+    assertExactKeys(
+      'visible-ui electronAPI.factoryReset',
+      visibleApi.factoryReset,
+      FACTORY_RESET_KEYS
+    );
     return;
   }
   const embeddingApi = api as EmbeddingHostElectronApi;
   assertExactKeys('embedding-host electronAPI', embeddingApi, EMBEDDING_ELECTRON_API_KEYS);
-  assertExactKeys('embedding-host electronAPI.db', embeddingApi.db, EMBEDDING_DATABASE_KEYS);
   assertExactKeys(
     'embedding-host electronAPI.vectorPreferences',
     embeddingApi.vectorPreferences,

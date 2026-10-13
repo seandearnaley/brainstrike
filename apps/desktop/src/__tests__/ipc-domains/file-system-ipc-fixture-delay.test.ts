@@ -11,9 +11,10 @@ import {
   clearE2eFileSystemFixture,
   createFileSystem,
   createStorage,
-  getRootsDatabase,
+  getRootsCatalog,
   handlers,
   removeHandler,
+  resetRootsCatalog,
   setE2eFileSystemFixture,
 } from './file-system-ipc-test-harness';
 
@@ -57,12 +58,13 @@ describe('fs:readDirectory fixture read delay', () => {
   let storage: ElectronStorageAdapter;
 
   beforeEach(() => {
+    resetRootsCatalog();
     handlers.clear();
     removeHandler.mockClear();
     clearE2eFileSystemFixture();
     fileSystem = createFileSystem();
     storage = createStorage();
-    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsCatalog, storage });
   });
 
   afterEach(() => {

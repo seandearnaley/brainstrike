@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
+import { sourceFilesContract } from '../ipc-domains/source-files.contract';
 
 function readHiddenPreloadSource(): string {
   return readFileSync(path.resolve(process.cwd(), 'src', 'hidden-preload.ts'), 'utf8');
@@ -47,46 +47,15 @@ describe('hidden renderer preload contract', () => {
     expect(source).not.toContain('storage:clear');
   });
 
-  it('sources every channel from the role-scoped groups of the desktop IPC manifest', () => {
-    // BST-1648: no channel literal lives in the hidden preload; every
-    // `ipcRenderer` call reads the imported manifest. The GROUPS it may
-    // reference are pinned so the hidden capability manifest stays scoped
-    // (BST-1235/BST-1380): a `secrets`/`storage`/`git` group reference here
-    // would widen the hidden hosts' reach and fails by name.
-    const source = readHiddenPreloadSource();
-    expect(source).toContain("from './platform/desktop-ipc-channels'");
-    expect(source).toContain("from './ipc-domains/database.contract'");
-    expect(source).toContain("from './ipc-domains/storage-preferences.contract'");
-    expect(source).toContain('createIpcBridge(ipcRenderer, vectorPreferencesContract)');
-    expect(source).toContain('createIpcBridge(ipcRenderer, databaseIntegrityContract)');
-    const manifestChannels = Object.values(DESKTOP_IPC_CHANNELS).flatMap((group) =>
-      Object.values(group)
-    );
-    const duplicatedLiterals = manifestChannels.filter(
-      (channel) => source.includes(`'${channel}'`) || source.includes(`"${channel}"`)
-    );
-    expect(duplicatedLiterals).toEqual([]);
-
-    const referencedGroups = new Set(
-      [...source.matchAll(/DESKTOP_IPC_CHANNELS\.([A-Za-z]+)\./g)].map((match) => match[1])
-    );
-    expect([...referencedGroups].sort()).toEqual([
-      'chunkingHost',
-      'embeddingHost',
-      'files',
-      'llmHost',
-      'logging',
-      'runtime',
+  it('accepts bounded canonical source reads without accepting SQL or mutation payloads', () => {
+    expect(sourceFilesContract.read.parseArgs([['canonical-file-id'], 1024])).toEqual([
+      ['canonical-file-id'],
+      1024,
     ]);
-    for (const member of [
-      'DESKTOP_IPC_CHANNELS.files.parserHostParse',
-      'DESKTOP_IPC_CHANNELS.runtime.powerSnapshot',
-      'DESKTOP_IPC_CHANNELS.runtime.powerState',
-      'DESKTOP_IPC_CHANNELS.logging.getPreferences',
-      'DESKTOP_IPC_CHANNELS.logging.ingestBufferedRecord',
-      'DESKTOP_IPC_CHANNELS.logging.preferencesUpdated',
-    ]) {
-      expect(source).toContain(member);
-    }
+    expect(() => sourceFilesContract.read.parseArgs(['SELECT content FROM files', 1024])).toThrow();
+    expect(() => sourceFilesContract.read.parseArgs([['file-id'], -1])).toThrow();
+    expect(sourceFilesContract.import.roles).not.toContain('chunking-host');
+    expect(sourceFilesContract.delete.roles).not.toContain('chunking-host');
+    expect(sourceFilesContract.chunks.roles).not.toContain('chunking-host');
   });
 });

@@ -1,6 +1,10 @@
 import { makeLiveQueryKey, usePGliteDatabase, usePGliteLiveQuery } from '@brainstrike/db/react';
 import { useMemo } from 'react';
 import { useDiagnosticsSeenStore } from './diagnostics-seen-store';
+import {
+  retainedCountsCapability,
+  useNativeUnseenDiagnosticsCount,
+} from './use-native-unseen-diagnostics-count';
 
 /**
  * Reactive count of diagnostic events recorded since the session watermark
@@ -52,8 +56,10 @@ function parseAggregateCount(value: unknown): number | null {
 }
 
 export function useUnseenDiagnosticsCount(): UnseenDiagnosticsCountResult {
-  const database = usePGliteDatabase();
+  const native = retainedCountsCapability();
+  const database = usePGliteDatabase({ enabled: !native });
   const lastSeenAtMs = useDiagnosticsSeenStore((state) => state.lastSeenAtMs);
+  const nativeCounts = useNativeUnseenDiagnosticsCount(native, lastSeenAtMs);
   // Repo convention: bind timestamptz params as ISO strings, not epoch ms —
   // `mapDiagnosticEventRow` converts the column back the same way.
   const lastSeenAtIso = useMemo(() => new Date(lastSeenAtMs).toISOString(), [lastSeenAtMs]);
@@ -84,6 +90,9 @@ export function useUnseenDiagnosticsCount(): UnseenDiagnosticsCountResult {
     return { aggregateError: null, errorCount, warningCount };
   }, [loading, queryEnabled, rows]);
 
+  if (native) {
+    return nativeCounts;
+  }
   return {
     error: error ?? counts.aggregateError,
     errorCount: counts.errorCount,

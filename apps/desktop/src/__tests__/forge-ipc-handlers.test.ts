@@ -43,7 +43,7 @@ afterEach(async () => {
 describe('createForgeIpcHandlers', () => {
   it('rejects a non-string rootId without touching the service', async () => {
     const forge = service();
-    const handlers = createForgeIpcHandlers({ service: forge });
+    const handlers = createForgeIpcHandlers({ readCacheSnapshot: async () => [], service: forge });
     await expect(handlers.prStatus(42)).resolves.toEqual({
       error: 'forge requires a non-empty rootId string',
       ok: false,
@@ -52,7 +52,10 @@ describe('createForgeIpcHandlers', () => {
   });
 
   it('rejects an empty rootId', async () => {
-    const handlers = createForgeIpcHandlers({ service: service() });
+    const handlers = createForgeIpcHandlers({
+      readCacheSnapshot: async () => [],
+      service: service(),
+    });
     await expect(handlers.identity('   ')).resolves.toEqual({
       error: 'forge requires a non-empty rootId string',
       ok: false,
@@ -61,7 +64,7 @@ describe('createForgeIpcHandlers', () => {
 
   it('rejects an unrecognized refresh reason instead of defaulting one', async () => {
     const forge = service();
-    const handlers = createForgeIpcHandlers({ service: forge });
+    const handlers = createForgeIpcHandlers({ readCacheSnapshot: async () => [], service: forge });
     await expect(handlers.refresh('root-1', { reason: 'whenever' })).resolves.toEqual({
       error: 'forge refresh requires reason "invalidation", "user" or "window"',
       ok: false,
@@ -71,7 +74,7 @@ describe('createForgeIpcHandlers', () => {
 
   it('refuses a renderer-supplied "shell" refresh reason', async () => {
     const forge = service();
-    const handlers = createForgeIpcHandlers({ service: forge });
+    const handlers = createForgeIpcHandlers({ readCacheSnapshot: async () => [], service: forge });
     const result = await handlers.refresh('root-1', { reason: 'shell' });
 
     expect(result.ok).toBe(false);
@@ -81,7 +84,7 @@ describe('createForgeIpcHandlers', () => {
 
   it('forwards a valid refresh', async () => {
     const forge = service();
-    const handlers = createForgeIpcHandlers({ service: forge });
+    const handlers = createForgeIpcHandlers({ readCacheSnapshot: async () => [], service: forge });
     await expect(handlers.refresh('root-1', { reason: 'user' })).resolves.toEqual({
       ok: true,
       value: status,
@@ -91,6 +94,7 @@ describe('createForgeIpcHandlers', () => {
 
   it('converts a service throw into an error result, never a rejected IPC call', async () => {
     const handlers = createForgeIpcHandlers({
+      readCacheSnapshot: async () => [],
       service: service({
         prStatus: vi.fn(async () => {
           throw new Error('boom');

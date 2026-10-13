@@ -1,6 +1,6 @@
 import type {
+  AssistantThreadCatalogRepository,
   AssistantThreadMetadata,
-  AssistantThreadRepository,
 } from '@brainstrike/assistant-data';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type {
@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AssistantOperatingRootCandidate } from '../assistant-operating-root';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { resolvePlatformBridge } from '../platform-bridge';
+import { getThreadGroupsCapability } from '../thread-groups-capability';
 import { useFolderDrop } from '../workspace-connect/use-folder-drop';
 import { stripIpcInvokeEnvelope } from '../workspace-connect/workspace-connect-bridge';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
@@ -64,7 +65,7 @@ export { deriveMakePrimary };
 const logger = createLogger('WorkspaceBar');
 
 export interface UseWorkspaceBarArgs {
-  readonly assistantThreadRepository: AssistantThreadRepository | null;
+  readonly assistantThreadRepository: AssistantThreadCatalogRepository | null;
   readonly currentMainRoot?: AssistantOperatingRootCandidate | undefined;
   readonly database: DbHandle | null;
   readonly memoryResourceId: string;
@@ -349,6 +350,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     selectedMemoryThreadId,
   } = args;
   const fileSystem = useFileSystem();
+  const rootCatalog = getThreadGroupsCapability();
   const updateThreadMetadata = useAssistantThreadStore((state) => state.updateThreadMetadata);
   const threadsByResourceId = useAssistantThreadStore((state) => state.threadsByResourceId);
   const selectedThread = selectedMemoryThreadId
@@ -421,7 +423,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     // No clearing branch: the state is PATH-tagged and the read below ignores a
     // row resolved for any other path, so a bail-out needs no synchronous
     // setState (react-hooks/set-state-in-effect).
-    if (bindingRootId || !(database && mainRootPath && mainRootDisplayName)) {
+    if (bindingRootId || !((database || rootCatalog) && mainRootPath && mainRootDisplayName)) {
       return;
     }
     let cancelled = false;
@@ -456,10 +458,10 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     return () => {
       cancelled = true;
     };
-  }, [bindingRootId, database, invalidationNonce, mainRootDisplayName, mainRootPath]);
+  }, [bindingRootId, database, rootCatalog, invalidationNonce, mainRootDisplayName, mainRootPath]);
   const { foldersPending, primaryRootId } = primaryRootState({
     bindingRootId,
-    canResolveMainRoot: Boolean(database && mainRootPath && mainRootDisplayName),
+    canResolveMainRoot: Boolean((database || rootCatalog) && mainRootPath && mainRootDisplayName),
     mainRootPath,
     mainRootRow,
     metadataPending: selectedThreadMetadataPending,
@@ -745,7 +747,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
 
   const resolveRootIdForPath = useCallback(
     async (path: string, displayName: string): Promise<string> => {
-      if (!database) {
+      if (!(database || rootCatalog)) {
         throw new Error('Cannot resolve a worktree root before the workspace database is ready.');
       }
       const startedForThreadId = selectedMemoryThreadId;
@@ -766,12 +768,12 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       }
       return lookup.rootId;
     },
-    [database, selectedMemoryThreadId]
+    [database, rootCatalog, selectedMemoryThreadId]
   );
 
   const recordAddedAsSecondary = useCallback(
     async (handle: { readonly name: string; readonly path: string }) => {
-      if (!database) {
+      if (!(database || rootCatalog)) {
         throw new Error('Cannot record a thread folder before the workspace database is ready.');
       }
       // Compare the CAPTURED thread against the live one: a switch away is what
@@ -823,7 +825,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         };
       });
     },
-    [database, enqueueThreadFoldersWrite, selectedMemoryThreadId]
+    [database, rootCatalog, enqueueThreadFoldersWrite, selectedMemoryThreadId]
   );
   useThreadFolderScope({
     bindingRootId,

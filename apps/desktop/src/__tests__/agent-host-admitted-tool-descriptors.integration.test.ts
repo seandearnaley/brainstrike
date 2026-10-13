@@ -18,7 +18,6 @@ const owner = vi.hoisted(() => ({
   home: '',
   // The tool code Main's admission loaded, if any.
   loaded: new Set<string>(),
-  query: vi.fn(),
   /** A module recorded when loaded, then served unchanged. */
   record:
     (name: string) =>
@@ -34,7 +33,11 @@ vi.mock('node:os', async (importOriginal) => ({
 vi.mock('@brainstrike/file-explorer-ui/preview', () => ({
   useWorkspaceContextCurationStore: { getState: () => ({ contextSnapshot: null }) },
 }));
-vi.mock('../db-main', () => ({ getDatabase: async () => ({ query: owner.query }) }));
+vi.mock('../db-main', () => ({
+  getDatabase: async () => {
+    throw new Error('PGlite must not be opened by host admission');
+  },
+}));
 vi.mock('../provider-api-key', () => ({ readProviderCredential: owner.credential }));
 vi.mock('../ipc-mcp', () => ({
   readDesktopMcpHostSnapshot: async (runtime: { host: { snapshot(): unknown } }) =>
@@ -92,13 +95,24 @@ vi.mock(
 );
 
 import { PlatformClientConfigurationSchema } from '../agent-host-platform/platform-wire';
+import { admissionCatalogFixture, admissionModelSnapshot } from './fixtures/admission-catalog';
 // Recorded from these admissions through Main's tool builders, before Main stopped building tools.
 import recorded from './fixtures/admitted-tool-descriptors.json';
-import { desktopAdmission } from './fixtures/desktop-admission';
+import { desktopAdmission as createDesktopAdmission } from './fixtures/desktop-admission';
 
 let directory = '';
+const catalog = admissionCatalogFixture(() => [
+  { displayName: 'A', id: 'root-a', path: join(directory, 'a') },
+]);
+function desktopAdmission(
+  dependencies: Partial<Parameters<typeof createDesktopAdmission>[0]>,
+  ...rest: Parameters<typeof createDesktopAdmission> extends [unknown, ...infer Rest] ? Rest : never
+) {
+  return createDesktopAdmission({ ...catalog.services, ...dependencies }, ...rest);
+}
 
 beforeEach(async () => {
+  catalog.modelRead.mockImplementation(async () => admissionModelSnapshot());
   directory = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'bs-m3-tool-descriptors-')));
   await fs.mkdir(join(directory, 'a'));
   owner.home = join(directory, 'home');
@@ -109,18 +123,6 @@ beforeEach(async () => {
     join(skill, 'SKILL.md'),
     '---\nname: demo-skill\ndescription: Says hello from a skill.\n---\nGreet the user.\n'
   );
-  owner.query.mockImplementation(async (sql: string, params: readonly unknown[]) => {
-    if (sql.includes('JOIN providers')) {
-      return { rows: [] };
-    }
-    if (sql.includes('FROM models')) {
-      return { rows: [{ isEnabled: true, providerId: params[1] }] };
-    }
-    if (sql.includes('FROM roots')) {
-      return { rows: [{ displayName: 'A', id: 'root-a', path: join(directory, 'a') }] };
-    }
-    throw new Error('Unexpected owner query in tool descriptor admission');
-  });
 });
 afterEach(async () => {
   vi.clearAllMocks();

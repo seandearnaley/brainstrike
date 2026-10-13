@@ -8,22 +8,18 @@
 // The lifecycle is M0-A2's Host (src/host.ts) without the run host: synced-root refusal and the root lock at open, a
 // damaged DB opened read-only and visibly, purge orchestration with a crash-replayable intent, export/import, reset.
 // Every mutation runs on ONE write chain, so a purge's blob GC can never race an append that references the blob.
-import { createHash } from 'node:crypto';
-import {
-  closeSync,
-  copyFileSync,
-  existsSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { isAbsolute, join, relative, sep, win32 } from 'node:path';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
+import type {
+  ForgePrCacheEntry,
+  ThreadGroupsReply,
+  ThreadGroupsRequest,
+  ViewFilterPresetReply,
+  ViewFilterPresetRequest,
+} from '@brainstrike/types';
+import type { PromptLibraryReply, PromptLibraryRequest } from '@brainstrike/types/prompt-item';
+import type { CollectionReply, CollectionRequest } from './collection-types.js';
 import { IndexerRequiredError, ThreadDamagedError, ThreadReadOnlyError } from './errors.js';
 import {
   type Decoded,
@@ -35,12 +31,24 @@ import {
 import { RootLock } from './lock.js';
 import type { McpTaskDomainReply, McpTaskDomainRequest } from './mcp-task-types.js';
 import type { MemoryDomainPort, MemoryDomainRequest, MemorySnapshot } from './memory-types.js';
+import type {
+  ModelChoiceRequest,
+  ModelChoiceResult,
+  ModelChoiceSnapshot,
+} from './model-choice-types.js';
+import type { PromptCatalogReply, PromptCatalogRequest } from './prompt-catalog-types.js';
+import { executePromptLibrary } from './prompt-library.js';
 import { blobsOf, TOMBSTONE_BODY, withSeq } from './run-log-format.mjs';
 import type { AppendItem, BlobContent, LogRow, RunEvent, ThreadStatus } from './run-log-types.js';
-import { openRo, vacuumInto } from './sqlite.js';
-import { readAll, SqliteReader } from './sqlite-reader.js';
+import type { SourceCatalogReply, SourceCatalogRequest } from './source-catalog-types.js';
+import {
+  BLOBS_DIR,
+  exportStateBundle,
+  importStateBundle,
+  STATE_DB,
+  sha256Hex,
+} from './state-store-bundle.js';
 import type {
-  ExportedThread,
   HydrationThread,
   IndexerPort,
   Manifest,
@@ -49,11 +57,18 @@ import type {
   StoreSettings,
   SyncSpan,
 } from './state-store-types.js';
+import { type Ready, waitReady } from './state-store-worker-ready.js';
 import { assertNotSyncedRoot } from './sync-roots.js';
 import { errorOf, logRowOf, type WorkerRow } from './worker-reply.js';
+import type { WorkspaceRootReply, WorkspaceRootRequest } from './workspace-root-types.js';
+import type {
+  ForgeCacheReply,
+  ForgeCacheRequest,
+  WorktreeLedgerReply,
+  WorktreeLedgerRequest,
+} from './worktree-forge-types.js';
 
-export const STATE_DB = 'state.db';
-export const BLOBS_DIR = 'blobs';
+export { BLOBS_DIR, STATE_DB, sha256Hex } from './state-store-bundle.js';
 /** Every entry the store creates in its data root besides the lock directory, which the lock removes itself. */
 export const STORE_ENTRIES: readonly string[] = [
   STATE_DB,
@@ -61,6 +76,10 @@ export const STORE_ENTRIES: readonly string[] = [
   `${STATE_DB}-shm`,
   BLOBS_DIR,
 ];
+
+export type { ContentClearResult as ClearContentResult } from '@brainstrike/types';
+
+import type { ContentClearResult as ClearContentResult } from '@brainstrike/types';
 
 /** Text of this size or more is stored as a content-addressed blob; the event keeps a preview and the hash. */
 export type {
@@ -79,9 +98,6 @@ export type {
 
 export const BLOB_MIN_BYTES = 12 * 1024;
 export const PREVIEW_CHARS = 2048;
-
-export const sha256Hex = (b: Buffer | string): string =>
-  createHash('sha256').update(b).digest('hex');
 
 export type StoredText =
   | { readonly output: string }
@@ -134,106 +150,8 @@ interface Waiter {
   readonly resolve: (r: Reply) => void;
 }
 
-interface Ready {
-  readonly damage: string | null;
-  readonly ready: true;
-  readonly settings: StoreSettings;
-}
-
 const runIdOf = (e: RunEvent): string | null =>
   typeof e['runId'] === 'string' ? e['runId'] : null;
-
-function waitReady(worker: Worker): Promise<Ready> {
-  return new Promise((resolve, reject) => {
-    const onMessage = (m: Partial<Ready>): void => {
-      if (m.ready === true) {
-        cleanup();
-        resolve(m as Ready);
-      }
-    };
-    const onError = (e: Error): void => {
-      cleanup();
-      reject(e);
-    };
-    const onExit = (code: number): void => {
-      cleanup();
-      reject(new Error(`StateStore writer worker exited during open (code ${code})`));
-    };
-    const cleanup = (): void => {
-      worker.off('message', onMessage);
-      worker.off('error', onError);
-      worker.off('exit', onExit);
-    };
-    worker.on('message', onMessage);
-    worker.on('error', onError);
-    worker.on('exit', onExit);
-  });
-}
-
-function listFiles(dir: string, base = dir): string[] {
-  return readdirSync(dir, { withFileTypes: true })
-    .flatMap((d) => {
-      const p = join(dir, d.name);
-      return d.isDirectory() ? listFiles(p, base) : [relative(base, p).split('\\').join('/')];
-    })
-    .sort();
-}
-
-/** Portable bundle paths cannot escape either the source or the destination root. */
-function assertBundleRelativePath(path: unknown): asserts path is string {
-  if (
-    typeof path !== 'string' ||
-    path.includes('\0') ||
-    path.includes('\\') ||
-    isAbsolute(path) ||
-    win32.parse(path).root ||
-    path.split('/').some((part) => !part || part === '.' || part === '..')
-  ) {
-    throw new TypeError('import: manifest file paths must be canonical relative paths');
-  }
-}
-function checkedBundleSource(bundleRoot: string, path: string): string {
-  const source = realpathSync(join(bundleRoot, path));
-  const fromRoot = relative(bundleRoot, source);
-  if (isAbsolute(fromRoot) || fromRoot.split(sep)[0] === '..') {
-    throw new TypeError('import: bundle source escapes its root');
-  }
-  return source;
-}
-
-const GENERATION_FILE = /^g[0-9]{12}$/;
-
-/** Per-thread watermarks (max seq) of an exported state DB. */
-function watermarksOf(statePath: string): ExportedThread[] {
-  const b = openRo(statePath);
-  try {
-    return b
-      .prepare(
-        'SELECT thread_id AS threadId, max(seq) AS watermark FROM run_events GROUP BY thread_id ORDER BY thread_id'
-      )
-      .all() as ExportedThread[];
-  } finally {
-    b.close();
-  }
-}
-
-/** Every blob hash the verified events of a root (or bundle) reference. */
-function blobsReferencedBy(root: string): Set<string> {
-  const reader = new SqliteReader(root);
-  const hashes = new Set<string>();
-  try {
-    for (const t of reader.threads()) {
-      for (const it of readAll(reader, t)) {
-        for (const h of it.kind === 'event' ? blobsOf(it.raw) : []) {
-          hashes.add(h);
-        }
-      }
-    }
-  } finally {
-    reader.close();
-  }
-  return hashes;
-}
 
 export class StateStore implements MemoryDomainPort {
   readonly root: string;
@@ -324,7 +242,10 @@ export class StateStore implements MemoryDomainPort {
       }
       if (ready.damage === null) {
         const acquired = store;
-        await acquired.run(() => acquired.replayPurgeIntents());
+        await acquired.run(async () => {
+          await acquired.replayPurgeIntents();
+          await acquired.collectRetiredSources();
+        });
       }
       return store;
     } catch (e) {
@@ -603,7 +524,10 @@ export class StateStore implements MemoryDomainPort {
       const pending = [...this.deferredGc];
       this.deferredGc.clear();
       const indexer = this.requireIndexer('blob GC');
-      await this.run(() => this.gc(indexer, pending));
+      await this.run(async () => {
+        await this.gc(indexer, pending);
+        await this.collectRetiredSources();
+      });
     }
   }
 
@@ -655,6 +579,163 @@ export class StateStore implements MemoryDomainPort {
     return request.operation === 'get' || request.operation === 'list-active'
       ? execute()
       : this.run(execute);
+  }
+
+  /** Mutable provider/model choices share the existing writer and mutation chain. */
+  worktreeLedger(request: WorktreeLedgerRequest): Promise<WorktreeLedgerReply> {
+    const execute = async (): Promise<WorktreeLedgerReply> => {
+      const reply = await this.call({ op: 'worktree-ledger', request });
+      return { rows: reply['rows'] as WorktreeLedgerReply['rows'] };
+    };
+    return ['get', 'by-path', 'list-active', 'list-repository'].includes(request.operation)
+      ? execute()
+      : this.run(execute);
+  }
+
+  async forgeCacheSnapshot(): Promise<readonly ForgePrCacheEntry[]> {
+    const reply = await this.call({ op: 'forge-cache-snapshot' });
+    return reply['entries'] as readonly ForgePrCacheEntry[];
+  }
+
+  forgeCache(request: ForgeCacheRequest): Promise<ForgeCacheReply> {
+    const execute = async (): Promise<ForgeCacheReply> => {
+      const reply = await this.call({ op: 'forge-cache', request });
+      return { entry: reply['entry'] as ForgeCacheReply['entry'] };
+    };
+    return request.operation === 'get' ? execute() : this.run(execute);
+  }
+
+  /** Internal metadata port and public library operations share the same writer chain. */
+  private async promptMetadata(request: PromptCatalogRequest): Promise<PromptCatalogReply> {
+    const reply = await this.call({ op: 'prompt-catalog', request });
+    return {
+      items: reply['items'] as PromptCatalogReply['items'],
+      revisions: reply['revisions'] as PromptCatalogReply['revisions'],
+    };
+  }
+  promptCatalog(request: PromptCatalogRequest): Promise<PromptCatalogReply> {
+    return this.run(() => this.promptMetadata(request));
+  }
+  promptLibrary(request: PromptLibraryRequest): Promise<PromptLibraryReply> {
+    return this.run(() => {
+      const indexer = this.requireIndexer('Prompt Library');
+      if (!indexer.promptVectors) {
+        throw new Error('Prompt Library requires the acquired native prompt vector owner');
+      }
+      return executePromptLibrary(request, (operation) => this.promptMetadata(operation), {
+        promptVectors: indexer.promptVectors.bind(indexer),
+      });
+    });
+  }
+
+  collections(request: CollectionRequest): Promise<CollectionReply> {
+    const execute = async (): Promise<CollectionReply> => {
+      const reply = await this.call({ op: 'collections', request });
+      return {
+        collections: reply['collections'] as CollectionReply['collections'],
+        ...(request.operation === 'snapshot'
+          ? { counts: reply['counts'] as NonNullable<CollectionReply['counts']> }
+          : {}),
+      };
+    };
+    return request.operation === 'list' ||
+      request.operation === 'snapshot' ||
+      request.operation === 'get'
+      ? execute()
+      : this.run(execute);
+  }
+
+  threadGroups(request: ThreadGroupsRequest): Promise<ThreadGroupsReply> {
+    const execute = async (): Promise<ThreadGroupsReply> => {
+      const reply = await this.call({ op: 'thread-groups', request });
+      return {
+        groups: reply['groups'] as ThreadGroupsReply['groups'],
+        placements: reply['placements'] as ThreadGroupsReply['placements'],
+      };
+    };
+    return request.operation === 'list' ? execute() : this.run(execute);
+  }
+
+  viewFilterPresets(request: ViewFilterPresetRequest): Promise<ViewFilterPresetReply> {
+    const execute = async (): Promise<ViewFilterPresetReply> => {
+      const reply = await this.call({ op: 'view-filter-presets', request });
+      return {
+        presets: reply['presets'] as ViewFilterPresetReply['presets'],
+        ...(typeof reply['deleted'] === 'boolean' ? { deleted: reply['deleted'] } : {}),
+      };
+    };
+    return request.operation === 'list' ? execute() : this.run(execute);
+  }
+
+  modelChoices(request: ModelChoiceRequest): Promise<ModelChoiceResult> {
+    const execute = async (): Promise<ModelChoiceResult> => {
+      const reply = await this.call({ op: 'model-choices', request });
+      return {
+        models: reply['models'] as ModelChoiceSnapshot['models'],
+        providers: reply['providers'] as ModelChoiceSnapshot['providers'],
+        ...(reply['previous'] ? { previous: reply['previous'] as ModelChoiceSnapshot } : {}),
+        ...(reply['outcome'] ? { outcome: reply['outcome'] as 'initialized' | 'preserved' } : {}),
+      };
+    };
+    return request.operation === 'snapshot' ? execute() : this.run(execute);
+  }
+
+  /** Root identity lives on the canonical writer; Main alone supplies granted paths. */
+  workspaceRoots(request: WorkspaceRootRequest): Promise<WorkspaceRootReply> {
+    const execute = async (): Promise<WorkspaceRootReply> => {
+      if (request.operation === 'delete') {
+        this.requireIndexer('root data deletion');
+      }
+      const reply = await this.call({ op: 'workspace-roots', request });
+      if (request.operation === 'delete') {
+        await this.collectRetiredSources();
+      }
+      return { roots: reply['roots'] as WorkspaceRootReply['roots'] };
+    };
+    return request.operation === 'list' ? execute() : this.run(execute);
+  }
+
+  /** Authoritative source bytes use this writer's existing content-addressed blobs. */
+  sourceCatalog(request: SourceCatalogRequest): Promise<SourceCatalogReply> {
+    const mutatesSource =
+      request.operation === 'import' ||
+      request.operation === 'prepare' ||
+      request.operation === 'replace' ||
+      request.operation === 'remove';
+    const execute = async (): Promise<SourceCatalogReply> => {
+      // Refuse before committing bytes if their existing physical retirement owner is absent.
+      if (mutatesSource) {
+        this.requireIndexer('canonical source mutation');
+      }
+      const reply = await this.call({ op: 'source-catalog', request });
+      if (mutatesSource) {
+        await this.collectRetiredSources();
+      }
+      return {
+        files: reply['files'] as SourceCatalogReply['files'],
+        ...(request.operation === 'import'
+          ? { imported: reply['imported'] as readonly boolean[] }
+          : {}),
+      };
+    };
+    return request.operation === 'list' ||
+      request.operation === 'inventory' ||
+      request.operation === 'read'
+      ? execute()
+      : this.run(execute);
+  }
+
+  /** The writer commits retirement candidates with source changes; the existing GC owns physical erasure. */
+  private async collectRetiredSources(): Promise<void> {
+    const hashes = (await this.call({ op: 'sourceGcCandidates' }))['hashes'] as string[];
+    if (hashes.length === 0) {
+      return;
+    }
+    const indexer = this.requireIndexer('canonical source retirement');
+    await this.gc(indexer, hashes);
+    if (this.gcHolds === 0) {
+      await this.call({ hashes, op: 'sourceGcAcknowledge' });
+    }
   }
 
   health(): { stateDamage: string | null; visibleErrors: Unreadable[] } {
@@ -749,6 +830,9 @@ export class StateStore implements MemoryDomainPort {
     const counts = await indexer.gcCheck(await this.okThreads(), hashes);
     // A damaged thread is outside the verified count, yet its rows still name blobs (RunLog.damagedBlobRefs).
     const held = new Set((await this.call({ op: 'damagedBlobRefs' }))['hashes'] as string[]);
+    for (const hash of (await this.call({ op: 'sourceBlobRefs' }))['hashes'] as string[]) {
+      held.add(hash);
+    }
     const unlink: string[] = [];
     for (const h of hashes) {
       const count = counts[h];
@@ -817,32 +901,13 @@ export class StateStore implements MemoryDomainPort {
     try {
       await this.run(() => undefined); // the snapshot is not older than any write issued before this call
       await this.options.hooks?.exportAfterSnapshot?.();
-      const dest = join(bundleDir, STATE_DB);
-      await vacuumInto(this.statePath, dest);
-      const threads = watermarksOf(dest);
-      await this.options.hooks?.exportBeforeBlobs?.();
-      mkdirSync(join(bundleDir, BLOBS_DIR), { recursive: true });
-      for (const h of blobsReferencedBy(bundleDir)) {
-        const src = join(this.blobsPath, h);
-        if (!existsSync(src)) {
-          throw new Error(`export: blob ${h} referenced by the snapshot is missing`);
-        }
-        copyFileSync(src, join(bundleDir, BLOBS_DIR, h));
-      }
-      // A root-shaped copy carries the root's lock, exactly as a file-level backup would.
-      mkdirSync(join(bundleDir, 'lock'), { recursive: true });
-      for (const n of readdirSync(this.lock.dir).filter((x) => GENERATION_FILE.test(x))) {
-        copyFileSync(join(this.lock.dir, n), join(bundleDir, 'lock', n));
-      }
-      const files = listFiles(bundleDir)
-        .filter((p) => !p.startsWith('lock/'))
-        .map((p) => {
-          const buf = readFileSync(join(bundleDir, p));
-          return { bytes: buf.length, path: p, sha256: sha256Hex(buf) };
-        });
-      const m: Manifest = { files, format: 1, sourceHost: this.lock.owner.host, threads };
-      writeFileSync(join(bundleDir, 'manifest.json'), JSON.stringify(m, null, 1));
-      return m;
+      return await exportStateBundle({
+        beforeBlobs: () => this.options.hooks?.exportBeforeBlobs?.(),
+        blobsPath: this.blobsPath,
+        bundleDir,
+        lock: this.lock,
+        statePath: this.statePath,
+      });
     } finally {
       await this.releaseGcHold();
     }
@@ -864,56 +929,7 @@ export class StateStore implements MemoryDomainPort {
 
   /** Restore a bundle into an empty (or new) root. Verifies every file; open the root afterwards with StateStore.open. */
   static importBundle(bundleDir: string, targetRoot: string): Manifest {
-    const bundleRoot = realpathSync(bundleDir);
-    const m = JSON.parse(
-      readFileSync(checkedBundleSource(bundleRoot, 'manifest.json'), 'utf8')
-    ) as Manifest;
-    if (m.format !== 1) {
-      throw new Error(`import: unknown bundle format ${String(m.format)}`);
-    }
-    // Validate the entire manifest before any payload read or destination mutation.
-    for (const file of m.files) {
-      assertBundleRelativePath(file.path);
-    }
-    const lockFiles = existsSync(join(bundleRoot, 'lock'))
-      ? readdirSync(checkedBundleSource(bundleRoot, 'lock')).map((name) => `lock/${name}`)
-      : [];
-    for (const path of lockFiles) {
-      assertBundleRelativePath(path);
-    }
-    for (const path of [...m.files.map((file) => file.path), ...lockFiles]) {
-      checkedBundleSource(bundleRoot, path);
-    }
-    if (existsSync(targetRoot) && readdirSync(targetRoot).length > 0) {
-      throw new Error(`import: ${targetRoot} is not empty`);
-    }
-    for (const f of m.files) {
-      const b = readFileSync(checkedBundleSource(bundleRoot, f.path));
-      if (b.length !== f.bytes || sha256Hex(b) !== f.sha256) {
-        throw new Error(`import: ${f.path} does not match the manifest`);
-      }
-    }
-    const copy = (rel: string): void => {
-      const source = checkedBundleSource(bundleRoot, rel);
-      const dst = join(targetRoot, rel);
-      mkdirSync(join(dst, '..'), { recursive: true });
-      copyFileSync(source, dst);
-      const fd = openSync(dst, 'r+');
-      try {
-        fsyncSync(fd);
-      } finally {
-        closeSync(fd);
-      }
-    };
-    for (const f of m.files) {
-      if (f.path !== 'manifest.json') {
-        copy(f.path);
-      }
-    }
-    for (const path of lockFiles) {
-      copy(path);
-    }
-    return m;
+    return importStateBundle(bundleDir, targetRoot);
   }
 
   // ---- reset / close --------------------------------------------------------------------------------------------------
@@ -933,6 +949,30 @@ export class StateStore implements MemoryDomainPort {
     if (failures.length > 1) {
       throw new AggregateError(failures, 'StateStore database and writer cleanup failed');
     }
+  }
+
+  /** Terminal content deletion on the existing writer; configuration stays in place. */
+  clearContent(): Promise<ClearContentResult> {
+    const clearing = this.run(async () => {
+      await this.indexer?.reset();
+      const reply = await this.call({ op: 'clear-content' });
+      const deletedFiles = reply['deletedFiles'];
+      const deletedChunks = reply['deletedChunks'];
+      if (
+        typeof deletedFiles !== 'number' ||
+        (deletedChunks !== null && typeof deletedChunks !== 'number')
+      ) {
+        throw new Error('Invalid content-clear writer receipt');
+      }
+      await this.shutdownWriter();
+      this.lock.release();
+      return { deletedChunks, deletedFiles };
+    });
+    // Fence later writers immediately, including while physical readers join.
+    this.closed = true;
+    this.closeTask = clearing.then(() => undefined);
+    this.closeTask.catch(() => undefined);
+    return clearing;
   }
 
   /**

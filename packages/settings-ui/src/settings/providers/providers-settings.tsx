@@ -7,7 +7,6 @@ import {
   PROVIDER_DEFAULT_ENABLED_MODELS,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
-import { usePGliteDatabase } from '@brainstrike/db/react';
 import { Card, CardContent, CardHeader, CardTitle } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useModelToggle } from '../models/use-model-toggle';
@@ -78,9 +77,8 @@ export function ProvidersSettings({
   statusProviderKeySources,
   verifyProvider,
 }: ProvidersSettingsProps) {
-  const db = usePGliteDatabase();
   const models = useModelRegistryStore((registry) => registry.models);
-  useEnsureModelRegistry({ db });
+  useEnsureModelRegistry();
   // Shared with the Model Catalog list, so the two surfaces cannot drift in
   // how a toggle is attempted or how a failure is reported.
   const { busyModelIds, toggle: handleToggleModel } = useModelToggle();

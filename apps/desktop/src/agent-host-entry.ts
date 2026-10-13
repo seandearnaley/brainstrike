@@ -29,6 +29,7 @@ async function main(): Promise<void> {
   let kernelStarted = false;
   let controlFailure: unknown;
   let host: AgentHost | undefined;
+  let terminalControl: Promise<void> | undefined;
   try {
     // Wait for the parent's existing lifetime channel before evaluating the
     // dependency graph. An initial setImmediate can precede Electron's first
@@ -40,7 +41,15 @@ async function main(): Promise<void> {
     );
     inbox.bind((input) => {
       try {
-        receiveAgentHostParentMessage(input, host, cancel);
+        const clearing = receiveAgentHostParentMessage(input, host, cancel);
+        if (clearing) {
+          terminalControl = clearing.then((receipt) => {
+            parent.postMessage({ event: 'content-cleared', ...receipt });
+          });
+          terminalControl.catch((cause: unknown) => {
+            controlFailure ??= cause;
+          });
+        }
       } catch (cause) {
         controlFailure ??= cause;
         cancel();
@@ -74,6 +83,7 @@ async function main(): Promise<void> {
         host = acquired;
       },
     });
+    await terminalControl;
     if (controlFailure !== undefined) {
       throw controlFailure;
     }

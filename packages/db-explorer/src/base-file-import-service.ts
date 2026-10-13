@@ -17,6 +17,10 @@ import type {
   FileImportDependencies,
   FileSystemPort,
 } from './file-import/file-import-types';
+import {
+  createNativeImportRepository,
+  getSourceFilesCapability,
+} from './file-import/native-source-import';
 
 interface UseFileImportServiceOptions {
   onComplete?: (results: FileImportResult[]) => void;
@@ -154,12 +158,19 @@ export function useFileImportService(
   const [isImporting, setIsImporting] = useState(false);
   const [progress, setProgress] = useState<ImportProgress | null>(null);
 
-  const repository = useFileRecordRepository();
+  const sourceFiles = getSourceFilesCapability();
+  const repository = useFileRecordRepository({ enabled: !sourceFiles });
   const { fileSystemAdapter } = useAdapters();
 
   const dependencies = useMemo(
-    () => createDependencies(repository, fileSystemAdapter ?? null),
-    [repository, fileSystemAdapter]
+    () =>
+      sourceFiles
+        ? {
+            fileSystem: createFileSystemPort(fileSystemAdapter ?? null),
+            repository: createNativeImportRepository(sourceFiles),
+          }
+        : createDependencies(repository, fileSystemAdapter ?? null),
+    [repository, fileSystemAdapter, sourceFiles]
   );
 
   const importFiles = useCallback(

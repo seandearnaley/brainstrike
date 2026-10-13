@@ -54,23 +54,16 @@ import {
   type SnapshotChangesetResolver,
 } from './changeset-snapshot-view';
 import { type GitCommandRunner, toErrorMessage } from './git-service';
-import type { MainQueryHandle } from './main-query-handle';
-import type { SnapshotRepository } from './snapshot-repository';
 import type { SnapshotService } from './snapshot-service';
-import type { SnapshotTurnRegistry } from './snapshot-turn-registry';
 
 /** W7 snapshot-engine wiring (threaded from main.ts via the changes IPC options). */
 export interface ChangesetDiffServiceSnapshotDeps {
-  readonly createRepository: (db: MainQueryHandle) => SnapshotRepository;
   /** Host threads' turns, from the host's committed log (BST-1977). */
-  readonly hostThreads?: HostThreadTurns | undefined;
-  /** Injectable for tests; defaults to the process-shared registry. */
-  readonly registry?: SnapshotTurnRegistry | undefined;
+  readonly hostThreads: HostThreadTurns;
   readonly resolveService: () => SnapshotService | null;
 }
 
 export interface ChangesetDiffServiceDeps {
-  readonly resolveDatabase: () => Promise<MainQueryHandle>;
   /** The audited `resolveRootCwd` seam (`workspace-root-cwd.ts`), already
    * partially applied by the caller to its `WorkspaceRootResolver`/`domain`/
    * `logger` — this service only ever supplies `rootId`. */
@@ -100,10 +93,7 @@ const SNAPSHOT_DEPS_UNWIRED_ERROR =
 export function createChangesetDiffService(deps: ChangesetDiffServiceDeps): ChangesetDiffService {
   const snapshotResolver: SnapshotChangesetResolver | null = deps.snapshots
     ? createSnapshotChangesetResolver({
-        createRepository: deps.snapshots.createRepository,
         hostThreads: deps.snapshots.hostThreads,
-        registry: deps.snapshots.registry,
-        resolveDatabase: deps.resolveDatabase,
         resolveService: deps.snapshots.resolveService,
       })
     : null;

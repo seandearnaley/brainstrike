@@ -83,7 +83,10 @@ function recordedHost(): Pick<HostClient, 'request'> {
 }
 
 /** The renderer diagnostic store with no correlated events. */
-const noDiagnostics = { query: vi.fn(async () => ({ rows: [] })) };
+const noDiagnostics = {
+  countByFingerprint: vi.fn(async () => ({ count: 0, firstSeenMs: null, lastSeenMs: null })),
+  queryEvents: vi.fn(async () => []),
+};
 
 describe("a host thread's debug bundle, from its committed log", () => {
   test('selects the failed run: its finish detail, refused attempt and no provider call', () => {

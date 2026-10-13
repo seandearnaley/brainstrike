@@ -270,8 +270,8 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
     readonly value: NativeSemanticAvailability;
   } | null>(null);
   const refreshAvailability = useRef<(() => void) | null>(null);
-  const db = usePGliteDatabase();
-  const chunkRepository = useFileChunkRepository();
+  const db = usePGliteDatabase({ enabled: nativeDependencies === null });
+  const chunkRepository = useFileChunkRepository({ enabled: nativeDependencies === null });
   const rootIdentity = useOptionalRootIdentity();
   const { openFileInTab } = useIdeFileEditor();
   const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);

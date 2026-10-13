@@ -17,11 +17,12 @@ vi.mock('electron', () => ({
  * that `identity`/`prStatus`/`refresh` register against the CORRECT
  * `DESKTOP_IPC_CHANNELS.forge.*` constants (a copy-paste channel swap would
  * fail nothing), that `refresh` forwards `(rootId, params)` in order, that
- * the disposer removes all three, or that `prUpdated` — the doc comment's
+ * the disposer removes all four, or that `prUpdated` — the doc comment's
  * "never an invoke channel" claim — is actually never registered.
  */
 function stubHandlers() {
   return {
+    cacheSnapshot: vi.fn(async () => ({ ok: true, value: [] }) as never),
     identity: vi.fn(async () => ({ ok: true, value: {} }) as never),
     prStatus: vi.fn(async () => ({ ok: true, value: {} }) as never),
     refresh: vi.fn(async () => ({ ok: true, value: {} }) as never),
@@ -43,6 +44,7 @@ describe('registerForgeIpcHandlers', () => {
     const registeredChannels = handleMock.mock.calls.map(([channel]) => channel);
     expect(registeredChannels).toEqual(
       expect.arrayContaining([
+        DESKTOP_IPC_CHANNELS.forge.cacheSnapshot,
         DESKTOP_IPC_CHANNELS.forge.identity,
         DESKTOP_IPC_CHANNELS.forge.prStatus,
         DESKTOP_IPC_CHANNELS.forge.refresh,
@@ -59,6 +61,8 @@ describe('registerForgeIpcHandlers', () => {
       ) => unknown;
 
     const trustedEvent = createTrustedInvokeEvent();
+    await handlerFor(DESKTOP_IPC_CHANNELS.forge.cacheSnapshot)(trustedEvent);
+    expect(handlers.cacheSnapshot).toHaveBeenCalledWith();
     await handlerFor(DESKTOP_IPC_CHANNELS.forge.identity)(trustedEvent, 'root-1');
     expect(handlers.identity).toHaveBeenCalledWith('root-1');
     expect(handlers.prStatus).not.toHaveBeenCalled();
@@ -72,7 +76,7 @@ describe('registerForgeIpcHandlers', () => {
     expect(handlers.refresh).toHaveBeenCalledWith('root-1', { reason: 'user' });
   });
 
-  it('disposer removes all three registered channels', async () => {
+  it('disposer removes all four registered channels', async () => {
     const { ipcMain } = await import('electron');
     const dispose = registerForgeIpcHandlers(stubHandlers());
 
@@ -82,11 +86,12 @@ describe('registerForgeIpcHandlers', () => {
     const removedChannels = removeHandlerMock.mock.calls.map(([channel]) => channel);
     expect(removedChannels).toEqual(
       expect.arrayContaining([
+        DESKTOP_IPC_CHANNELS.forge.cacheSnapshot,
         DESKTOP_IPC_CHANNELS.forge.identity,
         DESKTOP_IPC_CHANNELS.forge.prStatus,
         DESKTOP_IPC_CHANNELS.forge.refresh,
       ])
     );
-    expect(removedChannels).toHaveLength(3);
+    expect(removedChannels).toHaveLength(4);
   });
 });

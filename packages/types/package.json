@@ -21,6 +21,10 @@
     "./agent-color": {
       "types": "./dist/agent-color.d.ts",
       "default": "./dist/agent-color.js"
+    },
+    "./prompt-item": {
+      "types": "./dist/prompt-item.d.ts",
+      "default": "./dist/prompt-item.js"
     }
   },
   "license": "ISC",

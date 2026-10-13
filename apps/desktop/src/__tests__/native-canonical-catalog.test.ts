@@ -4,7 +4,7 @@ import type {
   CanonicalFileIdentity,
   CanonicalOperationContext,
 } from '@brainstrike/canonical-ingestion';
-import type { IDatabase } from '@brainstrike/db';
+import type { SourceCatalogPort, SourceCatalogRecord } from '@brainstrike/state-store';
 import { describe, expect, it, vi } from 'vitest';
 import {
   createNativeCanonicalCatalog,
@@ -24,16 +24,19 @@ const file: CanonicalFileIdentity = {
   rootId: 'root',
   sourcePath: '/granted/src/a.ts',
 };
-const record: NativeCanonicalCatalogRecord = {
+const record: SourceCatalogRecord = {
+  chunksCount: null,
   chunksProcessed: false,
   content,
   contentHash: hash,
+  createdAt: '2026-10-13T00:00:00.000Z',
   embeddingSetId: 'set',
   fileId: 'file',
   fileName: 'a.ts',
   path: 'src/a.ts',
   rootId: 'root',
   stat: { mtimeMs: 42, size: Buffer.byteLength(content) },
+  updatedAt: '2026-10-13T00:00:00.000Z',
 };
 function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
   let resolve!: (value: T) => void;
@@ -42,30 +45,15 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
   });
   return { promise, resolve };
 }
-function fixture(row: NativeCanonicalCatalogRecord = record) {
+function fixture(row: SourceCatalogRecord = record) {
   const controller = new AbortController();
   const context: CanonicalOperationContext = { requestId: 'scan', signal: controller.signal };
   let current = true;
-  const query = vi.fn(
-    async (sql: string): Promise<{ rows: unknown[] }> => ({
-      rows: sql.startsWith('SELECT') ? [row] : [{ fileId: row.fileId }],
-    })
-  );
-  const database: IDatabase = {
-    query: async <T = unknown>(sql: string): Promise<{ rows: T[] }> => {
-      const result = await query(sql);
-      return result as { rows: T[] };
-    },
-  };
-  const transaction = vi.fn(() => undefined);
+  const sourceCatalog = vi.fn<SourceCatalogPort['sourceCatalog']>(async () => ({
+    files: [row],
+  }));
   const dependencies: NativeCanonicalCatalogDependencies<string> = {
-    database: {
-      ...database,
-      transaction: async <T>(run: (tx: IDatabase) => Promise<T>): Promise<T> => {
-        transaction();
-        return await run(database);
-      },
-    },
+    catalog: { sourceCatalog },
     joinNativeRemoval: vi.fn(async () => undefined),
     replaceTrustedBindings: vi.fn(async () => undefined),
     resolveProfile: vi.fn(async () => 'actual-profile'),
@@ -93,11 +81,10 @@ function fixture(row: NativeCanonicalCatalogRecord = record) {
     context,
     controller,
     dependencies,
-    query,
     revoke: () => {
       current = false;
     },
-    transaction,
+    sourceCatalog,
   };
 }
 
@@ -113,14 +100,14 @@ describe('authoritative native canonical catalog', () => {
       stat: record.stat,
     });
   });
-  it.each<[string, NativeCanonicalCatalogRecord[]]>([
+  it.each<[string, SourceCatalogRecord[]]>([
     ['missing', []],
-    ['duplicate PG identity', [record, record]],
+    ['duplicate catalog identity', [record, record]],
     ['foreign collection', [{ ...record, embeddingSetId: 'foreign' }]],
     ['foreign root', [{ ...record, rootId: 'foreign' }]],
   ])('refuses %s authority before binding publication', async (_name, rows) => {
     const f = fixture();
-    f.query.mockResolvedValueOnce({ rows });
+    f.sourceCatalog.mockResolvedValueOnce({ files: rows });
     await expect(
       f.catalog.loadAuthorizedBatch({ files: [file], scope: workspace }, f.context)
     ).rejects.toThrow();
@@ -162,14 +149,14 @@ describe('authoritative native canonical catalog', () => {
       await rejection;
     }
   });
-  it('joins admitted PG work and refuses later binding publication on cancellation', async () => {
+  it('joins admitted catalog work and refuses later binding publication on cancellation', async () => {
     const f = fixture();
     const admitted = deferred<void>();
-    const pg = deferred<void>();
-    f.query.mockImplementationOnce(async () => {
+    const read = deferred<void>();
+    f.sourceCatalog.mockImplementationOnce(async () => {
       admitted.resolve();
-      await pg.promise;
-      return { rows: [record] };
+      await read.promise;
+      return { files: [record] };
     });
     const operation = f.catalog.loadAuthorizedBatch({ files: [file], scope: workspace }, f.context);
     await admitted.promise;
@@ -180,34 +167,29 @@ describe('authoritative native canonical catalog', () => {
     f.controller.abort(new Error('cancelled scan'));
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(settled).toBe(false);
-    pg.resolve();
+    read.resolve();
     await expect(result).rejects.toThrow('cancelled scan');
     expect(f.dependencies.replaceTrustedBindings).not.toHaveBeenCalled();
   });
-  it('guards completion by content hash and current scope, rejects missed SQL guards', async () => {
+  it('guards completion by content hash and current scope, rejects writer compare-and-swap refusal', async () => {
     const f = fixture();
     const request = {
       files: [{ chunkCount: 2, contentHash: hash, fileId: file.fileId }],
       scope: workspace,
     };
-    f.query.mockResolvedValueOnce({ rows: [{ ...record, contentHash: 'newer-source' }] });
+    f.sourceCatalog.mockResolvedValueOnce({ files: [{ ...record, contentHash: 'newer-source' }] });
     await expect(f.catalog.completeFiles(request, f.context)).rejects.toThrow('hash');
-    expect(f.query).toHaveBeenCalledTimes(1);
+    expect(f.sourceCatalog).toHaveBeenCalledTimes(1);
     f.revoke();
     await expect(f.catalog.completeFiles(request, f.context)).rejects.toThrow('stale scope');
     const g = fixture();
-    g.query.mockResolvedValueOnce({ rows: [record] }).mockResolvedValueOnce({ rows: [] });
+    g.sourceCatalog
+      .mockResolvedValueOnce({ files: [record] })
+      .mockRejectedValueOnce(new Error('stale source compare-and-swap'));
     await expect(g.catalog.completeFiles(request, g.context)).rejects.toThrow('stale');
   });
   it('joins native removal before catalog invalidation', async () => {
     const f = fixture({ ...record, rootId: null });
-    f.query.mockImplementation(async (sql) => ({
-      rows: sql.startsWith('SELECT')
-        ? [{ ...record, rootId: null }]
-        : sql.includes('WITH targets')
-          ? [{ chunk_id: null, file_record_id: record.fileId }]
-          : [],
-    }));
     const rootless = { ...file, relativePath: null, rootId: null, sourcePath: null };
     const entered = deferred<void>();
     const removal = deferred<void>();
@@ -217,11 +199,14 @@ describe('authoritative native canonical catalog', () => {
     });
     const operation = f.catalog.removeFiles({ files: [rootless], scope: collection }, f.context);
     await entered.promise;
-    expect(f.transaction).not.toHaveBeenCalled();
+    expect(f.sourceCatalog.mock.calls.some(([request]) => request.operation === 'remove')).toBe(
+      false
+    );
     removal.resolve();
     await operation;
-    expect(f.transaction).toHaveBeenCalledOnce();
-    expect(f.query.mock.calls.some(([sql]) => sql.startsWith('DELETE'))).toBe(true);
+    expect(
+      f.sourceCatalog.mock.calls.filter(([request]) => request.operation === 'remove')
+    ).toHaveLength(1);
   });
   it('refuses changed retained source and invalid hashes before mutation', async () => {
     const f = fixture({ ...record, rootId: null });
@@ -252,7 +237,7 @@ describe('authoritative native canonical catalog', () => {
       )
     ).rejects.toThrow('hash');
   });
-  it('does not invalidate PG after cancellation during native removal', async () => {
+  it('does not invalidate the catalog after cancellation during native removal', async () => {
     const f = fixture();
     const entered = deferred<void>();
     const removal = deferred<void>();
@@ -271,9 +256,11 @@ describe('authoritative native canonical catalog', () => {
     expect(settled).toBe(false);
     removal.resolve();
     await expect(result).rejects.toThrow('cancelled removal');
-    expect(f.transaction).not.toHaveBeenCalled();
+    expect(f.sourceCatalog.mock.calls.some(([request]) => request.operation === 'remove')).toBe(
+      false
+    );
   });
-  it('refuses absent or oversized retained source and malformed PG rows', async () => {
+  it('refuses absent or oversized retained source and malformed catalog records', async () => {
     const rootless = { ...file, relativePath: null, rootId: null, sourcePath: null };
     const f = fixture({ ...record, content: null, rootId: null });
     await expect(f.catalog.readRetainedSource(rootless, 10, collection, f.context)).rejects.toThrow(
@@ -283,12 +270,14 @@ describe('authoritative native canonical catalog', () => {
     await expect(g.catalog.readRetainedSource(rootless, 1, collection, g.context)).rejects.toThrow(
       'bound'
     );
-    g.query.mockResolvedValueOnce({ rows: [{ ...record, stat: { mtimeMs: 1, size: -1 } }] });
+    g.sourceCatalog.mockResolvedValueOnce({
+      files: [{ ...record, stat: { mtimeMs: 1, size: -1 } }],
+    });
     await expect(
       g.catalog.loadAuthorizedBatch({ files: [file], scope: workspace }, g.context)
     ).rejects.toThrow();
   });
-  it('refuses pre-aborted operations and bounded duplicate completion batches before PG mutation', async () => {
+  it('refuses pre-aborted operations and bounded duplicate completion batches before catalog mutation', async () => {
     const f = fixture();
     f.controller.abort(new Error('already cancelled'));
     await expect(
@@ -312,7 +301,7 @@ describe('authoritative native canonical catalog', () => {
         g.context
       )
     ).rejects.toThrow('250');
-    expect(g.transaction).not.toHaveBeenCalled();
+    expect(g.sourceCatalog).not.toHaveBeenCalled();
   });
   it('preserves an independent binding failure after late cancellation', async () => {
     const f = fixture();
@@ -327,7 +316,9 @@ describe('authoritative native canonical catalog', () => {
   it('refreshes registered catalog metadata after binding acknowledgment and rejects revoked membership', async () => {
     const f = fixture();
     vi.mocked(f.dependencies.replaceTrustedBindings).mockImplementationOnce(async () => {
-      f.query.mockResolvedValueOnce({ rows: [{ ...record, contentHash: 'newer-source-hash' }] });
+      f.sourceCatalog.mockResolvedValueOnce({
+        files: [{ ...record, contentHash: 'newer-source-hash' }],
+      });
     });
     const files = await f.catalog.loadAuthorizedBatch(
       { files: [file], scope: workspace },
@@ -336,13 +327,13 @@ describe('authoritative native canonical catalog', () => {
     expect(files[0]?.contentHash).toBe('newer-source-hash');
     const g = fixture();
     vi.mocked(g.dependencies.replaceTrustedBindings).mockImplementationOnce(async () => {
-      g.query.mockResolvedValueOnce({ rows: [{ ...record, embeddingSetId: 'foreign' }] });
+      g.sourceCatalog.mockResolvedValueOnce({ files: [{ ...record, embeddingSetId: 'foreign' }] });
     });
     await expect(
       g.catalog.loadAuthorizedBatch({ files: [file], scope: workspace }, g.context)
     ).rejects.toThrow('scope');
   });
-  it('rejects foreign, duplicate, revoked or hash-mismatched discovery before PG mutation', async () => {
+  it('rejects foreign, duplicate, revoked or hash-mismatched discovery before catalog mutation', async () => {
     const source = {
       content,
       contentHash: hash,
@@ -379,7 +370,7 @@ describe('authoritative native canonical catalog', () => {
     await expect(
       f.catalog.prepareManagedSourcesBatch({ files: [source], scope: workspace }, f.context)
     ).rejects.toThrow('revoked grant');
-    expect(f.transaction).not.toHaveBeenCalled();
+    expect(f.sourceCatalog).not.toHaveBeenCalled();
   });
   it('resolves the actual profile only under the authorized scope', async () => {
     const f = fixture();

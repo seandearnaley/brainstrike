@@ -376,106 +376,34 @@ export async function resolveRefreshButton(
   }
 }
 
-/**
- * Clear all records from the database for testing using bulk delete
- */
+/** Clear retained desktop content through the visible action and join its new document. */
 export async function clearDatabaseRecords(page: Page): Promise<Page> {
-  const activePage = await resolveActivePage(page);
-  try {
-    verboseLog('🧹 Starting efficient database record cleanup...');
-
-    // Try using the bulk delete API (available in Electron environment)
-    verboseLog('🚀 Attempting bulk delete via Electron API...');
-    let bulkDeleteResult: unknown;
-    try {
-      bulkDeleteResult = await activePage.evaluate(async () => {
-        // Check if we're in Electron and have the API available
-        if (typeof window !== 'undefined' && (window as any).electronAPI?.db?.clearAll) {
-          return await (window as any).electronAPI.db.clearAll('CONFIRM_CLEAR_DATABASE');
-        }
-        return { message: 'Bulk delete API not available', success: false };
-      });
-    } catch (bulkError) {
-      console.warn('⚠️ Bulk delete API failed:', bulkError);
-      const detail = bulkError instanceof Error ? bulkError.message : String(bulkError);
-      failClosedOnUnverifiedCleanup(`bulk delete threw: ${detail}`);
-    }
-
-    if (
-      typeof bulkDeleteResult !== 'object' ||
-      bulkDeleteResult === null ||
-      !('success' in bulkDeleteResult) ||
-      typeof bulkDeleteResult.success !== 'boolean' ||
-      !('message' in bulkDeleteResult) ||
-      typeof bulkDeleteResult.message !== 'string'
-    ) {
-      failClosedOnUnverifiedCleanup('bulk delete returned a malformed response');
-    }
-
-    if (!bulkDeleteResult.success) {
-      console.warn(`⚠️ Bulk delete failed: ${bulkDeleteResult.message}`);
-      failClosedOnUnverifiedCleanup(`bulk delete failed: ${bulkDeleteResult.message}`);
-    }
-    verboseLog(`✅ Bulk delete successful: ${bulkDeleteResult.message}`);
-
-    let remainingCount: number | null;
-    try {
-      remainingCount = await activePage.evaluate(async () => {
-        const api = (
-          window as unknown as {
-            electronAPI?: {
-              db?: { query?: (sql: string) => Promise<{ rows: { count: number }[] }> };
-            };
-          }
-        ).electronAPI;
-        if (!api?.db?.query) {
-          return null;
-        }
-        const result = await api.db.query('SELECT COUNT(*)::int AS count FROM file_records');
-        return result.rows[0]?.count ?? null;
-      });
-    } catch (verificationError) {
-      const detail =
-        verificationError instanceof Error ? verificationError.message : String(verificationError);
-      failClosedOnUnverifiedCleanup(`record-count verification threw: ${detail}`);
-    }
-
-    if (
-      typeof remainingCount !== 'number' ||
-      !Number.isSafeInteger(remainingCount) ||
-      remainingCount < 0
-    ) {
-      failClosedOnUnverifiedCleanup(
-        'bulk delete reported success but the remaining record count could not be verified'
-      );
-    }
-
-    verboseLog(`📊 Records remaining after bulk delete (API): ${remainingCount}`);
-    if (remainingCount > 0) {
-      failClosedOnUnverifiedCleanup(
-        `bulk delete reported success but left ${remainingCount} records`
-      );
-    }
-
-    verboseLog('✅ Database cleanup completed successfully');
-    return activePage;
-  } catch (error) {
-    console.error('❌ Database cleanup failed:', error);
-    throw error;
+  const activePage = await showDatabaseDemoPanel(await resolveActivePage(page));
+  const clear = activePage.getByRole('button', { exact: true, name: 'Clear Database' });
+  if (!(await clear.isVisible())) {
+    await activePage.getByRole('button', { name: /Import settings/i }).click();
   }
-}
-
-/**
- * Surface an unverified cleanup path with the reason it was reached.
- *
- * NOTE (BST-1213/BST-1216): the removed fallback used to drive
- * `tbody tr button[title="Remove record"]`, but no surface has rendered that
- * control for some time. Every unverified cleanup path therefore fails closed
- * here with its exact reason instead of reporting success. See the B2 report
- * follow-ups.
- */
-function failClosedOnUnverifiedCleanup(reason: string): never {
-  throw new Error(`Database cleanup could not be verified: ${reason}; records were not cleared.`);
+  await expect(clear).toBeEnabled();
+  await clear.click();
+  // Main's reset coordinator reloads the same WebContents after physical owner
+  // retirement. Subscribe before confirmation: the old document disappearing is
+  // not proof that the replacement catalog has mounted.
+  await Promise.all([
+    activePage.waitForEvent('domcontentloaded'),
+    activePage
+      .getByRole('dialog')
+      .getByRole('button', { exact: true, name: 'Clear Database' })
+      .click(),
+  ]);
+  await waitForAppReadyInHelpers(activePage);
+  const remaining = await activePage.evaluate(async () => {
+    if (!window.sourceFiles) {
+      throw new Error('Canonical source capability missing after content clear');
+    }
+    return await window.sourceFiles.list();
+  });
+  expect(remaining).toEqual([]);
+  return activePage;
 }
 
 async function resolveActivePage(page: Page): Promise<Page> {

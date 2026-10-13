@@ -23,6 +23,7 @@ import { EmbeddingHostRuntime } from '../../../renderer/components/embedding-hos
 import {
   commandListenerRef,
   createHostWindowMock,
+  currentDbRef,
   detectDeviceCapabilitiesMock,
   documentEmbeddingsListenerRef,
   ensureVectorPreferencesHydratedMock,
@@ -32,13 +33,13 @@ import {
   initializeMock,
   installEmbeddingHostRuntimeFixture,
   queryEmbeddingListenerRef,
+  reopenEmbeddingQueueMock,
   reportDocumentEmbeddingsResponseMock,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
   reportWebgpuAdapterResponseMock,
   retireEmbeddingQueueMock,
   startEmbeddingWorkerMock,
-  stopMock,
   storeState,
   webgpuAdapterListenerRef,
 } from './embedding-host-runtime-fixture';
@@ -117,6 +118,21 @@ async function mount(): Promise<void> {
 
 describe('pinned native hidden-host startup', () => {
   installEmbeddingHostRuntimeFixture();
+
+  it('starts native inference readiness without a PGlite handle', async () => {
+    currentDbRef.current = null;
+    window.history.replaceState(
+      {},
+      '',
+      '/?mode=embedding-host&runtimeId=test-runtime&embeddingStart=on-demand'
+    );
+    const view = render(<EmbeddingHostRuntime />);
+    onTestFinished(() => view.unmount());
+    await waitFor(() =>
+      expect(reportStatusMock).toHaveBeenCalledWith(expect.objectContaining({ state: 'running' }))
+    );
+    expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
+  });
 
   it('answers WebGPU detection on demand, whatever the saved device, without loading a model (BST-1993)', async () => {
     const manager = connect();
@@ -233,9 +249,9 @@ describe('pinned native hidden-host startup', () => {
     }
   );
 
-  it.each(['running', 'error'] as const)(
-    'preserves an in-flight native batch when background startup reports %s',
-    async (state) => {
+  it.each(['configured', 'unconfigured'] as const)(
+    'keeps an in-flight pinned batch when unpinned preferences are %s',
+    async (preference) => {
       const manager = connect();
       const generated = Promise.withResolvers<EmbeddingResult[]>();
       generateDocumentEmbeddingsMock.mockReturnValueOnce(generated.promise);
@@ -250,29 +266,13 @@ describe('pinned native hidden-host startup', () => {
       await mount();
       await waitFor(() => expect(generateDocumentEmbeddingsMock).toHaveBeenCalledOnce());
       const runtimeId = manager.getStatus().runtimeId;
-      storeState.hasHydrated = true;
-      storeState.devicePref = 'webgpu';
-      if (state === 'error') {
-        storeState.devicePrefConfigured = false;
-        detectDeviceCapabilitiesMock.mockResolvedValue({
-          recommendedDevice: 'wasm',
-          webgpuAdapterAvailable: false,
-          webgpuApiPresent: false,
-          webWorkersAvailable: true,
-        });
-      }
-      await act(async () => {
-        await expect(manager.ensureStarted()).resolves.toMatchObject({ runtimeId, state });
-      });
-      if (state === 'running') {
-        expect(startEmbeddingWorkerMock).toHaveBeenCalledWith(
-          expect.objectContaining({ device: 'webgpu' })
-        );
-      } else {
-        expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
-      }
-      expect(manager.getStatus()).toMatchObject({ active: true, runtimeId, state: 'running' });
+      storeState.devicePrefConfigured = preference === 'configured';
+      await expect(manager.ensureStarted()).resolves.toMatchObject({ runtimeId, state: 'running' });
+      expect(manager.getStatus().active).toBe(true);
       expect(createHostWindowMock).toHaveBeenCalledOnce();
+      expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
+      expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
+      expect(ensureVectorPreferencesHydratedMock).not.toHaveBeenCalled();
       expect(retireEmbeddingQueueMock).not.toHaveBeenCalled();
       generated.resolve([result()]);
       await expect(response).resolves.toEqual([result().embedding]);
@@ -280,76 +280,37 @@ describe('pinned native hidden-host startup', () => {
       await expect(
         manager.documentEmbeddings({ ...payload, texts: ['second document'] })
       ).resolves.toEqual([result().embedding]);
-      expect(manager.getStatus()).toMatchObject({ runtimeId, state: 'running' });
-      expect(createHostWindowMock).toHaveBeenCalledOnce();
-      if (state === 'error') {
-        storeState.devicePrefConfigured = true;
-        storeState.devicePref = 'webgpu';
-        await act(async () => {
-          await expect(manager.ensureStarted()).resolves.toMatchObject({
-            runtimeId,
-            state: 'running',
-          });
-        });
-        expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce();
-        expect(startEmbeddingWorkerMock).toHaveBeenCalledWith(
-          expect.objectContaining({ device: 'webgpu' })
-        );
-        expect(createHostWindowMock).toHaveBeenCalledOnce();
-      }
-      await act(async () => {
-        await manager.stop();
-      });
+      await manager.stop();
     }
   );
 
-  it('joins Stop during background startup and never acknowledges a stale running owner', async () => {
+  it('joins Stop during native queue opening without acknowledging a stale running owner', async () => {
     const manager = connect();
-    generateDocumentEmbeddingsMock.mockResolvedValue([result()]);
-    const response = manager.documentEmbeddings({ ...payload, texts: ['document'] });
-    onTestFinished(() =>
-      response.then(
-        () => {},
-        () => {}
-      )
-    );
-    await mount();
-    await response;
-    const hydration = Promise.withResolvers<typeof storeState>();
-    ensureVectorPreferencesHydratedMock.mockReturnValueOnce(hydration.promise);
-    const background = manager.ensureStarted();
-    onTestFinished(() => {
-      hydration.resolve(storeState);
-      return background.then(
-        () => {},
-        () => {}
-      );
-    });
-    await waitFor(() => expect(ensureVectorPreferencesHydratedMock).toHaveBeenCalledOnce());
+    const opened = Promise.withResolvers<void>();
     const physical = Promise.withResolvers<void>();
+    reopenEmbeddingQueueMock.mockReturnValueOnce(opened.promise);
     retireEmbeddingQueueMock.mockReturnValueOnce(physical.promise);
-    onTestFinished(() => physical.resolve());
-    let startSettled = false;
-    void background.then(() => {
-      startSettled = true;
+    onTestFinished(() => {
+      opened.resolve();
+      physical.resolve();
     });
-    const stopped = manager.stop();
+    await manager.ensureStarted({ waitForRunning: false });
+    await mount();
+    await waitFor(() => expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce());
+    let settled = false;
+    const stopped = manager.stop().then((status) => {
+      settled = true;
+      return status;
+    });
     const reportsAtStop = reportStatusMock.mock.calls.length;
-    storeState.hasHydrated = true;
-    await act(async () => {
-      hydration.resolve(storeState);
-    });
-    expect(startSettled).toBe(false);
+    await act(async () => opened.resolve());
+    expect(settled).toBe(false);
     physical.resolve();
-    await act(async () => {
-      await expect(stopped).resolves.toMatchObject({ state: 'stopped' });
-      await expect(background).resolves.toMatchObject({ state: 'stopped' });
-    });
-    expect(manager.getStatus().state).toBe('stopped');
+    await expect(stopped).resolves.toMatchObject({ state: 'stopped' });
     expect(retireEmbeddingQueueMock).toHaveBeenCalledOnce();
-    expect(stopMock).toHaveBeenCalledOnce();
+    expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
     expect(reportStatusMock.mock.calls.slice(reportsAtStop)).not.toContainEqual([
-      expect.objectContaining({ commandId: expect.any(String), state: 'running' }),
+      expect.objectContaining({ state: 'running' }),
     ]);
   });
 });

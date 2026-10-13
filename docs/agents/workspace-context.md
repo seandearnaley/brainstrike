@@ -8,15 +8,20 @@
 ## PROMPT WORKBENCH
 
 - The prompt library is a surface in the agent sidebar (Threads → Database →
-  Prompts), not a route. PGlite is its only store — never a localStorage parallel
-  path — and bootstrap's initial `list()` is authoritative and fatal on failure.
-- Render the loading placeholder while `useDbInitializationStatus()` is
-  `idle`/`initializing`; reserve the "requires an initialized database" alert for a
-  genuine init failure.
+  Prompts), not a route. Desktop metadata, revisions and usage belong to the existing
+  StateStore writer; its prompt capability is authoritative and never falls back to
+  SQL. Web retains the PGlite repository. Initial `list()` is fatal on failure.
+- The desktop prompt surface mounts without DbProvider. Web renders the loading
+  placeholder while its database is idle/initializing and reports terminal failure.
+  Both surfaces wait for their authoritative catalog before rendering items.
 - Prompt vectors live under the dedicated singleton prompt profile; never add prompt
   records to `embedding_sets`. Saved items embed as documents, live composer context
   as queries, vector failure surfaces with no lexical fallback, and a profile
-  declaring `l2` or `ip` fails closed.
+  declaring `l2` or `ip` fails closed. Desktop vectors use the existing host
+  state-index.sqlite writer, joined against current prompt IDs/revisions; the
+  hidden renderer owns document/query inference. Desktop does not start the
+  retired PGlite background queue. Deletion joins derived-vector removal before
+  metadata deletion; reset retires the same physical owners.
 - Serialize indexing passes and search-embedder transitions; run no embedding
   inference and fail WebGPU init/recovery closed while hidden; merge async
   save/list completions against the latest authoritative snapshot, never the render
@@ -41,8 +46,9 @@
   activation, after any in-flight initial resource load settles.
 - Once persistence or staging succeeds, later indexing, list-refresh or usage-count
   failures are secondary warnings: surface them, never reject the completed action.
-- Factory reset tolerates only an explicitly missing legacy `prompt_items` relation;
-  any other prompt deletion failure aborts before close/VACUUM and stays visible.
+- Desktop reset and Clear Database clear prompt metadata, revisions and derived
+  vectors through their existing owners. Web retains its repository reset behavior;
+  non-missing-table deletion failures remain visible.
 - `connected-prompt-manager.tsx` owns DB/model/thread/vector wiring,
   `prompt-workbench-panel.tsx` the interaction layer, `prompt-template.ts` explicit
   `{{variable}}` resolution; load the manager lazily so that graph stays out of the

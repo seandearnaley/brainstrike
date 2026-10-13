@@ -1,3 +1,14 @@
+export type { ThreadGroupsPort, ThreadGroupsReply, ThreadGroupsRequest } from '@brainstrike/types';
+export type {
+  PromptLibraryCapability,
+  PromptLibraryReply,
+  PromptLibraryRequest,
+  PromptVectorHit,
+  PromptVectorPort,
+  PromptVectorReply,
+  PromptVectorRequest,
+  PromptVectorState,
+} from '@brainstrike/types/prompt-item';
 export {
   Coalescer,
   type CoalescerLog,
@@ -6,6 +17,13 @@ export {
   mergeChunk,
   type RunChunk,
 } from './coalescer.js';
+export type {
+  CollectionMetadata,
+  CollectionPort,
+  CollectionRecord,
+  CollectionReply,
+  CollectionRequest,
+} from './collection-types.js';
 export { IndexerRequiredError, ThreadDamagedError, ThreadReadOnlyError } from './errors.js';
 export {
   type Decoded,
@@ -50,6 +68,14 @@ export type {
   MemoryNativeRequest,
   MemorySnapshot,
 } from './memory-types.js';
+export type {
+  ModelChoice,
+  ModelChoicePort,
+  ModelChoiceRequest,
+  ModelChoiceResult,
+  ModelChoiceSnapshot,
+  ProviderChoice,
+} from './model-choice-types.js';
 export {
   type NativeChild,
   type NativeChildObserver,
@@ -57,9 +83,23 @@ export {
   spawnNativeChild,
   trackNativeChild,
 } from './native-children.js';
+export type {
+  PromptCatalogPort,
+  PromptCatalogRecord,
+  PromptCatalogReply,
+  PromptCatalogRequest,
+  PromptRevisionRecord,
+} from './prompt-catalog-types.js';
 export { blobsOf, TOMBSTONE_BODY, withSeq } from './run-log-format.mjs';
 export type { AppendItem, BlobContent, LogRow, RunEvent, ThreadStatus } from './run-log-types.js';
 export { SCHEMA_VERSION } from './schema.mjs';
+export type {
+  SourceCatalogInput,
+  SourceCatalogPort,
+  SourceCatalogRecord,
+  SourceCatalogReply,
+  SourceCatalogRequest,
+} from './source-catalog-types.js';
 export { CheckpointBlockedError } from './sqlite-checkpoint.mjs';
 export {
   type MemoryObservationRecord,
@@ -68,6 +108,7 @@ export {
   readAll,
   SqliteReader,
 } from './sqlite-reader.js';
+export type { ClearContentResult } from './state-store.js';
 export {
   BLOB_MIN_BYTES,
   BLOBS_DIR,
@@ -92,3 +133,19 @@ export {
   type WriteSpan,
 } from './state-store.js';
 export { assertNotSyncedRoot, type SyncEnv, SyncedRootError } from './sync-roots.js';
+export type { ViewFilterPresetPort } from './view-filter-preset-types.js';
+export type {
+  WorkspaceRootPort,
+  WorkspaceRootRecord,
+  WorkspaceRootReply,
+  WorkspaceRootRequest,
+} from './workspace-root-types.js';
+export type {
+  ForgeCacheEntry,
+  ForgeCachePort,
+  ForgeCacheReply,
+  ForgeCacheRequest,
+  WorktreeLedgerPort,
+  WorktreeLedgerReply,
+  WorktreeLedgerRequest,
+} from './worktree-forge-types.js';

@@ -3,6 +3,34 @@
 > Read before migrations, models, PGlite, or browser bootstrap. Rules are current;
 > historical records live in `database/<topic>.md`.
 
+## Current desktop persistence owners
+
+Desktop does not construct PGlite, start the PGlite database host, or expose the
+SQL/query-live bridge. Its existing agent-host StateStore writer owns the current
+profile catalog in `state.db`: roots, source records, model choices, collections,
+prompts, thread groups, view presets, worktree ledger and Forge cache. Static model
+metadata comes from the canonical provider catalog; user choices remain separate.
+The host log owns conversations, runs, usage, decisions and workspace bindings.
+Native index writers own derived file/chunk/vector data; prompt vectors use the
+existing state-index owner. Renderers consume typed capabilities and never open a
+replacement database or synthesize a SQL compatibility adapter.
+
+Main's mounted root descriptor carries the canonical root ID into a thread binding.
+The host validates that root before committing the binding and before admitting a
+run. No renderer path-to-database lookup or reconciliation establishes identity.
+Library import, preview, export and deletion use the current catalog/native owners;
+physical retirement joins before metadata deletion. Inactive vector statistics
+remain explicitly unavailable rather than reported as zero.
+
+Clear Database uses the existing profile retirement/admission barrier, clears
+content and Main root grants, and destroys the native derived index while retaining
+configuration. Factory Reset also clears configuration through the existing reset
+owner and preserves Chromium's live Session container until Electron clears it.
+Neither operation imports, repairs or migrates old data. Existing web PGlite writers
+and their extension/bootstrap rules remain unchanged. The PGlite-specific desktop
+scheduler, live-query, maintenance, crash-recovery and queue sections below describe
+retained test/conformance machinery, not production desktop owners.
+
 ## Current delegation storage
 
 The agent host owns current delegated threads, decisions, usage and budgets in its
@@ -90,11 +118,11 @@ Evidence: `database/query-telemetry-scheduled-handles.md` (file-record, token-ca
 ## DESKTOP DATABASE LOCATION
 
 - `app.isPackaged` alone selects the packaged location; `NODE_ENV` never chooses a database path, because no build step sets it. `apps/desktop/src/database-location.ts` is the pure resolver; `desktop-database-location.ts` gives main one cached resolution per process and logs it once.
-- Precedence, per field: `BRAINSTRIKE_DB_ROOT_PATH` / `BRAINSTRIKE_DB_PROFILE` (blank or a literal `undefined` is ignored; a root that is not fully qualified throws; a profile is reduced to one safe path segment, and one that reduces to nothing, like `..`, or to a Windows device name, like `nul`, throws); then a test run (`NODE_ENV=test` or `--test-mode`: root `userData`, profile `test`); then packaged (profile `default`); then development (root `<Documents>/BrainStrike-dev`, profile scoped to branch + worktree, `dev-default` without git metadata). Development never moves, so existing developers' data stays put.
-- Packaged roots: macOS `<userData>/data`; Windows `%LOCALAPPDATA%\BrainStrike Desktop\data`; Linux `$XDG_DATA_HOME` (absolute only) or `~/.local/share`, then `BrainStrike Desktop/data`. A missing or relative `LOCALAPPDATA` throws; there is no fallback. The database is always `<root>/profiles/<profile>/pgdata`. Why: Windows `userData` is Roaming, which Electron warns may be backed up to cloud storage.
+- Precedence, per field: `BRAINSTRIKE_DB_ROOT_PATH` / `BRAINSTRIKE_DB_PROFILE` (blank or a literal `undefined` is ignored; a root that is not fully qualified throws; a profile is reduced to one safe path segment, and one that reduces to nothing, like `..`, or to a Windows device name, like `nul`, throws); then a test run (`NODE_ENV=test` or `--test-mode`: root `userData`, profile `test`); then packaged (profile `default`); then development (root `<Documents>/BrainStrike-dev`, profile scoped to branch + worktree, `dev-default` without git metadata). The development DB location stays unchanged. Ordinary development Electron userData is scoped by that same cached root/profile to `<root>/desktop/profiles/<profile>`, with logs and session-data beneath it. It is a sibling of `<root>/profiles/<profile>`, so the host reset lease cannot delete Chromium's live Session container. Resolve the DB location before setting userData or acquiring sessions, stores, credentials or the single-instance lock. Packaged and explicit test/Agent DevTools isolation paths remain unchanged. No shared developer state or credentials are imported. Ordinary development captures its existing launch credential namespace before isolating userData: workspace state is per worktree, while the launch Keychain service remains shared. Main reads and the host writes the same captured selection. The single-instance lock is acquired in that original launch namespace before changing userData, retaining the existing one-development-app-at-a-time exclusion for shared credential writers. A rejected second launch never acquires its host profile. Packaged and explicitly isolated launches keep their own credential selection.
+- Packaged roots: macOS `<userData>/data`; Windows `%LOCALAPPDATA%\BrainStrike Desktop\data`; Linux `$XDG_DATA_HOME` (absolute only) or `~/.local/share`, then `BrainStrike Desktop/data`. A missing or relative `LOCALAPPDATA` throws; there is no fallback. The authoritative desktop profile is `<root>/profiles/<profile>`, holding its host record and `state.db`; the retired PGlite host used the `pgdata` child. Why: Windows `userData` is Roaming, which Electron warns may be backed up to cloud storage.
 - `PACKAGED_PRODUCT_DIR_NAME` equals `build.productName`; changing either renames the data folder and strands existing data.
-- Main ALWAYS hands the DB host both fields through `BRAINSTRIKE_DB_ROOT_PATH` and `BRAINSTRIKE_DB_PROFILE`. The utility process reads only those two variables and throws when either is missing; it never derives from cwd or git. Why: a host respawned after a branch switch would otherwise open a different profile than the one main's reset deletes.
-- The DB host environment also preserves `TEMP` and `TMP`. Electron's Windows ASAR stream reads extract extension archives to temporary files; omitting these paths caused packaged PGlite startup to fail with `ENOENT` despite intact extension assets. Provider credentials remain excluded.
+- Retained PGlite host test/conformance setup hands the DB host both fields through `BRAINSTRIKE_DB_ROOT_PATH` and `BRAINSTRIKE_DB_PROFILE`. The utility process reads only those two variables and throws when either is missing; it never derives from cwd or git. Why: a host respawned after a branch switch would otherwise open a different profile than the one main's reset deletes.
+- That retained DB host environment also preserves `TEMP` and `TMP`. Electron's Windows ASAR stream reads extract extension archives to temporary files; omitting these paths caused packaged PGlite startup to fail with `ENOENT` despite intact extension assets. Provider credentials remain excluded.
 
 Evidence: `database/desktop-database-location.md`.
 Guard: `apps/desktop/src/__tests__/database-location.test.ts`, `main/desktop-database-location.test.ts`, `main/db-host-manager-location.test.ts`, `main/db-main.utility-env.test.ts`, `main/desktop-factory-reset-packaged-layout.test.ts`.
@@ -471,8 +499,9 @@ Guard: `packages/db/__tests__/reset-table-registry.test.tsx`,
   keys and NOT in `THREAD_DELETE_SIDECAR_TABLES` (a worktree outlives its thread —
   thread delete offers "also archive its worktree" instead); not part of the assistant
   memory schema probe.
-- Registered in both runners and in `BRAINSTRIKE_RESET_TABLES`. Factory reset clears the
-  ROWS; deleting worktree DIRECTORIES is a separate, explicitly confirmed step
+- Desktop reads and writes this ledger through typed private operations on the profile
+  StateStore writer. Its existing SQLite schema owns the table; web retains its database
+  contract. Factory reset clears the profile StateStore ROWS; deleting worktree DIRECTORIES is a separate, explicitly confirmed step
   (`platform-contracts.md`).
 - A long-lived development branch is not an installed user population. ADR-0020
   supersedes the former rule that every such branch creates an immutable upgrade

@@ -10,6 +10,7 @@
 import { createLogger } from '@brainstrike/logging';
 import type {
   ForgeIdentityState,
+  ForgePrCacheEntry,
   ForgePrStatus,
   ForgePrUpdatedEvent,
   ForgeRendererRefreshReason,
@@ -19,6 +20,7 @@ import type {
 const logger = createLogger('ForgeBridge');
 
 export interface ForgeBridge {
+  cacheSnapshot: () => Promise<ForgeResult<readonly ForgePrCacheEntry[]>>;
   identity: (rootId: string) => Promise<ForgeResult<ForgeIdentityState>>;
   /** One-way main→renderer pushes. Returns the unsubscribe function. */
   onPrUpdated: (callback: (event: ForgePrUpdatedEvent) => void) => () => void;
@@ -33,6 +35,7 @@ export interface ForgeBridge {
 // rejected. The runtime pin below only closes preload ↔ constant; this closes
 // interface ↔ constant.
 const FORGE_BRIDGE_REQUIRED_METHOD_SET = {
+  cacheSnapshot: true,
   identity: true,
   onPrUpdated: true,
   prStatus: true,

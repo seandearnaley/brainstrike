@@ -1,3 +1,4 @@
+import { DEFAULT_VIEW_FILTER_PRESETS } from '@brainstrike/types';
 import type { Migration } from './migration-runner';
 
 /**
@@ -37,77 +38,26 @@ export const migration027ViewFilterPresets: Migration = {
 
     -- Seed default presets
     INSERT INTO view_filter_presets (name, description, icon, includes, excludes, use_regex, is_default, sort_order)
-    VALUES
-      (
-        'TypeScript/JavaScript',
-        'Source files for TypeScript and JavaScript projects',
-        'file-code',
-        ARRAY['*.ts', '*.tsx', '*.js', '*.jsx', '*.mjs', '*.cjs'],
-        ARRAY['node_modules', 'dist', 'build', '.next', 'coverage', '*.test.*', '*.spec.*'],
-        FALSE,
-        TRUE,
-        1
-      ),
-      (
-        'All Code',
-        'All programming language source files',
-        'code',
-        ARRAY['*.ts', '*.tsx', '*.js', '*.jsx', '*.py', '*.rs', '*.go', '*.java', '*.c', '*.cpp', '*.h', '*.hpp', '*.cs', '*.rb', '*.php', '*.swift', '*.kt'],
-        ARRAY['node_modules', 'dist', 'build', 'target', '__pycache__', '.git', 'vendor'],
-        FALSE,
-        TRUE,
-        2
-      ),
-      (
-        'Documentation',
-        'Markdown and documentation files',
-        'file-text',
-        ARRAY['*.md', '*.mdx', '*.txt', '*.rst', 'README*', 'LICENSE*', 'CHANGELOG*'],
-        ARRAY['node_modules', '.git'],
-        FALSE,
-        TRUE,
-        3
-      ),
-      (
-        'Config Files',
-        'Configuration and environment files',
-        'settings',
-        ARRAY['*.json', '*.yaml', '*.yml', '*.toml', '*.ini', '*.env*', '*.config.*', 'tsconfig*', 'package.json', 'Cargo.toml'],
-        ARRAY['node_modules', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'],
-        FALSE,
-        TRUE,
-        4
-      ),
-      (
-        'Styles',
-        'CSS and styling files',
-        'palette',
-        ARRAY['*.css', '*.scss', '*.sass', '*.less', '*.styl', '*.styled.*'],
-        ARRAY['node_modules', 'dist'],
-        FALSE,
-        TRUE,
-        5
-      ),
-      (
-        'Tests',
-        'Test files only',
-        'flask-conical',
-        ARRAY['*.test.*', '*.spec.*', '**/__tests__/**', '**/tests/**', '**/test/**'],
-        ARRAY['node_modules', 'coverage'],
-        FALSE,
-        TRUE,
-        6
-      ),
-      (
-        'All Files',
-        'Show all files without filtering',
-        'folder-open',
-        ARRAY['*'],
-        ARRAY['node_modules', '.git', 'dist', 'build'],
-        FALSE,
-        TRUE,
-        7
-      );
+    VALUES ${DEFAULT_VIEW_FILTER_PRESETS.map(
+      (preset) =>
+        `(${[
+          quote(preset.name),
+          quote(preset.description),
+          quote(preset.icon),
+          array(preset.includes),
+          array(preset.excludes),
+          String(preset.useRegex),
+          String(preset.isDefault),
+          String(preset.sortOrder),
+        ].join(',')})`
+    ).join(',')};
   `,
   version: 27,
 };
+
+function quote(value: string | null): string {
+  return value === null ? 'NULL' : `'${value.replaceAll("'", "''")}'`;
+}
+function array(values: readonly string[]): string {
+  return `ARRAY[${values.map(quote).join(',')}]::TEXT[]`;
+}

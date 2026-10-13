@@ -7,7 +7,6 @@ import {
   useWorkspaceCollectionSyncStatusStore,
   type WorkspaceCollectionSyncStatusPatch,
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
-import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import type {
@@ -252,11 +251,10 @@ export function NativeWorkspaceIndexProvider({
 }) {
   const retained = useRef<RetainedProgress | null>(null);
   const { fileSystemAdapter } = useAdapters();
-  const db = usePGliteDatabase();
   const { rootDirectoryHandles } = useFileSystem();
   const { dbRootIdByAdapterRootId, syncMountedRoots } = useRootsReconciliation({
     adapter: fileSystemAdapter,
-    db,
+    db: null,
   });
   useEffect(() => {
     let disposed = false;

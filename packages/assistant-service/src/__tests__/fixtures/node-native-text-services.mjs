@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { ChildProcess } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { listProviderEmbeddingModels } from '@brainstrike/assistant-contract';
 import {
   createNativeScopedSearchCapability,
   createNodeNativeTextServices,
@@ -11,11 +12,10 @@ import {
   NativeIndexSetupRequiredError,
 } from '@brainstrike/assistant-service/node-native-text-services';
 import {
-  createNodeProfileDatabaseOwner,
   joinProfileDirectory,
   openExistingNodeWorkspaceServices,
 } from '@brainstrike/assistant-service/node-workspace-services';
-import { openIndexer } from '@brainstrike/indexer';
+import { createStateStoreIndexer, openIndexer } from '@brainstrike/indexer';
 import {
   SqliteQueryClient,
   SqliteQueryStartupCleanupError,
@@ -73,12 +73,12 @@ const queryOwners = new Set();
 const queryAcquisitions = new Set();
 let services;
 let store;
-let seedOwner;
+let seedIndexer;
+let seedIndexerClose;
 let runtime;
 let runtimeClose;
 let servicesClose;
 let storeClose;
-let seedClose;
 let publication;
 let graph;
 let port;
@@ -142,13 +142,13 @@ const closeServices = () => {
   servicesClose ??= services.close();
   return servicesClose;
 };
+const closeSeedIndexer = () => {
+  seedIndexerClose ??= seedIndexer.close();
+  return seedIndexerClose;
+};
 const closeStore = () => {
   storeClose ??= store.close();
   return storeClose;
-};
-const closeSeed = () => {
-  seedClose ??= seedOwner.close();
-  return seedClose;
 };
 let operationFailure;
 let operationFailed = false;
@@ -161,55 +161,94 @@ try {
       await writeFile(path.join(directory, relativePath), content);
     }
   }
-  store = await StateStore.open(profileDirectory, { home: fixture });
+  store = await StateStore.open(profileDirectory, {
+    home: fixture,
+    ...(mode === 'seed'
+      ? {
+          startup: {
+            acquire: async (acquired) => {
+              seedIndexer = await openIndexer(
+                {
+                  dbPath: path.join(profileDirectory, 'seed-state-index.sqlite'),
+                  embedding: { indexMode: 'text-only' },
+                  rootIds: [],
+                  stateProjection: {
+                    mode: 'dev',
+                    module: new URL(
+                      '../../../../indexer/__tests__/fixtures/state-schema.mjs',
+                      import.meta.url
+                    ).href,
+                  },
+                  stateRoot: await realpath(acquired.root),
+                },
+                deadlines
+              );
+              return createStateStoreIndexer(seedIndexer);
+            },
+            close: async () => {
+              if (seedIndexer) {
+                await closeSeedIndexer();
+              }
+            },
+          },
+        }
+      : {}),
+  });
   if (mode === 'seed') {
-    seedOwner = createNodeProfileDatabaseOwner({ getLocation: () => location });
-    const db = await seedOwner.initialize();
-    const model = (
-      await db.query(
-        "SELECT id, provider_id, capabilities FROM models WHERE capabilities->>'type' = 'embedding' ORDER BY id LIMIT 1"
-      )
-    ).rows[0];
-    assert.ok(model && typeof model.id === 'string');
-    const dimensions = model.capabilities.defaultDimension;
-    assert.ok(Number.isSafeInteger(dimensions) && dimensions > 0);
+    const model = listProviderEmbeddingModels('local').find(
+      (entry) => entry.id === 'Xenova/all-MiniLM-L6-v2'
+    );
+    assert.ok(model);
     const collectionId = randomUUID();
-    await db.query(
-      'INSERT INTO roots(id,kind,display_name,path) VALUES ($1,$2,$3,$4),($5,$2,$6,$7)',
-      [rootId, 'path', 'Captured root', workspace, foreignRootId, 'Foreign root', foreignWorkspace]
-    );
-    await db.query(
-      'INSERT INTO embedding_sets(id,model_id,model_key,dimensions,distance,system_role) VALUES ($1,$2,$3,$4,$5,$6)',
-      [
-        collectionId,
-        model.id,
-        `${model.provider_id}::${model.id}`,
-        dimensions,
-        'cosine',
-        'workspace-index',
-      ]
-    );
-    const records = [rootId, foreignRootId, null].map((id) => ({
-      embeddingSetId: collectionId,
-      fileId: randomUUID(),
-      relativePath: id === null ? null : relativePath,
-      rootId: id,
-      sourcePath: id === null ? path.join(fixture, 'retained-import.ts') : null,
-    }));
-    for (const file of records) {
-      await db.query(
-        'INSERT INTO file_records(id,name,path,root_id,embedding_set_id,size,content,content_hash) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
-        [
-          file.fileId,
-          'Captured canonical source',
-          file.relativePath ?? file.sourcePath,
-          file.rootId,
-          collectionId,
-          Buffer.byteLength(content),
+    await store.collections({
+      collection: {
+        createdAt: new Date().toISOString(),
+        dimensions: model.defaultDimension,
+        distance: 'cosine',
+        id: collectionId,
+        modelId: model.id,
+        modelKey: `local::${model.id}`,
+        systemRole: 'workspace-index',
+      },
+      operation: 'create',
+    });
+    for (const [id, directory, displayName] of [
+      [rootId, workspace, 'Captured root'],
+      [foreignRootId, foreignWorkspace, 'Foreign root'],
+    ]) {
+      const registered = await store.workspaceRoots({
+        operation: 'register',
+        root: { displayName, path: directory, preferredId: id },
+      });
+      assert.ok(registered.roots.some((root) => root.id === id));
+    }
+    const records = [];
+    for (const id of [rootId, foreignRootId, null]) {
+      const sourcePath = id === null ? path.join(fixture, 'retained-import.ts') : relativePath;
+      const files = [
+        {
           content,
-          captured.sourceHash,
-        ]
+          contentHash: captured.sourceHash,
+          fileName: 'Captured canonical source',
+          path: sourcePath,
+          stat: { mtimeMs: null, size: Buffer.byteLength(content) },
+        },
+      ];
+      const prepared = await store.sourceCatalog(
+        id === null
+          ? { embeddingSetId: collectionId, files, operation: 'import' }
+          : { embeddingSetId: collectionId, files, operation: 'prepare', rootId: id }
       );
+      assert.equal(prepared.files.length, 1);
+      const file = prepared.files[0];
+      assert.equal(file.rootId, id);
+      records.push({
+        embeddingSetId: file.embeddingSetId,
+        fileId: file.fileId,
+        relativePath: id === null ? null : file.path,
+        rootId: file.rootId,
+        sourcePath: id === null ? file.path : null,
+      });
     }
     await writeFile(seedPath, JSON.stringify({ collectionId, modelId: model.id, records }));
     await writeFile(
@@ -233,7 +272,7 @@ try {
         }),
       })
     );
-    await closeSeed();
+    await closeSeedIndexer();
     await closeStore();
     process.stdout.write(`${JSON.stringify({ electron: false, seeded: true })}\n`);
   } else {
@@ -270,29 +309,26 @@ try {
       if (nativeIndexConfigurationIdentity(saved) !== savedIdentity) {
         throw new NativeAuthorityTransitionError('Captured native saved choice changed.');
       }
-      return services.withCatalog(async (db) => {
-        const collection = (
-          await db.query('SELECT model_id FROM embedding_sets WHERE id = $1', [seed.collectionId])
-        ).rows;
+      return services.withCatalog(async (catalog) => {
+        assert.equal(catalog, store);
+        const collection = (await catalog.collections({ id: seed.collectionId, operation: 'get' }))
+          .collections;
         assert.equal(collection.length, 1);
-        assert.equal(collection[0].model_id, seed.modelId);
+        assert.equal(collection[0].modelId, seed.modelId);
         const records = (
-          await db.query(
-            'SELECT id, root_id, path, embedding_set_id FROM file_records WHERE embedding_set_id = $1 ORDER BY id',
-            [seed.collectionId]
-          )
-        ).rows;
+          await catalog.sourceCatalog({ embeddingSetId: seed.collectionId, operation: 'inventory' })
+        ).files;
         const live = new Set(roots.map((root) => root.rootId));
         return {
           fileBindings: records
-            .filter((file) => file.root_id === null || live.has(file.root_id))
+            .filter((file) => file.rootId === null || live.has(file.rootId))
             .map((file) => ({
-              embeddingSetId: file.embedding_set_id,
-              fileId: file.id,
+              embeddingSetId: file.embeddingSetId,
+              fileId: file.fileId,
               profile: null,
-              relativePath: file.root_id === null ? null : file.path,
-              rootId: file.root_id,
-              sourcePath: file.root_id === null ? file.path : null,
+              relativePath: file.rootId === null ? null : file.path,
+              rootId: file.rootId,
+              sourcePath: file.rootId === null ? file.path : null,
             })),
           rootIds: [...live],
           scopes: [
@@ -540,7 +576,10 @@ try {
         children().some((child) => child.exitCode === null && child.signalCode === null),
         true
       );
-      await access(path.join(profileDirectory, '.db-process.lock'));
+      assert.deepEqual(RootLock.inspect(profileDirectory).owner, store.lock.owner);
+      await assert.rejects(access(path.join(profileDirectory, '.db-process.lock')), {
+        code: 'ENOENT',
+      });
       tail.release.resolve();
       await assert.rejects(pending, (cause) => cause === reason);
       assert.equal((await text.search(request, context())).hits.length, 2);
@@ -676,7 +715,7 @@ try {
   for (const close of [
     runtime && closeRuntime,
     !runtime && services && closeServices,
-    seedOwner && closeSeed,
+    seedIndexer && closeSeedIndexer,
   ]) {
     if (!close) {
       continue;

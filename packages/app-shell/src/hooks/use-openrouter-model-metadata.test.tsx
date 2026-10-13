@@ -18,7 +18,9 @@ const host: AssistantThreadHostCapability = {
   renameThread: vi.fn(),
   renderThread: vi.fn(),
   updateThreadBinding: vi.fn(),
-  workspaceRepository: (repository) => repository,
+  workspaceRepository: () => {
+    throw new Error('Unexpected workspace snapshot access in this fixture');
+  },
 };
 const wrapper = ({ children }: { readonly children: ReactNode }) => (
   <AssistantThreadHostContext.Provider value={host}>{children}</AssistantThreadHostContext.Provider>

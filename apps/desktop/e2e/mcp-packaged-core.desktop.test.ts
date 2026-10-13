@@ -462,24 +462,18 @@ async function executeAssistantTool(
     compositeModelKey: 'openrouter::openai/gpt-5.4',
     provider: 'openrouter',
   });
-  // Renderer selection alone does not enable the catalog row Main admits.
-  // Use the same ordinary DB bridge as the saved Models setting, scoped to
-  // this existing model in the disposable packaged profile.
+  // Use the same catalog capability as Models settings in this disposable profile.
   const catalog = await page.evaluate(async () => {
-    const db = window.electronAPI?.db;
-    if (!db) {
-      throw new Error('The ordinary desktop catalog DB bridge is unavailable');
+    if (!window.modelCatalog) {
+      throw new Error('Desktop model catalog unavailable');
     }
-    const selection = ['openai/gpt-5.4', 'openrouter'];
-    const query =
-      'SELECT id, provider_id AS "providerId", is_enabled AS "isEnabled" FROM models WHERE id = $1 AND provider_id = $2';
-    const before = await db.query(query, selection);
-    await db.query(
-      'UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2',
-      selection
-    );
-    const after = await db.query(query, selection);
-    return { after: after.rows, before: before.rows };
+    const selected = (rows: Awaited<ReturnType<typeof window.modelCatalog.read>>['models']) =>
+      rows
+        .filter((row) => row.id === 'openai/gpt-5.4' && row.providerId === 'openrouter')
+        .map((row) => ({ id: row.id, isEnabled: row.isEnabled, providerId: row.providerId }));
+    const before = selected((await window.modelCatalog.read()).models);
+    await window.modelCatalog.setModels(['openai/gpt-5.4'], true);
+    return { after: selected((await window.modelCatalog.read()).models), before };
   });
   await testInfo.attach('packaged-assistant-saved-catalog', {
     body: JSON.stringify(catalog, null, 2),

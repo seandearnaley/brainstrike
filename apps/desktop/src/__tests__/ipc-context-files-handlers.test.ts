@@ -4,9 +4,21 @@ import { scanWorkspaceContextFilesForReview } from '../ipc-context-files-handler
 
 describe('scanWorkspaceContextFilesForReview', () => {
   it('loads the injected roots and scans each for its context file', async () => {
-    const loadRoots = vi.fn(async () => [
-      { displayName: 'repo-a', path: '/abs/repo-a', rootId: 'root-a' },
-    ]);
+    const workspaceRoots = {
+      workspaceRoots: vi.fn(async () => ({
+        roots: [
+          {
+            createdAt: 1,
+            displayName: 'repo-a',
+            id: 'root-a',
+            kind: 'path' as const,
+            lastVerifiedAt: 1,
+            path: '/abs/repo-a',
+            status: 'live' as const,
+          },
+        ],
+      })),
+    };
     const readFile: WorkspaceFileReader = vi.fn(async ({ requestedPath }) => {
       if (requestedPath === 'AGENTS.md') {
         return { content: 'conventions', path: 'AGENTS.md', size: 11 };
@@ -14,9 +26,9 @@ describe('scanWorkspaceContextFilesForReview', () => {
       throw new Error('not a file');
     });
 
-    const statuses = await scanWorkspaceContextFilesForReview({ loadRoots, readFile });
+    const statuses = await scanWorkspaceContextFilesForReview({ readFile, workspaceRoots });
 
-    expect(loadRoots).toHaveBeenCalledTimes(1);
+    expect(workspaceRoots.workspaceRoots).toHaveBeenCalledWith({ operation: 'list' });
     expect(statuses).toHaveLength(1);
     expect(statuses[0]).toMatchObject({
       fileName: 'AGENTS.md',
@@ -26,9 +38,9 @@ describe('scanWorkspaceContextFilesForReview', () => {
   });
 
   it('returns an empty list when no roots are mounted', async () => {
-    const loadRoots = vi.fn(async () => []);
+    const workspaceRoots = { workspaceRoots: vi.fn(async () => ({ roots: [] })) };
     const readFile: WorkspaceFileReader = vi.fn();
-    const statuses = await scanWorkspaceContextFilesForReview({ loadRoots, readFile });
+    const statuses = await scanWorkspaceContextFilesForReview({ readFile, workspaceRoots });
     expect(statuses).toEqual([]);
     expect(readFile).not.toHaveBeenCalled();
   });

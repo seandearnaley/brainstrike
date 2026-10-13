@@ -74,16 +74,9 @@ export interface AssistantMemoryThread {
   readonly updatedAt: Date;
 }
 
-export const ASSISTANT_THREAD_ICON_IDS = [
-  'message',
-  'bug',
-  'code',
-  'rocket',
-  'research',
-  'plan',
-] as const;
+import { ASSISTANT_THREAD_ICON_IDS, type AssistantThreadIconId } from '@brainstrike/types';
 
-export type AssistantThreadIconId = (typeof ASSISTANT_THREAD_ICON_IDS)[number];
+export { ASSISTANT_THREAD_ICON_IDS, type AssistantThreadIconId } from '@brainstrike/types';
 export { ASSISTANT_THREAD_COLOR_IDS } from './assistant-thread-palette.js';
 
 import {
@@ -627,6 +620,18 @@ export interface ThreadCumulativeUsage {
   readonly totalInputTokens: number;
   readonly totalOutputTokens: number;
 }
+
+/** Catalog operations shared by host-owned desktop threads and web memory. */
+export type AssistantThreadCatalogRepository = Pick<
+  AssistantThreadRepository,
+  | 'createThread'
+  | 'listThreads'
+  | 'deleteThread'
+  | 'deleteThreads'
+  | 'renameThread'
+  | 'updateThreadMetadata'
+  | 'updateThreadsMetadata'
+>;
 
 export interface AssistantThreadRepository {
   appendThreadRunEvent: (runId: string, event: AssistantRunEvent) => Promise<void>;

@@ -2,8 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { PGlite } from '@electric-sql/pglite';
-import type { WorktreeLedgerDatabase } from '../../assistant-server/worktree-ledger';
+import type { StateStore, WorktreeLedgerPort } from '@brainstrike/state-store';
 import { createWorktreeService } from '../../assistant-server/worktree-service';
 import { execFileGitRunner } from '../../git-ipc-handlers';
 
@@ -44,28 +43,23 @@ export function createTestWorkspace() {
   return { cleanup, freshManagedDir, freshRepo, freshTempDir };
 }
 
-export function asLedgerDatabase(database: PGlite): WorktreeLedgerDatabase {
-  return {
-    async query(sql, params) {
-      const result = await database.query(sql, params);
-      return { rows: result.rows };
-    },
-  };
+export function asLedgerStore(database: StateStore): WorktreeLedgerPort {
+  return { worktreeLedger: (request) => database.worktreeLedger(request) };
 }
 
 export function buildTestService(
-  ctx: { readonly db: PGlite; readonly managedDirectory: string; readonly repo: string },
+  ctx: { readonly db: StateStore; readonly managedDirectory: string; readonly repo: string },
   overrides: Partial<Parameters<typeof createWorktreeService>[0]> = {}
 ) {
   return createWorktreeService({
-    getDatabase: () => Promise.resolve(asLedgerDatabase(ctx.db)),
+    getWorktreeStore: () => Promise.resolve(asLedgerStore(ctx.db)),
+    hasRunningThread: async () => false,
     readSettings: () =>
       Promise.resolve({
         isDefaultDirectory: true,
         managedDirectory: ctx.managedDirectory,
         setupCommand: null,
       }),
-    recordRunEvent: () => Promise.resolve(),
     resolveInventory: () => Promise.resolve({ errors: [], repositories: [] }),
     resolveRootCwd: (rootId: string) =>
       Promise.resolve(

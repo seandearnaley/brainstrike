@@ -4,8 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { readAgentHostLog } from './utils/agent-host-log';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { readAgentHostLog, readHostRetiredTableSnapshot } from './utils/agent-host-log';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { seedRoot } from './utils/seed-root';
 
@@ -56,41 +56,17 @@ interface TableState {
 test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
 
 /**
- * Each legacy table's row count and a digest of every row, read through the
- * app's own database query path. Read-only: one SELECT per table.
+ * Read-only receipts for retired tables still present in the host StateStore.
+ * The renderer must expose no SQL capability; actual host events remain the writer.
  */
-function legacySnapshot(page: Page): Promise<Record<string, TableState | 'absent'>> {
-  return page.evaluate(async (tables) => {
-    const db = window.electronAPI?.db;
-    if (!db) {
-      throw new Error('The app database query path is unavailable');
+async function legacySnapshot(page: Page): Promise<Record<string, TableState | 'absent'>> {
+  const userData = await page.evaluate(() => {
+    if (!window.electronAPI || Reflect.has(window.electronAPI, 'db')) {
+      throw new Error('Retired SQL capability exposed');
     }
-    const present = await db.query<{ name: string }>(
-      `SELECT table_name AS name FROM information_schema.tables
-       WHERE table_schema = 'public' AND table_name = ANY($1::text[])`,
-      [tables]
-    );
-    const names = new Set(present.rows.map((row) => row.name));
-    const snapshot: Record<string, { digest: string; rows: number } | 'absent'> = {};
-    for (const table of tables) {
-      if (!names.has(table)) {
-        snapshot[table] = 'absent';
-        continue;
-      }
-      const { rows } = await db.query<{ digest: string; rows: number }>(
-        `SELECT count(*)::int AS rows,
-                coalesce(md5(string_agg(t::text, '|' ORDER BY t::text)), '') AS digest
-         FROM ${table} t`,
-        []
-      );
-      const row = rows[0];
-      if (!row) {
-        throw new Error(`No snapshot row for ${table}`);
-      }
-      snapshot[table] = { digest: row.digest, rows: row.rows };
-    }
-    return snapshot;
-  }, LEGACY_TABLES);
+    return window.electronAPI.getUserDataPath();
+  });
+  return await readHostRetiredTableSnapshot(userData, LEGACY_TABLES);
 }
 
 /** The tables whose rows changed, with their before/after counts. */
@@ -117,16 +93,7 @@ async function enableModel(page: Page): Promise<void> {
     compositeModelKey: `openrouter::${MODEL}`,
     provider: 'openrouter',
   });
-  await page.evaluate(async (model) => {
-    const db = window.electronAPI?.db;
-    if (!db) {
-      throw new Error('The app database query path is unavailable');
-    }
-    await db.query('UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2', [
-      model,
-      'openrouter',
-    ]);
-  }, MODEL);
+  await enableAssistantCatalogModel(page, `openrouter::${MODEL}`);
 }
 
 test('a host thread using the task list, a canvas, a file write and its undo writes no legacy rows', async ({

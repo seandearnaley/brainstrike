@@ -182,25 +182,18 @@ async function restoreRootLiveStatus(query: RootsQueryFn, row: DbRootRow): Promi
  * no insert, no status change. A mounted folder with no record is an error.
  */
 export async function mapHostRecordedRoots(
-  args: ReconcileRootsArgs
+  args: Pick<ReconcileRootsArgs, 'adapterRoots' | 'platformKind'>
 ): Promise<ReconcileRootsResult> {
-  const { adapterRoots, platformKind } = args;
-  const result = await args.query('SELECT id, kind, path, status FROM roots');
-  const indexes = buildRootPathIndexes(adapterRoots, result.rows.filter(isDbRootRow));
   const mapping = new Map<string, string>();
-  const dbRootKindByAdapterRootId = new Map<string, string>();
-  for (const root of adapterRoots.filter(isRegistrableRoot)) {
-    const matched = findExistingRootMatch({ ...indexes, platformKind, root });
-    if (!matched) {
-      logger.error('A mounted folder has no record from its host', { rootId: root.rootId });
-      continue;
-    }
-    mapping.set(root.rootId, matched.id);
-    dbRootKindByAdapterRootId.set(root.rootId, matched.kind ?? platformKind);
+  const kinds = new Map<string, string>();
+  for (const root of args.adapterRoots.filter(isRegistrableRoot)) {
+    // Main committed this descriptor before Add/restore returned; no second SQL identity lookup.
+    mapping.set(root.rootId, root.rootId);
+    kinds.set(root.rootId, root.kind);
   }
   return {
     dbRootIdByAdapterRootId: mapping,
-    dbRootKindByAdapterRootId,
+    dbRootKindByAdapterRootId: kinds,
     insertedAdapterRootIds: new Set(),
   };
 }

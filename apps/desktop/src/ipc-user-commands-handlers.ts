@@ -1,84 +1,43 @@
-/**
- * User-defined slash command discovery IPC handler (desktop / main-process).
- *
- * Resolves the mounted workspace roots from the DB `roots` table (the same seam
- * `getWorkspaceRoots`/`loadWorkspaceRootsFromDatabase` uses, so each id is the DB
- * `roots.id` that `@file` directives resolve against — never a raw path), scans
- * the four command-file tiers, and returns the deduped list plus the roots it
- * scanned (so the renderer can bind `@path` tokens for global commands).
- *
- * A DB failure does NOT abort discovery: global (`~`) commands need no roots, so
- * we log the failure and continue with an empty root set — global commands stay
- * available, project commands are simply absent that pass (no silent success —
- * the failure is logged).
+/** Desktop command discovery uses the required authoritative root catalog.
+ * Catalog failures reject discovery; a successful empty inventory still scans
+ * global commands. No database owner is acquired by this consumer.
  */
 
 import { homedir } from 'node:os';
 import type { UserSlashCommandsListResult } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/logging';
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { createNodeFsScanDeps } from './assistant-server/node-fs-scan-deps';
 import {
   scanUserSlashCommands,
   type UserSlashCommandScanDeps,
   type UserSlashCommandScanRoot,
 } from './assistant-server/user-slash-commands-loader';
-import {
-  loadWorkspaceRootsFromDatabase,
-  type WorkspaceRootsQueryable,
-} from './assistant-server/workspace-roots';
-
-const logger = createLogger('UserSlashCommands');
+import { loadWorkspaceRootsFromCatalog } from './assistant-server/workspace-roots';
 
 export interface UserCommandsListDeps {
   /** Injected fs surface (real disk in production, in-memory in tests). */
   readonly fs: UserSlashCommandScanDeps;
-  /** Resolve the queryable DB, or null when it is unavailable. */
-  readonly getDatabase: () => Promise<WorkspaceRootsQueryable | null>;
   /** The user's home directory (for `~/.brainstrike` / `~/.claude`). */
   readonly homedir: () => string;
+  /** Required authoritative workspace-root catalog. */
+  readonly workspaceRoots: WorkspaceRootPort;
 }
 
 export async function resolveScanRoots(
-  getDatabase: () => Promise<WorkspaceRootsQueryable | null>
+  workspaceRoots: WorkspaceRootPort
 ): Promise<UserSlashCommandScanRoot[]> {
-  let database: WorkspaceRootsQueryable | null;
-  try {
-    database = await getDatabase();
-  } catch (error) {
-    logger.error('Workspace roots DB unavailable; only global slash commands will load.', {
-      error,
-    });
-    return [];
-  }
-  if (!database) {
-    return [];
-  }
-  try {
-    const roots = await loadWorkspaceRootsFromDatabase(database);
-    // A root whose DB `path` is null (unresolved) has no usable scan directory:
-    // `absPath: ''` would join to `/.brainstrike/commands` — an absolute path
-    // off the real filesystem root — and bind any commands found there to that
-    // root. Filter such roots out so an unresolved root is neither scanned nor
-    // reported (never a filesystem-root scan).
-    return roots
-      .filter((root): root is typeof root & { path: string } => Boolean(root.path))
-      .map((root) => ({
-        absPath: root.path,
-        displayName: root.displayName ?? '',
-        id: root.rootId,
-      }));
-  } catch (error) {
-    logger.error('Failed to load workspace roots; only global slash commands will load.', {
-      error,
-    });
-    return [];
-  }
+  const roots = await loadWorkspaceRootsFromCatalog(workspaceRoots);
+  return roots.map((root) => ({
+    absPath: root.path,
+    displayName: root.displayName,
+    id: root.rootId,
+  }));
 }
 
 export async function listUserSlashCommands(
   deps: UserCommandsListDeps
 ): Promise<UserSlashCommandsListResult> {
-  const roots = await resolveScanRoots(deps.getDatabase);
+  const roots = await resolveScanRoots(deps.workspaceRoots);
   const commands = scanUserSlashCommands({ homeDir: deps.homedir(), roots }, deps.fs);
   return {
     commands,
@@ -86,22 +45,17 @@ export async function listUserSlashCommands(
   };
 }
 
-/**
- * Production entry point: wires the real DB host, home dir, and disk fs. The DB
- * loader is imported lazily so this module stays cheap to import at preload/main
- * registration time.
- */
-export function createUserCommandsListHandler(): () => Promise<UserSlashCommandsListResult> {
+/** Production borrows the catalog and owns only its per-scan filesystem handle. */
+export function createUserCommandsListHandler(
+  workspaceRoots: WorkspaceRootPort
+): () => Promise<UserSlashCommandsListResult> {
   return async () => {
     const filesystem = createNodeFsScanDeps();
     try {
       return await listUserSlashCommands({
         fs: filesystem,
-        getDatabase: async () => {
-          const { getDatabase } = await import('./db-main');
-          return getDatabase();
-        },
         homedir,
+        workspaceRoots,
       });
     } finally {
       filesystem.dispose();

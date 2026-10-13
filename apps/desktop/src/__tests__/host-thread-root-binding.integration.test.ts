@@ -17,12 +17,11 @@ import {
 } from '@brainstrike/agent-host';
 import { scriptedModel } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
-import { migrate, wasmLoader } from '@brainstrike/db';
 import { afterEach, expect, test } from 'vitest';
 import { createCommittedHostConversation } from '../renderer/committed-host-conversation';
 import { bindHostThreadToMainRoot } from '../renderer/host-thread-root-binding';
 
-const MAIN = { displayName: 'project', path: '/work/project' };
+const MAIN = { displayName: 'project', path: '/work/project', rootId: 'root-project' };
 const owned: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
   for (const release of owned.splice(0).reverse()) {
@@ -47,14 +46,6 @@ function message(text: string): AppendMessage {
 async function hostThread() {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-root-binding-'));
   owned.push(() => rm(root, { force: true, recursive: true }));
-  const roots = await wasmLoader.createPGlite('memory://host-root-binding');
-  owned.push(() => roots.close());
-  await migrate(roots);
-  await roots.query(
-    `INSERT INTO roots (id, kind, display_name, path, status, created_at)
-     VALUES ('root-project', 'path', 'project', $1, 'live', $2)`,
-    [MAIN.path, new Date().toISOString()]
-  );
   // Each admission's bound root, as Main receives it (production-desktop-capabilities).
   const admitted: (string | undefined)[] = [];
   const host: AgentHost = await startAgentHost(
@@ -75,7 +66,14 @@ async function hostThread() {
       maxSteps: 3,
       readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
       // Main validates the root a binding names; this fixture's root is live.
-      validateWorkspaceBinding: async () => undefined,
+      validateWorkspaceBinding: async ({ binding }) => {
+        if (
+          binding.operatingRootId &&
+          !['root-project', 'root-other'].includes(binding.operatingRootId)
+        ) {
+          throw new Error('The selected workspace root is no longer mounted.');
+        }
+      },
     }
   );
   owned.push(() => host.close());
@@ -84,8 +82,7 @@ async function hostThread() {
   const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
   const view = (mainRoot: typeof MAIN | undefined) => {
     const conversation = createCommittedHostConversation({
-      bindThreadRoot: () =>
-        bindHostThreadToMainRoot({ client, database: roots, mainRoot, threadId }),
+      bindThreadRoot: () => bindHostThreadToMainRoot({ client, mainRoot, threadId }),
       client,
       modelId: 'scripted',
       threadId,
@@ -156,9 +153,13 @@ test('a thread bound to a folder keeps it, and no Main root leaves a thread unbo
 
 test('a Main root with no live workspace identity fails the send before any run', async () => {
   const thread = await hostThread();
-  const conversation = thread.view({ displayName: 'gone', path: '/work/gone' });
+  const conversation = thread.view({
+    displayName: 'gone',
+    path: '/work/gone',
+    rootId: 'root-gone',
+  });
   await expect(conversation.commands.onNew?.(message('Question'))).rejects.toThrow(
-    'the mounted folder has no unique live workspace identity'
+    'The selected workspace root is no longer mounted.'
   );
   expect(kinds(await thread.rows())).toEqual([]);
 });

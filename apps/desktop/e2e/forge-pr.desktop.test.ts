@@ -5,7 +5,7 @@
  * real remote URL, and a FAKE `gh` on PATH. Everything between the chip and
  * the process boundary is production code: `window.forge`, the forge IPC
  * domain, `resolveRootCwd`, `createGitService().forgeRepositoryContext()`,
- * `createPinnedGhEnvironment`, `execFileGhRunner`, the PGlite cache, and the
+ * `createPinnedGhEnvironment`, `execFileGhRunner`, the SQLite cache, and the
  * `forge:prUpdated` push.
  *
  * Isolation: each test gets its own temp repository, the Electron fixture
@@ -14,6 +14,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
+import type { ForgePrCacheEntry, ForgeResult } from '@brainstrike/types';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
@@ -112,12 +113,19 @@ test.describe('forge PR awareness', () => {
     await openComposer(window, repoWithGitHubRemote('pill'));
     await expect(window.getByTestId('workspace-bar-pr-chip')).toBeVisible({ timeout: 30_000 });
     const cached = await window.evaluate(async () => {
-      const rows = await (
-        window as unknown as {
-          electronAPI: { db: { query: (sql: string) => Promise<{ rows: unknown[] }> } };
+      const bridge = (
+        globalThis.window as Window & {
+          forge?: { cacheSnapshot: () => Promise<ForgeResult<readonly ForgePrCacheEntry[]>> };
         }
-      ).electronAPI.db.query('SELECT number, state FROM brainstrike_forge_prs');
-      return rows.rows;
+      ).forge;
+      if (!bridge) {
+        throw new Error('Missing production Forge bridge');
+      }
+      const result = await bridge.cacheSnapshot();
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      return result.value.map(({ number, state }) => ({ number, state }));
     });
     expect(cached).toEqual([{ number: 2574, state: 'open' }]);
   });

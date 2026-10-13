@@ -1,14 +1,20 @@
 // @vitest-environment node
+
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { projectModelCatalog } from '@brainstrike/assistant-contract';
 import type {
   CanonicalOperationContext,
   CanonicalSourceScope,
 } from '@brainstrike/canonical-ingestion';
-import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import type { SelectedEmbeddingRequestPlan } from '@brainstrike/embeddings/inference-plan';
+import { type CollectionRecord, StateStore } from '@brainstrike/state-store';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { NativeCanonicalProfileResolver } from '../native-canonical-profile';
 
-let database: Awaited<ReturnType<typeof createEnginePglite>>;
+let store: StateStore;
+let directory: string;
 const context = (): CanonicalOperationContext => ({
   requestId: 'profile',
   signal: new AbortController().signal,
@@ -26,62 +32,54 @@ const GRANITE_ID = 'onnx-community/granite-embedding-small-english-r2-ONNX';
 const GRANITE_REVISION = '1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8';
 
 beforeAll(async () => {
-  database = await createEnginePglite();
-  // Actual collection metadata and catalog columns; no jobs or preferences are on this read path.
-  await database.exec(`CREATE TABLE embedding_sets (
-    id TEXT PRIMARY KEY, model_key TEXT NOT NULL, model_id TEXT NOT NULL,
-    dimensions INTEGER NOT NULL, distance TEXT NOT NULL CHECK (distance IN ('cosine','l2','ip')),
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, name TEXT
-  );
-  CREATE TABLE models (
-    id TEXT PRIMARY KEY, provider_id TEXT NOT NULL, name TEXT NOT NULL,
-    capabilities JSONB, parameters JSONB
-  );`);
-  await database.query(
-    `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, name)
-    VALUES ($1,$2,$3,$4,$5,$6), ($7,$8,$9,$10,$11,$12), ($13,$14,$15,$16,$17,$18)`,
-    [
-      'local',
-      'local::Xenova/bge-small-en-v1.5',
-      localSelection.modelId,
-      384,
-      'cosine',
-      'A renamed collection',
-      'hosted',
-      'openai::text-embedding-3-large',
-      'text-embedding-3-large',
-      1536,
-      'ip',
-      'Local MiniLM (384D)',
-      'granite',
-      `local::${GRANITE_ID}`,
-      GRANITE_ID,
-      384,
-      'cosine',
-      'Workspace Index (Granite)',
-    ]
-  );
-  // The catalog rows as migrations 015 and 149 write them.
-  await database.query(
-    `INSERT INTO models (id, provider_id, name, capabilities, parameters)
-    VALUES ($1,'local','BGE Small',$2,$3), ($4,'local','Granite Embedding Small R2',$5,$6)`,
-    [
-      localSelection.modelId,
-      { defaultDimension: 384, prompts: { document: '', query: '' }, type: 'embedding' },
-      { size: '~34MB' },
-      GRANITE_ID,
-      {
-        defaultDimension: 384,
-        pooling: 'cls',
-        prompts: { document: '', query: '' },
-        type: 'embedding',
-      },
-      { execution: { wasm: 'q8', webgpu: 'fp16' }, revision: GRANITE_REVISION },
-    ]
-  );
+  directory = await mkdtemp(join(tmpdir(), 'native-profile-catalog-'));
+  store = await StateStore.open(directory);
+  const records: CollectionRecord[] = [
+    {
+      createdAt: '2026-10-13T00:00:00.000Z',
+      dimensions: 384,
+      distance: 'cosine',
+      id: 'local',
+      modelId: localSelection.modelId,
+      modelKey: 'local::Xenova/bge-small-en-v1.5',
+      name: 'A renamed collection',
+    },
+    {
+      createdAt: '2026-10-13T00:00:00.000Z',
+      dimensions: 1536,
+      distance: 'ip',
+      id: 'hosted',
+      modelId: 'text-embedding-3-large',
+      modelKey: 'openai::text-embedding-3-large',
+      name: 'Local MiniLM (384D)',
+    },
+    {
+      createdAt: '2026-10-13T00:00:00.000Z',
+      dimensions: 384,
+      distance: 'cosine',
+      id: 'granite',
+      modelId: GRANITE_ID,
+      modelKey: `local::${GRANITE_ID}`,
+      name: 'Workspace Index (Granite)',
+    },
+    {
+      createdAt: '2026-10-13T00:00:00.000Z',
+      dimensions: 768,
+      distance: 'cosine',
+      id: 'unsupported',
+      modelId: localSelection.modelId,
+      modelKey: 'local::Xenova/bge-small-en-v1.5',
+    },
+  ];
+  for (const collection of records) {
+    await store.collections({ collection, operation: 'create' });
+  }
+  await store.close();
+  store = await StateStore.open(directory);
 });
 afterAll(async () => {
-  await database?.close();
+  await store?.close();
+  await rm(directory, { force: true, recursive: true });
 });
 
 function resolver() {
@@ -89,7 +87,8 @@ function resolver() {
     async (): Promise<SelectedEmbeddingRequestPlan> => localSelection
   );
   const instance = new NativeCanonicalProfileResolver({
-    query: async (sql, params) => database.query(sql, params),
+    collections: store,
+    modelCatalog: { read: async () => projectModelCatalog({ models: [], providers: [] }) },
     readLocalSelection,
     resolveEmbeddingSetId: async (requested) => {
       if (requested.kind === 'workspace' && requested.rootId === 'mounted-root') {
@@ -97,7 +96,7 @@ function resolver() {
       }
       if (
         requested.kind === 'collection' &&
-        ['local', 'hosted', 'granite'].includes(requested.embeddingSetId)
+        ['local', 'hosted', 'granite', 'unsupported'].includes(requested.embeddingSetId)
       ) {
         return requested.embeddingSetId;
       }
@@ -107,8 +106,8 @@ function resolver() {
   return { instance, readLocalSelection };
 }
 
-it('resolves actual PG collection/provider metadata without repairing or writing saved choices', async () => {
-  const before = await database.query('SELECT * FROM embedding_sets ORDER BY id');
+it('resolves reopened SQLite collection/provider metadata without repairing or writing saved choices', async () => {
+  const before = await store.collections({ operation: 'list' });
   const f = resolver();
   const hosted = await f.instance.resolve(scope('hosted'), context());
   expect(hosted).toEqual({
@@ -130,12 +129,10 @@ it('resolves actual PG collection/provider metadata without repairing or writing
     provider: 'local',
     revision: localSelection.revision,
   });
-  expect((await database.query('SELECT * FROM embedding_sets ORDER BY id')).rows).toEqual(
-    before.rows
-  );
+  expect(await store.collections({ operation: 'list' })).toEqual(before);
 });
 
-it('uses injected mounted-root authority and rejects unauthorized scopes before SQL', async () => {
+it('uses injected mounted-root authority and rejects unauthorized scopes before catalog reads', async () => {
   const f = resolver();
   expect(
     await f.instance.resolveProfile(
@@ -150,22 +147,17 @@ it('uses injected mounted-root authority and rejects unauthorized scopes before 
 
 it('preserves unsupported local dimensions and rejects stale pins without a default or catalog mutation', async () => {
   const f = resolver();
-  await database.query('UPDATE embedding_sets SET dimensions = $1 WHERE id = $2', [768, 'local']);
-  try {
-    await expect(f.instance.resolve(scope('local'), context())).rejects.toThrow(/selection/);
-    expect(
-      (await database.query('SELECT dimensions FROM embedding_sets WHERE id = $1', ['local'])).rows
-    ).toEqual([{ dimensions: 768 }]);
-  } finally {
-    await database.query('UPDATE embedding_sets SET dimensions = $1 WHERE id = $2', [384, 'local']);
-  }
+  await expect(f.instance.resolve(scope('unsupported'), context())).rejects.toThrow(/selection/);
+  expect(
+    (await store.collections({ id: 'unsupported', operation: 'get' })).collections[0]?.dimensions
+  ).toBe(768);
   f.readLocalSelection.mockResolvedValueOnce({ ...localSelection, revision: undefined });
   const unpinned = await f.instance.resolve(scope('local'), context());
   expect(unpinned.workerPlan?.revision).toBeUndefined();
   expect(unpinned.profile).not.toHaveProperty('tokenCap');
 });
 
-it('resolves the granite catalog pooling and pin through the real catalog join (BST-1993)', async () => {
+it('resolves the granite catalog pooling and pin through the production model catalog and reopened SQLite collection (BST-1993)', async () => {
   const f = resolver();
   const chosen = {
     device: 'webgpu' as const,

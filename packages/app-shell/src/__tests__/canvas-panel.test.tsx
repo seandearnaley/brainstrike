@@ -66,7 +66,9 @@ function createHost(
     renameThread: vi.fn(),
     renderThread: vi.fn(),
     updateThreadBinding: vi.fn(),
-    workspaceRepository: (history) => history,
+    workspaceRepository: () => {
+      throw new Error('Unexpected workspace snapshot access in this fixture');
+    },
     ...overrides,
   };
 }

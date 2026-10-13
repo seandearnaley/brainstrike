@@ -7,6 +7,7 @@ import {
   fixture,
   mocks,
   resetActivationFixture,
+  setCatalogRecords,
 } from './native-index-activation-fixture';
 
 beforeEach(resetActivationFixture);
@@ -34,18 +35,7 @@ it('keeps a disconnected folder’s retained rows outside the authority instead 
   // one id, in the catalog for its return (BST-1990). It holds no lease, so no
   // mounted relative-path authority: the index covers only folders it leases.
   const records = [row('retained-0', null, null), row('kept-0', 'disconnected', 'kept.txt')];
-  mocks.database.query.mockImplementation(async (sql: string, params: readonly unknown[] = []) => {
-    if (sql.includes('FROM embedding_sets')) {
-      return { rows: [{ id: 'selected' }] };
-    }
-    if (sql.includes('FROM roots')) {
-      return { rows: [] };
-    }
-    const ids = params[0];
-    return {
-      rows: Array.isArray(ids) ? records.filter((record) => ids.includes(record.fileId)) : records,
-    };
-  });
+  setCatalogRecords(() => records);
   let inventory: readonly { readonly fileId: string }[] = [];
   mocks.manager.attachCanonicalCollection.mockImplementation(
     async (dependencies: CanonicalCollectionDependencies) => {

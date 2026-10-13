@@ -60,23 +60,20 @@ Guard: `apps/desktop/src/__tests__/assistant-server/git-service-structured-diff.
 - Dispatch purely on `changeset.kind`, and give every failure a stable
   machine-readable prefix; `changeset-diff-service.ts`'s top doc comment is the
   authoritative list.
-- A TURN IS NOT A RUN: anchor turn identity on the triggering user message
-  (`resolveTurnAnchorMessageId`), because approval/suspend resumes mint run rows
-  that appear on no snapshot row. Snapshot `turn-start` on a turn's first leg
-  and `turn-end` when its last leg reaches a non-resumable terminal, BEFORE the
-  terminal `thread_runs` write.
+- Desktop turns belong to the agent host. Approval resumes retain the same run ID;
+  `workspace.snapshot.recorded` and `run.finished` in the committed host log
+  determine the boundaries. Never consult legacy SQL run timestamps or synthesize aliases.
 - Resolve a settled turn as turn-start ↔ turn-end oid per root, the live Last
-  Turn as turn-start oid ↔ the live work-tree. The live hot path does ZERO
-  database reads (`snapshot-turn-registry.ts`).
+  Turn as turn-start oid ↔ the live work-tree. Both cold and warm resolution use
+  the host log and shadow Git; no PGlite owner or snapshot ledger is opened.
 - Fail the WHOLE view with `changeset-snapshot-capture-failed:` on any
   `FAILED_SNAPSHOT_CAPTURE_OID` sentinel in a resolved pair; never "diff what we
   can". Pre-engine turns are `changeset-snapshot-missing:`.
 - `toolAttributed` comes only from the tool edits a settled host run committed
-  to its log (`changeset-host-turns.ts`); a legacy ledger turn has no attribution
-  source. Edit records are never read for diffs. `revertible` is `true` for every
+  to its log (`changeset-host-turns.ts`). Edit records are never read for diffs. `revertible` is `true` for every
   snapshot-resolved entry; renames appear as `added` + `deleted` pairs.
 - Restore content from snapshots — `changeset-snapshot-view.ts` and
-  `rewind-snapshot-engine.ts`. Per-edit undo is the agent host's own
+  `agent-host-platform/host-rewind-files.ts`. Per-edit undo is the agent host's own
   baseline restore (workspace-context.md § Edit checkpoints), not a snapshot
   restore.
 - `untracked` is reachable only through the `uncommitted` scope, re-probed per
@@ -89,10 +86,11 @@ Guard: `apps/desktop/src/__tests__/assistant-server/git-service-structured-diff.
   malformed or mismatched metadata rather than deleting, reassigning or hiding
   one. Inventory both namespaces in one Git call.
 - Run retention from the STARTUP SWEEP (`snapshot-startup-gc.ts`), never
-  turn-end: purge dead-thread rows and refs, prune ref-only residue, keep the
-  newest `DEFAULT_SNAPSHOT_TURN_RING` brackets per thread, then reclaim objects.
-  A missing `mastra_threads` table with surviving rows refuses to classify,
-  visibly.
+  turn-end: ask the host for live thread ownership, prune deleted-thread refs,
+  keep the newest `DEFAULT_SNAPSHOT_TURN_RING` brackets, then reclaim objects.
+  Unavailable ownership preserves refs; an unreadable surviving chain prevents
+  root history reclamation. No legacy rows are classified or deleted.
+
 
 The BST-1164 journal fold is gone for good; gc stays off the run hot
 path. Evidence: `changeset-diff/snapshot-engine-swap.md`.
@@ -139,8 +137,7 @@ Guard: `apps/desktop/src/__tests__/assistant-server/git-inventory.integration.te
 ## THE `changes` IPC DOMAIN
 
 - `apps/desktop/src/ipc-domains/changes.contract.ts` is the source of truth for
-  seven visible-UI-only invokes (`resolveView`, `fileDiff`, `inventory`, four
-  rewind operations) plus the `changes:invalidated` push; registration, preload
+  three visible-UI-only invokes (`resolveView`, `fileDiff`, `inventory`) plus the `changes:invalidated` push; registration, preload
   and desktop typing derive from it, and `BridgeMatches` pins the result to
   app-shell's `ChangesBridge`.
 - Invokes keep the raw `GitResult` envelope. Contract parsers reject
@@ -274,6 +271,12 @@ Evidence: `changeset-diff/worktree-setup-hooks.md`.
   `--detach` for a detached row, `-b <branch>` for a missing branch, or a plain
   checkout when an existing branch's tip still equals `<ref>^`. A branch that
   moved since archive is REFUSED with its current and expected tips.
+- Desktop archive reads active runs from the host ledger, including child threads, and
+  checks each run's committed `run.started` workspace binding. Later thread selection
+  changes cannot release an active worktree. Missing run receipts or unavailable host
+  authority refuse archive. Worktree rows and durable Forge observations use the same
+  profile StateStore writer through typed private operations; an absent Forge row is
+  distinct from a recorded observation with no PR.
 - `archive` refuses a dirty or unpushed worktree unless `force`; the one blocker
   `force` never overrides is an active run in that worktree.
 - Ignored files stay outside the snapshot, so `inspectArchive` discloses their

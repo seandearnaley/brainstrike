@@ -1399,6 +1399,14 @@ and the panel and budget-guardrail suites under
 User-defined groups organize the panel: rank-ordered sections, an **Ungrouped**
 section always last, drag-and-drop, and a Group by / Sort by popover.
 
+Desktop groups and placements use the existing profile StateStore writer and private
+catalog connection. The visible capability preserves their current IDs, ranks,
+colors and icons; group deletion unsets membership without changing flat order.
+Profile reset retires that writer before deleting its SQLite state. Desktop thread
+lists, run badges and search read the agent host; folder display reads the same
+root catalog used by admission, including retained disconnected roots. Web keeps
+its PGlite repositories and provider lifecycle.
+
 Where state lives (see ADR-0012):
 
 - Groups in `brainstrike_assistant_thread_groups`; membership and manual order in

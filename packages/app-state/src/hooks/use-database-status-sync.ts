@@ -1,3 +1,4 @@
+import type { ModelCatalogCapability } from '@brainstrike/assistant-contract';
 import { type DrizzleFileRecordRepository, ElectronFileRecordRepository } from '@brainstrike/db';
 import { useFileRecordRepository } from '@brainstrike/db/react';
 import { useEffect } from 'react';
@@ -25,10 +26,33 @@ function resolveLocation(repo: DrizzleFileRecordRepository | ElectronFileRecordR
  * Runs even when the Database tab is not mounted so the status bar reflects reality.
  */
 export function useDatabaseStatusSync(): void {
-  const repository = useFileRecordRepository();
+  const catalog =
+    typeof window === 'undefined'
+      ? undefined
+      : (window as Window & { modelCatalog?: ModelCatalogCapability }).modelCatalog;
+  const repository = useFileRecordRepository({ enabled: !catalog });
 
   useEffect(() => {
     const store = useDatabaseStatusStore.getState();
+    if (catalog) {
+      let active = true;
+      store.setLoading();
+      void catalog.read().then(
+        () => {
+          if (active) {
+            store.setConnected('SQLite', 'Connected (agent host)');
+          }
+        },
+        (error: unknown) => {
+          if (active) {
+            store.setDisconnected('SQLite', error instanceof Error ? error.message : String(error));
+          }
+        }
+      );
+      return () => {
+        active = false;
+      };
+    }
 
     if (!repository) {
       if (!store.loading) {
@@ -48,5 +72,6 @@ export function useDatabaseStatusSync(): void {
     }
 
     store.setConnected(location, testResult);
-  }, [repository]);
+    return;
+  }, [catalog, repository]);
 }

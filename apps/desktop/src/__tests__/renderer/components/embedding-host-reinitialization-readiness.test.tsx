@@ -21,10 +21,11 @@ import {
   initializeWithModelMock,
   installEmbeddingHostRuntimeFixture,
   queryEmbeddingListenerRef,
+  readModelCatalogMock,
+  reopenEmbeddingQueueMock,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
-  startEmbeddingWorkerMock,
-  stopMock,
+  retireEmbeddingQueueMock,
   storeState,
 } from './embedding-host-runtime-fixture';
 
@@ -37,8 +38,8 @@ const QUERY = {
 
 function createConnectedManager(): EmbeddingHostManager {
   storeState.hasHydrated = true;
-  dbHandle.query.mockResolvedValue({
-    rows: [
+  readModelCatalogMock.mockResolvedValue({
+    models: [
       {
         capabilities: { defaultDimension: 2 },
         description: '',
@@ -80,86 +81,51 @@ function createConnectedManager(): EmbeddingHostManager {
   return manager;
 }
 
-describe('embedding host public database initialization readiness', () => {
+describe('embedding host native catalog and runtime readiness', () => {
   installEmbeddingHostRuntimeFixture();
 
-  it('fails promptly when cached main status races database readiness reporting', async () => {
+  it('keeps native readiness and inference independent of a disappearing PGlite handle', async () => {
     const manager = createConnectedManager();
     await manager.ensureStarted({ waitForRunning: false });
     const view = render(<EmbeddingHostRuntime />);
     onTestFinished(() => view.unmount());
     await waitFor(() => expect(manager.getStatus().state).toBe('running'));
-    const statuses: unknown[] = [];
-    reportStatusMock.mockImplementation((status: unknown) => statuses.push(status));
+    const runtimeId = manager.getStatus().runtimeId;
     currentDbRef.current = null;
     view.rerender(<EmbeddingHostRuntime />);
-    expect(manager.getStatus().state).toBe('running');
-    const controller = new AbortController();
-    const query = manager.queryEmbedding(QUERY, { signal: controller.signal });
-    const result = query.then(
-      () => null,
-      (error: unknown) => error
-    );
-    onTestFinished(async () => {
-      controller.abort();
-      await result;
-    });
-    await act(async () => {});
-    expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
-    expect(await result).toMatchObject({ message: 'Embedding host query runtime is unavailable.' });
-    expect(generateQueryEmbeddingMock).not.toHaveBeenCalled();
-    expect(statuses).toContainEqual(expect.objectContaining({ state: 'starting' }));
-    for (const status of statuses) {
-      manager.acceptStatusReport(hostWindow.webContents.id, assertEmbeddingHostStatus(status));
-    }
-    reportStatusMock.mockImplementation((status: unknown) =>
-      manager.acceptStatusReport(hostWindow.webContents.id, assertEmbeddingHostStatus(status))
-    );
-    currentDbRef.current = dbHandle;
-    await act(async () => {
-      view.rerender(<EmbeddingHostRuntime />);
-    });
     await expect(manager.queryEmbedding(QUERY)).resolves.toEqual([0.1, 0.2]);
+    expect(manager.getStatus()).toMatchObject({ runtimeId, state: 'running' });
+    expect(dbHandle.query).not.toHaveBeenCalled();
+    expect(readModelCatalogMock).toHaveBeenCalledOnce();
+    expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
   });
 
-  it('waits for listener readiness when the renderer honestly reports initializing', async () => {
+  it('waits for native queue readiness before dispatching a query', async () => {
     const manager = createConnectedManager();
+    const opened = Promise.withResolvers<void>();
+    reopenEmbeddingQueueMock.mockReturnValueOnce(opened.promise);
+    onTestFinished(() => opened.resolve());
     await manager.ensureStarted({ waitForRunning: false });
     const view = render(<EmbeddingHostRuntime />);
     onTestFinished(() => view.unmount());
-    await waitFor(() => expect(manager.getStatus().state).toBe('running'));
-    currentDbRef.current = null;
-    view.rerender(<EmbeddingHostRuntime />);
-    reportStatusMock({ ...manager.getStatus(), active: false, state: 'starting' });
+    await waitFor(() => expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce());
     hostWindow.webContents.send.mockClear();
-    const controller = new AbortController();
-    const query = manager.queryEmbedding(QUERY, { signal: controller.signal });
-    const settled = query.then(
-      () => null,
-      (error: unknown) => error
-    );
-    onTestFinished(async () => {
-      controller.abort();
-      await settled;
-    });
+    const query = manager.queryEmbedding(QUERY);
     await act(async () => {});
-    expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
     expect(hostWindow.webContents.send).not.toHaveBeenCalled();
-    currentDbRef.current = dbHandle;
-    await act(async () => {
-      view.rerender(<EmbeddingHostRuntime />);
-    });
+    expect(generateQueryEmbeddingMock).not.toHaveBeenCalled();
+    opened.resolve();
     await expect(query).resolves.toEqual([0.1, 0.2]);
   });
 
-  it('rejects an old database model read without initializing it after replacement', async () => {
+  it('rejects an old catalog model read without initializing it after replacement', async () => {
     const manager = createConnectedManager();
     await manager.ensureStarted({ waitForRunning: false });
     const view = render(<EmbeddingHostRuntime />);
     onTestFinished(() => view.unmount());
     await waitFor(() => expect(manager.getStatus().state).toBe('running'));
-    const model = Promise.withResolvers<{ rows: Record<string, unknown>[] }>();
-    dbHandle.query.mockImplementationOnce(() => model.promise);
+    const model = Promise.withResolvers<{ models: Record<string, unknown>[] }>();
+    readModelCatalogMock.mockImplementationOnce(() => model.promise);
     const controller = new AbortController();
     const oldQuery = manager.queryEmbedding(QUERY, { signal: controller.signal });
     const oldResult = oldQuery.then(
@@ -170,17 +136,14 @@ describe('embedding host public database initialization readiness', () => {
       controller.abort();
       await oldResult;
     });
-    await waitFor(() => expect(dbHandle.query).toHaveBeenCalledTimes(1));
-    currentDbRef.current = null;
-    view.rerender(<EmbeddingHostRuntime />);
-    currentDbRef.current = dbHandle;
-    await act(async () => {
-      view.rerender(<EmbeddingHostRuntime />);
-    });
+    await waitFor(() => expect(readModelCatalogMock).toHaveBeenCalledTimes(1));
+    const replacing = manager.reset();
+    await act(async () => {});
+    await replacing;
     await waitFor(() => expect(manager.getStatus().state).toBe('running'));
     await expect(manager.queryEmbedding(QUERY)).resolves.toEqual([0.1, 0.2]);
     model.resolve({
-      rows: [
+      models: [
         {
           capabilities: { defaultDimension: 2 },
           id: QUERY.modelId,
@@ -191,7 +154,9 @@ describe('embedding host public database initialization readiness', () => {
       ],
     });
     expect(await oldResult).toMatchObject({
-      message: 'Embedding host query runtime is no longer available.',
+      message: expect.stringContaining(
+        'Embedding host reset while inference requests were in flight.'
+      ),
     });
     expect(initializeWithModelMock).toHaveBeenCalledTimes(1);
     expect(generateQueryEmbeddingMock).toHaveBeenCalledTimes(1);
@@ -216,26 +181,25 @@ describe('embedding host public database initialization readiness', () => {
       hydrated.resolve(storeState);
       await oldResult;
     });
-    await waitFor(() => expect(dbHandle.query).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(readModelCatalogMock).toHaveBeenCalledTimes(1));
     await act(async () => {});
-    currentDbRef.current = null;
-    view.rerender(<EmbeddingHostRuntime />);
-    currentDbRef.current = dbHandle;
-    await act(async () => {
-      view.rerender(<EmbeddingHostRuntime />);
-    });
+    const replacing = manager.reset();
+    await act(async () => {});
+    await replacing;
     await waitFor(() => expect(manager.getStatus().state).toBe('running'));
     await expect(manager.queryEmbedding(QUERY)).resolves.toEqual([0.1, 0.2]);
     hydrated.resolve(storeState);
     expect(await oldResult).toMatchObject({
-      message: 'Embedding host query runtime is no longer available.',
+      message: expect.stringContaining(
+        'Embedding host reset while inference requests were in flight.'
+      ),
     });
     expect(initializeWithModelMock).toHaveBeenCalledTimes(1);
     expect(generateQueryEmbeddingMock).toHaveBeenCalledTimes(1);
   });
 
   it.each(['disposed', 'failed'] as const)(
-    'disposes a model initialized after its database owner was replaced (%s)',
+    'disposes a model initialized after its native owner was replaced (%s)',
     async (disposal) => {
       const manager = createConnectedManager();
       await manager.ensureStarted({ waitForRunning: false });
@@ -256,12 +220,9 @@ describe('embedding host public database initialization readiness', () => {
       });
       await waitFor(() => expect(initializeWithModelMock).toHaveBeenCalledTimes(1));
       const oldService = initializeWithModelMock.mock.contexts[0];
-      currentDbRef.current = null;
-      view.rerender(<EmbeddingHostRuntime />);
-      currentDbRef.current = dbHandle;
-      await act(async () => {
-        view.rerender(<EmbeddingHostRuntime />);
-      });
+      const replacing = manager.reset();
+      await act(async () => {});
+      await replacing;
       await waitFor(() => expect(manager.getStatus().state).toBe('running'));
       await expect(manager.queryEmbedding(QUERY)).resolves.toEqual([0.1, 0.2]);
       const currentService = initializeWithModelMock.mock.contexts[1];
@@ -272,11 +233,23 @@ describe('embedding host public database initialization readiness', () => {
       }
       initialized.resolve();
       expect(await oldResult).toMatchObject({
-        message:
-          disposal === 'failed'
-            ? 'Fixture disposal failed.'
-            : 'Embedding host query runtime is no longer available.',
+        message: expect.stringContaining(
+          'Embedding host reset while inference requests were in flight.'
+        ),
       });
+      await waitFor(() =>
+        expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            payload: expect.objectContaining({
+              message:
+                disposal === 'failed'
+                  ? 'Fixture disposal failed.'
+                  : 'Embedding host query runtime is no longer available.',
+            }),
+            type: 'error',
+          })
+        )
+      );
       expect(disposeQueryEmbeddingServiceMock.mock.contexts).toContain(oldService);
       expect(disposeQueryEmbeddingServiceMock.mock.contexts).not.toContain(currentService);
       expect(generateQueryEmbeddingMock).toHaveBeenCalledTimes(1);
@@ -306,14 +279,10 @@ describe('embedding host public database initialization readiness', () => {
       await oldResult;
     });
     await waitFor(() => expect(generateQueryEmbeddingMock).toHaveBeenCalledTimes(1));
-    currentDbRef.current = null;
-    view.rerender(<EmbeddingHostRuntime />);
-    currentDbRef.current = dbHandle;
-    await act(async () => {
-      view.rerender(<EmbeddingHostRuntime />);
-    });
+    const replacing = manager.reset();
     await act(async () => {});
-    expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+    await act(async () => {});
+    expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(1);
     expect(generateQueryEmbeddingMock).toHaveBeenCalledTimes(1);
     const generated: Generated = {
       embedding: [0.1, 0.2],
@@ -323,6 +292,7 @@ describe('embedding host public database initialization readiness', () => {
     expect(await oldResult).toMatchObject({
       message: 'Embedding host query runtime is no longer available.',
     });
+    await replacing;
     await waitFor(() => expect(manager.getStatus().state).toBe('running'));
     const newQuery = manager.queryEmbedding(QUERY, { signal: controller.signal });
     const newResult = newQuery.then(
@@ -346,7 +316,7 @@ describe('embedding host public database initialization readiness', () => {
     expect(initializeWithModelMock).toHaveBeenCalledTimes(2);
   });
 
-  it('keeps new query activity after same-database reset when old inference finishes', async () => {
+  it('keeps new query activity after same-catalog reset when old inference finishes', async () => {
     const manager = createConnectedManager();
     await manager.ensureStarted({ waitForRunning: false });
     const view = render(<EmbeddingHostRuntime />);
@@ -379,7 +349,7 @@ describe('embedding host public database initialization readiness', () => {
     await waitFor(() => expect(generateQueryEmbeddingMock).toHaveBeenCalledTimes(2));
     const resetting = manager.reset();
     await act(async () => {});
-    expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+    expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(1);
     expect(manager.getStatus().state).toBe('starting');
     oldInference.resolve(generated);
     await expect(resetting).resolves.toMatchObject({ state: 'running' });
@@ -467,22 +437,18 @@ describe('embedding host public database initialization readiness', () => {
     const oldService = initializeWithModelMock.mock.contexts[0];
     const stopped = Promise.withResolvers<void>();
     const disposed = Promise.withResolvers<void>();
-    stopMock.mockImplementationOnce(() => stopped.promise);
+    retireEmbeddingQueueMock.mockImplementationOnce(() => stopped.promise);
     disposeQueryEmbeddingServiceMock.mockImplementationOnce(() => disposed.promise);
-    currentDbRef.current = null;
-    view.rerender(<EmbeddingHostRuntime />);
-    await waitFor(() => expect(stopMock).toHaveBeenCalledTimes(1));
-    currentDbRef.current = dbHandle;
-    await act(async () => {
-      view.rerender(<EmbeddingHostRuntime />);
-    });
-    expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+    const replacing = manager.reset();
+    await waitFor(() => expect(retireEmbeddingQueueMock).toHaveBeenCalledOnce());
+    expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(1);
     stopped.resolve();
     await waitFor(() => expect(disposeQueryEmbeddingServiceMock).toHaveBeenCalledTimes(1));
-    expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+    expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(1);
     expect(disposeQueryEmbeddingServiceMock.mock.contexts).toEqual([oldService]);
     disposed.resolve();
-    await waitFor(() => expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2));
+    await replacing;
+    await waitFor(() => expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(manager.getStatus().state).toBe('running'));
     await expect(manager.queryEmbedding(QUERY)).resolves.toEqual([0.1, 0.2]);
     await expect(manager.queryEmbedding(QUERY)).resolves.toEqual([0.1, 0.2]);
@@ -490,7 +456,7 @@ describe('embedding host public database initialization readiness', () => {
     expect(disposeQueryEmbeddingServiceMock.mock.contexts).toEqual([oldService]);
   });
 
-  it('delivers a query after immediate component replacement with a ready database', async () => {
+  it('delivers a query after immediate component replacement with a ready catalog', async () => {
     const manager = createConnectedManager();
     await manager.ensureStarted({ waitForRunning: false });
     const view = render(<EmbeddingHostRuntime key="before" />);

@@ -28,7 +28,6 @@ const SCOPE_OPTIONS: readonly ScopeOption[] = [
     description: {
       branched:
         'Restores the files those turns changed, and returns the conversation to before this message.',
-      hidden: 'Restores the files those turns changed, and hides the messages.',
     },
     label: 'Restore conversation and code',
     mode: 'conversation-and-files',
@@ -37,7 +36,6 @@ const SCOPE_OPTIONS: readonly ScopeOption[] = [
   {
     description: {
       branched: 'Returns the conversation to before this message only. Nothing on disk is touched.',
-      hidden: 'Hides the messages only. Nothing on disk is touched.',
     },
     label: 'Restore conversation only',
     mode: 'conversation-only',
