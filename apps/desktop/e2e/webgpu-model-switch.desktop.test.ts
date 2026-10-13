@@ -23,7 +23,7 @@ const EXECUTION = 'WebGPU · FP16';
 
 type Bridges = typeof globalThis & {
   readonly embeddingHost?: VisibleEmbeddingHostBridge;
-  readonly indexSearch?: IndexSearchCapability;
+  readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
 };
 
 async function chooseWebGpuModel(page: Page, name: string): Promise<void> {
@@ -45,7 +45,7 @@ async function chooseWebGpuModel(page: Page, name: string): Promise<void> {
 
 async function vectorsComplete(page: Page): Promise<boolean> {
   return await page.evaluate(async (files) => {
-    const capability = (globalThis as Bridges).indexSearch;
+    const capability = (globalThis as Bridges).__brainstrikeTestHooks__?.indexSearch;
     if (!capability) {
       throw new Error('Native capability missing');
     }
@@ -77,7 +77,8 @@ async function semanticSearch(page: Page): Promise<{
   readonly top: string | null | undefined;
 }> {
   return await page.evaluate(async () => {
-    const { embeddingHost, indexSearch } = globalThis as Bridges;
+    const { embeddingHost, __brainstrikeTestHooks__ } = globalThis as Bridges;
+    const indexSearch = __brainstrikeTestHooks__?.indexSearch;
     if (!(indexSearch && embeddingHost && 'queryEmbedding' in embeddingHost)) {
       throw new Error('Native search/query bridge unavailable');
     }
