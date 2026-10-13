@@ -137,6 +137,21 @@ const Run = { ...Thread, runId: Id };
 const PlanMode = { planMode: z.literal(true).optional() };
 const RiskCategory = z.enum(TOOL_RISK_CATEGORIES);
 /**
+ * BST-1990 (D4): the JSON-RPC error code of a run command the host refused
+ * before it admitted the run. Nothing was committed, so a client may hand the
+ * user's message back for a resend; any other failure may follow acceptance.
+ */
+export const HOST_RUN_NOT_ADMITTED_CODE = -32_010;
+/**
+ * BST-1990 (D4): the workspace folder a tool resolved for one call, so its
+ * approval names the folder even when the call gave no `root`.
+ */
+export const HostApprovalTargetRootSchema = z.strictObject({
+  displayName: z.string().min(1),
+  rootId: Id,
+});
+export type HostApprovalTargetRoot = z.infer<typeof HostApprovalTargetRootSchema>;
+/**
  * A grant answered with an approval: the rest of that run allows the call's
  * risk category (`session`; the client keeps it for its later runs) or the
  * call's tool. Core accepts only the approved call's own category or tool.
@@ -686,6 +701,8 @@ export function hostEventSchema(json: JsonSchemaFactory) {
       kind: z.enum(['approval', 'question', 'plan', 'network']),
       /** A permission approval's risk category, which its session grant names. */
       risk: RiskCategory.optional(),
+      /** The folder the tool resolved for this call (`HostTool.approvalTarget`). */
+      targetRoot: HostApprovalTargetRootSchema.optional(),
     }),
     z.looseObject({ type: z.literal('interaction.responded') }).pipe(
       z.union([

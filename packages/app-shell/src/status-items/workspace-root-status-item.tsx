@@ -2,6 +2,7 @@ import {
   useFileExplorerStoreSelector,
   WorktreeIndexingControl,
 } from '@brainstrike/file-explorer-ui/shell';
+import { useThreadFolderScopeStore } from '@brainstrike/file-explorer-ui/thread-folder-scope-store';
 import { Badge, Button, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
 import { Folder } from 'lucide-react';
 import { useId } from 'react';
@@ -16,9 +17,10 @@ import { useId } from 'react';
  *   operating root) + a muted "+N" for the other mounted roots.
  * The popover lists every mounted root with its full path (or "browser
  * folder" for web FSA roots without an absolute path), a Main badge, a
- * Focused marker (selection state, currentFolderId), and a per-row
- * "Set as main" action that reorders the store (pure client reorder — the
- * next request's enrichment follows it).
+ * Focused marker (selection state, currentFolderId), whether the selected
+ * thread works in it (BST-1990, while the thread has folders of its own), and a
+ * per-row "Set as main" action that reorders the store (pure client reorder:
+ * Main is where a new thread starts, and never retargets a bound thread).
  */
 
 /** Absolute path heuristic: POSIX or Windows drive/UNC. Web FSA paths are neither. */
@@ -32,6 +34,8 @@ interface RootRowModel {
   readonly isMain: boolean;
   readonly pathLabel: string;
   readonly rootId: string;
+  /** Absent while the selected thread has no folders of its own. */
+  readonly threadScope?: 'in' | 'out';
 }
 
 function RootRow({
@@ -55,6 +59,14 @@ function RootRow({
           {root.isFocused && (
             <span className="shrink-0 text-[10px] text-muted-foreground">Focused</span>
           )}
+          {root.threadScope ? (
+            <span
+              className="shrink-0 text-[10px] text-muted-foreground"
+              data-testid="workspace-root-thread-scope"
+            >
+              {root.threadScope === 'in' ? 'This thread' : 'Not in this thread'}
+            </span>
+          ) : null}
         </div>
         <div className="truncate text-[11px] text-muted-foreground" title={root.pathLabel}>
           {root.pathLabel}
@@ -82,6 +94,7 @@ export function WorkspaceRootStatusItem() {
   const rootDescriptors = useFileExplorerStoreSelector((s) => s.rootDescriptors);
   const currentFolderId = useFileExplorerStoreSelector((s) => s.currentFolderId);
   const setMainRoot = useFileExplorerStoreSelector((s) => s.setMainRoot);
+  const threadScope = useThreadFolderScopeStore((s) => s.scope);
 
   const mainRootId = activeRootIds?.[0];
   if (!mainRootId) {
@@ -101,6 +114,7 @@ export function WorkspaceRootStatusItem() {
       isMain: rootId === mainRootId,
       pathLabel: isAbsolutePathLike(path) ? path : 'browser folder',
       rootId,
+      ...(threadScope ? { threadScope: threadScope.rootIds.includes(rootId) ? 'in' : 'out' } : {}),
     };
   });
   const mainPathTitle =
@@ -158,7 +172,8 @@ export function WorkspaceRootStatusItem() {
           </div>
           {isMulti && (
             <div className="text-[11px] text-muted-foreground">
-              The assistant operates in the Main root; Focused follows your selection.
+              A new thread starts in Main, then works in its own folders. Focused follows your
+              selection.
             </div>
           )}
         </div>

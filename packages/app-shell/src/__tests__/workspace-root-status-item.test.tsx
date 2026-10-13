@@ -1,5 +1,6 @@
+import { useThreadFolderScopeStore } from '@brainstrike/file-explorer-ui/thread-folder-scope-store';
 import type { FileExplorerState } from '@brainstrike/types';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -117,5 +118,32 @@ describe('WorkspaceRootStatusItem', () => {
     const rows = screen.getAllByTestId('workspace-root-row');
     expect(rows[0]).toHaveTextContent('Focused');
     expect(rows[1]).not.toHaveTextContent('Focused');
+  });
+
+  // BST-1990: the status bar tells the same folder story as the chip and the cards.
+  it("marks which folders are the selected thread's", async () => {
+    setRoots([ROOT_A, ROOT_B]);
+    useThreadFolderScopeStore.getState().publishScope({ rootIds: [ROOT_B.rootId], threadId: 't' });
+    render(<WorkspaceRootStatusItem />);
+
+    await userEvent.click(screen.getByTestId('workspace-root-status-trigger'));
+
+    const [rowA, rowB] = screen.getAllByTestId('workspace-root-row') as [HTMLElement, HTMLElement];
+    expect(within(rowA).getByTestId('workspace-root-thread-scope')).toHaveTextContent(
+      'Not in this thread'
+    );
+    expect(within(rowB).getByTestId('workspace-root-thread-scope')).toHaveTextContent(
+      'This thread'
+    );
+  });
+
+  it('marks no folder while the selected thread has none of its own', async () => {
+    setRoots([ROOT_A, ROOT_B]);
+    useThreadFolderScopeStore.getState().publishScope(null);
+    render(<WorkspaceRootStatusItem />);
+
+    await userEvent.click(screen.getByTestId('workspace-root-status-trigger'));
+
+    expect(screen.queryByTestId('workspace-root-thread-scope')).toBeNull();
   });
 });

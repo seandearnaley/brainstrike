@@ -1189,7 +1189,7 @@ describe('AssistantUiPanelWrapper', () => {
     );
   });
 
-  test('omits stale workspace context snapshots from another selection root', async () => {
+  test('sends checked files from a folder other than the focused one (BST-1990)', async () => {
     fileExplorerMocks.effectiveSelection = new Set<string>([
       encodeFileSelection('test-folder', '/alpha.ts'),
     ]);
@@ -1215,7 +1215,7 @@ describe('AssistantUiPanelWrapper', () => {
       waitFor(() => {
         const requestData = readPanelRequestData();
         expect(requestData['selectionFolderId']).toBe('test-folder');
-        expect(requestData['workspaceContext']).toBeUndefined();
+        expect(requestData['workspaceContext']).toMatchObject({ files: [{ path: '/alpha.ts' }] });
       })
     );
   });

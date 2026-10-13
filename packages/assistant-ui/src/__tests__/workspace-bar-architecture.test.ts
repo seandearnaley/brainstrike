@@ -13,6 +13,7 @@ const readSource = (relativePath: string): string =>
 
 const baseBarProps = {
   onAddFolder: vi.fn(),
+  onAddWorkspaceFolder: vi.fn(),
   onMakePrimary: vi.fn(),
   onRemovePrimary: vi.fn(),
   onRemoveSecondary: vi.fn(),

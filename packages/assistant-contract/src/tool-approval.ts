@@ -140,6 +140,27 @@ export function isCodeExecutionApprovalContext(
   );
 }
 
+/**
+ * BST-1990 (D4): the workspace folder the host resolved for a file tool's call,
+ * so its approval names the folder even when the call gave no `root`.
+ */
+export interface ApprovalTargetRoot {
+  readonly displayName: string;
+  readonly rootId: string;
+}
+
+/** Exact-shape guard for {@link ApprovalTargetRoot}, as the card reads it from the log. */
+export function isApprovalTargetRoot(value: unknown): value is ApprovalTargetRoot {
+  return (
+    isRecord(value) &&
+    Reflect.ownKeys(value).length === 2 &&
+    typeof value['displayName'] === 'string' &&
+    value['displayName'].length > 0 &&
+    typeof value['rootId'] === 'string' &&
+    value['rootId'].length > 0
+  );
+}
+
 export interface AssistantToolApprovalRequest {
   args?: unknown;
   continuationId?: string;
@@ -174,6 +195,12 @@ export interface AssistantToolApprovalRequest {
    */
   riskCategory?: ToolRiskCategory;
   runId: string;
+  /**
+   * BST-1990 (D4): the workspace folder the host resolved for a file tool's
+   * call, so the approval names it even when the call gave no `root`. Absent
+   * for a tool that targets no folder, or a call the host could not resolve.
+   */
+  targetRoot?: ApprovalTargetRoot;
   /**
    * Display owner of this surface's approval event. Root and delegated child
    * timelines have different host-leg IDs; hostRunId above still owns the

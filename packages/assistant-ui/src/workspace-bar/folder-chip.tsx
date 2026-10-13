@@ -366,7 +366,8 @@ function folderChipName(primaryRoot: WorkspaceBarRoot | undefined, secondaryCoun
 
 /**
  * The workspace bar's folder control: this thread's primary root (★) and its
- * secondaries, recent folders the platform can re-mount, and "Add folder…".
+ * secondaries, the workspace's other mounted folders (one click adds one to the
+ * thread), recent folders the platform can re-mount, and "Add folder…".
  * With no root connected the chip IS the call to action. A folder the
  * workspace no longer serves is marked, with its repairs (BST-1990).
  */
@@ -374,6 +375,7 @@ export const FolderChip = ({
   addFolderDisabledReason,
   onAddFolder,
   onAddRecent,
+  onAddWorkspaceFolder,
   onCopyPath,
   onMakePrimary,
   onOpenTerminal,
@@ -457,6 +459,25 @@ export const FolderChip = ({
             <DropdownMenuSeparator />
           </>
         ) : null}
+        {noLiveFolder || workspaceFolders.length === 0 ? null : (
+          <>
+            <DropdownMenuLabel className="text-[10px] text-muted-foreground uppercase tracking-wide">
+              Not in this thread
+            </DropdownMenuLabel>
+            {workspaceFolders.map((folder) => (
+              <DisableableMenuItem
+                disabledReason={addFolderDisabledReason ?? null}
+                icon={FolderPlus}
+                key={folder.path}
+                label={folder.displayName}
+                onSelect={() => onAddWorkspaceFolder(folder)}
+                testId={`workspace-bar-add-to-thread-${folder.path}`}
+                title={`Add ${folder.path} to this thread`}
+              />
+            ))}
+            <DropdownMenuSeparator />
+          </>
+        )}
         {onAddRecent && visibleRecents.length > 0 ? (
           <>
             <DropdownMenuLabel className="text-[10px] text-muted-foreground uppercase tracking-wide">

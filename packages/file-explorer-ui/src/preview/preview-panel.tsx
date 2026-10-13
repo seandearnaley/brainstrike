@@ -17,7 +17,8 @@ import { useGroupSelection } from '../hooks/use-group-selection';
 import type { TokenCountingState } from '../indexing/use-token-counting';
 import { buildTapestryFileBase, tapestryBaseMatchesItem } from '../tapestry/tapestry-adapter';
 import { TapestryView } from '../tapestry/tapestry-view';
-import type { TapestryRange } from '../tapestry/types';
+import type { FileTapestry, TapestryRange } from '../tapestry/types';
+import { useThreadFolderScopeStore } from '../thread-folder-scope-store';
 import {
   type ContextSelectedTokenSummary,
   computeContextSelectedTokenSummary,
@@ -653,18 +654,49 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     [pageInfo]
   );
 
+  // BST-1990: a checked file outside the selected thread's folders reaches the
+  // agent as attached content for one run; its card says so and can add the folder.
+  const threadScope = useThreadFolderScopeStore((state) => state.scope);
+  const requestAddToThread = useThreadFolderScopeStore((state) => state.requestAdd);
+  const threadNoticeFor = useCallback(
+    (rootFolderId: string): FileTapestry['threadNotice'] => {
+      if (!threadScope || threadScope.rootIds.includes(rootFolderId)) {
+        return;
+      }
+      // The explorer's descriptors are exactly the workspace's mounted folders.
+      return resolveRootPath?.(rootFolderId) === undefined ? 'unavailable' : 'outside';
+    },
+    [resolveRootPath, threadScope]
+  );
+  const handleAddToThread = useCallback(
+    (file: FileTapestry) => {
+      const path = resolveRootPath?.(file.rootFolderId);
+      const displayName = file.rootDisplayName;
+      if (!(path && displayName)) {
+        logger.error('Add to this thread asked for a folder that is not in the workspace', {
+          rootId: file.rootFolderId,
+        });
+        return;
+      }
+      requestAddToThread({ displayName, path, rootId: file.rootFolderId });
+    },
+    [requestAddToThread, resolveRootPath]
+  );
+
   const buildTapestryFile = useCallback(
     (item: TableRowData) => {
       const base = tapestryFileBaseByKey.get(item.compositeKey);
       if (!base) {
         return null;
       }
+      const threadNotice = threadNoticeFor(base.rootFolderId);
       return {
         ...base,
         selections: tapestryRangesByKey[item.compositeKey] ?? [],
+        ...(threadNotice ? { threadNotice } : {}),
       };
     },
-    [tapestryFileBaseByKey, tapestryRangesByKey]
+    [tapestryFileBaseByKey, tapestryRangesByKey, threadNoticeFor]
   );
 
   const tapestryUngroupedFiles = useMemo(
@@ -897,6 +929,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           isEmpty={flattenedData.length === 0}
           isGroupFullySelected={isGroupFullySelected}
           isGroupPartiallySelected={isGroupPartiallySelected}
+          onAddToThread={handleAddToThread}
           onDeselectAll={deselectAll}
           onGroupDeselectAll={handleGroupDeselectAll}
           onGroupingChange={handleGroupingChange}

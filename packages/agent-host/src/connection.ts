@@ -9,6 +9,7 @@ import {
 import { bindHostAuthMethods } from './auth-connection.js';
 import type { HostCore } from './core.js';
 import { hostChildStatusChanged } from './core-child-runs.js';
+import { HostRunNotAdmittedError } from './core-run-lifecycle.js';
 import { bindHostHookTrustMethods } from './hook-trust.js';
 import { bindHostMcpContentMethods } from './mcp-content-connection.js';
 import { bindHostMcpPresentationMethods } from './mcp-presentation-connection.js';
@@ -25,6 +26,7 @@ import type {
 } from './ports.js';
 import {
   HOST_CHILDREN_CHANGED,
+  HOST_RUN_NOT_ADMITTED_CODE,
   HOST_RUN_TELEMETRY,
   type HostLogRow,
   type HostMethod,
@@ -67,6 +69,22 @@ export interface HostConnectionOptions {
 }
 
 /** All transports enter this same authenticated method dispatcher. */
+/**
+ * The host's refusal as its client reads it. vscode-jsonrpc reports a plain
+ * Error as "Request <method> failed with message: …"; a client reads the
+ * refusal as the host wrote it, the reason its user is shown (BST-1981, as
+ * main-platform.ts does). A run the host never admitted keeps its own code
+ * (BST-1990, D4), so the client may hand the message back for a resend.
+ */
+function hostResponseError(cause: unknown): unknown {
+  if (cause instanceof HostRunNotAdmittedError) {
+    return new ResponseError(HOST_RUN_NOT_ADMITTED_CODE, cause.message);
+  }
+  return cause instanceof Error && !(cause instanceof ResponseError)
+    ? new ResponseError(ErrorCodes.InternalError, cause.message)
+    : cause;
+}
+
 export function bindHostConnection(
   connection: MessageConnection,
   core: HostCore,
@@ -144,12 +162,7 @@ export function bindHostConnection(
         try {
           return await request(parseHostParams(method, input), controller.signal);
         } catch (cause) {
-          // vscode-jsonrpc reports a plain Error as "Request <method> failed with
-          // message: …"; a client reads the host's refusal as the host wrote it,
-          // the reason its user is shown (BST-1981, as main-platform.ts does).
-          throw cause instanceof Error && !(cause instanceof ResponseError)
-            ? new ResponseError(ErrorCodes.InternalError, cause.message)
-            : cause;
+          throw hostResponseError(cause);
         } finally {
           cancelled.dispose();
         }

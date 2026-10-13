@@ -35,6 +35,12 @@ export interface FileTapestry {
   selections: TapestryRange[];
   size?: number;
   structure: LineData[]; // Visual representation only
+  /**
+   * BST-1990: the file's folder is a workspace folder outside the selected
+   * thread's folders ('outside'), or not a folder in the workspace now
+   * ('unavailable'). Absent when the thread may read it as a thread folder.
+   */
+  threadNotice?: 'outside' | 'unavailable';
   tokens?: number;
   totalLines: number;
   type: string;

@@ -21,6 +21,7 @@ import {
 } from '@brainstrike/assistant-contract/context-breakdown';
 import {
   createDeclinedToolCallResult,
+  isApprovalTargetRoot,
   isCodeExecutionApprovalContext,
   TOOL_CALL_BLOCKED_MESSAGE,
   TOOL_CALL_DECLINED_MESSAGE,
@@ -223,13 +224,15 @@ function committedToolCatalogId(event: Readonly<Record<string, unknown>>): strin
 }
 
 /**
- * What the card reads beside the approval: a question or plan's kind, or a
- * code-execution approval's host facts (validated by the card before use). A
- * network consent carries both: its kind, and the facts when they are valid.
+ * What the card reads beside the approval: a question or plan's kind, or an
+ * approval's host facts (a code-execution context, or the folder a file call
+ * targets; each validated before use). A network consent carries both: its
+ * kind, and the facts when they are valid.
  */
 function interactionFacts(
   kind: CommittedInteractionKind,
-  executionContext: unknown
+  executionContext: unknown,
+  targetRoot: unknown
 ): NonNullable<ToolPart['providerMetadata']>[string] | undefined {
   if (kind === 'network') {
     const facts: Readonly<Record<string, unknown>> = {
@@ -244,10 +247,15 @@ function interactionFacts(
   // A shape this build does not fully understand falls to the card's
   // absent-context path (no fact rows, no grants), never a partial render.
   // The owner has already validated JSON at the public HostLogRow boundary.
-  if (!isCodeExecutionApprovalContext(executionContext)) {
+  const context = isCodeExecutionApprovalContext(executionContext);
+  const target = isApprovalTargetRoot(targetRoot);
+  if (!(context || target)) {
     return;
   }
-  const facts: Readonly<Record<string, unknown>> = { executionContext };
+  const facts: Readonly<Record<string, unknown>> = {
+    ...(context ? { executionContext } : {}),
+    ...(target ? { targetRoot } : {}),
+  };
   return facts as NonNullable<ToolPart['providerMetadata']>[string];
 }
 
@@ -888,7 +896,7 @@ export class CommittedAssistantLogProjection {
       throw new Error('Committed interaction has an unsupported kind.');
     }
     const risk = isToolRiskCategory(event['risk']) ? event['risk'] : undefined;
-    const facts = interactionFacts(kind, event['executionContext']);
+    const facts = interactionFacts(kind, event['executionContext'], event['targetRoot']);
     this.updateTool(run, id, (part) => ({
       ...part,
       approval: {

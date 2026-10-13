@@ -5,6 +5,7 @@ import { WorkspaceBar, type WorkspaceBarProps } from '../workspace-bar/workspace
 function baseProps(overrides: Partial<WorkspaceBarProps> = {}): WorkspaceBarProps {
   return {
     onAddFolder: vi.fn(),
+    onAddWorkspaceFolder: vi.fn(),
     onMakePrimary: vi.fn(),
     onRemovePrimary: vi.fn(),
     onRemoveSecondary: vi.fn(),

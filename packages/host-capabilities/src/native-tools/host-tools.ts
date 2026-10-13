@@ -11,9 +11,11 @@ import {
   LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS,
   NATIVE_TOOL_ID,
   resolveToolRiskCategory,
+  ToolInputError,
 } from '@brainstrike/assistant-contract';
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
+import { resolveWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 import {
   type MastraTool,
   type MastraTools,
@@ -41,6 +43,36 @@ export function forgetSharedNativeToolThread(
   readFileCursorRegistry.forgetThread(threadId);
   forgetFileReadScope(threadId);
   resetToolCallLoopGuards(threadId);
+}
+
+/** BST-1990 (D4): the tools whose approval names the folder their call writes to. */
+const FILE_TARGET_TOOL_IDS: ReadonlySet<string> = new Set([
+  NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
+  NATIVE_TOOL_ID.writeWorkspaceFile,
+]);
+
+/**
+ * The folder a file call targets, through the resolver its execute uses. A
+ * root the run cannot use names no folder: the call's execute refuses it.
+ */
+function fileApprovalTarget(
+  runtime: RuntimeData,
+  input: unknown
+): ReturnType<NonNullable<HostTool['approvalTarget']>> {
+  const root =
+    typeof input === 'object' && input !== null ? (input as { root?: unknown }).root : undefined;
+  try {
+    const target = resolveWorkspaceRoot(
+      runtime,
+      typeof root === 'string' || root === null ? root : undefined
+    );
+    return { displayName: target.displayName, rootId: target.rootId };
+  } catch (error) {
+    if (error instanceof ToolInputError) {
+      return;
+    }
+    throw error;
+  }
 }
 
 export function isSharedNativeToolId(id: string): id is SharedNativeToolId {
@@ -171,6 +203,9 @@ export function createSharedNativeHostTools(
     }
     tools[name] = {
       ...tool,
+      ...(FILE_TARGET_TOOL_IDS.has(id)
+        ? { approvalTarget: (input: unknown) => fileApprovalTarget(options.runtime, input) }
+        : {}),
       ...(id === NATIVE_TOOL_ID.manageTaskList ? { contextNote: hostTaskListNote } : {}),
       execute: async (input: unknown, context: HostToolContext): Promise<unknown> => {
         context.signal.throwIfAborted();
