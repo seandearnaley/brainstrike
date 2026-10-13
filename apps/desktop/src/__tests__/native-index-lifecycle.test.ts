@@ -71,6 +71,44 @@ describe('settings saves', () => {
     expect(next.state.kind).toBe('transitioning');
   });
 
+  it('a pause change after failed startup opens a writer instead of assuming retained read authority', () => {
+    const next = reduceNativeIndex(failed, saved(VECTOR_PAUSED));
+    expect(next.actions).toEqual([openAction(4)]);
+    expect(next.state).toEqual({
+      from: 3,
+      generation: 4,
+      kind: 'transitioning',
+      settings: VECTOR_PAUSED,
+    });
+  });
+
+  it('Pause preparation retains a failed startup cause until explicit configuration reopens', () => {
+    const next = reduceNativeIndex(failed, { kind: 'prepare-pause', settings: VECTOR_PAUSED });
+    expect(next).toEqual({ actions: [], state: failed });
+    expect(nativeIndexReadiness(next.state)).toEqual({ cause: failed.cause, kind: 'refused' });
+  });
+
+  it('an explicitly retained source-retirement failure retries the same physical sources', () => {
+    const retained = { ...failed, cause: { ...failed.cause, recovery: 'sources' as const } };
+    for (const settings of [VECTOR, VECTOR_PAUSED]) {
+      expect(reduceNativeIndex(retained, saved(settings))).toEqual({
+        actions: [{ kind: 'apply-sources', settings }],
+        state: { generation: 3, kind: 'ready', settings },
+      });
+    }
+    expect(reduceNativeIndex(retained, { kind: 'prepare-pause', settings: VECTOR_PAUSED })).toEqual(
+      {
+        actions: [{ kind: 'apply-sources', settings: VECTOR_PAUSED }],
+        state: {
+          generation: 3,
+          kind: 'pausing',
+          requested: VECTOR_PAUSED,
+          settings: VECTOR_PAUSED,
+        },
+      }
+    );
+  });
+
   it('settings saved while unconfigured open the first generation', () => {
     const next = reduceNativeIndex(unconfigured, saved(TEXT));
     expect(next.actions).toEqual([openAction(4)]);
