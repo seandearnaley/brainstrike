@@ -94,6 +94,8 @@ export interface ModelProviderScript {
   readonly toolCallStages?: readonly (readonly ScriptedToolCall[])[];
   /** Emit one model turn containing independent parallel tool calls. */
   readonly toolCalls?: readonly ScriptedToolCall[];
+  /** Opt in to the recorded OpenRouter Settings key-verification response. */
+  readonly verifyOpenRouterKey?: true;
 }
 
 /**
@@ -963,6 +965,23 @@ export async function startModelProviderShim(
       request.resume();
       writeRefusal(response, refusal);
     };
+    if (
+      request.method === 'GET' &&
+      knob === 'OPENROUTER_BASE_URL' &&
+      route === '/key' &&
+      typeof script === 'object' &&
+      script.verifyOpenRouterKey
+    ) {
+      request.resume();
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      // Same provider response fixture as provider-verification.test.ts.
+      response.end(
+        JSON.stringify({
+          data: { ['is_free_tier']: false, label: 'sk-or-v1-abc', limit: 10, usage: 1.25 },
+        })
+      );
+      return;
+    }
     const metadataIdentity = openRouterMetadataIdentity(request.method, knob, route);
     if (metadataIdentity !== undefined) {
       const body =

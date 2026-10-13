@@ -31,6 +31,25 @@ async function request(body: Record<string, unknown>): Promise<unknown> {
 }
 
 describe('model provider shim', () => {
+  it('serves the recorded OpenRouter verification response only when scripted', async () => {
+    shim = await startModelProviderShim({ finalText: 'Done', verifyOpenRouterKey: true });
+    const response = await fetch(`${shim.baseUrlFor('OPENROUTER_BASE_URL')}/key`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      data: { is_free_tier: false, label: 'sk-or-v1-abc', limit: 10, usage: 1.25 },
+    });
+    expect(shim.refusals()).toEqual([]);
+  });
+
+  it('continues refusing unscripted OpenRouter verification', async () => {
+    shim = await startModelProviderShim({ finalText: 'Done' });
+    const response = await fetch(`${shim.baseUrlFor('OPENROUTER_BASE_URL')}/key`);
+    expect(response.status).toBe(401);
+    expect(shim.refusals()).toEqual([
+      expect.objectContaining({ reason: 'unsupported-route', route: '/key' }),
+    ]);
+  });
+
   it('uses distinct call ids for concurrent responses in the same millisecond', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(123_456_789);
     shim = await startModelProviderShim(parent);

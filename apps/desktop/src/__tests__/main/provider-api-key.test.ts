@@ -26,6 +26,13 @@ vi.mock('../../agent-client-loader', () => ({
   listAgentProviders: () => mockListAgentProviders(),
 }));
 
+// This suite substitutes the secret facade; desktop bootstrap is outside that boundary.
+vi.mock('../../desktop-bootstrap-runtime', () => ({
+  getDesktopBootstrapRuntime: () => {
+    throw new Error('Provider-key unit tests must not start a desktop runtime');
+  },
+}));
+
 vi.mock('../../secrets', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../secrets')>();
   return {
