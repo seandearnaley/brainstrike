@@ -231,6 +231,8 @@ interface TapestryViewProps {
   isEmpty: boolean;
   isGroupFullySelected: (group: GroupedData<TableRowData>) => boolean;
   isGroupPartiallySelected: (group: GroupedData<TableRowData>) => boolean;
+  /** BST-1990: asks the selected thread to add a card's folder. */
+  onAddToThread?: (file: FileTapestry) => void;
   onDeselectAll: () => void;
   onGroupDeselectAll: (group: GroupedData<TableRowData>) => void;
   onGroupingChange: (value: string) => void;
@@ -790,6 +792,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
   previewSelections,
   onToggleSelection,
   onRequestFileContent,
+  onAddToThread,
   visibleFilesOnPage,
   onSelectAllOnPage,
   onDeselectAll,
@@ -1061,6 +1064,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
                       showSelectionControls={showSelectionControls}
                       smartStart={startDrag}
                       {...(onRequestFileContent ? { onRequestFileContent } : {})}
+                      {...(onAddToThread ? { onAddToThread } : {})}
                     />
                   ))}
                 </div>
@@ -1113,6 +1117,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
                             showSelectionControls={showSelectionControls}
                             smartStart={startDrag}
                             {...(onRequestFileContent ? { onRequestFileContent } : {})}
+                            {...(onAddToThread ? { onAddToThread } : {})}
                           />
                         ))}
                       </div>

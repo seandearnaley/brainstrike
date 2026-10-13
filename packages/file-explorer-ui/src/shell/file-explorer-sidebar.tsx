@@ -7,6 +7,7 @@ import { FolderOpen, Loader2 } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { DisconnectRootDialog } from '../components/disconnect-root-dialog';
 import { RootSectionHeader } from '../components/root-section-header';
+import { ThreadScopeMarker } from '../components/thread-scope-marker';
 import { WatcherHealthChip } from '../components/watcher-health-chip';
 import { WorktreeIndexingControl } from '../components/worktree-indexing-control';
 import { FileTreeProvider, useFileTreeContext } from '../tree/file-tree-provider';
@@ -782,6 +783,7 @@ const RootSectionInner = ({
             // healthy or on platforms without the capability.
             statusControl={
               <span className="flex items-center gap-1">
+                <ThreadScopeMarker rootId={rootIdentity} />
                 <WorktreeIndexingControl rootId={rootIdentity} />
                 <WatcherHealthChip rootPath={rootDirectoryHandle.path} />
               </span>
@@ -1017,6 +1019,7 @@ const FileExplorerSidebar = memo(
               <span className="truncate text-muted-foreground text-xs">
                 {rootDirectoryHandle.name}
               </span>
+              {singleRootFolderId ? <ThreadScopeMarker rootId={singleRootFolderId} /> : null}
               <WorktreeIndexingControl rootId={singleRootFolderId} />
               <WatcherHealthChip rootPath={rootDirectoryHandle.path} />
             </div>

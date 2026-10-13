@@ -1,7 +1,8 @@
-import type { AppendMessage } from '@assistant-ui/react';
+import { type AppendMessage, MessageNotSentError } from '@assistant-ui/react';
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import { committedRunIdentity } from '@brainstrike/agent-host/committed-identities';
 import {
+  HOST_RUN_NOT_ADMITTED_CODE,
   type HostImageAttachment,
   HostImageAttachmentSchema,
   type HostLogRow,
@@ -136,6 +137,22 @@ export function hostRunSettings(
   };
 }
 
+/**
+ * BST-1990 (D4): the host refused the run before admitting it (its JSON-RPC
+ * code says so), so nothing was committed and the user's message may be sent
+ * again. The code is read structurally: the client's error class is bundled.
+ */
+function isRunNotAdmitted(cause: unknown): cause is Error {
+  return cause instanceof Error && hostErrorCode(cause) === HOST_RUN_NOT_ADMITTED_CODE;
+}
+
+/** A host refusal's JSON-RPC code; undefined for a failure that never reached the host. */
+function hostErrorCode(cause: unknown): number | undefined {
+  const code: unknown =
+    typeof cause === 'object' && cause !== null && 'code' in cause ? cause.code : undefined;
+  return typeof code === 'number' ? code : undefined;
+}
+
 /** Construct alongside the attached client, outside React render. */
 export function createCommittedHostConversation(
   options: HostRunSettingsSource & {
@@ -186,14 +203,25 @@ export function createCommittedHostConversation(
       .map((part) => (part.type === 'text' ? part.text : ''))
       .join('\n');
     await options.bindThreadRoot?.();
-    await client.request('run/start', {
-      ...(attachments.length > 0 ? { attachments } : {}),
-      commandId: crypto.randomUUID(),
-      ...runSettings(),
-      parentMessageId: message.parentId,
-      prompt,
-      threadId,
-    });
+    try {
+      await client.request('run/start', {
+        ...(attachments.length > 0 ? { attachments } : {}),
+        commandId: crypto.randomUUID(),
+        ...runSettings(),
+        parentMessageId: message.parentId,
+        prompt,
+        threadId,
+      });
+    } catch (cause) {
+      // BST-1990 (D4): logged with the host's code (the user reads its text).
+      logger.warn('The agent host refused a run command', {
+        code: hostErrorCode(cause),
+        method: 'run/start',
+        threadId,
+      });
+      // Not sent: the vendor gives the composer its draft back.
+      throw isRunNotAdmitted(cause) ? new MessageNotSentError(cause.message) : cause;
+    }
   };
   const commands: CommittedAssistantCommands = {
     onCancel: async () => {

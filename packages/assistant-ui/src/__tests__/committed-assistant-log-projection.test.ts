@@ -435,4 +435,25 @@ describe('rich committed-log presentation projection', () => {
     plain.acceptCommitted(rows);
     expect(tool(plain).providerMetadata?.['brainstrike']?.['executionContext']).toBeUndefined();
   });
+  // BST-1990 (D4): a file tool's approval names the folder the host resolved.
+  it('carries a committed approval’s target folder to its tool card', () => {
+    const targetRoot = { displayName: 'alpha-root', rootId: 'r-alpha' };
+    const withTarget = rows.map((row) =>
+      row.event['type'] === 'interaction.requested'
+        ? { ...row, event: { ...row.event, targetRoot } }
+        : row
+    );
+    const projection = projector();
+    projection.acceptCommitted(withTarget);
+    expect(tool(projection).providerMetadata?.['brainstrike']).toMatchObject({ targetRoot });
+    const malformed = projector();
+    malformed.acceptCommitted(
+      rows.map((row) =>
+        row.event['type'] === 'interaction.requested'
+          ? { ...row, event: { ...row.event, targetRoot: { rootId: 'r-alpha' } } }
+          : row
+      )
+    );
+    expect(tool(malformed).providerMetadata?.['brainstrike']?.['targetRoot']).toBeUndefined();
+  });
 });

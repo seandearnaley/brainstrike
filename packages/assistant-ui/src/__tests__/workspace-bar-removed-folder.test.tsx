@@ -20,6 +20,7 @@ function props(overrides: Partial<WorkspaceBarProps>): WorkspaceBarProps {
   return {
     onAddFolder: vi.fn(),
     onAddRecent: vi.fn(),
+    onAddWorkspaceFolder: vi.fn(),
     onMakePrimary: vi.fn(),
     onRemovePrimary: vi.fn(),
     onRemoveSecondary: vi.fn(),

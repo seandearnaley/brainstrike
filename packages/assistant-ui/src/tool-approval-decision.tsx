@@ -1,5 +1,8 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
-import { isCodeExecutionApprovalContext } from '@brainstrike/assistant-contract/tool-approval';
+import {
+  isApprovalTargetRoot,
+  isCodeExecutionApprovalContext,
+} from '@brainstrike/assistant-contract/tool-approval';
 import { Button } from '@brainstrike/ui';
 import { type ComponentProps, type ReactElement, type Ref, useState } from 'react';
 import { ApprovalPreview } from './approval-preview';
@@ -11,10 +14,12 @@ type ToolProps = ComponentProps<ToolCallMessagePartComponent>;
 /** The committed approval's preview subject, with its host facts when they are valid. */
 function previewSubject(tool: ToolProps): ApprovalPreviewSubject {
   const context: unknown = tool.providerMetadata?.['brainstrike']?.['executionContext'];
+  const targetRoot: unknown = tool.providerMetadata?.['brainstrike']?.['targetRoot'];
   return {
     args: tool.args,
     toolName: tool.toolName,
     ...(isCodeExecutionApprovalContext(context) ? { executionContext: context } : {}),
+    ...(isApprovalTargetRoot(targetRoot) ? { targetRoot } : {}),
   };
 }
 

@@ -31,6 +31,8 @@ export interface CommittedPendingApproval {
   /** The permission category its session grant names; absent: no category grant. */
   readonly risk?: ToolRiskCategory;
   readonly runId: string;
+  /** The folder the host resolved for a file tool's call (BST-1990, D4). */
+  readonly targetRoot?: ApprovalPreviewSubject['targetRoot'];
   readonly toolCallId: string;
   readonly toolName: string;
 }
@@ -44,7 +46,11 @@ function errorText(cause: unknown): string {
 }
 
 function previewSubject(approval: CommittedPendingApproval): ApprovalPreviewSubject {
-  return { args: approval.args, toolName: approval.toolName };
+  return {
+    args: approval.args,
+    ...(approval.targetRoot ? { targetRoot: approval.targetRoot } : {}),
+    toolName: approval.toolName,
+  };
 }
 
 /** The approvals of each category, in the order they wait. */
