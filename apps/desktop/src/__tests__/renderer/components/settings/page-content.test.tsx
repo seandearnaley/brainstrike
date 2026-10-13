@@ -273,6 +273,27 @@ describe('Desktop SettingsPageContent', () => {
     );
   });
 
+  it('offers no self-improvement signal or experiment enrollment controls', async () => {
+    render(
+      <ThemeProvider storageAdapter={themeStorageAdapter}>
+        <TooltipProvider>
+          <SettingsPageContent />
+        </TooltipProvider>
+      </ThemeProvider>
+    );
+
+    // BST-1998: nothing has read either control since the assistant server was retired.
+    const nav = await screen.findByRole('navigation', { name: /settings categories/i });
+    expect(
+      within(nav).queryByRole('button', { name: /^Self-improvement signal$/i })
+    ).not.toBeInTheDocument();
+    const searchbox = screen.getByRole('searchbox', { name: /Search settings/i });
+    for (const query of ['self-improvement', 'enrollment']) {
+      fireEvent.change(searchbox, { target: { value: query } });
+      expect(screen.getByText(`No settings matched "${query}".`)).toBeInTheDocument();
+    }
+  });
+
   it('renders the Provider Hub, not a separate API Keys category', async () => {
     render(
       <ThemeProvider storageAdapter={themeStorageAdapter}>

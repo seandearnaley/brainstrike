@@ -76,10 +76,6 @@
       "types": "./dist/settings/system/notification-settings-category.d.ts",
       "import": "./dist/settings/system/notification-settings-category.js"
     },
-    "./settings/system/self-improvement-signal-settings-category": {
-      "types": "./dist/settings/system/self-improvement-signal-settings-category.d.ts",
-      "import": "./dist/settings/system/self-improvement-signal-settings-category.js"
-    },
     "./settings/system/skills-settings-category": {
       "types": "./dist/settings/system/skills-settings-category.d.ts",
       "import": "./dist/settings/system/skills-settings-category.js"
