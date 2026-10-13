@@ -11,6 +11,7 @@ import {
   type HostResults,
 } from '@brainstrike/agent-host/protocol';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract';
 import richRecording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
@@ -282,7 +283,7 @@ describe('the meter reads the host memory state the next send would admit', () =
             answerFirst = resolve;
           })
       )
-      .mockRejectedValueOnce(new Error('The agent host connection closed'));
+      .mockRejectedValueOnce(new Error('ENOENT /Users/fixture/private/memory.db'));
     const client = memoryClient(request);
     const source = new RowSource();
     const { result } = renderHook(() =>
@@ -292,13 +293,13 @@ describe('the meter reads the host memory state the next send would admit', () =
     await waitFor(() =>
       expect(result.current.omSegment).toEqual({
         kind: 'error',
-        reason: 'The agent host connection closed',
+        reason: INTERNAL_FAULT.message,
       })
     );
     await act(async () => answerFirst(ACTIVE));
     expect(result.current.omSegment).toEqual({
       kind: 'error',
-      reason: 'The agent host connection closed',
+      reason: INTERNAL_FAULT.message,
     });
   });
 });

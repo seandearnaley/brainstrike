@@ -1,3 +1,4 @@
+import { type BoundaryTransport, callBoundary } from './boundary-result.js';
 /**
  * Structural typing + capability resolution for the desktop
  * `window.assistantPersonas` subagent persona discovery bridge (Settings →
@@ -38,8 +39,9 @@ export function resolveAssistantPersonasBridge(): AssistantPersonasBridge | null
   if (typeof window === 'undefined') {
     return null;
   }
-  const bridge = (window as Window & { assistantPersonas?: Partial<AssistantPersonasBridge> })
-    .assistantPersonas;
+  const bridge = (
+    window as Window & { assistantPersonas?: Partial<BoundaryTransport<AssistantPersonasBridge>> }
+  ).assistantPersonas;
   if (!bridge) {
     return null;
   }
@@ -52,5 +54,6 @@ export function resolveAssistantPersonasBridge(): AssistantPersonasBridge | null
     });
     return null;
   }
-  return bridge as AssistantPersonasBridge;
+  const transport = bridge as BoundaryTransport<AssistantPersonasBridge>;
+  return { list: () => callBoundary(() => transport.list()) };
 }

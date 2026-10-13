@@ -13,6 +13,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
+import { refusalError } from '@brainstrike/assistant-contract';
 import { BLOBS_DIR, type BlobContent, sha256Hex } from '@brainstrike/state-store';
 import {
   HOST_EDIT_BASELINE_MAX_BYTES,
@@ -495,7 +496,7 @@ export class HostWorkspaceEdits {
     } else {
       const entry = runEntries.find((candidate) => candidate.entryId === request.entryId);
       if (!entry) {
-        throw new Error('Unknown edit checkpoint for this run');
+        throw refusalError('input', 'checkpoint.unknown', 'Unknown edit checkpoint for this run');
       }
       scope = [entry];
     }
@@ -660,12 +661,20 @@ export async function revertHostRunEdits(
 }> {
   for (const run of owner.runs) {
     if (run.threadId === params.threadId && !run.terminal) {
-      throw new Error('Checkpoint revert is refused while the thread has an active run');
+      throw refusalError(
+        'conflict',
+        'checkpoint.run-active',
+        'Checkpoint revert is refused while the thread has an active run'
+      );
     }
   }
   const resolveWorkspaceRoot = owner.platform.resolveWorkspaceRoot?.bind(owner.platform);
   if (!resolveWorkspaceRoot) {
-    throw new Error('Checkpoint revert requires the live workspace root owner');
+    throw refusalError(
+      'availability',
+      'checkpoint.root-owner-missing',
+      'Checkpoint revert requires the live workspace root owner'
+    );
   }
   const controller = new AbortController();
   owner.pending.set(controller, params.threadId);

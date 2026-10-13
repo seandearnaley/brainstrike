@@ -1,3 +1,5 @@
+import { refusalError } from '@brainstrike/assistant-contract';
+import { commandBoundaryCases } from './command-boundary-cases';
 import '@testing-library/jest-dom/vitest';
 // Must evaluate before anything that loads React DOM: it installs the React
 // DevTools hook and Scheduler MessageChannel timing used by the render-cost suite.
@@ -443,7 +445,7 @@ describe('keyboard approval and errors', () => {
 
   test('a refused decision is announced in its card, which stays pending for an exact retry', async () => {
     const respond = vi.fn(async () => {
-      throw new Error(STALE_INTERACTION);
+      throw refusalError('conflict', 'interaction.stale', STALE_INTERACTION);
     });
     const { approve, card, store, surface } = await mountPendingApproval(respond);
     const committed = store.getSnapshot().repository;
@@ -478,6 +480,21 @@ describe('keyboard approval and errors', () => {
     const alert = await surface.host.findByRole('alert', { name: 'Agent command error' });
     return { alert, onNew, rows, surface };
   }
+
+  test.each(commandBoundaryCases)(
+    'the command alert renders only the public boundary outcome: $visible',
+    async ({ onNew, visible }) => {
+      const { surface } = await mountCompleted({ onNew });
+      await act(async () => {
+        surface.input.focus();
+        await userEvent.keyboard('Continue{Enter}');
+      });
+      const alert = await surface.host.findByRole('alert', { name: 'Agent command error' });
+      expect(alert).toHaveTextContent(visible);
+      expect(alert).not.toHaveTextContent('/Users/');
+      expect(alert).toBeVisible();
+    }
+  );
 
   test('a refused send is announced by name, restores its unsent draft, and is dismissed by keyboard', async () => {
     const { alert, onNew, rows, surface } = await refuseSend();
@@ -674,7 +691,7 @@ describe('refused dispatch and unavailable capabilities', () => {
     const uncaught = captureUncaught();
     const rejection = 'Branch command rejected';
     const setMessages = vi.fn(() => {
-      throw new Error(rejection);
+      throw refusalError('conflict', 'branch.rejected', rejection);
     });
     const { saved, store, surface } = await mountCompleted(
       { onNew: rejectingNew(), setMessages },

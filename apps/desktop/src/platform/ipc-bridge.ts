@@ -6,7 +6,7 @@
  * contextBridge proxies functions and freezes everything else, so an object
  * of generated functions is exactly what `exposeInMainWorld` is for.
  */
-import type { Bridge, Contract, IpcFailure } from './ipc-contract';
+import type { Contract, TransportBridge } from './ipc-contract';
 
 type IpcListener = (event: unknown, payload: unknown) => void;
 
@@ -20,45 +20,10 @@ export interface ContextBridgeLike {
   exposeInMainWorld: (name: string, api: unknown) => void;
 }
 
-function isIpcFailure(value: unknown): value is IpcFailure {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as IpcFailure).category === 'string' &&
-    typeof (value as IpcFailure).code === 'string' &&
-    typeof (value as IpcFailure).message === 'string'
-  );
-}
-
-/**
- * The ONE preload unwrap for `IpcResult` replies: `ok: true` yields the
- * value; `ok: false` becomes a clean Error whose message is
- * `message (category · code)` with `category`/`code` properties (first
- * written for MCP content); any other shape is rejected by name.
- */
-export function unwrapIpcResult<T>(channel: string, reply: unknown): T {
-  if (
-    typeof reply !== 'object' ||
-    reply === null ||
-    typeof (reply as { ok?: unknown }).ok !== 'boolean'
-  ) {
-    throw new Error(`Desktop IPC ${channel} returned a malformed result envelope.`);
-  }
-  const envelope = reply as { ok: boolean; value?: unknown; error?: unknown };
-  if (envelope.ok) {
-    return envelope.value as T;
-  }
-  if (!isIpcFailure(envelope.error)) {
-    throw new Error(`Desktop IPC ${channel} returned a malformed failure envelope.`);
-  }
-  const { category, code, message } = envelope.error;
-  throw Object.assign(new Error(`${message} (${category} · ${code})`), { category, code });
-}
-
 export function createIpcBridge<C extends Contract>(
   ipcRenderer: IpcRendererLike,
   contract: C
-): Bridge<C> {
+): TransportBridge<C> {
   const bridge: Record<string, unknown> = {};
   for (const [key, spec] of Object.entries(contract)) {
     if (spec.kind === 'push') {
@@ -71,13 +36,10 @@ export function createIpcBridge<C extends Contract>(
       };
       continue;
     }
-    bridge[key] =
-      spec.envelope === 'ipc-result'
-        ? async (...args: unknown[]): Promise<unknown> =>
-            unwrapIpcResult(spec.channel, await ipcRenderer.invoke(spec.channel, ...args))
-        : (...args: unknown[]): Promise<unknown> => ipcRenderer.invoke(spec.channel, ...args);
+    bridge[key] = (...args: unknown[]): Promise<unknown> =>
+      ipcRenderer.invoke(spec.channel, ...args);
   }
-  return bridge as Bridge<C>;
+  return bridge as TransportBridge<C>;
 }
 
 export function createBridgeExposer(deps: {

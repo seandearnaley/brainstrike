@@ -42,10 +42,15 @@ describe('resolveWindowFocusBridge', () => {
     expect(records).toEqual([]);
   });
 
-  it('returns the bridge when it has every required method', () => {
-    const bridge = { isFocused: () => Promise.resolve(true), onChange: () => () => undefined };
+  it('decodes focus and preserves the push subscription when it has every required method', async () => {
+    const bridge = {
+      isFocused: () => Promise.resolve({ ok: true as const, value: true }),
+      onChange: () => () => undefined,
+    };
     setBridge(bridge);
-    expect(resolveWindowFocusBridge()).toBe(bridge);
+    const capability = resolveWindowFocusBridge();
+    await expect(capability?.isFocused()).resolves.toBe(true);
+    expect(capability?.onChange).toBe(bridge.onChange);
   });
 
   it.each([

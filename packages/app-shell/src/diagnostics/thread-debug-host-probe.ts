@@ -1,3 +1,7 @@
+import {
+  type BoundaryTransport,
+  callBoundary,
+} from '@brainstrike/assistant-contract/boundary-result';
 /** The two desktop host readers the thread debug pack consumes at build time. */
 export interface ThreadDebugHostProbe {
   readMainLogWindow(request: { readonly since: string; readonly until: string }): Promise<unknown>;
@@ -22,7 +26,11 @@ export function readThreadDebugHostProbe(): ThreadDebugHostProbe | null {
     'readProcessCounters' in candidate &&
     typeof candidate.readProcessCounters === 'function'
   ) {
-    return candidate as ThreadDebugHostProbe;
+    const transport = candidate as BoundaryTransport<ThreadDebugHostProbe>;
+    return {
+      readMainLogWindow: (request) => callBoundary(() => transport.readMainLogWindow(request)),
+      readProcessCounters: () => callBoundary(() => transport.readProcessCounters()),
+    };
   }
   return null;
 }

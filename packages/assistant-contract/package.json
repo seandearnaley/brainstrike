@@ -277,6 +277,14 @@
       "types": "./dist/child-followup.d.ts",
       "import": "./dist/child-followup.js",
       "require": "./dist/child-followup.js"
+    },
+    "./boundary-result": {
+      "types": "./dist/boundary-result.d.ts",
+      "default": "./dist/boundary-result.js"
+    },
+    "./boundary-failure": {
+      "types": "./dist/boundary-failure.d.ts",
+      "default": "./dist/boundary-failure.js"
     }
   },
   "files": [

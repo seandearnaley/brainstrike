@@ -1,4 +1,5 @@
 import {
+  describeBoundaryError,
   describeHookSkip,
   describeRunAttempt,
   providerCallWarningDetail,
@@ -367,7 +368,7 @@ export class CommittedThreadSession {
       (cause: unknown) => {
         if (active) {
           this.update({
-            error: cause instanceof Error ? cause.message : String(cause),
+            error: describeBoundaryError(cause),
             isLoading: false,
           });
         }

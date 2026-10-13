@@ -58,8 +58,10 @@ test('indexes and searches a real folder registered while native ingestion is pa
         async () =>
           await window.evaluate(async () => {
             const capability = (
-              globalThis.window as Window & { indexSearch?: IndexSearchCapability }
-            ).indexSearch;
+              globalThis.window as Window & {
+                __brainstrikeTestHooks__?: { indexSearch?: IndexSearchCapability };
+              }
+            ).__brainstrikeTestHooks__?.indexSearch;
             if (!capability) {
               throw new Error('Native index capability unavailable');
             }

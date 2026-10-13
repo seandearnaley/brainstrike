@@ -14,6 +14,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { DEFAULT_INHERITED_ENV_VARS } from '@modelcontextprotocol/client/stdio';
 import type { TestInfo } from '@playwright/test';
 import { expect, test } from '@playwright/test';
@@ -355,14 +356,18 @@ async function readLifecycleDiagnostics(page: Page): Promise<{ hostPid: number; 
     const bridge = (
       window as unknown as {
         desktopDiagnostics?: {
-          getSnapshot: () => Promise<{ database: unknown; reset: unknown }>;
+          getSnapshot: () => Promise<BoundaryResult<{ database: unknown; reset: unknown }>>;
         };
       }
     ).desktopDiagnostics;
     if (!bridge) {
       throw new Error('Packaged desktop diagnostics bridge is unavailable');
     }
-    const { database, reset } = await bridge.getSnapshot();
+    const response = await bridge.getSnapshot();
+    if (!response.ok) {
+      throw new Error(JSON.stringify(response.error));
+    }
+    const { database, reset } = response.value;
     const hostPid = Reflect.get(database ?? {}, 'hostPid');
     if (!(typeof hostPid === 'number' && Number.isSafeInteger(hostPid) && hostPid > 0)) {
       throw new Error('Packaged desktop database host PID is unavailable');

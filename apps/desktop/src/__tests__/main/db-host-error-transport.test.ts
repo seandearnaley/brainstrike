@@ -112,6 +112,8 @@ describe('DB host error transport', () => {
         where: 'SQL statement "SELECT secret FROM brainstrike_chunks"',
       })
     );
+    // The host keeps its stack in its own log; the wire never carries it.
+    expect(wireError).not.toHaveProperty('stack');
 
     const { createDbHostManager } = await import('../../db-host-manager');
     const { classifyDatabaseCorruption } = await import('../../database-corruption-classifier');

@@ -773,7 +773,6 @@ export function assertEmbeddingHostErrorPayload(
       typeof payload['name'] === 'string' && payload['name'].trim().length > 0
         ? payload['name']
         : 'Error',
-    ...(typeof payload['stack'] === 'string' ? { stack: payload['stack'] } : {}),
     ...(typeof payload['code'] === 'string' ? { code: payload['code'] } : {}),
     ...(typeof payload['cause'] === 'string' ? { cause: payload['cause'] } : {}),
   };

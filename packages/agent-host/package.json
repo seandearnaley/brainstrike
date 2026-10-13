@@ -8,6 +8,7 @@
   "exports": {
     ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
     "./protocol": { "types": "./dist/protocol.d.ts", "default": "./dist/protocol.js" },
+    "./boundary-wire": { "types": "./dist/boundary-wire.d.ts", "default": "./dist/boundary-wire.js" },
     "./hook-trust": { "types": "./dist/hook-trust.d.ts", "default": "./dist/hook-trust.js" },
     "./child-presentation": { "types": "./dist/child-presentation.d.ts", "default": "./dist/child-presentation.js" },
     "./canonical-tool-bindings": {

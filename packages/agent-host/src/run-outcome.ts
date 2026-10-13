@@ -12,6 +12,7 @@ import {
   StreamStalledError,
   ToolCallInputStreamingTimeoutError,
 } from '@brainstrike/agent/provider-runtime';
+import { createLogger } from '@brainstrike/logging';
 import {
   APICallError,
   type FinishReason,
@@ -20,6 +21,8 @@ import {
   type ToolSet,
 } from 'ai';
 import type { HostEvent } from './protocol.js';
+
+const logger = createLogger('AgentHost');
 
 /** Finish reasons that complete a run. Every other reason is a visible failure. */
 const COMPLETED_FINISH_REASONS: ReadonlySet<FinishReason> = new Set(['stop', 'tool-calls']);
@@ -140,6 +143,12 @@ export class HostRunOutcome {
    */
   fail(cause: unknown): void {
     this.cause = cause;
+    logger.error('Assistant model attempt failed', {
+      cause,
+      rootId: this.configuration?.boundWorkspaceRootId,
+      runId: this.configuration?.memory?.runId,
+      threadId: this.configuration?.memory?.threadId,
+    });
     this.failure =
       cause instanceof StreamStalledError
         ? describeStreamStall(cause, {
