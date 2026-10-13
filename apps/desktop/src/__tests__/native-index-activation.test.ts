@@ -149,6 +149,42 @@ it('retries a failed host start once that host has released Root; Main retiremen
   await expect(activation.acquireProfile()).rejects.toThrow('terminal retirement');
 });
 
+it('relaunches a ready host that was lost once its Root release has run (BST-2004)', async () => {
+  const { activation } = fixture();
+  try {
+    await activation.acquireProfile();
+    // The host exits unasked; its platform closes, which releases Root capabilities.
+    mocks.loseHost();
+    await activation.closeRootCapabilities();
+    await expect(activation.acquireProfile()).resolves.toBeUndefined();
+    expect(mocks.createProfileOwner).toHaveBeenCalledTimes(2);
+    expect(mocks.closeProfile).toHaveBeenCalledOnce();
+  } finally {
+    await activation.close();
+  }
+  await expect(activation.acquireProfile()).rejects.toThrow('terminal retirement');
+});
+
+it('joins the lost host Root release before relaunching when a client asks first (BST-2004)', async () => {
+  const { activation } = fixture();
+  try {
+    await activation.acquireProfile();
+    mocks.loseHost();
+    // A client reconnects before the lost host's platform has closed: retiring
+    // that owner closes its platform, which releases Root, before the next host.
+    mocks.closeProfile.mockImplementationOnce(async () => {
+      await activation.closeRootCapabilities();
+    });
+    await expect(activation.acquireProfile()).resolves.toBeUndefined();
+    expect(mocks.createProfileOwner).toHaveBeenCalledTimes(2);
+    expect(mocks.closeProfile.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.createProfileOwner.mock.invocationCallOrder[1] ?? 0
+    );
+  } finally {
+    await activation.close();
+  }
+});
+
 it('keeps Main retirement terminal when a starting host fails and releases Root under it', async () => {
   const { activation } = fixture();
   const starting = Promise.withResolvers<void>();

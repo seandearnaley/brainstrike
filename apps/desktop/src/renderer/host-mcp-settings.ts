@@ -12,7 +12,7 @@ import type { McpToolsCapability } from '@brainstrike/app-shell/mcp-tools-capabi
 import type { McpHostOperationResult, McpTaskBridge } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { McpElicitationBridge } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-capability';
-import { connectDesktopAgentHost } from './agent-host-client';
+import { type DesktopHostConnection, windowHostConnection } from './desktop-host-connection';
 import { unwrapContent } from './mcp-content-outcome';
 
 const logger = createLogger('DesktopHostMcpSettings');
@@ -57,7 +57,7 @@ function hostStream<E>(label: string, open: (dispatch: (event: E) => void) => Pr
     }
   };
   const openOnce = (): void => {
-    if (opening) {
+    if (opening || listeners.size === 0) {
       return;
     }
     const attempt = open(dispatch);
@@ -72,6 +72,11 @@ function hostStream<E>(label: string, open: (dispatch: (event: E) => void) => Pr
   };
   return {
     dispatch,
+    /** BST-2004: a replaced host has none of this window's streams. */
+    reopen: (): void => {
+      opening = undefined;
+      openOnce();
+    },
     subscribe: (listener: (event: E) => void): (() => void) => {
       listeners.add(listener);
       openOnce();
@@ -89,41 +94,32 @@ export function resolveDesktopHostMcpSettings(): DesktopHostMcpSettings | null {
   if (!window.agentHost) {
     return null;
   }
-  windowSettings ??= createDesktopHostMcpSettings(connectDesktopAgentHost);
+  windowSettings ??= createDesktopHostMcpSettings(windowHostConnection());
   return windowSettings;
 }
 
-/** One host client and one subscription per stream for this window; the frame owns them. */
+/** One subscription per stream for this window, on the frame's host connection. */
 export function createDesktopHostMcpSettings(
-  connect: () => Promise<HostClient>
+  connection: DesktopHostConnection
 ): DesktopHostMcpSettings {
-  let connecting: Promise<HostClient> | undefined;
-  const client = (): Promise<HostClient> => {
-    if (!connecting) {
-      const attempt = connect().then((host) => {
-        host.onMcpSettings(settings.dispatch);
-        host.onMcpPresentation(presentation.dispatch);
-        return host;
-      });
-      connecting = attempt;
-      attempt.catch(() => {
-        if (connecting === attempt) {
-          connecting = undefined;
-        }
-      });
-      window.addEventListener(
-        'beforeunload',
-        () => {
-          void attempt.then(
-            (host) => host.close(),
-            () => undefined
-          );
-        },
-        { once: true }
-      );
+  let attached: HostClient | undefined;
+  const client = async (): Promise<HostClient> => {
+    const host = await connection.current();
+    if (host !== attached) {
+      attached = host;
+      host.onMcpSettings(settings.dispatch);
+      host.onMcpPresentation(presentation.dispatch);
     }
-    return connecting;
+    return host;
   };
+  // BST-2004: a replaced host reopens the streams this window follows.
+  connection.subscribe(() => {
+    const state = connection.getSnapshot();
+    if (state.kind === 'connected' && attached !== undefined && state.client !== attached) {
+      settings.reopen();
+      presentation.reopen();
+    }
+  });
   const settings = hostStream<McpSettingsEvent>('MCP settings', async (dispatch) => {
     const { status } = await (await client()).request('mcp/settings/subscribe', {});
     // A status revision the stream started after reaches the listeners that

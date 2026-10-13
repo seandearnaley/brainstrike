@@ -55,6 +55,11 @@ export interface DesktopHostLeaseOptions {
   /** The owned utility is forked and its lifetime/platform ports are transferred. */
   readonly onChildStarted?: () => void;
   /**
+   * BST-2004: the ready child exited without this owner asking (a crash, a kill
+   * or a clean exit of its own). Never called for a close this owner requested.
+   */
+  readonly onLost?: (code: number) => void;
+  /**
    * Created only when this desktop actually owns a new Root child. Its platform connection
    * feeds `nativeChildren`, through which Main supervises that host's native processes.
    */
@@ -89,10 +94,12 @@ interface OwnedChild {
   readonly exited: Promise<number>;
   readonly exitListener: (code: number) => void;
   readonly handle: HostLeaseUtilityProcess;
+  /** It exited before this owner asked it to close. */
+  lost: boolean;
   ready: boolean;
 }
 /** `lost` runs when the child exits before this owner asked it to close. */
-function ownChild(handle: HostLeaseUtilityProcess, lost: () => void): OwnedChild {
+function ownChild(handle: HostLeaseUtilityProcess, lost: (code: number) => void): OwnedChild {
   const completion = Promise.withResolvers<number>();
   const child: OwnedChild = {
     closing: false,
@@ -102,10 +109,12 @@ function ownChild(handle: HostLeaseUtilityProcess, lost: () => void): OwnedChild
       child.exitCode = code;
       completion.resolve(code);
       if (!child.closing) {
-        lost();
+        child.lost = true;
+        lost(code);
       }
     },
     handle,
+    lost: false,
     ready: false,
   };
   handle.once('exit', child.exitListener);
@@ -164,7 +173,8 @@ async function closeChild(child: OwnedChild): Promise<void> {
   }
   const code = await child.exited;
   child.handle.off('exit', child.exitListener);
-  if (child.ready && code !== 0) {
+  // A lost host's exit was reported when it happened; it is not a failed close.
+  if (child.ready && code !== 0 && !child.lost) {
     throw new Error(`Owned host utility exited with code ${code}`);
   }
 }
@@ -265,8 +275,14 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
                 ? []
                 : ['--platform-options', JSON.stringify(platformOptions)]),
             ]),
-            // A lost host leaves its native processes to Main (ADR-0017).
-            () => nativeChildren?.retire()
+            (code) => {
+              // A lost host leaves its native processes to Main (ADR-0017).
+              nativeChildren?.retire();
+              // A child lost before ready fails its acquisition instead.
+              if (child.ready) {
+                options.onLost?.(code);
+              }
+            }
           );
           // Electron's utilityProcess has no pid until its spawn event.
           child.handle.once('spawn', () => {
