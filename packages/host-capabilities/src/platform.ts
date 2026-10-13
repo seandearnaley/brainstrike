@@ -33,6 +33,7 @@ import {
   findProviderDefinition,
   isSupportedProvider,
   NATIVE_TOOL_ID,
+  refusalError,
 } from '@brainstrike/assistant-contract';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import type { HostStartOptions } from '@brainstrike/host-lease';
@@ -92,17 +93,30 @@ function selection(modelId: string) {
   const provider = modelId.slice(0, separator);
   const model = modelId.slice(separator + 2);
   if (separator < 1 || !model || !isSupportedProvider(provider)) {
-    throw new Error('Standalone --model requires an explicit canonical provider::model');
+    throw refusalError(
+      'configuration',
+      'model.selection-invalid',
+      'Standalone --model requires an explicit canonical provider::model',
+      'Choose a supported provider and model from the canonical catalog.'
+    );
   }
   const source = findProviderDefinition(provider);
   if (source?.runtime === 'browser' || source?.runtime === 'local') {
-    throw new Error(
-      'The selected provider requires an unavailable headless local-runtime capability'
+    throw refusalError(
+      'availability',
+      'model.runtime-unavailable',
+      'The selected provider requires an unavailable headless local-runtime capability',
+      'Use the desktop host for local inference, or select a hosted model.'
     );
   }
   const definition = findLlmModelDefinition(provider, model);
   if (!definition) {
-    throw new Error('The selected model has no canonical runtime catalog definition');
+    throw refusalError(
+      'configuration',
+      'model.catalog-unavailable',
+      'The selected model has no canonical runtime catalog definition',
+      'Choose a model from the canonical catalog.'
+    );
   }
   return { definition, model, provider };
 }
@@ -222,8 +236,11 @@ export async function createHostPlatform(
     readConfiguration: async (request): Promise<ProductionHostRunConfiguration> => {
       request.signal.throwIfAborted();
       if (readCliWorkspaceRunInput(request.configuration)) {
-        throw new Error(
-          `[${STANDALONE_WORKSPACE_CAPABILITY_ERROR}] Standalone workspace input requires the existing profile/catalog and pinned workspace service capabilities`
+        throw refusalError(
+          'availability',
+          'workspace.capabilities-unavailable',
+          `[${STANDALONE_WORKSPACE_CAPABILITY_ERROR}] Standalone workspace input requires the existing profile/catalog and pinned workspace service capabilities`,
+          'Attach to the desktop host that owns the selected workspace.'
         );
       }
       const catalog = selection(request.modelId);
@@ -266,8 +283,11 @@ export async function createHostPlatform(
         throw new Error('Captured run has no compatible standalone platform capabilities');
       }
       if (captured !== undefined && !isDeepStrictEqual(captured, intent)) {
-        throw new Error(
-          'Captured run intent requires capabilities unavailable on this standalone host'
+        throw refusalError(
+          'configuration',
+          'run.capabilities-unavailable',
+          'Captured run intent requires capabilities unavailable on this standalone host',
+          'Start a new run using this host’s supported capabilities.'
         );
       }
       if (

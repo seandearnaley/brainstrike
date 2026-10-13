@@ -160,6 +160,7 @@ test('cold production bin refuses workspace admission before credentials or HTTP
   ]);
   expect(result.code).toBe(1);
   expect(result.stderr).toContain(STANDALONE_WORKSPACE_CAPABILITY_ERROR);
+  expect(result.stderr).toContain('Attach to the desktop host');
   await expect.poll(() => RootLock.inspect(root)?.owner.released).toBe(true);
   const rows = await receipts(root);
   expect(rows.filter((row) => row.isMainThread)).toHaveLength(2);
