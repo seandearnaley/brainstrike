@@ -1,13 +1,13 @@
 /** BST-1927 / ADR-0014: an expired stored item requires an explicit user decision. */
 export class OpenAIStoredItemExpiredError extends Error {
+  static readonly publicMessage =
+    'An OpenAI stored item has expired. Confirm replaying the conversation before continuing.';
+
   readonly code = 'openai_stored_item_expired';
   readonly retryable = false;
 
   constructor(cause: unknown) {
-    super(
-      'An OpenAI stored item has expired. Confirm replaying the conversation before continuing.',
-      { cause }
-    );
+    super(OpenAIStoredItemExpiredError.publicMessage, { cause });
     this.name = 'OpenAIStoredItemExpiredError';
   }
 }

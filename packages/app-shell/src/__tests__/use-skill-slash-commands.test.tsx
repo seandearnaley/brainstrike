@@ -1,3 +1,4 @@
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 /**
  * Skill slash-command hook tests: capability gating by bridge presence,
  * user-invocable + enabled filtering (skills preferences store), and the
@@ -29,7 +30,7 @@ import { useAssistantComposerCommandStore } from '../assistant-composer-command-
 import { useSkillSlashCommands } from '../use-skill-slash-commands';
 
 interface MutableWindow {
-  skills?: { scan?: () => Promise<SkillsScanResultSummary> } | undefined;
+  skills?: { scan?: () => Promise<BoundaryResult<SkillsScanResultSummary>> } | undefined;
 }
 
 function asMutableWindow(): MutableWindow {
@@ -37,7 +38,9 @@ function asMutableWindow(): MutableWindow {
 }
 
 function setBridge(result: SkillsScanResultSummary | null): void {
-  asMutableWindow().skills = result ? { scan: () => Promise.resolve(result) } : undefined;
+  asMutableWindow().skills = result
+    ? { scan: () => Promise.resolve({ ok: true, value: result }) }
+    : undefined;
 }
 
 function okEntry(

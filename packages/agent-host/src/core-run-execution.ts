@@ -586,7 +586,7 @@ async function runHostSdkAttempt(
       // SDK errors also carry requests, responses and retry graphs: none is a
       // public transcript. Reuse the terminal projection before durable publication.
       const publicChunk =
-        chunk.type === 'error' ? { error: outcome.detail(), type: chunk.type } : chunk;
+        chunk.type === 'error' ? { error: outcome.publicError(), type: chunk.type } : chunk;
       await ports.append(run.threadId, [
         { chunk: jsonValue(publicChunk), runId: run.id, type: 'stream.chunk' },
       ]);

@@ -309,6 +309,8 @@ failure log. Before publishing a durable `stream.chunk` error it substitutes tha
 owner's already-resolved public detail, the same bounded, scrubbed projection used
 by `run.finished`. SDK request/response bodies and retry graphs never enter the
 public error chunk; live and reopened views consume the same stored projection.
+The existing expired-OpenAI-item decision retains only its stable code,
+non-retryable flag and fixed confirmation instruction alongside that projection.
 
 - Classify every provider/model error at the single stream-mapper choke point. No
   provider-specific fetch wrapper or retry-attempt instrumentation participates.

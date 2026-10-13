@@ -2,6 +2,8 @@ import {
   __resetWorkspaceInstructionsPreferencesStoreForTests,
   useWorkspaceInstructionsPreferencesStore,
 } from '@brainstrike/app-state/stores/workspace-instructions-preferences-store';
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { WorkspaceContextFileStatus } from '@brainstrike/assistant-contract/context-files-bridge';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,7 +15,7 @@ const { WorkspaceInstructionsSettingsSection } = await import(
 function stubBridge(statuses: WorkspaceContextFileStatus[]) {
   Object.defineProperty(window, 'contextFiles', {
     configurable: true,
-    value: { scan: vi.fn(async () => statuses) },
+    value: { scan: vi.fn(async () => ({ ok: true, value: statuses })) },
   });
 }
 
@@ -133,20 +135,23 @@ describe('WorkspaceInstructionsSettingsSection', () => {
 
   it('rescans on demand so a mid-session root change can be refreshed', async () => {
     const scan = vi
-      .fn<() => Promise<WorkspaceContextFileStatus[]>>()
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        {
-          approxTokens: 300,
-          displayName: 'repo-late',
-          fileName: 'AGENTS.md',
-          oversized: false,
-          path: 'AGENTS.md',
-          rootId: 'root-late',
-          sizeBytes: 1200,
-          status: 'fits',
-        },
-      ]);
+      .fn<() => Promise<BoundaryResult<WorkspaceContextFileStatus[]>>>()
+      .mockResolvedValueOnce({ ok: true, value: [] })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: [
+          {
+            approxTokens: 300,
+            displayName: 'repo-late',
+            fileName: 'AGENTS.md',
+            oversized: false,
+            path: 'AGENTS.md',
+            rootId: 'root-late',
+            sizeBytes: 1200,
+            status: 'fits',
+          },
+        ],
+      });
     Object.defineProperty(window, 'contextFiles', {
       configurable: true,
       value: { scan },
@@ -180,16 +185,17 @@ describe('WorkspaceInstructionsSettingsSection', () => {
       expect(screen.getByTestId('context-files-scan-error')).not.toBeNull();
     });
     const errorBanner = screen.getByTestId('context-files-scan-error');
-    expect(errorBanner.textContent).toContain('database unavailable');
+    expect(errorBanner.textContent).toContain(INTERNAL_FAULT.message);
+    expect(errorBanner.textContent).not.toContain('database unavailable');
     // The failure must NOT masquerade as "no folders open".
     expect(screen.queryByTestId('context-files-no-roots')).toBeNull();
   });
 
   it('retries the scan and clears the error on success', async () => {
     const scan = vi
-      .fn<() => Promise<WorkspaceContextFileStatus[]>>()
+      .fn<() => Promise<BoundaryResult<WorkspaceContextFileStatus[]>>>()
       .mockRejectedValueOnce(new Error('transient failure'))
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce({ ok: true, value: [] });
     Object.defineProperty(window, 'contextFiles', {
       configurable: true,
       value: { scan },

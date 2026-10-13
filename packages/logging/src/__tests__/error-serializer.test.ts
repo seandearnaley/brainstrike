@@ -307,6 +307,39 @@ describe('the redactor and the serializer agree about what an Error is', () => {
     return records[0]?.args.at(-1) as Record<string, unknown>;
   }
 
+  it.each([false, true])(
+    'retains and redacts aggregate causes through public logging (crossRealm=%s)',
+    (crossRealm) => {
+      const first = Object.assign(new Error('acquisition aborted'), { token: 'secret-token' });
+      const second = Object.assign(new Error('cleanup failed'), {
+        details: { password: 'secret-password', phase: 'release' },
+      });
+      const aggregate = crossRealm
+        ? (runInNewContext('new AggregateError(errors, "both failed")', {
+            errors: [first, second],
+          }) as Error)
+        : new AggregateError([first, second], 'both failed');
+      Object.freeze(aggregate);
+      const logged = logThroughPublicApi({ error: aggregate });
+      const expected = [
+        { message: first.message, name: first.name, stack: first.stack, token: '[REDACTED]' },
+        {
+          details: { password: '[REDACTED]', phase: 'release' },
+          message: second.message,
+          name: second.name,
+          stack: second.stack,
+        },
+      ];
+      expect((logged['error'] as Record<string, unknown>)['errors']).toEqual(expected);
+      const serialized = captureLogRecord(logged)['error'] as Record<string, unknown>;
+      expect(serialized['aggregateErrors']).toEqual(
+        expected.map((error) => ({ ...error, type: 'Object' }))
+      );
+      expect(first.token).toBe('secret-token');
+      expect(second.details.password).toBe('secret-password');
+    }
+  );
+
   it('keeps a cross-realm Error intact through redaction', () => {
     const crossRealm = runInNewContext('new Error("cross realm boom")') as Error;
     expect(crossRealm instanceof Error).toBe(false);

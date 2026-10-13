@@ -7,6 +7,7 @@ import {
   LOCAL_RUN_ERROR_FALLBACK_CODE,
   PROVIDER_RUN_ERROR_FALLBACK_CODE,
 } from '../../provider-error-metadata';
+import { OpenAIStoredItemExpiredError } from '../../providers/openai-expired-item';
 import type { RuntimeData, StreamChunkTool } from '../../types';
 import {
   asMastraStreamPart,
@@ -46,6 +47,16 @@ function deepFreeze<T>(value: T): T {
   }
   return value;
 }
+
+it('keeps the explicit replay decision for a classified expired OpenAI item', () => {
+  const original = new Error('private provider payload with sk-synthetic-only');
+  const error = new OpenAIStoredItemExpiredError(original);
+  const resolved = resolveProviderError(error, undefined);
+  expect(resolved.failure).toMatchObject({ category: 'configuration', kind: 'refusal' });
+  expect(resolved.detail).toBe(error.message);
+  expect(resolved.detail).not.toContain(original.message);
+  expect(error.cause).toBe(original);
+});
 
 describe('asMastraStreamPart', () => {
   it('passes objects through untouched', () => {

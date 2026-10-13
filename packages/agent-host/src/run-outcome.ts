@@ -1,4 +1,7 @@
-import { ProviderRequestContextOverflowError } from '@brainstrike/agent/provider-request';
+import {
+  OpenAIStoredItemExpiredError,
+  ProviderRequestContextOverflowError,
+} from '@brainstrike/agent/provider-request';
 import {
   describeEmptyModelResponse,
   describeStreamStall,
@@ -159,6 +162,18 @@ export class HostRunOutcome {
         : cause instanceof ToolCallInputStreamingTimeoutError
           ? describeToolCallInputTimeout(cause)
           : resolveProviderError(cause, this.configuration).detail;
+  }
+
+  /** Preserve the existing replay decision without publishing its private SDK cause. */
+  publicError(): string | { code: string; message: string; retryable: false } | undefined {
+    if (this.cause instanceof OpenAIStoredItemExpiredError) {
+      return {
+        code: this.cause.code,
+        message: OpenAIStoredItemExpiredError.publicMessage,
+        retryable: this.cause.retryable,
+      };
+    }
+    return this.detail();
   }
 
   /** The attempt ended because a watchdog found the stream stalled. */

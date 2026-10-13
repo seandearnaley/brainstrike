@@ -35,6 +35,7 @@ import {
   PROVIDER_RUN_ERROR_FALLBACK_CODE,
   type ProviderRunError,
 } from '../provider-error-metadata';
+import { OpenAIStoredItemExpiredError } from '../providers/openai-expired-item';
 import type { AssistantRunEventJson, AssistantRunEventMetadata } from '../run-events';
 import { sanitizeAssistantRunEventMetadata } from '../run-events';
 import type { RuntimeData, StreamChunkTool, StreamFinishReason } from '../types';
@@ -614,6 +615,14 @@ export function resolveProviderError(
   const runError = extractProviderRunError(value);
   if (value instanceof BoundaryFailureError) {
     return { detail: describeBoundaryFailure(value.failure), failure: value.failure, runError };
+  }
+  if (value instanceof OpenAIStoredItemExpiredError) {
+    const failure = refusal({
+      category: 'configuration',
+      code: 'provider.request-rejected',
+      message: OpenAIStoredItemExpiredError.publicMessage,
+    });
+    return { detail: describeBoundaryFailure(failure), failure, runError };
   }
   if (isLocalRunErrorClassification(runError.code)) {
     return { detail: INTERNAL_FAULT.message, failure: INTERNAL_FAULT, runError };
