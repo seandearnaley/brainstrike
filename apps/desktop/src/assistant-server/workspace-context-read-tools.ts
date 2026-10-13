@@ -186,11 +186,61 @@ interface ListWorkspaceContextToolResult {
   workspaceRoots: readonly RuntimeWorkspaceRoot[];
 }
 
+/**
+ * BST-1990: the checked files by where they come from. Files in the thread's
+ * folders are the selection; the rest are counted, with a note when the run
+ * may read some of them as attached content. Without a curated selection, the
+ * selection paths and their count of files in other roots.
+ */
+function placeListedCheckedFiles(
+  runtimeData: RuntimeData | undefined,
+  workspaceRoots: readonly RuntimeWorkspaceRoot[],
+  checkedFiles: CheckedFileAccess | undefined
+): { attachedNote?: string; outside: number; selected: string[] } {
+  const files = getRuntimeWorkspaceContextFiles(runtimeData);
+  if (files.length === 0) {
+    return {
+      outside: runtimeData?.selectionFilePathsFromOtherRoots ?? 0,
+      selected: normalizeRuntimeSelectionFilePaths(runtimeData),
+    };
+  }
+  const threadRootIds = new Set(workspaceRoots.map((root) => root.rootId));
+  const attachedRootIds = new Set(checkedFiles?.attachedRootIds ?? []);
+  const labelRoot =
+    new Set(files.map((file) => file.rootId).filter((id) => id && threadRootIds.has(id))).size > 1;
+  const selected: string[] = [];
+  let attached = 0;
+  let outside = 0;
+  for (const file of files) {
+    const { rootId } = file;
+    if (rootId !== undefined && threadRootIds.has(rootId)) {
+      const filePath = normalizeWorkspacePath(file.path);
+      const root = workspaceRoots.find((candidate) => candidate.rootId === rootId);
+      selected.push(labelRoot && root ? `${root.displayName}:${filePath}` : filePath);
+      continue;
+    }
+    outside += 1;
+    if (rootId !== undefined && attachedRootIds.has(rootId)) {
+      attached += 1;
+    }
+  }
+  if (attached === 0) {
+    return { outside, selected };
+  }
+  const one = attached === 1;
+  return {
+    attachedNote: `${attached} checked file${one ? ' is' : 's are'} from workspace folders that are not one of this thread's folders; readWorkspaceContext attaches ${one ? 'it' : 'them'} for this run only.`,
+    outside,
+    selected,
+  };
+}
+
 export function runListWorkspaceContext(
   input: ListWorkspaceContextInput,
   runtimeData: RuntimeData | undefined,
   /** The native index's status summary, read by the caller. */
-  workspaceIndex: WorkspaceIndexSummary
+  workspaceIndex: WorkspaceIndexSummary,
+  checkedFiles?: CheckedFileAccess
 ): ListWorkspaceContextToolResult {
   const workspaceRoots = getWorkspaceRoots(runtimeData);
   const resolvedWorkspaceRoots = runtimeData?.workspaceRoots;
@@ -227,7 +277,11 @@ export function runListWorkspaceContext(
   // DB created_at order as fallback — see orderWorkspaceRoots). Identical to
   // the legacy resolveWorkspaceRootPath value in the single-root case.
   const workspaceRootPath = workspaceRoots[0]?.path ?? '';
-  const selectedFiles = normalizeRuntimeSelectionFilePaths(runtimeData);
+  const {
+    attachedNote,
+    outside: outsideWorkspaceCount,
+    selected: selectedFiles,
+  } = placeListedCheckedFiles(runtimeData, workspaceRoots, checkedFiles);
   const curatedContext = getRuntimeWorkspaceContext(runtimeData);
   const curatedFilesByPath = new Map(
     getRuntimeWorkspaceContextFiles(runtimeData).map((file) => [
@@ -237,8 +291,6 @@ export function runListWorkspaceContext(
   );
   const detail = input.detail ?? false;
   const offset = input.offset ?? 0;
-  // Multi-root forest: count of selected files outside this workspace root.
-  const outsideWorkspaceCount = runtimeData?.selectionFilePathsFromOtherRoots ?? 0;
   const pagedFiles = selectedFiles.slice(offset);
 
   // Large selections can hold thousands of paths; bound the listing (and its
@@ -246,10 +298,11 @@ export function runListWorkspaceContext(
   // built inside the fitted candidate.
   const { result } = fitItemsToCharBudget(pagedFiles, (files): ListWorkspaceContextToolResult => {
     const truncated = offset + files.length < selectedFiles.length;
-    const hint = truncated
+    const pageHint = truncated
       ? `Showing selected files ${offset + 1}-${offset + files.length} of ${selectedFiles.length}. ` +
         `Continue with offset: ${offset + files.length}.`
       : undefined;
+    const hint = [pageHint, attachedNote].filter(Boolean).join(' ') || undefined;
     return {
       offset,
       selectedFileCount: selectedFiles.length,
@@ -288,8 +341,14 @@ interface WorkspaceContextFileResult {
   content: string;
   endLine: number;
   omittedChars: number;
+  /** BST-1990: a checked file from a workspace folder that is not one of this thread's. */
+  outsideThread?: true;
   path: string;
+  /** The file's folder, when the checked files span folders or come from outside the thread. */
+  rootName?: string;
   size: number;
+  /** Where an attached file comes from, for the model. */
+  source?: string;
   startLine: number;
   tapestryRangeCount?: number;
   tapestryRanges?: Array<{
@@ -307,6 +366,7 @@ interface WorkspaceContextSkippedFile {
   path: string;
   reason:
     | 'binary'
+    | 'folderUnavailable'
     | 'maxFiles'
     | 'missing'
     | 'notFile'
@@ -456,8 +516,11 @@ interface WorkspaceContextResolvedFile {
   content: string;
   endLine: number;
   omittedChars: number;
+  outsideThread?: true;
   path: string;
+  rootName?: string;
   size: number;
+  source?: string;
   startLine: number;
   tapestryRangeCount?: number;
   tapestryRanges?: WorkspaceContextFileResult['tapestryRanges'];
@@ -578,6 +641,15 @@ function toWorkspaceContextFileResult(
   if (file.tapestryRanges !== undefined) {
     fileResult.tapestryRanges = file.tapestryRanges;
   }
+  if (file.rootName !== undefined) {
+    fileResult.rootName = file.rootName;
+  }
+  if (file.outsideThread) {
+    fileResult.outsideThread = true;
+  }
+  if (file.source !== undefined) {
+    fileResult.source = file.source;
+  }
   return fileResult;
 }
 
@@ -610,9 +682,182 @@ function appendWorkspaceContextBatch(args: {
   return nextTotalApproxTokens;
 }
 
+/**
+ * BST-1990: what a run may read of the checked files outside its thread. The
+ * run may read exactly the checked files of `attachedRootIds`, each only while
+ * its folder is still one of the workspace's live folders.
+ */
+export interface CheckedFileAccess {
+  readonly attachedRootIds: readonly string[];
+  readonly liveRoots: () => Promise<readonly RuntimeWorkspaceRoot[]>;
+}
+
+/** One checked file the run may read, with the folder it is read from. */
+interface CheckedSource {
+  readonly outsideThread: boolean;
+  readonly path: string;
+  readonly ranges: RuntimeWorkspaceContextRangeMetadata[];
+  readonly root: RuntimeWorkspaceRoot;
+}
+
+function checkedRanges(
+  file: RuntimeWorkspaceContextFileMetadata
+): RuntimeWorkspaceContextRangeMetadata[] {
+  return Array.from(file.ranges ?? [])
+    .map((range) => normalizeWorkspaceContextRange(range))
+    .filter((range): range is RuntimeWorkspaceContextRangeMetadata => range !== null);
+}
+
+/** Where an attached file comes from, as the model reads it. */
+function outsideThreadSource(rootName: string): string {
+  return `from ${rootName}, not one of this thread's folders; attached for this run only`;
+}
+
+/**
+ * The checked files by the folder each is read from: a thread folder, or a live
+ * workspace folder outside the thread this run may read. A file whose folder is
+ * neither is reported, never read.
+ */
+async function resolveCheckedSources(
+  runtimeData: RuntimeData | undefined,
+  access: CheckedFileAccess | undefined
+): Promise<{ sources: CheckedSource[]; skipped: WorkspaceContextSkippedFile[] }> {
+  const threadRoots = getWorkspaceRoots(runtimeData);
+  const attached = new Set(access?.attachedRootIds ?? []);
+  const live = access && attached.size > 0 ? await access.liveRoots() : [];
+  const sources: CheckedSource[] = [];
+  const skipped: WorkspaceContextSkippedFile[] = [];
+  for (const file of getRuntimeWorkspaceContextFiles(runtimeData)) {
+    const filePath = normalizeWorkspacePath(file.path);
+    const { rootId } = file;
+    const inThread = threadRoots.find((root) => root.rootId === rootId);
+    const outside =
+      inThread || rootId === undefined || !attached.has(rootId)
+        ? undefined
+        : live.find((root) => root.rootId === rootId);
+    const root = inThread ?? outside;
+    if (!root) {
+      skipped.push({
+        message:
+          rootId === undefined
+            ? 'The checked file names no folder.'
+            : `Its folder${file.rootDisplayName ? ` "${file.rootDisplayName}"` : ''} is not a folder in the workspace now.`,
+        path: filePath,
+        reason: 'folderUnavailable',
+      });
+      continue;
+    }
+    sources.push({ outsideThread: !inThread, path: filePath, ranges: checkedRanges(file), root });
+  }
+  return { skipped, sources };
+}
+
+async function readCheckedSource(
+  source: CheckedSource,
+  options: {
+    readonly labelRoot: boolean;
+    readonly maxCharsPerFile: number;
+    readonly useRanges: boolean;
+  }
+): Promise<WorkspaceContextBatchReadResult> {
+  const { labelRoot, maxCharsPerFile, useRanges } = options;
+  try {
+    const file = await readWorkspaceContextFile({
+      maxCharsPerFile,
+      requestedPath: source.path,
+      root: source.root,
+      tapestryRanges: useRanges && source.ranges.length > 0 ? source.ranges : undefined,
+    });
+    return {
+      file: {
+        ...file,
+        ...(source.outsideThread
+          ? {
+              outsideThread: true as const,
+              rootName: source.root.displayName,
+              source: outsideThreadSource(source.root.displayName),
+            }
+          : labelRoot
+            ? { rootName: source.root.displayName }
+            : {}),
+      },
+      requestedPath: source.path,
+      status: 'fulfilled',
+    };
+  } catch (error) {
+    return { error, requestedPath: source.path, status: 'rejected' };
+  }
+}
+
+/**
+ * readWorkspaceContext's default read (BST-1990): every checked file, from every
+ * thread folder whichever is focused, and from live workspace folders outside
+ * the thread as attached content. The thread's folders are unchanged.
+ */
+async function readCheckedFiles(
+  input: ReadWorkspaceContextInput,
+  runtimeData: RuntimeData | undefined,
+  access: CheckedFileAccess | undefined
+) {
+  // The thread's operating folder names the result, as the focused read names its folder.
+  const [operating] = getWorkspaceRoots(runtimeData);
+  if (!operating) {
+    throw new ToolInputError(
+      'No folder is open in the workspace. Add a folder in the left file tree first.'
+    );
+  }
+  const { skipped, sources } = await resolveCheckedSources(runtimeData, access);
+  const tokenBudget = input.tokenBudget ?? DEFAULT_CONTEXT_TOKEN_BUDGET;
+  const maxFiles = input.maxFiles ?? DEFAULT_CONTEXT_MAX_FILES;
+  const readOptions = {
+    labelRoot: new Set(sources.map((source) => source.root.rootId)).size > 1,
+    maxCharsPerFile: input.maxCharsPerFile ?? DEFAULT_CONTEXT_MAX_CHARS_PER_FILE,
+    useRanges: input.useTapestrySelections !== false,
+  };
+  const files: WorkspaceContextFileResult[] = [];
+  const skippedFiles: WorkspaceContextSkippedFile[] = [...skipped];
+  let totalApproxTokens = 0;
+  let cursor = 0;
+  while (cursor < sources.length && files.length < maxFiles) {
+    const batchSize = Math.min(
+      READ_WORKSPACE_CONTEXT_BATCH_SIZE,
+      maxFiles - files.length,
+      sources.length - cursor
+    );
+    const batch = sources.slice(cursor, cursor + batchSize);
+    cursor += batchSize;
+    totalApproxTokens = appendWorkspaceContextBatch({
+      batchResults: await Promise.all(
+        batch.map((source) => readCheckedSource(source, readOptions))
+      ),
+      files,
+      skippedFiles,
+      tokenBudget,
+      totalApproxTokens,
+    });
+  }
+  for (const source of sources.slice(cursor)) {
+    skippedFiles.push({ path: source.path, reason: 'maxFiles' });
+  }
+  return {
+    files,
+    includedCount: files.length,
+    requestedCount: sources.length + skipped.length,
+    rootId: operating.rootId,
+    rootName: operating.displayName,
+    skippedCount: skippedFiles.length,
+    skippedFiles,
+    tokenBudget,
+    totalApproxTokens,
+    truncated: files.some((file) => file.truncated) || skippedFiles.length > 0,
+    workspaceRootPath: operating.path,
+  };
+}
+
 export async function runReadWorkspaceContext(
   input: ReadWorkspaceContextInput,
-  runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  access?: CheckedFileAccess
 ): Promise<{
   workspaceRootPath: string;
   rootId: string;
@@ -626,6 +871,13 @@ export async function runReadWorkspaceContext(
   files: WorkspaceContextFileResult[];
   skippedFiles: WorkspaceContextSkippedFile[];
 }> {
+  if (
+    input.root === undefined &&
+    input.filePaths === undefined &&
+    getRuntimeWorkspaceContextFiles(runtimeData).length > 0
+  ) {
+    return await readCheckedFiles(input, runtimeData, access);
+  }
   const root =
     input.root === undefined && input.filePaths === undefined
       ? resolveFocusedWorkspaceRoot(runtimeData)

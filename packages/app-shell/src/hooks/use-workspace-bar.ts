@@ -28,6 +28,7 @@ import { stripIpcInvokeEnvelope } from '../workspace-connect/workspace-connect-b
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
 import { useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
+import { useThreadFolderScope } from './use-thread-folder-scope';
 import type { ThreadCheckoutFolders, ThreadCheckoutWrite } from './use-thread-folders-write';
 import {
   useDuplicatePathNotice,
@@ -879,6 +880,13 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     },
     [database, enqueueThreadFoldersWrite, selectedMemoryThreadId]
   );
+  useThreadFolderScope({
+    bindingRootId,
+    foldersPending,
+    recordAddedAsSecondary,
+    secondaryRootIds,
+    threadId: selectedMemoryThreadId,
+  });
 
   const addRootDirectory = fileSystem.addRootDirectory;
   const onAddFolder = useCallback(() => {

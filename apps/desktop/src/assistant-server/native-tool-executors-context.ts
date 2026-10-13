@@ -18,7 +18,11 @@ import {
   type ToolExecuteInput,
 } from '@brainstrike/host-capabilities/native-tools';
 import { projectListWorkspaceContextModelOutput } from './workspace-context-model-projection';
-import { runListWorkspaceContext, runReadWorkspaceContext } from './workspace-context-read-tools';
+import {
+  type CheckedFileAccess,
+  runListWorkspaceContext,
+  runReadWorkspaceContext,
+} from './workspace-context-read-tools';
 import {
   runUpdateWorkspaceContextSelection,
   runUpdateWorkspaceTapestrySelections,
@@ -32,8 +36,15 @@ export const CONTEXT_READ_TOOL_IDS = [
   NATIVE_TOOL_ID.readWorkspaceContext,
 ] as const;
 
-/** The curated-context reads; the listing reports the native index status `readWorkspaceIndex` returns. */
-export function contextReadExecutors(readWorkspaceIndex: () => Promise<WorkspaceIndexSummary>): {
+/**
+ * The curated-context reads; the listing reports the native index status
+ * `readWorkspaceIndex` returns. `checkedFiles` is what the run may read of the
+ * checked files outside its thread (BST-1990).
+ */
+export function contextReadExecutors(
+  readWorkspaceIndex: () => Promise<WorkspaceIndexSummary>,
+  checkedFiles?: CheckedFileAccess
+): {
   readonly [NATIVE_TOOL_ID.listWorkspaceContext]: NativeToolExecutor;
   readonly [NATIVE_TOOL_ID.readWorkspaceContext]: NativeToolExecutor;
 } {
@@ -46,7 +57,12 @@ export function contextReadExecutors(readWorkspaceIndex: () => Promise<Workspace
           input
         );
         try {
-          return runListWorkspaceContext(resolvedInput, runtimeData, await readWorkspaceIndex());
+          return runListWorkspaceContext(
+            resolvedInput,
+            runtimeData,
+            await readWorkspaceIndex(),
+            checkedFiles
+          );
         } catch (error) {
           logToolFailure('listWorkspaceContext failed', error, resolvedInput);
           throw error;
@@ -65,7 +81,7 @@ export function contextReadExecutors(readWorkspaceIndex: () => Promise<Workspace
           input
         );
         try {
-          return await runReadWorkspaceContext(resolvedInput, runtimeData);
+          return await runReadWorkspaceContext(resolvedInput, runtimeData, checkedFiles);
         } catch (error) {
           logToolFailure('readWorkspaceContext failed', error, resolvedInput);
           throw error;

@@ -36,6 +36,8 @@ interface MinimapProps {
   isDragging?: boolean;
   isSelected: boolean;
   lensEnabled?: boolean;
+  /** BST-1990: asks the selected thread to add this card's folder. */
+  onAddToThread?: (file: FileTapestry) => void;
   onChangeRangeColor?: (fileId: string, rangeId: string, color: string) => void;
   onClearManualRanges?: (fileId: string) => void;
   onCreateRange?: (fileId: string, lineIndex: number) => boolean | undefined;
@@ -66,6 +68,8 @@ type RangeKeyAction =
   | { endLine: number; startLine: number; type: 'resize' };
 
 const TAPESTRY_CARD_CHROME_HEIGHT = 54;
+/** The thread notice's line (BST-1990), added to the card's chrome when it shows. */
+const TAPESTRY_THREAD_NOTICE_HEIGHT = 20;
 const TAPESTRY_PACKING_ROW_HEIGHT = 4;
 const TAPESTRY_PACKING_ROW_GAP = 4;
 
@@ -577,14 +581,54 @@ const RangeItem = memo(
 
 RangeItem.displayName = 'RangeItem';
 
+/**
+ * BST-1990: where a checked file outside the selected thread's folders comes
+ * from. The agent gets it as attached content for one run; adding the folder
+ * makes it one of the thread's folders.
+ */
+const TapestryThreadNotice = ({
+  displayRootFolder,
+  file,
+  onAddToThread,
+}: {
+  displayRootFolder: string;
+  file: FileTapestry;
+  onAddToThread: MinimapProps['onAddToThread'];
+}) => (
+  <div
+    className="flex min-w-0 items-center gap-1.5 text-[10px] text-amber-700 dark:text-amber-400"
+    data-testid={`tapestry-thread-notice-${file.rootFolderId}`}
+  >
+    <span className="truncate">
+      {file.threadNotice === 'outside'
+        ? `from ${displayRootFolder}, not in this thread`
+        : `from ${displayRootFolder}, not a folder in the workspace`}
+    </span>
+    {file.threadNotice === 'outside' && onAddToThread ? (
+      <button
+        className="shrink-0 cursor-pointer rounded px-1 font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        onClick={(event) => {
+          event.stopPropagation();
+          onAddToThread(file);
+        }}
+        type="button"
+      >
+        Add to this thread
+      </button>
+    ) : null}
+  </div>
+);
+
 const TapestryCardHeader = ({
   file,
   isSelected,
+  onAddToThread,
   onToggleSelection,
   showSelectionControls,
 }: {
   file: FileTapestry;
   isSelected: boolean;
+  onAddToThread: MinimapProps['onAddToThread'];
   onToggleSelection: MinimapProps['onToggleSelection'];
   showSelectionControls: boolean;
 }) => {
@@ -645,6 +689,13 @@ const TapestryCardHeader = ({
           </div>
         </div>
       </div>
+      {file.threadNotice ? (
+        <TapestryThreadNotice
+          displayRootFolder={displayRootFolder}
+          file={file}
+          onAddToThread={onAddToThread}
+        />
+      ) : null}
     </div>
   );
 };
@@ -689,6 +740,7 @@ export const Minimap = memo(
     lensEnabled = true,
     onToggleSelection,
     onRequestFileContent,
+    onAddToThread,
     showSelectionControls = true,
   }: MinimapProps) => {
     const containerRef = useRef<HTMLButtonElement>(null);
@@ -733,8 +785,10 @@ export const Minimap = memo(
       file.totalLines,
       scale
     );
+    const chromeHeight =
+      TAPESTRY_CARD_CHROME_HEIGHT + (file.threadNotice ? TAPESTRY_THREAD_NOTICE_HEIGHT : 0);
     const packingRowSpan = Math.ceil(
-      (totalHeight + TAPESTRY_CARD_CHROME_HEIGHT + TAPESTRY_PACKING_ROW_GAP) /
+      (totalHeight + chromeHeight + TAPESTRY_PACKING_ROW_GAP) /
         (TAPESTRY_PACKING_ROW_HEIGHT + TAPESTRY_PACKING_ROW_GAP)
     );
 
@@ -1304,7 +1358,7 @@ export const Minimap = memo(
         className="@container relative z-0 flex w-full flex-col gap-1.5 rounded-xl border border-border/70 bg-card/55 p-2 shadow-[0_8px_28px_-24px_rgba(0,0,0,0.8)] transition-[border-color,box-shadow] hover:border-border hover:shadow-[0_14px_34px_-24px_rgba(0,0,0,0.85)] motion-reduce:transition-none"
         data-testid="tapestry-document-card"
         style={{
-          containIntrinsicSize: `auto ${Math.round(totalHeight + TAPESTRY_CARD_CHROME_HEIGHT)}px`,
+          containIntrinsicSize: `auto ${Math.round(totalHeight + chromeHeight)}px`,
           contentVisibility: 'auto',
           gridRowEnd: `span ${packingRowSpan}`,
         }}
@@ -1312,6 +1366,7 @@ export const Minimap = memo(
         <TapestryCardHeader
           file={file}
           isSelected={isSelected}
+          onAddToThread={onAddToThread}
           onToggleSelection={onToggleSelection}
           showSelectionControls={showSelectionControls}
         />

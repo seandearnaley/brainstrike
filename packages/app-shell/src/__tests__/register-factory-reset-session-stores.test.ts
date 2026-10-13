@@ -8,6 +8,7 @@ import {
   resetContextUsageStore,
   useContextUsageStore,
 } from '@brainstrike/assistant-ui/context-usage-store';
+import { useThreadFolderScopeStore } from '@brainstrike/file-explorer-ui/thread-folder-scope-store';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/workspace-context-curation-store';
 import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-reset';
 import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-selection-store';
@@ -131,6 +132,10 @@ describe('register-factory-reset-session-stores', () => {
       threadId: 'thread-1',
       worktreeId: 'worktree-1',
     });
+    useThreadFolderScopeStore.getState().publishScope({ rootIds: ['r-1'], threadId: 'thread-1' });
+    useThreadFolderScopeStore
+      .getState()
+      .requestAdd({ displayName: 'bravo', path: '/ws/bravo', rootId: 'r-2' });
     const browserTab: BrowserTab = {
       active: true,
       canGoBack: false,
@@ -183,6 +188,7 @@ describe('register-factory-reset-session-stores', () => {
     expect(useQuickOpenStore.getState().isOpen).toBe(false);
     expect(useOnScreenThreadStore.getState().onScreenThreadId).toBeNull();
     expect(useWorktreeCheckoutIntentStore.getState().pending).toBeNull();
+    expect(useThreadFolderScopeStore.getState()).toMatchObject({ pendingAdd: null, scope: null });
     expect(useBrowserTabsStore.getState().tabs).toEqual([]);
   });
 
