@@ -73,7 +73,9 @@ function isGypOutput(relativePath) {
 function mappedNativeFiles(pid) {
   let files;
   if (process.platform === 'darwin') {
-    files = execFileSync('lsof', ['-p', String(pid), '-Fn'], { encoding: 'utf8' })
+    // -b skips the stat/lstat/readlink calls that block on an unresponsive mount; -w
+    // silences the warning -b prints. Mapped-file names come from the kernel either way.
+    files = execFileSync('lsof', ['-b', '-w', '-p', String(pid), '-Fn'], { encoding: 'utf8' })
       .split('\n')
       .filter((line) => line.startsWith('n/'))
       .map((line) => line.slice(1));

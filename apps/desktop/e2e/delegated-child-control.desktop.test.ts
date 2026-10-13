@@ -1,4 +1,3 @@
-import { once } from 'node:events';
 // Keep foreground decisions covered explicitly; delegated-worker-write covers background mode.
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -260,10 +259,8 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
   } finally {
     try {
       const ownedProcess = (await electron.ensureContext()).app.process();
-      await Promise.all([
-        once(ownedProcess, 'exit', { signal: AbortSignal.timeout(5000) }),
-        electron.dispose(),
-      ]);
+      // Resolves once the process has exited.
+      await electron.dispose();
       // Soft: a clean exit is required, but its failure never hides the body's.
       expect.soft(ownedProcess.exitCode).toBe(0);
       expect.soft(ownedProcess.signalCode).toBeNull();
@@ -555,11 +552,8 @@ test('sends human input to the active child and reloads its rich conversation', 
     release.resolve();
     try {
       const process = (await electron.ensureContext()).app.process();
-      const exited =
-        process.exitCode === null && process.signalCode === null
-          ? once(process, 'exit', { signal: AbortSignal.timeout(5000) })
-          : Promise.resolve();
-      await Promise.all([exited, electron.dispose()]);
+      // Resolves once the process has exited.
+      await electron.dispose();
       // Soft: a clean exit is required, but its failure never hides the body's.
       expect.soft(process.exitCode).toBe(0);
       expect.soft(process.signalCode).toBeNull();

@@ -19,6 +19,8 @@ export interface AssembledSubagentFixture {
   readonly provider: ModelProviderShim;
   readonly releaseAlpha: () => void;
   readonly releaseBeta: () => void;
+  /** Lets the root dispatch the two streams; call once both parked children asked to read. */
+  readonly releaseStreams: () => void;
   readonly requests: () => readonly ModelProviderRequest[];
 }
 
@@ -95,6 +97,7 @@ export async function createAssembledSubagentFixture(
 
   const alpha = Promise.withResolvers<void>();
   const beta = Promise.withResolvers<void>();
+  const streams = Promise.withResolvers<void>();
   const requests: ModelProviderRequest[] = [];
   const provider = await startModelProviderShim((request) => {
     requests.push(request);
@@ -111,11 +114,35 @@ export async function createAssembledSubagentFixture(
       ) {
         return { finalText: assembledMarkers.parentResult };
       }
-      if (
-        history.includes('Background task started.') ||
-        hasAssistantToolCall(request, 'agent-stream-alpha')
-      ) {
+      if (hasAssistantToolCall(request, 'agent-stream-alpha')) {
         return { finalText: 'ASSEMBLED_ROOT_CONTINUES_1770' };
+      }
+      // Work permits are FIFO by arrival (docs/agents/assistant-subagents.md) and the
+      // streams hold theirs, so the parked children are dispatched first. The streams'
+      // dispatch finishes only once releaseStreams() reports that both parked children
+      // asked to read, which released their permits.
+      if (hasAssistantToolCall(request, 'agent-parked-grant')) {
+        return {
+          beforeToolFinish: streams.promise,
+          finalText: 'ASSEMBLED_ROOT_CONTINUES_1770',
+          ignorePriorToolResults: true,
+          toolCalls: [
+            {
+              arguments: {
+                _background: { enabled: true },
+                prompt: 'STREAM_ALPHA_TASK_1770',
+              },
+              name: 'agent-stream-alpha',
+            },
+            {
+              arguments: {
+                _background: { enabled: true },
+                prompt: 'STREAM_BETA_TASK_1770',
+              },
+              name: 'agent-stream-beta',
+            },
+          ],
+        };
       }
       return {
         finalText: 'ASSEMBLED_ROOT_CONTINUES_1770',
@@ -133,20 +160,6 @@ export async function createAssembledSubagentFixture(
               prompt: 'PARKED_STOP_TASK_1770',
             },
             name: 'agent-parked-stop',
-          },
-          {
-            arguments: {
-              _background: { enabled: true },
-              prompt: 'STREAM_ALPHA_TASK_1770',
-            },
-            name: 'agent-stream-alpha',
-          },
-          {
-            arguments: {
-              _background: { enabled: true },
-              prompt: 'STREAM_BETA_TASK_1770',
-            },
-            name: 'agent-stream-beta',
           },
         ],
       };
@@ -190,6 +203,7 @@ export async function createAssembledSubagentFixture(
     provider,
     releaseAlpha: alpha.resolve,
     releaseBeta: beta.resolve,
+    releaseStreams: streams.resolve,
     requests: () => [...requests],
   };
 }

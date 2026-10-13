@@ -245,12 +245,10 @@ test('joins renderer IPC producers before closing their hosts @smoke', async ({
     await ready.promise;
   });
   try {
-    await Promise.all([
-      once(ownedProcess, 'close', { signal: AbortSignal.timeout(5000) }),
-      electron.dispose(),
-    ]);
+    // 'close' follows the exit once the process's output streams have ended.
+    await Promise.all([once(ownedProcess, 'close'), electron.dispose()]);
   } finally {
-    // Preserve the original failure's output even when close rejects or times out.
+    // Preserve the original failure's output even when close rejects.
     await testInfo.attach('renderer-shutdown-process-log', {
       body: output.join(''),
       contentType: 'text/plain',

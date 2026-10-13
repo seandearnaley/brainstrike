@@ -135,16 +135,18 @@ describe('interactive child fixture ownership', () => {
     await expect(access(workspace)).resolves.toBeUndefined();
   });
 
-  it('joins the process exit when Electron disposal resolves before the process is reaped', async () => {
-    const { options, exit, ownedProcess } = fixture();
+  it('retains the workspace when disposal returns before the process has exited', async () => {
+    // ElectronHarness.dispose resolves only after the exit; a disposal that breaks that is loud.
+    const { options, exit } = fixture();
     options.electron.dispose.mockImplementation(async () => {
       setImmediate(exit);
     });
-    options.closeProvider.mockImplementation(async () => {
-      expect(ownedProcess.exitCode).toBe(0);
-    });
-    await expect(runInteractiveChildFixture(options)).resolves.toBeUndefined();
-    await expect(access(workspace)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(runInteractiveChildFixture(options)).rejects.toThrow(
+      `Electron exit is unconfirmed; retained interactive fixture workspace: ${workspace}`
+    );
+    expect(options.closeProvider).toHaveBeenCalledTimes(1);
+    expect(process.env[environmentKey]).toBe('before scenario');
+    await expect(access(workspace)).resolves.toBeUndefined();
   });
 
   it('reports abnormal exit even when disposal succeeds and releases the reaped workspace', async () => {
@@ -162,18 +164,13 @@ describe('interactive child fixture ownership', () => {
   it('retains the workspace for an unreaped process while restoring environment and closing the provider', async () => {
     const { options, ownedProcess } = fixture();
     const disposal = new Error('Electron disposal failed');
-    const processError = new Error('process exit could not be observed');
     // A sent signal is not proof of exit.
     Object.defineProperty(ownedProcess, 'killed', { value: true });
-    options.electron.dispose.mockImplementation(async () => {
-      ownedProcess.emit('error', processError);
-      throw disposal;
-    });
+    options.electron.dispose.mockRejectedValue(disposal);
     const result = await runInteractiveChildFixture(options).catch((error: unknown) => error);
     expect(result).toBeInstanceOf(AggregateError);
     expect((result as AggregateError).errors).toEqual([
       disposal,
-      processError,
       expect.objectContaining({ message: expect.stringContaining(workspace) }),
     ]);
     expect(options.closeProvider).toHaveBeenCalledTimes(1);

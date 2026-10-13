@@ -1,5 +1,4 @@
 import type { ChildProcess } from 'node:child_process';
-import { once } from 'node:events';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,13 +9,6 @@ import { SettingsPage } from './page-objects/settings-page';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
-
-async function waitForOwnedExit(process: ChildProcess | undefined): Promise<void> {
-  if (!process || process.exitCode !== null || process.signalCode !== null) {
-    return;
-  }
-  await once(process, 'exit', { signal: AbortSignal.timeout(5000) });
-}
 
 async function openWorkerFromNewActivity(
   window: Page,
@@ -327,8 +319,8 @@ test('delegated command asks by default, then a per-tool grant streams output an
       }
     }
     for (const cleanup of [
+      // Resolves once the process has exited.
       async () => electron.dispose(),
-      async () => waitForOwnedExit(ownedProcess),
       async () => provider.close(),
       async () => {
         for (const key of Object.keys(environment)) {

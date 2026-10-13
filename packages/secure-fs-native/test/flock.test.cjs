@@ -83,8 +83,9 @@ test('a descendant that inherited the descriptor holds the lock after its holder
 }, async () => {
   const file = lockFile();
   // The holder locks, starts a detached SIGTERM-immune command with the
-  // descriptor as its fd 3 (libuv dup2s it, clearing close-on-exec), reports
-  // the command's pid, then waits to be killed.
+  // descriptor as its fd 3 (libuv dup2s it, clearing close-on-exec), then waits
+  // to be killed. The command shares the holder's stdout: it prints its pid
+  // once its SIGTERM handler is installed, and a line for each SIGTERM.
   const holder = spawn(
     process.execPath,
     [
@@ -95,11 +96,10 @@ const { constants, openSync } = require('node:fs');
 const { tryExclusiveFlock } = require(${JSON.stringify(path.join(__dirname, '..'))});
 const fd = openSync(process.argv[1], constants.O_RDWR | constants.O_CREAT, 0o600);
 if (!tryExclusiveFlock(fd)) throw new Error('holder could not lock');
-const command = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"], {
+spawn(process.execPath, ['-e', "process.on('SIGTERM', () => console.log('SIGTERM')); console.log(process.pid); setInterval(() => {}, 1000);"], {
   detached: true,
-  stdio: ['ignore', 'ignore', 'ignore', fd],
+  stdio: ['ignore', 'inherit', 'ignore', fd],
 });
-console.log(command.pid);
 setInterval(() => {}, 1000);
 `,
       file,
@@ -107,8 +107,8 @@ setInterval(() => {}, 1000);
     { stdio: ['ignore', 'pipe', 'inherit'] }
   );
   owned.push(holder.pid);
-  const [line] = await once(createInterface({ input: holder.stdout }), 'line');
-  const command = Number(line);
+  const lines = createInterface({ input: holder.stdout })[Symbol.asyncIterator]();
+  const command = Number((await lines.next()).value);
   owned.push(command);
   assert.equal(probe(file), false);
   process.kill(holder.pid, 'SIGKILL');
@@ -116,6 +116,7 @@ setInterval(() => {}, 1000);
   assert.equal(alive(command), true);
   assert.equal(probe(file), false, 'the surviving command still holds the lock');
   process.kill(command, 'SIGTERM');
+  assert.equal((await lines.next()).value, 'SIGTERM', 'the command handled SIGTERM');
   assert.equal(probe(file), false, 'a SIGTERM-immune command keeps it');
   process.kill(command, 'SIGKILL');
   await gone(command);
