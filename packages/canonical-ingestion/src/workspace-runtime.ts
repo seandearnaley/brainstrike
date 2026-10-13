@@ -5,6 +5,7 @@ import {
   type WorkspaceIndexingTriggerScope,
 } from '@brainstrike/file-system/workspace-indexing-coordinator';
 import { normalizeScopedChangePath } from '@brainstrike/file-system/workspace-scan-paths';
+import { createLogger } from '@brainstrike/logging';
 import type {
   DirectoryHandle,
   FileSystemChange,
@@ -26,6 +27,8 @@ import type {
   CanonicalWorkspaceLease,
   CanonicalWorkspaceSourceDependencies,
 } from './workspace-source-ports.js';
+
+const manifestDiagnostic = createLogger('NativeManifestDiagnostic');
 
 type WithoutSource<T> = T extends unknown ? Omit<T, 'source'> : never;
 export type CanonicalWorkspaceRuntimeDependencies =
@@ -269,6 +272,15 @@ export class CanonicalWorkspaceIngestionRuntime {
       active.context.signal.throwIfAborted();
       this.dependencies.onReceipt(receipt);
     } catch (error) {
+      if (error instanceof CanonicalScanIncompleteError) {
+        manifestDiagnostic.warn('[DEBUG-native-manifest] workspace incomplete receipt', {
+          aborted: active.context.signal.aborted,
+          receipt: error.receipt,
+          requestId: active.context.requestId,
+          rootId: source.lease.rootId,
+          sourceInvalidated: active.sourceInvalidated,
+        });
+      }
       if (
         error instanceof CanonicalScanIncompleteError &&
         error.receipt.reason === 'manifest-mismatch' &&

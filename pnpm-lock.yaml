@@ -1939,6 +1939,9 @@ importers:
       '@brainstrike/indexer':
         specifier: workspace:*
         version: link:../indexer
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types

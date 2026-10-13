@@ -24,6 +24,23 @@ import type {
   VectorProfile,
 } from '@brainstrike/indexer';
 import { vectorProfileHash } from '@brainstrike/indexer';
+import { createLogger } from '@brainstrike/logging';
+
+const manifestDiagnostic = createLogger('NativeManifestDiagnostic');
+function manifestIdentity(file: ScopedManifestFile): Pick<
+  ScopedManifestFile,
+  'contentHash' | 'embeddingSetId' | 'fileId' | 'rootId'
+> & {
+  readonly chunkCount: number;
+} {
+  return {
+    chunkCount: file.chunks.length,
+    contentHash: file.contentHash,
+    embeddingSetId: file.embeddingSetId,
+    fileId: file.fileId,
+    rootId: file.rootId,
+  };
+}
 
 type PublicationWriter = Pick<IndexerPort, 'info'> &
   Pick<
@@ -340,6 +357,23 @@ export function createNativeCanonicalPublication(
           const revision = state.mutationRevision;
           await Promise.allSettled([...states.values()].flatMap((other) => [...other.pending]));
           const result = await writer.verifyScopedManifest({ files, scope: request.ticket.scope });
+          manifestDiagnostic.warn('[DEBUG-native-manifest] scoped verification settled', {
+            aborted: state.aborted,
+            expected: files.map(manifestIdentity),
+            mutationRevisionAfter: state.mutationRevision,
+            mutationRevisionBefore: revision,
+            result: {
+              authorityEpoch: result.authorityEpoch,
+              authorityRevision: result.authorityRevision,
+              changed: result.changed.map(manifestIdentity),
+              complete: result.complete,
+              missing: result.missing.map(manifestIdentity),
+              scope: result.scope,
+              storeId: result.storeId,
+              unexpected: result.unexpected.map(manifestIdentity),
+            },
+            ticket: request.ticket,
+          });
           if (
             result.storeId !== request.ticket.storeId ||
             scopeKey(result.scope) !== scopeKey(request.ticket.scope)

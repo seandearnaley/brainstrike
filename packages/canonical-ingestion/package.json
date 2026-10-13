@@ -19,6 +19,7 @@
     "@brainstrike/file-import": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/indexer": "workspace:*",
+    "@brainstrike/logging": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*"
   },
