@@ -970,6 +970,23 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     },
     [enqueueThreadFoldersWrite, resolveRootIdForPath, selectedMemoryThreadId]
   );
+  // "Not in this thread" (BST-1990): a mounted folder joins the thread through the
+  // same add-secondary write as Add folder…, with no picker.
+  const onAddWorkspaceFolder = useCallback(
+    (folder: { readonly displayName: string; readonly path: string }) => {
+      recordAddedAsSecondary({ name: folder.displayName, path: folder.path }).catch(
+        (error: unknown) => {
+          logger.error('Add to this thread failed', { error, path: folder.path });
+          toast({
+            description: describeFailure(error),
+            title: 'Add to this thread failed',
+            variant: 'destructive',
+          });
+        }
+      );
+    },
+    [recordAddedAsSecondary]
+  );
   // The workspace's mounted folders that are not this thread's.
   const primaryRootPathForFolders = primaryRoot?.path;
   const workspaceFolders = useMemo<readonly WorkspaceBarRecentRoot[]>(() => {
@@ -1061,6 +1078,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     ...addFolderDisabledReasonEntry(addFolderDisabledReason),
     onAddFolder,
     ...(addRootDirectoryByPath ? { onAddRecent } : {}),
+    onAddWorkspaceFolder,
     onCopyPath,
     ...folderDropEntry,
     onMakePrimary,

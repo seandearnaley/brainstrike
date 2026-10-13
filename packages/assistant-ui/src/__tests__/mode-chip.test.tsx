@@ -10,6 +10,7 @@ const setup = () => userEvent.setup({ pointerEventsCheck: 0 });
 
 const baseBarProps = {
   onAddFolder: vi.fn(),
+  onAddWorkspaceFolder: vi.fn(),
   onMakePrimary: vi.fn(),
   onRemovePrimary: vi.fn(),
   onRemoveSecondary: vi.fn(),

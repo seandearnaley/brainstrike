@@ -203,6 +203,8 @@ export interface WorkspaceBarProps {
   readonly onAddFolder: () => void;
   /** Present only when the platform can re-mount a recent folder without a picker (desktop). */
   readonly onAddRecent?: ((path: string) => void) | undefined;
+  /** Adds a mounted workspace folder to this thread, with no picker (BST-1990). */
+  readonly onAddWorkspaceFolder: (folder: WorkspaceBarRecentRoot) => void;
   readonly onCopyPath?: ((path: string) => void) | undefined;
   /**
    * Receives the drop's `DataTransferItem`s. Present only when the platform
