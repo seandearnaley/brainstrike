@@ -1,6 +1,7 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { captureProcessSignalHandlers } from '../helpers/process-signal-capture';
 import {
+  agentClientCloseForShutdown,
   applicationDomainCapture,
   cleanupSubscriptionsMock,
   closeDatabaseMock,
@@ -25,6 +26,35 @@ import {
 
 describe('main boot order', () => {
   installMainBootFixture();
+  it('joins renderer borrowers before native retirement and retains independent failures', async () => {
+    getDatabaseMock.mockResolvedValue({});
+    const borrower = Promise.withResolvers<void>();
+    const borrowerFailure = new Error('independent borrower retirement failure');
+    const nativeFailure = new Error('independent native retirement failure');
+    const close = agentClientCloseForShutdown.mockReturnValue(borrower.promise);
+    nativeCloseForShutdown.mockResolvedValue(undefined);
+    await import('../../main');
+    const plan = shutdownPlanCapture.current?.();
+    if (!plan) {
+      throw new Error('Missing actual Main shutdown plan');
+    }
+    const step = Promise.resolve(plan.steps['native-index'](new AbortController().signal)).catch(
+      (cause: unknown) => cause
+    );
+    onTestFinished(async () => {
+      borrower.resolve();
+      await step;
+    });
+    await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
+    expect(nativeCloseForShutdown).not.toHaveBeenCalled();
+    nativeCloseForShutdown.mockRejectedValue(nativeFailure);
+    borrower.reject(borrowerFailure);
+    const result = await step;
+    expect(result).toBeInstanceOf(AggregateError);
+    expect((result as AggregateError).errors).toEqual([borrowerFailure, nativeFailure]);
+    expect(nativeCloseForShutdown).toHaveBeenCalledOnce();
+  });
+
   it.each([false, true])(
     'starts and retains hidden disposal beside native close with independent failure=%s',
     async (fail) => {

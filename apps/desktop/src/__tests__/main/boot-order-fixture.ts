@@ -204,6 +204,19 @@ vi.mock('../../ipc-handlers', async () => {
   };
 });
 
+const { agentClientCloseForShutdown } = vi.hoisted(() => ({
+  agentClientCloseForShutdown: vi.fn(async (): Promise<void> => undefined),
+}));
+vi.mock('../../agent-host-client-ipc', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../agent-host-client-ipc')>();
+  return {
+    ...actual,
+    registerAgentHostClientIpc: (
+      ...args: Parameters<typeof actual.registerAgentHostClientIpc>
+    ) => ({ ...actual.registerAgentHostClientIpc(...args), close: agentClientCloseForShutdown }),
+  };
+});
+
 const {
   nativeCloseForShutdown,
   nativePrepareForPause,
@@ -341,6 +354,7 @@ export function installMainBootFixture(): void {
     unhandledRejectionListenersBeforeMain = new Set(process.listeners('unhandledRejection'));
     vi.resetModules();
     vi.clearAllMocks();
+    agentClientCloseForShutdown.mockReset().mockResolvedValue(undefined);
     nativeCloseForShutdown.mockReset().mockResolvedValue(undefined);
     shutdownPlanCapture.current = null;
     shutdownPlanCapture.run = null;
@@ -379,6 +393,7 @@ export function installMainBootFixture(): void {
 }
 
 export {
+  agentClientCloseForShutdown,
   applicationDomainCapture,
   cleanupSubscriptionsMock,
   closeDatabaseMock,

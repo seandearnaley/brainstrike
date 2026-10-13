@@ -79,8 +79,10 @@ it('owns an acquired app even when its first window never opens', async () => {
     undefined,
     '/tmp/brainstrike-failed-launch'
   );
+  const observeLaunch = vi.fn();
   try {
-    await expect(harness.ensureContext()).rejects.toBe(failure);
+    await expect(harness.restart(observeLaunch)).rejects.toBe(failure);
+    expect(observeLaunch).toHaveBeenCalledExactlyOnceWith(context.app);
     await expect(harness.ensureContext()).rejects.toThrow('still owns');
     await harness.dispose();
     expect(closeElectronApp).toHaveBeenCalledOnce();

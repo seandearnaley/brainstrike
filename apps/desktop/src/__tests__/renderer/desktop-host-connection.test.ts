@@ -1,5 +1,6 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { retiredAgentAttachment } from '../../agent-host-attachment';
 import { createDesktopHostConnection } from '../../renderer/desktop-host-connection';
 
 // The window's real connector loads the browser JSON-RPC transport; each test injects its own.
@@ -26,6 +27,53 @@ afterEach(() => {
 });
 
 describe('desktop host connection (BST-2004)', () => {
+  it('settles the Main-owned retired attachment as closed without replacement admission', async () => {
+    const failure = retiredAgentAttachment();
+    const connect = vi.fn<() => Promise<HostClient>>().mockRejectedValue(failure);
+    const connection = createDesktopHostConnection(connect);
+    await expect(connection.current()).rejects.toBe(failure);
+    expect(connection.getSnapshot()).toEqual({ kind: 'closed' });
+    await expect(connection.replacement(liveClient().client)).rejects.toMatchObject({
+      code: failure.code,
+    });
+    connection.reconnect();
+    expect(connect).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves independent acquisition failure while the frame closes its pending connection', async () => {
+    const pending = Promise.withResolvers<HostClient>();
+    const failure = new Error('independent acquisition fault');
+    const connection = createDesktopHostConnection(() => pending.promise);
+    const acquiring = connection.current().catch((cause: unknown) => cause);
+    const closing = connection.close().catch((cause: unknown) => cause);
+    pending.reject(failure);
+    expect(await acquiring).toBe(failure);
+    expect(await closing).toBe(failure);
+    expect(connection.getSnapshot()).toEqual({ kind: 'closed' });
+  });
+  it('joins physical client closure even when its close command fails', async () => {
+    const closed = Promise.withResolvers<void>();
+    const failure = new Error('independent client close failure');
+    const close = vi.fn(async () => {
+      throw failure;
+    });
+    const client = { close, closed: closed.promise } as unknown as HostClient;
+    const connection = createDesktopHostConnection(async () => client);
+    await connection.current();
+    let settled = false;
+    const closing = connection
+      .close()
+      .catch((cause: unknown) => cause)
+      .finally(() => {
+        settled = true;
+      });
+    await settle();
+    expect(settled).toBe(false);
+    closed.resolve();
+    expect(await closing).toBe(failure);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it('makes one automatic attempt when its client closes, and the next generation replaces it', async () => {
     const first = liveClient();
     const second = liveClient();
@@ -97,13 +145,13 @@ describe('desktop host connection (BST-2004)', () => {
     await connection.current();
     const waiting = connection.replacement(first.client);
     window.dispatchEvent(new Event('beforeunload'));
-    await expect(waiting).rejects.toThrow('closing');
+    await expect(waiting).rejects.toMatchObject({ code: 'agent.attachment-retired' });
     // The frame's close joins the client's own close.
     await connection.close();
     expect(first.client.close).toHaveBeenCalledOnce();
     await settle();
     expect(connect).toHaveBeenCalledOnce();
     expect(connection.getSnapshot()).toEqual({ kind: 'closed' });
-    await expect(connection.current()).rejects.toThrow('closing');
+    await expect(connection.current()).rejects.toMatchObject({ code: 'agent.attachment-retired' });
   });
 });

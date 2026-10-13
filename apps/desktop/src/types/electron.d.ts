@@ -43,7 +43,12 @@ import type {
 // Type definitions for the Electron API exposed via contextBridge
 declare global {
   interface Window {
-    agentHost?: { connect(requestId: string, intent?: 'reconnect'): Promise<void> };
+    agentHost?: {
+      connect(
+        requestId: string,
+        intent?: 'reconnect'
+      ): Promise<import('@brainstrike/assistant-contract/boundary-result').BoundaryResult<void>>;
+    };
     /**
      * Desktop-only subagent persona discovery bridge. Absent on web (no
      * preload) — consumers MUST capability-check `window.assistantPersonas`.

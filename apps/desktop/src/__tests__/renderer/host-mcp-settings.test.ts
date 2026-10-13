@@ -1,7 +1,9 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import type { McpPresentationEvent, McpSettingsEvent } from '@brainstrike/agent-host/protocol';
 import type { McpHostSnapshot, McpTaskPresentation } from '@brainstrike/assistant-contract';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { describe, expect, it, vi } from 'vitest';
+import { retiredAgentAttachment } from '../../agent-host-attachment';
 import { connectDesktopAgentHost } from '../../renderer/agent-host-client';
 import { createDesktopHostConnection } from '../../renderer/desktop-host-connection';
 import {
@@ -224,4 +226,48 @@ describe('desktop host MCP content (BST-1930 c5d)', () => {
       ['mcp/content/prompt', { authority, name: 'review' }],
     ]);
   });
+});
+
+describe('frame-owned MCP subscription retirement', () => {
+  it.each(['retired', 'fault'] as const)(
+    'settles %s acquisition through the connection owner',
+    async (outcome) => {
+      const acquisition = Promise.withResolvers<HostClient>();
+      const cause =
+        outcome === 'retired'
+          ? retiredAgentAttachment()
+          : new Error('independent subscription acquisition failure');
+      const records: LogRecord[] = [];
+      const unsubscribe = addLogListener((record) => records.push(record));
+      const connection = createDesktopHostConnection(() => acquisition.promise);
+      const settings = createDesktopHostMcpSettings(connection);
+      const onSettings = vi.fn();
+      const onPresentation = vi.fn();
+      const stopSettings = settings.subscribe(onSettings);
+      const stopPresentation = settings.subscribePresentation(onPresentation);
+      try {
+        acquisition.reject(cause);
+        await expect(connection.current()).rejects.toBe(cause);
+        // Await the existing request path to let both subscription continuations settle.
+        await settings.request('mcp/status/read', {}).catch(() => undefined);
+        const failures = records.filter(
+          (record) => record.scope === 'DesktopHostMcpSettings' && record.level === 'error'
+        );
+        expect(failures).toHaveLength(outcome === 'retired' ? 0 : 2);
+        if (outcome === 'fault') {
+          expect(failures.map((record) => record.args.at(-1))).toEqual([
+            expect.objectContaining({ error: expect.objectContaining({ message: cause.message }) }),
+            expect.objectContaining({ error: expect.objectContaining({ message: cause.message }) }),
+          ]);
+        }
+        expect(onSettings).not.toHaveBeenCalled();
+        expect(onPresentation).not.toHaveBeenCalled();
+      } finally {
+        stopSettings();
+        stopPresentation();
+        unsubscribe();
+        await connection.close();
+      }
+    }
+  );
 });

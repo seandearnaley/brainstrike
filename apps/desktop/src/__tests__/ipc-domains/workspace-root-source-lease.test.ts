@@ -383,8 +383,10 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
     const disposal = Promise.resolve(registry.dispose()).then(() => {
       disposed = true;
     });
-    expect(lease.signal.aborted).toBe(true);
-    await Promise.resolve();
+    // New source work is fenced synchronously; retirement follows the
+    // accepted mutation drain and still physically joins the admitted read.
+    await expect(lease.readFile('inside.txt', 37, context())).rejects.toBeInstanceOf(Error);
+    await waitForAbort(lease.signal);
     expect(disposed).toBe(false);
     expect(root.close).not.toHaveBeenCalled();
     nativeRead.resolve({ content: Buffer.from('late bytes'), status: 'ok' });

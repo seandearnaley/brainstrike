@@ -1,5 +1,6 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import { createLogger } from '@brainstrike/logging';
+import { isRetiredAgentAttachment, retiredAgentAttachment } from '../agent-host-attachment';
 import { connectDesktopAgentHost } from './agent-host-client';
 
 const logger = createLogger('DesktopHostConnection');
@@ -27,9 +28,21 @@ export interface DesktopHostConnection {
   readonly subscribe: (listener: () => void) => () => void;
 }
 
-const CLOSING = 'The desktop host view is closing';
 const messageOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
+
+async function closeClient(client: HostClient): Promise<void> {
+  const outcomes = await Promise.allSettled([(async () => client.close())(), client.closed]);
+  const failures = outcomes.flatMap((outcome) =>
+    outcome.status === 'rejected' ? [outcome.reason] : []
+  );
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'Agent client physical close failed');
+  }
+}
 
 /**
  * One owner for the frame's host client (BST-2004). When the client closes
@@ -58,7 +71,7 @@ export function createDesktopHostConnection(
         waiter.resolve(next.client);
       } else if (next.kind === 'closed') {
         waiters.delete(waiter);
-        waiter.reject(new Error(CLOSING));
+        waiter.reject(retiredAgentAttachment());
       }
     }
     for (const listener of [...listeners]) {
@@ -68,8 +81,8 @@ export function createDesktopHostConnection(
   const start = (automatic: boolean, intent?: 'reconnect'): Promise<HostClient> => {
     const current = connect(intent).then(async (client) => {
       if (closing) {
-        await client.close();
-        throw new Error(CLOSING);
+        await closeClient(client);
+        throw retiredAgentAttachment();
       }
       generation += 1;
       publish({ client, generation, kind: 'connected' });
@@ -88,8 +101,12 @@ export function createDesktopHostConnection(
         if (attempt === current) {
           attempt = undefined;
         }
+        if (isRetiredAgentAttachment(cause)) {
+          publish({ kind: 'closed' });
+          return;
+        }
+        logger.error('The agent host connection failed', { error: cause });
         if (!closing) {
-          logger.error('The agent host connection failed', { error: cause });
           publish({ error: messageOf(cause), kind: 'failed' });
         }
       }
@@ -112,8 +129,10 @@ export function createDesktopHostConnection(
       const [settled] = await Promise.allSettled([pending]);
       const client = connected ?? (settled?.status === 'fulfilled' ? settled.value : undefined);
       if (client) {
-        await client.close();
-        await client.closed;
+        await closeClient(client);
+      }
+      if (settled?.status === 'rejected' && !isRetiredAgentAttachment(settled.reason)) {
+        throw settled.reason;
       }
     })();
     return closing;
@@ -129,12 +148,20 @@ export function createDesktopHostConnection(
         case 'idle':
           // The actual frame owns this client. Main joins its relay on navigation,
           // renderer loss and shutdown; React presentation replay owns no transport.
-          window.addEventListener('beforeunload', () => void close(), { once: true });
+          window.addEventListener(
+            'beforeunload',
+            () => {
+              void close().catch((error: unknown) =>
+                logger.error('The agent host view failed to close', { error })
+              );
+            },
+            { once: true }
+          );
           return start(false);
         case 'failed':
           return Promise.reject(new Error(state.error));
         default:
-          return Promise.reject(new Error(CLOSING));
+          return Promise.reject(retiredAgentAttachment());
       }
     },
     getSnapshot: () => state,
@@ -148,8 +175,8 @@ export function createDesktopHostConnection(
       if (state.kind === 'connected' && state.client !== lostClient) {
         return Promise.resolve(state.client);
       }
-      if (closing) {
-        return Promise.reject(new Error(CLOSING));
+      if (closing || state.kind === 'closed') {
+        return Promise.reject(retiredAgentAttachment());
       }
       const waiting = Promise.withResolvers<HostClient>();
       waiters.add({ lost: lostClient, reject: waiting.reject, resolve: waiting.resolve });

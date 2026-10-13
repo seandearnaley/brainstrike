@@ -134,27 +134,11 @@ export class WorkspaceRootRegistry {
   ): Promise<RootDescriptor> {
     return this.serializeMutation(async () => {
       const presentationPath = path.normalize(handle.path);
-      // Sequential, not Promise.all: addRoot already runs inside
-      // serializeMutation (no concurrent caller to race against), and
-      // sequencing means the try/finally below covers `probe` from the
-      // instant it exists — a rejected readStoredRootsOrQuarantine() (a raw
-      // storage I/O failure; corruption is quarantined rather than thrown)
-      // can no longer leak an already-opened probe capability.
+      // Read stores before opening the probe: this admitted mutation then owns
+      // every opened capability through its try/finally, even if storage fails.
       const entries = await readStoredRootsOrQuarantine(this.storage);
-      // Hoisted above the mount+persist mutation below (BST-1400 item 4): a
-      // recentRootsList I/O failure must surface BEFORE anything is mounted
-      // or persisted, not after — mirroring the rootsList read above. Before
-      // this, `recordRecentRoot`'s own internal read ran AFTER
-      // reconcileAddMount/persistAddedRoot had already succeeded, so a
-      // broken ledger left addRoot() rejecting while the root was, in fact,
-      // already mounted and persisted (state divergence). Positioned before
-      // the mutation regardless; gated on `recordInRecentRoots` because that
-      // flag is the only thing that can consume it (PR #2685 review: the
-      // read itself IS conditional on this flag — only its POSITION, above
-      // the mutation, is unconditional).
-      //
-      // The invariant throw after mounting is unreachable: this read and that
-      // check use the same recordInRecentRoots flag.
+      // BST-1400: a recent-roots read failure must precede mount/persistence.
+      // Read only when the same recordInRecentRoots option will consume it.
       const recentRootEntries = recordInRecentRoots
         ? await readRecentRootsOrQuarantine(this.storage)
         : null;
@@ -162,10 +146,8 @@ export class WorkspaceRootRegistry {
       const probe = await this.createSecureRoot(presentationPath);
       let probeAdopted = false;
       try {
-        // A dispose that lands while the probe was opening must fail this
-        // call the same way mount() does, rather than returning a granted
-        // descriptor for a registry that's already torn down.
-        this.assertActive();
+        // Disposal drains this admitted mutation before retiring its mount.
+        this.assertNotDisposed();
         const canonicalPath = path.normalize(probe.canonicalPath);
         const mountedMatch = this.mounts.findByCanonicalPath(canonicalPath);
         const existing = await this.findExistingStoredRoot(entries, mountedMatch, canonicalPath);
@@ -264,8 +246,13 @@ export class WorkspaceRootRegistry {
   }
 
   dispose(): Promise<void> {
-    this.disposed = true;
-    this.disposal ??= Promise.all([this.mutationTail, this.retireSourceLeases()])
+    // The existing disposal promise fences new admission. Accepted mutations
+    // retain their mounts until the same mutation tail has physically settled.
+    this.disposal ??= this.mutationTail
+      .then(async () => {
+        this.disposed = true;
+        await this.retireSourceLeases();
+      })
       .then(() => {
         this.mounts.closeAll();
         this.availability.clear();
@@ -864,7 +851,7 @@ export class WorkspaceRootRegistry {
     ) {
       await this.retireSourceLeases(current);
     }
-    this.assertActive();
+    this.assertNotDisposed();
     const canonicalPath = this.mounts.install(entry, root);
     this.availability.forget(entry.rootId);
     return canonicalPath;
@@ -900,7 +887,7 @@ export class WorkspaceRootRegistry {
   }
 
   private async mount(entry: StoredWorkspaceRoot): Promise<string> {
-    this.assertActive();
+    this.assertNotDisposed();
     // Mount-then-ask: the capability's handle-derived canonicalPath is the
     // identity authority; no pre-open path lookup vouches for it.
     const secureRoot = await this.createSecureRoot(entry.path);
@@ -910,7 +897,7 @@ export class WorkspaceRootRegistry {
       } catch (error) {
         logger.warn('Failed to close a workspace root capability during disposal', { error });
       }
-      this.assertActive();
+      this.assertNotDisposed();
     }
     try {
       return await this.installSourceRoot(entry, secureRoot);
@@ -974,11 +961,14 @@ export class WorkspaceRootRegistry {
     operation: () => Promise<T>,
     deletion?: RootDataDeletionReservation
   ): Promise<T> {
+    if (this.disposed || this.disposal) {
+      return Promise.reject(new Error('The workspace root registry has been disposed.'));
+    }
     if (this.rootDataDeletion && this.rootDataDeletion !== deletion) {
       return Promise.reject(new Error('Root data deletion owns workspace mutation admission.'));
     }
     const execute = async (): Promise<T> => {
-      this.assertActive();
+      this.assertNotDisposed();
       if (this.rootDataDeletion && this.rootDataDeletion !== deletion) {
         throw new Error('Root data deletion owns workspace mutation admission.');
       }
@@ -993,6 +983,13 @@ export class WorkspaceRootRegistry {
   }
 
   private assertActive(): void {
+    if (this.disposal) {
+      throw new Error('The workspace root registry has been disposed.');
+    }
+    this.assertNotDisposed();
+  }
+
+  private assertNotDisposed(): void {
     if (this.disposed) {
       throw new Error('The workspace root registry has been disposed.');
     }

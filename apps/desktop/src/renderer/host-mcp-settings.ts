@@ -12,6 +12,7 @@ import type { McpToolsCapability } from '@brainstrike/app-shell/mcp-tools-capabi
 import type { McpHostOperationResult, McpTaskBridge } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { McpElicitationBridge } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-capability';
+import { isRetiredAgentAttachment } from '../agent-host-attachment';
 import { type DesktopHostConnection, windowHostConnection } from './desktop-host-connection';
 import { unwrapContent } from './mcp-content-outcome';
 
@@ -63,6 +64,10 @@ function hostStream<E>(label: string, open: (dispatch: (event: E) => void) => Pr
     const attempt = open(dispatch);
     opening = attempt;
     attempt.catch((error: unknown) => {
+      // The frame owner settled this borrower; a retired view owns no stream to reopen.
+      if (isRetiredAgentAttachment(error)) {
+        return;
+      }
       // Each surface reports its own read failures; the next listener retries the stream.
       logger.error(`${label} subscription failed`, { error });
       if (opening === attempt) {

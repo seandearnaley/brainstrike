@@ -1,4 +1,5 @@
 import { attachBrowserHost, type HostClient } from '@brainstrike/agent-host/browser';
+import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import type { HostRecord } from '@brainstrike/host-lease';
 
 /** Attach the visible frame to its main-owned profile host; no process/root is created here. */
@@ -43,7 +44,7 @@ export async function connectDesktopAgentHost(intent?: 'reconnect'): Promise<Hos
   received.promise.catch(() => undefined);
   window.addEventListener('message', receive);
   try {
-    await bridge.connect(requestId, intent);
+    await callBoundary(() => bridge.connect(requestId, intent));
     const { port, record } = await received.promise;
     return await attachBrowserHost(port, record, closed.promise);
   } catch (cause) {

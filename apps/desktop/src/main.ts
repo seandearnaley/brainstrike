@@ -586,13 +586,28 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       // Wrapped: the cleanup's optional parameter is the runtime, not a signal.
       'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
       'native-index': async () => {
-        await agentHostMainClient.close();
-        // Fence profile admission before joining the renderer's in-flight host connect:
-        // a host start that fails during shutdown is then never retried as a second host.
+        // Fence admission without retiring physical resources still borrowed by clients.
+        nativeIndexActivation.fenceTerminal();
+        const borrowers = await Promise.allSettled([
+          agentHostMainClient.close(),
+          agentHostClientIpc.close(),
+        ]);
+        const failures = borrowers.flatMap((outcome) =>
+          outcome.status === 'rejected' ? [outcome.reason] : []
+        );
         const nativeRetirement = nativeIndexActivation.close();
         void retireEmbeddings();
-        await nativeRetirement;
-        await agentHostClientIpc.close();
+        try {
+          await nativeRetirement;
+        } catch (cause) {
+          failures.push(cause);
+        }
+        if (failures.length === 1) {
+          throw failures[0];
+        }
+        if (failures.length > 1) {
+          throw new AggregateError(failures, 'Native owner and borrower retirement failed');
+        }
       },
       'parser-host': async () => {
         await parserHostManager.stop();
@@ -628,7 +643,12 @@ const gracefulShutdown = createDesktopGracefulShutdown({
   // renderer dies, and each request would restart the embedding host that the
   // ordered steps are about to stop. Retire the admission first so host
   // teardown owns its window; the job rows stay durable and resume next launch.
-  retireBackgroundAdmission: cancelAllDesktopEmbeddingBackfills,
+  retireBackgroundAdmission: () => {
+    cancelAllDesktopEmbeddingBackfills();
+    // Fence pending frame borrows before reset completion releases idle waiters.
+    // The same retained close is physically joined by the native-index step.
+    void agentHostClientIpc.close().catch(() => undefined);
+  },
 });
 
 async function handleShutdownSignal(signal: NodeJS.Signals): Promise<void> {
@@ -1000,10 +1020,11 @@ const readHostThreadIds = async (): Promise<ReadonlySet<string>> =>
   new Set(
     (await agentHostMainClient.request('thread/list', {})).threads.map(({ threadId }) => threadId)
   );
-const agentHostClientIpc = registerAgentHostClientIpc(async (options) => {
+const agentHostClientIpc = registerAgentHostClientIpc(async (options, signal) => {
   // A factory reset retires the profile until it reopens it, after its replacement
   // renderer is ready: that renderer's clients connect once it has, not into the fence.
   await handleResetLocal.idle();
+  signal.throwIfAborted();
   return await nativeIndexActivation.acquireProfile(options);
 }, agentHostPrivateClients.open);
 ipcDisposers.add('agent-host-client', agentHostClientIpc.unregister);
