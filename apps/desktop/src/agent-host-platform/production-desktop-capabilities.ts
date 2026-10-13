@@ -1,5 +1,9 @@
 import { isSupportedProvider } from '@brainstrike/assistant-contract';
 import { listEmbeddingModels } from '@brainstrike/assistant-contract/provider-metadata';
+import {
+  type CatalogEmbeddingModel,
+  decodeCatalogEmbeddingModel,
+} from '@brainstrike/indexing-contract';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { z } from 'zod';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
@@ -21,37 +25,34 @@ export interface DesktopHostToolServices extends DesktopWorktreeServices {
   readonly nativeIndexSearch?: IndexSearchCapability | undefined;
 }
 
-/** Catalog dimensions of the recall embedder: hosted from the registry, local from the DB catalog. */
-async function readEmbeddingDimensions(
-  db: Awaited<ReturnType<typeof getDatabase>>,
-  provider: string,
-  modelId: string
-): Promise<number> {
-  if (provider !== 'local') {
-    const model = isSupportedProvider(provider)
-      ? listEmbeddingModels(provider).find((candidate) => candidate.id === modelId)
-      : undefined;
-    if (!model) {
-      throw new Error(`Embedding model "${provider}/${modelId}" is not in the provider catalog.`);
-    }
-    return model.defaultDimension;
+/** A hosted recall embedder's catalog dimensions, from the provider registry. */
+function readHostedEmbeddingDimensions(provider: string, modelId: string): number {
+  const model = isSupportedProvider(provider)
+    ? listEmbeddingModels(provider).find((candidate) => candidate.id === modelId)
+    : undefined;
+  if (!model) {
+    throw new Error(`Embedding model "${provider}/${modelId}" is not in the provider catalog.`);
   }
-  // The same catalog row the legacy local recall embedder read its dimensions from.
+  return model.defaultDimension;
+}
+
+/** A local recall embedder's DB catalog row: its dimensions, pooling and pins (BST-1993). */
+async function readLocalEmbeddingModel(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  modelId: string
+): Promise<CatalogEmbeddingModel> {
   const result = await db.query(
-    'SELECT capabilities FROM models WHERE id = $1 AND provider_id = $2 LIMIT 1',
+    'SELECT id, capabilities, parameters FROM models WHERE id = $1 AND provider_id = $2 LIMIT 1',
     [modelId, 'local']
   );
   const row = z
-    .object({ capabilities: z.union([z.string(), z.record(z.string(), z.unknown())]) })
+    .object({ capabilities: z.unknown(), id: z.string(), parameters: z.unknown() })
     .optional()
     .parse(result.rows[0]);
   if (!row) {
     throw new Error(`Local embedding model "${modelId}" is not in the model catalog.`);
   }
-  return z
-    .object({ defaultDimension: z.number().int().positive() })
-    .parse(typeof row.capabilities === 'string' ? JSON.parse(row.capabilities) : row.capabilities)
-    .defaultDimension;
+  return decodeCatalogEmbeddingModel(row);
 }
 
 async function readLocalEmbeddingHostDevice(
@@ -121,8 +122,10 @@ function desktopAdmissionReads(
     memoryVectors: async (settings, signal) => {
       const db = await getDatabase();
       return await resolveDesktopMemoryVectors(settings, {
-        readDimensions: (provider, modelId) => readEmbeddingDimensions(db, provider, modelId),
+        readDimensions: async (provider, modelId) =>
+          readHostedEmbeddingDimensions(provider, modelId),
         readLocalDevice: () => readLocalEmbeddingHostDevice(readLocalEmbeddingDevice, signal),
+        readLocalModel: (modelId) => readLocalEmbeddingModel(db, modelId),
       });
     },
     worktreesAvailable: async () => Boolean(dependencies.resolveWorktreeService?.()),

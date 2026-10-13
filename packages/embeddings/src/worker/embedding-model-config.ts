@@ -1,4 +1,5 @@
 import type { IDatabase } from '@brainstrike/db';
+import { decodeCatalogEmbeddingFacts } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import type { ModelConfig } from '../types.js';
@@ -104,43 +105,13 @@ export async function getModelConfigFromDb(
     return cached;
   }
 
+  let row: DbModelRow | undefined;
   try {
     const result = await db.query<DbModelRow>(
       'SELECT id, provider_id, name, description, capabilities, parameters FROM models WHERE id = $1',
       [modelId]
     );
-
-    if (result.rows.length === 0) {
-      modelConfigLogger.warn('getModelConfigFromDb: model not found in database', { modelId });
-      dbModelConfigCache.set(modelId, null);
-      return null;
-    }
-
-    const row = result.rows[0];
-    if (!row) {
-      dbModelConfigCache.set(modelId, null);
-      return null;
-    }
-
-    const capabilities = parseCapabilities(row.capabilities);
-    const parameters = parseParameters(row.parameters);
-
-    const modelConfig: ModelConfig = {
-      description: row.description ?? '',
-      dimensions: capabilities.defaultDimension ?? DEFAULT_EMBEDDING_DIMENSION,
-      id: row.id,
-      name: row.name,
-      origin: row.provider_id,
-      quantized: false,
-      tags: [row.provider_id, capabilities.type ?? 'embedding'].filter(Boolean),
-      ...(parameters.size === undefined ? {} : { size: parameters.size }),
-      ...(parameters.contextWindow === undefined
-        ? {}
-        : { contextWindow: parameters.contextWindow }),
-    };
-
-    dbModelConfigCache.set(modelId, modelConfig);
-    return modelConfig;
+    row = result.rows[0];
   } catch (error) {
     modelConfigLogger.error('getModelConfigFromDb: QUERY FAILED', {
       error: error instanceof Error ? error.message : String(error),
@@ -149,6 +120,32 @@ export async function getModelConfigFromDb(
     });
     return null;
   }
+  if (!row) {
+    modelConfigLogger.warn('getModelConfigFromDb: model not found in database', { modelId });
+    dbModelConfigCache.set(modelId, null);
+    return null;
+  }
+  // BST-1993: stated pooling and prompts are properties of the model; malformed ones refuse.
+  const { pooling, prompts } = decodeCatalogEmbeddingFacts(row.capabilities, modelId);
+  const capabilities = parseCapabilities(row.capabilities);
+  const parameters = parseParameters(row.parameters);
+
+  const modelConfig: ModelConfig = {
+    description: row.description ?? '',
+    dimensions: capabilities.defaultDimension ?? DEFAULT_EMBEDDING_DIMENSION,
+    id: row.id,
+    name: row.name,
+    origin: row.provider_id,
+    quantized: false,
+    tags: [row.provider_id, capabilities.type ?? 'embedding'].filter(Boolean),
+    ...(parameters.size === undefined ? {} : { size: parameters.size }),
+    ...(parameters.contextWindow === undefined ? {} : { contextWindow: parameters.contextWindow }),
+    ...(pooling === undefined ? {} : { pooling }),
+    ...(prompts === undefined ? {} : { prompts }),
+  };
+
+  dbModelConfigCache.set(modelId, modelConfig);
+  return modelConfig;
 }
 
 /**

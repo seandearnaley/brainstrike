@@ -7,6 +7,13 @@ export type EmbeddingDType = 'fp16' | 'q4' | 'q8' | 'fp32';
 /** How a model's token states become one vector: a property of the model, like its dtype. */
 export type EmbeddingPooling = 'mean' | 'cls';
 
+/** The worker protocol's one default: a request without pooling asks for 'mean'. */
+export function requestedEmbeddingPooling(request: {
+  readonly pooling?: EmbeddingPooling | undefined;
+}): EmbeddingPooling {
+  return request.pooling ?? 'mean';
+}
+
 export type EmbeddingDimensionParameter =
   | 'dimensions'
   | 'output_dimensionality'
@@ -636,6 +643,8 @@ export interface EmbedWorkerSuccess {
     readonly revision?: string;
     readonly device: EmbeddingDevice;
     readonly dtype: EmbeddingDType;
+    /** BST-1993: the pooling the worker applied, proved like revision and dtype. */
+    readonly pooling: EmbeddingPooling;
     readonly batchSize: number;
     readonly elapsedMs: number;
     readonly fallbackApplied: boolean;
@@ -664,6 +673,28 @@ function assertOptionalModelRevision(value: unknown, path: string): void {
   }
 }
 
+/** The model and runtime a completion proves: model, revision, device, dtype and pooling. */
+function assertCompletedRuntime(metadata: Record<string, unknown>, path: string): void {
+  if (!(typeof metadata['model'] === 'string' && metadata['model'].length > 0)) {
+    throw new Error(`${path}.model must be a non-empty string.`);
+  }
+  assertOptionalModelRevision(metadata['revision'], `${path}.revision`);
+  if (metadata['device'] !== 'webgpu' && metadata['device'] !== 'wasm') {
+    throw new Error(`${path}.device is invalid.`);
+  }
+  if (
+    metadata['dtype'] !== 'fp16' &&
+    metadata['dtype'] !== 'q4' &&
+    metadata['dtype'] !== 'q8' &&
+    metadata['dtype'] !== 'fp32'
+  ) {
+    throw new Error(`${path}.dtype is invalid.`);
+  }
+  if (metadata['pooling'] !== 'mean' && metadata['pooling'] !== 'cls') {
+    throw new Error(`${path}.pooling is invalid.`);
+  }
+}
+
 export function assertEmbedWorkerComplete(value: unknown): asserts value is EmbedWorkerComplete {
   const path = 'Embedding worker complete';
   if (!(value && typeof value === 'object' && !Array.isArray(value))) {
@@ -681,21 +712,7 @@ export function assertEmbedWorkerComplete(value: unknown): asserts value is Embe
     throw new Error(`${path}.metadata must be an object.`);
   }
   const metadata = metadataValue as Record<string, unknown>;
-  if (!(typeof metadata['model'] === 'string' && metadata['model'].length > 0)) {
-    throw new Error(`${path}.metadata.model must be a non-empty string.`);
-  }
-  assertOptionalModelRevision(metadata['revision'], `${path}.metadata.revision`);
-  if (metadata['device'] !== 'webgpu' && metadata['device'] !== 'wasm') {
-    throw new Error(`${path}.metadata.device is invalid.`);
-  }
-  if (
-    metadata['dtype'] !== 'fp16' &&
-    metadata['dtype'] !== 'q4' &&
-    metadata['dtype'] !== 'q8' &&
-    metadata['dtype'] !== 'fp32'
-  ) {
-    throw new Error(`${path}.metadata.dtype is invalid.`);
-  }
+  assertCompletedRuntime(metadata, `${path}.metadata`);
   if (
     !(
       typeof metadata['batchSize'] === 'number' &&

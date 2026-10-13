@@ -355,6 +355,7 @@ describe('assertEmbedWorkerComplete', () => {
         elapsedMs: 12,
         fallbackApplied: false,
         model: 'sentence-transformers/all-MiniLM-L6-v2',
+        pooling: 'mean',
         ...metadataOverrides,
       },
       type: 'complete',
@@ -410,6 +411,13 @@ describe('assertEmbedWorkerComplete', () => {
     expect(() => assertEmbedWorkerComplete(makeComplete({ dtype: 'int8' }))).toThrow(
       'metadata.dtype is invalid'
     );
+    expect(() => assertEmbedWorkerComplete(makeComplete({ pooling: undefined }))).toThrow(
+      'metadata.pooling is invalid'
+    );
+    expect(() => assertEmbedWorkerComplete(makeComplete({ pooling: 'max' }))).toThrow(
+      'metadata.pooling is invalid'
+    );
+    expect(() => assertEmbedWorkerComplete(makeComplete({ pooling: 'cls' }))).not.toThrow();
     expect(() => assertEmbedWorkerComplete(makeComplete({ batchSize: -1 }))).toThrow(
       'metadata.batchSize must be a non-negative safe integer'
     );

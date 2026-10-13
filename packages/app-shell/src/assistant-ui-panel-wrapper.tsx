@@ -3,12 +3,7 @@ import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-r
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
-import {
-  buildExperimentAssignmentRequest,
-  useExperimentAssignmentPreferencesStore,
-} from '@brainstrike/app-state/stores/experiment-assignment-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
-import { useSelfImprovementSignalPreferencesStore } from '@brainstrike/app-state/stores/self-improvement-signal-preferences-store';
 import {
   buildSkillsContextRequest,
   useSkillsPreferencesStore,
@@ -753,32 +748,6 @@ export function AssistantUiPanelWrapper({
     workspaceInstructionsOversizedOptIns,
   ]);
 
-  // Opt-in self-improvement signal (desktop data-stream only). The renderer
-  // attaches a plain-JSON snapshot; the server strictly parses it and owns the
-  // telemetry query and prompt construction.
-  const selfImprovementSignalEnabled = useSelfImprovementSignalPreferencesStore(
-    (state) => state.enabled
-  );
-  const selfImprovementSignalPreference = useMemo(() => {
-    if (localChatTransport !== 'data-stream') {
-      return;
-    }
-    return { enabled: selfImprovementSignalEnabled };
-  }, [localChatTransport, selfImprovementSignalEnabled]);
-
-  // Experiment enrollment (desktop data-stream only, BST-1251): attribution
-  // metadata on the treatment row; only a COMPLETE pair rides the wire.
-  const enrolledExperimentId = useExperimentAssignmentPreferencesStore(
-    (state) => state.experimentId
-  );
-  const enrolledVariant = useExperimentAssignmentPreferencesStore((state) => state.variant);
-  const experimentAssignment = useMemo(() => {
-    if (localChatTransport !== 'data-stream') {
-      return;
-    }
-    return buildExperimentAssignmentRequest(enrolledExperimentId, enrolledVariant);
-  }, [localChatTransport, enrolledExperimentId, enrolledVariant]);
-
   // Agent Skills preference (desktop data-stream only — the server builds the
   // skills engine; web has no scan path). A plain-JSON snapshot the server
   // parses strictly; it can only REDUCE the skill set.
@@ -815,7 +784,6 @@ export function AssistantUiPanelWrapper({
       ? { boundWorkspaceRootId: threadRootBinding.rootId }
       : {}),
     enabledNativeToolIds,
-    experimentAssignment,
     hostedMemoryBackendAvailable,
     mainRootId,
     mainRootPath,
@@ -829,7 +797,6 @@ export function AssistantUiPanelWrapper({
     runtimeWorkspaceContext,
     selectedMemoryThreadId,
     selectionData,
-    selfImprovementSignalPreference,
     semanticRecallSettings,
     skillsPreference,
     subagentPersonasRequest,

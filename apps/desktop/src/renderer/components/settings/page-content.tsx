@@ -19,6 +19,7 @@ import type {
 import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
+import type { LocalExecutionCapability } from '@brainstrike/indexing-contract';
 import { configureModelRuntimeServices } from '@brainstrike/settings-ui/settings/models/model-runtime-services';
 import {
   ModelCatalogHeaderActions,
@@ -26,7 +27,6 @@ import {
 } from '@brainstrike/settings-ui/settings/models/model-selection-page';
 import { createProvidersSettingsCategory } from '@brainstrike/settings-ui/settings/providers/providers-settings-category';
 import { createNotificationSettingsCategory } from '@brainstrike/settings-ui/settings/system/notification-settings-category';
-import { createSelfImprovementSignalSettingsCategory } from '@brainstrike/settings-ui/settings/system/self-improvement-signal-settings-category';
 import { createSkillsSettingsCategory } from '@brainstrike/settings-ui/settings/system/skills-settings-category';
 import { createWorkspaceInstructionsSettingsCategory } from '@brainstrike/settings-ui/settings/system/workspace-instructions-settings-category';
 import {
@@ -78,6 +78,12 @@ configureModelRuntimeServices({
  * Transform the desktop-owned native tools into ToolDisplayMetadata format.
  * Mastra skill tools have their own preferences and are not desktop toggles.
  */
+/** The visible embedding host bridge as Settings' local execution capability (BST-1993). */
+function visibleLocalExecution(): LocalExecutionCapability | undefined {
+  const bridge = window.embeddingHost;
+  return bridge && 'webgpuAdapter' in bridge ? bridge : undefined;
+}
+
 function getNativeToolsAsDisplayMetadata(
   isToolEnabled: (toolId: string) => boolean
 ): ToolDisplayMetadata[] {
@@ -407,7 +413,7 @@ export default function SettingsPageContent() {
 
     return [
       createAppearanceSettingsCategory(),
-      createSearchIndexingSettingsCategory(window.indexSearch),
+      createSearchIndexingSettingsCategory(window.indexSearch, visibleLocalExecution()),
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       createCostTrackingSettingsCategory(),
       createLocalRuntimeSettingsCategory(),
@@ -454,7 +460,6 @@ export default function SettingsPageContent() {
         settings: worktreeSettings.settings,
         status: worktreeSettings.status,
       }),
-      createSelfImprovementSignalSettingsCategory(),
       createNotificationSettingsCategory(),
       diagnosticsCategory,
       createFactoryResetSettingsCategory({

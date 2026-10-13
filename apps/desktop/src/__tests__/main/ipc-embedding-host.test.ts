@@ -40,6 +40,7 @@ import {
   EMBEDDING_HOST_REPORT_STATUS_CHANNEL,
   EMBEDDING_HOST_RESET_CHANNEL,
   EMBEDDING_HOST_STOP_CHANNEL,
+  EMBEDDING_HOST_WEBGPU_ADAPTER_CHANNEL,
 } from '../../embedding-host-shared';
 import { registerEmbeddingHostIpcHandlers } from '../../ipc-embedding-host';
 
@@ -224,6 +225,43 @@ describe('embedding host IPC handlers', () => {
     );
     unregister();
     clearWindowRoleByWebContentsId(sender.id);
+  });
+
+  it('answers WebGPU availability for the visible renderer only (BST-1993)', async () => {
+    const detected = { available: false, reason: 'WASM fallback (WebGPU not available)' };
+    const manager = {
+      acceptQueryEmbeddingResponseReport: vi.fn(),
+      acceptStatusReport: vi.fn(),
+      ensureStarted: vi.fn(),
+      getStatus: vi.fn(),
+      queryEmbedding: vi.fn(),
+      reset: vi.fn(),
+      stop: vi.fn(),
+      webgpuAdapter: vi.fn(async () => detected),
+    };
+    const unregister = registerEmbeddingHostIpcHandlers(manager as never, {
+      stop: () => manager.stop(),
+    });
+    const handler = handlers.get(EMBEDDING_HOST_WEBGPU_ADAPTER_CHANNEL);
+    if (!handler) {
+      throw new Error('Embedding host WebGPU availability handler not registered.');
+    }
+    const visible = Object.assign(new EventEmitter(), { id: 18 });
+    assignWindowRole({ once: vi.fn(), webContents: visible } as never, 'visible-ui');
+    await expect(
+      handler({ sender: visible, senderFrame: createAllowlistedSenderFrame() })
+    ).resolves.toEqual(detected);
+    const hidden = Object.assign(new EventEmitter(), { id: 19 });
+    assignWindowRole({ once: vi.fn(), webContents: hidden } as never, 'embedding-host');
+    await expect(
+      Promise.resolve().then(() =>
+        handler({ sender: hidden, senderFrame: createAllowlistedSenderFrame() })
+      )
+    ).rejects.toThrow();
+    expect(manager.webgpuAdapter).toHaveBeenCalledOnce();
+    unregister();
+    clearWindowRoleByWebContentsId(visible.id);
+    clearWindowRoleByWebContentsId(hidden.id);
   });
 
   it('unregisters lifecycle channels on cleanup', () => {

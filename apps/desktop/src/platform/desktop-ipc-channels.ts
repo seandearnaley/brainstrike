@@ -119,9 +119,12 @@ export const DESKTOP_IPC_CHANNELS = {
     reportDocumentEmbeddingsResponse: 'embedding-host:report-document-embeddings-response',
     reportQueryEmbeddingResponse: 'embedding-host:report-query-embedding-response',
     reportStatus: 'embedding-host:report-status',
+    reportWebgpuAdapterResponse: 'embedding-host:report-webgpu-adapter-response',
     reset: 'embedding-host:reset',
     status: 'embedding-host:status',
     stop: 'embedding-host:stop',
+    webgpuAdapter: 'embedding-host:webgpu-adapter',
+    webgpuAdapterRequest: 'embedding-host:webgpu-adapter-request',
   },
   fileExports: {
     saveToDownloads: 'file-exports:save-to-downloads',

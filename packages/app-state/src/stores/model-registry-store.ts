@@ -30,6 +30,10 @@ export interface DbModel {
     type: 'llm' | 'embedding';
     streaming?: boolean;
     defaultDimension?: number;
+    /** A local embedding model's pooling (BST-1993); absent means 'mean'. */
+    pooling?: 'mean' | 'cls';
+    /** A local embedding model's card prompts (BST-1993); absent means none. */
+    prompts?: { document: string; query: string };
     /** Image-input support (LLM rows only; backfilled by migration 061). */
     vision?: boolean;
   };
