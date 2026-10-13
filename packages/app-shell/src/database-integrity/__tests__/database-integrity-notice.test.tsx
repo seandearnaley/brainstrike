@@ -1,3 +1,4 @@
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import type { DesktopDatabaseIntegrityBridge } from '@brainstrike/db';
 import type { DatabaseIntegrityContext, DatabaseIntegritySnapshot } from '@brainstrike/types';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
@@ -291,7 +292,10 @@ describe('DatabaseIntegrityNotice', () => {
     expect(alert).toHaveTextContent("BrainStrike couldn't read the database status.");
     expect(alert).not.toHaveTextContent(COPY_MESSAGE);
     expect(loggerMock.error).toHaveBeenCalledWith('Could not read the database integrity state', {
-      error: expect.objectContaining({ message: 'ipc closed' }),
+      error: expect.objectContaining({
+        cause: expect.objectContaining({ message: 'ipc closed' }),
+        message: INTERNAL_FAULT.message,
+      }),
     });
 
     fake.emit(healthy(1));
@@ -313,7 +317,13 @@ describe('DatabaseIntegrityNotice', () => {
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent(COPY_MESSAGE);
     expect(alert).not.toHaveTextContent("couldn't read");
-    expect(loggerMock.error).toHaveBeenCalledTimes(1);
+    expect(loggerMock.error).toHaveBeenCalledWith('Desktop IPC transport failed', {
+      cause: expect.objectContaining({ message: 'ipc closed' }),
+    });
+    expect(loggerMock.error).toHaveBeenCalledWith('Could not read the database integrity state', {
+      error: expect.objectContaining({ message: INTERNAL_FAULT.message }),
+    });
+    expect(loggerMock.error).toHaveBeenCalledTimes(2);
   });
 
   it('reads once under StrictMode double subscription', async () => {

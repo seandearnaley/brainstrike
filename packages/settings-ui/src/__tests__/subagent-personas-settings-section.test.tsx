@@ -17,6 +17,7 @@ import {
   effectiveChildStepBudget,
   personaScope,
 } from '@brainstrike/assistant-contract';
+import type { BoundaryTransport } from '@brainstrike/assistant-contract/boundary-result';
 import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -28,11 +29,11 @@ interface PersonasBridge {
 }
 
 function setBridge(bridge: PersonasBridge | undefined): void {
-  const host = window as { assistantPersonas?: PersonasBridge };
+  const host = window as { assistantPersonas?: BoundaryTransport<PersonasBridge> };
   if (bridge === undefined) {
     Reflect.deleteProperty(host, 'assistantPersonas');
   } else {
-    host.assistantPersonas = bridge;
+    host.assistantPersonas = { list: async () => ({ ok: true, value: await bridge.list() }) };
   }
 }
 
