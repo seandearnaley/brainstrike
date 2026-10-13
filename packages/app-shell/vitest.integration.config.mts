@@ -17,7 +17,7 @@
 // keeps the base config's full include so coverage still measures every file.
 // Both app-shell lanes run with vitest defaults — neither the `test` nor the
 // `test:integration` script passes `--no-file-parallelism` (this package does
-// not serialize; it relies on the base `pool: 'threads'` + adaptive
+// not serialize; it relies on the default `forks` pool + adaptive
 // `maxWorkers`). Serialization is held constant across the split: the split
 // changes only caching, not the runner flags.
 import { defineConfig } from 'vitest/config';

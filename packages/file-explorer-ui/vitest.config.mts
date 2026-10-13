@@ -94,8 +94,6 @@ export default defineConfig({
     include: ['src/**/__tests__/**/*.test.{ts,tsx}'],
     // Keep isolation to avoid cross-file state until a deeper audit completes
     isolate: true,
-    // Switch to threads to reduce memory/startup overhead
-    pool: 'threads',
     reporters: ['default', new LostTestFileReporter()],
     setupFiles: [
       ...(testBase.setupFiles ?? []),

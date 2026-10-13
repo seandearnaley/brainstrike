@@ -25,7 +25,6 @@ export default defineConfig({
     hookTimeout: 30_000,
     include: ['src/__tests__/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.test.{ts,tsx}'],
     maxWorkers: process.env['CI'] ? '50%' : '100%',
-    pool: 'threads',
     reporters: ['default', new LostTestFileReporter()],
     setupFiles: [
       '@brainstrike/test-utils/vitest.event-loop-watchdog.setup',

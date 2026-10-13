@@ -35,7 +35,6 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     maxWorkers: process.env['CI'] ? '50%' : '100%',
-    pool: 'threads',
     reporters: ['default', new LostTestFileReporter()],
     // The timeout-only setup scales waitFor/findBy without shared cleanup
     // hooks (BST-1299). The watchdog loads first to capture real timers and

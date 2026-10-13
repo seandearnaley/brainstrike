@@ -61,8 +61,6 @@ export default defineConfig({
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
     // Vitest 4: use maxWorkers: 1 instead of poolOptions.threads.singleThread
     maxWorkers: 1,
-    // Use threads with single worker to avoid Tinypool EPIPE under Node 22 in CI
-    pool: 'threads',
     reporters: ['default', new LostTestFileReporter()],
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
   },

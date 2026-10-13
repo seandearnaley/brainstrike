@@ -98,7 +98,6 @@ export default defineConfig({
           include: ['src/__tests__/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.test.{ts,tsx}'],
           maxWorkers: process.env['CI'] ? '50%' : '100%',
           name: 'unit',
-          pool: 'threads',
           sequence: {
             groupOrder: 0,
           },
