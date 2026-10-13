@@ -83,6 +83,7 @@ it('carries real fenced invalidation data through sandboxed production preload a
     );
     const rejected = await observeCoverage(() => readNativeObservation(context), record);
     expect(rejected).toEqual({
+      cause: { kind: 'transitioning' },
       code: 'native-coverage-observation-invalidated',
       kind: 'invalidated',
     });
