@@ -719,7 +719,8 @@ describe('agent-runtime edge cases', () => {
           )
           .map((chunk) => chunk.value)
           .join('');
-        expect(text).toContain('Test error message');
+        expect(text.length).toBeGreaterThan(0);
+        expect(text).not.toContain('Test error message');
 
         const runEventKinds = chunks
           .filter(

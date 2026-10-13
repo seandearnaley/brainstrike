@@ -141,9 +141,8 @@ describe('MarkdownText', () => {
   });
 
   it('uses Electron clipboard when available and blocks duplicate copies while copied', async () => {
-    // The desktop bridge (BST-1648) resolves on success and REJECTS on failure:
-    // the preload has already unwrapped the IPC envelope.
-    const electronWriteText = vi.fn().mockResolvedValue(undefined);
+    // The preload preserves the typed envelope; the clipboard consumer unwraps it.
+    const electronWriteText = vi.fn().mockResolvedValue({ ok: true, value: undefined });
     (window as unknown as { clipboard?: { writeText: (text: string) => unknown } }).clipboard = {
       writeText: electronWriteText,
     };
