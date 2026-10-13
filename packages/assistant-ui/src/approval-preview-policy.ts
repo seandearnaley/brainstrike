@@ -30,7 +30,7 @@ const RUN_PYTHON_MAX_DOMAIN_CHARS = 253;
 /** What a preview reads from an approval: its tool, arguments and host facts. */
 export type ApprovalPreviewSubject = Pick<
   AssistantToolApprovalRequest,
-  'args' | 'executionContext' | 'toolName'
+  'args' | 'executionContext' | 'targetRoot' | 'toolName'
 >;
 
 function isRecord(value: unknown): value is Record<string, unknown> {

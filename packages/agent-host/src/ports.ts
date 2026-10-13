@@ -36,6 +36,7 @@ import type {
 import type { McpHostToolBinding } from './adapters/mcp.js';
 import type { HostAuthVerdict } from './auth-wire.js';
 import type {
+  HostApprovalTargetRoot,
   HostEditOp,
   HostEvent,
   HostHookSkip,
@@ -453,6 +454,13 @@ export interface HostDelegation {
 }
 
 export interface HostTool {
+  /**
+   * BST-1990 (D4): the workspace folder this call targets, through the same
+   * resolution the tool's execute uses; undefined when the call names a folder
+   * the run cannot use (its execute refuses it). Core commits it on the call's
+   * approval request so the card names the folder.
+   */
+  readonly approvalTarget?: (input: unknown) => HostApprovalTargetRoot | undefined;
   /**
    * Whether this call's own input asks for network a person must allow, per
    * call, before it executes (run_python's requested domains). Never remembered

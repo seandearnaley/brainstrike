@@ -43,6 +43,7 @@ export function HostApprovalStrip({
             ),
           ...(approval.risk ? { risk: approval.risk } : {}),
           runId: approval.runId,
+          ...(approval.targetRoot ? { targetRoot: approval.targetRoot } : {}),
           toolCallId: approval.toolCallId,
           toolName,
         };

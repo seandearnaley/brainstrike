@@ -523,6 +523,7 @@ export function hostStepInteractions(
       registered.permissionToolId === NATIVE_TOOL_ID.runPython
         ? resolveRunPythonExecutionContext(part.toolCall.input)
         : undefined;
+    const targetRoot = registered.approvalTarget?.(part.toolCall.input);
     return [
       {
         ...(executionContext ? { executionContext: jsonValue(executionContext) } : {}),
@@ -534,6 +535,7 @@ export function hostStepInteractions(
           ? {}
           : { risk: registered.risk }),
         runId: run.id,
+        ...(targetRoot ? { targetRoot: { ...targetRoot } } : {}),
         ...(registered.permissionToolId ? { toolCatalogId: registered.permissionToolId } : {}),
         toolCallId: part.toolCall.toolCallId,
         toolId: part.toolCall.toolName,
