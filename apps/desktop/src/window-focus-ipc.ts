@@ -1,3 +1,4 @@
+import { refusal } from '@brainstrike/assistant-contract/boundary-failure';
 import { BrowserWindow, type IpcMainInvokeEvent, ipcMain, type WebContents } from 'electron';
 import { windowFocusContract } from './ipc-domains/window-focus.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
@@ -42,9 +43,11 @@ function readSenderWindowFocus(sender: WebContents): IpcResult<boolean> {
   const window = BrowserWindow.fromWebContents(sender);
   if (window === null || window.isDestroyed()) {
     return ipcFailure(
-      'window-focus',
-      'window_unavailable',
-      'The requesting renderer has no live BrowserWindow.'
+      refusal({
+        category: 'availability',
+        code: 'window.unavailable',
+        message: 'This window is no longer available.',
+      })
     );
   }
   return ipcOk(window.isFocused());

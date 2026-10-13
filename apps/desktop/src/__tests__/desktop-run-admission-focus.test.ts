@@ -146,3 +146,23 @@ test('an explicit selection from an unavailable folder is refused even for an un
     })
   ).rejects.toThrow();
 });
+
+test('a changed model selection returns a typed refusal with a remedy', async () => {
+  const request = send('root-a');
+  await expect(
+    admission([alpha]).readConfiguration({
+      ...request,
+      configuration: {
+        ...request.configuration,
+        modelConfiguration: { model: 'other-model', provider: 'openai' },
+      },
+    })
+  ).rejects.toMatchObject({
+    failure: {
+      category: 'conflict',
+      code: 'model.selection-changed',
+      kind: 'refusal',
+      remedy: 'Select the model again and retry.',
+    },
+  });
+});

@@ -1,3 +1,4 @@
+import { type BoundaryTransport, callBoundary } from './boundary-result.js';
 /**
  * Structural typing + capability resolution for the desktop
  * `window.contextFiles` workspace-instructions scan bridge (Settings →
@@ -54,7 +55,9 @@ export function resolveContextFilesBridge(): ContextFilesBridge | null {
   if (typeof window === 'undefined') {
     return null;
   }
-  const bridge = (window as Window & { contextFiles?: Partial<ContextFilesBridge> }).contextFiles;
+  const bridge = (
+    window as Window & { contextFiles?: Partial<BoundaryTransport<ContextFilesBridge>> }
+  ).contextFiles;
   if (!bridge) {
     return null;
   }
@@ -67,5 +70,6 @@ export function resolveContextFilesBridge(): ContextFilesBridge | null {
     });
     return null;
   }
-  return bridge as ContextFilesBridge;
+  const transport = bridge as BoundaryTransport<ContextFilesBridge>;
+  return { scan: () => callBoundary(() => transport.scan()) };
 }

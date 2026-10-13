@@ -1,3 +1,5 @@
+import { EmbeddingDeviceLostError } from '@brainstrike/indexing-contract';
+import { deserializeRuntimeError } from '@brainstrike/worker-runtime';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   assertEmbeddingHostCommand,
@@ -22,6 +24,30 @@ import {
 describe('embedding host shared command helpers', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('preserves typed device loss across the renderer to Main error envelope', () => {
+    const request = createEmbeddingHostQueryEmbeddingRequest('runtime-a', {
+      dimensions: 2,
+      modelId: 'model-a',
+      modelKey: 'local:model-a',
+      query: 'fixture',
+    });
+    const report = assertEmbeddingHostQueryEmbeddingResponseReport(
+      JSON.parse(
+        JSON.stringify(
+          createEmbeddingHostQueryEmbeddingErrorReport(
+            request,
+            new EmbeddingDeviceLostError('destroyed: adapter reset')
+          )
+        )
+      )
+    );
+    expect(deserializeRuntimeError(report.payload)).toMatchObject({
+      cause: 'destroyed: adapter reset',
+      code: 'EMBEDDING_DEVICE_LOST',
+      name: 'DeviceLost',
+    });
   });
 
   it('carries only exact request and runtime identity in a cancellation notice', () => {

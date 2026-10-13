@@ -25,6 +25,7 @@ import {
 import { isTerminalBridgeAvailable } from '@brainstrike/app-shell/terminal-panel/availability';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { isWorktreesBridgeAvailable } from '@brainstrike/app-shell/worktrees/availability';
+import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import { McpTaskBridgeProvider } from '@brainstrike/assistant-ui/mcp-task-bridge-context';
 import { ToolResultRendererProvider } from '@brainstrike/assistant-ui/tool-result-renderer-context';
 import { usePGliteDatabase } from '@brainstrike/db/react';
@@ -38,6 +39,7 @@ import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
 import { McpElicitationCapabilityProvider } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-capability';
 import { GitBranch, Globe, NotebookPen } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
+import { indexSearchContract } from '../../ipc-domains/index-search.contract';
 import { registerDesktopEmbeddingRuntimeConfig } from '../create-embedding-queue';
 import { DesktopHostThreadProvider } from '../desktop-host-thread-provider';
 import {
@@ -47,6 +49,7 @@ import {
   resolveDesktopMcpTaskBridge,
   resolveDesktopMcpToolsCapability,
 } from '../host-mcp-settings';
+import { createIpcCapability } from '../ipc-capability';
 import { useMcpAppsEnablement } from '../use-mcp-apps-enablement';
 // Task A's changes-page-content.tsx exports this by name (not default,
 // unlike its git/context-explorer/terminal siblings) — imported as written.
@@ -109,6 +112,11 @@ const MCP_APP_TOOL_RESULT_RENDERERS = Object.freeze([mcpAppToolResultRenderer]);
  * can share the same context and see each other's updates.
  */
 export default function RootLayoutContent() {
+  const nativeSearch = useMemo(
+    () =>
+      window.indexSearch ? createIpcCapability(window.indexSearch, indexSearchContract) : null,
+    []
+  );
   const db = usePGliteDatabase();
   const activeToolsTabRef = useRef<'database-ready' | 'initializing'>(
     db ? 'database-ready' : 'initializing'
@@ -182,9 +190,9 @@ export default function RootLayoutContent() {
       if (!(bridge && 'fileSystem' in bridge)) {
         throw new Error('Desktop root data deletion bridge is unavailable.');
       }
-      return bridge.fileSystem.deleteRootData(rootId);
+      return callBoundary(() => bridge.fileSystem.deleteRootData(rootId));
     },
-    nativeIndexSearch: window.indexSearch ?? null,
+    nativeIndexSearch: nativeSearch,
     navigationItems: navigationConfig,
     settingsPageContent: <SettingsPageContent />,
     ...(browserAvailable ? { browserPageContent: <BrowserPaneContent /> } : {}),
@@ -407,8 +415,8 @@ export default function RootLayoutContent() {
       </McpTaskBridgeProvider>
     </TokenCacheWrapper>
   );
-  return window.indexSearch ? (
-    <NativeSearchProvider capability={window.indexSearch}>{content}</NativeSearchProvider>
+  return nativeSearch ? (
+    <NativeSearchProvider capability={nativeSearch}>{content}</NativeSearchProvider>
   ) : (
     content
   );

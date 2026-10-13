@@ -90,7 +90,7 @@ async function status(
   context: ElectronAppContext
 ): Promise<Awaited<ReturnType<IndexSearchCapability['status']>>> {
   return await context.window.evaluate(async () => {
-    const index = (window as unknown as PublicBridges).indexSearch;
+    const index = (window as unknown as PublicBridges).__brainstrikeTestHooks__?.indexSearch;
     if (!index) {
       throw new Error('Canonical native status bridge is unavailable.');
     }

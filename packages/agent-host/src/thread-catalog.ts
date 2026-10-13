@@ -1,3 +1,4 @@
+import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
 import type { HydrationThread, LogRow, StateStore } from '@brainstrike/state-store';
 import { readHostRow, readHostThreadHistory } from './event-storage.js';
 import type { HostHookTrustStore } from './hook-trust.js';
@@ -6,8 +7,12 @@ import type { HostLogRow, HostResults } from './protocol.js';
 type ListedThread = HostResults['thread/list']['threads'][number];
 
 /** A damaged thread's refusal: its text is written for the person who opened or ran it. */
-export class HostThreadDamagedRefusal extends Error {
+export class HostThreadDamagedRefusal extends BoundaryFailureError {
   override readonly name = 'HostThreadDamagedRefusal';
+
+  constructor(message: string) {
+    super(refusal({ category: 'conflict', code: 'thread.damaged', message }));
+  }
 }
 
 /** The Root store Core opens over and commits to. */

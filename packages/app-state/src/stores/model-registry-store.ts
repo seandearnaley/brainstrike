@@ -1,4 +1,9 @@
 import type { ProviderModelDefaultPolicy } from '@brainstrike/assistant-contract';
+import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
+import {
+  type BoundaryTransport,
+  callBoundary,
+} from '@brainstrike/assistant-contract/boundary-result';
 import { hasDownloadedBuiltInLocalLlmModel } from '@brainstrike/assistant-contract/local-llm-artifacts';
 import type { IDatabase } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
@@ -261,13 +266,8 @@ async function resolveDownloadedFlag(
 
   // For embedding models, check filesystem if available
   if (fileSystem && modelCacheDir) {
-    try {
-      const modelPath = `${modelCacheDir}/${model.id}`;
-      return await fileSystem.exists(modelPath);
-    } catch (err) {
-      logger.warn(`Failed to check existence for model ${model.id}`, err);
-      return Boolean(currentDownloadedModels[model.id]);
-    }
+    const modelPath = `${modelCacheDir}/${model.id}`;
+    return fileSystem.exists(modelPath);
   }
 
   // Fall back to localStorage value
@@ -281,11 +281,14 @@ async function checkDownloadedModels(
 ): Promise<Record<string, boolean>> {
   const electronAPI = (
     window as unknown as {
-      electronAPI?: { fileSystem?: FileSystemAccess };
+      electronAPI?: { fileSystem?: BoundaryTransport<FileSystemAccess> };
     }
   ).electronAPI;
 
-  const fileSystem = electronAPI?.fileSystem;
+  const transport = electronAPI?.fileSystem;
+  const fileSystem = transport
+    ? { exists: (modelPath: string) => callBoundary(() => transport.exists(modelPath)) }
+    : undefined;
 
   const newDownloadedModels: Record<string, boolean> = {};
 
@@ -408,7 +411,7 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
           set({ downloadedModels, hasLoaded: true, isLoading: false, models, providers });
         } catch (error) {
           logger.error('Failed to fetch model registry', error);
-          set({ error: (error as Error).message, isLoading: false });
+          set({ error: describeBoundaryError(error), isLoading: false });
         }
       },
 

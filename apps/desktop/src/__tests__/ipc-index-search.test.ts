@@ -1,3 +1,4 @@
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
 import { IndexerError } from '@brainstrike/indexer';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
@@ -7,6 +8,7 @@ import { registerIndexSearchIpcHandlers } from '../ipc-index-search';
 import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import { createIpcBridge } from '../platform/ipc-bridge';
+import { createIpcCapability } from '../renderer/ipc-capability';
 import { createTrustedInvokeEvent } from './helpers/desktop-ipc-sender-test-helpers';
 
 const ipc = vi.hoisted(() => ({
@@ -75,18 +77,21 @@ it('preserves invalid observations as data while unrelated failures keep the can
       },
     })
   );
-  const bridge = createIpcBridge(
-    {
-      invoke: (channel, ...args) => {
-        const entry = ipc.handle.mock.calls.find(([name]) => name === channel);
-        if (!entry) {
-          throw new Error('Unknown channel');
-        }
-        return Promise.resolve(entry[1](createTrustedInvokeEvent(), ...args));
+  const bridge = createIpcCapability(
+    createIpcBridge(
+      {
+        invoke: (channel, ...args) => {
+          const entry = ipc.handle.mock.calls.find(([name]) => name === channel);
+          if (!entry) {
+            throw new Error('Unknown channel');
+          }
+          return Promise.resolve(entry[1](createTrustedInvokeEvent(), ...args));
+        },
+        on: vi.fn(),
+        removeListener: vi.fn(),
       },
-      on: vi.fn(),
-      removeListener: vi.fn(),
-    },
+      indexSearchContract
+    ),
     indexSearchContract
   );
   await expect(bridge.coverageBatch([{ rootIds: ['root'] }])).resolves.toEqual({
@@ -95,11 +100,10 @@ it('preserves invalid observations as data while unrelated failures keep the can
   });
   vi.mocked(cap.coverageBatch).mockRejectedValueOnce(new Error(invalidation.message));
   await expect(bridge.coverageBatch([{ rootIds: ['root'] }])).rejects.toMatchObject({
-    category: 'native-index',
-    code: 'native-index-failed',
+    failure: INTERNAL_FAULT,
   });
 });
-it('uses the visible-ui authorized manifest and canonical preload result/error unwrap', async () => {
+it('uses the visible-ui authorized manifest and canonical renderer result/error unwrap', async () => {
   const cap = capability();
   dispose.push(
     registerIndexSearchIpcHandlers(cap, {
@@ -108,25 +112,30 @@ it('uses the visible-ui authorized manifest and canonical preload result/error u
       },
     })
   );
-  const bridge = createIpcBridge(
-    {
-      invoke: async (channel, ...args) => {
-        const entry = ipc.handle.mock.calls.find(([name]) => name === channel);
-        if (!entry) {
-          throw new Error('Unknown channel');
-        }
-        return entry[1](createTrustedInvokeEvent(), ...args);
+  const bridge = createIpcCapability(
+    createIpcBridge(
+      {
+        invoke: async (channel, ...args) => {
+          const entry = ipc.handle.mock.calls.find(([name]) => name === channel);
+          if (!entry) {
+            throw new Error('Unknown channel');
+          }
+          return entry[1](createTrustedInvokeEvent(), ...args);
+        },
+        on: vi.fn(),
+        removeListener: vi.fn(),
       },
-      on: vi.fn(),
-      removeListener: vi.fn(),
-    },
+      indexSearchContract
+    ),
     indexSearchContract
   );
   await expect(bridge.status()).resolves.toEqual({
     kind: 'unavailable',
     reason: 'No configured index owner.',
   });
-  await expect(bridge.coverage({ rootIds: ['r'] })).rejects.toThrow('Coverage failure');
+  await expect(bridge.coverage({ rootIds: ['r'] })).rejects.toMatchObject({
+    failure: INTERNAL_FAULT,
+  });
 });
 it('rejects hidden, untracked and foreign-frame senders before payload parsing or capability calls', async () => {
   const cap = capability();
@@ -152,9 +161,11 @@ it('rejects hidden, untracked and foreign-frame senders before payload parsing o
     )
   ).rejects.toThrow();
   expect(cap.coverage).not.toHaveBeenCalled();
-  await expect(invoke(createTrustedInvokeEvent(), { rootIds: ['r', 'r'] })).rejects.toThrow(
-    'unique'
-  );
+  await expect(invoke(createTrustedInvokeEvent(), { rootIds: ['r', 'r'] })).resolves.toEqual({
+    error: { ...INTERNAL_FAULT, correlationId: expect.any(String) },
+    ok: false,
+  });
+  expect(cap.coverage).not.toHaveBeenCalled();
 });
 it('preserves explicit grep options and refuses incomplete or mixed vector profiles', () => {
   const request = {
@@ -314,7 +325,11 @@ it('observes a retained startup failure as stable blocked data without logging a
   await expect(
     handler('search')(event, { limit: 10, mode: 'bm25', rootIds: ['root'], text: 'marker' })
   ).resolves.toMatchObject({ error: { code: 'native-index-source-failure' }, ok: false });
-  expect(registryError).not.toHaveBeenCalled();
+  expect(registryError).toHaveBeenCalledExactlyOnceWith(expect.any(String), {
+    cause: original,
+    code: 'native-index-source-failure',
+    correlationId: expect.any(String),
+  });
   await expect(cap.coverage({ rootIds: ['root'] })).rejects.toThrow(original.message);
 });
 
@@ -352,7 +367,10 @@ it('accepts only an authorized no-argument registration notification and joins i
   await expect(
     invoke({ sender: { id: 78_123_456 }, senderFrame: createTrustedInvokeEvent().senderFrame })
   ).rejects.toThrow();
-  await expect(invoke(createTrustedInvokeEvent(), { rootId: 'renderer-claim' })).rejects.toThrow();
+  await expect(invoke(createTrustedInvokeEvent(), { rootId: 'renderer-claim' })).resolves.toEqual({
+    error: { ...INTERNAL_FAULT, correlationId: expect.any(String) },
+    ok: false,
+  });
   expect(rootsRegistered).not.toHaveBeenCalled();
   const settled = vi.fn();
   const response = Promise.resolve(invoke(createTrustedInvokeEvent())).then(settled);
@@ -373,7 +391,7 @@ it('preserves the canonical failure envelope for registration failures', async (
     })
   );
   await expect(handler('rootsRegistered')(createTrustedInvokeEvent())).resolves.toMatchObject({
-    error: { category: 'native-index', code: 'native-index-failed', message: failure.message },
+    error: { ...INTERNAL_FAULT, correlationId: expect.any(String) },
     ok: false,
   });
 });
@@ -392,7 +410,7 @@ it('carries the lifecycle transition tag across IPC without logging a failed ind
       text: 'test',
     })
   ).resolves.toMatchObject({
-    error: { category: 'native-index', code: 'native-index-transitioning' },
+    error: { category: 'availability', code: 'native-index-transitioning', kind: 'refusal' },
     ok: false,
   });
   expect(registryError).not.toHaveBeenCalled();

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { refusalError } from '@brainstrike/assistant-contract';
 import { MockLanguageModelV4 } from 'ai/test';
 import { expect, test } from 'vitest';
 import { runHostCli } from '../src/cli.js';
@@ -22,7 +23,8 @@ test('CLI ranked text preserves provenance, rejects unsupported scope/mode and j
     searchWorkspace: async (request, signal) => {
       calls.push(request.mode);
       if (request.rootId !== 'selected') {
-        throw new Error('Unauthorized root');
+        // The desktop platform refuses a foreign root with a typed refusal.
+        throw refusalError('authorization', 'workspace.root-unauthorized', 'Unauthorized root');
       }
       if (request.query === 'cancel') {
         entered.resolve();

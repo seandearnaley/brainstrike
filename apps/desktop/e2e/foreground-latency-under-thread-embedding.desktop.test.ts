@@ -425,6 +425,7 @@ test.describe('Foreground latency under thread message embedding', () => {
           embeddingSetId: PROBE_EMBEDDING_SET_ID,
           grepFilePath: NEVER_INDEXED_GREP_PATH,
           grepPattern: GREP_PATTERN,
+          operation: 'legacy-db',
           periodMs: PROBE_PERIOD_MS,
           readTargetPath: probeRoot.readTargetPath,
           rootPath: probeRoot.rootPath,
@@ -503,7 +504,7 @@ test.describe('Foreground latency under thread message embedding', () => {
           );
         }
         for (const [name, values] of [
-          ['chat-path op', loadedMain.chatPathOpMs],
+          ['legacy DB run-event write', loadedMain.chatPathOpMs],
           ['tool read', loadedMain.toolReadMs],
         ] as const) {
           if (values.length < MIN_LOADED_SAMPLES) {
@@ -550,7 +551,7 @@ test.describe('Foreground latency under thread message embedding', () => {
           environment: { ...environment, loadAverageAtEnd: os.loadavg().map(round3) },
           invalidReasons,
           metrics: {
-            chatPathOp: {
+            legacyDbRunEventWrite: {
               idleMs: idle.chatPathOpMs,
               loadedMs: loaded.chatPathOpMs,
               operation:
@@ -565,7 +566,7 @@ test.describe('Foreground latency under thread message embedding', () => {
               p95LoadedOverIdle: round3(loaded.toolReadMs.p95 / idle.toolReadMs.p95),
             },
           },
-          schema: 'brainstrike.foreground-latency-under-thread-embedding.v1',
+          schema: 'brainstrike.foreground-latency-under-thread-embedding.v2',
           status: invalidReasons.length === 0 ? 'valid' : 'invalid',
         };
         mkdirSync(path.dirname(evidencePath), { recursive: true });
@@ -578,8 +579,8 @@ test.describe('Foreground latency under thread message embedding', () => {
             `renderer idle: frame gap p95=${idleRendererMetrics.frameGapMs.p95} max=${idleRendererMetrics.frameGapMs.max}, long tasks=${idleRendererMetrics.longTasks.count}`,
             `renderer loaded: frame gap p95=${loadedRendererMetrics.frameGapMs.p95} max=${loadedRendererMetrics.frameGapMs.max}, long tasks=${loadedRendererMetrics.longTasks.count} (${loadedRendererMetrics.longTasks.totalMs} ms)`,
             `main event-loop lag idle p95=${idle.eventLoopLagMs.p95} max=${idle.eventLoopLagMs.max}; loaded p95=${loaded.eventLoopLagMs.p95} max=${loaded.eventLoopLagMs.max}`,
-            formatSummary('chat-path op idle', idle.chatPathOpMs),
-            formatSummary('chat-path op loaded', loaded.chatPathOpMs),
+            formatSummary('legacy DB run-event write idle', idle.chatPathOpMs),
+            formatSummary('legacy DB run-event write loaded', loaded.chatPathOpMs),
             formatSummary('tool read idle', idle.toolReadMs),
             formatSummary('tool read loaded', loaded.toolReadMs),
             ...invalidReasons.map((reason) => `INVALID: ${reason}`),

@@ -81,10 +81,11 @@ export async function seedPausedWorkspace(
   rootPath: string,
   rootId: string,
   device: BenchDevice,
-  reloadReason: string
+  reloadReason: string,
+  app?: ElectronApplication
 ): Promise<void> {
   await page.evaluate(
-    async ({ root, id }) => {
+    async ({ root, id, usePicker }) => {
       const storage = (
         window as Window & {
           electronAPI?: { storage?: { setItem?: (key: string, value: string) => Promise<void> } };
@@ -93,11 +94,13 @@ export async function seedPausedWorkspace(
       if (!storage?.setItem) {
         throw new Error('electronAPI.storage.setItem is unavailable.');
       }
-      await storage.setItem('lastFolderPath', root);
-      await storage.setItem(
-        'rootsList',
-        JSON.stringify([{ addedAt: 1_800_000_000_000, path: root, rootId: id }])
-      );
+      if (!usePicker) {
+        await storage.setItem('lastFolderPath', root);
+        await storage.setItem(
+          'rootsList',
+          JSON.stringify([{ addedAt: 1_800_000_000_000, path: root, rootId: id }])
+        );
+      }
       // Paused, so the idle baseline is taken with the workspace open and nothing indexing.
       await storage.setItem(
         'background-indexing-preferences.v1',
@@ -115,17 +118,23 @@ export async function seedPausedWorkspace(
         })
       );
     },
-    { id: rootId, root: rootPath }
+    { id: rootId, root: rootPath, usePicker: app !== undefined }
   );
   await setVectorDevicePreference(page, device);
   const { reloadRenderer } = await loadElectronHelpers();
   await reloadRenderer(page, reloadReason);
+  if (app) {
+    await app.evaluate((_electron, root) => {
+      process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = root;
+    }, rootPath);
+    await page.getByTestId('select-root-button').click();
+  }
   await expect(page.getByTestId('indexing-status-trigger')).toContainText('Paused', {
     timeout: 60_000,
   });
 }
 
-/** A thread with a `running` run row: the chat-path write needs a parent run, as during a real turn. */
+/** Legacy DB contention fixture for the thread-embedding instrument; never host admission evidence. */
 export async function seedRunningChatRun(page: Page): Promise<string> {
   const threadId = 'foreground-latency-benchmark-thread';
   const runId = 'foreground-latency-benchmark-run';

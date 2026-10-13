@@ -1,3 +1,4 @@
+import type { HostParams } from '@brainstrike/agent-host/protocol';
 import type { ElectronApplication, Page } from '@playwright/test';
 
 /**
@@ -46,8 +47,17 @@ export interface RendererWindowSamples {
   }>;
 }
 
-export interface MainProbeConfig {
-  readonly chatRunId: string;
+export type MainProbeConfig =
+  | ({
+      readonly operation: 'host-native';
+      readonly hostRun: Omit<HostParams<'run/start'>, 'commandId'>;
+      readonly rootIds: readonly string[];
+    } & CommonProbeConfig)
+  | ({
+      readonly operation: 'legacy-db';
+      readonly chatRunId: string;
+    } & CommonProbeConfig);
+interface CommonProbeConfig {
   readonly embeddingSetId: string;
   /** A root-relative path that is never indexed: the grep's work is the same in every phase. */
   readonly grepFilePath: string;
@@ -240,6 +250,7 @@ interface ProbeLoopRecord {
 }
 
 interface MainBenchController {
+  close: () => Promise<void>;
   pauseLoaded: () => Promise<void>;
   resumeLoaded: () => void;
   runIdle: (samples: number) => Promise<MainPhaseSamples>;
@@ -260,13 +271,23 @@ export async function installMainProbes(
   config: MainProbeConfig
 ): Promise<void> {
   await app.evaluate(
-    (_electron, { eldResolutionMs, probeConfig }) => {
+    async (_electron, { eldResolutionMs, configJson }) => {
+      const probeConfig = JSON.parse(configJson) as MainProbeConfig;
       interface Seam {
+        closeHostProbe(): Promise<void>;
         grepToolIndex: (input: {
           embeddingSetId: string;
           filePath: string;
           pattern: string;
         }) => Promise<number>;
+        hostRunAdmission(input: HostParams<'run/start'>): Promise<number>;
+        nativeToolIndex(input: {
+          rootIds: readonly string[];
+          embeddingSetId: string;
+          filePath: string;
+          pattern: string;
+        }): Promise<number>;
+        prepareHostProbe(threadId: string): Promise<void>;
         readToolFile: (input: { requestedPath: string; rootPath: string }) => Promise<number>;
         writeRunStepEvent: (input: {
           eventId: string;
@@ -292,10 +313,21 @@ export async function installMainProbes(
       const perfHooks = process.getBuiltinModule(
         'node:perf_hooks'
       ) as typeof import('node:perf_hooks');
+      if (probeConfig.operation === 'host-native') {
+        await seam.prepareHostProbe(probeConfig.hostRun.threadId);
+      }
       let sequence = 0;
+      let retired = false;
+      const loops = new Set<Promise<void>>();
 
       const chatOp = async (): Promise<number> => {
         sequence += 1;
+        if (probeConfig.operation === 'host-native') {
+          return await seam.hostRunAdmission({
+            ...probeConfig.hostRun,
+            commandId: crypto.randomUUID(),
+          });
+        }
         const startedAt = performance.now();
         await seam.writeRunStepEvent({
           eventId: `${probeConfig.chatRunId}-step-${sequence}`,
@@ -311,11 +343,16 @@ export async function installMainProbes(
           rootPath: probeConfig.rootPath,
         });
         const readAt = performance.now();
-        await seam.grepToolIndex({
+        const query = {
           embeddingSetId: probeConfig.embeddingSetId,
           filePath: probeConfig.grepFilePath,
           pattern: probeConfig.grepPattern,
-        });
+        };
+        if (probeConfig.operation === 'host-native') {
+          await seam.nativeToolIndex({ ...query, rootIds: probeConfig.rootIds });
+        } else {
+          await seam.grepToolIndex(query);
+        }
         const doneAt = performance.now();
         return { file: readAt - startedAt, index: doneAt - readAt, total: doneAt - startedAt };
       };
@@ -361,7 +398,7 @@ export async function installMainProbes(
         };
         const chatLoop = pace(
           0,
-          () => record.errors.length === 0 && keepGoing(record),
+          () => !retired && record.errors.length === 0 && keepGoing(record),
           () =>
             guard(async () => {
               record.chatPathOpMs.push(await chatOp());
@@ -369,7 +406,7 @@ export async function installMainProbes(
         );
         const toolLoop = pace(
           probeConfig.periodMs / 2,
-          () => record.errors.length === 0 && keepGoing(record),
+          () => !retired && record.errors.length === 0 && keepGoing(record),
           () =>
             guard(async () => {
               const sample = await toolOp();
@@ -378,7 +415,10 @@ export async function installMainProbes(
               record.toolReadMs.push(sample.total);
             })
         );
-        return Promise.all([chatLoop, toolLoop]).then(() => undefined);
+        const done = Promise.all([chatLoop, toolLoop]).then(() => undefined);
+        loops.add(done);
+        void done.finally(() => loops.delete(done));
+        return done;
       };
       const enoughSamples =
         (samples: number) =>
@@ -436,6 +476,17 @@ export async function installMainProbes(
       };
 
       target.__brainstrikeForegroundLatencyBench__ = {
+        close: async () => {
+          retired = true;
+          loaded?.histogram.disable();
+          const results = await Promise.allSettled([seam.closeHostProbe(), ...loops]);
+          const failures = results.flatMap((result) =>
+            result.status === 'rejected' ? [result.reason] : []
+          );
+          if (failures.length > 0) {
+            throw new AggregateError(failures, 'Foreground probes failed to retire');
+          }
+        },
         pauseLoaded,
         resumeLoaded: () => {
           const state = requireLoaded();
@@ -478,7 +529,7 @@ export async function installMainProbes(
         },
       };
     },
-    { eldResolutionMs: ELD_RESOLUTION_MS, probeConfig: config }
+    { configJson: JSON.stringify(config), eldResolutionMs: ELD_RESOLUTION_MS }
   );
 }
 
@@ -573,4 +624,16 @@ export async function stopMainLoadedPhase(app: ElectronApplication): Promise<Mai
     }
     return await bench.stopLoaded();
   }, null);
+}
+
+/** Joined E2E observer retirement; called after probe loops have settled. */
+export async function closeMainHostProbe(app: ElectronApplication): Promise<void> {
+  await app.evaluate(async () => {
+    const bench = (
+      globalThis as typeof globalThis & {
+        __brainstrikeForegroundLatencyBench__?: MainBenchController;
+      }
+    ).__brainstrikeForegroundLatencyBench__;
+    await bench?.close();
+  });
 }

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { BoundaryTransport } from '../boundary-result.js';
 import {
   CONTEXT_FILES_BRIDGE_REQUIRED_METHODS,
   type ContextFilesBridge,
@@ -30,11 +31,11 @@ describe('resolveContextFilesBridge', () => {
     expect(resolveContextFilesBridge()).toBeNull();
   });
 
-  it('returns the bridge when every required method is a function', () => {
-    const bridge: ContextFilesBridge = {
-      scan: () => Promise.resolve([]),
+  it('decodes the transport when every required method is a function', async () => {
+    const bridge: BoundaryTransport<ContextFilesBridge> = {
+      scan: () => Promise.resolve({ ok: true, value: [] }),
     };
     vi.stubGlobal('window', { contextFiles: bridge });
-    expect(resolveContextFilesBridge()).toBe(bridge);
+    await expect(resolveContextFilesBridge()?.scan()).resolves.toEqual([]);
   });
 });

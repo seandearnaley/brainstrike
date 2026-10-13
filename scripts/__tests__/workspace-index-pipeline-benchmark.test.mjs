@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -14,9 +16,6 @@ import {
 const PIPELINE_SCRIPT = fileURLToPath(
   new URL('../../apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs', import.meta.url)
 );
-const RECORDED_INTEGRATED_EVIDENCE = fileURLToPath(
-  new URL('./fixtures/foreground-latency-evidence.recorded.json', import.meta.url)
-);
 
 // Evidence recorded by e2e/foreground-latency-under-index-build.desktop.test.ts
 // (raw sample arrays trimmed to three entries).
@@ -28,6 +27,36 @@ function readRecordedIntegratedEvidence() {
     )
   );
 }
+
+// Validator input only: historical timings are never new host measurements.
+function currentEnvelope() {
+  const historical = readRecordedIntegratedEvidence();
+  const { chatPathOp, ...metrics } = historical.metrics;
+  return {
+    ...historical,
+    metrics: {
+      ...metrics,
+      hostRunAdmission: { ...chatPathOp, operation: 'main-host-run-start-admission-ack' },
+      toolRead: { ...metrics.toolRead, operation: 'shared-file-read-and-authorized-native-grep' },
+    },
+    schema: 'brainstrike.foreground-latency-under-index-build.v2',
+  };
+}
+test('rejects historical evidence even when relabelled v2', () => {
+  const historical = readRecordedIntegratedEvidence();
+  assert.throws(() => summarizeIntegratedBenchmarkEvidence(historical));
+  assert.throws(
+    () => summarizeIntegratedBenchmarkEvidence({ ...historical, schema: currentEnvelope().schema }),
+    /host admission/
+  );
+});
+test('rejects a v2 envelope with either wrong operation', () => {
+  for (const key of ['hostRunAdmission', 'toolRead']) {
+    const evidence = currentEnvelope();
+    evidence.metrics[key].operation = 'legacy-db-operation';
+    assert.throws(() => summarizeIntegratedBenchmarkEvidence(evidence), /host admission/);
+  }
+});
 
 function createSnapshot({ embedded, elapsedMs, fallbackApplied = false, device = 'webgpu' }) {
   return {
@@ -176,7 +205,7 @@ test('analyzeWorkspaceIndexEvidence rejects incomplete terminal counts', () => {
 });
 
 test('summarizeIntegratedBenchmarkEvidence returns the metric set of a valid run without raw samples', () => {
-  const recorded = readRecordedIntegratedEvidence();
+  const recorded = currentEnvelope();
   assert.equal(recorded.status, 'valid');
 
   const summary = summarizeIntegratedBenchmarkEvidence(recorded);
@@ -189,7 +218,7 @@ test('summarizeIntegratedBenchmarkEvidence returns the metric set of a valid run
 });
 
 test('summarizeIntegratedBenchmarkEvidence refuses an invalid run and names why', () => {
-  const recorded = readRecordedIntegratedEvidence();
+  const recorded = currentEnvelope();
   const invalid = {
     ...recorded,
     invalidReasons: ['the build finished in 9896 ms, under the 60000 ms floor'],
@@ -226,7 +255,7 @@ test('integratedBenchmarkEnv hands the device, corpus size and evidence path to 
 });
 
 test('summarizeIntegratedBenchmarkEvidence enforces a required device on both the configured and actual device', () => {
-  const recorded = readRecordedIntegratedEvidence();
+  const recorded = currentEnvelope();
   assert.equal(recorded.config.device, 'webgpu');
 
   assert.equal(
@@ -248,22 +277,19 @@ function runPipelineCli(args) {
   return spawnSync(process.execPath, [PIPELINE_SCRIPT, ...args], { encoding: 'utf8' });
 }
 
-test('the CLI exits non-zero when recorded integrated evidence ran on another device', () => {
-  const mismatch = runPipelineCli([
-    '--evidence',
-    RECORDED_INTEGRATED_EVIDENCE,
-    '--require-device',
-    'wasm',
-  ]);
-  assert.notEqual(mismatch.status, 0);
-  assert.match(mismatch.stderr, /requires device wasm/);
+test('the CLI enforces the device on the current operation envelope', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'foreground-validator-'));
+  const evidencePath = join(directory, 'validator-input.json');
+  writeFileSync(evidencePath, JSON.stringify(currentEnvelope()));
+  try {
+    const mismatch = runPipelineCli(['--evidence', evidencePath, '--require-device', 'wasm']);
+    assert.notEqual(mismatch.status, 0);
+    assert.match(mismatch.stderr, /requires device wasm/);
 
-  const match = runPipelineCli([
-    '--evidence',
-    RECORDED_INTEGRATED_EVIDENCE,
-    '--require-device',
-    'webgpu',
-  ]);
-  assert.equal(match.status, 0, match.stderr);
-  assert.equal(JSON.parse(match.stdout).status, 'valid');
+    const match = runPipelineCli(['--evidence', evidencePath, '--require-device', 'webgpu']);
+    assert.equal(match.status, 0, match.stderr);
+    assert.equal(JSON.parse(match.stdout).status, 'valid');
+  } finally {
+    rmSync(directory, { recursive: true });
+  }
 });

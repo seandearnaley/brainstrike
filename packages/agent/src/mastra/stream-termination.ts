@@ -132,6 +132,7 @@ export function makeProviderErrorTermination(
       ? 'mastra stream terminated by local error'
       : 'mastra stream terminated by provider error',
     {
+      cause: part,
       code: buildProviderErrorDiagnosticCode(runError),
       detail,
       ...buildProviderErrorDiagnosticCorrelation(runtimeData),

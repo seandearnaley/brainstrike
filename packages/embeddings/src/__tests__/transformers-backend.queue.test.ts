@@ -536,6 +536,103 @@ describe('TransformersBackend queue integration', () => {
     resetEmbeddingQueueFactory();
   });
 
+  it('creates a fresh stream worker only for explicit work after joined device-loss retirement', async () => {
+    const workers: StreamWorker[] = [];
+    class StreamWorker extends EventTarget {
+      readonly postMessage = vi.fn();
+      readonly terminate = vi.fn();
+      constructor() {
+        super();
+        workers.push(this);
+      }
+      emit(data: unknown): void {
+        this.dispatchEvent(new MessageEvent('message', { data }));
+      }
+    }
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('navigator', { gpu: {} });
+    vi.stubGlobal('Worker', StreamWorker);
+    const { queue } = createQueueStub();
+    const { TransformersBackend } = await import('../transformers-backend.js');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config.js'
+    );
+    registerEmbeddingQueueFactory(() => queue);
+    const backend = new TransformersBackend();
+    try {
+      backend.setTargetDimensions(2);
+      await backend.initialize({
+        device: 'webgpu',
+        dtype: 'fp16',
+        modelId: 'bge-m3',
+        quantized: false,
+        streamingWorkerUrl: '/worker.js',
+      });
+      const first = backend
+        .generateEmbeddingsStream(['hello'], 'bge-m3', vi.fn())
+        .catch((error: unknown) => error);
+      await vi.waitFor(() => expect(workers[0]?.postMessage).toHaveBeenCalled());
+      const id = (workers[0]!.postMessage.mock.calls[0]![0] as { request: { id: string } }).request
+        .id;
+      workers[0]!.emit({
+        cause: 'destroyed: device1',
+        code: 'EMBEDDING_DEVICE_LOST',
+        id,
+        message: 'device lost',
+        type: 'error',
+      });
+      expect(await first).toMatchObject({ code: 'EMBEDDING_DEVICE_LOST' });
+      expect(workers[0]!.terminate).toHaveBeenCalledOnce();
+      expect(workers).toHaveLength(1);
+      const batches = vi.fn();
+      const next = backend.generateEmbeddingsStream(['explicit next'], 'bge-m3', batches);
+      // Observe rejection even when the pre-fix owner wrongly reuses its failed client.
+      void next.catch(() => undefined);
+      await vi.waitFor(() => expect(workers).toHaveLength(2));
+      const replacement = workers[1]!;
+      const nextId = (replacement.postMessage.mock.calls[0]![0] as { request: { id: string } })
+        .request.id;
+      replacement.emit({
+        batchIndex: 0,
+        endIndex: 1,
+        id: nextId,
+        peakVectorsInFlight: 1,
+        startIndex: 0,
+        transferBytes: 8,
+        type: 'batch',
+        vectors: [new Float32Array([1, 0])],
+        vectorsInFlight: 1,
+      });
+      await vi.waitFor(() =>
+        expect(replacement.postMessage).toHaveBeenCalledWith({
+          batchIndex: 0,
+          id: nextId,
+          type: 'stream-ack',
+        })
+      );
+      replacement.emit({
+        id: nextId,
+        metadata: {
+          batchSize: 1,
+          device: 'webgpu',
+          dimensions: 2,
+          dtype: 'fp16',
+          elapsedMs: 1,
+          fallbackApplied: false,
+          model: 'bge-m3',
+          pooling: 'mean',
+        },
+        type: 'complete',
+      });
+      await expect(next).resolves.toMatchObject({ device: 'webgpu', fallbackApplied: false });
+      expect(batches).toHaveBeenCalledOnce();
+      expect(workers[0]!.postMessage).toHaveBeenCalledOnce();
+    } finally {
+      await backend.dispose();
+      resetEmbeddingQueueFactory();
+    }
+  });
+
   it('disposes without touching the local pipeline when using the queue', async () => {
     vi.stubGlobal('window', {});
     vi.stubGlobal('Worker', class {});

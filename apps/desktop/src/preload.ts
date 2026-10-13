@@ -1,3 +1,5 @@
+import type { IpcResult } from './platform/ipc-contract';
+
 // Electron preload script. `electron` is the ONE runtime require a sandboxed
 // preload can resolve; every other import below is either type-only (erased)
 // or a PURE relative module that `scripts/build-main-config.mjs` inlines into
@@ -66,7 +68,6 @@ ipcRenderer.on(DESKTOP_IPC_CHANNELS.agent.hostDisconnected, (_event: unknown, pa
 // authoritative allowlist again on every call.
 const MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKTOP_STORAGE_KEYS);
 
-import type { FileHandle } from '@brainstrike/file-system';
 import type { WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
 import type {
@@ -114,11 +115,6 @@ import {
   type VisibleEmbeddingHostBridge,
 } from './types/desktop-electron-api';
 
-// BST-338 preload duplicate contract: sandboxed preloads cannot import the
-// canonical runtime module. This code and the file-read payload declarations
-// below intentionally duplicate `file-read-errors.ts`; conformance tests
-// source-evaluate this preload's own constants and predicate.
-const FILE_READ_ERROR_CODE_TOO_LARGE = 'TOO_LARGE' as const;
 const DESKTOP_TEST_MODE =
   process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
 const EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED =
@@ -325,43 +321,6 @@ interface LlmHostResponseReport {
   readonly type: 'error' | 'progress' | 'result';
 }
 
-// See the BST-338 preload duplicate contract beside the first duplicated code.
-const FILE_READ_ERROR_CODE_NOT_FOUND = 'NOT_FOUND' as const;
-
-interface FileReadErrorPayload {
-  code: typeof FILE_READ_ERROR_CODE_TOO_LARGE | typeof FILE_READ_ERROR_CODE_NOT_FOUND;
-  message: string;
-}
-
-function isFileReadErrorPayload(value: unknown): value is FileReadErrorPayload {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const candidate = value as {
-    code?: unknown;
-    message?: unknown;
-  };
-  return (
-    (candidate.code === FILE_READ_ERROR_CODE_TOO_LARGE ||
-      candidate.code === FILE_READ_ERROR_CODE_NOT_FOUND) &&
-    typeof candidate.message === 'string'
-  );
-}
-
-function unwrapFileReadResult(result: unknown): string {
-  if (typeof result === 'string') {
-    return result;
-  }
-
-  if (isFileReadErrorPayload(result)) {
-    const error = new Error(result.message) as Error & { code?: string };
-    error.code = result.code;
-    throw error;
-  }
-
-  throw new Error('Invalid response from file read IPC handler');
-}
-
 // Expose storage APIs to renderer
 if (shouldExposeBridge('electronAPI')) {
   const layoutBridge = createIpcBridge(ipcRenderer, layoutContract);
@@ -375,28 +334,6 @@ if (shouldExposeBridge('electronAPI')) {
     fileSystem: {
       ...createIpcBridge(ipcRenderer, fileSystemContract),
       ...createIpcBridge(ipcRenderer, fileSystemWatchContract),
-      // File reads intentionally retain the preload decoder that turns the
-      // established wire payload into the public string-or-clean-Error API.
-      readFile: async (handle: FileHandle) => {
-        const result = await ipcRenderer.invoke(fileSystemContract.readFile.channel, handle);
-        return unwrapFileReadResult(result);
-      },
-      readFileByAbsolutePath: async (absolutePath: string, rootPath: string, rootId: string) => {
-        const result = await ipcRenderer.invoke(
-          fileSystemContract.readFileByAbsolutePath.channel,
-          absolutePath,
-          rootPath,
-          rootId
-        );
-        return unwrapFileReadResult(result);
-      },
-      readFileByPath: async (absolutePath: string) => {
-        const result = await ipcRenderer.invoke(
-          fileSystemContract.readFileByPath.channel,
-          absolutePath
-        );
-        return unwrapFileReadResult(result);
-      },
     },
     // Database path (legacy - kept for compatibility)
     getUserDataPath: databasePathBridge.getUserDataPath,
@@ -602,9 +539,9 @@ if (shouldExposeBridge('runtime')) {
 
 if (shouldExposeBridge('logging')) {
   contextBridge.exposeInMainWorld('logging', {
-    getBufferedLogs: (): Promise<LogRecord[]> =>
+    getBufferedLogs: (): Promise<IpcResult<LogRecord[]>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.getBufferedLogs),
-    getPreferences: (): Promise<LoggingSettingsPayload> =>
+    getPreferences: (): Promise<IpcResult<LoggingSettingsPayload>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.getPreferences),
     ingestBufferedRecord: (record: LogRecord): void => {
       ipcRenderer.send(DESKTOP_IPC_CHANNELS.logging.ingestBufferedRecord, record);
@@ -623,22 +560,22 @@ if (shouldExposeBridge('logging')) {
         ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.logging.preferencesUpdated, listener);
       };
     },
-    openDestination: (target: string | null): Promise<boolean> =>
+    openDestination: (target: string | null): Promise<IpcResult<boolean>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.openDestination, target ?? null),
-    selectDestination: (): Promise<string | null> =>
+    selectDestination: (): Promise<IpcResult<string | null>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.selectDestination),
-    setPreferences: (preferences: LoggingPreferences): Promise<LoggingSettingsPayload> =>
+    setPreferences: (preferences: LoggingPreferences): Promise<IpcResult<LoggingSettingsPayload>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.setPreferences, preferences),
   });
 }
 
 if (shouldExposeBridge('desktopDiagnostics')) {
   contextBridge.exposeInMainWorld('desktopDiagnostics', {
-    getSnapshot: (): Promise<DesktopPlatformDiagnosticsSnapshot> =>
+    getSnapshot: (): Promise<IpcResult<DesktopPlatformDiagnosticsSnapshot>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.getSnapshot),
-    readMainLogWindow: (request: MainLogWindowRequest): Promise<MainLogWindowResult> =>
+    readMainLogWindow: (request: MainLogWindowRequest): Promise<IpcResult<MainLogWindowResult>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.readMainLogWindow, request),
-    readProcessCounters: (): Promise<ProcessCounterSnapshot> =>
+    readProcessCounters: (): Promise<IpcResult<ProcessCounterSnapshot>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.readProcessCounters),
   });
 }
@@ -841,7 +778,7 @@ const embeddingHost = {
   queryEmbedding: (
     payload: EmbeddingHostQueryEmbeddingPayload,
     options?: { readonly requestId: string }
-  ): Promise<number[]> =>
+  ): Promise<IpcResult<number[]>> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding, {
       payload: assertEmbeddingHostQueryEmbeddingPayload(payload),
       requestId: options?.requestId ?? crypto.randomUUID(),
