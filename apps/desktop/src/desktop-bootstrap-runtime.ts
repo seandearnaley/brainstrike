@@ -6,8 +6,13 @@ import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import type { HostNativeChildren } from './agent-host-platform/host-native-children';
 import { createAgentHostPrivateClients } from './agent-host-private-clients';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
+import { resolveDevelopmentUserDataPath } from './database-location';
 import { desktopCredentialStoreSelection } from './desktop-credential-selection';
-import { resolveDesktopDatabaseProfileDirectory } from './desktop-database-location';
+import {
+  isIsolatedDesktopTestRun,
+  resolveDesktopDatabaseLocation,
+  resolveDesktopDatabaseProfileDirectory,
+} from './desktop-database-location';
 import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
 import { createDesktopProfileRuntime, type DesktopProfileRuntime } from './desktop-profile-runtime';
 import { isDesktopShuttingDown } from './desktop-shutdown-state';
@@ -79,6 +84,19 @@ function applyExplicitPathIsolation(agentDevtoolsConfig: {
   return userDataDir;
 }
 
+function applyDevelopmentPathIsolation(): string | undefined {
+  if (app.isPackaged || isIsolatedDesktopTestRun() || isElectronE2ETestMode()) {
+    return;
+  }
+  // Pin DB/Core first. Changing Electron paths must not change that authority.
+  const userData = resolveDevelopmentUserDataPath(resolveDesktopDatabaseLocation());
+  const logs = path.join(userData, 'logs');
+  fs.mkdirSync(logs, { recursive: true });
+  app.setPath('userData', userData);
+  app.setPath('logs', logs);
+  return userData;
+}
+
 function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
   const environment = getDesktopEnvironmentBootstrapResult();
   const agentDevtoolsConfig = configureAgentDevtoolsCommandLine(
@@ -87,7 +105,10 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
     process.argv
   );
   registerPrivilegedSchemes();
-  const userDataDir = applyExplicitPathIsolation(agentDevtoolsConfig) ?? app.getPath('userData');
+  const userDataDir =
+    applyExplicitPathIsolation(agentDevtoolsConfig) ??
+    applyDevelopmentPathIsolation() ??
+    app.getPath('userData');
   // Windows cannot rename Chromium's live files during factory reset. Give
   // its Session owner a separate container in ordinary launches too; reset
   // clears it through Electron before physically purging app-owned files.

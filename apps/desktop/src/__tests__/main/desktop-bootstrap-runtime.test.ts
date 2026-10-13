@@ -8,6 +8,7 @@ const fixture = vi.hoisted(() => ({
   events: [] as string[],
   exited: Promise.withResolvers<void>(),
   options: undefined as DesktopHostLeaseOptions | undefined,
+  packaged: false,
   paths: new Map<string, string>(),
 }));
 vi.mock('electron', () => ({
@@ -21,9 +22,14 @@ vi.mock('electron', () => ({
       }
       return value;
     },
-    isPackaged: false,
+    get isPackaged() {
+      return fixture.packaged;
+    },
     on: vi.fn(),
-    requestSingleInstanceLock: () => true,
+    requestSingleInstanceLock: () => {
+      fixture.events.push('single-instance');
+      return true;
+    },
     setPath: (name: string, value: string) => {
       fixture.paths.set(name, value);
       fixture.events.push(`path:${name}`);
@@ -63,6 +69,7 @@ beforeEach(() => {
   vi.resetModules();
   fixture.events.length = 0;
   fixture.options = undefined;
+  fixture.packaged = false;
   fixture.paths.clear();
   fixture.acquisition = Promise.withResolvers();
   fixture.exited = Promise.withResolvers();
@@ -180,4 +187,100 @@ it('refuses late Main binding after early quit has retired the bootstrap owner',
   );
   await expect(runtime.profile.acquire()).rejects.toThrow('shutting down');
   expect(fixture.events.filter((event) => event === 'owner')).toHaveLength(1);
+});
+
+it.each(['incident-a', 'incident-b'])(
+  'scopes ordinary development %s before the host and session acquire state',
+  async (profile) => {
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('ELECTRON_IS_E2E_TEST', 'false');
+    vi.stubEnv('BRAINSTRIKE_DB_ROOT_PATH', resolve('/disposable/database-root'));
+    vi.stubEnv('BRAINSTRIKE_DB_PROFILE', profile);
+    fixture.paths.set('userData', resolve('/disposable/shared-user-data'));
+    const expectedUserData = join(
+      resolve('/disposable/database-root'),
+      'desktop',
+      'profiles',
+      profile
+    );
+    const { getDesktopBootstrapRuntime } = await import('../../desktop-bootstrap-runtime');
+    const runtime = getDesktopBootstrapRuntime();
+    expect(fixture.paths.get('userData')).toBe(expectedUserData);
+    expect(fixture.paths.get('sessionData')).toBe(join(expectedUserData, 'session-data'));
+    expect(fixture.paths.get('logs')).toBe(join(expectedUserData, 'logs'));
+    expect(fixture.events).toEqual([
+      'schemes',
+      'path:userData',
+      'path:logs',
+      'path:sessionData',
+      'single-instance',
+    ]);
+    fixture.acquisition.resolve({ kind: 'owned' });
+    await runtime.profile.acquire();
+    expect(fixture.options?.root).toBe(
+      join(resolve('/disposable/database-root'), 'profiles', profile)
+    );
+    expect(await fixture.options?.platformOptions?.()).toMatchObject({
+      appPaths: { userDataPath: expectedUserData },
+      credentialStore: { kind: 'keyring', service: `brainstrike-desktop:${expectedUserData}` },
+    });
+    const { resolveDesktopDatabaseLocation } = await import('../../desktop-database-location');
+    expect(resolveDesktopDatabaseLocation()).toMatchObject({
+      profile,
+      rootPath: resolve('/disposable/database-root'),
+    });
+    fixture.exited.resolve();
+    await runtime.profile.retire();
+  }
+);
+
+it('keeps packaged userData and the explicit database selection unchanged', async () => {
+  vi.stubEnv('NODE_ENV', 'production');
+  vi.stubEnv('ELECTRON_IS_E2E_TEST', 'false');
+  vi.stubEnv('BRAINSTRIKE_DB_ROOT_PATH', resolve('/disposable/packaged-database'));
+  vi.stubEnv('BRAINSTRIKE_DB_PROFILE', 'default');
+  fixture.packaged = true;
+  const userData = resolve('/disposable/packaged-user-data');
+  fixture.paths.set('userData', userData);
+  const { getDesktopBootstrapRuntime } = await import('../../desktop-bootstrap-runtime');
+  getDesktopBootstrapRuntime();
+  expect(fixture.paths.get('userData')).toBe(userData);
+  expect(fixture.paths.get('sessionData')).toBe(join(userData, 'session-data'));
+  expect(fixture.events).not.toContain('path:userData');
+});
+
+it('honors explicit Agent DevTools isolation with an ordinary development database override', async () => {
+  vi.stubEnv('NODE_ENV', 'development');
+  vi.stubEnv('ELECTRON_IS_E2E_TEST', 'false');
+  vi.stubEnv('BRAINSTRIKE_AGENT_DEVTOOLS', '1');
+  vi.stubEnv('BRAINSTRIKE_DB_ROOT_PATH', resolve('/disposable/agent-database'));
+  vi.stubEnv('BRAINSTRIKE_DB_PROFILE', 'agent');
+  const { getDesktopBootstrapRuntime } = await import('../../desktop-bootstrap-runtime');
+  getDesktopBootstrapRuntime();
+  expect(fixture.paths.get('userData')).toBe(resolve('/disposable/bootstrap-user-data'));
+  expect(fixture.paths.get('sessionData')).toBe(
+    join(resolve('/disposable/bootstrap-user-data'), 'session-data')
+  );
+});
+
+it('uses the existing branch/worktree database selection without a database override', async () => {
+  vi.stubEnv('NODE_ENV', 'development');
+  vi.stubEnv('ELECTRON_IS_E2E_TEST', 'false');
+  fixture.paths.set('userData', resolve('/disposable/shared-user-data'));
+  fixture.paths.set('documents', resolve('/disposable/documents'));
+  const { getDesktopBootstrapRuntime } = await import('../../desktop-bootstrap-runtime');
+  const runtime = getDesktopBootstrapRuntime();
+  const { resolveDesktopDatabaseLocation } = await import('../../desktop-database-location');
+  const location = resolveDesktopDatabaseLocation();
+  expect(location.source).toBe('development');
+  expect(location.rootPath).toBe(resolve('/disposable/documents/BrainStrike-dev'));
+  expect(fixture.paths.get('userData')).toBe(
+    join(location.rootPath, 'desktop', 'profiles', location.profile)
+  );
+  fixture.acquisition.resolve({ kind: 'owned' });
+  await runtime.profile.acquire();
+  expect(fixture.options?.root).toBe(join(location.rootPath, 'profiles', location.profile));
+  expect(resolveDesktopDatabaseLocation()).toBe(location);
+  fixture.exited.resolve();
+  await runtime.profile.retire();
 });
