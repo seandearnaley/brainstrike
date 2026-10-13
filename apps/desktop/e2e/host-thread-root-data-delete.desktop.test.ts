@@ -82,8 +82,11 @@ async function rootIdOf(page: Page, rootPath: string): Promise<string> {
 /** The roots the native index has fully scanned and authorizes, or `not-ready`. */
 async function scannedRoots(page: Page): Promise<readonly string[] | 'not-ready'> {
   return await page.evaluate(async () => {
-    const capability = (window as Window & { readonly indexSearch?: IndexSearchCapability })
-      .indexSearch;
+    const capability = (
+      window as Window & {
+        readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
+      }
+    ).__brainstrikeTestHooks__?.indexSearch;
     if (!capability) {
       throw new Error('The native index capability is unavailable');
     }

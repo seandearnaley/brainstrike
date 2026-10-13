@@ -1,7 +1,3 @@
-// BST-338 preload duplicate contract: `preload.ts` intentionally duplicates
-// these codes, FileReadErrorPayload, and isFileReadErrorPayload because the
-// sandboxed preload must remain self-contained. The conformance test evaluates
-// the preload predicate from source and compares it with this canonical guard.
 export const FILE_READ_ERROR_CODE_TOO_LARGE = 'TOO_LARGE' as const;
 /**
  * The target path does not exist on disk. Distinct from TOO_LARGE because
@@ -39,11 +35,3 @@ export function isFileReadErrorPayload(value: unknown): value is FileReadErrorPa
     typeof candidate.message === 'string'
   );
 }
-
-/**
- * Detect Node's ENOENT (file does not exist) on an error of any shape.
- * Errors arriving here are typically `AccessError` wrappers whose message
- * starts with "Failed to read file: ENOENT: ...", but we also handle raw
- * NodeJS errno objects defensively.
- */
-export { isFileNotFoundError } from '@brainstrike/assistant-service/node-workspace-services';

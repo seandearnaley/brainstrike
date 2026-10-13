@@ -6,6 +6,7 @@
  * (logged, never silently degraded to a partial surface).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { BoundaryTransport } from '../boundary-result.js';
 import {
   resolveSkillsBridge,
   SKILLS_BRIDGE_REQUIRED_METHODS,
@@ -37,11 +38,11 @@ describe('resolveSkillsBridge', () => {
     expect(resolveSkillsBridge()).toBeNull();
   });
 
-  it('returns the bridge when every required method is a function', () => {
-    const bridge: SkillsBridge = {
-      scan: () => Promise.resolve({ entries: [] }),
+  it('decodes the transport when every required method is a function', async () => {
+    const bridge: BoundaryTransport<SkillsBridge> = {
+      scan: () => Promise.resolve({ ok: true, value: { entries: [] } }),
     };
     vi.stubGlobal('window', { skills: bridge });
-    expect(resolveSkillsBridge()).toBe(bridge);
+    await expect(resolveSkillsBridge()?.scan()).resolves.toEqual({ entries: [] });
   });
 });

@@ -1,3 +1,4 @@
+import type { BoundaryTransport } from '@brainstrike/assistant-contract/boundary-result';
 import type { SkillsBridge } from '@brainstrike/assistant-contract/skills-bridge';
 import type {
   AssistantSelectionUpdatePayload,
@@ -39,7 +40,7 @@ declare global {
      * present-but-incomplete bridge is possible until the resolver validates
      * it.
      */
-    skills?: Partial<SkillsBridge>;
+    skills?: Partial<BoundaryTransport<SkillsBridge>>;
     tools?: {
       onRootTreeSelectionUpdate?: (
         callback: (payload: AssistantSelectionUpdatePayload) => void
@@ -62,7 +63,7 @@ declare global {
      * interface; `Partial` because a present-but-incomplete bridge is possible
      * until the resolver validates it.
      */
-    userCommands?: Partial<UserCommandsBridge>;
+    userCommands?: Partial<BoundaryTransport<UserCommandsBridge>>;
     /**
      * Desktop-only managed-worktree bridge (BST-1390). Absent on web (no
      * preload) — capability-check via `resolveWorktreesBridge()` rather than

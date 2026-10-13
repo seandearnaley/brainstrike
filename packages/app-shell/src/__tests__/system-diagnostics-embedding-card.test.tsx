@@ -14,28 +14,31 @@ vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
 function installDesktopDiagnostics(embedding: EmbeddingTelemetrySnapshot): void {
   (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = {
     getSnapshot: vi.fn(async () => ({
-      collectedAt: '2026-08-01T00:00:00.000Z',
-      embeddingHost: {
-        active: false,
-        lastError: null,
-        pendingRequestCount: 0,
-        runtimeId: 'embedding-host:idle',
-        runtimeKind: 'embedding-host',
-        sourceState: 'running',
-        state: 'idle',
+      ok: true,
+      value: {
+        collectedAt: '2026-08-01T00:00:00.000Z',
+        embeddingHost: {
+          active: false,
+          lastError: null,
+          pendingRequestCount: 0,
+          runtimeId: 'embedding-host:idle',
+          runtimeKind: 'embedding-host',
+          sourceState: 'running',
+          state: 'idle',
+        },
+        indexing: { activeBackfills: [] },
+        llmHost: {
+          active: false,
+          lastError: null,
+          pendingRequestCount: 0,
+          runtimeId: 'llm-host:idle',
+          runtimeKind: 'llm-host',
+          sourceState: 'running',
+          state: 'idle',
+        },
+        reset: { userDataPath: '/tmp/brainstrike-user-data' },
+        telemetry: { backgroundRuntimeMetrics: [], embedding },
       },
-      indexing: { activeBackfills: [] },
-      llmHost: {
-        active: false,
-        lastError: null,
-        pendingRequestCount: 0,
-        runtimeId: 'llm-host:idle',
-        runtimeKind: 'llm-host',
-        sourceState: 'running',
-        state: 'idle',
-      },
-      reset: { userDataPath: '/tmp/brainstrike-user-data' },
-      telemetry: { backgroundRuntimeMetrics: [], embedding },
     })),
   };
   (window as Window & { embeddingHost?: unknown }).embeddingHost = {

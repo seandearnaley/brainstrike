@@ -1,3 +1,4 @@
+import { INTERNAL_FAULT, refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
 import { createDefaultLoggingPreferences, LogLevel } from '@brainstrike/logging';
 import type { IpcMainEvent } from 'electron';
@@ -90,7 +91,7 @@ describe('logging-ipc', () => {
       expect(onChannels).toContain('logging:ingest-buffered-record');
     });
 
-    it('get-preferences handler delegates to getState', () => {
+    it('get-preferences handler delegates to getState', async () => {
       const payload = createMockPayload();
       const handlers = createMockHandlers({
         getState: vi.fn(() => payload),
@@ -98,10 +99,10 @@ describe('logging-ipc', () => {
       cleanup = registerLoggingIpcHandlers(handlers);
 
       const handler = getRegisteredIpcMainHandler('logging:get-preferences');
-      const result = handler();
+      const result = await handler();
 
       expect(handlers.getState).toHaveBeenCalled();
-      expect(result).toBe(payload);
+      expect(result).toEqual({ ok: true, value: payload });
     });
 
     it('set-preferences handler delegates to setPreferences and broadcasts', async () => {
@@ -125,7 +126,7 @@ describe('logging-ipc', () => {
       const result = await handler({}, prefs);
 
       expect(handlers.setPreferences).toHaveBeenCalledWith(prefs);
-      expect(result).toEqual(payload);
+      expect(result).toEqual({ ok: true, value: payload });
       expect(mockContent.send).toHaveBeenCalledWith(
         'logging:preferences-updated',
         expect.objectContaining({ consoleEnabled: false })
@@ -173,11 +174,32 @@ describe('logging-ipc', () => {
       const handler = getRegisteredIpcMainHandler('logging:set-preferences');
 
       // First call rejects
-      await expect(handler({}, createMockPreferences())).rejects.toThrow('transient failure');
+      await expect(handler({}, createMockPreferences())).resolves.toMatchObject({
+        error: INTERNAL_FAULT,
+        ok: false,
+      });
 
       // Second call should still work (queue recovered)
       const result = await handler({}, createMockPreferences());
       expect(result).toBeDefined();
+    });
+
+    it('settles an owned refusal as plain typed data with its remedy', async () => {
+      const refusal = refusalError(
+        'configuration',
+        'logging.destination-unavailable',
+        'The destination is unavailable.',
+        'Choose another destination.'
+      );
+      cleanup = registerLoggingIpcHandlers(
+        createMockHandlers({
+          selectDestination: async () => {
+            throw refusal;
+          },
+        })
+      );
+      const handler = getRegisteredIpcMainHandler('logging:select-destination');
+      await expect(handler()).resolves.toEqual({ error: refusal.failure, ok: false });
     });
 
     it('select-destination handler delegates to selectDestination', async () => {
@@ -190,7 +212,7 @@ describe('logging-ipc', () => {
       const result = await handler();
 
       expect(handlers.selectDestination).toHaveBeenCalled();
-      expect(result).toBe('/selected/path');
+      expect(result).toEqual({ ok: true, value: '/selected/path' });
     });
 
     it('open-destination handler delegates to openDestination', async () => {
@@ -203,7 +225,7 @@ describe('logging-ipc', () => {
       const result = await handler({}, '/some/path');
 
       expect(handlers.openDestination).toHaveBeenCalledWith('/some/path');
-      expect(result).toBe(true);
+      expect(result).toEqual({ ok: true, value: true });
     });
 
     it('get-buffered-logs handler delegates to getBufferedLogs', async () => {
@@ -217,7 +239,7 @@ describe('logging-ipc', () => {
       const result = await handler();
 
       expect(handlers.getBufferedLogs).toHaveBeenCalled();
-      expect(result).toBe(records);
+      expect(result).toEqual({ ok: true, value: records });
     });
 
     it('ingest-buffered-record listener validates and forwards log records', () => {

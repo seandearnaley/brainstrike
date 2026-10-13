@@ -1,3 +1,8 @@
+import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
+import { AccessError } from '@brainstrike/file-system';
+import type { createLogger } from '@brainstrike/logging';
+import { isFileNotFoundError } from './file-not-found-error.js';
+
 const MAX_READ_DENIAL_DIAGNOSTIC_LENGTH = 256;
 const READ_DENIAL_TRUNCATION_MARKER = '…[truncated]';
 const UNSAFE_LOG_CHARACTER = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
@@ -72,4 +77,37 @@ export function projectReadDenialDiagnostic(value: unknown): string {
     return `${fragments.join('')}${READ_DENIAL_TRUNCATION_MARKER}`;
   }
   return fragments.join('');
+}
+
+export function readDenialDiagnostic(error: unknown): ReadDenialErrorDiagnostic | undefined {
+  if (error instanceof BoundaryFailureError && error.failure.kind === 'refusal') {
+    return { category: 'access', code: error.code, message: error.message };
+  }
+  if (error instanceof AccessError && !isFileNotFoundError(error)) {
+    return projectReadDenialError(error);
+  }
+  return undefined;
+}
+
+export async function withReadDenialLogging<T>(
+  logger: Pick<ReturnType<typeof createLogger>, 'warn'>,
+  operation: 'readDirectory' | 'readFile' | 'readFileByAbsolutePath',
+  requestedPath: string,
+  rootId: string | undefined,
+  run: () => Promise<T>
+): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    const diagnosticError = readDenialDiagnostic(error);
+    if (diagnosticError) {
+      logger.warn('Workspace read denied', {
+        ...diagnosticError,
+        operation,
+        requestedPath,
+        rootId: rootId ?? null,
+      });
+    }
+    throw error;
+  }
 }

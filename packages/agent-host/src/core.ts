@@ -727,21 +727,13 @@ export class HostCore {
     );
   }
 
-  private run(threadId: string, runId: string): Run {
-    const run = this.runs.get(runId);
-    if (!run || run.threadId !== threadId) {
-      throw new Error('Unknown run for this thread');
-    }
-    return run;
-  }
-
   /** Restore a finished run's edits to their baselines; the outcome joins the thread's log. */
   revertCheckpoint(
     params: HostParams<'checkpoint/revert'>
   ): Promise<HostResults['checkpoint/revert']> {
     const method = 'checkpoint/revert';
     return this.command(method, params, async () => {
-      this.run(params.threadId, params.runId);
+      this.runs.requireForThread(params.threadId, params.runId);
       const { events, result } = await revertHostRunEdits(this.records.edits, params, {
         pending: this.pendingAdmissions,
         platform: this.platform,
@@ -773,7 +765,7 @@ export class HostCore {
     return this.admit(params.threadId, () => {
       this.mcpInputs.assertSender(params, client);
       return this.commands.perform('mcp/input/settle', params, () => {
-        const run = this.run(params.threadId, params.runId);
+        const run = this.runs.requireForThread(params.threadId, params.runId);
         return this.mcpInputs.prepareSettlement(
           params,
           client,
@@ -810,7 +802,7 @@ export class HostCore {
     method: 'interaction/respond' | 'interaction/resume',
     params: HostParams<'interaction/respond'> | HostParams<'interaction/resume'>
   ): Promise<{ accepted: true }> {
-    const run = () => this.run(params.threadId, params.runId);
+    const run = () => this.runs.requireForThread(params.threadId, params.runId);
     return this.command(method, params, async () => {
       const answered = await commitHostInteractionResponse(
         run(),
@@ -859,7 +851,7 @@ export class HostCore {
   input(params: HostParams<'run/input'>): Promise<{ accepted: true }> {
     return this.command('run/input', params, () =>
       acceptHostChildInput(
-        this.run(params.threadId, params.runId),
+        this.runs.requireForThread(params.threadId, params.runId),
         this.children.isChild(params.threadId),
         params,
         () => this.accept(params.threadId, 'run/input', params, { accepted: true }, [])
@@ -869,7 +861,7 @@ export class HostCore {
 
   steer(params: HostParams<'run/steer'>): Promise<{ outcome: 'steering' | 'already-terminal' }> {
     return this.command('run/steer', params, () =>
-      steerHostRun(this.run(params.threadId, params.runId), (result) =>
+      steerHostRun(this.runs.requireForThread(params.threadId, params.runId), (result) =>
         this.accept(params.threadId, 'run/steer', params, result, [])
       )
     );
@@ -877,7 +869,7 @@ export class HostCore {
 
   stop(params: HostParams<'run/stop'>): Promise<{ outcome: 'stopped' | 'already-terminal' }> {
     const join = (): Promise<void> => {
-      const run = this.run(params.threadId, params.runId);
+      const run = this.runs.requireForThread(params.threadId, params.runId);
       // BST-1932: a root Stop ends its turn's children, foreground and background.
       const stopped = [run, ...this.children.turnChildren(run, this.runs)];
       return stopHostRunTree(stopped, (owned, reason) => this.stopRun(owned, reason));
@@ -887,7 +879,7 @@ export class HostCore {
       params,
       () =>
         acceptHostRunStop(
-          this.run(params.threadId, params.runId),
+          this.runs.requireForThread(params.threadId, params.runId),
           (result) => this.accept(params.threadId, 'run/stop', params, result, []),
           join
         ),

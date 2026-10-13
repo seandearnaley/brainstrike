@@ -1,3 +1,7 @@
+import {
+  type BoundaryTransport,
+  callBoundary,
+} from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
 
 /**
@@ -33,8 +37,9 @@ export function resolveWindowFocusBridge(): WindowFocusBridge | null {
   if (typeof window === 'undefined') {
     return null;
   }
-  const candidate = (window as Window & { windowFocus?: Partial<WindowFocusBridge> | null })
-    .windowFocus;
+  const candidate = (
+    window as Window & { windowFocus?: Partial<BoundaryTransport<WindowFocusBridge>> | null }
+  ).windowFocus;
   if (candidate === undefined) {
     return null;
   }
@@ -47,5 +52,9 @@ export function resolveWindowFocusBridge(): WindowFocusBridge | null {
     });
     return null;
   }
-  return candidate as WindowFocusBridge;
+  const transport = candidate as BoundaryTransport<WindowFocusBridge>;
+  return {
+    isFocused: () => callBoundary(() => transport.isFocused()),
+    onChange: transport.onChange,
+  };
 }

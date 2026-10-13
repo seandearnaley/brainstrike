@@ -1,4 +1,5 @@
 import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
+import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
 import type { LoggingPreferences } from '@brainstrike/logging';
 import type { useToast } from '@brainstrike/ui';
 import { useCallback, useRef, useState } from 'react';
@@ -59,7 +60,7 @@ export function useLoggingPreferencesSync({
         }
       } catch (error) {
         setIsSyncing(false);
-        const message = error instanceof Error ? error.message : String(error);
+        const message = describeBoundaryError(error);
         toast({
           description: message,
           title: 'Failed to update logging preferences',
@@ -121,7 +122,7 @@ export function useLoggingPreferencesSync({
       }
       await applyNestedUpdates({ destination: selected, enabled: true });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = describeBoundaryError(error);
       toast({
         description: message,
         title: 'Failed to update log destination',
@@ -165,7 +166,7 @@ export function useLoggingPreferencesSync({
     } catch (error) {
       setPreferences(previous);
       toast({
-        description: error instanceof Error ? error.message : 'Unknown error occurred.',
+        description: describeBoundaryError(error),
         title: 'Failed to reset logging preferences',
         variant: 'destructive',
       });

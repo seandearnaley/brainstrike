@@ -108,19 +108,25 @@ describe('desktop diagnostics IPC', () => {
     const handler = handlers.get(DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL);
     expect(handler).toBeDefined();
     await expect(handler?.()).resolves.toMatchObject({
-      database: { hasDatabaseHandle: true },
-      databaseIntegrity: { revision: 0, state: { kind: 'healthy' } },
-      indexing: { activeBackfills: [] },
-      reset: { userDataPath: '<redacted>' },
-      telemetry: {
-        backgroundRuntimeMetrics: [],
-        embedding: { batchTransfer: { totalBytes: 0 }, peakVectorsInFlight: 0 },
-        processCounters: { installedAt: '2026-09-15T02:00:00.000Z', samples: [] },
+      ok: true,
+      value: {
+        database: { hasDatabaseHandle: true },
+        databaseIntegrity: { revision: 0, state: { kind: 'healthy' } },
+        indexing: { activeBackfills: [] },
+        reset: { userDataPath: '<redacted>' },
+        telemetry: {
+          backgroundRuntimeMetrics: [],
+          embedding: { batchTransfer: { totalBytes: 0 }, peakVectorsInFlight: 0 },
+          processCounters: { installedAt: '2026-09-15T02:00:00.000Z', samples: [] },
+        },
       },
     });
     const countersHandler = handlers.get(DESKTOP_IPC_CHANNELS.diagnostics.readProcessCounters);
     expect(countersHandler).toBeDefined();
-    expect(countersHandler?.()).toEqual({ installedAt: '2026-09-15T02:00:00.000Z', samples: [] });
+    await expect(countersHandler?.()).resolves.toEqual({
+      ok: true,
+      value: { installedAt: '2026-09-15T02:00:00.000Z', samples: [] },
+    });
 
     unregister();
 
@@ -133,6 +139,27 @@ describe('desktop diagnostics IPC', () => {
     );
   });
 
+  it('returns private diagnostic reader faults as typed data', async () => {
+    const { registerDesktopDiagnosticsIpcHandlers } = await import('../ipc-desktop-diagnostics');
+    const unregister = registerDesktopDiagnosticsIpcHandlers({
+      processCounters: {
+        getSnapshot: () => {
+          throw new Error('/private/diagnostics/reader');
+        },
+      },
+    } as unknown as Parameters<typeof registerDesktopDiagnosticsIpcHandlers>[0]);
+    try {
+      const response = await handlers.get(DESKTOP_IPC_CHANNELS.diagnostics.readProcessCounters)?.();
+      expect(response).toMatchObject({
+        error: { category: 'internal', code: 'boundary.internal', kind: 'fault' },
+        ok: false,
+      });
+      expect(JSON.stringify(response)).not.toContain('/private/diagnostics');
+    } finally {
+      unregister();
+    }
+  });
+
   it('validates the main-log window before touching the provider and forwards a valid one', async () => {
     const { registerDesktopDiagnosticsIpcHandlers } = await import('../ipc-desktop-diagnostics');
     const readWindow = vi.fn().mockResolvedValue({ lines: [] });
@@ -142,14 +169,17 @@ describe('desktop diagnostics IPC', () => {
     const handler = handlers.get(DESKTOP_IPC_CHANNELS.diagnostics.readMainLogWindow);
     expect(handler).toBeDefined();
 
-    await expect(handler?.({}, { since: 'nope', until: 'nope' })).rejects.toThrow('since');
+    await expect(handler?.({}, { since: 'nope', until: 'nope' })).resolves.toMatchObject({
+      error: { code: 'boundary.internal' },
+      ok: false,
+    });
     await expect(
       handler?.({}, { since: '2026-09-15T02:00:00.000Z', until: '2026-09-15T01:00:00.000Z' })
-    ).rejects.toThrow('until');
+    ).resolves.toMatchObject({ error: { code: 'boundary.internal' }, ok: false });
     expect(readWindow).not.toHaveBeenCalled();
 
     const request = { since: '2026-09-15T02:00:00.000Z', until: '2026-09-15T02:30:00.000Z' };
-    await expect(handler?.({}, request)).resolves.toEqual({ lines: [] });
+    await expect(handler?.({}, request)).resolves.toEqual({ ok: true, value: { lines: [] } });
     expect(readWindow).toHaveBeenCalledWith(request);
 
     unregister();

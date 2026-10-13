@@ -1,3 +1,5 @@
+import { isMessageNotSentError } from '@assistant-ui/react';
+import { describeBoundaryError } from '@brainstrike/assistant-contract';
 import { Button } from '@brainstrike/ui';
 import { CircleAlertIcon } from 'lucide-react';
 import type { ReactElement } from 'react';
@@ -28,6 +30,14 @@ const selectConnection = (snapshot: CommittedAssistantSnapshot) => snapshot.conn
 const selectError = (snapshot: CommittedAssistantSnapshot) => snapshot.error;
 const selectWithheld = (snapshot: CommittedAssistantSnapshot) => snapshot.observationWithheld;
 
+/**
+ * A typed failure from another process shows its message and remedy, never its
+ * inner cause; a renderer-local error shows its own message.
+ */
+function commandErrorText(cause: unknown): string {
+  return isMessageNotSentError(cause) ? cause.message : describeBoundaryError(cause);
+}
+
 /** The shipped desktop conversation surface; connection changes never key/remount its transcript. */
 export function CommittedAssistantConversation(
   props: CommittedAssistantConversationProps
@@ -53,7 +63,7 @@ function BoundCommittedAssistantConversation({
   const rootRef = useRef<HTMLDivElement>(null);
   const reportCommandError = useCallback(
     (cause: unknown): void => {
-      setCommandError(cause instanceof Error ? cause.message : String(cause));
+      setCommandError(commandErrorText(cause));
       onCommandError?.(cause);
     },
     [onCommandError]

@@ -1,3 +1,4 @@
+import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import type {
   EmbeddingHostQueryCancellationResult,
   EmbeddingHostQueryEmbeddingPayload,
@@ -34,7 +35,7 @@ export async function generateDesktopQueryEmbedding(
   };
   signal.addEventListener('abort', onAbort, { once: true });
   try {
-    const request = bridge.queryEmbedding(payload, { requestId });
+    const request = callBoundary(() => bridge.queryEmbedding(payload, { requestId }));
     if (signal.aborted) {
       onAbort();
     }

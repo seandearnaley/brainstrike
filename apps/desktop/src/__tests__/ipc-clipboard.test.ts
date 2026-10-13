@@ -1,3 +1,4 @@
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { describe, expect, it, vi } from 'vitest';
 import { createClipboardIpcHandlers } from '../ipc-clipboard-handlers';
 
@@ -34,7 +35,7 @@ describe('clipboard IPC handlers', () => {
     const handlers = createClipboardIpcHandlers({ clipboard });
     const result = await handlers.writeText('hello');
     expect(result).toEqual({
-      error: { category: 'clipboard', code: 'write_failed', message: 'clipboard locked' },
+      error: { ...INTERNAL_FAULT, correlationId: expect.any(String) },
       ok: false,
     });
   });
@@ -45,7 +46,7 @@ describe('clipboard IPC handlers', () => {
     const handlers = createClipboardIpcHandlers({ clipboard });
     const result = await handlers.writeText('hello');
     expect(result).toEqual({
-      error: { category: 'clipboard', code: 'write_failed', message: 'clipboard locked' },
+      error: { ...INTERNAL_FAULT, correlationId: expect.any(String) },
       ok: false,
     });
   });
