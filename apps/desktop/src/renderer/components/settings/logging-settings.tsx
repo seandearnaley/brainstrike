@@ -56,6 +56,61 @@ function loggingSettingsReducer(
   }
 }
 
+function createDesktopLogSource(): LoggingSettingsSectionProps['logSource'] {
+  const buffer = getRendererLogBuffer();
+  const mainBuffer = new LogBuffer();
+  let diagnostic: LogRecord | undefined;
+  const subscribers = new Set<(records: readonly LogRecord[]) => void>();
+  const readRecords = () => [
+    ...buffer.getRecords(),
+    ...mainBuffer.getRecords(),
+    ...(diagnostic ? [diagnostic] : []),
+  ];
+  const publish = () => {
+    const records = readRecords();
+    for (const handler of subscribers) {
+      handler(records);
+    }
+  };
+  return {
+    getInitialRecords: async () => {
+      try {
+        const getMainRecords = window.logging?.getBufferedLogs;
+        if (!getMainRecords) {
+          throw refusalError(
+            'availability',
+            'logging.unavailable',
+            'Electron main logging is unavailable.'
+          );
+        }
+        const records = await callBoundary(getMainRecords);
+        mainBuffer.clear();
+        for (const record of records) {
+          mainBuffer.push(record);
+        }
+        diagnostic = undefined;
+      } catch (error) {
+        diagnostic = createMainLogSourceDiagnostic(describeBoundaryError(error));
+      }
+      publish();
+      return readRecords();
+    },
+    subscribe: (handler) => {
+      subscribers.add(handler);
+      const unsubscribeRenderer = buffer.subscribe(publish);
+      const unsubscribeMain = window.logging?.onDurableRecord((record) => {
+        mainBuffer.push(record);
+        publish();
+      });
+      return () => {
+        subscribers.delete(handler);
+        unsubscribeRenderer();
+        unsubscribeMain?.();
+      };
+    },
+  };
+}
+
 export function DesktopLoggingSettings() {
   const [settingsState, settingsDispatch] = useReducer(loggingSettingsReducer, {
     error: null,
@@ -67,60 +122,7 @@ export function DesktopLoggingSettings() {
   const { toast } = useToast();
 
   const setPreferences = useLoggingPreferencesStore((state) => state.setPreferences);
-  const logSource = useMemo<LoggingSettingsSectionProps['logSource']>(() => {
-    const buffer = getRendererLogBuffer();
-    const mainBuffer = new LogBuffer();
-    let diagnostic: LogRecord | undefined;
-    const subscribers = new Set<(records: readonly LogRecord[]) => void>();
-    const readRecords = () => [
-      ...buffer.getRecords(),
-      ...mainBuffer.getRecords(),
-      ...(diagnostic ? [diagnostic] : []),
-    ];
-    const publish = () => {
-      const records = readRecords();
-      for (const handler of subscribers) {
-        handler(records);
-      }
-    };
-    return {
-      getInitialRecords: async () => {
-        try {
-          const getMainRecords = window.logging?.getBufferedLogs;
-          if (!getMainRecords) {
-            throw refusalError(
-              'availability',
-              'logging.unavailable',
-              'Electron main logging is unavailable.'
-            );
-          }
-          const records = await callBoundary(getMainRecords);
-          mainBuffer.clear();
-          for (const record of records) {
-            mainBuffer.push(record);
-          }
-          diagnostic = undefined;
-        } catch (error) {
-          diagnostic = createMainLogSourceDiagnostic(describeBoundaryError(error));
-        }
-        publish();
-        return readRecords();
-      },
-      subscribe: (handler) => {
-        subscribers.add(handler);
-        const unsubscribeRenderer = buffer.subscribe(publish);
-        const unsubscribeMain = window.logging?.onDurableRecord((record) => {
-          mainBuffer.push(record);
-          publish();
-        });
-        return () => {
-          subscribers.delete(handler);
-          unsubscribeRenderer();
-          unsubscribeMain?.();
-        };
-      },
-    };
-  }, []);
+  const logSource = useMemo(() => createDesktopLogSource(), []);
 
   const durableLogSource = useDurableLogSource();
   const onPurgeNow = useDiagnosticsPurge();
