@@ -1,4 +1,6 @@
 // @vitest-environment node
+
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import { expect, it, vi } from 'vitest';
 import { searchNativeAssistantChunks } from '../assistant-server/native-assistant-retrieval';
 import { fixture, profile, progressAuthority } from './native-scoped-search-fixture';
@@ -77,5 +79,55 @@ it.each(
     expect(queryEmbedding).toHaveBeenCalledOnce();
     expect(f.searchScopes).toHaveBeenCalledTimes(mode === 'hybrid' ? 2 : 1);
     await expect(result.assertCurrent()).resolves.toBeUndefined();
+  }
+);
+
+it.each(['owner-generation', 'profile', 'store', 'roots'] as const)(
+  'refuses assistant retrieval when %s changes during query inference',
+  async (change) => {
+    const f = fixture(profile);
+    const queryPlan = {
+      inferencePlan: {
+        device: 'wasm' as const,
+        dimensions: profile.dimensions,
+        dtype: profile.dtype,
+        modelId: profile.modelId,
+        revision: profile.revision,
+      },
+      modelKey: `local::${profile.modelId}`,
+    };
+    f.replaceAuthority({ ...f.getAuthority(), queryPlan });
+    const queryEmbedding = vi.fn(async () => {
+      const authority = f.getAuthority();
+      if (change === 'store') {
+        f.replaceStore();
+      } else {
+        f.replaceAuthority({
+          ...authority,
+          ...(change === 'owner-generation' ? { generation: authority.generation + 1 } : {}),
+          ...(change === 'profile' ? { profile: { ...profile, tokenCap: 512 } } : {}),
+          ...(change === 'roots' ? { rootIds: ['replacement-root'] } : {}),
+        });
+      }
+      return Array.from({ length: 384 }, () => 0.1);
+    });
+    await expect(
+      searchNativeAssistantChunks({
+        capability: f.capability,
+        embeddingHostManager: { queryEmbedding },
+        embeddingSet: {
+          dimensions: profile.dimensions,
+          distance: profile.distance,
+          modelId: profile.modelId,
+          modelKey: queryPlan.modelKey,
+        },
+        embeddingSetId: 'selected',
+        mode: 'semantic',
+        query: 'retained marker',
+        threshold: 0,
+      })
+    ).rejects.toBeInstanceOf(ToolInputError);
+    expect(queryEmbedding).toHaveBeenCalledOnce();
+    expect(f.searchScopes).not.toHaveBeenCalled();
   }
 );
