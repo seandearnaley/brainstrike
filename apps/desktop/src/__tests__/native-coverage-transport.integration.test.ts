@@ -1,8 +1,12 @@
 // @vitest-environment node
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
+import {
+  BoundaryFailureSchema,
+  INTERNAL_FAULT,
+} from '@brainstrike/assistant-contract/boundary-failure';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { _electron } from '@playwright/test';
 import { build } from 'esbuild';
@@ -15,6 +19,7 @@ import { MAIN_PROCESS_BUILD_OPTIONS } from '../../scripts/build-main-config.mjs'
 it('carries real fenced invalidation data through sandboxed production preload and Playwright', async () => {
   await mkdir(path.resolve('dist'), { recursive: true });
   const directory = await mkdtemp(path.join(path.resolve('dist'), 'coverage-transport-proof-'));
+  const profile = await mkdtemp(path.join(tmpdir(), 'coverage-transport-profile-'));
   let application: Awaited<ReturnType<typeof _electron.launch>> | undefined;
   let child: ReturnType<NonNullable<typeof application>['process']> | undefined;
   let ownedPids: number[] = [];
@@ -68,7 +73,7 @@ it('carries real fenced invalidation data through sandboxed production preload a
       ...process.env,
       BRAINSTRIKE_COVERAGE_PROOF_DOCUMENT: document,
       BRAINSTRIKE_COVERAGE_PROOF_PRELOAD: path.join(directory, 'preload.js'),
-      BRAINSTRIKE_COVERAGE_PROOF_PROFILE: path.join(directory, 'user-data'),
+      BRAINSTRIKE_COVERAGE_PROOF_PROFILE: profile,
     };
     Reflect.deleteProperty(environment, 'ELECTRON_RUN_AS_NODE');
     application = await _electron.launch({
@@ -121,14 +126,25 @@ it('carries real fenced invalidation data through sandboxed production preload a
       INTERNAL_FAULT.message
     );
     expect(records).toHaveLength(1);
-    await expect(
-      page.evaluate(async () => {
-        const api = window as unknown as {
-          __brainstrikeTestHooks__: { indexSearch: IndexSearchCapability };
-        };
-        return await api.__brainstrikeTestHooks__.indexSearch.coverage({ rootIds: ['root'] });
-      })
-    ).rejects.toThrow(INTERNAL_FAULT.message);
+    const coverageRefusal = await page.evaluate(async () => {
+      const api = window as unknown as {
+        __brainstrikeTestHooks__: { indexSearch: IndexSearchCapability };
+      };
+      try {
+        await api.__brainstrikeTestHooks__.indexSearch.coverage({ rootIds: ['root'] });
+        throw new Error('Expected a typed transitioning refusal.');
+      } catch (error) {
+        if (error instanceof Error && 'failure' in error) {
+          return error.failure;
+        }
+        throw error;
+      }
+    });
+    expect(BoundaryFailureSchema.parse(coverageRefusal)).toMatchObject({
+      category: 'availability',
+      code: 'native-index-transitioning',
+      kind: 'refusal',
+    });
     const preferences = await application.evaluate(({ BrowserWindow: Window }) => {
       // Electron 44.4.5 exposes this getter at runtime (proved by the native control),
       // while its public declarations omit it. This assertion is fixture-only.
@@ -189,5 +205,6 @@ it('carries real fenced invalidation data through sandboxed production preload a
       JSON.stringify({ exitCode: child?.exitCode, ownedPids, signal: child?.signalCode })
     );
     await rm(directory, { force: true, recursive: true });
+    await rm(profile, { force: true, recursive: true });
   }
 }, 45_000);
