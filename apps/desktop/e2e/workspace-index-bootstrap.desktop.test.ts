@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
-import type { Page } from 'playwright';
+import type { ElectronApplication, Page } from 'playwright';
 import type { VisibleEmbeddingHostBridge } from '../src/types/desktop-electron-api';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
@@ -33,6 +33,34 @@ async function openSearchIndexingSettings(args: { homePage: HomePage; page: Page
   await expect(args.page.getByTestId('settings-category-search-indexing')).toBeVisible({
     timeout: 15_000,
   });
+}
+
+const ORT_WASM_REQUESTS_KEY = '__brainstrikeE2eOrtWasmRequests' as const;
+
+/**
+ * Records every ONNX Runtime WASM request any window or worker sends over the network,
+ * through the session's request hook in Main (BST-2003). The hook does not see file://
+ * loads, so the app's own files never appear. The app installs no onBeforeRequest
+ * listener of its own, so this observes without replacing one.
+ */
+async function recordOrtWasmRequests(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ session }, key) => {
+    const seen: string[] = [];
+    Reflect.set(globalThis, key, seen);
+    session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
+      if (/ort-wasm/u.test(new URL(details.url).pathname)) {
+        seen.push(details.url);
+      }
+      callback({});
+    });
+  }, ORT_WASM_REQUESTS_KEY);
+}
+
+async function readOrtWasmRequests(app: ElectronApplication): Promise<string[]> {
+  return await app.evaluate(
+    (_electron, key) => [...(Reflect.get(globalThis, key) as string[])],
+    ORT_WASM_REQUESTS_KEY
+  );
 }
 
 async function readCollectionRows(page: Page): Promise<CollectionRow[]> {
@@ -123,6 +151,7 @@ test.describe('Workspace Index first run (desktop)', () => {
       );
       try {
         const { app, window } = await electron.ensureContext();
+        await recordOrtWasmRequests(app);
         expect(await readCollectionRows(window)).toEqual([]);
         await app.evaluate((_electron, path) => {
           process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = path;
@@ -236,6 +265,10 @@ test.describe('Workspace Index first run (desktop)', () => {
         expect(semanticResult.hits.some((hit) => hit.content.includes('smoke test creates'))).toBe(
           true
         );
+        // BST-2003: ONNX Runtime's WASM comes from the app's own files, never a CDN.
+        // The semantic hits above prove ONNX Runtime ran; the session hook sees every
+        // network request but not file:// loads, so any request it saw is a failure.
+        expect(await readOrtWasmRequests(app)).toEqual([]);
         await testInfo.attach('ui-created-index', {
           body: JSON.stringify(
             {

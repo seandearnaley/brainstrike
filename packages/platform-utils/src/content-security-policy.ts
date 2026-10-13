@@ -47,8 +47,9 @@ function buildConnectSrc(isDev: boolean, isElectron: boolean): string[] {
     }
     connectSrc.push('ws://127.0.0.1:*', 'wss://localhost:*');
   }
-  // Hugging Face + jsdelivr: model-weight / wasm asset FETCHES (both targets).
-  connectSrc.push('https://huggingface.co', 'https://*.hf.co', 'https://cdn.jsdelivr.net');
+  // Hugging Face: model-weight fetches (both targets). ONNX Runtime's WASM is the
+  // app's own same-origin file, so no CDN is allowed (BST-2003).
+  connectSrc.push('https://huggingface.co', 'https://*.hf.co');
   if (isElectron) {
     // Desktop calls embedding providers directly; the browser cannot (CORS), so
     // web routes them server-side and these origins stay Electron-only.
@@ -81,8 +82,8 @@ function buildScriptSrc(isDev: boolean, isElectron: boolean): string[] {
   //  - Electron NEVER script-loads from a CDN and runs WASM on the narrower
   //    'wasm-unsafe-eval' in production (full 'unsafe-eval' stays dev-only). Its
   //    renderer holds the secrets/terminal/git bridges, so a jsdelivr compromise
-  //    must not become code execution (BST-573); jsdelivr stays a fetch origin
-  //    (connect-src) only.
+  //    must not become code execution (BST-573). Since BST-2003 no directive
+  //    allows jsdelivr at all.
   //  - Web production follows the same fetch-only CDN and narrow WASM policy
   //    (BST-594). Development keeps the Vite HMR sources below.
   if (isElectron) {
@@ -98,14 +99,7 @@ function buildScriptSrc(isDev: boolean, isElectron: boolean): string[] {
       : ["'self'", 'blob:', "'wasm-unsafe-eval'"];
   }
   return isDev
-    ? [
-        "'self'",
-        "'unsafe-inline'",
-        "'unsafe-eval'",
-        'http://localhost:*',
-        'https://cdn.jsdelivr.net',
-        'blob:',
-      ]
+    ? ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'http://localhost:*', 'blob:']
     : ["'self'", 'blob:', "'wasm-unsafe-eval'"];
 }
 

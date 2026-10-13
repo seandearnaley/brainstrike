@@ -27,7 +27,7 @@ describe('configureTransformersEnvironment', () => {
       remotePathTemplate?: string;
     } = {};
 
-    configureTransformersEnvironment(environment);
+    configureTransformersEnvironment(environment, null);
 
     expect(environment).toEqual({
       allowRemoteModels: true,
@@ -50,12 +50,35 @@ describe('configureTransformersEnvironment', () => {
       remotePathTemplate?: string;
     } = {};
 
-    configureTransformersEnvironment(environment);
+    configureTransformersEnvironment(environment, null);
 
     expect(environment).toEqual({
       allowRemoteModels: true,
       remoteHost: 'https://huggingface.co/',
       remotePathTemplate: resolveLocalArtifactRemotePathTemplate(),
     });
+  });
+
+  // BST-2003: browser ONNX Runtime loads its WASM only from the app's own files.
+  const paths = {
+    mjs: 'file:///app/dist/renderer/assets/ort-wasm-simd-threaded.asyncify-1a.mjs',
+    wasm: 'file:///app/dist/renderer/assets/ort-wasm-simd-threaded.asyncify-2b.wasm',
+  };
+
+  it('points browser ONNX Runtime at the app-served WASM files', () => {
+    const wasm: { wasmPaths?: unknown } = {};
+    const environment = { backends: { onnx: { versions: { web: '1.31.0' }, wasm } } };
+
+    configureTransformersEnvironment(environment, paths);
+
+    expect(wasm.wasmPaths).toEqual(paths);
+  });
+
+  it('refuses browser ONNX Runtime without app-served WASM files', () => {
+    const environment = { backends: { onnx: { versions: { web: '1.31.0' }, wasm: {} } } };
+
+    expect(() => configureTransformersEnvironment(environment, null)).toThrow(
+      'never loads ONNX Runtime from a CDN'
+    );
   });
 });

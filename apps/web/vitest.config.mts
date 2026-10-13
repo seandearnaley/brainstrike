@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { transformersOnnxRuntimeWasmUrlsPlugin } from '@brainstrike/build-utils';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
@@ -12,6 +13,13 @@ export default defineConfig({
   optimizeDeps: {
     include: ['@brainstrike/assistant-ui', '@brainstrike/hooks', '@brainstrike/ui'],
   },
+  plugins: [
+    // ONNX Runtime's WASM, as vite.config.mts serves it (BST-2003).
+    transformersOnnxRuntimeWasmUrlsPlugin([
+      resolve(import.meta.dirname, '../../packages/embedding-worker'),
+      resolve(import.meta.dirname, '../../packages/agent'),
+    ]),
+  ],
   resolve: {
     // Array form: first match wins, so config-local entries (deliberate
     // overrides, curated subpath maps) come BEFORE the shared registry

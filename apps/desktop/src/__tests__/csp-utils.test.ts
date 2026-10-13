@@ -23,7 +23,7 @@ describe('Desktop CSP Utils', () => {
       expect(devCSP).toContain('wss://localhost:*');
       expect(devCSP).toContain('https://huggingface.co');
       expect(devCSP).toContain('https://*.hf.co');
-      expect(devCSP).toContain('https://cdn.jsdelivr.net');
+      expect(devCSP).not.toContain('jsdelivr');
       expect(devCSP).toContain("object-src 'none'");
       expect(devCSP).toContain("base-uri 'self'");
       expect(devCSP).toContain("form-action 'self'");
@@ -39,13 +39,13 @@ describe('Desktop CSP Utils', () => {
       expect(prodCSP).toContain("style-src 'self' 'unsafe-inline'");
       expect(prodCSP).toContain("img-src 'self' data: blob: brainstrike-asset:");
       expect(prodCSP).toContain("font-src 'self' data:");
-      // Production connect-src allows local assistant runtime plus embeddings/CDN
+      // Production connect-src allows the local assistant runtime and model hosts
       expect(prodCSP).toContain("connect-src 'self'");
       expect(prodCSP).toContain('http://127.0.0.1:*');
       expect(prodCSP).toContain('http://localhost:*');
       expect(prodCSP).toContain('https://huggingface.co');
       expect(prodCSP).toContain('https://*.hf.co');
-      expect(prodCSP).toContain('https://cdn.jsdelivr.net');
+      expect(prodCSP).not.toContain('jsdelivr');
       expect(prodCSP).toContain("object-src 'none'");
       expect(prodCSP).toContain("base-uri 'self'");
       expect(prodCSP).toContain("form-action 'self'");
@@ -94,8 +94,8 @@ describe('Desktop CSP Utils', () => {
       // WASM needs only wasm-unsafe-eval; production must NOT carry full
       // eval, and no environment script-loads from the CDN (a jsdelivr
       // compromise must never mean code execution in a renderer holding the
-      // secrets/terminal/git bridges — BST-573). connect-src keeps jsdelivr
-      // for wasm/asset FETCHES.
+      // secrets/terminal/git bridges — BST-573). ONNX Runtime's WASM is the
+      // app's own file (BST-2003), so no directive allows jsdelivr at all.
       expect(devCSP).toContain("'wasm-unsafe-eval'");
       expect(prodCSP).toContain("'wasm-unsafe-eval'");
       expect(prodCSP).not.toContain("'unsafe-eval' ");
@@ -106,7 +106,8 @@ describe('Desktop CSP Utils', () => {
       const connectSrcOf = (csp: string) =>
         csp.split(';').find((directive: string) => directive.trim().startsWith('connect-src')) ??
         '';
-      expect(connectSrcOf(prodCSP)).toContain('https://cdn.jsdelivr.net');
+      expect(connectSrcOf(prodCSP)).not.toContain('jsdelivr');
+      expect(connectSrcOf(devCSP)).not.toContain('jsdelivr');
     });
   });
 

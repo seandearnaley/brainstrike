@@ -1,10 +1,9 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto';
-import { appendFileSync, createReadStream, realpathSync } from 'node:fs';
+import { appendFileSync, createReadStream } from 'node:fs';
 import { copyFile, mkdir, open, readdir, readFile, writeFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import { createConnection } from 'node:net';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost } from '@brainstrike/agent-host';
 import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/app-state/stores/assistant-preferences-store-version';
 import {
@@ -81,7 +80,6 @@ async function qualifyVectorSearch(): Promise<void> {
   const providerRequests: ModelProviderRequest[] = [];
   const titleRequests: ModelProviderRequest[] = [];
   const blockedExternalRequests: string[] = [];
-  const runtimeAssetRequests: { url: string; sha256: string }[] = [];
   let modelAssets: Awaited<ReturnType<typeof copyExistingModelCache>> = [];
   let workspaceRootId: string | undefined;
   let activeThreadId: string | undefined;
@@ -172,11 +170,6 @@ async function qualifyVectorSearch(): Promise<void> {
     );
     modelAssets = await copyExistingModelCache(disposable);
     await writeFile(join(evidence, 'model-assets.json'), JSON.stringify(modelAssets, null, 2));
-    const runtimeAssets = await existingOrtAssets();
-    await writeFile(
-      join(evidence, 'ort-assets.json'),
-      JSON.stringify([...runtimeAssets.values()], null, 2)
-    );
     // Keep this search case independent of real or inherited MCP configuration.
     await mkdir(join(disposable, 'mcp'));
     await writeFile(join(disposable, 'mcp/mcp.config.json'), JSON.stringify({ servers: [] }));
@@ -229,17 +222,11 @@ async function qualifyVectorSearch(): Promise<void> {
       appendFileSync(join(evidence, 'output.log'), data);
     });
     await capture(application);
+    // ONNX Runtime's WASM is the app's own file (BST-2003): every non-loopback
+    // request, a CDN included, is refused and recorded.
     await application.context().route(/^https?:\/\//u, async (route) => {
       const url = new URL(route.request().url());
-      const installed = runtimeAssets.get(`${url.origin}${url.pathname}`);
-      if (installed) {
-        runtimeAssetRequests.push({ sha256: installed.sha256, url: installed.url });
-        await route.fulfill({
-          contentType: installed.contentType,
-          headers: { 'access-control-allow-origin': '*' },
-          path: installed.path,
-        });
-      } else if (
+      if (
         url.hostname === '127.0.0.1' ||
         url.hostname === 'localhost' ||
         url.hostname === '[::1]'
@@ -491,7 +478,6 @@ async function qualifyVectorSearch(): Promise<void> {
           providerRequests,
           rows,
           runtime,
-          runtimeAssetRequests,
           threadId,
           workspaceRootId: mountedRootId,
         },
@@ -605,9 +591,9 @@ async function qualifyVectorSearch(): Promise<void> {
     expect(hybrid.results[0]?.vectorSimilarity).toBeGreaterThan(
       hybrid.results[1]?.vectorSimilarity ?? Number.POSITIVE_INFINITY
     );
+    // Vectors were produced with every external request refused, so ONNX Runtime
+    // loaded its WASM from the app's own files.
     expect(blockedExternalRequests).toEqual([]);
-    expect(runtimeAssetRequests.some(({ url }) => url.endsWith('.wasm'))).toBe(true);
-    expect(runtimeAssetRequests.some(({ url }) => url.endsWith('.mjs'))).toBe(true);
     const hiddenStatus = await page.evaluate(async () => {
       const embeddingHost = window.embeddingHost;
       if (!(embeddingHost && 'getStatus' in embeddingHost)) {
@@ -783,10 +769,6 @@ async function qualifyVectorSearch(): Promise<void> {
       JSON.stringify(blockedExternalRequests, null, 2)
     );
     await writeFile(
-      join(evidence, 'runtime-asset-requests.json'),
-      JSON.stringify(runtimeAssetRequests, null, 2)
-    );
-    await writeFile(
       join(evidence, 'cleanup.json'),
       JSON.stringify(
         {
@@ -909,46 +891,6 @@ async function copyExistingModelCache(disposable: string): Promise<CachedModelAs
     throw new Error(
       `Installed BGE Small assets are incomplete: ${JSON.stringify(assets.map((asset) => asset.url))}`
     );
-  }
-  return assets;
-}
-
-interface InstalledRuntimeAsset {
-  readonly contentType: string;
-  readonly path: string;
-  readonly sha256: string;
-  readonly url: string;
-}
-
-/** Deliver installed vendor bytes requested by the production worker without CDN egress. */
-async function existingOrtAssets(): Promise<ReadonlyMap<string, InstalledRuntimeAsset>> {
-  // The SDK's own dependencies sit beside its real path in pnpm's virtual store.
-  const requireSdk = createRequire(
-    realpathSync(
-      resolve(
-        desktop,
-        '../../packages/embedding-worker/node_modules/@huggingface/transformers/package.json'
-      )
-    )
-  );
-  const packageRoot = resolve(dirname(requireSdk.resolve('onnxruntime-web')), '..');
-  const { version } = z
-    .object({ name: z.literal('onnxruntime-web'), version: z.string().min(1) })
-    .parse(JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8')));
-  const assets = new Map<string, InstalledRuntimeAsset>();
-  for (const file of [
-    'ort-wasm-simd-threaded.asyncify.mjs',
-    'ort-wasm-simd-threaded.asyncify.wasm',
-  ]) {
-    const path = join(packageRoot, 'dist', file);
-    const sha256 = await fileSha256(path);
-    const url = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${version}/dist/${file}`;
-    assets.set(url, {
-      contentType: file.endsWith('.wasm') ? 'application/wasm' : 'text/javascript',
-      path,
-      sha256,
-      url,
-    });
   }
   return assets;
 }
