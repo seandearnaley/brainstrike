@@ -109,6 +109,39 @@ describe('ChildSupervisor owns the replacement policy', () => {
 });
 
 describe('ChildSupervisor startup ownership', () => {
+  it('joins concurrent explicit starts after a fully released generation', async () => {
+    const f = fixture();
+    const supervisor = await opened(f);
+    await supervisor.stop();
+    const first = await supervisor.start({ restart: true });
+    const firstResult = first.ready.catch((cause: unknown) => cause);
+    const second = await supervisor.start({ restart: true });
+    expect(f.generations).toHaveLength(2);
+    f.generations[1]!.ready.resolve({ pid: 102 });
+    expect(await firstResult).toBe(await second.ready);
+    await supervisor.stop();
+  });
+
+  it('publishes admission before readiness without creating another startup owner', async () => {
+    const f = fixture();
+    const supervisor = await f.supervisor;
+    const admitted = await supervisor.start();
+    expect(f.generations).toHaveLength(1);
+    expect((await supervisor.snapshot()).kind).toBe('starting');
+    let settled = false;
+    const observed = admitted.ready.then(() => {
+      settled = true;
+    });
+    const acquired = supervisor.acquire();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    f.generations[0]!.ready.resolve({ pid: 101 });
+    expect(await admitted.ready).toBe(await acquired);
+    await observed;
+    expect(f.create).toHaveBeenCalledOnce();
+    await supervisor.stop();
+  });
+
   it('keeps a loss during readiness retryable after the original ready promise rejects', async () => {
     const f = fixture();
     const supervisor = await f.supervisor;

@@ -23,6 +23,10 @@ export interface ChildSupervisor<Client> {
   restart(options?: { readonly onlyFailed: true }): Promise<Client>;
   retireLost(): Promise<boolean>;
   snapshot(): Promise<ChildSnapshot<Client>>;
+  /** Admit under the same owner without waiting for the physical protocol readiness. */
+  start(
+    options?: { readonly restart: true } | { readonly afterStop: true }
+  ): Promise<{ readonly ready: Promise<Client> }>;
   stop(reason?: unknown): Promise<void>;
 }
 interface OwnedGeneration<Client> {
@@ -241,7 +245,13 @@ export async function createChildSupervisor<Client>(
       await replace(owned, cause, false);
     }
   };
-  const acquire = async (): Promise<Client> => {
+  const start = async (
+    options?: { readonly restart: true } | { readonly afterStop: true }
+  ): Promise<{ readonly ready: Promise<Client> }> => {
+    if (options && 'restart' in options) {
+      return restartStart();
+    }
+    const afterStop = options !== undefined && 'afterStop' in options;
     const admission = await locked(
       Effect.gen(function* () {
         const current = yield* SubscriptionRef.get(state);
@@ -272,22 +282,43 @@ export async function createChildSupervisor<Client>(
               owned: current.owned,
             };
           }
-          case 'failed':
           case 'stopped':
+            if (afterStop) {
+              return { kind: 'wait' as const, waiting: (yield* begin(current, false, true)).ready };
+            }
+            return yield* Effect.fail(current.snapshot.cause);
+          case 'failed':
             return yield* Effect.fail(current.snapshot.cause);
           case 'stopping':
+            if (afterStop) {
+              return { kind: 'stop' as const };
+            }
             return yield* Effect.fail(current.owned?.abort.signal.reason);
         }
       })
     );
-    if (admission.kind === 'client') {
-      return admission.client;
+    if (admission.kind === 'stop') {
+      // Observe the sole owner's terminal release state, not a protocol status or timer.
+      await runAtPromiseBoundary(
+        SubscriptionRef.changes(state).pipe(
+          Stream.filter((value) => value.snapshot.kind !== 'stopping'),
+          Stream.take(1),
+          Stream.runDrain
+        )
+      );
+      return start(options);
     }
-    if (admission.kind === 'replace') {
-      return replace(admission.owned, admission.cause, false);
-    }
-    return runAtPromiseBoundary(Deferred.await(admission.waiting));
+    const ready =
+      admission.kind === 'client'
+        ? Promise.resolve(admission.client)
+        : admission.kind === 'replace'
+          ? replace(admission.owned, admission.cause, false)
+          : runAtPromiseBoundary(Deferred.await(admission.waiting));
+    // A nonblocking start observes rejection now; callers retain the exact promise/cause.
+    void ready.catch(() => {});
+    return { ready };
   };
+  const acquire = async (): Promise<Client> => (await start()).ready;
   const stop = async (reason: unknown = new Error('Child stopped')): Promise<void> => {
     const owned = await locked(
       Effect.gen(function* () {
@@ -336,6 +367,50 @@ export async function createChildSupervisor<Client>(
       })
     );
   };
+  const restartStart = async (options?: {
+    readonly onlyFailed: true;
+  }): Promise<{ readonly ready: Promise<Client> }> => {
+    const reason = new Error('Explicit child restart');
+    const admission = await locked(
+      Effect.gen(function* () {
+        const current = yield* SubscriptionRef.get(state);
+        if (options?.onlyFailed && current.snapshot.kind === 'ready') {
+          return { client: current.snapshot.client, kind: 'client' as const };
+        }
+        if (
+          (current.snapshot.kind === 'restarting' ||
+            (options?.onlyFailed && current.snapshot.kind === 'starting')) &&
+          current.waiting
+        ) {
+          return { kind: 'wait' as const, waiting: current.waiting };
+        }
+        if (current.snapshot.kind === 'stopping') {
+          return yield* Effect.fail(current.owned?.abort.signal.reason);
+        }
+        if (!current.owned) {
+          return { kind: 'wait' as const, waiting: (yield* begin(current, false, true)).ready };
+        }
+        current.owned.abort.abort(reason);
+        yield* Deferred.fail(current.waiting ?? current.owned.ready, reason);
+        yield* publish({
+          ...current,
+          automaticSpent: false,
+          snapshot: { generation: current.snapshot.generation, kind: 'restarting' },
+          waiting: Deferred.makeUnsafe<Client, unknown>(),
+        });
+        return { kind: 'replace' as const, owned: current.owned };
+      })
+    );
+    const ready =
+      admission.kind === 'client'
+        ? Promise.resolve(admission.client)
+        : admission.kind === 'replace'
+          ? replace(admission.owned, reason, true)
+          : runAtPromiseBoundary(Deferred.await(admission.waiting));
+    void ready.catch(() => {});
+    return { ready };
+  };
+
   return {
     acquire,
     observe: (listener, signal) =>
@@ -354,45 +429,7 @@ export async function createChildSupervisor<Client>(
           Stream.runForEach((value) => Effect.sync(() => listener(value.snapshot)))
         )
       ),
-    restart: async (options) => {
-      const reason = new Error('Explicit child restart');
-      const admission = await locked(
-        Effect.gen(function* () {
-          const current = yield* SubscriptionRef.get(state);
-          if (options?.onlyFailed && current.snapshot.kind === 'ready') {
-            return { client: current.snapshot.client, kind: 'client' as const };
-          }
-          if (
-            (current.snapshot.kind === 'restarting' ||
-              (options?.onlyFailed && current.snapshot.kind === 'starting')) &&
-            current.waiting
-          ) {
-            return { kind: 'wait' as const, waiting: current.waiting };
-          }
-          if (current.snapshot.kind === 'stopping') {
-            return yield* Effect.fail(current.owned?.abort.signal.reason);
-          }
-          if (!current.owned) {
-            return { kind: 'wait' as const, waiting: (yield* begin(current, false, false)).ready };
-          }
-          current.owned.abort.abort(reason);
-          yield* Deferred.fail(current.waiting ?? current.owned.ready, reason);
-          yield* publish({
-            ...current,
-            automaticSpent: false,
-            snapshot: { generation: current.snapshot.generation, kind: 'restarting' },
-            waiting: Deferred.makeUnsafe<Client, unknown>(),
-          });
-          return { kind: 'replace' as const, owned: current.owned };
-        })
-      );
-      if (admission.kind === 'client') {
-        return admission.client;
-      }
-      return admission.kind === 'replace'
-        ? replace(admission.owned, reason, true)
-        : runAtPromiseBoundary(Deferred.await(admission.waiting));
-    },
+    restart: async (options) => (await restartStart(options)).ready,
     retireLost: async () => {
       const captured = await read();
       if (
@@ -414,6 +451,7 @@ export async function createChildSupervisor<Client>(
       );
     },
     snapshot: async () => (await read()).snapshot,
+    start,
     stop,
   };
 }

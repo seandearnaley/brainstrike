@@ -33,7 +33,7 @@ const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(()
   return {
     currentLifecycleStatus: currentStatus,
     lifecycleState: {
-      clearHostWindow: vi.fn(),
+      acceptsStatus: vi.fn(() => true),
       destroyHostWindow: vi.fn(),
       dispose: vi.fn(),
       ensureStarted: vi.fn<() => Promise<EmbeddingLifecycleStatus>>(async () => ({
@@ -45,12 +45,41 @@ const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(()
       getHostWindow: vi.fn<() => typeof hostWindow | null | undefined>(() => hostWindow),
       getStatus: vi.fn<() => EmbeddingLifecycleStatus>(() => ({ ...currentStatus })),
       isHostWindow: vi.fn(() => false),
+      joinPhysicalClose: vi.fn(async () => {}),
+      restart: vi.fn(async function (this: { ensureStarted(): Promise<unknown> }) {
+        return this.ensureStarted();
+      }),
+      retire: vi.fn(async function (this: { destroyHostWindow(): Promise<void> }) {
+        await this.destroyHostWindow();
+      }),
       setStatus: vi.fn<(status: EmbeddingLifecycleStatus) => void>((status) => {
         currentStatus.active = status.active;
         currentStatus.lastError = status.lastError;
         currentStatus.runtimeId = status.runtimeId;
         currentStatus.runtimeKind = status.runtimeKind ?? 'embedding-host';
         currentStatus.state = status.state;
+      }),
+      stop: vi.fn(async function (
+        this: { destroyHostWindow(): Promise<void> },
+        protocol?: () => Promise<void>
+      ) {
+        const failures: unknown[] = [];
+        try {
+          await protocol?.();
+        } catch (cause) {
+          failures.push(cause);
+        }
+        try {
+          await this.destroyHostWindow();
+        } catch (cause) {
+          failures.push(cause);
+        }
+        if (failures.length === 1) {
+          throw failures[0];
+        }
+        if (failures.length > 1) {
+          throw new AggregateError(failures, 'Stop and physical release failed');
+        }
       }),
       waitForStatus: vi.fn<
         (

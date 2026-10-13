@@ -23,13 +23,11 @@ import {
   type RuntimeHostPlatformStatus,
 } from './platform/runtime-host-state';
 import { RendererHostLifecycle } from './renderer-host-lifecycle';
-import { waitForWindowClosed } from './window-lifecycle-utils';
 import { getTrackedWindowsByRole } from './window-role';
 
 const logger = createLogger('LlmHostManager');
 const LLM_HOST_GENERATE_TIMEOUT_MS = 5 * 60_000;
 const LLM_HOST_WARMUP_TIMEOUT_MS = 20 * 60_000;
-const LLM_HOST_STOP_DESTROY_TIMEOUT_MS = 500;
 const PRE_CANCELLED_REQUEST_TTL_MS = LLM_HOST_GENERATE_TIMEOUT_MS;
 
 /**
@@ -186,7 +184,6 @@ export class LlmHostManager {
   private readonly abandonedRequestIds = new Set<string>();
   private readonly requests: HostRequestChannel<LlmHostRequest, LlmHostResponseReport>;
   private controlState: RuntimeHostControlState | null = null;
-  private engineResetInFlight = false;
 
   constructor() {
     this.requests = createHostRequestChannel<LlmHostRequest, LlmHostResponseReport>({
@@ -301,24 +298,17 @@ export class LlmHostManager {
   }
 
   async stop(): Promise<LlmHostStatus> {
-    this.rejectPendingRequests('Llm host stopped while requests were in flight.');
-    this.lifecycle.setStatus(
-      LLM_HOST_STATUS_ADAPTER.createStatus({
-        active: false,
-        lastError: null,
-        runtimeId: this.getStatus().runtimeId,
-        state: 'stopping',
-      })
-    );
-
-    const window = this.lifecycle.getHostWindow();
-    if (window && !window.isDestroyed()) {
-      const closedPromise = waitForWindowClosed(window, LLM_HOST_STOP_DESTROY_TIMEOUT_MS);
-      this.lifecycle.destroyHostWindow();
-      await closedPromise;
-    }
-
-    this.lifecycle.clearHostWindow();
+    await this.lifecycle.stop(async () => {
+      this.rejectPendingRequests('Llm host stopped while requests were in flight.');
+      this.lifecycle.setStatus(
+        LLM_HOST_STATUS_ADAPTER.createStatus({
+          active: false,
+          lastError: null,
+          runtimeId: this.getStatus().runtimeId,
+          state: 'stopping',
+        })
+      );
+    });
     this.lifecycle.setStatus(createStoppedLlmHostStatus());
     return this.getStatus();
   }
@@ -327,50 +317,45 @@ export class LlmHostManager {
     this.controlState = 'resetting';
     try {
       await this.stop();
-      return await this.ensureStarted({ waitForRunning: true });
+      return await this.lifecycle.restart();
     } finally {
       this.controlState = null;
     }
   }
 
-  /**
-   * Escalate a persistent engine fault (reported with `errorDetails.engineReset`)
-   * to a full host-window reset. The renderer already disposed the ORT session,
-   * but GPU-memory exhaustion wedges the WebGPU DEVICE, and a transformers.js
-   * tensor-disposal leak (huggingface/transformers.js#860) keeps the leaked
-   * buffers alive — only recreating the host window gives a fresh device. Fired
-   * only when the renderer's own dispose+retry already failed, so it is not
-   * over-aggressive. Debounced via `engineResetInFlight` so a burst of failed
-   * requests triggers at most one reset; skipped while disposed or already
-   * resetting.
-   */
-  private scheduleHostResetAfterEngineFault(requestId: string): void {
-    if (this.disposed || this.engineResetInFlight || this.controlState === 'resetting') {
+  /** Retire the reported runtime; the next request uses the supervisor's sole replacement budget. */
+  private retireHostAfterEngineFault(cause: Error, report: LlmHostResponseReport): void {
+    if (this.disposed) {
       return;
     }
-    this.engineResetInFlight = true;
-    logger.warn('Recovering the llm host WebGPU device with a window reset after an engine fault', {
-      requestId,
-    });
-    void this.reset()
-      .catch((error) => {
-        logger.error('Llm host window reset after engine fault failed', {
-          error: error instanceof Error ? error.message : String(error),
-          requestId,
-        });
-      })
-      .finally(() => {
-        this.engineResetInFlight = false;
+    void this.lifecycle.retire(cause, report.runtimeId).catch((error: unknown) => {
+      logger.error('Llm host retirement after engine fault failed', {
+        error,
+        requestId: report.requestId,
+        runtimeId: report.runtimeId,
       });
+    });
   }
 
   async dispose(): Promise<void> {
+    const failures: unknown[] = [];
     try {
       await this.stop();
-    } finally {
-      this.disposed = true;
-      this.clearAllPreCancelledRequests();
-      this.lifecycle.dispose();
+    } catch (cause) {
+      failures.push(cause);
+    }
+    this.disposed = true;
+    this.clearAllPreCancelledRequests();
+    try {
+      await this.lifecycle.dispose();
+    } catch (cause) {
+      failures.push(cause);
+    }
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'Host stop and disposal failed.');
     }
   }
 
@@ -391,6 +376,9 @@ export class LlmHostManager {
   }
 
   acceptStatusReport(senderId: number, report: LlmHostStatusReport): void {
+    if (!this.lifecycle.acceptsStatus(senderId, report)) {
+      return;
+    }
     const window = this.lifecycle.getHostWindow();
     if (!window || window.isDestroyed() || window.webContents.id !== senderId) {
       return;
@@ -582,14 +570,11 @@ export class LlmHostManager {
         report.payload.errorDetails?.stage && report.payload.errorDetails.stage.length > 0
           ? `${report.payload.errorMessage} (stage: ${report.payload.errorDetails.stage})`
           : report.payload.errorMessage;
-      // A persistent engine fault means the renderer already disposed the ORT
-      // session but the WebGPU device stays wedged (GPU-memory exhaustion +
-      // transformers.js#860 tensor leak). Escalate to a host-window reset so the
-      // NEXT generation runs on a fresh device instead of failing forever.
+      const failure = createRequestFailure(enrichedMessage, report.payload.code);
       if (report.payload.errorDetails?.engineReset) {
-        this.scheduleHostResetAfterEngineFault(report.requestId);
+        this.retireHostAfterEngineFault(failure, report);
       }
-      throw createRequestFailure(enrichedMessage, report.payload.code);
+      throw failure;
     }
     if (report.type === 'result') {
       return report.payload.result;

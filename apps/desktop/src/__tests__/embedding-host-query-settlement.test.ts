@@ -4,6 +4,7 @@ import type {
   EmbeddingHostQueryEmbeddingRequest,
   EmbeddingHostStatus,
 } from '../embedding-host-shared';
+import { physicalRendererFixture } from './renderer-host-physical-fixture';
 
 const fixture = vi.hoisted(() => ({
   callbacks: null as unknown as {
@@ -22,7 +23,11 @@ const fixture = vi.hoisted(() => ({
     getStatus: () => EmbeddingHostStatus;
     setStatus: (status: EmbeddingHostStatus) => void;
     waitForStatus: ReturnType<typeof vi.fn>;
-    clearHostWindow: ReturnType<typeof vi.fn>;
+    restart: ReturnType<typeof vi.fn>;
+    retire: ReturnType<typeof vi.fn>;
+    joinPhysicalClose: ReturnType<typeof vi.fn>;
+    acceptsStatus: ReturnType<typeof vi.fn>;
+    stop: ReturnType<typeof vi.fn>;
     destroyHostWindow: ReturnType<typeof vi.fn>;
     dispose: ReturnType<typeof vi.fn>;
   },
@@ -92,11 +97,9 @@ describe('query transport physical settlement', () => {
       webContents: Object.assign(new EventEmitter(), { id: 91, send: vi.fn() }),
     });
     fixture.lifecycle = {
-      clearHostWindow: vi.fn(),
-      destroyHostWindow: vi.fn(() => window.destroy()),
+      ...physicalRendererFixture(window, () => fixture.lifecycle.getStatus()),
       dispose: vi.fn(),
       ensureStarted: async () => fixture.lifecycle.getStatus(),
-      getHostWindow: () => window,
       getStatus: () => status,
       setStatus: (next) => Object.assign(status, next),
       waitForStatus: vi.fn(() => stopAck.promise),
@@ -215,6 +218,8 @@ describe('query transport physical settlement', () => {
     expect(fixture.lifecycle.waitForStatus).toHaveBeenCalledWith(expect.any(Function), 10_000);
     expect(settled).not.toHaveBeenCalled();
     stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
+    await flush();
+    window.emit('closed');
     await expect(outcome).resolves.toBe(reason);
   });
   it('keeps a timed-out request owned until Stop physically joins', async () => {
@@ -224,6 +229,8 @@ describe('query transport physical settlement', () => {
     expect(settled).not.toHaveBeenCalled();
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
     stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
+    await flush();
+    window.emit('closed');
     expect(await outcome).toEqual(
       expect.objectContaining({ message: expect.stringContaining('timed out after 60000ms') })
     );
@@ -242,6 +249,8 @@ describe('query transport physical settlement', () => {
     expect(settled).not.toHaveBeenCalled();
     expect(fixture.lifecycle.waitForStatus).toHaveBeenCalled();
     stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
+    await flush();
+    window.emit('closed');
     const error = await outcome;
     expect((error as AggregateError).errors).toEqual([
       reason,
@@ -269,6 +278,8 @@ describe('query transport physical settlement', () => {
     await flush();
     expect(settled).not.toHaveBeenCalled();
     stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
+    await flush();
+    window.emit('closed');
     await stop;
     expect(await outcome).toEqual(
       expect.objectContaining({ message: expect.stringContaining('stopped') })
@@ -315,6 +326,8 @@ describe('query transport physical settlement', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(settled).not.toHaveBeenCalled();
     stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
+    await flush();
+    window.emit('closed');
     const error = await outcome;
     expect((error as AggregateError).errors).toEqual([
       expect.objectContaining({ message: expect.stringContaining('timed out after 60000ms') }),
@@ -333,6 +346,8 @@ describe('query transport physical settlement', () => {
     expect(settled).not.toHaveBeenCalled();
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
     stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
+    await flush();
+    window.emit('closed');
     expect(await outcome).toEqual(
       expect.objectContaining({ message: expect.stringContaining('could not be sent') })
     );
@@ -347,6 +362,8 @@ describe('query transport physical settlement', () => {
     await flush();
     expect(settled).not.toHaveBeenCalled();
     stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
+    await flush();
+    window.emit('closed');
     expect(((await outcome) as AggregateError).errors).toEqual([
       expect.objectContaining({ message: expect.stringContaining('timed out after 60000ms') }),
       expect.objectContaining({ message: 'device failed' }),
@@ -400,6 +417,8 @@ describe('query transport physical settlement', () => {
     expect(fixture.lifecycle.waitForStatus).toHaveBeenCalledWith(expect.any(Function), 3000);
     expect(settled).not.toHaveBeenCalled();
     stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
+    await flush();
+    window.emit('closed');
     await dispose;
     expect(await outcome).toBeInstanceOf(Error);
   });
@@ -414,6 +433,8 @@ describe('query transport physical settlement', () => {
     expect(await dispose).toBeInstanceOf(Error);
     expect(await outcome).toBeInstanceOf(Error);
     stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
+    await flush();
+    window.emit('closed');
     await stop;
   });
   it('does not admit a replacement before a forced retirement closes', async () => {
@@ -667,6 +688,8 @@ describe('query transport physical settlement', () => {
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(2);
     expect(fixture.lifecycle.waitForStatus).toHaveBeenCalledOnce();
     stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
+    await flush();
+    window.emit('closed');
     expect(await outcome).toBeInstanceOf(Error);
     expect(await document).toBeInstanceOf(Error);
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
@@ -691,10 +714,12 @@ describe('query transport physical settlement', () => {
     const { outcome, settled } = await start();
     const stopError = new Error('Stop join failed');
     await vi.advanceTimersByTimeAsync(60_000);
+    expect(settled).not.toHaveBeenCalled();
     stopAck.reject(stopError);
-    await flush();
+    const failure = await outcome;
     expect(settled).toHaveBeenCalledOnce();
-    expect(failureCauses(await outcome)).toContain(stopError);
+    expect(window.destroy).toHaveBeenCalledOnce();
+    expect(failureCauses(failure)).toContain(stopError);
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
     expect(contents.listenerCount('render-process-gone')).toBe(0);
     expect(window.listenerCount('closed')).toBe(0);

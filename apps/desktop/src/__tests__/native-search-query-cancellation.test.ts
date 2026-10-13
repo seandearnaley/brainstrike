@@ -10,6 +10,7 @@ import type {
   EmbeddingHostQueryEmbeddingRequest,
   EmbeddingHostStatus,
 } from '../embedding-host-shared';
+import { physicalRendererFixture } from './renderer-host-physical-fixture';
 
 const fixture = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
@@ -19,7 +20,11 @@ const fixture = vi.hoisted(() => ({
     getStatus: () => EmbeddingHostStatus;
     setStatus: (status: EmbeddingHostStatus) => void;
     waitForStatus: ReturnType<typeof vi.fn>;
-    clearHostWindow: ReturnType<typeof vi.fn>;
+    restart: ReturnType<typeof vi.fn>;
+    retire: ReturnType<typeof vi.fn>;
+    joinPhysicalClose: ReturnType<typeof vi.fn>;
+    acceptsStatus: ReturnType<typeof vi.fn>;
+    stop: ReturnType<typeof vi.fn>;
     destroyHostWindow: ReturnType<typeof vi.fn>;
     dispose: ReturnType<typeof vi.fn>;
   },
@@ -122,11 +127,9 @@ describe('actual native search to query IPC physical owner', () => {
       webContents: Object.assign(new EventEmitter(), { id: 91, send: vi.fn() }),
     });
     fixture.lifecycle = {
-      clearHostWindow: vi.fn(),
-      destroyHostWindow: vi.fn(() => hidden.destroy()),
+      ...physicalRendererFixture(hidden, () => fixture.lifecycle.getStatus()),
       dispose: vi.fn(),
       ensureStarted: async () => fixture.lifecycle.getStatus(),
-      getHostWindow: () => hidden,
       getStatus: () => status,
       setStatus: (next) => Object.assign(status, next),
       waitForStatus: vi.fn(),

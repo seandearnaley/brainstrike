@@ -422,7 +422,10 @@ implementations. Evidence: `local-inference/streaming-payload-memory-proof.md`.
 - During `starting`, cancel host lifecycle directly; DB setup may lack a Stop listener.
 - A running host uses the worker Stop protocol with a 3s acknowledgement bound inside
   the 5s app shutdown deadline. A missing acknowledgement or renderer error destroys
-  the owned renderer and remains a reported stop failure.
+  the owned renderer and remains a reported stop failure. ChildSupervisor owns the
+  release through protocol acknowledgement and physical `closed`/process-gone receipt;
+  `isDestroyed()` or a timer is not settlement. Current terminal acknowledgements remain
+  authenticated during retirement; new work and stale generations stay fenced.
 - Stop aborts hosted requests/local streams; never start another group after abort.
 - A queued abort terminates the client and settles all streams with its exact reason.
 - Only the exact Stop reason leaves unfinished jobs leased; independent errors still fail/retry, and reclaim adds an attempt.
@@ -460,7 +463,9 @@ Flow:
      engine and retries ONCE, announced through a 'stage' progress report and logs, never
      silently; a fault surviving the retry reports the visible "engine was reset" error,
      and aborts never trigger recovery. Only a persistent fault sets
-     `LlmHostErrorDetails.engineReset`, escalating to a debounced host-window `reset()`.
+     `LlmHostErrorDetails.engineReset`, retiring only that reported runtime. The next
+     requested operation uses Main's sole automatic replacement budget; the failed
+     request is never replayed. A second loss stays failed until explicit Reset/Start.
    - Gemma 4 E2B is declared at the RUNTIME budget `contextWindow: 8192` /
      `maxOutputTokens: 2048` in the built-in `local` provider's entry in
      `packages/assistant-contract/src/provider-catalog.json` — not the architectural

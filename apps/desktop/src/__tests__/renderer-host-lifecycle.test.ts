@@ -43,10 +43,12 @@ interface FakeWindow {
   loadURL: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
   once: ReturnType<typeof vi.fn>;
+  removeListener: ReturnType<typeof vi.fn>;
   webContents: {
     id: number;
     listeners: FakeListenerMap;
     on: ReturnType<typeof vi.fn>;
+    removeListener: ReturnType<typeof vi.fn>;
     send: ReturnType<typeof vi.fn>;
     setWindowOpenHandler: ReturnType<typeof vi.fn>;
   };
@@ -125,6 +127,7 @@ function createFakeWindow(id: number): FakeWindow {
   return {
     destroy: vi.fn(() => {
       destroyed = true;
+      queueMicrotask(() => listeners.closed?.());
     }),
     id,
     isDestroyed: vi.fn(() => destroyed),
@@ -141,6 +144,7 @@ function createFakeWindow(id: number): FakeWindow {
         listeners.closed = listener;
       }
     }),
+    removeListener: vi.fn(),
     webContents: {
       id,
       listeners: webContentsListeners,
@@ -152,6 +156,7 @@ function createFakeWindow(id: number): FakeWindow {
           webContentsListeners.didFailLoad = listener as FakeListenerMap['didFailLoad'];
         }
       }),
+      removeListener: vi.fn(),
       send: vi.fn(),
       setWindowOpenHandler: vi.fn(),
     },
@@ -733,7 +738,7 @@ describe('RendererHostLifecycle', () => {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
-    lifecycle.dispose();
+    await lifecycle.dispose();
 
     expect(hostWindow.destroy).toHaveBeenCalledTimes(1);
     expect(lifecycle.getHostWindow()).toBeNull();
@@ -774,7 +779,7 @@ describe('RendererHostLifecycle', () => {
     });
 
     const initialStart = lifecycle.ensureStarted({ waitForRunning: true });
-    await Promise.resolve();
+    await vi.waitFor(() => expect(MockBrowserWindow).toHaveBeenCalledOnce());
     lifecycle.setStatus(
       createStatus({
         active: true,
@@ -784,6 +789,7 @@ describe('RendererHostLifecycle', () => {
       })
     );
     await initialStart;
+    await lifecycle.destroyHostWindow();
     lifecycle.setStatus(
       createStatus({
         active: false,
@@ -832,17 +838,22 @@ describe('RendererHostLifecycle', () => {
       timeoutMessage: 'timeout',
     });
     const initialStart = lifecycle.ensureStarted({ waitForRunning: true });
-    await Promise.resolve();
+    await vi.waitFor(() => expect(MockBrowserWindow).toHaveBeenCalledOnce());
     const runtimeId = lifecycle.getStatus().runtimeId;
     lifecycle.setStatus(
       createStatus({ active: true, lastError: null, runtimeId, state: 'running' })
     );
     await initialStart;
 
-    // The manager's stop() owns this window until the renderer reports stopped.
-    lifecycle.setStatus(
-      createStatus({ active: false, lastError: null, runtimeId, state: 'stopping' })
-    );
+    // The supervisor owns release; its manager callback owns protocol acknowledgement.
+    const acknowledgement = Promise.withResolvers<void>();
+    const stopping = lifecycle.stop(async () => {
+      lifecycle.setStatus(
+        createStatus({ active: false, lastError: null, runtimeId, state: 'stopping' })
+      );
+      await acknowledgement.promise;
+    });
+    await vi.waitFor(() => expect(lifecycle.getStatus().state).toBe('stopping'));
     let settled = false;
     const restart = lifecycle.ensureStarted({ waitForRunning: false }).then((status) => {
       settled = true;
@@ -854,9 +865,8 @@ describe('RendererHostLifecycle', () => {
     expect(stoppingWindow.destroy).not.toHaveBeenCalled();
     expect(settled).toBe(false);
 
-    lifecycle.setStatus(
-      createStatus({ active: false, lastError: null, runtimeId, state: 'stopped' })
-    );
+    acknowledgement.resolve();
+    await stopping;
     const restarted = await restart;
 
     expect(stoppingWindow.destroy).toHaveBeenCalledTimes(1);
@@ -905,7 +915,7 @@ describe('RendererHostLifecycle', () => {
     });
 
     const initialStart = lifecycle.ensureStarted({ waitForRunning: true });
-    await Promise.resolve();
+    await vi.waitFor(() => expect(MockBrowserWindow).toHaveBeenCalledOnce());
     lifecycle.setStatus(
       createStatus({
         active: true,
@@ -915,6 +925,7 @@ describe('RendererHostLifecycle', () => {
       })
     );
     await initialStart;
+    await lifecycle.destroyHostWindow();
     lifecycle.setStatus(
       createStatus({
         active: false,
@@ -926,7 +937,7 @@ describe('RendererHostLifecycle', () => {
 
     const firstRestart = lifecycle.ensureStarted({ waitForRunning: true });
     const secondRestart = lifecycle.ensureStarted({ waitForRunning: true });
-    await Promise.resolve();
+    await vi.waitFor(() => expect(restartedWindow.loadURL).toHaveBeenCalledOnce());
 
     expect(stoppedWindow.destroy).toHaveBeenCalledTimes(1);
     expect(restartedWindow.loadURL).toHaveBeenCalledTimes(1);
@@ -982,7 +993,7 @@ describe('RendererHostLifecycle', () => {
 
     const firstStart = lifecycle.ensureStarted({ waitForRunning: true });
     const secondStart = lifecycle.ensureStarted({ waitForRunning: true });
-    await Promise.resolve();
+    await vi.waitFor(() => expect(hostWindow.loadURL).toHaveBeenCalledOnce());
 
     expect(MockBrowserWindow).toHaveBeenCalledTimes(1);
     expect(hostWindow.loadURL).toHaveBeenCalledTimes(1);
@@ -1085,7 +1096,7 @@ describe('RendererHostLifecycle', () => {
       expect(statusListenerCount(lifecycle)).toBe(1);
       expect(vi.getTimerCount()).toBe(1);
 
-      lifecycle.dispose();
+      await lifecycle.dispose();
       expect(((await disposedFailure) as Error).message).toContain('disposed');
       expect(statusListenerCount(lifecycle)).toBe(0);
       expect(vi.getTimerCount()).toBe(0);
@@ -1130,12 +1141,17 @@ describe('RendererHostLifecycle', () => {
     vi.useFakeTimers();
     try {
       const hostWindow = createFakeWindow(73);
+      const replacementWindow = createFakeWindow(74);
       hostWindow.loadURL.mockResolvedValue(undefined);
+      const windows = [hostWindow, replacementWindow];
       MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
-        Object.assign(this, hostWindow);
+        Object.assign(this, windows.shift());
       });
-      Object.assign(BrowserWindow, { getAllWindows: vi.fn(() => [hostWindow]) });
+      Object.assign(BrowserWindow, { getAllWindows: vi.fn(() => [hostWindow, replacementWindow]) });
       const lifecycle = createWaitLifecycle();
+      replacementWindow.loadURL.mockImplementation(async () => {
+        lifecycle.setStatus({ ...lifecycle.getStatus(), state: 'running' });
+      });
 
       const startup = lifecycle.ensureStarted({ waitForRunning: true });
       await vi.waitFor(() => expect(statusListenerCount(lifecycle)).toBe(1));
@@ -1143,8 +1159,8 @@ describe('RendererHostLifecycle', () => {
       hostWindow.listeners.closed?.();
 
       const status = await startup;
-      expect(status.state).toBe('error');
-      expect(status.lastError).toContain('window closed before its state transition completed');
+      expect(status.state).toBe('running');
+      expect(MockBrowserWindow).toHaveBeenCalledTimes(2);
       expect(statusListenerCount(lifecycle)).toBe(0);
       expect(vi.getTimerCount()).toBe(0);
     } finally {
@@ -1224,11 +1240,11 @@ describe('RendererHostLifecycle', () => {
     });
 
     const startupPromise = lifecycle.ensureStarted({ waitForRunning: true });
-    await Promise.resolve();
+    await vi.waitFor(() => expect(resolveLoad).not.toBeNull());
     requireCallback(resolveLoad, 'load resolver')();
     await Promise.resolve();
     await Promise.resolve();
-    lifecycle.dispose();
+    await lifecycle.dispose();
 
     await expect(startupPromise).resolves.toEqual(
       expect.objectContaining({
@@ -1408,8 +1424,8 @@ describe('RendererHostLifecycle', () => {
       });
 
       const startupPromise = lifecycle.ensureStarted({ waitForRunning: true });
-      await Promise.resolve();
-      lifecycle.dispose();
+      await vi.waitFor(() => expect(resolveLoad).not.toBeNull());
+      await lifecycle.dispose();
       requireCallback(resolveLoad, 'load resolver')();
 
       await expect(startupPromise).resolves.toEqual(
@@ -1538,9 +1554,9 @@ describe('RendererHostLifecycle', () => {
     expect(MockBrowserWindow).toHaveBeenCalledTimes(1);
   });
 
-  it('gives up after 3 failed load attempts and sets error status', async () => {
+  it('keeps a failed replacement unavailable until explicit action', async () => {
     vi.useFakeTimers();
-    const windows = [createFakeWindow(111), createFakeWindow(112), createFakeWindow(113)];
+    const windows = [createFakeWindow(111), createFakeWindow(112)];
     for (const w of windows) {
       w.loadURL.mockRejectedValue(new Error('ERR_FAILED (-2)'));
     }
@@ -1582,7 +1598,8 @@ describe('RendererHostLifecycle', () => {
 
     const finalStatus = lifecycle.getStatus();
     expect(finalStatus.state).toBe('error');
-    expect(finalStatus.lastError).toContain('failed to load after 3 attempts');
+    await lifecycle.ensureStarted();
+    expect(MockBrowserWindow).toHaveBeenCalledTimes(2);
     for (const w of windows) {
       expect(w.destroy).toHaveBeenCalledTimes(1);
     }

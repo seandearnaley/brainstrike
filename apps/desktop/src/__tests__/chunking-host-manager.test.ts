@@ -16,7 +16,7 @@ const { getAllWindowsMock, lifecycleState, mockHostWindow } = vi.hoisted(() => {
   return {
     getAllWindowsMock: vi.fn<() => unknown[]>(() => []),
     lifecycleState: {
-      clearHostWindow: vi.fn(),
+      acceptsStatus: vi.fn(() => true),
       destroyHostWindow: vi.fn(),
       dispose: vi.fn(),
       ensureStarted: vi.fn(async () => ({
@@ -33,7 +33,36 @@ const { getAllWindowsMock, lifecycleState, mockHostWindow } = vi.hoisted(() => {
         state: 'running' as const,
       })),
       isHostWindow: vi.fn(() => false),
+      joinPhysicalClose: vi.fn(async () => {}),
+      restart: vi.fn(async function (this: { ensureStarted(): Promise<unknown> }) {
+        return this.ensureStarted();
+      }),
+      retire: vi.fn(async function (this: { destroyHostWindow(): Promise<void> }) {
+        await this.destroyHostWindow();
+      }),
       setStatus: vi.fn(),
+      stop: vi.fn(async function (
+        this: { destroyHostWindow(): Promise<void> },
+        protocol?: () => Promise<void>
+      ) {
+        const failures: unknown[] = [];
+        try {
+          await protocol?.();
+        } catch (cause) {
+          failures.push(cause);
+        }
+        try {
+          await this.destroyHostWindow();
+        } catch (cause) {
+          failures.push(cause);
+        }
+        if (failures.length === 1) {
+          throw failures[0];
+        }
+        if (failures.length > 1) {
+          throw new AggregateError(failures, 'Stop and physical release failed');
+        }
+      }),
       waitForStatus: vi.fn(),
     },
     mockHostWindow: hostWindow,
@@ -89,6 +118,17 @@ type TestableChunkingHostManager = Omit<ChunkingHostManager, never> & {
 };
 
 describe('ChunkingHostManager', () => {
+  it('retains independent stop and lifecycle disposal failures', async () => {
+    const manager = new ChunkingHostManager();
+    const stopFailure = new Error('Stop acknowledgement lost');
+    const releaseFailure = new Error('Physical release failed');
+    lifecycleState.stop.mockRejectedValueOnce(stopFailure);
+    lifecycleState.dispose.mockRejectedValueOnce(releaseFailure);
+    const outcome = await manager.dispose().catch((cause: unknown) => cause);
+    expect(outcome).toBeInstanceOf(AggregateError);
+    expect((outcome as AggregateError).errors).toEqual([stopFailure, releaseFailure]);
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
@@ -423,55 +463,49 @@ describe('ChunkingHostManager', () => {
     await expect(requestPromise).resolves.toEqual({ chunks: [] });
   });
 
-  it('stop waits for the closed event before resolving', async () => {
-    vi.useRealTimers();
-    let closedListener: (() => void) | null = null;
-    mockHostWindow.on.mockImplementation((event: string, listener: () => void) => {
-      if (event === 'closed') {
-        closedListener = listener;
-      }
-    });
-
+  it('stop joins the lifecycle release before reporting stopped', async () => {
+    const physical = Promise.withResolvers<void>();
+    lifecycleState.destroyHostWindow.mockReturnValueOnce(physical.promise);
     const manager = new ChunkingHostManager();
-    const stopPromise = manager.stop();
-
-    // The stop should not resolve until the closed event fires
-    await Promise.resolve();
-    expect(closedListener).not.toBeNull();
-
-    closedListener!();
-    await stopPromise;
-
-    expect(lifecycleState.destroyHostWindow).toHaveBeenCalled();
-    expect(lifecycleState.clearHostWindow).toHaveBeenCalled();
+    let settled = false;
+    const stop = manager.stop().then(() => {
+      settled = true;
+    });
+    await vi.waitFor(() => expect(lifecycleState.destroyHostWindow).toHaveBeenCalledOnce());
+    expect(settled).toBe(false);
+    physical.resolve();
+    await stop;
+    expect(settled).toBe(true);
   });
 
-  it('stop resolves within timeout if closed event never fires', async () => {
-    vi.useFakeTimers();
-    mockHostWindow.once.mockImplementation(() => {
-      // Never call the listener — simulating a window that never fires 'closed'
-    });
-
+  it('does not turn the old window-close timeout into successful Stop', async () => {
+    const physical = Promise.withResolvers<void>();
+    lifecycleState.destroyHostWindow.mockReturnValueOnce(physical.promise);
     const manager = new ChunkingHostManager();
-    const stopPromise = manager.stop();
-
+    let settled = false;
+    const stop = manager.stop().then(() => {
+      settled = true;
+    });
     await vi.advanceTimersByTimeAsync(500);
-    await stopPromise;
-
-    expect(lifecycleState.destroyHostWindow).toHaveBeenCalled();
-    expect(lifecycleState.clearHostWindow).toHaveBeenCalled();
+    expect(settled).toBe(false);
+    physical.resolve();
+    await stop;
   });
 
-  it('stop resolves immediately if window is already destroyed', async () => {
-    vi.useRealTimers();
+  it('joins the existing release even when the BrowserWindow is already marked destroyed', async () => {
     mockHostWindow.isDestroyed.mockReturnValue(true);
-
+    const physical = Promise.withResolvers<void>();
+    lifecycleState.destroyHostWindow.mockReturnValueOnce(physical.promise);
     const manager = new ChunkingHostManager();
-    await manager.stop();
-
-    // destroyHostWindow should NOT be called because the window is already destroyed
-    expect(lifecycleState.destroyHostWindow).not.toHaveBeenCalled();
-    expect(lifecycleState.clearHostWindow).toHaveBeenCalled();
+    let settled = false;
+    const stop = manager.stop().then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    physical.resolve();
+    await stop;
+    expect(lifecycleState.stop).toHaveBeenCalledOnce();
   });
 
   it('dispose retires the lifecycle even when stop fails, and still rejects', async () => {

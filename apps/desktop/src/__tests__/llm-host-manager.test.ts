@@ -28,7 +28,7 @@ const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(()
   return {
     currentLifecycleStatus: currentStatus,
     lifecycleState: {
-      clearHostWindow: vi.fn(),
+      acceptsStatus: vi.fn(() => true),
       destroyHostWindow: vi.fn(),
       dispose: vi.fn(),
       ensureStarted: vi.fn<(options?: unknown) => Promise<LlmLifecycleStatus>>(async () => ({
@@ -41,12 +41,41 @@ const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(()
       getHostWindow: vi.fn<() => typeof hostWindow | null | undefined>(() => hostWindow),
       getStatus: vi.fn<() => LlmLifecycleStatus>(() => ({ ...currentStatus })),
       isHostWindow: vi.fn(() => false),
+      joinPhysicalClose: vi.fn(async () => {}),
+      restart: vi.fn(async function (this: { ensureStarted(): Promise<unknown> }) {
+        return this.ensureStarted();
+      }),
+      retire: vi.fn(async function (this: { destroyHostWindow(): Promise<void> }) {
+        await this.destroyHostWindow();
+      }),
       setStatus: vi.fn<(status: LlmLifecycleStatus) => void>((status) => {
         currentStatus.active = status.active;
         currentStatus.lastError = status.lastError;
         currentStatus.runtimeId = status.runtimeId;
         currentStatus.runtimeKind = status.runtimeKind ?? 'llm-host';
         currentStatus.state = status.state;
+      }),
+      stop: vi.fn(async function (
+        this: { destroyHostWindow(): Promise<void> },
+        protocol?: () => Promise<void>
+      ) {
+        const failures: unknown[] = [];
+        try {
+          await protocol?.();
+        } catch (cause) {
+          failures.push(cause);
+        }
+        try {
+          await this.destroyHostWindow();
+        } catch (cause) {
+          failures.push(cause);
+        }
+        if (failures.length === 1) {
+          throw failures[0];
+        }
+        if (failures.length > 1) {
+          throw new AggregateError(failures, 'Stop and physical release failed');
+        }
       }),
     },
     mockHostWindow: hostWindow,
@@ -163,6 +192,17 @@ async function drainResponse(response: Response): Promise<string> {
 }
 
 describe('LlmHostManager', () => {
+  it('retains independent stop and lifecycle disposal failures', async () => {
+    const manager = new LlmHostManager();
+    const stopFailure = new Error('Stop acknowledgement lost');
+    const releaseFailure = new Error('Physical release failed');
+    lifecycleState.stop.mockRejectedValueOnce(stopFailure);
+    lifecycleState.dispose.mockRejectedValueOnce(releaseFailure);
+    const outcome = await manager.dispose().catch((cause: unknown) => cause);
+    expect(outcome).toBeInstanceOf(AggregateError);
+    expect((outcome as AggregateError).errors).toEqual([stopFailure, releaseFailure]);
+  });
+
   function createRequester(id = 101): WebContents {
     return {
       id,
@@ -799,21 +839,9 @@ describe('LlmHostManager', () => {
     expect(requester.removeListener).toHaveBeenCalledWith('destroyed', destroyedHandler);
   });
 
-  it('resets the host WINDOW when a generation fails with a persistent engine fault (device wedge)', async () => {
-    // GPU-memory exhaustion wedges the whole WebGPU device, not just the ORT
-    // session, and a transformers.js tensor-disposal leak means the renderer's
-    // backend.dispose() cannot free it — only recreating the host window (a
-    // fresh device) recovers. The renderer flags engineReset on its error
-    // report; the manager must escalate to a host-window reset() so the NEXT
-    // generation runs on a clean device instead of failing forever.
+  it('retires the faulted runtime without rearming the automatic restart budget', async () => {
     const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
-    const resetSpy = vi.spyOn(manager, 'reset').mockResolvedValue({
-      active: false,
-      lastError: null,
-      runtimeId: 'llm-host-runtime',
-      runtimeKind: 'llm-host',
-      state: 'running',
-    });
+    const resetSpy = vi.spyOn(manager, 'reset');
     const requester = createRequester(801);
 
     const requestPromise = manager.generate(requester, {
@@ -843,10 +871,13 @@ describe('LlmHostManager', () => {
       type: 'error',
     });
 
-    await expect(observedRejection).resolves.toBeInstanceOf(Error);
+    const failure = await observedRejection;
+    expect(failure).toBeInstanceOf(Error);
     await vi.waitFor(() => {
-      expect(resetSpy).toHaveBeenCalledTimes(1);
+      expect(lifecycleState.retire).toHaveBeenCalledWith(failure, 'llm-host-runtime');
     });
+    expect(resetSpy).not.toHaveBeenCalled();
+    expect(lifecycleState.restart).not.toHaveBeenCalled();
   });
 
   it('does NOT reset the host window for an ordinary (non-engine) request failure', async () => {
