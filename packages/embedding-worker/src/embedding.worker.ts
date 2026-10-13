@@ -420,6 +420,7 @@ async function getTransformersRuntime(): Promise<TransformersRuntime> {
 // Existing keep-alive preserves driver activity while hidden (BST-2005).
 const GPU_KEEPALIVE_INTERVAL_MS = 15_000;
 const pipelineDevices = new WeakMap<FeatureExtractor, OwnedWebGpuDevice>();
+const pipelineInferences = new WeakMap<FeatureExtractor, Set<Promise<unknown>>>();
 const webGpuDeviceOwner = createWebGpuDeviceOwner(() => {
   stopKeepAlive();
   pipelineCacheController.invalidateWebGpuPipelines();
@@ -458,6 +459,11 @@ function publishPipelineCacheDiagnostic(event: EmbedWorkerPipelineCacheDiagnosti
 }
 
 const pipelineCacheController = createEmbeddingPipelineCacheController<FeatureExtractor>({
+  // Device loss invalidates admission immediately, but ORT disposal must join its active runs.
+  // The inference caller retains each run's failure; this join only orders physical release.
+  beforeDispose: async (extractor) => {
+    await Promise.allSettled([...(pipelineInferences.get(extractor) ?? [])]);
+  },
   isIdleSweepAllowed: () => !isInferenceActive,
   load: createFeatureExtractor,
   onDisposed: ({ cacheKey }) => {
@@ -641,7 +647,7 @@ async function createFeatureExtractor(
 }
 
 /** Keep physical inference joined before publishing a device-loss failure. */
-async function extractOwnedEmbeddingBatch(
+async function runOwnedEmbeddingBatch(
   extractor: FeatureExtractor,
   texts: readonly string[],
   pooling: EmbeddingPooling
@@ -667,6 +673,37 @@ async function extractOwnedEmbeddingBatch(
       );
     }
     throw error;
+  }
+}
+
+async function extractOwnedEmbeddingBatch(
+  extractor: FeatureExtractor,
+  texts: readonly string[],
+  pooling: EmbeddingPooling
+): Promise<unknown> {
+  const active = pipelineInferences.get(extractor) ?? new Set<Promise<unknown>>();
+  pipelineInferences.set(extractor, active);
+  const operation = runOwnedEmbeddingBatch(extractor, texts, pooling);
+  active.add(operation);
+  try {
+    return await operation;
+  } catch (error) {
+    if (pipelineDevices.get(extractor)?.error) {
+      try {
+        await pipelineCacheController.waitForPendingDisposals();
+      } catch (disposalError) {
+        throw new AggregateError(
+          [error, disposalError],
+          'Embedding inference and disposal failed.'
+        );
+      }
+    }
+    throw error;
+  } finally {
+    active.delete(operation);
+    if (active.size === 0) {
+      pipelineInferences.delete(extractor);
+    }
   }
 }
 

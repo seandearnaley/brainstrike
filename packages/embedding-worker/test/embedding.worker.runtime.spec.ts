@@ -1468,11 +1468,15 @@ describe('embedding worker runtime', () => {
       queue: { submit: vi.fn() },
     });
     let resolveInference!: (value: Float32Array) => void;
+    const dispose = vi.fn();
     pipelineMock.mockResolvedValue(
-      () =>
-        new Promise<Float32Array>((resolve) => {
-          resolveInference = resolve;
-        })
+      Object.assign(
+        () =>
+          new Promise<Float32Array>((resolve) => {
+            resolveInference = resolve;
+          }),
+        { dispose }
+      )
     );
     const runEmbedding = await loadWorker();
     const embeddingPromise = runEmbedding({
@@ -1488,12 +1492,14 @@ describe('embedding worker runtime', () => {
     resolveLost({ message: 'device was lost', reason: 'destroyed' });
     await flushMicrotasks();
     expect(workerEmitMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+    expect(dispose).not.toHaveBeenCalled();
     const failed = expect(embeddingPromise).rejects.toMatchObject({
       code: 'EMBEDDING_DEVICE_LOST',
       name: 'DeviceLost',
     });
     resolveInference(new Float32Array([1, 0, 0]));
     await failed;
+    expect(dispose).toHaveBeenCalledOnce();
     expect(workerEmitMock).toHaveBeenCalledWith(
       expect.objectContaining({
         code: 'EMBEDDING_DEVICE_LOST',
