@@ -95,8 +95,17 @@ afterAll(async () => {
       } catch (cause) {
         cleanupFailures.push(cause);
         // Only this harness's own Electron child is eligible for failed-test cleanup.
-        app.process.kill('SIGKILL');
-        await app.exited;
+        try {
+          if (app.process.exitCode === null && app.process.signalCode === null) {
+            app.process.kill('SIGTERM');
+          }
+          await runWithTimeout(() => app.exited, {
+            onTimeout: () => new Error('Electron survived SIGTERM; preserve its profile'),
+            timeoutMs: 5000,
+          });
+        } catch (retireError) {
+          cleanupFailures.push(retireError);
+        }
       }
     })
   );
@@ -106,7 +115,9 @@ afterAll(async () => {
       await waitGone(pid, start);
     }
   }
-  await rm(directory, { force: true, recursive: true });
+  if (cleanupFailures.length === 0) {
+    await rm(directory, { force: true, recursive: true });
+  }
   if (cleanupFailures.length > 0) {
     throw new AggregateError(cleanupFailures, 'Electron test child cleanup failed');
   }
@@ -421,8 +432,12 @@ describe('real Electron host lease acquisition', () => {
     const app = startApp(root);
     const record = await app.attached;
     const attachment = await cli(root);
-    app.process.kill('SIGKILL');
-    await app.exited;
+    // This synthetic parent has no SIGTERM handler: death bypasses close IPC.
+    app.process.kill('SIGTERM');
+    await runWithTimeout(() => app.exited, {
+      onTimeout: () => new Error('Synthetic Electron parent survived SIGTERM'),
+      timeoutMs: 5000,
+    });
     activeApps.delete(app);
     await attachment.closed;
     await waitGone(record.pid, record.start);

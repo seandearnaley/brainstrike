@@ -17,7 +17,7 @@ export async function launchAppWithLauncher(
   const application = await launch();
   const appPid = application.process().pid;
   if (appPid) {
-    killAppWithLauncher(appPid);
+    terminateAppWithLauncher(appPid);
   }
   return application;
 }
@@ -28,16 +28,16 @@ export async function launchAppWithLauncher(
  * launcher killed outright (SIGKILL, or a tool timeout that kills the test
  * run's process group) runs none of them, and the app lives on under launchd.
  *
- * This detached watcher kills the app's process group once the launcher is
- * gone. It exits by itself as soon as the app does, so it never outlives the
- * app it watches.
+ * This detached watcher sends SIGTERM to the app's process group once the launcher is
+ * gone. There is no force escalation or profile deletion if SIGTERM is refused.
+ * If the launcher lives, the watcher exits as soon as the app does.
  */
-function killAppWithLauncher(appPid: number): void {
+function terminateAppWithLauncher(appPid: number): void {
   const watcher = spawn(
     '/bin/sh',
     [
       '-c',
-      'while kill -0 "$1" 2>/dev/null && kill -0 "$2" 2>/dev/null; do sleep 1; done; kill -0 "$1" 2>/dev/null || kill -KILL -"$2" 2>/dev/null',
+      'while kill -0 "$1" 2>/dev/null && kill -0 "$2" 2>/dev/null; do sleep 1; done; kill -0 "$1" 2>/dev/null || kill -TERM -"$2" 2>/dev/null',
       'electron-launcher-watchdog',
       String(process.pid),
       String(appPid),
