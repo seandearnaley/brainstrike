@@ -1,5 +1,10 @@
 import { ASSISTANT_RUN_USAGE_KINDS } from '@brainstrike/assistant-contract/run-usage';
 import { z } from 'zod';
+import {
+  RunVerdictDetailSchema,
+  RunVerdictSchema,
+  RunVerdictSourceSchema,
+} from './run-verdict-wire.js';
 
 const Id = z.string().min(1);
 const Seq = z.number().int().nonnegative();
@@ -71,10 +76,10 @@ export const HostLedgerThreadSchema = z.strictObject({
       failedToolCallCount: Tokens,
       inputTokens: Tokens,
       model: z.string(),
-      // The host commits no run outcome label to a ledger row yet.
-      outcomeDetail: z.null(),
-      outcomeSource: z.null(),
-      outcomeVerdict: z.null(),
+      // Effective label from the same committed run.verdict events as the conversation.
+      outcomeDetail: RunVerdictDetailSchema.nullable(),
+      outcomeSource: RunVerdictSourceSchema.nullable(),
+      outcomeVerdict: RunVerdictSchema.nullable(),
       outputTokens: Tokens,
       provider: Id,
       revertedEditCount: Tokens,
