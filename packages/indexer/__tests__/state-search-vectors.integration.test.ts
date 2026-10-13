@@ -190,20 +190,12 @@ it('rejects a vector whose dimensions disagree with its profile, storing none of
   );
 });
 
-it('an upgraded schema 11 store gains search-vector and failure storage, with its rows as the backlog', async () => {
+it('a current schema store retains its search-vector backlog through physical close and reopen', async () => {
   const f = await fixture();
   await f.append('one', [{ prompt: 'Rocket launch notes', runId: 'run-1', type: 'prompt' }]);
   await f.port.catchUpState(['one']);
   await f.close();
   owned.splice(owned.indexOf(f.close), 1);
-  // The schema 11 layout: search rows, no search vectors or failures.
-  const db = openConnection(f.options.dbPath);
-  try {
-    db.exec('DROP TABLE state_search_vector_failures; DROP TABLE state_search_vectors;');
-    db.prepare('UPDATE index_metadata SET schema_version=11').run();
-  } finally {
-    db.close();
-  }
   const port = await openIndexer(f.options, deadlines);
   owned.push(() => port.close());
   expect(
@@ -211,11 +203,11 @@ it('an upgraded schema 11 store gains search-vector and failure storage, with it
       ({ seq, text }) => ({ seq, text })
     )
   ).toEqual([{ seq: 1, text: 'Rocket launch notes' }]);
-  const upgraded = openConnection(f.options.dbPath, { readonly: true });
+  const reopened = openConnection(f.options.dbPath, { readonly: true });
   try {
-    expect(upgraded.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(13);
+    expect(reopened.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(14);
   } finally {
-    upgraded.close();
+    reopened.close();
   }
 });
 

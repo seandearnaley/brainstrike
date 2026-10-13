@@ -9,6 +9,15 @@ import {
   resolveDefaultModel,
 } from '../provider-registry.js';
 
+/** Presentation moved into the canonical catalog; pin provider capability facts independently. */
+function getLlmCapabilityFacts(
+  ...args: Parameters<typeof getLlmModelDefinition>
+): Omit<ReturnType<typeof getLlmModelDefinition>, 'catalog'> {
+  const { catalog, ...facts } = getLlmModelDefinition(...args);
+  expect(catalog).toBeDefined();
+  return facts;
+}
+
 function llmIds(provider: Parameters<typeof listProviderLlmModels>[0]): string[] {
   return listProviderLlmModels(provider).map((model) => model.id);
 }
@@ -55,7 +64,7 @@ describe('frontier model refresh (2026-07)', () => {
      * see model-reasoning.test.ts for the availability-level pin.
      */
     it('declares GPT-6 Astra from the vendor model page, cache rates excluded (BST-1692)', () => {
-      expect(getLlmModelDefinition('openai', 'gpt-6-astra')).toEqual({
+      expect(getLlmCapabilityFacts('openai', 'gpt-6-astra')).toEqual({
         contextWindow: 1_050_000,
         id: 'gpt-6-astra',
         label: 'GPT-6 Astra',
@@ -101,7 +110,7 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     it('declares Claude Fable 5.1 from the vendor model-overview facts (BST-1691)', () => {
-      const fable = getLlmModelDefinition('anthropic', 'claude-fable-5-1');
+      const fable = getLlmCapabilityFacts('anthropic', 'claude-fable-5-1');
 
       expect(fable).toEqual({
         anthropicReasoning: {
@@ -130,7 +139,7 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     it('declares the Bedrock Claude Fable 5.1 route with the AWS model id (BST-1691)', () => {
-      const fable = getLlmModelDefinition('bedrock', 'anthropic.claude-fable-5-1');
+      const fable = getLlmCapabilityFacts('bedrock', 'anthropic.claude-fable-5-1');
 
       expect(fable).toEqual({
         bedrockReasoning: 'adaptive',
@@ -153,7 +162,7 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     it('declares Claude Opus 5 from the vendor model-overview facts (BST-957)', () => {
-      const opus = getLlmModelDefinition('anthropic', 'claude-opus-5');
+      const opus = getLlmCapabilityFacts('anthropic', 'claude-opus-5');
 
       expect(opus).toEqual({
         anthropicReasoning: {
@@ -230,7 +239,7 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     it('declares Gemini 3.7 Flash for the direct Google provider', () => {
-      const gemini = getLlmModelDefinition('google', 'gemini-3.7-flash');
+      const gemini = getLlmCapabilityFacts('google', 'gemini-3.7-flash');
 
       expect(gemini).toEqual({
         contextWindow: 1_048_576,
@@ -246,7 +255,7 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     it('declares Gemini 3.8 Flash at the introductory 0.75/3.75 rate (BST-1693)', () => {
-      expect(getLlmModelDefinition('google', 'gemini-3.8-flash')).toEqual({
+      expect(getLlmCapabilityFacts('google', 'gemini-3.8-flash')).toEqual({
         contextWindow: 1_048_576,
         id: 'gemini-3.8-flash',
         label: 'Gemini 3.8 Flash',
@@ -260,7 +269,7 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     it('declares Gemini 3.6 Flash at the introductory 0.75/3.75 rate (BST-1693)', () => {
-      expect(getLlmModelDefinition('google', 'gemini-3.6-flash')).toEqual({
+      expect(getLlmCapabilityFacts('google', 'gemini-3.6-flash')).toEqual({
         contextWindow: 1_048_576,
         id: 'gemini-3.6-flash',
         label: 'Gemini 3.6 Flash',
@@ -274,7 +283,7 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     it('declares Gemini 3.5 Flash-Lite at its flat 0.30/2.50 rate (BST-1693)', () => {
-      expect(getLlmModelDefinition('google', 'gemini-3.5-flash-lite')).toEqual({
+      expect(getLlmCapabilityFacts('google', 'gemini-3.5-flash-lite')).toEqual({
         contextWindow: 1_048_576,
         id: 'gemini-3.5-flash-lite',
         label: 'Gemini 3.5 Flash-Lite',
@@ -364,7 +373,7 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     it('declares GLM 5.3 from the frozen OpenRouter catalog facts', () => {
-      const glm53 = getLlmModelDefinition('openrouter', 'z-ai/glm-5.3');
+      const glm53 = getLlmCapabilityFacts('openrouter', 'z-ai/glm-5.3');
 
       expect(glm53).toEqual({
         // BST-1804: top_provider.context_length, not the Cloudflare-only
@@ -388,8 +397,8 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     it("declares the new models' authoritative OpenRouter reasoning options", () => {
-      const spark = getLlmModelDefinition('openrouter', 'meta/muse-spark-1.1');
-      const kimi = getLlmModelDefinition('openrouter', 'moonshotai/kimi-k3');
+      const spark = getLlmCapabilityFacts('openrouter', 'meta/muse-spark-1.1');
+      const kimi = getLlmCapabilityFacts('openrouter', 'moonshotai/kimi-k3');
 
       expect(spark.contextWindow).toBe(1_048_576);
       // BST-1804: the route's top_provider pair.
@@ -417,10 +426,10 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     it("declares Curator's July coding models with their audited limits", () => {
-      const gemini = getLlmModelDefinition('openrouter', 'google/gemini-3.6-flash');
-      const inkling = getLlmModelDefinition('openrouter', 'thinkingmachines/inkling');
-      const grok = getLlmModelDefinition('openrouter', 'x-ai/grok-4.5');
-      const longcat = getLlmModelDefinition('openrouter', 'meituan/longcat-2.0');
+      const gemini = getLlmCapabilityFacts('openrouter', 'google/gemini-3.6-flash');
+      const inkling = getLlmCapabilityFacts('openrouter', 'thinkingmachines/inkling');
+      const grok = getLlmCapabilityFacts('openrouter', 'x-ai/grok-4.5');
+      const longcat = getLlmCapabilityFacts('openrouter', 'meituan/longcat-2.0');
 
       expect(gemini).toMatchObject({
         contextWindow: 1_048_576,
@@ -455,9 +464,9 @@ describe('frontier model refresh (2026-07)', () => {
       for (const undeclared of [
         inkling,
         longcat,
-        getLlmModelDefinition('openrouter', 'poolside/laguna-s-2.1'),
-        getLlmModelDefinition('openrouter', 'poolside/laguna-xs-2.1'),
-        getLlmModelDefinition('openrouter', 'kwaipilot/kat-coder-pro-v2.5'),
+        getLlmCapabilityFacts('openrouter', 'poolside/laguna-s-2.1'),
+        getLlmCapabilityFacts('openrouter', 'poolside/laguna-xs-2.1'),
+        getLlmCapabilityFacts('openrouter', 'kwaipilot/kat-coder-pro-v2.5'),
       ]) {
         expect(undeclared?.reasoning).toBeUndefined();
       }
@@ -473,7 +482,7 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     it('declares Gemini 3.7 Flash from vendor capabilities and gateway metadata', () => {
-      const gemini = getLlmModelDefinition('openrouter', 'google/gemini-3.7-flash');
+      const gemini = getLlmCapabilityFacts('openrouter', 'google/gemini-3.7-flash');
 
       expect(gemini).toEqual({
         contextWindow: 1_048_576,
@@ -495,7 +504,7 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     it('declares Grok 4.6 from vendor capabilities and gateway metadata', () => {
-      const grok = getLlmModelDefinition('openrouter', 'x-ai/grok-4.6');
+      const grok = getLlmCapabilityFacts('openrouter', 'x-ai/grok-4.6');
 
       expect(grok).toEqual({
         contextWindow: 500_000,
@@ -529,7 +538,7 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     it('declares Muse Spark 1.2 from vendor capabilities and gateway metadata', () => {
-      const spark = getLlmModelDefinition('openrouter', 'meta/muse-spark-1.2');
+      const spark = getLlmCapabilityFacts('openrouter', 'meta/muse-spark-1.2');
 
       expect(spark).toEqual({
         contextWindow: 1_048_576,
@@ -551,7 +560,7 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     it('declares Qwen3.8 27B from vendor capabilities and gateway metadata', () => {
-      const qwen = getLlmModelDefinition('openrouter', 'qwen/qwen3.8-27b');
+      const qwen = getLlmCapabilityFacts('openrouter', 'qwen/qwen3.8-27b');
 
       expect(qwen).toEqual({
         // BST-1804: the route's top_provider pair.
@@ -574,7 +583,7 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     it('declares Qwen3.8 Flash with its fixed route budgets and optional reasoning ladder', () => {
-      const qwen = getLlmModelDefinition('openrouter', 'qwen/qwen3.8-flash');
+      const qwen = getLlmCapabilityFacts('openrouter', 'qwen/qwen3.8-flash');
 
       expect(qwen).toEqual({
         contextWindow: 1_000_000,
@@ -603,7 +612,7 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     it('declares Qwen3.8 2.4T A95B from vendor capabilities and gateway metadata', () => {
-      const qwen = getLlmModelDefinition('openrouter', 'qwen/qwen3.8-2.4t-a95b');
+      const qwen = getLlmCapabilityFacts('openrouter', 'qwen/qwen3.8-2.4t-a95b');
 
       expect(qwen).toEqual({
         contextWindow: 1_000_000,
@@ -625,7 +634,7 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     it('declares Nemotron 3.5 Lightning from vendor capabilities and gateway metadata', () => {
-      const nemotron = getLlmModelDefinition('openrouter', 'nvidia/nemotron-3.5-lightning');
+      const nemotron = getLlmCapabilityFacts('openrouter', 'nvidia/nemotron-3.5-lightning');
 
       expect(nemotron).toEqual({
         contextWindow: 262_144,
@@ -665,9 +674,9 @@ describe('contextWindow metadata', () => {
   });
 
   it('getLlmModelDefinition resolves a known model and throws on unknown ids', () => {
-    expect(getLlmModelDefinition('anthropic', 'claude-sonnet-5').contextWindow).toBe(1_000_000);
-    expect(getLlmModelDefinition('openrouter', 'z-ai/glm-5.2').maxOutputTokens).toBe(131_072);
-    expect(() => getLlmModelDefinition('anthropic', 'no-such-model')).toThrow(/Unknown LLM model/);
-    expect(() => getLlmModelDefinition('openai', 'claude-sonnet-4-6')).toThrow(/Unknown LLM model/);
+    expect(getLlmCapabilityFacts('anthropic', 'claude-sonnet-5').contextWindow).toBe(1_000_000);
+    expect(getLlmCapabilityFacts('openrouter', 'z-ai/glm-5.2').maxOutputTokens).toBe(131_072);
+    expect(() => getLlmCapabilityFacts('anthropic', 'no-such-model')).toThrow(/Unknown LLM model/);
+    expect(() => getLlmCapabilityFacts('openai', 'claude-sonnet-4-6')).toThrow(/Unknown LLM model/);
   });
 });

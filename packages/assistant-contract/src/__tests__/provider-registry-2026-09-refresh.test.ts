@@ -6,8 +6,17 @@ import {
   resolveDefaultModel,
 } from '../provider-registry.js';
 
+/** Presentation moved into the canonical catalog; pin provider capability facts independently. */
+function getLlmCapabilityFacts(
+  ...args: Parameters<typeof getLlmModelDefinition>
+): Omit<ReturnType<typeof getLlmModelDefinition>, 'catalog'> {
+  const { catalog, ...facts } = getLlmModelDefinition(...args);
+  expect(catalog).toBeDefined();
+  return facts;
+}
+
 /**
- * BST-1804 catalog refresh, sources retrieved 2026-09-22. Every row is pinned
+ * BST-1804 catalog refresh, sources retrieved 2026-09-22. Every provider capability row is pinned
  * exhaustively so it cannot gain a field by accident; the provenance for each
  * value lives in the row's `_note` in provider-catalog.json.
  */
@@ -23,7 +32,7 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
   ] as const)(
     'declares %s from its OpenAI model page',
     (id, label, inputPerMTok, outputPerMTok) => {
-      expect(getLlmModelDefinition('openai', id)).toEqual({
+      expect(getLlmCapabilityFacts('openai', id)).toEqual({
         contextWindow: 1_050_000,
         id,
         label,
@@ -48,7 +57,7 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
   );
 
   it('declares Claude Opus 5.5 from the vendor model page: always-on thinking, medium default', () => {
-    expect(getLlmModelDefinition('anthropic', 'claude-opus-5-5')).toEqual({
+    expect(getLlmCapabilityFacts('anthropic', 'claude-opus-5-5')).toEqual({
       anthropicReasoning: {
         defaultEffort: 'medium',
         mandatory: true,
@@ -76,7 +85,7 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
 
   /** Global cross-region rate; geo/in-region is 10% higher (see the row's `_note`). */
   it('declares the Bedrock Claude Opus 5.5 route from the AWS model card and pricing page', () => {
-    expect(getLlmModelDefinition('bedrock', 'anthropic.claude-opus-5-5')).toEqual({
+    expect(getLlmCapabilityFacts('bedrock', 'anthropic.claude-opus-5-5')).toEqual({
       bedrockReasoning: 'adaptive',
       contextWindow: 1_000_000,
       id: 'anthropic.claude-opus-5-5',
@@ -355,13 +364,13 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
   it.each(OPENROUTER_ROWS.map((row) => [row.id, row] as const))(
     'declares openrouter/%s from the OpenRouter Models API',
     (id, expected) => {
-      expect(getLlmModelDefinition('openrouter', id)).toEqual(expected);
+      expect(getLlmCapabilityFacts('openrouter', id)).toEqual(expected);
     }
   );
 
   it('records the top_provider context window, not a single-provider model-level one', () => {
     // Model-level context_length is 1_310_720, served only by Cloudflare.
-    const flash = getLlmModelDefinition('openrouter', 'deepseek/deepseek-v4-flash-0731');
+    const flash = getLlmCapabilityFacts('openrouter', 'deepseek/deepseek-v4-flash-0731');
     expect(flash?.contextWindow).toBe(1_048_576);
     expect(flash?.maxOutputTokens).toBe(943_718);
   });
