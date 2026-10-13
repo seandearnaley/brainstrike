@@ -1,56 +1,6 @@
-import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-interface PostedMessage {
-  readonly id: string;
-  readonly kind: 'request';
-  readonly request: {
-    readonly kind: string;
-    readonly params?: readonly unknown[];
-    readonly payload?: {
-      readonly params?: readonly unknown[] | null;
-      readonly query?: string;
-    };
-    readonly sql?: string;
-    readonly transactionId?: string;
-  };
-}
-
-class FakeUtilityProcess extends EventEmitter {
-  readonly kill = vi.fn(() => true);
-  readonly postMessage = vi.fn((message: PostedMessage) => {
-    this.messages.push(message);
-  });
-  readonly messages: PostedMessage[] = [];
-  pid: number | undefined = 42;
-
-  exitOnKill(code = 0): this {
-    this.kill.mockImplementation(() => {
-      queueMicrotask(() => this.emit('exit', code));
-      return true;
-    });
-    return this;
-  }
-
-  reply(message: PostedMessage, result: unknown): void {
-    this.emit('message', {
-      id: message.id,
-      kind: 'response',
-      ok: true,
-      result,
-    });
-  }
-
-  reject(message: PostedMessage, error: string): void {
-    this.emit('message', {
-      error: { message: error },
-      id: message.id,
-      kind: 'response',
-      ok: false,
-    });
-  }
-}
+import { FakeUtilityProcess, type PostedMessage } from './db-host-test-process';
 
 const forkMock = vi.hoisted(() => vi.fn());
 const appGetPathMock = vi.hoisted(() =>
@@ -152,6 +102,9 @@ describe('DbHostManager', () => {
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
 
     const databasePromise = manager.getDatabase();
+    await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+      interval: 0,
+    });
     const initMessage = latestProcess().messages.at(-1);
     expect(initMessage?.request.kind).toBe('init');
     latestProcess().reply(initMessage as PostedMessage, { initialized: true });
@@ -179,6 +132,9 @@ describe('DbHostManager', () => {
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
 
     const databasePromise = manager.getDatabase();
+    await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+      interval: 0,
+    });
     const initMessage = latestProcess().messages.at(-1);
     latestProcess().reply(initMessage as PostedMessage, { initialized: true });
 
@@ -194,6 +150,10 @@ describe('DbHostManager', () => {
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
 
     void manager.getDiagnostics();
+    await vi.waitFor(
+      () => expect(latestProcess().messages.at(-1)?.request.kind).toBe('diagnostics'),
+      { interval: 0 }
+    );
 
     expect(forkMock).toHaveBeenCalledWith(
       '/mock/db-host-entry.js',
@@ -213,6 +173,10 @@ describe('DbHostManager', () => {
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
 
     void manager.getDiagnostics();
+    await vi.waitFor(
+      () => expect(latestProcess().messages.at(-1)?.request.kind).toBe('diagnostics'),
+      { interval: 0 }
+    );
 
     expect(forkMock).toHaveBeenCalledWith(
       '/mock/db-host-entry.js',
@@ -234,6 +198,10 @@ describe('DbHostManager', () => {
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
 
     void manager.getDiagnostics();
+    await vi.waitFor(
+      () => expect(latestProcess().messages.at(-1)?.request.kind).toBe('diagnostics'),
+      { interval: 0 }
+    );
 
     const options = forkMock.mock.calls.at(-1)?.[2] as
       | { readonly env?: Record<string, string> }
@@ -251,6 +219,10 @@ describe('DbHostManager', () => {
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
 
     void manager.getDiagnostics();
+    await vi.waitFor(
+      () => expect(latestProcess().messages.at(-1)?.request.kind).toBe('diagnostics'),
+      { interval: 0 }
+    );
 
     expect(forkMock).toHaveBeenCalledWith(
       '/mock/db-host-entry.js',
@@ -269,6 +241,10 @@ describe('DbHostManager', () => {
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
 
     void manager.getDiagnostics();
+    await vi.waitFor(
+      () => expect(latestProcess().messages.at(-1)?.request.kind).toBe('diagnostics'),
+      { interval: 0 }
+    );
     latestProcess().emit('message', {
       context: {
         logSource: 'db-host',
@@ -295,6 +271,10 @@ describe('DbHostManager', () => {
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
 
     const diagnosticsPromise = manager.getDiagnostics();
+    await vi.waitFor(
+      () => expect(latestProcess().messages.at(-1)?.request.kind).toBe('diagnostics'),
+      { interval: 0 }
+    );
     const diagnosticsMessage = latestProcess().messages.at(-1);
     expect(diagnosticsMessage?.request.kind).toBe('diagnostics');
     latestProcess().reply(diagnosticsMessage as PostedMessage, {
@@ -315,6 +295,9 @@ describe('DbHostManager', () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
     const databasePromise = manager.getDatabase();
+    await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+      interval: 0,
+    });
     latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
     const database = await databasePromise;
 
@@ -359,6 +342,10 @@ describe('DbHostManager', () => {
     const manager = getDbHostManager();
 
     const diagnosticsPromise = manager.getDiagnostics();
+    await vi.waitFor(
+      () => expect(latestProcess().messages.at(-1)?.request.kind).toBe('diagnostics'),
+      { interval: 0 }
+    );
     const diagnosticsMessage = latestProcess().messages.at(-1);
     latestProcess().reply(diagnosticsMessage as PostedMessage, {
       hasDatabaseHandle: true,
@@ -381,6 +368,10 @@ describe('DbHostManager', () => {
     const manager = getDbHostManager();
 
     const diagnosticsPromise = manager.getDiagnostics();
+    await vi.waitFor(
+      () => expect(latestProcess().messages.at(-1)?.request.kind).toBe('diagnostics'),
+      { interval: 0 }
+    );
     latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
       hasDatabaseHandle: true,
     });
@@ -400,6 +391,7 @@ describe('DbHostManager', () => {
     const nextManager = getDbHostManager();
     expect(nextManager).not.toBe(manager);
     void nextManager.getDiagnostics();
+    await vi.waitFor(() => expect(forkMock).toHaveBeenCalledTimes(2), { interval: 0 });
     expect(forkMock).toHaveBeenCalledTimes(2);
   });
 
@@ -407,6 +399,9 @@ describe('DbHostManager', () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
     const databasePromise = manager.getDatabase();
+    await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+      interval: 0,
+    });
     latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
     const database = await databasePromise;
 
@@ -439,6 +434,9 @@ describe('DbHostManager', () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
     const databasePromise = manager.getDatabase();
+    await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+      interval: 0,
+    });
     latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
     const database = await databasePromise;
 
@@ -466,6 +464,9 @@ describe('DbHostManager', () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
     const databasePromise = manager.getDatabase();
+    await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+      interval: 0,
+    });
     latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
     const database = await databasePromise;
 
@@ -479,7 +480,7 @@ describe('DbHostManager', () => {
 
     latestProcess().emit('exit', 1);
 
-    await expect(liveQuery.refresh()).rejects.toThrow('DB host exited with code 1.');
+    await expect(liveQuery.refresh()).rejects.toMatchObject({ code: 'process.lost' });
     expect(forkMock).toHaveBeenCalledTimes(1);
   });
 
@@ -494,6 +495,10 @@ describe('DbHostManager', () => {
       });
 
       const diagnosticsPromise = manager.getDiagnostics();
+      await vi.waitFor(
+        () => expect(latestProcess().messages.at(-1)?.request.kind).toBe('diagnostics'),
+        { interval: 0 }
+      );
       const diagnosticsAssertion = expect(diagnosticsPromise).rejects.toThrow(
         'DB host request timed out: diagnostics'
       );
@@ -526,6 +531,9 @@ describe('DbHostManager', () => {
         requestTimeoutMs: 5,
       });
       const databasePromise = manager.getDatabase();
+      await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+        interval: 0,
+      });
       latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
         initialized: true,
       });
@@ -575,6 +583,9 @@ describe('DbHostManager', () => {
         requestTimeoutMs: 5,
       });
       const databasePromise = manager.getDatabase();
+      await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+        interval: 0,
+      });
       latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
         initialized: true,
       });
@@ -619,6 +630,9 @@ describe('DbHostManager', () => {
         requestTimeoutMs: 5,
       });
       const databasePromise = manager.getDatabase();
+      await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+        interval: 0,
+      });
       latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
         initialized: true,
       });
@@ -666,6 +680,9 @@ describe('DbHostManager', () => {
         requestTimeoutMs: 5,
       });
       const databasePromise = manager.getDatabase();
+      await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+        interval: 0,
+      });
       latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
         initialized: true,
       });
@@ -712,6 +729,9 @@ describe('DbHostManager', () => {
         requestTimeoutMs: 5,
       });
       const databasePromise = manager.getDatabase();
+      await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+        interval: 0,
+      });
       latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
         initialized: true,
       });
@@ -762,6 +782,9 @@ describe('DbHostManager', () => {
       });
 
       const databasePromise = manager.getDatabase();
+      await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+        interval: 0,
+      });
       const databaseErrorPromise = databasePromise.then(
         () => null,
         (error: unknown) => error
@@ -797,6 +820,9 @@ describe('DbHostManager', () => {
         requestTimeoutMs: 5,
       });
       const databasePromise = manager.getDatabase();
+      await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+        interval: 0,
+      });
       latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
         initialized: true,
       });
@@ -821,16 +847,26 @@ describe('DbHostManager', () => {
       expect(killSpy).toHaveBeenCalledWith(firstHost.pid, 'SIGKILL');
       expect(firstHost.kill).not.toHaveBeenCalled();
 
-      const nextDiagnosticsPromise = manager.getDiagnostics();
-      await vi.advanceTimersByTimeAsync(0);
+      const originalFailure = await transactionPromise.catch((cause: unknown) => cause);
+      await expect(manager.getDiagnostics()).rejects.toBe(originalFailure);
       expect(forkMock).toHaveBeenCalledTimes(1);
       firstHost.emit('exit', 9);
-      await vi.advanceTimersByTimeAsync(0);
-      expect(forkMock).toHaveBeenCalledTimes(2);
+      await expect(manager.getDiagnostics()).rejects.toBe(originalFailure);
+      expect(forkMock).toHaveBeenCalledTimes(1);
+      const retry = manager.retryInit({ noDeadline: false });
+      await vi.waitFor(() => expect(forkMock).toHaveBeenCalledTimes(2), { interval: 0 });
+      await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+        interval: 0,
+      });
+      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
+        initialized: true,
+      });
+      await retry;
+      const diagnostics = manager.getDiagnostics();
       latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
         hasDatabaseHandle: true,
       });
-      await expect(nextDiagnosticsPromise).resolves.toMatchObject({ hasDatabaseHandle: true });
+      await expect(diagnostics).resolves.toMatchObject({ hasDatabaseHandle: true });
     } finally {
       killSpy.mockRestore();
       vi.useRealTimers();
@@ -841,6 +877,9 @@ describe('DbHostManager', () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
     const databasePromise = manager.getDatabase();
+    await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+      interval: 0,
+    });
     latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
     const database = await databasePromise;
 
@@ -873,6 +912,9 @@ describe('DbHostManager', () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
     const databasePromise = manager.getDatabase();
+    await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+      interval: 0,
+    });
     latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
     const database = await databasePromise;
 
@@ -897,6 +939,9 @@ describe('DbHostManager', () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
     const databasePromise = manager.getDatabase();
+    await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+      interval: 0,
+    });
     latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
     const database = await databasePromise;
 

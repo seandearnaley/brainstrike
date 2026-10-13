@@ -96,6 +96,7 @@ describe('DbHostManager database location handoff', () => {
     const manager = await newManager();
 
     manager.getDiagnostics().catch(() => undefined);
+    await vi.waitFor(() => expect(forkMock).toHaveReturned(), { interval: 0 });
 
     expect(latestForkEnv()).toMatchObject({
       BRAINSTRIKE_DB_PROFILE: createWorktreeScopedProfile('feature/x', checkout),
@@ -108,6 +109,7 @@ describe('DbHostManager database location handoff', () => {
     const manager = await newManager();
 
     manager.getDiagnostics().catch(() => undefined);
+    await vi.waitFor(() => expect(forkMock).toHaveReturned(), { interval: 0 });
 
     expect(latestForkEnv()).toMatchObject({
       BRAINSTRIKE_DB_PROFILE: 'test',
@@ -124,6 +126,7 @@ describe('DbHostManager database location handoff', () => {
     const manager = await newManager();
 
     manager.getDiagnostics().catch(() => undefined);
+    await vi.waitFor(() => expect(forkMock).toHaveReturned(), { interval: 0 });
 
     expect(latestForkEnv()).toMatchObject({ TEMP: temporaryPath, TMP: temporaryPath });
     expect(latestForkEnv()).not.toHaveProperty('OPENAI_API_KEY');
@@ -136,11 +139,15 @@ describe('DbHostManager database location handoff', () => {
     const manager = await newManager();
 
     manager.getDiagnostics().catch(() => undefined);
+    await vi.waitFor(() => expect(forkMock).toHaveReturned(), { interval: 0 });
     const firstEnv = latestForkEnv();
     writeFileSync(path.join(checkout, '.git', 'HEAD'), 'ref: refs/heads/after\n');
     const firstHost = forkMock.mock.results.at(-1)?.value as FakeUtilityProcess;
     firstHost.emit('exit', 1);
-    manager.getDiagnostics().catch(() => undefined);
+    await expect(manager.getDiagnostics()).rejects.toBeInstanceOf(Error);
+    expect(forkMock).toHaveBeenCalledTimes(1);
+    void manager.retryInit({ noDeadline: false }).catch(() => undefined);
+    await vi.waitFor(() => expect(forkMock).toHaveBeenCalledTimes(2), { interval: 0 });
 
     expect(forkMock).toHaveBeenCalledTimes(2);
     expect(latestForkEnv()['BRAINSTRIKE_DB_PROFILE']).toMatch(/^branch-before-wt-/u);
@@ -156,6 +163,7 @@ describe('DbHostManager database location handoff', () => {
     const manager = await newManager();
 
     manager.getDiagnostics().catch(() => undefined);
+    await vi.waitFor(() => expect(forkMock).toHaveReturned(), { interval: 0 });
 
     expect(latestForkEnv()['BRAINSTRIKE_DB_ROOT_PATH']).toBe(
       path.join('/mock/documents', 'BrainStrike-dev')
@@ -169,6 +177,7 @@ describe('DbHostManager database location handoff', () => {
     const manager = await newManager();
 
     manager.getDiagnostics().catch(() => undefined);
+    await vi.waitFor(() => expect(forkMock).toHaveReturned(), { interval: 0 });
 
     expect(latestForkEnv()).toMatchObject({
       BRAINSTRIKE_DB_PROFILE: 'explicit-profile',

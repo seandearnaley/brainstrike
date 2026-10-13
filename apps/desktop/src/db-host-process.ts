@@ -26,6 +26,7 @@ export class DbHostProcess {
   readonly exited: Promise<number>;
   readonly handle: UtilityProcess;
   #closedBySignal: DbHostSignal | null = null;
+  #closeOperation: Promise<void> | null = null;
   #exitCode: number | undefined;
   #pid: number | undefined;
 
@@ -109,6 +110,43 @@ export class DbHostProcess {
         throw error;
       }
     }
+  }
+
+  /** The original protocol/signal ladder runs once for this physical process. */
+  close(options: DbHostCloseOptions): Promise<void> {
+    return this.#retire(() => closeDbHostProcess(this, options));
+  }
+
+  terminate(context: Readonly<Record<string, unknown>>): Promise<void> {
+    return this.#retire(async () => {
+      await killWedgedHost(this, context);
+      if (this.#exitCode === undefined) {
+        throw new DbHostCloseError(
+          'exit-timeout',
+          'DB host has not exited after termination; it may still own the database.'
+        );
+      }
+    });
+  }
+
+  #retire(operation: () => Promise<void>): Promise<void> {
+    if (!this.#closeOperation) {
+      this.#closeOperation = operation();
+      return this.#closeOperation;
+    }
+    // A previous close failure remains its original caller's outcome. A later
+    // explicit cleanup only joins the still-owned process; it never repeats ACK
+    // or signals, and timeout is never evidence of physical release.
+    return this.#closeOperation.catch(async (cause: unknown) => {
+      if (await this.waitForExit(DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS)) {
+        return;
+      }
+      throw new DbHostCloseError(
+        'exit-timeout',
+        'DB host has not exited after an earlier close or kill; it may still own the database.',
+        { cause }
+      );
+    });
   }
 
   /** Resolves true when the process exited within `timeoutMs`, false while it is still running. */
@@ -266,15 +304,17 @@ async function stopAfterAckTimeout(
  *   marker names this host's pid. The exit code is never proof.
  * - acknowledgement error (the close failed): SIGKILL.
  */
+export interface DbHostCloseOptions {
+  readonly acknowledge: () => Promise<unknown>;
+  readonly ackTimeoutMs: number;
+  /** After exit, the marker must name this exact process to prove clean close. */
+  readonly confirmCleanExit?: (pid: number | undefined) => boolean;
+  readonly detach: () => void;
+}
+
 export async function closeDbHostProcess(
   host: DbHostProcess,
-  options: {
-    readonly ackTimeoutMs: number;
-    readonly acknowledge: () => Promise<unknown>;
-    /** After the host has exited: did it leave proof (its pid in the marker) that it closed cleanly? */
-    readonly confirmCleanExit?: (pid: number | undefined) => boolean;
-    readonly detach: () => void;
-  }
+  options: DbHostCloseOptions
 ): Promise<void> {
   const hostPid = host.pid;
   const provedClean = (): boolean => {

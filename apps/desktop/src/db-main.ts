@@ -123,7 +123,7 @@ export async function reinitializeDatabase(): Promise<DesktopDatabase> {
   localOwner.assertActive();
   if (!isUtilityProcessRuntime()) {
     const manager = await getRemoteDbHostManager();
-    await manager.close();
+    await manager.retryInit({ noDeadline: false });
     return await manager.getDatabase();
   }
   await localOwner.close();

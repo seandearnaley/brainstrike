@@ -1,4 +1,3 @@
-import { EventEmitter } from 'node:events';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -9,34 +8,7 @@ import {
   DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS,
   DB_HOST_EXIT_AFTER_TERM_TIMEOUT_MS,
 } from '../../db-host-close-budget';
-
-interface PostedMessage {
-  readonly id: string;
-  readonly request: { readonly kind: string };
-}
-
-// SIGTERM (`kill`) does nothing by default: each test decides when, and with what code, the host exits.
-class FakeUtilityProcess extends EventEmitter {
-  readonly kill = vi.fn(() => true);
-  readonly messages: PostedMessage[] = [];
-  readonly postMessage = vi.fn((message: PostedMessage) => {
-    this.messages.push(message);
-  });
-  pid: number | undefined = 42;
-
-  reply(message: PostedMessage, result: unknown): void {
-    this.emit('message', { id: message.id, kind: 'response', ok: true, result });
-  }
-
-  reject(message: PostedMessage, error: string): void {
-    this.emit('message', {
-      error: { message: error },
-      id: message.id,
-      kind: 'response',
-      ok: false,
-    });
-  }
-}
+import { FakeUtilityProcess, type PostedMessage } from './db-host-test-process';
 
 const forkMock = vi.hoisted(() => vi.fn());
 const loggerErrorMock = vi.hoisted(() => vi.fn());
@@ -70,7 +42,8 @@ function latestProcess(): FakeUtilityProcess {
   return host;
 }
 
-function lastMessage(host: FakeUtilityProcess, kind: string): PostedMessage {
+async function lastMessage(host: FakeUtilityProcess, kind: string): Promise<PostedMessage> {
+  await vi.waitFor(() => expect(host.messages.at(-1)?.request.kind).toBe(kind), { interval: 0 });
   const message = host.messages.at(-1);
   expect(message?.request.kind).toBe(kind);
   return message as PostedMessage;
@@ -98,9 +71,36 @@ async function openManager(options: { readonly requestTimeoutMs?: number } = {})
   const { createDbHostManager } = await import('../../db-host-manager');
   const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js', ...options });
   const opening = manager.getDatabase();
+  await vi.waitFor(() => expect(forkMock).toHaveReturned(), { interval: 0 });
   const host = latestProcess();
-  host.reply(lastMessage(host, 'init'), { initialized: true });
+  host.reply(await lastMessage(host, 'init'), { initialized: true });
   return { database: await opening, host, manager };
+}
+
+/** Explicit recovery is the only operation allowed to replace a physically exited generation. */
+async function retryExitedManager(
+  manager: Awaited<ReturnType<typeof openManager>>['manager']
+): Promise<void> {
+  const before = forkMock.mock.calls.length;
+  const retry = observe(manager.retryInit({ noDeadline: false }));
+  await vi.waitFor(() => expect(forkMock).toHaveBeenCalledTimes(before + 1), { interval: 0 });
+  const replacement = latestProcess();
+  replacement.reply(await lastMessage(replacement, 'init'), { initialized: true });
+  expect(await retry.outcome).toBe('resolved');
+  const diagnostics = manager.getDiagnostics();
+  replacement.reply(await lastMessage(replacement, 'diagnostics'), {});
+  await expect(diagnostics).resolves.toBeDefined();
+}
+
+async function expectUnexpectedExitRetained(
+  manager: Awaited<ReturnType<typeof openManager>>['manager']
+): Promise<void> {
+  const { DbHostUnavailableError } = await import('../../db-host-lifecycle-errors');
+  const failure = await manager.getDiagnostics().catch((cause: unknown) => cause);
+  expect(failure).toBeInstanceOf(Error);
+  expect(failure).not.toBeInstanceOf(DbHostUnavailableError);
+  await expect(manager.getDatabase()).rejects.toBe(failure);
+  expect(forkMock).toHaveBeenCalledTimes(1);
 }
 
 describe('DbHostManager close ladder', () => {
@@ -183,7 +183,7 @@ describe('DbHostManager close ladder', () => {
       const { host, manager } = await openManager();
       const closing = observe(manager.close());
       await vi.advanceTimersByTimeAsync(DB_HOST_CLOSE_ACK_TIMEOUT_MS - 1);
-      host.reply(lastMessage(host, 'close'), { closed: true });
+      host.reply(await lastMessage(host, 'close'), { closed: true });
 
       // The host then ignores SIGTERM and SIGKILL: the remaining rungs fit in what is left.
       await vi.advanceTimersByTimeAsync(DB_HOST_CLOSE_BUDGET_MS - DB_HOST_CLOSE_ACK_TIMEOUT_MS + 1);
@@ -219,7 +219,7 @@ describe('DbHostManager close ladder', () => {
     it('stays pending until the host exits after SIGTERM, whatever the exit code', async () => {
       const { host, manager } = await openManager();
       const closing = observe(manager.close());
-      host.reply(lastMessage(host, 'close'), { closed: true });
+      host.reply(await lastMessage(host, 'close'), { closed: true });
       await vi.advanceTimersByTimeAsync(0);
 
       expect(host.kill).toHaveBeenCalledTimes(1);
@@ -234,7 +234,7 @@ describe('DbHostManager close ladder', () => {
       const { host, manager } = await openManager();
       const first = observe(manager.close());
       const second = observe(manager.close());
-      host.reply(lastMessage(host, 'close'), { closed: true });
+      host.reply(await lastMessage(host, 'close'), { closed: true });
       await vi.advanceTimersByTimeAsync(0);
       host.emit('exit', 0);
 
@@ -245,7 +245,7 @@ describe('DbHostManager close ladder', () => {
     it('escalates to SIGKILL when the host ignores SIGTERM, and still counts the close as clean', async () => {
       const { host, manager } = await openManager();
       const closing = observe(manager.close());
-      host.reply(lastMessage(host, 'close'), { closed: true });
+      host.reply(await lastMessage(host, 'close'), { closed: true });
       await vi.advanceTimersByTimeAsync(DB_HOST_EXIT_AFTER_TERM_TIMEOUT_MS);
 
       expect(killSpy).toHaveBeenCalledWith(42, 'SIGKILL');
@@ -260,7 +260,7 @@ describe('DbHostManager close ladder', () => {
     it('rejects exit-timeout when the host survives SIGKILL', async () => {
       const { host, manager } = await openManager();
       const closing = observe(manager.close());
-      host.reply(lastMessage(host, 'close'), { closed: true });
+      host.reply(await lastMessage(host, 'close'), { closed: true });
       await vi.advanceTimersByTimeAsync(
         DB_HOST_EXIT_AFTER_TERM_TIMEOUT_MS + DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS
       );
@@ -289,7 +289,7 @@ describe('DbHostManager close ladder', () => {
         'close',
       ]);
 
-      host.reply(lastMessage(host, 'close'), { closed: true });
+      host.reply(await lastMessage(host, 'close'), { closed: true });
       await vi.advanceTimersByTimeAsync(0);
       expect(await pending.outcome).toMatchObject({ message: 'DB host closed.' });
 
@@ -302,11 +302,9 @@ describe('DbHostManager close ladder', () => {
 
       host.emit('exit', 0);
       expect(await closing.outcome).toBe('resolved');
-      const next = manager.getDiagnostics();
-      await vi.advanceTimersByTimeAsync(0);
-      expect(forkMock).toHaveBeenCalledTimes(2);
-      latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
-      await expect(next).resolves.toBeDefined();
+      await expect(manager.getDiagnostics()).rejects.toBe(await duringAck.outcome);
+      expect(forkMock).toHaveBeenCalledTimes(1);
+      await retryExitedManager(manager);
     });
   });
 
@@ -424,7 +422,7 @@ describe('DbHostManager close ladder', () => {
     it('SIGKILLs at once when the host reports the close failed, and rejects close-failed', async () => {
       const { host, manager } = await openManager();
       const closing = observe(manager.close());
-      host.reject(lastMessage(host, 'close'), 'checkpoint failed');
+      host.reject(await lastMessage(host, 'close'), 'checkpoint failed');
       await vi.advanceTimersByTimeAsync(0);
 
       expect(killSpy).toHaveBeenCalledWith(42, 'SIGKILL');
@@ -461,12 +459,13 @@ describe('DbHostManager close ladder', () => {
       const { DbHostCloseError } = await import('../../db-host-lifecycle-errors');
       const manager = getDbHostManager();
       const diagnostics = manager.getDiagnostics();
+      await vi.waitFor(() => expect(forkMock).toHaveReturned(), { interval: 0 });
       const host = latestProcess();
-      host.reply(lastMessage(host, 'diagnostics'), {});
+      host.reply(await lastMessage(host, 'diagnostics'), {});
       await diagnostics;
 
       const closing = observe(closeDbHostManager());
-      host.reject(lastMessage(host, 'close'), 'boom');
+      host.reject(await lastMessage(host, 'close'), 'boom');
       await vi.advanceTimersByTimeAsync(0);
       host.emit('exit', 137);
 
@@ -526,7 +525,7 @@ describe('DbHostManager close ladder', () => {
       return opened;
     }
 
-    /** No request forks; each rejects, in bounded time, until the exit is observed; then exactly one host forks. */
+    /** Passive requests retain the original refusal before and after physical exit; explicit retry replaces once. */
     async function expectNoForkUntilExit(
       manager: Awaited<ReturnType<typeof openManager>>['manager'],
       host: FakeUtilityProcess
@@ -537,22 +536,16 @@ describe('DbHostManager close ladder', () => {
       await vi.advanceTimersByTimeAsync(DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS);
       expect(send.settled()).toBe(true);
       expect(open.settled()).toBe(true);
-      const unavailable = {
-        message:
-          'DB host is unavailable: the previous host has not exited and may still own the database.',
-        name: 'DbHostUnavailableError',
-      };
-      expect(await send.outcome).toMatchObject(unavailable);
-      expect(await open.outcome).toMatchObject(unavailable);
+      const failure = await send.outcome;
+      expect(failure).toBeInstanceOf(Error);
+      expect(await open.outcome).toBe(failure);
       expect(forkMock).toHaveBeenCalledTimes(forksBefore);
 
       host.emit('exit', 9);
       await vi.advanceTimersByTimeAsync(0);
-      const next = manager.getDiagnostics();
-      await vi.advanceTimersByTimeAsync(0);
-      expect(forkMock).toHaveBeenCalledTimes(forksBefore + 1);
-      latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
-      await expect(next).resolves.toBeDefined();
+      await expect(manager.getDiagnostics()).rejects.toBe(failure);
+      expect(forkMock).toHaveBeenCalledTimes(forksBefore);
+      await retryExitedManager(manager);
     }
 
     it('rejects exit-timeout, not the raw errno, when SIGKILL is refused during a close', async () => {
@@ -597,7 +590,7 @@ describe('DbHostManager close ladder', () => {
     it('holds the barrier when the host outlives a close that timed out on SIGKILL', async () => {
       const { host, manager } = await openManager();
       const closing = observe(manager.close());
-      host.reply(lastMessage(host, 'close'), { closed: true });
+      host.reply(await lastMessage(host, 'close'), { closed: true });
       await vi.advanceTimersByTimeAsync(
         DB_HOST_EXIT_AFTER_TERM_TIMEOUT_MS + DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS
       );
@@ -610,8 +603,9 @@ describe('DbHostManager close ladder', () => {
       const { closeDbHostManager, getDbHostManager } = await import('../../db-host-manager');
       const manager = getDbHostManager();
       const opening = manager.getDatabase();
+      await vi.waitFor(() => expect(forkMock).toHaveReturned(), { interval: 0 });
       const host = latestProcess();
-      host.reply(lastMessage(host, 'init'), { initialized: true });
+      host.reply(await lastMessage(host, 'init'), { initialized: true });
       const database = await opening;
       const transaction = observe(database.transaction(async () => 'unreachable'));
       // The default manager's request deadline: the transaction times out and the host is SIGKILLed.
@@ -625,7 +619,7 @@ describe('DbHostManager close ladder', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(waiting.settled()).toBe(true);
-      expect(await waiting.outcome).toMatchObject({ message: 'DB host manager is retired.' });
+      expect(await waiting.outcome).toBe(await transaction.outcome);
       expect(forkMock).toHaveBeenCalledTimes(1);
       expect(await retiring.outcome).toBe('resolved');
     });
@@ -643,10 +637,7 @@ describe('DbHostManager close ladder', () => {
 
       expect(await closing.outcome).toBe('resolved');
       expect(waiting.settled()).toBe(true);
-      expect(await waiting.outcome).toMatchObject({
-        message: 'DB host is unavailable: the database is closing.',
-        name: 'DbHostUnavailableError',
-      });
+      expect(await waiting.outcome).toMatchObject({ name: 'DbHostRequestTimeoutError' });
       expect(forkMock).toHaveBeenCalledTimes(1);
     });
 
@@ -675,11 +666,12 @@ describe('DbHostManager close ladder', () => {
       const { closeDbHostManager, getDbHostManager } = await import('../../db-host-manager');
       const manager = getDbHostManager();
       const diagnostics = manager.getDiagnostics();
+      await vi.waitFor(() => expect(forkMock).toHaveReturned(), { interval: 0 });
       const host = latestProcess();
-      host.reply(lastMessage(host, 'diagnostics'), {});
+      host.reply(await lastMessage(host, 'diagnostics'), {});
       await diagnostics;
       const closing = observe(closeDbHostManager());
-      host.reject(lastMessage(host, 'close'), 'boom');
+      host.reject(await lastMessage(host, 'close'), 'boom');
       // SIGKILL is sent (a no-op here) and the host does not exit within the budget.
       await vi.advanceTimersByTimeAsync(DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS);
       expect(await closing.outcome).toMatchObject({
@@ -704,7 +696,7 @@ describe('DbHostManager close ladder', () => {
       const request = next.getDiagnostics();
       await vi.advanceTimersByTimeAsync(0);
       expect(forkMock).toHaveBeenCalledTimes(2);
-      latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
+      latestProcess().reply(await lastMessage(latestProcess(), 'diagnostics'), {});
       await expect(request).resolves.toBeDefined();
     });
 
@@ -782,11 +774,11 @@ describe('DbHostManager close ladder', () => {
       markDesktopShuttingDown();
 
       const diagnostics = manager.getDiagnostics();
-      host.reply(lastMessage(host, 'diagnostics'), {});
+      host.reply(await lastMessage(host, 'diagnostics'), {});
       await expect(diagnostics).resolves.toBeDefined();
 
       const closing = observe(manager.close());
-      host.reply(lastMessage(host, 'close'), { closed: true });
+      host.reply(await lastMessage(host, 'close'), { closed: true });
       await vi.advanceTimersByTimeAsync(0);
       host.emit('exit', 0);
       expect(await closing.outcome).toBe('resolved');
@@ -877,25 +869,20 @@ describe('DbHostManager close ladder', () => {
         host.emit('message', { kind: 'lifecycle', reason: 'request', state: 'closed' });
         exitHost(host, 0);
 
-        const diagnostics = observe(manager.getDiagnostics());
-
-        expect(forkMock).toHaveBeenCalledTimes(2);
-        latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
-        expect(await diagnostics.outcome).toBe('resolved');
+        await expectUnexpectedExitRetained(manager);
+        await retryExitedManager(manager);
       });
 
       it.each([
         { name: 'there is no marker', seed: async () => undefined },
         { name: 'the marker names another pid', seed: async () => await seedMarker({ pid: 4242 }) },
-      ])('is no proof when $name: the next request forks a host', async ({ seed }) => {
+      ])('is no proof when $name: only explicit retry forks a host', async ({ seed }) => {
         const { host, manager } = await openManager();
         await seed();
         exitHost(host, 0);
 
-        const diagnostics = observe(manager.getDiagnostics());
-        expect(forkMock).toHaveBeenCalledTimes(2);
-        latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
-        expect(await diagnostics.outcome).toBe('resolved');
+        await expectUnexpectedExitRetained(manager);
+        await retryExitedManager(manager);
       });
 
       it('counts an unreadable marker as no proof, and says so', async () => {
@@ -903,30 +890,28 @@ describe('DbHostManager close ladder', () => {
         writeFileSync(path.join(appDataDir, '.db-clean-shutdown'), '{');
         exitHost(host, 0);
 
-        const diagnostics = observe(manager.getDiagnostics());
-
-        expect(forkMock).toHaveBeenCalledTimes(2);
+        await expectUnexpectedExitRetained(manager);
         expect(loggerErrorMock).toHaveBeenCalledWith(
           expect.objectContaining({ err: expect.any(Error) }),
           'Could not read the clean-shutdown marker; treating the exit as unproven'
         );
-        latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
-        await diagnostics.outcome;
+        await retryExitedManager(manager);
       });
 
       it('never counts the marker of a host main itself closed (it was detached first)', async () => {
         const { host, manager } = await openManager();
         const closing = observe(manager.close());
-        host.reply(lastMessage(host, 'close'), { closed: true });
+        host.reply(await lastMessage(host, 'close'), { closed: true });
         await vi.advanceTimersByTimeAsync(0);
         await seedMarker({ pid: 42 });
         exitHost(host, 0);
         expect(await closing.outcome).toBe('resolved');
 
-        const diagnostics = observe(manager.getDiagnostics());
-        expect(forkMock).toHaveBeenCalledTimes(2);
-        latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
-        await diagnostics.outcome;
+        await expect(manager.getDiagnostics()).rejects.toMatchObject({
+          name: 'DbHostUnavailableError',
+        });
+        expect(forkMock).toHaveBeenCalledTimes(1);
+        await retryExitedManager(manager);
       });
     });
 
@@ -935,13 +920,13 @@ describe('DbHostManager close ladder', () => {
       ['an unknown reason', { kind: 'lifecycle', reason: 'SIGUSR1', state: 'closing' }],
       ['no reason', { kind: 'lifecycle', state: 'closing' }],
     ])(
-      'ignores a lifecycle message with %s, so it never blocks a replacement',
+      'ignores a lifecycle message with %s, without converting it into a signal-specific refusal',
       async (_name, message) => {
         const { host, manager } = await openManager();
         host.emit('message', message);
         exitHost(host, 0);
 
-        const diagnostics = observe(manager.getDiagnostics());
+        await expectUnexpectedExitRetained(manager);
 
         // Shape only: DB host frames can carry query results, so no value reaches the log.
         expect(loggerWarnMock).toHaveBeenCalledWith(
@@ -949,9 +934,8 @@ describe('DbHostManager close ladder', () => {
           expect.objectContaining({ keyCount: Object.keys(message).length, messageType: 'object' })
         );
         expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain('SIGUSR1');
-        expect(forkMock).toHaveBeenCalledTimes(2);
-        latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
-        await diagnostics.outcome;
+        expect(forkMock).toHaveBeenCalledTimes(1);
+        await retryExitedManager(manager);
       }
     );
 
@@ -959,20 +943,18 @@ describe('DbHostManager close ladder', () => {
       const { host, manager } = await openManager();
       const diagnostics = observe(manager.getDiagnostics());
       announce(host, 'closing', 'SIGINT');
-      host.reject(lastMessage(host, 'diagnostics'), 'DB host is closing (SIGINT).');
+      host.reject(await lastMessage(host, 'diagnostics'), 'DB host is closing (SIGINT).');
 
       expect(await diagnostics.outcome).toMatchObject({ message: 'DB host is closing (SIGINT).' });
     });
 
-    it('does not count a close main asked for as a signal closure: the next request forks a host', async () => {
+    it('does not count a close main asked for as a signal closure: only explicit retry forks a host', async () => {
       const { host, manager } = await openManager();
       announce(host, 'closing', 'request');
       exitHost(host, 0);
 
-      const diagnostics = observe(manager.getDiagnostics());
-      expect(forkMock).toHaveBeenCalledTimes(2);
-      latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
-      expect(await diagnostics.outcome).toBe('resolved');
+      await expectUnexpectedExitRetained(manager);
+      await retryExitedManager(manager);
     });
 
     it('does not count the SIGTERM main itself sends during its close ladder', async () => {
@@ -985,10 +967,11 @@ describe('DbHostManager close ladder', () => {
       exitHost(host, 0);
       expect(await closing.outcome).toBe('resolved');
 
-      const diagnostics = observe(manager.getDiagnostics());
-      expect(forkMock).toHaveBeenCalledTimes(2);
-      latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
-      expect(await diagnostics.outcome).toBe('resolved');
+      await expect(manager.getDiagnostics()).rejects.toMatchObject({
+        name: 'DbHostUnavailableError',
+      });
+      expect(forkMock).toHaveBeenCalledTimes(1);
+      await retryExitedManager(manager);
     });
   });
 });

@@ -78,5 +78,6 @@ it('a user-confirmed reset clears a stop without forking a host, and the next ma
   expect(existsSync(recordPath())).toBe(false);
   // Both resets retire the default manager, so its stop is not carried into the next one.
   void getDbHostManager().getDatabase();
+  await vi.waitFor(() => expect(forkMock).toHaveReturned(), { interval: 0 });
   expect(forkMock).toHaveBeenCalledTimes(1);
 });

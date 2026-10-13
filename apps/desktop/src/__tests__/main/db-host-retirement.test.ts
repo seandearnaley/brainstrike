@@ -38,6 +38,7 @@ it('retires retained clients when the default manager closes without resurrectin
   const { closeDbHostManager, getDbHostManager } = await import('../../db-host-manager');
   const manager = getDbHostManager();
   const pendingDatabase = manager.getDatabase();
+  await waitForLastRequest('init');
   const firstHost = latestProcess();
   firstHost.reply(firstHost.messages.at(-1) as PostedMessage, { initialized: true });
   const retainedDatabase = await pendingDatabase;
@@ -58,6 +59,8 @@ it('retires retained clients when the default manager closes without resurrectin
 
   const replacement = getDbHostManager();
   const replacementDatabase = replacement.getDatabase();
+  await vi.waitFor(() => expect(forkMock).toHaveBeenCalledTimes(2));
+  await waitForLastRequest('init');
   latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
   const client = await replacementDatabase;
   const query = client.query('SELECT 2');
@@ -72,14 +75,19 @@ it('allows an explicitly closed manager to initialize a replacement host', async
   const { createDbHostManager } = await import('../../db-host-manager');
   const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
   const first = manager.getDatabase();
+  await waitForLastRequest('init');
   latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
   await first;
   const closing = manager.close();
   latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { closed: true });
   await closing;
-  const replacement = manager.getDatabase();
+  await expect(manager.getDatabase()).rejects.toBeInstanceOf(Error);
+  expect(forkMock).toHaveBeenCalledTimes(1);
+  const replacement = manager.retryInit({ noDeadline: false });
+  await vi.waitFor(() => expect(forkMock).toHaveBeenCalledTimes(2));
+  await waitForLastRequest('init');
   latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
-  await expect(replacement).resolves.toBeDefined();
+  await expect(replacement).resolves.toBeUndefined();
   expect(forkMock).toHaveBeenCalledTimes(2);
 });
 

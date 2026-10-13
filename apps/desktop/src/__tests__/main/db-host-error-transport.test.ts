@@ -119,6 +119,9 @@ describe('DB host error transport', () => {
     const { classifyDatabaseCorruption } = await import('../../database-corruption-classifier');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
     const databasePromise = manager.getDatabase();
+    await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+      interval: 0,
+    });
     const initMessage = latestProcess().messages.at(-1) as PostedRequest;
     latestProcess().emit('message', {
       id: initMessage.id,

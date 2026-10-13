@@ -28,12 +28,16 @@ const REBUILD_KEY = 'index-rebuild:public.idx_file_chunks_content_bm25';
 
 class FakeUtilityProcess extends EventEmitter {
   readonly messages: DbHostRequestEnvelope[] = [];
+  exited = false;
   readonly kill = vi.fn(() => true);
   // Electron leaves a utility process's pid undefined until it has spawned.
   readonly pid: number | undefined;
   constructor(pid: number | undefined) {
     super();
     this.pid = pid;
+    this.once('exit', () => {
+      this.exited = true;
+    });
   }
   readonly postMessage = (message: DbHostRequestEnvelope): void => {
     this.messages.push(message);
@@ -122,6 +126,17 @@ async function loadManager(initializationTimeoutMs = 15) {
   };
 }
 
+async function waitForInit(): Promise<FakeUtilityProcess> {
+  await vi.waitFor(
+    () => {
+      expect(latestProcess().exited).toBe(false);
+      expect(latestProcess().messages.at(-1)?.request.kind).toBe('init');
+    },
+    { interval: 0 }
+  );
+  return latestProcess();
+}
+
 const recordPath = (): string => path.join(state.profileDir, '.db-init-attempt.json');
 const readRecord = (): DatabaseInitAttemptRecord =>
   JSON.parse(readFileSync(recordPath(), 'utf8')) as DatabaseInitAttemptRecord;
@@ -133,13 +148,14 @@ async function timedOutAttempt(
   lastBudgetMs: number
 ): Promise<{ readonly error: unknown; readonly host: FakeUtilityProcess }> {
   const failure = settled(manager.getDatabase());
+  await waitForInit();
   const host = latestProcess();
   for (const report of phases) {
     host.progress(report);
   }
   await vi.advanceTimersByTimeAsync(lastBudgetMs);
   const error = await failure;
-  // The exit is what lets the next attempt fork a replacement.
+  // A later app restart may create a new manager only after this physical exit.
   host.emit('exit', 137);
   await vi.advanceTimersByTimeAsync(0);
   return { error, host };
@@ -162,10 +178,12 @@ afterEach(() => {
 
 describe('the init loop breaker', () => {
   it('persists the phase and a first timeout, then a second consecutive timeout in the same phase', async () => {
-    const { manager } = await loadManager();
+    let { manager } = await loadManager();
 
     // A real attempt passes through open-database before the rebuild: the count must survive that.
     await timedOutAttempt(manager, [OPEN, REBUILD], REBUILD_BUDGET_MS);
+    await manager.close();
+    manager = (await loadManager()).manager;
     expect(readRecord()).toMatchObject({
       budgetMs: REBUILD_BUDGET_MS,
       consecutiveTimeouts: 1,
@@ -176,6 +194,8 @@ describe('the init loop breaker', () => {
     });
 
     await timedOutAttempt(manager, [OPEN, REBUILD], REBUILD_BUDGET_MS);
+    await manager.close();
+    manager = (await loadManager()).manager;
     expect(readRecord()).toMatchObject({
       consecutiveTimeouts: 2,
       hostPid: 1001,
@@ -184,9 +204,13 @@ describe('the init loop breaker', () => {
   });
 
   it('refuses a third fork after two consecutive timeouts in the same phase', async () => {
-    const { DbHostInitStoppedError, manager } = await loadManager();
+    let { DbHostInitStoppedError, manager } = await loadManager();
     await timedOutAttempt(manager, [OPEN, REBUILD], REBUILD_BUDGET_MS);
+    await manager.close();
+    manager = (await loadManager()).manager;
     await timedOutAttempt(manager, [OPEN, REBUILD], REBUILD_BUDGET_MS);
+    await manager.close();
+    manager = (await loadManager()).manager;
     expect(forkMock).toHaveBeenCalledTimes(2);
 
     const third = await settled(manager.getDatabase());
@@ -210,10 +234,16 @@ describe('the init loop breaker', () => {
   });
 
   it('reports no stop in the diagnostics while the timeouts stop short of two', async () => {
-    const { manager } = await loadManager();
+    let { manager } = await loadManager();
     await timedOutAttempt(manager, [OPEN, REBUILD], REBUILD_BUDGET_MS);
+    await manager.close();
+    manager = (await loadManager()).manager;
 
     const diagnostics = manager.getDiagnostics();
+    await vi.waitFor(
+      () => expect(latestProcess().messages.at(-1)?.request.kind).toBe('diagnostics'),
+      { interval: 0 }
+    );
     latestProcess().emit('message', {
       id: latestProcess().messages.at(-1)?.id,
       kind: 'response',
@@ -225,11 +255,15 @@ describe('the init loop breaker', () => {
   });
 
   it('a timeout in a different phase resets the count to one', async () => {
-    const { manager } = await loadManager();
+    let { manager } = await loadManager();
     await timedOutAttempt(manager, [OPEN, REBUILD], REBUILD_BUDGET_MS);
+    await manager.close();
+    manager = (await loadManager()).manager;
 
     // The rebuild finished this time; the migration phase is what never returned.
     await timedOutAttempt(manager, [OPEN, REBUILD, MIGRATION], 90_000);
+    await manager.close();
+    manager = (await loadManager()).manager;
 
     expect(readRecord()).toMatchObject({
       budgetMs: 90_000,
@@ -239,6 +273,7 @@ describe('the init loop breaker', () => {
     });
     // One timeout in one phase is not a stop: the next attempt forks.
     const next = manager.getDatabase();
+    await waitForInit();
     expect(forkMock).toHaveBeenCalledTimes(3);
     latestProcess().reject('stopped for this test');
     await settled(next);
@@ -246,9 +281,11 @@ describe('the init loop breaker', () => {
 
   it('a first-report timeout is counted under its own phase, even in a profile the host never created', async () => {
     rmSync(state.profileDir, { force: true, recursive: true });
-    const { manager } = await loadManager();
+    let { manager } = await loadManager();
 
     await timedOutAttempt(manager, [], 15);
+    await manager.close();
+    manager = (await loadManager()).manager;
     expect(readRecord()).toMatchObject({
       budgetMs: 15,
       consecutiveTimeouts: 1,
@@ -257,6 +294,8 @@ describe('the init loop breaker', () => {
     });
 
     await timedOutAttempt(manager, [], 15);
+    await manager.close();
+    manager = (await loadManager()).manager;
     expect(readRecord()).toMatchObject({ consecutiveTimeouts: 2, phaseKey: 'init:first-report' });
     expect(await settled(manager.getDatabase())).toMatchObject({
       message: expect.stringContaining('starting the database process timed out twice'),
@@ -266,19 +305,24 @@ describe('the init loop breaker', () => {
 
   it('records no host pid when the host reports none', async () => {
     forkMock.mockReset().mockImplementation(() => new FakeUtilityProcess(undefined));
-    const { manager } = await loadManager();
+    let { manager } = await loadManager();
 
     await timedOutAttempt(manager, [], 15);
+    await manager.close();
+    manager = (await loadManager()).manager;
 
     expect(readRecord()).toMatchObject({ consecutiveTimeouts: 1, hostPid: null });
   });
 
   it('a successful init removes the record', async () => {
-    const { manager } = await loadManager();
+    let { manager } = await loadManager();
     await timedOutAttempt(manager, [OPEN, REBUILD], REBUILD_BUDGET_MS);
+    await manager.close();
+    manager = (await loadManager()).manager;
     expect(existsSync(recordPath())).toBe(true);
 
     const database = manager.getDatabase();
+    await waitForInit();
     const host = latestProcess();
     host.progress(OPEN);
     host.reply({ initialized: true });
@@ -288,11 +332,14 @@ describe('the init loop breaker', () => {
   });
 
   it('a non-timeout init failure leaves the record untouched and forks nothing new', async () => {
-    const { manager } = await loadManager();
+    let { manager } = await loadManager();
     await timedOutAttempt(manager, [OPEN, REBUILD], REBUILD_BUDGET_MS);
+    await manager.close();
+    manager = (await loadManager()).manager;
     const before = readFileSync(recordPath(), 'utf8');
 
     const failure = settled(manager.getDatabase());
+    await waitForInit();
     latestProcess().progress(OPEN);
     latestProcess().reject('The desktop database could not rebuild its search index');
     expect(await failure).toMatchObject({
@@ -301,8 +348,8 @@ describe('the init loop breaker', () => {
 
     expect(readFileSync(recordPath(), 'utf8')).toBe(before);
     expect(forkMock).toHaveBeenCalledTimes(2);
-    // The host is alive and holds the real failure: the retry reuses it.
-    void manager.getDatabase();
+    // The live failed-init process retains its original diagnostic failure.
+    expect(await settled(manager.getDatabase())).toBe(await failure);
     expect(forkMock).toHaveBeenCalledTimes(2);
   });
 
@@ -387,23 +434,28 @@ describe('a stopped manager forks nothing, on any path', () => {
     expect(forkMock).not.toHaveBeenCalled();
   });
 
-  it('follows the record: once a reset has removed it, the same manager forks again', async () => {
+  it('a reset retires the stopped manager and the new manager reads the cleared record', async () => {
     seedStop();
-    const { DbHostInitStoppedError, manager } = await loadManager();
+    let { DbHostInitStoppedError, manager } = await loadManager();
     expect(await settled(manager.getDatabase())).toBeInstanceOf(DbHostInitStoppedError);
 
     // A reset deletes the profile, and the record with it.
+    await manager.close();
     rmSync(recordPath());
+    manager = (await loadManager()).manager;
     void manager.getDatabase();
+    await waitForInit();
 
     expect(forkMock).toHaveBeenCalledTimes(1);
   });
 
   it('a completed reset cancels a pending no-deadline for the init after it', async () => {
     const { DbHostRequestTimeoutError, manager } = await loadManager();
-    manager.retryInit({ noDeadline: true });
+    const retry = manager.retryInit({ noDeadline: true });
+    const host = await waitForInit();
+    host.reply({ initialized: true });
+    await retry;
     const reset = manager.reset();
-    const host = latestProcess();
     host.emit('message', {
       id: host.messages.at(-1)?.id,
       kind: 'response',
@@ -413,27 +465,33 @@ describe('a stopped manager forks nothing, on any path', () => {
     await reset;
 
     const attempt = settled(manager.getDatabase());
+    await waitForInit();
     await vi.advanceTimersByTimeAsync(15);
 
     expect(await attempt).toBeInstanceOf(DbHostRequestTimeoutError);
   });
 
-  it('keeps counting in memory when the record cannot be written, so the breaker still trips', async () => {
-    // A directory where the write's temp file belongs: every write fails.
+  it('keeps failed writes in the existing attempt guard and explicit retry clears that record', async () => {
     mkdirSync(`${recordPath()}.tmp`);
-    const { DbHostInitStoppedError, manager } = await loadManager();
-
-    await timedOutAttempt(manager, [OPEN, REBUILD], REBUILD_BUDGET_MS);
-    await timedOutAttempt(manager, [OPEN, REBUILD], REBUILD_BUDGET_MS);
-    const third = await settled(manager.getDatabase());
-
+    const { manager } = await loadManager();
+    const { error } = await timedOutAttempt(manager, [OPEN, REBUILD], REBUILD_BUDGET_MS);
+    const { InitAttemptGuard } = await import('../../db-init-attempt-guard');
+    const { DbHostRequestTimeoutError } = await import('../../db-host-timeout-error');
+    if (!(error instanceof DbHostRequestTimeoutError)) {
+      throw new Error('Expected the actual host timeout outcome');
+    }
+    const guard = new InitAttemptGuard();
+    guard.recordTimeout(error, 1000);
+    guard.recordTimeout(error, 1001);
     expect(existsSync(recordPath())).toBe(false);
-    expect(third).toBeInstanceOf(DbHostInitStoppedError);
-    expect(forkMock).toHaveBeenCalledTimes(2);
-    // ...and retryInit still clears it, so the person is never stuck on a record that never existed.
-    manager.retryInit({ noDeadline: false });
-    void manager.getDatabase();
-    expect(forkMock).toHaveBeenCalledTimes(3);
+    expect(guard.readStop()).toMatchObject({ consecutiveTimeouts: 2, phaseKey: REBUILD_KEY });
+    expect(() => guard.assertNotStopped()).toThrow();
+    // Passive demand still cannot start a second physical generation.
+    expect(await settled(manager.getDatabase())).toBe(error);
+    expect(forkMock).toHaveBeenCalledTimes(1);
+    guard.retry();
+    expect(guard.readStop()).toBeNull();
+    expect(() => guard.assertNotStopped()).not.toThrow();
   });
 
   it.each([0, -1, Number.NaN, 1.5, 2_147_483_648])(
@@ -446,9 +504,13 @@ describe('a stopped manager forks nothing, on any path', () => {
 
 describe('retryInit', () => {
   async function stoppedManager() {
-    const loaded = await loadManager();
+    let loaded = await loadManager();
     await timedOutAttempt(loaded.manager, [OPEN, REBUILD], REBUILD_BUDGET_MS);
+    await loaded.manager.close();
+    loaded = await loadManager();
     await timedOutAttempt(loaded.manager, [OPEN, REBUILD], REBUILD_BUDGET_MS);
+    await loaded.manager.close();
+    loaded = await loadManager();
     expect(await settled(loaded.manager.getDatabase())).toBeInstanceOf(
       loaded.DbHostInitStoppedError
     );
@@ -459,13 +521,13 @@ describe('retryInit', () => {
     const { manager } = await stoppedManager();
     expect(forkMock).toHaveBeenCalledTimes(2);
 
-    manager.retryInit({ noDeadline: false });
+    const retry = manager.retryInit({ noDeadline: false });
     expect(existsSync(recordPath())).toBe(false);
-
-    const database = manager.getDatabase();
+    await waitForInit();
     expect(forkMock).toHaveBeenCalledTimes(3);
     latestProcess().reply({ initialized: true });
-    await expect(database).resolves.toBeDefined();
+    await retry;
+    await expect(manager.getDatabase()).resolves.toBeDefined();
 
     // The stop is gone, so diagnostics ask the live host again instead of answering from main.
     const diagnostics = manager.getDiagnostics();
@@ -484,8 +546,8 @@ describe('retryInit', () => {
     const { DbHostRequestTimeoutError, manager } = await stoppedManager();
     killSpy.mockClear(); // the two timed-out attempts that caused the stop killed their hosts
 
-    manager.retryInit({ noDeadline: true });
-    const attempt = settled(manager.getDatabase());
+    const attempt = settled(manager.retryInit({ noDeadline: true }));
+    await waitForInit();
     await vi.advanceTimersByTimeAsync(MAX_TIMER_MS - 1);
     expect(killSpy).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
@@ -499,8 +561,8 @@ describe('retryInit', () => {
     const { DbHostRequestTimeoutError, manager } = await stoppedManager();
     killSpy.mockClear();
 
-    manager.retryInit({ noDeadline: true });
-    const attempt = settled(manager.getDatabase());
+    const attempt = settled(manager.retryInit({ noDeadline: true }));
+    await waitForInit();
     const host = latestProcess();
     host.progress(OPEN);
     host.progress(REBUILD);
@@ -516,26 +578,41 @@ describe('retryInit', () => {
 
   it('suspends the deadline for the next init only', async () => {
     const { DbHostRequestTimeoutError, manager } = await stoppedManager();
-    manager.retryInit({ noDeadline: true });
+    const first = settled(manager.retryInit({ noDeadline: true }));
+    await waitForInit();
 
     // The suspended attempt fails for a reason that is not a timeout...
-    const first = settled(manager.getDatabase());
     latestProcess().reject('init failed');
     expect(await first).toMatchObject({ message: 'init failed' });
 
-    // ...and the attempt after it is armed normally again.
-    const second = settled(manager.getDatabase());
+    // Passive demand retains it; the next explicit retry uses its own normal deadline.
+    expect(await settled(manager.getDatabase())).toBe(await first);
+    const old = latestProcess();
+    const second = settled(manager.retryInit({ noDeadline: false }));
+    await vi.waitFor(() => expect(old.messages.at(-1)?.request.kind).toBe('close'), {
+      interval: 0,
+    });
+    old.emit('message', {
+      id: old.messages.at(-1)?.id,
+      kind: 'response',
+      ok: true,
+      result: { closed: true },
+    });
+    await vi.waitFor(() => expect(old.kill).toHaveBeenCalledOnce(), { interval: 0 });
+    old.emit('exit', 0);
+    await vi.waitFor(() => expect(forkMock).toHaveBeenCalledTimes(4), { interval: 0 });
+    await waitForInit();
     await vi.advanceTimersByTimeAsync(15);
     expect(await second).toBeInstanceOf(DbHostRequestTimeoutError);
   });
 
   it('a retry without noDeadline cancels a pending suspension', async () => {
     const { DbHostRequestTimeoutError, manager } = await stoppedManager();
-    manager.retryInit({ noDeadline: true });
-    manager.retryInit({ noDeadline: false });
-
-    const attempt = settled(manager.getDatabase());
+    const first = settled(manager.retryInit({ noDeadline: true }));
+    const attempt = settled(manager.retryInit({ noDeadline: false }));
+    await waitForInit();
     await vi.advanceTimersByTimeAsync(15);
+    expect(await first).toBe(await attempt);
 
     expect(await attempt).toBeInstanceOf(DbHostRequestTimeoutError);
   });

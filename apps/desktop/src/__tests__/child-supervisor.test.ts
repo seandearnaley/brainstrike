@@ -26,6 +26,48 @@ async function opened(f: ReturnType<typeof fixture>) {
 }
 
 describe('ChildSupervisor owns the replacement policy', () => {
+  it('admits physical release before stop returns, then joins it without holding the permit', async () => {
+    const f = fixture('never');
+    const supervisor = await opened(f);
+    const physical = Promise.withResolvers<void>();
+    f.generations[0]!.close.mockReturnValue(physical.promise);
+    let settled = false;
+    const stopping = supervisor.stop().then(() => {
+      settled = true;
+    });
+    const releaseWasAdmitted = f.generations[0]!.close.mock.calls.length;
+    const state = await supervisor.snapshot();
+    const whileHeld = settled;
+    physical.resolve();
+    await stopping;
+    expect(releaseWasAdmitted).toBe(1);
+    expect(state.kind).toBe('stopping');
+    expect(whileHeld).toBe(false);
+    expect((await supervisor.snapshot()).kind).toBe('stopped');
+  });
+
+  it('shares physical release across overlapping stops and retains a synchronous adapter failure', async () => {
+    const f = fixture('never');
+    const supervisor = await opened(f);
+    const failure = new Error('Physical close refused synchronously');
+    f.generations[0]!.close.mockImplementationOnce(() => {
+      throw failure;
+    });
+    await expect(supervisor.stop()).rejects.toBe(failure);
+    expect(await supervisor.snapshot()).toMatchObject({ cause: failure, kind: 'failed' });
+    await expect(supervisor.acquire()).rejects.toBe(failure);
+    const physical = Promise.withResolvers<void>();
+    f.generations[0]!.close.mockReturnValue(physical.promise);
+    const first = supervisor.stop();
+    const second = supervisor.stop();
+    expect(f.generations[0]!.close).toHaveBeenCalledTimes(2);
+    expect((await supervisor.snapshot()).kind).toBe('stopping');
+    physical.resolve();
+    await Promise.all([first, second]);
+    expect(f.generations[0]!.close).toHaveBeenCalledTimes(2);
+    expect((await supervisor.snapshot()).kind).toBe('stopped');
+  });
+
   it('shares readiness, permits one lazy replacement, and rearms only on explicit restart', async () => {
     const f = fixture();
     const supervisor = await opened(f);

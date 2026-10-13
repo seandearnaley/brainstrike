@@ -14,6 +14,20 @@ debug export operate on the selected ordinary thread/resource; they do not consu
 a delegated graph. The delegated PGlite sections below are historical schema
 records, not current runtime authority. No compatibility data conversion occurs.
 
+## Desktop DB physical ownership
+
+The current desktop database still runs PGlite in its utility process. Retiring
+its delegated tables does not retire this engine. Main's ChildSupervisor owns
+the DB physical generation with restart-never: passive SQL, diagnostics and
+retained clients cannot refork after loss. Initialization failure is separate
+from physical readiness; a live failed-init process still serves its diagnostic
+record. Explicit retry awaits old physical release and fresh initialization;
+ordinary app restart and confirmed profile reset remain user recovery paths.
+Request and live-query records keep their existing protocol owners. Close joins
+the original ACK/TERM/KILL ladder once; after a failed close, another explicit
+cleanup joins the same process's exit without repeating signals or claiming that
+a timeout proves release. Existing clean-marker and PID-reuse checks still apply.
+
 ## `statement_timeout` IS INERT IN PGLITE
 
 PGlite accepts `statement_timeout` and reports it through `SHOW`, but the WASM

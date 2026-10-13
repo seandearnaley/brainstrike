@@ -68,7 +68,12 @@ export async function createChildSupervisor<Client>(
   const release = (owned: OwnedGeneration<Client>, reason: unknown): Promise<void> => {
     owned.abort.abort(reason);
     if (!owned.release) {
-      const closing = owned.resource?.close(reason) ?? Promise.resolve();
+      let closing: Promise<void>;
+      try {
+        closing = owned.resource?.close(reason) ?? Promise.resolve();
+      } catch (cause) {
+        closing = Promise.reject(cause);
+      }
       owned.release = closing;
       void closing.catch(() => {
         if (owned.release === closing) {
@@ -320,7 +325,7 @@ export async function createChildSupervisor<Client>(
   };
   const acquire = async (): Promise<Client> => (await start()).ready;
   const stop = async (reason: unknown = new Error('Child stopped')): Promise<void> => {
-    const owned = await locked(
+    const { owned, releasing } = await locked(
       Effect.gen(function* () {
         const current = yield* SubscriptionRef.get(state);
         current.owned?.abort.abort(reason);
@@ -328,12 +333,18 @@ export async function createChildSupervisor<Client>(
           ...current,
           snapshot: { generation: current.snapshot.generation, kind: 'stopping' },
         });
-        return current.owned;
+        // Admit the physical protocol before stop returns. Carry the Promise
+        // out of the permit so acknowledgements and concurrent stops can enter.
+        return {
+          owned: current.owned,
+          releasing: current.owned ? release(current.owned, reason) : Promise.resolve(),
+        };
       })
     );
     try {
+      await releasing;
       if (owned) {
-        await close(owned, reason);
+        await runAtPromiseBoundary(Scope.close(owned.scope, Exit.void));
       }
     } catch (cause) {
       await locked(

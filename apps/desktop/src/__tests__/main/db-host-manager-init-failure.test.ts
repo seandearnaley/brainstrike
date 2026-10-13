@@ -4,7 +4,10 @@ import type { DbHostRequestEnvelope } from '../../db-host-protocol';
 
 class FakeUtilityProcess extends EventEmitter {
   readonly messages: DbHostRequestEnvelope[] = [];
-  readonly kill = vi.fn(() => true);
+  readonly kill = vi.fn(() => {
+    queueMicrotask(() => this.emit('exit', 0));
+    return true;
+  });
   readonly pid = 4242;
   readonly postMessage = (message: DbHostRequestEnvelope): void => {
     this.messages.push(message);
@@ -40,9 +43,12 @@ async function waitForLastRequest(
   host: FakeUtilityProcess,
   kind: string
 ): Promise<DbHostRequestEnvelope> {
-  await vi.waitFor(() => {
-    expect(host.messages.at(-1)?.request.kind).toBe(kind);
-  });
+  await vi.waitFor(
+    () => {
+      expect(host.messages.at(-1)?.request.kind).toBe(kind);
+    },
+    { interval: 0 }
+  );
   return host.messages.at(-1) as DbHostRequestEnvelope;
 }
 
@@ -60,10 +66,12 @@ it('keeps the host alive when initialization rejects so diagnostics report the r
   const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
 
   const databasePromise = manager.getDatabase();
+  await vi.waitFor(() => expect(forkMock).toHaveReturned(), { interval: 0 });
   const host = latestProcess();
-  host.reject(host.messages.at(-1) as DbHostRequestEnvelope, 'init failed');
+  host.reject(await waitForLastRequest(host, 'init'), 'init failed');
 
-  await expect(databasePromise).rejects.toThrow('init failed');
+  const failure = await databasePromise.catch((error: unknown) => error);
+  expect(failure).toMatchObject({ message: 'init failed' });
   expect(host.kill).not.toHaveBeenCalled();
 
   // The failure record lives in the host process: a fresh fork would report none.
@@ -76,15 +84,19 @@ it('keeps the host alive when initialization rejects so diagnostics report the r
     lastInitializationFailure: { category: 'corruption' },
   });
 
-  // A later caller retries initialization on the same host.
-  const retryPromise = manager.getDatabase();
-  host.reply(await waitForLastRequest(host, 'init'), { initialized: true });
-  await expect(retryPromise).resolves.toBeDefined();
-  expect(forkMock).toHaveBeenCalledTimes(1);
-  expect(host.kill).not.toHaveBeenCalled();
+  await expect(manager.getDatabase()).rejects.toBe(failure);
+  expect(host.messages.filter((message) => message.request.kind === 'init')).toHaveLength(1);
+  const retryPromise = manager.retryInit({ noDeadline: false });
+  host.reply(await waitForLastRequest(host, 'close'), { closed: true });
+  await vi.waitFor(() => expect(forkMock).toHaveBeenCalledTimes(2), { interval: 0 });
+  const replacement = latestProcess();
+  replacement.reply(await waitForLastRequest(replacement, 'init'), { initialized: true });
+  await retryPromise;
+  await expect(manager.getDatabase()).resolves.toBeDefined();
+  expect(host.kill).toHaveBeenCalledTimes(1);
 });
 
-it('terminates a host whose initialization timed out and forks a fresh one next', async () => {
+it('terminates a timed-out initialization and requires explicit recovery before a fresh fork', async () => {
   vi.useFakeTimers();
   const { createDbHostManager, DbHostRequestTimeoutError } = await import('../../db-host-manager');
   const manager = createDbHostManager({
@@ -96,20 +108,25 @@ it('terminates a host whose initialization timed out and forks a fresh one next'
     () => null,
     (error: unknown) => error
   );
+  await vi.waitFor(() => expect(forkMock).toHaveReturned(), { interval: 0 });
   const wedgedHost = latestProcess();
+  await waitForLastRequest(wedgedHost, 'init');
   const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
   await vi.advanceTimersByTimeAsync(15);
 
-  expect(await failure).toBeInstanceOf(DbHostRequestTimeoutError);
+  const original = await failure;
+  expect(original).toBeInstanceOf(DbHostRequestTimeoutError);
   expect(killSpy).toHaveBeenCalledWith(wedgedHost.pid, 'SIGKILL');
   killSpy.mockRestore();
 
-  // A possibly wedged host must not serve the retry: the next call forks anew, once it is gone.
-  const retryPromise = manager.getDatabase();
+  await expect(manager.getDatabase()).rejects.toBe(original);
   wedgedHost.emit('exit', 137);
-  await vi.advanceTimersByTimeAsync(0);
-  expect(forkMock).toHaveBeenCalledTimes(2);
+  await expect(manager.getDatabase()).rejects.toBe(original);
+  expect(forkMock).toHaveBeenCalledTimes(1);
+  const retryPromise = manager.retryInit({ noDeadline: false });
+  await vi.waitFor(() => expect(forkMock).toHaveBeenCalledTimes(2), { interval: 0 });
   const freshHost = latestProcess();
-  freshHost.reply(freshHost.messages.at(-1) as DbHostRequestEnvelope, { initialized: true });
-  await expect(retryPromise).resolves.toBeDefined();
+  freshHost.reply(await waitForLastRequest(freshHost, 'init'), { initialized: true });
+  await retryPromise;
+  await expect(manager.getDatabase()).resolves.toBeDefined();
 });

@@ -1,21 +1,24 @@
 import { randomUUID } from 'node:crypto';
+import { BoundaryFailureError, processLost } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { DatabaseInitPhaseReport } from '@brainstrike/types';
 import { utilityProcess } from 'electron';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
+import {
+  type ChildGenerationContext,
+  type ChildSupervisor,
+  createChildSupervisor,
+} from './child-supervisor';
 import { cleanShutdownMarkerNamesPid } from './db-clean-shutdown-marker';
 import { AbandonedRequestLedger } from './db-host-abandoned-requests';
-import {
-  DB_HOST_CLOSE_ACK_TIMEOUT_MS,
-  DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS,
-} from './db-host-close-budget';
+import { DB_HOST_CLOSE_ACK_TIMEOUT_MS } from './db-host-close-budget';
 import {
   DB_HOST_INIT_FIRST_REPORT_TIMEOUT_MS,
   DB_HOST_INIT_MAX_BUDGET_MS,
   resolveInitPhaseBudgetMs,
 } from './db-host-init-budget';
 import { DbHostCloseError, DbHostUnavailableError } from './db-host-lifecycle-errors';
-import { closeDbHostProcess, DbHostProcess, killWedgedHost } from './db-host-process';
+import { DbHostProcess } from './db-host-process';
 import {
   type DbHostDiagnosticsResult,
   type DbHostInitResult,
@@ -82,10 +85,10 @@ export interface DbHostManager {
   readonly reset: () => Promise<void>;
   /**
    * The only way, besides a reset, out of a stop after repeated init timeouts: removes main's
-   * record and lets the next init fork. `noDeadline` arms that next init (and only it) with the
+   * record, joins the old physical generation and awaits a fresh init. `noDeadline` arms that init with the
    * longest timer instead of the phase budgets. Throws if the record cannot be removed.
    */
-  readonly retryInit: (options: { readonly noDeadline: boolean }) => void;
+  readonly retryInit: (options: { readonly noDeadline: boolean }) => Promise<void>;
 }
 
 export interface DbHostManagerOptions {
@@ -144,6 +147,12 @@ function createDbHostEnvironment(): Record<string, string> {
   return environment;
 }
 
+interface DbHostGeneration {
+  readonly context: ChildGenerationContext;
+  readonly host: DbHostProcess;
+  initialization?: Promise<RemoteDbClient> | undefined;
+}
+
 class DefaultDbHostManager implements DbHostManager {
   readonly #entryPath: string;
   readonly #liveQueries = new Map<string, RemoteLiveQuery<unknown>>();
@@ -156,22 +165,18 @@ class DefaultDbHostManager implements DbHostManager {
   readonly #initializationTimeoutMs: number;
   readonly #maintenanceRequestTimeoutMs: number;
   readonly #requestTimeoutMs: number;
-  // Why no request may fork a host: retired, or its host closed itself on a signal aimed at it.
+  // Permanent retirement belongs to the default-manager identity, not a child restart policy.
   #unavailable: Error | null = null;
-  #client: RemoteDbClient | null = null;
-  #closing: Promise<void> | null = null;
-  #host: DbHostProcess | null = null;
-  #initialization: Promise<RemoteDbClient> | null = null;
+  // Protocol handle only. ChildSupervisor exclusively owns this generation's lifetime.
+  #generation: DbHostGeneration | null = null;
+  #supervisor: ChildSupervisor<DbHostGeneration> | null = null;
+  readonly #supervisorReady: Promise<ChildSupervisor<DbHostGeneration>>;
   // The phase the running `init` last reported; null before its first report. Main-side state only.
   #initPhase: DatabaseInitPhaseReport | null = null;
   readonly #attempts = new InitAttemptGuard();
   // `retryInit({ noDeadline })` arms the NEXT init only: pending until it starts, suspended while it runs.
   #pendingNoDeadline = false;
   #initDeadlineSuspended = false;
-  // A detached host stays here until its own `exit` is observed: an exit is the only proof it
-  // no longer owns the database, so no request forks a replacement (or reports a close) meanwhile.
-  #departingHost: DbHostProcess | null = null;
-
   constructor(options: DbHostManagerOptions = {}) {
     this.#entryPath = options.entryPath ?? resolveDbHostEntryPath();
     this.#closeTimeoutMs = options.closeTimeoutMs ?? DB_HOST_CLOSE_ACK_TIMEOUT_MS;
@@ -212,33 +217,34 @@ class DefaultDbHostManager implements DbHostManager {
       requestId: (envelope) => envelope.id,
       responseId: (response) => response.id,
       role: 'DB host',
-      // `send()` has already forked the host on the statement immediately
-      // before this runs, so this resolves to that same process; it can only
-      // fork when the host died in between, which is the behaviour a request
-      // arriving after an exit already had.
+      // Posting never acquires or replaces a process. Admission and this synchronous
+      // write refer to the same current physical generation, including its close ACK.
       send: (envelope) => {
-        this.#ensureHost().handle.postMessage(envelope);
+        const generation = this.#generation;
+        if (!generation) {
+          throw new DbHostUnavailableError('DB host has no admitted physical generation.');
+        }
+        generation.host.handle.postMessage(envelope);
       },
       timeoutMs: (envelope) => this.#getRequestTimeoutMs(envelope.request),
+    });
+    this.#supervisorReady = createChildSupervisor<DbHostGeneration>({
+      create: (context) => this.#createGeneration(context),
+      restart: 'never',
+    }).then((supervisor) => {
+      this.#supervisor = supervisor;
+      return supervisor;
     });
   }
 
   async getDatabase(): Promise<RemoteDbClient> {
-    this.#assertActive();
-    if (this.#client) {
-      return this.#client;
-    }
-    if (this.#initialization) {
-      return await this.#initialization;
-    }
-    this.#initialization = this.#initialize();
-    try {
-      return await this.#initialization;
-    } finally {
-      // Concurrent callers have already received the shared promise above. Clearing here
-      // allows a later failed/closed host to be initialized again by the next caller.
-      this.#initialization = null;
-    }
+    const admitted = this.#admit();
+    const generation = admitted instanceof Promise ? await admitted : admitted;
+    this.#assertGeneration(generation);
+    // A database failure is retained separately from physical process readiness.
+    // Diagnostics may still use this live process; passive demand never retries init.
+    generation.initialization ??= this.#initialize(generation);
+    return await generation.initialization;
   }
 
   async getDiagnostics(): Promise<DbHostManagerDiagnosticsResult> {
@@ -252,16 +258,19 @@ class DefaultDbHostManager implements DbHostManager {
     void activeLiveQueryCount;
     return {
       ...databaseDiagnostics,
-      hostPid: this.#host?.handle.pid ?? null,
+      hostPid: this.#generation?.host.handle.pid ?? null,
       initStop: null,
     };
   }
 
-  retryInit(options: { readonly noDeadline: boolean }): void {
+  async retryInit(options: { readonly noDeadline: boolean }): Promise<void> {
     this.#assertActive();
-    // Removing the record is what can fail; the stop stays until it has succeeded.
+    // If removing the attempt record fails, nothing rearms or replaces the owner.
     this.#attempts.retry();
     this.#pendingNoDeadline = options.noDeadline;
+    const supervisor = this.#supervisor ?? (await this.#supervisorReady);
+    await supervisor.restart();
+    await this.getDatabase();
   }
 
   async getLiveQueryDiagnosticsForTests(): Promise<DbHostLiveQueryDiagnostics> {
@@ -283,14 +292,16 @@ class DefaultDbHostManager implements DbHostManager {
 
   async reset(): Promise<void> {
     await this.send({ kind: 'reset' });
-    this.#client = null;
+    if (this.#generation) {
+      this.#generation.initialization = undefined;
+    }
     // The reset deleted the profile, and the record with it: nothing of an earlier attempt applies.
     this.#attempts.reset();
     this.#pendingNoDeadline = false;
   }
 
-  // Default-manager replacement is permanent; explicit close() remains reusable
-  // for reinitializeDatabase(). Retained clients must never fork another owner.
+  // Default-manager replacement is permanent; only explicit retry may reuse a
+  // closed manager. Retained clients must never fork another owner.
   async retire(): Promise<void> {
     this.#unavailable = new Error('DB host manager is retired.');
     await this.close();
@@ -302,71 +313,21 @@ class DefaultDbHostManager implements DbHostManager {
     }
   }
 
-  /** True until the host this manager detached has been observed to exit. */
+  /** An actual process handle, not a second lifetime state or an exit-timeout guess. */
   hasDepartingHost(): boolean {
-    return this.#departingHost !== null;
+    return this.#generation !== null && this.#generation.host.exitCode === undefined;
   }
 
-  /**
-   * Resolves only when the database is closed AND the host has exited; else `DbHostCloseError`.
-   *
-   * With no live host it resolves once any earlier host has been observed to exit, however that
-   * host went: after a failed close (or kill) whose exit is later observed, a repeated close
-   * RESOLVES. Nothing owns the directory any more, and the absent clean-shutdown marker records
-   * that session as unclean, so the next open reports `unclean`. Guarded by the `afterExit` case of
-   * "never reports a repeated close as success while the host may still be alive".
-   * Either way `#closing` is set for the whole close, so a request waiting on a departing host
-   * re-checks, sees it, and rejects instead of forking a host as the close reports closed.
-   */
-  async close(): Promise<void> {
-    if (this.#closing) {
-      return await this.#closing;
-    }
-    const host = this.#host;
-    if (!(host || this.#departingHost)) {
-      return; // nothing to close and nothing that could still be alive
-    }
-    const closing = (
-      host
-        ? closeDbHostProcess(host, {
-            acknowledge: async () => await this.send({ kind: 'close' }),
-            ackTimeoutMs: this.#closeTimeoutMs,
-            confirmCleanExit: (pid) =>
-              cleanShutdownMarkerNamesPid(resolveDesktopDatabaseProfileDirectory(), pid),
-            detach: () => this.#detachHost(new Error('DB host closed.')),
-          })
-        : this.#assertDepartingHostExited()
-    ).finally(() => {
-      // Cleared before close() settles, so a caller resuming from it forks at once.
-      this.#closing = null;
-    });
-    this.#closing = closing;
-    return await closing;
+  close(): Promise<void> {
+    const reason = new DbHostUnavailableError('DB host is unavailable: the database is closing.');
+    // On an already constructed owner, stop fences its signal synchronously before
+    // this method returns. The same owner joins ACK and physical exit afterward.
+    return this.#supervisor
+      ? this.#supervisor.stop(reason)
+      : this.#supervisorReady.then((supervisor) => supervisor.stop(reason));
   }
 
-  /** A close with no host to close is a success only if no earlier host may still be alive. */
-  async #assertDepartingHostExited(): Promise<void> {
-    const departing = this.#departingHost;
-    if (departing && !(await departing.waitForExit(DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS))) {
-      throw new DbHostCloseError(
-        'exit-timeout',
-        'DB host has not exited after an earlier close or kill; it may still own the database.'
-      );
-    }
-  }
-
-  #detachHost(error: Error): void {
-    const host = this.#host;
-    this.#host = null;
-    this.#client = null;
-    if (host && host.exitCode === undefined) {
-      this.#departingHost = host;
-      void host.exited.then(() => {
-        if (this.#departingHost === host) {
-          this.#departingHost = null;
-        }
-      });
-    }
+  #detachProtocol(error: Error): void {
     this.#rejectAll(error);
     this.#failAllLiveQueries(error);
   }
@@ -385,17 +346,23 @@ class DefaultDbHostManager implements DbHostManager {
 
   async send<TResult = unknown>(
     request: DbHostRequest,
+    options: { readonly onPhase?: (report: DatabaseInitPhaseReport) => void } = {},
+    expected?: DbHostGeneration
+  ): Promise<TResult> {
+    const admitted = this.#admit();
+    const generation = admitted instanceof Promise ? await admitted : admitted;
+    this.#assertGeneration(expected ?? generation);
+    return await this.#sendOwned<TResult>(generation, request, options);
+  }
+
+  async #sendOwned<TResult = unknown>(
+    generation: DbHostGeneration,
+    request: DbHostRequest,
     options: { readonly onPhase?: (report: DatabaseInitPhaseReport) => void } = {}
   ): Promise<TResult> {
-    if (request.kind !== 'close') {
-      // Synchronous unless a host is departing, so a request issued before `close()` is still
-      // posted before the close envelope. `#initialize()` is gated here too (its `init` request).
-      const admission = this.#admit();
-      if (admission) {
-        await admission;
-      }
+    if (this.#generation !== generation) {
+      throw new DbHostUnavailableError('DB host protocol generation is no longer current.');
     }
-    this.#ensureHost();
     const envelope: DbHostRequestEnvelope = {
       id: createRequestId(),
       kind: 'request',
@@ -418,27 +385,23 @@ class DefaultDbHostManager implements DbHostManager {
     return response.result as TResult;
   }
 
-  /**
-   * The gate every request passes before it may fork a host. Rejects while the manager is retired
-   * or closing. While a departing host has not exited it waits at most one post-SIGKILL budget for
-   * that exit, then rejects: never a fork, never an unbounded wait. Everything is re-checked after
-   * each wait, so a request that was waiting cannot fork after a retire or a close began.
-   */
-  #admit(): Promise<void> | undefined {
+  #assertGeneration(generation: DbHostGeneration): void {
     this.#assertActive();
-    if (this.#closing) {
-      throw new DbHostUnavailableError('DB host is unavailable: the database is closing.');
+    generation.context.signal.throwIfAborted();
+    if (this.#generation !== generation) {
+      throw new DbHostUnavailableError('DB host protocol generation is no longer current.');
     }
-    const departing = this.#departingHost;
-    if (!departing) {
-      return undefined;
+  }
+
+  #admit(): DbHostGeneration | Promise<DbHostGeneration> {
+    this.#assertActive();
+    if (this.#generation) {
+      this.#assertGeneration(this.#generation);
+      return this.#generation;
     }
-    return departing.waitForExit(DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS).then(async (exited) => {
-      if (!exited) {
-        throw new DbHostUnavailableError(PREVIOUS_HOST_ALIVE_MESSAGE);
-      }
-      await this.#admit();
-    });
+    return this.#supervisor
+      ? this.#supervisor.acquire()
+      : this.#supervisorReady.then((supervisor) => supervisor.acquire());
   }
 
   /**
@@ -526,17 +489,9 @@ class DefaultDbHostManager implements DbHostManager {
     this.#liveQueries.delete(liveId);
   }
 
-  #ensureHost(): DbHostProcess {
-    if (this.#host) {
-      return this.#host;
-    }
-    // Defense in depth: `#admit()` already waited for, or rejected on, a departing host.
-    if (this.#departingHost) {
-      throw new DbHostUnavailableError(PREVIOUS_HOST_ALIVE_MESSAGE);
-    }
-    // The fork path itself, so no request (data, reset, diagnostics) can start a host while stopped.
+  #createGeneration(context: ChildGenerationContext) {
+    this.#assertActive();
     this.#attempts.assertNotStopped();
-    // Only an existing host may serve shutdown-time work; a fork now would re-open a closed database.
     if (isDesktopShuttingDown()) {
       throw new DbHostUnavailableError('DB host is unavailable: the application is shutting down.');
     }
@@ -546,30 +501,73 @@ class DefaultDbHostManager implements DbHostManager {
         serviceName: 'brainstrike-db-host',
       })
     );
+    const generation: DbHostGeneration = { context, host };
+    this.#generation = generation;
     host.handle.on('message', (message: unknown) => {
-      this.#acceptMessage(message);
+      // Retirement still needs this process's terminal ACK; only replacement
+      // identity, not an aborted work signal, makes its protocol callbacks stale.
+      if (this.#generation === generation) {
+        this.#acceptMessage(message);
+      }
     });
     host.handle.on('exit', (code) => {
-      if (this.#host !== host) {
-        return; // detached: its requests and live queries are already failed
+      if (this.#generation !== generation) {
+        return;
       }
-      this.#unavailable ??= host.unavailableAfterOwnExit();
-      this.#detachHost(new Error(`DB host exited with code ${code}.`));
+      const cause = context.signal.aborted
+        ? context.signal.reason
+        : (host.unavailableAfterOwnExit() ??
+          new BoundaryFailureError(processLost({ child: 'db-host', exitCode: code })));
+      if (!context.signal.aborted) {
+        void context.lost(cause).catch((error: unknown) => {
+          logger.error({ err: error }, 'DB host loss publication failed');
+        });
+      }
+      this.#detachProtocol(cause);
     });
     host.handle.on('error', (type, location) => {
       logger.error('DB host process error', { location, type });
     });
-    this.#host = host;
-    return host;
+    return {
+      close: (reason: unknown) => this.#releaseGeneration(generation, reason),
+      // Fork admission is physical readiness, not successful database initialization.
+      ready: Promise.resolve(generation),
+    };
   }
 
-  async #initialize(): Promise<RemoteDbClient> {
+  async #releaseGeneration(generation: DbHostGeneration, reason: unknown): Promise<void> {
+    const { host } = generation;
+    if (host.exitCode === undefined) {
+      if (reason instanceof DbHostRequestTimeoutError) {
+        await host.terminate({ reason: 'request-timeout', requestKind: reason.requestKind });
+        if (host.exitCode === undefined) {
+          throw new DbHostCloseError('exit-timeout', PREVIOUS_HOST_ALIVE_MESSAGE, {
+            cause: reason,
+          });
+        }
+      } else {
+        await host.close({
+          acknowledge: () => this.#sendOwned(generation, { kind: 'close' }),
+          ackTimeoutMs: this.#closeTimeoutMs,
+          confirmCleanExit: (pid) =>
+            cleanShutdownMarkerNamesPid(resolveDesktopDatabaseProfileDirectory(), pid),
+          detach: () => this.#detachProtocol(new Error('DB host closed.')),
+        });
+      }
+    }
+    if (this.#generation === generation) {
+      this.#generation = null;
+    }
+  }
+
+  async #initialize(generation: DbHostGeneration): Promise<RemoteDbClient> {
     this.#attempts.assertNotStopped();
     this.#initDeadlineSuspended = this.#pendingNoDeadline;
     this.#pendingNoDeadline = false;
     this.#initPhase = null;
     try {
-      await this.send<DbHostInitResult>(
+      await this.#sendOwned<DbHostInitResult>(
+        generation,
         { kind: 'init' },
         {
           onPhase: (report) => {
@@ -582,7 +580,7 @@ class DefaultDbHostManager implements DbHostManager {
       // failure the host has already recorded; killing it would discard that record, and the
       // next `db:diagnostics` would fork a fresh host that reports no failure at all.
       if (error instanceof DbHostRequestTimeoutError) {
-        this.#attempts.recordTimeout(error, this.#host?.handle.pid ?? null);
+        this.#attempts.recordTimeout(error, generation.host.handle.pid ?? null);
         this.#terminateHost(error, { requestKind: 'init' });
       }
       throw error;
@@ -591,9 +589,8 @@ class DefaultDbHostManager implements DbHostManager {
       this.#initDeadlineSuspended = false;
     }
     this.#attempts.recordSuccess();
-    this.#assertActive();
-    this.#client = this.#createClient();
-    return this.#client;
+    this.#assertGeneration(generation);
+    return this.#createClient(generation);
   }
 
   #initPhaseBudgetMs(report: DatabaseInitPhaseReport): number {
@@ -602,10 +599,12 @@ class DefaultDbHostManager implements DbHostManager {
       : resolveInitPhaseBudgetMs(report);
   }
 
-  #createClient(): RemoteDbClient {
+  #createClient(generation: DbHostGeneration): RemoteDbClient {
+    const sendForGeneration = <TResult = unknown>(request: DbHostRequest): Promise<TResult> =>
+      this.send<TResult>(request, {}, generation);
     return {
       exec: async (sql, params) =>
-        await this.send({ kind: 'exec', sql, ...(params ? { params } : {}) }),
+        await sendForGeneration({ kind: 'exec', sql, ...(params ? { params } : {}) }),
       live: {
         incrementalQuery: async <TRecord = unknown>(
           payload:
@@ -621,6 +620,7 @@ class DefaultDbHostManager implements DbHostManager {
           key?: string
         ) =>
           await this.#startLiveQuery<TRecord>(
+            generation,
             typeof payload === 'string'
               ? {
                   mode: 'incremental',
@@ -642,6 +642,7 @@ class DefaultDbHostManager implements DbHostManager {
           params?: readonly unknown[] | null
         ) =>
           await this.#startLiveQuery<TRecord>(
+            generation,
             typeof payload === 'string'
               ? {
                   mode: 'query',
@@ -653,27 +654,30 @@ class DefaultDbHostManager implements DbHostManager {
       },
       maintenance: {
         exec: async (sql, params) =>
-          await this.send({ kind: 'maintenance:exec', sql, ...(params ? { params } : {}) }),
+          await sendForGeneration({ kind: 'maintenance:exec', sql, ...(params ? { params } : {}) }),
       },
       query: async <TRecord = unknown>(sql: string, params?: readonly unknown[]) =>
-        await this.send<DbHostQueryResult<TRecord>>({
+        await sendForGeneration<DbHostQueryResult<TRecord>>({
           kind: 'query',
           sql,
           ...(params ? { params } : {}),
         }),
       transaction: async <TResult>(fn: (tx: RemoteDbTransaction) => Promise<TResult>) =>
-        await this.#transaction(fn),
+        await this.#transaction(generation, fn),
     };
   }
 
-  async #startLiveQuery<TRecord>(payload: {
-    readonly key?: string;
-    readonly limit?: number;
-    readonly mode: 'query' | 'incremental';
-    readonly offset?: number;
-    readonly params?: readonly unknown[] | null;
-    readonly query: string;
-  }): Promise<RemoteLiveQuery<TRecord>> {
+  async #startLiveQuery<TRecord>(
+    generation: DbHostGeneration,
+    payload: {
+      readonly key?: string;
+      readonly limit?: number;
+      readonly mode: 'query' | 'incremental';
+      readonly offset?: number;
+      readonly params?: readonly unknown[] | null;
+      readonly query: string;
+    }
+  ): Promise<RemoteLiveQuery<TRecord>> {
     const requestPayload = {
       mode: payload.mode,
       query: payload.query,
@@ -684,10 +688,14 @@ class DefaultDbHostManager implements DbHostManager {
       ...(payload.limit === undefined ? {} : { limit: payload.limit }),
       ...(payload.offset === undefined ? {} : { offset: payload.offset }),
     };
-    const result = await this.send<DbHostLiveStartResult>({
-      kind: 'live:start',
-      payload: requestPayload,
-    }).catch((error: unknown) => {
+    const result = await this.send<DbHostLiveStartResult>(
+      {
+        kind: 'live:start',
+        payload: requestPayload,
+      },
+      {},
+      generation
+    ).catch((error: unknown) => {
       logger.error(
         {
           err: error,
@@ -698,7 +706,10 @@ class DefaultDbHostManager implements DbHostManager {
       throw error;
     });
     const liveQuery = new RemoteLiveQuery<TRecord>(
-      this,
+      {
+        send: (request) => this.send(request, {}, generation),
+        unregisterLiveQuery: (liveId) => this.unregisterLiveQuery(liveId),
+      },
       result.liveId,
       result.initialResults as DbHostQueryResult<TRecord>
     );
@@ -706,9 +717,14 @@ class DefaultDbHostManager implements DbHostManager {
     return liveQuery;
   }
 
-  async #transaction<TResult>(fn: (tx: RemoteDbTransaction) => Promise<TResult>): Promise<TResult> {
+  async #transaction<TResult>(
+    generation: DbHostGeneration,
+    fn: (tx: RemoteDbTransaction) => Promise<TResult>
+  ): Promise<TResult> {
+    const sendForGeneration = <T = unknown>(request: DbHostRequest): Promise<T> =>
+      this.send<T>(request, {}, generation);
     const transactionId = createTransactionId();
-    const started = await this.send<DbHostTransactionStartResult>({
+    const started = await sendForGeneration<DbHostTransactionStartResult>({
       kind: 'transaction:start',
       transactionId,
     });
@@ -719,14 +735,14 @@ class DefaultDbHostManager implements DbHostManager {
     }
     const tx: RemoteDbTransaction = {
       exec: async (sql, params) =>
-        await this.send({
+        await sendForGeneration({
           kind: 'transaction:exec',
           sql,
           transactionId,
           ...(params ? { params } : {}),
         }),
       query: async <TRecord = unknown>(sql: string, params?: readonly unknown[]) =>
-        await this.send<DbHostQueryResult<TRecord>>({
+        await sendForGeneration<DbHostQueryResult<TRecord>>({
           kind: 'transaction:query',
           sql,
           transactionId,
@@ -735,11 +751,11 @@ class DefaultDbHostManager implements DbHostManager {
     };
     try {
       const result = await fn(tx);
-      await this.send({ kind: 'transaction:commit', transactionId });
+      await sendForGeneration({ kind: 'transaction:commit', transactionId });
       return result;
     } catch (error) {
       try {
-        await this.send({ kind: 'transaction:rollback', transactionId });
+        await sendForGeneration({ kind: 'transaction:rollback', transactionId });
       } catch (rollbackError) {
         logger.warn('Failed to roll back remote DB transaction', {
           error: rollbackError,
@@ -852,17 +868,22 @@ class DefaultDbHostManager implements DbHostManager {
     this.#liveQueries.clear();
   }
 
-  // The only way out of a statement that never returns: SIGKILL, and no replacement host
-  // forks until the exit is observed. A close in flight owns the host's lifecycle instead.
   #terminateHost(error: Error, diagnostics: RequestTimeoutDiagnostics): void {
-    const host = this.#host;
-    // While closing, the request-timeout `rejectAll` also fails the close request itself, which
-    // drives the close ladder's own SIGKILL; a second kill here would race it.
-    if (!host || this.#closing) {
+    const generation = this.#generation;
+    // Stop's close ladder already owns physical release and its terminal ACK.
+    if (!generation || generation.context.signal.aborted) {
       return;
     }
-    this.#detachHost(error);
-    void killWedgedHost(host, { ...diagnostics, reason: 'request-timeout' });
+    const lost = generation.context.lost(error);
+    this.#detachProtocol(error);
+    void lost
+      .then(async () => {
+        const supervisor = this.#supervisor ?? (await this.#supervisorReady);
+        await supervisor.retireLost();
+      })
+      .catch((cause: unknown) => {
+        logger.error({ err: cause, ...diagnostics }, 'DB host physical retirement failed');
+      });
   }
 }
 

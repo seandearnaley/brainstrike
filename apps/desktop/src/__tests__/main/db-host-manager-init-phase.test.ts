@@ -115,6 +115,9 @@ it('does not terminate a host whose index-rebuild phase outlives the initial dea
   const { manager } = await loadManager({ initializationTimeoutMs: 15 });
 
   const database = manager.getDatabase();
+  await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+    interval: 0,
+  });
   const host = latestProcess();
   await vi.advanceTimersByTimeAsync(10);
   host.progress(host.initRequest.id, REBUILD_342_MIB);
@@ -134,6 +137,9 @@ it('terminates the host when a phase exceeds its own budget and names the phase 
   const { DbHostRequestTimeoutError, manager } = await loadManager({ initializationTimeoutMs: 15 });
 
   const failure = settled(manager.getDatabase());
+  await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+    interval: 0,
+  });
   const host = latestProcess();
   await vi.advanceTimersByTimeAsync(10);
   host.progress(host.initRequest.id, REBUILD_342_MIB);
@@ -159,6 +165,9 @@ it('re-arms every report with the budget of its own phase, in order', async () =
   const { DbHostRequestTimeoutError, manager } = await loadManager({ initializationTimeoutMs: 15 });
 
   const failure = settled(manager.getDatabase());
+  await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+    interval: 0,
+  });
   const host = latestProcess();
   const id = host.initRequest.id;
   host.progress(id, { pgWalBytes: 912 * MIB, phase: 'open-database' });
@@ -187,6 +196,9 @@ it('names the open-database phase with its pg_wal size', async () => {
   const { manager } = await loadManager({ initializationTimeoutMs: 15 });
 
   const failure = settled(manager.getDatabase());
+  await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+    interval: 0,
+  });
   const host = latestProcess();
   host.progress(host.initRequest.id, { pgWalBytes: 912 * MIB, phase: 'open-database' });
   await vi.advanceTimersByTimeAsync(258_000);
@@ -200,6 +212,9 @@ it('ignores a malformed progress envelope and keeps the original deadline', asyn
   const { DbHostRequestTimeoutError, manager } = await loadManager({ initializationTimeoutMs: 15 });
 
   const failure = settled(manager.getDatabase());
+  await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+    interval: 0,
+  });
   const host = latestProcess();
   await vi.advanceTimersByTimeAsync(10);
   host.progress(host.initRequest.id, {
@@ -234,6 +249,10 @@ it('ignores a progress envelope for a request that is not init', async () => {
   });
 
   const failure = settled(manager.getDiagnostics());
+  await vi.waitFor(
+    () => expect(latestProcess().messages.at(-1)?.request.kind).toBe('diagnostics'),
+    { interval: 0 }
+  );
   const host = latestProcess();
   const diagnostics = host.messages.at(-1);
   expect(diagnostics?.request.kind).toBe('diagnostics');
@@ -255,6 +274,9 @@ it('drops a valid progress report for a request no longer in flight, before the 
   const { manager } = await loadManager({ initializationTimeoutMs: 15 });
 
   const init = settled(manager.getDatabase());
+  await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+    interval: 0,
+  });
   const host = latestProcess();
   // The id is host-controlled text: it is echoed only in bounded form.
   host.progress(`no-such-request-${'x'.repeat(500)}`, REBUILD_342_MIB);
@@ -273,6 +295,9 @@ it('keeps only the known fields of a report, so extra host text never reaches th
   const { DbHostRequestTimeoutError, manager } = await loadManager({ initializationTimeoutMs: 15 });
 
   const failure = settled(manager.getDatabase());
+  await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+    interval: 0,
+  });
   const host = latestProcess();
   host.progress(host.initRequest.id, { extra: 'secret-report-text', phase: 'migration' });
   // The migration budget is 90 s; let it expire.
@@ -290,15 +315,21 @@ it('does not let a fresh init attempt inherit the phase of the attempt that time
   const { manager } = await loadManager({ initializationTimeoutMs: 15 });
 
   const firstFailure = settled(manager.getDatabase());
+  await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+    interval: 0,
+  });
   const firstHost = latestProcess();
   firstHost.progress(firstHost.initRequest.id, REBUILD_342_MIB);
   await vi.advanceTimersByTimeAsync(REBUILD_BUDGET_MS);
   expect(await firstFailure).toMatchObject({ phase: REBUILD_342_MIB });
 
-  const secondFailure = settled(manager.getDatabase());
+  const secondFailure = settled(manager.retryInit({ noDeadline: false }));
   firstHost.emit('exit', 137);
   await vi.advanceTimersByTimeAsync(0);
-  expect(forkMock).toHaveBeenCalledTimes(2);
+  await vi.waitFor(() => expect(forkMock).toHaveBeenCalledTimes(2), { interval: 0 });
+  await vi.waitFor(() => expect(latestProcess().messages.at(-1)?.request.kind).toBe('init'), {
+    interval: 0,
+  });
   await vi.advanceTimersByTimeAsync(15);
 
   // The second host never reported: its timeout is the first-report window, with no phase.
