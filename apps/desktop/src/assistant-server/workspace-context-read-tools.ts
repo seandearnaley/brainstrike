@@ -22,6 +22,8 @@ import {
   readWorkspaceTextFile,
   redactToolErrorForLog,
   runReadWorkspaceFile,
+  WorkspacePathRefusal,
+  type WorkspacePathRefusalReason,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
@@ -314,24 +316,28 @@ interface WorkspaceContextSkippedFile {
     | 'tokenBudget';
 }
 
+/** Each read refusal's skip reason, decided by its type, never its text (BST-1996). */
+const SKIP_REASON_BY_REFUSAL = {
+  binary: 'binary',
+  missing: 'missing',
+  'not-file': 'notFile',
+  outside: 'outsideWorkspace',
+  'too-large': 'oversized',
+} as const satisfies Record<WorkspacePathRefusalReason, WorkspaceContextSkippedFile['reason']>;
+
 function classifyReadContextError(
   workspacePath: string,
   error: unknown
 ): WorkspaceContextSkippedFile {
-  const message = error instanceof Error ? error.message : String(error);
-  if (message.includes('outside the selected workspace root')) {
-    return { message, path: workspacePath, reason: 'outsideWorkspace' };
-  }
-  if (message.includes('is a binary file')) {
-    return { message, path: workspacePath, reason: 'binary' };
-  }
-  if (message.includes('exceeds')) {
-    return { message, path: workspacePath, reason: 'oversized' };
-  }
-  if (message.includes('is not a file')) {
-    return { message, path: workspacePath, reason: 'notFile' };
+  if (error instanceof WorkspacePathRefusal) {
+    const reason = SKIP_REASON_BY_REFUSAL[error.reason];
+    // A missing file is the whole story; the other refusals carry their remedy.
+    return reason === 'missing'
+      ? { path: workspacePath, reason }
+      : { message: error.message, path: workspacePath, reason };
   }
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  // The ranged reader's file can vanish between its path check and its read.
   if (code === 'ENOENT') {
     return { path: workspacePath, reason: 'missing' };
   }
