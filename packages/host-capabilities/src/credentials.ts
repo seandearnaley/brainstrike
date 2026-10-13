@@ -14,6 +14,7 @@ import {
   createKeyringSecretsService,
 } from '@brainstrike/agent-host/keyring-credentials';
 import { createKeyringCredentialBackend } from '@brainstrike/agent-host/keyring-native';
+import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
 
 export type HostCredentialStoreSelection = NonNullable<
   HostPlatformLaunchOptions['credentialStore']
@@ -27,11 +28,18 @@ export class HostCredentialsClosedError extends Error {
   }
 }
 
-export class HostCredentialStoreUnselectedError extends Error {
-  readonly code = 'host_credential_store_unselected';
+export class HostCredentialStoreUnselectedError extends BoundaryFailureError {
+  override readonly code = 'host_credential_store_unselected';
   constructor() {
     super(
-      'Credential reads require an explicitly selected credential service; file fallback is not automatic'
+      refusal({
+        category: 'configuration',
+        code: 'credential.store-unselected',
+        message:
+          'Credential reads require an explicitly selected credential service; file fallback is not automatic',
+        remedy:
+          'Select --credential-store keyring with --credential-service, or file with --credential-file.',
+      })
     );
     this.name = 'HostCredentialStoreUnselectedError';
   }

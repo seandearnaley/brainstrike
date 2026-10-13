@@ -515,7 +515,7 @@ export function createDesktopRunAdmission(
       );
       // The host never offers what the saved policy denies; the instructions never name it.
       const policy = await readHostPermissionPolicy(request.threadId);
-      const { childSystem, system } = await readDesktopHostSystemContext({
+      const { childSystem, system, referencedFileFailures } = await readDesktopHostSystemContext({
         inputTokenLimit,
         ...desktopPersonaFields(delegation),
         ...desktopContextReaderFields(
@@ -545,6 +545,7 @@ export function createDesktopRunAdmission(
           desktopWorkspaceRootObservation(workspace)
         ),
         ...desktopDelegationFields(childSystem, delegation),
+        ...(referencedFileFailures ? { referencedFileFailures: [...referencedFileFailures] } : {}),
         freshWorkspaceRoots: native.freshRoots,
         inputTokenLimit,
         maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,

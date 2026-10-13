@@ -1,11 +1,12 @@
 import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
 import { encodeFileMentionId, serializeFileMentionDirective } from '@brainstrike/agent';
-import { ToolInputError } from '@brainstrike/assistant-contract';
+import { INTERNAL_FAULT, ToolInputError } from '@brainstrike/assistant-contract';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildReferencedFilesContextMessage,
   injectReferencedFilesContext,
   MAX_REFERENCED_FILES_TOTAL_CHARS,
+  readReferencedFilesContext,
   type WorkspaceFileReader,
 } from '../../assistant-server/referenced-files-context';
 
@@ -110,10 +111,16 @@ describe('buildReferencedFilesContextMessage', () => {
       );
     });
     const text = `See ${directive(ROOT_ID, 'missing.ts', 'missing.ts')}.`;
-    const result = await buildReferencedFilesContextMessage(text, runtimeWithRoot(), reader);
+    const context = await readReferencedFilesContext(text, runtimeWithRoot(), reader);
+    expect(context.failures).toEqual([
+      { failure: expect.objectContaining(INTERNAL_FAULT), path: 'missing.ts', rootId: ROOT_ID },
+    ]);
+    expect(JSON.stringify(context.failures)).not.toContain('/Users/');
+    expect(JSON.stringify(context.failures)).not.toContain('ENOENT');
+    const result = context.message;
 
     const body = result?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
-    expect(body).toContain('### missing.ts\n[Could not read: the file could not be read.]');
+    expect(body).toContain(`### missing.ts\n[Could not read: ${INTERNAL_FAULT.message}]`);
     expect(body).not.toContain('/Users/');
     expect(body).not.toContain('ENOENT');
   });

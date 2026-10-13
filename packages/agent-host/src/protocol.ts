@@ -6,6 +6,7 @@ import {
   type ProviderVerificationSnapshot,
   parseOpenRouterModelMetadataSnapshot,
   parseProviderVerificationSnapshot,
+  ReferencedFileFailureSchema,
   TOOL_RISK_CATEGORIES,
 } from '@brainstrike/assistant-contract';
 import { ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE } from '@brainstrike/assistant-contract/assistant-attachments';
@@ -849,6 +850,12 @@ export function hostEventSchema(json: JsonSchemaFactory) {
       roots: z.array(HostTurnSnapshotSchema),
     }),
     ...REWIND_EVENT_SCHEMAS,
+    /** Failed @file reads captured at admission; Core is their sole durable writer. */
+    z.strictObject({
+      type: z.literal('references.unavailable'),
+      ...RunFields,
+      files: z.array(ReferencedFileFailureSchema).min(1),
+    }),
     /** The hook files this run did not load, committed before any hook runs. */
     z.strictObject({
       type: z.literal('hooks.skipped'),

@@ -1,6 +1,11 @@
 import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
 import { parseFileMentionDirectives } from '@brainstrike/agent';
-import { BoundaryFailureError, ToolInputError } from '@brainstrike/assistant-contract';
+import { toBoundaryFailure } from '@brainstrike/agent-host/boundary-wire';
+import {
+  describeBoundaryFailure,
+  type ReferencedFileFailure,
+  refusal,
+} from '@brainstrike/assistant-contract';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/ports';
 import { createLogger } from '@brainstrike/logging';
 import { getWorkspaceRoots } from './workspace-roots';
@@ -100,29 +105,20 @@ function fenceContent(body: string): string {
  * fs error naming a host path, a driver message) is logged above and becomes
  * a fixed sentence.
  */
-function modelSafeReadFailure(error: unknown): string {
-  if (error instanceof ToolInputError) {
-    return error.message;
-  }
-  if (error instanceof BoundaryFailureError && error.failure.kind === 'refusal') {
-    return error.failure.message;
-  }
-  return 'the file could not be read.';
-}
-
-export async function buildReferencedFilesContextMessage(
+export async function readReferencedFilesContext(
   text: string,
   runtimeData: RuntimeData | undefined,
   readFile: WorkspaceFileReader
-): Promise<AgentMessage | null> {
+): Promise<{ message: AgentMessage | null; failures: ReferencedFileFailure[] }> {
   const mentions = parseFileMentionDirectives(text);
   if (mentions.length === 0) {
-    return null;
+    return { failures: [], message: null };
   }
 
   const roots = getWorkspaceRoots(runtimeData);
   const rootById = new Map(roots.map((root) => [root.rootId, root]));
 
+  const failures: ReferencedFileFailure[] = [];
   const sections: string[] = [
     'The user referenced the following workspace files with @file mentions. Their current content is provided below for this turn.',
   ];
@@ -136,9 +132,14 @@ export async function buildReferencedFilesContextMessage(
         path: mention.path,
         rootId: mention.rootId,
       });
-      sections.push(
-        `### ${mention.path}\n[Could not read: the file's workspace folder is no longer open.]`
-      );
+      const failure = refusal({
+        category: 'availability',
+        code: 'workspace.root-unavailable',
+        message: "The file's workspace folder is no longer open.",
+        remedy: 'Re-add the folder and send the message again.',
+      });
+      failures.push({ failure, path: mention.path, rootId: mention.rootId });
+      sections.push(`### ${mention.path}\n[Could not read: ${describeBoundaryFailure(failure)}]`);
       continue;
     }
     // Stop reading once the aggregate budget is spent — count the rest as omitted
@@ -160,11 +161,13 @@ export async function buildReferencedFilesContextMessage(
       sections.push(`### ${root.displayName}/${file.path}\n${fenceContent(body)}${suffix}`);
     } catch (error) {
       logger.warn('Referenced file could not be read', {
-        error: error instanceof Error ? error.message : String(error),
+        error,
         path: mention.path,
         rootId: mention.rootId,
       });
-      sections.push(`### ${mention.path}\n[Could not read: ${modelSafeReadFailure(error)}]`);
+      const failure = toBoundaryFailure(error, (message, fields) => logger.warn(message, fields));
+      failures.push({ failure, path: mention.path, rootId: mention.rootId });
+      sections.push(`### ${mention.path}\n[Could not read: ${describeBoundaryFailure(failure)}]`);
     }
   }
 
@@ -180,10 +183,21 @@ export async function buildReferencedFilesContextMessage(
   }
 
   return {
-    id: `referenced-files-${Date.now()}`,
-    parts: [{ text: sections.join('\n\n'), type: 'text' }],
-    role: 'system',
+    failures,
+    message: {
+      id: `referenced-files-${Date.now()}`,
+      parts: [{ text: sections.join('\n\n'), type: 'text' }],
+      role: 'system',
+    },
   };
+}
+
+export async function buildReferencedFilesContextMessage(
+  text: string,
+  runtimeData: RuntimeData | undefined,
+  readFile: WorkspaceFileReader
+): Promise<AgentMessage | null> {
+  return (await readReferencedFilesContext(text, runtimeData, readFile)).message;
 }
 
 function findLastUserMessageIndex(messages: readonly AgentMessage[]): number {

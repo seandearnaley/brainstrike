@@ -94,7 +94,14 @@ test('auth/connect asks its requesting desktop client to open the sign-in page',
     socket = await attachAgentHost(host.record);
     await expect(
       socket.request('auth/connect', { method: 'loopback', provider: PROVIDER })
-    ).rejects.toThrow(/interactive/i);
+    ).rejects.toMatchObject({
+      failure: {
+        category: 'authorization',
+        code: 'auth.interactive-origin-required',
+        kind: 'refusal',
+        remedy: expect.any(String),
+      },
+    });
   } finally {
     await socket?.close();
     await desktop?.close();

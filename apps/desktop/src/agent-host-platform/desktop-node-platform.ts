@@ -463,6 +463,7 @@ export async function createDesktopHostConfiguration(
         ...(hooks ? { hooks } : {}),
         // Core commits the hook files this run did not load (`hooks.skipped`).
         hookSkips: skipped,
+        referencedFileFailures: selected.referencedFileFailures,
         ...(selected.system === undefined ? {} : { system: selected.system }),
         maxSteps: selected.maxSteps,
         memory,

@@ -142,6 +142,7 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     'delegation.budget.exhausted',
     'hook.blocked',
     'hook.notice',
+    'reference.unavailable',
     'memory.configured',
     'memory.history.loaded',
     'memory.observation.completed',
