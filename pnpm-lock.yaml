@@ -369,6 +369,7 @@ overrides:
 patchedDependencies:
   '@assistant-ui/core@0.3.17': 549173d35294b059b61150d1106e3d1e4dcac33281cdf39f2f510d1dcb53e1e6
   '@electric-sql/pglite@0.5.8': 07412deadecaa3a5f5ba73c838108f930cb9092762ffb0c8f8deb495ef138311
+  '@huggingface/transformers@4.3.0': a572be510cf95f8a4974ce5aeffe247c5faa0a595e23015ad5f9012cfaab0155
   '@mastra/core@1.71.0': 63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b
   '@mastra/memory@1.32.1': f7befcfb44f11beb53a614da33214230578faf7791902115cf7087a666b52532
   '@stryker-mutator/vitest-runner@10.0.0': 280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c
@@ -1212,7 +1213,7 @@ importers:
         version: link:../utils
       '@huggingface/transformers':
         specifier: 'catalog:'
-        version: 4.3.0(@types/node@24.13.3)
+        version: 4.3.0(patch_hash=a572be510cf95f8a4974ce5aeffe247c5faa0a595e23015ad5f9012cfaab0155)(@types/node@24.13.3)
       '@mastra/core':
         specifier: 1.71.0
         version: 1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@6.0.256(zod@4.6.5))(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
@@ -2326,11 +2327,14 @@ importers:
         version: link:../worker-runtime
       '@huggingface/transformers':
         specifier: 'catalog:'
-        version: 4.3.0(@types/node@24.13.3)
+        version: 4.3.0(patch_hash=a572be510cf95f8a4974ce5aeffe247c5faa0a595e23015ad5f9012cfaab0155)(@types/node@24.13.3)
       workerpool:
         specifier: 'catalog:'
         version: 10.0.3
     devDependencies:
+      '@brainstrike/build-utils':
+        specifier: workspace:*
+        version: link:../build-utils
       '@brainstrike/config':
         specifier: workspace:*
         version: link:../config
@@ -2396,7 +2400,7 @@ importers:
         version: link:../utils
       '@huggingface/transformers':
         specifier: 'catalog:'
-        version: 4.3.0(@types/node@24.13.3)
+        version: 4.3.0(patch_hash=a572be510cf95f8a4974ce5aeffe247c5faa0a595e23015ad5f9012cfaab0155)(@types/node@24.13.3)
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.118
@@ -17418,7 +17422,7 @@ snapshots:
 
   '@huggingface/tokenizers@0.2.0': {}
 
-  '@huggingface/transformers@4.3.0(@types/node@24.13.3)':
+  '@huggingface/transformers@4.3.0(patch_hash=a572be510cf95f8a4974ce5aeffe247c5faa0a595e23015ad5f9012cfaab0155)(@types/node@24.13.3)':
     dependencies:
       '@huggingface/jinja': 0.5.10
       '@huggingface/tokenizers': 0.2.0

@@ -86,10 +86,23 @@ Guard: `vector-preferences-store.hidden-host.test.ts`,
   dtype. A plan decoder refuses unknown fields rather than dropping them (BST-1993).
 - An explicit revision reaches the vendor loader, isolates pipeline caches, and
   must match completion metadata. Omitted revisions preserve vendor behavior.
+- Transformers.js 4.3.0 carries upstream
+  [huggingface/transformers.js#1751](https://github.com/huggingface/transformers.js/pull/1751)
+  as `patches/@huggingface__transformers@4.3.0.patch` (BST-2003), so a pinned load lists,
+  probes and loads every file at its revision.
+  - Without it, the file listing probes `resolve/main/config.json` and
+    `resolve/main/tokenizer_config.json`. Those probes miss the pinned cache entries, so
+    a fully cached pinned model fails to reopen offline with "Failed to fetch".
+  - The patch applies #1751's `src` hunks verbatim and the same code hunks to the
+    bundles the package exports (`dist/transformers.web.js` and
+    `dist/transformers.node.{mjs,cjs}`).
+  - **Removal condition:** drop the patch when a release containing #1751 is adopted.
+    A Transformers.js bump before then must carry the patch to the new version.
 
 Guard: `embedding-input-plan.spec.ts`, `streaming-worker-client-completion.spec.ts`,
 `pipeline-cache-controller.spec.ts`, `embedding-worker-protocol.test.ts`,
-`embedding-telemetry.spec.ts`, `transformers-backend.queue.test.ts`.
+`embedding-telemetry.spec.ts`, `transformers-backend.queue.test.ts`,
+`transformers-pinned-revision.browser.test.ts`.
 
 ### Explicit native vector request plan
 

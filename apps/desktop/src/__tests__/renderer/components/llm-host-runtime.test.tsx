@@ -1,3 +1,4 @@
+import { LocalLlmBackend } from '@brainstrike/agent/local-llm';
 import { render, waitFor } from '@testing-library/react';
 import { act } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -84,6 +85,16 @@ describe('LlmHostRuntime', () => {
     };
 
     window.history.replaceState({}, '', '/?mode=llm-host&runtimeId=test-runtime');
+  });
+
+  it('gives the local model the app-served ONNX Runtime WASM files (BST-2003)', async () => {
+    render(<LlmHostRuntime />);
+    await waitFor(() => expect(LocalLlmBackend).toHaveBeenCalledOnce());
+    const [options] = vi.mocked(LocalLlmBackend).mock.calls[0] ?? [];
+    const origin = window.location.origin;
+    expect(new URL(options?.onnxWasmPaths?.mjs ?? '').origin).toBe(origin);
+    expect(new URL(options?.onnxWasmPaths?.wasm ?? '').origin).toBe(origin);
+    expect(options?.onnxWasmPaths?.wasm).toMatch(/ort-wasm-simd-threaded\.asyncify\.wasm/u);
   });
 
   it('keeps the llm-host status active until all concurrent requests finish', async () => {

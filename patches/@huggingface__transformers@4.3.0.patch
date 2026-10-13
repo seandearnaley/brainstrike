@@ -1,0 +1,612 @@
+diff --git a/dist/transformers.node.cjs b/dist/transformers.node.cjs
+index e8fe721f948c3a2c361b1d45ceda9411fb220e65..20d0b33177a85f7697285f3f8736ab1a2214e068 100644
+--- a/dist/transformers.node.cjs
++++ b/dist/transformers.node.cjs
+@@ -16189,11 +16189,11 @@ function quantize_embeddings(tensor, precision) {
+ }
+ 
+ // src/utils/model_registry/get_tokenizer_files.js
+-async function get_tokenizer_files(modelId) {
++async function get_tokenizer_files(modelId, options = {}) {
+   if (!modelId) {
+     throw new Error("modelId is required for get_tokenizer_files");
+   }
+-  const metadata = await get_file_metadata(modelId, "tokenizer_config.json", {});
++  const metadata = await get_file_metadata(modelId, "tokenizer_config.json", options);
+   if (metadata.exists) {
+     return ["tokenizer.json", "tokenizer_config.json"];
+   }
+@@ -16202,7 +16202,7 @@ async function get_tokenizer_files(modelId) {
+ 
+ // src/tokenization_utils.js
+ async function loadTokenizer(pretrained_model_name_or_path, options) {
+-  const tokenizerFiles = await get_tokenizer_files(pretrained_model_name_or_path);
++  const tokenizerFiles = await get_tokenizer_files(pretrained_model_name_or_path, options);
+   return await Promise.all(
+     tokenizerFiles.map((file) => getModelJSON(pretrained_model_name_or_path, file, true, options))
+   );
+@@ -26252,8 +26252,14 @@ function get_config(modelId, { config = null, cache_dir = null, local_files_only
+     () => AutoConfig.from_pretrained(modelId, { config, cache_dir, local_files_only, revision })
+   );
+ }
+-async function get_model_files(modelId, { config = null, dtype: overrideDtype = null, device: overrideDevice = null, model_file_name = null } = {}) {
+-  config = await get_config(modelId, { config });
++async function get_model_files(modelId, {
++  config = null,
++  dtype: overrideDtype = null,
++  device: overrideDevice = null,
++  model_file_name = null,
++  ...options
++} = {}) {
++  config = await get_config(modelId, { config, ...options });
+   const files = [
+     // Add config.json (always loaded)
+     "config.json"
+@@ -35361,11 +35367,11 @@ var TASK_ALIASES = Object.freeze({
+ });
+ 
+ // src/utils/model_registry/get_processor_files.js
+-async function get_processor_files(modelId) {
++async function get_processor_files(modelId, options = {}) {
+   if (!modelId) {
+     throw new Error("modelId is required");
+   }
+-  const metadata = await get_file_metadata(modelId, IMAGE_PROCESSOR_NAME, {});
++  const metadata = await get_file_metadata(modelId, IMAGE_PROCESSOR_NAME, options);
+   return metadata.exists ? [IMAGE_PROCESSOR_NAME] : [];
+ }
+ 
+@@ -35376,15 +35382,16 @@ async function get_files(modelId, {
+   device = null,
+   model_file_name = null,
+   include_tokenizer = true,
+-  include_processor = true
++  include_processor = true,
++  ...options
+ } = {}) {
+-  const files = await get_model_files(modelId, { config, dtype, device, model_file_name });
++  const files = await get_model_files(modelId, { config, dtype, device, model_file_name, ...options });
+   if (include_tokenizer) {
+-    const tokenizerFiles = await get_tokenizer_files(modelId);
++    const tokenizerFiles = await get_tokenizer_files(modelId, options);
+     files.push(...tokenizerFiles);
+   }
+   if (include_processor) {
+-    const processorFiles = await get_processor_files(modelId);
++    const processorFiles = await get_processor_files(modelId, options);
+     files.push(...processorFiles);
+   }
+   return files;
+@@ -35447,12 +35454,19 @@ async function pipeline(task, model = null, {
+   }
+   const expected_files = await get_pipeline_files(task, model, {
+     device,
+-    dtype
++    dtype,
++    cache_dir,
++    local_files_only,
++    revision
+   });
+   let files_loading = {};
+   if (progress_callback) {
+     try {
+-      const metadata = await Promise.all(expected_files.map(async (file) => get_file_metadata(model, file)));
++      const metadata = await Promise.all(
++        expected_files.map(
++          async (file) => get_file_metadata(model, file, { cache_dir, local_files_only, revision })
++        )
++      );
+       metadata.forEach((m, i) => {
+         if (m.exists) {
+           files_loading[expected_files[i]] = {
+@@ -36029,8 +36043,8 @@ var ModelRegistry = class {
+    * console.log(files); // ['tokenizer.json', 'tokenizer_config.json']
+    * ```
+    */
+-  static async get_tokenizer_files(modelId) {
+-    return get_tokenizer_files(modelId);
++  static async get_tokenizer_files(modelId, options = {}) {
++    return get_tokenizer_files(modelId, options);
+   }
+   /**
+    * Get processor files needed for a specific model.
+@@ -36044,8 +36058,8 @@ var ModelRegistry = class {
+    * console.log(files); // ['preprocessor_config.json']
+    * ```
+    */
+-  static async get_processor_files(modelId) {
+-    return get_processor_files(modelId);
++  static async get_processor_files(modelId, options = {}) {
++    return get_processor_files(modelId, options);
+   }
+   /**
+    * Detects which quantization levels (dtypes) are available for a model
+diff --git a/dist/transformers.node.mjs b/dist/transformers.node.mjs
+index 66363e7ecba6a8a76ba6c05d66559622dc32b7f2..1feee553795da91f795923f38830f5a6826dd98d 100644
+--- a/dist/transformers.node.mjs
++++ b/dist/transformers.node.mjs
+@@ -15200,11 +15200,11 @@ function quantize_embeddings(tensor, precision) {
+ }
+ 
+ // src/utils/model_registry/get_tokenizer_files.js
+-async function get_tokenizer_files(modelId) {
++async function get_tokenizer_files(modelId, options = {}) {
+   if (!modelId) {
+     throw new Error("modelId is required for get_tokenizer_files");
+   }
+-  const metadata = await get_file_metadata(modelId, "tokenizer_config.json", {});
++  const metadata = await get_file_metadata(modelId, "tokenizer_config.json", options);
+   if (metadata.exists) {
+     return ["tokenizer.json", "tokenizer_config.json"];
+   }
+@@ -15213,7 +15213,7 @@ async function get_tokenizer_files(modelId) {
+ 
+ // src/tokenization_utils.js
+ async function loadTokenizer(pretrained_model_name_or_path, options) {
+-  const tokenizerFiles = await get_tokenizer_files(pretrained_model_name_or_path);
++  const tokenizerFiles = await get_tokenizer_files(pretrained_model_name_or_path, options);
+   return await Promise.all(
+     tokenizerFiles.map((file) => getModelJSON(pretrained_model_name_or_path, file, true, options))
+   );
+@@ -25263,8 +25263,14 @@ function get_config(modelId, { config = null, cache_dir = null, local_files_only
+     () => AutoConfig.from_pretrained(modelId, { config, cache_dir, local_files_only, revision })
+   );
+ }
+-async function get_model_files(modelId, { config = null, dtype: overrideDtype = null, device: overrideDevice = null, model_file_name = null } = {}) {
+-  config = await get_config(modelId, { config });
++async function get_model_files(modelId, {
++  config = null,
++  dtype: overrideDtype = null,
++  device: overrideDevice = null,
++  model_file_name = null,
++  ...options
++} = {}) {
++  config = await get_config(modelId, { config, ...options });
+   const files = [
+     // Add config.json (always loaded)
+     "config.json"
+@@ -34372,11 +34378,11 @@ var TASK_ALIASES = Object.freeze({
+ });
+ 
+ // src/utils/model_registry/get_processor_files.js
+-async function get_processor_files(modelId) {
++async function get_processor_files(modelId, options = {}) {
+   if (!modelId) {
+     throw new Error("modelId is required");
+   }
+-  const metadata = await get_file_metadata(modelId, IMAGE_PROCESSOR_NAME, {});
++  const metadata = await get_file_metadata(modelId, IMAGE_PROCESSOR_NAME, options);
+   return metadata.exists ? [IMAGE_PROCESSOR_NAME] : [];
+ }
+ 
+@@ -34387,15 +34393,16 @@ async function get_files(modelId, {
+   device = null,
+   model_file_name = null,
+   include_tokenizer = true,
+-  include_processor = true
++  include_processor = true,
++  ...options
+ } = {}) {
+-  const files = await get_model_files(modelId, { config, dtype, device, model_file_name });
++  const files = await get_model_files(modelId, { config, dtype, device, model_file_name, ...options });
+   if (include_tokenizer) {
+-    const tokenizerFiles = await get_tokenizer_files(modelId);
++    const tokenizerFiles = await get_tokenizer_files(modelId, options);
+     files.push(...tokenizerFiles);
+   }
+   if (include_processor) {
+-    const processorFiles = await get_processor_files(modelId);
++    const processorFiles = await get_processor_files(modelId, options);
+     files.push(...processorFiles);
+   }
+   return files;
+@@ -34458,12 +34465,19 @@ async function pipeline(task, model = null, {
+   }
+   const expected_files = await get_pipeline_files(task, model, {
+     device,
+-    dtype
++    dtype,
++    cache_dir,
++    local_files_only,
++    revision
+   });
+   let files_loading = {};
+   if (progress_callback) {
+     try {
+-      const metadata = await Promise.all(expected_files.map(async (file) => get_file_metadata(model, file)));
++      const metadata = await Promise.all(
++        expected_files.map(
++          async (file) => get_file_metadata(model, file, { cache_dir, local_files_only, revision })
++        )
++      );
+       metadata.forEach((m, i) => {
+         if (m.exists) {
+           files_loading[expected_files[i]] = {
+@@ -35040,8 +35054,8 @@ var ModelRegistry = class {
+    * console.log(files); // ['tokenizer.json', 'tokenizer_config.json']
+    * ```
+    */
+-  static async get_tokenizer_files(modelId) {
+-    return get_tokenizer_files(modelId);
++  static async get_tokenizer_files(modelId, options = {}) {
++    return get_tokenizer_files(modelId, options);
+   }
+   /**
+    * Get processor files needed for a specific model.
+@@ -35055,8 +35069,8 @@ var ModelRegistry = class {
+    * console.log(files); // ['preprocessor_config.json']
+    * ```
+    */
+-  static async get_processor_files(modelId) {
+-    return get_processor_files(modelId);
++  static async get_processor_files(modelId, options = {}) {
++    return get_processor_files(modelId, options);
+   }
+   /**
+    * Detects which quantization levels (dtypes) are available for a model
+diff --git a/dist/transformers.web.js b/dist/transformers.web.js
+index 5ac054cb23be44616d4e3ef32813e1e7c3acef41..f7f199acc3157496d7e6b331fbe3e3682eb730d1 100644
+--- a/dist/transformers.web.js
++++ b/dist/transformers.web.js
+@@ -11219,11 +11219,11 @@ function quantize_embeddings(tensor, precision) {
+ }
+ 
+ // src/utils/model_registry/get_tokenizer_files.js
+-async function get_tokenizer_files(modelId) {
++async function get_tokenizer_files(modelId, options = {}) {
+   if (!modelId) {
+     throw new Error("modelId is required for get_tokenizer_files");
+   }
+-  const metadata = await get_file_metadata(modelId, "tokenizer_config.json", {});
++  const metadata = await get_file_metadata(modelId, "tokenizer_config.json", options);
+   if (metadata.exists) {
+     return ["tokenizer.json", "tokenizer_config.json"];
+   }
+@@ -11232,7 +11232,7 @@ async function get_tokenizer_files(modelId) {
+ 
+ // src/tokenization_utils.js
+ async function loadTokenizer(pretrained_model_name_or_path, options) {
+-  const tokenizerFiles = await get_tokenizer_files(pretrained_model_name_or_path);
++  const tokenizerFiles = await get_tokenizer_files(pretrained_model_name_or_path, options);
+   return await Promise.all(
+     tokenizerFiles.map((file) => getModelJSON(pretrained_model_name_or_path, file, true, options))
+   );
+@@ -21291,8 +21291,14 @@ function get_config(modelId, { config = null, cache_dir = null, local_files_only
+     () => AutoConfig.from_pretrained(modelId, { config, cache_dir, local_files_only, revision })
+   );
+ }
+-async function get_model_files(modelId, { config = null, dtype: overrideDtype = null, device: overrideDevice = null, model_file_name = null } = {}) {
+-  config = await get_config(modelId, { config });
++async function get_model_files(modelId, {
++  config = null,
++  dtype: overrideDtype = null,
++  device: overrideDevice = null,
++  model_file_name = null,
++  ...options
++} = {}) {
++  config = await get_config(modelId, { config, ...options });
+   const files = [
+     // Add config.json (always loaded)
+     "config.json"
+@@ -30400,11 +30406,11 @@ var TASK_ALIASES = Object.freeze({
+ });
+ 
+ // src/utils/model_registry/get_processor_files.js
+-async function get_processor_files(modelId) {
++async function get_processor_files(modelId, options = {}) {
+   if (!modelId) {
+     throw new Error("modelId is required");
+   }
+-  const metadata = await get_file_metadata(modelId, IMAGE_PROCESSOR_NAME, {});
++  const metadata = await get_file_metadata(modelId, IMAGE_PROCESSOR_NAME, options);
+   return metadata.exists ? [IMAGE_PROCESSOR_NAME] : [];
+ }
+ 
+@@ -30415,15 +30421,16 @@ async function get_files(modelId, {
+   device = null,
+   model_file_name = null,
+   include_tokenizer = true,
+-  include_processor = true
++  include_processor = true,
++  ...options
+ } = {}) {
+-  const files = await get_model_files(modelId, { config, dtype, device, model_file_name });
++  const files = await get_model_files(modelId, { config, dtype, device, model_file_name, ...options });
+   if (include_tokenizer) {
+-    const tokenizerFiles = await get_tokenizer_files(modelId);
++    const tokenizerFiles = await get_tokenizer_files(modelId, options);
+     files.push(...tokenizerFiles);
+   }
+   if (include_processor) {
+-    const processorFiles = await get_processor_files(modelId);
++    const processorFiles = await get_processor_files(modelId, options);
+     files.push(...processorFiles);
+   }
+   return files;
+@@ -30486,12 +30493,19 @@ async function pipeline2(task, model = null, {
+   }
+   const expected_files = await get_pipeline_files(task, model, {
+     device,
+-    dtype
++    dtype,
++    cache_dir,
++    local_files_only,
++    revision
+   });
+   let files_loading = {};
+   if (progress_callback) {
+     try {
+-      const metadata = await Promise.all(expected_files.map(async (file) => get_file_metadata(model, file)));
++      const metadata = await Promise.all(
++        expected_files.map(
++          async (file) => get_file_metadata(model, file, { cache_dir, local_files_only, revision })
++        )
++      );
+       metadata.forEach((m, i) => {
+         if (m.exists) {
+           files_loading[expected_files[i]] = {
+@@ -31068,8 +31082,8 @@ var ModelRegistry = class {
+    * console.log(files); // ['tokenizer.json', 'tokenizer_config.json']
+    * ```
+    */
+-  static async get_tokenizer_files(modelId) {
+-    return get_tokenizer_files(modelId);
++  static async get_tokenizer_files(modelId, options = {}) {
++    return get_tokenizer_files(modelId, options);
+   }
+   /**
+    * Get processor files needed for a specific model.
+@@ -31083,8 +31097,8 @@ var ModelRegistry = class {
+    * console.log(files); // ['preprocessor_config.json']
+    * ```
+    */
+-  static async get_processor_files(modelId) {
+-    return get_processor_files(modelId);
++  static async get_processor_files(modelId, options = {}) {
++    return get_processor_files(modelId, options);
+   }
+   /**
+    * Detects which quantization levels (dtypes) are available for a model
+diff --git a/src/pipelines.js b/src/pipelines.js
+index d537f12b635198587a78b822185546ba2f27226c..c92d0997fc5695d63a889047e2741d321e1a54a1 100644
+--- a/src/pipelines.js
++++ b/src/pipelines.js
+@@ -137,6 +137,9 @@ export async function pipeline(
+     const expected_files = await get_pipeline_files(task, model, {
+         device,
+         dtype,
++        cache_dir,
++        local_files_only,
++        revision,
+     });
+ 
+     /** @type {import('./utils/core.js').FilesLoadingMap} */
+@@ -144,7 +147,11 @@ export async function pipeline(
+     if (progress_callback) {
+         try {
+             /** @type {Array<{exists: boolean, size?: number, contentType?: string, fromCache?: boolean}>} */
+-            const metadata = await Promise.all(expected_files.map(async (file) => get_file_metadata(model, file)));
++            const metadata = await Promise.all(
++                expected_files.map(async (file) =>
++                    get_file_metadata(model, file, { cache_dir, local_files_only, revision }),
++                ),
++            );
+             metadata.forEach((m, i) => {
+                 if (m.exists) {
+                     files_loading[expected_files[i]] = {
+diff --git a/src/tokenization_utils.js b/src/tokenization_utils.js
+index 30fc58ea6e45e28468ae729d2b4afbca7e76c878..cf51d91ac223847c62c6c8809a0ce124db2b0f09 100644
+--- a/src/tokenization_utils.js
++++ b/src/tokenization_utils.js
+@@ -32,7 +32,7 @@ import { get_tokenizer_files } from './utils/model_registry/get_tokenizer_files.
+  * @returns {Promise<any[]>} A promise that resolves with information about the loaded tokenizer.
+  */
+ export async function loadTokenizer(pretrained_model_name_or_path, options) {
+-    const tokenizerFiles = await get_tokenizer_files(pretrained_model_name_or_path);
++    const tokenizerFiles = await get_tokenizer_files(pretrained_model_name_or_path, options);
+     return await Promise.all(
+         tokenizerFiles.map((file) => getModelJSON(pretrained_model_name_or_path, file, true, options)),
+     );
+diff --git a/src/utils/model_registry/ModelRegistry.js b/src/utils/model_registry/ModelRegistry.js
+index f72f302123a9221595a18189a0a2bf19ce02f9e7..d919d595f430adb49e1fac5b906d11ff503d01a1 100644
+--- a/src/utils/model_registry/ModelRegistry.js
++++ b/src/utils/model_registry/ModelRegistry.js
+@@ -127,6 +127,9 @@ export class ModelRegistry {
+      * @param {string} [options.model_file_name=null] - Override the model file name (excluding .onnx suffix)
+      * @param {boolean} [options.include_tokenizer=true] - Whether to check for tokenizer files
+      * @param {boolean} [options.include_processor=true] - Whether to check for processor files
++     * @param {string} [options.revision='main'] - Git branch, tag, or commit SHA to list files from
++     * @param {string} [options.cache_dir] - Path to the cache directory
++     * @param {boolean} [options.local_files_only=false] - Whether to only look for the files locally
+      * @returns {Promise<string[]>} Array of file paths
+      *
+      * **Example:**
+@@ -150,6 +153,9 @@ export class ModelRegistry {
+      * @param {import('../dtypes.js').DataType|Record<string, import('../dtypes.js').DataType>} [options.dtype=null] - Override dtype
+      * @param {import('../devices.js').DeviceType|Record<string, import('../devices.js').DeviceType>} [options.device=null] - Override device
+      * @param {string} [options.model_file_name=null] - Override the model file name (excluding .onnx suffix)
++     * @param {string} [options.revision='main'] - Git branch, tag, or commit SHA to list files from
++     * @param {string} [options.cache_dir] - Path to the cache directory
++     * @param {boolean} [options.local_files_only=false] - Whether to only look for the files locally
+      * @returns {Promise<string[]>} Array of file paths
+      *
+      * **Example:**
+@@ -171,6 +177,9 @@ export class ModelRegistry {
+      * @param {import('../dtypes.js').DataType|Record<string, import('../dtypes.js').DataType>} [options.dtype=null] - Override dtype
+      * @param {import('../devices.js').DeviceType|Record<string, import('../devices.js').DeviceType>} [options.device=null] - Override device
+      * @param {string} [options.model_file_name=null] - Override the model file name (excluding .onnx suffix)
++     * @param {string} [options.revision='main'] - Git branch, tag, or commit SHA to list files from
++     * @param {string} [options.cache_dir] - Path to the cache directory
++     * @param {boolean} [options.local_files_only=false] - Whether to only look for the files locally
+      * @returns {Promise<string[]>} Array of model file paths
+      *
+      * **Example:**
+@@ -187,6 +196,8 @@ export class ModelRegistry {
+      * Get tokenizer files needed for a specific model.
+      *
+      * @param {string} modelId - The model id
++     * @param {import('../hub.js').PretrainedOptions} [options] - Options forwarded to the metadata request, so the
++     * existence check reads the same revision the files will be loaded from.
+      * @returns {Promise<string[]>} Array of tokenizer file paths
+      *
+      * **Example:**
+@@ -195,14 +206,16 @@ export class ModelRegistry {
+      * console.log(files); // ['tokenizer.json', 'tokenizer_config.json']
+      * ```
+      */
+-    static async get_tokenizer_files(modelId) {
+-        return get_tokenizer_files(modelId);
++    static async get_tokenizer_files(modelId, options = {}) {
++        return get_tokenizer_files(modelId, options);
+     }
+ 
+     /**
+      * Get processor files needed for a specific model.
+      *
+      * @param {string} modelId - The model id
++     * @param {import('../hub.js').PretrainedOptions} [options] - Options forwarded to the metadata request, so the
++     * existence check reads the same revision the files will be loaded from.
+      * @returns {Promise<string[]>} Array of processor file paths
+      *
+      * **Example:**
+@@ -211,8 +224,8 @@ export class ModelRegistry {
+      * console.log(files); // ['preprocessor_config.json']
+      * ```
+      */
+-    static async get_processor_files(modelId) {
+-        return get_processor_files(modelId);
++    static async get_processor_files(modelId, options = {}) {
++        return get_processor_files(modelId, options);
+     }
+ 
+     /**
+diff --git a/src/utils/model_registry/get_files.js b/src/utils/model_registry/get_files.js
+index eeda2891b25789e7ac562e2408ac432666aaf7ae..a105db2a60030f751a8f6db8d7694c2c62560d95 100644
+--- a/src/utils/model_registry/get_files.js
++++ b/src/utils/model_registry/get_files.js
+@@ -14,6 +14,10 @@ import { get_processor_files } from './get_processor_files.js';
+  * @param {string|null} [options.model_file_name=null|null] Override the model file name (excluding .onnx suffix)
+  * @param {boolean} [options.include_tokenizer=true] Whether to check for tokenizer files (set to false for vision-only models)
+  * @param {boolean} [options.include_processor=true] Whether to check for processor files
++ * @param {string} [options.revision='main'] Git branch, tag, or commit SHA — forwarded, with the other
++ * pretrained options below, to every file lookup this makes
++ * @param {string} [options.cache_dir] Path to the cache directory
++ * @param {boolean} [options.local_files_only=false] Whether to only look for the files locally
+  * @returns {Promise<string[]>} Array of file paths that will be loaded
+  */
+ export async function get_files(
+@@ -25,16 +29,19 @@ export async function get_files(
+         model_file_name = null,
+         include_tokenizer = true,
+         include_processor = true,
++        ...options
+     } = {},
+ ) {
+-    const files = await get_model_files(modelId, { config, dtype, device, model_file_name });
++    // Forward the remaining pretrained options (`revision`, `cache_dir`, ...) to every lookup below: naming a
++    // fixed subset here meant a pinned load listed its files from `main`.
++    const files = await get_model_files(modelId, { config, dtype, device, model_file_name, ...options });
+ 
+     if (include_tokenizer) {
+-        const tokenizerFiles = await get_tokenizer_files(modelId);
++        const tokenizerFiles = await get_tokenizer_files(modelId, options);
+         files.push(...tokenizerFiles);
+     }
+     if (include_processor) {
+-        const processorFiles = await get_processor_files(modelId);
++        const processorFiles = await get_processor_files(modelId, options);
+         files.push(...processorFiles);
+     }
+ 
+diff --git a/src/utils/model_registry/get_model_files.js b/src/utils/model_registry/get_model_files.js
+index 46764242116fe3835412d7ef5a1983a1ba1292e7..a92e8343ee518471935785daee555c655c5a8b22 100644
+--- a/src/utils/model_registry/get_model_files.js
++++ b/src/utils/model_registry/get_model_files.js
+@@ -55,13 +55,24 @@ export function get_config(
+  * @param {import('../dtypes.js').DataType|Record<string, import('../dtypes.js').DataType>} [options.dtype=null] Override dtype (use this if passing dtype to pipeline)
+  * @param {import('../devices.js').DeviceType|Record<string, import('../devices.js').DeviceType>} [options.device=null] Override device (use this if passing device to pipeline)
+  * @param {string} [options.model_file_name=null] Override the model file name (excluding .onnx suffix).
++ * @param {string} [options.revision='main'] Git branch, tag, or commit SHA to read the config from
++ * @param {string} [options.cache_dir] Path to the cache directory
++ * @param {boolean} [options.local_files_only=false] Whether to only look for the files locally
+  * @returns {Promise<string[]>} Array of file paths that will be loaded
+  */
+ export async function get_model_files(
+     modelId,
+-    { config = null, dtype: overrideDtype = null, device: overrideDevice = null, model_file_name = null } = {},
++    {
++        config = null,
++        dtype: overrideDtype = null,
++        device: overrideDevice = null,
++        model_file_name = null,
++        ...options
++    } = {},
+ ) {
+-    config = await get_config(modelId, { config });
++    // Forward the remaining pretrained options (`revision`, `cache_dir`, ...): without them the config is read
++    // from `main` even when the caller pinned a revision.
++    config = await get_config(modelId, { config, ...options });
+ 
+     const files = [
+         // Add config.json (always loaded)
+diff --git a/src/utils/model_registry/get_pipeline_files.js b/src/utils/model_registry/get_pipeline_files.js
+index c6d4e3a7def10e722636799d2c85793f55b144ec..908d4ec80faf7570657da9348cdc1b4956835504 100644
+--- a/src/utils/model_registry/get_pipeline_files.js
++++ b/src/utils/model_registry/get_pipeline_files.js
+@@ -16,6 +16,9 @@ import { SUPPORTED_TASKS, TASK_ALIASES } from '../../pipelines/index.js';
+  * @param {import('../dtypes.js').DataType|Record<string, import('../dtypes.js').DataType>} [options.dtype=null] - Override dtype
+  * @param {import('../devices.js').DeviceType|Record<string, import('../devices.js').DeviceType>} [options.device=null] - Override device
+  * @param {string} [options.model_file_name=null] - Override the model file name (excluding .onnx suffix)
++ * @param {string} [options.revision='main'] - Git branch, tag, or commit SHA to list files from
++ * @param {string} [options.cache_dir] - Path to the cache directory
++ * @param {boolean} [options.local_files_only=false] - Whether to only look for the files locally
+  * @returns {Promise<string[]>} Array of file paths that will be loaded
+  * @throws {Error} If the task is not supported
+  */
+diff --git a/src/utils/model_registry/get_processor_files.js b/src/utils/model_registry/get_processor_files.js
+index 894748d843796dd8d9635aa2738b07f9d16e3056..3acf22e16ece7e56273f2e272f23da71269fdfb9 100644
+--- a/src/utils/model_registry/get_processor_files.js
++++ b/src/utils/model_registry/get_processor_files.js
+@@ -6,15 +6,17 @@ import { get_file_metadata } from './get_file_metadata.js';
+  * Auto-detects if the model has a processor by checking if preprocessor_config.json exists.
+  *
+  * @param {string} modelId The model id (e.g., "Xenova/detr-resnet-50")
++ * @param {import('../hub.js').PretrainedOptions} [options] Options forwarded to the metadata request, so the
++ * existence check reads the same revision the files will be loaded from.
+  * @returns {Promise<string[]>} Array of processor file names (empty if no processor)
+  */
+-export async function get_processor_files(modelId) {
++export async function get_processor_files(modelId, options = {}) {
+     if (!modelId) {
+         throw new Error('modelId is required');
+     }
+ 
+     // Check if preprocessor_config.json exists
+-    const metadata = await get_file_metadata(modelId, IMAGE_PROCESSOR_NAME, {});
++    const metadata = await get_file_metadata(modelId, IMAGE_PROCESSOR_NAME, options);
+ 
+     return metadata.exists ? [IMAGE_PROCESSOR_NAME] : [];
+ }
+diff --git a/src/utils/model_registry/get_tokenizer_files.js b/src/utils/model_registry/get_tokenizer_files.js
+index 1024f995806c895ee313ab8c652f23886c82b9de..3f11f1222a71e8f5682be911bd339c139405e717 100644
+--- a/src/utils/model_registry/get_tokenizer_files.js
++++ b/src/utils/model_registry/get_tokenizer_files.js
+@@ -5,14 +5,16 @@ import { get_file_metadata } from './get_file_metadata.js';
+  * Automatically detects whether the model has tokenizer files.
+  *
+  * @param {string} modelId The model id to check for tokenizer files
++ * @param {import('../hub.js').PretrainedOptions} [options] Options forwarded to the metadata request, so the
++ * existence check reads the same revision the files will be loaded from.
+  * @returns {Promise<string[]>} An array of file names that will be loaded
+  */
+-export async function get_tokenizer_files(modelId) {
++export async function get_tokenizer_files(modelId, options = {}) {
+     if (!modelId) {
+         throw new Error('modelId is required for get_tokenizer_files');
+     }
+ 
+-    const metadata = await get_file_metadata(modelId, 'tokenizer_config.json', {});
++    const metadata = await get_file_metadata(modelId, 'tokenizer_config.json', options);
+     if (metadata.exists) {
+         return ['tokenizer.json', 'tokenizer_config.json'];
+     }

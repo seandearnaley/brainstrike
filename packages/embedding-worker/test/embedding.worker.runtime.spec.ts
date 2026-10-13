@@ -2,6 +2,7 @@ import {
   EMBED_WORKER_INSTANCE_NAME_PREFIX,
   EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
+  withOnnxWasmPathsFragment,
 } from '@brainstrike/indexing-contract';
 import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -26,7 +27,13 @@ const pipelineMock = vi.fn();
 const transformersImportState = vi.hoisted(() => ({
   env: { allowRemoteModels: false } as {
     allowRemoteModels: boolean;
-    backends?: { onnx?: { webgpu?: { device?: unknown } } };
+    backends?: {
+      onnx?: {
+        versions?: { web?: string };
+        wasm?: { wasmPaths?: unknown };
+        webgpu?: { device?: unknown };
+      };
+    };
   },
   error: null as Error | null,
 }));
@@ -1127,6 +1134,48 @@ describe('embedding worker runtime', () => {
     ).resolves.toMatchObject({
       id: 'retry-import-second',
       type: 'result',
+    });
+  });
+
+  describe('ONNX Runtime WASM source (BST-2003)', () => {
+    const paths = {
+      mjs: 'file:///app/dist/renderer/assets/ort-wasm-simd-threaded.asyncify-1a.mjs',
+      wasm: 'file:///app/dist/renderer/assets/ort-wasm-simd-threaded.asyncify-2b.wasm',
+    };
+    const request = {
+      deviceHint: 'wasm',
+      id: 'ort-wasm-source',
+      model: 'bge-m3',
+      texts: ['hello'],
+      truncateDim: 2,
+      type: 'embed',
+    } as const;
+
+    it('points browser ONNX Runtime at the app-served WASM its worker URL names', async () => {
+      const wasm: { wasmPaths?: unknown } = {};
+      transformersImportState.env = {
+        allowRemoteModels: false,
+        backends: { onnx: { versions: { web: '1.31.0' }, wasm } },
+      };
+      vi.stubGlobal('location', {
+        hash: new URL(withOnnxWasmPathsFragment('file:///app/worker.js', paths)).hash,
+      });
+      pipelineMock.mockResolvedValue(async () => new Float32Array([0.2, 0.8]));
+      const runEmbedding = await loadWorker();
+      await expect(runEmbedding(request)).resolves.toMatchObject({ type: 'result' });
+      expect(wasm.wasmPaths).toEqual(paths);
+    });
+
+    it('refuses to load browser ONNX Runtime without app-served WASM URLs', async () => {
+      transformersImportState.env = {
+        allowRemoteModels: false,
+        backends: { onnx: { versions: { web: '1.31.0' }, wasm: {} } },
+      };
+      vi.stubGlobal('location', { hash: '' });
+      pipelineMock.mockResolvedValue(async () => new Float32Array([0.2, 0.8]));
+      const runEmbedding = await loadWorker();
+      await expect(runEmbedding(request)).rejects.toThrow('never loads ONNX Runtime from a CDN');
+      expect(pipelineMock).not.toHaveBeenCalled();
     });
   });
 
