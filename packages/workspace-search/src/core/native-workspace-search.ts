@@ -115,52 +115,48 @@ export async function getNativeSemanticAvailability(
   if (!validNativeScope(rootIds, collectionId)) {
     return unavailable('Vector search requires an explicit nonempty workspace root scope.');
   }
-  try {
-    const observation = await capability.coverageBatch([
-      {
-        rootIds,
-        ...(collectionId === null ? {} : { collectionId }),
-      },
-    ]);
-    if (observation.kind === 'invalidated') {
-      return unavailable('Native vector availability is being verified.');
-    }
-    if (observation.kind === 'blocked') {
-      return unavailable(observation.reason);
-    }
-    const { status } = observation;
-    const [coverage] = observation.coverage;
-    if (observation.coverage.length !== 1 || !coverage) {
-      return unavailable('Native vector availability returned a different coverage inventory.');
-    }
-    if (status.embedding.indexMode !== 'vector-configured') {
-      return unavailable('The native store has no explicitly configured vector profile.');
-    }
-    const profileHash = await nativeProfileHash(profile);
-    if (!matchesConfiguredProfile(status.embedding, profile, profileHash)) {
-      return unavailable('Vector search profile does not match the native index.');
-    }
-    if (collectionId !== null && !status.authorizedCollectionIds?.includes(collectionId)) {
-      return unavailable('Native collection scope is not currently authorized.');
-    }
-    if (rootIds.some((rootId) => !status.authorizedRootIds.includes(rootId))) {
-      return unavailable('Vector search scope contains an unauthorized workspace root.');
-    }
-    const reason = coverageRefusal(
-      coverage,
-      status.storeId,
-      profile,
-      profileHash,
+  const observation = await capability.coverageBatch([
+    {
       rootIds,
-      collectionId
-    );
-    if (reason !== null) {
-      return unavailable(reason);
-    }
-    return admittedCoverage(coverage, completeScopeReceipts(status, rootIds, collectionId));
-  } catch (error) {
-    return unavailable(error instanceof Error ? error.message : String(error));
+      ...(collectionId === null ? {} : { collectionId }),
+    },
+  ]);
+  if (observation.kind === 'invalidated') {
+    return unavailable('Native vector availability is being verified.');
   }
+  if (observation.kind === 'blocked') {
+    return unavailable(observation.reason);
+  }
+  const { status } = observation;
+  const [coverage] = observation.coverage;
+  if (observation.coverage.length !== 1 || !coverage) {
+    return unavailable('Native vector availability returned a different coverage inventory.');
+  }
+  if (status.embedding.indexMode !== 'vector-configured') {
+    return unavailable('The native store has no explicitly configured vector profile.');
+  }
+  const profileHash = await nativeProfileHash(profile);
+  if (!matchesConfiguredProfile(status.embedding, profile, profileHash)) {
+    return unavailable('Vector search profile does not match the native index.');
+  }
+  if (collectionId !== null && !status.authorizedCollectionIds?.includes(collectionId)) {
+    return unavailable('Native collection scope is not currently authorized.');
+  }
+  if (rootIds.some((rootId) => !status.authorizedRootIds.includes(rootId))) {
+    return unavailable('Vector search scope contains an unauthorized workspace root.');
+  }
+  const reason = coverageRefusal(
+    coverage,
+    status.storeId,
+    profile,
+    profileHash,
+    rootIds,
+    collectionId
+  );
+  if (reason !== null) {
+    return unavailable(reason);
+  }
+  return admittedCoverage(coverage, completeScopeReceipts(status, rootIds, collectionId));
 }
 
 function admittedCoverage(

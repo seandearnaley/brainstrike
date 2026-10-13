@@ -457,7 +457,12 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
       pending = true;
       do {
         refreshRequested = false;
-        const value = await getNativeSemanticAvailability(availabilityScope);
+        const value = await getNativeSemanticAvailability(availabilityScope).catch(
+          (error: unknown) => ({
+            available: false,
+            reason: describeBoundaryError(error),
+          })
+        );
         if (!current) {
           return;
         }
