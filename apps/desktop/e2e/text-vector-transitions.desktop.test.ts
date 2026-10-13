@@ -238,6 +238,51 @@ test.describe('Text and semantic search transitions (desktop)', () => {
     }
   });
 
+  test('a text-only workspace moves into a model chosen after semantic search', async ({
+    electron,
+    window: page,
+  }) => {
+    test.setTimeout(480_000);
+    const root = workspaceFolder();
+    try {
+      await seedRoot(page, root, { reloadReason: 'm6-text-mode-first', rootId: randomUUID() });
+      await chooseSearchMode(page, 'Text search');
+      await waitForIndex(page, 'text-only');
+      expect(await textHits(page)).toEqual([
+        { path: 'bread.md', set: null },
+        { path: 'notes.txt', set: null },
+      ]);
+
+      // The order a person picks them: semantic search, then its model, then
+      // the model's execution. Each choice is saved before the next exists.
+      const section = await openSearchSettings(page);
+      await section.getByRole('combobox', { name: 'Search mode' }).click();
+      await page.getByRole('option', { exact: true, name: 'Text and semantic search' }).click();
+      await section.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
+      await page.getByRole('option', { name: new RegExp(MODEL) }).click();
+      await section.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
+      await expect(section.getByRole('combobox', { name: 'Managed collection' })).toContainText(
+        `Workspace Index (${MODEL})`,
+        { timeout: 15_000 }
+      );
+      await section.getByRole('combobox', { name: 'Local model execution' }).click();
+      await page.getByRole('option', { exact: true, name: 'WASM · Q8' }).click();
+      await new HomePage(page).leaveSettings();
+
+      await waitForIndex(page, 'vector-configured');
+      const collectionId = await savedCollection(page);
+      expect(collectionId).not.toBeNull();
+      expect(await semanticFinds(page, 'how to keep a bread starter alive')).toBe(true);
+      expect(await textHits(page)).toEqual([
+        { path: 'bread.md', set: collectionId },
+        { path: 'notes.txt', set: collectionId },
+      ]);
+    } finally {
+      await electron.dispose();
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
   test('turning semantic search off keeps the collection and its text search', async ({
     electron,
     window: page,

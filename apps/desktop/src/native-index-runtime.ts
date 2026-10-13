@@ -136,6 +136,45 @@ function workspaceRemoval(file: IndexFileBinding): {
   return { fileId: file.fileId, scope: { kind: 'workspace', rootId: file.rootId } };
 }
 
+/**
+ * An opened writer's folders hold exactly the rows its bindings own (BST-1988).
+ * A workspace scope's store rows are every file under that root, whatever its
+ * partition, and the writer only acts on bound files. Rows from another partition
+ * or retired while no writer was open would otherwise stay unbound and keep the
+ * folder's manifest incomplete. Each is bound from its own stored row (no
+ * partition, so no collection scope is needed) and removed; Postgres sources stay.
+ */
+async function retireUnownedRows(port: NativePort, requested: NativeIndexAuthority): Promise<void> {
+  const owned = new Set(requested.fileBindings.map((file) => file.fileId));
+  const unowned: IndexFileBinding[] = [];
+  for (const scope of requested.scopes) {
+    if (scope.kind !== 'workspace') {
+      continue;
+    }
+    const stored = await port.verifyScopedManifest({ files: [], scope });
+    for (const row of stored.unexpected) {
+      if (!owned.has(row.fileId)) {
+        unowned.push({
+          embeddingSetId: null,
+          fileId: row.fileId,
+          profile: null,
+          relativePath: row.relativePath,
+          rootId: row.rootId,
+          sourcePath: row.sourcePath,
+        });
+      }
+    }
+  }
+  if (unowned.length === 0) {
+    return;
+  }
+  await port.replaceFileBindings([...requested.fileBindings, ...unowned]);
+  for (const file of unowned) {
+    await port.removeScopedFile(workspaceRemoval(file));
+  }
+  await port.replaceFileBindings(requested.fileBindings);
+}
+
 /** Main owns this admission lifetime. Reset resumes only after releasing its deletion guard. */
 export function createNativeIndexRuntime<Attachment>(
   dependencies: Dependencies<Attachment>
@@ -301,6 +340,7 @@ export function createNativeIndexRuntime<Attachment>(
     }
     await assertAuthorityCurrent();
     const ready = await owner.start();
+    await retireUnownedRows(ready, requested);
     acknowledgedAuthority = requested;
     acknowledgedPort = ready;
     if (closed) {
