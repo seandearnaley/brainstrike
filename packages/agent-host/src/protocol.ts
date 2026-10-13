@@ -41,6 +41,11 @@ import {
   SELECTION_RESULT_SCHEMAS,
   selectionEventSchemas,
 } from './protocol-selection.js';
+import {
+  RunVerdictDetailSchema,
+  RunVerdictSchema,
+  RunVerdictSourceSchema,
+} from './run-verdict-wire.js';
 import { HostHookSkipSchema, HostImageAttachmentSchema } from './run-wire.js';
 import {
   HostEditBaselineSchema,
@@ -167,9 +172,6 @@ export type HostPermissionGrant = z.infer<typeof PermissionGrant>;
  * requested domains; deny settles it unrun (run_python's `network_denied`).
  */
 export const HostNetworkConsentSchema = z.strictObject({ action: z.enum(['allow', 'deny']) });
-/** Task Ledger run labels (brainstrike_assistant_run_outcomes verdict/source). */
-const RunVerdict = z.enum(['failed', 'mixed', 'succeeded']);
-const RunVerdictDetail = z.string().max(2000);
 const McpInput = { ...Run, interactionId: Id };
 /** An MCP App's own tool call: the app a committed tool result of the thread mounted. */
 const McpAppCall = {
@@ -488,9 +490,9 @@ export const HOST_METHOD_SCHEMAS = {
   'run/verdict': z.strictObject({
     ...Command,
     ...Run,
-    detail: RunVerdictDetail.optional(),
+    detail: RunVerdictDetailSchema.optional(),
     source: z.literal('user'),
-    verdict: RunVerdict,
+    verdict: RunVerdictSchema,
   }),
   /** BST-1932: a thread's direct child threads; they are never in `thread/list`. */
   'thread/children': z.strictObject(Thread),
@@ -882,9 +884,9 @@ export function hostEventSchema(json: JsonSchemaFactory) {
     z.strictObject({
       type: z.literal('run.verdict'),
       ...RunFields,
-      detail: RunVerdictDetail.optional(),
-      source: z.enum(['edit_revert', 'hook', 'user']),
-      verdict: RunVerdict,
+      detail: RunVerdictDetailSchema.optional(),
+      source: RunVerdictSourceSchema,
+      verdict: RunVerdictSchema,
     }),
   ]);
 }

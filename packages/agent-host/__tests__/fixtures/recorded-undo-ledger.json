@@ -1,0 +1,70 @@
+[
+  {
+    "event": {
+      "type": "run.started",
+      "runId": "64263838-b201-4d03-b6d2-4d245a92c684",
+      "modelId": "openai::gpt-5.2",
+      "parentMessageId": null,
+      "prompt": "WRITE_ONE approved edit"
+    },
+    "seq": 11,
+    "threadId": "9ba3c8e9-847e-4118-8a1f-758ec9aa4fd7",
+    "ts": 1791892107822
+  },
+  {
+    "event": {
+      "type": "run.finished",
+      "runId": "64263838-b201-4d03-b6d2-4d245a92c684",
+      "outcome": "completed"
+    },
+    "seq": 40,
+    "threadId": "9ba3c8e9-847e-4118-8a1f-758ec9aa4fd7",
+    "ts": 1791892108562
+  },
+  {
+    "event": {
+      "type": "run.verdict",
+      "runId": "64263838-b201-4d03-b6d2-4d245a92c684",
+      "detail": "1/1 edits reverted",
+      "source": "edit_revert",
+      "verdict": "failed"
+    },
+    "seq": 44,
+    "threadId": "9ba3c8e9-847e-4118-8a1f-758ec9aa4fd7",
+    "ts": 1791892108761
+  },
+  {
+    "event": {
+      "type": "run.started",
+      "runId": "f9745466-0b46-469e-b131-eeb96cd7ebaa",
+      "modelId": "openai::gpt-5.2",
+      "parentMessageId": "64263838-b201-4d03-b6d2-4d245a92c684",
+      "prompt": "WRITE_PAIR approved two edits"
+    },
+    "seq": 48,
+    "threadId": "9ba3c8e9-847e-4118-8a1f-758ec9aa4fd7",
+    "ts": 1791892279528
+  },
+  {
+    "event": {
+      "type": "run.finished",
+      "runId": "f9745466-0b46-469e-b131-eeb96cd7ebaa",
+      "outcome": "completed"
+    },
+    "seq": 89,
+    "threadId": "9ba3c8e9-847e-4118-8a1f-758ec9aa4fd7",
+    "ts": 1791892282101
+  },
+  {
+    "event": {
+      "type": "run.verdict",
+      "runId": "f9745466-0b46-469e-b131-eeb96cd7ebaa",
+      "detail": "1/2 edits reverted",
+      "source": "edit_revert",
+      "verdict": "mixed"
+    },
+    "seq": 92,
+    "threadId": "9ba3c8e9-847e-4118-8a1f-758ec9aa4fd7",
+    "ts": 1791892282311
+  }
+]

@@ -1,44 +1,49 @@
 'use strict';
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
-const { mkdtempSync, readFileSync, rmSync } = require('node:fs');
-const { tmpdir } = require('node:os');
+const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const { app, utilityProcess } = require('electron');
 
 const profileDirectory = process.env.SQLITE_QUERY_TEST_USER_DATA_DIR;
-if (!profileDirectory) {
-  throw new Error('The utility proof requires its runner-owned disposable profile.');
+const indexDirectory = process.env.SQLITE_QUERY_TEST_INDEX_DIR;
+if (!(profileDirectory && indexDirectory)) {
+  throw new Error('The utility proof requires its runner-owned profile and real index.');
 }
 app.setPath('userData', profileDirectory);
 app.setPath('sessionData', profileDirectory);
 
-const directory = mkdtempSync(join(tmpdir(), 'brainstrike-query-utility-'));
-const databasePath = join(directory, 'index.sqlite');
+// Built by the runner through the real IndexerPort (build-lifecycle-index.mjs).
+const databasePath = join(indexDirectory, 'index.sqlite');
+const fixture = JSON.parse(readFileSync(join(indexDirectory, 'fixture.json'), 'utf8'));
 const owned = [];
 const processes = [];
 const hash = () => createHash('sha256').update(readFileSync(databasePath)).digest('hex');
+const proof = (pattern, overrides = {}) => ({
+  caseSensitive: false,
+  isRegex: false,
+  maxRows: 100,
+  pattern,
+  rootIds: ['proof-root'],
+  ...overrides,
+});
+// Quadratic backtracking over runaway-root's 300,000-character line: tens of seconds.
+// `\w` overlaps `\d`, so V8 cannot make the `+` atomic as it does for `[a-z]+[0-9]`.
+const runaway = {
+  caseSensitive: true,
+  isRegex: true,
+  maxRows: 1,
+  pattern: String.raw`\w+\d`,
+  rootIds: ['runaway-root'],
+};
 
 app
   .whenReady()
   .then(async () => {
-    const { SqliteQueryClient, SqliteQueryCancelledError, spawnUtilityQueryProcess } = await import(
+    const { SqliteQueryClient, SqliteQueryDeadlineError, spawnUtilityQueryProcess } = await import(
       '../dist/index.js'
     );
-    const writer = new DatabaseSync(databasePath);
-    writer.exec(
-      "CREATE TABLE records(id TEXT PRIMARY KEY); INSERT INTO records VALUES('one'); CREATE VIRTUAL TABLE records_fts USING fts5(content); INSERT INTO records_fts VALUES('query index');"
-    );
-    writer.exec(`CREATE TABLE index_metadata(singleton INTEGER PRIMARY KEY,schema_version INTEGER,store_id TEXT,index_mode TEXT,profile_json TEXT,profile_hash TEXT);
-      INSERT INTO index_metadata VALUES(1,10,'${'a'.repeat(64)}','text-only',NULL,NULL);
-      CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT,path TEXT);
-      CREATE TABLE file_chunks(id TEXT,root_id TEXT,file_record_id TEXT,content TEXT,content_hash TEXT,start_line INTEGER,end_line INTEGER,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER);
-      CREATE VIRTUAL TABLE file_chunks_trigram USING fts5(content,content='file_chunks',tokenize='trigram');
-      CREATE TRIGGER chunks_insert AFTER INSERT ON file_chunks BEGIN INSERT INTO file_chunks_trigram(rowid,content) VALUES(new.rowid,new.content); END;
-      INSERT INTO file_records VALUES('file-a','root-a','proof.ts');
-      INSERT INTO file_chunks VALUES('one','root-a','file-a','CAFÉ alpha','hash-one',1,1,0,10,'text',0,10,3),('two','root-a','file-a','alphabet','hash-two',2,2,1,8,'text',11,19,1);`);
-    writer.close();
     const before = hash();
     const open = async (deadlineMs = 1000) => {
       const client = await SqliteQueryClient.open({
@@ -59,79 +64,21 @@ app
       return client;
     };
     try {
+      const [cafe, alphabet] = fixture.chunkIds.proof;
       const client = await open();
-      assert.deepEqual((await client.query('SELECT 1 AS id, 2 AS id')).rows, [[1, 2]]);
-      assert.equal(
-        (
-          await client.query(
-            'SELECT bm25(records_fts) FROM records_fts WHERE records_fts MATCH ?',
-            { values: ['query'] }
-          )
-        ).rows.length,
-        1
-      );
-      assert.deepEqual(
-        (await client.query('SELECT vec_length(vec_f32(?))', { values: ['[1,2,3]'] })).rows,
-        [[3]]
-      );
-      assert.deepEqual(
-        (
-          await client.query('SELECT id FROM records WHERE id=?', {
-            values: ["x';DROP TABLE records;--"],
-          })
-        ).rows,
-        []
-      );
-      const grep = await client.grep({
-        caseSensitive: false,
-        isRegex: false,
-        maxRows: 1,
-        pattern: 'alpha',
-        rootIds: ['root-a'],
-      });
-      assert.deepEqual(grep.identity, {
-        embedding: { indexMode: 'text-only' },
-        storeId: 'a'.repeat(64),
-      });
+      const grep = await client.grep(proof('alpha', { maxRows: 1 }));
+      assert.equal(grep.identity.embedding.indexMode, 'text-only');
+      assert.match(grep.identity.storeId, /^[0-9a-f]{64}$/u);
       assert.equal(grep.matchedChunks, 2);
       assert.equal(grep.truncated, true);
-      assert.deepEqual(
-        grep.rows.map((row) => row[0]),
-        ['one']
-      );
-      const unicode = await client.grep({
-        caseSensitive: false,
-        isRegex: false,
-        maxRows: 100,
-        pattern: 'café',
-        rootIds: ['root-a'],
-      });
+      assert.ok([cafe, alphabet].includes(grep.rows[0][0]));
+      const unicode = await client.grep(proof('café'));
       assert.deepEqual(
         unicode.rows.map((row) => row[0]),
-        ['one']
+        [cafe]
       );
       assert.equal(hash(), before);
-      assert.equal((await client.describeTable('records')).rows[0][0], 'id');
-      assert((await client.listTables()).rows.some((row) => row[0] === 'records'));
-      for (const sql of [
-        "ATTACH ':memory:' AS other",
-        `VACUUM INTO '${join(directory, 'stolen.sqlite')}'`,
-        'CREATE TEMP TABLE evil(value)',
-        'DELETE FROM records',
-        'BEGIN',
-        'SAVEPOINT s',
-        'PRAGMA writable_schema=1',
-        'PRAGMA hard_heap_limit=0',
-        "SELECT load_extension('missing')",
-        "SELECT vec_npy_file('missing')",
-        "SELECT fts3_tokenizer('simple')",
-        "SELECT sqlite_log(1,'x')",
-        'SELECT 1; DROP TABLE records',
-        'SELECT length(randomblob(20000000))',
-      ]) {
-        await assert.rejects(client.query(sql));
-        assert.equal(hash(), before);
-      }
+
       const doomed = await open(150);
       let ticks = 0;
       const interval = setInterval(() => {
@@ -139,77 +86,57 @@ app
       }, 10);
       let deadline;
       try {
-        await assert.rejects(
-          doomed.query(
-            'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM r) SELECT count(*) FROM r'
-          ),
-          (error) => {
-            deadline = error;
-            return /deadline/.test(error.message);
-          }
-        );
+        await assert.rejects(doomed.grep(runaway), (error) => {
+          deadline = error;
+          return error instanceof SqliteQueryDeadlineError;
+        });
         await doomed.close();
         assert(ticks > 3);
-        await assert.rejects(doomed.query('SELECT 1'), (error) => error === deadline);
+        await assert.rejects(doomed.grep(proof('alpha')), (error) => error === deadline);
       } finally {
         clearInterval(interval);
       }
-      const cancelled = await open();
-      const cancellationHost = processes.at(-1);
-      const cancellationPid = cancellationHost.pid;
-      assert(Number.isInteger(cancellationPid));
-      let cancellationExited = false;
-      cancellationHost.once('exit', () => {
-        cancellationExited = true;
+
+      // Host Stop reaches an in-flight read through its owner's close
+      // (closeAllIndexQueries); nothing cancels a single grep.
+      const stopped = await open(60_000);
+      const stopHost = processes.at(-1);
+      const stopPid = stopHost.pid;
+      assert(Number.isInteger(stopPid));
+      let stopExited = false;
+      stopHost.once('exit', () => {
+        stopExited = true;
       });
-      const controller = new AbortController();
+      const inflight = stopped.grep(runaway).catch((error) => error);
+      await new Promise((resolve) => setTimeout(resolve, 50));
       const started = performance.now();
-      const timer = setTimeout(() => controller.abort(new Error('User Stop proof')), 50);
-      try {
-        await assert.rejects(
-          cancelled.query(
-            'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM r) SELECT count(*) FROM r',
-            { signal: controller.signal }
-          ),
-          (error) =>
-            error instanceof SqliteQueryCancelledError &&
-            error.phase === 'query' &&
-            error.requestId === 2 &&
-            error.ownerPid === cancellationPid
-        );
-      } finally {
-        clearTimeout(timer);
-      }
-      const cancellationMs = performance.now() - started;
-      assert(
-        cancellationMs < 1000,
-        'Cancellation must settle before the unchanged production deadline.'
-      );
-      assert(cancellationExited, 'Rejection joins actual utility exit.');
-      assert.throws(() => process.kill(cancellationPid, 0), { code: 'ESRCH' });
-      const metricsContainsExitedPid = app
-        .getAppMetrics()
-        .some((metric) => metric.pid === cancellationPid);
-      await cancelled.close();
+      await stopped.close();
+      const stopMs = performance.now() - started;
+      assert(stopMs < 1000, 'Stop must settle well before the runaway read would.');
+      assert(stopExited, 'Close resolves only after the utility exits.');
+      assert.throws(() => process.kill(stopPid, 0), { code: 'ESRCH' });
+      const stopError = await inflight;
+      assert.equal(stopError.message, 'SQLite query client is closed.');
+      const metricsContainsExitedPid = app.getAppMetrics().some((metric) => metric.pid === stopPid);
       assert.equal(hash(), before);
-      const cancellation = {
-        cancellationMs,
-        cancellationPid,
-        code: 'sqlite_query_cancelled',
-        joinedExit: cancellationExited,
+      const stop = {
+        joinedExit: stopExited,
         metricsContainsExitedPid,
-        phase: 'query',
+        stopMs,
+        stopPid,
       };
-      const afterKillWriter = new DatabaseSync(databasePath);
-      afterKillWriter.exec("INSERT INTO records VALUES('after-kill')");
-      afterKillWriter.close();
+
+      // A killed reader holds no lock: the writer takes its write lock at once.
+      const writer = new DatabaseSync(databasePath);
+      writer.exec('BEGIN IMMEDIATE; COMMIT');
+      writer.close();
       const fresh = await open();
-      assert.deepEqual((await fresh.query("SELECT id FROM records WHERE id='after-kill'")).rows, [
-        ['after-kill'],
-      ]);
+      assert.deepEqual(
+        (await fresh.grep(proof('alphabet', { caseSensitive: true }))).rows.map((row) => row[0]),
+        [alphabet]
+      );
       process.stdout.write(
         `${JSON.stringify({
-          cancellation,
           canonicalGrep: true,
           electron: process.versions.electron,
           freshHost: true,
@@ -218,13 +145,12 @@ app
           processes: processes.length,
           retainedDeadlineIdentity: true,
           sqlite: process.versions.sqlite,
-          unsafeStatementsRefused: 14,
-          writerReopen: true,
+          stop,
+          writerLock: true,
         })}\n`
       );
     } finally {
       await Promise.all(owned.map((client) => client.close()));
-      rmSync(directory, { force: true, recursive: true });
     }
     app.quit();
   })

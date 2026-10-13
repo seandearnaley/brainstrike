@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { readDesktopRunConfiguration } from './desktop-run-configuration.js';
 import type { HostLatestRun, HostLedgerThread } from './ledger-wire.js';
 import type { HostEvent, HostLogRow } from './protocol.js';
+import { type HostRunVerdict, projectRunVerdicts } from './run-verdicts.js';
 
 export type { HostLatestRun, HostLedgerThread } from './ledger-wire.js';
 
@@ -141,6 +142,7 @@ export class ThreadLedgerFold {
   /** The last committed row folded. */
   seq = 0;
   private readonly runs = new Map<string, RunFold>();
+  private readonly verdicts = new Map<string, HostRunVerdict>();
   private readonly usage: LedgerUsage[] = [];
   /** Per (provider, model, source) subtotals: the meter's thread total. */
   private readonly bySource = new Map<string, Mutable<LedgerModelUsage>>();
@@ -154,6 +156,10 @@ export class ThreadLedgerFold {
   apply(row: HostLogRow): void {
     this.seq = row.seq;
     const { event } = row;
+    if (event.type === 'run.verdict') {
+      projectRunVerdicts([row], this.verdicts);
+      return;
+    }
     if (event.type === 'run.started') {
       this.start(row, event);
       return;
@@ -200,7 +206,7 @@ export class ThreadLedgerFold {
     return {
       perModel: this.perModel(),
       rootUsage: [...this.byRoot.values()].map((usage) => ({ ...usage })),
-      runs: [...this.runs.values()].map(ledgerRun),
+      runs: [...this.runs.values()].map((run) => ledgerRun(run, this.verdicts.get(run.runId))),
       seq: this.seq,
       usage: [...this.usage],
     };
@@ -374,7 +380,7 @@ export function mergeRootUsage(
   return [...merged.values()].sort(compareRootUsage);
 }
 
-function ledgerRun(run: RunFold): LedgerRun {
+function ledgerRun(run: RunFold, verdict: HostRunVerdict | undefined): LedgerRun {
   return {
     completedAt: run.completedAt,
     durationMs: run.completedAt === null ? null : run.completedAt - run.startedAt,
@@ -387,9 +393,9 @@ function ledgerRun(run: RunFold): LedgerRun {
     failedToolCallCount: run.failedToolCallCount,
     inputTokens: run.inputTokens,
     model: run.model,
-    outcomeDetail: null,
-    outcomeSource: null,
-    outcomeVerdict: null,
+    outcomeDetail: verdict?.detail ?? null,
+    outcomeSource: verdict?.source ?? null,
+    outcomeVerdict: verdict?.verdict ?? null,
     outputTokens: run.outputTokens,
     provider: run.provider,
     revertedEditCount: run.revertedEditCount,

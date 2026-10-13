@@ -55,7 +55,16 @@ it('reads only the retained canonical collection bindings in the public killable
   expect(result.rows[0]?.[14]).toBe('selected');
   expect(result.matchedChunks).toBe(1);
   expect(result.truncated).toBe(false);
-  expect((await client.query('SELECT count(*) FROM file_records')).rows).toEqual([[2]]);
+  // The unauthorized file holds the same text; only its own binding reads it.
+  const other = await client.grep({
+    caseSensitive: true,
+    fileIds: ['other'],
+    isRegex: false,
+    maxRows: 100,
+    pattern: 'marker',
+    rootIds: [],
+  });
+  expect(other.rows.map((row) => row[2])).toEqual(['other']);
 });
 
 it('keeps an empty authorized collection empty and never broadens to all files', async () => {

@@ -149,9 +149,18 @@ function userChoice(verdict: CommittedRunVerdict['verdict']): RunVerdictValue | 
   return verdict === 'mixed' ? undefined : verdict;
 }
 
-/** Where a derived label came from: a Stop hook, or a reverted edit. */
-function derivedSource(source: Exclude<CommittedRunVerdict['source'], 'user'>): string {
-  return source === 'hook' ? 'Hook' : 'Edit revert';
+/**
+ * A derived label in words. A Stop hook grades the run. A reverted edit's label
+ * is the run's too, not the undo's: the user rejected that work, so a full
+ * undo marks the run `failed` and a partial one `mixed`. The words say the
+ * undo happened and what it made of the run.
+ */
+function derivedText(verdict: CommittedRunVerdict): string {
+  if (verdict.source === 'hook') {
+    return `Hook verdict: ${verdict.verdict}`;
+  }
+  const reverted = verdict.verdict === 'mixed' ? 'Some edits reverted' : 'Edits reverted';
+  return `${reverted} · run marked ${verdict.verdict}`;
 }
 
 /** A label the host derived (a Stop hook's, or a reverted edit's), until the user chooses. */
@@ -169,7 +178,7 @@ export function DerivedRunVerdict({
       data-testid="run-verdict-derived"
       title={verdict.detail}
     >
-      {derivedSource(verdict.source)} verdict: {verdict.verdict}
+      {derivedText(verdict)}
     </span>
   );
 }

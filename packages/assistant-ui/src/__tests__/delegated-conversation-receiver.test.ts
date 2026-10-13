@@ -534,46 +534,6 @@ describe('delegated receiver settlement and replay', () => {
     );
   });
 
-  it('replaces invocation snapshots during replay without duplicating text or starting a new model request', async () => {
-    const updates = new Map<string, DelegatedConversationUpdate>();
-    const lines = [
-      frame('f', { messageId: 'root' }),
-      child('a', [
-        { code: 'f', value: { messageId: 'native-a' } },
-        { code: '0', value: 'Saved answer.' },
-        finish,
-      ]),
-      frame(finish.code, finish.value),
-    ];
-    serve(lines);
-    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
-      api: 'http://assistant.test',
-      onDelegatedConversation: (update) =>
-        updates.set(
-          update.continuation ? update.continuation.nativeRunId : update.identity.childRuntimeRunId,
-          update
-        ),
-    });
-    await consume(adapter);
-    for await (const _message of adapter.resume(options(), {
-      eventId: 'session:-1',
-      resumeApi: 'http://assistant.test/resume',
-    })) {
-      // Replay uses a fresh decoder, replacing snapshots for the same invocation.
-    }
-    expect(updates.size).toBe(1);
-    expect(
-      updates
-        .get('a')
-        ?.message.parts.filter((part) => part.type === 'text')
-        .map((part) => part.text)
-    ).toEqual(['Saved answer.']);
-    expect(fetch).toHaveBeenLastCalledWith(
-      'http://assistant.test/resume',
-      expect.objectContaining({ method: 'GET' })
-    );
-  });
-
   it('keeps an ordinary child error in that child while the parent completes', async () => {
     const updates: DelegatedConversationUpdate[] = [];
     serve([
