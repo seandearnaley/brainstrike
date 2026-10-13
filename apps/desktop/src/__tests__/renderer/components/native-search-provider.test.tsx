@@ -1,3 +1,4 @@
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type {
   IndexerCoverage,
   IndexerStatus,
@@ -61,7 +62,7 @@ const ready = {
   rootReadiness: [{ rootId: 'root-a', scanComplete: true }],
   storeId: 'store-a',
 };
-const queryEmbedding = vi.fn<(...args: unknown[]) => Promise<number[]>>();
+const queryEmbedding = vi.fn<(...args: unknown[]) => Promise<BoundaryResult<number[]>>>();
 const cancelQueryEmbedding = vi.fn<(...args: unknown[]) => Promise<{ cancelled: boolean }>>();
 
 beforeEach(() => {
@@ -99,7 +100,7 @@ describe('native query provider cancellation wiring', () => {
     const { result } = mount();
     await waitFor(() => expect(result.current?.profile).toEqual(profile));
     const physical = Promise.withResolvers<number[]>();
-    queryEmbedding.mockReturnValue(physical.promise);
+    queryEmbedding.mockReturnValue(physical.promise.then((value) => ({ ok: true, value })));
     cancelQueryEmbedding.mockResolvedValue({ cancelled: true });
     const controller = new AbortController();
     const reason = new Error('search cancelled');
@@ -434,7 +435,7 @@ describe('native provider and search controller observation refresh', () => {
   it('keeps held semantic inference alive across readiness and acknowledged-progress refreshes', async () => {
     vi.useFakeTimers();
     const physical = Promise.withResolvers<number[]>();
-    queryEmbedding.mockReturnValue(physical.promise);
+    queryEmbedding.mockReturnValue(physical.promise.then((value) => ({ ok: true, value })));
     cancelQueryEmbedding.mockResolvedValue({ cancelled: true });
     const mounted = mountController();
     try {
@@ -490,7 +491,7 @@ describe('native provider and search controller observation refresh', () => {
   it('refreshes partial coverage readiness hints without cancelling the held execution', async () => {
     vi.useFakeTimers();
     const physical = Promise.withResolvers<number[]>();
-    queryEmbedding.mockReturnValue(physical.promise);
+    queryEmbedding.mockReturnValue(physical.promise.then((value) => ({ ok: true, value })));
     cancelQueryEmbedding.mockResolvedValue({ cancelled: true });
     const mounted = mountController();
     try {
@@ -706,7 +707,7 @@ describe('native provider and search controller observation refresh', () => {
     async ({ next }) => {
       vi.useFakeTimers();
       const physical = Promise.withResolvers<number[]>();
-      queryEmbedding.mockReturnValue(physical.promise);
+      queryEmbedding.mockReturnValue(physical.promise.then((value) => ({ ok: true, value })));
       cancelQueryEmbedding.mockResolvedValue({ cancelled: true });
       // Deliberately reuse nested references: object churn must not be the authority guard.
       const mounted = mountController(false);
@@ -751,7 +752,7 @@ describe('native provider and search controller observation refresh', () => {
     async (change) => {
       vi.useFakeTimers();
       const physical = Promise.withResolvers<number[]>();
-      queryEmbedding.mockReturnValue(physical.promise);
+      queryEmbedding.mockReturnValue(physical.promise.then((value) => ({ ok: true, value })));
       cancelQueryEmbedding.mockResolvedValue({ cancelled: true });
       const mounted = mountController(false);
       try {

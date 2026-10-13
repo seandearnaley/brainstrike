@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { readBoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
@@ -14,7 +15,9 @@ vi.mock('electron', () => ({
   app: { getPath: vi.fn(() => '/Users/test/Documents') },
   ipcMain: {
     handle: vi.fn((channel: string, listener: IpcHandler) => {
-      handlers.set(channel, listener);
+      handlers.set(channel, async (event, ...args) =>
+        readBoundaryResult(await listener(event, ...args))
+      );
     }),
   },
 }));
@@ -142,15 +145,24 @@ describe('ipc-handlers filesystem composition', () => {
     const readByPath = handlers.get('fs:readFileByPath');
     await expect(
       readByPath?.(createTrustedInvokeEvent(), '/users/test/docs/file.txt')
-    ).rejects.toThrow('outside every mounted workspace root');
+    ).rejects.toMatchObject({
+      code: 'workspace.path-outside-root',
+      failure: { category: 'authorization', kind: 'refusal' },
+    });
 
     await mountRoot();
     await expect(
       readByPath?.(createTrustedInvokeEvent(), '/users/test/outside.txt')
-    ).rejects.toThrow('outside every mounted workspace root');
+    ).rejects.toMatchObject({
+      code: 'workspace.path-outside-root',
+      failure: { category: 'authorization', kind: 'refusal' },
+    });
     await expect(
       readByPath?.(createTrustedInvokeEvent(), '/users/test/docs/\0malicious.txt')
-    ).rejects.toThrow('null bytes');
+    ).rejects.toMatchObject({
+      code: 'workspace.path-invalid',
+      failure: { category: 'input', kind: 'refusal' },
+    });
     expect(fileSystem.readFileByPath).not.toHaveBeenCalled();
   });
 
