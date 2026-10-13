@@ -23,9 +23,9 @@ import { resolveZeroMatchProbeNote, type ZeroMatchProbeCount } from './grep-zero
 import { type LiveGrepResult, probeExcludedPathMatches, runLiveGrep } from './live-grep';
 import {
   describeOpenRootTopology,
-  getWorkspaceRoots,
   type OpenRootTopology,
-  resolveOptionalWorkspaceRoot,
+  resolveWorkspaceSearchScope,
+  type WorkspaceSearchScope,
 } from './workspace-roots';
 
 const logger = createLogger('AssistantGrepSearchTool');
@@ -514,19 +514,6 @@ async function runLiveGrepSafely(args: {
   }
 }
 
-/**
- * The roots the LIVE pass scopes to. An explicit `root` or durable thread
- * binding scopes to that one open folder (same as the index path's `rootId`
- * filter); only a genuinely unbound omission covers every open root. A live
- * pass that cannot resolve any path-backed root yields an empty root list.
- */
-function resolveLiveRoots(
-  runtimeData: RuntimeData | undefined,
-  scopedRoot: RuntimeWorkspaceRoot | undefined
-): RuntimeWorkspaceRoot[] {
-  return scopedRoot ? [scopedRoot] : getWorkspaceRoots(runtimeData);
-}
-
 /** Run the INDEXED (PGlite trigram) search — unchanged behaviour, extracted for clarity. */
 function runIndexSearch(args: {
   index: GrepIndexSearch;
@@ -603,17 +590,63 @@ function labelIndexMatchRoots(
   };
 }
 
+/**
+ * The folders and files a grep reads, from its resolved scope.
+ *
+ * BST-764: the `filePaths` allowlist is resolved ONCE, here, and both passes
+ * take the same normalized list. Previously the raw model input went to both
+ * and only the live pass touched it — with `p.replace(/^\/+/, '')`, which
+ * turned an absolute path into a never-matching relative one and reported a
+ * clean zero-match for a file that plainly matched. The refusal names only
+ * paths the model supplied and the open folders it can already see, so it is a
+ * `ToolInputError`: the execution guard returns it verbatim, where a plain
+ * Error became its generic failure (BST-1985).
+ *
+ * `rootIds` pins both passes. Review follow-up on #2087: an absolute entry
+ * names ONE file in ONE root, so both passes stay pinned to that root; without
+ * this, flattening `/work/A/proof.html` to `proof.html` let a sibling root's
+ * `proof.html` match a call that named a file in A. Without such an entry, a
+ * bound thread's search names its folders (BST-1990): the index answers for
+ * every folder it authorizes unless told which, and a folder outside the
+ * thread must not be searched.
+ */
+function resolveGrepTargets(
+  scope: WorkspaceSearchScope,
+  requestedFilePaths: GrepSearchInput['filePaths']
+): {
+  readonly filePaths: readonly string[] | undefined;
+  readonly liveRoots: RuntimeWorkspaceRoot[];
+  readonly rootId: string | undefined;
+  readonly rootIds: readonly string[] | undefined;
+} {
+  const scopedRoot = scope.kind === 'folder' ? scope.root : undefined;
+  const roots = scope.kind === 'folder' ? [scope.root] : scope.roots;
+  const resolved = resolveGrepFilePaths({ filePaths: requestedFilePaths, roots, scopedRoot });
+  if (!resolved.ok) {
+    throw new ToolInputError(resolved.message);
+  }
+  const rootIds =
+    resolved.rootIds ??
+    (scope.kind === 'thread' ? scope.roots.map((root) => root.rootId) : undefined);
+  return {
+    filePaths: resolved.filePaths,
+    liveRoots:
+      rootIds === undefined ? roots : roots.filter((root) => rootIds.includes(root.rootId)),
+    rootId: scopedRoot?.rootId,
+    rootIds,
+  };
+}
+
 export async function runGrepSearchWith(
   input: GrepSearchInput,
   runtimeData: RuntimeData | undefined,
   index: GrepIndexSearch
 ): Promise<GrepToolResult> {
-  // An explicit `root` or durable thread binding scopes the search to one open
-  // folder. Resolve it BEFORE the try/catch so an unknown/ambiguous folder
-  // surfaces its actionable "Open folders: ..." message to the model instead
-  // of the generic catch. Only an unbound omission searches every root.
-  const scopedRoot = resolveOptionalWorkspaceRoot(runtimeData, input.root);
-  const rootId = scopedRoot?.rootId;
+  // An explicit `root` scopes the search to that folder; without one it covers
+  // every folder of the thread (BST-1990, D3). Resolve it BEFORE the try/catch
+  // so an unknown or ambiguous folder reaches the model as its typed refusal
+  // instead of the generic catch.
+  const scope = resolveWorkspaceSearchScope(runtimeData, input.root);
 
   const outputMode = input.outputMode ?? 'files';
   const offset = input.offset ?? 0;
@@ -633,36 +666,7 @@ export async function runGrepSearchWith(
   // SAME matcher instance drives the live pass so live + indexed match
   // semantics can never diverge.
   const liveMatcher = createModelPatternMatcher(input.pattern, isRegex, caseSensitive);
-  const liveRoots = resolveLiveRoots(runtimeData, scopedRoot);
-
-  // BST-764. Resolve the `filePaths` allowlist ONCE, here, and feed the same
-  // normalized list to both passes. Previously the raw model input went to both
-  // and only the live pass touched it — with `p.replace(/^\/+/, '')`, which
-  // turned an absolute path into a never-matching relative one and reported a
-  // clean zero-match for a file that plainly matched.
-  //
-  // The refusal names only paths the model supplied and the open folders it
-  // can already see, so it is a `ToolInputError`: the execution guard returns
-  // it verbatim, where a plain Error became its generic failure (BST-1985).
-  const resolvedFilePaths = resolveGrepFilePaths({
-    filePaths: input.filePaths,
-    roots: liveRoots,
-    scopedRoot,
-  });
-  if (!resolvedFilePaths.ok) {
-    throw new ToolInputError(resolvedFilePaths.message);
-  }
-  const filePaths = resolvedFilePaths.filePaths;
-  // Review follow-up on #2087: an absolute entry names ONE file in ONE root, so
-  // both passes must stay pinned to that root. Without this, flattening
-  // `/work/A/proof.html` to `proof.html` let a sibling root's `proof.html`
-  // match a call that named a file in A — newly reachable, since before this
-  // change the absolute path matched nothing at all.
-  const scopedRootIds = resolvedFilePaths.rootIds;
-  const effectiveLiveRoots =
-    scopedRootIds === undefined
-      ? liveRoots
-      : liveRoots.filter((root) => scopedRootIds.includes(root.rootId));
+  const { filePaths, liveRoots, rootId, rootIds } = resolveGrepTargets(scope, input.filePaths);
 
   try {
     const serviceResult = labelIndexMatchRoots(
@@ -671,7 +675,7 @@ export async function runGrepSearchWith(
         filePaths,
         input,
         rootId,
-        ...(scopedRootIds === undefined ? {} : { rootIds: scopedRootIds }),
+        ...(rootIds === undefined ? {} : { rootIds }),
         index,
         serviceMaxResults,
       }),
@@ -683,7 +687,7 @@ export async function runGrepSearchWith(
       contextLines,
       isRegex,
       pattern: input.pattern,
-      roots: effectiveLiveRoots,
+      roots: liveRoots,
       ...(filePaths === undefined ? {} : { filePaths }),
       matcher: liveMatcher,
     });
@@ -702,7 +706,7 @@ export async function runGrepSearchWith(
                   pattern: input.pattern,
                   rootId,
                   signal,
-                  ...(scopedRootIds === undefined ? {} : { rootIds: scopedRootIds }),
+                  ...(rootIds === undefined ? {} : { rootIds }),
                   index,
                 }),
               runExcludedPathProbe: (signal) =>
@@ -711,7 +715,7 @@ export async function runGrepSearchWith(
                     caseSensitive,
                     isRegex,
                     pattern: input.pattern,
-                    roots: effectiveLiveRoots,
+                    roots: liveRoots,
                     ...(filePaths === undefined ? {} : { filePaths }),
                   },
                   liveMatcher,
@@ -725,7 +729,7 @@ export async function runGrepSearchWith(
                   pattern: input.pattern,
                   rootId,
                   signal,
-                  ...(scopedRootIds === undefined ? {} : { rootIds: scopedRootIds }),
+                  ...(rootIds === undefined ? {} : { rootIds }),
                   index,
                 }),
             }

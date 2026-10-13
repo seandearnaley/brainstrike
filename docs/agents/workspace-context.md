@@ -546,7 +546,8 @@ display-only name and path; the durable id is the execution authority.
   rebind it to the current Main root.
 - Validate the bound id against server-loaded live DB roots before hooks or the initial
   manifest can use another mounted root, then order the bound root first. An omitted
-  native workspace-tool `root` resolves to the binding; an explicit selector for
+  native workspace-tool `root` resolves to the binding, except that grep and glob
+  search every folder of the thread (BST-1990, D3); an explicit selector for
   another mounted root stays an observable cross-root operation; an explicitly blank
   selector is invalid and never broadens a search or falls through to the binding.
 - Bound-root resolution requires an authoritative `workspaceRoots` inventory: with DB

@@ -147,7 +147,9 @@ function rootsOnly(roots: readonly Root[]) {
 test('the recorded out-of-scope filePaths grep returns its actionable refusal to the model', async () => {
   // Recorded in the #3567 smoke (12 Oct 2026): a thread bound to alpha-root
   // grepped absolute filePaths spanning both open folders, and the model got
-  // only the generic failure while this text went to a level-50 log.
+  // only the generic failure while this text went to a level-50 log. A grep
+  // with no root now searches every thread folder (BST-1990), so this search
+  // names alpha-root.
   const parent = await directory('bs-m6-refusal-grep-');
   const alpha = join(parent, 'alpha-root');
   const bravo = join(parent, 'bravo-root');
@@ -180,6 +182,7 @@ test('the recorded out-of-scope filePaths grep returns its actionable refusal to
       maxResults: 100,
       outputMode: 'content',
       pattern: 'SMOKE_NEEDLE_3567',
+      root: 'alpha-root',
     },
     execution()
   );

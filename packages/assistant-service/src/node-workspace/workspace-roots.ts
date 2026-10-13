@@ -16,6 +16,18 @@ export class BoundWorkspaceRootUnavailableError extends ToolInputError {
   }
 }
 
+/**
+ * A `root` that names none of a bound thread's folders (BST-1990). The run's
+ * roots are the thread's folders, so the named folder may still be open in the
+ * workspace; the user adds it to the thread from the composer's folder chip.
+ */
+export class RootNotInThreadError extends ToolInputError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RootNotInThreadError';
+  }
+}
+
 /** Minimal DB surface for loading roots — structural so it is trivially mockable. */
 export interface WorkspaceRootsQueryable {
   query: <T>(sql: string, params?: readonly unknown[]) => Promise<{ rows: T[] }>;
@@ -110,6 +122,27 @@ function assertRootStillConnected(root: RuntimeWorkspaceRoot): RuntimeWorkspaceR
   return root;
 }
 
+/** A `root` that names none of the run's roots: in a bound thread, the thread's folders. */
+function unknownRootRefusal(
+  qualifier: string,
+  roots: readonly RuntimeWorkspaceRoot[],
+  bound: boolean
+): ToolInputError {
+  return bound
+    ? new RootNotInThreadError(
+        `"${qualifier}" is not one of this thread's folders: ${describeRoots(roots)}. If it is open in the workspace, the user can add it to this thread from the composer's folder chip.`
+      )
+    : new ToolInputError(
+        `No folder "${qualifier}" in the workspace. Open folders: ${describeRoots(roots)}.`
+      );
+}
+
+function boundRootNotOpen(boundRootId: string): ToolInputError {
+  return new ToolInputError(
+    `The bound workspace root (id ${rootIdForMessage(boundRootId)}) is no longer open. Reconnect that folder before continuing this thread.`
+  );
+}
+
 function rootIdForMessage(rootId: string): string {
   return path.isAbsolute(rootId) ? 'path-backed id redacted' : rootId;
 }
@@ -200,17 +233,13 @@ export function resolveWorkspaceRoot(
         `Multiple folders are named "${trimmed}". Use the root id instead: ${describeRootsWithIds(byName)}.`
       );
     }
-    throw new ToolInputError(
-      `No folder "${trimmed}" in the workspace. Open folders: ${describeRoots(roots)}.`
-    );
+    throw unknownRootRefusal(trimmed, roots, Boolean(boundRootId));
   }
 
   if (boundRootId) {
     const boundRoot = roots.find((root) => root.rootId === boundRootId);
     if (!boundRoot) {
-      throw new ToolInputError(
-        `The bound workspace root (id ${rootIdForMessage(boundRootId)}) is no longer open. Reconnect that folder before continuing this thread.`
-      );
+      throw boundRootNotOpen(boundRootId);
     }
     logger.info('Resolved native workspace tool root.', {
       mode: 'thread-bound',
@@ -320,6 +349,38 @@ export function resolveOptionalWorkspaceRoot(
     return resolveWorkspaceRoot(runtimeData, qualifier);
   }
   return;
+}
+
+/** The folders a grep or glob searches. */
+export type WorkspaceSearchScope =
+  /** An explicit `root`: that folder. */
+  | { readonly kind: 'folder'; readonly root: RuntimeWorkspaceRoot }
+  /** No `root` in a bound thread: every folder of the thread. */
+  | { readonly kind: 'thread'; readonly roots: RuntimeWorkspaceRoot[] }
+  /** No `root` and no thread binding: every open folder. */
+  | { readonly kind: 'workspace'; readonly roots: RuntimeWorkspaceRoot[] };
+
+/**
+ * Resolve what a grep or glob searches (BST-1990, D3). An explicit `root`
+ * always wins. Without one, a bound thread searches every one of its folders
+ * (the run's roots), after the binding is validated, and none is skipped.
+ */
+export function resolveWorkspaceSearchScope(
+  runtimeData: RuntimeData | undefined,
+  qualifier?: string | null
+): WorkspaceSearchScope {
+  if (qualifier !== undefined && qualifier !== null) {
+    return { kind: 'folder', root: resolveWorkspaceRoot(runtimeData, qualifier) };
+  }
+  const roots = getWorkspaceRoots(runtimeData);
+  const boundRootId = getValidatedBoundRootId(runtimeData, false);
+  if (!boundRootId) {
+    return { kind: 'workspace', roots };
+  }
+  if (!roots.some((root) => root.rootId === boundRootId)) {
+    throw boundRootNotOpen(boundRootId);
+  }
+  return { kind: 'thread', roots: roots.map(assertRootStillConnected) };
 }
 
 /**
