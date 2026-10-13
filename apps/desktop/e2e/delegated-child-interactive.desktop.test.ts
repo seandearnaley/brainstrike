@@ -125,6 +125,7 @@ async function assertAssembledChildControl(
       });
     },
     closeProvider: async () => {
+      fixture.releaseStreams();
       fixture.releaseAlpha();
       fixture.releaseBeta();
       await fixture.provider.close();
@@ -151,6 +152,21 @@ async function assertAssembledChildControl(
       const composer = root.getByRole('textbox', { name: 'Message input' });
       await composer.fill(assembledMarkers.parentPrompt);
       await root.getByRole('button', { exact: true, name: 'Send' }).click();
+      // Work permits are FIFO by arrival (docs/agents/assistant-subagents.md): fanned out
+      // together, the streams could take both permits before a parked child made its
+      // first model call. So the root dispatches the parked pair first, and the streams
+      // only once both parked children have asked to read, which released their permits.
+      await expect
+        .poll(
+          async () =>
+            (await readHostThreadTree(electron.getUserDataDir())).filter(
+              ({ parentThreadId, rows }) =>
+                parentThreadId !== undefined &&
+                rows.some(({ event }) => event.type === 'interaction.requested')
+            ).length
+        )
+        .toBe(2);
+      fixture.releaseStreams();
       await expect(root.getByText('ASSEMBLED_ROOT_CONTINUES_1770', { exact: true })).toBeVisible();
 
       const selectedTab = window
