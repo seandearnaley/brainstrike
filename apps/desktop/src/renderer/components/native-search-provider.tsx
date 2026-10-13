@@ -2,7 +2,9 @@ import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/st
 import type {
   IndexerEmbeddingProfile,
   IndexerStatus,
+  IndexLifecycleCapability,
   IndexSearchCapability,
+  NativeIndexLifecycleObservation,
 } from '@brainstrike/indexing-contract/indexer-client';
 import type {
   NativeIndexMode,
@@ -42,6 +44,9 @@ function matchesSavedChoices(
   selection: NativeLocalSelection | null,
   collectionId: string | null
 ): boolean {
+  if (mode === 'TEXT' && collectionId === null) {
+    return status.embedding.indexMode === 'text-only';
+  }
   if (collectionId === null || !status.authorizedCollectionIds?.includes(collectionId)) {
     return false;
   }
@@ -118,13 +123,14 @@ export function NativeSearchProvider({
   capability,
   children,
 }: {
-  readonly capability: IndexSearchCapability;
+  readonly capability: IndexSearchCapability & IndexLifecycleCapability;
   readonly children: ReactNode;
 }): ReactNode {
   const [observation, setStatus] = useState<NativeSearchStatus>(() => {
     const initial = { kind: 'unavailable' as const, reason: 'Native search is initializing.' };
     return { execution: initial, status: initial };
   });
+  const [lifecycle, setLifecycle] = useState<NativeIndexLifecycleObservation | null>(null);
   const { execution } = observation;
   const mode = useBackgroundIndexingPreferencesStore((state) => state.nativeIndexMode);
   const selection = useBackgroundIndexingPreferencesStore((state) => state.nativeLocalSelection);
@@ -132,34 +138,51 @@ export function NativeSearchProvider({
   useEffect(() => {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const refresh = async (): Promise<void> => {
+    let revision = 0;
+    let latestEvent: NativeIndexLifecycleObservation | undefined;
+    const refresh = async (event?: NativeIndexLifecycleObservation): Promise<void> => {
+      if (event) {
+        latestEvent = event;
+      }
+      const request = ++revision;
       try {
         const next = await readMatchingStatus(capability, mode, selection, collectionId);
-        if (!disposed) {
+        if (!disposed && request === revision) {
           setStatus((prior) => nextSearchStatus(prior, next));
+          const observed = latestEvent;
+          if (observed) {
+            setLifecycle((prior) => unchangedStatus(prior, observed));
+          }
         }
       } catch (error) {
-        if (!disposed) {
+        if (!disposed && request === revision) {
           setStatus((prior) =>
             nextSearchStatus(prior, { kind: 'unavailable', reason: errorMessage(error) })
           );
         }
-      } finally {
-        if (!disposed) {
-          timer = setTimeout(() => {
-            void refresh();
-          }, 2000);
-        }
       }
     };
-    void refresh();
+    const poll = async (): Promise<void> => {
+      await refresh();
+      if (!disposed) {
+        timer = setTimeout(() => {
+          void poll();
+        }, 2000);
+      }
+    };
+    const unsubscribe = capability.onLifecycleChanged((event) => {
+      void refresh(event);
+    });
+    void poll();
     return () => {
       disposed = true;
+      unsubscribe();
       if (timer !== undefined) {
         clearTimeout(timer);
       }
     };
   }, [capability, collectionId, mode, selection]);
+  const vectorExecution = mode === 'VECTOR' ? execution : null;
   const profile =
     mode === 'VECTOR' &&
     execution.kind === 'ready' &&
@@ -172,7 +195,7 @@ export function NativeSearchProvider({
       query: string,
       options: { readonly signal: AbortSignal }
     ): Promise<readonly number[]> => {
-      const queryPlan = execution.kind === 'ready' ? execution.queryPlan : undefined;
+      const queryPlan = vectorExecution?.kind === 'ready' ? vectorExecution.queryPlan : undefined;
       options.signal.throwIfAborted();
       const current = await capability.status();
       options.signal.throwIfAborted();
@@ -187,7 +210,7 @@ export function NativeSearchProvider({
             )
           : saved.nativeLocalSelection !== null) ||
         current.kind !== 'ready' ||
-        JSON.stringify(executionStatus(current)) !== JSON.stringify(execution) ||
+        JSON.stringify(executionStatus(current)) !== JSON.stringify(vectorExecution) ||
         current.embedding.indexMode !== 'vector-configured' ||
         !current.authorizedCollectionIds?.includes(saved.managedCollectionId ?? '') ||
         JSON.stringify(current.embedding.profile) !== JSON.stringify(requested) ||
@@ -208,17 +231,18 @@ export function NativeSearchProvider({
         options
       );
     },
-    [capability, execution]
+    [capability, vectorExecution]
   );
   const dependencies = useMemo<NativeWorkspaceSearchDependencies>(() => {
     const reason = profileUnavailableReason(mode, observation.status);
     return {
       capability,
       embedQuery,
+      lifecycle,
       profile,
       ...(reason === undefined ? {} : { profileUnavailableReason: reason }),
     };
-  }, [capability, embedQuery, mode, observation, profile]);
+  }, [capability, embedQuery, lifecycle, mode, observation, profile]);
   return (
     <NativeWorkspaceSearchProvider dependencies={dependencies}>
       {children}

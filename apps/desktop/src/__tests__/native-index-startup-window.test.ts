@@ -1,5 +1,5 @@
+import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
 import { expect, it, vi } from 'vitest';
-import { NativeIndexBlockedError } from '../native-index-blocked';
 import { NativeIndexSetupRequiredError } from '../native-index-setup-required';
 import {
   createInitialWindowAfterNativeReader,
@@ -106,7 +106,11 @@ it.each(['owner-first', 'reader-first'] as const)(
     const cause = new Error('Writer failed.');
     const report = vi.fn();
     const reportOnce = createNativeStartupFailureReporter(report);
-    const retained = new NativeIndexBlockedError(cause);
+    const retained = new NativeIndexRefusalError(
+      { kind: 'source-failure', message: cause.message },
+      cause.message,
+      { cause }
+    );
     if (order === 'owner-first') {
       reportOnce(cause);
     }

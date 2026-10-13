@@ -3,12 +3,9 @@ import { IndexerError, type IndexerPort, type ScopedIndexerPort } from '@brainst
 import type { CoverageAuthority } from '@brainstrike/indexer/coverage-reader';
 import { expect, it, vi } from 'vitest';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
+import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { isolateNativeCoverage } from '../native-coverage-reader';
-import {
-  createNativeIndexRuntime,
-  type NativeIndexAuthority,
-  NativeReadAuthorityRetiredError,
-} from '../native-index-runtime';
+import { createNativeIndexRuntime, type NativeIndexAuthority } from '../native-index-runtime';
 import {
   createNativeScopedSearchCapability,
   type NativeSearchAuthority,
@@ -416,7 +413,7 @@ it('joins in-flight reads before terminal writer retirement and refuses late rea
   const reading = f.runtime.withRead(f.runtime.acquire, async (captured) => {
     entered.resolve();
     await release.promise;
-    expect(() => captured.readAuthority()).toThrow(NativeReadAuthorityRetiredError);
+    expect(() => captured.readAuthority()).toThrow(NativeAuthorityTransitionError);
   });
   await entered.promise;
   const closing = f.runtime.retireProfile();
@@ -588,6 +585,7 @@ it.each(['invalidated', 'native-error', 'cleanup-error'] as const)(
       retiring = f.runtime.retireReads();
       closing = f.runtime.retireProfile();
       await expect(capability.coverageBatch([{ rootIds: ['root'] }])).resolves.toEqual({
+        cause: { kind: 'transitioning' },
         code: 'native-coverage-observation-invalidated',
         kind: 'invalidated',
       });
@@ -608,6 +606,7 @@ it.each(['invalidated', 'native-error', 'cleanup-error'] as const)(
       const observation = await pending;
       if (mode === 'invalidated') {
         expect(observation).toEqual({
+          cause: { kind: 'transitioning' },
           code: 'native-coverage-observation-invalidated',
           kind: 'invalidated',
         });
@@ -806,7 +805,11 @@ it.each([
         });
       } else {
         expect(await result).toEqual({
-          value: { code: 'native-coverage-observation-invalidated', kind: 'invalidated' },
+          value: {
+            cause: { kind: 'transitioning' },
+            code: 'native-coverage-observation-invalidated',
+            kind: 'invalidated',
+          },
         });
       }
       expect(close).toHaveBeenCalledOnce();

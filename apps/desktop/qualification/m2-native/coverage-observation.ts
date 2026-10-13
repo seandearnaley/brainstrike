@@ -1,5 +1,5 @@
+import { NATIVE_COVERAGE_OBSERVATION_INVALIDATED } from '@brainstrike/assistant-service/node-native-text-services';
 import type { IndexerCoverageInvalidatedObservation } from '../../../../packages/indexing-contract/src/indexer-client';
-import { NATIVE_COVERAGE_OBSERVATION_INVALIDATED } from '../../src/native-coverage-observation-invalidated.ts';
 
 export type CoverageObservation<T> =
   | { readonly kind: 'current'; readonly value: T }

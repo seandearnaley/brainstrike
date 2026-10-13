@@ -165,7 +165,8 @@ declare global {
      */
     git?: Bridge<typeof gitContract>;
     indexSearch?: import('@brainstrike/indexing-contract/indexer-client').IndexSearchCapability &
-      import('@brainstrike/indexing-contract/indexer-client').IndexRootRegistrationCapability;
+      import('@brainstrike/indexing-contract/indexer-client').IndexRootRegistrationCapability &
+      import('@brainstrike/indexing-contract/indexer-client').IndexLifecycleCapability;
     llmHost: {
       ensureStarted: () => Promise<LlmHostStatus>;
       stop: () => Promise<LlmHostStatus>;
