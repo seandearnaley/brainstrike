@@ -19,17 +19,17 @@ export function createNativeIndexProcessHandover(
   dependencies: Dependencies
 ): IndexerRuntimeBorrowers {
   return {
-    lost: async (cause) => {
+    lost: async () => {
       const graph = dependencies.graph();
-      if (!graph) {
-        throw new Error('Lost indexer has no retained native graph.', { cause });
-      }
-      graph.controller.abort(new NativeAuthorityTransitionError('Native writer was lost.'));
+      graph?.controller.abort(new NativeAuthorityTransitionError('Native writer was lost.'));
       void dependencies.runtime
         .retireReads()
         .catch((error: unknown) => dependencies.onError('lost writer reads', error));
       const lifecycle = await dependencies.lifecycle();
-      const state = await lifecycle.dispatch({ generation: graph.generation, kind: 'host-lost' });
+      // A physical replacement exists before native rebind creates its graph.
+      // The same native lifecycle still owns that pending generation.
+      const generation = graph?.generation ?? (await lifecycle.state()).generation;
+      const state = await lifecycle.dispatch({ generation, kind: 'host-lost' });
       return {
         failed: async (error) => {
           await lifecycle.dispatch({

@@ -266,3 +266,40 @@ it.each(['closeNativeOwner', 'destroyAndRetireProfile'] as const)(
     expect(mocks.fork).toHaveBeenCalledOnce();
   }
 );
+
+it('preserves actual replacement startup loss before native bindings exist', async () => {
+  const first = child();
+  const second = child(true);
+  mocks.fork.mockReturnValueOnce(first).mockReturnValueOnce(second);
+  const { activation } = fixture();
+  await activation.acquireRead();
+  first.emit('exit', 1);
+  await vi.waitFor(() => expect(mocks.fork).toHaveBeenCalledTimes(2));
+  second.emit('exit', 2);
+  await vi.waitFor(async () => {
+    await expect(activation.acquireRead()).rejects.toMatchObject({
+      cause: { code: 'indexer-exited' },
+      code: 'native-index-source-failure',
+    });
+  });
+  expect(mocks.fork).toHaveBeenCalledTimes(2);
+});
+
+it.each(['closeNativeOwner', 'destroyAndRetireProfile'] as const)(
+  'replacement loss racing %s cannot revive or overwrite the terminal native owner',
+  async (operation) => {
+    const first = child();
+    const second = child(true);
+    mocks.fork.mockReturnValueOnce(first).mockReturnValueOnce(second);
+    const { activation } = fixture();
+    await activation.acquireRead();
+    first.emit('exit', 1);
+    await vi.waitFor(() => expect(mocks.fork).toHaveBeenCalledTimes(2));
+    const closing = activation[operation]();
+    second.emit('exit', 2);
+    await closing;
+    await expect(activation.acquireRead()).rejects.toMatchObject({ code: 'native-index-closed' });
+    expect(() => getReadyIndexerHost()).toThrow();
+    expect(mocks.fork).toHaveBeenCalledTimes(2);
+  }
+);
