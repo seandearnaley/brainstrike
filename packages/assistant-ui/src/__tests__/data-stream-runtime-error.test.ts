@@ -35,18 +35,6 @@ async function consumeRun(
   }
 }
 
-async function consumeResume(
-  adapter: BrainstrikeDataStreamRuntimeAdapter,
-  abortSignal = new AbortController().signal
-): Promise<void> {
-  for await (const _ of adapter.resume(makeRunOptions(abortSignal), {
-    eventId: 'session-1:-1',
-    resumeApi: 'http://localhost/api/assistant/resume',
-  })) {
-    // consume
-  }
-}
-
 describe('BrainstrikeDataStreamRuntimeAdapter — transport error path', () => {
   beforeEach(() => {
     vi.stubGlobal(
@@ -283,30 +271,6 @@ describe('BrainstrikeDataStreamRuntimeAdapter — transport error path', () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it('applies the request-preparation watchdog to replay authentication', async () => {
-    let preparationSignal: AbortSignal | undefined;
-    const onError = vi.fn();
-    const onReplayError = vi.fn();
-    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
-      api: 'http://localhost/api/assistant',
-      headers: (signal?: AbortSignal) => {
-        preparationSignal = signal;
-        return new Promise<Record<string, string>>(() => undefined);
-      },
-      onError,
-      onReplayError,
-      requestPreparationTimeoutMs: 10,
-    });
-
-    await expect(consumeResume(adapter)).rejects.toThrow(
-      'Assistant request preparation timed out after 10ms.'
-    );
-    expect(preparationSignal?.aborted).toBe(true);
-    expect(onReplayError).toHaveBeenCalledOnce();
-    expect(onError).toHaveBeenCalledOnce();
-    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('rejects an invalid request-preparation watchdog instead of disabling it', async () => {

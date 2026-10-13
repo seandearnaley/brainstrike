@@ -2,7 +2,6 @@ import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import {
   assertNoUnknownKeys,
   type DeprecatedEnvVarReport,
-  getAssistantBridge,
   isAllowedProviderKeySourceEnvVar,
   isSecretReadErrorCode,
   type ProviderKeySource,
@@ -18,11 +17,8 @@ import {
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
-import { type AssistantAuthBridge, resolveAssistantAuthHeaders } from '@brainstrike/assistant-data';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { useEffect, useState, useSyncExternalStore } from 'react';
-
-export { resolveAssistantAuthHeaders } from '@brainstrike/assistant-data';
 
 export interface AssistantProviderReadError {
   readonly code: SecretReadErrorCode;
@@ -221,64 +217,6 @@ function subscribeToAssistantAvailabilityOverride(onStoreChange: () => void): ()
   };
 }
 
-/**
- * Resolve the assistant server ROOT base URL via the same strategy the status
- * probe uses (bridge `getUrl()` → static `url` → `/api` fallback). Callers append
- * their own endpoint path (`/assistant/status`, `/assistant/suspended-runs`, …).
- */
-export async function resolveAssistantBaseUrl(): Promise<string> {
-  if (typeof window === 'undefined') {
-    return '/api';
-  }
-
-  const assistantBridge = getAssistantBridge();
-
-  if (assistantBridge) {
-    if (typeof assistantBridge.getUrl === 'function') {
-      try {
-        const base = await assistantBridge.getUrl();
-        if (base) {
-          return trimTrailingSlash(base);
-        }
-      } catch {
-        // ignored - fall through to other strategies
-      }
-    }
-
-    if (typeof assistantBridge.url === 'string' && assistantBridge.url.length > 0) {
-      return trimTrailingSlash(assistantBridge.url);
-    }
-  }
-
-  return '/api';
-}
-
-/**
- * Returns the startup failure message when the desktop main process reported
- * the assistant server never started; undefined otherwise (incl. web builds).
- */
-export async function readAssistantStartupFailure(): Promise<string | undefined> {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  const bridge: AssistantAuthBridge | undefined = getAssistantBridge();
-  if (bridge && typeof bridge.getAuth === 'function') {
-    try {
-      const auth = await bridge.getAuth();
-      if (auth && 'startupError' in auth) {
-        return auth.startupError;
-      }
-    } catch {
-      // ignored — the availability probe's own failure handling reports.
-    }
-  }
-  return;
-}
-
-export async function resolveAssistantStatusUrl(): Promise<string> {
-  return `${await resolveAssistantBaseUrl()}/assistant/status`;
-}
-
 const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
 
 interface FetchAssistantStatusStateOptions {
@@ -294,22 +232,8 @@ export async function fetchAssistantStatusState({
     throw new Error('Fetch implementation is not available');
   }
 
-  const startupFailure = await readAssistantStartupFailure();
-  if (startupFailure) {
-    // The desktop main process reported the server never started — present
-    // the concrete failure instead of probing a dead endpoint (BST-574).
-    return { message: startupFailure, state: 'error' };
-  }
-
-  // Independent resolutions, so they overlap — the same shape
-  // use-provider-verification and use-steer-active-run already use. The
-  // startup-failure read above stays sequential: it short-circuits.
-  const [url, authHeaders] = await Promise.all([
-    resolveAssistantStatusUrl(),
-    resolveAssistantAuthHeaders(),
-  ]);
-  const response = await fetchImpl(url, {
-    headers: { accept: 'application/json', ...authHeaders },
+  const response = await fetchImpl('/api/assistant/status', {
+    headers: { accept: 'application/json' },
     signal,
   });
 

@@ -1,21 +1,17 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantRunAdmissionRejectedError } from '../data-stream-runtime';
-import { useAssistantServerRunSession } from '../use-assistant-server-run-session';
+import { useWebAssistantRequestSession } from '../use-web-assistant-request-session';
 
-const API = 'http://127.0.0.1:43110/assistant';
-const THREAD_KEY = 'thread-admission-rejection';
 const NEW_RUN_ID = 'run-new';
 
 describe('rejected hosted assistant admission', () => {
   beforeEach(() => {
     window.sessionStorage.clear();
-    (window as unknown as { assistant: object }).assistant = {};
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'assistant');
   });
 
   it('releases only the new prepared run after a definitive pre-admission rejection', async () => {
@@ -32,12 +28,9 @@ describe('rejected hosted assistant admission', () => {
     const completePreparedRequest = vi.fn(() => completion);
     const prepareRequestData = vi.fn(async () => ({ memory: { runId: NEW_RUN_ID } }));
     const { result } = renderHook(() =>
-      useAssistantServerRunSession({
-        api: API,
+      useWebAssistantRequestSession({
         completePreparedRequest,
         prepareRequestData,
-        resourceId: 'resource-1',
-        threadKey: THREAD_KEY,
       })
     );
     await waitFor(() => expect(result.current.isRecovering).toBe(false));
@@ -55,7 +48,7 @@ describe('rejected hosted assistant admission', () => {
         false
       )
     );
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
     await expect(result.current.prepareRequest()).rejects.toThrow('recovery is still in progress');
     await act(async () => resolveCompletion());
     await waitFor(() => expect(result.current.isRecovering).toBe(false));
@@ -78,12 +71,9 @@ describe('rejected hosted assistant admission', () => {
       completePreparedRequest;
     const prepareRequestData = vi.fn(async () => ({ memory: { runId: NEW_RUN_ID } }));
     const { rerender, result } = renderHook(() =>
-      useAssistantServerRunSession({
-        api: API,
+      useWebAssistantRequestSession({
         completePreparedRequest: completionCallback,
         prepareRequestData,
-        resourceId: 'resource-1',
-        threadKey: THREAD_KEY,
       })
     );
     await waitFor(() => expect(result.current.isRecovering).toBe(false));
@@ -111,21 +101,16 @@ describe('rejected hosted assistant admission', () => {
     );
     const completionA = vi.fn();
     const completionB = vi.fn();
-    let resourceId = 'resource-A';
     let completion = completionA;
     const { rerender, result } = renderHook(() =>
-      useAssistantServerRunSession({
-        api: API,
+      useWebAssistantRequestSession({
         completePreparedRequest: completion,
         prepareRequestData: async () => ({ memory: { runId: NEW_RUN_ID } }),
-        resourceId,
-        threadKey: THREAD_KEY,
       })
     );
     await waitFor(() => expect(result.current.isRecovering).toBe(false));
     await act(async () => result.current.prepareRequest());
 
-    resourceId = 'resource-B';
     completion = completionB;
     rerender();
     act(() => result.current.onError(new AssistantRunAdmissionRejectedError('admission rejected')));
