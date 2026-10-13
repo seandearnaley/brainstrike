@@ -133,8 +133,8 @@ describe('roots and generations', () => {
 });
 
 describe('terminal closure', () => {
-  it('shutdown and reset close the generation and keep the agent-host profile', () => {
-    for (const reason of ['shutdown', 'reset'] as const) {
+  it('shutdown, reset and root-data deletion close the generation and keep the agent-host profile', () => {
+    for (const reason of ['shutdown', 'reset', 'root-data-deletion'] as const) {
       const next = reduceNativeIndex(ready, { kind: 'terminal', reason });
       expect(next.actions).toEqual([{ kind: 'close' }]);
       expect(next.state).toEqual({ generation: 4, kind: 'closed', reason });
@@ -153,6 +153,7 @@ describe('terminal closure', () => {
       { kind: 'rebuild' },
       { kind: 'terminal', reason: 'shutdown' },
       { kind: 'terminal', reason: 'reset' },
+      { kind: 'terminal', reason: 'root-data-deletion' },
       { kind: 'resume', settings: VECTOR },
     ];
     for (const state of states) {
@@ -165,6 +166,15 @@ describe('terminal closure', () => {
     expect(
       reduceNativeIndex(ready, { kind: 'terminal', reason: 'profile-retired' }).actions
     ).toEqual([{ kind: 'close' }, { kind: 'retire-profile' }]);
+  });
+
+  it('a folder’s data deleted with its native owner closed reopens on resume (BST-2001)', () => {
+    const deleting = reduceNativeIndex(ready, { kind: 'terminal', reason: 'root-data-deletion' });
+    expect(deleting.actions).toEqual([{ kind: 'close' }]);
+    expect(reduceNativeIndex(deleting.state, { kind: 'resume', settings: VECTOR })).toEqual({
+      actions: [openAction(5)],
+      state: { generation: 5, kind: 'opening', settings: VECTOR },
+    });
   });
 
   it('a closed index refuses events with its cause until it resumes', () => {

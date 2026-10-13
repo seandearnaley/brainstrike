@@ -3,7 +3,15 @@ import {
   nativeIndexConfigurationIdentity,
 } from './native-index-settings';
 
-export type NativeIndexCloseReason = 'profile-retired' | 'reset' | 'shutdown';
+/**
+ * Why a generation closed for good, or (root-data deletion) until `resume`: only
+ * profile retirement releases the agent-host profile (BST-2001).
+ */
+export type NativeIndexCloseReason =
+  | 'profile-retired'
+  | 'reset'
+  | 'root-data-deletion'
+  | 'shutdown';
 
 /**
  * Why the native index is not serving, as a value the renderer and the agent
