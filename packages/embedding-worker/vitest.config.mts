@@ -1,5 +1,8 @@
 import { resolve } from 'node:path';
-import { getTransformersOnnxRuntimeWasmAliases } from '@brainstrike/build-utils';
+import {
+  getHeavyRuntimeOptimizeDepsExclude,
+  getTransformersOnnxRuntimeWasmAliases,
+} from '@brainstrike/build-utils';
 import { getAsyncUtilTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
@@ -47,6 +50,11 @@ const browserProject = createBrowserProject({
 
 browserProject.test.globals = true;
 browserProject.resolve = { ...browserProject.resolve, alias: srcAliases };
+// As the apps serve them: Transformers.js unbundled, and ONNX Runtime's WASM files as assets.
+// Discovered mid-run instead, they re-optimize and reload the page under a running test.
+browserProject.optimizeDeps = {
+  exclude: [...getHeavyRuntimeOptimizeDepsExclude(), 'onnxruntime-web'],
+};
 if (!runWebGpuMemory) {
   browserProject.test.exclude = ['test/webgpu-memory-growth.browser.test.ts'];
 }
