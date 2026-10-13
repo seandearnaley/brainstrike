@@ -15,6 +15,10 @@ export async function loadLocalLlmBackend(): Promise<LocalLlmBackend> {
     }
     return fixture;
   }
-  const { LocalLlmBackend } = await import('@brainstrike/agent/local-llm');
-  return new LocalLlmBackend();
+  const [{ LocalLlmBackend }, { resolveViteOnnxWasmPaths }] = await Promise.all([
+    import('@brainstrike/agent/local-llm'),
+    import('@brainstrike/embedding-worker/vite'),
+  ]);
+  // ONNX Runtime's WASM is served same-origin, never from a CDN (BST-2003).
+  return new LocalLlmBackend({ onnxWasmPaths: resolveViteOnnxWasmPaths() });
 }

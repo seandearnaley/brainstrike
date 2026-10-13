@@ -10,7 +10,7 @@ import { getContentSecurityPolicy } from '../content-security-policy.js';
  */
 const WEB_DEV_CSP =
   "base-uri 'self'; " +
-  "connect-src 'self' ws://localhost:* http://localhost:* ws://127.0.0.1:* wss://localhost:* https://huggingface.co https://*.hf.co https://cdn.jsdelivr.net; " +
+  "connect-src 'self' ws://localhost:* http://localhost:* ws://127.0.0.1:* wss://localhost:* https://huggingface.co https://*.hf.co; " +
   "default-src 'self' http://localhost:* ws://localhost:*; " +
   "font-src 'self' data: http://localhost:*; " +
   "form-action 'self'; " +
@@ -18,13 +18,13 @@ const WEB_DEV_CSP =
   "frame-src 'self'; " +
   "img-src 'self' data: blob: http://localhost:*; " +
   "object-src 'none'; " +
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:* https://cdn.jsdelivr.net blob:; " +
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:* blob:; " +
   "style-src 'self' 'unsafe-inline' http://localhost:*; " +
   "worker-src 'self' blob:";
 
 const WEB_PROD_CSP =
   "base-uri 'self'; " +
-  "connect-src 'self' https://huggingface.co https://*.hf.co https://cdn.jsdelivr.net; " +
+  "connect-src 'self' https://huggingface.co https://*.hf.co; " +
   "default-src 'self'; " +
   "font-src 'self' data:; " +
   "form-action 'self'; " +
@@ -38,7 +38,7 @@ const WEB_PROD_CSP =
 
 const ELECTRON_DEV_CSP =
   "base-uri 'self'; " +
-  "connect-src 'self' ws://localhost:* http://localhost:* http://127.0.0.1:* ws://127.0.0.1:* wss://localhost:* https://huggingface.co https://*.hf.co https://cdn.jsdelivr.net https://api.openai.com https://generativelanguage.googleapis.com https://api.cohere.com https://api.voyageai.com; " +
+  "connect-src 'self' ws://localhost:* http://localhost:* http://127.0.0.1:* ws://127.0.0.1:* wss://localhost:* https://huggingface.co https://*.hf.co https://api.openai.com https://generativelanguage.googleapis.com https://api.cohere.com https://api.voyageai.com; " +
   "default-src 'self' http://localhost:* ws://localhost:*; " +
   "font-src 'self' data: http://localhost:*; " +
   "form-action 'self'; " +
@@ -52,7 +52,7 @@ const ELECTRON_DEV_CSP =
 
 const ELECTRON_PROD_CSP =
   "base-uri 'self'; " +
-  "connect-src 'self' http://127.0.0.1:* http://localhost:* https://huggingface.co https://*.hf.co https://cdn.jsdelivr.net https://api.openai.com https://generativelanguage.googleapis.com https://api.cohere.com https://api.voyageai.com; " +
+  "connect-src 'self' http://127.0.0.1:* http://localhost:* https://huggingface.co https://*.hf.co https://api.openai.com https://generativelanguage.googleapis.com https://api.cohere.com https://api.voyageai.com; " +
   "default-src 'self'; " +
   "font-src 'self' data:; " +
   "form-action 'self'; " +
@@ -183,16 +183,12 @@ describe('getContentSecurityPolicy', () => {
       expect(webProd).not.toContain('localhost');
     });
 
-    it('keeps jsdelivr out of every production script-src while preserving development HMR', () => {
-      // A CDN compromise must never mean code execution in either production
-      // target. jsdelivr stays a fetch origin (connect-src) only.
-      expect(directiveOf(electronDev, 'script-src')).not.toContain('jsdelivr');
-      expect(directiveOf(electronProd, 'script-src')).not.toContain('jsdelivr');
-      expect(directiveOf(webDev, 'script-src')).toContain('https://cdn.jsdelivr.net');
-      expect(directiveOf(webProd, 'script-src')).not.toContain('https://cdn.jsdelivr.net');
-      // jsdelivr remains a fetch origin on both.
-      expect(directiveOf(electronProd, 'connect-src')).toContain('https://cdn.jsdelivr.net');
-      expect(directiveOf(webProd, 'connect-src')).toContain('https://cdn.jsdelivr.net');
+    it('allows jsdelivr in no directive of any target (BST-2003)', () => {
+      // A CDN compromise must never mean code execution (BST-573), and ONNX
+      // Runtime's WASM is the app's own same-origin file, so no fetch needs a CDN.
+      for (const policy of [electronDev, electronProd, webDev, webProd]) {
+        expect(policy).not.toContain('jsdelivr');
+      }
     });
 
     it('uses wasm-unsafe-eval without full unsafe-eval in every production target', () => {

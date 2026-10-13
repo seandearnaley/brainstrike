@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { transformersOnnxRuntimeWasmUrlsPlugin } from '@brainstrike/build-utils';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
@@ -111,7 +112,14 @@ const coverageEnabled =
   (process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true');
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    // ONNX Runtime's WASM, as vite.config.mts serves it (BST-2003).
+    transformersOnnxRuntimeWasmUrlsPlugin([
+      path.resolve(import.meta.dirname, '../../packages/embedding-worker'),
+      path.resolve(import.meta.dirname, '../../packages/agent'),
+    ]),
+  ],
   resolve: {
     // Array form: first match wins, so config-local entries (mocks, curated
     // subpath maps, deliberate overrides) come BEFORE the shared registry

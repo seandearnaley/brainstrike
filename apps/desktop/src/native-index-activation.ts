@@ -987,6 +987,9 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       };
     },
     close,
+    // Closes the native index owner and keeps the profile, whose attachment is the
+    // agent host: deleting one folder's data must not replace the host (BST-2001).
+    closeNativeOwner: closeRootCapabilities,
     closeRootCapabilities: profileAdmission.releaseRootForHost,
     destroyAndRetireProfile,
     fenceTerminal,

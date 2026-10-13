@@ -416,6 +416,16 @@ export async function qualifyOrdinaryAppIndexedText(
     await home.leaveSettings();
     await ensureAssistantShellVisible(page);
     checkpoint('ordinary-native-text-publication-ready');
+    // The startup thread is already open and visible; New Thread's own thread
+    // is the one that was not there before the click.
+    await page.getByRole('textbox', { name: 'Message input' }).waitFor();
+    const threadsBeforeClick = new Set(
+      await page.evaluate(() =>
+        [...document.querySelectorAll('[data-testid^="assistant-thread-panel-"]')].map((panel) =>
+          panel.getAttribute('data-testid')?.slice('assistant-thread-panel-'.length)
+        )
+      )
+    );
     await page.getByTestId('assistant-new-thread-button').click();
     let discoveredThreadId: string | undefined;
     await expect
@@ -424,6 +434,7 @@ export async function qualifyOrdinaryAppIndexedText(
         const candidate = catalog?.threads.at(-1)?.threadId;
         if (
           candidate &&
+          !threadsBeforeClick.has(candidate) &&
           (await page.getByTestId(`assistant-thread-panel-${candidate}`).isVisible())
         ) {
           discoveredThreadId = candidate;
