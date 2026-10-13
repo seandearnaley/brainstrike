@@ -71,13 +71,13 @@ interface HostSearchTarget {
 export interface UseThreadSearchControllerOptions {
   /** `ensureEmbedderReady` names the runtime, so the profile, of the embedder that ran. */
   readonly embedder: ThreadSearchEmbedder & Pick<UseSearchEmbedderResult, 'ensureEmbedderReady'>;
-  /** The thread host's semantic-arm backlog, drained beside history's at the same cadence. */
+  /** The desktop conversation owner's semantic backlog. */
   readonly hostSearchVectors?: HostThreadSearchVectors | undefined;
   readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
   readonly localModelConfigMap: ReturnType<typeof buildLocalEmbeddingModelConfigMap>;
   readonly repository: ThreadSearchControllerRepository | null;
   readonly resourceId: string;
-  /** Gap 10: the thread host's own arms for a query, fused into the same list. */
+  /** When present, the sole conversation search owner; the repository supplies model settings. */
   readonly searchHost?:
     | ((query: string, semantic?: AssistantThreadSearchSemantic) => Promise<ThreadSearchExtraArms>)
     | undefined;
@@ -115,8 +115,8 @@ export function useThreadSearchController({
   searchHost,
 }: UseThreadSearchControllerOptions): ThreadSearchController {
   const service = useMemo<ThreadSearchService | null>(
-    () => (repository ? createThreadSearchService(repository) : null),
-    [repository]
+    () => (repository ? createThreadSearchService(searchHost ? null : repository) : null),
+    [repository, searchHost]
   );
   const query = useThreadSearchStore((state) => state.query);
   /** Serializes embedding passes so overlapping searches never double-drain. */
@@ -210,9 +210,17 @@ export function useThreadSearchController({
         return null;
       }
     };
-    /** The panel's one embedding progress: history's rows and the host's. */
+    /** Report progress for the active conversation owner. */
     const recordCoverage = async (target: HostSearchTarget | null) => {
-      const history = await repository.getCoverage(resourceId);
+      const history = searchHost
+        ? {
+            embeddableMessages: 0,
+            embeddedMessages: 0,
+            erroredMessages: 0,
+            indexedMessages: 0,
+            totalMessages: 0,
+          }
+        : await repository.getCoverage(resourceId);
       const host =
         target && hostSearchVectors ? await hostSearchVectors.coverage(target.profile) : null;
       useThreadSearchStore.getState().recordCoverage(combineThreadSearchCoverage(history, host));
@@ -243,7 +251,7 @@ export function useThreadSearchController({
         }
       }
     };
-    // The host's backlog, after history's, at the same rows per pass.
+    // The host's backlog uses the existing rows-per-pass bound.
     const drainHost = async (target: HostSearchTarget | null): Promise<void> => {
       if (!(target && hostSearchVectors)) {
         return;
@@ -269,7 +277,9 @@ export function useThreadSearchController({
     const execute = async (): Promise<void> => {
       try {
         const target = await resolveHostTarget();
-        await drainHistory(target);
+        if (!searchHost) {
+          await drainHistory(target);
+        }
         await drainHost(target);
       } catch {
         // Backlog embedding is opportunistic; failures surface per-search via
@@ -280,7 +290,15 @@ export function useThreadSearchController({
       execute,
       execute
     );
-  }, [embedder, hostSearchVectors, loadEmbeddingQueue, repository, resolveModelInfo, resourceId]);
+  }, [
+    embedder,
+    hostSearchVectors,
+    loadEmbeddingQueue,
+    repository,
+    resolveModelInfo,
+    resourceId,
+    searchHost,
+  ]);
 
   const runSearch = useCallback(
     (rawQuery: string) => {
@@ -298,11 +316,12 @@ export function useThreadSearchController({
           // overlapping searches share one in-flight sync instead of
           // duplicating it.
           const now = Date.now();
-          if (syncInFlightRef.current) {
+          if (!searchHost && syncInFlightRef.current) {
             await syncInFlightRef.current;
           } else if (
-            lastSyncAtRef.current === null ||
-            now - lastSyncAtRef.current >= THREAD_SEARCH_SYNC_TTL_MS
+            !searchHost &&
+            (lastSyncAtRef.current === null ||
+              now - lastSyncAtRef.current >= THREAD_SEARCH_SYNC_TTL_MS)
           ) {
             const syncRun = repository
               .sync()

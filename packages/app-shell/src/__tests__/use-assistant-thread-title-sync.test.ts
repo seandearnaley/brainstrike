@@ -194,7 +194,7 @@ describe('useAssistantThreadTitleSync', () => {
       expect(refreshResourceThreads).toHaveBeenCalledTimes(1);
     });
     const listed: AssistantThreadRepository = refreshResourceThreads.mock.calls[0]?.[0];
-    expect(await listed.listThreads('resource-1')).toEqual([hostThread, historyThread]);
+    expect(await listed.listThreads('resource-1')).toEqual([hostThread]);
   });
 
   it('makes the run-completion refresh a no-op without a repository', () => {

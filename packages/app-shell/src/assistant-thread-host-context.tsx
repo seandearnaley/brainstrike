@@ -239,7 +239,7 @@ function closeDeletedChildTabs(threadIds: readonly string[]): void {
   }
 }
 
-/** Keep old history in its existing repository and read new roots from their actual owner. */
+/** Desktop lists conversations from its sole runtime owner; web keeps its repository. */
 export function withAssistantThreadHost<Repository extends AssistantThreadRepository>(
   repository: Repository,
   host: AssistantThreadHostCapability | undefined
@@ -303,12 +303,6 @@ export function withAssistantThreadHost<Repository extends AssistantThreadReposi
           },
         }
       : {}),
-    listThreads: async (resourceId) => {
-      const [history, current] = await Promise.all([
-        repository.listThreads(resourceId),
-        host.listThreads(resourceId),
-      ]);
-      return [...current, ...history];
-    },
+    listThreads: (resourceId) => host.listThreads(resourceId),
   };
 }

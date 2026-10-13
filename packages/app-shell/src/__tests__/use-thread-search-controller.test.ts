@@ -350,7 +350,7 @@ describe('useThreadSearchController', () => {
     expect(useThreadSearchStore.getState().results).toBe(resolvedResults);
   });
 
-  it("fuses the host's arms into the same result list as history's", async () => {
+  it('searches only the host catalog when its capability exists', async () => {
     const repository = createRepository();
     const searchHost = vi.fn(async () => ({
       messages: [
@@ -377,13 +377,16 @@ describe('useThreadSearchController', () => {
     await flushAsync();
 
     // The host's arms take the same query vector, under the embedder's identity.
+    expect(repository.sync).not.toHaveBeenCalled();
+    expect(repository.fullTextSearch).not.toHaveBeenCalled();
+    expect(repository.searchThreadTitles).not.toHaveBeenCalled();
+    expect(repository.getCoverage).not.toHaveBeenCalled();
     expect(searchHost).toHaveBeenCalledWith('hnsw', {
       profile: VECTOR_PROFILE,
       threshold: 0.35,
       vector: [0.1, 0.2, 0.3],
     });
     expect(useThreadSearchStore.getState().results?.map(({ threadId }) => threadId)).toEqual([
-      'thread-1',
       'host-thread',
     ]);
   });
@@ -436,7 +439,7 @@ describe('useThreadSearchController', () => {
     expect(useThreadSearchStore.getState().coverage).toEqual(pendingCoverage);
   });
 
-  it("drains the host's backlog after history's, at the same rows per pass", async () => {
+  it('drains only the host backlog for desktop conversations', async () => {
     const repository = createRepository();
     const pending = vi
       .fn<HostThreadSearchVectors['pending']>()
@@ -460,7 +463,7 @@ describe('useThreadSearchController', () => {
       repository,
       embedder,
       vi.fn(async () => ({}) as never),
-      undefined,
+      async () => ({ messages: [], titles: [] }),
       { coverage, pending, put }
     );
 
@@ -477,7 +480,8 @@ describe('useThreadSearchController', () => {
     ]);
     // The second pass found an empty backlog and stopped.
     expect(pending).toHaveBeenCalledTimes(2);
-    // History's coverage (none) and the host's rows are one progress.
+    expect(repository.getCoverage).not.toHaveBeenCalled();
+    // Only the current owner's rows contribute to progress.
     expect(coverage).toHaveBeenCalledWith(VECTOR_PROFILE);
     expect(useThreadSearchStore.getState().coverage).toEqual({
       embeddableMessages: 2,

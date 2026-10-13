@@ -9,6 +9,12 @@ import {
   assertBulkThreadMetadataPatch,
 } from './assistant-memory-repository';
 import { resolveAssistantMemoryResourceId } from './assistant-memory-resource';
+import {
+  omitRecordKey,
+  omitRecordKeys,
+  restoreThreadCatalog,
+  serializeThread,
+} from './assistant-thread-catalog';
 import { mergeAssistantThreadMetadata } from './assistant-thread-metadata-merge';
 
 type AssistantThreadModelSettings = RuntimeModelSettings;
@@ -68,6 +74,7 @@ interface AssistantThreadState {
   setThreadDraftRuntime: (threadId: string, config: AssistantThreadDraftRuntime) => void;
   threadIdsByResourceId: Record<string, string[]>;
   threadsByResourceId: Record<string, AssistantMemoryThread[]>;
+  unavailableSavedThreadByResourceId: Record<string, string>;
   /**
    * Epoch ms below which NOTHING is unseen — stamped once, when this store
    * first exists for a user (fresh install) or when their v3 blob is migrated.
@@ -163,14 +170,6 @@ const resourceThreadRefreshStateByResourceId = new Map<
   { applied: number; started: number }
 >();
 
-function serializeThread(thread: AssistantMemoryThread): AssistantMemoryThread {
-  return {
-    ...thread,
-    createdAt: new Date(thread.createdAt),
-    updatedAt: new Date(thread.updatedAt),
-  };
-}
-
 function mergeThread(
   currentThreads: readonly AssistantMemoryThread[],
   thread: AssistantMemoryThread
@@ -247,17 +246,6 @@ function selectActiveThreadAfterClose(
     return;
   }
   return remainingThreadIds[closingIndex] ?? remainingThreadIds.at(-1);
-}
-
-function omitRecordKey<T>(record: Record<string, T>, keyToOmit: string): Record<string, T> {
-  return Object.fromEntries(Object.entries(record).filter(([key]) => key !== keyToOmit));
-}
-
-function omitRecordKeys<T>(
-  record: Record<string, T>,
-  keysToOmit: ReadonlySet<string>
-): Record<string, T> {
-  return Object.fromEntries(Object.entries(record).filter(([key]) => !keysToOmit.has(key)));
 }
 
 function requireThreadIdBatch(threadIds: readonly string[]): readonly string[] {
@@ -384,6 +372,9 @@ async function loadResourceThreadsForGeneration(
   if (loadGeneration !== resourceThreadLoadGeneration) {
     return null;
   }
+  useAssistantThreadStore.setState((state) =>
+    restoreThreadCatalog(state, resourceId, loadedThreads)
+  );
   const threads =
     loadedThreads.length > 0
       ? loadedThreads
@@ -571,6 +562,10 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
                 ...state.threadsByResourceId,
                 [resourceId]: threads,
               },
+              unavailableSavedThreadByResourceId: omitRecordKey(
+                state.unavailableSavedThreadByResourceId,
+                resourceId
+              ),
             };
           });
           return thread;
@@ -812,6 +807,10 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
             ...state.selectedThreadByResourceId,
             [resourceId]: threadId,
           },
+          unavailableSavedThreadByResourceId: omitRecordKey(
+            state.unavailableSavedThreadByResourceId,
+            resourceId
+          ),
         }));
       },
       refreshResourceThreads: async (
@@ -926,6 +925,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
       },
       threadIdsByResourceId: {},
       threadsByResourceId: {},
+      unavailableSavedThreadByResourceId: {},
       unseenBaselineAt: Date.now(),
       updateThreadMetadata: async (
         repository: AssistantThreadRepository,
@@ -1020,6 +1020,7 @@ export function resetAssistantThreadStore(): void {
     selectedThreadByResourceId: {},
     threadIdsByResourceId: {},
     threadsByResourceId: {},
+    unavailableSavedThreadByResourceId: {},
     // Re-stamped, not zeroed: a reset clears every watermark, so a zero floor
     // would make every surviving run's completion read as news.
     unseenBaselineAt: Date.now(),
