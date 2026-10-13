@@ -32,16 +32,35 @@ function fixture() {
   };
   // An opened store's rows per workspace scope; empty until a test retains some.
   let storedRows: readonly ScopedManifestFile[] = [];
-  const verifyScopedManifest = vi.fn(async (request: { readonly scope: { rootId?: string } }) => ({
-    authorityEpoch: 'a'.repeat(64),
-    authorityRevision: 1,
-    changed: [],
-    complete: storedRows.length === 0,
-    missing: [],
-    scope: request.scope,
-    storeId: 'store',
-    unexpected: storedRows.filter((row) => row.rootId === request.scope.rootId),
-  }));
+  // The writer's current bindings, as its ScopeAuthority holds them.
+  let boundFiles: readonly { readonly rootId: string | null }[] = [];
+  const verifyScopedManifest = vi.fn(
+    async (request: {
+      readonly files: readonly unknown[];
+      readonly scope: { rootId?: string };
+    }) => {
+      // As the writer does: a manifest declares every file bound in its scope.
+      if (
+        request.files.length !==
+        boundFiles.filter((file) => file.rootId === request.scope.rootId).length
+      ) {
+        throw new IndexerError(
+          'incomplete-manifest',
+          'A scoped manifest must declare the complete current canonical file inventory.'
+        );
+      }
+      return {
+        authorityEpoch: 'a'.repeat(64),
+        authorityRevision: 1,
+        changed: [],
+        complete: storedRows.length === 0,
+        missing: [],
+        scope: request.scope,
+        storeId: 'store',
+        unexpected: storedRows.filter((row) => row.rootId === request.scope.rootId),
+      };
+    }
+  );
   const removeScopedFile = vi.fn<(request: unknown) => Promise<boolean>>(unused);
   const port: IndexerPort & ScopedIndexerPort = {
     close: unused,
@@ -59,7 +78,8 @@ function fixture() {
     prepareScopedFile: unused,
     removeFile: unused,
     removeScopedFile,
-    replaceFileBindings: vi.fn(async () => {
+    replaceFileBindings: vi.fn(async (bindings: unknown) => {
+      boundFiles = bindings as typeof boundFiles;
       events.push('bindings-replace');
     }),
     search: unused,
@@ -83,10 +103,11 @@ function fixture() {
     events.push('profile-acquire');
     return profileAttachment;
   });
-  const createIndexOwner = vi.fn(async () => ({
+  const createIndexOwner = vi.fn(async (opened: NativeIndexAuthority) => ({
     close: closeWriter,
     databasePath: '/owned/index.sqlite',
     start: async () => {
+      boundFiles = opened.fileBindings;
       events.push('writer-start');
       return port;
     },
@@ -276,7 +297,11 @@ it('retains the writer and lease when reader cleanup fails, then retries the sam
 it('joins startup racing reset and never installs a query target for its late writer', async () => {
   const f = fixture();
   const pending = Promise.withResolvers<Awaited<ReturnType<typeof f.createIndexOwner>>>();
-  const owner = await f.createIndexOwner();
+  const owner = await f.createIndexOwner({
+    fileBindings: [],
+    rootIds: ['root'],
+    scopes: [{ kind: 'workspace', rootId: 'root' }],
+  });
   f.createIndexOwner.mockReturnValueOnce(pending.promise);
   const acquiring = f.runtime.acquire();
   // The acquisition reaches the injected asynchronous owner factory.
@@ -913,6 +938,7 @@ it('removes the rows an opened writer finds in its folders that its bindings do 
     sourcePath: `/${fileId}.txt`,
   });
   expect(vi.mocked(f.port.replaceFileBindings).mock.calls).toEqual([
+    [[]],
     [[bound, unowned('text-partition'), unowned('earlier-collection')]],
     [[bound]],
   ]);
@@ -923,6 +949,7 @@ it('removes the rows an opened writer finds in its folders that its bindings do 
   // The reader sees only the converged store.
   expect(f.events.slice(f.events.indexOf('writer-start'))).toEqual([
     'writer-start',
+    'bindings-replace',
     'bindings-replace',
     'remove',
     'remove',

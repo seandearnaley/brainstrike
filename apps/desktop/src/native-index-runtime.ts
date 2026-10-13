@@ -143,14 +143,24 @@ function workspaceRemoval(file: IndexFileBinding): {
  * or retired while no writer was open would otherwise stay unbound and keep the
  * folder's manifest incomplete. Each is bound from its own stored row (no
  * partition, so no collection scope is needed) and removed; Postgres sources stay.
+ * A manifest must declare every file bound in its scope, so the stored rows are
+ * listed with no binding held; no reader is installed until this returns.
  */
 async function retireUnownedRows(port: NativePort, requested: NativeIndexAuthority): Promise<void> {
+  const folders = requested.scopes.flatMap((scope) => (scope.kind === 'workspace' ? [scope] : []));
+  if (folders.length === 0) {
+    return;
+  }
+  const roots = new Set(folders.map((scope) => scope.rootId));
+  const boundInFolders = requested.fileBindings.some(
+    (file) => file.rootId !== null && roots.has(file.rootId)
+  );
+  if (boundInFolders) {
+    await port.replaceFileBindings([]);
+  }
   const owned = new Set(requested.fileBindings.map((file) => file.fileId));
   const unowned: IndexFileBinding[] = [];
-  for (const scope of requested.scopes) {
-    if (scope.kind !== 'workspace') {
-      continue;
-    }
+  for (const scope of folders) {
     const stored = await port.verifyScopedManifest({ files: [], scope });
     for (const row of stored.unexpected) {
       if (!owned.has(row.fileId)) {
@@ -165,14 +175,15 @@ async function retireUnownedRows(port: NativePort, requested: NativeIndexAuthori
       }
     }
   }
-  if (unowned.length === 0) {
-    return;
+  if (unowned.length > 0) {
+    await port.replaceFileBindings([...requested.fileBindings, ...unowned]);
+    for (const file of unowned) {
+      await port.removeScopedFile(workspaceRemoval(file));
+    }
   }
-  await port.replaceFileBindings([...requested.fileBindings, ...unowned]);
-  for (const file of unowned) {
-    await port.removeScopedFile(workspaceRemoval(file));
+  if (boundInFolders || unowned.length > 0) {
+    await port.replaceFileBindings(requested.fileBindings);
   }
-  await port.replaceFileBindings(requested.fileBindings);
 }
 
 /** Main owns this admission lifetime. Reset resumes only after releasing its deletion guard. */

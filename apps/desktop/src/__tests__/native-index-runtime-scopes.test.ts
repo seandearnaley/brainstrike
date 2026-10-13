@@ -1,9 +1,10 @@
 // @vitest-environment node
-import type {
-  IndexerPort,
-  IndexFileBinding,
-  IndexScope,
-  ScopedIndexerPort,
+import {
+  IndexerError,
+  type IndexerPort,
+  type IndexFileBinding,
+  type IndexScope,
+  type ScopedIndexerPort,
 } from '@brainstrike/indexer';
 import { expect, it, vi } from 'vitest';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
@@ -31,9 +32,39 @@ function fixture(initial: Authority) {
   const unused = async (): Promise<never> => {
     throw new Error('Unused fixture operation');
   };
-  const replaceFileBindings = vi.fn(async (_bindings: readonly IndexFileBinding[]) => {
+  // The writer's current bindings, as its ScopeAuthority holds them.
+  let bound: readonly IndexFileBinding[] = [];
+  const replaceFileBindings = vi.fn(async (bindings: readonly IndexFileBinding[]) => {
+    bound = bindings;
     events.push('bindings-ack');
   });
+  // An opened store holding no rows its bindings do not own (BST-1988 convergence).
+  const verifyScopedManifest = vi.fn(
+    async (request: { readonly files: readonly unknown[]; readonly scope: IndexScope }) => {
+      const { scope } = request;
+      const inScope = bound.filter((file) =>
+        scope.kind === 'workspace'
+          ? file.rootId === scope.rootId
+          : file.embeddingSetId === scope.embeddingSetId
+      );
+      if (request.files.length !== inScope.length) {
+        throw new IndexerError(
+          'incomplete-manifest',
+          'A scoped manifest must declare the complete current canonical file inventory.'
+        );
+      }
+      return {
+        authorityEpoch: 'a'.repeat(64),
+        authorityRevision: 1,
+        changed: [],
+        complete: true,
+        missing: [],
+        scope,
+        storeId: 'store',
+        unexpected: [],
+      };
+    }
+  );
   const removeScopedFile = vi.fn(async (_request: unknown) => {
     events.push('native-removal-ack');
     return true;
@@ -58,7 +89,8 @@ function fixture(initial: Authority) {
     search: unused,
     searchScopes: unused,
     verifyManifest: unused,
-    verifyScopedManifest: unused,
+    verifyScopedManifest:
+      verifyScopedManifest as unknown as ScopedIndexerPort['verifyScopedManifest'],
   };
   const closeQueries = vi.fn(async () => {
     events.push('readers-exited');
@@ -66,10 +98,11 @@ function fixture(initial: Authority) {
   const closeWriter = vi.fn(async () => {
     events.push('writer-exited');
   });
-  const createIndexOwner = vi.fn(async (_authority: Authority) => ({
+  const createIndexOwner = vi.fn(async (opened: Authority) => ({
     close: closeWriter,
     databasePath: '/owned/index.sqlite',
     start: async () => {
+      bound = opened.fileBindings;
       events.push('writer-ready');
       return port;
     },

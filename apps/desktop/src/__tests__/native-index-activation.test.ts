@@ -881,7 +881,13 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
   ]);
   expect(documentEmbeddings).not.toHaveBeenCalled();
   expect(native.commitScopedFile).toHaveBeenCalledTimes(2);
-  expect(native.verifyScopedManifest).toHaveBeenCalledTimes(3);
+  // The opened writer lists its folder's stored rows once (no files declared,
+  // BST-1988), then the startup proves three manifests.
+  const manifests = vi
+    .mocked(native.verifyScopedManifest)
+    .mock.calls.map(([input]) => (input as { readonly files: readonly unknown[] }).files.length);
+  expect(manifests.filter((declared) => declared === 0)).toHaveLength(1);
+  expect(manifests.filter((declared) => declared > 0)).toHaveLength(3);
   expect(native.coverageScope).toHaveBeenCalledTimes(1);
   await activation.close();
 });
