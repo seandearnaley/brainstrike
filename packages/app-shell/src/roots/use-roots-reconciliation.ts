@@ -510,15 +510,13 @@ export function useRootsReconciliation({
           publishCanonicalMapping,
           result,
         });
-        if (insertedAny) {
-          // ONE nudge for the whole boot batch — on a fresh install these rows
-          // land after main's eager app-ready build, which would otherwise be
-          // the only build of the session. Gated on an INSERT, not just a
-          // successful mapping (BST-1400 item 11): an ordinary boot re-matches
-          // every already-registered root, which the eager build already
-          // discovered — nudging for that would be one wasted extra inventory
-          // build every session, not a follow-up on anything actually new.
+        // Host restoration can write roots after Main's eager inventory build.
+        // Its renderer mapping reports no inserts, but those roots still need
+        // discovery (BST-1990: missing branch badges in the folders panel).
+        if (insertedAny || (adapter.ownsRootRecords && dbRootIdMap.size > 0)) {
           refreshGitInventoryAfterRootRegistration(resolveChangesBridge());
+        }
+        if (insertedAny) {
           refreshNativeIndexAfterRootRegistration();
         }
         resolve(dbRootIdMap);
