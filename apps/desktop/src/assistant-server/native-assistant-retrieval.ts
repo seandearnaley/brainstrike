@@ -48,9 +48,12 @@ function executionIdentity(status: IndexerStatus): string {
     collectionReadiness: _collections,
     rootReadiness: _roots,
     publicationProgress: _progress,
+    sourceObservation,
     ...identity
   } = status;
-  return JSON.stringify(identity);
+  // Scan receipts change as committed rows become available; only their owner
+  // generation participates in the query's authority identity.
+  return JSON.stringify({ ...identity, ownerGeneration: sourceObservation?.ownerGeneration });
 }
 
 function refuse(message: string): never {

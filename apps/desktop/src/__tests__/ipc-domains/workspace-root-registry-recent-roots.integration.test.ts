@@ -47,14 +47,15 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath (real PGlite
         resolveCanonicalRoot: async (rootPath) => rootPath,
         storage,
       });
+    // The active managed-worktree ledger names the path, so Main's registry, the
+    // one writer of `roots` (BST-1990), records the mount as a worktree.
+    await database.query(
+      `INSERT INTO brainstrike_worktrees (id, repo_common_dir, path, base_ref, created_by)
+       VALUES ('bright-fox', '/repo/.git', '/managed/app/bright-fox', 'main', 'agent')`
+    );
     const firstRegistry = createRegistry();
     firstRegistry.setManagedWorktreeAuthorizer(() => Promise.resolve('authorized'));
     const descriptor = await firstRegistry.addRootByPath('/managed/app/bright-fox');
-    await database.query(
-      `INSERT INTO roots (id, kind, display_name, path, last_verified_at)
-       VALUES ($1, 'worktree', $2, $3, NOW())`,
-      [descriptor.rootId, descriptor.displayName, descriptor.handle.path]
-    );
 
     const relaunchedRegistry = createRegistry();
     const storedRoots = JSON.parse((await storage.getItem('rootsList')) ?? '[]') as unknown;

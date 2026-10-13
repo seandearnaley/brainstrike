@@ -1,11 +1,9 @@
-import { RootIdentityProvider } from '@brainstrike/app-shell/roots/root-identity-context';
-import { useWorkspaceSearchController } from '@brainstrike/app-shell/use-workspace-search-controller';
 import type {
   IndexerCoverage,
   IndexerStatus,
+  IndexLifecycleCapability,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
-import { SearchEmbedderProvider } from '@brainstrike/vector-management';
 import {
   useNativeWorkspaceSearchDependencies,
   useWorkspaceSearchStore,
@@ -37,6 +35,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
 }));
 
 import { NativeSearchProvider } from '../../../renderer/components/native-search-provider';
+import { mountNativeSearchController } from './native-search-controller-fixture';
 
 const profile = {
   dimensions: 384,
@@ -79,12 +78,13 @@ afterEach(() => {
 });
 describe('native query provider cancellation wiring', () => {
   function mount() {
-    const capability: IndexSearchCapability = {
+    const capability: IndexSearchCapability & IndexLifecycleCapability = {
       coverage: vi.fn(),
       coverageBatch: vi.fn(async () => {
         throw new Error('Unexpected coverage batch');
       }),
       grep: vi.fn(),
+      onLifecycleChanged: vi.fn(() => () => {}),
       rebuild: vi.fn(),
       search: vi.fn(),
       status: vi.fn(async () => ready),
@@ -142,72 +142,7 @@ describe('native provider and search controller observation refresh', () => {
     cloneObservations = true,
     coverageOverride?: IndexSearchCapability['coverage']
   ) {
-    let observation: IndexerStatus = ready;
-    const counts = { chunks: 1, indexedFiles: 1, missingVectors: 0, vectors: 1 };
-    const observedCoverage: IndexerCoverage = {
-      embedding: ready.embedding,
-      roots: [{ rootId: 'root-a', ...counts }],
-      storeId: ready.storeId,
-      totals: counts,
-      vectorCoverageComplete: true,
-    };
-    const response = {
-      candidateCount: 0,
-      candidatesTruncated: false,
-      embedding: ready.embedding,
-      hits: [],
-      scanLimited: false,
-      storeId: ready.storeId,
-      truncated: false,
-    };
-    const readCoverage = coverageOverride ?? (async () => observedCoverage);
-    let capability: IndexSearchCapability = {
-      coverage: vi.fn(readCoverage),
-      coverageBatch: vi.fn<IndexSearchCapability['coverageBatch']>(async () => {
-        const status = cloneObservations ? structuredClone(observation) : observation;
-        if (status.kind !== 'ready') {
-          return { kind: 'blocked', reason: status.reason };
-        }
-        return { coverage: [await readCoverage({ rootIds: ['root-a'] })], kind: 'current', status };
-      }),
-      grep: vi.fn(async () => response),
-      rebuild: vi.fn(),
-      search: vi.fn(async () => response),
-      status: vi.fn(async () => (cloneObservations ? structuredClone(observation) : observation)),
-    };
-    let identities = new Map([['adapter-a', 'root-a']]);
-    function Wrapper({ children }: { children: ReactNode }) {
-      return (
-        <SearchEmbedderProvider>
-          <NativeSearchProvider capability={capability}>
-            <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
-              {children}
-            </RootIdentityProvider>
-          </NativeSearchProvider>
-        </SearchEmbedderProvider>
-      );
-    }
-    const mounted = renderHook(
-      () => ({
-        controller: useWorkspaceSearchController(),
-        dependencies: useNativeWorkspaceSearchDependencies(),
-      }),
-      { wrapper: Wrapper }
-    );
-    return {
-      ...mounted,
-      capability,
-      observedCoverage,
-      refresh: (next: IndexerStatus) => {
-        observation = next;
-      },
-      replaceCapability: () => {
-        capability = { ...capability };
-      },
-      replaceRootBinding: () => {
-        identities = new Map([['adapter-b', 'root-a']]);
-      },
-    };
+    return mountNativeSearchController(ready, cloneObservations, coverageOverride);
   }
 
   function holdAvailability() {
@@ -219,6 +154,169 @@ describe('native provider and search controller observation refresh', () => {
     });
     return { ...mounted, pending };
   }
+
+  it('reruns a transitioning text search once the owner publishes Ready, without a retry timer', async () => {
+    const mounted = mountController();
+    try {
+      await waitFor(() => expect(mounted.result.current.dependencies?.profile).toEqual(profile));
+      useWorkspaceSearchStore.getState().setQuery('pending needle');
+      vi.mocked(mounted.capability.grep).mockRejectedValueOnce(
+        Object.assign(new Error('Native index is transitioning.'), {
+          code: 'native-index-transitioning',
+        })
+      );
+      act(() => mounted.result.current.controller.runTextSearch());
+      await waitFor(() => expect(mounted.capability.grep).toHaveBeenCalledOnce());
+      expect(useWorkspaceSearchStore.getState().status).toBe('searching');
+      await act(async () => mounted.emitLifecycle({ generation: 2, kind: 'ready' }));
+      await waitFor(() => expect(mounted.capability.grep).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
+      await act(async () => mounted.emitLifecycle({ generation: 2, kind: 'ready' }));
+      expect(mounted.capability.grep).toHaveBeenCalledTimes(2);
+    } finally {
+      mounted.unmount();
+    }
+  });
+
+  it('retains the pending query across preparing status and executes against the replacement Ready scope', async () => {
+    const mounted = mountController();
+    try {
+      await waitFor(() => expect(mounted.result.current.dependencies?.profile).toEqual(profile));
+      useWorkspaceSearchStore.getState().setQuery('retained needle');
+      vi.mocked(mounted.capability.grep).mockRejectedValueOnce(
+        Object.assign(new Error('Native index is transitioning.'), {
+          code: 'native-index-transitioning',
+        })
+      );
+      act(() => mounted.result.current.controller.runTextSearch());
+      await act(async () => {
+        await Promise.resolve();
+      });
+      mounted.refresh({
+        cause: { kind: 'transitioning' },
+        kind: 'unavailable',
+        reason: 'Preparing index.',
+      });
+      await act(async () =>
+        mounted.emitLifecycle({
+          cause: { kind: 'transitioning' },
+          generation: 2,
+          kind: 'preparing',
+        })
+      );
+      expect(useWorkspaceSearchStore.getState().status).toBe('searching');
+      mounted.refresh({ ...ready, storeId: 'replacement-store' });
+      vi.mocked(mounted.capability.grep).mockResolvedValue({
+        ...mounted.response,
+        storeId: 'replacement-store',
+      });
+      vi.mocked(mounted.capability.search).mockResolvedValue({
+        ...mounted.response,
+        storeId: 'replacement-store',
+      });
+      await act(async () => mounted.emitLifecycle({ generation: 3, kind: 'ready' }));
+      await waitFor(() => expect(mounted.capability.grep).toHaveBeenCalledTimes(2));
+      expect(useWorkspaceSearchStore.getState().status).toBe('results');
+    } finally {
+      mounted.unmount();
+    }
+  });
+
+  it('does not revive a cancelled query when Ready arrives', async () => {
+    const mounted = mountController();
+    try {
+      await waitFor(() => expect(mounted.result.current.dependencies?.profile).toEqual(profile));
+      useWorkspaceSearchStore.getState().setQuery('cancelled needle');
+      vi.mocked(mounted.capability.grep).mockRejectedValueOnce(
+        Object.assign(new Error('Native index is transitioning.'), {
+          code: 'native-index-transitioning',
+        })
+      );
+      act(() => mounted.result.current.controller.runTextSearch());
+      await act(async () => {
+        await Promise.resolve();
+      });
+      act(() => useWorkspaceSearchStore.getState().clearResults());
+      await act(async () => mounted.emitLifecycle({ generation: 3, kind: 'ready' }));
+      expect(mounted.capability.grep).toHaveBeenCalledOnce();
+      expect(useWorkspaceSearchStore.getState().status).toBe('idle');
+    } finally {
+      mounted.unmount();
+    }
+  });
+
+  it('reruns when Ready arrives before the in-flight transition refusal', async () => {
+    const mounted = mountController();
+    try {
+      await waitFor(() => expect(mounted.result.current.dependencies?.profile).toEqual(profile));
+      const held = Promise.withResolvers<Awaited<ReturnType<IndexSearchCapability['grep']>>>();
+      vi.mocked(mounted.capability.grep).mockReturnValueOnce(held.promise);
+      useWorkspaceSearchStore.getState().setQuery('early ready');
+      act(() => mounted.result.current.controller.runTextSearch());
+      await act(async () => mounted.emitLifecycle({ generation: 2, kind: 'ready' }));
+      await act(async () =>
+        held.reject(
+          Object.assign(new Error('Native index is transitioning.'), {
+            code: 'native-index-transitioning',
+          })
+        )
+      );
+      await waitFor(() => expect(mounted.capability.grep).toHaveBeenCalledTimes(2));
+      expect(useWorkspaceSearchStore.getState().status).toBe('results');
+    } finally {
+      mounted.unmount();
+    }
+  });
+
+  it('shows the exact terminal failure instead of leaving a retained query preparing', async () => {
+    const mounted = mountController();
+    try {
+      await waitFor(() => expect(mounted.result.current.dependencies?.profile).toEqual(profile));
+      useWorkspaceSearchStore.getState().setQuery('failed needle');
+      vi.mocked(mounted.capability.grep).mockRejectedValueOnce(
+        Object.assign(new Error('Native index is transitioning.'), {
+          code: 'native-index-transitioning',
+        })
+      );
+      act(() => mounted.result.current.controller.runTextSearch());
+      await act(async () => {
+        await Promise.resolve();
+      });
+      const cause = { kind: 'source-failure' as const, message: 'Worker device lost.' };
+      mounted.refresh({ cause, kind: 'unavailable', reason: cause.message });
+      await act(async () => mounted.emitLifecycle({ cause, generation: 2, kind: 'refused' }));
+      expect(useWorkspaceSearchStore.getState().status).toBe('error');
+      expect(useWorkspaceSearchStore.getState().error).toBe(cause.message);
+      expect(mounted.capability.grep).toHaveBeenCalledOnce();
+    } finally {
+      mounted.unmount();
+    }
+  });
+
+  it('retains a query whose initial status already carries Transitioning', async () => {
+    const mounted = mountController();
+    try {
+      await waitFor(() => expect(mounted.result.current.dependencies?.profile).toEqual(profile));
+      mounted.refresh({
+        cause: { kind: 'transitioning' },
+        kind: 'unavailable',
+        reason: 'Preparing index.',
+      });
+      useWorkspaceSearchStore.getState().setQuery('starting while preparing');
+      act(() => mounted.result.current.controller.runTextSearch());
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(useWorkspaceSearchStore.getState().status).toBe('searching');
+      expect(mounted.capability.grep).not.toHaveBeenCalled();
+      mounted.refresh(ready);
+      await act(async () => mounted.emitLifecycle({ generation: 2, kind: 'ready' }));
+      await waitFor(() => expect(mounted.capability.grep).toHaveBeenCalledOnce());
+      expect(useWorkspaceSearchStore.getState().status).toBe('results');
+    } finally {
+      mounted.unmount();
+    }
+  });
 
   it('names the setting that turns semantic search on when Text search is saved (BST-1981)', async () => {
     preferences.nativeIndexMode = 'TEXT';

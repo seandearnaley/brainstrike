@@ -33,12 +33,9 @@ it('holds native acknowledgment ahead of real PG cascade and preserves remaining
   await mkdir(otherPath);
   await writeFile(path.join(rootPath, 'owned.ts'), 'export const owned = 1;\n');
   await writeFile(path.join(otherPath, 'other.ts'), 'export const other = 1;\n');
+  // Main's registry records each mount in `roots` itself (BST-1990).
   const root = await registry.addRoot(rootHandle(rootPath));
   const other = await registry.addRoot(rootHandle(otherPath));
-  await database.query(
-    `INSERT INTO roots (id, kind, display_name, path, status) VALUES ($1, 'path', 'owned', $2, 'live'), ($3, 'path', 'other', $4, 'live')`,
-    [root.rootId, rootPath, other.rootId, otherPath]
-  );
   await database.query(
     `INSERT INTO embedding_sets (id, model_key, model_id, dimensions) VALUES ('actual-collection', 'actual-key', 'actual-model', 3), ('other-collection', 'other-key', 'other-model', 3)`
   );

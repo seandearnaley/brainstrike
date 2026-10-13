@@ -1,4 +1,6 @@
 // @vitest-environment node
+
+import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
@@ -9,7 +11,6 @@ import { registerStoragePreferencesIpcHandlers } from '../ipc-domains/storage-pr
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { registerIndexSearchIpcHandlers } from '../ipc-index-search';
 import { createNativeIndexActivation } from '../native-index-activation';
-import { NativeIndexBlockedError } from '../native-index-blocked';
 import { NATIVE_INDEX_SETTINGS_KEY } from '../native-index-settings';
 import { createNativeRootDataDeletion } from '../native-root-data-deletion';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
@@ -221,7 +222,9 @@ it.each(['reconfigure', 'rebuild', 'resume'] as const)(
     try {
       await entered.promise;
       const observation = await capability.status().catch((error: unknown) => error);
-      await expect(f.activation.acquireRead()).rejects.toThrow('Native index activation is closed');
+      await expect(f.activation.acquireRead()).rejects.toMatchObject({
+        refusal: { kind: 'transitioning' },
+      });
       expect(mocks.acquire).not.toHaveBeenCalled();
       release.resolve();
       await replacing;
@@ -410,7 +413,9 @@ it('joins the previous writer and profile on terminal close and reports held res
   try {
     await entered.promise;
     await expect(capability.status()).resolves.toMatchObject({ kind: 'unavailable' });
-    await expect(f.activation.acquireRead()).rejects.toThrow('Native index activation is closed');
+    await expect(f.activation.acquireRead()).rejects.toMatchObject({
+      refusal: { kind: 'transitioning' },
+    });
     expect(mocks.acquire).toHaveBeenCalledOnce();
     release.resolve();
     await replacing;
@@ -432,6 +437,8 @@ it.each(['reconfigure', 'rebuild'] as const)(
     f.storage.getItem.mockResolvedValue(JSON.stringify(settings));
     await f.activation.acquire();
     try {
+      settings.state['indexingPolicyPreset'] = 'full-root';
+      f.storage.getItem.mockResolvedValue(JSON.stringify(settings));
       await f.activation[operation]();
       expect(mocks.acquire).toHaveBeenCalledTimes(2);
       expect(mocks.acquireProfile).toHaveBeenCalledOnce();
@@ -465,7 +472,7 @@ it('retains an independent terminal profile cleanup failure and admits no replac
     await expect(f.activation.close()).rejects.toBe(cause);
     expect(mocks.acquire).toHaveBeenCalledOnce();
     expect(mocks.acquireProfile).toHaveBeenCalledOnce();
-    await expect(f.activation.resume()).rejects.toThrow('Previous native ownership');
+    await expect(f.activation.resume()).rejects.toMatchObject({ cause: { kind: 'closed' } });
     await expect(f.activation.acquireRead()).rejects.toThrow('closed');
     expect(mocks.acquire).toHaveBeenCalledOnce();
     await f.activation.close();
@@ -520,7 +527,11 @@ it('preserves a new profile acquisition failure during missing-mode recovery wit
     await expect(f.activation.reconfigure()).rejects.toBe(cause);
     expect(mocks.acquire).not.toHaveBeenCalled();
     expect(mocks.closeProfile).not.toHaveBeenCalled();
-    await expect(capability.status()).rejects.toMatchObject({ cause });
+    await expect(capability.status()).resolves.toMatchObject({
+      cause: { kind: 'source-failure', message: cause.message },
+      phase: 'blocked',
+    });
+    await expect(f.activation.acquireRead()).rejects.toMatchObject({ cause });
   } finally {
     await f.activation.close();
   }
@@ -543,17 +554,18 @@ it.each([
     try {
       const observation = await capability.status();
       const failure = await f.activation.acquireRead().catch((error: unknown) => error);
-      expect(failure).toBeInstanceOf(NativeIndexBlockedError);
-      if (!(failure instanceof NativeIndexBlockedError)) {
+      expect(failure).toBeInstanceOf(NativeIndexRefusalError);
+      if (!(failure instanceof NativeIndexRefusalError)) {
         throw new Error('Original settings failure was not retained.');
       }
       expect(failure.cause).toBeInstanceOf(expected);
-      expect(observation).toEqual({
+      expect(observation).toMatchObject({
+        cause: { kind: 'settings-invalid' },
         kind: 'unavailable',
         phase: 'blocked',
         reason: failure.message,
       });
-      await expect(f.activation.acquire()).rejects.toBe(failure.cause);
+      await expect(f.activation.acquire()).rejects.toMatchObject({ cause: failure.cause });
       expect(mocks.acquire).not.toHaveBeenCalled();
       expect(mocks.acquireProfile).not.toHaveBeenCalled();
     } finally {
@@ -656,6 +668,9 @@ it.each([
     let changing: Promise<void> | undefined;
     try {
       await entered.promise;
+      const changedSettings = JSON.parse(settings) as { state: { indexingPolicyPreset: string } };
+      changedSettings.state.indexingPolicyPreset = 'full-root';
+      f.storage.getItem.mockResolvedValue(JSON.stringify(changedSettings));
       changing = f.activation.reconfigure();
       const changed = changing.catch((error: unknown) => error);
       if (phase === 'authority') {
@@ -667,7 +682,9 @@ it.each([
             'Native source authority changed'
           )
         );
-        await expect(f.activation.acquireRead()).rejects.toThrow('closed');
+        await expect(f.activation.acquireRead()).rejects.toMatchObject({
+          refusal: { kind: 'transitioning' },
+        });
         await expect(capability.status()).resolves.toMatchObject({ kind: 'unavailable' });
         await expect(
           capability.coverageBatch([{ collectionId: 'selected', rootIds: [] }])

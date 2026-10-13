@@ -59,7 +59,7 @@ it('keeps direct reads rejecting while preserving the classified public failure 
       })
     )
   ).rejects.toMatchObject({
-    code: 'native-coverage-observation-invalidated',
+    code: 'native-index-transitioning',
     message: 'Native source or saved profile changed during search.',
   });
 });

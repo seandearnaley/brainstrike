@@ -14,23 +14,19 @@ import type {
   IndexerCoverageRequest,
   IndexerEmbeddingState,
   IndexerSearchHit,
+  IndexerSourceObservation,
   IndexerStatus,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
 import type { SqliteQueryClient } from '@brainstrike/sqlite-query';
-import {
-  NativeAuthorityTransitionError,
-  NativeCoverageObservationInvalidatedError,
-  NativeIndexBlockedError,
-  NativeIndexSetupRequiredError,
-  NativeReadAuthorityRetiredError,
-} from './errors.js';
+import { NativeAuthorityTransitionError, NativeIndexRefusalError } from './errors.js';
 import { grepSnapshot } from './index-search.js';
 import type { NativeScopeReadiness } from './read-contracts.js';
 
 export interface NativeSearchAuthority {
   readonly bindings: readonly IndexFileBinding[];
-  readonly collectionId: string;
+  /** The saved collection, or null for the TEXT partition: workspace scopes only (BST-1988). */
+  readonly collectionId: string | null;
   readonly generation: number;
   readonly profile: VectorProfile | null;
   readonly queryPlan: Extract<IndexerStatus, { kind: 'ready' }>['queryPlan'];
@@ -46,17 +42,6 @@ export interface NativeScopedSearchDependencies {
   openQuery(): Promise<Pick<SqliteQueryClient, 'grep' | 'close'>>;
   rebuild(): Promise<void>;
   withRead<T>(work: (read: NativeScopedRead) => Promise<T>): Promise<T>;
-}
-function coverageAuthorityInvalidation(
-  error: unknown
-): NativeCoverageObservationInvalidatedError | null {
-  if (
-    error instanceof NativeReadAuthorityRetiredError ||
-    error instanceof NativeAuthorityTransitionError
-  ) {
-    return new NativeCoverageObservationInvalidatedError();
-  }
-  return error instanceof NativeCoverageObservationInvalidatedError ? error : null;
 }
 function embeddingState(profile: VectorProfile | null): IndexerEmbeddingState {
   if (profile === null) {
@@ -139,6 +124,22 @@ function observedAuthority(
       return { ...partial, scanComplete: false };
     }),
   };
+}
+function completeSourceScopes(
+  scopes: readonly IndexScope[],
+  readiness: readonly NativeScopeReadiness[]
+): boolean {
+  return scopes.every((scope) =>
+    readiness.some(
+      (receipt) =>
+        receipt.scanComplete &&
+        (scope.kind === 'workspace' && receipt.scope.kind === 'workspace'
+          ? scope.rootId === receipt.scope.rootId
+          : scope.kind === 'collection' &&
+            receipt.scope.kind === 'collection' &&
+            scope.embeddingSetId === receipt.scope.embeddingSetId)
+    )
+  );
 }
 function requestedScopes(
   authority: NativeSearchAuthority,
@@ -263,25 +264,40 @@ function projectCoverage(
     vectorCoverageComplete: coverage.every((result) => result.vectorCoverageComplete),
   };
 }
+function projectSourceObservation(authority: NativeSearchAuthority): IndexerSourceObservation {
+  return {
+    ownerGeneration: authority.generation,
+    readiness: authority.readiness.map(({ generation, mutationRevision, scanComplete, scope }) => ({
+      generation,
+      mutationRevision,
+      scanComplete,
+      scope,
+    })),
+  };
+}
 function projectStatus(
   authority: NativeSearchAuthority,
   storeId: string,
   embedding: IndexerEmbeddingState
 ): Extract<IndexerStatus, { kind: 'ready' }> {
+  const { collectionId } = authority;
   return {
-    authorizedCollectionIds: [authority.collectionId],
+    authorizedCollectionIds: collectionId === null ? [] : [collectionId],
     authorizedRootIds: authority.rootIds,
-    collectionReadiness: [
-      {
-        embeddingSetId: authority.collectionId,
-        scanComplete: authority.readiness.some(
-          (receipt) =>
-            receipt.scope.kind === 'collection' &&
-            receipt.scope.embeddingSetId === authority.collectionId &&
-            receipt.scanComplete
-        ),
-      },
-    ],
+    collectionReadiness:
+      collectionId === null
+        ? []
+        : [
+            {
+              embeddingSetId: collectionId,
+              scanComplete: authority.readiness.some(
+                (receipt) =>
+                  receipt.scope.kind === 'collection' &&
+                  receipt.scope.embeddingSetId === collectionId &&
+                  receipt.scanComplete
+              ),
+            },
+          ],
     embedding,
     kind: 'ready',
     publicationProgress: authority.readiness.flatMap(
@@ -324,6 +340,7 @@ function projectStatus(
           receipt.scanComplete
       ),
     })),
+    sourceObservation: projectSourceObservation(authority),
     storeId,
     ...(authority.queryPlan === undefined ? {} : { queryPlan: authority.queryPlan }),
   };
@@ -396,14 +413,20 @@ export function createNativeScopedSearchCapability(
         };
       });
     } catch (error) {
-      if (error instanceof NativeIndexBlockedError) {
-        return { kind: 'blocked', reason: error.message };
+      if (error instanceof NativeIndexRefusalError) {
+        if (error.refusal.kind === 'setup-required') {
+          throw error;
+        }
+        if (error.refusal.kind === 'transitioning' || error.refusal.kind === 'closed') {
+          return {
+            cause: error.refusal,
+            code: 'native-coverage-observation-invalidated',
+            kind: 'invalidated',
+          };
+        }
+        return { cause: error.refusal, kind: 'blocked', reason: error.message };
       }
-      const invalidation = coverageAuthorityInvalidation(error);
-      if (invalidation === null) {
-        throw error;
-      }
-      return { code: invalidation.code, kind: 'invalidated' };
+      throw error;
     }
   };
   return {
@@ -413,7 +436,9 @@ export function createNativeScopedSearchCapability(
         throw new Error(observation.reason);
       }
       if (observation.kind === 'invalidated') {
-        throw new NativeCoverageObservationInvalidatedError();
+        throw new NativeAuthorityTransitionError(
+          'Native source or saved profile changed during search.'
+        );
       }
       const [result] = observation.coverage;
       if (!result) {
@@ -441,23 +466,13 @@ export function createNativeScopedSearchCapability(
         }
         assertHits(result.hits, bindings);
         const observed = await snapshot.assertCurrent();
+        const sourceComplete = completeSourceScopes(scopes, observed.readiness);
         return {
           ...result,
           embedding: snapshot.embedding,
-          scanLimited:
-            result.scanLimited ||
-            scopes.some(
-              (scope) =>
-                !observed.readiness.some(
-                  (receipt) =>
-                    receipt.scanComplete &&
-                    (scope.kind === 'workspace' && receipt.scope.kind === 'workspace'
-                      ? scope.rootId === receipt.scope.rootId
-                      : scope.kind === 'collection' &&
-                        receipt.scope.kind === 'collection' &&
-                        scope.embeddingSetId === receipt.scope.embeddingSetId)
-                )
-            ),
+          scanLimited: result.scanLimited || !sourceComplete,
+          sourceComplete,
+          sourceObservation: projectSourceObservation(observed),
         };
       }),
     rebuild: () => dependencies.rebuild(),
@@ -491,23 +506,13 @@ export function createNativeScopedSearchCapability(
         }
         assertHits(result.hits, selectedBindings(snapshot.authority, scopes));
         const observed = await snapshot.assertCurrent();
+        const sourceComplete = completeSourceScopes(scopes, observed.readiness);
         return {
           ...result,
           embedding: snapshot.embedding,
-          scanLimited:
-            result.scanLimited ||
-            scopes.some(
-              (scope) =>
-                !observed.readiness.some(
-                  (receipt) =>
-                    receipt.scanComplete &&
-                    (scope.kind === 'workspace' && receipt.scope.kind === 'workspace'
-                      ? scope.rootId === receipt.scope.rootId
-                      : scope.kind === 'collection' &&
-                        receipt.scope.kind === 'collection' &&
-                        scope.embeddingSetId === receipt.scope.embeddingSetId)
-                )
-            ),
+          scanLimited: result.scanLimited || !sourceComplete,
+          sourceComplete,
+          sourceObservation: projectSourceObservation(observed),
         };
       }),
     status: async () => {
@@ -518,20 +523,20 @@ export function createNativeScopedSearchCapability(
           return projectStatus(observed, snapshot.storeId, snapshot.embedding);
         });
       } catch (error) {
-        if (error instanceof NativeIndexBlockedError) {
-          return { kind: 'unavailable', phase: 'blocked', reason: error.message };
+        if (error instanceof NativeIndexRefusalError) {
+          return {
+            cause: error.refusal,
+            kind: 'unavailable',
+            phase:
+              error.refusal.kind === 'transitioning' || error.refusal.kind === 'closed'
+                ? 'preparing'
+                : error.refusal.kind === 'setup-required'
+                  ? 'setup-required'
+                  : 'blocked',
+            reason: error.message,
+          };
         }
-        if (
-          !(error instanceof NativeIndexSetupRequiredError) &&
-          coverageAuthorityInvalidation(error) === null
-        ) {
-          throw error;
-        }
-        return {
-          kind: 'unavailable',
-          phase: error instanceof NativeIndexSetupRequiredError ? 'setup-required' : 'preparing',
-          reason: error instanceof Error ? error.message : String(error),
-        };
+        throw error;
       }
     },
   };

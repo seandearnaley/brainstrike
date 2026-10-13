@@ -11,7 +11,12 @@ export const NATIVE_INDEX_SETTINGS_KEY = 'background-indexing-preferences.v1';
 export interface NativeIndexSettings {
   readonly enabled: boolean;
   readonly indexingPolicyPreset: BackgroundIndexingPolicyPreset;
-  readonly managedCollectionId: string;
+  /**
+   * The saved collection, which owns the workspace's files when chosen. TEXT
+   * needs none (BST-1988): with no collection, its files are the TEXT partition,
+   * per workspace root. VECTOR always has one.
+   */
+  readonly managedCollectionId: string | null;
   readonly mode: NativeIndexMode;
   readonly paused: boolean;
   readonly selection: NativeLocalSelection | null;
@@ -44,7 +49,8 @@ export function readNativeIndexSettings(value: string | null): NativeIndexSettin
   if (mode === null) {
     throw new NativeIndexSetupRequiredError('Choose a search mode in Search & Indexing settings.');
   }
-  if (managedCollectionId === null || managedCollectionId === undefined) {
+  // Text search runs no model, so only vectors need a collection.
+  if (mode === 'VECTOR' && (managedCollectionId === null || managedCollectionId === undefined)) {
     throw new NativeIndexSetupRequiredError(
       'Choose an embedding model and collection in Search & Indexing settings.'
     );
@@ -54,7 +60,7 @@ export function readNativeIndexSettings(value: string | null): NativeIndexSettin
   return {
     enabled,
     indexingPolicyPreset,
-    managedCollectionId,
+    managedCollectionId: managedCollectionId ?? null,
     mode,
     paused,
     selection,

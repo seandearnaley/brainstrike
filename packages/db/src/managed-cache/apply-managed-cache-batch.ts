@@ -40,9 +40,16 @@ export type ManagedCacheBatchMutation =
       record: ManagedCacheReplaceRecord;
     };
 
+/**
+ * The managed-cache partition a batch belongs to: a collection's id, or `null`
+ * for the native TEXT partition (BST-1988), which is per root and has no
+ * collection. `null` names that partition alone, never "any collection".
+ */
+export type ManagedCachePartitionId = string | null;
+
 export interface ApplyManagedCacheBatchArgs {
   changes: readonly ManagedCacheBatchMutation[];
-  embeddingSetId: string;
+  embeddingSetId: ManagedCachePartitionId;
   // Per-batch root identifier: all changes in a batch share one root.
   // null means "no root assigned yet" (same as the pre-phase-3 default).
   readonly rootId?: string | null;
@@ -68,7 +75,7 @@ export type ManagedCacheInvalidationTarget =
     };
 
 export interface ApplyManagedCacheInvalidationsArgs {
-  readonly embeddingSetId: string;
+  readonly embeddingSetId: ManagedCachePartitionId;
   readonly targets: readonly ManagedCacheInvalidationTarget[];
 }
 
@@ -88,6 +95,31 @@ const MANAGED_CACHE_INVALIDATION_IDS_PER_QUERY = 5000;
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+function assertPartitionId(embeddingSetId: ManagedCachePartitionId, operation: string): void {
+  if (embeddingSetId !== null && !isNonEmptyString(embeddingSetId)) {
+    throw new Error(`${operation} requires a collection id or the TEXT partition (null).`);
+  }
+}
+
+/** Collection stats exist per collection; the TEXT partition has none. */
+function partitionCollections(embeddingSetId: ManagedCachePartitionId): string[] {
+  return embeddingSetId === null ? [] : [embeddingSetId];
+}
+
+/**
+ * The SQL predicate selecting one partition's `fr` rows, with its parameter
+ * first. A collection matches its own rows; the TEXT partition matches only
+ * rows with no collection, through its own identity index (migration 146).
+ */
+function partitionPredicate(embeddingSetId: ManagedCachePartitionId): {
+  readonly params: unknown[];
+  readonly predicate: string;
+} {
+  return embeddingSetId === null
+    ? { params: [], predicate: 'fr.embedding_set_id IS NULL' }
+    : { params: [embeddingSetId], predicate: 'fr.embedding_set_id::text = $1' };
 }
 
 function chunkArray<T>(values: readonly T[], chunkSize: number): T[][] {
@@ -376,7 +408,7 @@ function assertReturnedIds(
 
 async function insertManagedCacheImports(
   tx: QueryLike,
-  embeddingSetId: string,
+  embeddingSetId: ManagedCachePartitionId,
   imports: readonly ManagedCacheImportRecord[],
   rootId: string | null
 ): Promise<void> {
@@ -417,7 +449,7 @@ async function insertManagedCacheImports(
 
 async function applyManagedCacheReplacements(
   tx: QueryLike,
-  embeddingSetId: string,
+  embeddingSetId: ManagedCachePartitionId,
   replacements: readonly ManagedCacheReplaceRecord[]
 ): Promise<void> {
   if (replacements.length === 0) {
@@ -633,7 +665,7 @@ interface InvalidationMatchRow {
 
 async function listExactPathInvalidationMatches(
   tx: QueryLike,
-  embeddingSetId: string,
+  embeddingSetId: ManagedCachePartitionId,
   targets: readonly NormalizedManagedCacheInvalidationTarget[]
 ): Promise<InvalidationMatchRow[]> {
   // Every target matches the file at exactly its path: exact targets with
@@ -649,7 +681,12 @@ async function listExactPathInvalidationMatches(
   if (exactPathTargets.length === 0) {
     return [];
   }
-  const placeholders = buildValuePlaceholders(exactPathTargets.length, 3, 2);
+  const partition = partitionPredicate(embeddingSetId);
+  const placeholders = buildValuePlaceholders(
+    exactPathTargets.length,
+    3,
+    partition.params.length + 1
+  );
   const values = exactPathTargets.flatMap((target) => [
     target.rootId,
     target.relativePath,
@@ -664,7 +701,7 @@ async function listExactPathInvalidationMatches(
             fc.id::text AS chunk_id
        FROM targets t
        JOIN file_records fr
-         ON fr.embedding_set_id::text = $1
+         ON ${partition.predicate}
         AND fr.root_id = t.root_id
         AND fr.path = t.relative_path
         AND (
@@ -673,21 +710,22 @@ async function listExactPathInvalidationMatches(
         )
       LEFT JOIN file_chunks fc
         ON fc.file_record_id::text = fr.id::text`,
-    [embeddingSetId, ...values]
+    [...partition.params, ...values]
   );
   return result.rows;
 }
 
 async function listPrefixDescendantInvalidationMatches(
   tx: QueryLike,
-  embeddingSetId: string,
+  embeddingSetId: ManagedCachePartitionId,
   targets: readonly NormalizedManagedCacheInvalidationTarget[]
 ): Promise<InvalidationMatchRow[]> {
   const prefixTargets = targets.filter((target) => target.mode === 'prefix');
   if (prefixTargets.length === 0) {
     return [];
   }
-  const placeholders = buildValuePlaceholders(prefixTargets.length, 2, 2);
+  const partition = partitionPredicate(embeddingSetId);
+  const placeholders = buildValuePlaceholders(prefixTargets.length, 2, partition.params.length + 1);
   const values = prefixTargets.flatMap((target) => [target.rootId, target.relativePath]);
   // The half-open range [prefix || '/', prefix || '0') equals "starts with
   // prefix + '/'" under the C collation PGlite databases use ('0' is the code
@@ -703,28 +741,29 @@ async function listPrefixDescendantInvalidationMatches(
             fc.id::text AS chunk_id
        FROM targets t
        JOIN file_records fr
-         ON fr.embedding_set_id::text = $1
+         ON ${partition.predicate}
         AND fr.root_id = t.root_id
         AND fr.path >= t.relative_path || '/'
         AND fr.path < t.relative_path || '0'
         AND substr(fr.path, 1, length(t.relative_path) + 1) = t.relative_path || '/'
       LEFT JOIN file_chunks fc
         ON fc.file_record_id::text = fr.id::text`,
-    [embeddingSetId, ...values]
+    [...partition.params, ...values]
   );
   return result.rows;
 }
 
 async function listRecordInvalidationMatches(
   tx: QueryLike,
-  embeddingSetId: string,
+  embeddingSetId: ManagedCachePartitionId,
   targets: readonly NormalizedManagedCacheInvalidationTarget[]
 ): Promise<InvalidationMatchRow[]> {
   const recordTargets = targets.filter((target) => target.mode === 'record');
   if (recordTargets.length === 0) {
     return [];
   }
-  const placeholders = buildValuePlaceholders(recordTargets.length, 3, 2);
+  const partition = partitionPredicate(embeddingSetId);
+  const placeholders = buildValuePlaceholders(recordTargets.length, 3, partition.params.length + 1);
   const values = recordTargets.flatMap((target) => [
     target.expectedFileRecordId,
     target.rootId,
@@ -738,19 +777,19 @@ async function listRecordInvalidationMatches(
        FROM targets t
        JOIN file_records fr
          ON fr.id::text = t.file_record_id
-        AND fr.embedding_set_id::text = $1
+        AND ${partition.predicate}
         AND fr.root_id IS NOT DISTINCT FROM t.root_id
         AND fr.path IS NOT DISTINCT FROM t.relative_path
       LEFT JOIN file_chunks fc ON fc.file_record_id::text = fr.id::text
       FOR UPDATE OF fr`,
-    [embeddingSetId, ...values]
+    [...partition.params, ...values]
   );
   return result.rows;
 }
 
 async function listInvalidationMatches(
   tx: QueryLike,
-  embeddingSetId: string,
+  embeddingSetId: ManagedCachePartitionId,
   targets: readonly NormalizedManagedCacheInvalidationTarget[]
 ): Promise<{
   chunkIds: string[];
@@ -800,9 +839,7 @@ export async function invalidateManagedCacheEntriesByIdentity(
   db: IDatabase,
   args: ApplyManagedCacheInvalidationsArgs
 ): Promise<ManagedCacheInvalidationResult> {
-  if (!isNonEmptyString(args.embeddingSetId)) {
-    throw new Error('Managed cache invalidation requires a non-empty embeddingSetId.');
-  }
+  assertPartitionId(args.embeddingSetId, 'Managed cache invalidation');
   if (!db.transaction) {
     throw new Error('Managed cache invalidation requires transactional database support.');
   }
@@ -853,12 +890,12 @@ export async function invalidateManagedCacheEntriesByIdentity(
       }
 
       if (matches.fileRecordIds.length > 0) {
-        await markCollectionIndexingStatsDirty(tx, [args.embeddingSetId]);
+        await markCollectionIndexingStatsDirty(tx, partitionCollections(args.embeddingSetId));
       }
     });
   }
 
-  await refreshCollectionIndexingStats(db, [args.embeddingSetId]);
+  await refreshCollectionIndexingStats(db, partitionCollections(args.embeddingSetId));
 
   return {
     canceledEmbeddingJobCount,
@@ -931,6 +968,7 @@ export async function applyManagedCacheBatch(
   if (args.changes.length === 0) {
     return;
   }
+  assertPartitionId(args.embeddingSetId, 'Managed cache batch mutation');
   if (!db.transaction) {
     throw new Error('Managed cache batch mutation requires transactional database support.');
   }
@@ -969,6 +1007,6 @@ export async function applyManagedCacheBatch(
     // and the root of an existing record never changes on replace.
     await applyManagedCacheReplacements(tx, args.embeddingSetId, replacements);
     await insertManagedCacheImports(tx, args.embeddingSetId, imports, args.rootId ?? null);
-    await refreshCollectionIndexingStats(tx, [args.embeddingSetId]);
+    await refreshCollectionIndexingStats(tx, partitionCollections(args.embeddingSetId));
   });
 }

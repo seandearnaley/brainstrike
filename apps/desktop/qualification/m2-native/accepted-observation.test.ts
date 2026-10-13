@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ElectronAppContext } from '../../e2e/utils/electron-helpers.mts';
-import { NativeCoverageObservationInvalidatedError } from '../../src/native-coverage-observation-invalidated';
+import { NativeAuthorityTransitionError } from '../../src/native-authority-transition';
 import type { NativeSnapshot } from './candidate';
 import { configureVectorProfile, VECTOR_PROFILES } from './vector-profile';
 
@@ -47,7 +47,9 @@ it('returns the fenced profile observation accepted by the poll without a redund
   vi.stubEnv('BST_M2_VECTOR_PROFILE', 'webgpu-fp16');
   const accepted = configuredSnapshot();
   reads.observe.mockResolvedValue(accepted);
-  reads.strict.mockRejectedValue(new NativeCoverageObservationInvalidatedError());
+  reads.strict.mockRejectedValue(
+    new NativeAuthorityTransitionError('Native source or saved profile changed during search.')
+  );
   await expect(configureVectorProfile({} as ElectronAppContext)).resolves.toBe(accepted);
   expect(reads.observe).toHaveBeenCalledTimes(1);
   expect(reads.strict).not.toHaveBeenCalled();

@@ -1,9 +1,10 @@
 // @vitest-environment node
-import type {
-  IndexerPort,
-  IndexFileBinding,
-  IndexScope,
-  ScopedIndexerPort,
+import {
+  IndexerError,
+  type IndexerPort,
+  type IndexFileBinding,
+  type IndexScope,
+  type ScopedIndexerPort,
 } from '@brainstrike/indexer';
 import { expect, it, vi } from 'vitest';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
@@ -27,13 +28,54 @@ const binding: IndexFileBinding = {
 
 function fixture(initial: Authority) {
   let authority = initial;
+  let stored: readonly IndexFileBinding[] = [];
   const events: string[] = [];
   const unused = async (): Promise<never> => {
     throw new Error('Unused fixture operation');
   };
-  const replaceFileBindings = vi.fn(async (_bindings: readonly IndexFileBinding[]) => {
+  // The writer's current bindings, as its ScopeAuthority holds them.
+  let bound: readonly IndexFileBinding[] = [];
+  const replaceFileBindings = vi.fn(async (bindings: readonly IndexFileBinding[]) => {
+    bound = bindings;
     events.push('bindings-ack');
   });
+  // An opened store holding no rows its bindings do not own (BST-1988 convergence).
+  const verifyScopedManifest = vi.fn(
+    async (request: { readonly files: readonly unknown[]; readonly scope: IndexScope }) => {
+      const { scope } = request;
+      const inScope = bound.filter((file) =>
+        scope.kind === 'workspace'
+          ? file.rootId === scope.rootId
+          : file.embeddingSetId === scope.embeddingSetId
+      );
+      if (request.files.length !== inScope.length) {
+        throw new IndexerError(
+          'incomplete-manifest',
+          'A scoped manifest must declare the complete current canonical file inventory.'
+        );
+      }
+      return {
+        authorityEpoch: 'a'.repeat(64),
+        authorityRevision: 1,
+        changed: [],
+        complete: true,
+        missing: [],
+        scope,
+        storeId: 'store',
+        unexpected: stored
+          .filter((file) =>
+            scope.kind === 'workspace'
+              ? file.rootId === scope.rootId
+              : file.embeddingSetId === scope.embeddingSetId
+          )
+          .map(({ profile: _profile, ...file }) => ({
+            ...file,
+            chunks: [],
+            contentHash: 'c'.repeat(64),
+          })),
+      };
+    }
+  );
   const removeScopedFile = vi.fn(async (_request: unknown) => {
     events.push('native-removal-ack');
     return true;
@@ -58,7 +100,8 @@ function fixture(initial: Authority) {
     search: unused,
     searchScopes: unused,
     verifyManifest: unused,
-    verifyScopedManifest: unused,
+    verifyScopedManifest:
+      verifyScopedManifest as unknown as ScopedIndexerPort['verifyScopedManifest'],
   };
   const closeQueries = vi.fn(async () => {
     events.push('readers-exited');
@@ -66,10 +109,11 @@ function fixture(initial: Authority) {
   const closeWriter = vi.fn(async () => {
     events.push('writer-exited');
   });
-  const createIndexOwner = vi.fn(async (_authority: Authority) => ({
+  const createIndexOwner = vi.fn(async (opened: Authority) => ({
     close: closeWriter,
     databasePath: '/owned/index.sqlite',
     start: async () => {
+      bound = opened.fileBindings;
       events.push('writer-ready');
       return port;
     },
@@ -103,10 +147,25 @@ function fixture(initial: Authority) {
     setAuthority: (next: Authority): void => {
       authority = next;
     },
+    setStored: (files: readonly IndexFileBinding[]): void => {
+      stored = files;
+    },
   };
 }
 
-it('joins original-authority rooted collection removal before closing the writer', async () => {
+it('acquires an empty authority: Text search with no collection and no folder (BST-1988)', async () => {
+  // The TEXT partition's only scopes are its folders, so its last folder's
+  // removal leaves nothing to index; that is a ready, empty index, not a refusal.
+  const f = fixture({ fileBindings: [], rootIds: [], scopes: [] });
+  await expect(f.runtime.acquire()).resolves.toBe(f.port);
+  expect(f.createIndexOwner).toHaveBeenCalledExactlyOnceWith({
+    fileBindings: [],
+    rootIds: [],
+    scopes: [],
+  });
+});
+
+it('joins opening-writer convergence before closing a replacement writer', async () => {
   const rooted = {
     ...binding,
     fileId: 'workspace-file',
@@ -115,36 +174,32 @@ it('joins original-authority rooted collection removal before closing the writer
     sourcePath: '/actual/root/file.txt',
   };
   const f = fixture({
-    fileBindings: [rooted, binding],
+    fileBindings: [binding],
     rootIds: ['root'],
     scopes: [collection, { kind: 'workspace', rootId: 'root' }],
   });
-  await f.runtime.acquire();
+  f.setStored([rooted, binding]);
   const held = Promise.withResolvers<boolean>();
   f.removeScopedFile.mockReturnValueOnce(held.promise);
-  // New live choices cannot replace the old native ACK's cleanup authority.
-  f.setAuthority({
-    fileBindings: [],
-    rootIds: [],
-    scopes: [{ embeddingSetId: 'other', kind: 'collection' }],
-  });
-  const retiring = f.runtime.retireWorkspaceCollectionFiles('collection');
+  const opening = f.runtime.acquire().catch((error: unknown) => error);
   await vi.waitFor(() =>
     expect(f.removeScopedFile).toHaveBeenCalledExactlyOnceWith({
       fileId: rooted.fileId,
       scope: { kind: 'workspace', rootId: 'root' },
     })
   );
+  expect(f.installQueryTarget).not.toHaveBeenCalled();
   const closing = f.runtime.closeIndex();
   expect(f.closeWriter).not.toHaveBeenCalled();
   await expect(f.runtime.acquire()).rejects.toThrow('admission is closed');
   held.resolve(true);
-  await Promise.all([retiring, closing]);
+  expect(await opening).toBeInstanceOf(Error);
+  await closing;
   expect(f.removeScopedFile).toHaveBeenCalledTimes(1);
   expect(f.closeWriter).toHaveBeenCalledTimes(1);
 });
 
-it('retains failed outgoing native removal for explicit retry without erasing rootless rows', async () => {
+it('retains failed opening convergence for explicit retry without erasing owned rootless rows', async () => {
   const rooted = {
     ...binding,
     fileId: 'workspace-file',
@@ -153,25 +208,27 @@ it('retains failed outgoing native removal for explicit retry without erasing ro
     sourcePath: '/actual/root/file.txt',
   };
   const f = fixture({
-    fileBindings: [rooted, binding],
+    fileBindings: [binding],
     rootIds: ['root'],
     scopes: [collection, { kind: 'workspace', rootId: 'root' }],
   });
-  await f.runtime.acquire();
-  const cause = new Error('Native outgoing removal did not settle.');
+  f.setStored([rooted, binding]);
+  const cause = new Error('Native opening removal did not settle.');
   f.removeScopedFile.mockRejectedValueOnce(cause);
-  await expect(f.runtime.retireWorkspaceCollectionFiles('collection')).rejects.toBe(cause);
+  await expect(f.runtime.acquire()).rejects.toBe(cause);
+  expect(f.installQueryTarget).not.toHaveBeenCalled();
   expect(f.closeWriter).not.toHaveBeenCalled();
   await expect(f.runtime.resume()).rejects.toThrow('Previous native ownership');
-  await f.runtime.retireWorkspaceCollectionFiles('collection');
   await f.runtime.closeIndex();
+  await f.runtime.resume();
+  await f.runtime.acquire();
   expect(f.removeScopedFile).toHaveBeenCalledTimes(2);
-  expect(
-    f.removeScopedFile.mock.calls.every(([request]) =>
-      JSON.stringify(request).includes('workspace-file')
-    )
-  ).toBe(true);
-  expect(f.closeWriter).toHaveBeenCalledTimes(1);
+  expect(f.removeScopedFile.mock.calls.map(([request]) => request)).toEqual([
+    { fileId: rooted.fileId, scope: { kind: 'workspace', rootId: 'root' } },
+    { fileId: rooted.fileId, scope: { kind: 'workspace', rootId: 'root' } },
+  ]);
+  expect(f.installQueryTarget).toHaveBeenCalledOnce();
+  await f.runtime.closeIndex();
 });
 
 it('retains the actual replacement ACK inventory when live authority changes immediately afterward', async () => {
@@ -194,7 +251,11 @@ it('retains the actual replacement ACK inventory when live authority changes imm
   });
   f.setAuthority({ ...initial, fileBindings: [rooted] });
   await expect(f.runtime.acquire()).rejects.toThrow('authority changed');
-  await f.runtime.retireWorkspaceCollectionFiles('collection');
+  expect(f.runtime.captureAcknowledgedAuthority().readAuthority().fileBindings).toEqual([rooted]);
+  f.setStored([rooted]);
+  await f.runtime.closeIndex();
+  await f.runtime.resume();
+  await f.runtime.acquire();
   expect(f.removeScopedFile).toHaveBeenCalledExactlyOnceWith({
     fileId: rooted.fileId,
     scope: { kind: 'workspace', rootId: 'root' },
@@ -270,6 +331,8 @@ it('joins absent retained files under the original ACK before revoking their nat
   const initial = { fileBindings: [binding, preserved], rootIds: [], scopes: [collection] };
   const f = fixture(initial);
   await f.runtime.acquire();
+  // The open lists its stored rows with no binding held (BST-1988); count from here.
+  f.replaceFileBindings.mockClear();
   const captured = f.runtime.captureAcknowledgedAuthority();
   const held = Promise.withResolvers<boolean>();
   f.removeScopedFile.mockReturnValueOnce(held.promise);
@@ -294,6 +357,8 @@ it('retains failed absent-file removal and its ACK for explicit retry before bin
   const initial = { fileBindings: [binding], rootIds: [], scopes: [collection] };
   const f = fixture(initial);
   await f.runtime.acquire();
+  // The open lists its stored rows with no binding held (BST-1988); count from here.
+  f.replaceFileBindings.mockClear();
   const captured = f.runtime.captureAcknowledgedAuthority();
   const failure = new Error('Deleted canonical data did not retire.');
   f.removeScopedFile.mockRejectedValueOnce(failure);
@@ -312,6 +377,8 @@ it('refuses authority drift during absent-file removal and revalidates before re
   const initial = { fileBindings: [binding], rootIds: [], scopes: [collection] };
   const f = fixture(initial);
   await f.runtime.acquire();
+  // The open lists its stored rows with no binding held (BST-1988); count from here.
+  f.replaceFileBindings.mockClear();
   const captured = f.runtime.captureAcknowledgedAuthority();
   f.removeScopedFile.mockImplementationOnce(async () => {
     f.setAuthority(initial);
@@ -348,7 +415,7 @@ it('captures one actual writer and reads its complete latest acknowledged invent
   const admitted = f.runtime.acquire().catch((error: unknown) => error);
   await vi.waitFor(() => expect(f.replaceFileBindings).toHaveBeenCalledOnce());
   expect(captured.readAuthority().fileBindings).toEqual([]);
-  const retiring = f.runtime.retireWorkspaceCollectionFiles('collection');
+  const retiring = f.runtime.retireReads();
   acknowledgment.resolve();
   await Promise.all([admitted, retiring]);
   expect(captured.readAuthority().fileBindings).toEqual([rooted]);
@@ -362,7 +429,14 @@ it('opens a retained rootless collection using its real scope and binding', asyn
   const f = fixture(authority);
   await expect(f.runtime.acquire()).resolves.toBe(f.port);
   expect(f.createIndexOwner).toHaveBeenCalledWith(authority);
-  expect(f.events).toEqual(['readers-exited', 'writer-ready', 'reader-installed']);
+  // The open lists its collection's stored rows with no binding held, then restores it.
+  expect(f.events).toEqual([
+    'readers-exited',
+    'writer-ready',
+    'bindings-ack',
+    'bindings-ack',
+    'reader-installed',
+  ]);
 });
 
 it('waits for full binding replacement acknowledgment before returning the owner', async () => {
@@ -388,6 +462,8 @@ it('waits for full binding replacement acknowledgment before returning the owner
 it('joins an admitted reader before acknowledging same-scope membership revocation', async () => {
   const f = fixture({ fileBindings: [binding], rootIds: ['root'], scopes: [collection] });
   await f.runtime.acquire();
+  // The open lists its stored rows with no binding held (BST-1988); count from here.
+  f.replaceFileBindings.mockClear();
   f.events.length = 0;
   const readerExit = Promise.withResolvers<void>();
   f.closeQueries.mockReturnValueOnce(readerExit.promise);
@@ -407,6 +483,8 @@ it('joins an admitted reader before acknowledging same-scope membership revocati
 it('keeps failed same-scope reader retirement retryable before replacing bindings', async () => {
   const f = fixture({ fileBindings: [binding], rootIds: ['root'], scopes: [collection] });
   await f.runtime.acquire();
+  // The open lists its stored rows with no binding held (BST-1988); count from here.
+  f.replaceFileBindings.mockClear();
   f.events.length = 0;
   const failure = new Error('old membership reader has not exited');
   f.closeQueries.mockRejectedValueOnce(failure);
@@ -509,6 +587,8 @@ it('refuses authority changed during reader retirement before replacing bindings
   const initial = { fileBindings: [binding], rootIds: ['root'], scopes: [collection] };
   const f = fixture(initial);
   await f.runtime.acquire();
+  // The open lists its stored rows with no binding held (BST-1988); count from here.
+  f.replaceFileBindings.mockClear();
   f.events.length = 0;
   const readerExit = Promise.withResolvers<void>();
   f.closeQueries.mockReturnValueOnce(readerExit.promise);

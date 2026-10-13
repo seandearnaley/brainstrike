@@ -3,6 +3,10 @@ import { z } from 'zod';
 const WORKSPACE_SEARCH_ROOT_DESCRIPTION =
   'Open-folder name/id. Omit for the thread-bound folder; an unbound request searches all open folders. To cover every folder in a bound thread, call once per root id. Results include their root.';
 
+/** grep and glob without a root search every thread folder (BST-1990, D3). */
+const GREP_GLOB_ROOT_DESCRIPTION =
+  "Open-folder name/id. Omit to search all of this thread's folders. Results include their root.";
+
 // ============================================================================
 // Hybrid Search Tool Schema
 // ============================================================================
@@ -119,7 +123,7 @@ export const GrepSearchInputSchema = z
         "'files' (default): paths + match counts. 'content': matching lines; narrow with filePaths."
       ),
     pattern: z.string().min(2).max(500).describe('Exact text (default) or JavaScript regex'),
-    root: z.string().optional().describe(WORKSPACE_SEARCH_ROOT_DESCRIPTION),
+    root: z.string().optional().describe(GREP_GLOB_ROOT_DESCRIPTION),
   })
   .strict()
   // Fail-fast: when the caller asks for regex matching, reject an invalid pattern
@@ -160,7 +164,7 @@ export const GlobWorkspaceInputSchema = z
       .min(1)
       .max(500)
       .describe('Workspace-relative glob; bare patterns match at any depth'),
-    root: z.string().optional().describe(WORKSPACE_SEARCH_ROOT_DESCRIPTION),
+    root: z.string().optional().describe(GREP_GLOB_ROOT_DESCRIPTION),
   })
   .strict();
 

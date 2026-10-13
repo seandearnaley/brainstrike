@@ -30,7 +30,8 @@ import type {
 type WithoutSource<T> = T extends unknown ? Omit<T, 'source'> : never;
 export type CanonicalWorkspaceRuntimeDependencies =
   WithoutSource<CanonicalIngestionDependencies> & {
-    readonly managedCollectionId: string;
+    /** The workspace's collection, or null for the native TEXT partition (BST-1988). */
+    readonly managedCollectionId: string | null;
     readonly onError: (operation: string, error: unknown) => void;
     readonly onReceipt: (receipt: CanonicalScanReceipt, sourceInvalidated?: true) => void;
     readonly onWatchHealth: (health: WatcherHealthTransition) => void;
@@ -66,18 +67,18 @@ export class CanonicalWorkspaceIngestionRuntime {
   };
 
   constructor(private readonly dependencies: CanonicalWorkspaceRuntimeDependencies) {
-    const { request } = dependencies;
+    const { managedCollectionId, request } = dependencies;
     if (
       !(
         Number.isSafeInteger(request.batchSize) &&
         request.batchSize > 0 &&
         Number.isSafeInteger(request.maxFileBytes) &&
         request.maxFileBytes > 0 &&
-        dependencies.managedCollectionId.trim()
+        (managedCollectionId === null || managedCollectionId.trim())
       )
     ) {
       throw new Error(
-        'Workspace runtime requires its actual collection and finite positive source bounds.'
+        'Workspace runtime requires its actual partition and finite positive source bounds.'
       );
     }
     this.source = new CanonicalWorkspaceSource(dependencies.source);
@@ -98,15 +99,20 @@ export class CanonicalWorkspaceIngestionRuntime {
     const base = {
       enabled: true,
       indexingPolicyPreset: dependencies.source.indexingPolicyPreset,
-      managedCollectionId: dependencies.managedCollectionId,
+      managedCollectionId,
       rootDirectoryHandle: this.rootHandle,
     };
     this.coordinator.updateInputs({
-      ...base,
+      enabled: base.enabled,
       hasHydrated: true,
+      indexingPolicyPreset: base.indexingPolicyPreset,
       isAccessLoading: false,
       onBootstrap: () => false,
       onError: dependencies.onError,
+      partition:
+        managedCollectionId === null
+          ? { kind: 'text' }
+          : { kind: 'collection', managedCollectionId },
       publishPaused: () => {},
       publishRuntimeUnavailable: () => {},
       publishWaiting: () => {},

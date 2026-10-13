@@ -4,7 +4,7 @@ import { NativeIndexSetupRequiredError } from './native-index-setup-required';
 
 interface Dependencies {
   isShuttingDown(): boolean;
-  reconfigure(): Promise<void>;
+  reconfigureRoots(): Promise<void>;
   reportError(message: string, error: unknown): void;
   transition(operation: () => Promise<void>): Promise<void>;
 }
@@ -22,7 +22,7 @@ export function createNativeRootRegistration(
               'Native root registration retired during shutdown.'
             );
           }
-          await dependencies.reconfigure();
+          await dependencies.reconfigureRoots();
         });
       } catch (error) {
         dependencies.reportError(

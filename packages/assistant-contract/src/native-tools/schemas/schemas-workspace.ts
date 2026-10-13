@@ -7,7 +7,7 @@ import { CANVAS_HTML_MAX_BYTES, canvasHtmlWithinByteCeiling } from '../../mastra
 // ============================================================================
 
 const ROOT_QUALIFIER_DESCRIPTION =
-  'Open-folder name/id for this path. Required only when multiple folders are open.';
+  "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.";
 
 const ROOT_WRITE_GUARD_DESCRIPTION =
   'Open-folder name/id. Omit for the Focused folder; an explicit root always wins.';

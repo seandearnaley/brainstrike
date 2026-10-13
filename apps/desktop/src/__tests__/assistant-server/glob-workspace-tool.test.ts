@@ -526,7 +526,7 @@ describe('runGlobWorkspace — multi-root scoping', () => {
     expect(result.matches).toEqual([{ path: '/b.ts', rootId: 'id-b', rootName: 'beta' }]);
   });
 
-  it('scopes an omitted root to the durable thread binding', async () => {
+  it('walks every folder of a bound thread when root is omitted (BST-1990)', async () => {
     const rootA = await makeWorkspace(['a.ts'], 'brainstrike-glob-rootA-');
     const rootB = await makeWorkspace(['b.ts'], 'brainstrike-glob-rootB-');
     const result = await runGlobWorkspace(
@@ -540,7 +540,10 @@ describe('runGlobWorkspace — multi-root scoping', () => {
       }
     );
 
-    expect(result.matches).toEqual([{ path: '/b.ts', rootId: 'id-b', rootName: 'beta' }]);
+    expect(result.matches).toEqual([
+      { path: '/a.ts', rootId: 'id-a', rootName: 'alpha' },
+      { path: '/b.ts', rootId: 'id-b', rootName: 'beta' },
+    ]);
   });
 
   it('throws an actionable error for an unknown root qualifier', async () => {

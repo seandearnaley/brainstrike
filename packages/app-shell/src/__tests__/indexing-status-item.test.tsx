@@ -131,6 +131,52 @@ describe('IndexingStatusItem', () => {
     expect(screen.getByTestId('indexing-activity-region')).toHaveTextContent('54 files indexed');
   });
 
+  it('presents Text search with no collection as ready, using no embeddings (BST-1988)', async () => {
+    useBackgroundIndexingPreferencesStore.setState({
+      managedCollectionId: null,
+      nativeIndexMode: 'TEXT',
+    });
+    // The running app always reports database work, so its activity snapshot is idle.
+    useIndexingActivityStore.getState().setDatabaseWorkSnapshot(createDatabaseWorkSnapshot());
+    useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+      activeRootPath: '/owned/repo',
+      lastError: null,
+      managedCollectionId: null,
+      processedFiles: 2,
+      state: 'idle',
+    });
+    setManagedCollectionStats({
+      collectionId: null,
+      error: null,
+      stats: {
+        chunkCount: 4,
+        dirty: false,
+        embeddedChunkCount: 0,
+        embeddingSetId: null,
+        fileCount: 2,
+        lastRefreshedAt: '2026-10-12T12:00:00.000Z',
+        pendingChunkCount: 0,
+      },
+      status: 'ready',
+    });
+    const capability = {
+      coverage: () => Promise.reject(new Error('unused')),
+      coverageBatch: () => Promise.reject(new Error('unused')),
+      grep: () => Promise.reject(new Error('unused')),
+      rebuild: async () => {},
+      search: () => Promise.reject(new Error('unused')),
+      status: async () => ({ kind: 'unavailable' as const, reason: 'unused' }),
+    };
+    render(<IndexingStatusItem nativeIndexSearch={capability} />);
+    expect(screen.getByTestId('indexing-status-value')).toHaveTextContent('Ready');
+    await userEvent.click(screen.getByTestId('indexing-status-trigger'));
+    const popover = screen.getByTestId('indexing-status-popover');
+    expect(popover).toHaveTextContent('Text search');
+    expect(popover).toHaveTextContent('Not used by Text search');
+    expect(screen.getByTestId('managed-stat-files')).toHaveTextContent('2');
+    expect(popover).not.toHaveTextContent('Setup required');
+  });
+
   it('presents setup instructions neutrally while keeping genuine fatal failures actionable', async () => {
     useWorkspaceCollectionSyncStatusStore
       .getState()

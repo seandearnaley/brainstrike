@@ -125,19 +125,21 @@ describe('tool schemas', () => {
     );
   });
 
-  it('documents bound-root omission semantics in every workspace search schema', () => {
-    const rootDescriptions = [
-      GlobWorkspaceInputSchema.shape.root.description,
-      GrepSearchInputSchema.shape.root.description,
-      HybridSearchInputSchema.shape.root.description,
-      QueryEmbeddingSpaceInputSchema.shape.root.description,
+  it('preserves omitted and explicit root qualifiers for runtime scope resolution', () => {
+    const rootSchemas = [
+      GlobWorkspaceInputSchema.shape.root,
+      GrepSearchInputSchema.shape.root,
+      HybridSearchInputSchema.shape.root,
+      QueryEmbeddingSpaceInputSchema.shape.root,
     ];
 
-    for (const description of rootDescriptions) {
-      expect(description).toContain('thread-bound folder');
-      expect(description).toContain('unbound request');
-      expect(description).toContain('once per root id');
-      expect(description).not.toMatch(/omit to (search|enumerate) all/i);
+    // The owning runtime tests exercise thread-wide versus explicit-folder
+    // resolution. Parsing must not turn omission into a selected folder.
+    for (const schema of rootSchemas) {
+      expect(schema.parse(undefined)).toBeUndefined();
+      expect(schema.parse('bravo-root')).toBe('bravo-root');
+      expect(schema.safeParse(['bravo-root']).success).toBe(false);
+      expect(schema.safeParse(42).success).toBe(false);
     }
   });
 
