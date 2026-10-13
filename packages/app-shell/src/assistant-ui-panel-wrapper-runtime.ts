@@ -773,14 +773,15 @@ export function buildAssistantTapestryRange(args: {
   };
 }
 
+/**
+ * The run's checked files, whichever folder the explorer focuses (BST-1990):
+ * each file carries its folder's `rootId`, and the host places it by the
+ * thread's binding rather than the renderer dropping it on a focus mismatch.
+ */
 export function toRuntimeWorkspaceContext(
-  snapshot: ReturnType<typeof useWorkspaceContextCurationStore.getState>['contextSnapshot'],
-  selectionFolderId: string | null | undefined
+  snapshot: ReturnType<typeof useWorkspaceContextCurationStore.getState>['contextSnapshot']
 ): RuntimeData['workspaceContext'] | null {
   if (!snapshot) {
-    return null;
-  }
-  if (snapshot.selectionFolderId && snapshot.selectionFolderId !== selectionFolderId) {
     return null;
   }
   return {

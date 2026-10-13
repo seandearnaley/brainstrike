@@ -62,6 +62,10 @@
       "types": "./dist/workspace-context-curation-store.d.ts",
       "import": "./dist/workspace-context-curation-store.js"
     },
+    "./thread-folder-scope-store": {
+      "types": "./dist/thread-folder-scope-store.d.ts",
+      "import": "./dist/thread-folder-scope-store.js"
+    },
     "./workspace-tab-selection-store": {
       "types": "./dist/workspace-tab-selection-store.d.ts",
       "import": "./dist/workspace-tab-selection-store.js"

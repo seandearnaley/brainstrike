@@ -1,7 +1,8 @@
 /**
  * BST-1990: the workspace bar reads a thread folder's `roots` row status, marks
  * a folder the workspace no longer serves, re-reads when the mounted set
- * changes, and writes the repairs. The pure repair derives are pinned in
+ * changes, and writes the repairs. It also adds a mounted folder outside the
+ * thread through the one add-secondary write. The pure repair derives are pinned in
  * `use-workspace-bar-removed-folder.test.ts`; this file pins the hook's reads
  * and writes. Fixtures are per file because each Vitest file owns its mocks.
  */
@@ -191,6 +192,36 @@ describe('a thread folder the workspace no longer serves', () => {
         secondaryRootIds: [],
       })
     );
+    expect(toastSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('a mounted folder outside the thread', () => {
+  it('is added to the thread through the add-secondary write, with no picker', async () => {
+    const { result } = await setup(
+      {
+        operatingRootDisplayName: 'alpha',
+        operatingRootId: 'r-alpha',
+        operatingRootPath: '/ws/alpha',
+      },
+      ALPHA_AND_CHARLIE
+    );
+    await waitFor(() =>
+      expect(result.current.workspaceFolders).toEqual([
+        { displayName: 'charlie', path: '/ws/charlie' },
+      ])
+    );
+    await act(async () => {
+      result.current.onAddWorkspaceFolder({ displayName: 'charlie', path: '/ws/charlie' });
+    });
+    await waitFor(() =>
+      expect(updateThreadMetadata).toHaveBeenCalledWith(
+        THREAD_ID,
+        expect.objectContaining({ secondaryRootIds: ['r-charlie'] })
+      )
+    );
+    expect(fs.addRootDirectory).not.toHaveBeenCalled();
+    expect(fs.addRootDirectoryByPath).not.toHaveBeenCalled();
     expect(toastSpy).not.toHaveBeenCalled();
   });
 });

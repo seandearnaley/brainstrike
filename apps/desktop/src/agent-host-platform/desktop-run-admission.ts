@@ -23,6 +23,7 @@ import {
   prepareAdmittedSkills,
 } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
+import { placeCheckedFiles } from './desktop-checked-files';
 import {
   type DesktopHostSystemContext,
   desktopPlanModeTools,
@@ -200,6 +201,8 @@ async function readDesktopNativeAdmission(
 ): Promise<{
   /** The enabled skills of the run's one scan, admitted to the host. */
   readonly admittedSkills: readonly import('@brainstrike/agent').ScannedSkill[] | undefined;
+  /** BST-1990: live folders outside the thread whose checked files this run may read. */
+  readonly attachedRootIds: readonly string[];
   /** The admission's tools, described from the catalog; the host executes every one. */
   readonly descriptors: Record<string, DesktopToolDescriptor>;
   readonly freshRoots: () => Promise<NonNullable<RuntimeData['workspaceRoots']>>;
@@ -240,6 +243,17 @@ async function readDesktopNativeAdmission(
   // The thread's binding owns the roots a run executes in; the explorer's focus
   // only scopes the user's selection, so a focus outside the thread selects nothing.
   const focused = roots.find((root) => root.rootId === intent.selectionFolderId);
+  // BST-1990: checked files reach the model from every thread folder, and from a
+  // live workspace folder outside the thread as this run's attached content.
+  const checked = placeCheckedFiles(
+    intent.workspaceContext
+      ? (JSON.parse(JSON.stringify(intent.workspaceContext)) as NonNullable<
+          RuntimeData['workspaceContext']
+        >)
+      : undefined,
+    roots,
+    liveRoots
+  );
   if (
     intent.selectionFolderId &&
     !liveRoots.some((root) => root.rootId === intent.selectionFolderId)
@@ -252,13 +266,7 @@ async function readDesktopNativeAdmission(
     ...(configuration.modelSettings ? { modelSettings: configuration.modelSettings } : {}),
     ...(configuration.providerOptions ? { providerOptions: configuration.providerOptions } : {}),
     enabledNativeToolIds: intent.enabledNativeToolIds,
-    ...(intent.workspaceContext
-      ? {
-          workspaceContext: JSON.parse(JSON.stringify(intent.workspaceContext)) as NonNullable<
-            RuntimeData['workspaceContext']
-          >,
-        }
-      : {}),
+    ...(checked.workspaceContext ? { workspaceContext: checked.workspaceContext } : {}),
     workspaceInstructionsPreference: intent.workspaceInstructionsPreference,
     workspaceRoots: roots,
     ...(request.workspaceBinding?.operatingRootId
@@ -266,10 +274,9 @@ async function readDesktopNativeAdmission(
       : {}),
     ...(focused
       ? {
-          selectionFilePaths:
-            intent.workspaceContext?.files
-              .filter((file) => file.rootId === focused.rootId)
-              .map((file) => file.path) ?? [],
+          selectionFilePaths: (checked.workspaceContext?.files ?? [])
+            .filter((file) => file.rootId === focused.rootId)
+            .map((file) => file.path),
           selectionFolderId: focused.rootId,
           workspaceRootPath: focused.path,
         }
@@ -290,6 +297,7 @@ async function readDesktopNativeAdmission(
   });
   return {
     admittedSkills,
+    attachedRootIds: checked.attachedRootIds,
     descriptors,
     freshRoots,
     readWorkspaceFile,
@@ -357,12 +365,14 @@ function desktopDelegationFields(
 function desktopNativeRuntime(
   runtime: RuntimeData,
   retrievalRootsOnly: boolean,
-  skills: readonly import('@brainstrike/agent').ScannedSkill[] | undefined
+  skills: readonly import('@brainstrike/agent').ScannedSkill[] | undefined,
+  attachedRootIds: readonly string[]
 ): DesktopRunSelection['nativeRuntime'] {
   if (typeof runtime.provider !== 'string' || !runtime.workspaceRoots) {
     throw new Error('Desktop admission has no native tool runtime');
   }
   return {
+    ...(attachedRootIds.length > 0 ? { attachedRootIds: [...attachedRootIds] } : {}),
     ...(runtime.boundWorkspaceRootId ? { boundWorkspaceRootId: runtime.boundWorkspaceRootId } : {}),
     provider: runtime.provider,
     ...(retrievalRootsOnly ? { retrievalRootsOnly: true as const } : {}),
@@ -516,7 +526,8 @@ export function createDesktopRunAdmission(
         nativeRuntime: desktopNativeRuntime(
           native.runtime,
           native.retrievalRootsOnly,
-          native.admittedSkills
+          native.admittedSkills,
+          native.attachedRootIds
         ),
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         ...desktopSystemFields(system),

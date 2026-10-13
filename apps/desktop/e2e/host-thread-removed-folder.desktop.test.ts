@@ -162,6 +162,10 @@ test('a thread whose primary folder was removed names it, marks it, and recovers
       `The folder "${bravoName}" was removed from the workspace.`,
       { timeout: 30_000 }
     );
+    // Nothing was admitted, so the composer has the message back to resend (D4).
+    await expect(region.getByRole('textbox', { name: 'Message input' })).toHaveValue(
+      'REMOVED_FOLDER_TURN_2: hello'
+    );
     await refusal.getByRole('button', { name: 'Dismiss' }).click();
 
     // The chip marks B, and Make primary on A drops B in the same write.

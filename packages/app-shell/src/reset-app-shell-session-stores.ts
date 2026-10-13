@@ -1,3 +1,4 @@
+import { useThreadFolderScopeStore } from '@brainstrike/file-explorer-ui/thread-folder-scope-store';
 import { resetDiagnosticSinkHealthStore } from './diagnostics/diagnostic-sink-health-store';
 import { resetDiagnosticsSeenStore } from './diagnostics/diagnostics-seen-store';
 import { useCommandPaletteStore } from './stores/command-palette-store';
@@ -25,6 +26,7 @@ export const APP_SHELL_SESSION_STORE_RESETTERS: readonly (() => void)[] = [
   () => useOnScreenThreadStore.getState().reset(),
   () => useQuickOpenStore.getState().close(),
   () => useWorktreeCheckoutIntentStore.getState().reset(),
+  () => useThreadFolderScopeStore.getState().reset(),
   resetThreadSearchStore,
 ];
 

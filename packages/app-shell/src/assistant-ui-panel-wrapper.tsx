@@ -411,8 +411,8 @@ export function AssistantUiPanelWrapper({
     (state) => state.contextSnapshot
   );
   const runtimeWorkspaceContext = useMemo(
-    () => toRuntimeWorkspaceContext(workspaceContextSnapshot, currentFolderId),
-    [currentFolderId, workspaceContextSnapshot]
+    () => toRuntimeWorkspaceContext(workspaceContextSnapshot),
+    [workspaceContextSnapshot]
   );
   const setTapestryRangesForKey = useWorkspaceContextCurationStore(
     (state) => state.setTapestryRangesForKey

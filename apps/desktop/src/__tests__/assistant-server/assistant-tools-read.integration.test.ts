@@ -2905,8 +2905,15 @@ describe('assistant-tools read tools', () => {
             outputApproxTokens: 100,
             path: '/src/main.ts',
             ranges: [{ approxTokens: 20, endLine: 3, isActive: true, startLine: 2 }],
+            rootId: workspaceRootPath,
           },
-          { approxTokens: 40, outputApproxTokens: 40, path: '/README.md', ranges: [] },
+          {
+            approxTokens: 40,
+            outputApproxTokens: 40,
+            path: '/README.md',
+            ranges: [],
+            rootId: workspaceRootPath,
+          },
         ],
         includeProjectTree: false,
         projectTreeApproxTokens: 1800,
@@ -2947,8 +2954,15 @@ describe('assistant-tools read tools', () => {
           outputApproxTokens: 100,
           path: '/src/main.ts',
           ranges: [{ approxTokens: 20, endLine: 3, isActive: true, startLine: 2 }],
+          rootId: workspaceRootPath,
         },
-        { approxTokens: 40, outputApproxTokens: 40, path: '/README.md', ranges: [] },
+        {
+          approxTokens: 40,
+          outputApproxTokens: 40,
+          path: '/README.md',
+          ranges: [],
+          rootId: workspaceRootPath,
+        },
       ],
       includeProjectTree: false,
       projectTreeApproxTokens: 1800,
@@ -3086,6 +3100,7 @@ describe('assistant-tools read tools', () => {
           {
             path: '/src/main.ts',
             ranges: [],
+            rootId: workspaceRootPath,
           },
         ],
       },
@@ -3120,6 +3135,7 @@ describe('assistant-tools read tools', () => {
           {
             path: '/src/main.ts',
             ranges: [{ endLine: 3, isActive: true, startLine: 2 }],
+            rootId: workspaceRootPath,
           },
         ],
       },
@@ -3148,6 +3164,34 @@ describe('assistant-tools read tools', () => {
     await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
+  it('reads whole checked files when tapestry selections are turned off', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = hostTools({
+      ...singleRootRuntime(workspaceRootPath),
+      selectionFilePaths: ['/src/main.ts'],
+      workspaceContext: {
+        files: [
+          {
+            path: '/src/main.ts',
+            ranges: [{ endLine: 3, isActive: true, startLine: 2 }],
+            rootId: workspaceRootPath,
+          },
+        ],
+      },
+    } as RuntimeData);
+    const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceContext');
+
+    const result = await executeTool({
+      context: { maxCharsPerFile: 200, tokenBudget: 100, useTapestrySelections: false },
+    });
+
+    expect(result.includedCount).toBe(1);
+    expect(result.files[0]).not.toHaveProperty('tapestryRangeCount');
+    expect(result.files[0]?.content).toContain('line 1');
+    expect(result.files[0]?.content).toContain('line 4');
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+  });
+
   it('stops tapestry range output when range budget is exhausted', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = hostTools({
@@ -3161,6 +3205,7 @@ describe('assistant-tools read tools', () => {
               { endLine: 2, isActive: true, startLine: 2 },
               { endLine: 3, isActive: true, startLine: 3 },
             ],
+            rootId: workspaceRootPath,
           },
         ],
       },
@@ -3197,6 +3242,7 @@ describe('assistant-tools read tools', () => {
           {
             path: '/src/main.ts',
             ranges: [{ endLine: 2, isActive: true, startLine: 2 }],
+            rootId: workspaceRootPath,
           },
         ],
       },

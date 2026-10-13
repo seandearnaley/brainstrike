@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import type { HostToolContext } from '@brainstrike/agent-host';
+import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import { NATIVE_TOOL_ID, scanShellCommandForGitSignals } from '@brainstrike/assistant-contract';
 import {
   isSharedNativeToolId,
@@ -304,8 +305,14 @@ export function desktopHostToolExecutors(
       },
       store,
     })),
-    ...contextReadExecutors(async () =>
-      nativeWorkspaceIndexSummary(await nativeIndexSearch.status())
+    ...contextReadExecutors(
+      async () => nativeWorkspaceIndexSummary(await nativeIndexSearch.status()),
+      {
+        attachedRootIds: native.attachedRootIds ?? [],
+        // An attached file is read only while its folder is still a live workspace folder.
+        liveRoots: async () =>
+          CliWorkspaceRootsSchema.parse(await request('platform/admission/roots', {})),
+      }
     ),
     ...contextWriteExecutors(hostContextDelivery(request, threadId)),
     ...INSPECTION_TOOL_EXECUTORS,

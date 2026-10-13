@@ -66,8 +66,7 @@ export function readDesktopHostConfiguration(
   const personas = useSubagentPersonasStore.getState();
   const instructions = useWorkspaceInstructionsPreferencesStore.getState();
   const workspaceContext = toRuntimeWorkspaceContext(
-    useWorkspaceContextCurationStore.getState().contextSnapshot,
-    selectionFolderId
+    useWorkspaceContextCurationStore.getState().contextSnapshot
   );
   // The built-in local model gets its own small tool surface, as the legacy composer offers it.
   const offeredNativeToolIds: readonly string[] =

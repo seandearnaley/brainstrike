@@ -219,14 +219,33 @@ export async function stopHostRunTree(
 }
 
 /** BST-1977: a cancelled pre-run selection can fail cleanup before a run exists. */
+/**
+ * BST-1990 (D4): the host refused a run command before admitting the run, so
+ * nothing was committed. The message is the refusal's own text.
+ */
+export class HostRunNotAdmittedError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = 'HostRunNotAdmittedError';
+  }
+}
+
 export async function rejectHostRunAdmission(
   threadId: string,
   cause: unknown,
   admission: HostRunAdmission | undefined,
   release: (() => void) | undefined,
-  failures: Map<string, unknown>
+  failures: Map<string, unknown>,
+  /**
+   * BST-1990 (D4): whether the run's commit had begun. A refusal before it
+   * admitted nothing, so it is marked `HostRunNotAdmittedError` for the client.
+   */
+  committed: boolean
 ): Promise<never> {
-  if (cause instanceof HostRunAdmissionCleanupError) {
+  // A failed platform cleanup is the host's fault, not a refusal: it is recorded
+  // and keeps its identity, since deletion and close rethrow that same failure.
+  const recorded = cause instanceof HostRunAdmissionCleanupError;
+  if (recorded) {
     failures.set(threadId, cause);
   }
   try {
@@ -237,7 +256,7 @@ export async function rejectHostRunAdmission(
     failures.set(threadId, failure);
     throw failure;
   }
-  throw cause;
+  throw committed || recorded ? cause : new HostRunNotAdmittedError(cause);
 }
 
 export function abortHostThreadRuns(

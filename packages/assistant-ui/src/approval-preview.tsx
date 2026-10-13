@@ -650,7 +650,10 @@ export function ApprovalPreview({
     const isTruncated = oldPreview.truncated || newPreview.truncated;
     return (
       <div className="mt-3">
-        <FileTargetSummary path={parsed.path} root={parsed.root} />
+        <FileTargetSummary
+          path={parsed.path}
+          root={approval.targetRoot?.displayName ?? parsed.root}
+        />
         <div className="mt-1.5 h-72 overflow-hidden rounded-md border border-border">
           <DiffView
             ariaLabel={`Proposed changes to ${parsed.path}`}
@@ -676,7 +679,11 @@ export function ApprovalPreview({
     const contentPreview = truncatePreviewText(parsed.content);
     return (
       <div className="mt-3">
-        <FileTargetSummary action="Creates or overwrites" path={parsed.path} root={parsed.root} />
+        <FileTargetSummary
+          action="Creates or overwrites"
+          path={parsed.path}
+          root={approval.targetRoot?.displayName ?? parsed.root}
+        />
         <div className="mt-1.5 h-64 overflow-hidden rounded-md border border-border">
           <CodeSurface
             ariaLabel={`New content for ${parsed.path}`}
