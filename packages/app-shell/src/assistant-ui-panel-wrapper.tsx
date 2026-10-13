@@ -1166,7 +1166,6 @@ export function AssistantUiPanelWrapper({
 
   return (
     <ThreadSearchMessageNavigation
-      isLoading={false}
       ownerResourceId={memoryResourceId}
       threadId={selectedMemoryThreadId}
     >
