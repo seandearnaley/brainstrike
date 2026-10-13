@@ -3,6 +3,7 @@ import {
   isBuiltInLocalLlmDeviceAvailable,
 } from '@brainstrike/assistant-contract/local-llm-device';
 import { createLogger } from '@brainstrike/logging';
+import type { OnnxWasmPaths } from '@brainstrike/types';
 import { Gemma4Engine } from './gemma4-engine';
 import { createLocalArtifactStore } from './local-artifact-store';
 import { getLocalLlmModelSpec, listLocalLlmModelSpecs } from './local-model-specs';
@@ -92,12 +93,22 @@ function resolveProgressPercent(progress: {
   return progress.status === 'done' ? 100 : 0;
 }
 
+export interface LocalLlmBackendOptions {
+  /**
+   * The app-served ONNX Runtime WASM files (BST-2003); null only where ONNX Runtime
+   * runs on Node, which loads no WASM. Browser ONNX Runtime refuses null.
+   */
+  readonly onnxWasmPaths: OnnxWasmPaths | null;
+}
+
 export class LocalLlmBackend {
   private engine: Gemma4Engine | null = null;
   private generationQueue: Promise<void> = Promise.resolve();
   private modelId: string | null = null;
   private selectedDevice: 'webgpu' | null = null;
   private status: LocalLlmProviderStatus = { state: 'uninitialized' };
+
+  constructor(private readonly options: LocalLlmBackendOptions) {}
 
   async initialize(config: LocalLlmConfig): Promise<void> {
     const spec = getLocalLlmModelSpec(config.modelId);
@@ -118,7 +129,7 @@ export class LocalLlmBackend {
       stage: 'loading',
     });
 
-    const engine = new Gemma4Engine(spec);
+    const engine = new Gemma4Engine(spec, this.options.onnxWasmPaths);
     await engine.initialize(selectedDevice, (progress) => {
       const percent = resolveProgressPercent(progress);
       this.status = {

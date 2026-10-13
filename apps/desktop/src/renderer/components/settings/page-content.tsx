@@ -27,7 +27,6 @@ import {
 } from '@brainstrike/settings-ui/settings/models/model-selection-page';
 import { createProvidersSettingsCategory } from '@brainstrike/settings-ui/settings/providers/providers-settings-category';
 import { createNotificationSettingsCategory } from '@brainstrike/settings-ui/settings/system/notification-settings-category';
-import { createSelfImprovementSignalSettingsCategory } from '@brainstrike/settings-ui/settings/system/self-improvement-signal-settings-category';
 import { createSkillsSettingsCategory } from '@brainstrike/settings-ui/settings/system/skills-settings-category';
 import { createWorkspaceInstructionsSettingsCategory } from '@brainstrike/settings-ui/settings/system/workspace-instructions-settings-category';
 import {
@@ -461,7 +460,6 @@ export default function SettingsPageContent() {
         settings: worktreeSettings.settings,
         status: worktreeSettings.status,
       }),
-      createSelfImprovementSignalSettingsCategory(),
       createNotificationSettingsCategory(),
       diagnosticsCategory,
       createFactoryResetSettingsCategory({

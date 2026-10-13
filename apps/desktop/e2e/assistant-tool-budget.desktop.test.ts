@@ -1,5 +1,4 @@
 import type { ChildProcess } from 'node:child_process';
-import { once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -35,13 +34,6 @@ const BUDGET_ENV = {
   BRAINSTRIKE_STREAM_INACTIVITY_MS: '5000',
   BRAINSTRIKE_TOOL_TIMEOUT_MS: '3000',
 } as const;
-
-async function waitForOwnedExit(childProcess: ChildProcess | undefined): Promise<void> {
-  if (!childProcess || childProcess.exitCode !== null || childProcess.signalCode !== null) {
-    return;
-  }
-  await once(childProcess, 'exit', { signal: AbortSignal.timeout(5000) });
-}
 
 async function allowExecuteWithoutApproval(
   window: Awaited<ReturnType<ElectronHarness['ensureWindow']>>
@@ -195,7 +187,8 @@ async function runBudgetCase(
   } finally {
     for (const cleanup of [
       async () => {
-        await Promise.all([waitForOwnedExit(ownedProcess), electron.dispose()]);
+        // Resolves once the process has exited.
+        await electron.dispose();
         if (ownedProcess) {
           expect(ownedProcess.exitCode).toBe(0);
           expect(ownedProcess.signalCode).toBeNull();

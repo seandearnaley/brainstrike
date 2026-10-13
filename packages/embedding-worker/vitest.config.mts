@@ -1,4 +1,8 @@
 import { resolve } from 'node:path';
+import {
+  getHeavyRuntimeOptimizeDepsExclude,
+  transformersOnnxRuntimeWasmUrlsPlugin,
+} from '@brainstrike/build-utils';
 import { getAsyncUtilTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
@@ -9,6 +13,9 @@ import { createBrowserProject } from '../config/src/vitest-browser.ts';
 // not built dist. Applied per-project (vitest 4 does not inherit the root-level
 // resolve into `test.projects`). See workspace-src-aliases (incident #1066).
 const srcAliases = workspaceSrcAliases(resolve(import.meta.dirname, '..'));
+// The ONNX Runtime WASM URLs `src/vite.ts` imports, from Transformers.js's own
+// onnxruntime-web (BST-2003), as the apps serve them.
+const onnxRuntimeWasmUrls = transformersOnnxRuntimeWasmUrlsPlugin([import.meta.dirname]);
 
 const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
 const runWebGpuMemory = process.env['VITEST_RUN_WEBGPU_MEMORY'] === 'true';
@@ -41,6 +48,10 @@ const browserProject = createBrowserProject({
 
 browserProject.test.globals = true;
 browserProject.resolve = { ...browserProject.resolve, alias: srcAliases };
+browserProject.plugins = [...(browserProject.plugins ?? []), onnxRuntimeWasmUrls];
+// As the apps serve it: Transformers.js unbundled. Discovered mid-run instead, it
+// re-optimizes and reloads the page under a running test.
+browserProject.optimizeDeps = { exclude: [...getHeavyRuntimeOptimizeDepsExclude()] };
 if (!runWebGpuMemory) {
   browserProject.test.exclude = ['test/webgpu-memory-growth.browser.test.ts'];
 }
@@ -49,6 +60,7 @@ export default defineConfig({
   test: {
     projects: [
       {
+        plugins: [onnxRuntimeWasmUrls],
         resolve: { alias: srcAliases },
         test: {
           clearMocks: true,
