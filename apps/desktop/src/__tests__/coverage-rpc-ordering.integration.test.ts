@@ -29,7 +29,7 @@ const profile = {
 } as const;
 const control = Schema.Struct({ kind: Schema.String });
 
-it.each(['progress', 'cancel', 'shutdown', 'deadline', 'corruption'] as const)(
+it.each(['progress', 'shutdown', 'deadline', 'corruption'] as const)(
   'owns isolated coverage %s while preserving the real writer and cleanup',
   async (mode) => {
     const desktop = path.resolve(import.meta.dirname, '../..');
@@ -46,7 +46,6 @@ it.each(['progress', 'cancel', 'shutdown', 'deadline', 'corruption'] as const)(
     let watchdog: ReturnType<typeof setTimeout> | undefined;
     let stopPhysicalRead = false;
     const readers: SqliteQueryClient[] = [];
-    const readController = new AbortController();
     const readerExits: Promise<void>[] = [];
     try {
       await build({
@@ -144,11 +143,7 @@ it.each(['progress', 'cancel', 'shutdown', 'deadline', 'corruption'] as const)(
           startupDeadlineMs: 5000,
         });
         readers.push(client);
-        return {
-          close: () => client.close(),
-          nativeCoverage: (requests: Parameters<typeof client.nativeCoverage>[0]) =>
-            client.nativeCoverage(requests, { signal: readController.signal }),
-        };
+        return client;
       };
       const bindings = ['first', 'second'].map((fileId) => ({
         embeddingSetId: scope.embeddingSetId,
@@ -225,19 +220,11 @@ it.each(['progress', 'cancel', 'shutdown', 'deadline', 'corruption'] as const)(
       });
       await Promise.race([held, bounded]);
       if (mode !== 'progress' && mode !== 'corruption') {
-        if (mode === 'cancel') {
-          readController.abort(new Error('Cancel held coverage'));
-        }
         if (mode === 'shutdown') {
           await Promise.all(readers.map((reader) => reader.close()));
         }
         await expect(coverage).rejects.toMatchObject({
-          name:
-            mode === 'cancel'
-              ? 'SqliteQueryCancelledError'
-              : mode === 'deadline'
-                ? 'SqliteQueryDeadlineError'
-                : 'Error',
+          name: mode === 'deadline' ? 'SqliteQueryDeadlineError' : 'Error',
         });
         expect(events).toContain('reader-exit');
         expect(events).not.toContain('ordering-released');

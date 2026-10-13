@@ -1,8 +1,8 @@
 import { assertCoverageAuthority, fault } from '@brainstrike/indexer/coverage-reader';
 import { describe, expect, it, vi } from 'vitest';
-import { SqliteQueryCancelledError, SqliteQueryClient } from '../client.js';
+import { SqliteQueryClient, SqliteQueryDeadlineError } from '../client.js';
 import type { QueryProcess } from '../process.js';
-import type { QueryRequest } from '../protocol.js';
+import type { QueryRequest, SqliteGrepOptions } from '../protocol.js';
 
 function reader(ready = true) {
   let message: (value: unknown) => void = () => undefined;
@@ -28,11 +28,10 @@ function reader(ready = true) {
   };
   return { exit: () => exit(), message: (value: unknown) => message(value), process, requests };
 }
-function open(owner: ReturnType<typeof reader>, signal?: AbortSignal) {
+function open(owner: ReturnType<typeof reader>, deadlineMs = 1000) {
   return SqliteQueryClient.open({
     databasePath: '/recorded/index.sqlite',
-    deadlineMs: 1000,
-    signal,
+    deadlineMs,
     spawn: () => owner.process,
     startupDeadlineMs: 1000,
   });
@@ -40,34 +39,88 @@ function open(owner: ReturnType<typeof reader>, signal?: AbortSignal) {
 async function posted(owner: ReturnType<typeof reader>, count: number): Promise<void> {
   await vi.waitFor(() => expect(owner.requests).toHaveLength(count));
 }
-const rows = (id: number) => ({
+const options: SqliteGrepOptions = {
+  caseSensitive: false,
+  isRegex: false,
+  maxRows: 10,
+  pattern: 'needle',
+  rootIds: ['root'],
+};
+const grepRows = (id: number) => ({
   id,
-  kind: 'rows',
-  result: { columns: ['n'], rows: [[id]], truncated: false },
+  kind: 'grepRows',
+  result: {
+    columns: ['id'],
+    identity: { embedding: { indexMode: 'text-only' }, storeId: 'a'.repeat(64) },
+    matchedChunks: 1,
+    rows: [[`chunk-${id}`]],
+    truncated: false,
+  },
 });
 
-describe('owned reader cancellation', () => {
-  it('refuses prior-abort acquisition without spawning', async () => {
-    const signal = AbortSignal.abort(new Error('Stop'));
-    const spawn = vi.fn();
-    await expect(
-      SqliteQueryClient.open({
-        databasePath: '/recorded/index.sqlite',
-        deadlineMs: 1000,
-        signal,
-        spawn,
-        startupDeadlineMs: 1000,
-      })
-    ).rejects.toBe(signal.reason);
-    expect(spawn).not.toHaveBeenCalled();
-  });
-  it('cancels startup and joins its exit while rejecting late ready', async () => {
-    const owner = reader(false);
-    const controller = new AbortController();
-    const outcome = open(owner, controller.signal).catch((error: unknown) => error);
-    await posted(owner, 1);
-    controller.abort(new Error('Stop startup'));
+// Production stops an in-flight grep three ways: its deadline, the owner's close
+// (host Stop, reset and shutdown all reach it through closeAllIndexQueries), and a
+// reader crash. No production caller cancels a single request.
+describe('owned grep reader stop paths', () => {
+  it('owner close rejects the in-flight grep, kills once and joins exit before resolving', async () => {
+    const owner = reader();
+    const client = await open(owner);
+    const outcome = client.grep(options).catch((error: unknown) => error);
+    await posted(owner, 2);
+    let closed = false;
+    const closing = client.close().then(() => {
+      closed = true;
+    });
+    const error = await outcome;
+    expect(error).toMatchObject({ message: 'SQLite query client is closed.' });
     expect(owner.process.kill).toHaveBeenCalledOnce();
+    owner.message(grepRows(2));
+    await Promise.resolve();
+    expect(closed).toBe(false);
+    owner.exit();
+    await closing;
+    await expect(client.grep(options)).rejects.toBe(error);
+    expect(owner.process.kill).toHaveBeenCalledOnce();
+  });
+
+  it('a deadline kills the reader, ignores its late rows and keeps the deadline error', async () => {
+    const owner = reader();
+    const client = await open(owner, 20);
+    const outcome = client.grep(options).catch((error: unknown) => error);
+    await posted(owner, 2);
+    const error = await outcome;
+    expect(error).toBeInstanceOf(SqliteQueryDeadlineError);
+    expect(owner.process.kill).toHaveBeenCalledOnce();
+    owner.message(grepRows(2));
+    await expect(client.grep(options)).rejects.toBe(error);
+    const closing = client.close();
+    owner.exit();
+    await closing;
+    expect(owner.process.kill).toHaveBeenCalledOnce();
+  });
+
+  it('a reader crash rejects the in-flight grep and leaves the client dead', async () => {
+    const owner = reader();
+    const client = await open(owner);
+    const outcome = client.grep(options).catch((error: unknown) => error);
+    await posted(owner, 2);
+    owner.exit();
+    const error = await outcome;
+    expect(error).toMatchObject({ message: 'SQLite query process exited.' });
+    await expect(client.grep(options)).rejects.toBe(error);
+    await client.close();
+    expect(owner.process.kill).not.toHaveBeenCalled();
+  });
+
+  it('a startup deadline kills the reader and joins its exit while rejecting late ready', async () => {
+    const owner = reader(false);
+    const outcome = SqliteQueryClient.open({
+      databasePath: '/recorded/index.sqlite',
+      deadlineMs: 1000,
+      spawn: () => owner.process,
+      startupDeadlineMs: 20,
+    }).catch((error: unknown) => error);
+    await vi.waitFor(() => expect(owner.process.kill).toHaveBeenCalledOnce());
     owner.message({ id: 1, kind: 'ready' });
     let settled = false;
     void outcome.then(() => {
@@ -76,121 +129,36 @@ describe('owned reader cancellation', () => {
     await Promise.resolve();
     expect(settled).toBe(false);
     owner.exit();
-    expect(await outcome).toMatchObject({
-      name: 'SqliteQueryCancelledError',
-      phase: 'startup',
-      requestId: 1,
-    });
+    expect(await outcome).toBeInstanceOf(SqliteQueryDeadlineError);
     expect(owner.process.kill).toHaveBeenCalledOnce();
   });
-  it.each(['query', 'listTables', 'describeTable', 'nativeCoverage'] as const)(
-    'cancels %s and rejects late rows only after exit',
-    async (kind) => {
-      const owner = reader();
-      const client =
-        kind === 'nativeCoverage'
-          ? await SqliteQueryClient.openNativeCoverage({
-              authority: {
-                authorityEpoch: 'b'.repeat(64),
-                authorityRevision: 4,
-                dbPath: '/recorded/index.sqlite',
-                fileBindings: [],
-                rootIds: [],
-                scopes: [],
-                storeId: 'a'.repeat(64),
-              },
-              deadlineMs: 1000,
-              spawn: () => owner.process,
-              startupDeadlineMs: 1000,
-            })
-          : await open(owner);
-      const controller = new AbortController();
-      const call =
-        kind === 'nativeCoverage'
-          ? client.nativeCoverage([{ scope: { kind: 'workspace', rootId: 'root' } }], {
-              signal: controller.signal,
-            })
-          : kind === 'query'
-            ? client.query('SELECT 1', { signal: controller.signal })
-            : kind === 'listTables'
-              ? client.listTables({ signal: controller.signal })
-              : client.describeTable('records', { signal: controller.signal });
-      const outcome = call.catch((error: unknown) => error);
-      await posted(owner, 2);
-      controller.abort(new Error('Stop query'));
-      expect(owner.process.kill).toHaveBeenCalledOnce();
-      owner.message(rows(2));
-      owner.exit();
-      const error = await outcome;
-      expect(error).toBeInstanceOf(SqliteQueryCancelledError);
-      expect(error).toMatchObject({
-        cause: controller.signal.reason,
-        phase: 'query',
-        requestId: 2,
-        requestKind: kind === 'nativeCoverage' ? 'native-coverage' : kind,
-      });
-      await expect(client.query('SELECT 2')).rejects.toBe(error);
-      await client.close();
-      expect(owner.process.kill).toHaveBeenCalledOnce();
-    }
-  );
-  it('does not post a pre-aborted request or cancel an existing healthy client', async () => {
+
+  it('keeps a failed kill visible and its owner retryable', async () => {
     const owner = reader();
-    const client = await open(owner);
-    const signal = AbortSignal.abort(new Error('Already stopped'));
-    await expect(client.query('SELECT 1', { signal })).rejects.toBe(signal.reason);
-    expect(owner.requests).toHaveLength(1);
-    expect(owner.process.kill).not.toHaveBeenCalled();
-    owner.exit();
-    await client.close();
-  });
-  it('ignores an old signal after its response while a newer request is pending', async () => {
-    const owner = reader();
-    const client = await open(owner);
-    const controller = new AbortController();
-    const first = client.query('SELECT 1', { signal: controller.signal });
-    await posted(owner, 2);
-    const newer = client.query('SELECT 2');
-    await posted(owner, 3);
-    owner.message(rows(2));
-    controller.abort(new Error('Late Stop'));
-    expect(owner.process.kill).not.toHaveBeenCalled();
-    owner.message(rows(3));
-    expect((await first).rows).toEqual([[2]]);
-    expect((await newer).rows).toEqual([[3]]);
-    owner.exit();
-    await client.close();
-  });
-  it('keeps failed cancellation cleanup visible and its owner retryable', async () => {
-    const owner = reader();
-    const client = await open(owner);
-    const controller = new AbortController();
-    vi.mocked(owner.process.kill).mockImplementation(() => {
+    const client = await open(owner, 20);
+    vi.mocked(owner.process.kill).mockImplementationOnce(() => {
       throw new Error('Kill refused');
     });
-    const outcome = client
-      .query('SELECT 1', { signal: controller.signal })
-      .catch((error: unknown) => error);
+    const outcome = client.grep(options).catch((error: unknown) => error);
     await posted(owner, 2);
-    controller.abort(new Error('Stop'));
-    expect(await outcome).toBeInstanceOf(AggregateError);
+    const error = await outcome;
+    expect(error).toBeInstanceOf(AggregateError);
+    expect(error).toMatchObject({ message: expect.stringContaining('ownership is retained') });
+    const closing = client.close();
+    expect(owner.process.kill).toHaveBeenCalledTimes(2);
     owner.exit();
-    await client.close();
+    await closing;
   });
-});
 
-it('preserves cancellation classification when kill synchronously reports exit', async () => {
-  const owner = reader();
-  const client = await open(owner);
-  vi.mocked(owner.process.kill).mockImplementation(owner.exit);
-  const controller = new AbortController();
-  const outcome = client
-    .query('SELECT 1', { signal: controller.signal })
-    .catch((error: unknown) => error);
-  await posted(owner, 2);
-  controller.abort(new Error('Stop'));
-  expect(await outcome).toMatchObject({ name: 'SqliteQueryCancelledError', phase: 'query' });
-  expect(owner.process.kill).toHaveBeenCalledOnce();
+  it('keeps the deadline classification when kill synchronously reports exit', async () => {
+    const owner = reader();
+    const client = await open(owner, 20);
+    vi.mocked(owner.process.kill).mockImplementation(owner.exit);
+    const outcome = client.grep(options).catch((error: unknown) => error);
+    await posted(owner, 2);
+    expect(await outcome).toBeInstanceOf(SqliteQueryDeadlineError);
+    expect(owner.process.kill).toHaveBeenCalledOnce();
+  });
 });
 
 it.each(['store', 'revision'] as const)(

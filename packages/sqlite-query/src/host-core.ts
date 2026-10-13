@@ -5,12 +5,7 @@ import {
   fault,
   readNativeCoverage,
 } from '@brainstrike/indexer/coverage-reader';
-import {
-  decodeRequest,
-  type QueryRequest,
-  type QueryResponse,
-  type SqliteRows,
-} from './protocol.js';
+import { decodeRequest, type QueryRequest, type QueryResponse } from './protocol.js';
 import { SqliteSandbox } from './sandbox.js';
 
 function boundedResponse(response: QueryResponse): QueryResponse {
@@ -52,7 +47,7 @@ export function createQueryHost(
     }
     throw new Error('Unsupported native coverage operation.');
   }
-  function dispatchSql(
+  function dispatchGrep(
     request: Exclude<QueryRequest, { kind: 'open-native-coverage' | 'native-coverage' }>
   ): QueryResponse {
     if (request.kind === 'open') {
@@ -65,22 +60,7 @@ export function createQueryHost(
     if (!sandbox) {
       throw new Error('SQLite query process has not been initialized.');
     }
-    if (request.kind === 'grep') {
-      return boundedResponse({ id: request.id, kind: 'grepRows', result: sandbox.grep(request) });
-    }
-    let result: SqliteRows;
-    switch (request.kind) {
-      case 'query':
-        result = sandbox.query(request.sql, request.values, request.maxRows, request.bindings);
-        break;
-      case 'describeTable':
-        result = sandbox.describeTable(request.table);
-        break;
-      case 'listTables':
-        result = sandbox.listTables();
-        break;
-    }
-    return boundedResponse({ id: request.id, kind: 'rows', result });
+    return boundedResponse({ id: request.id, kind: 'grepRows', result: sandbox.grep(request) });
   }
   function dispatch(message: unknown): QueryResponse {
     const request = decodeRequest(message);
@@ -88,7 +68,7 @@ export function createQueryHost(
       if (request.kind === 'open-native-coverage' || request.kind === 'native-coverage') {
         return dispatchCoverage(request);
       }
-      return dispatchSql(request);
+      return dispatchGrep(request);
     } catch (error) {
       if (request.kind === 'native-coverage' || request.kind === 'open-native-coverage') {
         return { error: fault(error), id: request.id, kind: 'nativeCoverageError' };

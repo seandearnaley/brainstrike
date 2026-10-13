@@ -1,17 +1,10 @@
-import type { DbHostQueryResult, DbHostRequest, DbHostRowMode } from './db-host-protocol';
+import type { DbHostQueryResult, DbHostRequest } from './db-host-protocol';
 
 export interface RemoteDbTransaction {
   readonly exec: (sql: string, params?: readonly unknown[]) => Promise<unknown>;
-  /**
-   * `options.rowMode: 'array'` returns positional rows plus `fields`. Callers
-   * that omit it get the default object-keyed rows, unchanged. Array mode
-   * exists for the agent SQL sandbox, which must preserve duplicate output
-   * column names that object rows collapse.
-   */
   readonly query: <TRecord = unknown>(
     sql: string,
-    params?: readonly unknown[],
-    options?: { readonly rowMode?: DbHostRowMode }
+    params?: readonly unknown[]
   ) => Promise<DbHostQueryResult<TRecord>>;
 }
 

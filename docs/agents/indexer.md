@@ -16,10 +16,10 @@ Guard: `packages/indexer/__tests__/indexer.integration.test.ts`, `packages/index
 ### Isolated native coverage
 
 - Desktop activation supplies the isolated coverage wrapper to public reads and canonical publication. Keep full-profile coverage off the canonical utility loop; standalone owner APIs retain their explicit existing behavior.
-- Capture acknowledged bindings/scopes and the utility's actual revision, persisted epoch and store in the cheap authority RPC. Bound trusted authority messages to 32 MiB; generic SQL budgets remain separate.
+- Capture acknowledged bindings/scopes and the utility's actual revision, persisted epoch and store in the cheap authority RPC. Bound trusted authority messages to 32 MiB; grep budgets remain separate.
 - Retiring query owners invalidates cached native read readiness even when the writer and catalog identities are unchanged. Publish binding readiness only after final authority validation and query-target installation. Retain failed physical query cleanup as inadmissible until explicit terminal cleanup succeeds; never admit coverage through a cached writer with a retired target.
 - Use the existing killable query owner in coverage-only mode with a read-only/query-only native better-sqlite3 reader. Reuse full batch validation once per selected profile in one fresh owned transaction; retain stored membership, Float32, coarse and corruption checks. Never cache validation across reads or derive revision from a new authority object's default.
-- Close and physically join the read host before releasing the caller's read lease; reset and shutdown join the same registered acquisitions/owners and retain failed cleanup for retry. Preserve native five-second read semantics and generic SQL deadlines.
+- Close and physically join the read host before releasing the caller's read lease; reset and shutdown join the same registered acquisitions/owners and retain failed cleanup for retry. Preserve native five-second read semantics and grep deadlines.
 - Translate authority drift to observation invalidation only after a current utility snapshot demonstrates the change. Preserve forged membership, corruption, schema, protocol and cleanup failures as fatal errors.
 
 Evidence: `indexer/2026-10-04-isolated-native-coverage.md`.
@@ -303,20 +303,25 @@ measured record stays in `agent-self-query/`.)
 
 - Keep trusted native coverage in a separate coverage-only process mode. It uses
   the existing native validator and its own read-only better-sqlite3 connection,
-  not the generic node:sqlite sandbox. Refuse SQL in coverage mode and coverage in
-  SQL mode. Share process ownership and exit joins without changing sandbox
-  authorizer, limits, function inventory or SQL budgets.
+  not the grep node:sqlite sandbox, so the sandbox authorizer never sees coverage
+  statements. Refuse grep in coverage mode and coverage in grep mode. Share process
+  ownership and exit joins without changing sandbox authorizer, limits, function
+  inventory or grep budgets.
 - The package owns strict Effect message decoding, bounded startup and query
   deadlines, and exit-joined close. A killed client stays dead; recovery
   explicitly acquires a new client. Expose failed startup cleanup's retained owner
   so its caller can retry exit-joined close before deleting index files.
-- Its read-only connection enforces zero attachments, a 16 MiB value limit, a
-  512 MiB process heap limit, the reviewed function inventory, read-only
-  introspection pragmas, a single compiled statement and at most 200 rows. Every
-  unrecognized authorizer action, transactions included, is denied. Load only
-  sqlite-vec's default entry point before installing the authorizer; no runtime
-  SQL extension loading. Refuse results over the 1 MiB IPC budget before parent
-  deserialization, counting the complete serialized response.
+- The process serves only grep and native coverage; it runs no caller-supplied SQL
+  (BST-1997 removed the generic SQL mode). Its read-only connection enforces zero
+  attachments, a 16 MiB value limit, a 512 MiB process heap limit and at most 200
+  rows. Its authorizer admits only what grep's fixed statements use, measured on
+  a real index over every recorded pattern shape: SELECT, READ, the functions
+  `instr`, `length`, `lower`, `match` and `typeof`, and `PRAGMA data_version`, which
+  FTS5 reads before a trigram MATCH. Every other action is denied, so a new
+  function or pragma in grep's SQL fails `sandbox.integration.test.ts`. The
+  connection loads no extension: grep needs no sqlite-vec, including on indexes
+  whose schema carries `vec0` tables. Refuse results over the 1 MiB IPC budget
+  before parent deserialization, counting the complete serialized response.
 - Refuse a runtime that lacks limits, ignores the requested limits, or compiles
   SQLite with `DEFAULT_MEMSTATUS=0`. Accepting a heap-limit pragma is
   insufficient. Electron-engine qualification does not establish Electron-free
@@ -336,16 +341,12 @@ measured record stays in `agent-self-query/`.)
   case-insensitive literals only when the folded needle is ASCII, keeping every
   non-ASCII or NUL-containing row for JavaScript case conversion. Never cap
   candidates.
-- Cancellation kills that call's owned reader and joins actual exit before
-  rejecting; late responses and retired request signals cannot publish results or
-  cancel newer work. Fresh requests acquire a fresh reader.
-- **The generic SQL mode has no production caller.** `SqliteQueryClient.query`,
-  `listTables` and `describeTable`, their protocol kinds, the matching
-  `SqliteSandbox` methods and the same methods on desktop's `openIndexQuery`
-  reader remain only for tests (this package's lifecycle and sandbox suites and
-  desktop's `sqlite-query-index` proof), until the follow-up removes them and
-  re-measures the sandbox posture for grep alone. No production code may add a
-  new caller.
+- A read stops in exactly three ways: its deadline kills the reader, its owner's
+  close kills it and joins actual exit (host Stop, reset and shutdown reach every
+  in-flight read through `closeAllIndexQueries`), or the reader crashes. No caller
+  cancels a single request; a run's Stop leaves an in-flight grep to its deadline.
+  Late responses cannot publish, a stopped client stays dead, and fresh requests
+  acquire a fresh reader.
 
 Evidence: `agent-self-query/sqlite-index-foundation.md`,
 `agent-self-query/index-consumer.md`,

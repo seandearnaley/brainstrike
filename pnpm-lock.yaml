@@ -3598,9 +3598,6 @@ importers:
       '@brainstrike/indexer':
         specifier: workspace:*
         version: link:../indexer
-      '@brainstrike/sqlite-native':
-        specifier: workspace:*
-        version: link:../sqlite-native
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
