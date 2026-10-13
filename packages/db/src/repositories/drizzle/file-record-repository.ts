@@ -217,16 +217,21 @@ export class DrizzleFileRecordRepository {
   }
 
   async findByManagedCacheIdentity(
-    embeddingSetId: string,
+    embeddingSetId: string | null,
     rootId: string,
     relativePath: string
   ): Promise<FileRecord | null> {
     return await measureDatabaseQuery('file-tree', async () => {
+      // A null set is the native TEXT partition alone (BST-1988), never any collection.
+      const partition =
+        embeddingSetId === null
+          ? sql`${fileRecords.embeddingSetId} IS NULL`
+          : sql`${fileRecords.embeddingSetId} = ${embeddingSetId}`;
       const [row] = await this.db
         .select()
         .from(fileRecords)
         .where(
-          sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.rootId} = ${rootId} AND ${fileRecords.path} = ${relativePath}`
+          sql`${partition} AND ${fileRecords.rootId} = ${rootId} AND ${fileRecords.path} = ${relativePath}`
         )
         .orderBy(sql`${fileRecords.updatedAt} DESC`)
         .limit(1);

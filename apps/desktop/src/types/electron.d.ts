@@ -42,7 +42,7 @@ import type {
 // Type definitions for the Electron API exposed via contextBridge
 declare global {
   interface Window {
-    agentHost?: { connect(requestId: string): Promise<void> };
+    agentHost?: { connect(requestId: string, intent?: 'reconnect'): Promise<void> };
     /**
      * Desktop-only subagent persona discovery bridge. Absent on web (no
      * preload) — consumers MUST capability-check `window.assistantPersonas`.
@@ -165,7 +165,8 @@ declare global {
      */
     git?: Bridge<typeof gitContract>;
     indexSearch?: import('@brainstrike/indexing-contract/indexer-client').IndexSearchCapability &
-      import('@brainstrike/indexing-contract/indexer-client').IndexRootRegistrationCapability;
+      import('@brainstrike/indexing-contract/indexer-client').IndexRootRegistrationCapability &
+      import('@brainstrike/indexing-contract/indexer-client').IndexLifecycleCapability;
     llmHost: {
       ensureStarted: () => Promise<LlmHostStatus>;
       stop: () => Promise<LlmHostStatus>;

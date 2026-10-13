@@ -148,6 +148,17 @@ export function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPor
     }),
   };
 }
+/** A genuine settings change: the next settings read returns the saved state with `changes`. */
+export async function saveSettingsChange(
+  storage: ReturnType<typeof fixture>['storage'],
+  changes: Record<string, unknown>
+): Promise<void> {
+  const saved = JSON.parse(await storage.getItem()) as { state: Record<string, unknown> };
+  storage.getItem.mockResolvedValue(
+    JSON.stringify({ ...saved, state: { ...saved.state, ...changes } })
+  );
+}
+
 export function fixture(applicationOverride?: ApplicationIpcDomain) {
   const storage = {
     getItem: vi.fn(async () =>

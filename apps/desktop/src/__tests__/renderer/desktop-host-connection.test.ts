@@ -46,9 +46,11 @@ describe('desktop host connection (BST-2004)', () => {
   it('stays failed after a second loss until the user reconnects (crash loop)', async () => {
     const clients = [liveClient(), liveClient(), liveClient()];
     const connect = vi.fn<() => Promise<HostClient>>();
-    for (const { client } of clients) {
-      connect.mockResolvedValueOnce(client);
-    }
+    connect
+      .mockResolvedValueOnce(clients[0]!.client)
+      .mockResolvedValueOnce(clients[1]!.client)
+      .mockRejectedValueOnce(new Error('Main supervisor refused replacement'))
+      .mockResolvedValueOnce(clients[2]!.client);
     const connection = createDesktopHostConnection(connect);
     await connection.current();
     clients[0]?.lose();
@@ -56,14 +58,15 @@ describe('desktop host connection (BST-2004)', () => {
     clients[1]?.lose();
     await settle();
     expect(connection.getSnapshot()).toMatchObject({ kind: 'failed' });
-    expect(connect).toHaveBeenCalledTimes(2);
-    await expect(connection.current()).rejects.toThrow('stopped again');
+    expect(connect).toHaveBeenCalledTimes(3);
+    await expect(connection.current()).rejects.toThrow('Main supervisor refused replacement');
 
     // A send waiting on the lost host resolves on the client the user's Reconnect brings.
     const replaced = connection.replacement(clients[1]?.client as HostClient);
     connection.reconnect();
     expect(await replaced).toBe(clients[2]?.client);
-    expect(connect).toHaveBeenCalledTimes(3);
+    expect(connect).toHaveBeenCalledTimes(4);
+    expect(connect).toHaveBeenLastCalledWith('reconnect');
   });
 
   it('reports a failed attempt and lets the user try again', async () => {

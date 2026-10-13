@@ -1,4 +1,5 @@
 import { BoundaryFailureError, processLost } from '@brainstrike/assistant-contract';
+import { OwnedHostStartError } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
 import { createChildSupervisor } from './child-supervisor';
 
@@ -39,7 +40,17 @@ export function createDesktopProfileRuntime<Attachment>(
           logger.error('Agent host loss cleanup failed', { error });
         });
       });
-      return { close: (reason) => owner.close(reason), ready: owner.acquire() };
+      return {
+        close: (reason) => owner.close(reason),
+        ready: owner.acquire().catch(async (cause: unknown) => {
+          // The actual child exit/deadline producer establishes restartability.
+          // Refused external leases and independent failures never spend a retry.
+          if (cause instanceof OwnedHostStartError) {
+            await context.lost(cause);
+          }
+          throw cause;
+        }),
+      };
     },
     restart: 'lazy',
   });
@@ -56,7 +67,7 @@ export function createDesktopProfileRuntime<Attachment>(
     isRetiring: () => retirement !== undefined,
     reconnect: async () => {
       await retirement;
-      return (await supervisor).restart();
+      return (await supervisor).restart({ onlyFailed: true });
     },
     retire: (beforeClose = Promise.resolve(), reason?: unknown) => {
       if (retirement && retirementPending) {

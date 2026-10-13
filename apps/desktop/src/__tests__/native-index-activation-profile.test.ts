@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { OwnedHostStartError } from '@brainstrike/host-lease';
 // Profile admission and the agent host's lifecycle under the native index
 // activation: replacement starts, failed and lost hosts, reset resume and
 // terminal retirement. Moved from native-index-activation.test.ts unchanged.
@@ -10,6 +11,7 @@ import {
   fixture,
   mocks,
   resetActivationFixture,
+  saveSettingsChange,
 } from './native-index-activation-fixture';
 
 beforeEach(resetActivationFixture);
@@ -78,10 +80,11 @@ it('retains the assistant profile through index settings replacement and rebuild
   mocks.manager.attachCanonicalCollection.mockImplementation(
     async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
   );
-  const { activation } = fixture();
+  const { activation, storage } = fixture();
   try {
     await activation.acquireProfile();
     await activation.acquire();
+    await saveSettingsChange(storage, { indexingPolicyPreset: 'full-root' });
     await activation.reconfigure();
     expect(mocks.close).toHaveBeenCalledOnce();
     expect(mocks.closeProfile).not.toHaveBeenCalled();
@@ -124,7 +127,7 @@ it('retries a failed host start once that host has released Root; Main retiremen
     // The failed start's rollback closes its platform, which releases Root capabilities.
     mocks.acquireProfile.mockImplementationOnce(async () => {
       await activation.closeRootCapabilities();
-      throw new Error('Host startup timed out');
+      throw new OwnedHostStartError({ reason: 'deadline' }, new Error('Host startup timed out'));
     });
     await expect(activation.acquireProfile()).resolves.toBeUndefined();
     expect(mocks.createProfileOwner).toHaveBeenCalledTimes(2);
@@ -192,16 +195,40 @@ it('keeps Main retirement terminal when a starting host fails and releases Root 
   expect(mocks.createProfileOwner).toHaveBeenCalledOnce();
 });
 
-it('shows a failure that persists after the retry, and a later admission starts again', async () => {
+it('keeps the second owned startup failure sticky on later passive admission', async () => {
   const { activation } = fixture();
+  const first = new OwnedHostStartError(
+    { reason: 'deadline' },
+    new Error('First startup deadline')
+  );
+  const second = new OwnedHostStartError(
+    { exitCode: 1, reason: 'exit' },
+    new Error('Replacement exited before ready')
+  );
   try {
-    mocks.acquireProfile
-      .mockRejectedValueOnce(new Error('first start failed'))
-      .mockRejectedValueOnce(new Error('retry failed'));
-    await expect(activation.acquireProfile()).rejects.toThrow('retry failed');
-    await expect(activation.acquireProfile()).resolves.toBeUndefined();
-    expect(mocks.createProfileOwner).toHaveBeenCalledTimes(3);
+    mocks.acquireProfile.mockRejectedValueOnce(first).mockRejectedValueOnce(second);
+    await expect(activation.acquireProfile()).rejects.toBe(second);
+    await expect(activation.acquireProfile()).rejects.toBe(second);
+    expect(mocks.createProfileOwner).toHaveBeenCalledTimes(2);
   } finally {
     await activation.close();
   }
+});
+
+it('rearms a failed host only through explicit reconnect and refuses reconnect after terminal close', async () => {
+  const { activation } = fixture();
+  await activation.acquireProfile();
+  mocks.loseHost();
+  await activation.closeRootCapabilities();
+  await activation.acquireProfile();
+  mocks.loseHost();
+  await activation.closeRootCapabilities();
+  await expect(activation.acquireProfile()).rejects.toMatchObject({ code: 'process.lost' });
+  await expect(activation.acquireProfile({ reconnect: true })).resolves.toBeUndefined();
+  expect(mocks.createProfileOwner).toHaveBeenCalledTimes(3);
+  await activation.close();
+  await expect(activation.acquireProfile({ reconnect: true })).rejects.toMatchObject({
+    code: 'native-index-closed',
+  });
+  expect(mocks.createProfileOwner).toHaveBeenCalledTimes(3);
 });

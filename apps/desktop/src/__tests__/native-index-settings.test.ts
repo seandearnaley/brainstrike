@@ -51,6 +51,18 @@ describe('main native indexing settings', () => {
       selection: null,
     });
   });
+  // BST-1988: text search runs no model, so only VECTOR needs a collection.
+  it('admits TEXT with no collection and still asks VECTOR for one', () => {
+    for (const managedCollectionId of [null, undefined]) {
+      expect(readNativeIndexSettings(saved({ managedCollectionId }))).toMatchObject({
+        managedCollectionId: null,
+        mode: 'TEXT',
+      });
+      expect(() =>
+        readNativeIndexSettings(saved({ managedCollectionId, nativeIndexMode: 'VECTOR' }))
+      ).toThrow('Choose an embedding model and collection in Search & Indexing settings.');
+    }
+  });
   it('retains every full explicit VECTOR execution field', () => {
     const selection = {
       device: 'wasm',

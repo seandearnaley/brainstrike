@@ -82,8 +82,17 @@ const ReadyStatusSchema = z.object({
   storeId: z.string(),
 });
 
+const NativeIndexRefusalCauseSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('transitioning') }),
+  z.object({ kind: z.literal('closed'), reason: z.string() }),
+  z.object({ kind: z.literal('setup-required'), message: z.string() }),
+  z.object({ kind: z.literal('settings-invalid'), message: z.string() }),
+  z.object({ kind: z.literal('source-failure'), message: z.string() }),
+]);
+
 export const IndexStatusSchema = z.discriminatedUnion('kind', [
   z.object({
+    cause: NativeIndexRefusalCauseSchema.exactOptional(),
     kind: z.literal('unavailable'),
     phase: z.enum(['setup-required', 'preparing', 'blocked']).exactOptional(),
     reason: z.string(),
@@ -121,10 +130,15 @@ export const IndexCoverageBatchSchema = z.discriminatedUnion('kind', [
     status: ReadyStatusSchema,
   }),
   z.object({
+    cause: NativeIndexRefusalCauseSchema.exactOptional(),
     code: z.literal('native-coverage-observation-invalidated'),
     kind: z.literal('invalidated'),
   }),
-  z.object({ kind: z.literal('blocked'), reason: z.string() }),
+  z.object({
+    cause: NativeIndexRefusalCauseSchema.exactOptional(),
+    kind: z.literal('blocked'),
+    reason: z.string(),
+  }),
 ]);
 
 const SearchScopeShape = {

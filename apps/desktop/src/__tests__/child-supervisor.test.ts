@@ -125,6 +125,39 @@ describe('ChildSupervisor startup ownership', () => {
     await supervisor.stop();
   });
 
+  it('joins stopped startup and preserves its independent failure instead of the stop reason', async () => {
+    const f = fixture();
+    const supervisor = await f.supervisor;
+    const startup = supervisor.acquire();
+    const result = startup.catch((cause: unknown) => cause);
+    await vi.waitFor(() => expect(f.generations).toHaveLength(1));
+    const independent = new Error('Independent host startup failure');
+    const physical = Promise.withResolvers<void>();
+    f.generations[0]!.close.mockImplementation(async () => {
+      f.generations[0]!.ready.reject(independent);
+      await physical.promise;
+    });
+    const stopping = supervisor.stop(new Error('Terminal quit'));
+    await vi.waitFor(() => expect(f.generations[0]!.close).toHaveBeenCalledOnce());
+    physical.resolve();
+    await stopping;
+    expect(await result).toBe(independent);
+    expect((await supervisor.snapshot()).kind).toBe('stopped');
+  });
+
+  it('settles startup with failed physical cleanup while retaining its owner', async () => {
+    const f = fixture();
+    const supervisor = await f.supervisor;
+    const startup = supervisor.acquire();
+    const result = startup.catch((cause: unknown) => cause);
+    await vi.waitFor(() => expect(f.generations).toHaveLength(1));
+    const cleanup = new Error('Root cleanup failed');
+    f.generations[0]!.close.mockRejectedValueOnce(cleanup);
+    await expect(supervisor.stop()).rejects.toBe(cleanup);
+    expect(await Promise.race([result, Promise.resolve('unsettled')])).toBe(cleanup);
+    await supervisor.stop();
+  });
+
   it('surfaces a refused construction without replacing it on passive demand', async () => {
     const cause = new Error('foreign live Root lease');
     const create = vi.fn(() => {

@@ -33,17 +33,16 @@ const messageOf = (cause: unknown): string =>
 
 /**
  * One owner for the frame's host client (BST-2004). When the client closes
- * without the frame asking, it makes one automatic attempt through Main's
- * `agent:host-connect`. A host lost again before the user reconnects stays
- * `failed` until they do. There is no timer and no retry loop.
+ * without the frame asking, it requests a replacement through Main's
+ * `agent:host-connect`. Main alone owns the restart allowance. A refused
+ * replacement stays failed until explicit Reconnect; the frame owns no retry policy.
  */
 export function createDesktopHostConnection(
-  connect: () => Promise<HostClient>
+  connect: (intent?: 'reconnect') => Promise<HostClient>
 ): DesktopHostConnection {
   let state: DesktopHostConnectionState = { kind: 'idle' };
   let generation = 0;
   let attempt: Promise<HostClient> | undefined;
-  let automaticSpent = false;
   let closing: Promise<void> | undefined;
   const listeners = new Set<() => void>();
   const waiters = new Set<{
@@ -66,8 +65,8 @@ export function createDesktopHostConnection(
       listener();
     }
   };
-  const start = (automatic: boolean): Promise<HostClient> => {
-    const current = connect().then(async (client) => {
+  const start = (automatic: boolean, intent?: 'reconnect'): Promise<HostClient> => {
+    const current = connect(intent).then(async (client) => {
       if (closing) {
         await client.close();
         throw new Error(CLOSING);
@@ -101,13 +100,7 @@ export function createDesktopHostConnection(
     if (closing || state.kind !== 'connected' || state.client !== client) {
       return;
     }
-    if (automaticSpent) {
-      logger.warn('The agent host connection closed again; waiting for the user to reconnect');
-      publish({ error: 'The agent host stopped again after reconnecting.', kind: 'failed' });
-      return;
-    }
-    automaticSpent = true;
-    logger.warn('The agent host connection closed; reconnecting once');
+    logger.warn('The agent host connection closed; asking Main for its admitted replacement');
     start(true).catch(() => undefined);
   };
   const close = (): Promise<void> => {
@@ -149,8 +142,7 @@ export function createDesktopHostConnection(
       if (closing || state.kind !== 'failed') {
         return;
       }
-      automaticSpent = false;
-      start(false).catch(() => undefined);
+      start(false, 'reconnect').catch(() => undefined);
     },
     replacement: (lostClient) => {
       if (state.kind === 'connected' && state.client !== lostClient) {

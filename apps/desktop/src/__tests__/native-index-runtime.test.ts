@@ -3,12 +3,9 @@ import { IndexerError, type IndexerPort, type ScopedIndexerPort } from '@brainst
 import type { CoverageAuthority } from '@brainstrike/indexer/coverage-reader';
 import { expect, it, vi } from 'vitest';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
+import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { isolateNativeCoverage } from '../native-coverage-reader';
-import {
-  createNativeIndexRuntime,
-  type NativeIndexAuthority,
-  NativeReadAuthorityRetiredError,
-} from '../native-index-runtime';
+import { createNativeIndexRuntime, type NativeIndexAuthority } from '../native-index-runtime';
 import {
   createNativeScopedSearchCapability,
   type NativeSearchAuthority,
@@ -25,6 +22,48 @@ function fixture() {
   const unused = async (): Promise<never> => {
     throw new Error('Unused fixture operation');
   };
+  // The writer's current bindings, as its ScopeAuthority holds them.
+  let boundFiles: readonly {
+    readonly embeddingSetId: string | null;
+    readonly rootId: string | null;
+  }[] = [];
+  const inScope = (
+    file: { readonly embeddingSetId: string | null; readonly rootId: string | null },
+    scope: { readonly embeddingSetId?: string; readonly kind: string; readonly rootId?: string }
+  ): boolean =>
+    scope.kind === 'workspace'
+      ? file.rootId === scope.rootId
+      : file.embeddingSetId === scope.embeddingSetId;
+  const verifyScopedManifest = vi.fn(
+    async (request: {
+      readonly files: readonly unknown[];
+      readonly scope: {
+        readonly embeddingSetId?: string;
+        readonly kind: string;
+        readonly rootId?: string;
+      };
+    }) => {
+      // As the writer does: a manifest declares every file bound in its scope.
+      if (
+        request.files.length !== boundFiles.filter((file) => inScope(file, request.scope)).length
+      ) {
+        throw new IndexerError(
+          'incomplete-manifest',
+          'A scoped manifest must declare the complete current canonical file inventory.'
+        );
+      }
+      return {
+        authorityEpoch: 'a'.repeat(64),
+        authorityRevision: 1,
+        changed: [],
+        complete: true,
+        missing: [],
+        scope: request.scope,
+        storeId: 'store',
+        unexpected: [],
+      };
+    }
+  );
   const port: IndexerPort & ScopedIndexerPort = {
     close: unused,
     commitFile: unused,
@@ -41,13 +80,15 @@ function fixture() {
     prepareScopedFile: unused,
     removeFile: unused,
     removeScopedFile: unused,
-    replaceFileBindings: vi.fn(async () => {
+    replaceFileBindings: vi.fn(async (bindings: unknown) => {
+      boundFiles = bindings as typeof boundFiles;
       events.push('bindings-replace');
     }),
     search: unused,
     searchScopes: unused,
     verifyManifest: unused,
-    verifyScopedManifest: unused,
+    verifyScopedManifest:
+      verifyScopedManifest as unknown as ScopedIndexerPort['verifyScopedManifest'],
   };
   const closeWriter = vi.fn(async () => {
     events.push('writer-close');
@@ -64,10 +105,11 @@ function fixture() {
     events.push('profile-acquire');
     return profileAttachment;
   });
-  const createIndexOwner = vi.fn(async () => ({
+  const createIndexOwner = vi.fn(async (opened: NativeIndexAuthority) => ({
     close: closeWriter,
     databasePath: '/owned/index.sqlite',
     start: async () => {
+      boundFiles = opened.fileBindings;
       events.push('writer-start');
       return port;
     },
@@ -119,6 +161,7 @@ function fixture() {
         ],
       };
     },
+    verifyScopedManifest,
   };
 }
 
@@ -252,7 +295,11 @@ it('retains the writer and lease when reader cleanup fails, then retries the sam
 it('joins startup racing reset and never installs a query target for its late writer', async () => {
   const f = fixture();
   const pending = Promise.withResolvers<Awaited<ReturnType<typeof f.createIndexOwner>>>();
-  const owner = await f.createIndexOwner();
+  const owner = await f.createIndexOwner({
+    fileBindings: [],
+    rootIds: ['root'],
+    scopes: [{ kind: 'workspace', rootId: 'root' }],
+  });
   f.createIndexOwner.mockReturnValueOnce(pending.promise);
   const acquiring = f.runtime.acquire();
   // The acquisition reaches the injected asynchronous owner factory.
@@ -366,7 +413,7 @@ it('joins in-flight reads before terminal writer retirement and refuses late rea
   const reading = f.runtime.withRead(f.runtime.acquire, async (captured) => {
     entered.resolve();
     await release.promise;
-    expect(() => captured.readAuthority()).toThrow(NativeReadAuthorityRetiredError);
+    expect(() => captured.readAuthority()).toThrow(NativeAuthorityTransitionError);
   });
   await entered.promise;
   const closing = f.runtime.retireProfile();
@@ -538,6 +585,7 @@ it.each(['invalidated', 'native-error', 'cleanup-error'] as const)(
       retiring = f.runtime.retireReads();
       closing = f.runtime.retireProfile();
       await expect(capability.coverageBatch([{ rootIds: ['root'] }])).resolves.toEqual({
+        cause: { kind: 'transitioning' },
         code: 'native-coverage-observation-invalidated',
         kind: 'invalidated',
       });
@@ -558,6 +606,7 @@ it.each(['invalidated', 'native-error', 'cleanup-error'] as const)(
       const observation = await pending;
       if (mode === 'invalidated') {
         expect(observation).toEqual({
+          cause: { kind: 'transitioning' },
           code: 'native-coverage-observation-invalidated',
           kind: 'invalidated',
         });
@@ -756,7 +805,11 @@ it.each([
         });
       } else {
         expect(await result).toEqual({
-          value: { code: 'native-coverage-observation-invalidated', kind: 'invalidated' },
+          value: {
+            cause: { kind: 'transitioning' },
+            code: 'native-coverage-observation-invalidated',
+            kind: 'invalidated',
+          },
         });
       }
       expect(close).toHaveBeenCalledOnce();

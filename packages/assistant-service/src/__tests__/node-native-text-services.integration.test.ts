@@ -80,12 +80,9 @@ async function runFixture(mode: Mode, signal: AbortSignal): Promise<unknown> {
     const entries = [
       'desktop-profile-runtime',
       'native-index-runtime',
-      'native-index-read-authority',
       'native-index-settings',
       'native-canonical-publication',
       'native-authority-transition',
-      'native-coverage-observation-invalidated',
-      'native-index-blocked',
       'native-index-setup-required',
       'native-index-search',
       'native-scoped-search',

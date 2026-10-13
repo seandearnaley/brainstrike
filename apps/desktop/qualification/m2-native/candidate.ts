@@ -7,7 +7,7 @@ import { expect } from '@playwright/test';
 import type { IndexSearchCapability } from '../../../../packages/indexing-contract/src/indexer-client';
 import type { ElectronAppContext } from '../../e2e/utils/electron-helpers.mts';
 import type { EmbeddingHostStatus } from '../../src/embedding-host-shared';
-import { NativeCoverageObservationInvalidatedError } from '../../src/native-coverage-observation-invalidated';
+import { NativeAuthorityTransitionError } from '../../src/native-authority-transition';
 import {
   type CoverageObservation,
   observeCoverage,
@@ -142,7 +142,9 @@ export async function readNativeObservation(
 export async function readNativeSnapshot(context: ElectronAppContext): Promise<NativeSnapshot> {
   const observation = await readNativeObservation(context);
   if (observation.kind === 'invalidated') {
-    throw new NativeCoverageObservationInvalidatedError();
+    throw new NativeAuthorityTransitionError(
+      'Native source or saved profile changed during search.'
+    );
   }
   return observation.value;
 }

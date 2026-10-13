@@ -217,7 +217,12 @@ describe('desktop host lease ownership', () => {
       onLost: onEarlyLost,
       root,
     });
-    await expect(failing.acquire()).rejects.toThrow('exited before ready');
+    await expect(failing.acquire()).rejects.toMatchObject({
+      cause: expect.any(Error),
+      exitCode: 1,
+      name: 'OwnedHostStartError',
+      reason: 'exit',
+    });
     expect(onEarlyLost).not.toHaveBeenCalled();
   });
   it('reports a nonzero owned exit and refuses later acquisition', async () => {

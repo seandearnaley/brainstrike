@@ -8,6 +8,7 @@ import {
   type HostAttachment,
   type HostStartOptions,
   launchHost,
+  OwnedHostStartError,
   type StartupMessage,
 } from '@brainstrike/host-lease';
 import { ForeignLockError, RootLock, RootLockedError } from '@brainstrike/state-store';
@@ -161,7 +162,12 @@ async function awaitReady(child: OwnedChild, root: string, signal: AbortSignal):
     child.handle.on('message', message);
     signal.addEventListener('abort', aborted, { once: true });
     void child.exited.then((code) =>
-      failed(new Error(`Host utility exited before ready (${code})`))
+      failed(
+        new OwnedHostStartError(
+          { exitCode: code, reason: 'exit' },
+          new Error(`Host utility exited before ready (${code})`)
+        )
+      )
     );
   });
 }

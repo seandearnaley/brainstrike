@@ -19,6 +19,13 @@ vi.mock('electron', () => ({
   },
 }));
 
+// Main records each folder it mounts (BST-1990); a double stands in for its database.
+vi.mock('../../db-main', async () => {
+  const { createRootsDatabaseDouble } = await import('./roots-database-double');
+  const database = createRootsDatabaseDouble();
+  return { getDatabase: async () => database };
+});
+
 import { registerIpcHandlers } from '../../ipc-handlers';
 
 describe('ipc-handlers filesystem composition', () => {

@@ -20,7 +20,7 @@ export interface ChildSupervisor<Client> {
   acquire(): Promise<Client>;
   observe(listener: (state: ChildSnapshot<Client>) => void, signal: AbortSignal): Promise<void>;
   /** Explicit user action only. Passive demand and replacement callbacks must use acquire. */
-  restart(): Promise<Client>;
+  restart(options?: { readonly onlyFailed: true }): Promise<Client>;
   retireLost(): Promise<boolean>;
   snapshot(): Promise<ChildSnapshot<Client>>;
   stop(reason?: unknown): Promise<void>;
@@ -84,9 +84,12 @@ export async function createChildSupervisor<Client>(
     await locked(
       Effect.gen(function* () {
         const current = yield* SubscriptionRef.get(state);
-        yield* Deferred.fail(current.waiting ?? owned.ready, cause);
+        yield* Deferred.fail(owned.ready, cause);
         if (current.owned !== owned || current.snapshot.kind === 'stopping') {
           return;
+        }
+        if (current.waiting) {
+          yield* Deferred.fail(current.waiting, cause);
         }
         yield* publish({
           ...current,
@@ -115,7 +118,11 @@ export async function createChildSupervisor<Client>(
         })
       );
     } catch (cause) {
-      if (!owned.abort.signal.aborted) {
+      // Physical startup can fail independently while a stop is joining it.
+      // Preserve that original result even when lifecycle admission is fenced.
+      if (owned.abort.signal.aborted) {
+        await runAtPromiseBoundary(Deferred.fail(owned.ready, cause));
+      } else {
         await settleFailure(owned, cause);
       }
     }
@@ -286,9 +293,6 @@ export async function createChildSupervisor<Client>(
       Effect.gen(function* () {
         const current = yield* SubscriptionRef.get(state);
         current.owned?.abort.abort(reason);
-        if (current.owned) {
-          yield* Deferred.fail(current.waiting ?? current.owned.ready, reason);
-        }
         yield* publish({
           ...current,
           snapshot: { generation: current.snapshot.generation, kind: 'stopping' },
@@ -305,6 +309,9 @@ export async function createChildSupervisor<Client>(
         Effect.gen(function* () {
           const current = yield* SubscriptionRef.get(state);
           if (current.owned === owned) {
+            if (owned) {
+              yield* Deferred.fail(current.waiting ?? owned.ready, cause);
+            }
             yield* publish({
               ...current,
               snapshot: { cause, generation: current.snapshot.generation, kind: 'failed' },
@@ -318,6 +325,9 @@ export async function createChildSupervisor<Client>(
       Effect.gen(function* () {
         const current = yield* SubscriptionRef.get(state);
         if (current.owned === owned && current.snapshot.kind === 'stopping') {
+          if (owned) {
+            yield* Deferred.fail(current.waiting ?? owned.ready, reason);
+          }
           yield* publish({
             automaticSpent: current.automaticSpent,
             snapshot: { cause: reason, generation: current.snapshot.generation, kind: 'stopped' },
@@ -344,12 +354,19 @@ export async function createChildSupervisor<Client>(
           Stream.runForEach((value) => Effect.sync(() => listener(value.snapshot)))
         )
       ),
-    restart: async () => {
+    restart: async (options) => {
       const reason = new Error('Explicit child restart');
       const admission = await locked(
         Effect.gen(function* () {
           const current = yield* SubscriptionRef.get(state);
-          if (current.snapshot.kind === 'restarting' && current.waiting) {
+          if (options?.onlyFailed && current.snapshot.kind === 'ready') {
+            return { client: current.snapshot.client, kind: 'client' as const };
+          }
+          if (
+            (current.snapshot.kind === 'restarting' ||
+              (options?.onlyFailed && current.snapshot.kind === 'starting')) &&
+            current.waiting
+          ) {
             return { kind: 'wait' as const, waiting: current.waiting };
           }
           if (current.snapshot.kind === 'stopping') {
@@ -369,6 +386,9 @@ export async function createChildSupervisor<Client>(
           return { kind: 'replace' as const, owned: current.owned };
         })
       );
+      if (admission.kind === 'client') {
+        return admission.client;
+      }
       return admission.kind === 'replace'
         ? replace(admission.owned, reason, true)
         : runAtPromiseBoundary(Deferred.await(admission.waiting));

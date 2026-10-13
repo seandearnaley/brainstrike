@@ -50,8 +50,8 @@ const exposeBridge = createBridgeExposer({ contextBridge, ipcRenderer });
 // Only the visible preload receives this client transport. Main authorizes the
 // requesting frame before transferring a port; the host authenticates commands.
 contextBridge.exposeInMainWorld('agentHost', {
-  connect: (requestId: string): Promise<void> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.hostConnect, requestId),
+  connect: (requestId: string, intent?: 'reconnect'): Promise<void> =>
+    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.hostConnect, requestId, intent),
 });
 ipcRenderer.on(
   DESKTOP_IPC_CHANNELS.agent.hostConnected,

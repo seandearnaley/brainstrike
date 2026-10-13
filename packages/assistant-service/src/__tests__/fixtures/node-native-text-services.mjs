@@ -8,10 +8,7 @@ import {
   createNativeScopedSearchCapability,
   createNodeNativeTextServices,
   NativeAuthorityTransitionError,
-  NativeCoverageObservationInvalidatedError,
-  NativeIndexBlockedError,
   NativeIndexSetupRequiredError,
-  NativeReadAuthorityRetiredError,
 } from '@brainstrike/assistant-service/node-native-text-services';
 import {
   createNodeProfileDatabaseOwner,
@@ -32,21 +29,12 @@ assert.ok(mode && fixture && capturedPath && ownerBundles);
 assert.equal(process.versions.electron, undefined);
 const original = (name) => import(pathToFileURL(path.join(ownerBundles, `${name}.mjs`)).href);
 const { createDesktopProfileRuntime } = await original('desktop-profile-runtime');
-const { createNativeIndexRuntime, NativeReadAuthorityRetiredError: desktopRetired } =
-  await original('native-index-runtime');
-const { createNativeIndexReadAuthority } = await original('native-index-read-authority');
+const { createNativeIndexRuntime } = await original('native-index-runtime');
 const { createNativeCanonicalPublication } = await original('native-canonical-publication');
 const { readNativeIndexSettings, NATIVE_INDEX_SETTINGS_KEY, nativeIndexConfigurationIdentity } =
   await original('native-index-settings');
-assert.equal(desktopRetired, NativeReadAuthorityRetiredError);
 for (const [name, exportName, expectedClass] of [
   ['native-authority-transition', 'NativeAuthorityTransitionError', NativeAuthorityTransitionError],
-  [
-    'native-coverage-observation-invalidated',
-    'NativeCoverageObservationInvalidatedError',
-    NativeCoverageObservationInvalidatedError,
-  ],
-  ['native-index-blocked', 'NativeIndexBlockedError', NativeIndexBlockedError],
   ['native-index-setup-required', 'NativeIndexSetupRequiredError', NativeIndexSetupRequiredError],
 ]) {
   assert.equal((await original(name))[exportName], expectedClass);
@@ -419,20 +407,40 @@ try {
       settings: savedSettings,
       watchFailures: new Map(),
     };
-    const readAuthority = createNativeIndexReadAuthority({
-      acquireRead: () => runtime.acquire(),
-      assertCurrent: (current) => {
-        assert.equal(current, graph);
-        current.controller.signal.throwIfAborted();
-      },
-      authority,
-      getGraph: () => graph,
-      readiness: () => publication.getReadiness(),
-      resolveProfile: async () => null,
-      runtime,
-      settingsReads: new Set(),
-      setupRequired: () => undefined,
-    });
+    // This fixture owns the static source graph; the product runtime still owns
+    // the actual writer borrow and retirement fence throughout every service call.
+    const readAuthority = {
+      withRead: (work) =>
+        runtime.withRead(
+          () => runtime.acquire(),
+          (captured) =>
+            work({
+              getAuthority: async () => {
+                graph.controller.signal.throwIfAborted();
+                for (const lease of graph.leases.values()) {
+                  lease.signal.throwIfAborted();
+                }
+                const acknowledged = captured.readAuthority();
+                const current = await authority();
+                captured.readAuthority();
+                graph.controller.signal.throwIfAborted();
+                for (const lease of graph.leases.values()) {
+                  lease.signal.throwIfAborted();
+                }
+                return {
+                  bindings: acknowledged.fileBindings,
+                  collectionId: savedSettings.managedCollectionId,
+                  generation: graph.generation,
+                  profile: null,
+                  queryPlan: undefined,
+                  readiness: publication.getReadiness(),
+                  rootIds: current.rootIds,
+                };
+              },
+              port: captured.port,
+            })
+        ),
+    };
     const capability = createNativeScopedSearchCapability({
       openQuery,
       rebuild: () => runtime.closeIndex(),
@@ -539,7 +547,7 @@ try {
       searchTail = { entered: Promise.withResolvers(), release: Promise.withResolvers() };
       const retiringTail = searchTail;
       const finalRead = text.search(request, context());
-      const rejectedRead = assert.rejects(finalRead, NativeReadAuthorityRetiredError);
+      const rejectedRead = assert.rejects(finalRead, NativeAuthorityTransitionError);
       await retiringTail.entered.promise;
       let retirementSettled = false;
       const retiring = runtime.retireReads().then(() => {

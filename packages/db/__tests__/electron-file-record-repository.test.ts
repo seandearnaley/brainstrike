@@ -207,6 +207,15 @@ describe('ElectronFileRecordRepository', () => {
     );
   });
 
+  it('findByManagedCacheIdentity selects only the TEXT partition for a null set', async () => {
+    await repo.findByManagedCacheIdentity(null, 'root-a', 'src/index.ts');
+
+    expect(query).toHaveBeenCalledWith(
+      'SELECT * FROM file_records WHERE embedding_set_id IS NULL AND root_id = $1 AND path = $2 ORDER BY updated_at DESC LIMIT 1',
+      ['root-a', 'src/index.ts']
+    );
+  });
+
   it('listManagedCacheEntries filters by embedding set and root id metadata', async () => {
     await repo.listManagedCacheEntries('set-1');
 

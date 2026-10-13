@@ -41,6 +41,7 @@ import {
   mocks,
   requestedScope,
   resetActivationFixture,
+  saveSettingsChange,
   scope,
   storeId,
   unused,
@@ -48,7 +49,6 @@ import {
 } from './native-index-activation-fixture';
 
 beforeEach(resetActivationFixture);
-
 afterEach(resetFileSizeConfig);
 
 it('acquires the workspace index.sqlite with no state truth root or projection', async () => {
@@ -307,10 +307,11 @@ it.each(['close', 'destroyAndRetireProfile'] as const)(
     mocks.manager.attachCanonicalCollection.mockImplementation(
       async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
     );
-    const { activation } = fixture();
+    const { activation, storage } = fixture();
     await activation.acquire();
     const writerExit = Promise.withResolvers<void>();
     mocks.close.mockReturnValueOnce(writerExit.promise);
+    await saveSettingsChange(storage, { indexingPolicyPreset: 'full-root' });
     const changing = activation.reconfigure().catch((error: unknown) => error);
     await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce());
     expect(mocks.closeProfile).not.toHaveBeenCalled();
@@ -435,7 +436,7 @@ it('keeps captured cleanup authority through expected source abort and refuses i
   expect(() => captured.readAuthority()).toThrow();
 });
 
-it('joins outgoing rooted collection removal before replacing the main writer', async () => {
+it('joins retained rooted-row convergence before admitting the replacement writer to reads', async () => {
   const lease: CanonicalWorkspaceLease = {
     canonicalPath: '/actual/root',
     generation: 'actual-generation',
@@ -473,9 +474,14 @@ it('joins outgoing rooted collection removal before replacing the main writer', 
     return { rows: params[0] === 'selected' ? records : [] };
   });
   const removal = Promise.withResolvers<boolean>();
+  let retired = false;
   const native = {
     ...writer(),
-    removeScopedFile: vi.fn(() => removal.promise),
+    removeScopedFile: vi.fn(async () => {
+      const removed = await removal.promise;
+      retired = true;
+      return removed;
+    }),
     verifyScopedManifest: vi.fn(
       async (request: Parameters<ScopedIndexerPort['verifyScopedManifest']>[0]) => ({
         authorityEpoch: 'b'.repeat(64),
@@ -485,7 +491,22 @@ it('joins outgoing rooted collection removal before replacing the main writer', 
         missing: [],
         scope: requestedScope(request),
         storeId,
-        unexpected: [],
+        unexpected:
+          mocks.acquire.mock.calls.length >= 2 &&
+          !retired &&
+          requestedScope(request).kind === 'workspace'
+            ? [
+                {
+                  chunks: [],
+                  contentHash: 'c'.repeat(64),
+                  embeddingSetId: 'selected',
+                  fileId: 'retained-0',
+                  relativePath: 'file.txt',
+                  rootId: 'root',
+                  sourcePath: '/actual/root/file.txt',
+                },
+              ]
+            : [],
       })
     ),
   };
@@ -524,8 +545,9 @@ it('joins outgoing rooted collection removal before replacing the main writer', 
     scope: { kind: 'workspace', rootId: 'root' },
   });
   expect(lease.retire).toHaveBeenCalledOnce();
-  expect(mocks.close).not.toHaveBeenCalled();
-  expect(mocks.acquire).toHaveBeenCalledOnce();
+  expect(mocks.close).toHaveBeenCalledOnce();
+  expect(mocks.acquire).toHaveBeenCalledTimes(2);
+  await expect(activation.acquireRead()).rejects.toThrow('transitioning');
   removal.resolve(true);
   await changing;
   expect(mocks.close).toHaveBeenCalledOnce();
@@ -754,7 +776,13 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
   ]);
   expect(documentEmbeddings).not.toHaveBeenCalled();
   expect(native.commitScopedFile).toHaveBeenCalledTimes(2);
-  expect(native.verifyScopedManifest).toHaveBeenCalledTimes(3);
+  // The opened writer lists the stored rows of its folder and its collection once
+  // each (no files declared, BST-1988/BST-2011), then the startup proves three.
+  const manifests = vi
+    .mocked(native.verifyScopedManifest)
+    .mock.calls.map(([input]) => (input as { readonly files: readonly unknown[] }).files.length);
+  expect(manifests.filter((declared) => declared === 0)).toHaveLength(2);
+  expect(manifests.filter((declared) => declared > 0)).toHaveLength(3);
   expect(native.coverageScope).toHaveBeenCalledTimes(1);
   await activation.close();
 });

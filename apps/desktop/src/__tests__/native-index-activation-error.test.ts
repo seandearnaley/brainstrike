@@ -20,16 +20,6 @@ it.each([
     error: new Error('Indexer startup exceeded its caller-provided deadline.'),
     shuttingDown: true,
   },
-  {
-    error: new AggregateError(
-      [
-        new NativeAuthorityTransitionError('Native ingestion paused.'),
-        new Error('Native reader cleanup failed.'),
-      ],
-      'Native source retirement failed.'
-    ),
-    shuttingDown: true,
-  },
 ])(
   'preserves independent activation failures: $error / shutdown=$shuttingDown',
   ({ error, shuttingDown }) => {
@@ -44,6 +34,54 @@ it.each([
     expect(logger.info).not.toHaveBeenCalled();
   }
 );
+
+it('logs each inner error of a retirement failure by name, message and cause', () => {
+  const logger = { error: vi.fn(), info: vi.fn() };
+  // The shapes retirement aggregates: a scan aborted by the retirement itself,
+  // an exceeded utility deadline, and a cleanup failure carrying its cause.
+  const error = new AggregateError(
+    [
+      new NativeAuthorityTransitionError('Native ingestion paused.'),
+      new AggregateError(
+        [new DOMException('Canonical attachment retired.', 'AbortError')],
+        'Canonical late-admission scan failed before engine retirement.'
+      ),
+      new Error('Native reader cleanup failed.', {
+        cause: new Error(
+          'Canonical utility request exceeded its explicit deadline; its owner remains retained for close.'
+        ),
+      }),
+    ],
+    'Canonical utility attachments did not retire.'
+  );
+  reportNativeIndexActivationError(
+    'Saved native index configuration could not activate',
+    error,
+    true,
+    logger
+  );
+  expect(logger.error).toHaveBeenCalledWith('Saved native index configuration could not activate', {
+    error,
+    innerErrors: [
+      { message: 'Native ingestion paused.', name: 'NativeAuthorityTransitionError' },
+      {
+        errors: [{ message: 'Canonical attachment retired.', name: 'AbortError' }],
+        message: 'Canonical late-admission scan failed before engine retirement.',
+        name: 'AggregateError',
+      },
+      {
+        cause: {
+          message:
+            'Canonical utility request exceeded its explicit deadline; its owner remains retained for close.',
+          name: 'Error',
+        },
+        message: 'Native reader cleanup failed.',
+        name: 'Error',
+      },
+    ],
+  });
+  expect(logger.info).not.toHaveBeenCalled();
+});
 
 it('retains explicit setup-required reporting', () => {
   const logger = { error: vi.fn(), info: vi.fn() };
