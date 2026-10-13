@@ -442,8 +442,6 @@ function readProviderRequestId(
 
 export function extractProviderRunError(value: unknown): ProviderRunError {
   const records = walkErrorRecords(value);
-  const message = readMessage(value, records);
-  const causeChain = readCauseChain(value);
   const httpStatus = readHttpStatus(records);
   const responseHeaders = readResponseHeaders(records);
   const providerRequestId = readProviderRequestId(records, responseHeaders);
@@ -459,8 +457,16 @@ export function extractProviderRunError(value: unknown): ProviderRunError {
   const fallbackCode = hasProviderEvidence
     ? PROVIDER_RUN_ERROR_FALLBACK_CODE
     : LOCAL_RUN_ERROR_FALLBACK_CODE;
+  const code = readStableProviderCode(records) ?? fallbackCode;
+  // runError is durable renderer-visible metadata, including expanded activity.
+  // Local exception prose belongs only to the original private logger cause.
+  if (isLocalRunErrorClassification(code)) {
+    return { code };
+  }
+  const message = readMessage(value, records);
+  const causeChain = readCauseChain(value);
   return {
-    code: readStableProviderCode(records) ?? fallbackCode,
+    code,
     ...(message ? { message } : {}),
     ...(causeChain ? { causeChain } : {}),
     ...(httpStatus === undefined ? {} : { httpStatus }),

@@ -127,7 +127,6 @@ describe('provider error metadata', () => {
     // response headers => the failure did not come from a provider response.
     expect(extractProviderRunError(new TypeError('x is not a function'))).toEqual({
       code: LOCAL_RUN_ERROR_FALLBACK_CODE,
-      message: 'x is not a function',
     });
     expect(
       extractProviderRunError({
@@ -135,6 +134,17 @@ describe('provider error metadata', () => {
         message: 'Opaque failure with an unstable code and no response evidence.',
       }).code
     ).toBe(LOCAL_RUN_ERROR_FALLBACK_CODE);
+  });
+
+  it('keeps local failure codes without exposing private message or cause prose in event metadata', () => {
+    // Real child-continuation stream error shape, including the nested native failure.
+    const error = new Error('Provider refused continuation: /Users/fixture/private/workspace.ts', {
+      cause: new Error('ENOENT /Users/fixture/private/credentials.json'),
+    });
+    expect(extractProviderRunError(error)).toEqual({ code: LOCAL_RUN_ERROR_FALLBACK_CODE });
+    Object.assign(error, { code: 'local_tool_call_arguments_invalid' });
+    expect(extractProviderRunError(error)).toEqual({ code: 'local_tool_call_arguments_invalid' });
+    expect(error.cause).toBeInstanceOf(Error);
   });
 
   it('keeps the provider fallback code when any single piece of response evidence exists', () => {
@@ -231,7 +241,6 @@ describe('provider error metadata', () => {
 
     expect(extractProviderRunError(cyclic)).toEqual({
       code: LOCAL_RUN_ERROR_FALLBACK_CODE,
-      message: 'cycle',
     });
   });
 

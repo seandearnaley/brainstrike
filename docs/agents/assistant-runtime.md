@@ -321,8 +321,11 @@ non-retryable flag and fixed confirmation instruction alongside that projection.
   `mastra_agent_stream_provider_error` when the bounded cause walk found an
   `httpStatus`, `providerRequestId`, allowlisted `responseHeaders` or an AI SDK
   api-call marker, and `mastra_agent_stream_local_error` when it found none. A
-  local runtime fault must never wear the provider label, nor the reverse. Emit at
-  most four bounded cause strings; end every truncated string with
+  local runtime fault must never wear the provider label, nor the reverse. Local
+  classifications carry only their stable code: raw message/cause prose stays in
+  the original private diagnostic logger cause, because event metadata also
+  appears in expanded run activity and debug exports. Provider classifications
+  retain their allowlisted evidence. Emit at most four bounded provider cause strings; end every truncated string with
   `… [truncated]`.
 - Response headers are a literal, case-normalized allowlist limited to rate-limit,
   `Retry-After` and provider request-id variants. Request/response bodies,

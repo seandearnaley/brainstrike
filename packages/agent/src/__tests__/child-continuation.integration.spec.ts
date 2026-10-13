@@ -2,7 +2,9 @@ import {
   buildNativeToolRiskMap,
   getToolActionIdentityKey,
   getToolActionTarget,
+  INTERNAL_FAULT,
 } from '@brainstrike/assistant-contract';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { createTool } from '@mastra/core/tools';
 import { expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -50,6 +52,12 @@ it.each([
     false,
     NESTED_MODES.has(mode)
   );
+  const failureLogs: LogRecord[] = [];
+  const removeLogListener = addLogListener((record) => {
+    if (mode === 'provider-failure') {
+      failureLogs.push(record);
+    }
+  });
   try {
     fixture.release.resolve();
     const initial = await createStreamIteratorFromRuntime({
@@ -172,7 +180,9 @@ it.each([
         return [...first.slice(0, -1), ...second.slice(1)];
       }
       if (mode === 'provider-failure') {
-        throw new Error('Provider refused continuation');
+        throw new Error('Provider refused continuation: /Users/fixture/private/workspace.ts', {
+          cause: new Error('ENOENT /Users/fixture/private/credentials.json'),
+        });
       }
       if (step === 1 && (mode === 'nested-approve' || mode === 'nested-question')) {
         return toolCallParts('agent-explore', 'idle-nested-delegation', {
@@ -313,10 +323,36 @@ it.each([
     if (mode === 'provider-failure') {
       await consumption;
       expect(port.finishContinuation).toHaveBeenLastCalledWith({
-        error: expect.stringContaining('Provider refused continuation'),
+        error: INTERNAL_FAULT.message,
         id,
         status: 'failed',
       });
+      const visibleFailures = chunks.flatMap((chunk) => {
+        if (chunk.type !== 'child-continuation-chunk') {
+          return [];
+        }
+        if (chunk.chunk.type === 'text-delta') {
+          return [chunk.chunk.value];
+        }
+        if (chunk.chunk.type === 'run-event' && chunk.chunk.event.kind === 'run.failed') {
+          return [chunk.chunk.event.detail];
+        }
+        return [];
+      });
+      expect(visibleFailures).toContain(INTERNAL_FAULT.message);
+      expect(JSON.stringify(visibleFailures)).not.toContain('Provider refused continuation');
+      expect(JSON.stringify(chunks)).not.toContain('/Users/fixture/private/');
+      expect(
+        failureLogs
+          .flatMap((record) => record.args)
+          .some(
+            (arg) =>
+              typeof arg === 'object' &&
+              arg !== null &&
+              'cause' in arg &&
+              JSON.stringify(arg.cause).includes('Provider refused continuation')
+          )
+      ).toBe(true);
       expect(JSON.stringify(model.prompts)).not.toContain('child_continuation_result');
       return;
     }
@@ -656,6 +692,7 @@ it.each([
       mode === 'approve' || mode === 'nested-approve' ? 2 : 1
     );
   } finally {
+    removeLogListener();
     fixture.release.resolve();
     await fixture.runtime.dispose();
     await fixture.database.close();

@@ -2174,7 +2174,6 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     expect(failure?.event.metadata).toMatchObject({
       runError: {
         code: 'mastra_agent_stream_local_error',
-        message: "Cannot read properties of undefined (reading 'map')",
       },
     });
 
@@ -2188,6 +2187,8 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     );
     expect(localErrorLog).toBeDefined();
     expect(localErrorLog?.level).toBe(LogLevel.ERROR);
+    expect(JSON.stringify(chunks)).not.toContain('Cannot read properties of undefined');
+    expect(JSON.stringify(localErrorLog?.args)).toContain('Cannot read properties of undefined');
     // The message text must match the classification too — grepping logs by
     // message must not land local faults on the provider answer.
     expect(localErrorLog?.message).toBe('mastra stream terminated by local error');
@@ -2434,7 +2435,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     // Visible message is bounded (no arbitrary-length provider string in-thread).
     expect(visibleText.length).toBeLessThan(longDetail.length);
     expect(visibleText).toContain('… [truncated]');
-    // ...but the full detail is preserved in the server-side log breadcrumb.
+    // The safe detail stays bounded; the original provider part remains a private cause.
     const providerErrorLog = logRecords.find((record) =>
       record.args.some(
         (arg) =>
@@ -2444,12 +2445,15 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       )
     );
     const loggedDetail = providerErrorLog?.args.find(
-      (arg): arg is { detail: string } =>
+      (arg): arg is { cause: unknown; detail: string } =>
         typeof arg === 'object' &&
         arg !== null &&
+        'cause' in arg &&
         typeof (arg as { detail?: unknown }).detail === 'string'
     );
-    expect(loggedDetail?.detail).toContain(longDetail);
+    expect(loggedDetail?.detail).toContain('… [truncated]');
+    expect(loggedDetail?.detail).not.toContain(longDetail);
+    expect(JSON.stringify(loggedDetail?.cause)).toContain(longDetail);
   });
 });
 
