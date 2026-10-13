@@ -1,4 +1,4 @@
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { usePGliteDatabaseMock, usePGliteLiveQueryMock } = vi.hoisted(() => ({
@@ -26,6 +26,26 @@ function setDesktopAgentHost(bridge: AgentHostBridge): void {
 }
 
 describe('useDailySpend', () => {
+  it('prices only committed host calls without a PGlite database', () => {
+    usePGliteDatabaseMock.mockReturnValue(null);
+    const { result } = renderHook(() =>
+      useDailySpend([
+        {
+          at: Date.now(),
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          inputTokens: 1_000_000,
+          model: 'gpt-5.2',
+          outputTokens: 0,
+          provider: 'openai',
+        },
+      ])
+    );
+    expect(result.current.available).toBe(true);
+    expect(result.current.spend?.totalUsd).toBeGreaterThan(0);
+    expect(usePGliteLiveQueryMock).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     usePGliteDatabaseMock.mockReset();
     usePGliteLiveQueryMock.mockReset();
@@ -43,89 +63,34 @@ describe('useDailySpend', () => {
     vi.restoreAllMocks();
   });
 
-  it('is unavailable (spend null) without the durable-usage capability and issues no query', () => {
-    usePGliteDatabaseMock.mockReturnValue({});
+  it('is unavailable on web and issues no database query', () => {
     setDesktopAgentHost(undefined);
-
     const { result } = renderHook(() => useDailySpend());
-
     expect(result.current.available).toBe(false);
     expect(result.current.spend).toBeNull();
-    expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
-      expect.objectContaining({ enabled: false })
-    );
+    expect(usePGliteLiveQueryMock).not.toHaveBeenCalled();
   });
 
-  it('keeps spend null while the live query is loading (no premature $0 verdicts)', () => {
-    usePGliteDatabaseMock.mockReturnValue({});
-    usePGliteLiveQueryMock.mockReturnValue({
-      error: null,
-      loading: true,
-      refresh: vi.fn(),
-      rows: [],
-    });
-
-    const { result } = renderHook(() => useDailySpend());
-
-    expect(result.current.available).toBe(true);
-    expect(result.current.loading).toBe(true);
-    expect(result.current.spend).toBeNull();
-  });
-
-  it('prices last-24h rows: exact billed cost plus registry-priced remainder, unpriced excluded', () => {
-    usePGliteDatabaseMock.mockReturnValue({});
-    usePGliteLiveQueryMock.mockReturnValue({
-      error: null,
-      loading: false,
-      refresh: vi.fn(),
-      rows: [
-        {
-          billedCostUsd: '1.5',
-          model: 'gpt-5.2',
-          provider: 'openai',
-          unreportedInputTokens: '0',
-          unreportedOutputTokens: '0',
-        },
-        {
-          billedCostUsd: null,
-          model: 'definitely-not-in-registry',
-          provider: 'ollama',
-          unreportedInputTokens: '1000000',
-          unreportedOutputTokens: '1000000',
-        },
-      ],
-    });
-
-    const { result } = renderHook(() => useDailySpend());
-
-    expect(result.current.error).toBeNull();
-    expect(result.current.spend).not.toBeNull();
-    expect(result.current.spend?.exactUsd).toBe(1.5);
-    // ollama models have no registry list price → excluded + explicitly named.
-    expect(result.current.spend?.totalUsd).toBe(1.5);
-    expect(result.current.spend?.unpricedModels).toEqual(['ollama::definitely-not-in-registry']);
-  });
-
-  it('surfaces a malformed aggregate as an error with spend null, never fabricated $0', () => {
-    usePGliteDatabaseMock.mockReturnValue({});
-    usePGliteLiveQueryMock.mockReturnValue({
-      error: null,
-      loading: false,
-      refresh: vi.fn(),
-      rows: [
-        {
-          billedCostUsd: 'garbage',
-          model: 'gpt-5.2',
-          provider: 'openai',
-          unreportedInputTokens: '0',
-          unreportedOutputTokens: '0',
-        },
-      ],
-    });
-
-    const { result } = renderHook(() => useDailySpend());
-
-    expect(result.current.error).toBeInstanceOf(Error);
-    expect(result.current.spend).toBeNull();
+  it('ages committed calls out of the rolling window on refresh', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-13T06:00:00Z'));
+    const usage = [
+      {
+        at: Date.now(),
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        inputTokens: 1_000_000,
+        model: 'gpt-5.2',
+        outputTokens: 0,
+        provider: 'openai',
+      },
+    ];
+    const { result, unmount } = renderHook(() => useDailySpend(usage));
+    expect(result.current.spend?.totalUsd).toBeGreaterThan(0);
+    vi.setSystemTime(new Date('2026-10-14T06:00:01Z'));
+    await act(() => result.current.refresh());
+    expect(result.current.spend?.totalUsd).toBe(0);
+    unmount();
+    vi.useRealTimers();
   });
 });

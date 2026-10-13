@@ -801,7 +801,6 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
     toolMenu,
     onComposerDraftCommandApplied,
     onComposerTextChange,
-    onStopReread,
     attachmentsAvailability,
     historyGeneration,
   }: {
@@ -857,7 +856,6 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
     };
     onComposerDraftCommandApplied?: (commandId: string) => void;
     onComposerTextChange?: (text: string) => void;
-    onStopReread?: () => void;
     attachmentsAvailability?: { state: 'enabled' } | { reason: string; state: 'disabled' };
   }) => {
     delegatedPanelCallbacks.onDelegatedConversation = onDelegatedConversation;
@@ -904,9 +902,7 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
         {/* The real panel re-reads history by remounting its runtime; the mock
             exposes the host callback that remount fires so the wrapper's draft
             carry is assertable. */}
-        <button data-testid="trigger-stop-reread" onClick={() => onStopReread?.()} type="button">
-          Trigger stop re-read
-        </button>
+
         <div data-testid="composer-draft-command-text">{composerDraftCommand?.text ?? ''}</div>
         <div data-testid="composer-draft-command-mode">{composerDraftCommand?.mode ?? ''}</div>
         <button
@@ -1234,16 +1230,9 @@ beforeEach(() => {
     }
     return { rows: [] };
   });
-  Object.defineProperty(window, 'assistant', {
-    configurable: true,
-    value: { url: 'http://127.0.0.1:9876' },
-  });
-  // The wrapper's legacy desktop mode (BST-1987 removes it) reads both the
-  // retired assistant-server bridge and the durable-run capability: one
-  // simulated shell, so a test that removes the bridge removes both.
   Object.defineProperty(window, 'agentHost', {
     configurable: true,
-    get: () => (window.assistant ? { connect: async () => undefined } : undefined),
+    value: { connect: async () => undefined },
   });
   window.localStorage.removeItem('brainstrike.assistant.include-file-report.v1');
   window.localStorage.removeItem('brainstrike-assistant-threads-v1');
@@ -1256,7 +1245,6 @@ afterEach(() => {
   __resetWorkspaceCollectionSyncStatusStoreForTests();
   Reflect.deleteProperty(window, 'tools');
   providedMcpTools = null;
-  Reflect.deleteProperty(window, 'assistant');
   Reflect.deleteProperty(window, 'agentHost');
   Reflect.deleteProperty(window, 'desktopLifecycle');
   Reflect.deleteProperty(window, '__brainstrikeAssistantRuntimeTestHooks__');

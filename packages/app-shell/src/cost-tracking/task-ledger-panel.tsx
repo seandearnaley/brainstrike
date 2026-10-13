@@ -34,8 +34,6 @@ import { useLedgerAnalytics } from './use-ledger-analytics';
 /** Run-table slice of the view state (structural subset of RunLedgerState). */
 export interface TaskLedgerRunsViewState {
   readonly available: boolean;
-  readonly error: Error | null;
-  readonly loading: boolean;
   readonly rows: readonly RunLedgerRow[];
 }
 
@@ -267,10 +265,10 @@ function TaskLedgerSections({
   perRunCapUsd,
 }: TaskLedgerPanelViewProps) {
   const hasAnalyticsData = analytics.models.length > 0 || analytics.trend.length > 0;
-  const hasAnyError = ledger.error !== null || analytics.error !== null;
+  const hasAnyError = analytics.error !== null;
   const hasAnyData = ledger.rows.length > 0 || hasAnalyticsData;
 
-  if (!hasAnyError && (ledger.loading || analytics.loading) && !hasAnyData) {
+  if (!hasAnyError && analytics.loading && !hasAnyData) {
     return (
       <p
         className="flex items-center gap-2 text-muted-foreground text-sm"
@@ -281,7 +279,7 @@ function TaskLedgerSections({
       </p>
     );
   }
-  if (!(hasAnyError || ledger.loading || analytics.loading || hasAnyData)) {
+  if (!(hasAnyError || analytics.loading || hasAnyData)) {
     return (
       <p className="text-muted-foreground text-sm" data-testid="task-ledger-empty">
         No assistant runs recorded yet. Run an assistant turn to start the ledger.
@@ -298,11 +296,7 @@ function TaskLedgerSections({
           <ModelComparisonSection models={analytics.models} />
         </>
       )}
-      {ledger.error ? (
-        <LedgerErrorBlock error={ledger.error} onRetry={onRefresh} scope="run ledger" />
-      ) : (
-        <RunTableSection perRunCapUsd={perRunCapUsd} rows={ledger.rows} />
-      )}
+      <RunTableSection perRunCapUsd={perRunCapUsd} rows={ledger.rows} />
     </>
   );
 }
@@ -599,16 +593,14 @@ function RunTableSection({
 export function TaskLedgerPanel() {
   // Agent-host threads' committed runs list beside the run tables' rows.
   const { runs: hostRuns } = useAssistantThreadHostLedger();
-  const ledger = useRunLedger(undefined, hostRuns);
+  const ledger = useRunLedger(hostRuns);
   const analytics = useLedgerAnalytics(undefined, hostRuns);
   // Per-run cap (budget guardrails, display-only): flags over-cap runs.
   const perRunCapUsd = useAssistantBudgetPreferencesStore((state) => state.perRunCapUsd);
-  const ledgerRefresh = ledger.refresh;
   const analyticsRefresh = analytics.refresh;
   const onRefresh = useCallback(() => {
-    void ledgerRefresh();
     void analyticsRefresh();
-  }, [ledgerRefresh, analyticsRefresh]);
+  }, [analyticsRefresh]);
   return (
     <TaskLedgerPanelView
       analytics={analytics}

@@ -68,7 +68,7 @@ function makeTrendPoint(overrides: Partial<LedgerTrendPoint> = {}): LedgerTrendP
 }
 
 function makeLedger(overrides: Partial<TaskLedgerRunsViewState> = {}): TaskLedgerRunsViewState {
-  return { available: true, error: null, loading: false, rows: [], ...overrides };
+  return { available: true, rows: [], ...overrides };
 }
 
 function makeAnalytics(
@@ -133,7 +133,7 @@ describe('TaskLedgerPanelView', () => {
   });
 
   it('shows a loading state while the first load is in flight', () => {
-    renderPanel({ ledger: { loading: true } });
+    renderPanel({ analytics: { loading: true } });
 
     expect(screen.getByTestId('task-ledger-loading')).toBeInTheDocument();
     expect(screen.queryByTestId('task-ledger-empty')).not.toBeInTheDocument();
@@ -234,19 +234,6 @@ describe('TaskLedgerPanelView', () => {
 
     expect(screen.getByTestId('task-ledger-edits')).toHaveTextContent('—');
     expect(screen.queryByTestId('task-ledger-reverted-edits')).not.toBeInTheDocument();
-  });
-
-  it('surfaces a ledger load failure as a visible error with a working retry', async () => {
-    const user = userEvent.setup();
-    const { onRefresh } = renderPanel({
-      ledger: { error: new Error('malformed aggregate'), rows: [] },
-    });
-
-    expect(screen.getByTestId('task-ledger-error')).toHaveTextContent('malformed aggregate');
-    expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
-
-    await user.click(screen.getByTestId('task-ledger-retry'));
-    expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
   it('surfaces an analytics load failure independently with retry', async () => {
