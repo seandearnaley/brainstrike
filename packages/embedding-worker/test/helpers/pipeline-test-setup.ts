@@ -4,6 +4,7 @@ import {
   EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_KEY,
   EMBEDDING_WORKER_TEST_RUNTIME_PHASE_KEY,
 } from '../../src/test-runtime-bootstrap';
+import type { GpuDeviceHandle } from '../../src/webgpu-device-owner';
 
 export const workerEmitMock = vi.fn();
 export const transferMock = vi.fn(function TransferStub<T>(value: T) {
@@ -59,23 +60,22 @@ export async function loadWorker() {
   return registeredHandlers.runEmbedding;
 }
 
-export async function installMockOrtWebGpuDevice(): Promise<void> {
-  const transformers = await import('@huggingface/transformers');
-  const mockedEnv = transformers.env as {
-    allowRemoteModels: boolean;
-    backends?: { onnx?: { webgpu?: { device?: unknown } } };
-  };
-  mockedEnv.backends = {
-    onnx: {
-      webgpu: {
-        device: {
-          createCommandEncoder: () => ({ finish: () => ({}) }),
-          lost: new Promise(() => {}),
-          queue: { submit: vi.fn() },
-        },
-      },
+export function installMockWebGpuDevice(
+  device: GpuDeviceHandle = {
+    createCommandEncoder: () => ({ finish: () => ({}) }),
+    lost: new Promise(() => {}),
+    queue: { submit: vi.fn() },
+  }
+): void {
+  vi.stubGlobal('navigator', {
+    gpu: {
+      requestAdapter: async () => ({
+        features: new Set<string>(),
+        limits: {},
+        requestDevice: async () => device,
+      }),
     },
-  };
+  });
 }
 
 export function makeExtractor(id: string) {
