@@ -39,10 +39,8 @@ export interface TaskLedgerRunsViewState {
   readonly rows: readonly RunLedgerRow[];
 }
 
-/** Analytics slice of the view state (structural subset of LedgerAnalyticsState). */
+/** Analytics slice of the view state (LedgerAnalyticsState). */
 export interface TaskLedgerAnalyticsViewState {
-  readonly error: Error | null;
-  readonly loading: boolean;
   readonly models: readonly LedgerModelComparisonRow[];
   readonly trend: readonly LedgerTrendPoint[];
 }
@@ -81,8 +79,6 @@ const startedAtFormatter = new Intl.DateTimeFormat('en-US', {
   minute: '2-digit',
   month: 'short',
 });
-
-const trendDayFormatter = new Intl.DateTimeFormat('en-US', { day: 'numeric', month: 'short' });
 
 const MS_PER_SECOND = 1000;
 const SECONDS_PER_MINUTE = 60;
@@ -267,10 +263,10 @@ function TaskLedgerSections({
   perRunCapUsd,
 }: TaskLedgerPanelViewProps) {
   const hasAnalyticsData = analytics.models.length > 0 || analytics.trend.length > 0;
-  const hasAnyError = ledger.error !== null || analytics.error !== null;
+  const hasAnyError = ledger.error !== null;
   const hasAnyData = ledger.rows.length > 0 || hasAnalyticsData;
 
-  if (!hasAnyError && (ledger.loading || analytics.loading) && !hasAnyData) {
+  if (!hasAnyError && ledger.loading && !hasAnyData) {
     return (
       <p
         className="flex items-center gap-2 text-muted-foreground text-sm"
@@ -281,7 +277,7 @@ function TaskLedgerSections({
       </p>
     );
   }
-  if (!(hasAnyError || ledger.loading || analytics.loading || hasAnyData)) {
+  if (!(hasAnyError || ledger.loading || hasAnyData)) {
     return (
       <p className="text-muted-foreground text-sm" data-testid="task-ledger-empty">
         No assistant runs recorded yet. Run an assistant turn to start the ledger.
@@ -290,14 +286,8 @@ function TaskLedgerSections({
   }
   return (
     <>
-      {analytics.error ? (
-        <LedgerErrorBlock error={analytics.error} onRetry={onRefresh} scope="ledger analytics" />
-      ) : (
-        <>
-          <TrendSection trend={analytics.trend} />
-          <ModelComparisonSection models={analytics.models} />
-        </>
-      )}
+      <TrendSection trend={analytics.trend} />
+      <ModelComparisonSection models={analytics.models} />
       {ledger.error ? (
         <LedgerErrorBlock error={ledger.error} onRetry={onRefresh} scope="run ledger" />
       ) : (
@@ -341,7 +331,7 @@ const TREND_BAR_MIN_HEIGHT = 2;
 const TREND_BAR_WIDTH_RATIO = 0.75;
 
 function trendBarTitle(point: LedgerTrendPoint): string {
-  const day = trendDayFormatter.format(point.bucketStart);
+  const day = point.label;
   const runs = `${point.runCount} run${point.runCount === 1 ? '' : 's'}`;
   const tokens = `${formatTokensCompact(point.inputTokens + point.outputTokens)} tokens`;
   if (point.billedCostUsd === undefined) {
@@ -395,7 +385,7 @@ function TrendSection({ trend }: { readonly trend: readonly LedgerTrendPoint[] }
               data-testid="task-ledger-trend-bar"
               fill="currentColor"
               height={barHeight}
-              key={point.bucketStart.toISOString()}
+              key={point.day}
               opacity={point.billedCostUsd === undefined ? 0.45 : 0.9}
               width={barWidth}
               x={x}
@@ -600,15 +590,13 @@ export function TaskLedgerPanel() {
   // Agent-host threads' committed runs list beside the run tables' rows.
   const { runs: hostRuns } = useAssistantThreadHostLedger();
   const ledger = useRunLedger(undefined, hostRuns);
-  const analytics = useLedgerAnalytics(undefined, hostRuns);
+  const analytics = useLedgerAnalytics(hostRuns);
   // Per-run cap (budget guardrails, display-only): flags over-cap runs.
   const perRunCapUsd = useAssistantBudgetPreferencesStore((state) => state.perRunCapUsd);
   const ledgerRefresh = ledger.refresh;
-  const analyticsRefresh = analytics.refresh;
   const onRefresh = useCallback(() => {
     void ledgerRefresh();
-    void analyticsRefresh();
-  }, [ledgerRefresh, analyticsRefresh]);
+  }, [ledgerRefresh]);
   return (
     <TaskLedgerPanelView
       analytics={analytics}

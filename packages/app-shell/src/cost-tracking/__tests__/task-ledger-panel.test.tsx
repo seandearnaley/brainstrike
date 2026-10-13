@@ -57,10 +57,11 @@ function makeModelRow(overrides: Partial<LedgerModelComparisonRow> = {}): Ledger
 
 function makeTrendPoint(overrides: Partial<LedgerTrendPoint> = {}): LedgerTrendPoint {
   return {
-    bucketStart: new Date('2026-07-14T00:00:00Z'),
+    day: '2026-07-14',
     estimatedInputTokens: 0,
     estimatedOutputTokens: 0,
     inputTokens: 1000,
+    label: 'Jul 14',
     outputTokens: 200,
     runCount: 3,
     ...overrides,
@@ -74,7 +75,7 @@ function makeLedger(overrides: Partial<TaskLedgerRunsViewState> = {}): TaskLedge
 function makeAnalytics(
   overrides: Partial<TaskLedgerAnalyticsViewState> = {}
 ): TaskLedgerAnalyticsViewState {
-  return { error: null, loading: false, models: [], trend: [], ...overrides };
+  return { models: [], trend: [], ...overrides };
 }
 
 function renderPanel(options: {
@@ -249,21 +250,6 @@ describe('TaskLedgerPanelView', () => {
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
-  it('surfaces an analytics load failure independently with retry', async () => {
-    const user = userEvent.setup();
-    const { onRefresh } = renderPanel({
-      analytics: { error: new Error('trend query failed') },
-      ledger: { rows: [makeRun({ runId: 'run-1' })] },
-    });
-
-    expect(screen.getByTestId('task-ledger-error')).toHaveTextContent('trend query failed');
-    // The run table still renders — one section failing must not blank the other.
-    expect(screen.getByTestId('task-ledger-run-row')).toBeInTheDocument();
-
-    await user.click(screen.getByTestId('task-ledger-retry'));
-    expect(onRefresh).toHaveBeenCalledTimes(1);
-  });
-
   it('renders one model-comparison row per model with exact cost and estimated-token note', () => {
     renderPanel({
       analytics: {
@@ -297,10 +283,11 @@ describe('TaskLedgerPanelView', () => {
         trend: [
           makeTrendPoint({ billedCostUsd: 0.42 }),
           makeTrendPoint({
-            bucketStart: new Date('2026-07-15T00:00:00Z'),
+            day: '2026-07-15',
             estimatedInputTokens: 2000,
             estimatedOutputTokens: 500,
             inputTokens: 2000,
+            label: 'Jul 15',
             outputTokens: 500,
           }),
         ],
@@ -311,6 +298,7 @@ describe('TaskLedgerPanelView', () => {
     const bars = screen.getAllByTestId('task-ledger-trend-bar');
     expect(bars).toHaveLength(2);
     const firstTitle = bars[0]?.querySelector('title')?.textContent ?? '';
+    expect(firstTitle).toMatch(/^Jul 14 — /);
     expect(firstTitle).toContain('$0.42');
     const secondTitle = bars[1]?.querySelector('title')?.textContent ?? '';
     // A bucket with no reported cost says so — it never claims $0.

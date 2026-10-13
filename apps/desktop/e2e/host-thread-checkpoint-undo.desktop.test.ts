@@ -15,7 +15,10 @@ const API_KEY = 'test-key-host-checkpoint-undo';
 const MODEL = 'anthropic/claude-sonnet-4.6';
 const ORIGINAL = 'original notes\n';
 const REWRITTEN = 'rewritten by the host run\n';
+const USER_EDIT = 'the user changed the notes after the run\n';
 const REPLY = 'The notes are rewritten.';
+// BST-2000: a full undo marks the run's work failed; the label says the undo happened.
+const REVERTED_LABEL = 'Edits reverted · run marked failed';
 
 test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
 
@@ -38,7 +41,7 @@ async function enableModel(page: Page): Promise<void> {
   }, MODEL);
 }
 
-test('a host run’s approved file write is undone from its tool card, and stays undone after reload', async ({
+test('a host run’s approved file write is undone from its tool card, says so, and stays undone after reload', async ({
   electron,
   modelProvider,
   window: page,
@@ -93,6 +96,10 @@ test('a host run’s approved file write is undone from its tool card, and stays
     await region.getByTestId('checkpoint-revert-confirm').click();
     await expect(region.getByTestId('checkpoint-reverted')).toBeVisible({ timeout: 30_000 });
     expect(readFileSync(notes, 'utf8')).toBe(ORIGINAL);
+    // The undo worked, and the run's label says so, never "Edit revert verdict: failed".
+    await expect(region.getByTestId('run-verdict-derived')).toHaveText(REVERTED_LABEL, {
+      timeout: 30_000,
+    });
 
     // Reload: the committed log alone restores the conversation and its reverted state.
     await reloadRenderer(page, 'm3-checkpoint-undo-reload');
@@ -102,10 +109,49 @@ test('a host run’s approved file write is undone from its tool card, and stays
     await expect(reloaded.getByTestId('checkpoint-reverted')).toBeVisible({ timeout: 30_000 });
     await expect(reloaded.getByTestId('checkpoint-revert')).toHaveCount(0);
     expect(readFileSync(notes, 'utf8')).toBe(ORIGINAL);
+    await expect(reloaded.getByTestId('run-verdict-derived')).toHaveText(REVERTED_LABEL, {
+      timeout: 30_000,
+    });
+    // The user's own 👎 outranks the derived label.
+    const didNotWork = reloaded.getByRole('button', { name: "This didn't work" });
+    await didNotWork.click();
+    await expect(didNotWork).toHaveAttribute('aria-pressed', 'true', { timeout: 30_000 });
+    await expect(reloaded.getByTestId('run-verdict-derived')).toHaveCount(0);
+
+    // A forced failure: a second run rewrites the file, the user changes it on disk, and Core
+    // refuses the undo as a conflict. Nothing is restored, so nothing claims it was.
+    await reloaded.getByRole('textbox', { name: 'Message input' }).fill('Rewrite the notes again.');
+    await reloaded.getByRole('button', { exact: true, name: 'Send' }).click();
+    const approveAgain = reloaded.getByRole('button', { name: /^Approve / });
+    await expect(approveAgain).toBeVisible({ timeout: 90_000 });
+    await approveAgain.click();
+    await expect(reloaded.getByText(REPLY)).toHaveCount(2, { timeout: 90_000 });
+    expect(readFileSync(notes, 'utf8')).toBe(REWRITTEN);
+    await expect
+      .poll(
+        async () => (await readAgentHostLog(electron.getUserDataDir())).typeCounts['run.finished'],
+        { timeout: 30_000 }
+      )
+      .toBe(2);
+    writeFileSync(notes, USER_EDIT);
+    await reloaded.getByTestId('checkpoint-revert').click();
+    await reloaded.getByTestId('checkpoint-revert-confirm').click();
+    const revertAnyway = reloaded.getByTestId('checkpoint-revert-anyway');
+    await expect(revertAnyway).toBeVisible({ timeout: 30_000 });
+    expect(readFileSync(notes, 'utf8')).toBe(USER_EDIT);
+    await expect(reloaded.getByTestId('run-verdict-derived')).toHaveCount(0);
+    // Forcing it restores the run's baseline, and the run is marked failed like the first.
+    await revertAnyway.click();
+    await expect(reloaded.getByTestId('checkpoint-reverted')).toHaveCount(2, { timeout: 30_000 });
+    expect(readFileSync(notes, 'utf8')).toBe(ORIGINAL);
+    await expect(reloaded.getByTestId('run-verdict-derived')).toHaveText(REVERTED_LABEL, {
+      timeout: 30_000,
+    });
 
     const log = await readAgentHostLog(electron.getUserDataDir());
-    expect(log.typeCounts['workspace.edit.recorded']).toBe(1);
-    expect(log.typeCounts['workspace.edit.reverted']).toBe(1);
+    expect(log.typeCounts['workspace.edit.recorded']).toBe(2);
+    // Three reverts committed their outcomes: the undo, the refused conflict and the forced one.
+    expect(log.typeCounts['workspace.edit.reverted']).toBe(3);
     expect(modelProvider.refusals()).toEqual([]);
   } finally {
     await electron.dispose();
