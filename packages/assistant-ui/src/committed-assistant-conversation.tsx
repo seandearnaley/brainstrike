@@ -1,3 +1,4 @@
+import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import type { ReactElement } from 'react';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
@@ -26,6 +27,18 @@ const selectConnection = (snapshot: CommittedAssistantSnapshot) => snapshot.conn
 const selectError = (snapshot: CommittedAssistantSnapshot) => snapshot.error;
 const selectWithheld = (snapshot: CommittedAssistantSnapshot) => snapshot.observationWithheld;
 
+/**
+ * A typed failure from another process shows its message and remedy, never its
+ * inner cause; a renderer-local error shows its own message.
+ */
+function commandErrorText(cause: unknown): string {
+  if (cause instanceof BoundaryFailureError) {
+    const { message, remedy } = cause.failure;
+    return remedy ? `${message} ${remedy}` : message;
+  }
+  return cause instanceof Error ? cause.message : String(cause);
+}
+
 /** The shipped desktop conversation surface; connection changes never key/remount its transcript. */
 export function CommittedAssistantConversation(
   props: CommittedAssistantConversationProps
@@ -51,7 +64,7 @@ function BoundCommittedAssistantConversation({
   const rootRef = useRef<HTMLDivElement>(null);
   const reportCommandError = useCallback(
     (cause: unknown): void => {
-      setCommandError(cause instanceof Error ? cause.message : String(cause));
+      setCommandError(commandErrorText(cause));
       onCommandError?.(cause);
     },
     [onCommandError]

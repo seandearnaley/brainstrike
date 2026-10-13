@@ -82,18 +82,29 @@ export function decodeBoundaryFailure(wire: unknown): {
     : { failure: INTERNAL_FAULT, valid: false };
 }
 
+/** Text past the schema's bounds is cut, never refused: a long folder list still renders. */
+const bounded = <
+  T extends Pick<BoundaryFailure, 'message'> & Partial<Pick<BoundaryFailure, 'remedy'>>,
+>(
+  failure: T
+): T => ({
+  ...failure,
+  message: failure.message.slice(0, 1000),
+  ...(failure.remedy === undefined ? {} : { remedy: failure.remedy.slice(0, 500) }),
+});
+
 export function refusal(
   failure: Pick<BoundaryFailure, 'category' | 'code' | 'message'> &
     Partial<Pick<BoundaryFailure, 'remedy'>>
 ): BoundaryFailure {
-  return BoundaryFailureSchema.parse({ ...failure, kind: 'refusal' });
+  return BoundaryFailureSchema.parse({ ...bounded(failure), kind: 'refusal' });
 }
 
 export function fault(
   failure: Pick<BoundaryFailure, 'category' | 'code' | 'message'> &
     Partial<Pick<BoundaryFailure, 'correlationId' | 'remedy'>>
 ): BoundaryFailure {
-  return BoundaryFailureSchema.parse({ ...failure, kind: 'fault' });
+  return BoundaryFailureSchema.parse({ ...bounded(failure), kind: 'fault' });
 }
 
 const CHILD_NAMES: Readonly<Record<BoundaryChild, string>> = {
