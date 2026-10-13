@@ -138,9 +138,11 @@ describe('hidden preload runtime capability manifest', () => {
       'onDocumentEmbeddingsRequest',
       'onQueryEmbeddingCancel',
       'onQueryEmbeddingRequest',
+      'onWebgpuAdapterRequest',
       'reportDocumentEmbeddingsResponse',
       'reportQueryEmbeddingResponse',
       'reportStatus',
+      'reportWebgpuAdapterResponse',
     ]);
   });
 

@@ -601,8 +601,8 @@ test('real semantic assistant Stop joins admitted hidden query and a fresh query
       }
       observation = await observeSemanticQuery(context, {
         plan: choices.nativeLocalSelection,
-        // The production retrieval prompt prefixes this pinned MiniLM query.
-        workerText: `Search query for semantic retrieval:\n${term}`,
+        // MiniLM's catalog row states no prompts, so the worker embeds the raw query (BST-1993).
+        workerText: term,
       });
       expect((await observation.diagnostics()).embeddingHost.pendingRequestCount).toBe(0);
     }

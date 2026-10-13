@@ -22,6 +22,7 @@ function createQueueResult(id: string, vector: readonly number[]): QueueResult {
       elapsedMs: 1,
       fallbackApplied: false,
       model: 'bge-m3',
+      pooling: 'mean',
     },
     type: 'result',
     vectors: [Float32Array.from(vector)],
@@ -148,9 +149,93 @@ describe('TransformersBackend queue integration', () => {
     }
   );
 
+  it('a pinned CLS model requests CLS pooling and requires the CLS completion (BST-1993)', async () => {
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('Worker', class {});
+    vi.stubGlobal('navigator', { gpu: {} });
+    const { queue, add } = createQueueStub();
+    const model = 'onnx-community/granite-embedding-small-english-r2-ONNX';
+    const revision = '1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8';
+    const result = createQueueResult('task', [0.4, 0.6]);
+    const pinned = { ...result.metadata, device: 'webgpu' as const, model, revision };
+    add
+      .mockResolvedValueOnce({ ...result, metadata: { ...pinned, pooling: 'cls' } })
+      .mockResolvedValueOnce({ ...result, metadata: { ...pinned, pooling: 'mean' } });
+    const { TransformersBackend } = await import('../transformers-backend.js');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config.js'
+    );
+    registerEmbeddingQueueFactory(() => queue);
+    const backend = new TransformersBackend();
+    try {
+      backend.setTargetDimensions(2);
+      await backend.initialize({
+        device: 'webgpu',
+        dtype: 'fp16',
+        modelId: model,
+        pooling: 'cls',
+        revision,
+      });
+      await expect(backend.generateEmbedding('hello', model)).resolves.toMatchObject({
+        runtime: { pooling: 'cls' },
+      });
+      expect(add).toHaveBeenCalledWith(
+        expect.objectContaining({ model, pooling: 'cls' }),
+        undefined
+      );
+      await expect(backend.generateEmbedding('hello', model)).rejects.toThrow('pinned');
+    } finally {
+      await backend.dispose();
+      resetEmbeddingQueueFactory();
+    }
+  });
+
+  it('a catalog model config carries its CLS pooling into the legacy load (BST-1993)', async () => {
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('Worker', class {});
+    vi.stubGlobal('navigator', { gpu: {} });
+    const { queue, add } = createQueueStub();
+    const model = 'onnx-community/granite-embedding-small-english-r2-ONNX';
+    const result = createQueueResult('task', new Array<number>(384).fill(0.1));
+    add.mockResolvedValueOnce({
+      ...result,
+      metadata: { ...result.metadata, device: 'webgpu', dimensions: 384, model, pooling: 'cls' },
+    });
+    const { SimpleEmbeddingService } = await import('../bge-m3-service.js');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config.js'
+    );
+    registerEmbeddingQueueFactory(() => queue);
+    const service = new SimpleEmbeddingService();
+    try {
+      await service.initializeWithModel(
+        {
+          description: '',
+          dimensions: 384,
+          id: model,
+          name: 'Granite',
+          pooling: 'cls',
+          quantized: false,
+          tags: ['local', 'embedding'],
+        },
+        undefined,
+        'webgpu'
+      );
+      await service.generateEmbedding('hello');
+      expect(add).toHaveBeenCalledWith(
+        expect.objectContaining({ model, pooling: 'cls' }),
+        undefined
+      );
+    } finally {
+      await service.dispose();
+      resetEmbeddingQueueFactory();
+    }
+  });
+
   it.each([
     { revision: undefined },
     { revision: 'main' },
+    { pooling: 'cls' },
     { model: 'other-model' },
     { device: 'webgpu' },
     { dtype: 'q4' },
@@ -418,6 +503,7 @@ describe('TransformersBackend queue integration', () => {
         elapsedMs: 1,
         fallbackApplied: false,
         model: 'bge-m3',
+        pooling: 'mean',
       },
       type: 'result',
       vectors: Array.from({ length: 10 }, () => Float32Array.from([0.1, 0.2])),

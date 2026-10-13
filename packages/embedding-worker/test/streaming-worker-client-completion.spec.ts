@@ -64,6 +64,7 @@ function createComplete(
       elapsedMs: 1,
       fallbackApplied: false,
       model: 'local:test-model',
+      pooling: 'mean',
       ...overrides,
     },
     type: 'complete',
@@ -161,6 +162,7 @@ describe('streaming completion request correlation', () => {
     ['device', createComplete({ device: 'webgpu' }), 'metadata.device'],
     ['fallback', createComplete({ fallbackApplied: true }), 'metadata.fallbackApplied'],
     ['batch size', createComplete({ batchSize: 2 }), 'metadata.batchSize'],
+    ['pooling', createComplete({ pooling: 'cls' }), 'metadata.pooling'],
   ])(
     'terminally rejects completion metadata with a mismatched %s',
     async (_case, complete, message) => {
@@ -168,6 +170,21 @@ describe('streaming completion request correlation', () => {
 
       await expect(outcome).rejects.toThrow(message);
       expect(worker.terminate).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it.each(['mean', 'cls'] as const)(
+    'correlates the requested CLS pooling against a %s completion (BST-1993)',
+    async (pooling) => {
+      const { outcome } = await startCompletedStream(
+        createRequest({ pooling: 'cls' }),
+        createComplete({ pooling })
+      );
+      if (pooling === 'cls') {
+        await expect(outcome).resolves.toMatchObject({ pooling: 'cls' });
+      } else {
+        await expect(outcome).rejects.toThrow('metadata.pooling');
+      }
     }
   );
 

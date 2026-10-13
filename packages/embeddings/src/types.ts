@@ -1,4 +1,9 @@
-import type { EmbeddingDType, EmbeddingModelConfig } from '@brainstrike/indexing-contract';
+import type {
+  EmbeddingDType,
+  EmbeddingModelConfig,
+  EmbeddingPooling,
+  EmbeddingPrompts,
+} from '@brainstrike/indexing-contract';
 
 export type ModelConfig = EmbeddingModelConfig;
 
@@ -14,6 +19,10 @@ export interface EmbeddingConfig {
   dtype?: EmbeddingDType;
   /** Model ID for the embedding model */
   modelId: string;
+  /** The catalog model's pooling (BST-1993); absent asks the worker for 'mean'. */
+  pooling?: EmbeddingPooling;
+  /** The catalog model's query/document prompts (BST-1993); absent embeds raw text. */
+  prompts?: EmbeddingPrompts;
   /** Quantization level */
   quantized?: boolean;
   /** Model revision/version */
@@ -83,6 +92,7 @@ export interface EmbeddingWorkerRuntimeMetadata {
   readonly device: 'webgpu' | 'wasm';
   readonly dtype: string;
   readonly fallbackApplied: boolean;
+  readonly pooling: EmbeddingPooling;
   readonly revision?: string;
 }
 

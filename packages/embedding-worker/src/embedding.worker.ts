@@ -7,6 +7,7 @@ import {
   EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
   type EmbedWorkerRequestControl,
+  requestedEmbeddingPooling,
 } from '@brainstrike/indexing-contract';
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import type {
@@ -920,7 +921,7 @@ function createContext(payload: EmbedWorkerRequest): EmbeddingContext {
     estimatedModelBytes,
     id: payload.id,
     model: payload.model,
-    pooling: payload.pooling ?? 'mean',
+    pooling: requestedEmbeddingPooling(payload),
     ...(payload.revision === undefined ? {} : { revision: payload.revision }),
     started: typeof performance === 'undefined' ? Date.now() : performance.now(),
     targetDimension: requestedDimension,
@@ -980,6 +981,7 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
         elapsedMs: 0,
         fallbackApplied: false,
         model,
+        pooling: context.pooling,
         ...(context.revision === undefined ? {} : { revision: context.revision }),
       },
       type: 'result',
@@ -1206,6 +1208,7 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
       elapsedMs: finished - started,
       fallbackApplied: state.fallbackApplied,
       model: context.model,
+      pooling: context.pooling,
       ...(context.revision === undefined ? {} : { revision: context.revision }),
     },
     type: 'complete',
@@ -1284,6 +1287,7 @@ function buildSuccessResult(
       elapsedMs: finished - context.started,
       fallbackApplied: state.fallbackApplied,
       model: context.model,
+      pooling: context.pooling,
       ...(context.revision === undefined ? {} : { revision: context.revision }),
     },
     type: 'result',
