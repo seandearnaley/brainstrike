@@ -302,13 +302,12 @@ async function runMultiRootRestore({
 
     // Only restore granted roots; non-granted shown via the restore banner (Task 3).
     const granted = allDescriptors.filter((d) => d.permissionState === 'granted');
-    if (granted.length === 0) {
-      return;
-    }
     // Desktop restoreRoots backfills the canonical Recents ledger before it
     // resolves. Publish only while this hook instance is still live and only
     // when at least one granted descriptor could have been recorded.
-    dispatch({ type: 'recordRecentRootMutation' });
+    if (granted.length > 0) {
+      dispatch({ type: 'recordRecentRootMutation' });
+    }
 
     if (waitForHydration) {
       await waitForHydration();
@@ -348,12 +347,12 @@ async function runMultiRootRestore({
 
     dispatch({ focused, handles, rootIdByPath: newRootIdByPath, type: 'setAllHandles' });
 
-    if (focused) {
-      // Prefer the durable RootId UUID when available (storage v5).
-      const focusedRootId = rootKeyOf(focused);
-      if (getPersistedCurrentFolderId?.() !== focusedRootId) {
-        updateCurrentFolderId(focusedRootId);
-      }
+    // An authoritative empty restore must retire the persisted active view too.
+    // Otherwise an unavailable folder remains the next chat's proposed root and
+    // selection scope. The normal focus action retains its saved folder state.
+    const focusedRootId = focused ? rootKeyOf(focused) : null;
+    if (getPersistedCurrentFolderId?.() !== focusedRootId) {
+      updateCurrentFolderId(focusedRootId);
     }
 
     // Register persisted roots in the store. Accessed via ref to avoid reactive dep.

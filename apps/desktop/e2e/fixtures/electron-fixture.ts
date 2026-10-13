@@ -63,12 +63,10 @@ export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
     try {
       await use(harness);
     } finally {
-      try {
-        await harness.dispose();
-      } finally {
-        await removeElectronUserDataDir(userDataDir);
-        await rm(workspaceRoot, { force: true, recursive: true });
-      }
+      // Failed retirement keeps the disposable profile for the still-owned process.
+      await harness.dispose();
+      await removeElectronUserDataDir(userDataDir);
+      await rm(workspaceRoot, { force: true, recursive: true });
     }
   },
 

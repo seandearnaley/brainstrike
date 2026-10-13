@@ -1,6 +1,6 @@
 /**
  * Desktop E2E (gap 10): the Threads panel search finds agent-host threads by
- * their content and by their title, fused with history threads into one list.
+ * their content and by their title, excluding retired PGlite conversations.
  * The host's semantic arm also answers, once the backlog drain has embedded
  * the host's rows; the search runs after that, so its rows are deterministic.
  */
@@ -11,7 +11,7 @@ import { readHostSearchVectorCounts } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
-import { seedThreadRows, waitForMastraMemorySchema } from './utils/seed-threads';
+import { seedRetiredThreadRows, waitForMastraMemorySchema } from './utils/seed-threads';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const WORD = 'marigold';
@@ -52,7 +52,7 @@ async function seedHistoryMessage(page: Page, threadId: string, text: string): P
   );
 }
 
-test('the Threads panel finds host threads by content and title, in one list with history', async ({
+test('the Threads panel searches only usable host threads by content and title', async ({
   electron,
   modelProvider,
   window: page,
@@ -66,7 +66,7 @@ test('the Threads panel finds host threads by content and title, in one list wit
   await configureAssistantProvider(page);
   await waitForMastraMemorySchema(page);
   // History: a thread whose message mentions the word; its title does not.
-  const [history] = await seedThreadRows(page, [{ folder: null, title: HISTORY_TITLE }]);
+  const [history] = await seedRetiredThreadRows(page, [{ folder: null, title: HISTORY_TITLE }]);
   if (!history) {
     throw new Error('The history thread was not seeded');
   }
@@ -117,13 +117,11 @@ test('the Threads panel finds host threads by content and title, in one list wit
   await search.fill(WORD);
   const results = page.getByTestId('thread-search-result');
   await expect(page.getByTestId('thread-search-semantic-unavailable')).toHaveCount(0);
-  // One fused list whose owners are peers. History's content match and the
-  // host's content match each mark the word they matched.
+  // A retired history hit must never offer an unusable conversation.
   const historyMatch = results.filter({ hasText: HISTORY_TITLE }).filter({
     hasText: `Water the ${WORD} beds at dawn`,
   });
-  await expect(historyMatch).toHaveCount(1, { timeout: 30_000 });
-  await expect(historyMatch.locator('mark')).toHaveText([WORD]);
+  await expect(historyMatch).toHaveCount(0);
   const contentMatch = results
     .filter({ hasText: CONTENT_TITLE })
     .filter({ hasText: `Plan the ${WORD} garden.` });

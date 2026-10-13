@@ -1,4 +1,3 @@
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -37,6 +36,7 @@ interface LaunchElectronAppOptions {
    * scripts survive restarts; any other launch owns one until its app exits.
    */
   readonly modelProvider?: ModelProviderShim;
+  readonly onAppAcquired?: (app: ElectronApplication) => void;
   readonly userDataDir?: string;
   /**
    * A real folder the test-mode folder picker mounts when neither the process
@@ -207,16 +207,27 @@ function verboseError(...args: unknown[]): void {
 // Single launch attempt - extracted for reduced complexity
 async function attemptElectronLaunch(
   launchOptions: Parameters<typeof electron.launch>[0],
-  firstWindowTimeout: number
+  firstWindowTimeout: number,
+  onAppAcquired?: (app: ElectronApplication) => void
 ): Promise<ElectronAppContext> {
-  const app = await startElectron(launchOptions);
+  const app = await startElectron(launchOptions, onAppAcquired);
 
-  verboseLog('⏳ Waiting for first window...');
-  const window = await app.firstWindow({ timeout: firstWindowTimeout });
-  await window.waitForLoadState('domcontentloaded');
-  await setupDialogMocking(app);
-  verboseLog('✅ Electron app launched successfully');
-  return { app, window };
+  try {
+    verboseLog('⏳ Waiting for first window...');
+    const window = await app.firstWindow({ timeout: firstWindowTimeout });
+    await window.waitForLoadState('domcontentloaded');
+    await setupDialogMocking(app);
+    return { app, window };
+  } catch (error) {
+    if (!onAppAcquired) {
+      try {
+        await closeElectronApp({ app });
+      } catch (closeError) {
+        throw new AggregateError([error, closeError], 'Electron launch and cleanup failed');
+      }
+    }
+    throw error;
+  }
 }
 
 // Log environment diagnostics for debugging CI issues
@@ -240,7 +251,11 @@ export async function launchElectronApp(
   userDataDir?: string,
   options: Pick<
     LaunchElectronAppOptions,
-    'disableExternalLocalRuntimeProbes' | 'env' | 'modelProvider' | 'workspaceRoot'
+    | 'disableExternalLocalRuntimeProbes'
+    | 'env'
+    | 'modelProvider'
+    | 'workspaceRoot'
+    | 'onAppAcquired'
   > = {}
 ): Promise<ElectronAppContext> {
   return await launchElectronAppWithOptions({
@@ -305,7 +320,6 @@ async function launchElectronAppWithBoundary(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     verboseLog(`🔄 Launch attempt ${attempt}/${maxAttempts}`);
-    await killLingeringElectronProcesses(userDataDir);
 
     const launchOptions = createLaunchOptions(
       electronPath,
@@ -321,7 +335,7 @@ async function launchElectronAppWithBoundary(
     );
 
     try {
-      return await attemptElectronLaunch(launchOptions, firstWindowTimeout);
+      return await attemptElectronLaunch(launchOptions, firstWindowTimeout, options.onAppAcquired);
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       console.error(`❌ Launch attempt ${attempt} failed:`, lastError.message);
@@ -334,7 +348,10 @@ async function launchElectronAppWithBoundary(
     }
   }
 
-  throw new Error(`Failed to launch Electron after ${maxAttempts} attempts: ${lastError?.message}`);
+  throw new Error(
+    `Failed to launch Electron after ${maxAttempts} attempts: ${lastError?.message}`,
+    { cause: lastError }
+  );
 }
 
 export async function getBufferedElectronOutput(
@@ -345,45 +362,6 @@ export async function getBufferedElectronOutput(
     stderr: [...(buffer?.stderr ?? [])],
     stdout: [...(buffer?.stdout ?? [])],
   };
-}
-
-// a Helper to kill lingering Electron processes that might be holding ports
-async function killLingeringElectronProcesses(userDataDir?: string): Promise<void> {
-  try {
-    const escapedUserDataDir = userDataDir?.replace(/'/gu, `'\\''`);
-    if (process.platform === 'darwin') {
-      if (escapedUserDataDir) {
-        execSync(`pkill -9 -f "Electron.*--user-data-dir=${escapedUserDataDir}" || true`, {
-          stdio: 'ignore',
-        });
-      } else {
-        execSync("pkill -9 -f 'Electron.*--test-mode' || true", { stdio: 'ignore' });
-      }
-    } else if (process.platform === 'linux') {
-      if (escapedUserDataDir) {
-        execSync(`pkill -9 -f "electron.*--user-data-dir=${escapedUserDataDir}" || true`, {
-          stdio: 'ignore',
-        });
-      } else {
-        execSync("pkill -9 -f 'electron.*--test-mode' || true", { stdio: 'ignore' });
-      }
-    } else if (process.platform === 'win32') {
-      if (userDataDir) {
-        execSync(
-          `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'electron.exe' -and $_.CommandLine -like '*--user-data-dir=${userDataDir}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"`,
-          { stdio: 'ignore' }
-        );
-      } else {
-        execSync('taskkill /F /IM electron.exe /T 2>nul || exit 0', { stdio: 'ignore' });
-      }
-    }
-    // Give OS time to release resources
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    verboseLog('✅ Cleaned up lingering processes');
-  } catch {
-    // Ignore errors - processes might not exist
-    verboseLog('⚠️ No lingering processes to clean up');
-  }
 }
 
 // NOTE: killSpecificElectronProcess was removed - we no longer use explicit debug ports
@@ -623,7 +601,10 @@ function runPreflightElectronCheck(displayEnv: string | undefined): void {
 }
 // #endregion
 
-async function startElectron(launchOptions: Parameters<typeof electron.launch>[0]) {
+async function startElectron(
+  launchOptions: Parameters<typeof electron.launch>[0],
+  onAppAcquired?: (app: ElectronApplication) => void
+) {
   // #region Electron pre-launch diagnostics
   verboseLog('[DEBUG][HYP-D] Pre-launch diagnostics:');
   verboseLog('[DEBUG][HYP-D] Platform:', process.platform);
@@ -641,6 +622,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
   try {
     verboseLog('[DEBUG] Calling electron.launch() at', new Date().toISOString());
     const app = await electron.launch(launchOptions);
+    onAppAcquired?.(app);
     verboseLog('[DEBUG] electron.launch() returned after', Date.now() - launchStartTime, 'ms');
 
     // Pipe stdout and stderr for debugging CI crashes
@@ -738,51 +720,68 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
       name: error instanceof Error ? error.name : 'unknown',
     });
     // #endregion
-    throw new Error(`Failed to launch Electron app: ${error}`);
+    throw new Error(`Failed to launch Electron app: ${error}`, { cause: error });
   }
 }
 
-export async function closeElectronApp(appContext: ElectronAppContext): Promise<void> {
-  verboseLog('🔒 Closing Electron app...');
+/** Join the owned process, never a CDP disconnect or merely a sent signal. */
+export async function closeElectronApp(
+  appContext: ElectronAppContext | Pick<ElectronAppContext, 'app'>
+): Promise<void> {
+  const app = appContext.app;
+  const process = app.process();
+  if (process.exitCode !== null || process.signalCode !== null) {
+    return;
+  }
+  intentionallyClosingApps.add(app);
+  let exitListener: () => void = () => undefined;
+  const exited = new Promise<true>((resolve) => {
+    exitListener = () => resolve(true);
+    process.once('exit', exitListener);
+  });
   try {
-    // Application shutdown owns hidden hosts. Closing their windows first removes
-    // the command listeners needed to acknowledge native runtime cleanup.
-    intentionallyClosingApps.add(appContext.app);
-
-    let didClose: boolean | null = true;
+    // Hidden windows retain their command listeners until app-owned retirement.
+    const graceful = app.close().then(() => exited);
+    const joined = await waitForWithTimeout(
+      graceful,
+      electronAppCloseTimeoutMs,
+      'Electron app close'
+    );
+    if (joined) {
+      return;
+    }
+    throw new Error('Electron did not complete application-owned shutdown');
+  } catch (closeError) {
     try {
-      const electronProcess = getElectronProcessSafe(appContext);
-      if (electronProcess && !electronProcess.killed && electronProcess.exitCode === null) {
-        const appClosed = waitForElectronAppClosed(appContext);
-        await waitForWithTimeout(
-          appContext.app.close(),
-          electronAppCloseTimeoutMs,
-          'Electron app close request'
-        );
-        didClose = await appClosed;
-        verboseLog('✅ Requested app close');
+      if (process.exitCode === null && process.signalCode === null) {
+        const failure = Promise.withResolvers<never>();
+        const onError = (error: Error): void => failure.reject(error);
+        process.once('error', onError);
+        try {
+          process.kill('SIGTERM');
+          const joined = await waitForWithTimeout(
+            Promise.race([exited, failure.promise]),
+            5000,
+            'Electron SIGTERM exit'
+          );
+          if (!joined) {
+            throw new Error('Electron process remains alive after SIGTERM; preserve its profile');
+          }
+        } finally {
+          process.off('error', onError);
+        }
       }
-    } catch (closeRequestError) {
-      console.warn('⚠️ Failed to request Electron app close gracefully:', closeRequestError);
-      didClose = false;
+    } catch (retireError) {
+      throw new AggregateError(
+        [closeError, retireError],
+        'Electron shutdown and retirement failed'
+      );
     }
-
-    if (!didClose) {
-      console.warn('⚠️ Electron app did not close gracefully; forcing process termination');
-      await forceTerminateElectronApp(appContext);
-      return;
-    }
-    verboseLog('✅ Electron app closed');
-  } catch (error) {
-    if (isPlaywrightTimeoutError(error)) {
-      console.warn('⚠️ Electron app did not close gracefully; forcing process termination');
-      await forceTerminateElectronApp(appContext);
-      return;
-    }
-    console.error('❌ Error closing Electron app:', error);
-    throw error;
+    // Retirement must not turn a broken graceful-shutdown test green.
+    throw closeError;
   } finally {
-    intentionallyClosingApps.delete(appContext.app);
+    process.off('exit', exitListener);
+    intentionallyClosingApps.delete(app);
   }
 }
 
@@ -791,82 +790,17 @@ async function waitForWithTimeout<T>(
   timeoutMs: number,
   label: string
 ): Promise<T | null> {
-  let timeoutId: NodeJS.Timeout | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<null>((resolve) => {
-    timeoutId = setTimeout(() => {
-      console.warn(`⚠️ ${label} timed out after ${timeoutMs}ms`);
+    timer = setTimeout(() => {
+      console.warn(`${label} timed out after ${timeoutMs}ms`);
       resolve(null);
     }, timeoutMs);
   });
-
   try {
     return await Promise.race([promise, timeout]);
   } finally {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
-  }
-}
-
-async function waitForElectronAppClosed(appContext: ElectronAppContext): Promise<boolean | null> {
-  const electronProcess = getElectronProcessSafe(appContext);
-  if (!electronProcess || electronProcess.exitCode !== null || electronProcess.killed) {
-    return true;
-  }
-
-  const processExited = new Promise<boolean>((resolve) => {
-    electronProcess.once('exit', () => {
-      resolve(true);
-    });
-  });
-  const playwrightClosed = appContext.app.waitForEvent('close').then(
-    () => true,
-    () => false
-  );
-
-  return waitForWithTimeout(
-    Promise.race([processExited, playwrightClosed]),
-    electronAppCloseTimeoutMs,
-    'Electron app close or process exit'
-  );
-}
-
-function isPlaywrightTimeoutError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'TimeoutError';
-}
-
-async function forceTerminateElectronApp(appContext: ElectronAppContext): Promise<void> {
-  const electronProcess = getElectronProcessSafe(appContext);
-  if (!electronProcess) {
-    return;
-  }
-
-  if (electronProcess.exitCode !== null || electronProcess.killed) {
-    return;
-  }
-
-  try {
-    electronProcess.kill('SIGKILL');
-  } catch (error) {
-    console.warn('⚠️ Failed to SIGKILL Electron process during forced teardown:', error);
-  }
-
-  try {
-    await appContext.app.waitForEvent('close', { timeout: 5000 });
-  } catch (error) {
-    if (!isPlaywrightTimeoutError(error)) {
-      throw error;
-    }
-  }
-}
-
-function getElectronProcessSafe(
-  appContext: ElectronAppContext
-): ReturnType<ElectronAppContext['app']['process']> | null {
-  try {
-    return appContext.app.process();
-  } catch {
-    return null;
+    clearTimeout(timer);
   }
 }
 

@@ -161,6 +161,9 @@ export function AssistantThreadTabsWorkspace({
   );
   const openThreadIds = openThreadIdsByResourceId[resourceId] ?? EMPTY_THREAD_IDS;
   const activeThreadId = activeThreadIdByResourceId[resourceId] ?? null;
+  const unavailableSavedThread = useAssistantThreadStore(
+    (state) => state.unavailableSavedThreadByResourceId[resourceId]
+  );
   const newThreadDisabled = loadState.status === 'loading';
   // The thread whose transcript this component renders: the active tab, unless
   // a database or load-error card below replaces the panels. (The loading card
@@ -399,16 +402,6 @@ export function AssistantThreadTabsWorkspace({
     );
   }
 
-  if (loadState.status === 'error') {
-    return (
-      <ThreadWorkspaceState
-        description={loadState.error}
-        title="Assistant threads failed to load"
-        variant="error"
-      />
-    );
-  }
-
   if (loadState.status === 'loading' && openThreadIds.length === 0) {
     return <AssistantPanelLoadingState label="Loading PGlite-backed threads." />;
   }
@@ -466,19 +459,32 @@ export function AssistantThreadTabsWorkspace({
         }
       />
 
+      {unavailableSavedThread ? (
+        <div className="p-3 text-muted-foreground text-sm" role="status">
+          Your saved conversation is unavailable. Start a new chat using New.
+        </div>
+      ) : null}
       <div className="min-h-0 flex-1">
-        <ThreadPanels
-          activeThreadId={activeThreadId}
-          fixedProviderModels={fixedProviderModels}
-          loadLocalLlmBackend={loadLocalLlmBackend}
-          mountedThreadIds={mountedThreadIds}
-          onRunningChange={onRunningChange}
-          openThreadIds={openThreadIds}
-          providerKeySources={providerKeySources}
-          providerReadErrors={providerReadErrors}
-          resourceId={resourceId}
-          threadById={threadById}
-        />
+        {loadState.status === 'error' ? (
+          <ThreadWorkspaceState
+            description={loadState.error}
+            title="Assistant threads failed to load"
+            variant="error"
+          />
+        ) : (
+          <ThreadPanels
+            activeThreadId={activeThreadId}
+            fixedProviderModels={fixedProviderModels}
+            loadLocalLlmBackend={loadLocalLlmBackend}
+            mountedThreadIds={mountedThreadIds}
+            onRunningChange={onRunningChange}
+            openThreadIds={openThreadIds}
+            providerKeySources={providerKeySources}
+            providerReadErrors={providerReadErrors}
+            resourceId={resourceId}
+            threadById={threadById}
+          />
+        )}
       </div>
     </div>
   );
