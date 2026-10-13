@@ -6,6 +6,7 @@ export {
   launchHost,
 } from './launcher.js';
 export { createNodeHostSpawner, type NodeSpawnerOptions } from './node-spawner.js';
+export { OwnedHostStartError } from './owned-host-start-error.js';
 export { decodeHostRecord, HOST_VERSION, type HostRecord, PROTOCOL_VERSION } from './record.js';
 export { acquireProfileResetLease, type ProfileResetLease } from './reset-root.js';
 export { ResourceOwner } from './resource-owner.js';

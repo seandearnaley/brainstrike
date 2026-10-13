@@ -802,10 +802,13 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       throw new AggregateError(failures, 'Native reset resume and retirement failed');
     }
   };
-  const acquireProfile = async (): Promise<HostAttachment> => {
+  const acquireProfile = async (options?: {
+    readonly reconnect: true;
+  }): Promise<HostAttachment> => {
     const owner = await lifecycle;
-    const recover = async (): Promise<boolean> => {
-      if (!(await runtime.retireFailedProfile())) {
+    const recover = async (explicit = false): Promise<boolean> => {
+      const retired = await runtime.retireFailedProfile();
+      if (!(retired || explicit)) {
         return false;
       }
       const state = await owner.state();
@@ -818,12 +821,18 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       }
       return true;
     };
+    // Lost-host retirement can itself close Root capabilities. Join it before
+    // inspecting the lifecycle fence or admitting the replacement child.
+    const recovered = await recover(options?.reconnect);
     let state = await owner.state();
-    if (state.kind === 'closed' && !(await recover())) {
+    if (state.kind === 'closed' && !recovered) {
       throw stateError(state);
     }
-    const admit = async (): Promise<HostAttachment> => {
-      const attachment = await runtime.acquireProfile({ indexIndependent: true });
+    const admit = async (reconnect = false): Promise<HostAttachment> => {
+      const attachment = await runtime.acquireProfile({
+        indexIndependent: true,
+        ...(reconnect ? { reconnect: true } : {}),
+      });
       state = await owner.state();
       if (state.kind === 'closed') {
         throw stateError(state);
@@ -831,7 +840,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       return attachment;
     };
     try {
-      return await admit();
+      return await admit(options?.reconnect);
     } catch (cause) {
       let recovered: boolean;
       try {

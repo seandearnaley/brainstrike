@@ -32,6 +32,9 @@ import { HostTreeApprovals } from './host-tree-approvals';
 
 const logger = createLogger('CommittedHostConversation');
 
+/** BST-2004: the lost host's replacement has no record of the send. */
+export const HOST_RESTARTED_NOT_SENT = 'Not sent: the agent host restarted.';
+
 /** A committed run.started the host admitted to deliver child results (a wake). */
 const HostWakeStartSchema = z.object({
   delivery: z.object({ via: z.literal('wake') }),
@@ -169,10 +172,21 @@ export function createCommittedHostConversation(
     readonly client: HostClient;
     /** Told when a newer committed title, colour or icon reaches this view. */
     readonly onTitleCommitted?: () => void;
+    /**
+     * BST-2004: the frame's next client after this one is lost. A send the
+     * lost host never answered is settled from that host's committed log.
+     */
+    readonly replacement?: (lost: HostClient) => Promise<HostClient>;
     readonly threadId: string;
   }
 ): CommittedHostConversation {
   const { client, threadId } = options;
+  // Settles before a request the closed transport rejects, so a send sees it.
+  let hostLost = false;
+  const lost = (): void => {
+    hostLost = true;
+  };
+  client.closed.then(lost, lost);
   const source = new CommittedThreadSession(client, threadId);
   const mcpInput = new CommittedHostMcpInput(client, source, threadId);
   // A running command's output arrives as uncommitted telemetry; its committed
@@ -207,25 +221,41 @@ export function createCommittedHostConversation(
     const prompt = message.content
       .map((part) => (part.type === 'text' ? part.text : ''))
       .join('\n');
-    await options.bindThreadRoot?.();
+    const commandId = crypto.randomUUID();
     try {
+      await options.bindThreadRoot?.();
       await client.request('run/start', {
         ...(attachments.length > 0 ? { attachments } : {}),
-        commandId: crypto.randomUUID(),
+        commandId,
         ...runSettings(),
         parentMessageId: message.parentId,
         prompt,
         threadId,
       });
     } catch (cause) {
-      // BST-1990 (D4): logged with the host's code (the user reads its text).
       logger.warn('The agent host refused a run command', {
         code: hostErrorCode(cause),
         method: 'run/start',
         threadId,
       });
-      // Not sent: the vendor gives the composer its draft back.
-      throw isRunNotAdmitted(cause) ? new MessageNotSentError(describeBoundaryError(cause)) : cause;
+      // An answered refusal is authoritative even if this connection then closes.
+      if (isRunNotAdmitted(cause)) {
+        throw new MessageNotSentError(describeBoundaryError(cause));
+      }
+      if (!(hostLost && options.replacement)) {
+        throw cause;
+      }
+      // The host was lost before it answered. Only its replacement's committed
+      // log says whether the turn was admitted; nothing is resent (BST-2004).
+      const next = await options.replacement(client);
+      const { rows } = await next.request('thread/read', { fromSeq: 0, threadId });
+      if (
+        !rows.some(
+          ({ event }) => event.type === 'command.accepted' && event.commandId === commandId
+        )
+      ) {
+        throw new MessageNotSentError(HOST_RESTARTED_NOT_SENT);
+      }
     }
   };
   const commands: CommittedAssistantCommands = {

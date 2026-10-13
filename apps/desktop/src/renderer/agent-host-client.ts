@@ -2,7 +2,7 @@ import { attachBrowserHost, type HostClient } from '@brainstrike/agent-host/brow
 import type { HostRecord } from '@brainstrike/host-lease';
 
 /** Attach the visible frame to its main-owned profile host; no process/root is created here. */
-export async function connectDesktopAgentHost(): Promise<HostClient> {
+export async function connectDesktopAgentHost(intent?: 'reconnect'): Promise<HostClient> {
   const bridge = window.agentHost;
   if (!bridge) {
     throw new Error('Agent host client capability is unavailable');
@@ -43,7 +43,7 @@ export async function connectDesktopAgentHost(): Promise<HostClient> {
   received.promise.catch(() => undefined);
   window.addEventListener('message', receive);
   try {
-    await bridge.connect(requestId);
+    await bridge.connect(requestId, intent);
     const { port, record } = await received.promise;
     return await attachBrowserHost(port, record, closed.promise);
   } catch (cause) {

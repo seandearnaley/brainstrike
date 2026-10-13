@@ -39,7 +39,10 @@ export interface CapturedNativeIndexAuthority {
 export interface NativeIndexRuntime<Attachment = unknown> {
   acquire(): Promise<NativePort>;
   /** Borrows the retained attachment; retirement remains owned by this runtime. */
-  acquireProfile(options?: { readonly indexIndependent: true }): Promise<Attachment>;
+  acquireProfile(options?: {
+    readonly indexIndependent: true;
+    readonly reconnect?: true;
+  }): Promise<Attachment>;
   captureAcknowledgedAuthority(): CapturedNativeIndexAuthority;
   closeIndex(): Promise<void>;
   destroyIndex(): Promise<void>;
@@ -249,6 +252,7 @@ export function createNativeIndexRuntime<Attachment>(
   const acquireProfile = async (
     options?: {
       readonly indexIndependent: true;
+      readonly reconnect?: true;
     },
     signal?: AbortSignal
   ): Promise<Attachment> => {
@@ -258,7 +262,9 @@ export function createNativeIndexRuntime<Attachment>(
       throw new NativeAuthorityTransitionError('Native index admission is closed.');
     }
     signal?.throwIfAborted();
-    const attachment = await dependencies.profile.acquire(signal);
+    const attachment = await (options?.reconnect
+      ? dependencies.profile.reconnect()
+      : dependencies.profile.acquire(signal));
     signal?.throwIfAborted();
     if ((closed && !options?.indexIndependent) || dependencies.profile.isRetiring()) {
       throw new NativeAuthorityTransitionError('Native profile ownership closed during startup.');

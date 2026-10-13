@@ -10,6 +10,11 @@ import {
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
+function profileAcquireOptions(intent: unknown): { readonly reconnect: true } | undefined {
+  const action = z.literal('reconnect').optional().parse(intent);
+  return action === 'reconnect' ? { reconnect: true } : undefined;
+}
+
 /**
  * Visible clients borrow the profile's existing lease; they never acquire another root.
  * A host this app launched receives each client port privately, as the desktop
@@ -17,7 +22,7 @@ import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
  * public socket like any CLI client, so origin-bound capabilities refuse there.
  */
 export function registerAgentHostClientIpc(
-  acquireProfile: () => Promise<HostAttachment>,
+  acquireProfile: (options?: { readonly reconnect: true }) => Promise<HostAttachment>,
   openPrivateClientPort: () => MessagePortMain | undefined
 ) {
   const registry = createDesktopIpcRegistry({ ipcMain });
@@ -28,7 +33,7 @@ export function registerAgentHostClientIpc(
     'agent',
     DESKTOP_IPC_CHANNELS.agent.hostConnect,
     { roles: ['visible-ui'] },
-    (event, requestId: unknown) => {
+    (event, requestId: unknown, intent: unknown) => {
       const operation = (async (): Promise<void> => {
         const id = z.string().uuid().parse(requestId);
         if (closing) {
@@ -38,7 +43,7 @@ export function registerAgentHostClientIpc(
         if (!frame) {
           throw new Error('Agent client has no authorized frame');
         }
-        const attachment = await acquireProfile();
+        const attachment = await acquireProfile(profileAcquireOptions(intent));
         if (attachment.record.protocolVersion !== AGENT_HOST_PROTOCOL_VERSION) {
           throw new Error('The current profile host does not support assistant commands');
         }
