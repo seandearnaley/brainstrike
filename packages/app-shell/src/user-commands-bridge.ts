@@ -1,3 +1,7 @@
+import {
+  type BoundaryTransport,
+  callBoundary,
+} from '@brainstrike/assistant-contract/boundary-result';
 /**
  * Structural typing + capability resolution for the desktop
  * `window.userCommands` user-defined slash command discovery bridge (the
@@ -55,7 +59,9 @@ export function resolveUserCommandsBridge(): UserCommandsBridge | null {
   if (typeof window === 'undefined') {
     return null;
   }
-  const bridge = (window as Window & { userCommands?: Partial<UserCommandsBridge> }).userCommands;
+  const bridge = (
+    window as Window & { userCommands?: Partial<BoundaryTransport<UserCommandsBridge>> }
+  ).userCommands;
   if (!bridge) {
     return null;
   }
@@ -66,5 +72,6 @@ export function resolveUserCommandsBridge(): UserCommandsBridge | null {
     logger.error('window.userCommands bridge is malformed; slash commands disabled', { missing });
     return null;
   }
-  return bridge as UserCommandsBridge;
+  const transport = bridge as BoundaryTransport<UserCommandsBridge>;
+  return { list: () => callBoundary(() => transport.list()) };
 }

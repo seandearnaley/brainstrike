@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ToolRiskCategory } from '@brainstrike/assistant-contract';
+import { describeBoundaryFailure, refusalError } from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
 import {
   asSchema,
   type LanguageModel,
@@ -8,6 +10,10 @@ import {
   type ToolContent,
 } from 'ai';
 import { z } from 'zod';
+import { toBoundaryFailure } from './boundary-wire.js';
+
+const logger = createLogger('AgentHost');
+
 import { ApprovalInputReconstructionError, validateApprovalInput } from './approval-input.js';
 import {
   applyHostPermissionGrant,
@@ -114,7 +120,9 @@ export async function commitHostInteractionResponse(
     (pending.event.kind === 'approval') !== approval ||
     hasHostInteractionResponse(pending)
   ) {
-    throw new Error(
+    throw refusalError(
+      'conflict',
+      'interaction.stale',
       approval
         ? 'Approval decision is stale or belongs to another run'
         : 'Human interaction is stale or belongs to another run'
@@ -231,7 +239,11 @@ export function failedHostStartEvents(
   return [
     { ...hostStartPosition(runs, params), modelId: params.modelId, runId, type: 'run.started' },
     {
-      detail: cause instanceof Error ? cause.message : String(cause),
+      detail: describeBoundaryFailure(
+        toBoundaryFailure(cause, (message, fields) =>
+          logger.error(message, { ...fields, runId, threadId: params.threadId })
+        )
+      ),
       outcome: 'failed',
       runId,
       type: 'run.finished',
@@ -252,7 +264,14 @@ export function hostContinuationFailure(
     : cause instanceof ApprovalInputReconstructionError
       ? 'interrupted'
       : 'failed';
-  return { detail: cause instanceof Error ? cause.message : String(cause), outcome };
+  return {
+    detail: describeBoundaryFailure(
+      toBoundaryFailure(cause, (message, fields) =>
+        logger.error(message, { ...fields, runId: run.id, threadId: run.threadId })
+      )
+    ),
+    outcome,
+  };
 }
 
 /** A grant names exactly the approved call's own risk category or tool, never another. */
@@ -346,7 +365,7 @@ export async function validateHostInteractionResume(
 export async function resolveHostApprovalInput(run: Run, event: Interaction): Promise<unknown> {
   const approval = run.approvals.get(event.interactionId);
   if (!approval) {
-    throw new Error('Unknown approval occurrence');
+    throw refusalError('input', 'interaction.unknown', 'Unknown approval occurrence');
   }
   const registered = hostRunTools(run)[event.toolId];
   if (!registered || registered.identity !== event.toolIdentity) {

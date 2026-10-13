@@ -1,4 +1,9 @@
-import { ToolInputError } from '@brainstrike/assistant-contract';
+import {
+  BoundaryFailureError,
+  INTERNAL_FAULT,
+  refusal,
+  ToolInputError,
+} from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyToolGuards,
@@ -72,6 +77,43 @@ describe('guardToolExecution', () => {
       },
       ok: false,
     });
+  });
+
+  it('returns a typed refusal from another process as its model-facing message', async () => {
+    const tool = guardToolExecution(
+      makeTool(() => {
+        throw new BoundaryFailureError(
+          refusal({
+            category: 'conflict',
+            code: 'workspace.folder-removed',
+            message: 'The folder "bravo" was removed from the workspace.',
+          })
+        );
+      }),
+      { timeoutMs: 1000, toolName: 'brainstrike.readFile' }
+    );
+
+    await expect(tool.execute({ context: {} })).resolves.toEqual({
+      error: {
+        code: 'tool_input_invalid',
+        message: 'The folder "bravo" was removed from the workspace.',
+        toolName: 'brainstrike.readFile',
+      },
+      ok: false,
+    });
+  });
+
+  it('keeps a typed fault from another process behind the fixed failure text', async () => {
+    const tool = guardToolExecution(
+      makeTool(() => {
+        throw new BoundaryFailureError(INTERNAL_FAULT);
+      }),
+      { timeoutMs: 1000, toolName: 'brainstrike.readFile' }
+    );
+
+    const result = (await tool.execute({ context: {} })) as GuardedToolError;
+    expect(result.error.code).toBe('tool_failed');
+    expect(result.error.message).not.toBe(INTERNAL_FAULT.message);
   });
 
   it('bounds an oversized correctable input error before returning it to the model', async () => {

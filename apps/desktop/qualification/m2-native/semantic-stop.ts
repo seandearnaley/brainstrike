@@ -238,7 +238,11 @@ export async function observeSemanticQuery(
         if (!diagnostics) {
           throw new Error('Public pending ownership diagnostics unavailable.');
         }
-        return await diagnostics.getSnapshot();
+        const response = await diagnostics.getSnapshot();
+        if (!response.ok) {
+          throw new Error(JSON.stringify(response.error));
+        }
+        return response.value;
       }),
     events,
     releaseSubmission: async () => {

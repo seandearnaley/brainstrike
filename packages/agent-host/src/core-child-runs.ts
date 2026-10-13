@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   intersectChildPermissionCeilings,
   type PermissionToolGateSnapshot,
+  refusalError,
 } from '@brainstrike/assistant-contract';
 import {
   type AssistantPersonaDefinition,
@@ -293,7 +294,11 @@ export class HostChildRuns {
     const delegation = selected.delegation;
     const persona = delegation?.personas.find((candidate) => candidate.id === origin.persona);
     if (!(delegation && persona)) {
-      throw new Error(`Persona "${origin.persona}" is no longer available to continue this child`);
+      throw refusalError(
+        'configuration',
+        'persona.unavailable',
+        `Persona "${origin.persona}" is no longer available to continue this child`
+      );
     }
     const original = runs.get(this.invocations.get(threadId) ?? '')?.snapshot?.toolIdentities;
     // The follow-up's own turn queue; its run ID names the turn once admitted.
@@ -431,7 +436,7 @@ export class HostChildRuns {
     runs: ReadonlyMap<string, HostRunState>
   ): HostResults['thread/children']['children'] {
     if (!threads.has(threadId)) {
-      throw new Error('Unknown thread');
+      throw refusalError('input', 'thread.unknown', 'Unknown thread');
     }
     const root = this.rootThread(threadId);
     // Only committed children: a delegation reserves its origin before its
@@ -673,7 +678,11 @@ export class HostChildRuns {
       throw new Error('Delegation tool has no admitted persona');
     }
     if (persona.model) {
-      throw new Error(`Persona "${persona.id}" pins a model, which host threads cannot run yet`);
+      throw refusalError(
+        'configuration',
+        'persona.model-pinned',
+        `Persona "${persona.id}" pins a model, which host threads cannot run yet`
+      );
     }
     const parsed = HostDelegationInputSchema.parse(input);
     const turnId = hostRunTurnId(run);

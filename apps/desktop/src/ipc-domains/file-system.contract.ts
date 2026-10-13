@@ -5,8 +5,10 @@ import {
   type AssertTrue,
   type Bridge,
   type Contract,
+  channel,
   pushEvent,
   rawChannel,
+  type TransportBridge,
 } from '../platform/ipc-contract';
 import type { DesktopFileSystemBridge } from '../types/desktop-electron-api';
 import { assertArgCount, parseRecord } from './contract-args';
@@ -41,17 +43,17 @@ function parseHandle<T>(raw: readonly unknown[], subject: string): [handle: T] {
 }
 
 export const fileSystemContract = {
-  addRoot: rawChannel<InvokeArgs<'addRoot'>, InvokeResult<'addRoot'>>({
+  addRoot: channel<InvokeArgs<'addRoot'>, InvokeResult<'addRoot'>>({
     channel: DESKTOP_IPC_CHANNELS.files.addRoot,
     parseArgs: (raw) => parseNoArguments(raw, 'file system addRoot'),
     roles: ['visible-ui'],
   }),
-  addRootByPath: rawChannel<InvokeArgs<'addRootByPath'>, InvokeResult<'addRootByPath'>>({
+  addRootByPath: channel<InvokeArgs<'addRootByPath'>, InvokeResult<'addRootByPath'>>({
     channel: DESKTOP_IPC_CHANNELS.files.addRootByPath,
     parseArgs: (raw) => parseString(raw, 'file system addRootByPath'),
     roles: ['visible-ui'],
   }),
-  deleteRootData: rawChannel<InvokeArgs<'deleteRootData'>, InvokeResult<'deleteRootData'>>({
+  deleteRootData: channel<InvokeArgs<'deleteRootData'>, InvokeResult<'deleteRootData'>>({
     channel: DESKTOP_IPC_CHANNELS.files.deleteRootData,
     parseArgs: (raw) => {
       const [rootId] = parseString(raw, 'file system deleteRootData');
@@ -62,28 +64,28 @@ export const fileSystemContract = {
     },
     roles: ['visible-ui'],
   }),
-  exists: rawChannel<InvokeArgs<'exists'>, InvokeResult<'exists'>>({
+  exists: channel<InvokeArgs<'exists'>, InvokeResult<'exists'>>({
     channel: DESKTOP_IPC_CHANNELS.files.exists,
     parseArgs: (raw) => parseString(raw, 'file system exists'),
     roles: ['visible-ui'],
   }),
-  listRecentRoots: rawChannel<InvokeArgs<'listRecentRoots'>, InvokeResult<'listRecentRoots'>>({
+  listRecentRoots: channel<InvokeArgs<'listRecentRoots'>, InvokeResult<'listRecentRoots'>>({
     channel: DESKTOP_IPC_CHANNELS.files.listRecentRoots,
     parseArgs: (raw) => parseNoArguments(raw, 'file system listRecentRoots'),
     roles: ['visible-ui'],
   }),
-  readDirectory: rawChannel<InvokeArgs<'readDirectory'>, InvokeResult<'readDirectory'>>({
+  readDirectory: channel<InvokeArgs<'readDirectory'>, InvokeResult<'readDirectory'>>({
     channel: DESKTOP_IPC_CHANNELS.files.readDirectory,
     parseArgs: (raw) =>
       parseHandle<InvokeArgs<'readDirectory'>[0]>(raw, 'file system readDirectory'),
     roles: ['visible-ui'],
   }),
-  readFile: rawChannel<InvokeArgs<'readFile'>, FileReadWireResult>({
+  readFile: channel<InvokeArgs<'readFile'>, FileReadWireResult>({
     channel: DESKTOP_IPC_CHANNELS.files.readFile,
     parseArgs: (raw) => parseHandle<InvokeArgs<'readFile'>[0]>(raw, 'file system readFile'),
     roles: ['visible-ui'],
   }),
-  readFileByAbsolutePath: rawChannel<InvokeArgs<'readFileByAbsolutePath'>, FileReadWireResult>({
+  readFileByAbsolutePath: channel<InvokeArgs<'readFileByAbsolutePath'>, FileReadWireResult>({
     channel: DESKTOP_IPC_CHANNELS.files.readFileByAbsolutePath,
     parseArgs: (raw) => {
       assertArgCount(raw, 3, 'file system readFileByAbsolutePath');
@@ -93,17 +95,17 @@ export const fileSystemContract = {
     },
     roles: ['visible-ui'],
   }),
-  readFileByPath: rawChannel<InvokeArgs<'readFileByPath'>, FileReadWireResult>({
+  readFileByPath: channel<InvokeArgs<'readFileByPath'>, FileReadWireResult>({
     channel: DESKTOP_IPC_CHANNELS.files.readFileByPath,
     parseArgs: (raw) => parseString(raw, 'file system readFileByPath'),
     roles: ['visible-ui'],
   }),
-  removeRoot: rawChannel<InvokeArgs<'removeRoot'>, InvokeResult<'removeRoot'>>({
+  removeRoot: channel<InvokeArgs<'removeRoot'>, InvokeResult<'removeRoot'>>({
     channel: DESKTOP_IPC_CHANNELS.files.removeRoot,
     parseArgs: (raw) => parseString(raw, 'file system removeRoot'),
     roles: ['visible-ui'],
   }),
-  requestDirectoryAccess: rawChannel<
+  requestDirectoryAccess: channel<
     InvokeArgs<'requestDirectoryAccess'>,
     InvokeResult<'requestDirectoryAccess'>
   >({
@@ -111,19 +113,17 @@ export const fileSystemContract = {
     parseArgs: (raw) => parseNoArguments(raw, 'file system requestDirectoryAccess'),
     roles: ['visible-ui'],
   }),
-  restoreLastFolder: rawChannel<InvokeArgs<'restoreLastFolder'>, InvokeResult<'restoreLastFolder'>>(
-    {
-      channel: DESKTOP_IPC_CHANNELS.files.restoreLastFolder,
-      parseArgs: (raw) => parseNoArguments(raw, 'file system restoreLastFolder'),
-      roles: ['visible-ui'],
-    }
-  ),
-  restoreRoots: rawChannel<InvokeArgs<'restoreRoots'>, InvokeResult<'restoreRoots'>>({
+  restoreLastFolder: channel<InvokeArgs<'restoreLastFolder'>, InvokeResult<'restoreLastFolder'>>({
+    channel: DESKTOP_IPC_CHANNELS.files.restoreLastFolder,
+    parseArgs: (raw) => parseNoArguments(raw, 'file system restoreLastFolder'),
+    roles: ['visible-ui'],
+  }),
+  restoreRoots: channel<InvokeArgs<'restoreRoots'>, InvokeResult<'restoreRoots'>>({
     channel: DESKTOP_IPC_CHANNELS.files.restoreRoots,
     parseArgs: (raw) => parseNoArguments(raw, 'file system restoreRoots'),
     roles: ['visible-ui'],
   }),
-  saveLastFolder: rawChannel<InvokeArgs<'saveLastFolder'>, InvokeResult<'saveLastFolder'>>({
+  saveLastFolder: channel<InvokeArgs<'saveLastFolder'>, InvokeResult<'saveLastFolder'>>({
     channel: DESKTOP_IPC_CHANNELS.files.saveLastFolder,
     parseArgs: (raw) => parseString(raw, 'file system saveLastFolder'),
     roles: ['visible-ui'],
@@ -175,3 +175,6 @@ export type FileSystemBridgeDerivationProof = AssertTrue<
       : false
     : false
 >;
+
+export type DesktopFileSystemTransport = TransportBridge<typeof fileSystemContract> &
+  TransportBridge<typeof fileSystemWatchContract>;

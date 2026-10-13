@@ -1,3 +1,4 @@
+import { refusalError } from '@brainstrike/assistant-contract';
 import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
 
 type VerdictEvent = Extract<HostEvent, { type: 'run.verdict' }>;
@@ -43,7 +44,7 @@ export function userRunVerdict(
   params: HostParams<'run/verdict'>
 ): VerdictEvent {
   if (runThread !== params.threadId) {
-    throw new Error('Unknown run');
+    throw refusalError('input', 'run.unknown', 'Unknown run');
   }
   return {
     ...(params.detail === undefined ? {} : { detail: params.detail }),

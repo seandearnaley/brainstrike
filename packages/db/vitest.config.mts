@@ -65,6 +65,14 @@ const sharedAliases: Record<string, string> = {
  * depends on a prebuilt assistant-contract dist.
  */
 const unitAliases: Record<string, string> = {
+  '@brainstrike/assistant-contract/boundary-failure': path.resolve(
+    __dirname,
+    '../assistant-contract/src/boundary-failure.ts'
+  ),
+  '@brainstrike/assistant-contract/boundary-result': path.resolve(
+    __dirname,
+    '../assistant-contract/src/boundary-result.ts'
+  ),
   '@brainstrike/assistant-contract/mastra-memory-schema': path.resolve(
     __dirname,
     '../assistant-contract/src/mastra-memory-schema.ts'

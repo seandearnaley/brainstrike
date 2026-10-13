@@ -4,7 +4,7 @@ import {
 } from '@brainstrike/indexing-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  installMockOrtWebGpuDevice,
+  installMockWebGpuDevice,
   loadWorker,
   makeExtractor,
   pipelineMock,
@@ -64,15 +64,13 @@ describe('pipeline cache metadata and dispose', () => {
 
     // For direct disposePipeline testing, we need the pipeline to be webgpu
     // so invalidateWebGpuPipelines calls disposePipeline
-    vi.stubGlobal('navigator', { gpu: {} });
     pipelineMock.mockResolvedValue(
       Object.assign(async () => new Float32Array([1, 0, 0]), { dispose: disposeMock })
     );
 
     // Reset modules to get a fresh worker with access to webgpu
     resetMocks();
-    vi.stubGlobal('navigator', { gpu: {} });
-    await installMockOrtWebGpuDevice();
+    installMockWebGpuDevice();
     pipelineMock.mockResolvedValue(
       Object.assign(async () => new Float32Array([1, 0, 0]), { dispose: disposeMock })
     );
@@ -99,7 +97,7 @@ describe('pipeline cache metadata and dispose', () => {
   });
 
   it('disposePipeline handles rejected pipeline gracefully', async () => {
-    vi.stubGlobal('navigator', { gpu: {} });
+    installMockWebGpuDevice();
     pipelineMock.mockRejectedValueOnce(new Error('load failed'));
 
     const runEmbedding = await loadWorker();
@@ -117,7 +115,7 @@ describe('pipeline cache metadata and dispose', () => {
 
     // The failed entry should have been removed from cache (retry cleanup)
     // Loading again should trigger a new pipeline call
-    await installMockOrtWebGpuDevice();
+    installMockWebGpuDevice();
     pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
     const result = await runEmbedding({
       deviceHint: 'webgpu',
@@ -130,9 +128,7 @@ describe('pipeline cache metadata and dispose', () => {
     expect(pipelineMock).toHaveBeenCalledTimes(2);
   });
 
-  it('invalidateWebGpuPipelines disposes only webgpu entries', async () => {
-    vi.stubGlobal('navigator', { gpu: {} });
-
+  it('device loss disposes GPU sessions and fences the entire inference runtime', async () => {
     let resolveLost: ((info: { reason?: string; message: string }) => void) | undefined;
     const lost = new Promise<{ reason?: string; message: string }>((resolve) => {
       resolveLost = resolve;
@@ -142,8 +138,9 @@ describe('pipeline cache metadata and dispose', () => {
     const gpuExtractor = Object.assign(async () => new Float32Array([1, 0, 0]), {
       dispose: disposeMock,
     });
+    const wasmDispose = vi.fn();
     const wasmExtractor = Object.assign(async () => new Float32Array([0, 1, 0]), {
-      dispose: disposeMock,
+      dispose: wasmDispose,
     });
 
     // First call returns GPU extractor, second returns WASM extractor
@@ -154,22 +151,11 @@ describe('pipeline cache metadata and dispose', () => {
       return Promise.resolve(wasmExtractor);
     });
 
-    const transformers = await import('@huggingface/transformers');
-    const mockedEnv = transformers.env as {
-      allowRemoteModels: boolean;
-      backends?: { onnx?: { webgpu?: { device?: unknown } } };
-    };
-    mockedEnv.backends = {
-      onnx: {
-        webgpu: {
-          device: {
-            createCommandEncoder: () => ({ finish: () => ({}) }),
-            lost,
-            queue: { submit: vi.fn() },
-          },
-        },
-      },
-    };
+    installMockWebGpuDevice({
+      createCommandEncoder: () => ({ finish: () => ({}) }),
+      lost,
+      queue: { submit: vi.fn() },
+    });
 
     const closeMock = vi.fn();
     vi.stubGlobal('self', {
@@ -203,29 +189,23 @@ describe('pipeline cache metadata and dispose', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // After invalidation, GPU pipeline should require reload
+    // Session invalidation is selective, but ORT runtime reuse after actual loss is forbidden.
     pipelineMock.mockClear();
-    await runEmbedding({
-      deviceHint: 'webgpu',
-      id: 'gpu-2',
-      model: 'gpu-model',
-      texts: ['again'],
-      type: 'embed',
-    });
-    // GPU pipeline was invalidated, so pipeline() should be called again
-    expect(pipelineMock).toHaveBeenCalledTimes(1);
-
-    // WASM pipeline should still be cached
-    pipelineMock.mockClear();
-    await runEmbedding({
-      deviceHint: 'wasm',
-      id: 'wasm-2',
-      model: 'wasm-model',
-      texts: ['again'],
-      type: 'embed',
-    });
-    // WASM pipeline still cached, pipeline() should NOT be called
+    for (const deviceHint of ['webgpu', 'wasm'] as const) {
+      await expect(
+        runEmbedding({
+          deviceHint,
+          id: `${deviceHint}-after-loss`,
+          model: `${deviceHint}-model`,
+          texts: ['again'],
+          type: 'embed',
+        })
+      ).rejects.toMatchObject({ code: 'EMBEDDING_DEVICE_LOST' });
+    }
+    expect(disposeMock).toHaveBeenCalledOnce();
+    expect(wasmDispose).not.toHaveBeenCalled();
     expect(pipelineMock).not.toHaveBeenCalled();
+    expect(closeMock).not.toHaveBeenCalled();
   });
 
   it('loadPipeline updates lastUsedAt on cache hit', async () => {
@@ -606,8 +586,7 @@ describe('pipeline cache metadata and dispose', () => {
   });
 
   it('rejects pending WebGPU eviction, then retries after the failed load releases capacity', async () => {
-    vi.stubGlobal('navigator', { gpu: {} });
-    await installMockOrtWebGpuDevice();
+    installMockWebGpuDevice();
     const pendingRaceLoads: ReturnType<
       typeof createDeferred<ReturnType<typeof makeExtractor>['extractor']>
     >[] = [];

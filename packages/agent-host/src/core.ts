@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { refusalError } from '@brainstrike/assistant-contract';
 import type { BlobContent } from '@brainstrike/state-store';
 import type { LanguageModel, ModelMessage } from 'ai';
 import { acceptHostChildInput, takeHostChildInput } from './child-input.js';
@@ -728,7 +729,7 @@ export class HostCore {
   private run(threadId: string, runId: string): Run {
     const run = this.runs.get(runId);
     if (!run || run.threadId !== threadId) {
-      throw new Error('Unknown run for this thread');
+      throw refusalError('input', 'run.unknown', 'Unknown run for this thread');
     }
     return run;
   }

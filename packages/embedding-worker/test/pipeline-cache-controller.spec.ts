@@ -675,6 +675,44 @@ describe('embedding pipeline cache controller', () => {
     }
   });
 
+  it('joins invalidated GPU retirement before loading a replacement session', async () => {
+    const release = createDeferred<void>();
+    const started = createDeferred<void>();
+    const load = vi.fn(async () => ({
+      dispose: async (): Promise<void> => {
+        started.resolve();
+        await release.promise;
+      },
+    }));
+    const controller = createEmbeddingPipelineCacheController({
+      load,
+      publishDiagnostic: vi.fn(),
+      workerInstanceId: 'lost-device-retirement',
+    });
+    const request = {
+      device: 'webgpu',
+      dtype: 'fp16',
+      estimatedModelBytes: GPU_MODEL_BYTES,
+      model: 'gpu-a',
+    } as const;
+    await controller.load(request);
+    controller.invalidateWebGpuPipelines();
+    await started.promise;
+    const replacement = controller.load(request);
+    try {
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(load).toHaveBeenCalledOnce();
+      release.resolve();
+      await replacement;
+      expect(load).toHaveBeenCalledTimes(2);
+    } finally {
+      release.resolve();
+      await replacement;
+      await controller.close();
+    }
+  });
+
   it('surfaces a settled background disposal failure through wait and close', async () => {
     const disposalError = new Error('device-lost release failed');
     const onDisposeFailed = vi.fn();

@@ -1,3 +1,5 @@
+import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
+import { type BoundaryResult, callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import type { ActionOutcome, ClipboardService } from './types.js';
 
 /**
@@ -7,7 +9,7 @@ import type { ActionOutcome, ClipboardService } from './types.js';
  * reports a failure — the preload has already unwrapped the IPC envelope.
  */
 interface ElectronClipboardBridge {
-  writeText?: (text: string) => Promise<void>;
+  writeText?: (text: string) => Promise<BoundaryResult<void>>;
 }
 
 type ElectronClipboardWrite = (text: string) => Promise<void>;
@@ -18,7 +20,7 @@ function resolveElectronClipboardWrite(): ElectronClipboardWrite | null {
   }
   const bridge = (window as Window & { clipboard?: ElectronClipboardBridge }).clipboard;
   const writeText = bridge?.writeText;
-  return typeof writeText === 'function' ? writeText : null;
+  return typeof writeText === 'function' ? (text) => callBoundary(() => writeText(text)) : null;
 }
 
 async function writeViaElectronBridge(
@@ -30,7 +32,7 @@ async function writeViaElectronBridge(
     return { ok: true };
   } catch (error) {
     return {
-      error: error instanceof Error ? error.message : 'Desktop clipboard bridge threw',
+      error: describeBoundaryError(error),
       ok: false,
     };
   }

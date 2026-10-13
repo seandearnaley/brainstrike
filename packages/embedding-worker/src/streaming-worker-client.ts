@@ -1,7 +1,10 @@
 import {
   assertEmbedWorkerBatch,
   assertEmbedWorkerComplete,
+  assertEmbedWorkerLifetimeError,
   assertEmbedWorkerPipelineCacheDiagnostic,
+  EMBEDDING_DEVICE_LOST_CODE,
+  EmbeddingDeviceLostError,
   requestedEmbeddingPooling,
 } from '@brainstrike/indexing-contract';
 import { createWorkerRuntimeClient } from '@brainstrike/worker-runtime';
@@ -281,6 +284,8 @@ export class StreamingEmbeddingWorkerClient {
   private executionChain: Promise<void> = Promise.resolve();
   private telemetryCleanup: (() => void) | null = null;
   private terminated = false;
+  private deviceLossRetired = false;
+  private retirementFailure: Error | null = null;
   private terminationReason: unknown;
   private readonly telemetrySourceId = `streaming-embedding-worker-${nextTelemetrySourceId++}`;
 
@@ -307,19 +312,47 @@ export class StreamingEmbeddingWorkerClient {
             : 'Embedding worker runtime error (missing ErrorEvent.message)'
         ),
       onFailure: (error) => {
+        let failure = error;
+        try {
+          this.worker.terminate();
+          this.deviceLossRetired = error instanceof EmbeddingDeviceLostError;
+        } catch (retirementError) {
+          failure = new AggregateError(
+            [error, retirementError],
+            'Embedding stream and worker retirement failed.'
+          );
+          this.retirementFailure = failure;
+        }
         const activeStream = this.activeStream;
         if (activeStream) {
           this.activeStream = null;
           activeStream.cleanup();
-          activeStream.reject(error);
+          activeStream.reject(failure);
         }
         this.cleanupTelemetryListener();
-        this.worker.terminate();
         removeEmbeddingTelemetrySource(this.telemetrySourceId);
       },
     });
     this.transport = this.runtime.transport;
     this.telemetryCleanup = this.transport.onMessage((message) => {
+      if (
+        message &&
+        typeof message === 'object' &&
+        'type' in message &&
+        message.type === 'worker-lifetime-error'
+      ) {
+        try {
+          assertEmbedWorkerLifetimeError(message);
+          this.runtime.markFailed(
+            message.code === EMBEDDING_DEVICE_LOST_CODE
+              ? new EmbeddingDeviceLostError(message.cause ?? message.message)
+              : new Error(message.message)
+          );
+        } catch (error) {
+          this.runtime.markFailed(error);
+        }
+        return;
+      }
       if (!isIdLessPipelineCacheCandidate(message)) {
         return;
       }
@@ -331,6 +364,11 @@ export class StreamingEmbeddingWorkerClient {
         return;
       }
     });
+  }
+
+  /** The backend may create a replacement only after this owner terminated the lost worker. */
+  get hasRetiredDeviceLoss(): boolean {
+    return this.deviceLossRetired;
   }
 
   async embed(
@@ -360,6 +398,9 @@ export class StreamingEmbeddingWorkerClient {
     request: EmbedWorkerRequest,
     options: StreamingEmbedOptions = {}
   ): Promise<EmbedWorkerComplete['metadata']> {
+    if (this.retirementFailure !== null) {
+      throw this.retirementFailure;
+    }
     if (this.terminated) {
       throw this.terminationReason ?? new Error('Embedding worker was terminated.');
     }
@@ -480,7 +521,11 @@ export class StreamingEmbeddingWorkerClient {
 
     if (payload.type === 'error') {
       options.onError?.(payload);
-      const failure = this.runtime.markFailed(new Error(payload.message));
+      const failure = this.runtime.markFailed(
+        payload.code === EMBEDDING_DEVICE_LOST_CODE
+          ? new EmbeddingDeviceLostError(payload.cause ?? payload.message)
+          : new Error(payload.message)
+      );
       this.activeStream = null;
       cleanup();
       reject(failure);

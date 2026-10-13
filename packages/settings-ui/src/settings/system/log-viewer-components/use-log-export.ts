@@ -1,3 +1,4 @@
+import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
 import type { LogRecord } from '@brainstrike/logging';
 import type { useToast } from '@brainstrike/ui';
 import {
@@ -52,7 +53,7 @@ export function useLogExport({
       });
     } catch (error) {
       toast({
-        description: error instanceof Error ? error.message : String(error),
+        description: describeBoundaryError(error),
         title: 'Failed to export logs',
         variant: 'destructive',
       });
