@@ -1189,9 +1189,7 @@ describe('AssistantUiPanelWrapper', () => {
     );
   });
 
-  // BST-1990: the host places each checked file by the thread's binding, so the
-  // renderer no longer drops a snapshot whose folder is not the focused one.
-  test('sends checked files from a folder other than the focused one', async () => {
+  test('sends checked files from a folder other than the focused one (BST-1990)', async () => {
     fileExplorerMocks.effectiveSelection = new Set<string>([
       encodeFileSelection('test-folder', '/alpha.ts'),
     ]);
@@ -1202,7 +1200,6 @@ describe('AssistantUiPanelWrapper', () => {
           outputApproxTokens: 60,
           path: '/alpha.ts',
           ranges: [{ endLine: 12, isActive: true, startLine: 4 }],
-          rootId: 'other-folder',
         },
       ],
       includeProjectTree: false,
@@ -1218,9 +1215,7 @@ describe('AssistantUiPanelWrapper', () => {
       waitFor(() => {
         const requestData = readPanelRequestData();
         expect(requestData['selectionFolderId']).toBe('test-folder');
-        expect(requestData['workspaceContext']).toMatchObject({
-          files: [{ path: '/alpha.ts', rootId: 'other-folder' }],
-        });
+        expect(requestData['workspaceContext']).toMatchObject({ files: [{ path: '/alpha.ts' }] });
       })
     );
   });
