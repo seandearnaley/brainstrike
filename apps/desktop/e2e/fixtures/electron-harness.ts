@@ -145,6 +145,7 @@ export class ElectronHarness {
     }
   }
 
+  /** Closes the app and resolves once its main process has exited; read the exit status afterwards. */
   async dispose(): Promise<void> {
     if (!this.context) {
       return;
@@ -193,9 +194,17 @@ export class ElectronHarness {
   }
 
   private async closeContext(context: ElectronAppContext): Promise<void> {
-    this.exitGuard.beginIntentionalClose(context.app.process());
+    const mainProcess = context.app.process();
+    this.exitGuard.beginIntentionalClose(mainProcess);
+    // Listen before the close request, so the exit cannot be missed.
+    const exited = hasExited(mainProcess)
+      ? Promise.resolve()
+      : new Promise<void>((resolve) => {
+          mainProcess.once('exit', () => resolve());
+        });
     const { closeElectronApp } = await loadElectronHelpers();
     await closeElectronApp(context);
+    await exited;
   }
 
   private async launchContext(): Promise<ElectronAppContext> {
