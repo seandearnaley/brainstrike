@@ -18,9 +18,11 @@ export function NativeLibraryFiles({
   const [listing, setListing] = useState<{
     records: readonly SourceFileRecord[];
     error: string | null;
-    pending: boolean;
-  }>({ error: null, pending: true, records: [] });
-  const records = listing.records;
+    files: Capability;
+    collectionId: string | null;
+    revision: number;
+    refresh: number;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [refresh, setRefresh] = useState(0);
@@ -30,24 +32,40 @@ export function NativeLibraryFiles({
     chunks: SourceChunkPage | null;
     reason: string | null;
   } | null>(null);
+  const listingCurrent =
+    listing?.files === files &&
+    listing.collectionId === collectionId &&
+    listing.revision === revision &&
+    listing.refresh === refresh;
+  const records = listingCurrent ? listing.records : [];
+  const listingError = listingCurrent ? listing.error : null;
   const request = useRef(0);
   useEffect(() => {
     let current = true;
     request.current += 1;
-    setListing((previous) => ({ ...previous, pending: true }));
     files.list().then(
       (rows) => {
         if (current) {
           setListing({
+            collectionId,
             error: null,
-            pending: false,
+            files,
             records: rows.filter((file) => file.embeddingSetId === collectionId),
+            refresh,
+            revision,
           });
         }
       },
       (cause) => {
         if (current) {
-          setListing((previous) => ({ ...previous, error: errorText(cause), pending: false }));
+          setListing({
+            collectionId,
+            error: errorText(cause),
+            files,
+            records: [],
+            refresh,
+            revision,
+          });
         }
       }
     );
@@ -129,11 +147,11 @@ export function NativeLibraryFiles({
   };
   return (
     <section
-      aria-busy={pending || listing.pending}
+      aria-busy={pending || !listingCurrent}
       className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3"
       data-testid="native-library-files"
     >
-      {error || listing.error ? <p role="alert">{error ?? listing.error}</p> : null}
+      {error || listingError ? <p role="alert">{error ?? listingError}</p> : null}
       <ul aria-label="Library files" className="space-y-1">
         {records.map((file) => (
           <li className="flex items-center justify-between gap-2" key={file.fileId}>
@@ -163,7 +181,7 @@ export function NativeLibraryFiles({
           </li>
         ))}
       </ul>
-      {!(pending || listing.pending) && records.length === 0 && !error ? (
+      {!(pending || !listingCurrent) && records.length === 0 && !error ? (
         <p>
           No files in this collection. Select files in Explorer and choose Import into collection.
         </p>

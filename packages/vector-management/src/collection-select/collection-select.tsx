@@ -372,7 +372,7 @@ function areCollectionsEqual(
   return true;
 }
 
-export function getCollectionCatalog(): CollectionCatalogCapability | undefined {
+function getCollectionCatalog(): CollectionCatalogCapability | undefined {
   const transport =
     typeof window === 'undefined'
       ? undefined

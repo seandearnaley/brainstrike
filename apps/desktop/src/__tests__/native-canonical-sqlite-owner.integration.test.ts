@@ -3,16 +3,16 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { openHostStateIndex } from '@brainstrike/agent-host/test-fixtures/host-state-index';
 import { StateStore } from '@brainstrike/state-store';
 import { expect, test, vi } from 'vitest';
-import { TruthIndexer } from '../../../../packages/state-store/__tests__/helpers/truth-indexer.js';
 import { createNativeCanonicalCatalog } from '../native-canonical-catalog';
 
 // Actual scanner payload fields; native identity remains resolved from Main's admitted grant.
 test('canonical discovery, completion and physical removal use the host writer with PG unavailable', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'bs-canonical-sqlite-owner-'));
-  const indexer = new TruthIndexer(directory);
-  const store = await StateStore.open(directory, { indexer });
+  const stateIndex = await openHostStateIndex(directory);
+  const store = await StateStore.open(directory, { indexer: stateIndex.indexer });
   const unavailablePg = vi.fn(async (): Promise<never> => {
     throw new Error('PG catalog unavailable');
   });
@@ -115,7 +115,7 @@ test('canonical discovery, completion and physical removal use the host writer w
   } finally {
     removalJoined.resolve();
     await store.close();
-    indexer.close();
+    await stateIndex.close();
     await rm(directory, { force: true, recursive: true });
   }
 });

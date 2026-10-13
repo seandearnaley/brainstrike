@@ -6,11 +6,10 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { openHostStateIndex } from '@brainstrike/agent-host/test-fixtures/host-state-index';
 import type { IndexFileBinding, IndexScope } from '@brainstrike/indexer';
-
 import { StateStore } from '@brainstrike/state-store';
 import { expect, it, vi } from 'vitest';
-import { openHostStateIndex } from '../../../../packages/agent-host/src/host-state-index';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { WorkspaceRootRegistry } from '../ipc-domains/workspace-root-registry';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from '../native-index-runtime';

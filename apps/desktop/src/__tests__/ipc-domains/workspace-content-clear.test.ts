@@ -1,5 +1,5 @@
+import { WorkspaceRootRegistry } from '@brainstrike/assistant-service/node-workspace-services';
 import { expect, it, vi } from 'vitest';
-import { WorkspaceRootRegistry } from '../../../../../packages/assistant-service/src/node-workspace/workspace-root-registry';
 import { createStorage } from './workspace-root-registry-test-helpers';
 
 it('clears persisted unavailable grants and last folder without deleting preferences or recents', async () => {

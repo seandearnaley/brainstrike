@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { openHostStateIndex } from '@brainstrike/agent-host/test-fixtures/host-state-index';
 import { projectModelCatalog } from '@brainstrike/assistant-contract';
 import type {
   CanonicalFileIdentity,
@@ -16,7 +17,6 @@ import { createIndexerConnection } from '@brainstrike/indexer/transport';
 import { StateStore } from '@brainstrike/state-store';
 import { build } from 'esbuild';
 import { expect, it, vi } from 'vitest';
-import { openHostStateIndex } from '../../../../packages/agent-host/src/host-state-index';
 import { MAIN_PROCESS_BUILD_OPTIONS } from '../../scripts/build-main-config.mjs';
 import { CanonicalUtilityParent } from '../canonical-utility-parent';
 import { isCanonicalFrame } from '../canonical-utility-protocol';

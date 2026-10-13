@@ -38,6 +38,10 @@
       "default": "./dist/adapters/file-credentials.js"
     },
     "./browser": { "types": "./dist/browser-client.d.ts", "default": "./dist/browser-client.js" },
+    "./test-fixtures/host-state-index": {
+      "types": "./dist/host-state-index.d.ts",
+      "default": "./dist/host-state-index.js"
+    },
     "./test-fixtures/scripted-model": {
       "types": "./dist/test-fixtures/scripted-model.d.ts",
       "default": "./dist/test-fixtures/scripted-model.js"

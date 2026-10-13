@@ -3,10 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { openHostStateIndex } from '@brainstrike/agent-host/test-fixtures/host-state-index';
 import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
 import { StateStore } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
-import { openHostStateIndex } from '../../../../packages/agent-host/src/host-state-index';
 import {
   DesktopWorkspaceBindingAuthority,
   ThreadRootsRemovedError,

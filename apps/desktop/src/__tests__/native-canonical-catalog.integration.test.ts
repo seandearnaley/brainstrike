@@ -3,6 +3,10 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import {
+  type HostStateIndex,
+  openHostStateIndex,
+} from '@brainstrike/agent-host/test-fixtures/host-state-index';
 import type {
   CanonicalFileIdentity,
   CanonicalOperationContext,
@@ -13,10 +17,6 @@ import {
   StateStore,
 } from '@brainstrike/state-store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  type HostStateIndex,
-  openHostStateIndex,
-} from '../../../../packages/agent-host/src/host-state-index';
 import { createNativeCanonicalCatalog } from '../native-canonical-catalog';
 
 let store: StateStore;

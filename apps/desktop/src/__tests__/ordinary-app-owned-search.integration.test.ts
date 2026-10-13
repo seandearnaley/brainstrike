@@ -248,9 +248,11 @@ async function qualifyOrdinarySearch(fault: 'none' | 'mcp-setup-failure'): Promi
           if (!(api && 'fileSystem' in api)) {
             throw new Error('The normal desktop filesystem bridge is missing');
           }
-          return (await api.fileSystem.restoreRoots()).filter(
-            (root) => root.handle.path === workspace
-          );
+          const reply = await api.fileSystem.restoreRoots();
+          if (!reply.ok) {
+            throw new Error(reply.error.message);
+          }
+          return reply.value.filter((root) => root.handle.path === workspace);
         }, workspace);
         const parsed = z.array(z.object({ rootId: z.string() })).parse(roots);
         workspaceRootId = parsed[0]?.rootId;

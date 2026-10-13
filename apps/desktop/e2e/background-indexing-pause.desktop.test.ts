@@ -165,7 +165,7 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
     // Native search has no JS embedding worker: fe6b0f85e (BST-1974) omits the
     // retired "Worker state" row, so the expanded diagnostics open on the
     // database rows it still shows.
-    await expect(indexingPopover.getByText('Database QoS')).toBeVisible();
+    await expect(indexingPopover.getByText('Database QoS', { exact: true })).toBeVisible();
     await expect(indexingPopover.getByText('Worker state')).toHaveCount(0);
     expectStableRect(triggerBeforePause, await requireBoundingBox(indexingTrigger));
     expectStableRect(popoverBeforeDiagnostics, await requireBoundingBox(indexingPopover));

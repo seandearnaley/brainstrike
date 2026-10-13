@@ -396,7 +396,12 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
       .click(),
   ]);
   await waitForAppReadyInHelpers(activePage);
-  const remaining = await activePage.evaluate(async () => {
+  await verifyClearedDesktopContent(activePage);
+  return activePage;
+}
+
+export async function verifyClearedDesktopContent(page: Pick<Page, 'evaluate'>): Promise<void> {
+  const remaining = await page.evaluate(async () => {
     if (!window.sourceFiles) {
       throw new Error('Canonical source capability missing after content clear');
     }
@@ -408,7 +413,6 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
     });
   });
   expect(remaining).toEqual([]);
-  return activePage;
 }
 
 async function resolveActivePage(page: Page): Promise<Page> {
