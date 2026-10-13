@@ -19,7 +19,10 @@ import { generateDesktopQueryEmbedding } from '../query-embeddings';
 
 type ReadyStatus = Extract<IndexerStatus, { kind: 'ready' }>;
 type ExecutionStatus =
-  | Omit<ReadyStatus, 'collectionReadiness' | 'rootReadiness' | 'publicationProgress'>
+  | Omit<
+      ReadyStatus,
+      'collectionReadiness' | 'rootReadiness' | 'publicationProgress' | 'sourceObservation'
+    >
   | Extract<IndexerStatus, { kind: 'unavailable' }>;
 interface NativeSearchStatus {
   readonly execution: ExecutionStatus;
@@ -74,6 +77,7 @@ function executionStatus(status: IndexerStatus): ExecutionStatus {
     collectionReadiness: _collections,
     rootReadiness: _roots,
     publicationProgress: _progress,
+    sourceObservation: _source,
     ...execution
   } = status;
   return execution;
@@ -240,6 +244,7 @@ export function NativeSearchProvider({
       embedQuery,
       lifecycle,
       profile,
+      status: observation.status,
       ...(reason === undefined ? {} : { profileUnavailableReason: reason }),
     };
   }, [capability, embedQuery, lifecycle, mode, observation, profile]);

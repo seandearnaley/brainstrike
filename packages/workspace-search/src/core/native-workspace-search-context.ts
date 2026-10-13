@@ -1,5 +1,6 @@
 import type {
   IndexerEmbeddingProfile,
+  IndexerStatus,
   IndexSearchCapability,
   NativeIndexLifecycleObservation,
 } from '@brainstrike/indexing-contract/indexer-client';
@@ -18,6 +19,8 @@ export interface NativeWorkspaceSearchDependencies {
   profile: IndexerEmbeddingProfile | null;
   /** Exact refusal from the selected renderer request-plan resolver. */
   profileUnavailableReason?: string;
+  /** Latest read observation; never part of executor identity. */
+  status?: IndexerStatus;
 }
 export const NativeWorkspaceSearchContext = createContext<NativeWorkspaceSearchDependencies | null>(
   null

@@ -1,3 +1,7 @@
+import type {
+  IndexerSourceObservation,
+  NativeIndexLifecycleObservation,
+} from '@brainstrike/indexing-contract/indexer-client';
 import { create } from 'zustand';
 import type {
   WorkspaceSearchFileResult,
@@ -6,6 +10,18 @@ import type {
 } from './search-result-model';
 
 export type WorkspaceSearchStatus = 'idle' | 'searching' | 'results' | 'error';
+
+export interface NativePendingSearch {
+  readonly after: NativeIndexLifecycleObservation | null;
+  readonly generation: number;
+  readonly mode: WorkspaceSearchMode;
+  readonly source?: {
+    readonly storeId: string;
+    readonly query: string;
+    readonly observations: readonly IndexerSourceObservation[];
+    readonly after?: IndexerSourceObservation;
+  };
+}
 
 interface WorkspaceSearchState {
   /** Starts a run: increments `generation` (invalidating any in-flight run) and
@@ -21,6 +37,7 @@ interface WorkspaceSearchState {
   clearResults: () => void;
   /** embedding_sets.id; null = resolve the workspace-index set at query time. */
   collectionId: string | null;
+  consumeNativeSearch: (command: NativePendingSearch) => boolean;
   error: string | null;
   expandedIds: Set<string>;
   /** No-op unless `generation` still matches the current run (a superseded run's
@@ -42,11 +59,13 @@ interface WorkspaceSearchState {
   increaseTextResultLimit: () => void;
   isRegex: boolean;
   mode: WorkspaceSearchMode;
+  nativePendingSearch: NativePendingSearch | null;
   query: string;
   reset: () => void;
   /** No-op unless `generation` still matches the current run. */
   resolveResults: (r: WorkspaceSearchResults, generation: number) => void;
   results: WorkspaceSearchResults | null;
+  retainNativeSearch: (command: NativePendingSearch) => void;
   setCollectionId: (id: string | null) => void;
   setMode: (m: WorkspaceSearchMode) => void;
   setQuery: (q: string) => void;
@@ -99,6 +118,7 @@ const initialState = {
   generation: 0,
   isRegex: false,
   mode: 'text' as const,
+  nativePendingSearch: null as NativePendingSearch | null,
   query: '',
   results: null,
   status: 'idle' as const,
@@ -106,6 +126,8 @@ const initialState = {
   wholeWord: false,
 } satisfies Omit<
   WorkspaceSearchState,
+  | 'retainNativeSearch'
+  | 'consumeNativeSearch'
   | 'setQuery'
   | 'setMode'
   | 'toggleCase'
@@ -125,19 +147,31 @@ export const useWorkspaceSearchStore = create<WorkspaceSearchState>((set, get) =
   ...initialState,
   beginSearch: () => {
     const generation = get().generation + 1;
-    set({ error: null, generation, status: 'searching' });
+    set({ error: null, generation, nativePendingSearch: null, status: 'searching' });
     return generation;
   },
   clearResults: () =>
     set((state) => ({
       error: null,
       generation: state.generation + 1,
+      nativePendingSearch: null,
       results: null,
       status: 'idle',
       textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
     })),
+  consumeNativeSearch: (command) => {
+    if (get().nativePendingSearch !== command || get().generation !== command.generation) {
+      return false;
+    }
+    set({ nativePendingSearch: null });
+    return true;
+  },
   failSearch: (message, generation) =>
-    set((state) => (state.generation === generation ? { error: message, status: 'error' } : {})),
+    set((state) =>
+      state.generation === generation
+        ? { error: message, nativePendingSearch: null, status: 'error' }
+        : {}
+    ),
   increaseTextResultLimit: () =>
     set((state) => ({ textResultLimit: state.textResultLimit + TEXT_RESULT_LIMIT_INCREMENT })),
   // Keep `generation` monotonic across resets so a run started before the reset
@@ -147,6 +181,7 @@ export const useWorkspaceSearchStore = create<WorkspaceSearchState>((set, get) =
       ...initialState,
       expandedIds: new Set<string>(),
       generation: state.generation + 1,
+      nativePendingSearch: null,
     })),
   resolveResults: (r, generation) =>
     set((state) =>
@@ -158,10 +193,18 @@ export const useWorkspaceSearchStore = create<WorkspaceSearchState>((set, get) =
           }
         : {}
     ),
+  retainNativeSearch: (command) =>
+    set((state) =>
+      state.generation === command.generation &&
+      (!command.source || state.query === command.source.query)
+        ? { nativePendingSearch: command }
+        : {}
+    ),
   setCollectionId: (id) =>
     set((state) => ({
       collectionId: id,
       generation: state.generation + 1,
+      nativePendingSearch: null,
       results: null,
       status: 'idle',
       textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
@@ -170,6 +213,7 @@ export const useWorkspaceSearchStore = create<WorkspaceSearchState>((set, get) =
     set((state) => ({
       generation: state.generation + 1,
       mode: m,
+      nativePendingSearch: null,
       results: null,
       status: 'idle',
       textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
@@ -177,11 +221,17 @@ export const useWorkspaceSearchStore = create<WorkspaceSearchState>((set, get) =
   // A new query is a new search, so the Show-more cap resets here too — even
   // though setQuery does not bump `generation`/touch results/status (the
   // debounced auto-search owns that transition).
-  setQuery: (q) => set({ query: q, textResultLimit: DEFAULT_TEXT_RESULT_LIMIT }),
+  setQuery: (q) =>
+    set((state) => ({
+      nativePendingSearch: state.query === q ? state.nativePendingSearch : null,
+      query: q,
+      textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
+    })),
   toggleCase: () =>
     set((state) => ({
       caseSensitive: !state.caseSensitive,
       generation: state.generation + 1,
+      nativePendingSearch: null,
       results: null,
       status: 'idle',
       textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
@@ -200,6 +250,7 @@ export const useWorkspaceSearchStore = create<WorkspaceSearchState>((set, get) =
     set((state) => ({
       generation: state.generation + 1,
       isRegex: !state.isRegex,
+      nativePendingSearch: null,
       results: null,
       status: 'idle',
       textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
@@ -207,6 +258,7 @@ export const useWorkspaceSearchStore = create<WorkspaceSearchState>((set, get) =
   toggleWholeWord: () =>
     set((state) => ({
       generation: state.generation + 1,
+      nativePendingSearch: null,
       results: null,
       status: 'idle',
       textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,

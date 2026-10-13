@@ -7,14 +7,20 @@ import {
   buildLocalEmbeddingModelConfigMap,
   resolveEmbeddingSetModelInfo,
 } from '@brainstrike/db-explorer/embedding-models';
-import type { NativeIndexLifecycleObservation } from '@brainstrike/indexing-contract/indexer-client';
+import type {
+  IndexerSourceObservation,
+  IndexerStatus,
+  NativeIndexLifecycleObservation,
+} from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import { useIdeFileEditor } from '@brainstrike/ui';
 import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
 import {
   getNativeSemanticAvailability,
+  type NativePendingSearch,
   type NativeSemanticAvailability,
   NativeWorkspaceSearchExecutor,
+  nativeSourceCompletion,
   type ResolvedFileInfo,
   useNativeWorkspaceSearchDependencies,
   useWorkspaceSearchStore,
@@ -166,9 +172,21 @@ export function createWorkspaceSearchRunners(deps: WorkspaceSearchRunnerDeps): {
 export function createNativeWorkspaceSearchRunners(
   executor: NativeWorkspaceSearchExecutor,
   rootIds: readonly string[],
-  onTransitioning?: (generation: number, mode: WorkspaceSearchMode) => void
-): { runSemanticSearch: () => void; runTextSearch: () => void } {
-  const run = (mode: WorkspaceSearchMode): void => {
+  onTransitioning?: (generation: number, mode: WorkspaceSearchMode) => void,
+  onIncompleteSource?: (
+    generation: number,
+    mode: WorkspaceSearchMode,
+    source: NonNullable<
+      Awaited<ReturnType<NativeWorkspaceSearchExecutor['searchText']>>
+    >['incompleteSource'],
+    query: string,
+    after?: IndexerSourceObservation
+  ) => void
+): {
+  runSemanticSearch: (after?: IndexerSourceObservation) => void;
+  runTextSearch: (after?: IndexerSourceObservation) => void;
+} {
+  const run = (mode: WorkspaceSearchMode, after?: IndexerSourceObservation): void => {
     const store = useWorkspaceSearchStore.getState();
     const { query, collectionId, caseSensitive, isRegex, wholeWord } = store;
     const generation = store.beginSearch();
@@ -177,6 +195,9 @@ export function createNativeWorkspaceSearchRunners(
       .then((results) => {
         if (results !== null) {
           useWorkspaceSearchStore.getState().resolveResults(results, generation);
+          if (results.incompleteSource) {
+            onIncompleteSource?.(generation, mode, results.incompleteSource, query, after);
+          }
         }
       })
       .catch((error: unknown) => {
@@ -194,7 +215,43 @@ export function createNativeWorkspaceSearchRunners(
           .failSearch(error instanceof Error ? error.message : String(error), generation);
       });
   };
-  return { runSemanticSearch: () => run('semantic'), runTextSearch: () => run('text') };
+  return {
+    runSemanticSearch: (after) => run('semantic', after),
+    runTextSearch: (after) => run('text', after),
+  };
+}
+
+function pendingNativeOutcome(
+  pending: NativePendingSearch,
+  lifecycle: NativeIndexLifecycleObservation | null | undefined,
+  status: IndexerStatus | undefined,
+  rootIds: readonly string[],
+  collectionId: string | null
+): { readonly completion: IndexerSourceObservation | null; readonly error: string | null } | null {
+  if (lifecycle?.kind === 'preparing') {
+    return null;
+  }
+  const completion = pending.source
+    ? nativeSourceCompletion(pending.source, status, rootIds, collectionId)
+    : null;
+  if (
+    pending.source
+      ? !completion && lifecycle?.kind !== 'refused'
+      : !lifecycle || lifecycle === pending.after
+  ) {
+    return null;
+  }
+  if (lifecycle?.kind !== 'refused') {
+    return { completion, error: null };
+  }
+  const cause = lifecycle.cause;
+  if (cause.kind === 'closed') {
+    return { completion: null, error: cause.reason };
+  }
+  if (cause.kind === 'transitioning') {
+    return { completion: null, error: 'Native index is transitioning.' };
+  }
+  return { completion: null, error: cause.message };
 }
 
 /**
@@ -205,11 +262,7 @@ export function createNativeWorkspaceSearchRunners(
  */
 export function useWorkspaceSearchController(): WorkspaceSearchController {
   const nativeDependencies = useNativeWorkspaceSearchDependencies();
-  const [pendingSearch, setPendingSearch] = useState<{
-    readonly generation: number;
-    readonly mode: WorkspaceSearchMode;
-    readonly after: NativeIndexLifecycleObservation | null;
-  } | null>(null);
+  const pendingSearch = useWorkspaceSearchStore((state) => state.nativePendingSearch);
   const lifecycle = nativeDependencies?.lifecycle;
   const selectedCollectionId = useWorkspaceSearchStore((state) => state.collectionId);
   const [availabilityResult, setAvailabilityResult] = useState<{
@@ -314,13 +367,18 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
   );
   const retireSearchScope = useEffectEvent(() => {
     const store = useWorkspaceSearchStore.getState();
-    if (store.status !== 'searching') {
+    const pending = pendingSearch?.generation === store.generation ? pendingSearch : null;
+    if (store.status !== 'searching' && !pending) {
       return;
     }
-    const pending = pendingSearch?.generation === store.generation ? pendingSearch : null;
+    if (pending?.source) {
+      store.consumeNativeSearch(pending);
+      store.failSearch('Native workspace search scope or capability changed.', store.beginSearch());
+      return;
+    }
     const generation = store.beginSearch();
     if (lifecycle !== undefined && (pending || lifecycle?.kind === 'preparing')) {
-      setPendingSearch({
+      useWorkspaceSearchStore.getState().retainNativeSearch({
         after: pending ? pending.after : lifecycle,
         generation,
         mode: pending?.mode ?? store.mode,
@@ -341,6 +399,9 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
   useEffect(() => {
     const closeSearch = (): void => {
       const store = useWorkspaceSearchStore.getState();
+      if (store.nativePendingSearch) {
+        store.consumeNativeSearch(store.nativePendingSearch);
+      }
       if (store.status === 'searching') {
         store.failSearch('Native workspace search was closed.', store.generation);
       }
@@ -408,6 +469,30 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
     refreshAvailability.current?.();
   }, [availabilityScope, nativeDependencies]);
 
+  const retainIncompleteSource = useCallback(
+    (
+      generation: number,
+      mode: WorkspaceSearchMode,
+      source: NonNullable<
+        Awaited<ReturnType<NativeWorkspaceSearchExecutor['searchText']>>
+      >['incompleteSource'],
+      query: string,
+      after?: IndexerSourceObservation
+    ): void => {
+      const store = useWorkspaceSearchStore.getState();
+      if (!source || store.generation !== generation || store.query !== query) {
+        return;
+      }
+      useWorkspaceSearchStore.getState().retainNativeSearch({
+        after: null,
+        generation,
+        mode,
+        source: { ...source, query, ...(after ? { after } : {}) },
+      });
+    },
+    []
+  );
+
   const runners = useMemo(() => {
     if (nativeExecutor) {
       return createNativeWorkspaceSearchRunners(
@@ -417,9 +502,12 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
           ? undefined
           : (generation, mode) => {
               if (useWorkspaceSearchStore.getState().generation === generation) {
-                setPendingSearch({ after: lifecycle, generation, mode });
+                useWorkspaceSearchStore
+                  .getState()
+                  .retainNativeSearch({ after: lifecycle, generation, mode });
               }
-            }
+            },
+        retainIncompleteSource
       );
     }
     if (!executor) {
@@ -436,40 +524,54 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
       resolveEffectiveEmbeddingSetId,
       workspaceDbRootIds,
     });
-  }, [executor, lifecycle, nativeExecutor, resolveEffectiveEmbeddingSetId, workspaceDbRootIds]);
+  }, [
+    executor,
+    lifecycle,
+    nativeExecutor,
+    resolveEffectiveEmbeddingSetId,
+    retainIncompleteSource,
+    workspaceDbRootIds,
+  ]);
 
   useEffect(() => {
-    if (
-      !(pendingSearch && lifecycle) ||
-      lifecycle.kind === 'preparing' ||
-      lifecycle === pendingSearch.after
-    ) {
+    if (!pendingSearch || lifecycle?.kind === 'preparing') {
       return;
     }
     const store = useWorkspaceSearchStore.getState();
-    if (store.generation !== pendingSearch.generation || !store.query.trim()) {
+    if (
+      store.generation !== pendingSearch.generation ||
+      !store.query.trim() ||
+      (pendingSearch.source && store.query !== pendingSearch.source.query)
+    ) {
       return;
     }
-    // Cleanup may already have scheduled a command for a replacement scope.
-    // Consume only the command this render actually observed.
-    setPendingSearch((current) => (current === pendingSearch ? null : current));
-    if (lifecycle.kind === 'refused') {
-      const cause = lifecycle.cause;
-      const message =
-        cause.kind === 'closed'
-          ? cause.reason
-          : cause.kind === 'transitioning'
-            ? 'Native index is transitioning.'
-            : cause.message;
-      store.failSearch(message, pendingSearch.generation);
+    const outcome = pendingNativeOutcome(
+      pendingSearch,
+      lifecycle,
+      nativeDependencies?.status,
+      workspaceDbRootIds,
+      selectedCollectionId
+    );
+    if (!(outcome && store.consumeNativeSearch(pendingSearch))) {
+      return;
+    }
+    if (outcome.error !== null) {
+      store.failSearch(outcome.error, pendingSearch.generation);
       return;
     }
     if (pendingSearch.mode === 'text') {
-      runners.runTextSearch();
+      runners.runTextSearch(outcome.completion ?? undefined);
     } else {
-      runners.runSemanticSearch();
+      runners.runSemanticSearch(outcome.completion ?? undefined);
     }
-  }, [lifecycle, pendingSearch, runners]);
+  }, [
+    lifecycle,
+    nativeDependencies?.status,
+    pendingSearch,
+    runners,
+    selectedCollectionId,
+    workspaceDbRootIds,
+  ]);
 
   const resolveAdapterRootId = useCallback(
     (dbRootId: string): string | null => rootIdentity?.resolveAdapterRootId(dbRootId) ?? null,

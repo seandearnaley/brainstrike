@@ -14,6 +14,7 @@ import type {
   IndexerCoverageRequest,
   IndexerEmbeddingState,
   IndexerSearchHit,
+  IndexerSourceObservation,
   IndexerStatus,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
@@ -123,6 +124,22 @@ function observedAuthority(
       return { ...partial, scanComplete: false };
     }),
   };
+}
+function completeSourceScopes(
+  scopes: readonly IndexScope[],
+  readiness: readonly NativeScopeReadiness[]
+): boolean {
+  return scopes.every((scope) =>
+    readiness.some(
+      (receipt) =>
+        receipt.scanComplete &&
+        (scope.kind === 'workspace' && receipt.scope.kind === 'workspace'
+          ? scope.rootId === receipt.scope.rootId
+          : scope.kind === 'collection' &&
+            receipt.scope.kind === 'collection' &&
+            scope.embeddingSetId === receipt.scope.embeddingSetId)
+    )
+  );
 }
 function requestedScopes(
   authority: NativeSearchAuthority,
@@ -247,6 +264,17 @@ function projectCoverage(
     vectorCoverageComplete: coverage.every((result) => result.vectorCoverageComplete),
   };
 }
+function projectSourceObservation(authority: NativeSearchAuthority): IndexerSourceObservation {
+  return {
+    ownerGeneration: authority.generation,
+    readiness: authority.readiness.map(({ generation, mutationRevision, scanComplete, scope }) => ({
+      generation,
+      mutationRevision,
+      scanComplete,
+      scope,
+    })),
+  };
+}
 function projectStatus(
   authority: NativeSearchAuthority,
   storeId: string,
@@ -312,6 +340,7 @@ function projectStatus(
           receipt.scanComplete
       ),
     })),
+    sourceObservation: projectSourceObservation(authority),
     storeId,
     ...(authority.queryPlan === undefined ? {} : { queryPlan: authority.queryPlan }),
   };
@@ -437,23 +466,13 @@ export function createNativeScopedSearchCapability(
         }
         assertHits(result.hits, bindings);
         const observed = await snapshot.assertCurrent();
+        const sourceComplete = completeSourceScopes(scopes, observed.readiness);
         return {
           ...result,
           embedding: snapshot.embedding,
-          scanLimited:
-            result.scanLimited ||
-            scopes.some(
-              (scope) =>
-                !observed.readiness.some(
-                  (receipt) =>
-                    receipt.scanComplete &&
-                    (scope.kind === 'workspace' && receipt.scope.kind === 'workspace'
-                      ? scope.rootId === receipt.scope.rootId
-                      : scope.kind === 'collection' &&
-                        receipt.scope.kind === 'collection' &&
-                        scope.embeddingSetId === receipt.scope.embeddingSetId)
-                )
-            ),
+          scanLimited: result.scanLimited || !sourceComplete,
+          sourceComplete,
+          sourceObservation: projectSourceObservation(observed),
         };
       }),
     rebuild: () => dependencies.rebuild(),
@@ -487,23 +506,13 @@ export function createNativeScopedSearchCapability(
         }
         assertHits(result.hits, selectedBindings(snapshot.authority, scopes));
         const observed = await snapshot.assertCurrent();
+        const sourceComplete = completeSourceScopes(scopes, observed.readiness);
         return {
           ...result,
           embedding: snapshot.embedding,
-          scanLimited:
-            result.scanLimited ||
-            scopes.some(
-              (scope) =>
-                !observed.readiness.some(
-                  (receipt) =>
-                    receipt.scanComplete &&
-                    (scope.kind === 'workspace' && receipt.scope.kind === 'workspace'
-                      ? scope.rootId === receipt.scope.rootId
-                      : scope.kind === 'collection' &&
-                        receipt.scope.kind === 'collection' &&
-                        scope.embeddingSetId === receipt.scope.embeddingSetId)
-                )
-            ),
+          scanLimited: result.scanLimited || !sourceComplete,
+          sourceComplete,
+          sourceObservation: projectSourceObservation(observed),
         };
       }),
     status: async () => {

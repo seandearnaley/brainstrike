@@ -83,6 +83,17 @@ export interface IndexLifecycleCapability {
   onLifecycleChanged(listener: (observation: NativeIndexLifecycleObservation) => void): () => void;
 }
 
+/** Existing canonical source receipts, projected without a second readiness owner. */
+export interface IndexerSourceObservation {
+  readonly ownerGeneration: number;
+  readonly readiness: readonly {
+    readonly generation: number;
+    readonly mutationRevision: number;
+    readonly scanComplete: boolean;
+    readonly scope: IndexerPublicationProgress['scope'];
+  }[];
+}
+
 export type IndexerStatus =
   | {
       readonly kind: 'unavailable';
@@ -95,6 +106,7 @@ export type IndexerStatus =
       readonly embedding: IndexerEmbeddingState;
       readonly storeId: string;
       readonly publicationProgress?: readonly IndexerPublicationProgress[];
+      readonly sourceObservation?: IndexerSourceObservation;
       readonly authorizedRootIds: readonly string[];
       readonly authorizedCollectionIds?: readonly string[];
       readonly collectionReadiness?: readonly {
@@ -173,6 +185,9 @@ export interface IndexerSearchResult {
   readonly embedding: IndexerEmbeddingState;
   readonly hits: readonly IndexerSearchHit[];
   readonly scanLimited: boolean;
+  /** Canonical producer proof for this read; absent on raw index-only capabilities. */
+  readonly sourceComplete?: boolean;
+  readonly sourceObservation?: IndexerSourceObservation;
   readonly storeId: string;
   readonly truncated: boolean;
 }
