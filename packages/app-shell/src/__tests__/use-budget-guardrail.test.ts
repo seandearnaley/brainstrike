@@ -21,7 +21,6 @@ function spendState(overrides: Partial<DailySpendState> = {}): DailySpendState {
   return {
     available: true,
     error: null,
-    loading: false,
     refresh: vi.fn(async () => undefined),
     spend: { estimatedUsd: 1, exactUsd: 4, totalUsd: 5, unpricedModels: [] },
     ...overrides,
@@ -54,7 +53,7 @@ describe('useBudgetGuardrailBinding', () => {
 
   it('is null while spend is still loading (no premature verdicts)', () => {
     useAssistantBudgetPreferencesStore.getState().setDailyCapUsd(10);
-    useDailySpendMock.mockReturnValue(spendState({ loading: true, spend: null }));
+    useDailySpendMock.mockReturnValue(spendState({ spend: null }));
 
     const { result } = renderHook(() => useBudgetGuardrailBinding());
     expect(result.current).toBeNull();

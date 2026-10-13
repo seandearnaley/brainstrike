@@ -212,8 +212,7 @@ Utilities in `csv-export-core.ts` and `csv-export-utils.ts` generate consistent 
 ## Browser/Electron behavior you should count on
 
 * The `window.mcp` bridge is **optional**. The UI must still render without it.
-  Read the assistant bridge through `getAssistantBridge()` from
-  `@brainstrike/assistant-contract`, which owns its shared shape.
+  Desktop assistant runs use the agent host; web uses its same-origin API.
 * Gate platform behavior by the exact optional bridge capability being used
   (for example, a method under `window.electronAPI?.db`), never by treating the
   presence of `window.electronAPI` as a general Electron-mode flag.

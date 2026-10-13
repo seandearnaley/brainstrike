@@ -353,7 +353,11 @@ journal). Desktop-only, capability-gated.
   provider on web, never a disabled stub.
 - A revert that restored anything commits the run's Task Ledger label: every
   revertible edit reverted → `'failed'`, partial → `'mixed'`, with
-  `source:'edit_revert'`. A later explicit user verdict outranks it.
+  `source:'edit_revert'`. The label grades the run's work (the user rejected it)
+  and feeds the ledger's success counts, so it never becomes `'succeeded'`. The
+  conversation words it as the undo it was: "Edits reverted · run marked failed"
+  or "Some edits reverted · run marked mixed" (BST-2000). A later explicit user
+  verdict outranks it.
 
 Key files: `packages/agent-host/src/workspace-edits.ts`, `edit-checkpoint-view.ts`,
 `apps/desktop/src/renderer/committed-host-checkpoints.ts`,

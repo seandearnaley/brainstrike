@@ -1,20 +1,31 @@
 import { serialize } from 'node:v8';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createQueryHost } from '../host-core.js';
-import type { QueryResponse, SqliteRows } from '../protocol.js';
+import type { QueryResponse, SqliteGrepRows } from '../protocol.js';
 import { SqliteRuntimeRefusedError } from '../runtime-refusal.js';
 
-const { queryMock } = vi.hoisted(() => ({ queryMock: vi.fn<() => SqliteRows>() }));
+const { grepMock } = vi.hoisted(() => ({ grepMock: vi.fn<() => SqliteGrepRows>() }));
 vi.mock('../sandbox.js', () => ({
   SqliteSandbox: class {
     close(): void {}
-    query(): SqliteRows {
-      return queryMock();
+    grep(): SqliteGrepRows {
+      return grepMock();
     }
   },
 }));
 
-beforeEach(() => queryMock.mockReset());
+beforeEach(() => grepMock.mockReset());
+
+const identity = { embedding: { indexMode: 'text-only' as const }, storeId: 'a'.repeat(64) };
+const grep = (id: number) => ({
+  caseSensitive: false,
+  id,
+  isRegex: false,
+  kind: 'grep',
+  maxRows: 1,
+  pattern: 'needle',
+  rootIds: ['root'],
+});
 
 describe('complete process response budget', () => {
   it('preserves a runtime refusal through the process response boundary', () => {
@@ -22,10 +33,10 @@ describe('complete process response budget', () => {
     const receive = createQueryHost((response) => responses.push(response));
     receive({ databasePath: 'owned.sqlite', id: 1, kind: 'open' });
     const refusal = new SqliteRuntimeRefusedError('Engine memory accounting is unavailable.');
-    queryMock.mockImplementationOnce(() => {
+    grepMock.mockImplementationOnce(() => {
       throw refusal;
     });
-    receive({ id: 2, kind: 'query', maxRows: 1, sql: 'SELECT 1', values: [] });
+    receive(grep(2));
     expect(responses.at(-1)).toEqual({
       id: 2,
       kind: 'error',
@@ -34,7 +45,7 @@ describe('complete process response budget', () => {
     });
     expect(refusal.code).toBe('sqlite_runtime_refused');
   });
-  it('refuses native coverage in a generic SQL owner', () => {
+  it('refuses native coverage in a grep owner', () => {
     const responses: QueryResponse[] = [];
     const receive = createQueryHost((response) => responses.push(response));
     receive({ databasePath: 'owned.sqlite', id: 1, kind: 'open' });
@@ -48,7 +59,7 @@ describe('complete process response budget', () => {
       kind: 'nativeCoverageError',
     });
   });
-  it('refuses generic SQL in a trusted coverage owner', () => {
+  it('refuses grep in a trusted coverage owner', () => {
     const responses: QueryResponse[] = [];
     const receive = createQueryHost((response) => responses.push(response));
     receive({
@@ -64,39 +75,45 @@ describe('complete process response budget', () => {
       id: 1,
       kind: 'open-native-coverage',
     });
-    receive({ id: 2, kind: 'query', maxRows: 1, sql: 'SELECT 1', values: [] });
+    receive(grep(2));
     expect(responses.at(-1)).toMatchObject({
       kind: 'error',
       message: 'SQLite query process has not been initialized.',
     });
-    expect(queryMock).not.toHaveBeenCalled();
+    expect(grepMock).not.toHaveBeenCalled();
   });
-  it('refuses a response whose envelope exceeds the budget and retains query admission', () => {
+  it('refuses a response whose envelope exceeds the budget and retains grep admission', () => {
     const responses: QueryResponse[] = [];
     const receive = createQueryHost((response) => responses.push(response));
     receive({ databasePath: 'owned.sqlite', id: 1, kind: 'open' });
-    const result = { columns: ['x'.repeat(1024 * 1024 - 64)], rows: [], truncated: false };
-    expect(serialize(result).byteLength).toBeLessThan(1024 * 1024);
-    expect(serialize({ id: 2, kind: 'rows', result }).byteLength).toBeGreaterThan(1024 * 1024);
-    queryMock.mockReturnValueOnce(result);
-    receive({ id: 2, kind: 'query', maxRows: 1, sql: 'SELECT 1', values: [] });
-    expect(responses.at(-1)?.kind).toBe('error');
+    const sized = (length: number) => ({
+      columns: ['x'.repeat(length)],
+      identity,
+      matchedChunks: 0,
+      rows: [],
+      truncated: false,
+    });
+    // The result alone sits exactly at the budget; only the envelope crosses it.
+    const result = sized(2 * 1024 * 1024 - serialize(sized(1024 * 1024)).byteLength);
+    expect(serialize(result).byteLength).toBe(1024 * 1024);
+    expect(serialize({ id: 2, kind: 'grepRows', result }).byteLength).toBeGreaterThan(1024 * 1024);
+    grepMock.mockReturnValueOnce(result);
+    receive(grep(2));
     expect(responses.at(-1)).toEqual({
       id: 2,
       kind: 'error',
       message: expect.stringContaining('process-message budget'),
       name: 'RangeError',
     });
-    queryMock.mockReturnValueOnce({
-      columns: ['value'],
+    const small = {
+      columns: ['id'],
+      identity,
+      matchedChunks: 1,
       rows: [[1n, new Uint8Array([2])]],
       truncated: false,
-    });
-    receive({ id: 3, kind: 'query', maxRows: 1, sql: 'SELECT 1', values: [] });
-    expect(responses.at(-1)).toEqual({
-      id: 3,
-      kind: 'rows',
-      result: { columns: ['value'], rows: [[1n, new Uint8Array([2])]], truncated: false },
-    });
+    };
+    grepMock.mockReturnValueOnce(small);
+    receive(grep(3));
+    expect(responses.at(-1)).toEqual({ id: 3, kind: 'grepRows', result: small });
   });
 });

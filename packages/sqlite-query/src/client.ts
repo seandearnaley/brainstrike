@@ -16,8 +16,6 @@ import {
   type QueryResponse,
   type SqliteGrepOptions,
   type SqliteGrepRows,
-  type SqliteRows,
-  type SqliteValue,
 } from './protocol.js';
 import { SqliteRuntimeRefusedError } from './runtime-refusal.js';
 
@@ -31,17 +29,10 @@ function startupError(reply: { readonly message: string; readonly name: string }
 export interface OpenSqliteQueryOptions {
   readonly databasePath: string;
   readonly deadlineMs: number;
-  readonly signal?: AbortSignal | undefined;
   readonly spawn: () => QueryProcess;
   readonly startupDeadlineMs: number;
 }
 
-export interface QueryOptions {
-  readonly bindings?: Readonly<Record<string, SqliteValue>>;
-  readonly maxRows?: number;
-  readonly signal?: AbortSignal | undefined;
-  readonly values?: readonly SqliteValue[];
-}
 export interface OpenNativeCoverageOptions extends Omit<OpenSqliteQueryOptions, 'databasePath'> {
   readonly authority: CoverageAuthority;
 }
@@ -90,7 +81,7 @@ export class SqliteQueryClient {
           this.#pending.delete(response.id);
           if (response.kind === 'nativeCoverageError') {
             if (pending.kind !== 'native-coverage' && pending.kind !== 'open-native-coverage') {
-              throw new TypeError('Native coverage error replied to a generic query.');
+              throw new TypeError('Native coverage error replied to a grep request.');
             }
             pending.reject(new IndexerError(response.error.code, response.error.message));
             return;
@@ -136,10 +127,9 @@ export class SqliteQueryClient {
         throw new RangeError('SQLite query deadlines must be positive finite milliseconds.');
       }
     }
-    options.signal?.throwIfAborted();
     const client = new SqliteQueryClient(options.spawn(), options.deadlineMs);
     try {
-      const response = await client.#call(body, options.startupDeadlineMs, options.signal);
+      const response = await client.#call(body, options.startupDeadlineMs);
       if (response.kind !== 'ready') {
         throw new TypeError('SQLite query startup returned an unexpected response.');
       }
@@ -155,33 +145,15 @@ export class SqliteQueryClient {
   }
 
   async nativeCoverage(
-    requests: readonly ScopedCoverageRequest[],
-    options: Pick<QueryOptions, 'signal'> = {}
+    requests: readonly ScopedCoverageRequest[]
   ): Promise<readonly ScopedCoverage[]> {
-    const response = await this.#call(
-      { kind: 'native-coverage', requests },
-      this.#deadlineMs,
-      options.signal
-    );
+    const response = await this.#call({ kind: 'native-coverage', requests }, this.#deadlineMs);
     if (response.kind !== 'nativeCoverage') {
       const error = new TypeError('Native coverage returned an unexpected response.');
       this.#stop(error);
       throw error;
     }
     return response.result;
-  }
-
-  query(sql: string, options: QueryOptions = {}): Promise<SqliteRows> {
-    return this.#rows(
-      {
-        ...(options.bindings === undefined ? {} : { bindings: options.bindings }),
-        kind: 'query',
-        maxRows: options.maxRows ?? 50,
-        sql,
-        values: options.values ?? [],
-      },
-      options.signal
-    );
   }
 
   async grep(options: SqliteGrepOptions): Promise<SqliteGrepRows> {
@@ -192,14 +164,6 @@ export class SqliteQueryClient {
       throw error;
     }
     return response.result;
-  }
-
-  describeTable(table: string, options: Pick<QueryOptions, 'signal'> = {}): Promise<SqliteRows> {
-    return this.#rows({ kind: 'describeTable', table }, options.signal);
-  }
-
-  listTables(options: Pick<QueryOptions, 'signal'> = {}): Promise<SqliteRows> {
-    return this.#rows({ kind: 'listTables' }, options.signal);
   }
 
   async close(): Promise<void> {
@@ -243,20 +207,7 @@ export class SqliteQueryClient {
     this.#pending.clear();
   }
 
-  async #rows(body: RequestBody, signal?: AbortSignal): Promise<SqliteRows> {
-    const response = await this.#call(body, this.#deadlineMs, signal);
-    if (response.kind !== 'rows') {
-      const error = new TypeError('SQLite query returned an unexpected response.');
-      this.#stop(error);
-      throw error;
-    }
-    return response.result;
-  }
-
-  #call(body: RequestBody, timeoutMs: number, signal?: AbortSignal): Promise<QueryResponse> {
-    if (signal?.aborted) {
-      return Promise.reject(signal.reason);
-    }
+  #call(body: RequestBody, timeoutMs: number): Promise<QueryResponse> {
     if (this.#terminal) {
       return Promise.reject(this.#terminal);
     }
@@ -270,26 +221,10 @@ export class SqliteQueryClient {
     } catch (error) {
       return Promise.reject(error);
     }
-    let cancelled = false;
-    const abort = (): void => {
-      // The response wins settlement. A stale call must never kill newer work.
-      if (!this.#pending.has(id)) {
-        return;
-      }
-      cancelled = true;
-      this.#stop(
-        new SqliteQueryCancelledError(request.kind, id, signal?.reason, this.#process.pid)
-      );
-    };
     return runWithTimeout(
       () =>
         new Promise<QueryResponse>((resolve, reject) => {
-          if (signal?.aborted) {
-            reject(signal.reason);
-            return;
-          }
           this.#pending.set(id, { kind: request.kind, reject, resolve });
-          signal?.addEventListener('abort', abort, { once: true });
           try {
             this.#process.postMessage(request);
           } catch (error) {
@@ -303,25 +238,9 @@ export class SqliteQueryClient {
         },
         timeoutMs,
       }
-    )
-      .catch(async (error: unknown) => {
-        if (cancelled) {
-          try {
-            await this.close();
-          } catch (cleanup) {
-            throw new AggregateError(
-              [error, cleanup],
-              'SQLite query cancellation cleanup failed; ownership is retained.',
-              { cause: error }
-            );
-          }
-        }
-        throw error;
-      })
-      .finally(() => {
-        signal?.removeEventListener('abort', abort);
-        this.#pending.delete(id);
-      });
+    ).finally(() => {
+      this.#pending.delete(id);
+    });
   }
 }
 
@@ -332,7 +251,7 @@ type RequestBody = {
 export class SqliteQueryDeadlineError extends Error {
   constructor(deadlineMs: number) {
     super(
-      `Query exceeded its ${deadlineMs} ms deadline and its owned process was stopped. Narrow the query with WHERE, LIMIT, or an aggregate.`
+      `SQLite index read exceeded its ${deadlineMs} ms deadline and its owned process was stopped.`
     );
     this.name = 'SqliteQueryDeadlineError';
   }
@@ -358,23 +277,5 @@ export class SqliteQueryStartupCleanupError extends AggregateError {
     });
     this.name = 'SqliteQueryStartupCleanupError';
     this.owner = owner;
-  }
-}
-
-/** Main-process cancellation identity; never serialized as authorization. */
-export class SqliteQueryCancelledError extends Error {
-  readonly code = 'sqlite_query_cancelled';
-  readonly phase: 'startup' | 'query';
-  readonly ownerPid: number | undefined;
-  readonly requestId: number;
-  readonly requestKind: QueryRequest['kind'];
-
-  constructor(kind: QueryRequest['kind'], requestId: number, reason: unknown, ownerPid?: number) {
-    super('SQLite query cancelled; its owned process was stopped.', { cause: reason });
-    this.name = 'SqliteQueryCancelledError';
-    this.ownerPid = ownerPid;
-    this.phase = kind === 'open' || kind === 'open-native-coverage' ? 'startup' : 'query';
-    this.requestId = requestId;
-    this.requestKind = kind;
   }
 }

@@ -1,5 +1,5 @@
-import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -68,6 +68,23 @@ child.on('exit', (code, signal) => {
   utilityEnvironment.ELECTRON_RUN_AS_NODE = undefined;
   const profileDirectory = mkdtempSync(join(tmpdir(), 'brainstrike-query-utility-profile-'));
   utilityEnvironment.SQLITE_QUERY_TEST_USER_DATA_DIR = profileDirectory;
+  // The utility proof reads a real IndexerPort index, committed under this Node.
+  const indexDirectory = mkdtempSync(join(tmpdir(), 'brainstrike-query-utility-index-'));
+  const cleanup = () => {
+    rmSync(profileDirectory, { force: true, recursive: true });
+    rmSync(indexDirectory, { force: true, recursive: true });
+  };
+  const built = spawnSync(
+    process.execPath,
+    ['src/__tests__/fixtures/build-lifecycle-index.mjs', join(indexDirectory, 'index.sqlite')],
+    { cwd: fileURLToPath(new URL('..', import.meta.url)), encoding: 'utf8' }
+  );
+  if (built.status !== 0) {
+    cleanup();
+    throw new Error(`SQLite query utility fixture failed: ${built.stderr}`);
+  }
+  writeFileSync(join(indexDirectory, 'fixture.json'), built.stdout);
+  utilityEnvironment.SQLITE_QUERY_TEST_INDEX_DIR = indexDirectory;
   const utility = spawn(
     executable,
     [fileURLToPath(new URL('./electron-utility.cjs', import.meta.url))],
@@ -77,11 +94,11 @@ child.on('exit', (code, signal) => {
     }
   );
   utility.on('error', (error) => {
-    rmSync(profileDirectory, { force: true, recursive: true });
+    cleanup();
     throw error;
   });
   utility.on('close', (exitCode, exitSignal) => {
-    rmSync(profileDirectory, { force: true, recursive: true });
+    cleanup();
     if (exitSignal) {
       throw new Error(`SQLite query utility proof exited with ${exitSignal}.`);
     }

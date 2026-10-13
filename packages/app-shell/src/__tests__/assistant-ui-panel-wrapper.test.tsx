@@ -105,9 +105,9 @@ describe('AssistantUiPanelWrapper', () => {
   });
 
   test('routes local chat through the data-stream transport when the desktop bridges exist', async () => {
-    Object.defineProperty(window, 'assistant', {
+    Object.defineProperty(window, 'agentHost', {
       configurable: true,
-      value: { url: 'http://127.0.0.1:51234' },
+      value: { connect: async () => undefined },
     });
     Object.defineProperty(window, 'desktopLifecycle', {
       configurable: true,
@@ -122,7 +122,7 @@ describe('AssistantUiPanelWrapper', () => {
         })
       );
     } finally {
-      Object.defineProperty(window, 'assistant', { configurable: true, value: undefined });
+      Object.defineProperty(window, 'agentHost', { configurable: true, value: undefined });
       Reflect.deleteProperty(window, 'desktopLifecycle');
       hasDesktopLlmHostMock.mockReturnValue(false);
     }
@@ -132,7 +132,7 @@ describe('AssistantUiPanelWrapper', () => {
     // localChatTransport describes the LOCAL provider's transport and must
     // not gate hosted providers on web — the /api/assistant route shares the
     // desktop server's image-aware conversion (#1685 review fix).
-    Reflect.deleteProperty(window, 'assistant');
+    Reflect.deleteProperty(window, 'agentHost');
     await renderAssistantPanel(['openai'], () =>
       waitFor(() => {
         expect(screen.getByTestId('attachments-availability')).toHaveTextContent(
@@ -1552,7 +1552,7 @@ describe('AssistantUiPanelWrapper', () => {
   });
 
   test('disables hosted memory requests when the runtime has no Mastra memory backend', async () => {
-    Reflect.deleteProperty(window, 'assistant');
+    Reflect.deleteProperty(window, 'agentHost');
 
     await renderAssistantPanel(['openai'], () =>
       waitFor(() => {

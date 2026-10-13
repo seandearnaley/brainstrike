@@ -14,10 +14,13 @@ export interface HostRunVerdict {
 /**
  * One label per run: a later verdict replaces an earlier one, except that a
  * derived verdict (hook, edit_revert) never replaces an explicit user verdict.
+ * Pass the existing projection to fold newly committed rows incrementally.
  * The same precedence the Task Ledger applies to brainstrike_assistant_run_outcomes.
  */
-export function projectRunVerdicts(rows: readonly HostLogRow[]): Map<string, HostRunVerdict> {
-  const verdicts = new Map<string, HostRunVerdict>();
+export function projectRunVerdicts(
+  rows: readonly HostLogRow[],
+  verdicts = new Map<string, HostRunVerdict>()
+): Map<string, HostRunVerdict> {
   for (const row of rows) {
     if (row.event.type !== 'run.verdict') {
       continue;

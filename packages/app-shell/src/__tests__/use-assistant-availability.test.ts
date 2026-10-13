@@ -9,7 +9,6 @@ import {
   type AssistantAvailabilityStatus,
   type AssistantStatusFetcher,
   fetchAssistantStatusState,
-  resolveAssistantStatusUrl,
   useAssistantAvailability,
 } from '../hooks/use-assistant-availability';
 
@@ -133,59 +132,7 @@ describe('useAssistantAvailability', () => {
   });
 });
 
-describe('resolveAssistantStatusUrl', () => {
-  const originalAssistant = (window as unknown as { assistant?: unknown }).assistant;
-
-  afterEach(() => {
-    (window as unknown as { assistant?: unknown }).assistant = originalAssistant;
-  });
-
-  it('returns default path when bridge is missing', async () => {
-    (window as unknown as { assistant?: unknown }).assistant = undefined;
-
-    await expect(resolveAssistantStatusUrl()).resolves.toBe('/api/assistant/status');
-  });
-
-  it('prefers async getUrl when provided', async () => {
-    (window as unknown as { assistant?: { getUrl: () => Promise<string> } }).assistant = {
-      async getUrl() {
-        return 'https://bridge.example.com/';
-      },
-    };
-
-    await expect(resolveAssistantStatusUrl()).resolves.toBe(
-      'https://bridge.example.com/assistant/status'
-    );
-  });
-
-  it('falls back to static url when getUrl fails', async () => {
-    (
-      window as unknown as { assistant?: { getUrl: () => Promise<string>; url: string } }
-    ).assistant = {
-      async getUrl() {
-        throw new Error('fail');
-      },
-      url: 'https://fallback.example.com/',
-    };
-
-    await expect(resolveAssistantStatusUrl()).resolves.toBe(
-      'https://fallback.example.com/assistant/status'
-    );
-  });
-});
-
 describe('fetchAssistantStatusState', () => {
-  const originalAssistant = (window as unknown as { assistant?: unknown }).assistant;
-
-  beforeEach(() => {
-    (window as unknown as { assistant?: unknown }).assistant = undefined;
-  });
-
-  afterEach(() => {
-    (window as unknown as { assistant?: unknown }).assistant = originalAssistant;
-    vi.restoreAllMocks();
-  });
-
   it('returns enabled status when backend is enabled', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
       json: async () => ({ enabled: true }),
@@ -202,44 +149,6 @@ describe('fetchAssistantStatusState', () => {
       signal: expect.any(AbortSignal),
     });
     expect(result).toEqual<AssistantAvailabilityStatus>({ state: 'enabled' });
-  });
-
-  it('reports an error state without fetching when the bridge reports a startup failure', async () => {
-    (window as unknown as { assistant?: unknown }).assistant = {
-      getAuth: () =>
-        Promise.resolve({ startupError: 'assistant server failed to start: EADDRINUSE' }),
-    };
-    const fetchImpl = vi.fn<typeof fetch>();
-
-    const result = await fetchAssistantStatusState({
-      fetchImpl,
-      signal: new AbortController().signal,
-    });
-
-    expect(result).toEqual<AssistantAvailabilityStatus>({
-      message: 'assistant server failed to start: EADDRINUSE',
-      state: 'error',
-    });
-    expect(fetchImpl).not.toHaveBeenCalled();
-  });
-
-  it('sends the assistant auth token header when the bridge provides auth', async () => {
-    const token = 't'.repeat(64);
-    (window as unknown as { assistant?: unknown }).assistant = {
-      getAuth: () => Promise.resolve({ token, url: 'http://127.0.0.1:5123' }),
-      getUrl: () => Promise.resolve('http://127.0.0.1:5123'),
-    };
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
-      json: async () => ({ enabled: true }),
-      ok: true,
-    } as unknown as Response);
-
-    await fetchAssistantStatusState({ fetchImpl, signal: new AbortController().signal });
-
-    expect(fetchImpl).toHaveBeenCalledWith('http://127.0.0.1:5123/assistant/status', {
-      headers: { accept: 'application/json', 'x-brainstrike-assistant-token': token },
-      signal: expect.any(AbortSignal),
-    });
   });
 
   it('preserves an explicit hosted provider from the status endpoint', async () => {

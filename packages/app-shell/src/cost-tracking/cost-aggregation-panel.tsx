@@ -126,6 +126,6 @@ function CostAggregationRows({ costRows, error, hasRows, loading }: CostAggregat
 export function CostAggregationPanel() {
   // Agent-host threads' committed provider calls count beside the usage rows.
   const { rootUsage } = useAssistantThreadHostLedger();
-  const state = useCrossRootCost(undefined, rootUsage);
+  const state = useCrossRootCost(rootUsage);
   return <CostAggregationPanelView state={state} />;
 }

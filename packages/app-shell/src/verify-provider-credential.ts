@@ -1,8 +1,4 @@
 import type { ProviderVerificationSnapshot } from '@brainstrike/assistant-contract';
-import {
-  resolveAssistantAuthHeaders,
-  resolveAssistantBaseUrl,
-} from './hooks/use-assistant-availability';
 import { fetchProviderVerification } from './provider-verification-client';
 
 /**
@@ -25,8 +21,5 @@ export function verifyProviderCredential(
   providerId: string,
   signal: AbortSignal
 ): Promise<ProviderVerificationSnapshot> {
-  return Promise.all([resolveAssistantBaseUrl(), resolveAssistantAuthHeaders()]).then(
-    ([baseUrl, authHeaders]) =>
-      fetchProviderVerification({ authHeaders, baseUrl, providerId, signal })
-  );
+  return fetchProviderVerification({ authHeaders: {}, baseUrl: '/api', providerId, signal });
 }

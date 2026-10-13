@@ -5,26 +5,8 @@ import type {
 } from '@brainstrike/types';
 
 export interface DbHostQueryResult<TRecord = unknown> {
-  /**
-   * Output column descriptors, in select-list order.
-   *
-   * Only populated when the caller asked for `rowMode: 'array'`; object-keyed
-   * rows carry their own names. The agent SQL sandbox needs this because
-   * PostgreSQL permits duplicate output column names (`SELECT a.id, b.id`) that
-   * object rows silently collapse — and silently returning one value where the
-   * user asked for two is exactly the degradation this codebase forbids.
-   */
-  readonly fields?: readonly { readonly name: string }[];
   readonly rows: TRecord[];
 }
-
-/**
- * Row shape requested from the host.
- *
- * `array` returns positional rows plus `fields`. Omit for the default
- * object-keyed rows every other caller expects.
- */
-export type DbHostRowMode = 'array';
 
 export type DbHostRequest =
   | { readonly kind: 'init' }
@@ -32,7 +14,6 @@ export type DbHostRequest =
       readonly kind: 'query';
       readonly sql: string;
       readonly params?: readonly unknown[];
-      readonly rowMode?: DbHostRowMode;
     }
   | { readonly kind: 'exec'; readonly sql: string; readonly params?: readonly unknown[] }
   | {
@@ -46,7 +27,6 @@ export type DbHostRequest =
       readonly transactionId: string;
       readonly sql: string;
       readonly params?: readonly unknown[];
-      readonly rowMode?: DbHostRowMode;
     }
   | {
       readonly kind: 'transaction:exec';

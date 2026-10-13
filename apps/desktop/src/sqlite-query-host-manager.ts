@@ -42,10 +42,7 @@ export function installIndexQueryTarget(
   target = { acquire, deadlines: { ...deadlines } };
 }
 
-export async function openIndexQuery(
-  signal?: AbortSignal
-): Promise<Pick<SqliteQueryClient, 'query' | 'grep' | 'listTables' | 'describeTable' | 'close'>> {
-  signal?.throwIfAborted();
+export async function openIndexQuery(): Promise<Pick<SqliteQueryClient, 'grep' | 'close'>> {
   const registered = target;
   if (!registered) {
     throw new ToolInputError(
@@ -58,7 +55,6 @@ export async function openIndexQuery(
   }
   const acquisition = SqliteQueryClient.open({
     databasePath: index.databasePath,
-    signal,
     ...registered.deadlines,
     spawn: () => {
       if (target !== registered || registered.acquire() !== index) {
@@ -74,12 +70,10 @@ export async function openIndexQuery(
   return ownIndexReader(acquisition, registered);
 }
 
-/** Main-only coverage owner; generic SQL keeps its original sandbox and deadline. */
+/** Main-only coverage owner; grep keeps its own sandbox and deadline. */
 export async function openIndexCoverage(
-  authority: CoverageAuthority,
-  signal?: AbortSignal
+  authority: CoverageAuthority
 ): Promise<NativeCoverageReader> {
-  signal?.throwIfAborted();
   const registered = target;
   if (!registered) {
     throw new Error('Native coverage query target is unavailable.');
@@ -94,7 +88,6 @@ export async function openIndexCoverage(
   const acquisition = SqliteQueryClient.openNativeCoverage({
     authority,
     deadlineMs: 5000,
-    signal,
     spawn: () => {
       if (target !== registered || registered.acquire() !== index) {
         throw new Error('Native coverage owner changed before acquisition.');
@@ -113,12 +106,7 @@ export async function openIndexCoverage(
 async function ownIndexReader(
   acquisition: Promise<SqliteQueryClient>,
   registered: NonNullable<typeof target>
-): Promise<
-  Pick<
-    SqliteQueryClient,
-    'query' | 'grep' | 'listTables' | 'describeTable' | 'nativeCoverage' | 'close'
-  >
-> {
+): Promise<Pick<SqliteQueryClient, 'grep' | 'nativeCoverage' | 'close'>> {
   acquisitions.add(acquisition);
   try {
     const client = await acquisition;
@@ -133,11 +121,8 @@ async function ownIndexReader(
         await client.close();
         owners.delete(client);
       },
-      describeTable: client.describeTable.bind(client),
       grep: client.grep.bind(client),
-      listTables: client.listTables.bind(client),
       nativeCoverage: client.nativeCoverage.bind(client),
-      query: client.query.bind(client),
     };
   } catch (error) {
     if (error instanceof SqliteQueryStartupCleanupError) {

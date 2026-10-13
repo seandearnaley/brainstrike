@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { SqliteQueryDeadlineError } from '@brainstrike/sqlite-query';
 import { app } from 'electron';
 import { IndexerHostManager } from '../../indexer-host-manager';
@@ -40,7 +41,7 @@ async function run(): Promise<void> {
         indexMode: 'vector-configured',
         profile: { dimensions, dtype, modelId, revision, tokenCap },
       },
-      rootIds: ['captured-root'],
+      rootIds: ['captured-root', 'runaway-root'],
     },
     { closeMs: 5000, exitMs: 1000, requestMs: 5000, startupMs: 5000 }
   );
@@ -59,25 +60,40 @@ async function run(): Promise<void> {
     plan,
     profile: { dimensions, dtype, modelId, revision, tokenCap },
   });
+  // One line that `\w+\d` backtracks over quadratically (`\w` overlaps `\d`, so V8 cannot
+  // make the `+` atomic): a grep that outlives any deadline here.
+  const runawayPlan = await index.prepareFile({
+    chunkLines: 1,
+    content: `${'a'.repeat(300_000)}\n`,
+    fileId: 'runaway-file',
+    relativePath: 'runaway.txt',
+    rootId: 'runaway-root',
+  });
+  await index.commitTextFile({ plan: runawayPlan });
+  const runaway = {
+    caseSensitive: true,
+    isRegex: true,
+    maxRows: 1,
+    pattern: String.raw`\w+\d`,
+    rootIds: ['runaway-root'],
+  };
+  // The reader loads no sqlite-vec, yet this vector-configured index holds a stored vector.
+  const inspector = new DatabaseSync(databasePath, { readOnly: true });
+  try {
+    assert.equal(
+      inspector.prepare("SELECT count(*) AS n FROM sqlite_schema WHERE name='vec_chunks'").get()?.[
+        'n'
+      ],
+      1
+    );
+    assert.ok(
+      Number(inspector.prepare('SELECT count(*) AS n FROM vec_chunks_rowids').get()?.['n']) > 0
+    );
+  } finally {
+    inspector.close();
+  }
   installIndexQueryTarget(() => manager, { deadlineMs: 150, startupDeadlineMs: 5000 });
   const query = await openIndexQuery();
-  assert.deepEqual(
-    (
-      await query.query('SELECT $1 AS duplicate, $1 AS duplicate', {
-        bindings: { ['$1']: "x'; DELETE FROM file_chunks; --" },
-      })
-    ).rows,
-    [["x'; DELETE FROM file_chunks; --", "x'; DELETE FROM file_chunks; --"]]
-  );
-  assert.equal(
-    (
-      await query.query(
-        "SELECT COUNT(*) FROM file_chunks_fts WHERE file_chunks_fts MATCH 'embedding'"
-      )
-    ).rows[0]?.[0],
-    1
-  );
-  assert.equal((await query.query('SELECT count(*) FROM vec_chunks')).rows[0]?.[0], 1);
   const grep = await query.grep({
     caseSensitive: false,
     isRegex: false,
@@ -123,12 +139,7 @@ async function run(): Promise<void> {
     parentTicks += 1;
   }, 5);
   try {
-    await assert.rejects(
-      query.query(
-        'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM r) SELECT sum(n) FROM r'
-      ),
-      SqliteQueryDeadlineError
-    );
+    await assert.rejects(query.grep(runaway), SqliteQueryDeadlineError);
   } finally {
     clearInterval(ticker);
   }
@@ -139,9 +150,14 @@ async function run(): Promise<void> {
       .hits.length,
     1
   );
-  const second = await openIndexQuery();
+  // Host Stop, reset and shutdown join an in-flight grep through closeAllIndexQueries.
   await closeAllIndexQueries();
-  await assert.rejects(second.query('SELECT 1'));
+  installIndexQueryTarget(() => manager, { deadlineMs: 60_000, startupDeadlineMs: 5000 });
+  const second = await openIndexQuery();
+  const inflight = second.grep(runaway).catch((error: unknown) => error);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await closeAllIndexQueries();
+  assert.match(String(await inflight), /SQLite query client is closed/);
   await assert.rejects(openIndexQuery(), /unavailable/);
   await manager.close();
   const reopened = await IndexerHostManager.create(
@@ -151,14 +167,25 @@ async function run(): Promise<void> {
         indexMode: 'vector-configured',
         profile: { dimensions, dtype, modelId, revision, tokenCap },
       },
-      rootIds: ['captured-root'],
+      rootIds: ['captured-root', 'runaway-root'],
     },
     { closeMs: 5000, exitMs: 1000, requestMs: 5000, startupMs: 5000 }
   );
   await reopened.start();
   installIndexQueryTarget(() => reopened, { deadlineMs: 1000, startupDeadlineMs: 5000 });
   const last = await openIndexQuery();
-  assert.equal((await last.query('SELECT count(*) FROM file_chunks')).rows[0]?.[0], 1);
+  assert.deepEqual(
+    (
+      await last.grep({
+        caseSensitive: false,
+        isRegex: false,
+        maxRows: 100,
+        pattern: 'embedding',
+        rootIds: ['captured-root'],
+      })
+    ).rows.map((row) => row[0]),
+    [plan.chunks[0]?.chunkId]
+  );
   await closeAllIndexQueries();
   await reopened.destroy();
   for (const file of [databasePath, `${databasePath}-wal`, `${databasePath}-shm`]) {

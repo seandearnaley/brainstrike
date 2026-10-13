@@ -1,8 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import type { RunLedgerRow } from '@brainstrike/assistant-data';
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { LedgerModelComparisonRow, LedgerTrendPoint } from '../../run-ledger-analytics';
 import {
   isRunOverCap,
@@ -57,10 +56,11 @@ function makeModelRow(overrides: Partial<LedgerModelComparisonRow> = {}): Ledger
 
 function makeTrendPoint(overrides: Partial<LedgerTrendPoint> = {}): LedgerTrendPoint {
   return {
-    bucketStart: new Date('2026-07-14T00:00:00Z'),
+    day: '2026-07-14',
     estimatedInputTokens: 0,
     estimatedOutputTokens: 0,
     inputTokens: 1000,
+    label: 'Jul 14',
     outputTokens: 200,
     runCount: 3,
     ...overrides,
@@ -68,31 +68,27 @@ function makeTrendPoint(overrides: Partial<LedgerTrendPoint> = {}): LedgerTrendP
 }
 
 function makeLedger(overrides: Partial<TaskLedgerRunsViewState> = {}): TaskLedgerRunsViewState {
-  return { available: true, error: null, loading: false, rows: [], ...overrides };
+  return { available: true, rows: [], ...overrides };
 }
 
 function makeAnalytics(
   overrides: Partial<TaskLedgerAnalyticsViewState> = {}
 ): TaskLedgerAnalyticsViewState {
-  return { error: null, loading: false, models: [], trend: [], ...overrides };
+  return { models: [], trend: [], ...overrides };
 }
 
 function renderPanel(options: {
   analytics?: Partial<TaskLedgerAnalyticsViewState>;
   ledger?: Partial<TaskLedgerRunsViewState>;
-  onRefresh?: () => void;
   perRunCapUsd?: number | null;
 }) {
-  const onRefresh = options.onRefresh ?? vi.fn();
   render(
     <TaskLedgerPanelView
       analytics={makeAnalytics(options.analytics)}
       ledger={makeLedger(options.ledger)}
-      onRefresh={onRefresh}
       perRunCapUsd={options.perRunCapUsd}
     />
   );
-  return { onRefresh };
 }
 
 describe('TaskLedgerPanelView', () => {
@@ -130,13 +126,6 @@ describe('TaskLedgerPanelView', () => {
 
     expect(screen.getByTestId('task-ledger-empty')).toBeInTheDocument();
     expect(screen.queryByTestId('task-ledger-run-row')).not.toBeInTheDocument();
-  });
-
-  it('shows a loading state while the first load is in flight', () => {
-    renderPanel({ ledger: { loading: true } });
-
-    expect(screen.getByTestId('task-ledger-loading')).toBeInTheDocument();
-    expect(screen.queryByTestId('task-ledger-empty')).not.toBeInTheDocument();
   });
 
   it('renders a run row with an EXACT cost when the provider reported one', () => {
@@ -236,34 +225,6 @@ describe('TaskLedgerPanelView', () => {
     expect(screen.queryByTestId('task-ledger-reverted-edits')).not.toBeInTheDocument();
   });
 
-  it('surfaces a ledger load failure as a visible error with a working retry', async () => {
-    const user = userEvent.setup();
-    const { onRefresh } = renderPanel({
-      ledger: { error: new Error('malformed aggregate'), rows: [] },
-    });
-
-    expect(screen.getByTestId('task-ledger-error')).toHaveTextContent('malformed aggregate');
-    expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
-
-    await user.click(screen.getByTestId('task-ledger-retry'));
-    expect(onRefresh).toHaveBeenCalledTimes(1);
-  });
-
-  it('surfaces an analytics load failure independently with retry', async () => {
-    const user = userEvent.setup();
-    const { onRefresh } = renderPanel({
-      analytics: { error: new Error('trend query failed') },
-      ledger: { rows: [makeRun({ runId: 'run-1' })] },
-    });
-
-    expect(screen.getByTestId('task-ledger-error')).toHaveTextContent('trend query failed');
-    // The run table still renders — one section failing must not blank the other.
-    expect(screen.getByTestId('task-ledger-run-row')).toBeInTheDocument();
-
-    await user.click(screen.getByTestId('task-ledger-retry'));
-    expect(onRefresh).toHaveBeenCalledTimes(1);
-  });
-
   it('renders one model-comparison row per model with exact cost and estimated-token note', () => {
     renderPanel({
       analytics: {
@@ -297,10 +258,11 @@ describe('TaskLedgerPanelView', () => {
         trend: [
           makeTrendPoint({ billedCostUsd: 0.42 }),
           makeTrendPoint({
-            bucketStart: new Date('2026-07-15T00:00:00Z'),
+            day: '2026-07-15',
             estimatedInputTokens: 2000,
             estimatedOutputTokens: 500,
             inputTokens: 2000,
+            label: 'Jul 15',
             outputTokens: 500,
           }),
         ],
@@ -311,21 +273,12 @@ describe('TaskLedgerPanelView', () => {
     const bars = screen.getAllByTestId('task-ledger-trend-bar');
     expect(bars).toHaveLength(2);
     const firstTitle = bars[0]?.querySelector('title')?.textContent ?? '';
+    expect(firstTitle).toMatch(/^Jul 14 — /);
     expect(firstTitle).toContain('$0.42');
     const secondTitle = bars[1]?.querySelector('title')?.textContent ?? '';
     // A bucket with no reported cost says so — it never claims $0.
     expect(secondTitle).toContain('no exact cost reported');
     expect(secondTitle).not.toContain('$0.00');
-  });
-
-  it('invokes onRefresh from the header refresh button', async () => {
-    const user = userEvent.setup();
-    const { onRefresh } = renderPanel({
-      ledger: { rows: [makeRun({ runId: 'run-1' })] },
-    });
-
-    await user.click(screen.getByTestId('task-ledger-refresh'));
-    expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
   it('badges only runs whose exact-or-priced cost exceeds the per-run cap', () => {

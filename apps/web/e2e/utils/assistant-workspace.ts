@@ -121,12 +121,6 @@ export async function openAssistantWorkspace(
       // Persisted preferences: select the mocked browser-local assistant model.
       window.localStorage.setItem('assistant-preferences.v1', JSON.stringify(assistantPreferences));
 
-      // No desktop bridge stubs (`window.assistant` / `window.secrets`): their
-      // absence IS the web capability state. Stubbing `window.assistant` routes
-      // the availability probe through the bridge URL instead of the mocked
-      // `/api/assistant/status` AND falsely advertises the desktop assistant
-      // backend (hasDurableAssistantUsageCapability) — BST-1032.
-
       // Settings override API: seed registry/provider state before React mounts.
       window.__brainstrike_e2e_enable_settings_test_api__ = true;
       window.__brainstrikePendingSettingsTestOverrides__ = {
