@@ -1,5 +1,8 @@
-import type { LogRecord } from '@brainstrike/logging';
+import { createLogger, type LogRecord } from '@brainstrike/logging';
+
 import { generateUUID } from '@brainstrike/utils';
+
+const runtimeErrorLogger = createLogger('WorkerRuntime');
 
 export type BackgroundRuntimeState = 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
 
@@ -78,7 +81,6 @@ export interface SerializedRuntimeError {
   readonly code?: string;
   readonly message: string;
   readonly name: string;
-  readonly stack?: string;
 }
 
 export type RuntimeEnvelopeType = 'cancel' | 'error' | 'progress' | 'request' | 'result' | 'status';
@@ -444,11 +446,11 @@ export function createRequestTracker<TValue>(): RequestTracker<TValue> {
 export function serializeRuntimeError(error: unknown): SerializedRuntimeError {
   const normalized = toRuntimeError(error);
   const errorWithCode = normalized as Error & { code?: unknown; cause?: unknown };
+  runtimeErrorLogger.error('Hidden runtime request failed', { error: normalized });
 
   return {
     message: normalized.message,
     name: normalized.name,
-    ...(typeof normalized.stack === 'string' ? { stack: normalized.stack } : {}),
     ...(typeof errorWithCode.code === 'string' ? { code: errorWithCode.code } : {}),
     ...(typeof errorWithCode.cause === 'string' ? { cause: errorWithCode.cause } : {}),
   };
@@ -458,9 +460,6 @@ export function deserializeRuntimeError(error: SerializedRuntimeError | unknown)
   if (isSerializedRuntimeError(error)) {
     const restored = new Error(error.message);
     restored.name = error.name;
-    if (error.stack) {
-      restored.stack = error.stack;
-    }
     if (error.code) {
       (restored as Error & { code?: string }).code = error.code;
     }

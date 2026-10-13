@@ -12,7 +12,8 @@ export interface ProfileAdmissionFence {
 /**
  * Agent host profile admission. BST-1945: a host's own Root release fences like
  * Main's retirement, but admission reopens once a failed start's host has fully
- * released. Main's own fences stay terminal; a lost ready host stays BST-1945's.
+ * released. BST-2004: a ready host lost without Main asking reopens the same way.
+ * Main's own fences stay terminal.
  */
 export function createProfileAdmission<Attachment>(
   runtime: Pick<NativeIndexRuntime<Attachment>, 'acquireProfile' | 'retireFailedProfile'>,
@@ -58,7 +59,11 @@ export function createProfileAdmission<Attachment>(
   };
   return {
     acquireProfile: async () => {
-      if (fence.requested() && !(await reopenAfterFailedStart())) {
+      // BST-2004: a ready host that exited unasked fails like a failed start. Its
+      // retirement joins its Root release first, so admission reopens before the
+      // next host starts instead of racing that release.
+      const reopened = await reopenAfterFailedStart();
+      if (fence.requested() && !reopened) {
         throw new TransitionError('Profile admission is closed for terminal retirement.');
       }
       // Index setup errors remain on their own surface. The runtime separately

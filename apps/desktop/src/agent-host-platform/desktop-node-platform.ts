@@ -17,8 +17,10 @@ import {
   type ProductionHostRunConfiguration,
   readHostPermissionPolicy,
 } from '@brainstrike/agent-host';
+import { fromBoundaryResponseError } from '@brainstrike/agent-host/boundary-wire';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { SupportedProvider } from '@brainstrike/assistant-contract';
+import { refusalError } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
@@ -70,7 +72,11 @@ function desktopRuntimeConfiguration(
 ): RuntimeData & { readonly provider: SupportedProvider } {
   const provider = selected.configuration.provider;
   if (!isSupportedProvider(provider)) {
-    throw new Error('Desktop selected an unsupported provider');
+    throw refusalError(
+      'configuration',
+      'provider.unsupported',
+      'Desktop selected an unsupported provider'
+    );
   }
   return {
     model: selected.configuration.model,
@@ -269,6 +275,11 @@ export async function createDesktopHostConfiguration(
     signal?.addEventListener('abort', cancel, { once: true });
     try {
       return await connection.sendRequest(method, input, cancellation.token);
+    } catch (cause) {
+      // Main's typed failure (or the internal fault) continues to this host's caller.
+      throw fromBoundaryResponseError(cause, (message, fields) =>
+        logger.error(message, { ...fields, method })
+      );
     } finally {
       signal?.removeEventListener('abort', cancel);
       cancellation.dispose();

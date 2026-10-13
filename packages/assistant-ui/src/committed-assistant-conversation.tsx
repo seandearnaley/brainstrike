@@ -1,3 +1,5 @@
+import { isMessageNotSentError } from '@assistant-ui/react';
+import { describeBoundaryError } from '@brainstrike/assistant-contract';
 import type { ReactElement } from 'react';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
@@ -19,12 +21,40 @@ export type CommittedAssistantConversationProps = Omit<
 > &
   Omit<CommittedAssistantRuntimeOptions, 'onCommandError'> & {
     readonly onCommandError?: (cause: unknown) => void;
+    /**
+     * The owner's reconnection (BST-2004): `'automatic'` while its one automatic
+     * attempt runs, or the user's Reconnect once that attempt failed.
+     */
+    readonly reconnect?: 'automatic' | (() => void);
   };
 
 const UNAVAILABLE = 'The agent host is unavailable.';
 const selectConnection = (snapshot: CommittedAssistantSnapshot) => snapshot.connection;
 const selectError = (snapshot: CommittedAssistantSnapshot) => snapshot.error;
 const selectWithheld = (snapshot: CommittedAssistantSnapshot) => snapshot.observationWithheld;
+
+function connectionNotice(
+  connection: CommittedAssistantSnapshot['connection'],
+  reconnect: CommittedAssistantConversationProps['reconnect']
+): string {
+  if (connection === 'connecting') {
+    return 'Connecting to the agent host…';
+  }
+  if (reconnect === 'automatic') {
+    return 'Reconnecting to the agent host…';
+  }
+  return connection === 'failed'
+    ? 'The agent host connection failed. Reconnect to continue.'
+    : 'Agent host disconnected. Reconnect to continue.';
+}
+
+/**
+ * A typed failure from another process shows its message and remedy, never its
+ * inner cause; a renderer-local error shows its own message.
+ */
+function commandErrorText(cause: unknown): string {
+  return isMessageNotSentError(cause) ? cause.message : describeBoundaryError(cause);
+}
 
 /** The shipped desktop conversation surface; connection changes never key/remount its transcript. */
 export function CommittedAssistantConversation(
@@ -40,6 +70,7 @@ function BoundCommittedAssistantConversation({
   commands,
   adapters,
   onCommandError,
+  reconnect,
   ...presentation
 }: CommittedAssistantConversationProps): ReactElement {
   // Owner status only: a committed token publication never re-renders this shell.
@@ -51,7 +82,7 @@ function BoundCommittedAssistantConversation({
   const rootRef = useRef<HTMLDivElement>(null);
   const reportCommandError = useCallback(
     (cause: unknown): void => {
-      setCommandError(cause instanceof Error ? cause.message : String(cause));
+      setCommandError(commandErrorText(cause));
       onCommandError?.(cause);
     },
     [onCommandError]
@@ -70,11 +101,12 @@ function BoundCommittedAssistantConversation({
         {error === undefined ? (
           connection === 'connected' ? null : (
             <div aria-live="polite" role="status">
-              {connection === 'connecting'
-                ? 'Connecting to the agent host…'
-                : connection === 'failed'
-                  ? 'The agent host connection failed. Reconnect to continue.'
-                  : 'Agent host disconnected. Reconnect to continue.'}
+              {connectionNotice(connection, reconnect)}
+              {typeof reconnect === 'function' ? (
+                <button onClick={reconnect} type="button">
+                  Reconnect
+                </button>
+              ) : null}
             </div>
           )
         ) : (

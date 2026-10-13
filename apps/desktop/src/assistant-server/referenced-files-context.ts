@@ -1,5 +1,6 @@
 import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
 import { parseFileMentionDirectives } from '@brainstrike/agent';
+import { BoundaryFailureError, ToolInputError } from '@brainstrike/assistant-contract';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/ports';
 import { createLogger } from '@brainstrike/logging';
 import { getWorkspaceRoots } from './workspace-roots';
@@ -94,6 +95,21 @@ function fenceContent(body: string): string {
  * `{name=…}` directive regex; such an exotic path simply fails containment and
  * surfaces the honest "could not read" note rather than reading the wrong file.
  */
+/**
+ * BST-2007: only a typed refusal's text reaches the model. Anything else (an
+ * fs error naming a host path, a driver message) is logged above and becomes
+ * a fixed sentence.
+ */
+function modelSafeReadFailure(error: unknown): string {
+  if (error instanceof ToolInputError) {
+    return error.message;
+  }
+  if (error instanceof BoundaryFailureError && error.failure.kind === 'refusal') {
+    return error.failure.message;
+  }
+  return 'the file could not be read.';
+}
+
 export async function buildReferencedFilesContextMessage(
   text: string,
   runtimeData: RuntimeData | undefined,
@@ -143,13 +159,12 @@ export async function buildReferencedFilesContextMessage(
       // identical ones.
       sections.push(`### ${root.displayName}/${file.path}\n${fenceContent(body)}${suffix}`);
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'unknown error';
       logger.warn('Referenced file could not be read', {
-        error: detail,
+        error: error instanceof Error ? error.message : String(error),
         path: mention.path,
         rootId: mention.rootId,
       });
-      sections.push(`### ${mention.path}\n[Could not read: ${detail}]`);
+      sections.push(`### ${mention.path}\n[Could not read: ${modelSafeReadFailure(error)}]`);
     }
   }
 

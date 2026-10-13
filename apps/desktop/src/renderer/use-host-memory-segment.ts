@@ -1,6 +1,7 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import type { HostLogRow, HostParams, HostResults } from '@brainstrike/agent-host/protocol';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
+import { describeBoundaryError } from '@brainstrike/assistant-contract';
 import type { OmMeterState } from '@brainstrike/assistant-ui';
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
@@ -132,7 +133,7 @@ class HostMemoryReads {
           this.#publish({
             omSegment: {
               kind: 'error',
-              reason: cause instanceof Error ? cause.message : String(cause),
+              reason: describeBoundaryError(cause),
             },
           });
         }

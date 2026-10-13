@@ -1,4 +1,4 @@
-import type { AppendMessage } from '@assistant-ui/react';
+import { type AppendMessage, MessageNotSentError } from '@assistant-ui/react';
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import { committedRunIdentity } from '@brainstrike/agent-host/committed-identities';
 import {
@@ -28,6 +28,9 @@ import { respondToHostApproval, resumeHostInteraction } from './host-approval-re
 import { HostTreeApprovals } from './host-tree-approvals';
 
 const logger = createLogger('CommittedHostConversation');
+
+/** BST-2004: the lost host's replacement has no record of the send. */
+export const HOST_RESTARTED_NOT_SENT = 'Not sent: the agent host restarted.';
 
 /** A committed run.started the host admitted to deliver child results (a wake). */
 const HostWakeStartSchema = z.object({
@@ -147,10 +150,21 @@ export function createCommittedHostConversation(
     readonly client: HostClient;
     /** Told when a newer committed title, colour or icon reaches this view. */
     readonly onTitleCommitted?: () => void;
+    /**
+     * BST-2004: the frame's next client after this one is lost. A send the
+     * lost host never answered is settled from that host's committed log.
+     */
+    readonly replacement?: (lost: HostClient) => Promise<HostClient>;
     readonly threadId: string;
   }
 ): CommittedHostConversation {
   const { client, threadId } = options;
+  // Settles before a request the closed transport rejects, so a send sees it.
+  let hostLost = false;
+  const lost = (): void => {
+    hostLost = true;
+  };
+  client.closed.then(lost, lost);
   const source = new CommittedThreadSession(client, threadId);
   const mcpInput = new CommittedHostMcpInput(client, source, threadId);
   // A running command's output arrives as uncommitted telemetry; its committed
@@ -185,15 +199,33 @@ export function createCommittedHostConversation(
     const prompt = message.content
       .map((part) => (part.type === 'text' ? part.text : ''))
       .join('\n');
-    await options.bindThreadRoot?.();
-    await client.request('run/start', {
-      ...(attachments.length > 0 ? { attachments } : {}),
-      commandId: crypto.randomUUID(),
-      ...runSettings(),
-      parentMessageId: message.parentId,
-      prompt,
-      threadId,
-    });
+    const commandId = crypto.randomUUID();
+    try {
+      await options.bindThreadRoot?.();
+      await client.request('run/start', {
+        ...(attachments.length > 0 ? { attachments } : {}),
+        commandId,
+        ...runSettings(),
+        parentMessageId: message.parentId,
+        prompt,
+        threadId,
+      });
+    } catch (cause) {
+      if (!(hostLost && options.replacement)) {
+        throw cause;
+      }
+      // The host was lost before it answered. Only its replacement's committed
+      // log says whether the turn was admitted; nothing is resent (BST-2004).
+      const next = await options.replacement(client);
+      const { rows } = await next.request('thread/read', { fromSeq: 0, threadId });
+      if (
+        !rows.some(
+          ({ event }) => event.type === 'command.accepted' && event.commandId === commandId
+        )
+      ) {
+        throw new MessageNotSentError(HOST_RESTARTED_NOT_SENT);
+      }
+    }
   };
   const commands: CommittedAssistantCommands = {
     onCancel: async () => {

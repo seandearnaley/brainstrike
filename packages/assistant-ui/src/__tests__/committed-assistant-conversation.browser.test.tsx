@@ -1,3 +1,4 @@
+import { refusalError } from '@brainstrike/assistant-contract';
 import '@testing-library/jest-dom/vitest';
 // Must evaluate before anything that loads React DOM: it installs the React
 // DevTools hook and Scheduler MessageChannel timing used by the render-cost suite.
@@ -443,7 +444,7 @@ describe('keyboard approval and errors', () => {
 
   test('a refused decision is announced in its card, which stays pending for an exact retry', async () => {
     const respond = vi.fn(async () => {
-      throw new Error(STALE_INTERACTION);
+      throw refusalError('conflict', 'interaction.stale', STALE_INTERACTION);
     });
     const { approve, card, store, surface } = await mountPendingApproval(respond);
     const committed = store.getSnapshot().repository;
@@ -674,7 +675,7 @@ describe('refused dispatch and unavailable capabilities', () => {
     const uncaught = captureUncaught();
     const rejection = 'Branch command rejected';
     const setMessages = vi.fn(() => {
-      throw new Error(rejection);
+      throw refusalError('conflict', 'branch.rejected', rejection);
     });
     const { saved, store, surface } = await mountCompleted(
       { onNew: rejectingNew(), setMessages },
