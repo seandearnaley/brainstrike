@@ -304,6 +304,12 @@ Guard: `packages/agent/src/__tests__/mastra-stream-first-output.integration.spec
 
 ### Provider errors, tripwires and finish reasons
 
+The agent host keeps the original SDK error in `HostRunOutcome` and its private
+failure log. Before publishing a durable `stream.chunk` error it substitutes that
+owner's already-resolved public detail, the same bounded, scrubbed projection used
+by `run.finished`. SDK request/response bodies and retry graphs never enter the
+public error chunk; live and reopened views consume the same stored projection.
+
 - Classify every provider/model error at the single stream-mapper choke point. No
   provider-specific fetch wrapper or retry-attempt instrumentation participates.
 - The terminal `run.failed` event carries one namespaced `metadata.runError`
