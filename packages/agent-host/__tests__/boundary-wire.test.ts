@@ -1,5 +1,6 @@
 import {
   BoundaryFailureError,
+  fault,
   INTERNAL_FAULT,
   refusal,
   ToolInputError,
@@ -45,6 +46,35 @@ describe('boundary failures on a JSON-RPC connection', () => {
     expect(log).toHaveBeenCalledExactlyOnceWith(
       'Untyped failure crossed a process boundary',
       expect.objectContaining({ correlationId, error: expect.objectContaining({ message: RAW }) })
+    );
+  });
+
+  it('sends a typed fault with a correlation id and logs its inner cause there', () => {
+    const log = vi.fn();
+    const sent = toBoundaryResponseError(
+      new BoundaryFailureError(
+        fault({
+          category: 'internal',
+          code: 'host.cleanup-failed',
+          message: 'Host cleanup failed.',
+        }),
+        { cause: new Error(RAW) }
+      ),
+      log
+    );
+    expect(sent.code).toBe(ErrorCodes.InternalError);
+    const correlationId = (sent.data as { correlationId?: string }).correlationId;
+    expect(sent.data).toEqual({
+      category: 'internal',
+      code: 'host.cleanup-failed',
+      correlationId,
+      kind: 'fault',
+      message: 'Host cleanup failed.',
+    });
+    expect(JSON.stringify(sent.data)).not.toContain('/Users/');
+    expect(log).toHaveBeenCalledExactlyOnceWith(
+      'A typed fault crossed a process boundary',
+      expect.objectContaining({ cause: expect.objectContaining({ message: RAW }), correlationId })
     );
   });
 

@@ -142,6 +142,18 @@ export class BoundaryFailureError extends Error {
   }
 }
 
+/** A typed refusal ready to throw: `throw refusalError('conflict', 'run.already-active', '…')`. */
+export function refusalError(
+  category: BoundaryFailureCategory,
+  code: string,
+  message: string,
+  remedy?: string
+): BoundaryFailureError {
+  return new BoundaryFailureError(
+    refusal({ category, code, message, ...(remedy === undefined ? {} : { remedy }) })
+  );
+}
+
 export function isBoundaryFailureError(value: unknown): value is BoundaryFailureError {
   return value instanceof BoundaryFailureError;
 }

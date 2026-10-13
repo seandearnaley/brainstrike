@@ -1,3 +1,4 @@
+import { BoundaryFailureError, refusal } from './boundary-failure.js';
 /**
  * Shared image-attachment limits and validation for the assistant composer
  * (client) and the assistant request boundary (server). ONE source for the
@@ -48,11 +49,12 @@ export type AssistantAttachmentValidationReason =
   | 'too-many-attachments'
   | 'unsupported-media-type';
 
-export class AssistantAttachmentValidationError extends Error {
+/** A refused attachment: a typed refusal whose code names its reason. */
+export class AssistantAttachmentValidationError extends BoundaryFailureError {
   readonly reason: AssistantAttachmentValidationReason;
 
   constructor(reason: AssistantAttachmentValidationReason, message: string) {
-    super(message);
+    super(refusal({ category: 'input', code: `attachment.${reason}`, message }));
     this.name = 'AssistantAttachmentValidationError';
     this.reason = reason;
   }

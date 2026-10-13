@@ -1,5 +1,10 @@
 import { timingSafeEqual } from 'node:crypto';
-import { BoundaryFailureError, fault, refusal } from '@brainstrike/assistant-contract';
+import {
+  BoundaryFailureError,
+  fault,
+  refusal,
+  refusalError,
+} from '@brainstrike/assistant-contract';
 import type { HostRecord } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
@@ -71,6 +76,11 @@ const UNAUTHENTICATED = refusal({
   category: 'authorization',
   code: 'host.unauthenticated',
   message: 'This connection has not authenticated with the agent host.',
+});
+const HOST_CLEANUP_FAILED = fault({
+  category: 'internal',
+  code: 'host.cleanup-failed',
+  message: 'Host cleanup failed, so the agent host kept its Root.',
 });
 const HOST_CLOSING = fault({
   category: 'availability',
@@ -168,9 +178,18 @@ export function bindHostConnection(
   };
   handle('host/stop', async () => {
     if (!lifecycle) {
-      throw new Error('Host lifecycle is unavailable on this transport');
+      throw refusalError(
+        'configuration',
+        'host.lifecycle-unavailable',
+        'Host lifecycle is unavailable on this transport'
+      );
     }
-    await lifecycle.stop();
+    try {
+      await lifecycle.stop();
+    } catch (cause) {
+      // The physical cleanup's causes are logged under the fault's correlation id.
+      throw new BoundaryFailureError(HOST_CLEANUP_FAILED, { cause });
+    }
     return { outcome: 'stopped', rootReleased: true };
   });
   handle('initialize', (params) => {
@@ -179,10 +198,18 @@ export function bindHostConnection(
       params.protocolVersion !== record.protocolVersion ||
       params.hostVersion !== record.hostVersion
     ) {
-      throw new Error('Host protocol or version mismatch');
+      throw refusalError(
+        'configuration',
+        'host.version-mismatch',
+        'Host protocol or version mismatch'
+      );
     }
     if (!timingSafeEqual(Buffer.from(params.token, 'hex'), Buffer.from(record.token, 'hex'))) {
-      throw new Error('Host authentication failed');
+      throw refusalError(
+        'authorization',
+        'host.authentication-failed',
+        'Host authentication failed'
+      );
     }
     attached();
     initialized = true;
@@ -212,7 +239,11 @@ export function bindHostConnection(
   }));
   handle('workspace/search', async (params, signal) => {
     if (!searchWorkspace) {
-      throw new Error('Indexed workspace text search is unavailable on this host');
+      throw refusalError(
+        'configuration',
+        'workspace.search-unavailable',
+        'Indexed workspace text search is unavailable on this host'
+      );
     }
     const { binding } = core.readWorkspaceBinding(params.threadId);
     if (
@@ -224,7 +255,11 @@ export function bindHostConnection(
         binding.checkoutLocalRootId,
       ].includes(params.rootId)
     ) {
-      throw new Error('Search root is outside the thread workspace binding');
+      throw refusalError(
+        'authorization',
+        'workspace.root-outside-binding',
+        'Search root is outside the thread workspace binding'
+      );
     }
     signal.throwIfAborted();
     const result = await searchWorkspace(params, signal);

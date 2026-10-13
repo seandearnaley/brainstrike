@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ToolRiskCategory } from '@brainstrike/assistant-contract';
+import { refusalError } from '@brainstrike/assistant-contract';
 import {
   asSchema,
   type LanguageModel,
@@ -114,7 +115,9 @@ export async function commitHostInteractionResponse(
     (pending.event.kind === 'approval') !== approval ||
     hasHostInteractionResponse(pending)
   ) {
-    throw new Error(
+    throw refusalError(
+      'conflict',
+      'interaction.stale',
       approval
         ? 'Approval decision is stale or belongs to another run'
         : 'Human interaction is stale or belongs to another run'
@@ -346,7 +349,7 @@ export async function validateHostInteractionResume(
 export async function resolveHostApprovalInput(run: Run, event: Interaction): Promise<unknown> {
   const approval = run.approvals.get(event.interactionId);
   if (!approval) {
-    throw new Error('Unknown approval occurrence');
+    throw refusalError('input', 'interaction.unknown', 'Unknown approval occurrence');
   }
   const registered = hostRunTools(run)[event.toolId];
   if (!registered || registered.identity !== event.toolIdentity) {

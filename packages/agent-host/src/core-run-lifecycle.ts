@@ -1,3 +1,4 @@
+import { BoundaryFailureError, fault, refusalError } from '@brainstrike/assistant-contract';
 import { type HostRunState, hasHostInteractionResponse } from './core-state.js';
 import { HostMcpInputPersistenceError } from './mcp-input-state.js';
 import type { HostRunAdmission } from './ports.js';
@@ -192,16 +193,22 @@ export function assertHostCommandAdmissible(
   failedAdmissions: ReadonlyMap<string, unknown>
 ): void {
   if (closing) {
-    throw new Error('Host is closing');
+    throw new BoundaryFailureError(
+      fault({ category: 'availability', code: 'host.closing', message: 'Host is closing' })
+    );
   }
   if (!threadId) {
     return;
   }
   if (!threads.has(threadId)) {
-    throw new Error('Unknown thread');
+    throw refusalError('input', 'thread.unknown', 'Unknown thread');
   }
   if (deletions.has(threadId)) {
-    throw new Error('Thread deletion has closed command admission');
+    throw refusalError(
+      'conflict',
+      'thread.deleting',
+      'Thread deletion has closed command admission'
+    );
   }
   assertHostAdmissionCleanup(failedAdmissions, threadId);
 }

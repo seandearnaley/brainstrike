@@ -12,7 +12,11 @@ import {
   selectCliWorkspaceRoots,
 } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
-import { DEFAULT_PERMISSION_POLICIES, isPermissionDenied } from '@brainstrike/assistant-contract';
+import {
+  DEFAULT_PERMISSION_POLICIES,
+  isPermissionDenied,
+  refusalError,
+} from '@brainstrike/assistant-contract';
 import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/ports';
@@ -244,7 +248,11 @@ async function readDesktopNativeAdmission(
     intent.selectionFolderId &&
     !liveRoots.some((root) => root.rootId === intent.selectionFolderId)
   ) {
-    throw new Error('The selected workspace root is no longer mounted');
+    throw refusalError(
+      'conflict',
+      'workspace.selection-unmounted',
+      'The selected workspace root is no longer mounted'
+    );
   }
   const runtime: RuntimeData = {
     model: configuration.model,
@@ -330,7 +338,11 @@ function desktopRunTools(
     return tools;
   }
   if (provider === 'local') {
-    throw new Error('Plan mode is unavailable for the built-in local provider');
+    throw refusalError(
+      'configuration',
+      'run.plan-mode-unavailable',
+      'Plan mode is unavailable for the built-in local provider'
+    );
   }
   return desktopPlanModeTools(tools);
 }

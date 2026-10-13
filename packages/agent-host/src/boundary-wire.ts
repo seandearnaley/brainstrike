@@ -54,12 +54,22 @@ export function toBoundaryResponseError(
   log: BoundaryLog
 ): ResponseError<BoundaryFailure> {
   const typed = typedFailure(cause);
+  if (typed?.kind === 'refusal') {
+    return new ResponseError(BOUNDARY_REFUSAL_RPC_CODE, typed.message, typed);
+  }
   if (typed) {
-    return new ResponseError(
-      typed.kind === 'refusal' ? BOUNDARY_REFUSAL_RPC_CODE : ErrorCodes.InternalError,
-      typed.message,
-      typed
-    );
+    // A typed fault's inner cause stays here, logged under its correlation id.
+    const inner = cause instanceof Error ? cause.cause : undefined;
+    const correlationId = typed.correlationId ?? crypto.randomUUID();
+    if (inner !== undefined) {
+      log('A typed fault crossed a process boundary', {
+        cause: serialized(inner),
+        code: typed.code,
+        correlationId,
+      });
+    }
+    const failure: BoundaryFailure = { ...typed, correlationId };
+    return new ResponseError(ErrorCodes.InternalError, failure.message, failure);
   }
   const correlationId = crypto.randomUUID();
   log('Untyped failure crossed a process boundary', { correlationId, error: serialized(cause) });
