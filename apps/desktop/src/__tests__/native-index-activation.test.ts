@@ -673,6 +673,8 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
     distance: 'cosine',
     dtype: 'q8',
     modelId: 'Xenova/all-MiniLM-L6-v2',
+    // The catalog row states MiniLM's prompts (none), so the resolved profile carries them.
+    prompts: { document: '', query: '' },
     provider: 'transformers',
     revision: '751bff37182d3f1213fa05d7196b954e230abad9',
   } as const;
@@ -694,6 +696,13 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
       : sql.includes('FROM embedding_sets')
         ? [
             {
+              // Its catalog row: a mean-pooled local model states no pooling or pins.
+              catalogCapabilities: {
+                defaultDimension: 384,
+                prompts: { document: '', query: '' },
+                type: 'embedding',
+              },
+              catalogParameters: null,
               dimensions: 384,
               distance: 'cosine',
               id: 'selected',

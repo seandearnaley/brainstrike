@@ -1,4 +1,9 @@
-import type { EmbeddingDType } from '@brainstrike/indexing-contract';
+import type {
+  CatalogEmbeddingModel,
+  EmbeddingDType,
+  EmbeddingPooling,
+  EmbeddingPrompts,
+} from '@brainstrike/indexing-contract';
 
 export interface SelectedEmbeddingRequestPlan {
   readonly device?: 'webgpu' | 'wasm';
@@ -12,15 +17,26 @@ export interface CatalogEmbeddingWorkerPlan {
   readonly dimensions: number;
   readonly dtype: EmbeddingDType;
   readonly modelId: string;
+  /** The catalog model's pooling; absent asks the worker for 'mean'. */
+  readonly pooling?: EmbeddingPooling;
+  /** The catalog model's query/document prompts; absent embeds raw text. */
+  readonly prompts?: EmbeddingPrompts;
   readonly revision?: string;
 }
 export interface CatalogEmbeddingProfile {
   readonly dimensions: number;
   readonly dtype: EmbeddingDType;
   readonly modelId: string;
+  readonly pooling?: EmbeddingPooling;
+  readonly prompts?: EmbeddingPrompts;
   readonly revision?: string;
   readonly tokenCap?: number;
 }
+/** The catalog facts a plan takes: a decoded row has them all; a caller may pass fewer. */
+export type CatalogModelFacts = Pick<CatalogEmbeddingModel, 'dimensions' | 'id'> &
+  Partial<
+    Pick<CatalogEmbeddingModel, 'contextWindow' | 'execution' | 'pooling' | 'prompts' | 'revision'>
+  >;
 
 /** Validate execution DTOs independently of catalog authorization, including in preload. */
 export function validateCatalogEmbeddingWorkerPlan(
@@ -53,10 +69,14 @@ export function validateCatalogEmbeddingWorkerPlan(
   };
 }
 
-/** Existing catalog authority selects the model; missing revisions remain missing. */
+/**
+ * Existing catalog authority selects the model; missing revisions remain missing.
+ * The catalog's pooling joins the plan, and a catalog revision pin must be the
+ * selection's revision.
+ */
 export function resolveCatalogEmbeddingPlan(
   request: SelectedEmbeddingRequestPlan,
-  model: { readonly id: string; readonly dimensions: number; readonly contextWindow?: number }
+  model: CatalogModelFacts
 ):
   | { readonly kind: 'unavailable'; readonly reason: string }
   | {
@@ -70,9 +90,19 @@ export function resolveCatalogEmbeddingPlan(
       reason: 'Selected execution differs from the authorized catalog model or dimensions.',
     };
   }
+  if (model.revision !== undefined && request.revision !== model.revision) {
+    return {
+      kind: 'unavailable',
+      reason: `Selected execution must use the catalog's pinned revision ${model.revision}.`,
+    };
+  }
   let workerPlan: CatalogEmbeddingWorkerPlan;
   try {
-    workerPlan = validateCatalogEmbeddingWorkerPlan(request);
+    workerPlan = {
+      ...validateCatalogEmbeddingWorkerPlan(request),
+      ...(model.pooling === undefined ? {} : { pooling: model.pooling }),
+      ...(model.prompts === undefined ? {} : { prompts: model.prompts }),
+    };
   } catch (error) {
     return { kind: 'unavailable', reason: error instanceof Error ? error.message : String(error) };
   }
@@ -114,19 +144,25 @@ export function quantizesUnpinnedLoad(model: {
  * What the embedding host's unpinned catalog query loads (legacy local recall):
  * the host's device and the dtype the rules above give a catalog model, which
  * the host never loads as pre-quantized. Pinning it keeps every vector in one
- * execution space.
+ * execution space. A catalog row that states its execution dtype, revision and
+ * pooling (BST-1993) is loaded exactly as it states.
  */
 export function unpinnedCatalogEmbeddingPlan(
-  model: { readonly dimensions: number; readonly id: string },
+  model: CatalogModelFacts,
   device: 'webgpu' | 'wasm'
 ): CatalogEmbeddingWorkerPlan {
   return {
     device,
     dimensions: model.dimensions,
-    dtype: unpinnedEmbeddingDType(
-      device,
-      quantizesUnpinnedLoad({ dimensions: model.dimensions, quantized: false })
-    ),
+    dtype:
+      model.execution?.[device] ??
+      unpinnedEmbeddingDType(
+        device,
+        quantizesUnpinnedLoad({ dimensions: model.dimensions, quantized: false })
+      ),
     modelId: model.id,
+    ...(model.pooling === undefined ? {} : { pooling: model.pooling }),
+    ...(model.prompts === undefined ? {} : { prompts: model.prompts }),
+    ...(model.revision === undefined ? {} : { revision: model.revision }),
   };
 }

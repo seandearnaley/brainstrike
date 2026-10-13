@@ -78,8 +78,12 @@ Guard: `vector-preferences-store.hidden-host.test.ts`,
 ### Vendor model input and batching
 
 - The selected model's Transformers.js feature-extraction pipeline owns tokenizer
-  limits and mean pooling. Do not impose a model-specific tokenizer cap or substitute
+  limits and pooling. Do not impose a model-specific tokenizer cap or substitute
   another export. Preserve the caller's batch count ceiling and stream order.
+- A local model's pooling is its catalog row's (`capabilities.pooling`; absent means
+  mean). Main resolves it into the plan and profile; every hop carries it, the worker
+  echoes it in completion metadata, and pinned requests assert it like revision and
+  dtype. A plan decoder refuses unknown fields rather than dropping them (BST-1993).
 - An explicit revision reaches the vendor loader, isolates pipeline caches, and
   must match completion metadata. Omitted revisions preserve vendor behavior.
 

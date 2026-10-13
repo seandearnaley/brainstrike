@@ -47,6 +47,20 @@ describe('toWorkerRequest', () => {
       })
     ).toMatchObject({ revision });
   });
+  it.each(['mean', 'cls'] as const)(
+    'preserves the model pooling %s in the scalar worker request (BST-1993)',
+    (pooling) => {
+      expect(
+        toWorkerRequest({
+          ...basePayload,
+          id: 'pooled',
+          model: 'onnx-community/granite-embedding-small-english-r2-ONNX',
+          pooling,
+          texts: ['query'],
+        })
+      ).toMatchObject({ pooling });
+    }
+  );
   it('rejects an empty revision rather than dropping the pin', () => {
     expect(() =>
       toWorkerRequest({

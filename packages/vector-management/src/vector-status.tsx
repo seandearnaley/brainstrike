@@ -46,6 +46,7 @@ const DISABLED_QUEUE_RESULT = {
     elapsedMs: 0,
     fallbackApplied: false,
     model: 'disabled',
+    pooling: 'mean',
   },
   type: 'result',
   vectors: [],

@@ -48,6 +48,9 @@ vi.mock('../transformers-backend', () => ({
   },
 }));
 
+// BAAI's card: an optional instruction for short queries, none for passages.
+const BGE_QUERY_INSTRUCTION = 'Represent this sentence for searching relevant passages: ';
+
 // Test model configurations
 const BGE_BASE_MODEL: ModelConfig = {
   description: 'test model',
@@ -69,17 +72,6 @@ const BGE_M3_MODEL: ModelConfig = {
   quantized: false,
   size: 'large',
   tags: ['test'],
-};
-
-const JINA_CODE_MODEL: ModelConfig = {
-  description: 'test model',
-  dimensions: 768,
-  id: 'jinaai/jina-embeddings-v2-base-code',
-  name: 'Jina Code',
-  origin: 'hf',
-  quantized: false,
-  size: 'medium',
-  tags: ['code'],
 };
 
 describe('SimpleEmbeddingService lifecycle', () => {
@@ -157,39 +149,65 @@ describe('SimpleEmbeddingService lifecycle', () => {
     await expect(svc.generateEmbedding('hello')).rejects.toThrow(/Service not initialized/);
   });
 
-  it('prefixes query embeddings for non-M3 BGE models', async () => {
-    // BGE-base and other non-M3 BGE models require query/passage prefixes
-    // BGE-M3 specifically does NOT need prefixes per official BAAI docs:
-    // https://huggingface.co/BAAI/bge-m3/discussions/35
+  it('embeds raw text when the catalog states no prompts, whatever the model id says (BST-1993)', async () => {
     const svcModule = await import('../bge-m3-service.js');
     const svc = new svcModule.SimpleEmbeddingService();
 
     await svc.initializeWithModel(BGE_BASE_MODEL);
-    const result = await svc.generateQueryEmbedding('where is the library?');
-
-    expect(generateEmbeddingMock).toHaveBeenCalled();
-    const [prompt, modelId] = generateEmbeddingMock.mock.calls.at(-1)!;
-    expect(prompt.startsWith('query: ')).toBe(true);
-    expect(modelId).toBeDefined();
-    expect(result.embedding).toHaveLength(2);
+    await svc.generateQueryEmbedding('where is the library?');
+    expect(generateEmbeddingMock.mock.calls.at(-1)?.[0]).toBe('where is the library?');
+    await svc.generateDocEmbedding('the library is on main street');
+    expect(generateEmbeddingMock.mock.calls.at(-1)?.[0]).toBe('the library is on main street');
   });
 
-  it('does not prefix query embeddings for BGE-M3', async () => {
-    // BGE-M3 specifically does NOT need prefixes per official BAAI docs:
-    // https://huggingface.co/BAAI/bge-m3/discussions/35
+  it('applies exactly the prompts the catalog states (BST-1993)', async () => {
     const svcModule = await import('../bge-m3-service.js');
     const svc = new svcModule.SimpleEmbeddingService();
 
-    await svc.initializeWithModel(BGE_M3_MODEL);
+    await svc.initializeWithModel({
+      ...BGE_BASE_MODEL,
+      prompts: { document: '', query: BGE_QUERY_INSTRUCTION },
+    });
     const result = await svc.generateQueryEmbedding('where is the library?');
-
-    expect(generateEmbeddingMock).toHaveBeenCalled();
-    const [prompt, modelId] = generateEmbeddingMock.mock.calls.at(-1)!;
-    // BGE-M3 should NOT have the query: prefix
-    expect(prompt).toBe('where is the library?');
-    expect(prompt.startsWith('query: ')).toBe(false);
-    expect(modelId).toBeDefined();
+    expect(generateEmbeddingMock.mock.calls.at(-1)?.[0]).toBe(
+      `${BGE_QUERY_INSTRUCTION}where is the library?`
+    );
     expect(result.embedding).toHaveLength(2);
+    await svc.generateDocEmbedding('the library is on main street');
+    expect(generateEmbeddingMock.mock.calls.at(-1)?.[0]).toBe('the library is on main street');
+  });
+
+  it("applies a pinned plan's catalog prompts (BST-1993)", async () => {
+    const svcModule = await import('../bge-m3-service.js');
+    const svc = new svcModule.SimpleEmbeddingService();
+
+    await svc.initialize({
+      device: 'wasm',
+      dtype: 'q8',
+      modelConfig: BGE_BASE_MODEL,
+      modelId: BGE_BASE_MODEL.id,
+      prompts: { document: 'doc: ', query: 'ask: ' },
+    });
+    await svc.generateQueryEmbedding('q');
+    expect(generateEmbeddingMock.mock.calls.at(-1)?.[0]).toBe('ask: q');
+    await svc.generateDocEmbedding('d');
+    expect(generateEmbeddingMock.mock.calls.at(-1)?.[0]).toBe('doc: d');
+  });
+
+  it("never carries a previous model's prompts or pooling into the next load (BST-1993)", async () => {
+    const svcModule = await import('../bge-m3-service.js');
+    const svc = new svcModule.SimpleEmbeddingService();
+
+    await svc.initializeWithModel({
+      ...BGE_BASE_MODEL,
+      pooling: 'cls',
+      prompts: { document: '', query: BGE_QUERY_INSTRUCTION },
+    });
+    await svc.dispose();
+    await svc.initializeWithModel(BGE_M3_MODEL);
+    await svc.generateQueryEmbedding('where is the library?');
+    expect(generateEmbeddingMock.mock.calls.at(-1)?.[0]).toBe('where is the library?');
+    expect(initializeMock.mock.calls.at(-1)?.[0]).not.toHaveProperty('pooling');
   });
 
   it('passes query execution options to the backend', async () => {
@@ -203,30 +221,6 @@ describe('SimpleEmbeddingService lifecycle', () => {
     expect(generateEmbeddingMock).toHaveBeenLastCalledWith('cancelable query', BGE_M3_MODEL.id, {
       signal: controller.signal,
     });
-  });
-
-  it('applies Jina code retrieval prompt for document embeddings', async () => {
-    const svcModule = await import('../bge-m3-service.js');
-    const svc = new svcModule.SimpleEmbeddingService();
-
-    await svc.initializeWithModel(JINA_CODE_MODEL);
-    await svc.generateDocEmbedding('function test() {}');
-
-    expect(generateEmbeddingMock).toHaveBeenCalled();
-    const [prompt] = generateEmbeddingMock.mock.calls.at(-1)!;
-    expect(prompt).toContain('Represent the following code snippet');
-  });
-
-  it('applies Jina code retrieval prompt for query embeddings', async () => {
-    const svcModule = await import('../bge-m3-service.js');
-    const svc = new svcModule.SimpleEmbeddingService();
-
-    await svc.initializeWithModel(JINA_CODE_MODEL);
-    await svc.generateQueryEmbedding('how to sort an array');
-
-    expect(generateEmbeddingMock).toHaveBeenCalled();
-    const [prompt] = generateEmbeddingMock.mock.calls.at(-1)!;
-    expect(prompt).toContain('Represent the programming question');
   });
 
   it('sets target dimensions when initializing with model config', async () => {

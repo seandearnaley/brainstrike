@@ -2,6 +2,7 @@ import type { ElectronVectorPreferencesBridge } from '@brainstrike/app-state/sto
 import type { ChunkResult } from '@brainstrike/chunking-worker';
 import type { DatabaseWorkOptions, DesktopDatabaseBridge } from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
+import type { WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
 import type {
   FileSystemWatchEvent,
   IFileNode,
@@ -36,6 +37,10 @@ import type {
   EmbeddingHostQueryEmbeddingResponseReport,
   EmbeddingHostStatus,
 } from '../embedding-host-shared';
+import type {
+  EmbeddingHostWebGpuAdapterRequest,
+  EmbeddingHostWebGpuAdapterResponseReport,
+} from '../embedding-host-webgpu-adapter';
 
 export interface DesktopStorageBridge {
   clear: () => Promise<void>;
@@ -216,6 +221,10 @@ export interface VisibleEmbeddingHostBridge {
     callback: (request: EmbeddingHostQueryEmbeddingRequest) => void
   ) => () => void;
   onStatus: (callback: (status: EmbeddingHostStatus) => void) => () => void;
+  /** The hidden host answers Main's WebGPU adapter request (BST-1993). */
+  onWebgpuAdapterRequest: (
+    callback: (request: EmbeddingHostWebGpuAdapterRequest) => void
+  ) => () => void;
   queryEmbedding: (
     payload: EmbeddingHostQueryEmbeddingPayload,
     options?: { readonly requestId: string }
@@ -225,8 +234,11 @@ export interface VisibleEmbeddingHostBridge {
   ) => void;
   reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;
   reportStatus: (status: EmbeddingHostStatus) => void;
+  reportWebgpuAdapterResponse: (response: EmbeddingHostWebGpuAdapterResponseReport) => void;
   reset: () => Promise<EmbeddingHostStatus>;
   stop: () => Promise<EmbeddingHostStatus>;
+  /** The host's WebGPU detection; starts it without loading a model (BST-1993). */
+  webgpuAdapter: () => Promise<WebGpuAdapterAvailability>;
 }
 
 export type EmbeddingHostRuntimeBridge = Pick<
@@ -239,6 +251,8 @@ export type EmbeddingHostRuntimeBridge = Pick<
   | 'onQueryEmbeddingCancel'
   | 'reportQueryEmbeddingResponse'
   | 'reportStatus'
+  | 'onWebgpuAdapterRequest'
+  | 'reportWebgpuAdapterResponse'
 >;
 
 export interface VisibleDesktopCapabilities {
