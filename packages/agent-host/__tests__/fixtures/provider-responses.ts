@@ -111,3 +111,13 @@ export function anthropicMessageJson(model: string, text: string): Response {
     usage: { input_tokens: 1, output_tokens: 1 },
   });
 }
+
+/** The real desktop shim's Responses error sequence, with the recorded payload. */
+export function openAIResponsesError(model: string, error: unknown): Response {
+  const { response } = openAIResponse(model, '');
+  const frames = [{ response, type: 'response.created' }, error];
+  return new Response(frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join(''), {
+    headers: { ...SSE_HEADERS, 'retry-after': '0' },
+    status: 200,
+  });
+}

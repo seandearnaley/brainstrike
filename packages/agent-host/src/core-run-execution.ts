@@ -582,8 +582,13 @@ async function runHostSdkAttempt(
         ports.telemetry({ chunk: jsonValue(chunk), runId: run.id, threadId: run.threadId });
         continue;
       }
+      // observe retained/logged the original cause and resolved its safe detail.
+      // SDK errors also carry requests, responses and retry graphs: none is a
+      // public transcript. Reuse the terminal projection before durable publication.
+      const publicChunk =
+        chunk.type === 'error' ? { error: outcome.detail(), type: chunk.type } : chunk;
       await ports.append(run.threadId, [
-        { chunk: jsonValue(chunk), runId: run.id, type: 'stream.chunk' },
+        { chunk: jsonValue(publicChunk), runId: run.id, type: 'stream.chunk' },
       ]);
       if (chunk.type === 'finish-step') {
         await ports.syncBoundary(run.threadId);
