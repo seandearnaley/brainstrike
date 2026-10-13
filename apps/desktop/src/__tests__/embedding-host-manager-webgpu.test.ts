@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EMBEDDING_HOST_WEBGPU_ADAPTER_REQUEST_EVENT } from '../embedding-host-shared';
 import {
   assertEmbeddingHostWebGpuAdapterRequest,
@@ -9,6 +9,7 @@ import {
 import {
   createEmbeddingHostManager,
   currentLifecycleStatus,
+  lifecycleCallbacks,
   lifecycleState,
   mockHostWindow,
 } from './embedding-host-manager-fixture';
@@ -22,6 +23,10 @@ describe('EmbeddingHostManager WebGPU availability (BST-1993)', () => {
     currentLifecycleStatus.state = 'stopped';
     mockHostWindow.isDestroyed.mockReturnValue(false);
     mockHostWindow.webContents.send.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   const running = {
@@ -53,13 +58,15 @@ describe('EmbeddingHostManager WebGPU availability (BST-1993)', () => {
       mockHostWindow.webContents.id + 1,
       createEmbeddingHostWebGpuAdapterResultReport(request, { available: false, reason: 'x' })
     );
-    manager.acceptWebGpuAdapterResponseReport(
-      mockHostWindow.webContents.id,
-      createEmbeddingHostWebGpuAdapterResultReport(
-        { ...request, requestId: 'another-request' },
-        { available: false, reason: 'x' }
-      )
-    );
+    for (const other of [
+      { ...request, requestId: 'another-request' },
+      { ...request, runtimeId: 'superseded-runtime' },
+    ]) {
+      manager.acceptWebGpuAdapterResponseReport(
+        mockHostWindow.webContents.id,
+        createEmbeddingHostWebGpuAdapterResultReport(other, { available: false, reason: 'x' })
+      );
+    }
     const detection = { available: true, reason: 'WebGPU acceleration available (Apple M3)' };
     manager.acceptWebGpuAdapterResponseReport(
       mockHostWindow.webContents.id,
@@ -87,5 +94,38 @@ describe('EmbeddingHostManager WebGPU availability (BST-1993)', () => {
       state: 'error',
     });
     await expect(manager.webgpuAdapter()).rejects.toThrow('host crashed');
+  });
+
+  // The exchange is the shared host request channel: the query requests' deadline and the
+  // lifecycle's reject-all settle it, so Settings shows a failure instead of waiting forever.
+  it('refuses a host that never answers at the host request deadline', async () => {
+    vi.useFakeTimers();
+    lifecycleState.ensureStarted.mockResolvedValueOnce(running);
+    const manager = createEmbeddingHostManager();
+    const detected = manager.webgpuAdapter();
+    let settled = false;
+    const refused = expect(
+      detected.finally(() => {
+        settled = true;
+      })
+    ).rejects.toThrow(/timed out after 60000ms/u);
+    await vi.advanceTimersByTimeAsync(0);
+    sentRequest();
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await refused;
+  });
+
+  it('refuses a pending detection when the host window closes', async () => {
+    lifecycleState.ensureStarted.mockResolvedValueOnce(running);
+    const manager = createEmbeddingHostManager();
+    const detected = manager.webgpuAdapter();
+    await vi.waitFor(() => sentRequest());
+    if (!lifecycleCallbacks.current) {
+      throw new Error('Expected the manager to register lifecycle callbacks');
+    }
+    lifecycleCallbacks.current.onWindowClosed();
+    await expect(detected).rejects.toThrow('Embedding host window closed');
   });
 });

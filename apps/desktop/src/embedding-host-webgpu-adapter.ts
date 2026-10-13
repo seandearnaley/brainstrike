@@ -11,6 +11,7 @@ import {
 } from '@brainstrike/worker-runtime';
 import { assertRuntimeObjectPayloadEnvelope } from '@brainstrike/worker-runtime/validation';
 import { assertEmbeddingHostErrorPayload } from './embedding-host-shared';
+import { createHostRequestChannel, type HostRequestChannel } from './platform/host-request-channel';
 
 /**
  * Settings asks the embedding host for its own WebGPU detection with one request and one
@@ -130,77 +131,29 @@ export function assertEmbeddingHostWebGpuAdapterResponseReport(
   throw new Error('Embedding host WebGPU adapter response has an unknown type or channel.');
 }
 
-interface PendingWebGpuAdapterRequest {
-  readonly reject: (error: Error) => void;
-  readonly resolve: (availability: WebGpuAdapterAvailability) => void;
-  readonly runtimeId: string;
-  readonly timer: ReturnType<typeof setTimeout>;
+/**
+ * The exchange's correlation is the shared host request channel every host manager uses:
+ * its per-request deadline, reject-all and runtime-scoped ids are the query requests' own.
+ */
+export function createWebGpuAdapterRequestChannel(
+  send: (request: EmbeddingHostWebGpuAdapterRequest) => void,
+  timeoutMs: number
+): HostRequestChannel<EmbeddingHostWebGpuAdapterRequest, EmbeddingHostWebGpuAdapterResponseReport> {
+  return createHostRequestChannel({
+    requestId: (request) => `${request.runtimeId}:${request.requestId}`,
+    responseId: (response) => `${response.runtimeId}:${response.requestId}`,
+    role: 'Embedding host WebGPU adapter',
+    send,
+    timeoutMs: () => timeoutMs,
+  });
 }
 
-/** Main's outstanding WebGPU adapter requests, settled only by their exact response. */
-export class EmbeddingHostWebGpuAdapterRequests {
-  private readonly pending = new Map<string, PendingWebGpuAdapterRequest>();
-
-  /** Starts the host on demand, then asks it; a host that did not start refuses. */
-  async detect(
-    start: () => Promise<{
-      readonly lastError: string | null;
-      readonly runtimeId: string;
-      readonly state: string;
-    }>,
-    send: (request: EmbeddingHostWebGpuAdapterRequest) => void,
-    timeoutMs: number
-  ): Promise<WebGpuAdapterAvailability> {
-    const status = await start();
-    if (status.state !== 'running') {
-      throw new Error(status.lastError ?? 'The embedding host is not running.');
-    }
-    return await this.request(status.runtimeId, send, timeoutMs);
+/** The detection a response carries, or the host's detection failure as an error. */
+export function readWebGpuAdapterResponse(
+  response: EmbeddingHostWebGpuAdapterResponseReport
+): WebGpuAdapterAvailability {
+  if (response.type === 'error') {
+    throw deserializeRuntimeError(response.payload);
   }
-
-  request(
-    runtimeId: string,
-    send: (request: EmbeddingHostWebGpuAdapterRequest) => void,
-    timeoutMs: number
-  ): Promise<WebGpuAdapterAvailability> {
-    const request = createEmbeddingHostWebGpuAdapterRequest(runtimeId);
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(request.requestId);
-        reject(
-          new Error(`The embedding host did not report WebGPU availability in ${timeoutMs} ms.`)
-        );
-      }, timeoutMs);
-      this.pending.set(request.requestId, { reject, resolve, runtimeId, timer });
-      try {
-        send(request);
-      } catch (error) {
-        clearTimeout(timer);
-        this.pending.delete(request.requestId);
-        reject(error instanceof Error ? error : new Error(String(error)));
-      }
-    });
-  }
-
-  accept(report: EmbeddingHostWebGpuAdapterResponseReport): void {
-    const pending = this.pending.get(report.requestId);
-    if (!pending || pending.runtimeId !== report.runtimeId) {
-      return;
-    }
-    this.pending.delete(report.requestId);
-    clearTimeout(pending.timer);
-    if (report.type === 'result') {
-      pending.resolve(report.payload);
-      return;
-    }
-    pending.reject(deserializeRuntimeError(report.payload));
-  }
-
-  rejectAll(error: Error): void {
-    for (const [requestId, pending] of this.pending) {
-      clearTimeout(pending.timer);
-      this.pending.delete(requestId);
-      pending.reject(error);
-    }
-  }
+  return response.payload;
 }

@@ -43,8 +43,10 @@ import {
 } from './embedding-host-shared';
 import { waitForHostStartup } from './embedding-host-startup';
 import {
-  EmbeddingHostWebGpuAdapterRequests,
+  createEmbeddingHostWebGpuAdapterRequest,
+  createWebGpuAdapterRequestChannel,
   type EmbeddingHostWebGpuAdapterResponseReport,
+  readWebGpuAdapterResponse,
 } from './embedding-host-webgpu-adapter';
 import { HostedEmbeddingRequests } from './hosted-embedding-requests';
 import { createHostRequestChannel, type HostRequestChannel } from './platform/host-request-channel';
@@ -77,7 +79,9 @@ export interface EmbeddingHostManagerOptions {
 export class EmbeddingHostManager {
   private readonly hostedRequests: HostedEmbeddingRequests;
   private readonly startup = new EmbeddingHostStartup();
-  private readonly webgpuAdapterRequests = new EmbeddingHostWebGpuAdapterRequests();
+  private readonly webgpuAdapterRequests = createWebGpuAdapterRequestChannel((request) => {
+    this.requireHostWindow().webContents.send(EMBEDDING_HOST_WEBGPU_ADAPTER_REQUEST_EVENT, request);
+  }, QUERY_EMBEDDING_TIMEOUT_MS);
   private disposed = false;
   private disposing = false;
   private reportedRuntimeId: string | null = null;
@@ -306,24 +310,23 @@ export class EmbeddingHostManager {
 
   /** Settings' WebGPU detection: an on-demand start, like a native request, loads no model. */
   async webgpuAdapter(): Promise<WebGpuAdapterAvailability> {
-    return await this.webgpuAdapterRequests.detect(
-      () => this.ensureHostStarted({ waitForRunning: true }, false),
-      (request) =>
-        this.requireHostWindow().webContents.send(
-          EMBEDDING_HOST_WEBGPU_ADAPTER_REQUEST_EVENT,
-          request
-        ),
-      HOST_READY_TIMEOUT_MS
-    );
+    const status = await this.ensureHostStarted({ waitForRunning: true }, false);
+    if (status.state !== 'running') {
+      throw new Error(status.lastError ?? 'The embedding host is not running.');
+    }
+    const request = createEmbeddingHostWebGpuAdapterRequest(status.runtimeId);
+    return readWebGpuAdapterResponse(await this.webgpuAdapterRequests.request(request));
   }
 
   acceptWebGpuAdapterResponseReport(
     senderId: number,
     report: EmbeddingHostWebGpuAdapterResponseReport
   ): void {
-    if (this.lifecycle.getHostWindow()?.webContents.id === senderId) {
-      this.webgpuAdapterRequests.accept(report);
+    const window = this.lifecycle.getHostWindow();
+    if (!window || window.isDestroyed() || window.webContents.id !== senderId) {
+      return;
     }
+    this.webgpuAdapterRequests.accept(report);
   }
 
   private async ensureHostStarted(
@@ -984,5 +987,6 @@ export class EmbeddingHostManager {
       typeof reason === 'string' ? new Error(`${reason} (request ${requestId})`) : reason;
     this.queryRequests.rejectAll(failure, { interruptionFailure });
     this.documentRequests.rejectAll(failure, { interruptionFailure });
+    this.webgpuAdapterRequests.rejectAll(failure);
   }
 }

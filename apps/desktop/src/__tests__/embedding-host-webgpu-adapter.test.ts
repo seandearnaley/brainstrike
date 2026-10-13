@@ -5,7 +5,9 @@ import {
   createEmbeddingHostWebGpuAdapterErrorReport,
   createEmbeddingHostWebGpuAdapterRequest,
   createEmbeddingHostWebGpuAdapterResultReport,
-  EmbeddingHostWebGpuAdapterRequests,
+  createWebGpuAdapterRequestChannel,
+  type EmbeddingHostWebGpuAdapterRequest,
+  readWebGpuAdapterResponse,
 } from '../embedding-host-webgpu-adapter';
 
 const detection = { available: false, reason: 'WASM fallback (WebGPU not available)' };
@@ -40,36 +42,39 @@ describe('embedding host WebGPU adapter exchange (BST-1993)', () => {
     });
   });
 
-  it('settles a request only with its exact response', async () => {
-    const requests = new EmbeddingHostWebGpuAdapterRequests();
-    const sent: ReturnType<typeof createEmbeddingHostWebGpuAdapterRequest>[] = [];
-    const answer = requests.request('runtime-1', (request) => sent.push(request), 1000);
-    const [request] = sent;
-    if (!request) {
-      throw new Error('Expected the request to be sent');
-    }
-    requests.accept(
+  it('settles a request only with the response from its own runtime', async () => {
+    const sent: EmbeddingHostWebGpuAdapterRequest[] = [];
+    const channel = createWebGpuAdapterRequestChannel((request) => sent.push(request), 1000);
+    const request = createEmbeddingHostWebGpuAdapterRequest('runtime-1');
+    const answer = channel.request(request);
+    expect(sent).toEqual([request]);
+    channel.accept(
       createEmbeddingHostWebGpuAdapterResultReport(
         { ...request, runtimeId: 'superseded-runtime' },
         detection
       )
     );
-    requests.accept(createEmbeddingHostWebGpuAdapterResultReport(request, detection));
-    await expect(answer).resolves.toEqual(detection);
+    expect(channel.size()).toBe(1);
+    channel.accept(createEmbeddingHostWebGpuAdapterResultReport(request, detection));
+    expect(readWebGpuAdapterResponse(await answer)).toEqual(detection);
   });
 
-  it('refuses a host that never answers and one that did not start', async () => {
-    vi.useFakeTimers();
-    const requests = new EmbeddingHostWebGpuAdapterRequests();
-    const silent = requests.request('runtime-1', () => {}, 1000);
-    vi.advanceTimersByTime(1000);
-    await expect(silent).rejects.toThrow('did not report WebGPU availability in 1000 ms');
-    await expect(
-      requests.detect(
-        async () => ({ lastError: 'host crashed', runtimeId: 'runtime-1', state: 'error' }),
-        () => {},
-        1000
+  it("reads the host's detection failure as an error", () => {
+    const request = createEmbeddingHostWebGpuAdapterRequest('runtime-1');
+    expect(() =>
+      readWebGpuAdapterResponse(
+        createEmbeddingHostWebGpuAdapterErrorReport(request, new Error('requestAdapter threw'))
       )
-    ).rejects.toThrow('host crashed');
+    ).toThrow('requestAdapter threw');
+  });
+
+  it('refuses a request at its deadline', async () => {
+    vi.useFakeTimers();
+    const channel = createWebGpuAdapterRequestChannel(() => {}, 1000);
+    const silent = channel.request(createEmbeddingHostWebGpuAdapterRequest('runtime-1'));
+    const refused = expect(silent).rejects.toThrow(/timed out after 1000ms/u);
+    await vi.advanceTimersByTimeAsync(1000);
+    await refused;
+    expect(channel.size()).toBe(0);
   });
 });
