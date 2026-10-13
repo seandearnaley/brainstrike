@@ -1,3 +1,4 @@
+export { nativeSourceCompletion } from './native-search-source-completion';
 // Core barrel: the UI-free search machinery (result model + executor + store).
 // Exposed as the `@brainstrike/workspace-search/core` subpath so composition-layer
 // consumers (e.g. app-shell's controller) can import the executor/store/types
@@ -38,6 +39,7 @@ export {
   type WorkspaceSearchExecutorDeps,
 } from './workspace-search-executor';
 export {
+  type NativePendingSearch,
   useWorkspaceSearchStore,
   type WorkspaceSearchStatus,
 } from './workspace-search-store';

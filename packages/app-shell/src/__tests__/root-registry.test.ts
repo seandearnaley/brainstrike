@@ -1,6 +1,6 @@
 import type { RootDescriptor } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
-import { reconcileRoots } from '../roots/root-registry';
+import { mapHostRecordedRoots, reconcileRoots } from '../roots/root-registry';
 
 function fsaRoot(rootId: string, name: string): RootDescriptor {
   return {
@@ -446,5 +446,30 @@ describe('reconcileRoots', () => {
 
     expect(query.mock.calls.some(([sql]) => (sql as string).includes('UPDATE roots'))).toBe(false);
     expect(query.mock.calls.some(([sql]) => (sql as string).includes('INSERT'))).toBe(false);
+  });
+
+  it('only reads folder records when the host owns them (BST-1990)', async () => {
+    // Desktop: Main's root registry writes `roots` under the folder's one id.
+    const dbRows = [
+      { id: 'same-id', kind: 'path', path: '/workspace/kept', status: 'disconnected' },
+    ];
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
+    );
+
+    const result = await mapHostRecordedRoots({
+      adapterRoots: [
+        pathRoot('same-id', 'kept', '/workspace/kept'),
+        pathRoot('unrecorded', 'unrecorded', '/workspace/unrecorded'),
+      ],
+      platformKind: 'path',
+      query,
+    });
+
+    expect(
+      query.mock.calls.every(([sql]) => (sql as string).trimStart().startsWith('SELECT'))
+    ).toBe(true);
+    expect([...result.dbRootIdByAdapterRootId]).toEqual([['same-id', 'same-id']]);
+    expect(result.insertedAdapterRootIds.size).toBe(0);
   });
 });

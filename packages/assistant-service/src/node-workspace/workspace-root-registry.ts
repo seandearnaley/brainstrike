@@ -58,7 +58,13 @@ import type {
   StoredWorkspaceRoot,
   WorkspaceRootStorage,
 } from './workspace-root-types.js';
-import { markRootsDisconnectedExcept, type WorkspaceRootsQueryable } from './workspace-roots.js';
+import {
+  findRecordedWorkspaceRoot,
+  markRootsDisconnectedExcept,
+  recordRestoredWorkspaceRoots,
+  recordWorkspaceRoot,
+  type WorkspaceRootsQueryable,
+} from './workspace-roots.js';
 
 export type { SecureWorkspaceRoot, StoredWorkspaceRoot } from './workspace-root-types.js';
 
@@ -148,15 +154,8 @@ export class WorkspaceRootRegistry {
       // read itself IS conditional on this flag — only its POSITION, above
       // the mutation, is unconditional).
       //
-      // The invariant throw below (`recentRootEntries === null`) sits AFTER
-      // reconcileAddMount/persistAddedRoot, so tripping it would reintroduce
-      // exactly the mount-succeeded-but-addRoot-rejected divergence this
-      // hoist exists to remove. Acceptable for a genuinely unreachable
-      // invariant (see that throw's own comment) — reading unconditionally
-      // instead (dropping this ternary and the `null` case entirely) would
-      // make the correlation a type-level fact rather than a runtime
-      // assertion, at the cost of one extra storage read on the
-      // managed-worktree path.
+      // The invariant throw after mounting is unreachable: this read and that
+      // check use the same recordInRecentRoots flag.
       const recentRootEntries = recordInRecentRoots
         ? await readRecentRootsOrQuarantine(this.storage)
         : null;
@@ -172,10 +171,20 @@ export class WorkspaceRootRegistry {
         const mountedMatch = this.mounts.findByCanonicalPath(canonicalPath);
         const existing = await this.findExistingStoredRoot(entries, mountedMatch, canonicalPath);
 
-        const rootId = existing?.rootId ?? mountedMatch?.rootId ?? crypto.randomUUID();
+        const db = await this.getRootsDatabase();
+        // Disconnect removes the grant, not the folder record. Match that record
+        // through the same canonical resolver as persisted grants: a different
+        // spelling of the same folder must not mint a second id (BST-1990).
+        const recorded = await findRecordedWorkspaceRoot(db, existing, (records) =>
+          this.findExistingStoredRoot(records, undefined, canonicalPath)
+        );
+        const rootId = await recordWorkspaceRoot(db, {
+          path: recorded?.path ?? presentationPath,
+          preferredId: recorded?.rootId ?? mountedMatch?.rootId ?? crypto.randomUUID(),
+        });
         const entry: StoredWorkspaceRoot = {
           addedAt: Date.now(),
-          path: existing?.path ?? presentationPath,
+          path: recorded?.path ?? presentationPath,
           rootId,
         };
 
@@ -183,10 +192,16 @@ export class WorkspaceRootRegistry {
         // which unconditionally disposes of it (adopts it or closes it as
         // redundant) — so once this resolves, the probe has been handled
         // exactly once and the finally below must not touch it again.
-        await this.reconcileAddMount(entry, mountedMatch, probe);
+        await this.reconcileAddMount(entry, mountedMatch, probe).catch(async (error: unknown) => {
+          await this.convergeDatabase(); // the record must not stay live without its mount
+          throw error;
+        });
         probeAdopted = true;
 
         const persisted = await this.persistAddedRoot(entries, existing, entry);
+        if (!persisted) {
+          await this.convergeDatabase(); // a session-only mount keeps no live record
+        }
         if (persisted) {
           await writeLastFolderBestEffort(this.storage, entry.path);
         }
@@ -680,6 +695,7 @@ export class WorkspaceRootRegistry {
         );
         await recordRecentRootsIfNew(this.storage, newRecentCandidates);
       }
+      await recordRestoredWorkspaceRoots(this.getRootsDatabase, recentRootCandidates);
       await this.convergeDatabase();
       return descriptors;
     });

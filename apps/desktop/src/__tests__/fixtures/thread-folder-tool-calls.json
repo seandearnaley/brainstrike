@@ -1,0 +1,84 @@
+{
+  "recorded": "m6/smoke-3572, 12 Oct 2026: host run snapshots of flows A2 and I4, and the model shim's tool calls",
+  "needle": "SMOKE_NEEDLE_3572",
+  "A2": {
+    "boundRoots": [
+      {
+        "displayName": "alpha-root",
+        "path": "/private/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/bs-smoke-3572-data/alpha-root",
+        "rootId": "f36c43b3-2663-4ee2-8a95-29b597c98b3b"
+      }
+    ],
+    "liveRoots": [
+      {
+        "displayName": "alpha-root",
+        "path": "/private/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/bs-smoke-3572-data/alpha-root",
+        "rootId": "f36c43b3-2663-4ee2-8a95-29b597c98b3b"
+      },
+      {
+        "displayName": "bravo-root",
+        "path": "/private/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/bs-smoke-3572-data/bravo-root",
+        "rootId": "a6cd837a-7fef-4d8b-a8ef-8b268c37d226"
+      }
+    ],
+    "selectionFolderId": "a6cd837a-7fef-4d8b-a8ef-8b268c37d226",
+    "workspaceBinding": {
+      "operatingRootDisplayName": "alpha-root",
+      "operatingRootId": "f36c43b3-2663-4ee2-8a95-29b597c98b3b",
+      "operatingRootPath": "/private/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/bs-smoke-3572-data/alpha-root"
+    }
+  },
+  "I4": {
+    "boundRoots": [
+      {
+        "displayName": "alpha-root",
+        "path": "/private/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/bs-smoke-3572-data/alpha-root",
+        "rootId": "8b6cb1c6-fd12-450b-974e-215c5a06cdd5"
+      },
+      {
+        "displayName": "bravo-root",
+        "path": "/private/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/bs-smoke-3572-data/bravo-root",
+        "rootId": "c6c7b6e9-47d4-40e7-a08a-fcf8178e57e0"
+      }
+    ],
+    "liveRoots": [
+      {
+        "displayName": "alpha-root",
+        "path": "/private/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/bs-smoke-3572-data/alpha-root",
+        "rootId": "8b6cb1c6-fd12-450b-974e-215c5a06cdd5"
+      },
+      {
+        "displayName": "bravo-root",
+        "path": "/private/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/bs-smoke-3572-data/bravo-root",
+        "rootId": "c6c7b6e9-47d4-40e7-a08a-fcf8178e57e0"
+      }
+    ],
+    "selectionFolderId": "c6c7b6e9-47d4-40e7-a08a-fcf8178e57e0",
+    "workspaceBinding": {
+      "operatingRootDisplayName": "alpha-root",
+      "operatingRootId": "8b6cb1c6-fd12-450b-974e-215c5a06cdd5",
+      "operatingRootPath": "/private/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/bs-smoke-3572-data/alpha-root",
+      "secondaryRootIds": [
+        "c6c7b6e9-47d4-40e7-a08a-fcf8178e57e0"
+      ]
+    }
+  },
+  "calls": {
+    "grepNoRoot": {
+      "maxResults": 100,
+      "outputMode": "content",
+      "pattern": "SMOKE_NEEDLE_3572"
+    },
+    "readOutsideNoRoot": {
+      "path": "bravo-only-1.txt"
+    },
+    "readOutsideWithRoot": {
+      "path": "bravo-only-2.txt",
+      "root": "bravo-root"
+    },
+    "writeNoRoot": {
+      "content": "written by smoke 1\n",
+      "path": "smoke-write-1.txt"
+    }
+  }
+}

@@ -2,8 +2,10 @@ import type {
   IndexerCoverageRequest,
   IndexerGrepRequest,
   IndexerSearchRequest,
+  IndexLifecycleCapability,
   IndexRootRegistrationCapability,
   IndexSearchCapability,
+  NativeIndexLifecycleObservation,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import {
@@ -12,6 +14,7 @@ import {
   type Contract,
   channel,
   parseNoArgs,
+  pushEvent,
 } from '../platform/ipc-contract';
 import { decodeNativeEmbeddingProfile } from '../platform/native-embedding-validation';
 import {
@@ -165,6 +168,9 @@ export const indexSearchContract = {
     parseArgs: parseGrep,
     roles: ['visible-ui'],
   }),
+  onLifecycleChanged: pushEvent<NativeIndexLifecycleObservation>({
+    channel: DESKTOP_IPC_CHANNELS.indexSearch.lifecycleChanged,
+  }),
   rebuild: channel<[], Result<'rebuild'>>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.rebuild,
     parseArgs: parseNoArgs,
@@ -190,5 +196,8 @@ export const indexSearchContract = {
   }),
 } satisfies Contract;
 export type IndexSearchBridgeDerivation = AssertTrue<
-  BridgeMatches<typeof indexSearchContract, IndexSearchCapability & IndexRootRegistrationCapability>
+  BridgeMatches<
+    typeof indexSearchContract,
+    IndexSearchCapability & IndexRootRegistrationCapability & IndexLifecycleCapability
+  >
 >;

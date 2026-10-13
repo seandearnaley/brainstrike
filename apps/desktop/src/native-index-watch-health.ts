@@ -2,7 +2,8 @@ import type { WatcherHealthTransition } from '@brainstrike/types';
 import type { createNativeCanonicalPublication } from './native-canonical-publication';
 
 interface Dependencies {
-  readonly collectionId: string;
+  /** Null for the TEXT partition, which has no collection scope to invalidate. */
+  readonly collectionId: string | null;
   readonly onError: (operation: string, error: unknown) => void;
   readonly publication: () =>
     | Pick<ReturnType<typeof createNativeCanonicalPublication>, 'invalidateScope'>
@@ -35,7 +36,12 @@ export function createNativeIndexWatchHealthHandler(dependencies: Dependencies) 
     const reason = health.failure?.message ?? `Workspace watcher is ${health.state}.`;
     const publication = dependencies.publication();
     publication?.invalidateScope({ kind: 'workspace', rootId: dependencies.rootId });
-    publication?.invalidateScope({ embeddingSetId: dependencies.collectionId, kind: 'collection' });
+    if (dependencies.collectionId !== null) {
+      publication?.invalidateScope({
+        embeddingSetId: dependencies.collectionId,
+        kind: 'collection',
+      });
+    }
     if (
       health.state === 'degraded' &&
       health.backend === 'fs-events' &&

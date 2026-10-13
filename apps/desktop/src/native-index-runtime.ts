@@ -1,7 +1,4 @@
-import {
-  NativeAuthorityTransitionError,
-  NativeReadAuthorityRetiredError,
-} from '@brainstrike/assistant-service/node-native-text-services';
+import { NativeAuthorityTransitionError } from '@brainstrike/assistant-service/node-native-text-services';
 import {
   type IndexerPort,
   type IndexFileBinding,
@@ -11,8 +8,6 @@ import {
 } from '@brainstrike/indexer';
 
 import type { DesktopProfileRuntime } from './desktop-profile-runtime';
-
-export { NativeReadAuthorityRetiredError } from '@brainstrike/assistant-service/node-native-text-services';
 
 type NativePort = IndexerPort & ScopedIndexerPort;
 
@@ -54,22 +49,21 @@ export interface NativeIndexRuntime<Attachment = unknown> {
   retireFailedProfile(): Promise<boolean>;
   retireProfile(reason?: unknown): Promise<void>;
   retireReads(): Promise<void>;
-  retireWorkspaceCollectionFiles(embeddingSetId: string): Promise<void>;
   withRead<T>(
     acquireRead: () => Promise<NativePort>,
     work: (captured: CapturedNativeIndexAuthority) => Promise<T>
   ): Promise<T>;
 }
 
+/**
+ * An authority with no scopes is legitimate: Text search with no collection
+ * (the TEXT partition, BST-1988) has only its folders' scopes, so with no
+ * folder there is nothing to index. A collection always contributes its scope.
+ */
 function retainAuthority(authority: NativeIndexAuthority): NativeIndexAuthority {
   const rootIds = [...authority.rootIds].sort();
   if (new Set(rootIds).size !== rootIds.length || rootIds.some((id) => !id.trim())) {
     throw new Error('Native index requires distinct nonblank authoritative root ids.');
-  }
-  if (authority.scopes.length === 0) {
-    throw new Error(
-      'No authorized desktop workspace or collection is available for native indexing.'
-    );
   }
   return {
     fileBindings: authority.fileBindings.map((binding) => ({
@@ -125,6 +119,113 @@ function workspaceRemoval(file: IndexFileBinding): {
   return { fileId: file.fileId, scope: { kind: 'workspace', rootId: file.rootId } };
 }
 
+/** An unowned stored row, bound only so the writer will remove it. */
+function unownedBinding(
+  row: {
+    readonly fileId: string;
+    readonly relativePath: string | null;
+    readonly rootId: string | null;
+    readonly sourcePath: string | null;
+  },
+  scope: IndexScope,
+  collectionProfile: IndexFileBinding['profile']
+): IndexFileBinding {
+  return scope.kind === 'workspace'
+    ? {
+        embeddingSetId: null,
+        fileId: row.fileId,
+        profile: null,
+        relativePath: row.relativePath,
+        rootId: row.rootId,
+        sourcePath: row.sourcePath,
+      }
+    : {
+        embeddingSetId: scope.embeddingSetId,
+        fileId: row.fileId,
+        profile: collectionProfile,
+        relativePath: null,
+        rootId: null,
+        sourcePath: row.sourcePath,
+      };
+}
+
+function unownedRemoval(file: IndexFileBinding): {
+  readonly fileId: string;
+  readonly scope: IndexScope;
+} {
+  if (file.rootId !== null) {
+    return workspaceRemoval(file);
+  }
+  if (file.embeddingSetId === null) {
+    throw new Error('An unowned row has no removal scope.');
+  }
+  return {
+    fileId: file.fileId,
+    scope: { embeddingSetId: file.embeddingSetId, kind: 'collection' },
+  };
+}
+
+/**
+ * An opened writer's scopes hold exactly the rows its bindings own (BST-1988,
+ * BST-2011). A workspace scope's store rows are every file under that root, and a
+ * collection's every file of that collection, whatever the folder; the writer
+ * only acts on bound files. Rows from another partition, from a folder
+ * disconnected with its data kept, or retired while no writer was open would
+ * otherwise stay unbound and keep a manifest incomplete. Each is bound from its
+ * own stored row and removed: a leased folder's row under its folder, any other
+ * as a rootless row of its collection. They are derived rows; Postgres sources,
+ * and a kept folder's one id, stay. A manifest must declare every file bound in
+ * its scope, so stored rows are listed with no binding held; no reader is
+ * installed until this returns.
+ */
+async function retireUnownedRows(port: NativePort, requested: NativeIndexAuthority): Promise<void> {
+  if (requested.scopes.length === 0) {
+    return;
+  }
+  const roots = new Set(
+    requested.scopes.flatMap((scope) => (scope.kind === 'workspace' ? [scope.rootId] : []))
+  );
+  const collections = new Set(
+    requested.scopes.flatMap((scope) => (scope.kind === 'collection' ? [scope.embeddingSetId] : []))
+  );
+  const held = requested.fileBindings.some(
+    (file) =>
+      (file.rootId !== null && roots.has(file.rootId)) ||
+      (file.embeddingSetId !== null && collections.has(file.embeddingSetId))
+  );
+  if (held) {
+    await port.replaceFileBindings([]);
+  }
+  const owned = new Set(requested.fileBindings.map((file) => file.fileId));
+  const unowned = new Map<string, IndexFileBinding>();
+  // Folders first, so a leased folder's row is removed under its folder.
+  const folderFirst = [...requested.scopes].sort(
+    (left, right) => Number(left.kind !== 'workspace') - Number(right.kind !== 'workspace')
+  );
+  for (const scope of folderFirst) {
+    const profile =
+      scope.kind === 'collection'
+        ? (requested.fileBindings.find((file) => file.embeddingSetId === scope.embeddingSetId)
+            ?.profile ?? null)
+        : null;
+    const stored = await port.verifyScopedManifest({ files: [], scope });
+    for (const row of stored.unexpected) {
+      if (!(owned.has(row.fileId) || unowned.has(row.fileId))) {
+        unowned.set(row.fileId, unownedBinding(row, scope, profile));
+      }
+    }
+  }
+  if (unowned.size > 0) {
+    await port.replaceFileBindings([...requested.fileBindings, ...unowned.values()]);
+    for (const file of unowned.values()) {
+      await port.removeScopedFile(unownedRemoval(file));
+    }
+  }
+  if (held || unowned.size > 0) {
+    await port.replaceFileBindings(requested.fileBindings);
+  }
+}
+
 /** Main owns this admission lifetime. Reset resumes only after releasing its deletion guard. */
 export function createNativeIndexRuntime<Attachment>(
   dependencies: Dependencies<Attachment>
@@ -141,10 +242,6 @@ export function createNativeIndexRuntime<Attachment>(
   let acknowledgedAuthority: NativeIndexAuthority | undefined;
   let acknowledgedPort: NativePort | undefined;
   let bindingRemovalPending = false;
-  let outgoingCollectionId: string | undefined;
-  let outgoingPort: NativePort | undefined;
-  let outgoingFiles: Map<string, IndexFileBinding> | undefined;
-  let workspaceRetirement: Promise<void> | undefined;
   let closed = false;
   let closing: Promise<void> | undefined;
   let closingKind: 'close' | 'destroy' | undefined;
@@ -289,6 +386,7 @@ export function createNativeIndexRuntime<Attachment>(
     }
     await assertAuthorityCurrent();
     const ready = await owner.start();
+    await retireUnownedRows(ready, requested);
     acknowledgedAuthority = requested;
     acknowledgedPort = ready;
     if (closed) {
@@ -302,55 +400,6 @@ export function createNativeIndexRuntime<Attachment>(
     bindings = requestedBindings;
     port = ready;
     return ready;
-  };
-  const settleWorkspaceRetirement = (): Promise<void> => {
-    workspaceRetirement ??= (async () => {
-      await acquisition?.catch(() => undefined);
-      await authorityMutation?.catch(() => undefined);
-      await joinReads();
-      if (!outgoingFiles) {
-        if (!(acknowledgedPort && acknowledgedAuthority)) {
-          if (indexOwner) {
-            throw new Error('Outgoing native files have no acknowledged writer authority.');
-          }
-          return;
-        }
-        outgoingPort = acknowledgedPort;
-        outgoingFiles = new Map(
-          acknowledgedAuthority.fileBindings
-            .filter((file) => file.rootId !== null && file.embeddingSetId === outgoingCollectionId)
-            .map((file) => [file.fileId, file])
-        );
-      }
-      await closeQueries();
-      const ready = outgoingPort;
-      if (!ready) {
-        throw new Error('Outgoing native workspace authority is unavailable.');
-      }
-      for (const file of outgoingFiles.values()) {
-        await ready.removeScopedFile(workspaceRemoval(file));
-        outgoingFiles.delete(file.fileId);
-      }
-    })().finally(() => {
-      workspaceRetirement = undefined;
-    });
-    return workspaceRetirement;
-  };
-  const retireWorkspaceCollectionFiles = (embeddingSetId: string): Promise<void> => {
-    if (closing || !embeddingSetId.trim()) {
-      return Promise.reject(
-        new Error('Native workspace retirement cannot change a closing owner.')
-      );
-    }
-    if (outgoingCollectionId !== undefined && outgoingCollectionId !== embeddingSetId) {
-      return Promise.reject(
-        new Error('Original outgoing native collection retirement must settle first.')
-      );
-    }
-    closed = true;
-    readsClosed = true;
-    outgoingCollectionId = embeddingSetId;
-    return settleWorkspaceRetirement();
   };
   const closeIndex = (destroy = false): Promise<void> => {
     closed = true;
@@ -367,9 +416,6 @@ export function createNativeIndexRuntime<Attachment>(
       await acquisition?.catch(() => undefined);
       await authorityMutation?.catch(() => undefined);
       await joinReads();
-      if (outgoingCollectionId !== undefined) {
-        await settleWorkspaceRetirement();
-      }
       await closeQueries();
       if (destroy && indexOwner) {
         if (!indexOwner.destroy) {
@@ -386,9 +432,6 @@ export function createNativeIndexRuntime<Attachment>(
       acknowledgedAuthority = undefined;
       acknowledgedPort = undefined;
       bindingRemovalPending = false;
-      outgoingCollectionId = undefined;
-      outgoingPort = undefined;
-      outgoingFiles = undefined;
       authorityMutation = undefined;
     })().finally(() => {
       closing = undefined;
@@ -479,7 +522,6 @@ export function createNativeIndexRuntime<Attachment>(
       readsClosed = true;
       await joinReads();
     },
-    retireWorkspaceCollectionFiles,
     withRead: async <T>(
       acquireRead: () => Promise<NativePort>,
       work: (captured: CapturedNativeIndexAuthority) => Promise<T>
@@ -507,7 +549,7 @@ export function createNativeIndexRuntime<Attachment>(
             port: captured.port,
             readAuthority: () => {
               if (closed || readsClosed) {
-                throw new NativeReadAuthorityRetiredError();
+                throw new NativeAuthorityTransitionError('Native read admission is closed.');
               }
               return captured.readAuthority();
             },

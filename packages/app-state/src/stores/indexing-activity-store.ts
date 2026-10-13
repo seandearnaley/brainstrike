@@ -50,7 +50,8 @@ export interface IndexingManagedCollectionStats {
   readonly chunkCount: number;
   readonly dirty: boolean;
   readonly embeddedChunkCount: number;
-  readonly embeddingSetId: string;
+  /** The collection counted, or null for the native TEXT partition (Text search, no collection). */
+  readonly embeddingSetId: string | null;
   readonly fileCount: number;
   readonly lastRefreshedAt: string;
   readonly pendingChunkCount: number;

@@ -83,6 +83,7 @@ it('carries real fenced invalidation data through sandboxed production preload a
     );
     const rejected = await observeCoverage(() => readNativeObservation(context), record);
     expect(rejected).toEqual({
+      cause: { kind: 'transitioning' },
       code: 'native-coverage-observation-invalidated',
       kind: 'invalidated',
     });
@@ -95,7 +96,8 @@ it('carries real fenced invalidation data through sandboxed production preload a
     }
     expect(fresh.value.coverage?.totals.indexedFiles).toBe(1);
     await expect(readNativeSnapshot(context)).rejects.toMatchObject({
-      code: 'native-coverage-observation-invalidated',
+      code: 'native-index-transitioning',
+      refusal: { kind: 'transitioning' },
     });
     const publicBatch = await page.evaluate(async () => {
       const api = window as typeof window & { indexSearch: IndexSearchCapability };

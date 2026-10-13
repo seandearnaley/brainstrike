@@ -545,6 +545,7 @@ export function SearchIndexingSettingsSection({
   );
   const paused = useBackgroundIndexingPreferencesStore((state) => state.paused);
   const setPaused = useBackgroundIndexingPreferencesStore((state) => state.setPaused);
+  const nativeIndexMode = useBackgroundIndexingPreferencesStore((state) => state.nativeIndexMode);
   const syncStatus = useWorkspaceCollectionSyncStatusStore((state) => ({
     activeRootPath: state.activeRootPath,
     backfillRequestId: state.backfillRequestId,
@@ -811,7 +812,12 @@ export function SearchIndexingSettingsSection({
               <p className="text-muted-foreground">
                 Collection:{' '}
                 <span className="font-medium text-foreground">
-                  {syncStatus.managedCollectionName ?? selectedCollection?.name ?? 'None selected'}
+                  {syncStatus.managedCollectionName ??
+                    selectedCollection?.name ??
+                    // Text search needs no collection (BST-1988); only semantic search does.
+                    (nativeIndex && nativeIndexMode === 'TEXT'
+                      ? 'Not used by Text search'
+                      : 'None selected')}
                 </span>
               </p>
               {metricRows.map((row) => (

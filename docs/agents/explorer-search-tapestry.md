@@ -26,7 +26,15 @@
   to the capability, root binding, store, authorized roots/collections, full
   embedding configuration, or full query plan replaces the executor and cancels
   an active query. Compare the complete status projection with only root and
-  collection readiness removed; never retain stale readiness to stabilize it.
+  collection readiness, publication progress and source receipts removed; never
+  retain stale readiness to stabilize it.
+- Keep the pending native query command in the existing search store beside its
+  generation. A successful partial result retains only producer-proven source
+  incompleteness, never generic scan limits or truncation. Observe the same-store
+  selected-scope source receipts separately from executor identity; a current
+  completed proof may refresh the query once. Repeated identical completed proofs
+  cannot replay another partial result. Clear, replacement, options, scope loss,
+  unmount and terminal refusal retire the command through the same store owner.
 - Keep the chunk the single visible selection unit: the chunk row carries the
   only child checkbox, match rows are navigation-only leaves, and every row
   reserves the expand-toggle column so checkboxes align per level.

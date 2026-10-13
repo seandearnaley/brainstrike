@@ -380,6 +380,12 @@ export interface FileSystemAdapter {
    * capability check IS the platform gate (never `isElectron()`).
    */
   onWatcherHealth?(callback: (event: WatcherRootHealthEvent) => void): () => void;
+  /**
+   * Present when the platform's own root registry records every mounted folder
+   * in `roots` under its one id (desktop Main, BST-1990). Roots reconciliation
+   * then only reads those records; without it (web), reconciliation writes them.
+   */
+  readonly ownsRootRecords?: true;
   /** Platform identifier for this adapter */
   readonly platform?: 'web' | 'electron';
   readDirectory(handle: DirectoryHandle, options?: DirectoryReadOptions): Promise<IFileNode[]>;

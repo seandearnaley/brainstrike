@@ -100,8 +100,9 @@ export interface IFileRecordRepository {
   findByContentHash: (contentHash: string) => Promise<FileRecord | null>;
   findById: (id: string) => Promise<FileRecord | null>;
   findByIds: (ids: readonly string[]) => Promise<FileRecord[]>;
+  /** `embeddingSetId` null selects the native TEXT partition alone, never any collection. */
   findByManagedCacheIdentity: (
-    embeddingSetId: string,
+    embeddingSetId: string | null,
     rootId: string,
     relativePath: string
   ) => Promise<FileRecord | null>;

@@ -1,4 +1,4 @@
-import { NativeIndexBlockedError } from './native-index-blocked';
+import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
 
 export type NativeReaderStartupOutcome =
   | { readonly kind: 'ready' }
@@ -10,7 +10,8 @@ export function createNativeStartupFailureReporter(
 ): (error: unknown) => void {
   const reported = new WeakSet<object>();
   return (error: unknown): void => {
-    const cause = error instanceof NativeIndexBlockedError ? error.cause : error;
+    const cause =
+      error instanceof NativeIndexRefusalError && error.cause !== undefined ? error.cause : error;
     if ((typeof cause === 'object' && cause !== null) || typeof cause === 'function') {
       if (reported.has(cause)) {
         return;

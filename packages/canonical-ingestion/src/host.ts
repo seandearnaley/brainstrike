@@ -71,6 +71,12 @@ interface DiscoveryOutcome {
   readonly files: readonly CanonicalManifestFile[];
 }
 interface CanonicalIngestionCommon {
+  /**
+   * The partition discovered workspace sources join: the workspace's collection,
+   * or null for the native TEXT partition (BST-1988). A host that never discovers
+   * files (a retained collection) omits it, and discovery without it is refused.
+   */
+  readonly managedCollectionId?: string | null;
   readonly parser: NodeChunkerOptions;
   readonly source: CanonicalSourcePort;
 }
@@ -502,6 +508,7 @@ export class CanonicalIngestionHost {
       context,
       discovered,
       excluded,
+      membership: this.dependencies.managedCollectionId,
       request,
       seenFileIds,
       source,
