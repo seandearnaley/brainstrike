@@ -1,5 +1,7 @@
 // @vitest-environment node
-import { embeddingProfileHash } from '@brainstrike/indexer';
+import { createHash } from 'node:crypto';
+import { embeddingProfileHash, vectorProfileHash } from '@brainstrike/indexer';
+import { indexerEmbeddingProfileValues } from '@brainstrike/indexing-contract/indexer-client';
 import type { SqliteGrepRows } from '@brainstrike/sqlite-query';
 import { expect, it, vi } from 'vitest';
 import { createBenchmarkProgress } from '../../qualification/m2-native/benchmark-progress';
@@ -352,6 +354,30 @@ it('uses the full saved scoped vector profile while the independent legacy engin
       vector,
     })
   ).rejects.toThrow('differs');
+});
+
+it('reports a CLS, prompted profile in status with the identity the renderer mirror computes (BST-1993)', async () => {
+  const granite = {
+    dimensions: 384,
+    distance: 'cosine',
+    dtype: 'fp16',
+    modelId: 'onnx-community/granite-embedding-small-english-r2-ONNX',
+    pooling: 'cls',
+    prompts: { document: 'doc: ', query: 'ask: ' },
+    provider: 'local',
+    revision: '1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8',
+  } as const;
+  const f = fixture(granite);
+  const status = await f.capability.status();
+  if (status.kind !== 'ready' || status.embedding.indexMode !== 'vector-configured') {
+    throw new Error('A configured granite store must report its vector profile.');
+  }
+  expect(status.embedding.profile).toEqual(granite);
+  expect(status.embedding.profileHash).toBe(vectorProfileHash(granite));
+  const mirrored = createHash('sha256')
+    .update(JSON.stringify(indexerEmbeddingProfileValues(status.embedding.profile)))
+    .digest('hex');
+  expect(mirrored).toBe(status.embedding.profileHash);
 });
 
 it('joins the grep reader but refuses its result after canonical collection authority changes', async () => {

@@ -67,6 +67,7 @@ export { useQueueHealthMetrics } from './use-queue-health-metrics';
 // Vector preferences
 export * from './vector-preferences';
 export { VectorStatus, VectorStatusWithDb } from './vector-status';
+export { EMBEDDING_RUNTIME_STATUS_EXTENSION_KEYS } from './vector-status/embedding-runtime-controller';
 // Embedding set selector for self-contained vector status
 export type { EmbeddingSetSelectorProps } from './vector-status/embedding-set-selector';
 export {

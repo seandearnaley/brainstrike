@@ -9,6 +9,7 @@ import type {
   EmbeddingHostQueryEmbeddingResponseReport,
   EmbeddingHostStatus,
 } from '../../embedding-host-shared';
+import type { EmbeddingHostWebGpuAdapterResponseReport } from '../../embedding-host-webgpu-adapter';
 import {
   createEmbeddingHostStatus,
   type EmbeddingHostStatusOptions,
@@ -33,6 +34,8 @@ export function getEmbeddingHostBridge(): {
   ) => () => void;
   reportQueryEmbeddingResponse?: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;
   reportStatus?: (status: EmbeddingHostStatus) => void;
+  onWebgpuAdapterRequest?: (callback: (request: unknown) => void) => () => void;
+  reportWebgpuAdapterResponse?: (response: EmbeddingHostWebGpuAdapterResponseReport) => void;
 } | null {
   const hostWindow = window as Window & {
     embeddingHost?: {
@@ -54,6 +57,8 @@ export function getEmbeddingHostBridge(): {
       ) => () => void;
       reportQueryEmbeddingResponse?: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;
       reportStatus?: (status: EmbeddingHostStatus) => void;
+      onWebgpuAdapterRequest?: (callback: (request: unknown) => void) => () => void;
+      reportWebgpuAdapterResponse?: (response: EmbeddingHostWebGpuAdapterResponseReport) => void;
     };
   };
   return hostWindow.embeddingHost ?? null;

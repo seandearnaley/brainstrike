@@ -15,7 +15,7 @@ describe('embed request pooling', () => {
     const extractor = vi.fn(async () => new Float32Array([1, 0, 0]));
     pipelineMock.mockResolvedValue(extractor);
     const runEmbedding = await loadWorker();
-    await runEmbedding({
+    const result = await runEmbedding({
       deviceHint: 'wasm',
       id: `pooling-${String(pooling)}`,
       model: 'test-model',
@@ -24,5 +24,7 @@ describe('embed request pooling', () => {
       type: 'embed',
     });
     expect(extractor).toHaveBeenCalledWith(['hello'], { normalize: false, pooling: expected });
+    // BST-1993: completion proves the pooling applied, as it proves revision and dtype.
+    expect(result.metadata.pooling).toBe(expected);
   });
 });

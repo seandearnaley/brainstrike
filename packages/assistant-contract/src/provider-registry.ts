@@ -238,6 +238,17 @@ export interface LlmModelDefinition extends BaseModelDefinition {
   vision: ModelVisionSupport;
 }
 
+export interface RecommendedLocalExecution {
+  device: 'webgpu' | 'wasm';
+  dtype: 'fp16' | 'fp32' | 'q4' | 'q8';
+  reason: string;
+}
+
+export interface LocalExecutionNotes {
+  wasm?: string;
+  webgpu?: string;
+}
+
 export interface EmbeddingModelDefinition extends BaseModelDefinition {
   /**
    * Known discrete dimensions offered by this model (if fixed).
@@ -251,6 +262,17 @@ export interface EmbeddingModelDefinition extends BaseModelDefinition {
    * Name of the parameter used to tune embedding dimension. Used by workers.
    */
   dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension';
+  /**
+   * A local model's measured cost per catalog execution device, shown with that
+   * execution's plan in Settings (BST-1993).
+   */
+  executionNotes?: LocalExecutionNotes;
+  /**
+   * The local execution Settings recommends this model for, and why. Settings
+   * recommends it only when the embedding host's own WebGPU detection matches
+   * `device` (BST-1993).
+   */
+  recommendedExecution?: RecommendedLocalExecution;
   /**
    * Indicates whether the provider exposes a parameter to customise the dimension.
    */

@@ -259,6 +259,11 @@ export function deriveMakePrimary(
 ): ThreadCheckoutWrite {
   const next = current.secondaryRoots.find((root) => root.rootId === rootId);
   const nextPath = next?.path;
+  if (next?.removed) {
+    throw new Error(
+      `${next.displayName} was removed from the workspace. Re-add it before making it primary.`
+    );
+  }
   if (!(next && nextPath)) {
     if (current.secondaryRootsError) {
       throw new Error('Folders failed to load — reopen the thread or restart to retry.');
@@ -272,7 +277,12 @@ export function deriveMakePrimary(
       rootId
     );
   }
-  const demotesPrimary = Boolean(current.primaryRootId && current.primaryRootId !== rootId);
+  // BST-1990: a removed folder is dropped in this same write, never demoted or
+  // kept, because the host refuses any binding that still names one.
+  const removed = removedRootIds(current);
+  const demotesPrimary = Boolean(
+    current.primaryRootId && current.primaryRootId !== rootId && !removed.has(current.primaryRootId)
+  );
   const currentPrimaryPath = current.primaryRoot?.path;
   if (
     demotesPrimary &&
@@ -291,8 +301,9 @@ export function deriveMakePrimary(
     !leavesWorktree && demotesPrimary && current.primaryRoot && currentPrimaryPath
       ? [{ ...current.primaryRoot, path: currentPrimaryPath }]
       : [];
+  const kept = (id: string): boolean => id !== rootId && !removed.has(id);
   const secondaryRoots = [
-    ...current.secondaryRoots.filter((root) => root.rootId !== rootId),
+    ...current.secondaryRoots.filter((root) => kept(root.rootId)),
     ...demoted,
   ];
   return {
@@ -303,12 +314,111 @@ export function deriveMakePrimary(
       operatingRootPath: nextPath,
     },
     checkoutLocalRootId: leavesWorktree ? undefined : current.checkoutLocalRootId,
-    ids: [
-      ...current.secondaryRootIds.filter((id) => id !== rootId),
-      ...demoted.map((root) => root.rootId),
-    ],
+    ids: [...current.secondaryRootIds.filter(kept), ...demoted.map((root) => root.rootId)],
     primaryRoot: { ...next, path: nextPath },
     primaryRootId: rootId,
     secondaryRoots,
+  };
+}
+
+/** Every thread folder the workspace no longer serves (BST-1990). */
+function removedRootIds(current: ThreadCheckoutFolders): ReadonlySet<string> {
+  return new Set(
+    [current.primaryRoot, ...current.secondaryRoots].flatMap((root) =>
+      root?.removed ? [root.rootId] : []
+    )
+  );
+}
+
+/** The binding keys that make `root` the thread's operating folder. */
+function operatingRootBinding(root: ThreadCheckoutRoot & { readonly path: string }) {
+  return {
+    operatingRootDisplayName: root.displayName,
+    operatingRootId: root.rootId,
+    operatingRootPath: root.path,
+  };
+}
+
+/** Why the hand-off return folder keeps its Remove action disabled (BST-1456). */
+export const HAND_OFF_RETURN_ROOT_REMOVE_REASON = 'This folder is where Hand off returns to.';
+
+/** Why a removed primary keeps its Remove action disabled. */
+export const REMOVED_PRIMARY_NEEDS_ANOTHER_FOLDER = 'Choose another folder for this thread first.';
+
+/**
+ * "Remove from this thread" (BST-1990). It drops the chosen folder and every
+ * removed one in the same write, because the host refuses a binding that keeps
+ * any. Only a removed primary can be removed: the first live secondary takes its
+ * place. Leaving the hand-off return folder or the worktree primary takes the
+ * thread back to Local in the same write, as a hand-off does.
+ */
+export function deriveRemoveFromThread(
+  current: ThreadCheckoutFolders,
+  rootId: string
+): ThreadCheckoutWrite {
+  const removed = removedRootIds(current);
+  const dropped = new Set([...removed, rootId]);
+  let promoted: (ThreadCheckoutRoot & { readonly path: string }) | undefined;
+  if (rootId === current.primaryRootId) {
+    if (!current.primaryRoot?.removed) {
+      throw new Error('The primary folder stays; make another folder primary first.');
+    }
+    const next = current.secondaryRoots.find((root) => !dropped.has(root.rootId) && root.path);
+    if (!next?.path) {
+      throw new Error(REMOVED_PRIMARY_NEEDS_ANOTHER_FOLDER);
+    }
+    promoted = { ...next, path: next.path };
+  } else if (
+    current.checkoutMode === 'worktree' &&
+    current.checkoutLocalRootId === rootId &&
+    !removed.has(rootId)
+  ) {
+    throw new Error(HAND_OFF_RETURN_ROOT_REMOVE_REASON);
+  }
+  const keep = (id: string): boolean => !dropped.has(id) && id !== promoted?.rootId;
+  const backToLocal =
+    current.checkoutMode === 'worktree' &&
+    (promoted !== undefined ||
+      (current.checkoutLocalRootId !== undefined && dropped.has(current.checkoutLocalRootId)));
+  const binding = {
+    ...(backToLocal ? { checkoutMode: 'local' } : {}),
+    ...(promoted ? operatingRootBinding(promoted) : {}),
+  };
+  return {
+    ...(Object.keys(binding).length > 0 ? { binding } : {}),
+    checkoutLocalRootId: backToLocal ? undefined : current.checkoutLocalRootId,
+    ids: current.secondaryRootIds.filter(keep),
+    primaryRoot: promoted ?? current.primaryRoot,
+    primaryRootId: promoted?.rootId ?? current.primaryRootId,
+    secondaryRoots: current.secondaryRoots.filter((root) => keep(root.rootId)),
+  };
+}
+
+/**
+ * "Use another folder…" (BST-1990): a thread with no live folder takes a
+ * mounted workspace folder as its primary, dropping its removed folders in the
+ * same write. While any thread folder is live, Make primary is the action.
+ */
+export function deriveUseFolder(
+  current: ThreadCheckoutFolders,
+  root: ThreadCheckoutRoot & { readonly path: string }
+): ThreadCheckoutWrite {
+  const live = [current.primaryRoot, ...current.secondaryRoots].some(
+    (folder) => folder && !folder.removed
+  );
+  if (live) {
+    throw new Error('This thread still has a live folder; make it primary instead.');
+  }
+  const leavesWorktree = current.checkoutMode === 'worktree';
+  return {
+    binding: {
+      ...(leavesWorktree ? { checkoutMode: 'local' } : {}),
+      ...operatingRootBinding(root),
+    },
+    checkoutLocalRootId: undefined,
+    ids: [],
+    primaryRoot: root,
+    primaryRootId: root.rootId,
+    secondaryRoots: [],
   };
 }

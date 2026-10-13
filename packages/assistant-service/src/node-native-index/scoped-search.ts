@@ -77,6 +77,12 @@ function embeddingState(profile: VectorProfile | null): IndexerEmbeddingState {
         modelId: profile.modelId,
         provider: profile.provider,
         ...('dtype' in profile ? { dtype: profile.dtype } : {}),
+        ...('pooling' in profile && profile.pooling !== undefined
+          ? { pooling: profile.pooling }
+          : {}),
+        ...('prompts' in profile && profile.prompts !== undefined
+          ? { prompts: profile.prompts }
+          : {}),
         ...('revision' in profile && profile.revision !== undefined
           ? { revision: profile.revision }
           : {}),
@@ -88,7 +94,15 @@ function embeddingState(profile: VectorProfile | null): IndexerEmbeddingState {
     };
   }
   const { modelId, revision, dtype, dimensions, tokenCap } = profile;
-  const projection = { dimensions, dtype, modelId, revision, tokenCap };
+  const projection = {
+    dimensions,
+    dtype,
+    modelId,
+    ...(profile.pooling === undefined ? {} : { pooling: profile.pooling }),
+    ...(profile.prompts === undefined ? {} : { prompts: profile.prompts }),
+    revision,
+    tokenCap,
+  };
   return {
     indexMode: 'vector-configured',
     profile: projection,

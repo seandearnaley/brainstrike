@@ -21,6 +21,26 @@ import {
 export function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
+/**
+ * The one rule for pooling in a profile identity: absent means 'mean', and the
+ * default adds nothing, so every mean profile keeps the identity it had before
+ * pooling was recorded, while 'cls' vectors get their own (BST-1993).
+ */
+export function poolingIdentity(pooling: 'mean' | 'cls' | undefined): readonly 'cls'[] {
+  return pooling === 'cls' ? ['cls'] : [];
+}
+/**
+ * A local identity's catalog prompts. A profile that states them (none being
+ * two empty strings) appends the pair; a profile without them is one produced
+ * before prompts were stated, when the service prepended substring-guessed
+ * prompts, and keeps that identity. Its vectors are therefore never mistaken
+ * for raw-text ones (BST-1993).
+ */
+export function promptIdentity(
+  prompts: { readonly document: string; readonly query: string } | undefined
+): readonly (readonly [string, string])[] {
+  return prompts === undefined ? [] : [[prompts.query, prompts.document]];
+}
 export function embeddingProfileHash(input: unknown): string {
   const profile = decoder(profileSchema)(input);
   return sha256(
@@ -30,6 +50,8 @@ export function embeddingProfileHash(input: unknown): string {
       profile.dtype,
       profile.dimensions,
       profile.tokenCap,
+      ...poolingIdentity(profile.pooling),
+      ...promptIdentity(profile.prompts),
     ])
   );
 }

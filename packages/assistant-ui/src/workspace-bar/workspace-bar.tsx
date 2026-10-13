@@ -14,6 +14,8 @@ export interface WorkspaceBarRoot {
   readonly path?: string | undefined;
   /** Non-null when this secondary must stay attached; rendered on its disabled Remove action. */
   readonly removeDisabledReason?: string | undefined;
+  /** The workspace no longer serves this folder (BST-1990): runs are refused until it is repaired. */
+  readonly removed?: true | undefined;
   readonly rootId: string;
 }
 
@@ -217,7 +219,11 @@ export interface WorkspaceBarProps {
    * first, so both travel together.
    */
   readonly onOpenTerminal?: ((rootId: string, path: string) => void) | undefined;
+  /** Removes a primary the workspace no longer serves, promoting a live folder (BST-1990). */
+  readonly onRemovePrimary: (rootId: string) => void;
   readonly onRemoveSecondary: (rootId: string) => void;
+  /** Makes a mounted workspace folder the primary of a thread with no live folder (BST-1990). */
+  readonly onUseFolder: (folder: WorkspaceBarRecentRoot) => void;
   /**
    * undefined = no folder connected → the chip renders the "Choose a folder"
    * CTA. Secondaries are only meaningful alongside a primary — callers must
@@ -230,6 +236,8 @@ export interface WorkspaceBarProps {
   /** Present only when the platform can reveal a path in its file manager. */
   readonly reveal?: WorkspaceBarReveal | undefined;
   readonly secondaryRoots: readonly WorkspaceBarRoot[];
+  /** The workspace's mounted folders that are not this thread's. */
+  readonly workspaceFolders: readonly WorkspaceBarRecentRoot[];
 }
 
 /**

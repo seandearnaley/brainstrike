@@ -100,10 +100,19 @@ async function createCatalogCollection(page: Page): Promise<string> {
 }
 
 test.describe('Workspace Index first run (desktop)', () => {
-  for (const setup of [{ execution: 'WASM · Q8', model: 'BGE Small' }]) {
-    test(`starts native semantic indexing using visible setup controls: ${setup.execution}`, async ({
+  // Granite is the recommended model; WASM · Q8 is its catalog execution without WebGPU (BST-1993).
+  for (const setup of [
+    { execution: 'WASM · Q8', model: 'BGE Small', modelId: 'Xenova/bge-small-en-v1.5' },
+    {
+      execution: 'WASM · Q8',
+      model: 'Granite Embedding Small R2',
+      modelId: 'onnx-community/granite-embedding-small-english-r2-ONNX',
+    },
+  ]) {
+    test(`starts native semantic indexing using visible setup controls: ${setup.model} ${setup.execution}`, async ({
       electron,
     }, testInfo) => {
+      test.setTimeout(300_000);
       // Keep normal device discovery; this case explicitly selects WASM through the UI.
       const previousAllowGpu = process.env['BRAINSTRIKE_E2E_ALLOW_GPU'];
       process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] = '1';
@@ -178,7 +187,8 @@ test.describe('Workspace Index first run (desktop)', () => {
                   coverage.totals.missingVectors === 0
                 );
               }),
-            { timeout: 60_000 }
+            // Includes the model's first download into the fresh profile.
+            { timeout: 180_000 }
           )
           .toBe(true);
         const semanticResult = await window.evaluate(async () => {
@@ -221,7 +231,7 @@ test.describe('Workspace Index first run (desktop)', () => {
             modelKey: status.queryPlan.modelKey,
           };
         });
-        expect(semanticResult.modelKey).toBe('local::Xenova/bge-small-en-v1.5');
+        expect(semanticResult.modelKey).toBe(`local::${setup.modelId}`);
         expect(semanticResult.dimensions).toBe(384);
         expect(semanticResult.hits.some((hit) => hit.content.includes('smoke test creates'))).toBe(
           true
