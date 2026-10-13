@@ -4,9 +4,7 @@
  * Explorer Text search and the agent's grepSearch read the native text index;
  * no model is chosen, no collection is invented and nothing is downloaded.
  */
-import { randomUUID } from 'node:crypto';
-import { mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
@@ -15,8 +13,7 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { readCommittedRuns } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
-import { ensureAssistantShellVisible } from './utils/layout-helpers';
-import { seedRoot } from './utils/seed-root';
+import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { chooseTextSearch, expectStatusBarReady, textReadiness } from './utils/text-search-mode';
 
 const API_KEY = 'test-key-text-search-fresh-profile';
@@ -72,11 +69,15 @@ function downloadedModelFiles(userDataDir: string): string[] {
 
 test('a fresh profile text-searches a folder with no embedding model chosen', async ({
   electron,
+  electronApp,
   modelProvider,
   window: page,
 }) => {
   test.setTimeout(360_000);
-  const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'bs-m6-text-first-')));
+  const root = await electronApp.app.evaluate(
+    () => process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] ?? ''
+  );
+  expect(root).not.toBe('');
   writeFileSync(path.join(root, 'notes.txt'), `first line\n${MARKER} in the notes\n`);
   writeFileSync(path.join(root, 'other.txt'), 'nothing to find here\n');
   try {
@@ -87,7 +88,9 @@ test('a fresh profile text-searches a folder with no embedding model chosen', as
       .toEqual({ folders: 0, indexMode: 'text-only', kind: 'ready' });
     await expectStatusBarReady(page);
 
-    await seedRoot(page, root, { reloadReason: 'm6-text-first-root', rootId: randomUUID() });
+    // Register through the real folder picker so Main owns both the mount and record.
+    await ensureMockWorkspaceOpen(page);
+    await expect(page.getByText('notes.txt').first()).toBeVisible({ timeout: 60_000 });
     await enableChatModel(page);
 
     // The native text index builds for the folder without a collection or model.
@@ -179,6 +182,5 @@ test('a fresh profile text-searches a folder with no embedding model chosen', as
     expect(modelProvider.refusals()).toEqual([]);
   } finally {
     await electron.dispose();
-    rmSync(root, { force: true, recursive: true });
   }
 });

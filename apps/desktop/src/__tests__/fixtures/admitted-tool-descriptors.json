@@ -187,7 +187,7 @@
             "description": "Workspace-relative file path; directories are refused"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           }
         },
@@ -265,7 +265,7 @@
             "description": "Symbol name or substring to find"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           }
         },
@@ -308,7 +308,7 @@
             "description": "Workspace-relative glob; bare patterns match at any depth"
           },
           "root": {
-            "description": "Open-folder name/id. Omit for the thread-bound folder; an unbound request searches all open folders. To cover every folder in a bound thread, call once per root id. Results include their root.",
+            "description": "Open-folder name/id. Omit to search all of this thread's folders. Results include their root.",
             "type": "string"
           }
         },
@@ -377,7 +377,7 @@
             "description": "Exact text (default) or JavaScript regex"
           },
           "root": {
-            "description": "Open-folder name/id. Omit for the thread-bound folder; an unbound request searches all open folders. To cover every folder in a bound thread, call once per root id. Results include their root.",
+            "description": "Open-folder name/id. Omit to search all of this thread's folders. Results include their root.",
             "type": "string"
           }
         },
@@ -1132,7 +1132,7 @@
             "maximum": 500
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           },
           "tokenBudget": {
@@ -1197,7 +1197,7 @@
             "type": "string"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           }
         },
@@ -1264,7 +1264,7 @@
             ]
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": [
               "string",
               "null"
@@ -1302,7 +1302,7 @@
             "description": "Existing workspace-relative source file"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           },
           "toPath": {
@@ -1448,7 +1448,7 @@
             "description": "Existing workspace-relative file path"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           }
         },
@@ -1774,7 +1774,7 @@
             "description": "Workspace-relative path; creates missing parent directories"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           }
         },
@@ -1878,7 +1878,7 @@
             "description": "Workspace-relative file path; directories are refused"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           }
         },
@@ -1956,7 +1956,7 @@
             "description": "Symbol name or substring to find"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           }
         },
@@ -1999,7 +1999,7 @@
             "description": "Workspace-relative glob; bare patterns match at any depth"
           },
           "root": {
-            "description": "Open-folder name/id. Omit for the thread-bound folder; an unbound request searches all open folders. To cover every folder in a bound thread, call once per root id. Results include their root.",
+            "description": "Open-folder name/id. Omit to search all of this thread's folders. Results include their root.",
             "type": "string"
           }
         },
@@ -2068,7 +2068,7 @@
             "description": "Exact text (default) or JavaScript regex"
           },
           "root": {
-            "description": "Open-folder name/id. Omit for the thread-bound folder; an unbound request searches all open folders. To cover every folder in a bound thread, call once per root id. Results include their root.",
+            "description": "Open-folder name/id. Omit to search all of this thread's folders. Results include their root.",
             "type": "string"
           }
         },
@@ -2440,7 +2440,7 @@
             "maximum": 500
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           },
           "tokenBudget": {
@@ -2505,7 +2505,7 @@
             "type": "string"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           }
         },
@@ -2572,7 +2572,7 @@
             ]
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": [
               "string",
               "null"
@@ -2610,7 +2610,7 @@
             "description": "Existing workspace-relative source file"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           },
           "toPath": {
@@ -2652,7 +2652,7 @@
             "description": "Existing workspace-relative file path"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           }
         },
@@ -2889,7 +2889,7 @@
             "description": "Workspace-relative path; creates missing parent directories"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           }
         },
@@ -3091,7 +3091,7 @@
             "description": "Workspace-relative file path; directories are refused"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           }
         },
@@ -3169,7 +3169,7 @@
             "description": "Symbol name or substring to find"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           }
         },
@@ -3212,7 +3212,7 @@
             "description": "Workspace-relative glob; bare patterns match at any depth"
           },
           "root": {
-            "description": "Open-folder name/id. Omit for the thread-bound folder; an unbound request searches all open folders. To cover every folder in a bound thread, call once per root id. Results include their root.",
+            "description": "Open-folder name/id. Omit to search all of this thread's folders. Results include their root.",
             "type": "string"
           }
         },
@@ -3281,7 +3281,7 @@
             "description": "Exact text (default) or JavaScript regex"
           },
           "root": {
-            "description": "Open-folder name/id. Omit for the thread-bound folder; an unbound request searches all open folders. To cover every folder in a bound thread, call once per root id. Results include their root.",
+            "description": "Open-folder name/id. Omit to search all of this thread's folders. Results include their root.",
             "type": "string"
           }
         },
@@ -3960,7 +3960,7 @@
             "maximum": 500
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           },
           "tokenBudget": {
@@ -4025,7 +4025,7 @@
             "type": "string"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           }
         },
@@ -4092,7 +4092,7 @@
             ]
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": [
               "string",
               "null"
@@ -4130,7 +4130,7 @@
             "description": "Existing workspace-relative source file"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           },
           "toPath": {
@@ -4210,7 +4210,7 @@
             "description": "Existing workspace-relative file path"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           }
         },
@@ -4536,7 +4536,7 @@
             "description": "Workspace-relative path; creates missing parent directories"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           }
         },
@@ -4755,7 +4755,7 @@
             "description": "Symbol name or substring to find"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           }
         },
@@ -4798,7 +4798,7 @@
             "description": "Workspace-relative glob; bare patterns match at any depth"
           },
           "root": {
-            "description": "Open-folder name/id. Omit for the thread-bound folder; an unbound request searches all open folders. To cover every folder in a bound thread, call once per root id. Results include their root.",
+            "description": "Open-folder name/id. Omit to search all of this thread's folders. Results include their root.",
             "type": "string"
           }
         },
@@ -4867,7 +4867,7 @@
             "description": "Exact text (default) or JavaScript regex"
           },
           "root": {
-            "description": "Open-folder name/id. Omit for the thread-bound folder; an unbound request searches all open folders. To cover every folder in a bound thread, call once per root id. Results include their root.",
+            "description": "Open-folder name/id. Omit to search all of this thread's folders. Results include their root.",
             "type": "string"
           }
         },
@@ -5383,7 +5383,7 @@
             "maximum": 500
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           },
           "tokenBudget": {
@@ -5448,7 +5448,7 @@
             "type": "string"
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": "string"
           }
         },
@@ -5515,7 +5515,7 @@
             ]
           },
           "root": {
-            "description": "Open-folder name/id for this path. Required only when multiple folders are open.",
+            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
             "type": [
               "string",
               "null"

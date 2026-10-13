@@ -9,6 +9,7 @@ import type {
   LanguageModelV2CallWarning,
   LanguageModelV2StreamPart,
 } from '@ai-sdk/provider';
+import type { OnnxWasmPaths } from '@brainstrike/types';
 import type { LocalProviderOptions } from '../../types';
 import { LocalLlmBackend } from './local-llm-backend';
 import {
@@ -24,6 +25,8 @@ import type { LocalLlmToolDefinition } from './types';
 
 export interface LocalLanguageModelSettings {
   maxNewTokens?: number;
+  /** App-served ONNX Runtime WASM files for browser inference (BST-2003). */
+  onnxWasmPaths?: OnnxWasmPaths;
   temperature?: number;
   thinking?: LocalProviderOptions['thinking'];
   topK?: number;
@@ -51,7 +54,8 @@ export class LocalLanguageModel implements LanguageModelV2 {
   constructor(modelId: string, settings: LocalLanguageModelSettings = {}) {
     this.modelId = modelId;
     this.settings = settings;
-    this.backend = new LocalLlmBackend();
+    // In-process inference on Node takes null; browser ONNX Runtime refuses it (BST-2003).
+    this.backend = new LocalLlmBackend({ onnxWasmPaths: settings.onnxWasmPaths ?? null });
   }
 
   private async ensureInitialized(): Promise<void> {

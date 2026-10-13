@@ -254,7 +254,7 @@ export function NativeWorkspaceIndexProvider({
   const { fileSystemAdapter } = useAdapters();
   const db = usePGliteDatabase();
   const { rootDirectoryHandles } = useFileSystem();
-  const { dbRootIdByAdapterRootId, registerRoot } = useRootsReconciliation({
+  const { dbRootIdByAdapterRootId, syncMountedRoots } = useRootsReconciliation({
     adapter: fileSystemAdapter,
     db,
   });
@@ -262,14 +262,9 @@ export function NativeWorkspaceIndexProvider({
     let disposed = false;
     void fileSystemAdapter
       .restoreRoots?.()
-      .then(async (roots) => {
-        for (const root of roots) {
-          if (disposed) {
-            return;
-          }
-          await registerRoot(root);
-        }
-      })
+      // The mounted set as a whole: a removed folder is forgotten, so re-adding
+      // it under its one id registers it again (BST-1990).
+      .then((roots) => (disposed ? undefined : syncMountedRoots(roots)))
       .catch((error: unknown) =>
         useWorkspaceCollectionSyncStatusStore.getState().setStatus({
           lastError: nativeProgressError(error),
@@ -279,7 +274,7 @@ export function NativeWorkspaceIndexProvider({
     return () => {
       disposed = true;
     };
-  }, [fileSystemAdapter, registerRoot, rootDirectoryHandles]);
+  }, [fileSystemAdapter, syncMountedRoots, rootDirectoryHandles]);
   const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
   const paused = useBackgroundIndexingPreferencesStore((state) => state.paused);
   const mode = useBackgroundIndexingPreferencesStore((state) => state.nativeIndexMode);

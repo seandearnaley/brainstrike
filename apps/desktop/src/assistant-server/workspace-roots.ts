@@ -9,8 +9,11 @@ export {
   markRootsDisconnectedExcept,
   type OpenRootTopology,
   orderWorkspaceRoots,
+  RootNotInThreadError,
   resolveFocusedWorkspaceRoot,
   resolveOptionalWorkspaceRoot,
   resolveWorkspaceRoot,
+  resolveWorkspaceSearchScope,
   type WorkspaceRootsQueryable,
+  type WorkspaceSearchScope,
 } from '@brainstrike/assistant-service/node-workspace-services';

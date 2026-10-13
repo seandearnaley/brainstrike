@@ -6,7 +6,15 @@ import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } fro
 import { type ChangesBridge, resolveChangesBridge } from '../changes/changes-bridge';
 import { resolveWorktreesBridge } from '../worktrees/worktrees-bridge';
 import { notifyRootRegistered } from './root-registration-events';
-import { reconcileRoots } from './root-registry';
+import { mapHostRecordedRoots, reconcileRoots } from './root-registry';
+
+/**
+ * Desktop Main's root registry owns folder records (BST-1990), so reconciliation
+ * only maps onto them there; elsewhere (web) it writes them.
+ */
+function reconcilerFor(adapter: FileSystemAdapter): typeof reconcileRoots {
+  return adapter.ownsRootRecords ? mapHostRecordedRoots : reconcileRoots;
+}
 
 const logger = createLogger('useRootsReconciliation');
 
@@ -121,6 +129,15 @@ function createSettlingMapPromise(): SettlingMapPromise {
   return { promise, resolve };
 }
 
+/** The same map when every key is still mounted, so consumers don't re-render. */
+function retainMountedKeys(
+  map: ReadonlyMap<string, string>,
+  mounted: ReadonlySet<string>
+): ReadonlyMap<string, string> {
+  const kept = [...map].filter(([adapterRootId]) => mounted.has(adapterRootId));
+  return kept.length === map.size ? map : new Map(kept);
+}
+
 export interface UseRootsReconciliationArgs {
   adapter: FileSystemAdapter;
   db: DbHandle | null;
@@ -161,6 +178,12 @@ export interface UseRootsReconciliationResult {
   resolveDbRootId: (rootPath: string, adapterRootId?: string | null) => Promise<string | null>;
   /** True once the boot reconciliation promise has settled, successfully or not. */
   rootsReconciliationSettled: boolean;
+  /**
+   * Registers the currently mounted folders after forgetting any that are no
+   * longer mounted, so a folder re-added under its one id registers again
+   * (BST-1990). Serialized with `registerRoot`; never rejects.
+   */
+  syncMountedRoots: (current: readonly RootDescriptor[]) => Promise<void>;
 }
 
 interface PerformRootRegistrationArgs {
@@ -285,7 +308,7 @@ async function performRootRegistration({
       adapter.platform === 'electron',
       managedWorktreePathsRef
     );
-    const result = await reconcileRoots({
+    const result = await reconcilerFor(adapter)({
       adapterRoots: [descriptor],
       managedWorktreePaths: managedWorktreePathsRef.current,
       managedWorktreePathsKnown: managedWorktreePathsKnownRef.current,
@@ -473,7 +496,7 @@ export function useRootsReconciliation({
           adapter.platform === 'electron',
           managedWorktreePathsRef
         );
-        const result = await reconcileRoots({
+        const result = await reconcilerFor(adapter)({
           adapterRoots,
           managedWorktreePaths: managedWorktreePathsRef.current,
           managedWorktreePathsKnown: managedWorktreePathsKnownRef.current,
@@ -487,15 +510,13 @@ export function useRootsReconciliation({
           publishCanonicalMapping,
           result,
         });
-        if (insertedAny) {
-          // ONE nudge for the whole boot batch — on a fresh install these rows
-          // land after main's eager app-ready build, which would otherwise be
-          // the only build of the session. Gated on an INSERT, not just a
-          // successful mapping (BST-1400 item 11): an ordinary boot re-matches
-          // every already-registered root, which the eager build already
-          // discovered — nudging for that would be one wasted extra inventory
-          // build every session, not a follow-up on anything actually new.
+        // Host restoration can write roots after Main's eager inventory build.
+        // Its renderer mapping reports no inserts, but those roots still need
+        // discovery (BST-1990: missing branch badges in the folders panel).
+        if (insertedAny || (adapter.ownsRootRecords && dbRootIdMap.size > 0)) {
           refreshGitInventoryAfterRootRegistration(resolveChangesBridge());
+        }
+        if (insertedAny) {
           refreshNativeIndexAfterRootRegistration();
         }
         resolve(dbRootIdMap);
@@ -556,6 +577,34 @@ export function useRootsReconciliation({
     [awaitBootSettle, publishCanonicalKind, publishCanonicalMapping, worktreesBridge]
   );
 
+  // A folder re-added after removal comes back under its one id (BST-1990), so a
+  // folder no longer mounted must leave the maps. Otherwise its re-registration,
+  // and the native-index and git-discovery nudges it sends, would be skipped as
+  // a repeat of the first, and Explorer search would keep scoping its query to a
+  // folder the native index no longer authorizes.
+  const syncMountedRoots = useCallback(
+    async (current: readonly RootDescriptor[]): Promise<void> => {
+      const forgetUnmounted = async (): Promise<void> => {
+        await awaitBootSettle();
+        const mounted = new Set(current.flatMap((root) => [root.rootId, root.handle.path]));
+        for (const key of [...dbRootIdMapRef.current.keys()]) {
+          if (!mounted.has(key)) {
+            dbRootIdMapRef.current.delete(key);
+          }
+        }
+        setDbRootIdByAdapterRootId((prev) => retainMountedKeys(prev, mounted));
+        setDbRootKindByAdapterRootId((prev) => retainMountedKeys(prev, mounted));
+      };
+      const chained = pendingRegistrationsRef.current.then(forgetUnmounted);
+      pendingRegistrationsRef.current = chained;
+      await chained;
+      for (const root of current) {
+        await registerRoot(root);
+      }
+    },
+    [awaitBootSettle, registerRoot]
+  );
+
   const resolveDbRootId = useCallback(
     async (rootPath: string, adapterRootId?: string | null): Promise<string | null> => {
       await awaitBootSettle();
@@ -581,5 +630,6 @@ export function useRootsReconciliation({
     registerRoot,
     resolveDbRootId,
     rootsReconciliationSettled,
+    syncMountedRoots,
   };
 }

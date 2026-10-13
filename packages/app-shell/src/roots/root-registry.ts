@@ -177,6 +177,35 @@ async function restoreRootLiveStatus(query: RootsQueryFn, row: DbRootRow): Promi
 }
 
 /**
+ * The host (desktop Main's root registry) records every mounted folder under its
+ * one id (BST-1990), so reconciliation only maps adapter roots onto those records:
+ * no insert, no status change. A mounted folder with no record is an error.
+ */
+export async function mapHostRecordedRoots(
+  args: ReconcileRootsArgs
+): Promise<ReconcileRootsResult> {
+  const { adapterRoots, platformKind } = args;
+  const result = await args.query('SELECT id, kind, path, status FROM roots');
+  const indexes = buildRootPathIndexes(adapterRoots, result.rows.filter(isDbRootRow));
+  const mapping = new Map<string, string>();
+  const dbRootKindByAdapterRootId = new Map<string, string>();
+  for (const root of adapterRoots.filter(isRegistrableRoot)) {
+    const matched = findExistingRootMatch({ ...indexes, platformKind, root });
+    if (!matched) {
+      logger.error('A mounted folder has no record from its host', { rootId: root.rootId });
+      continue;
+    }
+    mapping.set(root.rootId, matched.id);
+    dbRootKindByAdapterRootId.set(root.rootId, matched.kind ?? platformKind);
+  }
+  return {
+    dbRootIdByAdapterRootId: mapping,
+    dbRootKindByAdapterRootId,
+    insertedAdapterRootIds: new Set(),
+  };
+}
+
+/**
  * Ensures a DB roots row exists for every adapter root (registration, not
  * broad reconciliation — unique legacy FSA bridges keep their legacy row ids).
  * DB roots.id is canonical for file_records.root_id; new roots are inserted under the

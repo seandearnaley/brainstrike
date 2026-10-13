@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
+import { readFile } from 'node:fs/promises';
 import type { PGlite, PGliteOptions } from '@electric-sql/pglite';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, inject, it, vi } from 'vitest';
 import { firstRunBootstrapWorkerPGliteFactories } from '../src/browser-first-run-bootstrap-worker.js';
 import { createBrainstrikePglite, createEnginePglite } from '../src/pglite-factory.js';
 import { wasmLoader } from '../src/wasm-loader.js';
@@ -67,22 +68,18 @@ describe('real PGlite factory hosts', () => {
     }
   });
 
-  it('boots and restores the first-run bootstrap engine into IndexedDB', async () => {
-    const memoryDb = await firstRunBootstrapWorkerPGliteFactories.createMemoryDb();
-    let dump: Blob | File;
-    try {
-      // The production factory returns PGlite; the pipeline interface deliberately
-      // exposes only the migration/dump lifecycle surface.
-      await assertEngineExtensions(memoryDb as PGlite);
-      dump = await memoryDb.dumpDataDir('gzip');
-    } finally {
-      await memoryDb.close();
-    }
+  it('restores the first-run bootstrap dump into an IndexedDB engine', async () => {
+    // The suite's shared migrated snapshot is the first-run pipeline's own dump: a memory
+    // engine, every migration, then dumpDataDir('none') (browser-first-run-bootstrap-pipeline.ts).
+    // Restoring it skips a second engine boot; the worker-init case above boots the engine.
+    const dump = new Blob([await readFile(inject('dbSnapshotPath'))]);
     const storeDb = await firstRunBootstrapWorkerPGliteFactories.createStoreLoadDb(
       `idb://pglite-factory-${crypto.randomUUID()}`,
       dump
     );
     try {
+      // The production factory returns PGlite; the pipeline interface deliberately
+      // exposes only the migration/dump lifecycle surface.
       await assertEngineExtensions(storeDb as PGlite);
       expect('live' in storeDb).toBe(false);
     } finally {

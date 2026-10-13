@@ -62,7 +62,9 @@ export async function loadNativeGraphRecords(
   ) {
     throw new Error('Canonical catalog returned duplicated or unauthorized file identities.');
   }
-  return records;
+  // Retained rows of disconnected or ungranted folders remain outside this
+  // leased authority until that same canonical root is connected again (BST-1990).
+  return records.filter((record) => record.rootId === null || current.leases.has(record.rootId));
 }
 
 export interface NativeIndexActivationDependencies {
