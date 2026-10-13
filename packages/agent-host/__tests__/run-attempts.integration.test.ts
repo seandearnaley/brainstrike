@@ -1,5 +1,7 @@
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { HostEvent, HostLogRow } from '../src/protocol.js';
+import { captureHostFailureDiagnostics } from './fixtures/host-failure-diagnostics.js';
 import {
   type Chunk,
   committedRunText,
@@ -111,12 +113,20 @@ const overloaded: Chunk = {
 };
 
 test('a retryable provider error before any output is re-attempted', async () => {
+  const diagnostics = captureHostFailureDiagnostics();
   const { calls, model } = timedModel([[overloaded], [...text('Recovered.'), stop]]);
   const { rows, terminal } = await finishedRun(model);
   expect(terminal.outcome).toBe('completed');
   expect(calls()).toBe(2);
+  diagnostics.expectCause('Overloaded');
   expect(attempts(rows)).toEqual([
-    expect.objectContaining({ detail: 'Overloaded', reason: 'provider-error', recovered: true }),
+    expect.objectContaining({
+      attempt: 1,
+      detail: 'The provider could not complete this request. Provider response: Overloaded',
+      maxAttempts: 2,
+      reason: 'provider-error',
+      recovered: true,
+    }),
   ]);
 });
 
@@ -138,11 +148,13 @@ test('a retryable provider error after output is not re-attempted', async () => 
 });
 
 test('a non-retryable provider error is not an attempt failure', async () => {
+  const diagnostics = captureHostFailureDiagnostics();
   const { calls, model } = timedModel([
     [{ error: { message: 'Malformed request.', type: 'invalid_request_error' }, type: 'error' }],
   ]);
   const { rows, terminal } = await finishedRun(model);
-  expect(terminal).toMatchObject({ detail: 'Malformed request.', outcome: 'failed' });
+  expect(terminal).toMatchObject({ detail: INTERNAL_FAULT.message, outcome: 'failed' });
+  diagnostics.expectCause('Malformed request.');
   expect(calls()).toBe(1);
   expect(attempts(rows)).toEqual([]);
 });

@@ -212,7 +212,6 @@ describe('chunking-host-shared', () => {
         fileRecordId: 'file-1',
         message: 'boom',
         name: 'Error',
-        stack: expect.any(String),
       }),
     });
   });
