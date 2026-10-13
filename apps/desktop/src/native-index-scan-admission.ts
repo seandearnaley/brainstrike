@@ -119,6 +119,9 @@ export function createNativeScanAdmission(assertSource: () => void, signal: Abor
       }
     },
     getInventory: () => inventory,
+    getWorkspaceCompletions: (): readonly Promise<void>[] =>
+      [...workspaces.values()].map((workspace) => workspace.completion.promise),
+    joinPublication: wait,
     releaseInvalidatedWorkspace: (receipt: CanonicalScanReceipt): void => {
       if (
         receipt.scanComplete ||
