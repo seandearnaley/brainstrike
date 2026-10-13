@@ -24,7 +24,17 @@ export const BOUNDARY_FAILURE_CATEGORIES = [
 export type BoundaryFailureCategory = (typeof BOUNDARY_FAILURE_CATEGORIES)[number];
 
 /** A namespaced, stable code: `area.reason`, lower-case words joined by dashes. */
-const BoundaryFailureCode = z.string().regex(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/);
+const BoundaryFailureCode = z.union([
+  z.string().regex(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/),
+  // Existing native-index refusal codes are consumed by the Ready re-run seam.
+  z.enum([
+    'native-index-transitioning',
+    'native-index-closed',
+    'native-index-setup-required',
+    'native-index-settings-invalid',
+    'native-index-source-failure',
+  ]),
+]);
 
 /** The facts of a lost child process; none of them is a path or a message. */
 const ProcessLostFacts = z.strictObject({
@@ -53,6 +63,8 @@ export const BoundaryFailureSchema = z.strictObject({
   /** The typed text a user or model is shown. Never a raw error message. */
   message: z.string().min(1).max(1000),
   process: ProcessLostFacts.optional(),
+  /** Deliberate, secret-redacted provider response evidence, bounded at its producer. */
+  providerEvidence: z.string().min(1).max(600).optional(),
   /** What the user can do about it, when there is something. */
   remedy: z.string().min(1).max(500).optional(),
 });
@@ -95,14 +107,14 @@ const bounded = <
 
 export function refusal(
   failure: Pick<BoundaryFailure, 'category' | 'code' | 'message'> &
-    Partial<Pick<BoundaryFailure, 'remedy'>>
+    Partial<Pick<BoundaryFailure, 'remedy' | 'providerEvidence'>>
 ): BoundaryFailure {
   return BoundaryFailureSchema.parse({ ...bounded(failure), kind: 'refusal' });
 }
 
 export function fault(
   failure: Pick<BoundaryFailure, 'category' | 'code' | 'message'> &
-    Partial<Pick<BoundaryFailure, 'correlationId' | 'remedy'>>
+    Partial<Pick<BoundaryFailure, 'correlationId' | 'remedy' | 'providerEvidence'>>
 ): BoundaryFailure {
   return BoundaryFailureSchema.parse({ ...bounded(failure), kind: 'fault' });
 }
@@ -134,11 +146,13 @@ export function processLost(facts: z.infer<typeof ProcessLostFacts>): BoundaryFa
  */
 export class BoundaryFailureError extends Error {
   readonly failure: BoundaryFailure;
+  readonly code: string;
 
   constructor(failure: BoundaryFailure, options?: { readonly cause?: unknown }) {
     super(failure.message, options);
     this.name = 'BoundaryFailureError';
     this.failure = failure;
+    this.code = failure.code;
   }
 }
 
@@ -156,4 +170,23 @@ export function refusalError(
 
 export function isBoundaryFailureError(value: unknown): value is BoundaryFailureError {
   return value instanceof BoundaryFailureError;
+}
+
+/** Render only validated public failure fields; causes and stacks never participate. */
+export function describeBoundaryFailure(failure: BoundaryFailure): string {
+  return [
+    failure.message,
+    failure.remedy,
+    failure.providerEvidence === undefined
+      ? undefined
+      : `Provider response: ${failure.providerEvidence}`,
+  ]
+    .filter((part) => part !== undefined)
+    .join(' ');
+}
+
+export function describeBoundaryError(cause: unknown): string {
+  return describeBoundaryFailure(
+    cause instanceof BoundaryFailureError ? cause.failure : INTERNAL_FAULT
+  );
 }

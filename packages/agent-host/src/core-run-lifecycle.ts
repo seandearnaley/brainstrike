@@ -1,9 +1,18 @@
-import { BoundaryFailureError, fault, refusalError } from '@brainstrike/assistant-contract';
+import {
+  BoundaryFailureError,
+  describeBoundaryFailure,
+  fault,
+  refusalError,
+} from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
+import { toBoundaryFailure } from './boundary-wire.js';
 import { type HostRunState, hasHostInteractionResponse } from './core-state.js';
 import { HostMcpInputPersistenceError } from './mcp-input-state.js';
 import type { HostRunAdmission } from './ports.js';
 import type { HostEvent } from './protocol.js';
 import { HostRunAdmissionCleanupError } from './run-admission.js';
+
+const logger = createLogger('AgentHost');
 
 /** What a committed, non-terminal run becomes when a host starts (ADR-0010). */
 export type HostRunRecovery =
@@ -359,7 +368,7 @@ export function finishHostRun(
     await Promise.allSettled([...run.effects]);
     await closeOwner(run);
     await run.stopAcceptance;
-    const ownerDetail = failureDetail(run.ownerFailure);
+    const ownerDetail = failureDetail(run, run.ownerFailure);
     const joinedOutcome = run.stopped
       ? 'stopped'
       : run.controller.signal.aborted && closing()
@@ -372,7 +381,7 @@ export function finishHostRun(
     const joinedDetail =
       detail !== undefined && ownerDetail !== undefined && !detail.includes(ownerDetail)
         ? `${detail} (${ownerDetail})`
-        : (detail ?? ownerDetail ?? run.mcpInputPersistenceFailures?.[0]?.message);
+        : (detail ?? ownerDetail ?? failureDetail(run, run.mcpInputPersistenceFailures?.[0]));
     await publish(
       {
         outcome: joinedOutcome,
@@ -391,21 +400,16 @@ export function finishHostRun(
   return run.completion;
 }
 
-/** An owner failure's own message, plus any aggregated cause it does not already name. */
-function failureDetail(failure: unknown): string | undefined {
+/** A terminal failure is projected once; its original cause remains in the host log. */
+function failureDetail(run: HostRunState, failure: unknown): string | undefined {
   if (failure === undefined) {
     return undefined;
   }
-  if (!(failure instanceof Error)) {
-    return String(failure);
-  }
-  const causes =
-    failure instanceof AggregateError
-      ? failure.errors
-          .map((cause: unknown) => (cause instanceof Error ? cause.message : String(cause)))
-          .filter((message) => !failure.message.includes(message))
-      : [];
-  return causes.length > 0 ? `${failure.message}: ${causes.join('; ')}` : failure.message;
+  return describeBoundaryFailure(
+    toBoundaryFailure(failure, (message, fields) =>
+      logger.error(message, { ...fields, runId: run.id, threadId: run.threadId })
+    )
+  );
 }
 
 type FinishedOutcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];

@@ -1,4 +1,5 @@
-import { BoundaryFailureError } from '@brainstrike/assistant-contract';
+import { isMessageNotSentError } from '@assistant-ui/react';
+import { describeBoundaryError } from '@brainstrike/assistant-contract';
 import type { ReactElement } from 'react';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
@@ -32,11 +33,7 @@ const selectWithheld = (snapshot: CommittedAssistantSnapshot) => snapshot.observ
  * inner cause; a renderer-local error shows its own message.
  */
 function commandErrorText(cause: unknown): string {
-  if (cause instanceof BoundaryFailureError) {
-    const { message, remedy } = cause.failure;
-    return remedy ? `${message} ${remedy}` : message;
-  }
-  return cause instanceof Error ? cause.message : String(cause);
+  return isMessageNotSentError(cause) ? cause.message : describeBoundaryError(cause);
 }
 
 /** The shipped desktop conversation surface; connection changes never key/remount its transcript. */

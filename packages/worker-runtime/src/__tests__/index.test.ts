@@ -473,7 +473,9 @@ describe('@brainstrike/worker-runtime', () => {
     original.code = 'E_RUNTIME';
     original.cause = 'root-cause';
 
+    original.stack = 'Error: boom\n at /Users/fixture/private.ts:20';
     const serialized = serializeRuntimeError(original);
+    expect(serialized).not.toHaveProperty('stack');
     const restored = deserializeRuntimeError(serialized) as Error & {
       code?: string;
       cause?: string;

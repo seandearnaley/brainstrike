@@ -20,11 +20,6 @@ const CONNECTION_LOST = fault({
   message: 'The connection closed before the request was answered.',
 });
 
-const serialized = (cause: unknown) =>
-  cause instanceof Error
-    ? { message: cause.message, name: cause.name, stack: cause.stack }
-    : { message: String(cause) };
-
 function typedFailure(cause: unknown): BoundaryFailure | undefined {
   if (cause instanceof BoundaryFailureError) {
     return cause.failure;
@@ -49,13 +44,10 @@ function typedFailure(cause: unknown): BoundaryFailure | undefined {
  * travels as the response `data`; anything else is logged here, under a new
  * correlation id, and travels as the fixed internal fault.
  */
-export function toBoundaryResponseError(
-  cause: unknown,
-  log: BoundaryLog
-): ResponseError<BoundaryFailure> {
+export function toBoundaryFailure(cause: unknown, log: BoundaryLog): BoundaryFailure {
   const typed = typedFailure(cause);
   if (typed?.kind === 'refusal') {
-    return new ResponseError(BOUNDARY_REFUSAL_RPC_CODE, typed.message, typed);
+    return typed;
   }
   if (typed) {
     // A typed fault's inner cause stays here, logged under its correlation id.
@@ -63,18 +55,30 @@ export function toBoundaryResponseError(
     const correlationId = typed.correlationId ?? crypto.randomUUID();
     if (inner !== undefined) {
       log('A typed fault crossed a process boundary', {
-        cause: serialized(inner),
+        cause: inner,
         code: typed.code,
         correlationId,
       });
     }
     const failure: BoundaryFailure = { ...typed, correlationId };
-    return new ResponseError(ErrorCodes.InternalError, failure.message, failure);
+    return failure;
   }
   const correlationId = crypto.randomUUID();
-  log('Untyped failure crossed a process boundary', { correlationId, error: serialized(cause) });
+  log('Untyped failure crossed a process boundary', { correlationId, error: cause });
   const failure: BoundaryFailure = { ...INTERNAL_FAULT, correlationId };
-  return new ResponseError(ErrorCodes.InternalError, failure.message, failure);
+  return failure;
+}
+
+export function toBoundaryResponseError(
+  cause: unknown,
+  log: BoundaryLog
+): ResponseError<BoundaryFailure> {
+  const failure = toBoundaryFailure(cause, log);
+  return new ResponseError(
+    failure.kind === 'refusal' ? BOUNDARY_REFUSAL_RPC_CODE : ErrorCodes.InternalError,
+    failure.message,
+    failure
+  );
 }
 
 /**
@@ -96,7 +100,7 @@ export function fromBoundaryResponseError(cause: unknown, log: BoundaryLog): unk
   if (!valid) {
     log('A peer sent a failure without a typed outcome', {
       code: cause.code,
-      error: serialized(cause),
+      error: cause,
     });
   }
   return new BoundaryFailureError(failure, { cause });
