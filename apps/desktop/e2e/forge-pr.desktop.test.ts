@@ -154,7 +154,7 @@ test.describe('forge PR awareness', () => {
       cwd: repoPath,
     });
     await openComposer(window, repoPath);
-    await window.getByTestId('workspace-bar-branch-chip').click();
+    await window.getByRole('button', { name: /^Branch:/u }).click();
     await expect(window.getByTestId('workspace-bar-branch-forge-diagnostic')).toContainText(
       'github.acme.test'
     );
