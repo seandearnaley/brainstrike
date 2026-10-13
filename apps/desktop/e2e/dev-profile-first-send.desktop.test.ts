@@ -1,4 +1,9 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { once } from 'node:events';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, type Page, test } from '@playwright/test';
@@ -8,6 +13,7 @@ import { startModelProviderShim } from './utils/model-provider-shim';
 import {
   launchOrdinaryDevApp,
   type OrdinaryDevApp,
+  ordinaryDevLaunchConfiguration,
   prepareOrdinaryDevApp,
 } from './utils/ordinary-dev-app';
 
@@ -88,7 +94,10 @@ test('ordinary dev isolates profile grants and first Send across A/B/A and full 
   await mkdir(root);
   await writeFile(path.join(root, 'README.md'), 'Disposable normal development root.\n');
   const application = await prepareOrdinaryDevApp(directory);
-  const provider = await startModelProviderShim({ finalText: 'DEV_PROFILE_REPLY' });
+  const provider = await startModelProviderShim({
+    finalText: 'DEV_PROFILE_REPLY',
+    verifyOpenRouterKey: true,
+  });
   const server = await createServer({
     configFile: path.resolve('vite.config.mts'),
     server: { host: '127.0.0.1', port: 0 },
@@ -126,6 +135,53 @@ test('ordinary dev isolates profile grants and first Send across A/B/A and full 
     const rootA = await addRoot(a.page);
     await newThread(a.page);
     await send(a.page, 'A_WITH_FOLDER');
+
+    // The shared credential owner retains the original one-dev-app exclusion,
+    // even though Chromium/workspace state belongs to distinct DB profiles.
+    const credentialPath = path.join(
+      directory,
+      'shared-launch-user-data/brainstrike-credentials.json'
+    );
+    const credentialDigest = async (): Promise<string> =>
+      createHash('sha256')
+        .update(await readFile(credentialPath))
+        .digest('hex');
+    const beforeCredentials = await credentialDigest();
+    await a.app.evaluate(({ app }) => {
+      app.once('second-instance', () => {
+        Reflect.set(globalThis, '__devSecondInstanceObserved', true);
+      });
+    });
+    const executable: unknown = createRequire(import.meta.url)('electron');
+    if (typeof executable !== 'string') {
+      throw new Error('Electron executable unavailable');
+    }
+    const concurrent = await ordinaryDevLaunchConfiguration({
+      application,
+      directory,
+      profile: 'incident-b',
+      provider,
+      rendererUrl,
+      root,
+    });
+    const second = spawn(executable, concurrent.args, { env: concurrent.env, stdio: 'ignore' });
+    const secondExit = once(second, 'exit');
+    try {
+      await expect.poll(() => second.exitCode).toBe(0);
+      await secondExit;
+      expect(second.signalCode).toBeNull();
+      await expect
+        .poll(() => a.app.evaluate(() => Reflect.get(globalThis, '__devSecondInstanceObserved')))
+        .toBe(true);
+      expect(existsSync(path.join(directory, 'database/profiles/incident-b'))).toBe(false);
+      expect(await credentialDigest()).toBe(beforeCredentials);
+      expect(a.app.process().exitCode).toBeNull();
+    } finally {
+      if (second.exitCode === null && second.signalCode === null) {
+        second.kill('SIGTERM');
+        await secondExit;
+      }
+    }
     await close();
 
     const reopenedA = await launch('incident-a');

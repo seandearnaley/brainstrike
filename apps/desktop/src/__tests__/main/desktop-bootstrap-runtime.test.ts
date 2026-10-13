@@ -7,6 +7,8 @@ const fixture = vi.hoisted(() => ({
   acquisition: Promise.withResolvers<{ kind: 'owned' }>(),
   events: [] as string[],
   exited: Promise.withResolvers<void>(),
+  lockAttempts: [] as string[],
+  lockedUserData: new Set<string>(),
   options: undefined as DesktopHostLeaseOptions | undefined,
   packaged: false,
   paths: new Map<string, string>(),
@@ -28,6 +30,15 @@ vi.mock('electron', () => ({
     on: vi.fn(),
     requestSingleInstanceLock: () => {
       fixture.events.push('single-instance');
+      const userData = fixture.paths.get('userData');
+      if (!userData) {
+        throw new Error('No userData at lock acquisition');
+      }
+      fixture.lockAttempts.push(userData);
+      if (fixture.lockedUserData.has(userData)) {
+        return false;
+      }
+      fixture.lockedUserData.add(userData);
       return true;
     },
     setPath: (name: string, value: string) => {
@@ -71,6 +82,8 @@ beforeEach(() => {
   fixture.options = undefined;
   fixture.packaged = false;
   fixture.paths.clear();
+  fixture.lockedUserData.clear();
+  fixture.lockAttempts.length = 0;
   fixture.acquisition = Promise.withResolvers();
   fixture.exited = Promise.withResolvers();
   vi.stubEnv('ELECTRON_IS_E2E_TEST', 'true');
@@ -210,10 +223,10 @@ it.each(['incident-a', 'incident-b'])(
     expect(fixture.paths.get('logs')).toBe(join(expectedUserData, 'logs'));
     expect(fixture.events).toEqual([
       'schemes',
+      'single-instance',
       'path:userData',
       'path:logs',
       'path:sessionData',
-      'single-instance',
     ]);
     fixture.acquisition.resolve({ kind: 'owned' });
     await runtime.profile.acquire();
@@ -227,6 +240,7 @@ it.each(['incident-a', 'incident-b'])(
         service: `brainstrike-desktop:${resolve('/disposable/shared-user-data')}`,
       },
     });
+    expect(fixture.lockAttempts).toEqual([resolve('/disposable/shared-user-data')]);
     expect(runtime.credentialStore).toEqual({
       kind: 'keyring',
       service: `brainstrike-desktop:${resolve('/disposable/shared-user-data')}`,
@@ -290,4 +304,24 @@ it('uses the existing branch/worktree database selection without a database over
   expect(resolveDesktopDatabaseLocation()).toBe(location);
   fixture.exited.resolve();
   await runtime.profile.retire();
+});
+
+it('rejects a concurrent development profile in the shared launch credential namespace', async () => {
+  vi.stubEnv('NODE_ENV', 'development');
+  vi.stubEnv('ELECTRON_IS_E2E_TEST', 'false');
+  vi.stubEnv('BRAINSTRIKE_DB_ROOT_PATH', resolve('/disposable/database-root'));
+  const launchUserData = resolve('/disposable/shared-user-data');
+  fixture.paths.set('userData', launchUserData);
+  vi.stubEnv('BRAINSTRIKE_DB_PROFILE', 'incident-a');
+  const first = (await import('../../desktop-bootstrap-runtime')).getDesktopBootstrapRuntime();
+  expect(first.singleInstanceLockAcquired).toBe(true);
+  // A separate ordinary launch begins with the same launch userData but a different DB profile.
+  vi.resetModules();
+  fixture.paths.set('userData', launchUserData);
+  vi.stubEnv('BRAINSTRIKE_DB_PROFILE', 'incident-b');
+  const second = (await import('../../desktop-bootstrap-runtime')).getDesktopBootstrapRuntime();
+  expect(second.singleInstanceLockAcquired).toBe(false);
+  expect(second.credentialStore).toEqual(first.credentialStore);
+  expect(fixture.lockAttempts).toEqual([launchUserData, launchUserData]);
+  expect(fixture.options).toBeUndefined();
 });

@@ -87,20 +87,26 @@ function applyExplicitPathIsolation(agentDevtoolsConfig: {
 }
 
 function applyDevelopmentPathIsolation():
-  | { readonly userData: string; readonly credentialStore: HostCredentialStoreSelection }
+  | {
+      readonly userData: string;
+      readonly credentialStore: HostCredentialStoreSelection;
+      readonly singleInstanceLockAcquired: boolean;
+    }
   | undefined {
   if (app.isPackaged || isIsolatedDesktopTestRun() || isElectronE2ETestMode()) {
     return;
   }
-  // Keep the existing launch credential namespace while isolating workspace state.
-  const credentialStore = desktopCredentialStoreSelection();
   // Pin DB/Core first. Changing Electron paths must not change that authority.
   const userData = resolveDevelopmentUserDataPath(resolveDesktopDatabaseLocation());
+  // Credentials stay shared across dev profiles, so their existing launch lock
+  // must also stay shared. Electron retains this lock after setPath below.
+  const credentialStore = desktopCredentialStoreSelection();
+  const singleInstanceLockAcquired = app.requestSingleInstanceLock();
   const logs = path.join(userData, 'logs');
   fs.mkdirSync(logs, { recursive: true });
   app.setPath('userData', userData);
   app.setPath('logs', logs);
-  return { credentialStore, userData };
+  return { credentialStore, singleInstanceLockAcquired, userData };
 }
 
 function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
@@ -123,7 +129,8 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
   fs.mkdirSync(sessionDataDir, { recursive: true });
   app.setPath('sessionData', sessionDataDir);
   const e2e = isElectronE2ETestMode();
-  const singleInstanceLockAcquired = e2e ? true : app.requestSingleInstanceLock();
+  const singleInstanceLockAcquired =
+    development?.singleInstanceLockAcquired ?? (e2e ? true : app.requestSingleInstanceLock());
   const mainEntryPath = resolveBundledSiblingPath('Desktop bootstrap', 'main.js');
   const workspaceOpenQueue = createWorkspaceOpenQueue(DESKTOP_IPC_CHANNELS.workspace.openPath);
   let focusSecondInstance: (() => void) | undefined;

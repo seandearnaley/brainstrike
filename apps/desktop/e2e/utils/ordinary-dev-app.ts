@@ -73,15 +73,24 @@ export interface OrdinaryDevApp {
   readonly userData: string;
 }
 
-export async function launchOrdinaryDevApp(options: {
+export interface OrdinaryDevLaunchOptions {
   application: string;
   directory: string;
   profile: string;
   provider: ModelProviderShim;
   rendererUrl: string;
   root: string;
-}): Promise<OrdinaryDevApp> {
-  const environment: Record<string, string | undefined> = { ...process.env };
+}
+
+export async function ordinaryDevLaunchConfiguration(
+  options: OrdinaryDevLaunchOptions
+): Promise<{ args: string[]; env: Record<string, string> }> {
+  const environment: Record<string, string> = {};
+  for (const [name, value] of Object.entries(process.env)) {
+    if (value !== undefined) {
+      environment[name] = value;
+    }
+  }
   for (const name of Object.keys(environment)) {
     if (
       E2E_CREDENTIAL_ENV_NAMES.has(name.toUpperCase()) ||
@@ -95,7 +104,7 @@ export async function launchOrdinaryDevApp(options: {
   }
   const home = path.join(options.directory, 'home');
   await mkdir(home, { recursive: true });
-  const app = await _electron.launch({
+  return {
     args: [
       options.application,
       '--no-sandbox', // The ordinary dev:electron command, not an added test policy.
@@ -111,6 +120,14 @@ export async function launchOrdinaryDevApp(options: {
       ['HOME']: home,
       ['NODE_ENV']: 'development',
     },
+  };
+}
+
+export async function launchOrdinaryDevApp(
+  options: OrdinaryDevLaunchOptions
+): Promise<OrdinaryDevApp> {
+  const app = await _electron.launch({
+    ...(await ordinaryDevLaunchConfiguration(options)),
     timeout: 60_000,
   });
   const child = app.process();
