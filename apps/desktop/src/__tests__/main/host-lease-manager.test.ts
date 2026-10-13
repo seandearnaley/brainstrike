@@ -169,6 +169,62 @@ describe('desktop host lease ownership', () => {
     expect(child.posts).toEqual([{ event: 'lifetime' }, { method: 'close' }]);
     expect(child.pid).toBeUndefined();
   });
+  it('reports a ready host that exits without being asked, cleanly or not, and still joins it (BST-2004)', async () => {
+    const { createDesktopHostLease } = await import('../../host-lease-manager');
+    for (const code of [0, 9]) {
+      const child = new Child();
+      const onLost = vi.fn();
+      const owner = createDesktopHostLease({
+        fork: () => {
+          queueMicrotask(() => child.emit('message', { event: 'ready' }));
+          return child;
+        },
+        onLost,
+        root,
+      });
+      await owner.acquire();
+      child.exit(code);
+      expect(onLost).toHaveBeenCalledExactlyOnceWith(code);
+      // The loss was reported when it happened; retiring the owner is not a failed close.
+      await owner.close();
+      expect(child.posts).not.toContainEqual({ method: 'close' });
+    }
+  });
+  it('never reports a loss for a close it asked for, or for a child that exits before ready (BST-2004)', async () => {
+    const { createDesktopHostLease } = await import('../../host-lease-manager');
+    const asked = new Child();
+    const onAskedLost = vi.fn();
+    const owner = createDesktopHostLease({
+      fork: () => {
+        queueMicrotask(() => asked.emit('message', { event: 'ready' }));
+        return asked;
+      },
+      onLost: onAskedLost,
+      root,
+    });
+    await owner.acquire();
+    await owner.close();
+    expect(asked.posts).toContainEqual({ method: 'close' });
+    expect(onAskedLost).not.toHaveBeenCalled();
+
+    const early = new Child();
+    const onEarlyLost = vi.fn();
+    const failing = createDesktopHostLease({
+      fork: () => {
+        queueMicrotask(() => early.exit(1));
+        return early;
+      },
+      onLost: onEarlyLost,
+      root,
+    });
+    await expect(failing.acquire()).rejects.toMatchObject({
+      cause: expect.any(Error),
+      exitCode: 1,
+      name: 'OwnedHostStartError',
+      reason: 'exit',
+    });
+    expect(onEarlyLost).not.toHaveBeenCalled();
+  });
   it('reports a nonzero owned exit and refuses later acquisition', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
     const child = new Child();

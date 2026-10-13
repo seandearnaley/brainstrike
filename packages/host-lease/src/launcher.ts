@@ -11,6 +11,7 @@ import {
   RootLockedError,
 } from '@brainstrike/state-store';
 import { attachHost, type HostAttachment } from './client.js';
+import { OwnedHostStartError } from './owned-host-start-error.js';
 import type { HostRecord } from './record.js';
 import { readHostRecord } from './record-file.js';
 import type { HostLifetime, HostStartOptions } from './runtime.js';
@@ -208,7 +209,8 @@ export async function launchHost(
   const startOptions = startOptionsFor(root, options.lifetime);
   try {
     await runWithTimeout((signal) => options.spawn(startOptions, signal), {
-      onTimeout: () => new Error('Host startup timed out'),
+      onTimeout: () =>
+        new OwnedHostStartError({ reason: 'deadline' }, new Error('Host startup timed out')),
       timeoutMs: startupTimeoutMs,
     });
   } catch (cause) {
