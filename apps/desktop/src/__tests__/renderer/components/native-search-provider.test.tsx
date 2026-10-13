@@ -1,3 +1,4 @@
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type {
   IndexerCoverage,
@@ -658,7 +659,7 @@ describe('native provider and search controller observation refresh', () => {
       await vi.waitFor(() =>
         expect(mounted.result.current.controller.semanticAvailability).toMatchObject({
           available: false,
-          reason: 'Replacement native scope failed.',
+          reason: INTERNAL_FAULT.message,
         })
       );
       await act(async () => {
@@ -666,7 +667,7 @@ describe('native provider and search controller observation refresh', () => {
       });
       expect(mounted.result.current.controller.semanticAvailability).toMatchObject({
         available: false,
-        reason: 'Replacement native scope failed.',
+        reason: INTERNAL_FAULT.message,
       });
     } finally {
       mounted.unmount();
@@ -691,7 +692,7 @@ describe('native provider and search controller observation refresh', () => {
       await vi.waitFor(() =>
         expect(mounted.result.current.controller.semanticAvailability).toMatchObject({
           available: false,
-          reason: 'Native coverage target unavailable.',
+          reason: INTERNAL_FAULT.message,
         })
       );
     } finally {
