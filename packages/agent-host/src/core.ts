@@ -535,18 +535,19 @@ export class HostCore {
     position: () => HostRunPosition,
     record: { readonly commandId: string } = params
   ): Promise<{ runId: string }> {
-    this.catalog.assertRunnable(params.threadId);
-    assertHostRunAdmissible(this.threads, this.runs.values(), this.conversationIds, params);
     const selected = position();
     const controller = new AbortController();
     this.pendingAdmissions.set(controller, params.threadId);
     let admission: HostRunAdmission | undefined;
     let release: (() => void) | undefined;
+    let committed: { readonly runId: string } | undefined;
     // BST-1932: a child thread's run is admitted for its root, then narrowed.
     const root = this.children.rootThread(params.threadId);
     // Admission is for this run: platforms key its selection by the run's ID.
     const runId = randomUUID();
     try {
+      this.catalog.assertRunnable(params.threadId);
+      assertHostRunAdmissible(this.threads, this.runs.values(), this.conversationIds, params);
       // ADR-0019: a wake admits fresh from the thread's selection, with no user prompt.
       admission = await acquireHostRunAdmission(this.platform, {
         ...hostRunCommandRequest(
@@ -590,15 +591,15 @@ export class HostCore {
         throw new Error('Generated run collides with a committed conversation identity');
       }
       run.release = release;
-      const result = { runId: run.id };
       const unavailable = hostMcpUnavailableEvents(admission, run.id);
       // A wake has no client command: its run.started records the delivery it answers.
       // A run command's differing pair becomes the thread's selection (ADR-0019).
       const chosen = method === 'wake' ? [] : this.selections.changes(params);
       const events = [...chosen, started, ...unavailable];
+      committed = { runId: run.id };
       await (method === 'wake'
         ? this.append(params.threadId, events)
-        : this.accept(params.threadId, method, record, result, events));
+        : this.accept(params.threadId, method, record, committed, events));
       this.children.recordDelivery(started.delivery);
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
@@ -610,7 +611,7 @@ export class HostCore {
       });
       // Stop/close joins this task; retain failures rather than leaking rejections.
       run.task.catch(() => undefined);
-      return result;
+      return committed;
     } catch (cause) {
       controller.abort(cause);
       return await rejectHostRunAdmission(
@@ -618,7 +619,8 @@ export class HostCore {
         cause,
         admission,
         release,
-        this.failedAdmissions
+        this.failedAdmissions,
+        committed !== undefined
       );
     } finally {
       this.pendingAdmissions.delete(controller);

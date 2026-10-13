@@ -1,3 +1,5 @@
+import { Button } from '@brainstrike/ui';
+import { CircleAlertIcon } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
@@ -83,11 +85,21 @@ function BoundCommittedAssistantConversation({
           </div>
         )}
         {commandError === undefined ? null : (
-          <div aria-label="Agent command error" role="alert">
-            {commandError}
-            <button onClick={dismissCommandError} type="button">
+          // The host's refusal text names the folder and the repair (BST-1990), so
+          // it is shown whole, styled as the app's other error notices.
+          <div
+            aria-label="Agent command error"
+            className="mx-3 my-2 flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm"
+            role="alert"
+          >
+            <CircleAlertIcon
+              aria-hidden="true"
+              className="mt-0.5 size-4 shrink-0 text-destructive"
+            />
+            <p className="min-w-0 flex-1 whitespace-pre-wrap break-words">{commandError}</p>
+            <Button onClick={dismissCommandError} size="sm" type="button" variant="ghost">
               Dismiss
-            </button>
+            </Button>
           </div>
         )}
         <CommittedRuntimePanel

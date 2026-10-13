@@ -137,6 +137,12 @@ const Run = { ...Thread, runId: Id };
 const PlanMode = { planMode: z.literal(true).optional() };
 const RiskCategory = z.enum(TOOL_RISK_CATEGORIES);
 /**
+ * BST-1990 (D4): the JSON-RPC error code of a run command the host refused
+ * before it admitted the run. Nothing was committed, so a client may hand the
+ * user's message back for a resend; any other failure may follow acceptance.
+ */
+export const HOST_RUN_NOT_ADMITTED_CODE = -32_010;
+/**
  * BST-1990 (D4): the workspace folder a tool resolved for one call, so its
  * approval names the folder even when the call gave no `root`.
  */
