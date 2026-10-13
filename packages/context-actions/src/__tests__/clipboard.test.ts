@@ -1,8 +1,10 @@
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createClipboardService } from '../clipboard.js';
 
 type MutableWindow = Window & {
-  clipboard?: { writeText?: (text: string) => Promise<void> } | undefined;
+  clipboard?: { writeText?: (text: string) => Promise<BoundaryResult<void>> } | undefined;
 };
 
 const mutableWindow = window as MutableWindow;
@@ -15,7 +17,7 @@ afterEach(() => {
 
 describe('createClipboardService', () => {
   it('prefers the Electron bridge when present', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
+    const writeText = vi.fn().mockResolvedValue({ ok: true, value: undefined });
     mutableWindow.clipboard = { writeText };
     const navigatorSpy = vi.fn();
     vi.stubGlobal('navigator', { clipboard: { writeText: navigatorSpy } });
@@ -29,16 +31,23 @@ describe('createClipboardService', () => {
 
   it('surfaces the unwrapped bridge failure message instead of silently falling back', async () => {
     mutableWindow.clipboard = {
-      writeText: vi
-        .fn()
-        .mockRejectedValue(new Error('clipboard locked (clipboard · write_failed)')),
+      writeText: vi.fn().mockResolvedValue({
+        error: {
+          category: 'availability',
+          code: 'clipboard.unavailable',
+          kind: 'refusal',
+          message: 'Clipboard is unavailable.',
+          remedy: 'Try again.',
+        },
+        ok: false,
+      }),
     };
     const navigatorSpy = vi.fn();
     vi.stubGlobal('navigator', { clipboard: { writeText: navigatorSpy } });
 
     const outcome = await createClipboardService().writeText('hello');
 
-    expect(outcome).toEqual({ error: 'clipboard locked (clipboard · write_failed)', ok: false });
+    expect(outcome).toEqual({ error: 'Clipboard is unavailable. Try again.', ok: false });
     expect(navigatorSpy).not.toHaveBeenCalled();
   });
 
@@ -51,7 +60,7 @@ describe('createClipboardService', () => {
 
     const outcome = await createClipboardService().writeText('hello');
 
-    expect(outcome).toEqual({ error: 'bridge exploded', ok: false });
+    expect(outcome).toEqual({ error: INTERNAL_FAULT.message, ok: false });
     expect(navigatorSpy).not.toHaveBeenCalled();
   });
 

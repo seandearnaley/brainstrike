@@ -2,7 +2,7 @@ import type { LoggingPreferences } from '@brainstrike/logging';
 import { addLogListener, createLogger, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { ipcMain, webContents } from 'electron';
 import type { LoggingSettingsPayload } from './logging-shared';
-import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
+import { createDesktopIpcRegistry, settleIpcResult } from './platform/desktop-ipc-registry';
 import {
   assertBufferedLogRecord,
   assertLoggingOpenDestinationTarget,
@@ -102,7 +102,10 @@ export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): () => 
     'logging',
     LOGGING_API_CHANNELS.getPreferences,
     ALL_HOSTS_SENDER_POLICY,
-    () => handlers.getState()
+    () =>
+      settleIpcResult({ category: 'logging', code: 'logging.read-failed' }, () =>
+        handlers.getState()
+      )
   );
 
   let preferencesUpdateQueue: Promise<void> = Promise.resolve();
@@ -111,44 +114,53 @@ export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): () => 
     'logging',
     LOGGING_API_CHANNELS.setPreferences,
     VISIBLE_ONLY_SENDER_POLICY,
-    async (_event, preferences: unknown): Promise<LoggingSettingsPayload> => {
-      const parsedPreferences = assertLoggingPreferences(preferences);
-      const runUpdate = async (): Promise<LoggingSettingsPayload> => {
-        const payload = await handlers.setPreferences(parsedPreferences);
-        broadcastLoggingPreferences(payload.preferences);
-        return payload;
-      };
+    (_event, preferences: unknown) =>
+      settleIpcResult({ category: 'logging', code: 'logging.write-failed' }, async () => {
+        const parsedPreferences = assertLoggingPreferences(preferences);
+        const runUpdate = async (): Promise<LoggingSettingsPayload> => {
+          const payload = await handlers.setPreferences(parsedPreferences);
+          broadcastLoggingPreferences(payload.preferences);
+          return payload;
+        };
 
-      const queuedUpdate = preferencesUpdateQueue.then(runUpdate, runUpdate);
-      preferencesUpdateQueue = queuedUpdate.then(
-        () => undefined,
-        () => undefined
-      );
+        const queuedUpdate = preferencesUpdateQueue.then(runUpdate, runUpdate);
+        preferencesUpdateQueue = queuedUpdate.then(
+          () => undefined,
+          () => undefined
+        );
 
-      return queuedUpdate;
-    }
+        return queuedUpdate;
+      })
   );
 
   registry.registerUnauthenticatedInvoke(
     'logging',
     LOGGING_API_CHANNELS.selectDestination,
     VISIBLE_ONLY_SENDER_POLICY,
-    async () => handlers.selectDestination()
+    () =>
+      settleIpcResult({ category: 'logging', code: 'logging.select-destination-failed' }, () =>
+        handlers.selectDestination()
+      )
   );
 
   registry.registerUnauthenticatedInvoke(
     'logging',
     LOGGING_API_CHANNELS.openDestination,
     VISIBLE_ONLY_SENDER_POLICY,
-    async (_event, target: unknown): Promise<boolean> =>
-      handlers.openDestination(assertLoggingOpenDestinationTarget(target))
+    (_event, target: unknown) =>
+      settleIpcResult({ category: 'logging', code: 'logging.open-destination-failed' }, () =>
+        handlers.openDestination(assertLoggingOpenDestinationTarget(target))
+      )
   );
 
   registry.registerUnauthenticatedInvoke(
     'logging',
     LOGGING_API_CHANNELS.getBufferedLogs,
     VISIBLE_ONLY_SENDER_POLICY,
-    async () => handlers.getBufferedLogs()
+    () =>
+      settleIpcResult({ category: 'logging', code: 'logging.records-failed' }, () =>
+        handlers.getBufferedLogs()
+      )
   );
   registry.registerEvent('logging', LOGGING_API_CHANNELS.ingestBufferedRecord, (event, payload) => {
     const record = assertBufferedLogRecord(payload);

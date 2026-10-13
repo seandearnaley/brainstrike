@@ -1,3 +1,4 @@
+import { refusalError } from '@brainstrike/assistant-contract';
 import type { HostChildRuns } from './core-child-runs.js';
 import type { HostRunState } from './core-state.js';
 import type { HostClientOrigin, HostPlatform, HostRunAdmissionRequest } from './ports.js';
@@ -38,7 +39,7 @@ export async function readHostThreadMemory(
   context: HostMemoryReadContext
 ): Promise<MemoryRead> {
   if (!context.threads.has(params.threadId) || context.deletions.has(params.threadId)) {
-    throw new Error('Unknown thread');
+    throw refusalError('input', 'thread.unknown', 'Unknown thread');
   }
   const root = context.children.rootThread(params.threadId);
   const active = [...context.runs.values()].find((run) => run.threadId === root && !run.terminal);
@@ -51,7 +52,7 @@ export async function readHostThreadMemory(
     };
   }
   if (!platform.readMemoryReadiness) {
-    throw new Error('This host has no memory readiness');
+    throw refusalError('configuration', 'memory.unavailable', 'This host has no memory readiness');
   }
   // Nothing to cancel: the preconditions acquire nothing.
   const { signal } = new AbortController();

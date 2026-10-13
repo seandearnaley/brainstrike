@@ -68,7 +68,9 @@ interface FakeBridge {
 
 function createFakeBridge(read: () => Promise<DatabaseIntegritySnapshot>): FakeBridge {
   const listeners = new Set<(snapshot: DatabaseIntegritySnapshot) => void>();
-  const getState = vi.fn<DesktopDatabaseIntegrityBridge['getState']>(read);
+  const getState = vi.fn<DesktopDatabaseIntegrityBridge['getState']>(() =>
+    read().then((value) => ({ ok: true as const, value }))
+  );
   return {
     bridge: {
       getState,

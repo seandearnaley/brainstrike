@@ -51,40 +51,43 @@ describe('SystemDiagnosticsPanel', () => {
     it('surfaces invalid embedding telemetry from a desktop snapshot', async () => {
       (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = {
         getSnapshot: vi.fn(async () => ({
-          collectedAt: '2026-08-01T00:00:00.000Z',
-          embeddingHost: {
-            active: false,
-            lastError: null,
-            pendingRequestCount: 0,
-            runtimeId: 'embedding-host:idle',
-            runtimeKind: 'embedding-host',
-            sourceState: 'running',
-            state: 'idle',
-          },
-          llmHost: {
-            active: false,
-            lastError: null,
-            pendingRequestCount: 0,
-            runtimeId: 'llm-host:idle',
-            runtimeKind: 'llm-host',
-            sourceState: 'running',
-            state: 'idle',
-          },
-          reset: { userDataPath: '/tmp/brainstrike-user-data' },
-          telemetry: {
-            backgroundRuntimeMetrics: [],
-            embedding: {
-              batchTransfer: { batchCount: 0, lastBytes: 0, peakBytes: 0, totalBytes: 0 },
-              cache: {
-                entries: [],
-                estimatedGpuBytes: 0,
-                estimatedHeapBytes: 0,
-                memoryEstimateUnavailableCount: 0,
-                residentCount: 0,
+          ok: true,
+          value: {
+            collectedAt: '2026-08-01T00:00:00.000Z',
+            embeddingHost: {
+              active: false,
+              lastError: null,
+              pendingRequestCount: 0,
+              runtimeId: 'embedding-host:idle',
+              runtimeKind: 'embedding-host',
+              sourceState: 'running',
+              state: 'idle',
+            },
+            llmHost: {
+              active: false,
+              lastError: null,
+              pendingRequestCount: 0,
+              runtimeId: 'llm-host:idle',
+              runtimeKind: 'llm-host',
+              sourceState: 'running',
+              state: 'idle',
+            },
+            reset: { userDataPath: '/tmp/brainstrike-user-data' },
+            telemetry: {
+              backgroundRuntimeMetrics: [],
+              embedding: {
+                batchTransfer: { batchCount: 0, lastBytes: 0, peakBytes: 0, totalBytes: 0 },
+                cache: {
+                  entries: [],
+                  estimatedGpuBytes: 0,
+                  estimatedHeapBytes: 0,
+                  memoryEstimateUnavailableCount: 0,
+                  residentCount: 0,
+                },
+                health: { failureCount: 1, lastFailure: null },
+                lastUpdatedAt: 1000,
+                peakVectorsInFlight: 0,
               },
-              health: { failureCount: 1, lastFailure: null },
-              lastUpdatedAt: 1000,
-              peakVectorsInFlight: 0,
             },
           },
         })),
@@ -157,9 +160,11 @@ describe('SystemDiagnosticsPanel', () => {
       };
       const getSnapshot = vi
         .fn()
-        .mockResolvedValueOnce(createSnapshot(0))
-        .mockResolvedValueOnce(createSnapshot(0))
-        .mockRejectedValueOnce(new Error('desktop snapshot unavailable'));
+        .mockResolvedValueOnce({ ok: true, value: createSnapshot(0) })
+        .mockResolvedValueOnce({ ok: true, value: createSnapshot(0) })
+        .mockRejectedValueOnce(
+          new Error('Something went wrong. The details were recorded in the diagnostic log.')
+        );
       const statusListenerRef: { current: ((status: unknown) => void) | null } = { current: null };
       const unsubscribe = vi.fn();
       (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = { getSnapshot };
@@ -221,14 +226,20 @@ describe('SystemDiagnosticsPanel', () => {
       const refreshButton = screen.getByRole('button', { name: /refresh all diagnostics/i });
       await waitFor(() => expect(refreshButton).toBeEnabled());
       await userEvent.click(refreshButton);
-      expect(await screen.findByText('desktop snapshot unavailable')).toBeInTheDocument();
+      expect(
+        await screen.findByText(
+          'Something went wrong. The details were recorded in the diagnostic log.'
+        )
+      ).toBeInTheDocument();
 
       const listenerAfterFailedRefresh = statusListenerRef.current;
       if (!listenerAfterFailedRefresh) {
         throw new Error('Expected the diagnostics panel to retain its host status subscription.');
       }
       act(() => listenerAfterFailedRefresh({ embeddingRuntime: { telemetry: updatedTelemetry } }));
-      expect(screen.getByText('desktop snapshot unavailable')).toBeInTheDocument();
+      expect(
+        screen.getByText('Something went wrong. The details were recorded in the diagnostic log.')
+      ).toBeInTheDocument();
       unmount();
       expect(unsubscribe).toHaveBeenCalledTimes(3);
     });
@@ -564,106 +575,109 @@ describe('SystemDiagnosticsPanel', () => {
     it('renders desktop platform diagnostics when the desktop bridge is available', async () => {
       (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = {
         getSnapshot: vi.fn(async () => ({
-          collectedAt: '2026-05-20T00:00:00.000Z',
-          crashRecovery: {
-            lastRendererCrashAt: '2026-05-20T00:01:00.000Z',
-            lastRendererCrashExitCode: 5,
-            lastRendererCrashReason: 'crashed',
-            lastRendererCrashWindowRole: 'visible-ui',
-            lastRendererReloadAt: null,
-            lastRendererReloadWindowRole: null,
-            pendingRendererRecovery: true,
-            rendererCrashCount: 1,
-            rendererReloadAttemptCount: 0,
-            suppressedRendererReloadCount: 0,
-          },
-          embeddingHost: {
-            active: false,
-            lastError: null,
-            pendingRequestCount: 0,
-            runtimeId: 'embedding-host:idle',
-            runtimeKind: 'embedding-host',
-            sourceState: 'running',
-            state: 'idle',
-          },
-          indexing: {
-            activeBackfills: [
-              {
-                embeddingSetId: 'set-1',
-                progress: { current: 2, total: 4 },
-                requestId: 'background-indexing-backfill:set-1',
-                source: 'background-indexing',
-              },
-            ],
-            databaseWork: {
-              runningLabel: 'background-indexing-backfill',
-              runningPriority: 'background',
+          ok: true,
+          value: {
+            collectedAt: '2026-05-20T00:00:00.000Z',
+            crashRecovery: {
+              lastRendererCrashAt: '2026-05-20T00:01:00.000Z',
+              lastRendererCrashExitCode: 5,
+              lastRendererCrashReason: 'crashed',
+              lastRendererCrashWindowRole: 'visible-ui',
+              lastRendererReloadAt: null,
+              lastRendererReloadWindowRole: null,
+              pendingRendererRecovery: true,
+              rendererCrashCount: 1,
+              rendererReloadAttemptCount: 0,
+              suppressedRendererReloadCount: 0,
             },
-            dimensionIndexMaintenance: {
-              maintenance: [
+            embeddingHost: {
+              active: false,
+              lastError: null,
+              pendingRequestCount: 0,
+              runtimeId: 'embedding-host:idle',
+              runtimeKind: 'embedding-host',
+              sourceState: 'running',
+              state: 'idle',
+            },
+            indexing: {
+              activeBackfills: [
                 {
-                  attempts: 1,
-                  completedAt: null,
-                  dimension: 384,
-                  lastDurationMs: null,
-                  lastError: null,
-                  lastForegroundProbeMaxMs: null,
-                  lastForegroundProbeP95Ms: null,
-                  lastInvalidIndexName: null,
-                  nextRunAt: '2026-05-20T00:02:00.000Z',
-                  reason: 'embedding-backfill:set-1',
-                  requestedAt: '2026-05-20T00:01:00.000Z',
-                  startedAt: null,
-                  state: 'pending',
-                  strategy: 'regular',
+                  embeddingSetId: 'set-1',
+                  progress: { current: 2, total: 4 },
+                  requestId: 'background-indexing-backfill:set-1',
+                  source: 'background-indexing',
                 },
               ],
-              suspensions: [
+              databaseWork: {
+                runningLabel: 'background-indexing-backfill',
+                runningPriority: 'background',
+              },
+              dimensionIndexMaintenance: {
+                maintenance: [
+                  {
+                    attempts: 1,
+                    completedAt: null,
+                    dimension: 384,
+                    lastDurationMs: null,
+                    lastError: null,
+                    lastForegroundProbeMaxMs: null,
+                    lastForegroundProbeP95Ms: null,
+                    lastInvalidIndexName: null,
+                    nextRunAt: '2026-05-20T00:02:00.000Z',
+                    reason: 'embedding-backfill:set-1',
+                    requestedAt: '2026-05-20T00:01:00.000Z',
+                    startedAt: null,
+                    state: 'pending',
+                    strategy: 'regular',
+                  },
+                ],
+                suspensions: [
+                  {
+                    dimension: 384,
+                    reason: 'nonblocking-background-indexing',
+                    suspendedAt: '2026-05-20T00:00:59.000Z',
+                  },
+                ],
+              },
+            },
+            llmHost: {
+              active: true,
+              lastError: null,
+              pendingRequestCount: 1,
+              runtimeId: 'llm-host:active',
+              runtimeKind: 'llm-host',
+              sourceState: 'running',
+              state: 'active',
+            },
+            migration: {
+              attemptCount: 2,
+              inFlight: false,
+              lastFailure: null,
+              lastSucceededAt: '2026-05-20T00:00:30.000Z',
+            },
+            reset: {
+              lastCompletedAt: null,
+              lastDeletedPathCount: 0,
+              lastError: null,
+              lastFailedAt: null,
+              lastPreservedPathCount: 0,
+              lastStartedAt: null,
+              status: 'idle',
+              userDataPath: '/tmp/brainstrike-user-data',
+            },
+            telemetry: {
+              backgroundRuntimeMetrics: [
                 {
-                  dimension: 384,
-                  reason: 'nonblocking-background-indexing',
-                  suspendedAt: '2026-05-20T00:00:59.000Z',
+                  cpuPercent: '1.0',
+                  idleWakeupsPerSecond: '0.0',
+                  osProcessId: 123,
+                  privateKb: '1000',
+                  runtimeKind: 'embedding-host',
+                  sharedKb: '200',
+                  workingSetKb: '1200',
                 },
               ],
             },
-          },
-          llmHost: {
-            active: true,
-            lastError: null,
-            pendingRequestCount: 1,
-            runtimeId: 'llm-host:active',
-            runtimeKind: 'llm-host',
-            sourceState: 'running',
-            state: 'active',
-          },
-          migration: {
-            attemptCount: 2,
-            inFlight: false,
-            lastFailure: null,
-            lastSucceededAt: '2026-05-20T00:00:30.000Z',
-          },
-          reset: {
-            lastCompletedAt: null,
-            lastDeletedPathCount: 0,
-            lastError: null,
-            lastFailedAt: null,
-            lastPreservedPathCount: 0,
-            lastStartedAt: null,
-            status: 'idle',
-            userDataPath: '/tmp/brainstrike-user-data',
-          },
-          telemetry: {
-            backgroundRuntimeMetrics: [
-              {
-                cpuPercent: '1.0',
-                idleWakeupsPerSecond: '0.0',
-                osProcessId: 123,
-                privateKb: '1000',
-                runtimeKind: 'embedding-host',
-                sharedKb: '200',
-                workingSetKb: '1200',
-              },
-            ],
           },
         })),
       };

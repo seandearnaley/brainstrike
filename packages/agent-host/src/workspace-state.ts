@@ -1,3 +1,4 @@
+import { refusalError } from '@brainstrike/assistant-contract';
 import {
   changesThreadWorkspaceScope,
   type ThreadWorkspaceBinding,
@@ -45,7 +46,7 @@ export class HostThreadWorkspaceState {
     threadId: string
   ): { binding: ThreadWorkspaceBinding | null } {
     if (!threads.has(threadId)) {
-      throw new Error('Unknown thread');
+      throw refusalError('input', 'thread.unknown', 'Unknown thread');
     }
     return { binding: structuredClone(this.bindings.get(threadId) ?? null) };
   }

@@ -1,3 +1,4 @@
+import { INTERNAL_FAULT, refusalError } from '@brainstrike/assistant-contract';
 import recording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json' with {
   type: 'json',
 };
@@ -122,11 +123,13 @@ test('a refused replay ends loading with its error and no replayed boundary', as
   const { client, replay } = replayClient();
   const session = new CommittedThreadSession(client, threadId);
   session.connect();
-  replay.reject(new Error('Unknown thread'));
+  replay.reject(
+    refusalError('input', 'thread.unknown', 'Unknown thread', 'Choose another thread.')
+  );
   await replay.promise.catch(() => undefined);
   await Promise.resolve();
   expect(session.getSnapshot()).toMatchObject({
-    error: 'Unknown thread',
+    error: 'Unknown thread Choose another thread.',
     isLoading: false,
     replayedThrough: undefined,
   });
@@ -185,4 +188,14 @@ test("a session applies its subscription's replayed telemetry over the rows, the
     }))
   );
   disconnect();
+});
+
+test('an untyped replay error never exposes its private path', async () => {
+  const { client, replay } = replayClient();
+  const session = new CommittedThreadSession(client, threadId);
+  session.connect();
+  replay.reject(new Error('ENOENT /Users/fixture/private/thread.db'));
+  await replay.promise.catch(() => undefined);
+  await Promise.resolve();
+  expect(session.getSnapshot()).toMatchObject({ error: INTERNAL_FAULT.message, isLoading: false });
 });

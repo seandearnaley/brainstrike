@@ -1,5 +1,12 @@
 import path from 'node:path';
-import { AccessError, type DirectoryHandle, type FileHandle } from '@brainstrike/file-system';
+import {
+  AccessError,
+  DialogError,
+  type DirectoryHandle,
+  type FileHandle,
+  PermissionError,
+  UserCancelledError,
+} from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { RootDescriptor } from '@brainstrike/types';
@@ -18,6 +25,7 @@ import {
 } from '../../ipc-domains/file-system-ipc';
 import { assignWindowRole, clearWindowRoleByWebContentsId } from '../../window-role';
 import {
+  capabilityHandler,
   createFileSystem,
   createStorage,
   E2E_FILE_SYSTEM_FIXTURE_KEY,
@@ -58,6 +66,43 @@ describe('file system IPC domain', () => {
     });
   }
 
+  it.each([
+    [new UserCancelledError(), 'workspace.selection-cancelled', 'refusal'],
+    [new PermissionError('private OS details'), 'workspace.permission-denied', 'refusal'],
+    [new DialogError('private native stack'), 'workspace.picker-unavailable', 'fault'],
+  ])('keeps picker outcome %s distinct on the wire', async (cause, code, kind) => {
+    vi.mocked(fileSystem.requestDirectoryAccess).mockRejectedValueOnce(cause);
+    register();
+    const result = await handlers.get('fs:requestDirectoryAccess')?.(createTrustedInvokeEvent());
+    expect(result).toMatchObject({ error: { code, kind, remedy: expect.any(String) }, ok: false });
+    expect(JSON.stringify(result)).not.toContain('private');
+  });
+
+  it('transports actionable grant refusals as plain data without Error internals', async () => {
+    register();
+    const result = await handlers.get('fs:addRootByPath')?.(
+      createTrustedInvokeEvent(),
+      '/users/test/ungranted'
+    );
+    expect(result).toMatchObject({
+      error: {
+        category: 'authorization',
+        code: 'workspace.never-granted',
+        kind: 'refusal',
+        remedy: expect.any(String),
+      },
+      ok: false,
+    });
+    const transported = structuredClone(result);
+    if (!(transported && typeof transported === 'object' && 'error' in transported)) {
+      throw new Error('Expected a failure envelope');
+    }
+    expect(transported).toEqual(result);
+    expect(transported.error).not.toBeInstanceOf(Error);
+    expect(transported.error).not.toHaveProperty('cause');
+    expect(transported.error).not.toHaveProperty('stack');
+  });
+
   it('awaits the actual main deletion callback and propagates its cleanup failure', async () => {
     const held = Promise.withResolvers<void>();
     const onDeleteRootData = vi.fn(() => held.promise);
@@ -68,14 +113,17 @@ describe('file system IPC domain', () => {
       onDeleteRootData,
       storage,
     });
-    const deletion = handlers.get('fs:deleteRootData')?.(createTrustedInvokeEvent(), 'actual-root');
+    const deletion = capabilityHandler('fs:deleteRootData')?.(
+      createTrustedInvokeEvent(),
+      'actual-root'
+    );
     expect(onDeleteRootData).toHaveBeenCalledWith('actual-root');
     held.resolve();
     await deletion;
     onDeleteRootData.mockRejectedValueOnce(new Error('Native owner cleanup failed'));
     await expect(
-      handlers.get('fs:deleteRootData')?.(createTrustedInvokeEvent(), 'actual-root')
-    ).rejects.toThrow('Native owner cleanup failed');
+      capabilityHandler('fs:deleteRootData')?.(createTrustedInvokeEvent(), 'actual-root')
+    ).rejects.toMatchObject({ code: 'boundary.internal' });
     expect(rootsDbQuery).not.toHaveBeenCalled();
     await domain.close();
   });
@@ -83,8 +131,8 @@ describe('file system IPC domain', () => {
   it('refuses deletion when its main owner has not been composed', async () => {
     register();
     await expect(
-      handlers.get('fs:deleteRootData')?.(createTrustedInvokeEvent(), 'root')
-    ).rejects.toThrow('capability is unavailable');
+      capabilityHandler('fs:deleteRootData')?.(createTrustedInvokeEvent(), 'root')
+    ).rejects.toMatchObject({ code: 'boundary.internal' });
     expect(rootsDbQuery).not.toHaveBeenCalled();
   });
 
@@ -111,7 +159,7 @@ describe('file system IPC domain', () => {
   it('selects, mounts, persists, and stamps a root through the legacy picker channel', async () => {
     register();
 
-    const handle = (await handlers.get('fs:requestDirectoryAccess')?.(
+    const handle = (await capabilityHandler('fs:requestDirectoryAccess')?.(
       createTrustedInvokeEvent()
     )) as DirectoryHandle;
 
@@ -138,7 +186,10 @@ describe('file system IPC domain', () => {
       storage,
     });
 
-    await handlers.get('fs:addRootByPath')?.(createTrustedInvokeEvent(), '/managed/app/bright-fox');
+    await capabilityHandler('fs:addRootByPath')?.(
+      createTrustedInvokeEvent(),
+      '/managed/app/bright-fox'
+    );
 
     expect(managedWorktreeAuthorizer).toHaveBeenCalledWith('/managed/app/bright-fox');
   });
@@ -153,7 +204,7 @@ describe('file system IPC domain', () => {
       storage,
     });
 
-    await expect(handlers.get('fs:addRoot')?.(createTrustedInvokeEvent())).rejects.toThrow();
+    await expect(capabilityHandler('fs:addRoot')?.(createTrustedInvokeEvent())).rejects.toThrow();
     expect(storage.setItem).not.toHaveBeenCalledWith('rootsList', expect.any(String));
   });
 
@@ -170,11 +221,11 @@ describe('file system IPC domain', () => {
       storage,
     });
 
-    const descriptor = (await handlers.get('fs:addRoot')?.(createTrustedInvokeEvent())) as {
+    const descriptor = (await capabilityHandler('fs:addRoot')?.(createTrustedInvokeEvent())) as {
       handle: DirectoryHandle;
     };
     await expect(
-      handlers.get('fs:readFile')?.(createTrustedInvokeEvent(), {
+      capabilityHandler('fs:readFile')?.(createTrustedInvokeEvent(), {
         kind: 'file',
         name: 'readme.md',
         path: '/users/test/workspace/readme.md',
@@ -209,11 +260,11 @@ describe('file system IPC domain', () => {
       },
     });
 
-    const descriptor = (await handlers.get('fs:addRoot')?.(createTrustedInvokeEvent())) as {
+    const descriptor = (await capabilityHandler('fs:addRoot')?.(createTrustedInvokeEvent())) as {
       handle: DirectoryHandle;
     };
     await expect(
-      handlers.get('fs:readFile')?.(createTrustedInvokeEvent(), {
+      capabilityHandler('fs:readFile')?.(createTrustedInvokeEvent(), {
         kind: 'file',
         name: 'readme.md',
         path: '/users/test/workspace/readme.md',
@@ -263,7 +314,7 @@ describe('file system IPC domain', () => {
       },
     });
 
-    const descriptor = (await handlers.get('fs:addRoot')?.(createTrustedInvokeEvent())) as {
+    const descriptor = (await capabilityHandler('fs:addRoot')?.(createTrustedInvokeEvent())) as {
       handle: DirectoryHandle;
     };
     const fileHandle = {
@@ -275,13 +326,13 @@ describe('file system IPC domain', () => {
     } satisfies FileHandle;
 
     await expect(
-      handlers.get('fs:readDirectory')?.(createTrustedInvokeEvent(), descriptor.handle)
+      capabilityHandler('fs:readDirectory')?.(createTrustedInvokeEvent(), descriptor.handle)
     ).resolves.toMatchObject([{ name: 'native.txt' }]);
     await expect(
-      handlers.get('fs:readFile')?.(createTrustedInvokeEvent(), fileHandle)
+      capabilityHandler('fs:readFile')?.(createTrustedInvokeEvent(), fileHandle)
     ).resolves.toBe('native content');
     await expect(
-      handlers.get('fs:readFileByPath')?.(createTrustedInvokeEvent(), fileHandle.path)
+      capabilityHandler('fs:readFileByPath')?.(createTrustedInvokeEvent(), fileHandle.path)
     ).resolves.toBe('native content');
     expect(nativeListDir).toHaveBeenCalledOnce();
     expect(nativeReadFile).toHaveBeenCalledTimes(2);
@@ -306,12 +357,12 @@ describe('file system IPC domain', () => {
       },
     });
 
-    const syntheticDescriptor = (await handlers.get('fs:addRoot')?.(
+    const syntheticDescriptor = (await capabilityHandler('fs:addRoot')?.(
       createTrustedInvokeEvent()
     )) as {
       handle: DirectoryHandle;
     };
-    await handlers.get('fs:removeRoot')?.(
+    await capabilityHandler('fs:removeRoot')?.(
       createTrustedInvokeEvent(),
       syntheticDescriptor.handle.rootId
     );
@@ -322,9 +373,9 @@ describe('file system IPC domain', () => {
       platform: 'electron',
     });
 
-    await expect(handlers.get('fs:addRoot')?.(createTrustedInvokeEvent())).rejects.toThrow(
-      'Conflicting filesystem classification'
-    );
+    await expect(
+      capabilityHandler('fs:addRoot')?.(createTrustedInvokeEvent())
+    ).rejects.toMatchObject({ code: 'boundary.internal' });
     expect(closeNativeRoot).toHaveBeenCalledOnce();
   });
 
@@ -350,15 +401,15 @@ describe('file system IPC domain', () => {
       fixture;
     register();
 
-    const selected = (await handlers.get('fs:requestDirectoryAccess')?.(
+    const selected = (await capabilityHandler('fs:requestDirectoryAccess')?.(
       createTrustedInvokeEvent()
     )) as DirectoryHandle;
     expect(selected).toMatchObject({ path: '/fixture', rootId: expect.any(String) });
     await expect(
-      handlers.get('fs:readDirectory')?.(createTrustedInvokeEvent(), selected)
+      capabilityHandler('fs:readDirectory')?.(createTrustedInvokeEvent(), selected)
     ).resolves.toEqual([]);
     await expect(
-      handlers.get('fs:readFile')?.(createTrustedInvokeEvent(), {
+      capabilityHandler('fs:readFile')?.(createTrustedInvokeEvent(), {
         kind: 'file',
         name: 'readme.md',
         path: '/fixture/readme.md',
@@ -374,21 +425,24 @@ describe('file system IPC domain', () => {
   it('rejects rootless and out-of-root reads instead of falling back to raw adapter paths', async () => {
     register();
     await expect(
-      handlers.get('fs:readFileByPath')?.(
+      capabilityHandler('fs:readFileByPath')?.(
         createTrustedInvokeEvent(),
         '/users/test/workspace/readme.md'
       )
     ).rejects.toThrow('outside every mounted workspace root');
     expect(fileSystem.readFileByPath).not.toHaveBeenCalled();
 
-    const descriptor = (await handlers.get('fs:addRoot')?.(createTrustedInvokeEvent())) as {
+    const descriptor = (await capabilityHandler('fs:addRoot')?.(createTrustedInvokeEvent())) as {
       handle: DirectoryHandle;
     };
     await expect(
-      handlers.get('fs:readFileByPath')?.(createTrustedInvokeEvent(), '/users/test/outside.txt')
+      capabilityHandler('fs:readFileByPath')?.(
+        createTrustedInvokeEvent(),
+        '/users/test/outside.txt'
+      )
     ).rejects.toThrow('outside every mounted workspace root');
     await expect(
-      handlers.get('fs:readFile')?.(createTrustedInvokeEvent(), {
+      capabilityHandler('fs:readFile')?.(createTrustedInvokeEvent(), {
         kind: 'file',
         name: 'escape.txt',
         path: '/users/test/outside.txt',
@@ -416,10 +470,10 @@ describe('file system IPC domain', () => {
         platform: 'electron',
       });
 
-    const rootA = (await handlers.get('fs:addRoot')?.(
+    const rootA = (await capabilityHandler('fs:addRoot')?.(
       createTrustedInvokeEvent()
     )) as RootDescriptor;
-    const rootB = (await handlers.get('fs:addRoot')?.(
+    const rootB = (await capabilityHandler('fs:addRoot')?.(
       createTrustedInvokeEvent()
     )) as RootDescriptor;
     assignWindowRole(
@@ -434,7 +488,7 @@ describe('file system IPC domain', () => {
       senderFrame: createAllowlistedSenderFrame(),
     } as unknown as IpcMainInvokeEvent;
 
-    const readScoped = handlers.get('fs:readFileByAbsolutePath');
+    const readScoped = capabilityHandler('fs:readFileByAbsolutePath');
     expect(readScoped).toBeDefined();
     await expect(
       readScoped?.(visibleEvent, path.join(rootBPath, 'readme.md'), rootBPath, rootB.rootId)
@@ -444,10 +498,10 @@ describe('file system IPC domain', () => {
     ).rejects.toThrow('outside the selected workspace root');
     await expect(
       readScoped?.(visibleEvent, path.join(rootBPath, 'readme.md'), rootBPath, rootA.rootId)
-    ).rejects.toThrow('does not match the mounted workspace root');
+    ).rejects.toMatchObject({ code: 'workspace.root-mismatch' });
     await expect(
       readScoped?.(visibleEvent, path.join(rootBPath, 'readme.md'), rootBPath, undefined)
-    ).rejects.toThrow('durable rootId');
+    ).rejects.toMatchObject({ code: 'workspace.root-id-invalid' });
     await expect(
       readScoped?.(
         {
@@ -499,7 +553,7 @@ describe('file system IPC domain', () => {
 
   it('preserves structured oversized and missing-file payloads after authorization', async () => {
     register();
-    const descriptor = (await handlers.get('fs:addRoot')?.(createTrustedInvokeEvent())) as {
+    const descriptor = (await capabilityHandler('fs:addRoot')?.(createTrustedInvokeEvent())) as {
       handle: DirectoryHandle;
     };
     const file = {
@@ -513,7 +567,9 @@ describe('file system IPC domain', () => {
       new AccessError('File too large: 1.1MB (max: 750KB)', file.path, 'read')
     );
 
-    await expect(handlers.get('fs:readFile')?.(createTrustedInvokeEvent(), file)).resolves.toEqual({
+    await expect(
+      capabilityHandler('fs:readFile')?.(createTrustedInvokeEvent(), file)
+    ).resolves.toEqual({
       code: 'TOO_LARGE',
       message: 'File too large: 1.1MB (max: 750KB)',
     });
@@ -523,9 +579,9 @@ describe('file system IPC domain', () => {
     storage = createStorage({ rootsList: '{broken' });
     register();
 
-    await expect(handlers.get('fs:restoreRoots')?.(createTrustedInvokeEvent())).rejects.toThrow(
-      'persisted workspace root registry is not valid JSON'
-    );
+    await expect(
+      capabilityHandler('fs:restoreRoots')?.(createTrustedInvokeEvent())
+    ).rejects.toMatchObject({ code: 'boundary.internal' });
     expect(rootsDbQuery).not.toHaveBeenCalled();
   });
 
@@ -546,7 +602,7 @@ describe('file system IPC domain', () => {
     );
     register();
 
-    const restored = (await handlers.get('fs:restoreRoots')?.(
+    const restored = (await capabilityHandler('fs:restoreRoots')?.(
       createTrustedInvokeEvent()
     )) as Array<{
       permissionState: string;
@@ -567,17 +623,17 @@ describe('file system IPC domain', () => {
   it('treats lastFolderPath only as a preference for an already-mounted persisted root', async () => {
     register();
     await expect(
-      handlers.get('fs:saveLastFolder')?.(createTrustedInvokeEvent(), '/users/test/workspace')
-    ).rejects.toThrow('must reference a persisted mounted root');
+      capabilityHandler('fs:saveLastFolder')?.(createTrustedInvokeEvent(), '/users/test/workspace')
+    ).rejects.toMatchObject({ code: 'boundary.internal' });
 
-    const descriptor = (await handlers.get('fs:addRoot')?.(createTrustedInvokeEvent())) as {
+    const descriptor = (await capabilityHandler('fs:addRoot')?.(createTrustedInvokeEvent())) as {
       handle: DirectoryHandle;
     };
     await expect(
-      handlers.get('fs:saveLastFolder')?.(createTrustedInvokeEvent(), descriptor.handle.path)
+      capabilityHandler('fs:saveLastFolder')?.(createTrustedInvokeEvent(), descriptor.handle.path)
     ).resolves.toBeUndefined();
     await expect(
-      handlers.get('fs:restoreLastFolder')?.(createTrustedInvokeEvent())
+      capabilityHandler('fs:restoreLastFolder')?.(createTrustedInvokeEvent())
     ).resolves.toMatchObject({
       path: descriptor.handle.path,
       rootId: descriptor.handle.rootId,
@@ -592,12 +648,12 @@ describe('file system IPC domain', () => {
     };
     storage = createStorage({ rootsList: JSON.stringify([entry]) });
     register();
-    await handlers.get('fs:restoreRoots')?.(createTrustedInvokeEvent());
+    await capabilityHandler('fs:restoreRoots')?.(createTrustedInvokeEvent());
     rootsDbQuery.mockRejectedValueOnce(new Error('db unavailable'));
 
     await expect(
-      handlers.get('fs:removeRoot')?.(createTrustedInvokeEvent(), 'root-a')
-    ).rejects.toThrow('db unavailable');
+      capabilityHandler('fs:removeRoot')?.(createTrustedInvokeEvent(), 'root-a')
+    ).rejects.toMatchObject({ code: 'boundary.internal' });
     expect(await storage.getItem('rootsList')).toBe(JSON.stringify([entry]));
   });
 

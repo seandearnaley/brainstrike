@@ -1,3 +1,4 @@
+import { BoundaryFailureError, fault, refusalError } from '@brainstrike/assistant-contract';
 import type { StateStore } from '@brainstrike/state-store';
 import type { HostChildRuns } from './core-child-runs.js';
 import {
@@ -41,10 +42,14 @@ export function deleteHostThread(context: HostThreadDeletionContext, threadId: s
     return existing;
   }
   if (context.closing()) {
-    return Promise.reject(new Error('Host is closing'));
+    return Promise.reject(
+      new BoundaryFailureError(
+        fault({ category: 'availability', code: 'host.closing', message: 'Host is closing' })
+      )
+    );
   }
   if (!context.threads.has(threadId)) {
-    return Promise.reject(new Error('Unknown thread'));
+    return Promise.reject(refusalError('input', 'thread.unknown', 'Unknown thread'));
   }
   const { erase } = context;
   if (!erase) {
@@ -53,7 +58,9 @@ export function deleteHostThread(context: HostThreadDeletionContext, threadId: s
   const subtree = context.children.subtree(threadId);
   const deletion = context.admission.then(async (): Deletion => {
     if (context.closing()) {
-      throw new Error('Host is closing');
+      throw new BoundaryFailureError(
+        fault({ category: 'availability', code: 'host.closing', message: 'Host is closing' })
+      );
     }
     for (const id of subtree) {
       assertHostAdmissionCleanup(context.failedAdmissions, id);

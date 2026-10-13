@@ -7,7 +7,9 @@
  * restart derive a run's branch through the same fold, and a run's model
  * context is its selected path only: a sibling branch is never on it.
  */
+
 import { createHash } from 'node:crypto';
+import { refusalError } from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
   AssistantAttachmentValidationError,
@@ -211,7 +213,11 @@ function resolveHostBranchParent(
     return prior.at(-1)?.id ?? null;
   }
   if (requested !== null && !prior.some((run) => run.id === requested)) {
-    throw new Error('Branch parent is not a committed run of this thread');
+    throw refusalError(
+      'input',
+      'run.branch-parent-unknown',
+      'Branch parent is not a committed run of this thread'
+    );
   }
   return requested;
 }
@@ -227,7 +233,11 @@ function committedHostUserMessage(
       return run.branch;
     }
   }
-  throw new Error('Regenerate references no committed user message in this thread');
+  throw refusalError(
+    'input',
+    'run.regenerate-target-unknown',
+    'Regenerate references no committed user message in this thread'
+  );
 }
 
 /** A started run's state, on the branch its committed run.started records. */
@@ -422,11 +432,15 @@ export function assertHostRunAdmissible(
   params: { readonly commandId: string; readonly threadId: string }
 ): void {
   if (!threads.has(params.threadId)) {
-    throw new Error('Unknown thread');
+    throw refusalError('input', 'thread.unknown', 'Unknown thread');
   }
   assertHostRunStartAvailable(runs, params.threadId);
   if (conversationIds.has(params.commandId)) {
-    throw new Error('Input command collides with a committed conversation identity');
+    throw refusalError(
+      'conflict',
+      'command.identity-collision',
+      'Input command collides with a committed conversation identity'
+    );
   }
 }
 

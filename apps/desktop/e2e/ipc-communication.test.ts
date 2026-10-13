@@ -66,8 +66,8 @@ test.describe('IPC Communication', { tag: '@desktop-ipc-reset' }, () => {
         const existsResult = await electronAPI.fileSystem.exists('/mock/test/path');
 
         return {
-          canCheckExists: typeof existsResult === 'boolean',
-          hasDirectoryAccess: directoryResult !== null,
+          canCheckExists: existsResult.ok && typeof existsResult.value === 'boolean',
+          hasDirectoryAccess: directoryResult.ok && directoryResult.value !== null,
           success: true,
         };
       } catch (error) {

@@ -1,5 +1,6 @@
 import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
 import { encodeFileMentionId, serializeFileMentionDirective } from '@brainstrike/agent';
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildReferencedFilesContextMessage,
@@ -88,9 +89,9 @@ describe('buildReferencedFilesContextMessage', () => {
     expect(body.toLowerCase()).toContain('could not');
   });
 
-  it('injects a clear note (never silent) when the file read throws', async () => {
+  it('injects a typed refusal (never silent) when the read refuses the file', async () => {
     reader = vi.fn(async () => {
-      throw new Error('binary file');
+      throw new ToolInputError('"src/bin.dat" is a binary file.');
     });
     const text = `See ${directive(ROOT_ID, 'src/bin.dat', 'bin.dat')}.`;
     const result = await buildReferencedFilesContextMessage(text, runtimeWithRoot(), reader);
@@ -98,7 +99,23 @@ describe('buildReferencedFilesContextMessage', () => {
     const body = result?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
     expect(body).toContain('src/bin.dat');
     expect(body.toLowerCase()).toContain('could not');
-    expect(body).toContain('binary file');
+    expect(body).toContain('is a binary file.');
+  });
+
+  it('never puts an untyped read error, or its host path, in the model message (BST-2007)', async () => {
+    reader = vi.fn(async () => {
+      throw Object.assign(
+        new Error("ENOENT: no such file or directory, lstat '/Users/someone/project/missing.ts'"),
+        { code: 'ENOENT' }
+      );
+    });
+    const text = `See ${directive(ROOT_ID, 'missing.ts', 'missing.ts')}.`;
+    const result = await buildReferencedFilesContextMessage(text, runtimeWithRoot(), reader);
+
+    const body = result?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
+    expect(body).toContain('### missing.ts\n[Could not read: the file could not be read.]');
+    expect(body).not.toContain('/Users/');
+    expect(body).not.toContain('ENOENT');
   });
 
   it('reads multiple referenced files in one context message', async () => {

@@ -1,3 +1,4 @@
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { createDatabaseIntegrityWatcher } from '@brainstrike/db';
 import type { DatabaseIntegritySnapshot } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
@@ -138,7 +139,7 @@ const tick = (): Promise<void> =>
 function createIntegrityHarness(initial: DatabaseIntegritySnapshot) {
   let listener: (snapshot: DatabaseIntegritySnapshot) => void = () => undefined;
   const watcher = createDatabaseIntegrityWatcher({
-    getState: async () => initial,
+    getState: async () => ({ ok: true, value: initial }),
     onChanged: (callback) => {
       listener = callback;
       return () => undefined;
@@ -238,7 +239,7 @@ describe('composeIntegrityHold', () => {
 
     await expect(
       composeIntegrityHold(base, watcher, vi.fn())({ label: 'embedding claim' })
-    ).rejects.toThrow('ipc unavailable');
+    ).rejects.toMatchObject({ failure: INTERNAL_FAULT });
     expect(base).not.toHaveBeenCalled();
     watcher.dispose();
   });
