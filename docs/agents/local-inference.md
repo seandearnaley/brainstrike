@@ -44,7 +44,10 @@ Guard: `hidden-preload-contract.test.ts`, `hidden-preload-runtime.test.ts`.
   preserve independent errors through generate/cancel/join/close. Hosted document
   and query adapters use the existing provider and credential owners; Ollama and
   LM Studio read the same saved endpoint/token choices as runtime discovery.
-  Cancellation joins the provider operation before releasing ownership.
+  Cancellation joins the provider operation before releasing ownership. The native
+  adapter consumes a request only after join settles, rethrowing its original
+  failure; a previously delivered failure is not an active resource. Close joins
+  even failed cancellations and reports independent faults before returning.
 
 Evidence: `local-inference/2026-10-03-canonical-profile-adapter.md`.
 Guard: `native-canonical-profile.test.ts`,

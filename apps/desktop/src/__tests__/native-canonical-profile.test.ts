@@ -481,7 +481,7 @@ describe('canonical inference ownership', () => {
     expect(f.documentEmbeddings).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps cancellation and cleanup errors visible after held completion', async () => {
+  it('preserves failed cancellation through physical join then retires the settled request', async () => {
     const f = fixture();
     const admitted = deferred<void>();
     const held = deferred<number[][]>();
@@ -495,10 +495,53 @@ describe('canonical inference ownership', () => {
     await admitted.promise;
     const canceled = f.inference.cancel('request');
     const cancelRejected = expect(canceled).rejects.toBe(failure);
+    const joined = f.inference.join('request');
+    const concurrentJoin = f.inference.join('request');
+    const joinRejected = expect(joined).rejects.toBe(failure);
+    const concurrentRejected = expect(concurrentJoin).rejects.toBe(failure);
+    const retired = vi.fn();
+    joined.then(retired, retired);
+    await Promise.resolve();
+    expect(retired).not.toHaveBeenCalled();
     held.reject(failure);
-    await Promise.all([rejected, cancelRejected]);
-    await expect(f.inference.join('request')).rejects.toBe(failure);
-    await expect(f.inference.close()).rejects.toThrow(/retirement/);
+    await Promise.all([rejected, cancelRejected, joinRejected, concurrentRejected]);
+    expect(retired).toHaveBeenCalledOnce();
+    // The original failure reached generate, cancel and both joins; no physical request
+    // remains to block a later explicit cleanup. Its ID still cannot be replayed.
+    await expect(f.inference.generate(request())).rejects.toThrow(/already/);
+    await expect(f.inference.close()).resolves.toBeUndefined();
+  });
+
+  it('close joins failed cancellation before consuming ownership and preserves its original cause', async () => {
+    const f = fixture();
+    const admitted = deferred<AbortSignal>();
+    const physical = deferred<number[][]>();
+    f.documentEmbeddings.mockImplementationOnce((_payload, options) => {
+      admitted.resolve(options!.signal!);
+      return physical.promise;
+    });
+    const failure = new Error('cancellation delivery failed after joined retirement');
+    const generated = f.inference.generate(request());
+    const generatedFailure = expect(generated).rejects.toBe(failure);
+    const signal = await admitted.promise;
+    const closed = f.inference.close();
+    const closeFailure = closed.catch((error: unknown) => error);
+    const retired = vi.fn();
+    closed.then(retired, retired);
+    expect(signal.aborted).toBe(true);
+    await Promise.resolve();
+    expect(retired).not.toHaveBeenCalled();
+    physical.reject(failure);
+    await generatedFailure;
+    const error = await closeFailure;
+    expect(error).toBeInstanceOf(AggregateError);
+    if (!(error instanceof AggregateError)) {
+      throw new Error('Expected the physical retirement failure.');
+    }
+    expect(error.errors).toHaveLength(1);
+    expect(error.errors[0]).toBe(failure);
+    expect(retired).toHaveBeenCalledOnce();
+    await expect(f.inference.close()).resolves.toBeUndefined();
   });
 
   it('does not let stale cancellation affect a different request', async () => {
