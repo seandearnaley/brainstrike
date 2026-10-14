@@ -1,26 +1,19 @@
-# File Explorer Preview Slice
+# Explorer preview
 
-## Ownership
+Owns Tapestry composition, grouping/pagination, natural-height summary, report
+actions and workspace context curation. The retired table preview is not another
+surface to recreate; directory columns/sorting belong to the Explorer tree.
 
-Owns the context preview surface: Tapestry composition and its grouping/pagination inputs, the natural-height summary, report actions, and workspace context curation.
+Use `@brainstrike/file-explorer-ui/preview` across packages, through
+[`index.ts`](index.ts). Keep the preview composed from its existing state,
+summary and report-action owners. Per-file ranges preserve the current composite
+identity and original source spans; inaccessible/binary content remains visible
+rather than being treated as an empty successful read.
 
-BST-1211 retired the Table View, so this slice owns exactly one preview surface. There is no tab strip, no column model and no sort state here — columns and per-directory sort belong to the Explorer grid (`../tree`).
+Dependencies point toward token state, explorer shell types, shared UI/types and
+React. App, desktop/web and assistant runtime internals stay outside this slice;
+consumers inject the required capabilities.
 
-Top churn owned here:
-- `preview-panel.tsx`
-- `preview-panel-summary.tsx`
-- `use-preview-panel-state.ts`
-
-## Public surface
-
-Use `@brainstrike/file-explorer-ui/preview` for cross-package imports. Internal file-explorer modules may import concrete files when they are in the same package and the dependency direction remains explicit.
-
-## Allowed dependencies
-
-Allowed inward dependencies are indexing token state, file-explorer shell store types, shared UI components, shared types, and React. Preview should not import app-shell, desktop, web, or assistant runtime internals.
-
-## Focused local test
-
-```bash
-pnpm --filter @brainstrike/file-explorer-ui exec vitest run src/__tests__/preview-panel.test.tsx src/__tests__/preview-panel.integration.test.tsx src/__tests__/use-preview-panel-state.test.ts src/tapestry/__tests__/tapestry-view.test.tsx
-```
+[Preview contracts](../../../../docs/agents/explorer-search-tapestry.md) and
+[shared contribution/validation policy](../../../../AGENTS.md) apply. Actual props,
+exports and checks live in source and the package manifest.

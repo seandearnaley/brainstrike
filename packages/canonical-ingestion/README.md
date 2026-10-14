@@ -1,40 +1,46 @@
-# Utility canonical ingestion foundation
+# Canonical ingestion
 
-`CanonicalIngestionHost` executes explicitly bounded TEXT scans from its utility
-or standalone Node owner. It reads exact authorized source bindings, hashes the
-retained original text, applies source/catalog mutations, invokes the production
-Node chunker and publishes its exact chunks/graph. PG completion metadata follows
-native publication; native removal precedes catalog invalidation.
+`CanonicalIngestionHost` and `CanonicalWorkspaceIngestionRuntime` execute bounded
+source scans from a utility or standalone Node owner. They read authorized source,
+hash retained original text, apply admitted catalog/source changes, invoke the
+production Node chunker and publish its exact chunks and graph.
 
-The host closes scan admission while physical work is owned. `cancel(requestId)`
-aborts the exact local generation and joins reads, parsing, publication, discovery
-retirement and receipt completion. `abortScan(ticket)` is a plain-token sink
-operation, including when cancellation arrives during manifest verification.
-Transport adapters never serialize `CanonicalOperationContext.signal`.
+## Authority and publication
 
-The four public ports separate PG catalog authority, utility source ownership,
-the existing writer/receipt owner and the mandatory hidden inference relay.
-Workspace/collection scopes and actual canonical IDs stay explicit. Nullable
-root/path metadata remains nullable for standalone collections. TEXT never calls
-model/profile resolution or inference. The generic inference profile is owned by
-the engine; this foundation implements no vector execution or model substitution.
+Catalog, source, writer/receipt and hidden inference ports keep separate
+responsibilities. Historical PG naming in a port does not select the desktop
+storage engine: the current catalog adapter borrows the host's existing owner.
+Workspace/collection scopes, actual canonical IDs and nullable standalone
+collection root/path metadata stay explicit. TEXT calls neither model/profile
+resolution nor inference; this package introduces no engine/model substitution.
 
-Workspace discoveries without a canonical ID use `CanonicalDiscoveredSourceFile`.
-They count against the same scan batch bound and carry only granted source
-metadata. After secure original-source read/hash, the required main catalog
-`prepareManagedSourcesBatch` commits real source using the existing identity
-lookup/UUID/mutation policy and awaits full trusted native binding acknowledgement.
-Only its exact canonical identity/hash reply becomes publishable. Missing, extra,
-repeated or mismatched bindings fail visibly before parser/native publication.
-Cancellation joins a held preparation operation before retiring the scan.
-Registered authorization/stat-skip behavior and retained rootless collection
-source remain unchanged. Collection scope does not establish new filesystem
-membership through this workspace preparation operation.
+Catalog completion follows acknowledged native publication; native removal
+precedes catalog invalidation. A path match, partial inventory or progress event
+cannot authorize source removal or prove completion.
 
-Actual filesystem discovery/watch/coalescing must reuse the current scanner
-algorithm through a concrete utility adapter.
-Those adapters, main PG transport, engine scope DTO integration, real utility
-process/closed-window proof, reset, packaging and other platforms remain pending.
-Controlled port tests are not a claim that those production paths are connected.
+Discovered workspace files without a canonical ID count against the same batch
+bound. After secure original-source read/hash, `prepareManagedSourcesBatch` uses
+the existing identity/mutation owner and awaits trusted native binding
+acknowledgement. Only its exact identity/hash reply becomes publishable; missing,
+extra, repeated or mismatched replies refuse before parsing/publication. Collection
+scope does not establish new workspace filesystem membership.
 
-CI is disabled due to cost; validation must run locally.
+## Lifetime and integration
+
+Scan admission is fenced while physical work is owned. `cancel(requestId)` aborts
+the exact generation and joins reads, parsing, publication, discovery retirement
+and receipt completion. `abortScan(ticket)` is the plain-token sink operation,
+including cancellation during manifest verification. AbortSignals stay local;
+transport adapters carry validated cancellation tokens. Held source preparation
+is joined before scan retirement.
+
+Discovery/watch/coalescing reuses the existing scanner through its concrete
+utility adapter. Desktop wiring lives in
+[`canonical-utility-child.ts`](../../apps/desktop/src/canonical-utility-child.ts) and
+[`native-canonical-catalog.ts`](../../apps/desktop/src/native-canonical-catalog.ts).
+Those source connections replace the old blanket “integration pending” note;
+platform/artifact acceptance remains separate from controlled port tests.
+
+[`package.json`](package.json) owns exports/scripts. See
+[indexing](../../docs/agents/indexer.md) and
+[shared contribution/validation policy](../../AGENTS.md).

@@ -1,200 +1,32 @@
 # @brainstrike/config
 
-Shared configuration files for the BrainStrike monorepo, providing consistent TypeScript and Playwright settings across all packages and applications.
+Shared TypeScript, Biome and browser/Playwright configuration. This package's
+JSON/source exports are consumed directly; it is not a generic runtime library
+with a second build system.
 
-## Overview
+## Select the existing profile
 
-This package centralizes configuration for:
-- TypeScript compiler settings
-- Playwright test environment setup
+The TypeScript profiles live in [`tsconfig`](tsconfig/). `base.json` supplies the
+shared strict checks. Node libraries use `node-library.json` for NodeNext output
+and `.js` relative source specifiers; browser/bundled consumers use their existing
+appropriate profile. Native-addon builds retain their native build boundary.
 
-By extending shared configs, all packages maintain consistency in type-checking, build output, and testing behavior.
+Choose a profile by the actual runtime/output, not by copying a compiler-options
+list. Build references, include/exclude patterns and declaration emission belong
+to the consuming package configuration. Do not add experimental decorator options
+or a bundler just because an obsolete example listed them.
 
-## Contents
+The Biome entries are declared in [`package.json`](package.json).
+`/playwright-environment` owns environment/CLI configuration used by both apps;
+`/vitest-browser` supplies browser project/provider helpers. Each app/package's
+own config chooses its projects and launch boundaries. An environment setting
+named CI does not authorize hosted workflows.
 
-### TypeScript Configurations
+## Changes and validation
 
-Located in `tsconfig/`:
-
-#### `base.json`
-Strict TypeScript configuration for all packages.
-
-**Key settings:**
-- **Strict mode**: Full strictness enabled (`strict: true`)
-- **Module system**: ESNext with Bundler resolution
-- **JSX**: React JSX transform
-- **Safety**: `noUncheckedIndexedAccess`, `noImplicitAny`, `exactOptionalPropertyTypes`
-- **Output**: Declaration files, source maps, declaration maps
-- **Target**: ES2020
-
-### Playwright Environment
-
-Located in `src/playwright-environment.ts`:
-
-Custom Playwright test environment configuration for consistent E2E testing across web and desktop applications.
-
-## Usage
-
-### In Package TypeScript Config
-
-Extend the base configuration in your package's `tsconfig.json`:
-
-```json
-{
-  "extends": "@brainstrike/config/tsconfig/base.json",
-  "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": "./src"
-  },
-  "include": ["src"],
-  "exclude": ["node_modules", "dist", "__tests__"]
-}
-```
-
-### Playwright Environment
-
-Import in Playwright configuration:
-
-```typescript
-import { defineConfig } from '@playwright/test';
-
-export default defineConfig({
-  // Use shared test environment from config package
-  // ...
-});
-```
-
-## Installation
-
-This is an internal workspace package. Add to your `package.json`:
-
-```json
-{
-  "devDependencies": {
-    "@brainstrike/config": "workspace:*"
-  }
-}
-```
-
-## TypeScript Compiler Options
-
-The base configuration enforces:
-
-### Type Safety
-- `strict: true` - Maximum type safety
-- `noImplicitAny: true` - No implicit any types
-- `noUncheckedIndexedAccess: true` - Array/object access returns `T | undefined`
-- `exactOptionalPropertyTypes: true` - Optional properties cannot be undefined explicitly
-- `noPropertyAccessFromIndexSignature: true` - Use bracket notation for dynamic keys
-
-### Code Quality
-- `noUnusedLocals: true` - Detect unused variables
-- `noUnusedParameters: true` - Detect unused function parameters
-- `noFallthroughCasesInSwitch: true` - Require break/return in switch cases
-- `noImplicitReturns: true` - All code paths must return a value
-- `allowUnreachableCode: false` - Error on unreachable code
-- `allowUnusedLabels: false` - Error on unused labels
-
-### Module System
-- `module: "ESNext"` - Modern ES module syntax
-- `moduleResolution: "Bundler"` - Bundler-aware resolution (Vite, webpack)
-- `esModuleInterop: true` - CommonJS interop
-- `isolatedModules: true` - Required for transpilers
-- `verbatimModuleSyntax: true` - Explicit import/export type syntax
-
-### Build Output
-- `declaration: true` - Generate .d.ts files
-- `declarationMap: true` - Generate .d.ts.map files
-- `sourceMap: true` - Generate source maps
-- `removeComments: false` - Preserve comments in output
-
-### React Support
-- `jsx: "react-jsx"` - Use new JSX transform (no React import needed)
-- `lib: ["DOM", "DOM.Iterable", "ESNext"]` - DOM and modern APIs
-
-### Advanced Features
-- `experimentalDecorators: true` - Enable decorators
-- `emitDecoratorMetadata: true` - Emit decorator metadata
-- `forceConsistentCasingInFileNames: true` - Enforce file name casing
-
-## File Structure
-
-```
-packages/config/
-├── tsconfig/
-│   ├── base.json           # Base TypeScript configuration
-│   └── package.json        # Package descriptor for tsconfig
-├── src/
-│   └── playwright-environment.ts  # Playwright environment setup
-├── package.json
-└── README.md
-```
-
-## Exports
-
-The package provides the following exports:
-
-```json
-{
-  "./tsconfig/*": "./tsconfig/*.json",
-  "./playwright-environment": "./src/playwright-environment.ts"
-}
-```
-
-## Development
-
-This package contains only configuration files and has minimal development commands:
-
-```bash
-# Type check (validates configuration)
-pnpm type-check
-
-# Lint
-pnpm lint
-
-# Run tests
-pnpm test
-
-# Clean
-pnpm clean
-```
-
-## Extending Configurations
-
-### Adding Custom Options
-
-When extending, you can override any option:
-
-```json
-{
-  "extends": "@brainstrike/config/tsconfig/base.json",
-  "compilerOptions": {
-    "target": "ES2022",  // Override target
-    "lib": ["ESNext"]     // Override lib
-  }
-}
-```
-
-### Application-Specific Configs
-
-Applications may need additional settings:
-
-```json
-{
-  "extends": "@brainstrike/config/tsconfig/base.json",
-  "compilerOptions": {
-    "paths": {
-      "@/*": ["./src/*"]
-    }
-  },
-  "references": [
-    { "path": "../../packages/ui" },
-    { "path": "../../packages/types" }
-  ]
-}
-```
-
-## See Also
-
-- [TypeScript Handbook - tsconfig.json](https://www.typescriptlang.org/tsconfig)
-- [Playwright Configuration](https://playwright.dev/docs/test-configuration)
+Use the declared package scripts when changing configuration; there is no package
+`build` script to invent. Prefer executable configuration as the source of truth
+for versions, worker counts and budgets. For policy and check selection, use
+[validation guidance](../../docs/agents/ci-quality.md).
+Local consumers
+declare this internal package with `workspace:*`.

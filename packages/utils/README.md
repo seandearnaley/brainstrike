@@ -1,48 +1,18 @@
 # @brainstrike/utils
 
-This package contains shared utility functions used across the Brainstrike project.
+Shared formatting, filtering, path, event and context helpers. Root exports and
+narrow subpaths are declared in [`package.json`](package.json); implementation
+ownership is routed by [`index.ts`](src/index.ts).
 
-## Installation
+`formatFileSize` and `getFolderColor` remain shared display helpers. Read their
+actual parameters/results rather than relying on a copied formatting result or
+color table. Path helpers format/compare values; they do not authorize filesystem
+access. Browser events and error helpers use their existing narrow subpaths when
+a consumer needs that boundary.
 
-Link the utilities package into the consuming workspace using pnpm.
+Keep utilities independent of app/feature runtimes. Preserve explicit failure,
+identity and cancellation contracts when composing helpers; a convenience method
+must not become another durable writer, hidden retry or platform fallback.
 
-```bash
-# Add to a specific workspace (example: apps/web)
-pnpm add @brainstrike/utils --filter @brainstrike/web
-
-# Or declare it manually inside the target package.json
-"dependencies": {
-  "@brainstrike/utils": "workspace:*"
-}
-```
-
-## Usage
-
-```typescript
-import { formatFileSize, getFolderColor } from "@brainstrike/utils";
-
-// Format file size for display
-const size = formatFileSize(1024); // "1.0 KB"
-
-// Get consistent folder color
-const color = getFolderColor("my-folder");
-console.log(color.light); // { bg: '#E6F3FF', text: '#0A558C' }
-```
-
-## Available Utilities
-
-- **Color Utils**: Functions for generating and managing colors
-- **File Utils**: File operations and format helpers
-
-## Development
-
-```bash
-# Build the package
-pnpm run build
-
-# Run in watch mode during development
-pnpm run dev
-
-# Run tests
-pnpm run test
-```
+Local consumers use `workspace:*`. Commands and dependencies come from the
+manifest; [shared contribution/validation policy](../../AGENTS.md) applies.

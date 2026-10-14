@@ -1,42 +1,18 @@
 # @brainstrike/types
 
-Shared TypeScript interfaces, constants and error classes used across Brainstrike packages. It provides the shape of the file explorer state and common utility types.
+Shared contracts and runtime constants/helpers for filesystem handles, explorer
+state/selection, database DTOs, changesets and related package boundaries.
 
-## Installation
+Import types with `import type`. The root and explicit subpaths are declared in
+[`package.json`](package.json); [`index.ts`](src/index.ts) routes the owning modules.
+Do not recreate a partial `FileExplorerState` object from an old README: current
+state, actions, persistence and defaults are owned by their real interfaces and
+store constructors.
 
-Link the shared types into the consuming workspace via pnpm’s workspace
-protocols.
+Preserve durable root identity and composite selection keys separately from display
+paths. File-tree `loadMore`/`truncated` pseudo-nodes do not count as files or affect
+selection rollups. DTO identity is not a filesystem grant or a second persistence
+owner; executable validation belongs to the admitted runtime boundary.
 
-```bash
-# Add to a specific workspace (example: packages/utils)
-pnpm add @brainstrike/types --filter @brainstrike/utils
-
-# Or declare it directly inside the target package.json
-"dependencies": {
-  "@brainstrike/types": "workspace:*"
-}
-```
-
-## Usage
-
-```ts
-import type { FileExplorerState, FileContents } from "@brainstrike/types";
-
-const state: FileExplorerState = {
-  currentFolderId: null,
-  folderStates: {},
-  selectedFilePaths: new Set(),
-  expandedDirectoryPaths: new Set(),
-  lastActiveTab: "files",
-};
-```
-
-The package also exports constants and error classes such as `FileContentError` and `ConcurrentLoadingError`.
-
-## Development
-
-```bash
-pnpm run build
-pnpm run dev # watch mode
-pnpm run test
-```
+Local dependencies use `workspace:*`. Build/check scripts come from the manifest;
+[shared contribution and validation policy](../../AGENTS.md) applies.
