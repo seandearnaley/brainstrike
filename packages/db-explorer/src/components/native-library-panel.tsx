@@ -18,7 +18,13 @@ import { SearchCollectionSelector } from './search-collection-selector';
 import { SettingsPanel } from './settings-panel';
 
 /** Desktop uses the existing catalog/source/index capabilities, with no database provider mount. */
-export function NativeLibraryPanel({ files }: { files: SourceFilesCapability }) {
+export function NativeLibraryPanel({
+  files,
+  onDatabaseCleared,
+}: {
+  files: SourceFilesCapability;
+  onDatabaseCleared: (() => void) | null;
+}) {
   const collectionId = useVectorStatusUIStore((state) => state.activeEmbeddingSetId);
   const select = useVectorStatusUIStore((state) => state.setActiveEmbeddingSetId);
   const upsert = useVectorStatusUIStore((state) => state.upsertCachedCollection);
@@ -28,7 +34,7 @@ export function NativeLibraryPanel({ files }: { files: SourceFilesCapability }) 
   const settings = useImportSettings();
   useCollectionCacheSync();
   const [revision, setRevision] = useState(0);
-  const contentClear = useNativeContentClear(files, revision);
+  const contentClear = useNativeContentClear(files, revision, onDatabaseCleared);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   useEffect(() => {

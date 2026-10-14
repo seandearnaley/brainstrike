@@ -57,9 +57,11 @@ describe('DatabaseTab (chunk)', () => {
     expect(capturedDatabaseProps?.embeddingQueue).toBeNull();
   });
 
-  it('resets live assistant thread and group state after the database clears', () => {
+  it('retires persisted content tabs before a replacement renderer hydrates, preserving other configuration', async () => {
+    localStorage.setItem('content-clear-preserved-setting', 'configured');
     useAssistantThreadStore.setState({
       activeThreadIdByResourceId: { 'resource-1': 'thread-1' },
+      openThreadIdsByResourceId: { 'resource-1': ['thread-1'] },
       selectedThreadByResourceId: { 'resource-1': 'thread-1' },
       threadIdsByResourceId: { 'resource-1': ['thread-1'] },
     });
@@ -84,5 +86,13 @@ describe('DatabaseTab (chunk)', () => {
     expect(useAssistantThreadStore.getState().selectedThreadByResourceId).toEqual({});
     expect(useAssistantThreadStore.getState().threadIdsByResourceId).toEqual({});
     expect(useAssistantThreadGroupsStore.getState().groupsByResourceId).toEqual({});
+    // Rehydrate exactly the same persisted stores the replacement window consumes.
+    await useAssistantThreadStore.persist.rehydrate();
+    await useAssistantThreadGroupsStore.persist.rehydrate();
+    expect(useAssistantThreadStore.getState().activeThreadIdByResourceId).toEqual({});
+    expect(useAssistantThreadStore.getState().openThreadIdsByResourceId).toEqual({});
+    expect(useAssistantThreadGroupsStore.getState().collapsedGroupIds).toEqual({});
+    expect(localStorage.getItem('content-clear-preserved-setting')).toBe('configured');
+    localStorage.removeItem('content-clear-preserved-setting');
   });
 });

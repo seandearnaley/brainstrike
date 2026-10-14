@@ -1,7 +1,7 @@
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { readHostThreadTree, withAppHost } from './utils/agent-host-log';
+import { readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { clearDatabaseRecords, ensureAssistantShellVisible } from './utils/layout-helpers';
 import { readNativeResetProbe, seedNativeResetProbe } from './utils/reset-seed-helpers';
@@ -48,8 +48,17 @@ test('Clear Database removes native files and a waiting host run while retaining
     expect(
       before.some((thread) => thread.rows.some((row) => row.event.type === 'interaction.requested'))
     ).toBe(true);
-    await withAppHost(userData, (client) =>
-      client.request('mcp/extensions/set', { apps: false, tasks: true })
+    await new HomePage(page).openSettings();
+    await new SettingsPage(page).openCategory(/AI Tools/i, 'ai-tools');
+    await page.getByRole('tab', { exact: true, name: 'Tools' }).click();
+    const appsToggle = page.getByTestId('mcp-extension-toggle-apps');
+    await expect(appsToggle).toHaveAttribute('data-state', 'checked');
+    await appsToggle.click();
+    await expect(appsToggle).toHaveAttribute('data-state', 'unchecked');
+    await expect(appsToggle).toBeEnabled();
+    await expect(page.getByTestId('mcp-extension-toggle-tasks')).toHaveAttribute(
+      'data-state',
+      'checked'
     );
     const retained = await page.evaluate(async () => {
       if (!(window.modelCatalog && window.viewFilterPresets)) {
@@ -88,13 +97,30 @@ test('Clear Database removes native files and a waiting host run while retaining
         files: 0,
         retainedProbeIds: [],
       });
+      await expect
+        .poll(() =>
+          readHostThreadTree(userData).then(
+            () => 'answering',
+            (error: unknown) => String(error)
+          )
+        )
+        .toBe('answering');
       const tree = await readHostThreadTree(userData);
       expect(tree.some((thread) => before.some((old) => old.threadId === thread.threadId))).toBe(
         false
       );
-      expect(
-        await withAppHost(userData, (client) => client.request('mcp/extensions/read', {}))
-      ).toEqual({ apps: false, tasks: true });
+      await new HomePage(current).openSettings();
+      await new SettingsPage(current).openCategory(/AI Tools/i, 'ai-tools');
+      await current.getByRole('tab', { exact: true, name: 'Tools' }).click();
+      await expect(current.getByTestId('mcp-extension-toggle-apps')).toBeEnabled();
+      await expect(current.getByTestId('mcp-extension-toggle-apps')).toHaveAttribute(
+        'data-state',
+        'unchecked'
+      );
+      await expect(current.getByTestId('mcp-extension-toggle-tasks')).toHaveAttribute(
+        'data-state',
+        'checked'
+      );
       expect(
         await current.evaluate(async () => ({
           models: await window.modelCatalog!.read().then((result) => {

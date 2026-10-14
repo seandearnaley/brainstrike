@@ -152,6 +152,16 @@ export function useThreadSearchController({
     return resolveSingletonProfileModelInfo(profile, localModelConfigMap);
   }, [localModelConfigMap, repository, readEmbeddingProfile]);
 
+  const ensureEmbeddingReady = useCallback(async (): Promise<void> => {
+    if (searchHost) {
+      return;
+    }
+    if (!loadEmbeddingQueue) {
+      throw new Error('No embedding queue is registered for this platform.');
+    }
+    await loadEmbeddingQueue();
+  }, [loadEmbeddingQueue, searchHost]);
+
   const resolveQueryEmbedding = useCallback(
     async (
       trimmedQuery: string
@@ -173,10 +183,7 @@ export function useThreadSearchController({
       }
       const attemptStartedAt = Date.now();
       try {
-        if (!loadEmbeddingQueue) {
-          throw new Error('No embedding queue is registered for this platform.');
-        }
-        await loadEmbeddingQueue();
+        await ensureEmbeddingReady();
         const modelInfo = await resolveModelInfo();
         const embedding = await embedder.embedQueryWithRecovery(modelInfo, trimmedQuery);
         // The cached embedder that just ran names the profile its vectors belong to.
@@ -203,12 +210,12 @@ export function useThreadSearchController({
         };
       }
     },
-    [embedder, loadEmbeddingQueue, resolveModelInfo]
+    [embedder, ensureEmbeddingReady, resolveModelInfo]
   );
 
   /** Fire-and-forget bounded backlog drain; coverage refresh reports progress. */
   const drainEmbeddingBacklog = useCallback(() => {
-    if (!((repository || searchHost) && loadEmbeddingQueue)) {
+    if (!(searchHost || (repository && loadEmbeddingQueue))) {
       return;
     }
     // The host's half needs the profile of the embedder that will run; an
@@ -219,7 +226,7 @@ export function useThreadSearchController({
         return null;
       }
       try {
-        await loadEmbeddingQueue();
+        await ensureEmbeddingReady();
         const modelInfo = await resolveModelInfo();
         const { runtime } = await embedder.ensureEmbedderReady(modelInfo);
         return { modelInfo, profile: threadSearchVectorProfile(modelInfo, runtime) };
@@ -257,7 +264,7 @@ export function useThreadSearchController({
           // A broken embedder would fail per row; wait out the retry window.
           return;
         }
-        await loadEmbeddingQueue();
+        await ensureEmbeddingReady();
         const modelInfo = await resolveModelInfo();
         const outcomes = await embedPendingThreadMessages({
           embedder,
@@ -312,6 +319,7 @@ export function useThreadSearchController({
     );
   }, [
     embedder,
+    ensureEmbeddingReady,
     hostSearchVectors,
     loadEmbeddingQueue,
     repository,

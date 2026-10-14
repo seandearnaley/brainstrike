@@ -18,6 +18,7 @@ import {
 import { scriptedModel } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { afterEach, expect, test } from 'vitest';
+import { ThreadRootsRemovedError } from '../agent-host-platform/desktop-workspace-binding';
 import { createCommittedHostConversation } from '../renderer/committed-host-conversation';
 import { bindHostThreadToMainRoot } from '../renderer/host-thread-root-binding';
 
@@ -71,7 +72,14 @@ async function hostThread() {
           binding.operatingRootId &&
           !['root-project', 'root-other'].includes(binding.operatingRootId)
         ) {
-          throw new Error('The selected workspace root is no longer mounted.');
+          throw new ThreadRootsRemovedError([
+            {
+              rootId: binding.operatingRootId,
+              ...(binding.operatingRootDisplayName
+                ? { displayName: binding.operatingRootDisplayName }
+                : {}),
+            },
+          ]);
         }
       },
     }
@@ -158,8 +166,9 @@ test('a Main root with no live workspace identity fails the send before any run'
     path: '/work/gone',
     rootId: 'root-gone',
   });
-  await expect(conversation.commands.onNew?.(message('Question'))).rejects.toThrow(
-    'The selected workspace root is no longer mounted.'
-  );
+  await expect(conversation.commands.onNew?.(message('Question'))).rejects.toMatchObject({
+    code: 'workspace.folder-removed',
+    failure: { category: 'conflict', code: 'workspace.folder-removed', kind: 'refusal' },
+  });
   expect(kinds(await thread.rows())).toEqual([]);
 });

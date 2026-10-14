@@ -1,4 +1,3 @@
-import path from 'node:path';
 import type { createIpcMainMock, createIpcRendererMock } from '@brainstrike/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTrustedInvokeEvent } from './helpers/desktop-ipc-sender-test-helpers';
@@ -151,13 +150,9 @@ describe('db:getUserDataPath IPC handler', () => {
     (ipcRenderer as unknown as ReturnType<typeof createIpcRendererMock>).invoke.mockClear();
   });
 
-  it('returns the user database path', async () => {
-    // In test environment (NODE_ENV=test), we expect the isolated path structure
-    // defined in db-main.ts: path.join(app.getPath('userData'), 'profiles', 'test', 'pgdata')
-    // The default app mock returns '/mock/path' for 'userData'
-    const expected = path.join('/mock/path', 'profiles', 'test', 'pgdata');
+  it('returns the Electron profile path without constructing a PostgreSQL path', async () => {
     const result = await ipcRenderer.invoke('db:getUserDataPath');
-    expect(result).toBe(expected);
+    expect(result).toBe('/mock/path');
   });
 
   it('unregisters MCP IPC handlers during will-quit shutdown', async () => {

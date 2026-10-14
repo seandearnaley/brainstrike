@@ -37,13 +37,13 @@ test('visible preset writes reach the injected owner once and hidden/malformed w
   await expect(invoke('embedding-host', { id: 'preset', operation: 'delete' })).rejects.toThrow();
   await expect(
     invoke('visible-ui', { id: 'preset', input: { isDefault: true }, operation: 'update' })
-  ).rejects.toThrow();
+  ).resolves.toMatchObject({ error: { code: 'boundary.internal', kind: 'fault' }, ok: false });
   await expect(
     invoke('visible-ui', {
       input: { excludes: [], icon: 'unknown', includes: [], name: 'test' },
       operation: 'create',
     })
-  ).rejects.toThrow();
+  ).resolves.toMatchObject({ error: { code: 'boundary.internal', kind: 'fault' }, ok: false });
   expect(viewFilterPresets).toHaveBeenCalledOnce();
   close();
   expect(removeHandler).toHaveBeenCalledWith('view-filter-presets:request');

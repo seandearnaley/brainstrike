@@ -124,7 +124,7 @@ describe('useThreadSearchController', () => {
     );
   }
 
-  it('searches the host with its unchanged profile and no history database', async () => {
+  it('searches the host with its unchanged profile without a history database or queue', async () => {
     const searchHost = vi.fn(async () => ({
       messages: [FTS_MATCH],
       similarMessages: [],
@@ -134,7 +134,7 @@ describe('useThreadSearchController', () => {
     renderHook(() =>
       useThreadSearchController({
         embedder: createEmbedder(),
-        loadEmbeddingQueue: async () => ({}) as never,
+        loadEmbeddingQueue: null,
         localModelConfigMap: new Map() as never,
         readEmbeddingProfile,
         repository: null,
@@ -144,7 +144,12 @@ describe('useThreadSearchController', () => {
     );
     act(() => useThreadSearchStore.getState().setQuery('hnsw'));
     await flushAsync();
-    expect(searchHost).toHaveBeenCalledTimes(1);
+    expect(searchHost).toHaveBeenCalledWith('hnsw', {
+      profile: VECTOR_PROFILE,
+      threshold: 0.35,
+      vector: [0.1, 0.2, 0.3],
+    });
+    expect(useThreadSearchStore.getState().semantic).toEqual({ kind: 'used' });
     expect(readEmbeddingProfile).toHaveBeenCalled();
     expect(useThreadSearchStore.getState().status).toBe('results');
     expect(useThreadSearchStore.getState().results?.[0]?.threadId).toBe('thread-1');
@@ -485,12 +490,17 @@ describe('useThreadSearchController', () => {
       .mockResolvedValueOnce({ embedded: 0, errored: 0, rows: 2 })
       .mockResolvedValue({ embedded: 2, errored: 0, rows: 2 });
     const embedder = createEmbedder();
-    renderController(
-      repository,
-      embedder,
-      vi.fn(async () => ({}) as never),
-      async () => ({ messages: [], titles: [] }),
-      { coverage, pending, put }
+    renderHook(() =>
+      useThreadSearchController({
+        embedder,
+        hostSearchVectors: { coverage, pending, put },
+        loadEmbeddingQueue: null,
+        localModelConfigMap: new Map() as never,
+        readEmbeddingProfile: async () => PROFILE,
+        repository: null,
+        resourceId: 'workspace-memory',
+        searchHost: async () => ({ messages: [], titles: [] }),
+      })
     );
 
     act(() => {

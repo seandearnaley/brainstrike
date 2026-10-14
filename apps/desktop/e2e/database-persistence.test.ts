@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import { readHostThreadTree, withAppHost } from './utils/agent-host-log';
 import { explorerImportPicker, explorerImportTrigger } from './utils/explorer-import';
 import {
   clearDatabaseRecords,
@@ -219,7 +221,8 @@ test.describe('Database Persistence', () => {
     await electron.ensureWindow();
   });
 
-  test.afterEach(async ({ electron, window }, testInfo) => {
+  test.afterEach(async ({ electron }, testInfo) => {
+    const { window } = await electron.ensureContext();
     const preserveState = testInfo.title.includes('should persist data between app restarts');
 
     if (!preserveState) {
@@ -328,8 +331,9 @@ test.describe('Database Persistence', () => {
         .textContent();
       expect(statusText).toContain('Storage:');
       expect(statusText).not.toContain('Connecting…'); // Ensure it's not in loading state
-      // Accept either IPC connection or PGlite connection
-      expect(statusText).toMatch(/IPC|PGlite/i);
+      // The canonical desktop owner is SQLite; this status must not advertise the retired PG bridge.
+      expect(statusText).toContain('SQLite');
+      expect(statusText).not.toMatch(/PGlite/i);
       return;
     }
 
@@ -681,23 +685,50 @@ test.describe('Database Persistence', () => {
     await executeClearDatabaseWorkflow(activeWindow);
   });
 
-  test('should properly disable Clear Database button when no data exists', async ({ window }) => {
-    let activeWindow = await ensureDatabasePanelVisibleQuick(window);
-    if (!activeWindow) {
-      return;
-    }
-    activeWindow = await clearDatabaseRecords(activeWindow);
-
-    await clickRefreshIfAvailable(activeWindow);
-
-    // Expand Import Settings to access Clear Database button
+  test('Clear Database removes chat-only content when no Library files exist', async ({
+    electron,
+    window,
+  }) => {
+    const context = await electron.ensureContext();
+    const userData = await context.app.evaluate(({ app }) => app.getPath('userData'));
+    const initial = await clearDatabaseRecords(window);
+    await expect
+      .poll(() =>
+        readHostThreadTree(userData).then(
+          () => 'answering',
+          (error: unknown) => String(error)
+        )
+      )
+      .toBe('answering');
+    const { threadId } = await withAppHost(userData, (host) =>
+      host.request('thread/start', { commandId: randomUUID() })
+    );
+    expect(
+      (await readHostThreadTree(userData)).some((thread) => thread.threadId === threadId)
+    ).toBe(true);
+    const activeWindow = await showDatabaseDemoPanel(initial);
     await expandImportSettings(activeWindow);
-
-    const clearButton = activeWindow.getByRole('button', {
-      name: /Clear Database|Counts pending/,
-    });
-    await expect(clearButton).toBeVisible();
-    await expect(clearButton).toBeDisabled();
+    // Library file counts cannot establish that host conversations are empty.
+    await expect(
+      activeWindow.getByRole('button', { exact: true, name: 'Clear Database' })
+    ).toBeEnabled();
+    await clearDatabaseRecords(activeWindow);
+    const assertThreadRemoved = async () => {
+      await expect
+        .poll(() =>
+          readHostThreadTree(userData).then(
+            () => 'answering',
+            (error: unknown) => String(error)
+          )
+        )
+        .toBe('answering');
+      expect(
+        (await readHostThreadTree(userData)).some((thread) => thread.threadId === threadId)
+      ).toBe(false);
+    };
+    await assertThreadRemoved();
+    await electron.restart();
+    await assertThreadRemoved();
   });
 
   test('should handle Clear Database with uninitialized database gracefully', async ({

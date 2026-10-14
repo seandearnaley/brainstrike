@@ -1,8 +1,14 @@
 import { type ModelCatalogCapability, projectModelCatalog } from '@brainstrike/assistant-contract';
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
+import {
+  type BoundaryTransport,
+  createBoundaryCapability,
+} from '@brainstrike/assistant-contract/boundary-result';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const toast = vi.fn();
+const { diagnosticError } = vi.hoisted(() => ({ diagnosticError: vi.fn() }));
 let db: unknown = { query: vi.fn() };
 
 vi.mock('@brainstrike/ui', () => ({ useToast: () => ({ toast }) }));
@@ -13,7 +19,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
     ...actual,
     createLogger: () => ({
       debug: vi.fn(),
-      error: vi.fn(),
+      error: diagnosticError,
       info: vi.fn(),
       warn: vi.fn(),
     }),
@@ -72,17 +78,25 @@ describe('useModelToggle against the real model-registry-store', () => {
       models: [{ enabled: true, modelId: model.id, providerId: model.providerId }],
       providers: [],
     });
-    const catalog: ModelCatalogCapability = {
-      initializeProviderDefaults: async () => ({ outcome: 'preserved', snapshot }),
-      read: async () => snapshot,
+    const catalog: BoundaryTransport<ModelCatalogCapability> = {
+      initializeProviderDefaults: async () => ({
+        ok: true,
+        value: { outcome: 'preserved', snapshot },
+      }),
+      read: async () => ({ ok: true, value: snapshot }),
       setModels: vi.fn(async () => ({
-        previous: [{ enabled: false, modelId: model.id }],
-        snapshot: committed,
+        ok: true as const,
+        value: {
+          previous: [{ enabled: false, modelId: model.id }],
+          snapshot: committed,
+        },
       })),
-      setProvider: async () => snapshot,
+      setProvider: async () => ({ ok: true, value: snapshot }),
     };
     vi.stubGlobal('modelCatalog', catalog);
-    await useModelRegistryStore.getState().fetchRegistry(catalog);
+    await useModelRegistryStore
+      .getState()
+      .fetchRegistry(createBoundaryCapability<ModelCatalogCapability>(catalog));
     const { result } = renderHook(() => useModelToggle());
     await act(async () => {
       expect(await result.current.toggleMany([model.id], true)).toEqual({
@@ -91,16 +105,18 @@ describe('useModelToggle against the real model-registry-store', () => {
       });
     });
     expect(useModelRegistryStore.getState().models).toEqual(committed.models);
-    vi.mocked(catalog.setModels).mockRejectedValueOnce(new Error('catalog choice write refused'));
+    const cause = new Error('catalog choice write refused');
+    vi.mocked(catalog.setModels).mockRejectedValueOnce(cause);
     await act(async () => {
       expect(await result.current.toggle(model.id, false)).toBe(false);
     });
     expect(toast).toHaveBeenCalledWith(
       expect.objectContaining({
-        description: 'catalog choice write refused',
+        description: INTERNAL_FAULT.message,
         variant: 'destructive',
       })
     );
+    expect(diagnosticError).toHaveBeenCalledWith('Desktop IPC transport failed', { cause });
     expect(useModelRegistryStore.getState().models).toEqual(committed.models);
   });
 

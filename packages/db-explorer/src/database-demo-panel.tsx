@@ -339,5 +339,9 @@ function WebDatabaseDemoPanel({
 
 export function DatabaseDemoPanel(props: DatabaseDemoPanelProps) {
   const files = getSourceFilesCapability();
-  return files ? <NativeLibraryPanel files={files} /> : <WebDatabaseDemoPanel {...props} />;
+  return files ? (
+    <NativeLibraryPanel files={files} onDatabaseCleared={props.onDatabaseCleared} />
+  ) : (
+    <WebDatabaseDemoPanel {...props} />
+  );
 }

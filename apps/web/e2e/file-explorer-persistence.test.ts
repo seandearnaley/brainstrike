@@ -700,9 +700,26 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     const explorer = new FileExplorerPage(page);
     await expect(page.getByText('No folders in your workspace')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: 'Selection count (read-only)' })).toContainText(
-      '2K/2K',
+      '0/2000',
       { timeout: 15_000 }
     );
+    // No restored handle is active; the saved selection belongs to this root
+    // until the user grants access to that same root again.
+    await expect
+      .poll(() => readPersistedExplorerState(page))
+      .toMatchObject({
+        state: {
+          currentFolderId: null,
+          folderStates: {
+            [STALE_SELECTION_ROOT_ID]: {
+              selectedFilePaths: Array.from(
+                { length: 2000 },
+                (_, index) => `${STALE_SELECTION_ROOT_ID}|@|src/file-${index}.ts`
+              ),
+            },
+          },
+        },
+      });
 
     await setupOpfsDirectoryPicker(page, STALE_SELECTION_ROOT_NAME, {
       src: {

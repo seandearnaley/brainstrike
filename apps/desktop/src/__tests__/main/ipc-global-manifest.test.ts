@@ -293,6 +293,14 @@ function discoverContracts(): DiscoveredContract[] {
   for (const [file, module] of Object.entries(CONTRACT_MODULES)) {
     for (const [exportName, value] of Object.entries(module)) {
       if (isContract(value)) {
+        // Database query/live/integrity protocols are retired on desktop; the
+        // profile-path contract remains public. Assert their absence separately.
+        if (
+          path.basename(file) === 'database.contract.ts' &&
+          exportName !== 'databasePathContract'
+        ) {
+          continue;
+        }
         discovered.push({ contract: value, exportName, file: path.basename(file) });
       }
     }
@@ -362,8 +370,10 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
   it('starts the shared host profile before the renderer without waiting for host readiness', () => {
     // M3 startup waited for the renderer's first thread request to launch its
     // host, putting utility startup after the visible shell's own startup.
-    expect(profileStartup.acquire).toHaveBeenCalledExactlyOnceWith();
-    expect(profileStartup.events).toEqual(['profile', 'window']);
+    expect(profileStartup.acquire).toHaveBeenCalledTimes(3);
+    expect(profileStartup.acquire.mock.calls).toEqual([[], [], []]);
+    // Startup, root catalog and host log readers borrow the same owner.
+    expect(profileStartup.events).toEqual(['profile', 'profile', 'profile', 'window']);
   });
 
   it('registers every channel on exactly one registry instance (the global duplicate guard)', () => {
@@ -375,29 +385,52 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
     expect(duplicates).toEqual([]);
   });
 
+  it('does not register retired SQL, queue or integrity invokes', () => {
+    const retired = new Set<string>([
+      DESKTOP_IPC_CHANNELS.db.query,
+      DESKTOP_IPC_CHANNELS.db.exec,
+      DESKTOP_IPC_CHANNELS.db.liveQueryStart,
+      DESKTOP_IPC_CHANNELS.db.liveQueryStop,
+      DESKTOP_IPC_CHANNELS.db.integrityState,
+      DESKTOP_IPC_CHANNELS.embeddingHost.enqueueBackfill,
+      DESKTOP_IPC_CHANNELS.embeddingHost.cancelBackfill,
+      DESKTOP_IPC_CHANNELS.embeddingHost.cancelAllBackfills,
+      DESKTOP_IPC_CHANNELS.embeddingHost.getBackfillsInFlight,
+    ]);
+    expect(union.filter((entry) => retired.has(entry.channel))).toEqual([]);
+  });
+
   it('registers every contract invoke channel exactly once, as an invoke, and never a push event', () => {
     const contracts = discoverContracts();
     expect([...new Set(contracts.map(({ file }) => file))]).toEqual([
       'changes.contract.ts',
       'clipboard.contract.ts',
+      'collection-catalog.contract.ts',
       'command-sessions.contract.ts',
+      'content-clear.contract.ts',
       'context-files.contract.ts',
       'database.contract.ts',
+      'factory-reset.contract.ts',
       'file-system.contract.ts',
       'forge.contract.ts',
       'git.contract.ts',
       'index-search.contract.ts',
       'mcp.contract.ts',
+      'model-catalog.contract.ts',
       'notes-vault.contract.ts',
+      'prompt-library.contract.ts',
       'skills.contract.ts',
+      'source-files.contract.ts',
       'storage-preferences.contract.ts',
       'terminal.contract.ts',
+      'thread-groups.contract.ts',
       'user-commands.contract.ts',
       'user-personas.contract.ts',
+      'view-filter-presets.contract.ts',
       'window-focus.contract.ts',
       'worktrees.contract.ts',
     ]);
-    expect(contracts.filter(({ file }) => file === 'database.contract.ts')).toHaveLength(6);
+    expect(contracts.filter(({ file }) => file === 'database.contract.ts')).toHaveLength(1);
     expect(contracts.filter(({ file }) => file === 'file-system.contract.ts')).toHaveLength(2);
     expect(contracts.filter(({ file }) => file === 'mcp.contract.ts')).toHaveLength(2);
     expect(contracts.filter(({ file }) => file === 'storage-preferences.contract.ts')).toHaveLength(

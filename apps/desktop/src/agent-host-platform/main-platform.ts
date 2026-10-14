@@ -71,7 +71,6 @@ export interface DesktopPlatformCapabilities {
   resolveWorkspaceRoot?(rootId: string): Promise<string>;
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
   /** Private Main-to-writer borrow on this same generation's platform connection. */
-  readonly workspaceRoots?: { attach(connection: MessageConnection): () => void };
   /** Legacy turns' shadow-git owner, which also snapshots each host run's turn. */
   readonly workspaceSnapshots?: DesktopWorkspaceSnapshots;
 }

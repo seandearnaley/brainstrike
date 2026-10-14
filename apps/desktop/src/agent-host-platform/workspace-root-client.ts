@@ -1,167 +1,123 @@
-import type {
-  CollectionPort,
-  ForgeCachePort,
-  ModelChoicePort,
-  SourceCatalogPort,
-  ViewFilterPresetPort,
-  WorkspaceRootPort,
-  WorktreeLedgerPort,
-} from '@brainstrike/state-store';
-import type { ThreadGroupsPort } from '@brainstrike/types';
-import type { MessageConnection } from 'vscode-jsonrpc';
-import { createCollectionClient } from './collection-store';
-import { createModelChoiceClient } from './model-choice-store';
-import { createPromptLibraryClient, type PromptLibraryPort } from './prompt-library-store';
-import { createSourceCatalogClient } from './source-catalog-store';
-import { createThreadGroupsClient } from './thread-groups-store';
-import { createViewFilterPresetClient } from './view-filter-preset-store';
-import { createWorkspaceRootClient } from './workspace-root-store';
-import { createWorktreeForgeClient } from './worktree-forge-store';
+import type { HostCatalog } from '@brainstrike/agent-host/catalog';
+import type { HostAttachment } from '@brainstrike/host-lease';
 
-/** A borrow of the current private connection, never another catalog or writer. */
+/** A borrow of the current authenticated attachment, never another catalog or writer. */
 export function createDesktopWorkspaceRootCatalog(
-  acquireProfile: () => Promise<unknown>
-): PromptLibraryPort &
-  ThreadGroupsPort &
-  ViewFilterPresetPort &
-  CollectionPort &
-  WorkspaceRootPort &
-  SourceCatalogPort &
-  ModelChoicePort &
-  WorktreeLedgerPort &
-  ForgeCachePort & {
-    attach(connection: MessageConnection): () => void;
-  } {
-  let current:
-    | (PromptLibraryPort &
-        ThreadGroupsPort &
-        ViewFilterPresetPort &
-        CollectionPort &
-        WorkspaceRootPort &
-        SourceCatalogPort &
-        ModelChoicePort &
-        WorktreeLedgerPort &
-        ForgeCachePort)
-    | undefined;
+  acquireProfile: () => Promise<HostAttachment>
+): HostCatalog {
+  let current: HostCatalog | undefined;
+  const acquire = async (): Promise<void> => {
+    const attachment = await acquireProfile();
+    if (!('catalog' in attachment)) {
+      throw new Error('The authenticated host has no catalog capability');
+    }
+    const client = attachment.catalog as HostCatalog;
+    current = client;
+    const detach = (): void => {
+      if (current === client) {
+        current = undefined;
+      }
+    };
+    void attachment.closed.then(detach, detach);
+  };
   return {
-    attach: (connection) => {
-      const client = {
-        ...createPromptLibraryClient(connection),
-        ...createThreadGroupsClient(connection),
-        ...createViewFilterPresetClient(connection),
-        ...createCollectionClient(connection),
-        ...createWorktreeForgeClient(connection),
-        ...createWorkspaceRootClient(connection),
-        ...createSourceCatalogClient(connection),
-        ...createModelChoiceClient(connection),
-      };
-      current = client;
-      const detach = (): void => {
-        if (current === client) {
-          current = undefined;
-        }
-      };
-      connection.onClose(detach);
-      connection.onDispose(detach);
-      return detach;
-    },
     collections: async (request) => {
       if (!current) {
-        await acquireProfile();
+        await acquire();
       }
       const client = current;
       if (!client) {
-        throw new Error('Collections require the agent host launched by this desktop');
+        throw new Error('Collections require an authenticated live agent host');
       }
       return await client.collections(request);
     },
     forgeCache: async (request) => {
       if (!current) {
-        await acquireProfile();
+        await acquire();
       }
       const client = current;
       if (!client) {
-        throw new Error('Forge cache requires the agent host launched by this desktop');
+        throw new Error('Forge cache requires an authenticated live agent host');
       }
       return await client.forgeCache(request);
     },
     forgeCacheSnapshot: async () => {
       if (!current) {
-        await acquireProfile();
+        await acquire();
       }
       const client = current;
       if (!client) {
-        throw new Error('Forge cache requires the agent host launched by this desktop');
+        throw new Error('Forge cache requires an authenticated live agent host');
       }
       return await client.forgeCacheSnapshot();
     },
     modelChoices: async (request) => {
       if (!current) {
-        await acquireProfile();
+        await acquire();
       }
       const client = current;
       if (!client) {
-        throw new Error('Model choices require the agent host launched by this desktop');
+        throw new Error('Model choices require an authenticated live agent host');
       }
       return await client.modelChoices(request);
     },
     promptLibrary: async (request) => {
       if (!current) {
-        await acquireProfile();
+        await acquire();
       }
       const client = current;
       if (!client) {
-        throw new Error('Prompt Library requires the agent host launched by this desktop');
+        throw new Error('Prompt Library requires an authenticated live agent host');
       }
       return await client.promptLibrary(request);
     },
     sourceCatalog: async (request) => {
       if (!current) {
-        await acquireProfile();
+        await acquire();
       }
       const client = current;
       if (!client) {
-        throw new Error('Source catalog requires the agent host launched by this desktop');
+        throw new Error('Source catalog requires an authenticated live agent host');
       }
       return await client.sourceCatalog(request);
     },
     threadGroups: async (request) => {
       if (!current) {
-        await acquireProfile();
+        await acquire();
       }
       const client = current;
       if (!client) {
-        throw new Error('Thread groups require the agent host launched by this desktop');
+        throw new Error('Thread groups require an authenticated live agent host');
       }
       return await client.threadGroups(request);
     },
     viewFilterPresets: async (request) => {
       if (!current) {
-        await acquireProfile();
+        await acquire();
       }
       const client = current;
       if (!client) {
-        throw new Error('View presets require the agent host launched by this desktop');
+        throw new Error('View presets require an authenticated live agent host');
       }
       return await client.viewFilterPresets(request);
     },
     workspaceRoots: async (request) => {
       if (!current) {
-        await acquireProfile();
+        await acquire();
       }
       const client = current;
       if (!client) {
-        throw new Error('Workspace catalog requires the agent host launched by this desktop');
+        throw new Error('Workspace catalog requires an authenticated live agent host');
       }
       return await client.workspaceRoots(request);
     },
     worktreeLedger: async (request) => {
       if (!current) {
-        await acquireProfile();
+        await acquire();
       }
       const client = current;
       if (!client) {
-        throw new Error('Worktree ledger requires the agent host launched by this desktop');
+        throw new Error('Worktree ledger requires an authenticated live agent host');
       }
       return await client.worktreeLedger(request);
     },

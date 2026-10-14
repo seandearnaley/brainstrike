@@ -391,9 +391,13 @@ test('actual Main refuses a trusted owner model mismatch before root acquisition
   const original = intent();
   original.modelConfiguration.model = 'gpt-6-astra';
   const capabilities = desktopAdmission({}, undefined, async () => original);
-  await expect(capabilities.readConfiguration(request(cliInput()))).rejects.toThrow(
-    'Captured settings do not belong'
-  );
+  await expect(capabilities.readConfiguration(request(cliInput()))).rejects.toMatchObject({
+    failure: {
+      category: 'conflict',
+      code: 'model.selection-changed',
+      kind: 'refusal',
+    },
+  });
   expect(catalog.workspaceRoots).not.toHaveBeenCalled();
 });
 

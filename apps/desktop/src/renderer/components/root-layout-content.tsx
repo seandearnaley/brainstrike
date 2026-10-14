@@ -48,6 +48,7 @@ import {
   resolveDesktopMcpToolsCapability,
 } from '../host-mcp-settings';
 import { createIpcCapability } from '../ipc-capability';
+import { createDesktopLocalSearchEmbedder } from '../local-search-embedder';
 import { useMcpAppsEnablement } from '../use-mcp-apps-enablement';
 // Task A's changes-page-content.tsx exports this by name (not default,
 // unlike its git/context-explorer/terminal siblings) — imported as written.
@@ -152,6 +153,7 @@ export default function RootLayoutContent() {
     // on desktop — no bridge gate.
     canvasPanelContent: <CanvasPanel shellSrc="brainstrike-canvas://shell/" />,
     contextExplorerPageContent: <ContextExplorerPageContent />,
+    createLocalSearchEmbedder: createDesktopLocalSearchEmbedder,
     databaseTabChunkingMode: 'host-proxy',
     deleteRootData: (rootId) => {
       const bridge = window.electronAPI;

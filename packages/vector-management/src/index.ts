@@ -45,6 +45,7 @@ export { QueueStatusPopover } from './queue-status-popover';
 export type {
   EmbedderRuntime,
   EmbeddingSetModelInfo,
+  LocalSearchEmbedderFactory,
   SearchEmbedder,
   UseSearchEmbedderResult,
 } from './search-embedder/index.js';

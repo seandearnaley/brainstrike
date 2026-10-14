@@ -102,6 +102,14 @@ export default defineConfig({
         codeSplitting: {
           groups: [
             {
+              // Keep entry.ts's jitless configuration ahead of application schemas.
+              // A recursive context-action group otherwise absorbs this shared runtime
+              // and evaluates its schemas before the entry can disable the eval probe.
+              name: 'zod-runtime',
+              priority: 1,
+              test: /[\\/]node_modules[\\/]zod[\\/]/,
+            },
+            {
               name(moduleId: string): string | null {
                 // Co-locate the context-action/command system (prevents the
                 // circular chunk-init TDZ that blanks #root in the built

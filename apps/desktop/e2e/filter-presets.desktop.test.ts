@@ -28,8 +28,8 @@ interface ElectronE2eFileSystemFixture {
 const PRESET_LOAD_TIMEOUT_MS = 25_000;
 const FILTER_PRESET_TEST_TIMEOUT_MS = 60_000;
 const ELECTRON_CONTROL_CLICK_TIMEOUT_MS = 10_000;
-const PRESET_DATABASE_QUERY_ATTEMPT_TIMEOUT_MS = 5000;
-const PRESET_DATABASE_READY_TIMEOUT_MS = 45_000;
+const PRESET_CATALOG_REQUEST_ATTEMPT_TIMEOUT_MS = 5000;
+const PRESET_CATALOG_READY_TIMEOUT_MS = 45_000;
 const PRESET_PERSIST_READY_TIMEOUT_MS = 15_000;
 const VIEW_FILTERS_MOUNT_TIMEOUT_MS = 15_000;
 /**
@@ -43,20 +43,6 @@ interface ViewFilterPresetReadinessResult {
   count: number | null;
   error: string | null;
   ok: boolean;
-}
-
-interface ElectronDatabaseBridge {
-  query?: (
-    sql: string,
-    params?: unknown[],
-    options?: { label?: string; priority?: 'foreground' | 'normal' | 'background' }
-  ) => Promise<{ rows: unknown[] }>;
-}
-
-interface ElectronApiBridge {
-  electronAPI?: {
-    db?: ElectronDatabaseBridge;
-  };
 }
 
 interface FileExplorerPersistStorage {
@@ -238,17 +224,16 @@ async function ensureViewFiltersExpanded(window: Page): Promise<void> {
   await expect(viewFiltersContent).not.toHaveAttribute('inert');
 }
 
-async function waitForViewFilterPresetsDatabase(window: Page): Promise<void> {
+async function waitForViewFilterPresetsCatalog(window: Page): Promise<void> {
   await expect
     .poll(
       async () =>
         await window.evaluate(async (timeoutMs): Promise<ViewFilterPresetReadinessResult> => {
-          const api = (globalThis as typeof globalThis & ElectronApiBridge).electronAPI;
-          const query = api?.db?.query;
-          if (!query) {
+          const capability = globalThis.window.viewFilterPresets;
+          if (!capability) {
             return {
               count: null,
-              error: 'Desktop database query bridge is unavailable.',
+              error: 'View filter preset capability is unavailable.',
               ok: false,
             };
           }
@@ -258,32 +243,23 @@ async function waitForViewFilterPresetsDatabase(window: Page): Promise<void> {
               () =>
                 resolve({
                   count: null,
-                  error: `Timed out waiting ${timeoutMs}ms for a single seeded view filter preset query.`,
+                  error: `Timed out waiting ${timeoutMs}ms for a single seeded view filter preset catalog request.`,
                   ok: false,
                 }),
               timeoutMs
             );
           });
-          const readiness = query('SELECT COUNT(*)::int AS count FROM view_filter_presets', [], {
-            label: 'desktop e2e view filter preset readiness',
-            priority: 'foreground',
-          })
-            .then((queryResult): ViewFilterPresetReadinessResult => {
-              const row = queryResult.rows[0] as { count?: unknown } | undefined;
-              const rawCount = row?.count;
-              const count =
-                typeof rawCount === 'number'
-                  ? rawCount
-                  : typeof rawCount === 'string'
-                    ? Number(rawCount)
-                    : null;
+          const readiness = capability
+            .request({ operation: 'list' })
+            .then((result): ViewFilterPresetReadinessResult => {
+              if (!result.ok) {
+                return { count: null, error: result.error.message, ok: false };
+              }
+              const count = result.value.presets.length;
               return {
                 count,
-                error:
-                  typeof count === 'number' && count > 0
-                    ? null
-                    : `Expected seeded view filter presets, got count=${String(rawCount)}.`,
-                ok: typeof count === 'number' && count > 0,
+                error: count > 0 ? null : 'The current preset catalog has no seeded presets.',
+                ok: count > 0,
               };
             })
             .catch((error: unknown): ViewFilterPresetReadinessResult => {
@@ -292,10 +268,10 @@ async function waitForViewFilterPresetsDatabase(window: Page): Promise<void> {
             });
 
           return await Promise.race([readiness, timeout]);
-        }, PRESET_DATABASE_QUERY_ATTEMPT_TIMEOUT_MS),
+        }, PRESET_CATALOG_REQUEST_ATTEMPT_TIMEOUT_MS),
       {
         message: 'View filter presets should be seeded before the desktop preset UI is used.',
-        timeout: PRESET_DATABASE_READY_TIMEOUT_MS,
+        timeout: PRESET_CATALOG_READY_TIMEOUT_MS,
       }
     )
     .toMatchObject({ ok: true });
@@ -303,27 +279,17 @@ async function waitForViewFilterPresetsDatabase(window: Page): Promise<void> {
 
 async function resolveViewFilterPresetId(window: Page, presetName: string): Promise<string> {
   const result = await window.evaluate(async (name): Promise<ViewFilterPresetLookupResult> => {
-    const api = (globalThis as typeof globalThis & ElectronApiBridge).electronAPI;
-    const query = api?.db?.query;
-    if (!query) {
-      return {
-        error: 'Desktop database query bridge is unavailable.',
-        id: null,
-        ok: false,
-      };
+    const capability = globalThis.window.viewFilterPresets;
+    if (!capability) {
+      return { error: 'View filter preset capability is unavailable.', id: null, ok: false };
     }
 
     try {
-      const queryResult = await query(
-        'SELECT id FROM view_filter_presets WHERE name = $1 LIMIT 1',
-        [name],
-        {
-          label: 'desktop e2e view filter preset id lookup',
-          priority: 'foreground',
-        }
-      );
-      const row = queryResult.rows[0] as { id?: unknown } | undefined;
-      const id = typeof row?.id === 'string' ? row.id : null;
+      const result = await capability.request({ operation: 'list' });
+      if (!result.ok) {
+        return { error: result.error.message, id: null, ok: false };
+      }
+      const id = result.value.presets.find((preset) => preset.name === name)?.id ?? null;
       return {
         error: id ? null : `View filter preset "${name}" was not found.`,
         id,
@@ -660,7 +626,7 @@ async function selectMockRoot(window: Page): Promise<void> {
 }
 
 async function selectDocumentationPreset(window: Page): Promise<void> {
-  await waitForViewFilterPresetsDatabase(window);
+  await waitForViewFilterPresetsCatalog(window);
 
   const selectedDocumentationTrigger = getContextExplorerFileExplorerPanel(window).getByRole(
     'button',
@@ -746,7 +712,7 @@ test.describe('Desktop filter presets', () => {
     await selectMockRoot(window);
     await ensureViewFiltersExpanded(window);
 
-    await waitForViewFilterPresetsDatabase(window);
+    await waitForViewFilterPresetsCatalog(window);
     const presetTrigger = await resolvePresetTrigger(window);
     await clickElectronControl(presetTrigger);
 
@@ -804,7 +770,7 @@ test.describe('Desktop filter presets', () => {
     }
 
     await ensureViewFiltersExpanded(relaunchedWindow);
-    await waitForViewFilterPresetsDatabase(relaunchedWindow);
+    await waitForViewFilterPresetsCatalog(relaunchedWindow);
     await expect(
       getContextExplorerFileExplorerPanel(relaunchedWindow).getByRole('button', {
         name: /documentation/i,

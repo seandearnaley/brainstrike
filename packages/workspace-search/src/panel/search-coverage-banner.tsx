@@ -4,12 +4,14 @@ import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
 import { Loader2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useMemo } from 'react';
+import { useNativeWorkspaceSearchDependencies } from '../core/native-workspace-search-context';
 import {
   COLLECTION_STATS_QUERY,
   type CollectionStatsRow,
   resolveEffectiveStatsRow,
   toStatsNumber,
 } from './collection-stats-query';
+import { NativeSearchCoverage } from './native-search-coverage';
 
 export interface SearchCoverageBannerProps {
   collectionId: string | null;
@@ -66,7 +68,15 @@ const ACTIVE_SYNC_STATES = new Set<WorkspaceCollectionSyncState>([
  * "indexing in progress" source — matched to the displayed set via the indexer's
  * managed collection, exactly like `isCollectionIndexingActive` in db-explorer.
  */
-export function SearchCoverageBanner({ collectionId, rootIds }: SearchCoverageBannerProps) {
+export function SearchCoverageBanner(props: SearchCoverageBannerProps) {
+  const native = useNativeWorkspaceSearchDependencies();
+  if (native) {
+    return <NativeSearchCoverage {...props} native={native} />;
+  }
+  return <WebSearchCoverageBanner {...props} />;
+}
+
+function WebSearchCoverageBanner({ collectionId, rootIds }: SearchCoverageBannerProps) {
   const { rows } = usePGliteLiveQuery<CollectionStatsRow>({
     cacheKey: makeLiveQueryKey('workspace-search-collection-stats'),
     key: 'id',

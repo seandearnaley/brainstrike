@@ -59,6 +59,7 @@ import { createNativeScanAdmission } from './native-index-scan-admission';
 import {
   NATIVE_INDEX_SETTINGS_KEY,
   type NativeIndexSettings,
+  prepareSavedNativeIndexPause,
   readNativeIndexSettings,
 } from './native-index-settings';
 import { createNativeSourceInventory } from './native-index-source-inventory';
@@ -855,10 +856,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     await (await lifecycle).configure(() => settings, roots);
     await graph?.sources?.startup;
   };
-  const prepareSavedPause = async () => {
-    const settings = captureSettings();
-    return (await lifecycle).prepareSavedPause(() => settings);
-  };
+  const prepareSavedPause = () => prepareSavedNativeIndexPause(dependencies.storage, lifecycle);
   const assertReadAdmission = async (): Promise<void> => {
     const state = await (await lifecycle).state();
     if (state.kind !== 'idle' && nativeIndexReadiness(state).kind !== 'ready') {

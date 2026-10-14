@@ -1195,6 +1195,59 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it.each(['selected', 'disabled'] as const)(
+    'preserves a newer %s preference when delayed automatic collection creation completes',
+    async (choice) => {
+      const workspaceIndex: EmbeddingSet = {
+        createdAt: new Date().toISOString(),
+        dimensions: 384,
+        distance: 'cosine',
+        id: '807a3690-0352-4d8b-99cb-5f5fb53626b4',
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+        name: 'Workspace Index',
+        systemRole: 'workspace-index',
+      };
+      const selected = {
+        ...workspaceIndex,
+        id: '87d34626-e7d4-4bd3-bbcc-a1b9c1d8705c',
+        name: 'Managed Import Guard',
+        systemRole: null,
+      };
+      const pending = Promise.withResolvers<EmbeddingSet>();
+      useBackgroundIndexingPreferencesStore.setState({
+        enabled: true,
+        hasHydrated: true,
+        managedCollectionId: null,
+      });
+      getOrCreateWorkspaceIndexSetMock.mockReturnValue(pending.promise);
+      getByIdMock.mockResolvedValue(selected);
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div />
+        </WorkspaceCollectionSyncProvider>
+      );
+      await waitFor(() => expect(getOrCreateWorkspaceIndexSetMock).toHaveBeenCalledOnce());
+      act(() => {
+        const preferences = useBackgroundIndexingPreferencesStore.getState();
+        if (choice === 'selected') {
+          preferences.setManagedCollectionId(selected.id);
+        } else {
+          preferences.setEnabled(false);
+          preferences.setManagedCollectionId(null);
+        }
+      });
+      await act(async () => {
+        pending.resolve(workspaceIndex);
+        await pending.promise;
+      });
+      expect(useBackgroundIndexingPreferencesStore.getState()).toMatchObject({
+        enabled: choice === 'selected',
+        managedCollectionId: choice === 'selected' ? selected.id : null,
+      });
+    }
+  );
+
   it('preserves manual pause while bootstrapping fresh workspace index preferences', async () => {
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,

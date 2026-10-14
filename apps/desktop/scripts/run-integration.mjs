@@ -90,7 +90,11 @@ const electronStatus = run(
     '--environment',
     'node',
     ...(coverage
-      ? ['--coverage', '--coverage.reporter=json', '--coverage.reportsDirectory=coverage/electron']
+      ? [
+          '--coverage',
+          '--coverage.reporter=json',
+          `--coverage.reportsDirectory=${join(desktop, 'coverage', 'electron')}`,
+        ]
       : []),
   ],
   {

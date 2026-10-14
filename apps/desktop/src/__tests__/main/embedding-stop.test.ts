@@ -3,6 +3,7 @@ import {
   applicationDomainCapture,
   getDatabaseMock,
   installMainBootFixture,
+  nativeActualPrepareForPause,
   nativePrepareForPause,
   nativeReconfigureForReset,
   publicEmbeddingStop,
@@ -10,6 +11,96 @@ import {
 
 describe('Main public embedding Stop', () => {
   installMainBootFixture();
+  it.each([
+    null,
+    JSON.stringify({
+      state: {
+        enabled: false,
+        indexingPolicyPreset: 'balanced',
+        managedCollectionId: null,
+        nativeIndexMode: null,
+        nativeLocalSelection: null,
+        paused: false,
+        worktreeRootIndexingOptInById: {},
+      },
+    }),
+  ])('joins public host Stop before native search is configured (%s)', async (saved) => {
+    const { ElectronStorageAdapter } = await import('@brainstrike/storage/electron');
+    const storage = vi.spyOn(ElectronStorageAdapter.prototype, 'getItem').mockResolvedValue(saved);
+    const { EmbeddingHostManager } = await import('../../embedding-host-manager');
+    const physical =
+      Promise.withResolvers<import('../../embedding-host-shared').EmbeddingHostStatus>();
+    const stop = vi.spyOn(EmbeddingHostManager.prototype, 'stop').mockReturnValue(physical.promise);
+    onTestFinished(() => {
+      storage.mockRestore();
+      stop.mockRestore();
+      physical.resolve({
+        active: false,
+        lastError: null,
+        runtimeId: 'owned',
+        runtimeKind: 'embedding-host',
+        state: 'stopped',
+      });
+    });
+    await import('../../main');
+    if (!(nativeActualPrepareForPause.current && publicEmbeddingStop.current)) {
+      throw new Error('Main stop composition missing');
+    }
+    nativePrepareForPause.mockImplementation(nativeActualPrepareForPause.current);
+    stop.mockClear();
+    let settled = false;
+    const stopping = publicEmbeddingStop.current().then((value) => {
+      settled = true;
+      return value;
+    });
+    stopping.catch(() => undefined);
+    onTestFinished(async () => {
+      await stopping.catch(() => undefined);
+    });
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
+    expect(settled).toBe(false);
+    physical.resolve({
+      active: false,
+      lastError: null,
+      runtimeId: 'owned',
+      runtimeKind: 'embedding-host',
+      state: 'stopped',
+    });
+    await expect(stopping).resolves.toMatchObject({ state: 'stopped' });
+  });
+
+  it('preserves an actual saved Pause setup refusal after native cleanup', async () => {
+    const { ElectronStorageAdapter } = await import('@brainstrike/storage/electron');
+    const storage = vi.spyOn(ElectronStorageAdapter.prototype, 'getItem').mockResolvedValue(
+      JSON.stringify({
+        state: {
+          enabled: true,
+          indexingPolicyPreset: 'balanced',
+          managedCollectionId: null,
+          nativeIndexMode: null,
+          paused: true,
+        },
+      })
+    );
+    const { EmbeddingHostManager } = await import('../../embedding-host-manager');
+    const stop = vi.spyOn(EmbeddingHostManager.prototype, 'stop');
+    onTestFinished(() => {
+      storage.mockRestore();
+      stop.mockRestore();
+    });
+    await import('../../main');
+    if (!(nativeActualPrepareForPause.current && publicEmbeddingStop.current)) {
+      throw new Error('Main stop composition missing');
+    }
+    nativePrepareForPause.mockImplementation(nativeActualPrepareForPause.current);
+    stop.mockClear();
+    await expect(publicEmbeddingStop.current()).rejects.toMatchObject({
+      code: 'native-index-setup-required',
+    });
+    // Actual invalid-settings retirement may stop its inference dependency.
+    // That cleanup must not turn the public command's refusal into success.
+  });
+
   it.each(['none', 'native', 'host', 'both'] as const)(
     'starts public Stop after saved Pause admission, before its FIFO physical join; failure=%s',
     async (failure) => {

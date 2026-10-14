@@ -144,7 +144,9 @@ test.describe('forge PR awareness', () => {
     await openComposer(window, repoPath);
     await expect(window.getByTestId('workspace-bar-branch-chip')).toBeVisible({ timeout: 30_000 });
     await expect(window.getByTestId('workspace-bar-pr-chip')).toHaveCount(0);
-    await window.getByTestId('workspace-bar-branch-chip').click();
+    const branchMenu = window.getByRole('button', { name: /^Branch:/u });
+    await expect(branchMenu).toHaveAttribute('aria-haspopup', 'menu');
+    await branchMenu.click();
     await expect(window.getByTestId('workspace-bar-branch-forge-diagnostic')).toContainText(
       'not a forge URL'
     );

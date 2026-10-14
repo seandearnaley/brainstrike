@@ -4,23 +4,58 @@
   "private": true,
   "type": "module",
   "license": "MIT",
-  "engines": { "node": ">=24.20.0 <25 || >=26.8.2 <27" },
+  "engines": {
+    "node": ">=24.20.0 <25 || >=26.8.2 <27"
+  },
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
-    "./protocol": { "types": "./dist/protocol.d.ts", "default": "./dist/protocol.js" },
-    "./boundary-wire": { "types": "./dist/boundary-wire.d.ts", "default": "./dist/boundary-wire.js" },
-    "./hook-trust": { "types": "./dist/hook-trust.d.ts", "default": "./dist/hook-trust.js" },
-    "./child-presentation": { "types": "./dist/child-presentation.d.ts", "default": "./dist/child-presentation.js" },
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "default": "./dist/protocol.js"
+    },
+    "./boundary-wire": {
+      "types": "./dist/boundary-wire.d.ts",
+      "default": "./dist/boundary-wire.js"
+    },
+    "./hook-trust": {
+      "types": "./dist/hook-trust.d.ts",
+      "default": "./dist/hook-trust.js"
+    },
+    "./child-presentation": {
+      "types": "./dist/child-presentation.d.ts",
+      "default": "./dist/child-presentation.js"
+    },
     "./canonical-tool-bindings": {
       "types": "./dist/adapters/canonical-tool-bindings.d.ts",
       "default": "./dist/adapters/canonical-tool-bindings.js"
     },
-    "./state-projection": { "types": "./dist/state-projection.d.ts", "default": "./dist/state-projection.js" },
-    "./run-verdicts": { "types": "./dist/run-verdicts.d.ts", "default": "./dist/run-verdicts.js" },
-    "./memory-storage-calculator": { "types": "./dist/adapters/memory-storage-calculator.d.ts", "default": "./dist/adapters/memory-storage-calculator.js" },
-    "./committed-identities": { "types": "./dist/committed-identities.d.ts", "default": "./dist/committed-identities.js" },
-    "./client": { "types": "./dist/client.d.ts", "default": "./dist/client.js" },
-    "./cli": { "types": "./dist/cli.d.ts", "default": "./dist/cli.js" },
+    "./state-projection": {
+      "types": "./dist/state-projection.d.ts",
+      "default": "./dist/state-projection.js"
+    },
+    "./run-verdicts": {
+      "types": "./dist/run-verdicts.d.ts",
+      "default": "./dist/run-verdicts.js"
+    },
+    "./memory-storage-calculator": {
+      "types": "./dist/adapters/memory-storage-calculator.d.ts",
+      "default": "./dist/adapters/memory-storage-calculator.js"
+    },
+    "./committed-identities": {
+      "types": "./dist/committed-identities.d.ts",
+      "default": "./dist/committed-identities.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "default": "./dist/cli.js"
+    },
     "./credential-contract": {
       "types": "./dist/adapters/credential-contract.d.ts",
       "default": "./dist/adapters/credential-contract.js"
@@ -37,7 +72,10 @@
       "types": "./dist/adapters/file-credentials.d.ts",
       "default": "./dist/adapters/file-credentials.js"
     },
-    "./browser": { "types": "./dist/browser-client.d.ts", "default": "./dist/browser-client.js" },
+    "./browser": {
+      "types": "./dist/browser-client.d.ts",
+      "default": "./dist/browser-client.js"
+    },
     "./test-fixtures/host-state-index": {
       "types": "./dist/host-state-index.d.ts",
       "default": "./dist/host-state-index.js"
@@ -49,7 +87,10 @@
     "./test-fixtures/owned-process": "./__tests__/fixtures/owned-fixture-process.ts",
     "./test-fixtures/cooperative-host": "./__tests__/fixtures/cooperative-host-fixture.ts",
     "./test-fixtures/process-platform": "./__tests__/fixtures/process-platform.mjs",
-    "./thread-view": { "types": "./dist/thread-view.d.ts", "default": "./dist/thread-view.js" },
+    "./thread-view": {
+      "types": "./dist/thread-view.d.ts",
+      "default": "./dist/thread-view.js"
+    },
     "./ledger-projection": {
       "types": "./dist/ledger-projection.d.ts",
       "default": "./dist/ledger-projection.js"
@@ -65,6 +106,10 @@
     "./standalone-workspace-input": {
       "types": "./dist/standalone-workspace-input.d.ts",
       "default": "./dist/standalone-workspace-input.js"
+    },
+    "./catalog": {
+      "types": "./dist/catalog/index.d.ts",
+      "default": "./dist/catalog/index.js"
     }
   },
   "scripts": {

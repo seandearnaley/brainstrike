@@ -2216,7 +2216,6 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
     readWorktree: (id) => ledger.get(id),
   });
   return bindDesktopPlatformPort(platformPort, {
-    workspaceRoots: workspaceRootCatalog,
     ...productionDesktopCapabilities(
       {
         embeddingHostManager,

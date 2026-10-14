@@ -1,9 +1,15 @@
 import { type ModelCatalogCapability, projectModelCatalog } from '@brainstrike/assistant-contract';
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetModelRegistryStoreForTests,
   useModelRegistryStore,
 } from '../stores/model-registry-store';
+
+const { diagnosticError } = vi.hoisted(() => ({ diagnosticError: vi.fn() }));
+vi.mock('@brainstrike/logging', () => ({
+  createLogger: () => ({ debug: vi.fn(), error: diagnosticError, info: vi.fn(), warn: vi.fn() }),
+}));
 
 const initial = projectModelCatalog({ models: [], providers: [] });
 const model = initial.models.find(
@@ -63,9 +69,11 @@ describe('model registry authoritative platform capability', () => {
 
   it('keeps a failed read sticky until explicit Retry and never attempts SQL', async () => {
     const source = capability();
-    vi.mocked(source.read).mockRejectedValueOnce(new Error('catalog transport unavailable'));
+    const cause = new Error('catalog transport unavailable');
+    vi.mocked(source.read).mockRejectedValueOnce(cause);
     await useModelRegistryStore.getState().ensureRegistry(source);
-    expect(useModelRegistryStore.getState().error).toBe('catalog transport unavailable');
+    expect(useModelRegistryStore.getState().error).toBe(INTERNAL_FAULT.message);
+    expect(diagnosticError).toHaveBeenCalledWith('Failed to fetch model registry', cause);
     await useModelRegistryStore.getState().ensureRegistry(source);
     expect(source.read).toHaveBeenCalledTimes(1);
     await useModelRegistryStore.getState().fetchRegistry(source);

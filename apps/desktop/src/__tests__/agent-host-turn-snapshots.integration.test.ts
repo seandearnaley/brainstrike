@@ -6,7 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
 import type { HostPlatform, HostRunAdmission } from '@brainstrike/agent-host';
+import { BoundaryFailureError, INTERNAL_FAULT } from '@brainstrike/assistant-contract';
 import { createHostCredentials } from '@brainstrike/host-capabilities/credentials';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { StateStore } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
 import {
@@ -224,14 +226,40 @@ test('a desktop host run snapshots its admitted roots at its start, and its star
 
 test('a desktop host run without a snapshot owner fails its capture visibly', async () => {
   const workspace = await workspaceDirectory();
+  const records: LogRecord[] = [];
+  const removeListener = addLogListener((record) => records.push(record));
   try {
     await withAdmittedRun([{ path: workspace, rootId: 'live-root' }], undefined, async (run) => {
-      await expect(
-        run.capture({ boundary: 'turn-start', runId: randomUUID(), threadId: run.threadId })
-      ).rejects.toThrow('This desktop has no workspace snapshot owner');
+      const failure = await run
+        .capture({ boundary: 'turn-start', runId: randomUUID(), threadId: run.threadId })
+        .then(
+          () => {
+            throw new Error('Missing snapshot owner unexpectedly captured a turn');
+          },
+          (cause: unknown) => cause
+        );
+      expect(failure).toBeInstanceOf(BoundaryFailureError);
+      if (!(failure instanceof BoundaryFailureError)) {
+        throw failure;
+      }
+      expect(failure.failure).toEqual({ ...INTERNAL_FAULT, correlationId: expect.any(String) });
+      expect(records).toContainEqual(
+        expect.objectContaining({
+          args: expect.arrayContaining([
+            expect.objectContaining({
+              correlationId: failure.failure.correlationId,
+              error: expect.objectContaining({
+                message: 'This desktop has no workspace snapshot owner',
+              }),
+            }),
+          ]),
+          level: 'error',
+        })
+      );
       await run.admission.close?.();
     });
   } finally {
+    removeListener();
     await rm(workspace, { force: true, recursive: true });
   }
 });

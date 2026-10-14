@@ -1,5 +1,7 @@
 // @vitest-environment node
 import { PassThrough } from 'node:stream';
+import { createHostCatalogClient } from '@brainstrike/agent-host/catalog';
+import type { HostAttachment } from '@brainstrike/host-lease';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { expect, test, vi } from 'vitest';
 import {
@@ -97,21 +99,26 @@ test('physical store admission joins before the private endpoint closes', async 
   }
 });
 
-test('an attached writer stays usable during an index-only retirement without reacquiring the profile', async () => {
+test('an authenticated attachment stays usable during index-only retirement and detaches on physical close', async () => {
   const fixture = transport({ workspaceRoots: async () => ({ roots: [] }) });
-  const acquire = vi.fn(async (): Promise<never> => {
-    throw new Error('Native index admission is closed');
-  });
+  const closed = Promise.withResolvers<void>();
+  const attachment = {
+    catalog: createHostCatalogClient(fixture.main),
+    closed: closed.promise,
+  } as HostAttachment & { catalog: ReturnType<typeof createHostCatalogClient> };
+  const acquire = vi.fn(async () => attachment);
   const catalog = createDesktopWorkspaceRootCatalog(acquire);
-  const detach = catalog.attach(fixture.main);
   try {
     await expect(catalog.workspaceRoots({ operation: 'list' })).resolves.toEqual({ roots: [] });
-    expect(acquire).not.toHaveBeenCalled();
-    detach();
-    await expect(catalog.workspaceRoots({ operation: 'list' })).rejects.toThrow();
+    acquire.mockRejectedValue(new Error('Native index admission is closed'));
+    await expect(catalog.workspaceRoots({ operation: 'list' })).resolves.toEqual({ roots: [] });
     expect(acquire).toHaveBeenCalledTimes(1);
+    closed.resolve();
+    await Promise.resolve();
+    await expect(catalog.workspaceRoots({ operation: 'list' })).rejects.toThrow();
+    expect(acquire).toHaveBeenCalledTimes(2);
   } finally {
-    detach();
+    closed.resolve();
     await fixture.close();
   }
 });

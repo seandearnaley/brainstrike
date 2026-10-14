@@ -27,6 +27,9 @@ function emptyCatalogHost(): HostClient {
     'thread/list': { threads: [] },
   };
   return {
+    get catalog(): HostClient['catalog'] {
+      throw new Error('This thread fixture does not borrow the host catalog');
+    },
     close: vi.fn(async () => undefined),
     closed: Promise.resolve(),
     onChildrenChanged: vi.fn(() => () => undefined),

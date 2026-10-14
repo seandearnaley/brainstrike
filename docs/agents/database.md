@@ -13,7 +13,11 @@ metadata comes from the canonical provider catalog; user choices remain separate
 The host log owns conversations, runs, usage, decisions and workspace bindings.
 Native index writers own derived file/chunk/vector data; prompt vectors use the
 existing state-index owner. Renderers consume typed capabilities and never open a
-replacement database or synthesize a SQL compatibility adapter.
+replacement database or synthesize a SQL compatibility adapter. Main borrows the
+catalog through its authenticated host attachment for both desktop-first and
+CLI-first hosts. Authentication precedes catalog endpoint registration; admitted
+catalog operations drain before the same writer retires. This does not grant
+public socket clients the separate desktop-only credential or MCP privileges.
 
 Main's mounted root descriptor carries the canonical root ID into a thread binding.
 The host validates that root before committing the binding and before admitting a

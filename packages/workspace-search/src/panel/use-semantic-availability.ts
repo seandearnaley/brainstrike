@@ -70,6 +70,7 @@ export function useSemanticAvailability(
 ): SemanticAvailability {
   const { rows } = usePGliteLiveQuery<CollectionStatsRow>({
     cacheKey: makeLiveQueryKey('workspace-search-collection-stats'),
+    enabled: nativeAvailability === undefined,
     key: 'id',
     mode: 'incremental',
     query: COLLECTION_STATS_QUERY,

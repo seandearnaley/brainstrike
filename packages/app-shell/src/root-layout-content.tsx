@@ -35,6 +35,7 @@ import {
 import {
   EmbeddingRuntimeProvider,
   IndexingActivityCoordinator,
+  type LocalSearchEmbedderFactory,
   SearchEmbedderProvider,
 } from '@brainstrike/vector-management';
 import {
@@ -144,6 +145,7 @@ export interface RootLayoutContentProps {
   readonly changesPageContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
   readonly contextExplorerPanelContent?: ReactNode;
+  readonly createLocalSearchEmbedder?: LocalSearchEmbedderFactory;
   readonly databaseTabChunkingMode?: 'host-proxy' | 'local';
   readonly deleteRootData?: (rootId: string) => Promise<void>;
   /**
@@ -610,6 +612,7 @@ export function RootLayoutContent({
   worktreeMapPageContent,
   navigationItems,
   loadEmbeddingQueue = null,
+  createLocalSearchEmbedder,
   loadLocalLlmBackend,
   diagnosticFeatureFlags,
   databaseTabChunkingMode = 'local',
@@ -727,7 +730,7 @@ export function RootLayoutContent({
                 always-mounted provider is free until the first query. It
                 encloses BOTH the collection browser (sidebar DatabasePanel) and
                 the workspace-search panel (ExplorerSearchTabs) below. */}
-                  <SearchEmbedderProvider>
+                  <SearchEmbedderProvider createLocalEmbedder={createLocalSearchEmbedder}>
                     <IndexingActivityCoordinator nativeIndexSearch={nativeIndexSearch ?? null} />
                     <div
                       aria-hidden={shellTab !== 'explorer'}

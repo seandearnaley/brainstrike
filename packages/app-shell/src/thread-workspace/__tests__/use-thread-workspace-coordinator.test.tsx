@@ -243,6 +243,87 @@ describe('useThreadWorkspaceCoordinator', () => {
     );
   }
 
+  it('Clear joins a mounted workspace save before retiring tabs and the host content', async () => {
+    const { useNativeContentClear } = await import(
+      '../../../../db-explorer/src/hooks/use-native-content-clear'
+    );
+    const { resetAssistantThreadStore, useAssistantThreadStore, useAssistantThreadGroupsStore } =
+      await import('@brainstrike/assistant-data');
+    const harness = createHarness();
+    const mounted = render(harness, 'thread-a');
+    await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { 'brainstrike:workspace': 'thread-a' },
+      openThreadIdsByResourceId: { 'brainstrike:workspace': ['thread-a'] },
+    });
+    const pending = Promise.withResolvers<void>();
+    vi.mocked(harness.repository.setThreadWorkspace).mockImplementationOnce(() => pending.promise);
+    act(() => {
+      harness.state.openAppIds = ['changes'];
+      harness.notify();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    const clear = vi.fn(async () => {
+      expect(useAssistantThreadStore.getState().activeThreadIdByResourceId).toEqual({});
+      expect(useAssistantThreadStore.getState().openThreadIdsByResourceId).toEqual({});
+      // Main can replace this frame before replying: inspect the actual persisted bytes now.
+      const persisted = localStorage.getItem('brainstrike-assistant-threads-v1');
+      expect(persisted).not.toBeNull();
+      expect(JSON.parse(persisted ?? 'null')).toMatchObject({
+        state: {
+          activeThreadIdByResourceId: {},
+          openThreadIdsByResourceId: {},
+          selectedThreadByResourceId: {},
+        },
+      });
+      expect(persisted).not.toContain('thread-a');
+      harness.rows.clear();
+      return { deletedChunks: 0, deletedFiles: 0 };
+    });
+    vi.stubGlobal('electronAPI', { content: { clear } });
+    const files: import('@brainstrike/assistant-contract').SourceFilesCapability = {
+      chunks: vi.fn(),
+      delete: vi.fn(),
+      import: vi.fn(),
+      list: async () => [],
+      read: vi.fn(),
+    };
+    const retireTabs = vi.fn(() => {
+      resetAssistantThreadStore();
+      useAssistantThreadGroupsStore.getState().reset();
+    });
+    const action = renderHook(() => useNativeContentClear(files, 0, retireTabs));
+    let completion: Promise<void> | undefined;
+    act(() => {
+      completion = action.result.current.onClear();
+    });
+    try {
+      expect(clear).not.toHaveBeenCalled();
+      expect(retireTabs).not.toHaveBeenCalled();
+    } finally {
+      pending.resolve();
+      await act(async () => {
+        await completion;
+      });
+    }
+    expect(clear).toHaveBeenCalledOnce();
+    vi.mocked(harness.repository.setThreadWorkspace).mockClear();
+    act(() => {
+      harness.state.openAppIds = [];
+      harness.notify();
+    });
+    mounted.unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(harness.repository.setThreadWorkspace).not.toHaveBeenCalled();
+    expect(harness.rows.size).toBe(0);
+    action.unmount();
+    vi.unstubAllGlobals();
+  });
+
   it('factory reset joins an admitted save before its owner can retire', async () => {
     const harness = createHarness();
     const mounted = render(harness, 'thread-a');

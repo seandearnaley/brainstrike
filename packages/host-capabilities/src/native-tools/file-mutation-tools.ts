@@ -51,7 +51,10 @@ import {
   recordOwnWriteObservation,
 } from './workspace-file-staleness.js';
 import { withWorkspaceMutationLease } from './workspace-mutation-lease.js';
-import { resolveWorkspaceLeafMutationPath } from './workspace-path-resolution.js';
+import {
+  resolveWorkspaceLeafMutationPath,
+  WorkspacePathRefusal,
+} from './workspace-path-resolution.js';
 import { readWorkspaceTextFile } from './workspace-text-file-reader.js';
 
 const logger = createLogger('DesktopAssistantTools');
@@ -321,7 +324,7 @@ export async function runStringReplaceWorkspaceFile(
         rootPath: root.path,
       });
     } catch (error: unknown) {
-      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      if (error instanceof WorkspacePathRefusal && error.reason === 'missing') {
         throw new ToolInputError(
           'stringReplaceWorkspaceFile edits only an existing file. Use writeWorkspaceFile to create the new file.'
         );

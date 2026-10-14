@@ -409,6 +409,12 @@ Environment variables: `VITE_EMBED_CONCURRENCY` (default 1), `VITE_EMBED_LEASE_M
 - Browser memory sampling uses only cross-origin-isolated
   `performance.measureUserAgentSpecificMemory()`; there is no `performance.memory`
   fallback.
+- Public host Stop is valid before search setup. Saved-Pause preparation reads the
+  existing persisted pause choice first; absent settings or `paused: false` require
+  no native Pause. A real saved Pause keeps full configuration validation and its
+  physical cancellation join. Malformed settings retain the existing lifecycle
+  failure/cleanup path. Settings-change activation still performs strict configure
+  after preparation returns no Pause; no default search configuration is invented.
 - Host Stop joins any pending startup before acknowledging `stopped` and echoes the
   existing control request ID (reset drain failures echo theirs under the original
   runtime ID). A failed join reports an error and does not start the replacement, and

@@ -63,7 +63,7 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 // first per the rule below: the values-field describe and the description
 // sentence were both cut to the bone (−16) before raising.
 //
-// `brainstrike.queryDiagnostics` (BST-853) costs 351 authored tokens for one
+// `brainstrike.queryDiagnostics` (BST-853) costs 359 authored tokens for one
 // required row/group mode plus seven optional exact/bounded filters. Replacing
 // Zod's two generated leap-year date-time regexes with bounded strings plus
 // explicit runtime validation recovered 345 tokens, so this capability fits
@@ -723,7 +723,8 @@ describe('desktop native tool provider prompt budget', () => {
       // pending BST-1633 and raises only when the ceiling fires, after a trim.
       manageCanvasDefinitionTokens: 290,
       manageWorktreeDefinitionTokens: 278,
-      queryDiagnosticsDefinitionTokens: 351,
+      // The retained-log description explicitly discloses rotated-out history.
+      queryDiagnosticsDefinitionTokens: 359,
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 327,
         brainstrike_manageCommandSession: 482,

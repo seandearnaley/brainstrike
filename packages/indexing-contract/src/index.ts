@@ -617,6 +617,8 @@ export interface EmbeddingModelConfig {
   /** The catalog row's query/document prompts (BST-1993); absent embeds raw text. */
   prompts?: EmbeddingPrompts;
   quantized?: boolean;
+  /** Canonical catalog revision carried by decoded model facts. */
+  revision?: string;
   size?: string;
   supportedDimensions?: number[] | string;
   tags: string[];

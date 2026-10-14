@@ -1,5 +1,4 @@
-// The state DB schema at version 1: the run-log tables plus the 16 authoritative tables of the PostgreSQL inventory
-// (m0/inventory.md class C-small), and the upgrader that applies it.
+// The current state DB owns run history, memory and the desktop content catalog.
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test } from 'vitest';
@@ -28,6 +27,19 @@ const C_SMALL = [
   'brainstrike_workspace_snapshots',
   'brainstrike_worktrees',
 ];
+const DESKTOP_CATALOG = [
+  'embedding_sets',
+  'file_records',
+  'model_choices',
+  'prompt_item_revisions',
+  'prompt_items',
+  'provider_choices',
+  'roots',
+  'source_blob_gc',
+  'thread_groups',
+  'thread_placements',
+  'view_filter_presets',
+];
 const RUN_LOG = ['purge_intent', 'run_events', 'run_sync', 'settings', 'threads'];
 const MEMORY = ['brainstrike_memory_scopes', 'brainstrike_memory_entities'];
 const ISO = '2026-10-02T00:00:00.000Z';
@@ -52,7 +64,7 @@ describe('state DB migrations', () => {
         )
         .pluck()
         .all() as string[];
-      expect(tables).toEqual([...C_SMALL, ...RUN_LOG, ...MEMORY].sort());
+      expect(tables).toEqual([...C_SMALL, ...RUN_LOG, ...MEMORY, ...DESKTOP_CATALOG].sort());
     } finally {
       db.close();
     }

@@ -5,6 +5,7 @@ export {
 export type {
   EmbedderRuntime,
   EmbeddingSetModelInfo,
+  LocalSearchEmbedderFactory,
   SearchEmbedder,
   UseSearchEmbedderResult,
 } from './use-search-embedder.js';

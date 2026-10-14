@@ -880,50 +880,6 @@ export async function seedLive3dmolRestoreState(args: {
   });
 }
 
-export async function seedSelectionSnapshotRows(args: {
-  electronHarness: SeedableElectronHarness;
-  filePaths: string[];
-  snapshotId: string;
-}): Promise<void> {
-  const { electronHarness, filePaths, snapshotId } = args;
-  const currentContext = await electronHarness.ensureContext();
-
-  await currentContext.window.evaluate(
-    async ({ filePaths: nextFilePaths, snapshotId: nextSnapshotId }) => {
-      const api = (
-        window as Window & {
-          electronAPI?: {
-            db?: {
-              query?: (sql: string, params?: unknown[]) => Promise<{ rows?: unknown[] }>;
-            };
-          };
-        }
-      ).electronAPI;
-
-      if (!api?.db?.query) {
-        throw new Error('Electron db.query bridge is not available');
-      }
-
-      await api.db.query('DELETE FROM selection_snapshot_files');
-      await api.db.query('DELETE FROM selection_snapshots');
-      await api.db.query(
-        `INSERT INTO selection_snapshots (id, expires_at)
-         VALUES ($1, NOW() + (24 * INTERVAL '1 hour'))`,
-        [nextSnapshotId]
-      );
-      await api.db.query(
-        `INSERT INTO selection_snapshot_files (snapshot_id, file_path)
-         SELECT $1, UNNEST($2::text[])`,
-        [nextSnapshotId, nextFilePaths]
-      );
-    },
-    {
-      filePaths,
-      snapshotId,
-    }
-  );
-}
-
 export async function installNestedFolderFixture(
   electronApp: ElectronApplication,
   rootPath: string

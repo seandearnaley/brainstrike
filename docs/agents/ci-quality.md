@@ -548,8 +548,11 @@ parenthesised `scripts/__tests__/<name>.test.mjs` contracts above.
   through `run-native-coverage.mjs`, remapped with the pinned Vitest converter.
   Desktop collects shared Core modules it exercises; workspace preparation merges
   hits into the source package, preserving uncovered entries and existing floors.
-  External include globs are absolute (Vitest matches external source by absolute
-  path); owning-package reports supply the complete unexecuted-source baseline.
+  Desktop's Vitest root contains the workspace sources so Vitest can transform
+  uncovered Core TypeScript; `test.dir` keeps discovery inside desktop and its
+  coverage report stays in `apps/desktop/coverage`. Include globs remain scoped
+  to the same desktop/Core source sets. Owning-package reports supply the
+  complete unexecuted-source baseline.
   The SQLite reader coverage preload flushes V8 before IPC responses so the
   existing forced-close lifecycle cannot discard its execution data.
 

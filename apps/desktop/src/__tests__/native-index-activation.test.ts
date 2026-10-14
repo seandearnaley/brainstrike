@@ -437,6 +437,14 @@ it.each(['close', 'destroyAndRetireProfile'] as const)(
     const { activation, storage } = fixture();
     await activation.acquire();
     const writerExit = Promise.withResolvers<void>();
+    const destroyed = Promise.withResolvers<void>();
+    if (operation === 'destroyAndRetireProfile') {
+      mocks.destroy.mockReturnValueOnce(destroyed.promise);
+    }
+    onTestFinished(() => {
+      writerExit.resolve();
+      destroyed.resolve();
+    });
     mocks.close.mockReturnValueOnce(writerExit.promise);
     await saveSettingsChange(storage, { indexingPolicyPreset: 'full-root' });
     const changing = activation.reconfigure().catch((error: unknown) => error);
@@ -449,8 +457,24 @@ it.each(['close', 'destroyAndRetireProfile'] as const)(
     await Promise.resolve();
     expect(terminalSettled).toBe(false);
     writerExit.resolve();
+    if (operation === 'destroyAndRetireProfile') {
+      await vi.waitFor(() => expect(mocks.destroy).toHaveBeenCalledOnce());
+      // The previous writer has physically closed. Clear must borrow a cold,
+      // authority-free owner to remove its retained on-disk index as well.
+      expect(mocks.acquire).toHaveBeenCalledTimes(2);
+      expect(mocks.acquire.mock.calls[1]?.[0]).toMatchObject({
+        fileBindings: [],
+        rootIds: [],
+        scopes: [],
+      });
+      expect(terminalSettled).toBe(false);
+      expect(mocks.closeProfile).not.toHaveBeenCalled();
+      destroyed.resolve();
+    } else {
+      expect(mocks.acquire).toHaveBeenCalledOnce();
+      expect(mocks.destroy).not.toHaveBeenCalled();
+    }
     await Promise.all([changing, terminal]);
-    expect(mocks.acquire).toHaveBeenCalledTimes(1);
     expect(mocks.closeProfile).toHaveBeenCalledOnce();
     await expect(activation.acquireRead()).rejects.toThrow('closed');
   }

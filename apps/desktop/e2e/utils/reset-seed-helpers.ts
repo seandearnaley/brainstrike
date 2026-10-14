@@ -92,8 +92,24 @@ export async function seedNativeResetProbe(
         return result.value;
       });
     const receipt = imported.items[0];
-    if (!receipt?.imported || receipt.file.content !== content) {
+    if (!receipt?.imported) {
       throw new Error('Imported reset probe was not committed');
+    }
+    // Import returns committed metadata. Read the same canonical ID to prove
+    // the bytes survived the existing source/blob writer, rather than assuming
+    // metadata receipts carry the content payload.
+    const persisted = await files.read([receipt.file.fileId], content.length).then((result) => {
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.value;
+    });
+    if (
+      persisted.length !== 1 ||
+      persisted[0]?.fileId !== receipt.file.fileId ||
+      persisted[0]?.content !== content
+    ) {
+      throw new Error('Imported reset probe content was not retained by its canonical ID');
     }
     // Unassigned imports remain retained/pending; no fabricated embedding job or chunk.
     if (imported.indexing.kind !== 'pending') {
@@ -112,23 +128,19 @@ export async function readNativeResetProbe(
     if (!source) {
       throw new Error('Canonical source capability missing');
     }
+    const listed = await source.list().then((result) => {
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.value;
+    });
+    // read() requires existing canonical IDs; deletion is proved by the full
+    // authoritative inventory, not a read of identities that no longer exist.
     return {
-      files: (
-        await source.list().then((result) => {
-          if (!result.ok) {
-            throw new Error(result.error.message);
-          }
-          return result.value;
-        })
-      ).length,
-      retainedProbeIds: (
-        await source.read([ids.indexedFileId, ids.importedFileId], 4096).then((result) => {
-          if (!result.ok) {
-            throw new Error(result.error.message);
-          }
-          return result.value;
-        })
-      ).map((file) => file.fileId),
+      files: listed.length,
+      retainedProbeIds: listed
+        .filter((file) => file.fileId === ids.indexedFileId || file.fileId === ids.importedFileId)
+        .map((file) => file.fileId),
     };
   }, probe);
 }

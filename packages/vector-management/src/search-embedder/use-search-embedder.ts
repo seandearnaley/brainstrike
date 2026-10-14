@@ -39,6 +39,11 @@ export interface SearchEmbedder {
   runtime: EmbedderRuntime;
 }
 
+export type LocalSearchEmbedderFactory = (
+  modelConfig: ModelConfig,
+  device: LocalEmbedderRuntime
+) => Promise<SearchEmbedder>;
+
 type EmbedderError =
   | { message: string }
   | { originalError: { message: string }; type: string }
@@ -310,7 +315,8 @@ function createEmbedderIdentity(
 
 async function createSearchEmbedder(
   { modelKey, dimensions, modelConfig }: EmbeddingSetModelInfo,
-  devicePref: LocalEmbedderRuntime
+  devicePref: LocalEmbedderRuntime,
+  createLocal: LocalSearchEmbedderFactory
 ): Promise<SearchEmbedder> {
   const parsed = parseEmbeddingProviderModelKey(modelKey);
   const isHosted = parsed ? isHostedProvider(parsed.provider) : false;
@@ -336,7 +342,7 @@ async function createSearchEmbedder(
   if (!modelConfig) {
     throw new Error('No local embedding model configured. Enable one in Settings > Models.');
   }
-  return createLocalEmbedder(modelConfig, devicePref);
+  return createLocal(modelConfig, devicePref);
 }
 
 function invalidatedInitializationMessage(initialization: EmbedderInitialization): string {
@@ -440,7 +446,9 @@ async function resolveRecoveryEmbedder({
 /**
  * Shared embedder resolution + device-loss recovery for semantic search.
  */
-export function useSearchEmbedder(): UseSearchEmbedderResult {
+export function useSearchEmbedder(
+  createLocal: LocalSearchEmbedderFactory = createLocalEmbedder
+): UseSearchEmbedderResult {
   const devicePref = useVectorPreferencesStore((state) => state.devicePref);
   const embedderRef = useRef<SearchEmbedder | null>(null);
   const currentIdentityRef = useRef<EmbedderIdentity | null>(null);
@@ -629,7 +637,7 @@ export function useSearchEmbedder(): UseSearchEmbedderResult {
           }
           assertWebGpuInitializationVisible(identity);
 
-          const embedder = await createSearchEmbedder(info, devicePref);
+          const embedder = await createSearchEmbedder(info, devicePref, createLocal);
 
           if (initializationRef.current !== initialization) {
             return rejectInvalidatedInitialization(embedder, initialization);
@@ -651,7 +659,7 @@ export function useSearchEmbedder(): UseSearchEmbedderResult {
       transitionGateRef.current = initPromise;
       return initPromise;
     },
-    [devicePref]
+    [createLocal, devicePref]
   );
 
   const recoverEmbedderAfterDeviceLoss = useCallback(
