@@ -1,4 +1,5 @@
 import { type AppendMessage, MessageNotSentError } from '@assistant-ui/react';
+import { isConnectionLoss } from '@brainstrike/agent-host/boundary-wire';
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import { committedRunIdentity } from '@brainstrike/agent-host/committed-identities';
 import {
@@ -31,6 +32,9 @@ import { respondToHostApproval, resumeHostInteraction } from './host-approval-re
 import { HostTreeApprovals } from './host-tree-approvals';
 
 const logger = createLogger('CommittedHostConversation');
+
+/** BST-2004: the lost host's replacement has no record of the send. */
+export const HOST_RESTARTED_NOT_SENT = 'Not sent: the agent host restarted.';
 
 /** A committed run.started the host admitted to deliver child results (a wake). */
 const HostWakeStartSchema = z.object({
@@ -169,6 +173,11 @@ export function createCommittedHostConversation(
     readonly client: HostClient;
     /** Told when a newer committed title, colour or icon reaches this view. */
     readonly onTitleCommitted?: () => void;
+    /**
+     * BST-2004: the frame's next client after this one is lost. A send the
+     * lost host never answered is settled from that host's committed log.
+     */
+    readonly replacement?: (lost: HostClient) => Promise<HostClient>;
     readonly threadId: string;
   }
 ): CommittedHostConversation {
@@ -207,17 +216,44 @@ export function createCommittedHostConversation(
     const prompt = message.content
       .map((part) => (part.type === 'text' ? part.text : ''))
       .join('\n');
-    await options.bindThreadRoot?.();
+    const commandId = crypto.randomUUID();
+    // BST-2004: a send whose host was lost before it answered, or before the
+    // send left, is settled from the replacement's committed log. Only that log
+    // says whether the turn was admitted; nothing is resent.
+    const settleLost = async (
+      replacement: (lost: HostClient) => Promise<HostClient>
+    ): Promise<void> => {
+      const next = await replacement(client);
+      const { rows } = await next.request('thread/read', { fromSeq: 0, threadId });
+      if (
+        !rows.some(
+          ({ event }) => event.type === 'command.accepted' && event.commandId === commandId
+        )
+      ) {
+        throw new MessageNotSentError(HOST_RESTARTED_NOT_SENT);
+      }
+    };
+    try {
+      await options.bindThreadRoot?.();
+    } catch (cause) {
+      if (options.replacement && isConnectionLoss(cause)) {
+        return await settleLost(options.replacement);
+      }
+      throw cause;
+    }
     try {
       await client.request('run/start', {
         ...(attachments.length > 0 ? { attachments } : {}),
-        commandId: crypto.randomUUID(),
+        commandId,
         ...runSettings(),
         parentMessageId: message.parentId,
         prompt,
         threadId,
       });
     } catch (cause) {
+      if (options.replacement && isConnectionLoss(cause)) {
+        return await settleLost(options.replacement);
+      }
       // BST-1990 (D4): logged with the host's code (the user reads its text).
       logger.warn('The agent host refused a run command', {
         code: hostErrorCode(cause),

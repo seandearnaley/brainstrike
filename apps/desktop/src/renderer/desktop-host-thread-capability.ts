@@ -20,6 +20,7 @@ import {
 import { foldHostCanvases } from '@brainstrike/host-capabilities/canvas-state';
 import { createLogger } from '@brainstrike/logging';
 import { connectDesktopAgentHost } from './agent-host-client';
+import { createDesktopHostConnection, type DesktopHostConnection } from './desktop-host-connection';
 import { createHostRewindPort } from './host-rewind-port';
 import { HostThreadCanvases } from './host-thread-canvases';
 import { HostThreadLedger } from './host-thread-ledger';
@@ -124,14 +125,18 @@ export function createWindowThreadCapability(
     readonly catalogLoaded: boolean;
     /** BST-1932: a child thread's call sign and family colour; absent for a top-level thread. */
     readonly child: { readonly callSign: string; readonly color: string } | undefined;
-    readonly host: HostClient | undefined;
+    /** BST-2004: the frame's host connection, whose current client serves the thread. */
+    readonly connection: DesktopHostConnection;
     readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
     readonly onTitleCommitted: () => void;
     readonly ledger: HostThreadLedger;
+    /** The host's catalog lists this thread. */
+    readonly owned: boolean;
     readonly providerReadErrors: Parameters<AssistantThreadHostCapability['renderThread']>[3];
     readonly runs: HostThreadRuns;
     readonly threadId: string;
-  }) => ReturnType<AssistantThreadHostCapability['renderThread']>
+  }) => ReturnType<AssistantThreadHostCapability['renderThread']>,
+  connection: DesktopHostConnection = createDesktopHostConnection(connectDesktopAgentHost)
 ): AssistantThreadHostCapability & {
   readonly ledger: HostThreadLedger;
   readonly runs: HostThreadRuns;
@@ -145,43 +150,12 @@ export function createWindowThreadCapability(
       listener();
     }
   };
-  let connecting: Promise<HostClient> | undefined;
-  let closing: Promise<void> | undefined;
   let catalogLoaded = false;
-  const threads = new Map<string, HostClient>();
+  let seededBy: HostClient | undefined;
+  // Host-owned thread IDs; every request goes to the connection's current client.
+  const threads = new Set<string>();
   const childViews = new Map<string, { readonly callSign: string; readonly color: string }>();
-  const close = (): Promise<void> => {
-    const admitted = connecting;
-    closing ??= (async () => {
-      if (admitted) {
-        const [result] = await Promise.allSettled([admitted]);
-        if (result?.status === 'fulfilled') {
-          await result.value.close();
-          await result.value.closed;
-        }
-      }
-      threads.clear();
-    })();
-    return closing;
-  };
-  const client = (): Promise<HostClient> => {
-    if (closing) {
-      return Promise.reject(new Error('The desktop host view is closing'));
-    }
-    if (!connecting) {
-      // The actual frame owns this client. Main joins its relay on navigation,
-      // renderer loss and shutdown; React presentation replay owns no transport.
-      window.addEventListener(
-        'beforeunload',
-        () => {
-          void close();
-        },
-        { once: true }
-      );
-      connecting = connectDesktopAgentHost();
-    }
-    return connecting;
-  };
+  const client = (): Promise<HostClient> => connection.current();
   // The catalog and Core's ledger: two reads, whatever the threads' lengths.
   const listThreads = async (resourceId: string): Promise<readonly AssistantMemoryThread[]> => {
     const host = await client();
@@ -190,8 +164,9 @@ export function createWindowThreadCapability(
       host.request('ledger/read', {}),
     ]);
     for (const { threadId } of catalog.threads) {
-      threads.set(threadId, host);
+      threads.add(threadId);
     }
+    seededBy = host;
     runs.seed(
       catalog.threads.flatMap(({ latestRun, threadId }) =>
         latestRun ? [[threadId, latestRun] as const] : []
@@ -202,13 +177,12 @@ export function createWindowThreadCapability(
     return catalog.threads.map((entry) => projectThread(resourceId, entry));
   };
   const threadClient = async (threadId: string): Promise<HostClient | undefined> => {
-    const known = threads.get(threadId);
-    if (known) {
-      return known;
+    if (threads.has(threadId)) {
+      return await client();
     }
     if (!catalogLoaded) {
       await listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
-      return threads.get(threadId);
+      return threads.has(threadId) ? await client() : undefined;
     }
     // Absence from this window's snapshot is not historical ownership: another
     // client (a window or the CLI) may have created the thread since. Only the
@@ -218,9 +192,21 @@ export function createWindowThreadCapability(
     if (!catalog.threads.some((thread) => thread.threadId === threadId)) {
       return;
     }
-    threads.set(threadId, host);
+    threads.add(threadId);
     return host;
   };
+  // BST-2004: a replaced host's catalog re-seeds the run and cost views; each
+  // thread view rebinds itself to the new client.
+  connection.subscribe(() => {
+    const state = connection.getSnapshot();
+    if (state.kind !== 'connected' || !catalogLoaded || state.client === seededBy) {
+      return;
+    }
+    seededBy = state.client;
+    listThreads(WORKSPACE_MEMORY_RESOURCE_ID).catch((error: unknown) => {
+      logger.error('The replaced agent host catalog could not be read', { error });
+    });
+  });
   return {
     // BST-1932: a listed child is driven through its parent's host client.
     childThreads: async (threadId) => {
@@ -230,7 +216,7 @@ export function createWindowThreadCapability(
       }
       return (await host.request('thread/children', { threadId })).children.map(
         ({ callSign, color, origin, status, threadId: child }) => {
-          threads.set(child, host);
+          threads.add(child);
           childViews.set(child, { callSign, color });
           return {
             callSign,
@@ -250,7 +236,7 @@ export function createWindowThreadCapability(
       const host = await client();
       const { threadId } = await host.request('thread/start', { commandId: crypto.randomUUID() });
       const { rows } = await host.request('thread/read', { fromSeq: 0, threadId });
-      threads.set(threadId, host);
+      threads.add(threadId);
       return projectStarted(threadId, resourceId, rows);
     },
     deleteThread: async (threadId) => {
@@ -300,10 +286,11 @@ export function createWindowThreadCapability(
         canvases,
         catalogLoaded,
         child: childViews.get(threadId),
-        host: threads.get(threadId),
+        connection,
         ledger,
         onRunningChange,
         onTitleCommitted: titleCommitted,
+        owned: threads.has(threadId),
         providerReadErrors,
         runs,
         threadId,
@@ -324,7 +311,7 @@ export function createWindowThreadCapability(
       if (!child) {
         throw new Error('The child conversation is missing or does not belong to this workspace.');
       }
-      threads.set(threadId, host);
+      threads.add(threadId);
       childViews.set(threadId, { callSign: child.callSign, color: child.color });
       return {
         callSign: child.callSign,
@@ -339,15 +326,21 @@ export function createWindowThreadCapability(
       };
     },
     rewindPort: (threadId) => {
-      const host = threads.get(threadId);
-      if (!host) {
+      if (!threads.has(threadId)) {
         return;
       }
       const changes = resolveChangesBridge();
       if (!changes) {
         throw new Error('Restoring a host thread needs the desktop changes bridge');
       }
-      return createHostRewindPort(host, changes);
+      // Each rewind request goes to the current client, whichever host serves it.
+      return createHostRewindPort(
+        {
+          request: async (method, params, signal) =>
+            await (await client()).request(method, params, signal),
+        },
+        changes
+      );
     },
     runs,
     // Gap 10: the host's own arms for the Threads panel's fused search. A matched
@@ -367,7 +360,7 @@ export function createWindowThreadCapability(
           : {}),
       });
       for (const { threadId } of [...messages, ...similar, ...titles]) {
-        threads.set(threadId, host);
+        threads.add(threadId);
       }
       const armMessage = ({
         createdAt,
@@ -413,19 +406,31 @@ export function createWindowThreadCapability(
     // BST-1932: the host says which thread's children changed; nothing is polled.
     subscribeChildren: (listener) => {
       let active = true;
+      let followed: HostClient | undefined;
       let release: (() => void) | undefined;
-      client().then(
-        (host) => {
-          if (active) {
-            release = host.onChildrenChanged(listener);
-          }
-        },
-        (error: unknown) => {
-          logger.error('Host child changes could not be followed', { error });
+      const follow = (): void => {
+        const state = connection.getSnapshot();
+        if (!active || state.kind !== 'connected' || state.client === followed) {
+          return;
         }
-      );
+        const replaced = followed !== undefined;
+        release?.();
+        followed = state.client;
+        release = state.client.onChildrenChanged(listener);
+        // BST-2004: children may have changed while no host client listened.
+        if (replaced) {
+          for (const threadId of threads) {
+            listener(threadId);
+          }
+        }
+      };
+      const unfollow = connection.subscribe(follow);
+      client().then(follow, (error: unknown) => {
+        logger.error('Host child changes could not be followed', { error });
+      });
       return () => {
         active = false;
+        unfollow();
         release?.();
       };
     },

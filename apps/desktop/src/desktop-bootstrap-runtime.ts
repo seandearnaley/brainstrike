@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { HostCredentialStoreSelection } from '@brainstrike/host-capabilities/credentials';
 import type { HostAttachment } from '@brainstrike/host-lease';
+import { createLogger } from '@brainstrike/logging';
 import { app, MessageChannelMain, type MessagePortMain } from 'electron';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import type { HostNativeChildren } from './agent-host-platform/host-native-children';
@@ -29,6 +30,7 @@ import {
   filterDirectoryOpenCandidates,
 } from './workspace-open-queue';
 
+const logger = createLogger('DesktopBootstrap');
 const E2E_USER_DATA_DIR_ENV = 'BRAINSTRIKE_E2E_USER_DATA_DIR';
 type BindPlatform = (
   port: MessagePortMain,
@@ -174,7 +176,7 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
   const pending = new Set<PendingPlatform>();
   let binding: BindPlatform | undefined;
   const launched = Promise.withResolvers<void>();
-  const profile = createDesktopProfileRuntime(() => {
+  const profile = createDesktopProfileRuntime((lost) => {
     // Terminal quit never admits a replacement profile, including after reset.
     if (isDesktopShuttingDown()) {
       throw new Error('Desktop profile is shutting down');
@@ -187,6 +189,12 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
       closeTimeoutMs: process.platform === 'win32' ? 5000 : 1000,
       onChildReady: privateClients.attach,
       onChildStarted: () => launched.resolve(),
+      onLost: (code) => {
+        logger.warn('The agent host exited without Main asking; the next client relaunches it', {
+          code,
+        });
+        lost();
+      },
       platform: (children) => {
         const channel = new MessageChannelMain();
         let owner: ReturnType<BindPlatform> | undefined;

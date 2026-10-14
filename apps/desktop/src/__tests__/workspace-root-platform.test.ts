@@ -122,3 +122,33 @@ test('an authenticated attachment stays usable during index-only retirement and 
     await fixture.close();
   }
 });
+
+test('a request the closed attachment never sent goes back through admission (BST-1992)', async () => {
+  const retired = transport({ workspaceRoots: async () => ({ roots: [] }) });
+  const replacementRoots = vi.fn<WorkspaceRootPort['workspaceRoots']>(async () => ({ roots: [] }));
+  const replacement = transport({ workspaceRoots: replacementRoots });
+  const attach = (fixture: ReturnType<typeof transport>) =>
+    ({
+      catalog: createHostCatalogClient(fixture.main),
+      // Reset disposes the connection before the transport's own close settles.
+      closed: new Promise<void>(() => undefined),
+    }) as HostAttachment & { catalog: ReturnType<typeof createHostCatalogClient> };
+  const resetRefusal = new Error('Native index activation is closed for terminal retirement.');
+  const acquire = vi.fn(async () => attach(retired));
+  const catalog = createDesktopWorkspaceRootCatalog(acquire);
+  try {
+    await expect(catalog.workspaceRoots({ operation: 'list' })).resolves.toEqual({ roots: [] });
+    retired.main.dispose();
+    // During reset, admission's own refusal answers, not the disposed connection.
+    acquire.mockRejectedValueOnce(resetRefusal);
+    await expect(catalog.workspaceRoots({ operation: 'list' })).rejects.toBe(resetRefusal);
+    // After a lost host, admission's replacement serves the same request.
+    acquire.mockResolvedValueOnce(attach(replacement));
+    await expect(catalog.workspaceRoots({ operation: 'list' })).resolves.toEqual({ roots: [] });
+    expect(replacementRoots).toHaveBeenCalledOnce();
+    expect(acquire).toHaveBeenCalledTimes(3);
+  } finally {
+    await retired.close();
+    await replacement.close();
+  }
+});

@@ -822,8 +822,10 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       }
       return true;
     };
+    // BST-2004: a lost ready host fails like a failed start; join its Root release first.
+    const recovered = await recover();
     let state = await owner.state();
-    if (state.kind === 'closed' && !(await recover())) {
+    if (state.kind === 'closed' && !recovered) {
       throw stateError(state);
     }
     const admit = async (): Promise<HostAttachment> => {

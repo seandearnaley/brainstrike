@@ -36,6 +36,11 @@ import {
 } from './committed-host-conversation';
 import { CommittedHostMcpInputView } from './committed-host-mcp-input-view';
 import { CommittedWorkspaceControls } from './committed-workspace-controls';
+import {
+  type DesktopHostConnection,
+  type DesktopHostConnectionState,
+  windowHostConnection,
+} from './desktop-host-connection';
 import { createWindowThreadCapability } from './desktop-host-thread-capability';
 import { HostApprovalStrip } from './host-approval-strip';
 import { HostChildDetailsFold } from './host-child-details';
@@ -124,19 +129,7 @@ function HostChildDetails({
   ) : null;
 }
 
-function HostThread({
-  agentColor,
-  canvases,
-  child,
-  client,
-  label,
-  ledger,
-  onRunningChange,
-  onTitleCommitted,
-  providerReadErrors,
-  runs,
-  threadId,
-}: {
+interface HostThreadProps {
   /** BST-1932: a child's view is tinted with its family colour. */
   readonly agentColor: string | undefined;
   readonly canvases: HostThreadCanvases;
@@ -148,9 +141,29 @@ function HostThread({
   readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
   readonly onTitleCommitted: () => void;
   readonly providerReadErrors: ProviderReadErrors | undefined;
+  /** BST-2004: the connection's automatic attempt, or the user's Reconnect once it failed. */
+  readonly reconnect: 'automatic' | (() => void) | undefined;
+  /** BST-2004: the frame's next client after a lost one. */
+  readonly replacement: (lost: HostClient) => Promise<HostClient>;
   readonly runs: HostThreadRuns;
   readonly threadId: string;
-}): ReactElement {
+}
+
+function HostThread({
+  agentColor,
+  canvases,
+  child,
+  client,
+  label,
+  ledger,
+  onRunningChange,
+  onTitleCommitted,
+  providerReadErrors,
+  reconnect,
+  replacement,
+  runs,
+  threadId,
+}: HostThreadProps): ReactElement {
   const explorer = useFileExplorerStoreContext();
   // ADR-0019: the composer's model is the host thread's selection.
   const selection = useHostThreadSelection(client, threadId);
@@ -193,11 +206,12 @@ function HostThread({
       readConfiguration: () => configuration.current(explorer.getState().currentFolderId),
       readModelId: () => modelId.current(),
       readPlanMode: () => planMode.current(),
+      replacement,
       threadId,
     });
     setConversation(current);
     return () => current.close();
-  }, [child, client, explorer, onTitleCommitted, threadId]);
+  }, [child, client, explorer, onTitleCommitted, replacement, threadId]);
   // A root thread's "Restore to before this message" goes to its owner (the
   // host); a delegated child's view offers none.
   const rewind = useRewindContext();
@@ -292,6 +306,7 @@ function HostThread({
                         onRunningChange={onRunningChange}
                         onSendActiveInput={child ? conversation.sendInput : undefined}
                         onSteerActiveRun={steer}
+                        reconnect={reconnect}
                         rewind={child ? null : rewind}
                         store={conversation.store}
                         workspaceBar={
@@ -320,6 +335,50 @@ function HostThread({
   );
 }
 
+/**
+ * BST-2004: a thread view follows the frame's host connection. A replaced
+ * host's client rebinds the view through the same path as a reload; until it
+ * arrives, the lost client's view stays mounted and shows the disconnect.
+ */
+function ConnectedHostThread({
+  connection,
+  ...thread
+}: Omit<HostThreadProps, 'client' | 'reconnect' | 'replacement'> & {
+  readonly connection: DesktopHostConnection;
+}): ReactElement {
+  const state = useSyncExternalStore(
+    connection.subscribe,
+    connection.getSnapshot,
+    connection.getSnapshot
+  );
+  const [client, setClient] = useState(state.kind === 'connected' ? state.client : undefined);
+  if (state.kind === 'connected' && state.client !== client) {
+    setClient(state.client);
+  }
+  const replacement = useCallback((lost: HostClient) => connection.replacement(lost), [connection]);
+  if (!client) {
+    return <div role="status">Connecting to the agent host…</div>;
+  }
+  return (
+    <HostThread
+      {...thread}
+      client={client}
+      reconnect={reconnectFor(state, connection)}
+      replacement={replacement}
+    />
+  );
+}
+
+function reconnectFor(
+  state: DesktopHostConnectionState,
+  connection: DesktopHostConnection
+): HostThreadProps['reconnect'] {
+  if (state.kind === 'failed') {
+    return connection.reconnect;
+  }
+  return state.kind === 'connecting' && state.automatic ? 'automatic' : undefined;
+}
+
 /** Visible while the steered run is still the thread's active run. */
 function SteeringStatus({
   runId,
@@ -345,27 +404,28 @@ const windowThreadCapability = createWindowThreadCapability(
     canvases,
     catalogLoaded,
     child,
-    host,
+    connection,
     ledger,
     onRunningChange,
     onTitleCommitted,
+    owned,
     providerReadErrors,
     runs,
     threadId,
   }) => {
     // Persisted tabs render before catalog hydration. The observed legacy
     // Mastra initialization for these SQLite-owned IDs must not claim them.
-    if (!(host || catalogLoaded)) {
+    if (!(owned || catalogLoaded)) {
       return <div role="status">Loading assistant threads…</div>;
     }
     // The agent host is Desktop's only conversation owner: a thread its catalog
     // does not list fails visibly instead of mounting another runtime.
-    return host ? (
-      <HostThread
+    return owned ? (
+      <ConnectedHostThread
         agentColor={child?.color}
         canvases={canvases}
         child={child !== undefined}
-        client={host}
+        connection={connection}
         // A child's region is named by its call sign, like its workspace tab.
         label={child?.callSign ?? 'Assistant'}
         ledger={ledger}
@@ -380,7 +440,8 @@ const windowThreadCapability = createWindowThreadCapability(
         This thread is not owned by the agent host.
       </div>
     );
-  }
+  },
+  windowHostConnection()
 );
 
 /** New roots hydrate from the committed host; existing history keeps its original owner. */
