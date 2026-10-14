@@ -242,6 +242,7 @@ export const SubagentExecutionCard = ({
     <div
       className="bs-subagent-card my-1 rounded-md border border-border bg-muted/30 text-sm"
       data-agent-color={presentation?.colorId}
+      data-testid="subagent-execution-card"
       style={agentColorStyle(presentation?.colorId)}
     >
       <StepRowHeader

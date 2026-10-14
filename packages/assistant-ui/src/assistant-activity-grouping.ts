@@ -8,6 +8,7 @@ import {
 import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract/tool-approval';
 import { TOOL_SUSPEND_DATA_NAME } from '@brainstrike/assistant-contract/tool-suspend';
 import { isAlwaysVisibleRunEvent } from './assistant-run-event-derivation';
+import { HOST_EVENT_DATA_NAME, HOST_STREAM_DATA_NAME } from './committed-host-event-readers';
 
 /**
  * The one synthetic group key the assistant message renders through
@@ -24,12 +25,17 @@ const STANDALONE: readonly ActivityGroupKey[] = Object.freeze([]);
  * Data parts that must NOT end an activity group. Ordinary run events are
  * emitted around every tool call (`tool.started` / `tool.completed` live, and
  * woven between parts on reload), and the library's grouper would otherwise
- * fence every call into its own one-step group. The three null-rendering parts
- * are transient bookkeeping that arrives mid-run.
+ * fence every call into its own one-step group. The null-rendering parts are
+ * bookkeeping that arrives mid-run: the committed projection keeps every step
+ * boundary (`start-step`, `finish-step`, `model.step`, the prepared request)
+ * as host data, and fencing on those drew one "Read · 1 step" group per model
+ * step (October 14 owner screenshot).
  */
 const GROUP_TRANSPARENT_DATA_NAMES: ReadonlySet<string> = new Set([
   CHILD_RUN_USAGE_DATA_NAME,
   CONTEXT_BREAKDOWN_DATA_NAME,
+  HOST_EVENT_DATA_NAME,
+  HOST_STREAM_DATA_NAME,
   SHELL_OUTPUT_DATA_NAME,
 ]);
 
@@ -62,7 +68,8 @@ export function isActivityPart(part: unknown): boolean {
  * - `brainstrike.run-event` → transparent, EXCEPT always-visible kinds, which
  *   stay standalone so a collapsed group can never hide a failed/cancelled run,
  *   a skipped MCP server, or a pending approval row.
- * - shell-output / context-breakdown / child-run-usage → transparent.
+ * - shell-output / context-breakdown / child-run-usage and the committed
+ *   host bookkeeping (host-event / host-stream) → transparent.
  * - tool-approval / tool-suspend cards, text, and anything unrecognised →
  *   standalone. A pause is a real boundary: the trace before it settles and
  *   the resumed leg starts a new group.

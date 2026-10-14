@@ -57,15 +57,31 @@ export function mergeProviderMetadata(
   return next;
 }
 
-/** One live text or reasoning chunk applied to the open step's overlay part. */
-export function liveStreamPart(
+/**
+ * Recorded Luna runs carry opaque reasoning without a displayable summary:
+ * encrypted state, empty text. It stays in the host log and provider history,
+ * never a transcript disclosure, whether committed or still streaming.
+ */
+function isOpaqueReasoning(type: unknown, text: string): boolean {
+  return type === 'reasoning' && text.trim().length === 0;
+}
+
+/**
+ * One live text or reasoning chunk applied to the open step's overlay part, or
+ * undefined while reasoning has streamed nothing a person can read.
+ */
+function liveStreamPart(
   prior: Part | undefined,
   type: string,
   chunk: Readonly<Record<string, unknown>>
-): TextPart {
+): TextPart | undefined {
   const partType = type.startsWith('reasoning') ? 'reasoning' : 'text';
   const previous = prior?.type === partType ? prior : undefined;
   const delta = typeof chunk['text'] === 'string' ? chunk['text'] : '';
+  const text = (previous?.text ?? '') + (type.endsWith('-delta') ? delta : '');
+  if (isOpaqueReasoning(partType, text)) {
+    return;
+  }
   const metadata = mergeProviderMetadata(
     previous?.providerMetadata,
     providerMetadata(chunk['providerMetadata'])
@@ -77,7 +93,7 @@ export function liveStreamPart(
     status: type.endsWith('-end')
       ? { type: 'complete' }
       : (previous?.status ?? { type: 'running' }),
-    text: (previous?.text ?? '') + (type.endsWith('-delta') ? delta : ''),
+    text,
   };
 }
 
@@ -89,7 +105,9 @@ export function liveStreamPart(
 export function liveOverlayEntry(
   step: number,
   chunk: unknown
-): { readonly key: string; readonly part: (prior: Part | undefined) => TextPart } | undefined {
+):
+  | { readonly key: string; readonly part: (prior: Part | undefined) => TextPart | undefined }
+  | undefined {
   const live = asRecord(chunk);
   const type = live?.['type'];
   if (!(live && typeof type === 'string')) {
@@ -126,9 +144,7 @@ function committedTextPart(entry: unknown): TextPart | undefined {
   if (!((type === 'text' || type === 'reasoning') && typeof content?.['text'] === 'string')) {
     return;
   }
-  // Recorded Luna runs carry opaque reasoning without a displayable summary.
-  // Keep it in the host log/provider history, not as an empty transcript disclosure.
-  if (type === 'reasoning' && content['text'].trim().length === 0) {
+  if (isOpaqueReasoning(type, content['text'])) {
     return;
   }
   const metadata = providerMetadata(content['providerOptions']);

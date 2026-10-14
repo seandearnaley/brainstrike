@@ -172,13 +172,17 @@ async function assertAssembledChildControl(
       const selectedTab = window
         .getByRole('tablist', { name: 'Workspace tabs' })
         .getByRole('tab', { selected: true });
-      // Each delegation is its own activity group, headed by its persona.
+      // A run's delegations share its activity group; each persona has its own card.
       const openChild = async (persona: string, prompt: string) => {
-        const activity = root
-          .getByTestId('assistant-activity-group')
-          .filter({ hasText: `Delegated to ${persona}` });
-        await ensureActivityExpanded(activity);
-        await activity.getByRole('button', { name: /Open .* conversation/ }).click();
+        const card = window.getByTestId('subagent-execution-card').filter({ hasText: persona });
+        await ensureActivityExpanded(
+          root.getByTestId('assistant-activity-group').filter({ has: card })
+        );
+        await root
+          .getByTestId('subagent-execution-card')
+          .filter({ hasText: persona })
+          .getByRole('button', { name: /Open .* conversation/ })
+          .click();
         await expect(selectedTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/u);
         const name = (await selectedTab.innerText()).trim();
         // The card opened the child the host committed for that task.
