@@ -215,13 +215,17 @@ test('restores distinct child tabs and native transcripts without executing a ru
   const selectedTab = window
     .getByRole('tablist', { name: 'Workspace tabs' })
     .getByRole('tab', { selected: true });
-  // Each delegation is its own activity group; the root's answers hold no others.
-  const delegations = rootPanel.getByTestId('assistant-activity-group');
+  // The root's run holds both delegations in one activity group, in call order.
+  const activity = rootPanel.getByTestId('assistant-activity-group');
+  await expect(activity).toHaveCount(1);
+  await ensureActivityExpanded(activity);
+  const delegations = activity.getByTestId('subagent-execution-card');
   await expect(delegations).toHaveCount(2);
   for (const [index, child] of [first, second].entries()) {
-    const delegation = delegations.nth(index);
-    await ensureActivityExpanded(delegation);
-    await delegation.getByRole('button', { name: /Open .* conversation/ }).click();
+    await delegations
+      .nth(index)
+      .getByRole('button', { name: /Open .* conversation/ })
+      .click();
     await expect(selectedTab).toHaveText(child.callSign);
   }
   const cedar = window.getByRole('tab', { exact: true, name: first.callSign });
