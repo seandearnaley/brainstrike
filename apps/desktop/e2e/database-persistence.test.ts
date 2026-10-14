@@ -7,6 +7,7 @@ import {
   clearDatabaseRecords,
   resolveRefreshButton,
   showDatabaseDemoPanel,
+  verifyClearedDesktopContent,
   waitForDatabaseReady,
 } from './utils/layout-helpers';
 
@@ -538,70 +539,18 @@ test.describe('Database Persistence', () => {
     return false;
   }
 
-  async function handleClearConfirmation(page: Page): Promise<void> {
-    const confirmDialog = page.locator('[role="dialog"]');
-    await expect(confirmDialog).toBeVisible({ timeout: 3000 });
-    const confirmButton = confirmDialog
-      .locator('button:has-text("Clear Database")')
-      .or(confirmDialog.locator('button[data-variant="destructive"]:has-text("Clear")'));
-    await expect(confirmButton).toBeVisible({ timeout: 5000 });
-    await confirmButton.click();
-    await expect(confirmDialog).not.toBeVisible({ timeout: 10_000 });
-    const clearOutcome = page
-      .getByText(/^(Database Cleared|Critical Operation Failed|Clear Function Not Available)$/)
-      .first();
-    await expect(clearOutcome).toBeVisible({ timeout: 15_000 });
-  }
-
-  async function handleClearDatabasePage(page: Page): Promise<void> {
-    const activePage = await ensureDatabasePanelVisibleQuick(page);
-    if (!activePage) {
-      return;
-    }
-    if (await isDatabaseError(activePage)) {
-      await expect(activePage.locator(ERROR_LOCATOR).first()).toBeVisible();
-      return;
-    }
-
-    // Expand Import Settings to access Clear Database button
-    await expandImportSettings(activePage);
-
-    const clearButton = activePage.getByRole('button', {
-      name: /Clear Database|Counts pending/,
-    });
-    const visible = await clearButton.isVisible({ timeout: 10_000 }).catch(() => false);
-    if (!visible) {
-      if (await isDatabaseError(activePage)) {
-        await expect(activePage.locator(ERROR_LOCATOR).first()).toBeVisible();
-      }
-      return;
-    }
-
-    if (await clearButton.isEnabled()) {
-      await clearButton.click();
-      await handleClearConfirmation(activePage);
-      if (await isDatabaseError(activePage)) {
-        await expect(activePage.locator(ERROR_LOCATOR).first()).toBeVisible();
-        return;
-      }
-    }
-
-    const specificErrorToast = activePage
-      .locator(':has-text("Database repositories not available")')
-      .or(activePage.locator(':has-text("Remaining operations were cancelled")'));
-    await expect(specificErrorToast).not.toBeVisible({ timeout: 1000 });
-
-    if (await isDatabaseError(activePage)) {
-      await expect(activePage.locator(ERROR_LOCATOR).first()).toBeVisible();
-      return;
-    }
-
-    await clickRefreshIfAvailable(activePage);
-
-    const refreshButton = activePage.locator(REFRESH_BUTTON_SELECTOR);
-    if (await refreshButton.isVisible().catch(() => false)) {
-      await expect(refreshButton).toBeVisible();
-    }
+  async function handleClearDatabasePage(page: Page): Promise<Page> {
+    const activePage = await clearDatabaseRecords(page);
+    await expect(activePage.locator(ERROR_LOCATOR)).not.toBeVisible();
+    await expect(
+      activePage.getByText(/^(Critical Operation Failed|Clear Function Not Available)$/)
+    ).not.toBeVisible();
+    const library = await showDatabaseDemoPanel(activePage);
+    const refresh = library.getByRole('button', { exact: true, name: 'Refresh' });
+    await expect(refresh).toBeEnabled();
+    await refresh.click();
+    await verifyClearedDesktopContent(library);
+    return library;
   }
 
   async function confirmClearDatabaseAndVerifyEmpty(
@@ -737,6 +686,10 @@ test.describe('Database Persistence', () => {
     test.info().annotations.push({ type: 'preserve-electron-state' });
     const context = await electron.ensureContext();
     await handleClearDatabasePage(context.window);
+    await electron.restart();
+    const reopened = await electron.ensureContext();
+    await verifyClearedDesktopContent(reopened.window);
+    await expect(reopened.window.locator(ERROR_LOCATOR)).not.toBeVisible();
   });
 
   async function setupDatabaseUIState(page: Page): Promise<Page> {
