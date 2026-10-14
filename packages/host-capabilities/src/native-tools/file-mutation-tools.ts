@@ -290,6 +290,8 @@ export async function runStringReplaceWorkspaceFile(
   rootId: string;
   path: string;
   bytesWritten: number;
+  /** 1-based inclusive lines the replacement occupies in the written file. */
+  editedLines: { readonly endLine: number; readonly startLine: number };
   matchType: StringReplaceMatchType;
   replaced: true;
   lsp?: EditDiagnosticsResult;
@@ -401,6 +403,7 @@ export async function runStringReplaceWorkspaceFile(
 
     return {
       bytesWritten: buffer.byteLength,
+      editedLines: replacement.editedLines,
       matchType: replacement.matchType,
       newContent: replacement.newContent,
     };
@@ -416,6 +419,7 @@ export async function runStringReplaceWorkspaceFile(
 
   return {
     bytesWritten: result.bytesWritten,
+    editedLines: result.editedLines,
     matchType: result.matchType,
     path: resolved.workspacePath,
     replaced: true,

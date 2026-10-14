@@ -1,4 +1,5 @@
 import type {
+  IndexChunkBoundsCapability,
   IndexRootRegistrationCapability,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
@@ -12,7 +13,7 @@ import {
 
 /** Root composes the authoritative runtime, complete-scan receipts and separate read-only grep host. */
 export function registerIndexSearchIpcHandlers(
-  capability: IndexSearchCapability,
+  capability: IndexSearchCapability & IndexChunkBoundsCapability,
   registration: IndexRootRegistrationCapability
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
@@ -20,6 +21,7 @@ export function registerIndexSearchIpcHandlers(
   registerDomain(registry, 'workspace', indexSearchContract, {
     coverage: (request) => settleIpcResult(failure, () => capability.coverage(request)),
     coverageBatch: (requests) => settleIpcResult(failure, () => capability.coverageBatch(requests)),
+    fileChunks: (request) => settleIpcResult(failure, () => capability.fileChunks(request)),
     grep: (request) => settleIpcResult(failure, () => capability.grep(request)),
     rebuild: () => settleIpcResult(failure, () => capability.rebuild()),
     rootsRegistered: () => settleIpcResult(failure, () => registration.rootsRegistered()),

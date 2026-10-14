@@ -23,6 +23,8 @@ import {
   scopedCoverageBatchRequestSchema,
   scopedCoverageRequestSchema,
   scopedCoverageSchema,
+  scopedFileChunkBoundsRequestSchema,
+  scopedFileChunkBoundsSchema,
   scopedFilePageRequestSchema,
   scopedFilePageSchema,
   scopedManifestRequestSchema,
@@ -435,6 +437,12 @@ export function createIndexerConnection(
         'state-observation-query',
         decoder(stateObservationQuerySchema)(request),
         decoder(Schema.Array(stateObservationHitSchema))
+      ),
+    readScopedFileChunkBounds: async (request) =>
+      call(
+        'read-scoped-file-chunk-bounds',
+        decoder(scopedFileChunkBoundsRequestSchema)(request),
+        decoder(scopedFileChunkBoundsSchema)
       ),
     readScopedFilePage: async (request) =>
       call(

@@ -276,3 +276,69 @@ describe('applyStringReplace — no-op success guard (silent-failure fix)', () =
     expect(typed.message).toContain('produced no change');
   });
 });
+
+describe('applyStringReplace — edited line range (BST-2015)', () => {
+  const file = ['one', 'two', 'three', 'four', 'five'].join('\n');
+
+  it('reports a single-line exact edit as that line', () => {
+    expect(
+      applyStringReplace({ fileContent: file, newStr: 'TWO', oldStr: 'two' }).editedLines
+    ).toEqual({ endLine: 2, startLine: 2 });
+  });
+
+  it('reports a block that grows from one line to three', () => {
+    const result = applyStringReplace({
+      fileContent: file,
+      newStr: 'three\nthree-b\nthree-c',
+      oldStr: 'three',
+    });
+    expect(result.editedLines).toEqual({ endLine: 5, startLine: 3 });
+    expect(result.newContent.split('\n').slice(2, 5)).toEqual(['three', 'three-b', 'three-c']);
+  });
+
+  it('reports a pure deletion as the line where the block was', () => {
+    const result = applyStringReplace({ fileContent: file, newStr: '', oldStr: 'two\n' });
+    expect(result.newContent).toBe(['one', 'three', 'four', 'five'].join('\n'));
+    expect(result.editedLines).toEqual({ endLine: 2, startLine: 2 });
+  });
+
+  it('clamps an edit at the end of the file to its last line', () => {
+    const result = applyStringReplace({ fileContent: file, newStr: '', oldStr: '\nfive' });
+    expect(result.newContent).toBe(['one', 'two', 'three', 'four'].join('\n'));
+    expect(result.editedLines).toEqual({ endLine: 4, startLine: 4 });
+  });
+
+  it('counts CRLF content by its line breaks', () => {
+    const crlf = 'alpha\r\nbeta\r\ngamma';
+    const result = applyStringReplace({
+      fileContent: crlf,
+      newStr: 'beta\r\nbeta-2',
+      oldStr: 'beta',
+    });
+    expect(result.editedLines).toEqual({ endLine: 3, startLine: 2 });
+  });
+
+  it('reports a whitespace-normalized match where the replacement lands', () => {
+    const indented = ['function a() {', '    return  1;', '}', 'tail'].join('\n');
+    const result = applyStringReplace({
+      fileContent: indented,
+      newStr: '  return 2;\n  // two',
+      oldStr: 'return 1;',
+    });
+    expect(result.matchType).toBe('whitespace-normalized');
+    expect(result.newContent.split('\n').slice(1, 3)).toEqual(['  return 2;', '  // two']);
+    expect(result.editedLines).toEqual({ endLine: 3, startLine: 2 });
+  });
+
+  it('counts the fuzzy branch by the text it inserted, not the raw newStr', () => {
+    const code = ['const a = 1;', 'const b = 2;', 'const c = 3;', 'const d = 4;'].join('\n');
+    const result = applyStringReplace({
+      fileContent: code,
+      newStr: 'const b = 20;\nconst c = 30;',
+      oldStr: 'const b = 2 ;\nconst c = 3 ;',
+    });
+    const lines = result.newContent.split('\n');
+    const { endLine, startLine } = result.editedLines;
+    expect(lines.slice(startLine - 1, endLine)).toEqual(['const b = 20;', 'const c = 30;']);
+  });
+});

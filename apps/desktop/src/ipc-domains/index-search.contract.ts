@@ -1,5 +1,7 @@
 import type {
+  IndexChunkBoundsCapability,
   IndexerCoverageRequest,
+  IndexerFileChunksRequest,
   IndexerGrepRequest,
   IndexerSearchRequest,
   IndexLifecycleCapability,
@@ -69,6 +71,24 @@ function parseCoverageBatch(raw: readonly unknown[]): [readonly IndexerCoverageR
     throw new TypeError('Native coverage batch requires requests.');
   }
   return [raw[0].map((request: unknown) => parseCoverage([request])[0])];
+}
+function parseFileChunks(raw: readonly unknown[]): [IndexerFileChunksRequest] {
+  const record = one(raw);
+  assertSupportedKeys(record, ['rootId', 'paths'], 'native file chunks');
+  const rootId = requireStringType(record, 'rootId', 'native file chunks');
+  if (!rootId.trim()) {
+    throw new TypeError('Native file chunks need a nonempty root ID.');
+  }
+  const paths = record['paths'];
+  if (
+    !Array.isArray(paths) ||
+    paths.length === 0 ||
+    paths.length > 100 ||
+    paths.some((value) => typeof value !== 'string' || value.length === 0)
+  ) {
+    throw new TypeError('Native file chunks need 1 to 100 nonempty paths.');
+  }
+  return [{ paths: paths as string[], rootId }];
 }
 function parseSearch(raw: readonly unknown[]): [IndexerSearchRequest] {
   const record = one(raw);
@@ -151,7 +171,9 @@ function parseGrep(raw: readonly unknown[]): [IndexerGrepRequest] {
     },
   ];
 }
-type Result<K extends keyof IndexSearchCapability> = Awaited<ReturnType<IndexSearchCapability[K]>>;
+type Result<K extends keyof (IndexSearchCapability & IndexChunkBoundsCapability)> = Awaited<
+  ReturnType<(IndexSearchCapability & IndexChunkBoundsCapability)[K]>
+>;
 export const indexSearchContract = {
   coverage: channel<[IndexerCoverageRequest], Result<'coverage'>>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.coverage,
@@ -161,6 +183,11 @@ export const indexSearchContract = {
   coverageBatch: channel<[readonly IndexerCoverageRequest[]], Result<'coverageBatch'>>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.coverageBatch,
     parseArgs: parseCoverageBatch,
+    roles: ['visible-ui'],
+  }),
+  fileChunks: channel<[IndexerFileChunksRequest], Result<'fileChunks'>>({
+    channel: DESKTOP_IPC_CHANNELS.indexSearch.fileChunks,
+    parseArgs: parseFileChunks,
     roles: ['visible-ui'],
   }),
   grep: channel<[IndexerGrepRequest], Result<'grep'>>({
@@ -198,6 +225,9 @@ export const indexSearchContract = {
 export type IndexSearchBridgeDerivation = AssertTrue<
   BridgeMatches<
     typeof indexSearchContract,
-    IndexSearchCapability & IndexRootRegistrationCapability & IndexLifecycleCapability
+    IndexSearchCapability &
+      IndexChunkBoundsCapability &
+      IndexRootRegistrationCapability &
+      IndexLifecycleCapability
   >
 >;

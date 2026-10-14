@@ -106,6 +106,7 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
     }),
     prepareFile: unused,
     prepareScopedFile: unused,
+    readScopedFileChunkBounds: unused,
     readScopedFilePage: unused,
     removeFile: unused,
     removeScopedFile: unused,

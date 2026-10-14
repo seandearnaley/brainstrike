@@ -279,6 +279,9 @@ export async function runIndexerProcess(
           case 'read-scoped-file-page':
             work = connection.scoped.readFilePage(request.payload);
             break;
+          case 'read-scoped-file-chunk-bounds':
+            work = connection.scoped.readFileChunkBounds(request.payload);
+            break;
           case 'search-scopes':
             work = connection.scoped.search(request.payload);
             break;

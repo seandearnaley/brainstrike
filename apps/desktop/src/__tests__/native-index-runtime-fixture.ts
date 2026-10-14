@@ -70,6 +70,7 @@ export function nativeRuntimeFixture() {
     info: unused,
     prepareFile: unused,
     prepareScopedFile: unused,
+    readScopedFileChunkBounds: unused,
     readScopedFilePage: unused,
     removeFile: unused,
     removeScopedFile: unused,
