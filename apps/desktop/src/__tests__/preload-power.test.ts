@@ -99,9 +99,6 @@ describe('preload power bridge', () => {
     const call = mockExposeInMainWorld.mock.calls.find(([key]) => key === 'electronAPI');
     return call?.[1] as
       | {
-          dbLive: {
-            onUpdate: (cb: (payload: { id: number; results: unknown }) => void) => () => void;
-          };
           storage: {
             clear: () => Promise<unknown>;
             setItem: (key: string, value: string) => Promise<unknown>;
@@ -257,81 +254,12 @@ describe('preload power bridge', () => {
     expect(mockRemoveListener).toHaveBeenCalledWith('app:power-state', expect.any(Function));
   });
 
-  it('multiplexes db live-query updates through one IPC listener', () => {
-    mockOn.mockClear();
-    mockRemoveListener.mockClear();
-
-    const electronApi = getElectronApi();
-    const firstCallback = vi.fn();
-    const secondCallback = vi.fn();
-    const firstCleanup = electronApi?.dbLive.onUpdate(firstCallback);
-    const secondCleanup = electronApi?.dbLive.onUpdate(secondCallback);
-
-    const updateSubscriptions = mockOn.mock.calls.filter(
-      ([channel]) => channel === 'db:live-query:update'
-    );
-    expect(updateSubscriptions).toHaveLength(1);
-
-    const listener = updateSubscriptions[0]?.[1] as
-      | ((event: unknown, payload: { id: number; results: unknown }) => void)
-      | undefined;
-    expect(listener).toBeDefined();
-
-    listener?.(null, { id: 17, results: { rows: [{ id: 'row-1' }] } });
-    expect(firstCallback).toHaveBeenCalledWith({ id: 17, results: { rows: [{ id: 'row-1' }] } });
-    expect(secondCallback).toHaveBeenCalledWith({ id: 17, results: { rows: [{ id: 'row-1' }] } });
-
-    firstCleanup?.();
-    expect(mockRemoveListener).not.toHaveBeenCalledWith(
-      'db:live-query:update',
-      expect.any(Function)
-    );
-
-    secondCleanup?.();
-    expect(mockRemoveListener).toHaveBeenCalledWith('db:live-query:update', expect.any(Function));
+  it('does not expose the retired live-query subscription API', () => {
+    expect(getElectronApi()).not.toHaveProperty('dbLive');
   });
 
-  it('isolates db live-query subscriber errors and logs them', () => {
-    mockOn.mockClear();
-    mockRemoveListener.mockClear();
-    mockSend.mockClear();
-
-    const electronApi = getElectronApi();
-    const subscriberError = new Error('subscriber failed');
-    const throwingCallback = vi.fn(() => {
-      throw subscriberError;
-    });
-    const healthyCallback = vi.fn();
-    const throwingCleanup = electronApi?.dbLive.onUpdate(throwingCallback);
-    const healthyCleanup = electronApi?.dbLive.onUpdate(healthyCallback);
-
-    const updateSubscriptions = mockOn.mock.calls.filter(
-      ([channel]) => channel === 'db:live-query:update'
-    );
-    expect(updateSubscriptions).toHaveLength(1);
-
-    const listener = updateSubscriptions[0]?.[1] as
-      | ((event: unknown, payload: { id: number; results: unknown }) => void)
-      | undefined;
-    expect(listener).toBeDefined();
-
-    const payload = { id: 23, results: { rows: [{ id: 'row-2' }] } };
-    expect(() => listener?.(null, payload)).not.toThrow();
-    expect(throwingCallback).toHaveBeenCalledWith(payload);
-    expect(healthyCallback).toHaveBeenCalledWith(payload);
-    expect(mockSend).toHaveBeenCalledWith(
-      'logging:ingest-buffered-record',
-      expect.objectContaining({
-        args: ['[preload] db live-query subscriber threw:', subscriberError],
-        bindings: { runtime: 'electron-renderer' },
-        level: 'error',
-        message: 'DB live-query subscriber threw',
-        scope: 'Preload',
-      })
-    );
-
-    throwingCleanup?.();
-    healthyCleanup?.();
+  it('does not register listeners for retired database updates', () => {
+    expect(mockOn.mock.calls.filter(([channel]) => channel === 'db:live-query:update')).toEqual([]);
   });
 
   it('exposes the embeddingHost lifecycle bridge', async () => {

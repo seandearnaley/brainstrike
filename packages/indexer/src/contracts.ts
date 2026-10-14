@@ -700,3 +700,33 @@ export function authorize(allowed: ReadonlySet<string>, rootIds: readonly string
 }
 /** A caller's embedder identity, validated as the index validates every vector profile. */
 export const decodeVectorProfile: (input: unknown) => VectorProfile = decoder(vectorProfileSchema);
+
+/** Exact Library page under the existing scoped read owner; pagination never uses search recall. */
+export const scopedFilePageRequestSchema = Schema.Struct({
+  contentHash: hash,
+  fileId: nonblank,
+  limit: positive.check(Schema.isLessThanOrEqualTo(100)),
+  offset: nonnegative,
+  profileHash: Schema.optionalKey(Schema.NullOr(hash)),
+  scope: scopeSchema,
+  snapshotHash: Schema.optionalKey(hash),
+});
+export const scopedFilePageChunkSchema = Schema.Struct({
+  ...scopedManifestChunkSchema.fields,
+  content: Schema.String,
+  vector: Schema.NullOr(
+    Schema.Struct({ dimensions: positive, values: Schema.Array(Schema.Finite) })
+  ),
+});
+export const scopedFilePageSchema = Schema.Struct({
+  ...scopedProofIdentitySchema.fields,
+  chunks: Schema.Array(scopedFilePageChunkSchema),
+  contentHash: hash,
+  fileId: nonblank,
+  nextOffset: Schema.NullOr(nonnegative),
+  profileHash: Schema.NullOr(hash),
+  snapshotHash: hash,
+  total: nonnegative,
+});
+export type ScopedFilePageRequest = typeof scopedFilePageRequestSchema.Type;
+export type ScopedFilePage = typeof scopedFilePageSchema.Type;

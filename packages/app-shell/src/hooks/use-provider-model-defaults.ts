@@ -1,10 +1,12 @@
-import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
+import {
+  type ModelRegistrySource,
+  useModelRegistryStore,
+} from '@brainstrike/app-state/stores/model-registry-store';
 import {
   getProviderDisplayName,
   getProviderModelDefaultPolicy,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
-import type { DbHandle } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
 import { useEffect, useRef } from 'react';
@@ -12,7 +14,7 @@ import { useEffect, useRef } from 'react';
 const logger = createLogger('ProviderModelDefaults');
 
 interface InitializationAttempt {
-  readonly db: DbHandle;
+  readonly db: ModelRegistrySource;
   readonly secretsVersion: number;
 }
 
@@ -31,14 +33,14 @@ function errorMessage(error: unknown): string {
  * cannot be added without stating a policy — the map is exhaustive over
  * `SupportedProvider` and will not compile otherwise.
  *
- * The attempt guard is per provider AND per `{db, secretsVersion}`: one
+ * The attempt guard is per provider AND per `{catalog source, secretsVersion}`: one
  * dispatch per app session, and again when credentials change. That cadence is
  * what makes an `all` policy standing rather than one-time — a model added by a
  * later migration is evaluated on the next launch.
  */
 export function useProviderModelDefaults(
   configuredProviders: readonly SupportedProvider[],
-  db: DbHandle | null,
+  db: ModelRegistrySource | null,
   secretsVersion: number,
   providerDiscoveryEnabled: boolean,
   providerReadErrors?: Partial<Record<SupportedProvider, string>>

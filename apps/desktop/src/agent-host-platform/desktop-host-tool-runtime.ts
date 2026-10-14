@@ -1,7 +1,6 @@
 /** Main's stores and services the agent host's own tools read through Main. */
 import { mainBrowserToolRunner } from '../assistant-server/browser-agent-tools';
 import { mainDiagnosticsReader } from '../assistant-server/query-diagnostics-tool';
-import { pgliteRetrievalStore } from '../assistant-server/retrieval-store-pglite';
 import { mainWorkspaceContextBroadcaster } from '../assistant-server/workspace-context-broadcast';
 import {
   type DesktopWorktreeServices,
@@ -23,7 +22,7 @@ export function desktopHostToolServices(
     browser: mainBrowserToolRunner,
     contextDelivery: mainWorkspaceContextBroadcaster,
     diagnostics: mainDiagnosticsReader,
-    retrievalStore: pgliteRetrievalStore(),
+    retrievalStore: dependencies.retrievalStore,
     shell: desktopShellCorrelation(dependencies),
     worktrees: ({ runId, threadId }) =>
       desktopWorktreeToolDependencies(dependencies, { runId, threadId }).worktreeTools,

@@ -462,6 +462,9 @@ vi.mock('../../host-lease-manager', () => ({
         token: 'a'.repeat(64),
       },
     }),
+    clearAndRetireContent: async () => {
+      throw new Error('Unexpected content clear in retained database module fixture');
+    },
     close: async () => undefined,
   }),
 }));
@@ -549,7 +552,25 @@ vi.mock('electron-store', () => {
   return { default: MockElectronStore };
 });
 
-import '../../main';
+import { EmbeddingHostManager } from '../../embedding-host-manager';
+import {
+  flushPendingLiveUpdates,
+  isDesktopDatabaseBackgrounded,
+  registerDatabaseIpcHandlers,
+} from '../../ipc-domains/db-ipc';
+import { registerEmbeddingBackfillIpcHandlers } from '../../ipc-domains/embedding-backfill-ipc';
+import { getDesktopDatabaseWorkScheduler } from '../../platform/desktop-database-work';
+
+// Retained database module coverage: production Main no longer registers these domains.
+const retainedEmbeddingHost = new EmbeddingHostManager();
+registerDatabaseIpcHandlers({ embeddingHostManager: retainedEmbeddingHost });
+registerEmbeddingBackfillIpcHandlers({
+  embeddingHostManager: retainedEmbeddingHost,
+  flushPendingLiveUpdates,
+  getDatabaseWorkScheduler: getDesktopDatabaseWorkScheduler,
+  getDimensionIndexMaintenanceStrategy: () => 'regular',
+  isBackgrounded: isDesktopDatabaseBackgrounded,
+});
 
 export async function resetDatabaseIpcHandlerMocks(): Promise<void> {
   vi.clearAllMocks();
@@ -557,9 +578,10 @@ export async function resetDatabaseIpcHandlerMocks(): Promise<void> {
   // own wiring, so return it to healthy the way production does, rather than
   // replacing the instance.
   getDesktopDatabaseIntegrity().markDatabaseReplaced('developer-reset');
-  const { resetDesktopDatabaseWorkSchedulerForTests, setBackgrounded } = await import(
-    '../../ipc-handlers'
+  const { resetDesktopDatabaseWorkSchedulerForTests } = await import(
+    '../../platform/desktop-database-work'
   );
+  const { setBackgrounded } = await import('../../ipc-domains/db-ipc');
   const { resetEmbeddingBackfillStateForTests } = await import('../../ipc-embedding-backfill');
   setBackgrounded(false);
   resetDesktopDatabaseWorkSchedulerForTests();

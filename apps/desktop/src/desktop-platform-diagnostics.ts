@@ -27,16 +27,17 @@ export interface DesktopPlatformDiagnosticsSnapshot {
   readonly crashRecovery: DesktopRendererCrashRecoverySnapshot;
   readonly database: unknown;
   /** Main-owned integrity state; the DB host never sees runtime classification. */
-  readonly databaseIntegrity: DatabaseIntegritySnapshot;
+  readonly databaseIntegrity: DatabaseIntegritySnapshot | null;
   readonly databaseScheduler: DatabaseWorkSchedulerSnapshot | null;
   readonly embeddingHost: RuntimeHostPlatformStatus<'embedding-host'>;
   readonly errors: Partial<Record<DesktopPlatformDiagnosticsProviderName, string>>;
   readonly indexing: {
+    readonly legacyDatabaseMaintenance?: 'not-applicable';
     readonly activeBackfills: readonly EmbeddingHostBackfillInfo[];
     readonly databaseWork: {
       readonly scheduler: DatabaseWorkSchedulerSnapshot | null;
     };
-    readonly dimensionIndexMaintenance: DesktopDimensionIndexMaintenanceSnapshot;
+    readonly dimensionIndexMaintenance: DesktopDimensionIndexMaintenanceSnapshot | null;
   };
   readonly llmHost: RuntimeHostPlatformStatus<'llm-host'>;
   readonly logging: LoggingSettingsPayload;
@@ -70,10 +71,10 @@ export interface DesktopPlatformDiagnosticsProviders {
   };
   readonly databaseIntegrity: {
     readonly getSnapshot: () => DatabaseIntegritySnapshot;
-  };
+  } | null;
   readonly databaseScheduler: {
     readonly getSnapshot: () => DatabaseWorkSchedulerSnapshot;
-  };
+  } | null;
   readonly embeddingHost: {
     readonly getPlatformStatus: () => RuntimeHostPlatformStatus<'embedding-host'>;
     readonly getTelemetrySnapshot: () => EmbeddingTelemetrySnapshot;
@@ -85,7 +86,7 @@ export interface DesktopPlatformDiagnosticsProviders {
     readonly getDimensionIndexMaintenanceSnapshot: () =>
       | Promise<DesktopDimensionIndexMaintenanceSnapshot>
       | DesktopDimensionIndexMaintenanceSnapshot;
-  };
+  } | null;
   readonly llmHost: {
     readonly getPlatformStatus: () => RuntimeHostPlatformStatus<'llm-host'>;
   };
@@ -170,19 +171,19 @@ export async function collectDesktopPlatformDiagnostics(
   const databaseScheduler = await readDiagnosticsProvider(
     errors,
     'databaseScheduler',
-    () => providers.databaseScheduler.getSnapshot(),
+    () => providers.databaseScheduler?.getSnapshot() ?? null,
     null
   );
   const activeBackfills = await readDiagnosticsProvider(
     errors,
     'activeBackfills',
-    () => providers.indexing.getBackfillsInFlight(),
+    () => providers.indexing?.getBackfillsInFlight() ?? [],
     []
   );
   const dimensionIndexMaintenance = await readDiagnosticsProvider(
     errors,
     'dimensionIndexMaintenance',
-    () => providers.indexing.getDimensionIndexMaintenanceSnapshot(),
+    () => providers.indexing?.getDimensionIndexMaintenanceSnapshot() ?? null,
     { maintenance: [], suspensions: [] }
   );
   const reset = await readDiagnosticsProvider(
@@ -223,7 +224,7 @@ export async function collectDesktopPlatformDiagnostics(
     database,
     // In-memory read with no fallback: there is no honest stand-in value, and a
     // fabricated 'healthy' would hide exactly what this field exists to show.
-    databaseIntegrity: providers.databaseIntegrity.getSnapshot(),
+    databaseIntegrity: providers.databaseIntegrity?.getSnapshot() ?? null,
     databaseScheduler,
     embeddingHost: await readDiagnosticsProvider(
       errors,
@@ -241,6 +242,9 @@ export async function collectDesktopPlatformDiagnostics(
     ),
     errors,
     indexing: {
+      ...(providers.indexing === null
+        ? { legacyDatabaseMaintenance: 'not-applicable' as const }
+        : {}),
       activeBackfills,
       databaseWork: { scheduler: databaseScheduler },
       dimensionIndexMaintenance,

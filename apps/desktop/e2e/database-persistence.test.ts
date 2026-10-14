@@ -1,10 +1,13 @@
+import { randomUUID } from 'node:crypto';
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import { readHostThreadTree, withAppHost } from './utils/agent-host-log';
 import { explorerImportPicker, explorerImportTrigger } from './utils/explorer-import';
 import {
   clearDatabaseRecords,
   resolveRefreshButton,
   showDatabaseDemoPanel,
+  verifyClearedDesktopContent,
   waitForDatabaseReady,
 } from './utils/layout-helpers';
 
@@ -13,7 +16,6 @@ test.describe.configure({ mode: 'serial' });
 
 test.describe('Database Persistence', () => {
   const ERROR_LOCATOR = '[data-testid="db-init-error"]';
-  const REFRESH_BUTTON_SELECTOR = 'button:has-text("Refresh")';
   const IMPORT_SETTINGS_SELECTOR = 'button[aria-label="Import Settings"]';
   const EXPECTED_DATABASE_ERROR_SUBSTRINGS = [
     'pgvector',
@@ -219,7 +221,8 @@ test.describe('Database Persistence', () => {
     await electron.ensureWindow();
   });
 
-  test.afterEach(async ({ electron, window }, testInfo) => {
+  test.afterEach(async ({ electron }, testInfo) => {
+    const { window } = await electron.ensureContext();
     const preserveState = testInfo.title.includes('should persist data between app restarts');
 
     if (!preserveState) {
@@ -328,8 +331,9 @@ test.describe('Database Persistence', () => {
         .textContent();
       expect(statusText).toContain('Storage:');
       expect(statusText).not.toContain('Connecting…'); // Ensure it's not in loading state
-      // Accept either IPC connection or PGlite connection
-      expect(statusText).toMatch(/IPC|PGlite/i);
+      // The canonical desktop owner is SQLite; this status must not advertise the retired PG bridge.
+      expect(statusText).toContain('SQLite');
+      expect(statusText).not.toMatch(/PGlite/i);
       return;
     }
 
@@ -534,70 +538,18 @@ test.describe('Database Persistence', () => {
     return false;
   }
 
-  async function handleClearConfirmation(page: Page): Promise<void> {
-    const confirmDialog = page.locator('[role="dialog"]');
-    await expect(confirmDialog).toBeVisible({ timeout: 3000 });
-    const confirmButton = confirmDialog
-      .locator('button:has-text("Clear Database")')
-      .or(confirmDialog.locator('button[data-variant="destructive"]:has-text("Clear")'));
-    await expect(confirmButton).toBeVisible({ timeout: 5000 });
-    await confirmButton.click();
-    await expect(confirmDialog).not.toBeVisible({ timeout: 10_000 });
-    const clearOutcome = page
-      .getByText(/^(Database Cleared|Critical Operation Failed|Clear Function Not Available)$/)
-      .first();
-    await expect(clearOutcome).toBeVisible({ timeout: 15_000 });
-  }
-
-  async function handleClearDatabasePage(page: Page): Promise<void> {
-    const activePage = await ensureDatabasePanelVisibleQuick(page);
-    if (!activePage) {
-      return;
-    }
-    if (await isDatabaseError(activePage)) {
-      await expect(activePage.locator(ERROR_LOCATOR).first()).toBeVisible();
-      return;
-    }
-
-    // Expand Import Settings to access Clear Database button
-    await expandImportSettings(activePage);
-
-    const clearButton = activePage.getByRole('button', {
-      name: /Clear Database|Counts pending/,
-    });
-    const visible = await clearButton.isVisible({ timeout: 10_000 }).catch(() => false);
-    if (!visible) {
-      if (await isDatabaseError(activePage)) {
-        await expect(activePage.locator(ERROR_LOCATOR).first()).toBeVisible();
-      }
-      return;
-    }
-
-    if (await clearButton.isEnabled()) {
-      await clearButton.click();
-      await handleClearConfirmation(activePage);
-      if (await isDatabaseError(activePage)) {
-        await expect(activePage.locator(ERROR_LOCATOR).first()).toBeVisible();
-        return;
-      }
-    }
-
-    const specificErrorToast = activePage
-      .locator(':has-text("Database repositories not available")')
-      .or(activePage.locator(':has-text("Remaining operations were cancelled")'));
-    await expect(specificErrorToast).not.toBeVisible({ timeout: 1000 });
-
-    if (await isDatabaseError(activePage)) {
-      await expect(activePage.locator(ERROR_LOCATOR).first()).toBeVisible();
-      return;
-    }
-
-    await clickRefreshIfAvailable(activePage);
-
-    const refreshButton = activePage.locator(REFRESH_BUTTON_SELECTOR);
-    if (await refreshButton.isVisible().catch(() => false)) {
-      await expect(refreshButton).toBeVisible();
-    }
+  async function handleClearDatabasePage(page: Page): Promise<Page> {
+    const activePage = await clearDatabaseRecords(page);
+    await expect(activePage.locator(ERROR_LOCATOR)).not.toBeVisible();
+    await expect(
+      activePage.getByText(/^(Critical Operation Failed|Clear Function Not Available)$/)
+    ).not.toBeVisible();
+    const library = await showDatabaseDemoPanel(activePage);
+    const refresh = library.getByRole('button', { exact: true, name: 'Refresh' });
+    await expect(refresh).toBeEnabled();
+    await refresh.click();
+    await verifyClearedDesktopContent(library);
+    return library;
   }
 
   async function confirmClearDatabaseAndVerifyEmpty(
@@ -681,23 +633,50 @@ test.describe('Database Persistence', () => {
     await executeClearDatabaseWorkflow(activeWindow);
   });
 
-  test('should properly disable Clear Database button when no data exists', async ({ window }) => {
-    let activeWindow = await ensureDatabasePanelVisibleQuick(window);
-    if (!activeWindow) {
-      return;
-    }
-    activeWindow = await clearDatabaseRecords(activeWindow);
-
-    await clickRefreshIfAvailable(activeWindow);
-
-    // Expand Import Settings to access Clear Database button
+  test('Clear Database removes chat-only content when no Library files exist', async ({
+    electron,
+    window,
+  }) => {
+    const context = await electron.ensureContext();
+    const userData = await context.app.evaluate(({ app }) => app.getPath('userData'));
+    const initial = await clearDatabaseRecords(window);
+    await expect
+      .poll(() =>
+        readHostThreadTree(userData).then(
+          () => 'answering',
+          (error: unknown) => String(error)
+        )
+      )
+      .toBe('answering');
+    const { threadId } = await withAppHost(userData, (host) =>
+      host.request('thread/start', { commandId: randomUUID() })
+    );
+    expect(
+      (await readHostThreadTree(userData)).some((thread) => thread.threadId === threadId)
+    ).toBe(true);
+    const activeWindow = await showDatabaseDemoPanel(initial);
     await expandImportSettings(activeWindow);
-
-    const clearButton = activeWindow.getByRole('button', {
-      name: /Clear Database|Counts pending/,
-    });
-    await expect(clearButton).toBeVisible();
-    await expect(clearButton).toBeDisabled();
+    // Library file counts cannot establish that host conversations are empty.
+    await expect(
+      activeWindow.getByRole('button', { exact: true, name: 'Clear Database' })
+    ).toBeEnabled();
+    await clearDatabaseRecords(activeWindow);
+    const assertThreadRemoved = async () => {
+      await expect
+        .poll(() =>
+          readHostThreadTree(userData).then(
+            () => 'answering',
+            (error: unknown) => String(error)
+          )
+        )
+        .toBe('answering');
+      expect(
+        (await readHostThreadTree(userData)).some((thread) => thread.threadId === threadId)
+      ).toBe(false);
+    };
+    await assertThreadRemoved();
+    await electron.restart();
+    await assertThreadRemoved();
   });
 
   test('should handle Clear Database with uninitialized database gracefully', async ({
@@ -706,81 +685,35 @@ test.describe('Database Persistence', () => {
     test.info().annotations.push({ type: 'preserve-electron-state' });
     const context = await electron.ensureContext();
     await handleClearDatabasePage(context.window);
+    await electron.restart();
+    const reopened = await electron.ensureContext();
+    await verifyClearedDesktopContent(reopened.window);
+    await expect(reopened.window.locator(ERROR_LOCATOR)).not.toBeVisible();
   });
 
-  async function setupDatabaseUIState(page: Page): Promise<Page> {
-    const activePage = page;
-    if (await isDatabaseError(activePage)) {
-      return activePage;
-    }
-    await activePage.waitForTimeout(1000);
-
-    const loadingMessage = activePage.getByText(/Loading PGlite database/i);
-    if (await loadingMessage.isVisible().catch(() => false)) {
-      await loadingMessage.waitFor({ state: 'hidden', timeout: 10_000 });
-    }
-
-    return activePage;
-  }
-
-  async function hasExistingData(page: Page): Promise<boolean> {
-    const recordTotal = await readActiveCollectionRecordTotal(page);
-    return (recordTotal ?? 0) > 0;
-  }
-
-  async function cleanupExistingData(page: Page): Promise<Page> {
-    let activePage = page;
-    if (await isDatabaseError(activePage)) {
-      return activePage;
-    }
-    if (!(await hasExistingData(activePage))) {
-      return activePage;
-    }
-
-    // Expand Import Settings to access Clear Database button
-    await expandImportSettings(activePage);
-
-    const clearButton = activePage.locator('button:has-text("Clear Database")');
-    if (await clearButton.isVisible()) {
-      await confirmClearDatabaseAndVerifyEmpty(activePage, clearButton);
-      return activePage;
-    }
-
-    activePage = await clearDatabaseRecords(activePage);
-    return activePage;
-  }
-
   /**
-   * The Collections tab remains functional and reports its own state.
-   *
-   * The old body probed the Collection Browser's file cards / table rows and
-   * its empty-state copy. All three are gone (the card and row selectors had in
-   * fact been dead for longer than that), which left every branch either
-   * unreachable or trivially true. The surviving, falsifiable statement is that
-   * the panel's controls are live and the panel publishes a numeric record
-   * total for the active collection.
+   * The desktop Library panel's controls are live, Refresh re-reads the empty
+   * canonical content, and the status bar reports the SQLite owner.
    */
-  async function verifyUIFunctionalityAndState(page: Page): Promise<void> {
-    await expect(page.locator('[data-testid="database-panel-actions"]')).toBeVisible({
-      timeout: 15_000,
-    });
-    await expect(page.locator(REFRESH_BUTTON_SELECTOR).first()).toBeVisible({ timeout: 15_000 });
-
-    const recordTotal = await readActiveCollectionRecordTotal(page);
-    expect(recordTotal).not.toBeNull();
-    expect(recordTotal).toBeGreaterThanOrEqual(0);
+  async function verifyNativeLibraryPanel(library: Page): Promise<void> {
+    const toolbar = library.getByTestId('database-panel-toolbar');
+    for (const name of ['New', 'Import settings', 'Export']) {
+      await expect(toolbar.getByRole('button', { exact: true, name })).toBeEnabled();
+    }
+    const refresh = toolbar.getByRole('button', { exact: true, name: 'Refresh' });
+    await expect(refresh).toBeEnabled();
+    await refresh.click();
+    await expect(library.getByText(/^No files in this collection\./)).toBeVisible();
+    await expect(library.getByTestId('status-bar-db-connected').first()).toContainText(
+      'Storage: SQLite',
+      { timeout: 30_000 }
+    );
   }
 
   test('@desktop-db-storage should perform CRUD operations through UI', async ({ window }) => {
-    let activeWindow = await ensureDatabasePanelVisibleQuick(window);
-    if (!activeWindow) {
-      return;
-    }
-    activeWindow = await setupDatabaseUIState(activeWindow);
-    activeWindow = await cleanupExistingData(activeWindow);
-    await expect(activeWindow.getByTestId('database-panel-actions')).toBeVisible();
-    await clickRefreshIfAvailable(activeWindow);
-    await verifyUIFunctionalityAndState(activeWindow);
+    const library = await showDatabaseDemoPanel(await clearDatabaseRecords(window));
+    await verifyNativeLibraryPanel(library);
+    await verifyClearedDesktopContent(library);
   });
 
   test('@desktop-db-storage should persist data between app restarts', async ({
@@ -788,63 +721,13 @@ test.describe('Database Persistence', () => {
     window,
   }) => {
     test.setTimeout(120_000);
-
-    let activeWindow = await ensureDatabasePanelVisibleQuick(window);
-    if (!activeWindow) {
-      return;
-    }
-
-    activeWindow = await clearDatabaseRecords(activeWindow);
-    await clickRefreshIfAvailable(activeWindow);
-
-    // Wait for database connection status (now in global status bar)
-    await expect(
-      activeWindow.locator('[data-testid="status-bar-db-connected"]').first()
-    ).toBeVisible({
-      timeout: 30_000,
-    });
-    await expect
-      .poll(async () => await readActiveCollectionRecordTotal(activeWindow), { timeout: 15_000 })
-      .toBe(0);
-    // Verify connection indicator in status bar
-    const statusText = await activeWindow
-      .locator('[data-testid="status-bar-db-connected"]')
-      .first()
-      .textContent();
-    expect(statusText).toContain('Storage:');
-    expect(statusText).toMatch(/IPC|PGlite/i);
+    const library = await showDatabaseDemoPanel(await clearDatabaseRecords(window));
+    await verifyNativeLibraryPanel(library);
+    await verifyClearedDesktopContent(library);
 
     const relaunched = await electron.restart();
-    let relaunchedWindow = await ensureDatabasePanelVisibleQuick(relaunched.window);
-    if (!relaunchedWindow) {
-      return;
-    }
-    relaunchedWindow = await clearDatabaseRecords(relaunchedWindow);
-    await clickRefreshIfAvailable(relaunchedWindow);
-
-    // Wait for database connection status after restart (now in global status bar)
-    await expect(
-      relaunchedWindow.locator('[data-testid="status-bar-db-connected"]').first()
-    ).toBeVisible({ timeout: 30_000 });
-    // Verify connection message in status bar
-    const relaunchedStatusText = await relaunchedWindow
-      .locator('[data-testid="status-bar-db-connected"]')
-      .first()
-      .textContent();
-    expect(relaunchedStatusText).toContain('Storage:');
-    expect(relaunchedStatusText).toMatch(/IPC|PGlite/i);
-    await expect(relaunchedWindow.getByTestId('database-panel-actions')).toBeVisible();
-    await expect(
-      relaunchedWindow.locator('[data-testid="database-demo-panel"]').first()
-    ).toBeVisible();
-
-    relaunchedWindow = await clearDatabaseRecords(relaunchedWindow);
-    await clickRefreshIfAvailable(relaunchedWindow);
-
-    await expect
-      .poll(async () => await readActiveCollectionRecordTotal(relaunchedWindow), {
-        timeout: 15_000,
-      })
-      .toBe(0);
+    const reopened = await showDatabaseDemoPanel(relaunched.window);
+    await verifyNativeLibraryPanel(reopened);
+    await verifyClearedDesktopContent(reopened);
   });
 });

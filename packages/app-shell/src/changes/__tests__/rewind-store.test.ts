@@ -6,7 +6,7 @@ import { useRewindStore } from '../rewind-store';
 /** A port no test here calls: the store only holds it. */
 const PORT: RewindPort = {
   apply: () => Promise.reject(new Error('not used')),
-  conversation: 'hidden',
+  conversation: 'branched',
   fileDiff: () => Promise.reject(new Error('not used')),
   preview: () => Promise.reject(new Error('not used')),
   redo: () => Promise.reject(new Error('not used')),

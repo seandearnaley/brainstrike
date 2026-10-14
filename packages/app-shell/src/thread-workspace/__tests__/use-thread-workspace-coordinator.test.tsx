@@ -1,6 +1,14 @@
 import type { ThreadWorkspaceRepository, WorkspaceSnapshotV1 } from '@brainstrike/assistant-data';
 import { EMPTY_WORKSPACE_SNAPSHOT } from '@brainstrike/assistant-data';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render as renderComponent,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { delegatedWorkspaceTabId } from '../../delegated-workspace-tab';
 import { hostChildWorkspaceTabId } from '../../host-child-workspace-tab';
@@ -242,6 +250,94 @@ describe('useThreadWorkspaceCoordinator', () => {
       }
     );
   }
+
+  it('Clear joins a mounted workspace save before retiring tabs and the host content', async () => {
+    const { DatabaseDemoPanel } = await import('@brainstrike/db-explorer');
+    const { TooltipProvider } = await import('@brainstrike/ui');
+    const { resetAssistantThreadStore, useAssistantThreadStore, useAssistantThreadGroupsStore } =
+      await import('@brainstrike/assistant-data');
+    const harness = createHarness();
+    const mounted = render(harness, 'thread-a');
+    await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { 'brainstrike:workspace': 'thread-a' },
+      openThreadIdsByResourceId: { 'brainstrike:workspace': ['thread-a'] },
+    });
+    const pending = Promise.withResolvers<void>();
+    vi.mocked(harness.repository.setThreadWorkspace).mockImplementationOnce(() => pending.promise);
+    act(() => {
+      harness.state.openAppIds = ['changes'];
+      harness.notify();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    const clear = vi.fn(async () => {
+      expect(useAssistantThreadStore.getState().activeThreadIdByResourceId).toEqual({});
+      expect(useAssistantThreadStore.getState().openThreadIdsByResourceId).toEqual({});
+      // Main can replace this frame before replying: inspect the actual persisted bytes now.
+      const persisted = localStorage.getItem('brainstrike-assistant-threads-v1');
+      expect(persisted).not.toBeNull();
+      expect(JSON.parse(persisted ?? 'null')).toMatchObject({
+        state: {
+          activeThreadIdByResourceId: {},
+          openThreadIdsByResourceId: {},
+          selectedThreadByResourceId: {},
+        },
+      });
+      expect(persisted).not.toContain('thread-a');
+      harness.rows.clear();
+      return { deletedChunks: 0, deletedFiles: 0 };
+    });
+    vi.stubGlobal('electronAPI', { content: { clear } });
+    const files: import('@brainstrike/assistant-contract/boundary-result').BoundaryTransport<
+      import('@brainstrike/assistant-contract').SourceFilesCapability
+    > = {
+      chunks: vi.fn(),
+      delete: vi.fn(),
+      import: vi.fn(),
+      list: async () => ({ ok: true, value: [] }),
+      read: vi.fn(),
+    };
+    vi.stubGlobal('sourceFiles', files);
+    vi.stubGlobal('collectionCatalog', { snapshot: async () => ({ ok: true, value: [] }) });
+    const retireTabs = vi.fn(() => {
+      resetAssistantThreadStore();
+      useAssistantThreadGroupsStore.getState().reset();
+    });
+    const action = renderComponent(
+      <TooltipProvider>
+        <DatabaseDemoPanel onDatabaseCleared={retireTabs} />
+      </TooltipProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Import settings' }));
+    const trigger = await screen.findByRole('button', { name: 'Clear Database' });
+    await waitFor(() => expect(trigger).not.toBeDisabled());
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole('dialog', { name: 'Clear Database' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Clear Database' }));
+    try {
+      expect(clear).not.toHaveBeenCalled();
+      expect(retireTabs).not.toHaveBeenCalled();
+    } finally {
+      pending.resolve();
+      await act(async () => pending.promise);
+    }
+    await waitFor(() => expect(clear).toHaveBeenCalledOnce());
+    vi.mocked(harness.repository.setThreadWorkspace).mockClear();
+    act(() => {
+      harness.state.openAppIds = [];
+      harness.notify();
+    });
+    mounted.unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(harness.repository.setThreadWorkspace).not.toHaveBeenCalled();
+    expect(harness.rows.size).toBe(0);
+    action.unmount();
+    vi.unstubAllGlobals();
+  });
 
   it('factory reset joins an admitted save before its owner can retire', async () => {
     const harness = createHarness();

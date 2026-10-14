@@ -43,7 +43,8 @@ class ReplayRing {
     if (this.omittedBytes === 0) {
       return kept;
     }
-    const call = stream.toolCallId === undefined ? {} : { toolCallId: stream.toolCallId };
+    const call: Readonly<Record<string, string>> =
+      stream.toolCallId === undefined ? {} : { toolCallId: stream.toolCallId };
     const marker: HostRunTelemetry = {
       chunk: {
         omittedBytes: this.omittedBytes,

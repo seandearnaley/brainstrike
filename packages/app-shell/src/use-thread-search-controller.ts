@@ -40,6 +40,15 @@ export type ThreadSearchControllerRepository = Pick<
   ThreadSearchEmbeddingRepository &
   ThreadSearchServiceRepository;
 
+function requireHistoryRepository(
+  repository: ThreadSearchControllerRepository | null
+): ThreadSearchControllerRepository {
+  if (!repository) {
+    throw new Error('History search repository unavailable');
+  }
+  return repository;
+}
+
 /** Minimum query length before a search runs (titles match from 2 chars). */
 export const THREAD_SEARCH_MIN_QUERY_LENGTH = 2;
 /** Debounce between typing and the search pass. */
@@ -75,6 +84,9 @@ export interface UseThreadSearchControllerOptions {
   readonly hostSearchVectors?: HostThreadSearchVectors | undefined;
   readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
   readonly localModelConfigMap: ReturnType<typeof buildLocalEmbeddingModelConfigMap>;
+  readonly readEmbeddingProfile?:
+    | (() => Promise<{ modelKey: string; dimensions: number }>)
+    | undefined;
   readonly repository: ThreadSearchControllerRepository | null;
   readonly resourceId: string;
   /** When present, the sole conversation search owner; the repository supplies model settings. */
@@ -111,11 +123,13 @@ export function useThreadSearchController({
   loadEmbeddingQueue,
   localModelConfigMap,
   repository,
+  readEmbeddingProfile,
   resourceId,
   searchHost,
 }: UseThreadSearchControllerOptions): ThreadSearchController {
   const service = useMemo<ThreadSearchService | null>(
-    () => (repository ? createThreadSearchService(searchHost ? null : repository) : null),
+    () =>
+      repository || searchHost ? createThreadSearchService(searchHost ? null : repository) : null,
     [repository, searchHost]
   );
   const query = useThreadSearchStore((state) => state.query);
@@ -128,12 +142,25 @@ export function useThreadSearchController({
   const lastSemanticSuccessAtRef = useRef<number | null>(null);
 
   const resolveModelInfo = useCallback(async (): Promise<EmbeddingSetModelInfo> => {
+    if (readEmbeddingProfile) {
+      return resolveSingletonProfileModelInfo(await readEmbeddingProfile(), localModelConfigMap);
+    }
     if (!repository) {
       throw new Error('Cannot resolve thread search embeddings before the database is ready.');
     }
     const profile = await repository.getEmbeddingProfile();
     return resolveSingletonProfileModelInfo(profile, localModelConfigMap);
-  }, [localModelConfigMap, repository]);
+  }, [localModelConfigMap, repository, readEmbeddingProfile]);
+
+  const ensureEmbeddingReady = useCallback(async (): Promise<void> => {
+    if (searchHost) {
+      return;
+    }
+    if (!loadEmbeddingQueue) {
+      throw new Error('No embedding queue is registered for this platform.');
+    }
+    await loadEmbeddingQueue();
+  }, [loadEmbeddingQueue, searchHost]);
 
   const resolveQueryEmbedding = useCallback(
     async (
@@ -156,10 +183,7 @@ export function useThreadSearchController({
       }
       const attemptStartedAt = Date.now();
       try {
-        if (!loadEmbeddingQueue) {
-          throw new Error('No embedding queue is registered for this platform.');
-        }
-        await loadEmbeddingQueue();
+        await ensureEmbeddingReady();
         const modelInfo = await resolveModelInfo();
         const embedding = await embedder.embedQueryWithRecovery(modelInfo, trimmedQuery);
         // The cached embedder that just ran names the profile its vectors belong to.
@@ -186,12 +210,12 @@ export function useThreadSearchController({
         };
       }
     },
-    [embedder, loadEmbeddingQueue, resolveModelInfo]
+    [embedder, ensureEmbeddingReady, resolveModelInfo]
   );
 
   /** Fire-and-forget bounded backlog drain; coverage refresh reports progress. */
   const drainEmbeddingBacklog = useCallback(() => {
-    if (!(repository && loadEmbeddingQueue)) {
+    if (!(searchHost || (repository && loadEmbeddingQueue))) {
       return;
     }
     // The host's half needs the profile of the embedder that will run; an
@@ -202,7 +226,7 @@ export function useThreadSearchController({
         return null;
       }
       try {
-        await loadEmbeddingQueue();
+        await ensureEmbeddingReady();
         const modelInfo = await resolveModelInfo();
         const { runtime } = await embedder.ensureEmbedderReady(modelInfo);
         return { modelInfo, profile: threadSearchVectorProfile(modelInfo, runtime) };
@@ -220,13 +244,16 @@ export function useThreadSearchController({
             indexedMessages: 0,
             totalMessages: 0,
           }
-        : await repository.getCoverage(resourceId);
+        : await requireHistoryRepository(repository).getCoverage(resourceId);
       const host =
         target && hostSearchVectors ? await hostSearchVectors.coverage(target.profile) : null;
       useThreadSearchStore.getState().recordCoverage(combineThreadSearchCoverage(history, host));
       return history;
     };
     const drainHistory = async (target: HostSearchTarget | null): Promise<void> => {
+      if (!repository) {
+        throw new Error('History search repository unavailable');
+      }
       for (let pass = 0; pass < MAX_EMBEDDING_PASSES_PER_DRAIN; pass += 1) {
         const coverage = await recordCoverage(target);
         if (coverage.embeddableMessages <= coverage.embeddedMessages + coverage.erroredMessages) {
@@ -237,7 +264,7 @@ export function useThreadSearchController({
           // A broken embedder would fail per row; wait out the retry window.
           return;
         }
-        await loadEmbeddingQueue();
+        await ensureEmbeddingReady();
         const modelInfo = await resolveModelInfo();
         const outcomes = await embedPendingThreadMessages({
           embedder,
@@ -292,6 +319,7 @@ export function useThreadSearchController({
     );
   }, [
     embedder,
+    ensureEmbeddingReady,
     hostSearchVectors,
     loadEmbeddingQueue,
     repository,
@@ -304,7 +332,10 @@ export function useThreadSearchController({
     (rawQuery: string) => {
       const trimmed = rawQuery.trim();
       const store = useThreadSearchStore.getState();
-      if (!(service && repository) || trimmed.length < THREAD_SEARCH_MIN_QUERY_LENGTH) {
+      if (
+        !(service && (repository || searchHost)) ||
+        trimmed.length < THREAD_SEARCH_MIN_QUERY_LENGTH
+      ) {
         return;
       }
       const generation = store.beginSearch();
@@ -323,7 +354,7 @@ export function useThreadSearchController({
             (lastSyncAtRef.current === null ||
               now - lastSyncAtRef.current >= THREAD_SEARCH_SYNC_TTL_MS)
           ) {
-            const syncRun = repository
+            const syncRun = requireHistoryRepository(repository)
               .sync()
               .then(() => {
                 lastSyncAtRef.current = Date.now();

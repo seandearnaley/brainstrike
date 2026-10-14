@@ -69,6 +69,7 @@ function fixture(authority: NativeIndexAuthority, stored: readonly ScopedManifes
     info: unused,
     prepareFile: unused,
     prepareScopedFile: unused,
+    readScopedFilePage: unused,
     removeFile: unused,
     removeScopedFile,
     replaceFileBindings: replaceFileBindings as unknown as ScopedIndexerPort['replaceFileBindings'],

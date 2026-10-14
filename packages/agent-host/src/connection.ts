@@ -53,6 +53,7 @@ export interface HostConnectionLifecycle {
 export interface HostConnectionOptions {
   /** The platform's credential authority, where the host owns one. */
   readonly auth?: HostAuthService;
+  readonly bindCatalog?: (connection: Pick<MessageConnection, 'onRequest'>) => Promise<void>;
   readonly lifecycle?: HostConnectionLifecycle;
   /** The desktop's MCP content browsing, where the host serves it. */
   readonly mcpContent?: HostMcpContentService;
@@ -201,7 +202,7 @@ export function bindHostConnection(
     }
     return { outcome: 'stopped', rootReleased: true };
   });
-  handle('initialize', (params) => {
+  handle('initialize', async (params) => {
     if (
       initialized ||
       params.protocolVersion !== record.protocolVersion ||
@@ -220,8 +221,28 @@ export function bindHostConnection(
         'Host authentication failed'
       );
     }
-    attached();
+    // Authentication is already proved; reserve this connection before the
+    // asynchronous resource registration so a second initialize cannot enter.
     initialized = true;
+    await options.bindCatalog?.({
+      onRequest: ((method: string, handler: (input: unknown) => Promise<unknown>) =>
+        connection.onRequest(method, async (input: unknown) => {
+          try {
+            if (!initialized || disposed) {
+              throw new BoundaryFailureError(UNAUTHENTICATED);
+            }
+            if (lifecycle?.closing) {
+              throw new BoundaryFailureError(HOST_CLOSING);
+            }
+            return await handler(input);
+          } catch (cause) {
+            throw toBoundaryResponseError(cause, (message, fields) =>
+              logger.error(message, { ...fields, method })
+            );
+          }
+        })) as MessageConnection['onRequest'],
+    });
+    attached();
     return {
       hostVersion: record.hostVersion,
       pid: record.pid,

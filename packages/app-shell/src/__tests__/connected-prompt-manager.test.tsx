@@ -58,6 +58,7 @@ const mocks = vi.hoisted(() => {
     embedDocumentWithRecovery,
     embedPendingPromptItems: vi.fn(),
     embedQueryWithRecovery,
+    forbidDatabase: false,
     getAvailableProviders: vi.fn(),
     loadEmbeddingQueue: vi.fn(),
     onLibraryError: vi.fn(),
@@ -109,7 +110,12 @@ vi.mock('@brainstrike/db', async () => {
       storeEmbedding = repository.storeEmbedding;
       update = repository.update;
     },
-    useDbInitializationStatus: () => mocks.dbInitializationStatus,
+    useDbInitializationStatus: () => {
+      if (mocks.forbidDatabase) {
+        throw new Error('Desktop must not initialize PGlite');
+      }
+      return mocks.dbInitializationStatus;
+    },
     usePGliteDatabase: () => mocks.db,
   };
 });
@@ -128,7 +134,12 @@ vi.mock('@brainstrike/db/react', async () => {
       storeEmbedding = repository.storeEmbedding;
       update = repository.update;
     },
-    useDbInitializationStatus: () => mocks.dbInitializationStatus,
+    useDbInitializationStatus: () => {
+      if (mocks.forbidDatabase) {
+        throw new Error('Desktop must not initialize PGlite');
+      }
+      return mocks.dbInitializationStatus;
+    },
     usePGliteDatabase: () => mocks.db,
   };
 });
@@ -511,6 +522,8 @@ describe('ConnectedPromptManager', () => {
     localStorage.clear();
     mocks.db = { exec: vi.fn(), query: vi.fn() };
     mocks.dbInitializationStatus = 'ready';
+    mocks.forbidDatabase = false;
+    Reflect.deleteProperty(window, 'promptLibrary');
     mocks.assistantProviderSettings.google = {
       googleIncludeThoughts: true,
       googleThinkingLevel: 'high',
@@ -547,6 +560,38 @@ describe('ConnectedPromptManager', () => {
       },
       threadsByResourceId: {},
     });
+  });
+
+  it('opens the native prompt capability without a database provider or legacy queue', async () => {
+    mocks.forbidDatabase = true;
+    const request = vi.fn(async () => ({
+      accepted: true,
+      items: [],
+      profile: {
+        dimensions: 384,
+        distance: 'cosine',
+        id: 'default',
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      },
+      revisions: [],
+      similarities: [],
+    }));
+    Object.defineProperty(window, 'promptLibrary', {
+      configurable: true,
+      value: {
+        request: async (...args: Parameters<typeof request>) => ({
+          ok: true,
+          value: await request(...args),
+        }),
+      },
+    });
+    render(<ConnectedPromptManager loadEmbeddingQueue={null} />);
+    await screen.findByTestId('prompt-workbench-panel');
+    await waitFor(() => expect(mocks.embedPendingPromptItems).toHaveBeenCalledOnce());
+    expect(request).toHaveBeenCalledWith({ filter: {}, operation: 'list' });
+    expect(mocks.loadEmbeddingQueue).not.toHaveBeenCalled();
+    expect(repository.list).not.toHaveBeenCalled();
   });
 
   it('loads database prompts and projects the active thread, live draft, and enabled LLMs', async () => {
@@ -738,7 +783,9 @@ describe('ConnectedPromptManager', () => {
       renameThread: vi.fn(),
       renderThread: vi.fn(),
       updateThreadBinding: vi.fn(),
-      workspaceRepository: (repository) => repository,
+      workspaceRepository: () => {
+        throw new Error('Unexpected workspace snapshot access in this fixture');
+      },
     };
     render(
       <AssistantThreadHostContext.Provider value={host}>

@@ -54,7 +54,8 @@ interface ExtendedSettingsPanelProps extends SettingsPanelProps {
   clearDatabaseProps?: {
     clearAllData: (() => Promise<unknown>) | null;
     recordsCount: number;
-    chunksCount: number;
+    chunksCount: number | null;
+    allowEmptyFiles?: boolean;
     countsPending?: boolean;
     clearing: boolean;
     showClearDialog: boolean;
@@ -669,7 +670,9 @@ export function SettingsPanel({
                 clearDatabaseProps.clearing ||
                 clearDatabaseProps.countsPending ||
                 !clearDatabaseProps.clearAllData ||
-                (clearDatabaseProps.recordsCount === 0 && clearDatabaseProps.chunksCount === 0)
+                (clearDatabaseProps.recordsCount === 0 &&
+                  clearDatabaseProps.chunksCount === 0 &&
+                  !clearDatabaseProps.allowEmptyFiles)
               }
               onClick={() => clearDatabaseProps.setShowClearDialog(true)}
               size="sm"

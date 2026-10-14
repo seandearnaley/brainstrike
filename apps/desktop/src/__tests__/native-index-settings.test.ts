@@ -1,6 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { readNativeIndexSettings, readNativeManagedCollectionId } from '../native-index-settings';
+import {
+  readNativeIndexSettings,
+  readNativeManagedCollectionId,
+  readNativeSavedPause,
+} from '../native-index-settings';
 
 const state = {
   enabled: true,
@@ -15,6 +19,21 @@ const saved = (changes: Record<string, unknown> = {}): string =>
   JSON.stringify({ state: { ...state, ...changes }, version: 6 });
 
 describe('main native indexing settings', () => {
+  it('prepares only the actual saved Pause, without requiring first-run search setup for host Stop', () => {
+    expect(readNativeSavedPause(null)).toBeNull();
+    expect(readNativeSavedPause(saved({ nativeIndexMode: null }))).toBeNull();
+    expect(readNativeSavedPause(saved({ paused: true }))).toMatchObject({
+      mode: 'TEXT',
+      paused: true,
+    });
+    expect(() => readNativeSavedPause(saved({ nativeIndexMode: null, paused: true }))).toThrow();
+    for (const malformed of ['{', '{}', JSON.stringify({ state: { paused: 'false' } })]) {
+      expect(() => readNativeSavedPause(malformed)).toThrow();
+    }
+    // Settings-change callers follow no Pause with full configure, which still refuses missing setup.
+    expect(() => readNativeIndexSettings(saved({ nativeIndexMode: null }))).toThrow();
+  });
+
   it('reads collection retirement independently of incomplete new VECTOR choices', () => {
     expect(readNativeManagedCollectionId(saved({ nativeIndexMode: 'VECTOR' }))).toBe(
       'actual-collection'

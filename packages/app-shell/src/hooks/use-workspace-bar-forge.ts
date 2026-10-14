@@ -17,8 +17,8 @@
  * observation.
  */
 import type {
+  AssistantThreadCatalogRepository,
   AssistantThreadMetadata,
-  AssistantThreadRepository,
 } from '@brainstrike/assistant-data';
 import type { WorkspaceBarCheckout, WorkspaceBarForge } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
@@ -32,14 +32,14 @@ import { copyWorkspaceBarValue } from './workspace-bar-clipboard';
 const logger = createLogger('WorkspaceBarForge');
 
 type UpdateThreadMetadata = (
-  repository: AssistantThreadRepository,
+  repository: AssistantThreadCatalogRepository,
   resourceId: string,
   threadId: string,
   metadata: AssistantThreadMetadata
 ) => Promise<void>;
 
 export interface UseWorkspaceBarForgeArgs {
-  readonly assistantThreadRepository: AssistantThreadRepository | null;
+  readonly assistantThreadRepository: AssistantThreadCatalogRepository | null;
   /** Gates whether forge is probed at all — see the M2 doc above. */
   readonly checkout: WorkspaceBarCheckout | undefined;
   readonly forgePrWatched: boolean;

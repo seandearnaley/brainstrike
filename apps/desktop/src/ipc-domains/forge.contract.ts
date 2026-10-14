@@ -24,6 +24,14 @@ function parseRoot(operation: 'identity' | 'prStatus'): (raw: readonly unknown[]
 }
 
 export const forgeContract = {
+  cacheSnapshot: rawChannel<InvokeArgs<'cacheSnapshot'>, InvokeResult<'cacheSnapshot'>>({
+    channel: DESKTOP_IPC_CHANNELS.forge.cacheSnapshot,
+    parseArgs: (raw) => {
+      assertArgCount(raw, 0, 'forge cache snapshot');
+      return [];
+    },
+    roles: ['visible-ui'],
+  }),
   identity: rawChannel<InvokeArgs<'identity'>, InvokeResult<'identity'>>({
     channel: DESKTOP_IPC_CHANNELS.forge.identity,
     parseArgs: parseRoot('identity'),

@@ -5,7 +5,7 @@ import {
   type AssistantThreadHostCapability,
   AssistantThreadHostContext,
 } from '@brainstrike/app-shell/assistant-thread-host-context';
-import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
+import type { AssistantThreadCatalogRepository } from '@brainstrike/assistant-data';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import {
   FileExplorerProvider,
@@ -29,8 +29,11 @@ vi.mock('@brainstrike/app-shell', () => ({
     return <div data-testid="workspace-bar" />;
   },
 }));
-const DATABASE = { kind: 'database' } as const;
-vi.mock('@brainstrike/db/react', () => ({ usePGliteDatabase: () => DATABASE }));
+vi.mock('@brainstrike/db/react', () => ({
+  usePGliteDatabase: () => {
+    throw new Error('Desktop workspace controls must not open PGlite');
+  },
+}));
 vi.mock('@brainstrike/assistant-data', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/assistant-data')>()),
   createPgliteAssistantThreadRepository: () => history,
@@ -49,7 +52,9 @@ function hostCapability(): AssistantThreadHostCapability {
     renameThread: vi.fn(),
     renderThread: vi.fn(),
     updateThreadBinding: vi.fn(async () => undefined),
-    workspaceRepository: (repository) => repository,
+    workspaceRepository: () => {
+      throw new Error('Unexpected workspace snapshot access in this fixture');
+    },
   };
 }
 
@@ -76,7 +81,7 @@ function mount(
   return explorer;
 }
 
-function hostedRepository(): AssistantThreadRepository {
+function hostedRepository(): AssistantThreadCatalogRepository {
   const repository = hosted.props?.assistantThreadRepository;
   if (!repository) {
     throw new Error('The bar received no thread repository');
@@ -95,7 +100,7 @@ test('binds the bar to the committed host thread through the host-routed reposit
   const host = hostCapability();
   mount(host);
   expect(hosted.props).toMatchObject({
-    database: DATABASE,
+    database: null,
     memoryResourceId: WORKSPACE_MEMORY_RESOURCE_ID,
     selectedMemoryThreadId: HOST_THREAD,
   });

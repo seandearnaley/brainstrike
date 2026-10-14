@@ -1,3 +1,4 @@
+import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
 import {
   Badge,
@@ -7,8 +8,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@brainstrike/ui';
+import { onEmbeddingSetUpdated, onQueueDrained } from '@brainstrike/utils/browser-events';
+import { fetchCollectionsSnapshot } from '@brainstrike/vector-management';
 import { Database } from 'lucide-react';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useWorkspaceSearchStore } from '../core/workspace-search-store';
 import {
   COLLECTION_STATS_QUERY,
@@ -26,16 +29,71 @@ export interface SearchCollectionPickerProps {
  * nothing to choose). Imported sets require an explicit collection scope even
  * when only one exists. The workspace-index row carries a "Managed" badge.
  */
-export function SearchCollectionPicker({ onCollectionChange }: SearchCollectionPickerProps) {
-  const collectionId = useWorkspaceSearchStore((state) => state.collectionId);
-  const setCollectionId = useWorkspaceSearchStore((state) => state.setCollectionId);
+type PickerRow = Pick<CollectionStatsRow, 'id' | 'name'> & {
+  systemRole?: CollectionStatsRow['systemRole'];
+};
 
+export function SearchCollectionPicker(props: SearchCollectionPickerProps) {
+  if (typeof window !== 'undefined' && 'collectionCatalog' in window) {
+    return <NativeCollectionPicker {...props} />;
+  }
+  return <WebCollectionPicker {...props} />;
+}
+
+function NativeCollectionPicker(props: SearchCollectionPickerProps) {
+  const [snapshot, setSnapshot] = useState<{ rows: readonly PickerRow[]; error: string | null }>({
+    error: null,
+    rows: [],
+  });
+  useEffect(() => {
+    let pending: ReturnType<typeof fetchCollectionsSnapshot> | null = null;
+    const refresh = () => {
+      const read = fetchCollectionsSnapshot(null);
+      pending = read;
+      read.then(
+        (rows) => {
+          if (pending === read) {
+            setSnapshot({ error: null, rows });
+          }
+        },
+        (cause: unknown) => {
+          if (pending === read) {
+            setSnapshot({ error: describeBoundaryError(cause), rows: [] });
+          }
+        }
+      );
+    };
+    const stopUpdates = onEmbeddingSetUpdated(refresh);
+    const stopQueue = onQueueDrained(refresh);
+    refresh();
+    return () => {
+      pending = null;
+      stopUpdates();
+      stopQueue();
+    };
+  }, []);
+  if (snapshot.error) {
+    return <span role="alert">{snapshot.error}</span>;
+  }
+  return <CollectionPickerRows {...props} rows={snapshot.rows} />;
+}
+
+function WebCollectionPicker(props: SearchCollectionPickerProps) {
   const { rows } = usePGliteLiveQuery<CollectionStatsRow>({
     cacheKey: makeLiveQueryKey('workspace-search-collection-stats'),
     key: 'id',
     mode: 'incremental',
     query: COLLECTION_STATS_QUERY,
   });
+  return <CollectionPickerRows {...props} rows={rows} />;
+}
+
+function CollectionPickerRows({
+  onCollectionChange,
+  rows,
+}: SearchCollectionPickerProps & { rows: readonly PickerRow[] }) {
+  const collectionId = useWorkspaceSearchStore((state) => state.collectionId);
+  const setCollectionId = useWorkspaceSearchStore((state) => state.setCollectionId);
 
   const effectiveId = useMemo(
     () => resolveEffectiveStatsRow(rows, collectionId)?.id ?? '',

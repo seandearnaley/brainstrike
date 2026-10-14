@@ -127,7 +127,9 @@ describe('database IPC embedding backfill handlers', () => {
       }
     );
 
-    const { getDesktopDatabaseWorkSchedulerSnapshot } = await import('../../ipc-handlers');
+    const { getDesktopDatabaseWorkSchedulerSnapshot } = await import(
+      '../../platform/desktop-database-work'
+    );
 
     const result = await handler({ sender } as unknown, {
       embeddingSetId: 'set-123',
@@ -169,7 +171,9 @@ describe('database IPC embedding backfill handlers', () => {
       }
     );
 
-    const { getDesktopDatabaseWorkSchedulerSnapshot } = await import('../../ipc-handlers');
+    const { getDesktopDatabaseWorkSchedulerSnapshot } = await import(
+      '../../platform/desktop-database-work'
+    );
 
     const result = await handler({ sender } as unknown, {
       embeddingSetId: 'set-123',

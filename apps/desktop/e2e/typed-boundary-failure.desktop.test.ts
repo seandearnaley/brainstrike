@@ -11,6 +11,7 @@ import { withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
+import { waitForSingleWorkspaceRootRow } from './utils/seed-threads';
 
 /** Main reply fixture crosses the real sandboxed preload and contextBridge. */
 test('a transported refusal keeps its remedy and reaches the shipped Settings surface', async ({
@@ -50,20 +51,10 @@ test('missing and dangling references show durable per-file notices while valid 
 }) => {
   await ensureMockWorkspaceOpen(page);
   await configureAssistantProvider(page);
-  const root = await page.evaluate(async () => {
-    const db = window.electronAPI?.db;
-    if (!db) {
-      throw new Error('Missing workspace database');
-    }
-    const { rows } = await db.query<{ id: string; path: string }>(
-      'SELECT id, path FROM roots WHERE status = $1',
-      ['live']
-    );
-    if (rows.length !== 1 || !rows[0]) {
-      throw new Error('Expected one disposable workspace root');
-    }
-    return rows[0];
-  });
+  const root = await waitForSingleWorkspaceRootRow(page);
+  if (!root.path) {
+    throw new Error('Expected a mounted disposable workspace path');
+  }
   const target = `${root.path}-absent-outside-target`;
   await writeFile(path.join(root.path, 'good.txt'), 'VALID_REFERENCE_CONTENT');
   await symlink(target, path.join(root.path, 'dangling.txt'));

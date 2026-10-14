@@ -33,14 +33,15 @@ async function enableChatModel(page: Page): Promise<void> {
     provider: 'openrouter',
   });
   await page.evaluate(async (model) => {
-    const db = window.electronAPI?.db;
-    if (!db) {
-      throw new Error('The app database query path is unavailable');
+    if (!window.modelCatalog) {
+      throw new Error('Desktop model catalog is unavailable');
     }
-    await db.query('UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2', [
-      model,
-      'openrouter',
-    ]);
+    await window.modelCatalog.setModels([model], true).then((result) => {
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.value;
+    });
   }, MODEL);
 }
 
@@ -52,9 +53,17 @@ async function savedChoices(page: Page): Promise<{ collections: unknown[]; state
       throw new Error('The desktop bridge is unavailable');
     }
     const saved = await api.storage.getItem(key);
-    const collections = await api.db.query('SELECT id, model_id FROM embedding_sets');
+    if (!window.collectionCatalog) {
+      throw new Error('Desktop collection catalog is unavailable');
+    }
+    const collections = await window.collectionCatalog.list().then((result) => {
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.value;
+    });
     return {
-      collections: collections.rows,
+      collections: [...collections],
       state: saved ? (JSON.parse(saved) as { state: unknown }).state : null,
     };
   }, PREFERENCES_KEY);

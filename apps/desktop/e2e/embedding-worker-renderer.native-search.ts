@@ -40,22 +40,24 @@ export async function createNativeImportedSearchFixture(
   collectionName: string
 ): Promise<{ embeddingSetId: string; fileCount: number }> {
   return await page.evaluate(async (name) => {
-    const api = window.electronAPI;
-    if (!api) {
-      throw new Error('Desktop catalog unavailable');
+    if (!(window.collectionCatalog && window.sourceFiles)) {
+      throw new Error('Desktop source capabilities unavailable');
     }
-    const embeddingSetId = crypto.randomUUID();
-    await api.db.query(
-      'INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, name) VALUES ($1, $2, $3, $4, $5, $6)',
-      [
-        embeddingSetId,
-        'local::Xenova/bge-small-en-v1.5',
-        'Xenova/bge-small-en-v1.5',
-        384,
-        'cosine',
-        name,
-      ]
-    );
+    const collection = await window.collectionCatalog
+      .create({
+        dimensions: 384,
+        distance: 'cosine',
+        metadata: { name },
+        modelId: 'Xenova/bge-small-en-v1.5',
+        modelKey: 'local::Xenova/bge-small-en-v1.5',
+      })
+      .then((result) => {
+        if (!result.ok) {
+          throw new Error(result.error.message);
+        }
+        return result.value;
+      });
+    const embeddingSetId = collection.id;
     const files = [
       {
         content:
@@ -68,25 +70,21 @@ export async function createNativeImportedSearchFixture(
         name: 'mock-file2.ts',
       },
     ];
-    for (const file of files) {
-      const bytes = new TextEncoder().encode(file.content);
-      const digest = await crypto.subtle.digest('SHA-256', bytes);
-      const hash = Array.from(new Uint8Array(digest), (byte) =>
-        byte.toString(16).padStart(2, '0')
-      ).join('');
-      await api.db.query(
-        'INSERT INTO file_records (id, path, name, size, content, content_hash, embedding_set_id) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-        [
-          crypto.randomUUID(),
-          `/import/${file.name}`,
-          file.name,
-          bytes.length,
-          file.content,
-          hash,
-          embeddingSetId,
-        ]
-      );
-    }
+    await window.sourceFiles
+      .import({
+        embeddingSetId,
+        files: files.map((file) => ({
+          ...file,
+          path: `/import/${file.name}`,
+          size: new TextEncoder().encode(file.content).length,
+        })),
+      })
+      .then((result) => {
+        if (!result.ok) {
+          throw new Error(result.error.message);
+        }
+        return result.value;
+      });
     return { embeddingSetId, fileCount: files.length };
   }, collectionName);
 }

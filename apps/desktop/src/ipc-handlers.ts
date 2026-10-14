@@ -1,22 +1,15 @@
 import path from 'node:path';
-import type { DimensionIndexMaintenanceStrategy } from '@brainstrike/db';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import {
   ParcelWatchRetirementError,
   startJoinedParcelWatch,
 } from '@brainstrike/file-system/native-watch';
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
+import type { ContentClearResult } from '@brainstrike/types';
 import type ElectronStore from 'electron-store';
 import type { ChunkingHostManager } from './chunking-host-manager';
 import type { EmbeddingHostManager } from './embedding-host-manager';
-import {
-  cleanupDesktopLiveSubscriptionsForShutdown,
-  flushPendingLiveUpdates,
-  isDesktopDatabaseBackgrounded,
-  registerDatabaseIpcHandlers,
-  setBackgrounded,
-} from './ipc-domains/db-ipc';
-import { registerEmbeddingBackfillIpcHandlers } from './ipc-domains/embedding-backfill-ipc';
 import { createFileSystemIpcDomain } from './ipc-domains/file-system-ipc';
 import { registerFileSystemWatchIpcHandlers } from './ipc-domains/file-system-watch-ipc';
 import { registerStoragePreferencesIpcHandlers } from './ipc-domains/storage-preferences-ipc';
@@ -27,26 +20,22 @@ import {
   createWorkspaceRootWatchOwner,
   type WorkspaceRootWatchOwner,
 } from './ipc-domains/workspace-root-watch-owner';
-import { getDesktopDatabaseWorkScheduler } from './platform/desktop-database-work';
+import {
+  registerContentClearIpcHandlers,
+  registerFactoryResetIpcHandlers,
+  registerProfilePathIpcHandlers,
+} from './ipc-factory-reset';
 import type { DesktopSettingsStoreSchema } from './store-schema';
-
-export {
-  getDesktopDatabaseWorkScheduler,
-  getDesktopDatabaseWorkSchedulerSnapshot,
-  resetDesktopDatabaseWorkSchedulerForTests,
-  runDesktopScheduledDatabaseWork,
-  runWithDesktopDatabaseResetBarrier,
-  waitForDesktopDatabaseWorkSchedulerIdle,
-} from './platform/desktop-database-work';
-export { cleanupDesktopLiveSubscriptionsForShutdown, flushPendingLiveUpdates, setBackgrounded };
 
 interface RegisterIpcHandlerOptions {
   readonly chunkingHostManager?: ChunkingHostManager;
   readonly embeddingHostManager?: EmbeddingHostManager;
-  readonly getDimensionIndexMaintenanceStrategy?: () => DimensionIndexMaintenanceStrategy | null;
+  readonly getRootsCatalog: () => Promise<WorkspaceRootPort>;
+  readonly getUserDataPath?: () => string;
   /** Explicit test-harness seam for synthetic filesystem adapters. */
   readonly isSyntheticFileSystemPath?: (rootPath: string) => boolean;
   readonly managedWorktreeAuthorizer?: ManagedWorktreeAuthorizer;
+  readonly onClearContent?: () => Promise<ContentClearResult>;
   readonly onDeleteRootData?: (rootId: string) => Promise<void>;
   readonly onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
   readonly onStorageChanged?: (key: string) => void;
@@ -64,7 +53,7 @@ export function registerIpcHandlers(
   fileSystem: ElectronFileSystemAdapter,
   storage: ElectronStorageAdapter,
   getStore: () => ElectronStore<DesktopSettingsStoreSchema> | null,
-  options?: RegisterIpcHandlerOptions
+  options: RegisterIpcHandlerOptions
 ): () => Promise<void> {
   return createApplicationIpcDomain(fileSystem, storage, getStore, options).close;
 }
@@ -79,8 +68,17 @@ export function createApplicationIpcDomain(
   fileSystem: ElectronFileSystemAdapter,
   storage: ElectronStorageAdapter,
   getStore: () => ElectronStore<DesktopSettingsStoreSchema> | null,
-  options?: RegisterIpcHandlerOptions
+  options: RegisterIpcHandlerOptions
 ): ApplicationIpcDomain {
+  const unregisterProfilePath = options.getUserDataPath
+    ? registerProfilePathIpcHandlers(options.getUserDataPath)
+    : undefined;
+  const unregisterContentClear = options.onClearContent
+    ? registerContentClearIpcHandlers(options.onClearContent)
+    : undefined;
+  const unregisterFactoryReset = options.onResetLocal
+    ? registerFactoryResetIpcHandlers(options.onResetLocal)
+    : undefined;
   const unregisterStoragePreferencesIpcHandlers = registerStoragePreferencesIpcHandlers({
     getStore,
     storage,
@@ -89,11 +87,7 @@ export function createApplicationIpcDomain(
   const fileSystemDomain = createFileSystemIpcDomain({
     fileSystem,
     ...(options?.onDeleteRootData ? { onDeleteRootData: options.onDeleteRootData } : {}),
-    // Dynamic import (matches db-ipc): keep db-main — and its native
-    // secure-fs-native dependency — OUT of this module's eager graph, so
-    // importing ipc-handlers (e.g. the main-boot tests) never eagerly loads
-    // the native addon. Resolved lazily, only when fs:removeRoot actually runs.
-    getRootsDatabase: async () => (await import('./db-main')).getDatabase(),
+    getRootsCatalog: options.getRootsCatalog,
     ...(options?.isSyntheticFileSystemPath
       ? { isSyntheticFileSystemPath: options.isSyntheticFileSystemPath }
       : {}),
@@ -155,23 +149,14 @@ export function createApplicationIpcDomain(
       }
     },
   });
-  const unregisterDatabaseIpcHandlers = registerDatabaseIpcHandlers(options);
-  const unregisterEmbeddingBackfillIpcHandlers = registerEmbeddingBackfillIpcHandlers({
-    embeddingHostManager: options?.embeddingHostManager,
-    flushPendingLiveUpdates,
-    getDatabaseWorkScheduler: getDesktopDatabaseWorkScheduler,
-    ...(options?.getDimensionIndexMaintenanceStrategy
-      ? { getDimensionIndexMaintenanceStrategy: options.getDimensionIndexMaintenanceStrategy }
-      : {}),
-    isBackgrounded: isDesktopDatabaseBackgrounded,
-  });
 
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
     closing ??= (async (): Promise<void> => {
       const retirements = [
-        unregisterEmbeddingBackfillIpcHandlers,
-        unregisterDatabaseIpcHandlers,
+        ...(unregisterProfilePath ? [unregisterProfilePath] : []),
+        ...(unregisterContentClear ? [unregisterContentClear] : []),
+        ...(unregisterFactoryReset ? [unregisterFactoryReset] : []),
         unregisterStoragePreferencesIpcHandlers,
         unregisterFileSystemWatchIpcHandlers,
         () => watches.close(),

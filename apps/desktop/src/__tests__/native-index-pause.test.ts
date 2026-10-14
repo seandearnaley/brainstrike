@@ -1,3 +1,4 @@
+import { createActivationCatalogFixture } from './native-activation-catalog-fixture';
 // @vitest-environment node
 
 import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
@@ -19,12 +20,13 @@ import { createNativeIndexActivation } from '../native-index-activation';
 import { NativeIndexSetupRequiredError } from '../native-index-setup-required';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 
+const catalogFixture = createActivationCatalogFixture();
+
 const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
   close: vi.fn(),
   closeProfile: vi.fn(),
   closeReaders: vi.fn(),
-  database: { query: vi.fn(), transaction: vi.fn() },
   destroy: vi.fn(),
   manager: {
     attachCanonicalCollection: vi.fn(),
@@ -35,7 +37,11 @@ const mocks = vi.hoisted(() => ({
   readyHost: vi.fn(),
   readyPort: vi.fn(),
 }));
-vi.mock('../db-main', () => ({ getDatabase: async () => mocks.database }));
+vi.mock('../db-main', () => ({
+  getDatabase: async () => {
+    throw new Error('Retired PG owner is unavailable.');
+  },
+}));
 vi.mock('../desktop-database-location', () => ({
   resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
 }));
@@ -100,6 +106,7 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
     }),
     prepareFile: unused,
     prepareScopedFile: unused,
+    readScopedFilePage: unused,
     removeFile: unused,
     removeScopedFile: unused,
     replaceFileBindings: async () => {},
@@ -144,7 +151,9 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
   const onReceipt = vi.fn();
   const activation = createNativeIndexActivation({
     application: applicationOverride ?? application,
+    catalog: catalogFixture.catalog,
     embedding: transport,
+    modelCatalog: catalogFixture.modelCatalog,
     onError: vi.fn(),
     onReceipt,
     profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
@@ -154,9 +163,8 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
 }
 beforeEach(() => {
   vi.resetAllMocks();
-  mocks.database.query.mockImplementation(async (sql: string) => ({
-    rows: sql.includes('FROM embedding_sets') ? [{ id: 'selected' }] : [],
-  }));
+  catalogFixture.reset();
+
   mocks.acquire.mockResolvedValue(writer());
   mocks.readyHost.mockReturnValue(mocks.manager);
   mocks.readyPort.mockReturnValue(writer());
@@ -182,16 +190,7 @@ function catalogRows(count: number): NativeCanonicalCatalogRecord[] {
   }));
 }
 function useCatalogRows(read: () => readonly NativeCanonicalCatalogRecord[]): void {
-  mocks.database.query.mockImplementation(async (sql: string, params: readonly unknown[] = []) => {
-    if (sql.includes('FROM embedding_sets')) {
-      return { rows: [{ id: 'selected' }] };
-    }
-    if (sql.includes('FROM roots')) {
-      return { rows: [] };
-    }
-    const ids = params[0];
-    return { rows: Array.isArray(ids) ? read().filter((row) => ids.includes(row.fileId)) : read() };
-  });
+  catalogFixture.setRecords(read);
 }
 function emptyCollection(
   dependencies: CanonicalCollectionDependencies,
@@ -426,26 +425,7 @@ function vectorPauseFixture() {
     provider: 'transformers',
     revision: '751bff37182d3f1213fa05d7196b954e230abad9',
   } as const;
-  mocks.database.query.mockImplementation(async (sql: string) => ({
-    rows: sql.includes('FROM embedding_sets')
-      ? [
-          {
-            // Its catalog row: a mean-pooled local model states no pooling or pins.
-            catalogCapabilities: {
-              defaultDimension: 384,
-              prompts: { document: '', query: '' },
-              type: 'embedding',
-            },
-            catalogParameters: null,
-            dimensions: profile.dimensions,
-            distance: profile.distance,
-            id: 'selected',
-            modelId: profile.modelId,
-            modelKey: `transformers::${profile.modelId}`,
-          },
-        ]
-      : [],
-  }));
+  // Collection and model metadata come from the current canonical catalog fixture.
   f.storage.getItem.mockResolvedValue(
     JSON.stringify({
       state: {
@@ -667,13 +647,7 @@ it('retires source borrows on Pause while the original mounted read-authority bo
     },
     watches: { subscribe: unused },
   } as unknown as ApplicationIpcDomain;
-  mocks.database.query.mockImplementation(async (sql: string) => ({
-    rows: sql.includes('FROM embedding_sets')
-      ? [{ id: 'selected' }]
-      : sql.includes('FROM roots')
-        ? [{ id: 'root', kind: 'path' }]
-        : [],
-  }));
+  catalogFixture.setRoot();
   const native = {
     ...writer(),
     verifyScopedManifest: vi.fn<ScopedIndexerPort['verifyScopedManifest']>(
@@ -782,25 +756,7 @@ it('revokes old read authority when new saved execution choices are invalid', as
   const saved = JSON.parse(await storage.getItem()) as { state: Record<string, unknown> };
   saved.state['nativeIndexMode'] = 'VECTOR';
   storage.getItem.mockResolvedValue(JSON.stringify(saved));
-  mocks.database.query.mockImplementation(async (sql: string) => ({
-    rows: sql.includes('FROM embedding_sets')
-      ? [
-          {
-            catalogCapabilities: {
-              defaultDimension: 384,
-              prompts: { document: '', query: '' },
-              type: 'embedding',
-            },
-            catalogParameters: { size: '~23MB' },
-            dimensions: 384,
-            distance: 'cosine',
-            id: 'selected',
-            modelId: 'Xenova/all-MiniLM-L6-v2',
-            modelKey: 'transformers::Xenova/all-MiniLM-L6-v2',
-          },
-        ]
-      : [],
-  }));
+  // Collection and model metadata come from the current canonical catalog fixture.
   await expect(activation.reconfigure()).rejects.toThrow(NativeIndexSetupRequiredError);
   await expect(activation.acquireRead()).rejects.toThrow(
     'Choose local model execution in Search & Indexing settings.'

@@ -1,3 +1,5 @@
+import type { SourceFilesCapability } from '@brainstrike/assistant-contract';
+import { createBoundaryCapability } from '@brainstrike/assistant-contract/boundary-result';
 import type { ChunkingRequestOptions, ChunkResult } from '@brainstrike/file-import';
 import { getChunkingStrategy, useChunkingWorkerContext } from '@brainstrike/file-import';
 import { createLogger } from '@brainstrike/logging';
@@ -78,55 +80,21 @@ interface FileRecordRow {
   path: string;
 }
 
-function getElectronDbQuery():
-  | ((sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>)
-  | null {
-  const api = (
-    window as Window & {
-      electronAPI?: {
-        db?: {
-          query?: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
-        };
-      };
-    }
-  ).electronAPI;
-  return api?.db?.query ?? null;
-}
-
 async function loadFileRecordById(fileRecordId: string): Promise<FileRecordRow> {
-  const query = getElectronDbQuery();
-  if (!query) {
-    throw new Error('Chunking host database bridge is not available.');
+  const transport = window.sourceFiles;
+  if (!transport) {
+    throw new Error('Chunking host canonical source bridge is not available.');
   }
-
-  const result = await query(
-    `SELECT name, path, content
-       FROM file_records
-      WHERE id = $1
-      LIMIT 1`,
-    [fileRecordId]
-  );
-  if (!Array.isArray(result.rows) || result.rows.length === 0) {
+  const files = createBoundaryCapability<Pick<SourceFilesCapability, 'read'>>(transport);
+  const records = await files.read([fileRecordId], Number.MAX_SAFE_INTEGER);
+  const row = Array.isArray(records) ? records[0] : undefined;
+  if (!row || row.fileId !== fileRecordId) {
     throw new Error(`Chunking host could not find file record ${fileRecordId}.`);
   }
-  const row = result.rows[0] as Record<string, unknown> | undefined;
-  if (!row) {
-    throw new Error(`Chunking host could not find file record ${fileRecordId}.`);
-  }
-  if (typeof row['name'] !== 'string' || row['name'].trim().length === 0) {
-    throw new Error(`Chunking host file record ${fileRecordId} is missing name metadata.`);
-  }
-  if (typeof row['path'] !== 'string' || row['path'].trim().length === 0) {
-    throw new Error(`Chunking host file record ${fileRecordId} is missing path metadata.`);
-  }
-  if (typeof row['content'] !== 'string') {
+  if (row.content === null) {
     throw new Error(`Chunking host file record ${fileRecordId} is missing content.`);
   }
-  return {
-    content: row['content'],
-    name: row['name'],
-    path: row['path'],
-  };
+  return { content: row.content, name: row.fileName, path: row.path };
 }
 
 function toWorkerRequestOptions(

@@ -161,7 +161,7 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
     };
   }, [load, invalidationNonce, rootIdentity]);
 
-  const prCache = useForgePrCache({ database: input.database, enabled: bridge !== null });
+  const prCache = useForgePrCache({ enabled: bridge !== null });
   const threads = useAssistantThreadStore(
     (state) => state.threadsByResourceId[input.resourceId] ?? EMPTY_THREADS
   );

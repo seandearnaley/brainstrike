@@ -9,6 +9,7 @@ import type { DbHandle } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import { useEffect, useState } from 'react';
 import { subscribeRootRegistered } from '../roots/root-registration-events';
+import { getThreadGroupsCapability } from '../thread-groups-capability';
 import type { ThreadCheckoutRoot } from './use-thread-folders-write';
 import {
   type ResolvedSecondaryRoots,
@@ -65,6 +66,7 @@ export function useThreadRoots(args: {
   readonly secondaryRootIds: readonly string[];
   readonly secondaryRootIdsKey: string;
 }): ThreadRoots {
+  const catalog = getThreadGroupsCapability();
   const { database, mountedKey, primaryRootId, secondaryRootIds, secondaryRootIdsKey } = args;
   // Tagged with the ids it was read for, so a result is never rendered under
   // another thread's folders and a bail-out needs no clearing setState
@@ -74,7 +76,7 @@ export function useThreadRoots(args: {
   const [resolved, setResolved] = useState<ResolvedThreadRoots | null>(null);
   useEffect(() => {
     const ids = [...new Set([...(primaryRootId ? [primaryRootId] : []), ...secondaryRootIds])];
-    if (!database || ids.length === 0) {
+    if (!(database || catalog) || ids.length === 0) {
       return;
     }
     let cancelRead = (): void => {};
@@ -84,11 +86,15 @@ export function useThreadRoots(args: {
       cancelRead = () => {
         cancelled = true;
       };
-      database
-        .query<RootRow>(
-          'SELECT id, display_name AS "displayName", path, status FROM roots WHERE id = ANY($1::text[])',
-          [ids]
-        )
+      (catalog
+        ? catalog.readRoots().then((rows) => ({ rows: rows.filter((row) => ids.includes(row.id)) }))
+        : database
+          ? database.query<RootRow>(
+              'SELECT id, display_name AS "displayName", path, status FROM roots WHERE id = ANY($1::text[])',
+              [ids]
+            )
+          : Promise.reject(new Error('Workspace root catalog unavailable'))
+      )
         .then((result) => {
           if (cancelled) {
             return;
@@ -118,8 +124,8 @@ export function useThreadRoots(args: {
       unsubscribe();
       cancelRead();
     };
-  }, [database, key, mountedKey, primaryRootId, secondaryRootIds]);
-  const current = database && resolved?.key === key ? resolved : null;
+  }, [database, catalog, key, mountedKey, primaryRootId, secondaryRootIds]);
+  const current = (database || catalog) && resolved?.key === key ? resolved : null;
   return {
     loadedSecondaryRoots: current?.roots ?? NO_ROOTS,
     primaryRemoved: current?.primaryRemoved ?? false,

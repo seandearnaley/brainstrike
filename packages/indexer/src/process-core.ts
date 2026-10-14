@@ -27,6 +27,7 @@ import {
 } from './contracts.js';
 import { assertCoverageAuthorityBound, coverageAuthoritySchema } from './coverage-authority.js';
 import { readScopedIdentity } from './index-metadata.js';
+import { promptVectorReplySchema } from './prompt-vector-contract.js';
 import { RpcClient } from './rpc-client.js';
 import { IndexReader } from './store.js';
 
@@ -233,6 +234,9 @@ export async function runIndexerProcess(
               decoder(Schema.Array(stateSearchPendingRowSchema))
             );
             break;
+          case 'prompt-vectors':
+            work = client.call(request.op, request.payload, decoder(promptVectorReplySchema));
+            break;
           case 'state-search-vectors':
             work = client.call(
               request.op,
@@ -271,6 +275,9 @@ export async function runIndexerProcess(
             break;
           case 'prepare-scoped-file':
             work = connection.scoped.prepare(request.payload);
+            break;
+          case 'read-scoped-file-page':
+            work = connection.scoped.readFilePage(request.payload);
             break;
           case 'search-scopes':
             work = connection.scoped.search(request.payload);

@@ -264,7 +264,8 @@ interface BarProps {
 
 async function setup(
   metadata: Record<string, unknown> = {},
-  rootDescriptorsOverride: typeof rootDescriptors = rootDescriptors
+  rootDescriptorsOverride: typeof rootDescriptors = rootDescriptors,
+  selectedDatabase: DbHandle | null = database
 ) {
   seedThread(metadata);
   const rendered = renderHook(
@@ -272,7 +273,7 @@ async function setup(
       useWorkspaceBar({
         assistantThreadRepository,
         currentMainRoot,
-        database,
+        database: selectedDatabase,
         memoryResourceId: RESOURCE_ID,
         rootDescriptors: rootDescriptorsOverride,
         selectedMemoryThreadId: props.selectedMemoryThreadId,
@@ -684,4 +685,28 @@ describe('useWorkspaceBar — Add folder', () => {
     await act(async () => {});
     expect(updateThreadMetadata).not.toHaveBeenCalled();
   });
+});
+
+it('attaches a native added folder using its canonical catalog identity with no PG provider', async () => {
+  const readRoots = vi.fn(async () =>
+    Object.entries(ROOT_ROW_BY_ID).map(([id, root]) => ({ ...root, id, status: 'live' }))
+  );
+  Object.defineProperty(window, 'threadGroups', {
+    configurable: true,
+    value: { readRoots: async () => ({ ok: true, value: await readRoots() }) },
+  });
+  try {
+    const { result } = await setup({}, rootDescriptors, null);
+    await waitFor(() =>
+      expect(result.current.primaryRoot?.rootId).toBe(ROOT_ID_BY_PATH['/ws/brainstrike'])
+    );
+    await act(async () => result.current.onAddFolder?.());
+    expect(updateThreadMetadata).toHaveBeenCalledWith(
+      THREAD_ID,
+      expect.objectContaining({ secondaryRootIds: [ROOT_ID_BY_PATH['/ws/docs']] })
+    );
+    expect(query).not.toHaveBeenCalled();
+  } finally {
+    Reflect.deleteProperty(window, 'threadGroups');
+  }
 });

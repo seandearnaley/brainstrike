@@ -5,6 +5,7 @@ import type { DesktopHostLeaseOptions } from '../../host-lease-manager';
 
 const fixture = vi.hoisted(() => ({
   acquisition: Promise.withResolvers<{ kind: 'owned' }>(),
+  contentClear: Promise.withResolvers<{ deletedChunks: number | null; deletedFiles: number }>(),
   events: [] as string[],
   exited: Promise.withResolvers<void>(),
   lockAttempts: [] as string[],
@@ -67,6 +68,10 @@ vi.mock('../../host-lease-manager', () => ({
     fixture.events.push('owner');
     return {
       acquire: () => fixture.acquisition.promise,
+      clearAndRetireContent: () => {
+        fixture.events.push('clear-content');
+        return fixture.contentClear.promise;
+      },
       close: async () => {
         fixture.events.push('close');
         fixture.acquisition.reject(new Error('startup aborted'));
@@ -85,6 +90,7 @@ beforeEach(() => {
   fixture.lockedUserData.clear();
   fixture.lockAttempts.length = 0;
   fixture.acquisition = Promise.withResolvers();
+  fixture.contentClear = Promise.withResolvers();
   fixture.exited = Promise.withResolvers();
   vi.stubEnv('ELECTRON_IS_E2E_TEST', 'true');
   vi.stubEnv('BRAINSTRIKE_E2E_USER_DATA_DIR', resolve('/disposable/bootstrap-user-data'));
@@ -324,4 +330,46 @@ it('rejects a concurrent development profile in the shared launch credential nam
   expect(second.credentialStore).toEqual(first.credentialStore);
   expect(fixture.lockAttempts).toEqual([launchUserData, launchUserData]);
   expect(fixture.options).toBeUndefined();
+});
+
+it('forwards terminal content clear through the actual bootstrap facade and joins before replacement', async () => {
+  const { getDesktopBootstrapRuntime } = await import('../../desktop-bootstrap-runtime');
+  const runtime = getDesktopBootstrapRuntime();
+  fixture.acquisition.resolve({ kind: 'owned' });
+  await runtime.profile.acquire();
+  const clearing = runtime.profile.clearAndRetireContent();
+  // Observe failure without an unhandled rejection while asserting admission.
+  const outcome = clearing.then(
+    (value) => ({ value }),
+    (error: unknown) => ({ error })
+  );
+  await vi.waitFor(() => expect(fixture.events).toContain('clear-content'));
+  const replacement = runtime.profile.acquire();
+  expect(runtime.profile.isRetiring()).toBe(true);
+  expect(fixture.events.filter((event) => event === 'owner')).toHaveLength(1);
+  const receipt = { deletedChunks: 3, deletedFiles: 2 };
+  fixture.contentClear.resolve(receipt);
+  expect(await outcome).toEqual({ value: receipt });
+  await replacement;
+  expect(fixture.events.filter((event) => event === 'owner')).toHaveLength(2);
+  expect(fixture.events).not.toContain('close');
+  fixture.exited.resolve();
+  await runtime.profile.retire();
+});
+
+it('preserves a failed terminal-clear cause and refuses replacement through the bootstrap facade', async () => {
+  const { getDesktopBootstrapRuntime } = await import('../../desktop-bootstrap-runtime');
+  const runtime = getDesktopBootstrapRuntime();
+  fixture.acquisition.resolve({ kind: 'owned' });
+  await runtime.profile.acquire();
+  const failure = new Error('Recorded terminal host join failure');
+  const clearing = runtime.profile.clearAndRetireContent();
+  const outcome = clearing.catch((cause: unknown) => cause);
+  await vi.waitFor(() => expect(fixture.events).toContain('clear-content'));
+  fixture.contentClear.reject(failure);
+  expect(await outcome).toBe(failure);
+  await expect(runtime.profile.acquire()).rejects.toBe(failure);
+  expect(fixture.events.filter((event) => event === 'owner')).toHaveLength(1);
+  fixture.exited.resolve();
+  await runtime.profile.retire();
 });

@@ -6,15 +6,16 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
+import { withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import type { ModelProviderShim } from './utils/model-provider-shim';
-import { seedRetiredThreadRows } from './utils/seed-threads';
+import { seedHostThreads } from './utils/seed-threads';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const REASON = 'Workspace reads are disabled by a project hook';
-const LEGACY_TITLE = 'Legacy thread from before the host';
+const LEGACY_TITLE = 'Deleted host conversation';
 
 // A real workspace root whose project hooks file blocks workspace reads. The
 // host runs it only at a hash it trusts; HOME holds no global hooks.
@@ -139,8 +140,13 @@ test('a retired thread cannot start the removed execution path', async ({
   await hooks.getByRole('button', { exact: true, name: 'Approve' }).click();
   await expect(hooks.getByText('Trusted', { exact: true })).toBeVisible();
 
-  // Retired rows are never advertised as usable host conversations.
-  await seedRetiredThreadRows(page, [{ folder: null, title: LEGACY_TITLE }]);
+  // Deleted host conversations are never advertised as usable host conversations.
+  const userData = await page.evaluate(() => window.electronAPI!.getUserDataPath());
+  const [retired] = await seedHostThreads(userData, [{ folder: null, title: LEGACY_TITLE }]);
+  if (!retired) {
+    throw new Error('Host thread fixture not created');
+  }
+  await withAppHost(userData, (client) => client.request('thread/delete', { threadId: retired }));
   const { reloadRenderer } = await loadElectronHelpers();
   await reloadRenderer(page, 'hook-trust-retired-thread');
   await ensureAssistantShellVisible(page);

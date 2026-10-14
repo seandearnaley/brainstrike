@@ -44,16 +44,17 @@ function readDiagnostics(page: Page): Promise<unknown> {
         __brainstrikeRendererLogBuffer?: { getRecords(): readonly unknown[] };
       }
     ).__brainstrikeRendererLogBuffer;
-    if (!(buffer && window.electronAPI?.db)) {
+    if (!(buffer && window.desktopDiagnostics)) {
       throw new Error('Ordinary application diagnostic sources are unavailable');
     }
     const [main, durable] = await Promise.all([
       window.logging.getBufferedLogs(),
-      window.electronAPI.db.query(
-        'SELECT * FROM brainstrike_diagnostic_events ORDER BY occurred_at'
-      ),
+      window.desktopDiagnostics.readMainLogWindow({
+        since: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        until: new Date().toISOString(),
+      }),
     ]);
-    return { durable: durable.rows, main, renderer: buffer.getRecords() };
+    return { durable, main, renderer: buffer.getRecords() };
   });
 }
 
@@ -402,12 +403,10 @@ test(
         join(evidence, 'committed-workspace.json'),
         JSON.stringify(workspace, null, 2)
       );
-      const legacyOwners = await page.evaluate(
-        async (id) =>
-          window.electronAPI?.db.query('SELECT id FROM mastra_threads WHERE id = $1', [id]),
-        threadId
+      const legacyDatabaseExposed = await page.evaluate(() =>
+        window.electronAPI ? 'db' in window.electronAPI : false
       );
-      expect(legacyOwners?.rows).toEqual([]);
+      expect(legacyDatabaseExposed).toBe(false);
       expect(
         server.requests.some(
           ({ body }) =>

@@ -31,13 +31,18 @@ import {
   createNativeScopedSearchCapability,
   type NativeSearchAuthority,
 } from '../native-scoped-search';
+import {
+  createActivationCatalogFixture,
+  retainedCatalogRecords,
+  sourceRecord,
+} from './native-activation-catalog-fixture';
 import { createNativePublicationReceiptAssertions } from './native-publication-receipt-test-helpers';
 
+const catalogFixture = createActivationCatalogFixture();
 const fixtureMocks = vi.hoisted(() => ({
   acquire: vi.fn(),
   close: vi.fn(),
   coverageClosed: vi.fn(),
-  database: { query: vi.fn(), transaction: vi.fn() },
   holdCoverage: vi.fn(),
   manager: {
     attachCanonicalCollection: vi.fn(),
@@ -47,7 +52,11 @@ const fixtureMocks = vi.hoisted(() => ({
   readyPort: vi.fn(),
 }));
 export const mocks = fixtureMocks;
-vi.mock('../db-main', () => ({ getDatabase: async () => fixtureMocks.database }));
+vi.mock('../db-main', () => ({
+  getDatabase: async () => {
+    throw new Error('Retired PG owner is unavailable.');
+  },
+}));
 vi.mock('../desktop-database-location', () => ({
   resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
 }));
@@ -87,20 +96,11 @@ export const scope = { embeddingSetId: 'selected', kind: 'collection' } as const
 export const source = 'retained canonical marker';
 export const contentHash = createHash('sha256').update(source).digest('hex');
 export function records(count: number): NativeCanonicalCatalogRecord[] {
-  return Array.from({ length: count }, (_, index) => ({
-    chunksProcessed: false,
-    content: null,
-    contentHash,
-    embeddingSetId: scope.embeddingSetId,
-    fileId: `retained-${index}`,
-    fileName: `retained-${index}.txt`,
-    path: null,
-    rootId: null,
-    stat: { mtimeMs: 1, size: source.length },
-  }));
+  return retainedCatalogRecords(count, contentHash, source.length, scope.embeddingSetId);
 }
 export async function fixture(withWorkspace = false, discovery = false) {
   vi.resetAllMocks();
+  catalogFixture.reset();
   const directory = await mkdtemp(path.join(os.tmpdir(), 'native-catalog-refresh-'));
   const native = await openIndexer(
     {
@@ -205,43 +205,41 @@ export async function fixture(withWorkspace = false, discovery = false) {
   fixtureMocks.readyPort.mockReturnValue(writer);
   fixtureMocks.close.mockImplementation(() => native.close());
   fixtureMocks.manager.retireCanonicalSources.mockResolvedValue(undefined);
-  fixtureMocks.database.query.mockImplementation(
-    async (sql: string, params: readonly unknown[] = []) => {
-      if (sql.includes('FROM embedding_sets')) {
-        return { rows: [{ id: scope.embeddingSetId }] };
-      }
-      if (sql.includes('FROM roots')) {
-        return { rows: withWorkspace ? [{ id: 'root', kind: 'path' }] : [] };
-      }
-      const ids = params[0];
-      const snapshot = state.files;
-      if (!Array.isArray(ids) && state.holdInventoryAfterReads >= 0) {
-        if (state.holdInventoryAfterReads === 0) {
-          state.holdInventoryAfterReads = -1;
-          inventoryEntered.resolve();
-          await inventoryGate.promise;
-        } else {
-          state.holdInventoryAfterReads -= 1;
-        }
-      }
-      if (Array.isArray(ids) && state.holdBatch) {
-        state.holdBatch = false;
-        batchEntered.resolve();
-        await batchGate.promise;
-      }
-      if (!Array.isArray(ids) && state.files.length === 1) {
-        sawSingleInventory.resolve();
-      }
-      if (!Array.isArray(ids) && state.files.length === 2) {
-        sawNewInventory.resolve();
-      }
-      return {
-        rows: Array.isArray(ids)
-          ? state.files.filter((record) => ids.includes(record.fileId))
-          : snapshot,
-      };
+  if (withWorkspace) {
+    catalogFixture.setRoot();
+  }
+  catalogFixture.catalog.sourceCatalog.mockImplementation(async (request) => {
+    if (request.operation !== 'inventory' && request.operation !== 'read') {
+      throw new Error('Unexpected catalog mutation');
     }
-  );
+    const ids = request.operation === 'read' ? request.fileIds : undefined;
+    const snapshot = state.files;
+    if (!Array.isArray(ids) && state.holdInventoryAfterReads >= 0) {
+      if (state.holdInventoryAfterReads === 0) {
+        state.holdInventoryAfterReads = -1;
+        inventoryEntered.resolve();
+        await inventoryGate.promise;
+      } else {
+        state.holdInventoryAfterReads -= 1;
+      }
+    }
+    if (Array.isArray(ids) && state.holdBatch) {
+      state.holdBatch = false;
+      batchEntered.resolve();
+      await batchGate.promise;
+    }
+    if (!Array.isArray(ids) && state.files.length === 1) {
+      sawSingleInventory.resolve();
+    }
+    if (!Array.isArray(ids) && state.files.length === 2) {
+      sawNewInventory.resolve();
+    }
+    return {
+      files: (ids ? state.files.filter((record) => ids.includes(record.fileId)) : snapshot).map(
+        sourceRecord
+      ),
+    };
+  });
   const parent = new CanonicalUtilityParent(
     (frame) => queueMicrotask(() => child.receive(structuredClone(frame))),
     vi.fn()
@@ -446,7 +444,9 @@ export async function fixture(withWorkspace = false, discovery = false) {
       },
       watches: { subscribe: async () => {} },
     } as unknown as ApplicationIpcDomain,
+    catalog: catalogFixture.catalog,
     embedding: { documentEmbeddings: vi.fn() },
+    modelCatalog: catalogFixture.modelCatalog,
     onError,
     profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
     storage: {

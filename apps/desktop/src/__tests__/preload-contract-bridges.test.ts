@@ -4,17 +4,13 @@ import { changesContract } from '../ipc-domains/changes.contract';
 import { clipboardContract } from '../ipc-domains/clipboard.contract';
 import { commandSessionsContract } from '../ipc-domains/command-sessions.contract';
 import { contextFilesContract } from '../ipc-domains/context-files.contract';
-import {
-  databaseContract,
-  databaseIntegrityContract,
-  databaseLiveContract,
-  databasePathContract,
-} from '../ipc-domains/database.contract';
+import { databasePathContract } from '../ipc-domains/database.contract';
 import { forgeContract } from '../ipc-domains/forge.contract';
 import { gitContract } from '../ipc-domains/git.contract';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from '../ipc-domains/mcp.contract';
 import { notesVaultContract } from '../ipc-domains/notes-vault.contract';
+import { promptLibraryContract } from '../ipc-domains/prompt-library.contract';
 import { skillsContract } from '../ipc-domains/skills.contract';
 import {
   layoutContract,
@@ -22,8 +18,10 @@ import {
   storageContract,
 } from '../ipc-domains/storage-preferences.contract';
 import { terminalContract } from '../ipc-domains/terminal.contract';
+import { threadGroupsContract } from '../ipc-domains/thread-groups.contract';
 import { userCommandsContract } from '../ipc-domains/user-commands.contract';
 import { userPersonasContract } from '../ipc-domains/user-personas.contract';
+import { viewFilterPresetsContract } from '../ipc-domains/view-filter-presets.contract';
 import { windowFocusContract } from '../ipc-domains/window-focus.contract';
 import { worktreesContract } from '../ipc-domains/worktrees.contract';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
@@ -54,15 +52,17 @@ const CONTRACT_BRIDGES = {
   clipboard: clipboardContract,
   commandSessions: commandSessionsContract,
   contextFiles: contextFilesContract,
-  databaseIntegrity: databaseIntegrityContract,
   forge: forgeContract,
   git: gitContract,
   indexSearch: indexSearchContract,
   notesVault: notesVaultContract,
+  promptLibrary: promptLibraryContract,
   settings: settingsContract,
   skills: skillsContract,
   terminal: terminalContract,
+  threadGroups: threadGroupsContract,
   userCommands: userCommandsContract,
+  viewFilterPresets: viewFilterPresetsContract,
   windowFocus: windowFocusContract,
   worktrees: worktreesContract,
 } as const;
@@ -240,31 +240,19 @@ describe('preload contract-derived bridges', () => {
     });
   });
 
-  it('derives the visible database invokes and path capability from their contracts', async () => {
+  it('omits retired SQL bridges and routes reset and profile path to their current owners', async () => {
     const electronApi = exposedApi('electronAPI') as unknown as {
-      db: Record<string, (...args: unknown[]) => unknown>;
-      dbLive: Record<string, (...args: unknown[]) => unknown>;
+      factoryReset: { resetLocal: () => Promise<unknown>; unavailableReason?: string };
       getUserDataPath: () => Promise<unknown>;
     };
-
-    expect(Object.keys(electronApi.db).sort()).toEqual(
-      [...Object.keys(databaseContract), 'factoryResetUnavailableReason'].sort()
-    );
-    expect(Object.keys(electronApi.dbLive).sort()).toEqual(
-      Object.keys(databaseLiveContract).sort()
-    );
-    expect(electronApi.getUserDataPath).toBeTypeOf('function');
-    expect(Object.keys(databasePathContract)).toEqual(['getUserDataPath']);
-
-    mockInvoke.mockResolvedValueOnce({ rows: [{ value: 1 }] });
-    await expect(electronApi.db['query']?.('SELECT 1')).resolves.toEqual({
-      rows: [{ value: 1 }],
-    });
-    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.db.query, 'SELECT 1');
-
+    expect(electronApi).not.toHaveProperty('db');
+    expect(electronApi).not.toHaveProperty('dbLive');
+    mockInvoke.mockResolvedValueOnce({ success: true });
+    await expect(electronApi.factoryReset.resetLocal()).resolves.toEqual({ success: true });
+    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.db.resetLocal);
     mockInvoke.mockResolvedValueOnce('/tmp/profile');
     await expect(electronApi.getUserDataPath()).resolves.toBe('/tmp/profile');
-    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.db.getUserDataPath);
+    expect(mockInvoke).toHaveBeenLastCalledWith(databasePathContract.getUserDataPath.channel);
   });
 
   it('routes clipboard.writeText to the manifest channel and transports the result envelope', async () => {
@@ -330,23 +318,10 @@ describe('preload contract-derived bridges', () => {
     );
   });
 
-  it('routes databaseIntegrity.getState to the manifest channel and transports the result envelope', async () => {
-    const snapshot = { revision: 0, state: { kind: 'healthy' } };
-    mockInvoke.mockResolvedValueOnce({ ok: true, value: snapshot });
-    await expect(exposedApi('databaseIntegrity')['getState']?.()).resolves.toEqual({
-      ok: true,
-      value: snapshot,
-    });
-    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.db.integrityState);
-
-    mockInvoke.mockResolvedValueOnce({
-      error: { category: 'database', code: 'unavailable', message: 'integrity unavailable' },
-      ok: false,
-    });
-    await expect(exposedApi('databaseIntegrity')['getState']?.()).resolves.toMatchObject({
-      error: { code: 'unavailable' },
-      ok: false,
-    });
+  it('omits the retired PostgreSQL integrity owner from the visible preload', () => {
+    expect(mockExposeInMainWorld.mock.calls.some(([name]) => name === 'databaseIntegrity')).toBe(
+      false
+    );
   });
 
   it('derives the nested production storage and layout bridges', async () => {
@@ -422,6 +397,32 @@ describe('preload contract-derived bridges', () => {
     expect(mockElectron.ipcRenderer.removeListener).toHaveBeenCalledWith(channel, listener);
   });
 
+  it('passes prompt commands unchanged through the actual sandbox bridge envelope', async () => {
+    const request = { filter: { favoritesOnly: true }, operation: 'list' };
+    const receipt = { accepted: true, items: [], revisions: [] };
+    mockInvoke.mockResolvedValueOnce({ ok: true, value: receipt });
+    await expect(exposedApi('promptLibrary')['request']?.(request)).resolves.toEqual({
+      ok: true,
+      value: receipt,
+    });
+    expect(mockInvoke).toHaveBeenLastCalledWith(
+      DESKTOP_IPC_CHANNELS.promptLibrary.request,
+      request
+    );
+    mockInvoke.mockResolvedValueOnce({
+      error: {
+        category: 'promptLibrary',
+        code: 'prompt_library_failed',
+        message: 'Prompt owner closed',
+      },
+      ok: false,
+    });
+    await expect(exposedApi('promptLibrary')['request']?.(request)).resolves.toMatchObject({
+      error: { code: 'prompt_library_failed' },
+      ok: false,
+    });
+  });
+
   it.each([
     ['assistantPersonas', 'list', DESKTOP_IPC_CHANNELS.userPersonas.list],
     ['contextFiles', 'scan', DESKTOP_IPC_CHANNELS.contextFiles.scan],
@@ -434,5 +435,31 @@ describe('preload contract-derived bridges', () => {
       value: { marker: name },
     });
     expect(mockInvoke).toHaveBeenLastCalledWith(channelName);
+  });
+  it('forwards retained diagnostic read filters without exposing SQL', async () => {
+    const bridge = exposedApi('desktopDiagnostics');
+    mockInvoke.mockResolvedValueOnce([]);
+    await expect(bridge['queryEvents']?.({ runId: 'run-1' })).resolves.toEqual([]);
+    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.diagnostics.queryEvents, {
+      runId: 'run-1',
+    });
+    mockInvoke.mockResolvedValueOnce({ count: 2, firstSeenMs: 1, lastSeenMs: 2 });
+    await bridge['countByFingerprint']?.('fp-provider', 1);
+    expect(mockInvoke).toHaveBeenLastCalledWith(
+      DESKTOP_IPC_CHANNELS.diagnostics.countByFingerprint,
+      { fingerprint: 'fp-provider', sinceMs: 1 }
+    );
+    expect(bridge).not.toHaveProperty('query');
+  });
+  it('forwards the unseen diagnostic watermark to the retained-count owner', async () => {
+    mockInvoke.mockResolvedValueOnce({ errorCount: 205, warningCount: 1 });
+    await expect(exposedApi('desktopDiagnostics')['getUnseenCounts']?.(1000)).resolves.toEqual({
+      errorCount: 205,
+      warningCount: 1,
+    });
+    expect(mockInvoke).toHaveBeenLastCalledWith(
+      DESKTOP_IPC_CHANNELS.diagnostics.getUnseenCounts,
+      1000
+    );
   });
 });

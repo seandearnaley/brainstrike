@@ -1,17 +1,17 @@
 import {
   buildPromptItemEmbeddingText,
   type PromptEmbeddingProfile,
-  type PromptItemRepository,
   type PromptItemSimilarityOptions,
   type PromptItemSimilarityResult,
 } from '@brainstrike/db';
+import type { PromptItemRepositoryPort } from '@brainstrike/types/prompt-item';
 import type {
   EmbeddingSetModelInfo,
   UseSearchEmbedderResult,
 } from '@brainstrike/vector-management';
 
 export type PromptLibraryEmbeddingRepository = Pick<
-  PromptItemRepository,
+  PromptItemRepositoryPort,
   | 'getEmbeddingProfile'
   | 'listNeedingEmbedding'
   | 'markEmbeddingError'

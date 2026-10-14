@@ -97,7 +97,9 @@ function hostWith(
     renderThread: () => undefined,
     subscribeChildren,
     updateThreadBinding: refused,
-    workspaceRepository: (history) => history,
+    workspaceRepository: () => {
+      throw new Error('Unexpected workspace snapshot access in this fixture');
+    },
   };
 }
 

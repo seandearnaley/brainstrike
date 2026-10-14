@@ -72,11 +72,12 @@ test('quitting while a factory reset finishes lets the reset complete', {
     // The agent host is up once it publishes its record.
     await expect.poll(() => existsSync(join(profile, 'host.json')), { timeout: 60_000 }).toBe(true);
     await window.evaluate(() => {
-      const api = (
-        window as unknown as { electronAPI: { db: { resetLocal: () => Promise<unknown> } } }
-      ).electronAPI;
+      const api = globalThis.window.electronAPI;
+      if (!(api && 'factoryReset' in api)) {
+        throw new Error('Factory reset capability unavailable');
+      }
       // The renderer is replaced by the reset: nobody awaits the answer here.
-      void api.db.resetLocal().catch(() => undefined);
+      void api.factoryReset.resetLocal().catch(() => undefined);
     });
     // Quit inside the reset: it has stopped the browser pane and not yet purged the data.
     await expect

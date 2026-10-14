@@ -2,7 +2,12 @@ import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-r
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import type { RuntimeModelSettings } from '@brainstrike/assistant-contract';
+import {
+  type BoundaryTransport,
+  createBoundaryCapability,
+} from '@brainstrike/assistant-contract/boundary-result';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
+import type { AssistantThreadCatalogRepository } from '@brainstrike/assistant-data';
 import {
   type AssistantThreadDraftRuntime,
   createPgliteAssistantThreadRepository,
@@ -13,14 +18,23 @@ import { type PromptItem, PromptItemRepository, type PromptItemUsageAction } fro
 import { useDbInitializationStatus, usePGliteDatabase } from '@brainstrike/db/react';
 import { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
 import type { QueueAdapter } from '@brainstrike/queue';
+import type {
+  PromptItemRepositoryPort,
+  PromptLibraryCapability,
+} from '@brainstrike/types/prompt-item';
 import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
 import { useCallback, useMemo, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
-import { useAssistantThreadHost, withAssistantThreadHost } from './assistant-thread-host-context';
+import {
+  createHostAssistantThreadRepository,
+  useAssistantThreadHost,
+  withAssistantThreadHost,
+} from './assistant-thread-host-context';
 import {
   buildDraftRuntimeForProvider,
   copyProviderSettingsMap,
 } from './assistant-ui-panel-wrapper-runtime';
+import { createPromptLibraryRepository } from './prompt-library-repository';
 import { type PromptWorkbenchModelOption, PromptWorkbenchPanel } from './prompt-workbench-panel';
 import {
   PROMPT_MODEL_SETTING_KEYS,
@@ -241,12 +255,75 @@ interface ConnectedPromptManagerProps {
   readonly suggestionsEnabled?: boolean;
 }
 
-export function ConnectedPromptManager({
+export function ConnectedPromptManager(props: ConnectedPromptManagerProps) {
+  const transport =
+    typeof window === 'undefined'
+      ? undefined
+      : (window as Window & { promptLibrary?: BoundaryTransport<PromptLibraryCapability> })
+          .promptLibrary;
+  const capability = transport
+    ? createBoundaryCapability<PromptLibraryCapability>(transport)
+    : undefined;
+  return capability ? (
+    <NativePromptManager {...props} capability={capability} />
+  ) : (
+    <WebPromptManager {...props} />
+  );
+}
+function NativePromptManager({
+  capability,
+  ...props
+}: ConnectedPromptManagerProps & { readonly capability: PromptLibraryCapability }) {
+  const repository = useMemo(() => createPromptLibraryRepository(capability), [capability]);
+  const host = useAssistantThreadHost();
+  const threadRepository = useMemo(
+    () => (host ? createHostAssistantThreadRepository(host) : null),
+    [host]
+  );
+  return (
+    <PromptManager
+      {...props}
+      db={null}
+      nativeEmbeddingHost
+      repository={repository}
+      threadRepository={threadRepository}
+    />
+  );
+}
+function WebPromptManager(props: ConnectedPromptManagerProps) {
+  const db = usePGliteDatabase();
+  const status = useDbInitializationStatus();
+  const repository = useMemo(() => (db ? new PromptItemRepository(db) : null), [db]);
+  const host = useAssistantThreadHost();
+  const threadRepository = useMemo(
+    () => (db ? withAssistantThreadHost(createPgliteAssistantThreadRepository(db), host) : null),
+    [db, host]
+  );
+  return (
+    <PromptManager
+      {...props}
+      db={db}
+      dbInitializationStatus={status}
+      repository={repository}
+      threadRepository={threadRepository}
+    />
+  );
+}
+function PromptManager({
   loadEmbeddingQueue,
   suggestionsEnabled = true,
-}: ConnectedPromptManagerProps) {
-  const db = usePGliteDatabase();
-  const dbInitializationStatus = useDbInitializationStatus();
+  db,
+  dbInitializationStatus,
+  repository,
+  threadRepository,
+  nativeEmbeddingHost = false,
+}: ConnectedPromptManagerProps & {
+  readonly db: ReturnType<typeof usePGliteDatabase>;
+  readonly dbInitializationStatus?: ReturnType<typeof useDbInitializationStatus>;
+  readonly repository: PromptItemRepositoryPort | null;
+  readonly threadRepository: AssistantThreadCatalogRepository | null;
+  readonly nativeEmbeddingHost?: boolean;
+}) {
   useEnsureModelRegistry({ db });
   const models = useModelRegistryStore((state) => state.models);
   const providers = useModelRegistryStore((state) => state.providers);
@@ -267,14 +344,6 @@ export function ConnectedPromptManager({
   const [usageError, setUsageError] = useState<string | null>(null);
   const [threadTitleError, setThreadTitleError] = useState<string | null>(null);
 
-  const repository = useMemo(() => (db ? new PromptItemRepository(db) : null), [db]);
-  // "New thread" is created by the host's existing thread owner when the app
-  // has one; with no host the history repository is unchanged.
-  const host = useAssistantThreadHost();
-  const threadRepository = useMemo(
-    () => (db ? withAssistantThreadHost(createPgliteAssistantThreadRepository(db), host) : null),
-    [db, host]
-  );
   const localModelConfigMap = useMemo(() => buildLocalEmbeddingModelConfigMap(models), [models]);
   const providerNames = useMemo(
     () => new Map(providers.map((provider) => [provider.id, provider.name])),
@@ -310,6 +379,7 @@ export function ConnectedPromptManager({
       embedder,
       loadEmbeddingQueue,
       localModelConfigMap,
+      nativeEmbeddingHost,
       repository,
       suggestionsEnabled,
     });

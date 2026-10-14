@@ -1,7 +1,7 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { readCommittedRuns } from './utils/agent-host-log';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import type { ModelProviderScriptSelector } from './utils/model-provider-shim';
 
@@ -20,16 +20,7 @@ async function enableModel(page: Page): Promise<void> {
     compositeModelKey: `openrouter::${MODEL_ID}`,
     provider: 'openrouter',
   });
-  await page.evaluate(async (model) => {
-    const db = window.electronAPI?.db;
-    if (!db) {
-      throw new Error('The app database query path is unavailable');
-    }
-    await db.query('UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2', [
-      model,
-      'openrouter',
-    ]);
-  }, MODEL_ID);
+  await enableAssistantCatalogModel(page, `openrouter::${MODEL_ID}`);
 }
 
 /** Each run lists the toggled tool's catalog entry, then asks load_tool for it. */

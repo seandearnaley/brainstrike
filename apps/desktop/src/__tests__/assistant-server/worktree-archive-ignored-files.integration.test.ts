@@ -1,24 +1,21 @@
+// @vitest-environment node
+
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { runDrizzleMigrations as runMigrations } from '@brainstrike/db';
-import { PGlite } from '@electric-sql/pglite';
-import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
-import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
-import { vector } from '@electric-sql/pglite-pgvector';
+import { StateStore } from '@brainstrike/state-store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { inspectWorktreeSafety } from '../../assistant-server/worktree-archive';
 import { execFileGitRunner } from '../../git-ipc-handlers';
 import { buildTestService, createTestWorkspace, git } from './worktree-service.shared';
 
-describe('WorktreeService ignored-file archive confirmation (real git + real PGlite)', () => {
-  let db: PGlite;
+describe('WorktreeService ignored-file archive confirmation (real git + real SQLite)', () => {
+  let db: StateStore;
   let managedDirectory: string;
   let repo: string;
   const workspace = createTestWorkspace();
 
   beforeEach(async () => {
-    db = new PGlite({ extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector } });
-    await runMigrations(db);
+    db = await StateStore.open(workspace.freshTempDir('bst-worktree-state-'));
     repo = workspace.freshRepo('ignored-archive-repo');
     managedDirectory = workspace.freshManagedDir();
   });

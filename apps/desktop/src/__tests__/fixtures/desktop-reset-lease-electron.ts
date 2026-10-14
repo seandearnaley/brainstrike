@@ -104,9 +104,6 @@ app
     writeFileSync(path.join(profile, 'state.db'), 'state payload');
     writeFileSync(path.join(profile, 'index.db-wal'), 'index payload');
     const run = createDesktopFactoryResetHandler({
-      cleanupLiveSubscriptionsForShutdown: async () => {
-        events.push('subscriptions');
-      },
       completeSuccessfulReset: async () => {
         assert(guard?.isReleased === true, 'Renderer replacement preceded guard release');
         events.push('renderer');
@@ -158,15 +155,8 @@ app
       },
       runTransition: (work) => work(),
       runtimes: [],
-      runWithDatabaseResetBarrier: async (work) => {
-        events.push('barrier');
-        await work();
-      },
       sessionDataPath,
       userDataPath: userData,
-      waitForDatabaseWorkSchedulerIdle: async () => {
-        events.push('idle');
-      },
     }).reset;
     const first = await run();
     const retained = guard?.isReleased === false;

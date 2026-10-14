@@ -70,6 +70,7 @@ function installBridge() {
   // the first delivery.
   let nextGeneration = 1;
   const bridge = {
+    cacheSnapshot: async () => ({ ok: true as const, value: [] }),
     identity: vi.fn(),
     onPrUpdated: vi.fn((callback: (event: ForgePrUpdatedEvent) => void) => {
       listeners.push(callback);

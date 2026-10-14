@@ -2,10 +2,8 @@ import { afterEach, beforeEach, vi } from 'vitest';
 import type { DesktopShutdownRunPlan } from '../../main/desktop-graceful-shutdown';
 
 /**
- * Startup-latency contract: the visible window must NOT wait on database
- * initialization. The DB utilityProcess spawn + migrations + HNSW capability
- * probe run CONCURRENTLY with window creation; only the maintenance schedulers
- * (which consume the probed strategy) wait for the probe to finish.
+ * Main startup uses the native profile and reader owners. Keep legacy PG
+ * acquisition mocks as negative sentinels; they must never run on desktop.
  */
 
 const mockSession = {
@@ -205,11 +203,25 @@ vi.mock('../../ipc-handlers', async () => {
 });
 
 const {
+  nativeActualPrepareForPause,
+  nativeAcquireProfile,
+  nativeAcquire,
+  nativeAcquireRead,
   nativeCloseForShutdown,
   nativePrepareForPause,
   nativeReconfigureForReset,
   publicEmbeddingStop,
 } = vi.hoisted(() => ({
+  nativeAcquire: vi.fn<() => Promise<void>>(async () => undefined),
+  nativeAcquireProfile: vi.fn<() => Promise<void>>(() => new Promise(() => undefined)),
+  nativeAcquireRead: vi.fn<() => Promise<void>>(async () => undefined),
+  nativeActualPrepareForPause: {
+    current: null as
+      | null
+      | ReturnType<
+          typeof import('../../native-index-activation').createNativeIndexActivation
+        >['prepareSavedPause'],
+  },
   nativeCloseForShutdown: vi.fn(async (): Promise<void> => undefined),
   nativePrepareForPause: vi.fn<
     ReturnType<
@@ -229,8 +241,12 @@ vi.mock('../../native-index-activation', async (importOriginal) => {
       ...args: Parameters<typeof actual.createNativeIndexActivation>
     ) => {
       const owner = actual.createNativeIndexActivation(...args);
+      nativeActualPrepareForPause.current = owner.prepareSavedPause;
       return {
         ...owner,
+        acquire: nativeAcquire,
+        acquireProfile: nativeAcquireProfile,
+        acquireRead: nativeAcquireRead,
         close: nativeCloseForShutdown,
         prepareSavedPause: nativePrepareForPause,
         reconfigure: () => nativeReconfigureForReset.current?.() ?? owner.reconfigure(),
@@ -341,12 +357,16 @@ export function installMainBootFixture(): void {
     unhandledRejectionListenersBeforeMain = new Set(process.listeners('unhandledRejection'));
     vi.resetModules();
     vi.clearAllMocks();
+    nativeAcquireProfile.mockReset().mockImplementation(() => new Promise(() => undefined));
+    nativeAcquire.mockReset().mockResolvedValue(undefined);
+    nativeAcquireRead.mockReset().mockResolvedValue(undefined);
     nativeCloseForShutdown.mockReset().mockResolvedValue(undefined);
     shutdownPlanCapture.current = null;
     shutdownPlanCapture.run = null;
     applicationDomainCapture.close = null;
     applicationDomainCapture.options = null;
     nativeReconfigureForReset.current = null;
+    nativeActualPrepareForPause.current = null;
     nativePrepareForPause.mockReset().mockResolvedValue(null);
     publicEmbeddingStop.current = null;
     isDesktopShuttingDownMock.mockReturnValue(false);
@@ -391,6 +411,10 @@ export {
   maintenanceStopMock,
   mockApp,
   mockBrowserWindowInstance,
+  nativeAcquire,
+  nativeAcquireProfile,
+  nativeAcquireRead,
+  nativeActualPrepareForPause,
   nativeCloseForShutdown,
   nativePrepareForPause,
   nativeReconfigureForReset,

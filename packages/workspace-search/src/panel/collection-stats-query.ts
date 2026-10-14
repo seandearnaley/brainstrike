@@ -44,10 +44,9 @@ export function toStatsNumber(value: null | number | string | undefined): number
  * === null` means "resolve the workspace-index set" (the store's
  * documented convention — see `workspace-search-store.ts`).
  */
-export function resolveEffectiveStatsRow(
-  rows: readonly CollectionStatsRow[],
-  collectionId: string | null
-): CollectionStatsRow | null {
+export function resolveEffectiveStatsRow<
+  T extends { id: string; systemRole?: EmbeddingSetSystemRole | null },
+>(rows: readonly T[], collectionId: string | null): T | null {
   if (collectionId) {
     return rows.find((row) => row.id === collectionId) ?? null;
   }

@@ -69,12 +69,6 @@ import {
   resolveWorktreeTargetPath,
 } from './worktree-paths';
 import {
-  emitWorktreeAdoptedEvent,
-  emitWorktreeArchivedEvent,
-  emitWorktreeCreateEvents,
-  emitWorktreeShellCreatedEvent,
-} from './worktree-run-events';
-import {
   buildRootIdByRealPath,
   createMutex,
   type RepositoryContext,
@@ -96,7 +90,7 @@ export type {
 } from './worktree-service-inputs';
 
 export function createWorktreeService(deps: WorktreeServiceDeps) {
-  const ledger = createWorktreeLedger(deps.getDatabase);
+  const ledger = createWorktreeLedger(deps.getWorktreeStore, deps.hasRunningThread);
   const serialize = createMutex();
 
   function adoptDeps(): WorktreeAdoptDeps {
@@ -322,7 +316,6 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         worktreeId: row.id,
       });
     }
-    await emitWorktreeCreateEvents(deps, params.runId, worktree, setup);
     return { ok: true, value: { setup, worktree } };
   }
 
@@ -424,8 +417,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
   }
 
   async function archiveMissingWorktree(
-    row: ManagedWorktreeRow,
-    runId: string | undefined
+    row: ManagedWorktreeRow
   ): Promise<GitResult<WorktreeArchiveResult>> {
     const snapshot = await captureMissingArchiveSnapshot({
       cwd: row.repoCommonDir,
@@ -449,7 +441,6 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     }
     try {
       const worktree = await ledger.markArchived(row.id, snapshot.value);
-      await emitWorktreeArchivedEvent(deps, runId, row, snapshot.value);
       return { ok: true, value: { snapshotRef: snapshot.value, worktree } };
     } catch (error) {
       logger.error('missing worktree was pruned but its archive ledger write failed', {
@@ -474,7 +465,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       return { error: `Managed worktree "${params.worktreeId}" is not active.`, ok: false };
     }
     if (!(await worktreePathExists(row.path))) {
-      return await archiveMissingWorktree(row, params.runId);
+      return await archiveMissingWorktree(row);
     }
     const snapshot = await captureArchiveSnapshot({ cwd: row.path, run: deps.run, worktree: row });
     if (!snapshot.ok) {
@@ -501,7 +492,6 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     }
     try {
       const worktree = await ledger.markArchived(row.id, snapshot.value);
-      await emitWorktreeArchivedEvent(deps, params.runId, row, snapshot.value);
       return { ok: true, value: { snapshotRef: snapshot.value, worktree } };
     } catch (error) {
       logger.error('worktree was removed but its archive ledger write failed', {
@@ -722,9 +712,6 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       return await serialize(async () => {
         try {
           const adopted = await adoptWorktree(adoptDeps(), params);
-          if (adopted.ok) {
-            await emitWorktreeAdoptedEvent(deps, params.runId ?? null, adopted.value);
-          }
           return adopted;
         } catch (error) {
           logger.error('worktree adopt failed', { error, path: params.path });
@@ -938,18 +925,6 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
           return { error: toErrorMessage(error), ok: false };
         }
       });
-    },
-    /**
-     * A legacy run's timeline breadcrumbs for the worktrees its shell made. An
-     * agent-host run's caller commits them to the host log instead.
-     */
-    async recordShellAdoptions(
-      runId: string,
-      adopted: readonly ManagedWorktreeRow[]
-    ): Promise<void> {
-      for (const row of adopted) {
-        await emitWorktreeShellCreatedEvent(deps, runId, row);
-      }
     },
     async repositoryContextForRoot(rootId: string): Promise<GitResult<RepositoryContext>> {
       return await resolveRepositoryContext(rootId);

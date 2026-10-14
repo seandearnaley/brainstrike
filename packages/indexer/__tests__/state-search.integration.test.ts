@@ -121,7 +121,7 @@ it('a purged event and a deleted thread leave no search rows', async () => {
   }
 });
 
-it('an upgraded schema 10 store projects search rows from the events it already holds', async () => {
+it('a current schema store retains searchable committed rows through physical close and reopen', async () => {
   const f = await fixture();
   await append(f.store, 'one', [
     { prompt: 'Saffron notes for dinner', runId: 'run-1', type: 'prompt' },
@@ -130,16 +130,6 @@ it('an upgraded schema 10 store projects search rows from the events it already 
   await f.port.catchUpState(['one']);
   await f.close();
   owned.splice(owned.indexOf(f.close), 1);
-  // The schema 10 layout: no search or search-vector storage, everything else unchanged.
-  const db = openConnection(f.options.dbPath);
-  try {
-    db.exec(
-      'DROP TABLE state_search_vector_failures; DROP TABLE state_search_vectors; DROP TABLE state_search_fts; DROP TABLE state_search_rows;'
-    );
-    db.prepare('UPDATE index_metadata SET schema_version=10').run();
-  } finally {
-    db.close();
-  }
   const port = await openIndexer(f.options, deadlines);
   owned.push(() => port.close());
   expect(
@@ -152,10 +142,10 @@ it('an upgraded schema 10 store projects search rows from the events it already 
       { role: 'assistant', seq: 2 },
     ])
   );
-  const upgraded = openConnection(f.options.dbPath, { readonly: true });
+  const reopened = openConnection(f.options.dbPath, { readonly: true });
   try {
-    expect(upgraded.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(13);
+    expect(reopened.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(14);
   } finally {
-    upgraded.close();
+    reopened.close();
   }
 });

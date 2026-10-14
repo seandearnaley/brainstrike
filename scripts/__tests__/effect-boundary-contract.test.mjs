@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -471,30 +472,51 @@ test('the effect usage detector fires on known violations and ignores look-alike
   assert.equal(isProductionSource('packages/x/src/a.integration.test.ts'), false);
 });
 
-test('both desktop maintenance schedulers delegate trigger resources to the scoped owner', () => {
-  for (const name of ['database', 'dimension-index']) {
-    const source = readRepoFile(`apps/desktop/src/${name}-maintenance-scheduler.ts`);
-    assert.match(source, /createMaintenanceTriggerRuntime\(/u, `${name} adopts the shared owner`);
-    assert.doesNotMatch(
-      source,
-      /\bset(?:Timeout|Interval)\s*\(/u,
-      `${name} cannot retain a second timer owner`
-    );
+test('retained maintenance graph joins both trigger releases and rolls back failed acquisition', async () => {
+  const desktopRequire = createRequire(path.join(repoRoot, 'apps/desktop/package.json'));
+  const dbRequire = createRequire(path.join(repoRoot, 'packages/db/package.json'));
+  const { require: requireTs } = dbRequire('tsx/cjs/api');
+  const { Effect } = desktopRequire('effect');
+  const { createDesktopMaintenanceTriggerGraph } = requireTs(
+    '../../apps/desktop/src/desktop-maintenance-trigger-graph.ts',
+    import.meta.url
+  );
+  const released = [];
+  const live = [];
+  const trigger = (id) => ({
+    acquireTrigger: (isLive) =>
+      Effect.acquireRelease(
+        Effect.sync(() => {
+          live.push(isLive);
+        }),
+        () =>
+          Effect.sync(() => {
+            released.push(id);
+          })
+      ),
+  });
+  const graph = createDesktopMaintenanceTriggerGraph(trigger('database'), trigger('dimension'));
+  try {
+    await Promise.all([graph.start(), graph.start()]);
+    assert.equal(live.length, 2);
+    assert.ok(live.every((isLive) => isLive()));
+    graph.stop();
+    assert.ok(live.every((isLive) => !isLive()));
+    await Promise.all([graph.close(), graph.close()]);
+    assert.deepEqual(released.toSorted(), ['database', 'dimension']);
+  } finally {
+    await graph.close();
   }
-  const owner = readRepoFile('apps/desktop/src/maintenance-trigger-runtime.ts');
-  assert.match(owner, /Effect\.acquireRelease\(/u);
-  assert.match(owner, /Scope\.close\(/u);
-  assert.match(owner, /runAtPromiseBoundary\(/u);
-  const graph = readRepoFile('apps/desktop/src/desktop-maintenance-trigger-graph.ts');
-  assert.match(graph, /Context\.Service</u);
-  assert.match(graph, /Layer\.effect\(/u);
-  assert.match(graph, /Layer\.buildWithScope\(/u);
-  assert.match(graph, /Scope\.fork\(layerScope, 'parallel'\)/u);
-  assert.match(graph, /Scope\.fork\(groupScope, 'sequential'\)/u);
-  assert.match(graph, /runAtPromiseBoundary\(Effect\.exit\(/u);
-  const main = readRepoFile('apps/desktop/src/main.ts');
-  assert.match(main, /createDesktopMaintenanceTriggerGraph\(/u);
-  assert.match(main, /error: serializeDesktopError\(error\)/u);
+  released.length = 0;
+  const failure = new Error('second trigger acquisition failed');
+  const failed = createDesktopMaintenanceTriggerGraph(trigger('database'), {
+    acquireTrigger: () => Effect.die(failure),
+  });
+  await assert.rejects(failed.start(), (error) => error === failure);
+  assert.equal(live.at(-1)(), false);
+  assert.deepEqual(released, ['database']);
+  await assert.rejects(failed.close(), (error) => error === failure);
+  assert.deepEqual(released, ['database']);
 });
 
 test('provider auth owns fetch and body deadlines at one Effect boundary', () => {

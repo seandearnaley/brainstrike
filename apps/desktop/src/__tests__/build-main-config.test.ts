@@ -172,6 +172,7 @@ describe('main-process bundle config', () => {
       '@brainstrike/assistant-data/assistant-memory-resource',
       '@brainstrike/assistant-data/assistant-thread-run-reaper',
       '@brainstrike/notes-vault/core',
+      '@brainstrike/types/catalog-args',
       '@brainstrike/workspace-search/core',
     ]);
     expect(
@@ -193,6 +194,11 @@ describe('main-process bundle config', () => {
     expect(
       aliases['@brainstrike/notes-vault/core']?.endsWith(
         path.join('packages', 'notes-vault', 'src', 'core', 'index.ts')
+      )
+    ).toBe(true);
+    expect(
+      aliases['@brainstrike/types/catalog-args']?.endsWith(
+        path.join('packages', 'types', 'src', 'catalog-args', 'index.ts')
       )
     ).toBe(true);
     expect(

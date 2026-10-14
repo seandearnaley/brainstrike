@@ -1,10 +1,16 @@
 import { ipcMain } from 'electron';
+import { mainDiagnosticEventsReader } from './assistant-server/query-diagnostics-tool';
 import {
   collectDesktopPlatformDiagnostics,
   DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL,
   type DesktopPlatformDiagnosticsProviders,
 } from './desktop-platform-diagnostics';
 import { assertMainLogWindowRequest } from './diagnostics/main-log-window';
+import {
+  assertRetainedEventsQuery,
+  assertRetainedFingerprintCount,
+  assertUnseenDiagnosticsWatermark,
+} from './diagnostics/retained-events-request';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry, settleIpcResult } from './platform/desktop-ipc-registry';
 
@@ -48,6 +54,31 @@ export function registerDesktopDiagnosticsIpcHandlers(
       settleIpcResult({ category: 'diagnostics', code: 'diagnostics.counters-failed' }, () =>
         providers.processCounters.getSnapshot()
       )
+  );
+
+  registry.registerAuthorizedInvoke(
+    'diagnostics',
+    DESKTOP_IPC_CHANNELS.diagnostics.queryEvents,
+    { roles: ['visible-ui'] },
+    async (_event, request: unknown) =>
+      mainDiagnosticEventsReader.queryEvents(assertRetainedEventsQuery(request))
+  );
+  registry.registerAuthorizedInvoke(
+    'diagnostics',
+    DESKTOP_IPC_CHANNELS.diagnostics.countByFingerprint,
+    { roles: ['visible-ui'] },
+    async (_event, request: unknown) => {
+      const { fingerprint, sinceMs } = assertRetainedFingerprintCount(request);
+      return mainDiagnosticEventsReader.countByFingerprint(fingerprint, sinceMs);
+    }
+  );
+
+  registry.registerAuthorizedInvoke(
+    'diagnostics',
+    DESKTOP_IPC_CHANNELS.diagnostics.getUnseenCounts,
+    { roles: ['visible-ui'] },
+    async (_event, sinceMs: unknown) =>
+      mainDiagnosticEventsReader.getUnseenCounts(assertUnseenDiagnosticsWatermark(sinceMs))
   );
 
   return () => registry.unregisterAll();

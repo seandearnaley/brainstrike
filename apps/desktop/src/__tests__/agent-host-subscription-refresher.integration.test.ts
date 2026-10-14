@@ -24,6 +24,7 @@ import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platfo
 import { MainMcpHostControl } from '../mcp/main-host-control';
 import { capturedIntent, mainReads } from './fixtures/desktop-admission-reads';
 import { desktopAppPaths } from './fixtures/desktop-host-profile';
+import { expectHostPrivateFailure } from './fixtures/host-private-boundary-failure';
 import { serveInProcessDesktopPlatform } from './fixtures/in-process-desktop-platform';
 
 /** The shipped Codex endpoints (descriptors/openai-codex), matched as recorded. */
@@ -180,10 +181,12 @@ test('a desktop run and the legacy verifier share the host refresher without rep
 
     // A CLI client on the public socket can neither verify nor reset.
     socket = await attachAgentHost(host.record);
-    await expect(socket.request('auth/verify', { provider: 'openai-codex' })).rejects.toThrow(
-      "desktop's private client"
+    const publicClient = socket;
+    await expectHostPrivateFailure(
+      () => publicClient.request('auth/verify', { provider: 'openai-codex' }),
+      'auth/verify'
     );
-    await expect(socket.request('auth/clear', {})).rejects.toThrow("desktop's private client");
+    await expectHostPrivateFailure(() => publicClient.request('auth/clear', {}), 'auth/clear');
 
     // Factory reset through the desktop client drops the refreshed sign-in.
     await expect(ui.request('auth/clear', {})).resolves.toEqual({ cleared: true });

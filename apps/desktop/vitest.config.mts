@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { transformersOnnxRuntimeWasmUrlsPlugin } from '@brainstrike/build-utils';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
@@ -110,6 +111,10 @@ export const WINDOWS_DESKTOP_TEST_PROJECTS: TestProjectConfiguration[] = [
 const coverageEnabled =
   process.env['COVERAGE'] !== 'false' &&
   (process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true');
+
+const desktopRoot = import.meta.dirname;
+const workspaceRoot = path.resolve(desktopRoot, '../..');
+const require = createRequire(import.meta.url);
 
 export default defineConfig({
   plugins: [
@@ -287,6 +292,10 @@ export default defineConfig({
       ...workspaceSrcAliases(path.resolve(import.meta.dirname, '../../packages')),
     ],
   },
+  // Vitest 5 routes uncovered-file transforms by project root. Desktop also
+  // measures Core sources, so the transform owner must contain those files.
+  // test.dir retains the desktop-only test selection (mini-cutover-full-v2).
+  root: workspaceRoot,
   test: {
     // Include the shared Core sources exercised by Desktop; workspace preparation
     // attributes those hits to their source package instead of the app shell.
@@ -299,28 +308,21 @@ export default defineConfig({
         '**/dist/**',
         '**/node_modules/**',
         '**/e2e/**',
-        'src/main-bootstrap.ts',
-        'src/main.ts',
-        'src/preload.ts',
+        'apps/desktop/src/main-bootstrap.ts',
+        'apps/desktop/src/main.ts',
+        'apps/desktop/src/preload.ts',
       ],
       include: [
-        'src/**/*.{ts,tsx}',
-        path
-          .resolve(import.meta.dirname, '../../packages/assistant-service/src/**/*.{ts,mjs}')
-          .split(path.sep)
-          .join('/'),
-        path
-          .resolve(import.meta.dirname, '../../packages/host-capabilities/src/**/*.{ts,mjs}')
-          .split(path.sep)
-          .join('/'),
-        path
-          .resolve(import.meta.dirname, '../../packages/file-system/src/**/*.{ts,tsx}')
-          .split(path.sep)
-          .join('/'),
+        'apps/desktop/src/**/*.{ts,tsx}',
+        'packages/assistant-service/src/**/*.{ts,mjs}',
+        'packages/host-capabilities/src/**/*.{ts,mjs}',
+        'packages/file-system/src/**/*.{ts,tsx}',
       ],
       // Preserve the expensive native pass even if one assertion fails (BST-1935).
       reportOnFailure: true,
+      reportsDirectory: path.join(desktopRoot, 'coverage'),
     },
+    dir: desktopRoot,
     environment: 'jsdom',
     exclude: [
       '**/node_modules/**',
@@ -355,9 +357,9 @@ export default defineConfig({
       },
     },
     setupFiles: [
-      '@brainstrike/test-utils/vitest.event-loop-watchdog.setup',
-      '@brainstrike/test-utils/vitest.setup',
-      './src/__tests__/setup.ts',
+      require.resolve('@brainstrike/test-utils/vitest.event-loop-watchdog.setup'),
+      require.resolve('@brainstrike/test-utils/vitest.setup'),
+      path.join(desktopRoot, 'src/__tests__/setup.ts'),
     ],
     shard: resolveDesktopTestShard(),
     testTimeout: getAdjustedTimeout('uiComponent'),

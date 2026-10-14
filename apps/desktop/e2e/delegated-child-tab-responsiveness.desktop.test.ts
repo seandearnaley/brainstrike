@@ -75,6 +75,19 @@ test('switches among running child tabs and retains the child draft', async ({
         .getByRole('textbox', { name: 'Message input' })
         .fill(assembledMarkers.parentPrompt);
       await root.getByRole('button', { exact: true, name: 'Send' }).click();
+      // The shared provider fixture holds stream dispatch until both parked
+      // children release their work permits by requesting approval.
+      await expect
+        .poll(
+          async () =>
+            (await readHostThreadTree(electron.getUserDataDir())).filter(
+              ({ parentThreadId, rows }) =>
+                parentThreadId !== undefined &&
+                rows.some(({ event }) => event.type === 'interaction.requested')
+            ).length
+        )
+        .toBe(2);
+      fixture.releaseStreams();
       await expect(root.getByText('ASSEMBLED_ROOT_CONTINUES_1770', { exact: true })).toBeVisible();
 
       // Each delegation is its own activity group, headed by its persona.

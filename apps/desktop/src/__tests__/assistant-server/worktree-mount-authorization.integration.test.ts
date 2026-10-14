@@ -1,18 +1,16 @@
+// @vitest-environment node
+
 /**
  * The picker-less mount authorization seam (`isManagedWorktreePath` →
- * `isAuthorizedWorktreeMountPath`), over real git + real PGlite — extracted
+ * `isAuthorizedWorktreeMountPath`), over real git + real SQLite — extracted
  * from `worktree-service.integration.test.ts` when the BST-1392 follow-up
  * widening pushed that file over the 1000-line ceiling. Same harness
  * (`worktree-service.shared.ts`); the whole authorization concern lives here.
  */
 import { mkdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
-import { runDrizzleMigrations as runMigrations } from '@brainstrike/db';
+import { StateStore } from '@brainstrike/state-store';
 import type { GitInventory } from '@brainstrike/types';
-import { PGlite } from '@electric-sql/pglite';
-import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
-import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
-import { vector } from '@electric-sql/pglite-pgvector';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const loggerWarnSpy = vi.hoisted(() => vi.fn());
@@ -30,8 +28,8 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 import type { createWorktreeService } from '../../assistant-server/worktree-service';
 import { buildTestService, createTestWorkspace, git } from './worktree-service.shared';
 
-describe('WorktreeService mount authorization (real git + real PGlite)', () => {
-  let db: PGlite;
+describe('WorktreeService mount authorization (real git + real SQLite)', () => {
+  let db: StateStore;
   let repo: string;
   let managedDirectory: string;
   const workspace = createTestWorkspace();
@@ -41,8 +39,7 @@ describe('WorktreeService mount authorization (real git + real PGlite)', () => {
 
   beforeEach(async () => {
     loggerWarnSpy.mockClear();
-    db = new PGlite({ extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector } });
-    await runMigrations(db);
+    db = await StateStore.open(workspace.freshTempDir('bst-worktree-state-'));
     repo = workspace.freshRepo('repo');
     managedDirectory = workspace.freshManagedDir();
   });

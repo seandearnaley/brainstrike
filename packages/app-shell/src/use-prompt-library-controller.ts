@@ -1,6 +1,7 @@
-import type { PromptItem, PromptItemRepository, PromptItemSimilarityResult } from '@brainstrike/db';
+import type { PromptItem, PromptItemSimilarityResult } from '@brainstrike/db';
 import type { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
 import type { QueueAdapter } from '@brainstrike/queue';
+import type { PromptItemRepositoryPort } from '@brainstrike/types/prompt-item';
 import type {
   EmbeddingSetModelInfo,
   UseSearchEmbedderResult,
@@ -13,12 +14,12 @@ export type PromptManagerReadiness =
   | { readonly status: 'loading' }
   | {
       readonly error: string;
-      readonly repository: PromptItemRepository;
+      readonly repository: PromptItemRepositoryPort;
       readonly status: 'error';
     }
   | {
       readonly items: readonly PromptItem[];
-      readonly repository: PromptItemRepository;
+      readonly repository: PromptItemRepositoryPort;
       readonly status: 'ready';
     };
 
@@ -31,7 +32,8 @@ interface UsePromptLibraryControllerOptions {
   readonly embedder: UseSearchEmbedderResult;
   readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
   readonly localModelConfigMap: ReturnType<typeof buildLocalEmbeddingModelConfigMap>;
-  readonly repository: PromptItemRepository | null;
+  readonly nativeEmbeddingHost?: boolean;
+  readonly repository: PromptItemRepositoryPort | null;
   readonly suggestionsEnabled: boolean;
 }
 
@@ -78,12 +80,12 @@ function usePromptRecallAbortController(enabled: boolean) {
   return controllerRef;
 }
 
-async function loadInitialPromptItems(repository: PromptItemRepository): Promise<PromptItem[]> {
+async function loadInitialPromptItems(repository: PromptItemRepositoryPort): Promise<PromptItem[]> {
   return repository.list();
 }
 
 async function reloadPromptItemsAfterIndexing(
-  repository: PromptItemRepository,
+  repository: PromptItemRepositoryPort,
   runIndexingPass: () => Promise<PromptIndexingPassResult>
 ): Promise<
   | {
@@ -108,6 +110,7 @@ async function reloadPromptItemsAfterIndexing(
 
 export function usePromptLibraryController({
   embedder,
+  nativeEmbeddingHost = false,
   loadEmbeddingQueue,
   localModelConfigMap,
   repository,
@@ -128,11 +131,15 @@ export function usePromptLibraryController({
   }, [localModelConfigMap, repository]);
 
   const ensureEmbeddingQueueReady = useCallback(async (): Promise<void> => {
+    // The host embedder owns on-demand inference; only web has a background queue.
+    if (nativeEmbeddingHost) {
+      return;
+    }
     if (!loadEmbeddingQueue) {
       throw new Error('Prompt embeddings require an application embedding queue.');
     }
     await loadEmbeddingQueue();
-  }, [loadEmbeddingQueue]);
+  }, [loadEmbeddingQueue, nativeEmbeddingHost]);
 
   const performPendingItemIndexing = useCallback(async () => {
     if (!repository) {

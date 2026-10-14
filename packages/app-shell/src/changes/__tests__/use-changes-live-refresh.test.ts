@@ -21,14 +21,10 @@ function stubBridge(onInvalidated: ChangesBridge['onInvalidated']): {
 } {
   const listeners: ((event: ChangesInvalidationEvent) => void)[] = [];
   (window as unknown as { changes?: ChangesBridge }).changes = {
-    applyRewind: vi.fn(),
     fileDiff: vi.fn(),
-    finalizeRewinds: vi.fn(),
     inventory: vi.fn(),
     onInvalidated,
-    redoRewind: vi.fn(),
     resolveView: vi.fn(),
-    rewindPreview: vi.fn(),
   };
   return { listeners };
 }

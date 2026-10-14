@@ -1,3 +1,8 @@
+import type { CollectionCatalogCapability } from '@brainstrike/assistant-contract';
+import {
+  type BoundaryTransport,
+  createBoundaryCapability,
+} from '@brainstrike/assistant-contract/boundary-result';
 /**
  * The DbProvider consumer hooks, split out of `db-provider.tsx` so that file
  * exports only the component: mixing hook and component exports breaks the
@@ -11,11 +16,12 @@
  * import graph and fails on any React import.
  */
 import { createLogger } from '@brainstrike/logging';
-import { useContext, useEffect } from 'react';
+import { useContext, useEffect, useMemo } from 'react';
 import { DbContext, type DbContextValue, type DbInitializationStatus } from './db-context.js';
 import type { DbHandle } from './db-handle.js';
 import type { LiveQueryDrainRegistry } from './db-reset-drain.js';
 import type { DrizzleDb } from './drizzle/database.js';
+import { createCollectionCatalogRepository } from './repositories/collection-catalog-repository.js';
 import type { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-repository.js';
 import type { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
 import type {
@@ -44,6 +50,7 @@ type NullableDbField = {
 }[keyof DbContextValue];
 
 interface DbSelectorConfig<T> {
+  enabled?: boolean;
   hookName: string;
   /**
    * 'warn' logs `<hookName> must be used within a DbProvider` when there is
@@ -63,6 +70,7 @@ interface DbSelectorConfig<T> {
  * once the provider is ready and error-free.
  */
 function useDbSelector<T>({
+  enabled = true,
   hookName,
   onMissingProvider,
   select,
@@ -80,12 +88,16 @@ function useDbSelector<T>({
   // Trigger lazy initialization when first accessed
   // Only trigger if not already initializing to avoid duplicate calls
   useEffect(() => {
-    if (!(watched || error || initializing) && initializeDatabase) {
+    if (enabled && !(watched || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
         logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
-  }, [watched, error, initializing, initializeDatabase]);
+  }, [enabled, watched, error, initializing, initializeDatabase]);
+
+  if (!enabled) {
+    return null;
+  }
 
   if (!ctx) {
     if (onMissingProvider === 'warn') {
@@ -109,8 +121,11 @@ export function useVectorEnabled(): boolean {
  * Hook to check if database initialization is in progress.
  * Useful for showing loading states in UI components.
  */
-export function useDbInitializing(): boolean {
+export function useDbInitializing(options: { enabled?: boolean } = {}): boolean {
   const ctx = useContext(DbContext);
+  if (options.enabled === false) {
+    return false;
+  }
   if (!ctx) {
     throw new Error('useDbInitializing must be used within a DbProvider');
   }
@@ -131,19 +146,22 @@ export function useDbInitializationStatus(): DbInitializationStatus {
   return ctx.initializationStatus;
 }
 
-export function useDbProviderError(): Error | null {
+export function useDbProviderError(options: { enabled?: boolean } = {}): Error | null {
   const ctx = useContext(DbContext);
+  if (options.enabled === false) {
+    return null;
+  }
   if (!ctx) {
     throw new Error('useDbProviderError must be used within a DbProvider');
   }
   return ctx.error;
 }
 
-export function useFileRecordRepository():
-  | DrizzleFileRecordRepository
-  | ElectronFileRecordRepository
-  | null {
+export function useFileRecordRepository(
+  options: { enabled?: boolean } = {}
+): DrizzleFileRecordRepository | ElectronFileRecordRepository | null {
   return useDbSelector({
+    ...options,
     hookName: 'useFileRecordRepository',
     onMissingProvider: 'warn',
     select: (ctx) => ctx.fileRecordRepository,
@@ -151,8 +169,10 @@ export function useFileRecordRepository():
   });
 }
 
-export function usePGliteDatabase(): DbHandle | null {
+/** A disabled platform arm neither initializes nor reads PG and needs no DbProvider. */
+export function usePGliteDatabase(options: { enabled?: boolean } = {}): DbHandle | null {
   return useDbSelector({
+    ...options,
     hookName: 'usePGliteDatabase',
     onMissingProvider: 'warn',
     select: (ctx) => ctx.db,
@@ -181,8 +201,11 @@ export function useOptionalPGliteDatabase(): DbHandle | null {
   });
 }
 
-export function useFileChunkRepository(): IFileChunkRepository | null {
+export function useFileChunkRepository(
+  options: { enabled?: boolean } = {}
+): IFileChunkRepository | null {
   return useDbSelector({
+    ...options,
     hookName: 'useFileChunkRepository',
     onMissingProvider: 'warn',
     select: (ctx) => ctx.chunkRepository,
@@ -202,8 +225,9 @@ export function useClearAllData():
   });
 }
 
-export function useFactoryReset(): (() => Promise<void>) | null {
+export function useFactoryReset(options?: { enabled?: boolean }): (() => Promise<void>) | null {
   return useDbSelector({
+    ...options,
     hookName: 'useFactoryReset',
     onMissingProvider: 'warn',
     select: (ctx) => ctx.factoryReset,
@@ -226,8 +250,9 @@ export function useClearQueuesAndEmbeddingSets(): (() => Promise<void>) | null {
  * Hook to access the Drizzle database instance directly.
  * Use this for advanced queries or when you need the raw Drizzle instance.
  */
-export function useDrizzleDb(): DrizzleDb | null {
+export function useDrizzleDb(options: { enabled?: boolean } = {}): DrizzleDb | null {
   return useDbSelector({
+    ...options,
     hookName: 'useDrizzleDb',
     onMissingProvider: 'warn',
     select: (ctx) => ctx.drizzleDb,
@@ -240,20 +265,37 @@ export function useDrizzleDb(): DrizzleDb | null {
  * Use this to manage embedding sets (collections) in the database.
  */
 export function useEmbeddingSetsRepository(): IEmbeddingSetsRepository | null {
-  return useDbSelector({
+  const transport =
+    typeof window === 'undefined'
+      ? undefined
+      : (window as Window & { collectionCatalog?: BoundaryTransport<CollectionCatalogCapability> })
+          .collectionCatalog;
+  const catalog = transport
+    ? createBoundaryCapability<CollectionCatalogCapability>(transport)
+    : undefined;
+  const desktop = useMemo(
+    () => (catalog ? createCollectionCatalogRepository(catalog) : null),
+    [catalog]
+  );
+  const web = useDbSelector({
+    enabled: !catalog,
     hookName: 'useEmbeddingSetsRepository',
     onMissingProvider: 'warn',
     select: (ctx) => ctx.embeddingSetsRepository,
     watch: 'embeddingSetsRepository',
   });
+  return desktop ?? web;
 }
 
 /**
  * Hook to access the ViewFilterPresets repository.
  * Use this to manage view filter presets (include/exclude patterns) in the database.
  */
-export function useViewFilterPresetsRepository(): IViewFilterPresetsRepository | null {
+export function useViewFilterPresetsRepository(
+  options: { enabled?: boolean } = {}
+): IViewFilterPresetsRepository | null {
   return useDbSelector({
+    ...options,
     hookName: 'useViewFilterPresetsRepository',
     onMissingProvider: 'warn',
     select: (ctx) => ctx.viewFilterPresetsRepository,

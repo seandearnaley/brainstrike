@@ -6,12 +6,6 @@ import type {
 } from '@brainstrike/agent-host';
 import { createLogger } from '@brainstrike/logging';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
-import {
-  type CheckpointReindexAction,
-  createCheckpointReindexDeps,
-} from '../assistant-server/checkpoint-reindex-deps';
-import type { MainQueryHandle } from '../assistant-server/main-query-handle';
-import { reindexOutcome } from '../assistant-server/rewind-snapshot-engine';
 import { listThreadSnapshotChain } from '../assistant-server/snapshot-chains';
 import { execFileSnapshotGitRunner } from '../assistant-server/snapshot-git';
 import type {
@@ -19,7 +13,6 @@ import type {
   ShadowRepoHandle,
   SnapshotService,
 } from '../assistant-server/snapshot-service';
-import { getDatabase } from '../db-main';
 import {
   PlatformRewindApplySchema,
   PlatformRewindConflictsSchema,
@@ -44,12 +37,8 @@ interface StoredPreview {
 
 /** Main's owners a host rewind borrows: the one shadow-git service and the live root owner. */
 export interface HostRewindFilesOwners {
-  /**
-   * The same reindex seam legacy restores feed (`createCheckpointReindexDeps`):
-   * a restored path re-indexes and a deleted one invalidates, explicitly, not
-   * left to file watchers.
-   */
-  readonly reindex: () => Promise<(action: CheckpointReindexAction) => Promise<void>>;
+  /** Request one full scan from the existing native workspace owner after disk restoration. */
+  readonly refreshWorkspaceIndex: (rootId: string) => Promise<void>;
   /** The live path of a mounted root; rejects an unmounted one. */
   readonly resolveWorkspaceRoot: (rootId: string) => Promise<string>;
   readonly snapshots: () => SnapshotService | null;
@@ -104,27 +93,22 @@ export function createHostRewindFiles(owners: HostRewindFilesOwners) {
   }
 
   /**
-   * Legacy's post-restore reindex, path by path. Like legacy's, its failures
-   * are logged, never fatal: the files are already restored, and a failed
-   * report over a succeeded restore would be the worse lie.
+   * Request the existing native scanner once per changed root. An index failure
+   * remains diagnostic: it does not reverse the completed filesystem restore.
    */
-  async function reindexAll(
-    handle: ShadowRepoHandle,
-    rootId: string,
-    applied: readonly PerFileOutcome[]
-  ): Promise<void> {
-    let reindex: (action: CheckpointReindexAction) => Promise<void>;
+  async function reindexAll(rootId: string, applied: readonly PerFileOutcome[]): Promise<void> {
+    if (
+      !applied.some((outcome) => outcome.outcome === 'restored' || outcome.outcome === 'deleted')
+    ) {
+      return;
+    }
     try {
-      reindex = await owners.reindex();
+      await owners.refreshWorkspaceIndex(rootId);
     } catch (error) {
-      logger.error('Host rewind reindex is unavailable (non-fatal; files already restored)', {
+      logger.error('Host rewind index refresh failed (files already restored)', {
         error: error instanceof Error ? error.message : String(error),
         rootId,
       });
-      return;
-    }
-    for (const outcome of applied) {
-      await reindexOutcome(reindex, handle.rootPath, rootId, outcome);
     }
   }
 
@@ -206,7 +190,7 @@ export function createHostRewindFiles(owners: HostRewindFilesOwners) {
         const applied = await owner.applyRestorePlan(handle, plan, {
           expectedPreRevertHashes: expected,
         });
-        await reindexAll(handle, target.rootId, applied);
+        await reindexAll(target.rootId, applied);
         outcomes.push(...applied.map((outcome) => outcomeOf(target.rootId, outcome)));
       }
       return outcomes;
@@ -273,7 +257,7 @@ export function createHostRewindFiles(owners: HostRewindFilesOwners) {
         const applied = await owner.applyRestorePlan(planned.handle, planned.plan, {
           expectedPreRevertHashes: expected,
         });
-        await reindexAll(planned.handle, target.rootId, applied);
+        await reindexAll(target.rootId, applied);
         outcomes.push(...applied.map((outcome) => outcomeOf(target.rootId, outcome)));
       }
       return outcomes;
@@ -313,12 +297,16 @@ export function serveHostRewindFiles(
   owners: {
     readonly resolveWorkspaceRoot?: (rootId: string) => Promise<string>;
     readonly workspaceSnapshots?: () => SnapshotService | null;
+    readonly refreshWorkspaceIndex?: (rootId: string) => Promise<void>;
   }
 ): void {
   const files = createHostRewindFiles({
-    reindex: async () =>
-      (await createCheckpointReindexDeps((await getDatabase()) as unknown as MainQueryHandle))
-        .reindex,
+    refreshWorkspaceIndex: async (rootId) => {
+      if (!owners.refreshWorkspaceIndex) {
+        throw new Error('Desktop has no native workspace index owner');
+      }
+      await owners.refreshWorkspaceIndex(rootId);
+    },
     resolveWorkspaceRoot: (rootId) => {
       if (!owners.resolveWorkspaceRoot) {
         throw new Error('Desktop has no live workspace root owner');

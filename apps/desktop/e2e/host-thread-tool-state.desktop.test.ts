@@ -4,8 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { readAgentHostLog } from './utils/agent-host-log';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { readAgentHostLog, readHostRetiredTableSnapshot } from './utils/agent-host-log';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { seedRoot } from './utils/seed-root';
@@ -35,43 +35,27 @@ async function enableModel(page: Page): Promise<void> {
     compositeModelKey: `openrouter::${MODEL}`,
     provider: 'openrouter',
   });
-  await page.evaluate(async (model) => {
-    const db = (
-      window as unknown as {
-        electronAPI: { db: { query: (sql: string, params: unknown[]) => Promise<unknown> } };
-      }
-    ).electronAPI.db;
-    await db.query('UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2', [
-      model,
-      'openrouter',
-    ]);
-  }, MODEL);
+  await enableAssistantCatalogModel(page, `openrouter::${MODEL}`);
 }
 
 /**
- * Whether the legacy assistant's task list and canvas tables exist. Migration
- * 147 dropped them: a host thread owns both facts in its own log.
+ * Retired task/canvas rows remain unwritten; current facts live in the host log.
+ * Any absent retired table has zero rows, and no renderer SQL capability exists.
  */
-async function legacyToolStateTables(page: Page): Promise<Record<string, boolean>> {
-  return await page.evaluate(async () => {
-    const db = (
-      window as unknown as {
-        electronAPI: {
-          db: {
-            query: (sql: string, params: unknown[]) => Promise<{ rows: { present: boolean }[] }>;
-          };
-        };
-      }
-    ).electronAPI.db;
-    const present: Record<string, boolean> = {};
-    for (const table of ['brainstrike_assistant_task_lists', 'brainstrike_canvas_versions']) {
-      const { rows } = await db.query('SELECT to_regclass($1) IS NOT NULL AS present', [
-        `public.${table}`,
-      ]);
-      present[table] = rows[0]?.present === true;
+async function legacyToolStateTables(page: Page): Promise<Record<string, number>> {
+  const userData = await page.evaluate(() => {
+    if (!window.electronAPI || Reflect.has(window.electronAPI, 'db')) {
+      throw new Error('Retired SQL capability exposed');
     }
-    return present;
+    return window.electronAPI.getUserDataPath();
   });
+  const snapshot = await readHostRetiredTableSnapshot(userData, [
+    'brainstrike_assistant_task_lists',
+    'brainstrike_canvas_versions',
+  ]);
+  return Object.fromEntries(
+    Object.entries(snapshot).map(([table, state]) => [table, state === 'absent' ? 0 : state.rows])
+  );
 }
 
 async function expectTaskListAndCanvas(page: Page, region: Locator): Promise<void> {
@@ -150,8 +134,8 @@ test('a host run’s task list and canvas survive a reload and are gone with the
     expect(before.threads).toBe(1);
     expect(before.typeCounts['tool.state.updated']).toBe(2);
     expect(await legacyToolStateTables(page)).toEqual({
-      brainstrike_assistant_task_lists: false,
-      brainstrike_canvas_versions: false,
+      brainstrike_assistant_task_lists: 0,
+      brainstrike_canvas_versions: 0,
     });
 
     // Delete the titled thread from the Threads panel while another (new) host thread is active.
@@ -174,8 +158,8 @@ test('a host run’s task list and canvas survive a reload and are gone with the
     expect(after.threads).toBe(1);
     expect(after.typeCounts['tool.state.updated']).toBeUndefined();
     expect(await legacyToolStateTables(page)).toEqual({
-      brainstrike_assistant_task_lists: false,
-      brainstrike_canvas_versions: false,
+      brainstrike_assistant_task_lists: 0,
+      brainstrike_canvas_versions: 0,
     });
     expect(modelProvider.refusals()).toEqual([]);
   } finally {

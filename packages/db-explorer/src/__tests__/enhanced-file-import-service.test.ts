@@ -2,7 +2,7 @@ import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-sta
 import type { QueueAdapter } from '@brainstrike/queue';
 import { QUEUE_PROGRESS_EVENT } from '@brainstrike/utils/browser-events';
 import { act, renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetQueueProgressSubscriberCountForTests,
   useEnhancedFileImportService,
@@ -754,5 +754,107 @@ describe('useEnhancedFileImportService', () => {
       });
       expect(useVectorStatusUIStore.getState().isEmbeddingQueueActive).toBe(false);
     });
+  });
+});
+
+describe('native collection import ownership', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it('uses the native joined counts and pending reason without starting a chunk worker or SQL pipeline', async () => {
+    vi.stubGlobal('sourceFiles', { import: vi.fn() });
+    const baseService = await import('../base-file-import-service');
+    const nativeResults = [
+      {
+        chunksCreated: 7,
+        error: 'Collection is paused; indexing remains pending.',
+        existed: false,
+        id: 'canonical-source',
+        imported: true,
+      },
+    ];
+    vi.mocked(baseService.useFileImportService).mockImplementation((options) => ({
+      importFiles: async () => {
+        options?.onComplete?.(nativeResults);
+      },
+      isImporting: false,
+      progress: null,
+    }));
+    runEnhancedImportMock.mockClear();
+    ensureStartedMock.mockClear();
+    const onComplete = vi.fn();
+    const onProgress = vi.fn();
+    const { result } = renderHook(() =>
+      useEnhancedFileImportService({
+        enableChunking: true,
+        onComplete,
+        onProgress,
+        resolveTargetEmbeddingSetId: () => 'collection',
+      })
+    );
+    await act(() =>
+      result.current.importFiles(new Set(['root:note.txt']), [], { 'root:note.txt': 'hello' })
+    );
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+    expect(ensureStartedMock).not.toHaveBeenCalled();
+    expect(mockUsePGliteDatabase).toHaveBeenLastCalledWith({ enabled: false });
+    expect(onComplete).toHaveBeenCalledWith(nativeResults);
+    expect(result.current.progress).toMatchObject({
+      completed: 1,
+      errors: [{ error: nativeResults[0]?.error, file: 'canonical-source' }],
+      phase: 'complete',
+    });
+  });
+  it('joins a committed native import before settling cancellation without replay or completion notification', async () => {
+    vi.stubGlobal('sourceFiles', { import: vi.fn() });
+    const baseService = await import('../base-file-import-service');
+    const admitted = createDeferred<void>();
+    const release = createDeferred<void>();
+    const importFiles = vi.fn(async () => {
+      admitted.resolve();
+      await release.promise;
+    });
+    vi.mocked(baseService.useFileImportService).mockImplementation((options) => ({
+      importFiles: async () => {
+        await importFiles();
+        const committed = [{ chunksCreated: 1, existed: false, id: 'retained', imported: true }];
+        options?.onComplete?.(committed);
+      },
+      isImporting: false,
+      progress: null,
+    }));
+    const onComplete = vi.fn();
+    const { result } = renderHook(() => useEnhancedFileImportService({ onComplete }));
+    let pending: Promise<void>;
+    await act(async () => {
+      pending = result.current.importFiles(new Set(['root:note.txt']), [], {});
+      await admitted.promise;
+    });
+    act(() => result.current.cancelImport());
+    expect(result.current.isImporting).toBe(true);
+    await act(async () => {
+      release.resolve();
+      await pending;
+    });
+    expect(importFiles).toHaveBeenCalledOnce();
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(result.current.isImporting).toBe(false);
+  });
+  it('does not switch to the web pipeline when the native source writer refuses', async () => {
+    vi.stubGlobal('sourceFiles', { import: vi.fn() });
+    const failure = new Error('Native source write refused');
+    const baseService = await import('../base-file-import-service');
+    vi.mocked(baseService.useFileImportService).mockImplementation((options) => ({
+      importFiles: async () => {
+        options?.onError?.(failure);
+      },
+      isImporting: false,
+      progress: null,
+    }));
+    runEnhancedImportMock.mockClear();
+    const onError = vi.fn();
+    const { result } = renderHook(() => useEnhancedFileImportService({ onError }));
+    await act(() => result.current.importFiles(new Set(['root:note.txt']), [], {}));
+    expect(onError).toHaveBeenCalledWith(failure);
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+    expect(result.current.isImporting).toBe(false);
   });
 });

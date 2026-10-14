@@ -2,6 +2,7 @@ import {
   ASSISTANT_STREAM_EVENT_ID_HEADER,
   ASSISTANT_STREAM_MESSAGE_ID_HEADER,
 } from '@brainstrike/assistant-contract/assistant-stream-session';
+import { readBoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { SecretsWriteResult } from '@brainstrike/assistant-contract/secrets-bridge';
 import { TOOL_SUSPEND_DATA_NAME } from '@brainstrike/assistant-contract/tool-suspend';
 import type { Page } from '@playwright/test';
@@ -366,24 +367,25 @@ export async function enableAssistantCatalogModel(
   const separator = compositeModelKey.indexOf('::');
   const provider = compositeModelKey.slice(0, separator);
   const model = compositeModelKey.slice(separator + 2);
-  const rows = await page.evaluate(
-    async ([providerId, modelId]) => {
-      const db = window.electronAPI?.db;
-      if (!db) {
-        throw new Error('The ordinary desktop catalog DB bridge is unavailable');
+  readBoundaryResult(
+    await page.evaluate(async (modelId) => {
+      const catalog = window.modelCatalog;
+      if (!catalog) {
+        throw new Error('The desktop model catalog capability is unavailable');
       }
-      await db.query('UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2', [
-        modelId,
-        providerId,
-      ]);
-      const after = await db.query(
-        'SELECT id, provider_id AS "providerId", is_enabled AS "isEnabled" FROM models WHERE id = $1 AND provider_id = $2',
-        [modelId, providerId]
-      );
-      return after.rows as readonly Record<string, unknown>[];
-    },
-    [provider, model] as const
+      return await catalog.setModels([modelId], true);
+    }, model)
   );
+  const after = readBoundaryResult(
+    await page.evaluate(async () => {
+      const catalog = window.modelCatalog;
+      if (!catalog) {
+        throw new Error('The desktop model catalog capability is unavailable');
+      }
+      return await catalog.read();
+    })
+  );
+  const rows = after.models.filter((row) => row.id === model && row.providerId === provider);
   const [row] = rows;
   const enabled =
     rows.length === 1 &&

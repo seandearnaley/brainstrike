@@ -3,14 +3,15 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { openHostStateIndex } from '@brainstrike/agent-host/test-fixtures/host-state-index';
 import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
-import { migrate, wasmLoader } from '@brainstrike/db';
+import { StateStore } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
 import {
   DesktopWorkspaceBindingAuthority,
   ThreadRootsRemovedError,
 } from '../agent-host-platform/desktop-workspace-binding';
-import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
+import { loadWorkspaceRootsFromCatalog } from '../assistant-server/workspace-roots';
 import { createWorktreeLedger } from '../assistant-server/worktree-ledger';
 import { WorkspaceRootRegistry } from '../ipc-domains/workspace-root-registry';
 import {
@@ -20,10 +21,20 @@ import {
 } from '../ipc-domains/workspace-root-seams';
 import { createStorage, rootHandle } from './ipc-domains/workspace-root-registry-test-helpers';
 
+async function disconnectRoot(database: StateStore, rootId: string): Promise<void> {
+  const { roots } = await database.workspaceRoots({ operation: 'list' });
+  await database.workspaceRoots({
+    mountedPaths: roots
+      .filter((root) => root.id !== rootId && root.status === 'live')
+      .map((root) => root.path),
+    operation: 'disconnect-except',
+  });
+}
+
 async function withWorkspace(
   work: (fixture: {
     authority: DesktopWorkspaceBindingAuthority;
-    database: Awaited<ReturnType<typeof wasmLoader.createPGlite>>;
+    database: StateStore;
     mount(name: string): Promise<{ rootId: string; path: string; displayName: string }>;
     registry: WorkspaceRootRegistry;
     directory: string;
@@ -31,20 +42,18 @@ async function withWorkspace(
   wrapBorrow: (lease: CanonicalWorkspaceLease) => CanonicalWorkspaceLease = (lease) => lease
 ): Promise<void> {
   const directory = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-main-binding-owner-')));
-  const database = await wasmLoader.createPGlite(`memory://main-binding-${randomUUID()}`);
+  const profile = join(directory, 'profile');
+  await mkdir(profile);
+  const stateIndex = await openHostStateIndex(profile);
+  const database = await StateStore.open(profile, { indexer: stateIndex.indexer });
   let registry: WorkspaceRootRegistry | undefined;
   let authority: DesktopWorkspaceBindingAuthority | undefined;
   try {
-    await migrate(database);
-    const catalog = {
-      query: <T>(sql: string, params?: readonly unknown[]) =>
-        database.query<T>(sql, params ? [...params] : undefined),
-    };
     registry = new WorkspaceRootRegistry({
       createSecureRoot: createNativeSecureRoot,
       disposeCommandSessionsForRoot: async () => 0,
       evictLspServersForRoot: async () => undefined,
-      getRootsDatabase: async () => catalog,
+      getRootsCatalog: async () => database,
       pathExists: async (path) => {
         try {
           return (await stat(path)).isDirectory();
@@ -57,7 +66,10 @@ async function withWorkspace(
       storage: createStorage(),
     });
     const mounted = registry;
-    const ledger = createWorktreeLedger(async () => database);
+    const ledger = createWorktreeLedger(
+      async () => database,
+      async () => false
+    );
     authority = new DesktopWorkspaceBindingAuthority({
       borrowRoot: async (root) =>
         wrapBorrow(
@@ -66,13 +78,12 @@ async function withWorkspace(
           })
         ),
       readRootNames: async (ids) => {
-        const { rows } = await database.query<{ displayName: string; id: string }>(
-          'SELECT id, display_name AS "displayName" FROM roots WHERE id = ANY($1::text[])',
-          [[...ids]]
+        const { roots } = await database.workspaceRoots({ operation: 'list' });
+        return new Map(
+          roots.filter((root) => ids.includes(root.id)).map((root) => [root.id, root.displayName])
         );
-        return new Map(rows.map((row) => [row.id, row.displayName]));
       },
-      readRoots: () => loadWorkspaceRootsFromDatabase(catalog),
+      readRoots: () => loadWorkspaceRootsFromCatalog(database),
       readWorktree: (id) => ledger.get(id),
     });
     await work({
@@ -91,6 +102,7 @@ async function withWorkspace(
   } finally {
     await authority?.close();
     await registry?.dispose();
+    await stateIndex.close();
     await database.close();
     await rm(directory, { force: true, recursive: true });
   }
@@ -108,9 +120,12 @@ test('Main authority retains the existing pinned mount and fences actual catalog
     const borrowed = await authority.acquire(request);
     expect(borrowed.roots).toEqual([root]);
     await borrowed.revalidate(signal);
-    await database.query('UPDATE roots SET status=$1 WHERE id=$2', ['disconnected', root.rootId]);
+    await disconnectRoot(database, root.rootId);
     await expect(borrowed.revalidate(signal)).rejects.toThrow();
-    await database.query('UPDATE roots SET status=$1 WHERE id=$2', ['live', root.rootId]);
+    await database.workspaceRoots({
+      operation: 'register',
+      root: { displayName: root.displayName, path: root.path, preferredId: root.rootId },
+    });
     await borrowed.revalidate(signal);
     await registry.removeRoot(root.rootId);
     await expect(borrowed.revalidate(signal)).rejects.toThrow();
@@ -130,7 +145,7 @@ test('a binding naming folders the workspace no longer serves is refused by thei
       secondaryRootIds: [alpha.rootId],
     };
     const request = { binding, signal: new AbortController().signal, threadId: randomUUID() };
-    await database.query('UPDATE roots SET status=$1 WHERE id=$2', ['disconnected', bravo.rootId]);
+    await disconnectRoot(database, bravo.rootId);
     await expect(authority.acquire(request)).rejects.toThrow(
       new ThreadRootsRemovedError([{ displayName: 'bravo-root', rootId: bravo.rootId }])
     );
@@ -138,7 +153,11 @@ test('a binding naming folders the workspace no longer serves is refused by thei
       `The folder "bravo-root" was removed from the workspace. Re-add it, or remove it from this thread in the composer's folder menu.`
     );
     // A folder deleted with its indexed data has no row left to name it.
-    await database.query('DELETE FROM roots WHERE id=$1', [charlie.rootId]);
+    await database.workspaceRoots({
+      operation: 'delete',
+      paths: [charlie.path],
+      rootId: charlie.rootId,
+    });
     await expect(
       authority.acquire({
         ...request,
@@ -186,7 +205,7 @@ test('revocation during an actual held native access fences the next selected ro
       });
       try {
         await started;
-        await database.query('UPDATE roots SET status=$1 WHERE id=$2', ['disconnected', b.rootId]);
+        await disconnectRoot(database, b.rootId);
         release();
         await expect(pending).rejects.toThrow();
         expect(rootBReads).toBe(0);
@@ -233,10 +252,10 @@ test('view paths cannot select a root or substitute an unmounted catalog record'
         binding: { operatingRootDisplayName: 'Unknown', operatingRootId: unknown },
       })
     ).rejects.toThrow();
-    await database.query(
-      'INSERT INTO roots (id,kind,display_name,path,last_verified_at) VALUES ($1,$2,$3,$4,NOW())',
-      [unknown, 'path', 'Unmounted', foreign]
-    );
+    await database.workspaceRoots({
+      operation: 'register',
+      root: { displayName: 'Unmounted', path: foreign, preferredId: unknown },
+    });
     await expect(
       authority.acquire({
         ...request,
@@ -260,7 +279,10 @@ test('worktree checkout uses the live existing ledger and mounted catalog path, 
     const local = await mount('repository');
     const worktree = await mount('worktree');
     const worktreeId = randomUUID();
-    const ledger = createWorktreeLedger(async () => database);
+    const ledger = createWorktreeLedger(
+      async () => database,
+      async () => false
+    );
     await ledger.insert({
       archivedAt: null,
       archiveSnapshotRef: null,
@@ -303,7 +325,7 @@ test('worktree checkout uses the live existing ledger and mounted catalog path, 
     await borrowed.close();
     await expect(authority.acquire(request)).rejects.toThrow();
     await ledger.markRestored(worktreeId);
-    await database.query('UPDATE roots SET status=$1 WHERE id=$2', ['disconnected', local.rootId]);
+    await disconnectRoot(database, local.rootId);
     await expect(authority.acquire(request)).rejects.toThrow();
   });
 });

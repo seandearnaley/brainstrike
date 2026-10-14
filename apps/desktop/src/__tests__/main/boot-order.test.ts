@@ -2,17 +2,17 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { captureProcessSignalHandlers } from '../helpers/process-signal-capture';
 import {
   applicationDomainCapture,
-  cleanupSubscriptionsMock,
   closeDatabaseMock,
   createLoggerMock,
   getDatabaseMock,
   installMainBootFixture,
   isDesktopShuttingDownMock,
-  maintenanceCloseMock,
   maintenanceStartMock,
-  maintenanceStopMock,
   mockApp,
   mockBrowserWindowInstance,
+  nativeAcquire,
+  nativeAcquireProfile,
+  nativeAcquireRead,
   nativeCloseForShutdown,
   nativePrepareForPause,
   nativeReconfigureForReset,
@@ -20,7 +20,6 @@ import {
   recoverInterruptedMaintenanceMock,
   requireMainLogger,
   shutdownPlanCapture,
-  waitForDatabaseIdleMock,
 } from './boot-order-fixture';
 
 describe('main boot order', () => {
@@ -290,242 +289,158 @@ describe('main boot order', () => {
     }
   );
 
-  it('creates and shows the main window without waiting for DB init or the capability probe', async () => {
-    let resolveDatabase: ((db: unknown) => void) | undefined;
-    getDatabaseMock.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveDatabase = resolve;
-        })
-    );
-
+  it('starts profile and native acquisition before showing a reader-ready window without PG', async () => {
+    const reader = Promise.withResolvers<void>();
+    nativeAcquireRead.mockReturnValue(reader.promise);
     await import('../../main');
-
-    // The window must come up while getDatabase() is still pending.
-    await vi.waitFor(() => {
-      expect(mockBrowserWindowInstance.loadFile).toHaveBeenCalled();
-      expect(mockBrowserWindowInstance.show).toHaveBeenCalled();
-    });
-    expect(maintenanceStartMock).not.toHaveBeenCalled();
-
-    // Once the DB (and probe) complete, the maintenance schedulers start.
-    resolveDatabase?.({});
-    await vi.waitFor(() => {
-      expect(probeMock).toHaveBeenCalledTimes(1);
-      expect(maintenanceStartMock).toHaveBeenCalledTimes(1);
-    });
-    expect(recoverInterruptedMaintenanceMock).toHaveBeenCalledTimes(1);
-    expect(recoverInterruptedMaintenanceMock.mock.invocationCallOrder[0]).toBeLessThan(
-      probeMock.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
-    );
-    expect(probeMock.mock.invocationCallOrder[0]).toBeLessThan(
-      maintenanceStartMock.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
-    );
-  });
-
-  it('does not start maintenance when exclusive boot recovery fails', async () => {
-    getDatabaseMock.mockResolvedValue({});
-    recoverInterruptedMaintenanceMock.mockRejectedValueOnce(new Error('recovery failed'));
-
-    await import('../../main');
-
-    await vi.waitFor(() => expect(recoverInterruptedMaintenanceMock).toHaveBeenCalledTimes(1));
-    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalled());
+    await vi.waitFor(() => expect(nativeAcquireRead).toHaveBeenCalledOnce());
+    expect(nativeAcquireProfile).toHaveBeenCalled();
+    expect(nativeAcquire).toHaveBeenCalledOnce();
+    expect(mockBrowserWindowInstance.show).not.toHaveBeenCalled();
+    reader.resolve();
+    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalledOnce());
+    expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(probeMock).not.toHaveBeenCalled();
     expect(maintenanceStartMock).not.toHaveBeenCalled();
-    const mainLogger = createLoggerMock.mock.results
-      .map((result) => result.value)
-      .at(createLoggerMock.mock.calls.findIndex(([scope]) => scope === 'DesktopMain'));
-    await vi.waitFor(() =>
-      expect(mainLogger?.error).toHaveBeenCalledWith(
-        'Failed to start desktop maintenance schedulers',
-        { error: expect.objectContaining({ message: 'recovery failed' }) }
-      )
-    );
-  });
-
-  it('keeps a recovery teardown diagnostic quiet when shutdown begins during the query', async () => {
-    getDatabaseMock.mockResolvedValue({});
-    let rejectRecovery: ((error: Error) => void) | undefined;
-    recoverInterruptedMaintenanceMock.mockImplementationOnce(
-      () =>
-        new Promise<number>((_resolve, reject) => {
-          rejectRecovery = reject;
-        })
-    );
-
-    await import('../../main');
-    await vi.waitFor(() => expect(recoverInterruptedMaintenanceMock).toHaveBeenCalledTimes(1));
-    isDesktopShuttingDownMock.mockReturnValue(true);
-    rejectRecovery?.(new Error('DB host manager is retired.'));
-
-    const mainLogger = createLoggerMock.mock.results
-      .map((result) => result.value)
-      .at(createLoggerMock.mock.calls.findIndex(([scope]) => scope === 'DesktopMain'));
-    await vi.waitFor(() =>
-      expect(mainLogger?.info).toHaveBeenCalledWith(
-        'Dimension index maintenance initialization aborted by shutdown',
-        { error: expect.objectContaining({ message: 'DB host manager is retired.' }) }
-      )
-    );
-    expect(probeMock).not.toHaveBeenCalled();
-    expect(maintenanceStartMock).not.toHaveBeenCalled();
-    expect(mainLogger?.error).not.toHaveBeenCalledWith(
-      'Failed to start desktop maintenance schedulers',
-      expect.anything()
-    );
-  });
-
-  it('keeps a database initialization teardown diagnostic quiet during shutdown', async () => {
-    let rejectDatabase: ((error: Error) => void) | undefined;
-    getDatabaseMock.mockImplementation(
-      () =>
-        new Promise<unknown>((_resolve, reject) => {
-          rejectDatabase = reject;
-        })
-    );
-
-    await import('../../main');
-    await vi.waitFor(() => expect(getDatabaseMock).toHaveBeenCalled());
-    isDesktopShuttingDownMock.mockReturnValue(true);
-    rejectDatabase?.(new Error('DB host manager is retired.'));
-
-    const mainLogger = createLoggerMock.mock.results
-      .map((result) => result.value)
-      .at(createLoggerMock.mock.calls.findIndex(([scope]) => scope === 'DesktopMain'));
-    await vi.waitFor(() =>
-      expect(mainLogger?.info).toHaveBeenCalledWith(
-        'Dimension index maintenance initialization aborted by shutdown',
-        { error: expect.objectContaining({ message: 'DB host manager is retired.' }) }
-      )
-    );
     expect(recoverInterruptedMaintenanceMock).not.toHaveBeenCalled();
-    expect(probeMock).not.toHaveBeenCalled();
-    expect(maintenanceStartMock).not.toHaveBeenCalled();
-    expect(mainLogger?.error).not.toHaveBeenCalledWith(
-      'Failed to start desktop maintenance schedulers',
-      expect.anything()
-    );
   });
 
-  it('leaves an ordinary database initialization failure visible and stops maintenance', async () => {
-    getDatabaseMock.mockRejectedValue(new Error('database initialization failed'));
-
+  it('shows the failure-capable shell when native reader startup fails', async () => {
+    const failure = new Error('Native reader unavailable');
+    nativeAcquireRead.mockRejectedValue(failure);
     await import('../../main');
-
-    const mainLogger = createLoggerMock.mock.results
-      .map((result) => result.value)
-      .at(createLoggerMock.mock.calls.findIndex(([scope]) => scope === 'DesktopMain'));
-    await vi.waitFor(() =>
-      expect(mainLogger?.error).toHaveBeenCalledWith(
-        'Failed to start desktop maintenance schedulers',
-        { error: expect.objectContaining({ message: 'database initialization failed' }) }
+    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalledOnce());
+    expect(
+      requireMainLogger().error.mock.calls.some(
+        ([, details]: [unknown, { error?: unknown; reason?: string; innerErrors?: unknown }]) =>
+          details?.error === failure
       )
-    );
-    expect(recoverInterruptedMaintenanceMock).not.toHaveBeenCalled();
-    expect(probeMock).not.toHaveBeenCalled();
-    expect(maintenanceStartMock).not.toHaveBeenCalled();
+    ).toBe(true);
+    expect(getDatabaseMock).not.toHaveBeenCalled();
   });
 
-  it('still starts the maintenance schedulers when the capability probe fails', async () => {
-    getDatabaseMock.mockResolvedValue({});
-    probeMock.mockRejectedValueOnce(new Error('probe exploded'));
-
+  it('keeps owned native startup retirement informational during terminal shutdown', async () => {
+    const reader = Promise.withResolvers<void>();
+    nativeAcquireRead.mockReturnValue(reader.promise);
     await import('../../main');
-
-    await vi.waitFor(() => {
-      expect(mockBrowserWindowInstance.show).toHaveBeenCalled();
-      expect(maintenanceStartMock).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  it('logs each error from a partial maintenance graph acquisition', async () => {
-    getDatabaseMock.mockResolvedValue({});
-    maintenanceStartMock.mockRejectedValueOnce(
-      new AggregateError([new Error('dimension timer failed'), undefined], 'Acquisition failed')
-    );
-
-    await import('../../main');
-
-    const mainLogger = createLoggerMock.mock.results
-      .map((result) => result.value)
-      .at(createLoggerMock.mock.calls.findIndex(([scope]) => scope === 'DesktopMain'));
-    await vi.waitFor(() =>
-      expect(mainLogger?.error).toHaveBeenCalledWith(
-        'Failed to start desktop maintenance schedulers',
-        {
-          error: expect.objectContaining({
-            errors: [
-              expect.objectContaining({ message: 'dimension timer failed' }),
-              { message: 'undefined' },
-            ],
-          }),
-        }
-      )
-    );
-  });
-
-  it('does not start maintenance after a probe finishes during shutdown', async () => {
-    // The probe now runs concurrently with the app lifecycle. A short-lived
-    // session (e2e apps, quick open/quit) can tear the DB down mid-probe;
-    // that rejection is an EXPECTED teardown per desktop-shutdown-state and
-    // must not produce an alarming error-level log on every fast quit.
-    getDatabaseMock.mockResolvedValue({});
-    const probe = Promise.withResolvers<Awaited<ReturnType<typeof probeMock>>>();
-    probeMock.mockReturnValueOnce(probe.promise);
-
-    await import('../../main');
-
-    await vi.waitFor(() => expect(probeMock).toHaveBeenCalledTimes(1));
-    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalled());
+    await vi.waitFor(() => expect(nativeAcquireRead).toHaveBeenCalledOnce());
+    const { NativeAuthorityTransitionError } = await import('../../native-authority-transition');
+    const failure = new NativeAuthorityTransitionError('Native owner retired');
     isDesktopShuttingDownMock.mockReturnValue(true);
-    probe.reject(new Error('db host disposed'));
+    reader.reject(failure);
     await vi.waitFor(() =>
-      expect(requireMainLogger().info).toHaveBeenCalledWith(
-        'Dimension index maintenance capability probe aborted by shutdown',
-        { error: expect.objectContaining({ message: 'db host disposed' }) }
+      expect(
+        requireMainLogger().info.mock.calls.some(
+          ([, details]: [unknown, { error?: unknown; reason?: string; innerErrors?: unknown }]) =>
+            details?.reason === failure.message
+        )
+      ).toBe(true)
+    );
+    expect(
+      requireMainLogger().error.mock.calls.some(
+        ([, details]: [unknown, { error?: unknown; reason?: string; innerErrors?: unknown }]) =>
+          details?.error === failure
       )
-    );
-    expect(maintenanceStartMock).not.toHaveBeenCalled();
-
-    const mainLogger = createLoggerMock.mock.results
-      .map((result) => result.value)
-      .at(createLoggerMock.mock.calls.findIndex(([scope]) => scope === 'DesktopMain'));
-    const errorMessages = (mainLogger?.error.mock.calls ?? []).map(
-      ([message]: [string]) => message
-    );
-    expect(errorMessages).not.toContain('Dimension index maintenance capability probe failed');
-    const infoMessages = (mainLogger?.info.mock.calls ?? []).map(([message]: [string]) => message);
-    expect(infoMessages).toContain(
-      'Dimension index maintenance capability probe aborted by shutdown'
-    );
+    ).toBe(false);
+    expect(mockBrowserWindowInstance.show).not.toHaveBeenCalled();
   });
 
-  it('fences the paired maintenance owner before joining trigger close and the database lane', async () => {
-    getDatabaseMock.mockResolvedValue({});
+  it('keeps an independent reader failure visible during shutdown', async () => {
+    const reader = Promise.withResolvers<void>();
+    nativeAcquireRead.mockReturnValue(reader.promise);
     await import('../../main');
-    const planRun = shutdownPlanCapture.current;
-    if (!planRun) {
+    await vi.waitFor(() => expect(nativeAcquireRead).toHaveBeenCalledOnce());
+    const failure = new Error('Independent read failure');
+    isDesktopShuttingDownMock.mockReturnValue(true);
+    reader.reject(failure);
+    await vi.waitFor(() =>
+      expect(
+        requireMainLogger().error.mock.calls.some(
+          ([, details]: [unknown, { error?: unknown; reason?: string; innerErrors?: unknown }]) =>
+            details?.error === failure
+        )
+      ).toBe(true)
+    );
+    expect(mockBrowserWindowInstance.show).not.toHaveBeenCalled();
+  });
+
+  it('preserves profile startup failure without opening a retired database', async () => {
+    const failure = new Error('Profile unavailable');
+    nativeAcquireProfile.mockRejectedValue(failure);
+    await import('../../main');
+    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalledOnce());
+    expect(
+      requireMainLogger().error.mock.calls.some(
+        ([, details]: [unknown, { error?: unknown; reason?: string; innerErrors?: unknown }]) =>
+          details?.error === failure
+      )
+    ).toBe(true);
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+    expect(maintenanceStartMock).not.toHaveBeenCalled();
+  });
+
+  it('reports one shared acquisition failure once across writer and reader startup', async () => {
+    const failure = new Error('Shared native acquisition failure');
+    nativeAcquire.mockRejectedValue(failure);
+    nativeAcquireRead.mockRejectedValue(failure);
+    await import('../../main');
+    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalledOnce());
+    expect(
+      requireMainLogger().error.mock.calls.filter(
+        ([, details]: [unknown, { error?: unknown; reason?: string; innerErrors?: unknown }]) =>
+          details?.error === failure
+      )
+    ).toHaveLength(1);
+  });
+
+  it('retains each independent partial native acquisition failure', async () => {
+    const first = new Error('Physical child failure');
+    const failure = new AggregateError([first, undefined], 'Native acquisition failed');
+    nativeAcquire.mockRejectedValue(failure);
+    await import('../../main');
+    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalledOnce());
+    const details = requireMainLogger().error.mock.calls.find(
+      ([, value]: [unknown, { error?: unknown; innerErrors?: unknown }]) => value?.error === failure
+    )?.[1];
+    expect(details?.error).toBe(failure);
+    expect(failure.errors).toEqual([first, undefined]);
+    expect(details?.innerErrors).toEqual([
+      { message: first.message, name: 'Error' },
+      { message: 'undefined', name: 'undefined' },
+    ]);
+  });
+
+  it('does not create a window when reader startup completes after shutdown begins', async () => {
+    const reader = Promise.withResolvers<void>();
+    nativeAcquireRead.mockReturnValue(reader.promise);
+    await import('../../main');
+    await vi.waitFor(() => expect(nativeAcquireRead).toHaveBeenCalledOnce());
+    isDesktopShuttingDownMock.mockReturnValue(true);
+    reader.resolve();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(mockBrowserWindowInstance.show).not.toHaveBeenCalled();
+    expect(maintenanceStartMock).not.toHaveBeenCalled();
+  });
+
+  it('joins native retirement before acknowledging the native shutdown step', async () => {
+    await import('../../main');
+    const plan = shutdownPlanCapture.current?.();
+    if (!plan) {
       throw new Error('Shutdown plan was not registered');
     }
-
-    let releaseTriggerClose: (() => void) | undefined;
-    maintenanceCloseMock.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          releaseTriggerClose = resolve;
-        })
+    const held = Promise.withResolvers<void>();
+    nativeCloseForShutdown.mockReturnValue(held.promise);
+    let settled = false;
+    const step = Promise.resolve(plan.steps['native-index'](new AbortController().signal)).then(
+      () => {
+        settled = true;
+      }
     );
-    const step = planRun().steps['database-drain'](new AbortController().signal);
-
-    expect(maintenanceStopMock).toHaveBeenCalledTimes(1);
-    expect(maintenanceCloseMock).toHaveBeenCalledTimes(1);
-    expect(waitForDatabaseIdleMock).not.toHaveBeenCalled();
-
-    releaseTriggerClose?.();
+    await vi.waitFor(() => expect(nativeCloseForShutdown).toHaveBeenCalledOnce());
+    expect(settled).toBe(false);
+    held.resolve();
     await step;
-    expect(waitForDatabaseIdleMock).toHaveBeenCalledTimes(1);
-    // The drain step never closes the database: that is the reserved slice's job.
+    expect(settled).toBe(true);
     expect(closeDatabaseMock).not.toHaveBeenCalled();
   });
 
@@ -553,53 +468,42 @@ describe('main boot order', () => {
     expect(settled).toBe(true);
   });
 
-  it('closes the database from the reserved slice alone, and a failed close rejects', async () => {
-    getDatabaseMock.mockResolvedValue({});
+  it('reserved close joins the existing native owner and preserves failure identity', async () => {
     await import('../../main');
-    const planRun = shutdownPlanCapture.current;
-    if (!planRun) {
+    const plan = shutdownPlanCapture.current?.();
+    if (!plan) {
       throw new Error('Shutdown plan was not registered');
     }
-
-    await planRun().closeDatabase();
-    expect(closeDatabaseMock).toHaveBeenCalledTimes(1);
-    expect(waitForDatabaseIdleMock).not.toHaveBeenCalled();
-
-    closeDatabaseMock.mockRejectedValueOnce(new Error('DB host failed to close'));
-    await expect(planRun().closeDatabase()).rejects.toThrow('DB host failed to close');
+    await plan.closeDatabase();
+    expect(nativeCloseForShutdown).toHaveBeenCalledOnce();
+    const failure = new Error('Native physical close failed');
+    nativeCloseForShutdown.mockRejectedValueOnce(failure);
+    await expect(plan.closeDatabase()).rejects.toBe(failure);
+    expect(closeDatabaseMock).not.toHaveBeenCalled();
   });
 
-  it('still drains the database when trigger cleanup rejects undefined', async () => {
-    getDatabaseMock.mockResolvedValue({});
+  it('retains undefined IPC cleanup failure while reserved native retirement remains available', async () => {
     await import('../../main');
-    const planRun = shutdownPlanCapture.current;
-    if (!planRun) {
+    const plan = shutdownPlanCapture.current?.();
+    const close = applicationDomainCapture.close;
+    if (!(plan && close)) {
       throw new Error('Shutdown plan was not registered');
     }
-    maintenanceCloseMock.mockRejectedValueOnce(undefined);
-
-    await expect(
-      planRun().steps['database-drain'](new AbortController().signal)
-    ).rejects.toMatchObject({
-      errors: [undefined],
-    });
-    expect(cleanupSubscriptionsMock).toHaveBeenCalledTimes(2);
-    expect(waitForDatabaseIdleMock).toHaveBeenCalledTimes(1);
+    close.mockRejectedValueOnce(undefined);
+    await expect(plan.steps['file-system'](new AbortController().signal)).rejects.toBeUndefined();
+    await plan.closeDatabase();
+    expect(nativeCloseForShutdown).toHaveBeenCalledOnce();
   });
 
-  it('retains the existing database failure path when the idle join rejects', async () => {
-    getDatabaseMock.mockResolvedValue({});
+  it('keeps a failed reserved native join failed rather than reopening PG', async () => {
     await import('../../main');
-    const planRun = shutdownPlanCapture.current;
-    if (!planRun) {
+    const plan = shutdownPlanCapture.current?.();
+    if (!plan) {
       throw new Error('Shutdown plan was not registered');
     }
-    waitForDatabaseIdleMock.mockRejectedValueOnce(undefined);
-
-    await expect(
-      planRun().steps['database-drain'](new AbortController().signal)
-    ).rejects.toBeUndefined();
-    expect(cleanupSubscriptionsMock).toHaveBeenCalledTimes(1);
+    nativeCloseForShutdown.mockRejectedValueOnce(undefined);
+    await expect(plan.closeDatabase()).rejects.toBeUndefined();
+    expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(closeDatabaseMock).not.toHaveBeenCalled();
   });
 

@@ -1,10 +1,10 @@
+// @vitest-environment node
 import { access, mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { migrate, wasmLoader } from '@brainstrike/db';
+import { StateStore } from '@brainstrike/state-store';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
 import { WorkspaceRootRegistry } from '../../ipc-domains/workspace-root-registry';
 
 /**
@@ -29,14 +29,11 @@ function createStorage(): ElectronStorageAdapter {
   } as unknown as ElectronStorageAdapter;
 }
 
-function createRegistry(
-  storage: ElectronStorageAdapter,
-  db: WorkspaceRootsQueryable
-): WorkspaceRootRegistry {
+function createRegistry(storage: ElectronStorageAdapter, db: StateStore): WorkspaceRootRegistry {
   return new WorkspaceRootRegistry({
     disposeCommandSessionsForRoot: vi.fn(async () => 0),
     evictLspServersForRoot: vi.fn(async () => undefined),
-    getRootsDatabase: async () => db,
+    getRootsCatalog: async () => db,
     pathExists: async (rootPath) =>
       access(rootPath).then(
         () => true,
@@ -46,22 +43,26 @@ function createRegistry(
   });
 }
 
-async function openRootsDatabase(name: string): Promise<WorkspaceRootsQueryable> {
-  const db = await wasmLoader.createPGlite(`memory://${name}`);
-  await migrate(db);
-  return db as unknown as WorkspaceRootsQueryable;
+const stores: StateStore[] = [];
+async function openRootsDatabase(name: string): Promise<StateStore> {
+  const directory = await mkdtemp(path.join(tmpdir(), `brainstrike-${name}-`));
+  cleanup.push(directory);
+  const store = await StateStore.open(directory);
+  stores.push(store);
+  return store;
 }
 
-async function rootRows(db: WorkspaceRootsQueryable) {
-  return (
-    await db.query<{ id: string; kind: string; path: string; status: string }>(
-      'SELECT id, kind, path, status FROM roots ORDER BY path'
-    )
-  ).rows;
+async function rootRows(store: StateStore) {
+  return (await store.workspaceRoots({ operation: 'list' })).roots
+    .map(({ id, kind, path: rootPath, status }) => ({ id, kind, path: rootPath, status }))
+    .sort((a, b) => a.path.localeCompare(b.path));
 }
 
 const cleanup: string[] = [];
 afterEach(async () => {
+  for (const store of stores.splice(0)) {
+    await store.close();
+  }
   for (const directory of cleanup.splice(0)) {
     await rm(directory, { force: true, recursive: true });
   }
@@ -118,11 +119,25 @@ it('keeps one id for a folder, its roots row, across add, remove, re-add and res
 it('records a mounted managed worktree with the worktree kind', async () => {
   const folder = await workspaceFolder('managed-checkout');
   const db = await openRootsDatabase('root-identity-worktree');
-  await db.query(
-    `INSERT INTO brainstrike_worktrees (id, repo_common_dir, path, base_ref, created_by)
-     VALUES ('worktree-1', '/repo/.git', $1, 'main', 'agent')`,
-    [folder]
-  );
+  await db.worktreeLedger({
+    operation: 'insert',
+    row: {
+      archivedAt: null,
+      archiveSnapshotRef: null,
+      baseRef: 'main',
+      branch: null,
+      createdAt: '2026-10-13T00:00:00.000Z',
+      createdBy: 'agent',
+      id: 'worktree-1',
+      path: folder,
+      repoCommonDir: '/repo/.git',
+      runId: null,
+      setupOutput: null,
+      setupReason: null,
+      setupStatus: 'none',
+      threadId: null,
+    },
+  });
   const registry = createRegistry(createStorage(), db);
   const added = await registry.addRoot(
     { kind: 'directory', name: 'managed-checkout', path: folder, platform: 'electron' },

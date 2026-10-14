@@ -1,21 +1,33 @@
+import { projectModelCatalog } from '@brainstrike/assistant-contract';
 import type { CanonicalSourceScope } from '@brainstrike/canonical-ingestion';
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
+import type {
+  CollectionPort,
+  SourceCatalogPort,
+  WorkspaceRootPort,
+} from '@brainstrike/state-store';
+import type { SourceFileRecord } from '@brainstrike/types';
 import { vi } from 'vitest';
 import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
+import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
 import { createNativeIndexActivation } from '../native-index-activation';
 
 const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
   acquireProfile: vi.fn(),
+  catalog: {
+    collections: vi.fn<CollectionPort['collections']>(),
+    sourceCatalog: vi.fn<SourceCatalogPort['sourceCatalog']>(),
+    workspaceRoots: vi.fn<WorkspaceRootPort['workspaceRoots']>(),
+  },
   close: vi.fn(),
   closeProfile: vi.fn(),
   closeReaders: vi.fn(),
   createProfileOwner: vi.fn(),
-  database: { query: vi.fn(), transaction: vi.fn() },
   destroy: vi.fn(),
   manager: {
     attachCanonicalCollection: vi.fn(),
@@ -23,6 +35,7 @@ const mocks = vi.hoisted(() => ({
     retireCanonicalSources: vi.fn(),
     start: vi.fn(),
   },
+  modelCatalog: { read: vi.fn() },
   readyPort: vi.fn(),
 }));
 
@@ -30,15 +43,24 @@ export { mocks };
 
 /** Load the product constructor through the module that owns these hoisted mocks. */
 export function createActivation(
-  options: Omit<Parameters<typeof createNativeIndexActivation>[0], 'profile'>
+  options: Omit<
+    Parameters<typeof createNativeIndexActivation>[0],
+    'profile' | 'catalog' | 'modelCatalog'
+  >
 ): ReturnType<typeof createNativeIndexActivation> {
   return createNativeIndexActivation({
     ...options,
+    catalog: mocks.catalog,
+    modelCatalog: mocks.modelCatalog,
     profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
   });
 }
 
-vi.mock('../db-main', () => ({ getDatabase: async () => mocks.database }));
+vi.mock('../db-main', () => ({
+  getDatabase: async () => {
+    throw new Error('Retired PG owner is unavailable.');
+  },
+}));
 vi.mock('../desktop-database-location', () => ({
   resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
 }));
@@ -125,6 +147,7 @@ export function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPor
     }),
     prepareFile: unused,
     prepareScopedFile: unused,
+    readScopedFilePage: unused,
     removeFile: unused,
     removeScopedFile: unused,
     replaceFileBindings: async () => {},
@@ -179,7 +202,9 @@ export function fixture(applicationOverride?: ApplicationIpcDomain) {
   const onError = vi.fn();
   const activation = createNativeIndexActivation({
     application: applicationOverride ?? application,
+    catalog: mocks.catalog,
     embedding: transport,
+    modelCatalog: mocks.modelCatalog,
     onError,
     onReceipt,
     profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
@@ -189,9 +214,21 @@ export function fixture(applicationOverride?: ApplicationIpcDomain) {
 }
 export function resetActivationFixture(): void {
   vi.resetAllMocks();
-  mocks.database.query.mockImplementation(async (sql: string) => ({
-    rows: sql.includes('FROM embedding_sets') ? [{ id: 'selected' }] : [],
-  }));
+  mocks.catalog.collections.mockResolvedValue({
+    collections: [
+      {
+        createdAt: '2026-10-13T00:00:00.000Z',
+        dimensions: 384,
+        distance: 'cosine',
+        id: 'selected',
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        modelKey: 'transformers::Xenova/all-MiniLM-L6-v2',
+      },
+    ],
+  });
+  mocks.catalog.workspaceRoots.mockResolvedValue({ roots: [] });
+  mocks.modelCatalog.read.mockResolvedValue(projectModelCatalog({ models: [], providers: [] }));
+  setCatalogRecords(() => []);
   mocks.acquire.mockResolvedValue(writer());
   mocks.acquireProfile.mockResolvedValue(undefined);
   mocks.readyPort.mockReturnValue(writer());
@@ -220,4 +257,48 @@ export function emptyCollection(
       });
     },
   };
+}
+
+/** Current source-catalog wire records, retaining the scenario's canonical identities. */
+export function sourceRecord(record: NativeCanonicalCatalogRecord): SourceFileRecord {
+  if (record.contentHash === null) {
+    throw new Error('Current source records require their content hash.');
+  }
+  return {
+    ...record,
+    chunksCount: null,
+    contentHash: record.contentHash,
+    createdAt: '2026-10-13T00:00:00.000Z',
+    path: record.path ?? record.fileName,
+    updatedAt: '2026-10-13T00:00:00.000Z',
+  };
+}
+export function setCatalogRecords(read: () => readonly NativeCanonicalCatalogRecord[]): void {
+  mocks.catalog.sourceCatalog.mockImplementation(async (request) => {
+    const records = read().map(sourceRecord);
+    if (request.operation === 'inventory') {
+      return {
+        files: records.filter((record) => record.embeddingSetId === request.embeddingSetId),
+      };
+    }
+    if (request.operation === 'read') {
+      return { files: records.filter((record) => request.fileIds.includes(record.fileId)) };
+    }
+    throw new Error(`Unexpected catalog mutation ${request.operation}`);
+  });
+}
+export function setCatalogRoot(id = 'root'): void {
+  mocks.catalog.workspaceRoots.mockResolvedValue({
+    roots: [
+      {
+        createdAt: 1,
+        displayName: 'root',
+        id,
+        kind: 'path',
+        lastVerifiedAt: 1,
+        path: '/actual/root',
+        status: 'live',
+      },
+    ],
+  });
 }

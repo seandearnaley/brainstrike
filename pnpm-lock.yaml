@@ -2581,6 +2581,9 @@ importers:
       '@brainstrike/app-state':
         specifier: workspace:*
         version: link:../app-state
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
       '@brainstrike/context-actions':
         specifier: workspace:*
         version: link:../context-actions
@@ -3642,6 +3645,9 @@ importers:
       '@brainstrike/secure-fs-native':
         specifier: workspace:*
         version: link:../secure-fs-native
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
       '@brainstrike/windows-job-native':
         specifier: workspace:*
         version: link:../windows-job-native
@@ -4150,6 +4156,9 @@ importers:
       '@brainstrike/app-state':
         specifier: workspace:*
         version: link:../app-state
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
@@ -4316,6 +4325,9 @@ importers:
       '@brainstrike/app-state':
         specifier: workspace:*
         version: link:../app-state
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
@@ -4334,6 +4346,12 @@ importers:
       '@brainstrike/ui':
         specifier: workspace:*
         version: link:../ui
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
+      '@brainstrike/vector-management':
+        specifier: workspace:*
+        version: link:../vector-management
       lucide-react:
         specifier: 'catalog:'
         version: 1.41.0(react@19.3.0)

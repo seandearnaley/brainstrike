@@ -15,6 +15,7 @@ import {
   requestedScope,
   resetActivationFixture,
   scope,
+  setCatalogRoot,
   storeId,
   unused,
   writer,
@@ -40,13 +41,7 @@ it('keeps native reads admitted with incomplete proofs during recoverable watche
     },
     watches: { subscribe: unused },
   } as unknown as ApplicationIpcDomain;
-  mocks.database.query.mockImplementation(async (sql: string) => ({
-    rows: sql.includes('FROM roots')
-      ? [{ id: 'root', kind: 'path' }]
-      : sql.includes('FROM embedding_sets')
-        ? [{ id: 'selected' }]
-        : [],
-  }));
+  setCatalogRoot();
   let workspace: CanonicalWorkspaceRuntimeDependencies | undefined;
   const trigger = vi.fn(async () => undefined);
   const native = {

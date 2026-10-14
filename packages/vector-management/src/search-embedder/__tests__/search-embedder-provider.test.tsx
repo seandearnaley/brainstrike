@@ -15,6 +15,15 @@ vi.mock('@brainstrike/embeddings/factory', () => ({
   EmbeddingProviderFactory: { createProvider: mockCreateProvider },
 }));
 
+vi.mock('@brainstrike/embeddings/service', () => ({
+  SimpleEmbeddingService: class {
+    initializeWithModel() {
+      throw new Error('Browser embedding queue must not initialize on desktop');
+    }
+    dispose() {}
+  },
+}));
+
 const hostedInfo: EmbeddingSetModelInfo = {
   dimensions: 1536,
   modelConfig: null,
@@ -79,6 +88,37 @@ describe('SearchEmbedderProvider', () => {
     expect(second).toBe(first);
     // … and the underlying embedder cache was built exactly once.
     expect(mockCreateProvider).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes local query and document inference through the supplied hidden-host factory', async () => {
+    const query = vi.fn(async () => ({ embedding: [0.1, 0.2, 0.3] }));
+    const document = vi.fn(async () => ({ embedding: [0.4, 0.5, 0.6] }));
+    const createLocal = vi.fn(async () => ({
+      embedDocument: document,
+      embedQuery: query,
+      runtime: 'wasm' as const,
+    }));
+    const info: EmbeddingSetModelInfo = {
+      dimensions: 3,
+      modelConfig: { description: '', dimensions: 3, id: 'test-model', name: 'Test', tags: [] },
+      modelKey: 'local::test-model',
+    };
+    const { result } = renderHook(useSharedSearchEmbedder, {
+      wrapper: ({ children }) => (
+        <SearchEmbedderProvider createLocalEmbedder={createLocal}>
+          {children}
+        </SearchEmbedderProvider>
+      ),
+    });
+    await expect(result.current.embedQueryWithRecovery(info, 'query')).resolves.toEqual([
+      0.1, 0.2, 0.3,
+    ]);
+    await expect(result.current.embedDocumentWithRecovery(info, 'document')).resolves.toEqual([
+      0.4, 0.5, 0.6,
+    ]);
+    expect(createLocal).toHaveBeenCalledExactlyOnceWith(info.modelConfig, 'wasm');
+    expect(query).toHaveBeenCalledWith('query', undefined);
+    expect(document).toHaveBeenCalledWith('document');
   });
 
   it('provides the same result reference to every consumer', () => {

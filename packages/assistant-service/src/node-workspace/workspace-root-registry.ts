@@ -16,6 +16,7 @@ import {
   MAX_DIRECTORY_ENTRIES,
 } from '@brainstrike/file-system/workspace-root-nodes';
 import { createLogger } from '@brainstrike/logging';
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { RecentRootEntry, RootDescriptor } from '@brainstrike/types';
 import { projectReadDenialDiagnostic, withReadDenialLogging } from './read-denial-diagnostic.js';
 import {
@@ -27,6 +28,12 @@ import {
   resolveGrantedRootHandle,
 } from './workspace-recent-roots.js';
 import { WorkspaceRootAvailability } from './workspace-root-availability.js';
+import {
+  findRecordedWorkspaceRoot,
+  markRootsDisconnectedExcept,
+  recordRestoredWorkspaceRoots,
+  recordWorkspaceRoot,
+} from './workspace-root-catalog.js';
 import { WorkspaceRootMountTable } from './workspace-root-mounts.js';
 import { pathKey, pathsEqual } from './workspace-root-paths.js';
 import {
@@ -43,6 +50,7 @@ import {
 import { createWorkspaceRootSourceLease } from './workspace-root-source-lease.js';
 import {
   clearLastFolderIfMatches,
+  clearStoredWorkspaceGrants,
   readLastFolder,
   readStoredRoots,
   readStoredRootsOrQuarantine,
@@ -55,17 +63,15 @@ import type {
   RootDataDeletionReservation,
   SecureWorkspaceRoot,
   StoredWorkspaceRoot,
+  WorkspaceRootRegistryOptions,
   WorkspaceRootStorage,
 } from './workspace-root-types.js';
-import {
-  findRecordedWorkspaceRoot,
-  markRootsDisconnectedExcept,
-  recordRestoredWorkspaceRoots,
-  recordWorkspaceRoot,
-  type WorkspaceRootsQueryable,
-} from './workspace-roots.js';
 
-export type { SecureWorkspaceRoot, StoredWorkspaceRoot } from './workspace-root-types.js';
+export type {
+  SecureWorkspaceRoot,
+  StoredWorkspaceRoot,
+  WorkspaceRootRegistryOptions,
+} from './workspace-root-types.js';
 
 export type SubscribeMountedWorkspaceRoot = (
   mounted: MountedWorkspaceRoot,
@@ -73,18 +79,6 @@ export type SubscribeMountedWorkspaceRoot = (
 ) => Promise<CanonicalSourceSubscription>;
 
 const logger = createLogger('WorkspaceRootRegistry');
-
-export interface WorkspaceRootRegistryOptions {
-  readonly createSecureRoot?: (rootPath: string) => Promise<SecureWorkspaceRoot>;
-  readonly disposeCommandSessionsForRoot: (rootId: string) => Promise<number>;
-  readonly evictLspServersForRoot: (rootId: string) => Promise<void>;
-  readonly getRootsDatabase: () => Promise<WorkspaceRootsQueryable>;
-  readonly onRootGranted?: (grantedPath: string) => void;
-  readonly pathExists: (rootPath: string) => Promise<boolean>;
-  readonly resolveCanonicalRoot?: (rootPath: string) => Promise<string>;
-  readonly resolveReadPath?: (requestedPath: string, canonicalRoot: string) => Promise<string>;
-  readonly storage: WorkspaceRootStorage;
-}
 
 interface AddRootOptions {
   readonly recordInRecentRoots?: boolean;
@@ -96,7 +90,7 @@ export class WorkspaceRootRegistry {
   private disposal: Promise<void> | undefined;
   private readonly disposeCommandSessionsForRoot: (rootId: string) => Promise<number>;
   private readonly evictLspServersForRoot: (rootId: string) => Promise<void>;
-  private readonly getRootsDatabase: () => Promise<WorkspaceRootsQueryable>;
+  private readonly getRootsCatalog: () => Promise<WorkspaceRootPort>;
   private managedWorktreeAuthorizer: ManagedWorktreeAuthorizer | null = null;
   private readonly mounts = new WorkspaceRootMountTable();
   private readonly availability = new WorkspaceRootAvailability();
@@ -120,7 +114,7 @@ export class WorkspaceRootRegistry {
     this.createSecureRoot = options.createSecureRoot ?? createNativeSecureRoot;
     this.disposeCommandSessionsForRoot = options.disposeCommandSessionsForRoot;
     this.evictLspServersForRoot = options.evictLspServersForRoot;
-    this.getRootsDatabase = options.getRootsDatabase;
+    this.getRootsCatalog = options.getRootsCatalog;
     this.onRootGranted = options.onRootGranted;
     this.pathExists = options.pathExists;
     this.resolveCanonicalRoot = options.resolveCanonicalRoot ?? resolveCanonicalRootPath;
@@ -170,10 +164,8 @@ export class WorkspaceRootRegistry {
         const mountedMatch = this.mounts.findByCanonicalPath(canonicalPath);
         const existing = await this.findExistingStoredRoot(entries, mountedMatch, canonicalPath);
 
-        const db = await this.getRootsDatabase();
-        // Disconnect removes the grant, not the folder record. Match that record
-        // through the same canonical resolver as persisted grants: a different
-        // spelling of the same folder must not mint a second id (BST-1990).
+        const db = await this.getRootsCatalog();
+        // Reuse the retained folder identity after disconnect, including path aliases (BST-1990).
         const recorded = await findRecordedWorkspaceRoot(db, existing, (records) =>
           this.findExistingStoredRoot(records, undefined, canonicalPath)
         );
@@ -187,10 +179,7 @@ export class WorkspaceRootRegistry {
           rootId,
         };
 
-        // reconcileAddMount always hands `probe` off to the mount table,
-        // which unconditionally disposes of it (adopts it or closes it as
-        // redundant) — so once this resolves, the probe has been handled
-        // exactly once and the finally below must not touch it again.
+        // reconcileAddMount owns the probe: it adopts it or closes it as redundant.
         await this.reconcileAddMount(entry, mountedMatch, probe).catch(async (error: unknown) => {
           await this.convergeDatabase(); // the record must not stay live without its mount
           throw error;
@@ -571,6 +560,18 @@ export class WorkspaceRootRegistry {
     return reservation;
   }
 
+  /** The content-reset owner already closes native writers; do not reopen the catalog here. */
+  clearForContent(): Promise<void> {
+    return this.serializeMutation(async () => {
+      await this.retireSourceLeases();
+      for (const rootId of this.mounts.ids()) {
+        await this.retireMount(rootId);
+      }
+      await clearStoredWorkspaceGrants(this.storage);
+      this.availability.clear();
+    });
+  }
+
   removeRoot(rootId: string): Promise<void> {
     return this.serializeMutation(() => this.removeRootOwned(rootId));
   }
@@ -583,13 +584,8 @@ export class WorkspaceRootRegistry {
       await this.retireSourceLeases(mounted);
     }
     if (!removed) {
-      // Unconditional, not session-gated: a quarantined read returns an
-      // empty entries list even for a persisted (non-session) root, so
-      // this branch must retire any live mount for rootId regardless of
-      // session/persisted status — retireMount is already a no-op for an
-      // id that isn't mounted. convergeDatabase then demotes the
-      // now-unmounted path in the DB and evicts DB-id-keyed resources,
-      // since retireMount alone cleans up only under the adapter rootId.
+      // Even a quarantined or session-only grant must retire its mount and
+      // converge the canonical catalog; absence from stored grants is not absence from memory.
       await this.retireMount(rootId);
       await this.convergeDatabase();
       this.availability.forget(rootId);
@@ -600,7 +596,7 @@ export class WorkspaceRootRegistry {
     await writeStoredRoots(this.storage, remaining);
     let disconnected: readonly { id: string; path: string }[];
     try {
-      const db = await this.getRootsDatabase();
+      const db = await this.getRootsCatalog();
       disconnected = await markRootsDisconnectedExcept(
         db,
         this.mounts.persistedMountedPaths(rootId)
@@ -712,7 +708,7 @@ export class WorkspaceRootRegistry {
         );
         await recordRecentRootsIfNew(this.storage, newRecentCandidates);
       }
-      await recordRestoredWorkspaceRoots(this.getRootsDatabase, recentRootCandidates);
+      await recordRestoredWorkspaceRoots(this.getRootsCatalog, recentRootCandidates);
       await this.convergeDatabase();
       return descriptors;
     });
@@ -726,12 +722,10 @@ export class WorkspaceRootRegistry {
       return kindByRootId;
     }
     try {
-      const db = await this.getRootsDatabase();
-      const kindRows = await db.query<{ id: string; kind: string | null }>(
-        'SELECT id, kind FROM roots WHERE id = ANY($1::text[])',
-        [entries.map((entry) => entry.rootId)]
-      );
-      for (const row of kindRows.rows) {
+      const db = await this.getRootsCatalog();
+      const { roots } = await db.workspaceRoots({ operation: 'list' });
+      const selected = new Set(entries.map((entry) => entry.rootId));
+      for (const row of roots.filter((root) => selected.has(root.id))) {
         kindByRootId.set(row.id, row.kind);
       }
     } catch (error) {
@@ -789,7 +783,7 @@ export class WorkspaceRootRegistry {
   private async convergeDatabase(): Promise<void> {
     const mountedPaths = this.mounts.persistedMountedPaths();
     try {
-      const db = await this.getRootsDatabase();
+      const db = await this.getRootsCatalog();
       const disconnected = await markRootsDisconnectedExcept(db, mountedPaths);
       await this.cleanupRootResources(disconnected.map((row) => row.id));
     } catch (error) {

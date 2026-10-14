@@ -191,7 +191,7 @@ describe('desktop platform diagnostics', () => {
       },
     };
 
-    const snapshot = await collectDesktopPlatformDiagnostics({
+    const providers: DesktopPlatformDiagnosticsProviders = {
       crashRecovery: { getSnapshot: vi.fn(() => crashRecovery) },
       database: { getDiagnostics: vi.fn(async () => databaseDiagnostics) },
       databaseIntegrity: { getSnapshot: vi.fn(() => databaseIntegrity) },
@@ -219,7 +219,8 @@ describe('desktop platform diagnostics', () => {
         })),
       },
       telemetry: { getRuntimeMetrics: vi.fn(() => runtimeMetrics) },
-    } as unknown as DesktopPlatformDiagnosticsProviders);
+    } as unknown as DesktopPlatformDiagnosticsProviders;
+    const snapshot = await collectDesktopPlatformDiagnostics(providers);
 
     expect(snapshot).toMatchObject({
       crashRecovery,
@@ -254,6 +255,19 @@ describe('desktop platform diagnostics', () => {
         processCounters,
       },
     });
+    const currentOwner = { owner: 'agent-host', storage: 'sqlite' };
+    const native = await collectDesktopPlatformDiagnostics({
+      ...providers,
+      database: { getDiagnostics: () => currentOwner },
+      databaseIntegrity: null,
+      databaseScheduler: null,
+      indexing: null,
+    });
+    expect(native.database).toEqual(currentOwner);
+    expect(native.databaseIntegrity).toBeNull();
+    expect(native.databaseScheduler).toBeNull();
+    expect(native.indexing.dimensionIndexMaintenance).toBeNull();
+    expect(native.indexing.legacyDatabaseMaintenance).toBe('not-applicable');
     expect(snapshot.errors).toEqual({});
     expect(Date.parse(snapshot.collectedAt)).not.toBeNaN();
   });

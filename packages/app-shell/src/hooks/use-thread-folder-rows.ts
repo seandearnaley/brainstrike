@@ -21,6 +21,7 @@ import type { ThreadFolderRow } from '@brainstrike/assistant-data';
 import type { DbHandle } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { getThreadGroupsCapability } from '../thread-groups-capability';
 
 const logger = createLogger('ThreadFolderRows');
 
@@ -103,6 +104,7 @@ export function useThreadFolderRows(
   database: DbHandle | null,
   rootIds: readonly string[]
 ): ThreadFolderRowsState {
+  const catalog = getThreadGroupsCapability();
   // Value-keyed on the sorted, deduped id list: a thread-list refresh carrying
   // an EQUAL set (or the same set in another order) must not re-query. JSON,
   // not a joined string — a root id is opaque text, and any separator it could
@@ -126,13 +128,19 @@ export function useThreadFolderRows(
   const warnedRootIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!database || distinctRootIds.length === 0) {
+    if (!(database || catalog) || distinctRootIds.length === 0) {
       return;
     }
     let cancelled = false;
     const warnedRootIds = warnedRootIdsRef.current;
-    database
-      .query<RootRow>(ROOT_DISPLAY_ROWS_SQL, [distinctRootIds])
+    (catalog
+      ? catalog
+          .readRoots()
+          .then((rows) => ({ rows: rows.filter((row) => distinctRootIds.includes(row.id)) }))
+      : database
+        ? database.query<RootRow>(ROOT_DISPLAY_ROWS_SQL, [distinctRootIds])
+        : Promise.reject(new Error('Thread root catalog unavailable'))
+    )
       .then((result) => {
         if (cancelled) {
           return;
@@ -165,7 +173,7 @@ export function useThreadFolderRows(
     return () => {
       cancelled = true;
     };
-  }, [database, distinctRootIds, rootIdsKey]);
+  }, [catalog, database, distinctRootIds, rootIdsKey]);
 
   const isEmptyRequest = distinctRootIds.length === 0;
   const currentResolution = resolved?.key === rootIdsKey ? resolved : null;

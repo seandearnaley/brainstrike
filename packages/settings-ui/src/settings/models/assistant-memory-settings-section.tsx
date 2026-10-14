@@ -8,7 +8,6 @@ import type {
 } from '@brainstrike/assistant-contract/memory-settings';
 import { OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET } from '@brainstrike/assistant-contract/memory-settings';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { usePGliteDatabase } from '@brainstrike/db/react';
 import { Badge, Card, Input, Label, Switch } from '@brainstrike/ui';
 import { BrainCircuit } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
@@ -136,8 +135,7 @@ export function AssistantMemorySettingsSection({
   assistantMemoryBackendAvailable,
   providerKeySources,
 }: AssistantMemorySettingsSectionProps) {
-  const db = usePGliteDatabase();
-  useEnsureModelRegistry({ db });
+  useEnsureModelRegistry();
 
   const { hasLoaded, models, providers } = useModelRegistryStore(
     useShallow((state) => ({

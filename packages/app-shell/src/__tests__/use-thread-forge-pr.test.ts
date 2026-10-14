@@ -22,6 +22,7 @@ const prStatus: ForgePrStatus = {
 function installBridge(overrides: Record<string, unknown> = {}) {
   const listeners: ((event: unknown) => void)[] = [];
   const bridge = {
+    cacheSnapshot: async () => ({ ok: true as const, value: [] }),
     identity: vi.fn(),
     onPrUpdated: vi.fn((callback: (event: unknown) => void) => {
       listeners.push(callback);

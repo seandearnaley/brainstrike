@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 
 interface ReferenceFixture {
@@ -45,17 +45,7 @@ async function enableModel(page: Page): Promise<void> {
     compositeModelKey: `openrouter::${MODEL}`,
     provider: 'openrouter',
   });
-  await page.evaluate(async (model) => {
-    const db = (
-      window as unknown as {
-        electronAPI: { db: { query: (sql: string, params: unknown[]) => Promise<unknown> } };
-      }
-    ).electronAPI.db;
-    await db.query('UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2', [
-      model,
-      'openrouter',
-    ]);
-  }, MODEL);
+  await enableAssistantCatalogModel(page, `openrouter::${MODEL}`);
 }
 
 async function saveServer(page: Page, url: string): Promise<void> {

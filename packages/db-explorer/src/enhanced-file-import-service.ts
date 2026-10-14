@@ -39,6 +39,7 @@ import {
   useState,
 } from 'react';
 import { useFileImportService } from './base-file-import-service';
+import { getSourceFilesCapability } from './file-import/native-source-import';
 
 const logger = createLogger('AppShell:EnhancedFileImport');
 const QUEUE_PROGRESS_THROTTLE_MS = 100;
@@ -264,6 +265,68 @@ async function runImportFlow({
   }
 }
 
+async function runNativeImportFlow({
+  controller,
+  baseImportRunner,
+  fileContents,
+  fileTree,
+  selectedFilePaths,
+  setProgress,
+  options,
+}: Pick<
+  ImportFlowDeps,
+  | 'controller'
+  | 'baseImportRunner'
+  | 'fileContents'
+  | 'fileTree'
+  | 'selectedFilePaths'
+  | 'setProgress'
+  | 'options'
+>): Promise<void> {
+  if (controller.signal.aborted) {
+    return;
+  }
+  const imported = await baseImportRunner({
+    fileContents,
+    fileTree,
+    onProgress: (update) => {
+      const progress = { ...update, phase: 'importing' as const };
+      setProgress(progress);
+      options.onProgress?.(progress);
+    },
+    selectedFilePaths,
+  });
+  if (controller.signal.aborted) {
+    return;
+  }
+  const results = imported.map((item): EnhancedImportResult => {
+    if (!('chunksCreated' in item) || typeof item.chunksCreated !== 'number') {
+      throw new Error('Native import omitted its canonical chunk count.');
+    }
+    return { ...item, chunksCreated: item.chunksCreated };
+  });
+  const complete: EnhancedImportProgress = {
+    completed: selectedFilePaths.size,
+    errors: results.flatMap((item) => (item.error ? [{ error: item.error, file: item.id }] : [])),
+    phase: 'complete',
+    total: selectedFilePaths.size,
+  };
+  setProgress(complete);
+  options.onProgress?.(complete);
+  await options.onComplete?.(results);
+}
+
+function notifyImportFailure(
+  error: unknown,
+  signal: AbortSignal,
+  onError: EnhancedFileImportOptions['onError']
+): void {
+  if (signal.aborted) {
+    return;
+  }
+  onError?.(error instanceof Error ? error : new Error('Import failed'));
+}
+
 export function useEnhancedFileImportService(
   options: EnhancedFileImportOptions = {}
 ): EnhancedFileImportServiceReturn {
@@ -283,9 +346,10 @@ export function useEnhancedFileImportService(
     onError?: (error: Error) => void;
   } | null>(null);
 
-  const repository = useFileRecordRepository();
-  const chunkRepository = useFileChunkRepository();
-  const db = usePGliteDatabase();
+  const sourceFiles = getSourceFilesCapability();
+  const repository = useFileRecordRepository({ enabled: !sourceFiles });
+  const chunkRepository = useFileChunkRepository({ enabled: !sourceFiles });
+  const db = usePGliteDatabase({ enabled: !sourceFiles });
   const devicePref = useVectorPreferencesStore((s) => s.devicePref);
 
   // Get chunking worker from context - initialized at app root, not affected by progress re-renders
@@ -319,7 +383,7 @@ export function useEnhancedFileImportService(
   });
 
   const browserQueuePort = useMemo<EmbeddingJobQueuePort | null>(() => {
-    if (!(options.embeddingQueue && chunkRepository)) {
+    if (sourceFiles || !(options.embeddingQueue && chunkRepository)) {
       return null;
     }
 
@@ -328,7 +392,7 @@ export function useEnhancedFileImportService(
       deviceHint: devicePref,
       queue: options.embeddingQueue,
     });
-  }, [chunkRepository, devicePref, options.embeddingQueue]);
+  }, [chunkRepository, devicePref, options.embeddingQueue, sourceFiles]);
 
   const updateQueueProgress = useCallback(
     (detail: QueueProgressEventDetail) => {
@@ -568,6 +632,18 @@ export function useEnhancedFileImportService(
       options.onProgress?.(initialProgress);
 
       try {
+        if (sourceFiles) {
+          await runNativeImportFlow({
+            baseImportRunner,
+            controller,
+            fileContents,
+            fileTree,
+            options,
+            selectedFilePaths,
+            setProgress,
+          });
+          return;
+        }
         const resolvedChunkingWorkerPort =
           options.enableChunking && chunkingWorkerPort === null
             ? await ensureChunkingWorkerStarted()
@@ -588,6 +664,8 @@ export function useEnhancedFileImportService(
           setProgress,
           sqlPort: sqlPort ?? null,
         });
+      } catch (error) {
+        notifyImportFailure(error, controller.signal, options.onError);
       } finally {
         setIsImporting(false);
         setGlobalIsImporting(false); // Resume background token indexer
@@ -603,6 +681,7 @@ export function useEnhancedFileImportService(
       queuePort,
       repository,
       setGlobalIsImporting,
+      sourceFiles,
       sqlPort,
     ]
   );

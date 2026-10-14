@@ -883,6 +883,14 @@ Guard: `packages/utils/src/__tests__/diagnostic-events.test.ts`,
 
 ### P2a: NDJSON backstop + persistent Log Viewer source
 
+Desktop host `queryDiagnostics` reads the existing Main-owned, rotated NDJSON
+files directly after the desktop PGlite retirement. It reports retained events,
+not an unbounded history; filters, grouping, secret scrubbing and output limits
+remain in the existing tool projection. Missing rotation slots are empty;
+unreadable or malformed retained records reject the query explicitly. This
+introduces no additional writer or persistent store. Factory reset purges these
+same paths. Web retains its database-backed diagnostic source.
+
 - The NDJSON wire format writes a `DiagnosticEvent` as one JSON line in a FIXED
   `NDJSON_KEY_ORDER`, declared explicitly rather than derived from literal order,
   so a `biome`/`ultracite` key-sort pass cannot reorder the wire format silently.
@@ -957,6 +965,18 @@ Guard: `packages/utils/src/__tests__/diagnostic-events.test.ts`,
   count derives from the sink's own default. A crash-truncated line is counted,
   never thrown; a record with no `time` field rejects rather than reading as an
   empty window.
+- Desktop debug-bundle correlation reads full scrubbed `DiagnosticEvent` records
+  through `desktopDiagnostics.queryEvents` and `countByFingerprint`. Both use
+  the existing Main retained NDJSON reader and fingerprint grouping, including
+  the bundle's seven-day lookback; no renderer SQL capability or second store.
+  Main validates strict filters before file I/O, caps event results at the
+  existing repository limit of 200, and authorizes the visible UI role and
+  current renderer origin. Original app-version/platform fields are preserved.
+  `getUnseenCounts(sinceMs)` counts every retained event strictly after the
+  watermark (error plus fatal, and warn separately), without the event-page cap.
+  The visible badge refreshes from the existing durable-record acknowledgement
+  notification; there is no second event store or writer.
+  The browser bundle retains its existing diagnostic repository wrapper.
 - `read-process-counters` returns a bounded ring of heap/RSS samples, WebAssembly
   counts with recent failure messages, and native background-task counts. The
   sampler reads the count as background-priority SCHEDULED work, never a raw DB

@@ -66,6 +66,7 @@ const port: IndexerPort & ScopedIndexerPort = {
   }),
   prepareFile: unused,
   prepareScopedFile: unused,
+  readScopedFilePage: unused,
   removeFile: unused,
   removeScopedFile: unused,
   replaceFileBindings: unused,

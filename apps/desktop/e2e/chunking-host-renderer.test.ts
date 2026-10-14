@@ -1,3 +1,8 @@
+import {
+  type BoundaryResult,
+  readBoundaryResult,
+} from '@brainstrike/assistant-contract/boundary-result';
+import type { LogRecord } from '@brainstrike/logging';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
@@ -152,25 +157,19 @@ async function getMainBufferedLogs(page: Page): Promise<
     scope?: string;
   }>
 > {
-  return await page.evaluate(async () => {
-    const loggingApi = (
-      window as Window & {
-        logging?: {
-          getBufferedLogs?: () => Promise<
-            Array<{
-              bindings?: Record<string, unknown>;
-              message?: string;
-              scope?: string;
-            }>
-          >;
-        };
+  return readBoundaryResult(
+    await page.evaluate(async () => {
+      const loggingApi = (
+        window as Window & {
+          logging?: { getBufferedLogs: () => Promise<BoundaryResult<LogRecord[]>> };
+        }
+      ).logging;
+      if (!loggingApi?.getBufferedLogs) {
+        throw new Error('Logging bridge is not available');
       }
-    ).logging;
-    if (!loggingApi?.getBufferedLogs) {
-      throw new Error('Logging bridge is not available');
-    }
-    return await loggingApi.getBufferedLogs();
-  });
+      return await loggingApi.getBufferedLogs();
+    })
+  );
 }
 
 test.describe('Chunking Host Renderer', () => {

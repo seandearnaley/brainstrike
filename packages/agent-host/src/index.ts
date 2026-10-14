@@ -98,4 +98,5 @@ export {
   type HostStartupContext,
   startAgentHost,
 } from './runtime.js';
+export { pendingRewindSnapshotTargets } from './thread-rewind.js';
 export { nodePortConnection, stdioConnection } from './transports.js';

@@ -12,6 +12,7 @@ import {
   resolveAssistantOperatingRootBinding,
 } from '../assistant-operating-root';
 import { awaitRootRegistration, rootRegistrationSeq } from '../roots/root-registration-events';
+import { getThreadGroupsCapability } from '../thread-groups-capability';
 
 /**
  * A folder's durable `roots` row is written by the roots-reconciliation effect
@@ -102,12 +103,20 @@ async function tryResolveRootId(
  * surface it. Timeout is NOT a silent no-op for any caller.
  */
 export async function resolveRootIdAfterReconciliation(
-  database: DbHandle,
+  database: DbHandle | null,
   candidate: AssistantOperatingRootCandidate,
   isCancelled: () => boolean
 ): Promise<RootRowLookup> {
   if (isCancelled()) {
     return { kind: 'cancelled' };
+  }
+  // Desktop registration commits before Main returns the canonical descriptor.
+  // A failed catalog read is an explicit refusal, never a SQL fallback/retry.
+  if (getThreadGroupsCapability()) {
+    return resolveNativeRoot(candidate, isCancelled);
+  }
+  if (!database) {
+    return { error: new Error('Workspace root catalog unavailable'), kind: 'unresolved' };
   }
   // Captured BEFORE the first read, not after: a registration for this exact
   // path can land concurrently with (or immediately after) that read — most
@@ -152,4 +161,16 @@ export async function resolveRootIdAfterReconciliation(
   // Registration was announced but the row still fails the unique-live-row
   // read (e.g. a genuine duplicate path) — surface THAT error, not a stale one.
   return isCancelled() ? { kind: 'cancelled' } : { error: secondAttempt.error, kind: 'unresolved' };
+}
+
+async function resolveNativeRoot(
+  candidate: AssistantOperatingRootCandidate,
+  isCancelled: () => boolean
+): Promise<RootRowLookup> {
+  try {
+    const binding = await resolveAssistantOperatingRootBinding(null, candidate);
+    return isCancelled() ? { kind: 'cancelled' } : { kind: 'resolved', rootId: binding.rootId };
+  } catch (error) {
+    return isCancelled() ? { kind: 'cancelled' } : { error, kind: 'unresolved' };
+  }
 }

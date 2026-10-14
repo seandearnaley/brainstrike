@@ -52,7 +52,9 @@ const host: AssistantThreadHostCapability = {
     return found;
   },
   updateThreadBinding: refused,
-  workspaceRepository: (history) => history,
+  workspaceRepository: () => {
+    throw new Error('Unexpected workspace snapshot access in this fixture');
+  },
 };
 
 function renderChip(threadId: string) {

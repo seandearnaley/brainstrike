@@ -813,7 +813,7 @@ export function WorkspaceCollectionSyncProvider({
   if (nativeIndexSearch) {
     return (
       <NativeWorkspaceIndexProvider capability={nativeIndexSearch}>
-        <WorkspaceIndexStageProvider />
+        <WorkspaceIndexStageProvider native />
         {children}
       </NativeWorkspaceIndexProvider>
     );
@@ -1343,7 +1343,12 @@ function LegacyWorkspaceCollectionSyncProvider({ children }: { readonly children
       { enabled, managedCollectionId },
       {
         embeddingSetsRepository,
-        setManagedCollectionId,
+        setManagedCollectionId: (collectionId) => {
+          const current = useBackgroundIndexingPreferencesStore.getState();
+          if (current.enabled && current.managedCollectionId === null) {
+            current.setManagedCollectionId(collectionId);
+          }
+        },
       }
     )
       .catch((error) => {
@@ -1353,13 +1358,7 @@ function LegacyWorkspaceCollectionSyncProvider({ children }: { readonly children
         workspaceIndexBootstrapInFlightRef.current = false;
       });
     return true;
-  }, [
-    backgroundRepositories,
-    enabled,
-    managedCollectionId,
-    reportAsyncError,
-    setManagedCollectionId,
-  ]);
+  }, [backgroundRepositories, enabled, managedCollectionId, reportAsyncError]);
 
   const resolveSyncTargets = useCallback(
     async (scope: TriggerSyncScope, context: { isCurrent: () => boolean }) => {

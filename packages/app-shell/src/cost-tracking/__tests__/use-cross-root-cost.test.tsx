@@ -1,4 +1,5 @@
-import { renderHook } from '@testing-library/react';
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
+import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { unsubscribeMock, subscribeMock, usePGliteDatabaseMock, usePGliteLiveQueryMock } =
@@ -66,6 +67,7 @@ describe('useCrossRootCost', () => {
 
   afterEach(() => {
     setDesktopAgentHost(undefined);
+    Reflect.deleteProperty(window, 'threadGroups');
     vi.restoreAllMocks();
   });
 
@@ -116,5 +118,45 @@ describe('useCrossRootCost', () => {
       // A root the table leaves unnamed keeps the name its run committed.
       ['root-c', 'Committed name'],
     ]);
+  });
+  it('reads native folder names without a PGlite provider and surfaces catalog failure', async () => {
+    const readRoots = vi
+      .fn()
+      .mockResolvedValue([{ displayName: 'Current folder', id: 'root-b', path: '/fixture' }]);
+    Object.defineProperty(window, 'threadGroups', {
+      configurable: true,
+      value: { readRoots: async () => ({ ok: true, value: await readRoots() }) },
+    });
+    usePGliteDatabaseMock.mockImplementation(({ enabled }: { enabled?: boolean } = {}) => {
+      if (enabled !== false) {
+        throw new Error('Native costs attempted PGlite');
+      }
+      return null;
+    });
+    const usage = [
+      {
+        estimatedCacheCreationTokens: 0,
+        estimatedCacheReadTokens: 0,
+        estimatedInputTokens: 40,
+        estimatedOutputTokens: 6,
+        inputTokens: 40,
+        model: 'model',
+        outputTokens: 6,
+        provider: 'provider',
+        rootDisplayName: 'Committed folder',
+        rootId: 'root-b',
+      },
+    ];
+    const { result, unmount } = renderHook(() => useCrossRootCost(usage));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.rows[0]?.rootDisplayName).toBe('Current folder');
+    expect(subscribeMock).not.toHaveBeenCalled();
+    unmount();
+    const failure = new Error('Catalog unavailable');
+    readRoots.mockRejectedValue(failure);
+    const failed = renderHook(() => useCrossRootCost(usage));
+    await waitFor(() =>
+      expect(failed.result.current.error).toMatchObject({ cause: failure, failure: INTERNAL_FAULT })
+    );
   });
 });

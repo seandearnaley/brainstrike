@@ -1,38 +1,3 @@
-interface DesktopBridgeLike {
-  electronAPI?: {
-    db?: {
-      clearAll?: unknown;
-      diagnostics?: unknown;
-      exec?: unknown;
-      insertChunksAndEnqueueEmbeddingJobs?: unknown;
-      query?: unknown;
-      resetLocal?: unknown;
-      test?: unknown;
-    };
-    fileSystem?: {
-      addRoot?: unknown;
-      exists?: unknown;
-      readDirectory?: unknown;
-      readFile?: unknown;
-      requestDirectoryAccess?: unknown;
-      restoreLastFolder?: unknown;
-      restoreRoots?: unknown;
-      saveLastFolder?: unknown;
-    };
-    storage?: {
-      clear?: unknown;
-      getAllKeys?: unknown;
-      getItem?: unknown;
-      removeItem?: unknown;
-      setItem?: unknown;
-    };
-  };
-  logging?: {
-    getPreferences?: unknown;
-    setPreferences?: unknown;
-  };
-}
-
 const REQUIRED_VISIBLE_UI_BRIDGE_PATHS = [
   ['electronAPI', 'storage', 'getItem'],
   ['electronAPI', 'storage', 'setItem'],
@@ -42,17 +7,22 @@ const REQUIRED_VISIBLE_UI_BRIDGE_PATHS = [
   ['electronAPI', 'fileSystem', 'exists'],
   ['electronAPI', 'fileSystem', 'restoreLastFolder'],
   ['electronAPI', 'fileSystem', 'saveLastFolder'],
-  ['electronAPI', 'db', 'query'],
-  ['electronAPI', 'db', 'exec'],
-  ['electronAPI', 'db', 'insertChunksAndEnqueueEmbeddingJobs'],
-  ['electronAPI', 'db', 'test'],
-  ['electronAPI', 'db', 'clearAll'],
-  ['electronAPI', 'db', 'resetLocal'],
+  ['electronAPI', 'factoryReset', 'resetLocal'],
+  ['electronAPI', 'content', 'clear'],
+  ['modelCatalog', 'read'],
+  ['viewFilterPresets', 'request'],
+  ['threadGroups', 'request'],
+  ['threadGroups', 'readRoots'],
+  ['promptLibrary', 'request'],
+  ['collectionCatalog', 'snapshot'],
+  ['sourceFiles', 'list'],
+  ['sourceFiles', 'read'],
+  ['sourceFiles', 'chunks'],
   ['logging', 'getPreferences'],
   ['logging', 'setPreferences'],
 ] as const;
 
-function hasCallablePath(candidate: DesktopBridgeLike, pathSegments: readonly string[]): boolean {
+function hasCallablePath(candidate: unknown, pathSegments: readonly string[]): boolean {
   let current: unknown = candidate;
   for (const segment of pathSegments) {
     if (!current || typeof current !== 'object' || !(segment in current)) {
@@ -82,9 +52,7 @@ export function isElectronRendererUserAgent(userAgent: string): boolean {
   return userAgent.includes('Electron/');
 }
 
-export function validateDesktopBridgeContract(
-  candidate: DesktopBridgeLike
-): DesktopBridgeValidationResult {
+export function validateDesktopBridgeContract(candidate: unknown): DesktopBridgeValidationResult {
   const missing = REQUIRED_VISIBLE_UI_BRIDGE_PATHS.filter(
     (segments) => !hasCallablePath(candidate, segments)
   ).map((segments) => `window.${segments.join('.')}`);

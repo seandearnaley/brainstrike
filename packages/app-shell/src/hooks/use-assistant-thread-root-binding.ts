@@ -1,4 +1,4 @@
-import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
+import type { AssistantThreadCatalogRepository } from '@brainstrike/assistant-data';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type { DbHandle } from '@brainstrike/db/react';
 import { useCallback } from 'react';
@@ -10,9 +10,10 @@ import {
   type AssistantOperatingRootBinding,
   resolveAssistantOperatingRootBinding,
 } from '../assistant-ui-panel-wrapper-runtime';
+import { getThreadGroupsCapability } from '../thread-groups-capability';
 
 interface UseAssistantThreadRootBindingArgs {
-  readonly assistantThreadRepository: AssistantThreadRepository | null;
+  readonly assistantThreadRepository: AssistantThreadCatalogRepository | null;
   readonly currentMainRoot?: AssistantOperatingRootCandidate | undefined;
   readonly database: DbHandle | null;
   readonly memoryResourceId: string;
@@ -83,7 +84,7 @@ export function useAssistantThreadRootBinding({
     if (!currentMainRoot) {
       return;
     }
-    if (!database) {
+    if (!(database || getThreadGroupsCapability())) {
       throw new Error(
         'Cannot bind an assistant thread root before the workspace database is ready.'
       );

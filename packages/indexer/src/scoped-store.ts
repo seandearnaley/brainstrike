@@ -27,6 +27,7 @@ import {
 } from './contracts.js';
 import { readIndexIdentity, readScopeEpoch } from './index-metadata.js';
 import { ScopeAuthority, supportedVectorProfile, vectorProfileHash } from './scope-authority.js';
+import { readScopedFilePage } from './scoped-file-page.js';
 import { scopeCoverage, scopeCoverageBatch, verifyScopedManifest } from './scoped-proofs.js';
 import {
   coarseVectorBlob,
@@ -96,6 +97,9 @@ export class ScopedIndex {
       CREATE INDEX files_collection ON file_records(embedding_set_id,id);
       CREATE TABLE vector_profiles(profile_hash TEXT PRIMARY KEY,profile_json TEXT NOT NULL,dimensions INTEGER NOT NULL CHECK(dimensions>0));
       CREATE TABLE scoped_vectors(pk INTEGER PRIMARY KEY,chunk_pk INTEGER NOT NULL REFERENCES file_chunks(pk) ON DELETE CASCADE,profile_hash TEXT NOT NULL REFERENCES vector_profiles(profile_hash),content_hash TEXT NOT NULL,dimensions INTEGER NOT NULL,emb BLOB NOT NULL CHECK(typeof(emb)='blob' AND vec_length(emb)=dimensions),UNIQUE(chunk_pk,profile_hash));`);
+  }
+  readFilePage(input: unknown): import('./contracts.js').ScopedFilePage {
+    return readScopedFilePage(this.db, this.authority, input);
   }
   beginOwnerEpoch(): void {
     this.db

@@ -1,11 +1,10 @@
 import { mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { addLogListener, configureLogger, type LogRecord } from '@brainstrike/logging';
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createNodeFsScanDeps } from '../../assistant-server/node-fs-scan-deps';
 import { __resetUserCommandWarningsForTests } from '../../assistant-server/user-slash-commands-loader';
-import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
 import { listUserSlashCommands } from '../../ipc-user-commands-handlers';
 
 let tempRoot: string | undefined;
@@ -31,11 +30,20 @@ afterEach(() => {
 const HOME = '/home/user';
 const PROJECT_ROOT = path.resolve('/proj');
 
-function dbReturning(rows: { id: string; displayName: string | null; path: string | null }[]) {
-  const db: WorkspaceRootsQueryable = {
-    query: async <T>() => ({ rows: rows as unknown as T[] }),
+function catalogReturning(
+  rows: { id: string; displayName: string; path: string; status?: 'live' | 'disconnected' }[]
+): WorkspaceRootPort {
+  return {
+    workspaceRoots: async () => ({
+      roots: rows.map((row) => ({
+        ...row,
+        createdAt: 1,
+        kind: 'path',
+        lastVerifiedAt: 1,
+        status: row.status ?? 'live',
+      })),
+    }),
   };
-  return db;
 }
 
 function fsWith(files: Record<string, string>, dirs: Record<string, string[]>) {
@@ -200,9 +208,10 @@ describe('listUserSlashCommands', () => {
 
     const result = await listUserSlashCommands({
       fs: openScanDependencies(),
-      getDatabase: async () =>
-        dbReturning([{ displayName: 'Workspace', id: 'root-1', path: workspace }]),
       homedir: () => path.join(tempRoot as string, 'home'),
+      workspaceRoots: catalogReturning([
+        { displayName: 'Workspace', id: 'root-1', path: workspace },
+      ]),
     });
 
     expect(result.commands).toEqual([
@@ -215,8 +224,8 @@ describe('listUserSlashCommands', () => {
     ]);
   });
 
-  it('resolves DB roots (DB roots.id + path) and returns commands + roots', async () => {
-    const db = dbReturning([{ displayName: 'Proj', id: 'db-root-1', path: PROJECT_ROOT }]);
+  it('resolves catalog roots and returns commands + roots', async () => {
+    const db = catalogReturning([{ displayName: 'Proj', id: 'db-root-1', path: PROJECT_ROOT }]);
     const fs = fsWith(
       { [`${PROJECT_ROOT}/.brainstrike/commands/review.md`]: 'Review $ARGUMENTS' },
       { [`${PROJECT_ROOT}/.brainstrike/commands`]: ['review.md'] }
@@ -224,8 +233,8 @@ describe('listUserSlashCommands', () => {
 
     const result = await listUserSlashCommands({
       fs,
-      getDatabase: async () => db,
       homedir: () => HOME,
+      workspaceRoots: db,
     });
 
     expect(result.roots).toEqual([{ displayName: 'Proj', id: 'db-root-1' }]);
@@ -234,42 +243,45 @@ describe('listUserSlashCommands', () => {
     ]);
   });
 
-  it('still loads global (~) commands when the DB is unavailable (logged, not silent)', async () => {
+  it('rejects unavailable catalog instead of reporting only global commands', async () => {
     const fs = fsWith(
       { '/home/user/.brainstrike/commands/note.md': 'A note' },
       { '/home/user/.brainstrike/commands': ['note.md'] }
     );
-
-    configureLogger({ console: false });
-    const records: LogRecord[] = [];
-    const stop = addLogListener((record) => records.push(record));
-    let result: Awaited<ReturnType<typeof listUserSlashCommands>>;
-    try {
-      result = await listUserSlashCommands({
+    const failure = new Error('Catalog unavailable');
+    await expect(
+      listUserSlashCommands({
         fs,
-        getDatabase: async () => {
-          throw new Error('db down');
-        },
         homedir: () => HOME,
-      });
-    } finally {
-      stop();
-    }
-
-    expect(result.roots).toEqual([]);
-    expect(result.commands).toEqual([{ id: 'note', label: 'note', template: 'A note' }]);
-    expect(
-      records.some((record) => record.level === 'error' && record.scope === 'UserSlashCommands')
-    ).toBe(true);
+        workspaceRoots: {
+          workspaceRoots: async () => {
+            throw failure;
+          },
+        },
+      })
+    ).rejects.toBe(failure);
   });
 
-  it('drops a root whose DB path is null (no filesystem-root scan, not reported)', async () => {
-    const db = dbReturning([
+  it('loads global commands after an authoritative empty catalog read', async () => {
+    const fs = fsWith(
+      { '/home/user/.brainstrike/commands/note.md': 'A note' },
+      { '/home/user/.brainstrike/commands': ['note.md'] }
+    );
+    const result = await listUserSlashCommands({
+      fs,
+      homedir: () => HOME,
+      workspaceRoots: catalogReturning([]),
+    });
+    expect(result.roots).toEqual([]);
+    expect(result.commands).toEqual([{ id: 'note', label: 'note', template: 'A note' }]);
+  });
+
+  it('excludes disconnected roots from command discovery', async () => {
+    const db = catalogReturning([
       { displayName: 'Resolved', id: 'db-root-1', path: PROJECT_ROOT },
-      { displayName: 'Unresolved', id: 'db-root-2', path: null },
+      { displayName: 'Disconnected', id: 'db-root-2', path: '/', status: 'disconnected' },
     ]);
-    // A file planted at the filesystem-root scan path the null root would join to
-    // (`/.brainstrike/commands`) must NOT be scanned.
+    // A disconnected root must not be scanned or reported.
     const fs = fsWith(
       {
         '/.brainstrike/commands/leaked.md': 'Should never load',
@@ -283,8 +295,8 @@ describe('listUserSlashCommands', () => {
 
     const result = await listUserSlashCommands({
       fs,
-      getDatabase: async () => db,
       homedir: () => HOME,
+      workspaceRoots: db,
     });
 
     expect(result.roots).toEqual([{ displayName: 'Resolved', id: 'db-root-1' }]);

@@ -39,7 +39,6 @@ const owner = vi.hoisted(() => ({
   }),
   files: vi.fn(),
   hybrid: vi.fn(),
-  query: vi.fn(),
   semantic: vi.fn(),
 }));
 const renderer = vi.hoisted(() => ({
@@ -115,7 +114,11 @@ vi.mock('@brainstrike/app-state/stores/workspace-instructions-preferences-store'
 vi.mock('@brainstrike/file-explorer-ui/preview', () => ({
   useWorkspaceContextCurationStore: { getState: () => ({ contextSnapshot: null }) },
 }));
-vi.mock('../db-main', () => ({ getDatabase: async () => ({ query: owner.query }) }));
+vi.mock('../db-main', () => ({
+  getDatabase: async () => {
+    throw new Error('PGlite must not be opened by host admission');
+  },
+}));
 vi.mock('../provider-api-key', () => ({
   readProviderCredential: owner.credential,
 }));
@@ -137,12 +140,23 @@ vi.mock('@brainstrike/db', async (original) => ({
 }));
 
 import { readDesktopHostConfiguration } from '../renderer/desktop-host-configuration';
-import { desktopAdmission } from './fixtures/desktop-admission';
+import { admissionCatalogFixture, admissionModelSnapshot } from './fixtures/admission-catalog';
+import { desktopAdmission as createDesktopAdmission } from './fixtures/desktop-admission';
 import { desktopHostIntentFixture as intent } from './fixtures/desktop-host-intent';
 
 const directories: string[] = [];
 let roots: { id: string; displayName: string; path: string }[] = [];
 let fileOwners: { id: string; rootId: string; rootName: string }[] = [];
+const catalog = admissionCatalogFixture(() => roots);
+function desktopAdmission(
+  dependencies: Partial<Parameters<typeof createDesktopAdmission>[0]>,
+  ...rest: Parameters<typeof createDesktopAdmission> extends [unknown, ...infer Rest] ? Rest : never
+) {
+  return createDesktopAdmission(
+    { ...catalog.services, retrievalStore: retrieval, ...dependencies },
+    ...rest
+  );
+}
 const profile = {
   dimensions: 384,
   dtype: 'q8',
@@ -160,6 +174,24 @@ const queryPlan = {
   },
   modelKey: `local::${profile.modelId}`,
 } as const;
+const retrieval = {
+  embeddingSet: vi.fn(async () => ({
+    dimensions: 384,
+    distance: 'cosine',
+    modelId: profile.modelId,
+    modelKey: queryPlan.modelKey,
+  })),
+  embeddingSpaces: async () => [],
+  fileRecords: async (ids: readonly string[]) =>
+    new Map(
+      fileOwners
+        .filter((file) => ids.includes(file.id))
+        .map((file) => [
+          file.id,
+          { ...file, name: `${file.id}.txt`, path: `${file.id}.txt`, tokenCount: null },
+        ])
+    ),
+};
 const embedding = {
   indexMode: 'vector-configured',
   profile,
@@ -168,6 +200,7 @@ const embedding = {
 } as const;
 
 beforeEach(() => {
+  catalog.modelRead.mockImplementation(async () => admissionModelSnapshot());
   vi.clearAllMocks();
   renderer.enforce = true;
   renderer.intent.mockImplementation(intent);
@@ -184,30 +217,6 @@ beforeEach(() => {
   owner.hybrid.mockResolvedValue({
     metadata: { ftsResultCount: 0, fusedResultCount: 0, totalMs: 0, vectorResultCount: 0 },
     results: [],
-  });
-  owner.query.mockImplementation(async (sql: string) => {
-    if (sql.includes('FROM models')) {
-      return { rows: [{ isEnabled: true, providerId: 'openai' }] };
-    }
-    if (sql.includes('FROM roots') && !sql.includes('file_records')) {
-      return { rows: roots.map((root) => ({ ...root })) };
-    }
-    if (sql.includes('FROM embedding_sets')) {
-      return {
-        rows: [
-          {
-            dimensions: 384,
-            distance: 'cosine',
-            modelId: profile.modelId,
-            modelKey: queryPlan.modelKey,
-          },
-        ],
-      };
-    }
-    if (sql.includes('file_records')) {
-      return { rows: fileOwners };
-    }
-    throw new Error('Unexpected owner query in workspace boundary control');
   });
 });
 afterEach(async () => {
@@ -373,7 +382,7 @@ test.for([undefined, null, { modelConfiguration: { model: 'gpt-6-sol', provider:
     const capabilities = desktopAdmission({}, undefined, readOwner);
     await expect(capabilities.readConfiguration(request(cliInput()))).rejects.toThrow();
     expect(readOwner).toHaveBeenCalledOnce();
-    expect(owner.query.mock.calls.some(([sql]) => String(sql).includes('FROM roots'))).toBe(false);
+    expect(catalog.workspaceRoots).not.toHaveBeenCalled();
   }
 );
 
@@ -382,10 +391,14 @@ test('actual Main refuses a trusted owner model mismatch before root acquisition
   const original = intent();
   original.modelConfiguration.model = 'gpt-6-astra';
   const capabilities = desktopAdmission({}, undefined, async () => original);
-  await expect(capabilities.readConfiguration(request(cliInput()))).rejects.toThrow(
-    'Captured settings do not belong'
-  );
-  expect(owner.query.mock.calls.some(([sql]) => String(sql).includes('FROM roots'))).toBe(false);
+  await expect(capabilities.readConfiguration(request(cliInput()))).rejects.toMatchObject({
+    failure: {
+      category: 'conflict',
+      code: 'model.selection-changed',
+      kind: 'refusal',
+    },
+  });
+  expect(catalog.workspaceRoots).not.toHaveBeenCalled();
 });
 
 test('actual Main rejects caller-supplied owner intent in the strict CLI envelope', async () => {
@@ -426,7 +439,7 @@ test('actual Main joins a held owner read and refuses after admission is aborted
     release.resolve(intent());
   }
   expect(await settled).toEqual(new Error('Owner capture aborted'));
-  expect(owner.query.mock.calls.some(([sql]) => String(sql).includes('FROM roots'))).toBe(false);
+  expect(catalog.workspaceRoots).not.toHaveBeenCalled();
 });
 
 test('actual Main recovery retains committed full intent without rereading current preferences', async () => {
@@ -738,9 +751,7 @@ test.each([
       );
       if (selected.length === 0) {
         await expect(result).resolves.toMatchObject(UNAVAILABLE);
-        expect(owner.query.mock.calls.some(([sql]) => String(sql).includes('embedding_sets'))).toBe(
-          false
-        );
+        expect(retrieval.embeddingSet).not.toHaveBeenCalled();
         expect(owner.hybrid).not.toHaveBeenCalled();
         expect(owner.semantic).not.toHaveBeenCalled();
         expect(fixture.queryEmbedding).not.toHaveBeenCalled();

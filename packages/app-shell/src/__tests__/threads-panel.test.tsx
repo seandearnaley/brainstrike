@@ -13,6 +13,10 @@ import userEvent from '@testing-library/user-event';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assistantThreadActions } from '../assistant-thread-context-actions';
 import {
+  type AssistantThreadHostCapability,
+  AssistantThreadHostContext,
+} from '../assistant-thread-host-context';
+import {
   ASSISTANT_THREAD_COLOR_PRESENTATION,
   THREAD_CONTROL_ACTION_CLASS_NAME,
   THREAD_CONTROL_MARK_CLASS_NAME,
@@ -79,6 +83,7 @@ const {
     awaitingApprovalRows: [] as Record<string, unknown>[],
     database: undefined as unknown,
     deleteFailureThreadId: null as string | null,
+    forbidDatabase: false,
     forgePrError: null as Error | null,
     forgePrRows: [] as Record<string, unknown>[],
     getNavigationTitles: vi.fn<ThreadSearchRepository['getNavigationTitles']>(),
@@ -191,9 +196,22 @@ vi.mock('@brainstrike/db', () => ({
     }
   },
   useDbInitializationStatus: () => dbMocks.initializationStatus,
-  useDbInitializing: () => dbMocks.initializing,
+  useDbInitializing: () => {
+    if (dbMocks.forbidDatabase) {
+      throw new Error('No desktop PG provider');
+    }
+    return dbMocks.initializing;
+  },
   useDbProviderError: () => dbMocks.providerError,
-  usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
+  usePGliteDatabase: (options?: { enabled?: boolean }) => {
+    if (options?.enabled === false) {
+      return null;
+    }
+    if (dbMocks.forbidDatabase) {
+      throw new Error('No desktop PG provider');
+    }
+    return dbMocks.database === undefined ? mockDb : dbMocks.database;
+  },
 }));
 vi.mock('@brainstrike/db/react', () => ({
   // Search returns no matches; the real controller still resolves the title
@@ -258,9 +276,22 @@ vi.mock('@brainstrike/db/react', () => ({
     }
   },
   useDbInitializationStatus: () => dbMocks.initializationStatus,
-  useDbInitializing: () => dbMocks.initializing,
+  useDbInitializing: () => {
+    if (dbMocks.forbidDatabase) {
+      throw new Error('No desktop PG provider');
+    }
+    return dbMocks.initializing;
+  },
   useDbProviderError: () => dbMocks.providerError,
-  usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
+  usePGliteDatabase: (options?: { enabled?: boolean }) => {
+    if (options?.enabled === false) {
+      return null;
+    }
+    if (dbMocks.forbidDatabase) {
+      throw new Error('No desktop PG provider');
+    }
+    return dbMocks.database === undefined ? mockDb : dbMocks.database;
+  },
   // Routed BY cacheKey, never by call order: the panel runs distinct live
   // projections, including two with identical row shapes ({ threadId}), so an
   // order-based double would happily feed the running spinners approval rows.
@@ -358,15 +389,20 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileSystem: () => ({ rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle }),
 }));
 
-function renderThreadsPanel(): ReturnType<typeof createTestActionRegistry> {
+function renderThreadsPanel(
+  host?: AssistantThreadHostCapability
+): ReturnType<typeof createTestActionRegistry> & { rerender(): void } {
   const actionRegistry = createTestActionRegistry({ actions: assistantThreadActions });
-  render(
+  const view = () => (
     <ActionRegistryProvider registry={actionRegistry.registry}>
-      <ThreadsPanel />
+      <AssistantThreadHostContext.Provider value={host}>
+        <ThreadsPanel />
+      </AssistantThreadHostContext.Provider>
       <Toaster />
     </ActionRegistryProvider>
   );
-  return actionRegistry;
+  const rendered = render(view());
+  return { ...actionRegistry, rerender: () => rendered.rerender(view()) };
 }
 
 // Finish each real Radix popover's deferred autofocus before RTL removes its DOM.
@@ -383,6 +419,23 @@ afterEach(async () => {
 });
 
 beforeEach(() => {
+  dbMocks.forbidDatabase = false;
+  Object.defineProperty(window, 'threadGroups', { configurable: true, value: undefined });
+  Object.defineProperty(window, 'forge', {
+    configurable: true,
+    value: {
+      cacheSnapshot: async () => {
+        if (dbMocks.forgePrError) {
+          throw dbMocks.forgePrError;
+        }
+        return { ok: true, value: dbMocks.forgePrRows };
+      },
+      identity: vi.fn(),
+      onPrUpdated: () => () => {},
+      prStatus: vi.fn(),
+      refresh: vi.fn(),
+    },
+  });
   virtualizerState.windowSize = Number.POSITIVE_INFINITY;
   // Shared across every render in this file; without a reset it becomes
   // order-dependent state the next test to read it silently inherits.
@@ -700,7 +753,7 @@ beforeEach(() => {
 describe('ThreadsPanel', () => {
   it('shows independent reduced-motion-safe activity spinners without replacing thread icons', async () => {
     dbMocks.activeRunRows = [{ threadId: 'thread-a' }, { threadId: 'thread-b' }];
-    renderThreadsPanel();
+    const view = renderThreadsPanel();
 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-active-spinner')).toHaveLength(2);
@@ -728,6 +781,7 @@ describe('ThreadsPanel', () => {
     ).toBeVisible();
 
     dbMocks.activeRunRows = [];
+    view.rerender();
     act(() => {
       useAssistantThreadStore.setState((state) => ({
         selectedThreadByResourceId: { ...state.selectedThreadByResourceId },
@@ -2834,7 +2888,7 @@ describe('ThreadsPanel folders', () => {
     dbMocks.forgePrRows = [
       {
         branch: 'main',
-        checksJson: [],
+        checksRollup: 'none',
         isDraft: false,
         number: 2574,
         repoCommonDir: '/tmp/workspace-a/.git',
@@ -2864,7 +2918,7 @@ describe('ThreadsPanel folders', () => {
     });
   });
 
-  describe('thread row PR pill — live query route', () => {
+  describe('thread row PR pill — committed cache snapshot', () => {
     function seedMatchingPrRow(): void {
       gitMocks.worktrees = [
         { branch: 'main', containment: ['root-1'], detached: false, path: '/tmp/workspace-a/' },
@@ -2872,7 +2926,7 @@ describe('ThreadsPanel folders', () => {
       dbMocks.forgePrRows = [
         {
           branch: 'main',
-          checksJson: [{ conclusion: 'success', name: 'unit', url: null }],
+          checksRollup: 'passing',
           isDraft: false,
           number: 2574,
           repoCommonDir: '/tmp/workspace-a/.git',
@@ -2963,4 +3017,74 @@ describe('thread panel popover fixture lifetime', () => {
     );
     // The registered fixture teardown must close the real popover.
   });
+});
+
+it('loads host conversations, retained folders and custom groups without a PG provider', async () => {
+  dbMocks.forbidDatabase = true;
+  const thread: AssistantMemoryThread = {
+    createdAt: new Date(),
+    id: 'host-current',
+    metadata: {
+      operatingRootDisplayName: 'Retained',
+      operatingRootId: 'retained-root',
+      operatingRootPath: '/tmp/retained',
+    },
+    resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+    title: 'Host current',
+    updatedAt: new Date(),
+  };
+  const host: AssistantThreadHostCapability = {
+    createThread: vi.fn(async () => thread),
+    deleteThread: vi.fn(async () => [thread.id]),
+    listThreads: vi.fn(async () => [thread]),
+    ownsThread: vi.fn(async () => true),
+    renameThread: vi.fn(),
+    renderThread: () => null,
+    updateThreadBinding: vi.fn(),
+    workspaceRepository: () => {
+      throw new Error('Unexpected workspace snapshot access in this fixture');
+    },
+  };
+  const request = vi.fn(async () => ({
+    groups: [
+      {
+        color: null,
+        icon: null,
+        id: 'thread-group-current',
+        name: 'My work',
+        rank: 'a0',
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+      },
+    ],
+    placements: [
+      {
+        flatRank: null,
+        groupId: 'thread-group-current',
+        rank: 'a0',
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+        threadId: thread.id,
+      },
+    ],
+  }));
+  const readRoots = vi.fn(async () => [
+    { displayName: 'Retained', id: 'retained-root', path: '/tmp/retained', status: 'disconnected' },
+  ]);
+  Object.defineProperty(window, 'threadGroups', {
+    configurable: true,
+    value: {
+      readRoots: async () => ({ ok: true, value: await readRoots() }),
+      request: async (...args: Parameters<typeof request>) => ({
+        ok: true,
+        value: await request(...args),
+      }),
+    },
+  });
+  renderThreadsPanel(host);
+  expect(await screen.findByText('Host current')).toBeVisible();
+  expect(await screen.findByText('My work')).toBeVisible();
+  await userEvent.setup().click(screen.getByRole('button', { name: 'View options' }));
+  await userEvent.setup().click(screen.getByRole('radio', { name: 'Folder' }));
+  expect(await screen.findByText('Retained')).toBeVisible();
+  expect(readRoots).toHaveBeenCalledTimes(1);
+  expect(mockDb.query).not.toHaveBeenCalled();
 });

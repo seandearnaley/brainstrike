@@ -7,6 +7,12 @@
       "llm": true,
       "streaming": true
     },
+    "catalog": {
+      "enabled": true,
+      "icon": null,
+      "name": "OpenAI",
+      "sortOrder": 1
+    },
     "deprecatedEnvKeys": [
       "BS_OPENAI_API_KEY",
       "AI_OPENAI_API_KEY",
@@ -21,6 +27,22 @@
     "models": [
       {
         "_note": "Identity, limits, pricing, endpoints, and request-shape constraints: OpenAI model page and changelog, retrieved 2026-09-08 (BST-1692):\nhttps://developers.openai.com/api/docs/models/gpt-6-astra\nhttps://developers.openai.com/api/docs/changelog\n1,050,000 total context with a 922K maximum input.\nENDPOINT: the changelog says tool calling requires the Responses API. The direct `openai` route builds the default `createOpenAI()(modelId)` callable, which @ai-sdk/openai 4.0.49 resolves to its Responses model (POST /responses), so tool calling is available on the surface we use (packages/agent/src/providers/provider-factory.ts, `case 'openai'`).\nCACHE RATES OMITTED: OpenAI publishes $1/MTok cached input and $12.50/MTok cache writes, but a cache RATE may only travel with a `promptCaching` dialect (BST-1354, provider-registry-pricing.test.ts) and that enum has no `openai` member. Recording the rates without a dialect would price a discount the runtime never requests. Every sibling OpenAI row omits them for the same reason; adding an OpenAI caching dialect is separate work.\nLONG-CONTEXT SURCHARGE NOT MODELLED: OpenAI bills prompts above 272K input tokens at 2x input/cache and 1.5x output. computeCost in packages/tokenization/src/cost-estimate.ts applies one flat rate per token class and models no per-request tier, so estimates for prompts over 272K input tokens UNDERSTATE the real charge. The catalog schema has no tier field, and the same gap covers gpt-5.6-sol/terra/luna, which share this 1,050,000 context window; adding a tier is BST-1708. Pricing is NOT omitted to dodge it: an unpriced row reports no cost for EVERY request, which is a larger and far more common misstatement than understating the rare >272K one.\nREASONING LADDER DECLARED: the model page lists effort low/medium/high/xhigh/max with no `none` rung. This is the first DIRECT `openai` row to carry a `reasoning` block, because the undeclared fallback (OPENAI_FAMILY_DEFAULT_EFFORTS in packages/assistant-contract/src/model-reasoning.ts) is wrong for Astra in both directions: it offers `minimal`, which the page does not list, and withholds `max`, which it does. The 12 sibling openai rows still inherit that fallback (BST-1709). `mandatory` is false: effort is optional, and leaving it unset is the composer's Auto.\nThe model accepts no custom temperature or top_p.",
+        "catalog": {
+          "bestFor": [
+            "Reasoning",
+            "Coding",
+            "Computer use",
+            "Research",
+            "Document creation"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-6 Astra",
+          "parameters": null,
+          "sortOrder": 15,
+          "tagline": "Our most capable model, built for the hardest end-to-end work"
+        },
         "contextWindow": 1050000,
         "id": "gpt-6-astra",
         "label": "GPT-6 Astra",
@@ -44,6 +66,16 @@
       },
       {
         "_note": "Identity, limits, modalities, streaming, tool search, reasoning ladder and\nstandard short-context pricing: OpenAI model page and pricing page,\nretrieved 2026-09-22 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-6-sol\nhttps://developers.openai.com/api/docs/pricing\nREASONING LADDER DECLARED: the page reads \"reasoning.effort supports none,\nlow, medium (default), high, xhigh, and max\", so the undeclared\nOPENAI_FAMILY_DEFAULT_EFFORTS fallback (offers minimal, withholds max) is\nwrong for this row, as it is for gpt-6-astra. `none` is offered, so\n`mandatory` is false.\nCACHE RATES OMITTED: $0.20/MTok cached input and $2.50/MTok cache writes\nare published, but a cache rate may only travel with a `promptCaching`\ndialect and there is no `openai` member (BST-1354), as on gpt-6-astra.\nLONG-CONTEXT TIER NOT MODELLED: prompts above 272K input tokens bill at\n$4 input / $15 output; the schema carries one rate pair (BST-1708).\ntokenMeasurement is the sibling-row convention: OpenAI publishes no\ntokenizer for this model.",
+        "catalog": {
+          "bestFor": ["Complex coding", "Agentic workflows"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-6 Sol",
+          "parameters": null,
+          "sortOrder": 16,
+          "tagline": "Built to power complex coding and agentic workflows"
+        },
         "contextWindow": 1050000,
         "id": "gpt-6-sol",
         "label": "GPT-6 Sol",
@@ -68,6 +100,16 @@
       },
       {
         "_note": "Identity, limits, modalities, streaming, tool search, reasoning ladder and\nstandard short-context pricing: OpenAI model page and pricing page,\nretrieved 2026-09-22 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-6-luna\nhttps://developers.openai.com/api/docs/pricing\nREASONING LADDER DECLARED: the page reads \"reasoning.effort supports none,\nlow, medium (default), high, xhigh, and max\", so the undeclared\nOPENAI_FAMILY_DEFAULT_EFFORTS fallback (offers minimal, withholds max) is\nwrong for this row, as it is for gpt-6-astra. `none` is offered, so\n`mandatory` is false.\nCACHE RATES: $0.01/MTok cached input and $0.125/MTok cache writes,\nreverified on the model page 2026-10-11. Automatic caching reports these\nusage classes without an explicit promptCaching request dialect.\nLONG-CONTEXT TIER NOT MODELLED: prompts above 272K input tokens bill at\n$0.20 input / $0.75 output; the schema carries one rate pair (BST-1708).\ntokenMeasurement is the sibling-row convention: OpenAI publishes no\ntokenizer for this model.",
+        "catalog": {
+          "bestFor": ["Focused tasks", "High-volume tasks"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-6 Luna",
+          "parameters": null,
+          "sortOrder": 17,
+          "tagline": "Our most efficient model for focused, high-volume tasks"
+        },
         "contextWindow": 1050000,
         "id": "gpt-6-luna",
         "label": "GPT-6 Luna",
@@ -94,6 +136,16 @@
       },
       {
         "_note": "BST-1698: OpenAI cut Sol from 5/30 to 4/20 $/MTok on 2026-08-21.\nStandard short-context tier, retrieved 2026-09-08:\nhttps://developers.openai.com/api/docs/pricing\nhttps://developers.openai.com/api/docs/changelog — \"GPT-5.6 Sol now\ncosts $4 per million input tokens and $20 per million output tokens,\nrepresenting 20% lower input pricing and 33% lower output pricing\",\nwhich reconstructs the prior 5/30 exactly and confirms the column\nreading. The vendor page also publishes long-context, batch, flex and\nfast tiers for this model; this schema carries one rate pair, so the\nstandard short-context tier is declared, as on every other row.\nOpenAI describes the new rate as promotional through at least\n2026-11-21 — re-check on the next catalog sweep.",
+        "catalog": {
+          "bestFor": ["Deep reasoning", "Agentic work"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-5.6 Sol",
+          "parameters": null,
+          "sortOrder": 1,
+          "tagline": "Highest-capability GPT-5.6 tier"
+        },
         "contextWindow": 1050000,
         "id": "gpt-5.6-sol",
         "label": "GPT-5.6 Sol",
@@ -113,6 +165,16 @@
       },
       {
         "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.6-terra",
+        "catalog": {
+          "bestFor": ["Reasoning", "Coding", "Tool use"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-5.6 Terra",
+          "parameters": null,
+          "sortOrder": 2,
+          "tagline": "Balanced GPT-5.6 tier"
+        },
         "contextWindow": 1050000,
         "default": true,
         "id": "gpt-5.6-terra",
@@ -134,6 +196,16 @@
       },
       {
         "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.6-luna",
+        "catalog": {
+          "bestFor": ["High volume", "Fast iteration"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-5.6 Luna",
+          "parameters": null,
+          "sortOrder": 3,
+          "tagline": "Efficient GPT-5.6 tier"
+        },
         "contextWindow": 1050000,
         "id": "gpt-5.6-luna",
         "label": "GPT-5.6 Luna",
@@ -153,6 +225,16 @@
       },
       {
         "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.5\nPrompts over 272K input tokens bill 2x input and 1.5x output for the\nfull session; the schema carries the base rate only (BST-1708).",
+        "catalog": {
+          "bestFor": ["Reasoning", "Coding", "Agentic"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-5.5",
+          "parameters": null,
+          "sortOrder": 4,
+          "tagline": "Newest flagship for complex work"
+        },
         "contextWindow": 1050000,
         "id": "gpt-5.5",
         "label": "GPT-5.5",
@@ -172,6 +254,16 @@
       },
       {
         "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.5-pro",
+        "catalog": {
+          "bestFor": ["Complex reasoning", "Tool use"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-5.5 Pro",
+          "parameters": null,
+          "sortOrder": 5,
+          "tagline": "Highest capability tier"
+        },
         "contextWindow": 1050000,
         "id": "gpt-5.5-pro",
         "label": "GPT-5.5 Pro",
@@ -192,6 +284,16 @@
       },
       {
         "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.4\nPrompts over 272K input tokens bill 2x input and 1.5x output for the\nfull session; the schema carries the base rate only (BST-1708).",
+        "catalog": {
+          "bestFor": ["Reasoning", "Coding", "Multimodal"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-5.4",
+          "parameters": null,
+          "sortOrder": 6,
+          "tagline": "Balanced cost-aware flagship"
+        },
         "contextWindow": 1050000,
         "id": "gpt-5.4",
         "label": "GPT-5.4",
@@ -211,6 +313,16 @@
       },
       {
         "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.4-pro\nPrompts over 272K input tokens bill 2x input and 1.5x output for the\nfull session; the schema carries the base rate only (BST-1708).",
+        "catalog": {
+          "bestFor": ["Complex reasoning", "Tool use"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-5.4 Pro",
+          "parameters": null,
+          "sortOrder": 7,
+          "tagline": "Higher capability tier"
+        },
         "contextWindow": 1050000,
         "id": "gpt-5.4-pro",
         "label": "GPT-5.4 Pro",
@@ -231,6 +343,16 @@
       },
       {
         "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.4-mini",
+        "catalog": {
+          "bestFor": ["Chat", "High volume"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-5.4 Mini",
+          "parameters": null,
+          "sortOrder": 8,
+          "tagline": "Lower latency, lower cost"
+        },
         "contextWindow": 400000,
         "id": "gpt-5.4-mini",
         "label": "GPT-5.4 Mini",
@@ -250,6 +372,16 @@
       },
       {
         "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.4-nano",
+        "catalog": {
+          "bestFor": ["Lightweight", "Classification"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-5.4 Nano",
+          "parameters": null,
+          "sortOrder": 9,
+          "tagline": "Smallest, fastest tier"
+        },
         "contextWindow": 400000,
         "id": "gpt-5.4-nano",
         "label": "GPT-5.4 Nano",
@@ -270,6 +402,16 @@
       },
       {
         "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.3-codex",
+        "catalog": {
+          "bestFor": ["Coding", "Agentic"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-5.3 Codex",
+          "parameters": null,
+          "sortOrder": 10,
+          "tagline": "Agentic coding model"
+        },
         "contextWindow": 400000,
         "id": "gpt-5.3-codex",
         "label": "GPT-5.3 Codex",
@@ -288,6 +430,16 @@
       },
       {
         "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.2",
+        "catalog": {
+          "bestFor": ["Reasoning", "Coding"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-5.2",
+          "parameters": null,
+          "sortOrder": 11,
+          "tagline": "Previous-generation flagship"
+        },
         "contextWindow": 400000,
         "id": "gpt-5.2",
         "label": "GPT-5.2",
@@ -306,6 +458,16 @@
       },
       {
         "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.2-pro",
+        "catalog": {
+          "bestFor": ["Complex reasoning"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-5.2 Pro",
+          "parameters": null,
+          "sortOrder": 12,
+          "tagline": "Previous higher tier"
+        },
         "contextWindow": 400000,
         "id": "gpt-5.2-pro",
         "label": "GPT-5.2 Pro",
@@ -324,6 +486,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Search", "Clustering"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "Text Embedding 3 Small",
+          "parameters": null,
+          "sortOrder": 13,
+          "tagline": "Efficient embeddings"
+        },
         "default": true,
         "defaultDimension": 1536,
         "dimensionParameter": "dimensions",
@@ -333,6 +505,16 @@
         "type": "embedding"
       },
       {
+        "catalog": {
+          "bestFor": ["Semantic search", "Knowledge retrieval"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "Text Embedding 3 Large",
+          "parameters": null,
+          "sortOrder": 14,
+          "tagline": "High-precision embeddings"
+        },
         "defaultDimension": 3072,
         "dimensionParameter": "dimensions",
         "id": "text-embedding-3-large",
@@ -351,6 +533,12 @@
       "llm": true,
       "streaming": true
     },
+    "catalog": {
+      "enabled": true,
+      "icon": null,
+      "name": "Anthropic",
+      "sortOrder": 2
+    },
     "deprecatedEnvKeys": ["AI_ANTHROPIC_API_KEY"],
     "displayName": "Anthropic",
     "docsUrl": "https://console.anthropic.com/settings/keys",
@@ -364,6 +552,20 @@
           "defaultEffort": "high",
           "mandatory": true,
           "supportedEfforts": ["low", "medium", "high", "xhigh", "max"]
+        },
+        "catalog": {
+          "bestFor": [
+            "Long-horizon agentic coding",
+            "Multistep research",
+            "Document, spreadsheet, and slide work"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Fable 5.1",
+          "parameters": null,
+          "sortOrder": 7,
+          "tagline": "For demanding reasoning and long-horizon agentic work"
         },
         "contextWindow": 1000000,
         "id": "claude-fable-5-1",
@@ -389,6 +591,16 @@
           "mandatory": true,
           "supportedEfforts": ["low", "medium", "high", "xhigh", "max"]
         },
+        "catalog": {
+          "bestFor": ["Deep research", "Complex agents"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "Claude Fable 5",
+          "parameters": null,
+          "sortOrder": 1,
+          "tagline": "Highest-capability Claude 5 tier"
+        },
         "contextWindow": 1000000,
         "id": "claude-fable-5",
         "label": "Claude Fable 5",
@@ -411,6 +623,16 @@
           "defaultEffort": "medium",
           "mandatory": true,
           "supportedEfforts": ["low", "medium", "high", "xhigh", "max"]
+        },
+        "catalog": {
+          "bestFor": ["Long-running agentic coding", "Knowledge work"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Opus 5.5",
+          "parameters": null,
+          "sortOrder": 8,
+          "tagline": "For long-running agentic coding and knowledge work"
         },
         "contextWindow": 1000000,
         "id": "claude-opus-5-5",
@@ -436,6 +658,16 @@
           "mandatory": false,
           "supportedEfforts": ["low", "medium", "high", "xhigh", "max"]
         },
+        "catalog": {
+          "bestFor": ["Agentic coding", "Enterprise work"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Opus 5",
+          "parameters": null,
+          "sortOrder": 2,
+          "tagline": "For complex agentic coding and enterprise work"
+        },
         "contextWindow": 1000000,
         "id": "claude-opus-5",
         "label": "Claude Opus 5",
@@ -460,6 +692,16 @@
           "mandatory": false,
           "supportedEfforts": ["low", "medium", "high", "xhigh", "max"]
         },
+        "catalog": {
+          "bestFor": ["Deep research", "Agentic coding"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "Claude Opus 4.8",
+          "parameters": null,
+          "sortOrder": 3,
+          "tagline": "Most capable Claude model"
+        },
         "contextWindow": 200000,
         "id": "claude-opus-4-8",
         "label": "Claude Opus 4.8",
@@ -483,6 +725,16 @@
           "defaultEffort": "high",
           "mandatory": false,
           "supportedEfforts": ["low", "medium", "high", "xhigh", "max"]
+        },
+        "catalog": {
+          "bestFor": ["Analysis", "Coding", "Writing"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "Claude Sonnet 5",
+          "parameters": null,
+          "sortOrder": 4,
+          "tagline": "Balanced Claude 5 model"
         },
         "contextWindow": 1000000,
         "default": true,
@@ -509,6 +761,16 @@
           "mandatory": false,
           "supportedEfforts": ["low", "medium", "high", "max"]
         },
+        "catalog": {
+          "bestFor": ["Analysis", "Coding", "Writing"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "Claude Sonnet 4.6",
+          "parameters": null,
+          "sortOrder": 5,
+          "tagline": "Best balance of speed and intelligence"
+        },
         "contextWindow": 200000,
         "id": "claude-sonnet-4-6",
         "label": "Claude Sonnet 4.6",
@@ -527,6 +789,16 @@
       },
       {
         "_note": "No effort ladder: the overview table says effort is unsupported;\nthinking uses the legacy enabled + budget_tokens form. Retrieved 2026-09-04:\nhttps://platform.claude.com/docs/en/build-with-claude/effort\nhttps://platform.claude.com/docs/en/about-claude/models/overview",
+        "catalog": {
+          "bestFor": ["Quick responses", "Data extraction"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "Claude Haiku 4.5",
+          "parameters": null,
+          "sortOrder": 6,
+          "tagline": "Fastest Claude model"
+        },
         "contextWindow": 200000,
         "id": "claude-haiku-4-5",
         "label": "Claude Haiku 4.5",
@@ -555,6 +827,12 @@
       "llm": true,
       "streaming": true
     },
+    "catalog": {
+      "enabled": true,
+      "icon": null,
+      "name": "Google AI Studio",
+      "sortOrder": 3
+    },
     "deprecatedEnvKeys": ["GOOGLE_API_KEY", "AI_GOOGLE_API_KEY"],
     "displayName": "Google AI Studio",
     "docsUrl": "https://aistudio.google.com/app/apikey",
@@ -564,6 +842,20 @@
     "models": [
       {
         "_note": "Direct Google GA route. Pricing is INTRODUCTORY: Google publishes\n\"$0.75 through December 31, 2026. $1.50 starting January 1, 2027.\" (input)\nand \"$3.75 through December 31, 2026. $7.50 starting January 1, 2027.\"\n(output). BST-1382 tracks the 2027-01-01 refresh for 3.6/3.7/3.8 Flash.\nVerified 2026-09-08 (BST-1693):\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash\nhttps://ai.google.dev/gemini-api/docs/pricing",
+        "catalog": {
+          "bestFor": [
+            "Long-horizon software engineering",
+            "Autonomous agents",
+            "Complex enterprise workflows"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Gemini 3.8 Flash",
+          "parameters": null,
+          "sortOrder": 10,
+          "tagline": "Long-horizon software engineering and autonomous agents at Flash speed"
+        },
         "contextWindow": 1048576,
         "id": "gemini-3.8-flash",
         "label": "Gemini 3.8 Flash",
@@ -579,6 +871,20 @@
       },
       {
         "_note": "Direct Google GA route and introductory pricing through 2026-12-31,\nrevalidated 2026-08-20:\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.7-flash\nhttps://ai.google.dev/gemini-api/docs/models\nhttps://ai.google.dev/gemini-api/docs/latest-model\nhttps://ai.google.dev/gemini-api/docs/changelog\nhttps://ai.google.dev/gemini-api/docs/pricing (BST-1339).",
+        "catalog": {
+          "bestFor": [
+            "Code generation",
+            "Spatial/multimodal reasoning",
+            "Multi-step agentic workflows"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Gemini 3.7 Flash",
+          "parameters": null,
+          "sortOrder": 1,
+          "tagline": "Fast multimodal reasoning for complex agentic workflows"
+        },
         "contextWindow": 1048576,
         "id": "gemini-3.7-flash",
         "label": "Gemini 3.7 Flash",
@@ -594,6 +900,20 @@
       },
       {
         "_note": "Direct Google GA route. Pricing is INTRODUCTORY: Google publishes\n\"$0.75 through December 31, 2026. $1.50 starting January 1, 2027.\" (input)\nand \"$3.75 through December 31, 2026. $7.50 starting January 1, 2027.\"\n(output). BST-1382 tracks the 2027-01-01 refresh for 3.6/3.7/3.8 Flash.\nVerified 2026-09-08 (BST-1693):\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash\nhttps://ai.google.dev/gemini-api/docs/pricing",
+        "catalog": {
+          "bestFor": [
+            "Code generation",
+            "Agentic execution",
+            "Spatial reasoning"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Gemini 3.6 Flash",
+          "parameters": null,
+          "sortOrder": 11,
+          "tagline": "Frontier intelligence for code generation and agentic execution"
+        },
         "contextWindow": 1048576,
         "id": "gemini-3.6-flash",
         "label": "Gemini 3.6 Flash",
@@ -609,6 +929,16 @@
       },
       {
         "_note": "Direct Google route. Standard paid tier is a flat $1.50 input / $9.00\noutput per 1M tokens (no prompt-size tier); limits 1,048,576/65,536.\nRetrieved 2026-09-23 (BST-1804):\nhttps://ai.google.dev/gemini-api/docs/pricing\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash",
+        "catalog": {
+          "bestFor": ["Realtime apps", "High volume"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "Gemini 3.5 Flash",
+          "parameters": null,
+          "sortOrder": 2,
+          "tagline": "Stable low-latency flagship flash"
+        },
         "contextWindow": 1048576,
         "default": true,
         "id": "gemini-3.5-flash",
@@ -625,6 +955,20 @@
       },
       {
         "_note": "Direct Google GA route. Not introductory pricing: Google publishes a\nflat $0.30 input / $2.50 output per 1M tokens. Verified 2026-09-08\n(BST-1693):\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite\nhttps://ai.google.dev/gemini-api/docs/pricing",
+        "catalog": {
+          "bestFor": [
+            "High-throughput subagent tasks",
+            "Document parsing",
+            "Low-latency multimodal execution"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Gemini 3.5 Flash-Lite",
+          "parameters": null,
+          "sortOrder": 12,
+          "tagline": "Low-latency multimodal for high-throughput subagent tasks and document parsing"
+        },
         "contextWindow": 1048576,
         "id": "gemini-3.5-flash-lite",
         "label": "Gemini 3.5 Flash-Lite",
@@ -639,6 +983,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Complex tasks", "Analysis"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "Gemini 3.1 Pro (Preview)",
+          "parameters": null,
+          "sortOrder": 3,
+          "tagline": "Advanced reasoning preview"
+        },
         "contextWindow": 1048576,
         "id": "gemini-3.1-pro-preview",
         "label": "Gemini 3.1 Pro (Preview)",
@@ -654,6 +1008,16 @@
       },
       {
         "_note": "Standard paid-tier pricing (text / image / video input) and limits:\nhttps://ai.google.dev/gemini-api/docs/pricing\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite\nretrieved 2026-09-23 (BST-1804). Audio input is $0.50/MTok; this\none-rate-pair schema carries the text rate.",
+        "catalog": {
+          "bestFor": ["Lightweight", "High volume"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "Gemini 3.1 Flash Lite",
+          "parameters": null,
+          "sortOrder": 4,
+          "tagline": "Lightweight low-cost flash"
+        },
         "contextWindow": 1048576,
         "id": "gemini-3.1-flash-lite",
         "label": "Gemini 3.1 Flash Lite",
@@ -668,6 +1032,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Complex tasks", "Analysis"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "Gemini 2.5 Pro",
+          "parameters": null,
+          "sortOrder": 5,
+          "tagline": "Stable advanced reasoning"
+        },
         "contextWindow": 1048576,
         "id": "gemini-2.5-pro",
         "label": "Gemini 2.5 Pro",
@@ -681,6 +1055,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Realtime apps", "High volume"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "Gemini 2.5 Flash",
+          "parameters": null,
+          "sortOrder": 6,
+          "tagline": "Stable fast model"
+        },
         "contextWindow": 1048576,
         "id": "gemini-2.5-flash",
         "label": "Gemini 2.5 Flash",
@@ -694,6 +1078,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Lightweight", "High volume"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "Gemini 2.5 Flash Lite",
+          "parameters": null,
+          "sortOrder": 7,
+          "tagline": "Stable lightweight flash"
+        },
         "contextWindow": 1048576,
         "id": "gemini-2.5-flash-lite",
         "label": "Gemini 2.5 Flash Lite",
@@ -709,6 +1103,16 @@
       },
       {
         "_note": "Gemini embeddings use outputDimensionality in JSON; this value is a UI hint.",
+        "catalog": {
+          "bestFor": ["General purpose", "Retrieval"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "Gemini Embedding 001",
+          "parameters": null,
+          "sortOrder": 8,
+          "tagline": "Configurable embeddings"
+        },
         "default": true,
         "defaultDimension": 3072,
         "dimensionParameter": "output_dimensionality",
@@ -719,6 +1123,16 @@
       },
       {
         "_note": "Auto-normalizes truncated outputs (unlike 001). JSON param is\noutputDimensionality; this value is a UI hint.",
+        "catalog": {
+          "bestFor": ["General purpose", "Retrieval"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "Gemini Embedding 2",
+          "parameters": null,
+          "sortOrder": 9,
+          "tagline": "Auto-normalizing configurable embeddings"
+        },
         "defaultDimension": 3072,
         "dimensionParameter": "output_dimensionality",
         "id": "gemini-embedding-2",
@@ -737,6 +1151,12 @@
       "llm": true,
       "streaming": true
     },
+    "catalog": {
+      "enabled": false,
+      "icon": null,
+      "name": "OpenRouter",
+      "sortOrder": 5
+    },
     "deprecatedEnvKeys": ["AI_OPENROUTER_API_KEY"],
     "displayName": "OpenRouter",
     "docsUrl": "https://openrouter.ai/settings/keys",
@@ -746,6 +1166,21 @@
     "models": [
       {
         "_note": "Route, 1,050,000/128,000 ceilings, image input and gateway pricing:\nOpenRouter Models API, retrieved 2026-09-08 (BST-1695). No reasoning\nladder is recorded: OpenRouter publishes no reasoning_config for this\nroute and this pass consulted no vendor doc, so guessing one is\nforbidden. GPT-6 Astra is Responses-only for tool calling; whatever\nthe OpenRouter adapter needs for that is a separate ticket.",
+        "catalog": {
+          "bestFor": [
+            "Advanced analysis",
+            "Software engineering",
+            "Deep research",
+            "Document creation"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-6 Astra (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 45,
+          "tagline": "OpenAI's flagship model for demanding end-to-end work"
+        },
         "contextWindow": 1050000,
         "id": "openai/gpt-6-astra",
         "label": "GPT-6 Astra (OpenRouter)",
@@ -769,6 +1204,16 @@
       },
       {
         "_note": "Route, 1,050,000/128,000 ceilings, image input, gateway pricing and the\nreasoning object (mandatory false, default_enabled true, efforts\nmax..none, default medium): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route also publishes a >=272000 prompt-token tier at 4/15, which is a\nlong-context tier, not a clock band, so 2/10 is the base rate.",
+        "catalog": {
+          "bestFor": [],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-6 Sol (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 60,
+          "tagline": "Cost-efficient high-end model in OpenAI's GPT-6 series"
+        },
         "contextWindow": 1050000,
         "id": "openai/gpt-6-sol",
         "label": "GPT-6 Sol (OpenRouter)",
@@ -798,6 +1243,21 @@
       },
       {
         "_note": "Route, 1,050,000/128,000 ceilings, image input, gateway pricing and the\nreasoning object (mandatory false, default_enabled true, efforts\nmax..none, default medium): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route also publishes a >=272000 prompt-token tier at 0.2/0.75, which\nis a long-context tier, not a clock band, so 0.1/0.5 is the base rate.",
+        "catalog": {
+          "bestFor": [
+            "High-volume workloads",
+            "Latency-sensitive workloads",
+            "Chat",
+            "Classification"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-6 Luna (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 61,
+          "tagline": "Fast, cost-efficient model in OpenAI's GPT-6 series"
+        },
         "contextWindow": 1050000,
         "id": "openai/gpt-6-luna",
         "label": "GPT-6 Luna (OpenRouter)",
@@ -827,6 +1287,16 @@
       },
       {
         "_note": "Updated 0902 snapshot of Qwen3.8 Max. Route, 1M/131,072 ceilings,\ntext/image/video input and gateway pricing: OpenRouter Models API,\nretrieved 2026-09-08 (BST-1695). The output fact is a hard maximum,\nnot a default combined reasoning + answer window. No reasoning ladder\nis recorded here because this pass consulted no vendor doc; the\nundated qwen/qwen3.8-max row keeps the one it shipped with.",
+        "catalog": {
+          "bestFor": [],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Qwen3.8 Max 0902 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 46,
+          "tagline": "Updated snapshot of Qwen3.8 Max"
+        },
         "contextWindow": 1000000,
         "id": "qwen/qwen3.8-max-0902",
         "label": "Qwen3.8 Max 0902 (OpenRouter)",
@@ -841,6 +1311,16 @@
       },
       {
         "_note": "Route, 1,048,576 context, image input and gateway pricing: OpenRouter\nModels API, retrieved 2026-09-08 (BST-1695). Unlike the sibling 1.2\nroute, which reports max_completion_tokens: null, this route reports\n943,718 — recorded as read rather than omitted. No reasoning ladder is\nrecorded: this pass consulted no Meta doc, and the 1.2 row's ladder\ncame from vendor material this ticket did not re-verify.\nThat hard maximum is NOT the window a run reserves: the OpenRouter\nrequest path caps output at OPENROUTER_CODING_MAX_OUTPUT_TOKENS\n(32,000), so the run's effective input limit is 964,147. Compaction's\nresolveCompactionInputBudget() reads this field instead of that\nresolved limit and lands on 52,429 — a pre-existing desktop-runtime\ndefect, not a property of this value: it already makes\nmoonshotai/kimi-k3's budget throw on main. Tracked in BST-1707; the\nfix belongs there, not in a fudged catalog fact.",
+        "catalog": {
+          "bestFor": ["Agentic workflows", "Multi-agent workflows", "Coding"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Muse Spark 1.3 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 47,
+          "tagline": "Multimodal reasoning for long-running agentic work"
+        },
         "contextWindow": 1048576,
         "id": "meta/muse-spark-1.3",
         "label": "Muse Spark 1.3 (OpenRouter)",
@@ -855,6 +1335,22 @@
       },
       {
         "_note": "Route, 1,048,576/943,718 ceilings, image input, gateway pricing and the\nreasoning object (mandatory true, efforts max..minimal, default medium):\nOpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route publishes no default_enabled, so none is recorded. OpenRouter\ndescribes it as Meta's cost-efficient \"contributor tier\" but does not\nsay what that tier entails.",
+        "catalog": {
+          "bestFor": [
+            "Experimentation",
+            "Learning",
+            "Early-stage agentic workflows",
+            "Multi-agent workflows",
+            "Coding workflows"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Muse Spark 1.3 Contributor (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 62,
+          "tagline": "Cost-efficient contributor tier of Meta's multimodal reasoning model"
+        },
         "contextWindow": 1048576,
         "id": "meta/muse-spark-1.3-contributor",
         "label": "Muse Spark 1.3 Contributor (OpenRouter)",
@@ -881,6 +1377,16 @@
       },
       {
         "_note": "Route, 131,072/16,384 ceilings, text+image input, text output, gateway\npricing and the reasoning object (mandatory true, efforts xhigh..low,\ndefault medium): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route publishes no default_enabled, so none is recorded.",
+        "catalog": {
+          "bestFor": ["Autonomous agents on consumer hardware"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Muse Glimmer 30B (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 63,
+          "tagline": "Dense open-weight multimodal model distilled from Muse Spark"
+        },
         "contextWindow": 131072,
         "id": "meta/muse-glimmer-30b",
         "inputModalities": ["text", "image"],
@@ -902,6 +1408,20 @@
       },
       {
         "_note": "Route, 1,048,576/65,536 ceilings, image input and gateway pricing:\nOpenRouter Models API, retrieved 2026-09-08 (BST-1695). The output\nfact is a hard maximum, not a default combined thinking + answer\nwindow. No reasoning ladder is recorded: this pass consulted no\nGoogle model page, so the 3.7 Flash row's mandatory/default-enabled\nfacts are not transplanted onto a route that did not report them.",
+        "catalog": {
+          "bestFor": [
+            "Software engineering",
+            "Agentic tasks",
+            "Multi-step reasoning"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Gemini 3.8 Flash (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 48,
+          "tagline": "Google's most intelligent Flash model"
+        },
         "contextWindow": 1048576,
         "id": "google/gemini-3.8-flash",
         "label": "Gemini 3.8 Flash (OpenRouter)",
@@ -916,6 +1436,20 @@
       },
       {
         "_note": "Route, 1M/128,000 ceilings, image input and gateway pricing:\nOpenRouter Models API, retrieved 2026-09-08 (BST-1695).",
+        "catalog": {
+          "bestFor": [
+            "Agentic coding",
+            "Long-running agentic workflows",
+            "Knowledge work"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Fable 5.1 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 49,
+          "tagline": "Improves on Claude Fable 5 across the board"
+        },
         "contextWindow": 1000000,
         "id": "anthropic/claude-fable-5.1",
         "label": "Claude Fable 5.1 (OpenRouter)",
@@ -930,6 +1464,20 @@
       },
       {
         "_note": "Route, 1M/128,000 ceilings, image input, gateway pricing and the\nreasoning object (mandatory true, efforts max..low, default high):\nOpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route publishes no default_enabled, so none is recorded. Its\ndefault_effort (high) differs from Anthropic's first-party default\n(medium); this row records the gateway's value.",
+        "catalog": {
+          "bestFor": [
+            "Demanding reasoning",
+            "Coding",
+            "Long-horizon agentic work"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Opus 5.5 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 64,
+          "tagline": "Anthropic's flagship model, succeeding Claude Opus 5"
+        },
         "contextWindow": 1000000,
         "id": "anthropic/claude-opus-5.5",
         "label": "Claude Opus 5.5 (OpenRouter)",
@@ -949,6 +1497,16 @@
       },
       {
         "_note": "The OpenRouter route for the model BST-957 added as a direct\nAnthropic route; it was missed by earlier gateway passes. Route,\n1M/128,000 ceilings, image input and gateway pricing: OpenRouter\nModels API, retrieved 2026-09-08 (BST-1695).",
+        "catalog": {
+          "bestFor": ["Agentic coding", "Enterprise work"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Opus 5 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 50,
+          "tagline": "For complex agentic coding and enterprise work"
+        },
         "contextWindow": 1000000,
         "id": "anthropic/claude-opus-5",
         "label": "Claude Opus 5 (OpenRouter)",
@@ -963,6 +1521,16 @@
       },
       {
         "_note": "Route, 192,000/64,000 ceilings, text+image input, text output and gateway\npricing: OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe reasoning object publishes only mandatory: false and no efforts, so\nno `reasoning` block is declared.",
+        "catalog": {
+          "bestFor": ["Enterprise agentic workflows"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Command A+ (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 65,
+          "tagline": "Cohere's flagship model for enterprise agentic workflows"
+        },
         "contextWindow": 192000,
         "id": "cohere/command-a-plus",
         "inputModalities": ["text", "image"],
@@ -979,6 +1547,19 @@
       },
       {
         "_note": "Route, 262,144/235,929 ceilings, text/image/video input, text output and\ngateway pricing: OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe reasoning object publishes only mandatory: false and no efforts, so\nno `reasoning` block is declared.",
+        "catalog": {
+          "bestFor": [
+            "End-to-end software delivery",
+            "Multi-step task execution"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Seed 2.1 Turbo (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 66,
+          "tagline": "Multimodal model for coding and long-horizon agent workflows"
+        },
         "contextWindow": 262144,
         "id": "bytedance-seed/seed-2-1-turbo",
         "inputModalities": ["text", "image", "video"],
@@ -995,6 +1576,16 @@
       },
       {
         "_note": "Official Qwen release material owns the Qwen3.8 Flash identity,\ntext/image/video input, text output, optional xhigh/medium/low\nreasoning ladder, and xhigh default. OpenRouter Models API owns the\nfixed route's 1M/131,072 ceilings, tools/structured-output support,\nand gateway pricing, retrieved 2026-08-30 (BST-1516). The output fact\nis a hard maximum, not a default combined reasoning + answer window.",
+        "catalog": {
+          "bestFor": [],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Qwen3.8 Flash (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 1,
+          "tagline": null
+        },
         "contextWindow": 1000000,
         "id": "qwen/qwen3.8-flash",
         "inputModalities": ["text", "image", "video"],
@@ -1017,6 +1608,16 @@
       },
       {
         "_note": "Route, 1M/131,072 ceilings, text/image/audio/video input, text output\nand gateway pricing: OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe reasoning object publishes mandatory: false and default_enabled: true\nbut no efforts, so no `reasoning` block is declared.",
+        "catalog": {
+          "bestFor": ["Audio-video analysis", "Summarization"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Qwen3.8 Omni Flash (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 67,
+          "tagline": "Omni-modal reasoning model with native audio-video understanding"
+        },
         "contextWindow": 1000000,
         "id": "qwen/qwen3.8-omni-flash",
         "inputModalities": ["text", "image", "audio", "video"],
@@ -1033,6 +1634,16 @@
       },
       {
         "_note": "Official Z.AI GLM-5.3 release/model/thinking docs, retrieved\n2026-08-22, own the API ID, text-only modality, native 1M/128K\nlimits, and mandatory max/high/low reasoning ladder with max default.\nOpenRouter Models and endpoint APIs own this fixed route's effective\n1,048,576/131,072 ceilings and gateway pricing (BST-1414). The 128K\nfact is a hard maximum, not a distinct default combined reasoning +\nanswer reservation, so vendorDefaultOutputTokens remains absent.\ncontextWindow is top_provider.context_length, not the higher\nmodel-level 1,310,720 that only Cloudflare serves (BST-1804).",
+        "catalog": {
+          "bestFor": [],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GLM-5.3 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 2,
+          "tagline": null
+        },
         "contextWindow": 1048576,
         "id": "z-ai/glm-5.3",
         "label": "GLM-5.3 (OpenRouter)",
@@ -1053,6 +1664,16 @@
       },
       {
         "_note": "Capabilities and limits: official Qwen model card at commit\n1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0. Route, max completion,\nand gateway pricing: OpenRouter Models API, retrieved 2026-08-15\n(BST-1302). Context window and max output re-read as the route's\ntop_provider pair 2026-09-23 UTC (BST-1804).\nAuto intentionally follows Qwen's documented xhigh default. The\nofficial ladder skips high: xhigh, medium, low. No paid route smoke\nwas available (BST-1302), and Qwen publishes recommended maxima for\nseparate reasoning/final output rather than a distinct default\nthinking+answer reservation, so vendorDefaultOutputTokens is absent.",
+        "catalog": {
+          "bestFor": ["Agentic workflows", "Coding", "Multimodal reasoning"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Qwen3.8 27B (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 7,
+          "tagline": "Multimodal reasoning for coding and long-horizon agents"
+        },
         "contextWindow": 1000000,
         "id": "qwen/qwen3.8-27b",
         "label": "Qwen3.8 27B (OpenRouter)",
@@ -1073,6 +1694,20 @@
       },
       {
         "_note": "Identity, modalities, context extension, mandatory thinking, and\neffort levels: official Qwen model card at revision 207bd685,\nretrieved 2026-08-15. Route, effective gateway limits, and pricing:\nOpenRouter Models API, retrieved 2026-08-15 (BST-1306); the\ntop_provider limit pair re-read 2026-09-23 UTC (BST-1804).\nQwen requires thinking for every interaction. Its official effort\nladder deliberately skips `high`; Auto follows the xhigh default.",
+        "catalog": {
+          "bestFor": [
+            "Agentic coding",
+            "Complex reasoning",
+            "Long-context workflows"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Qwen3.8 2.4T A95B (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 6,
+          "tagline": "Text-only mandatory-reasoning model for long agentic work"
+        },
         "contextWindow": 1000000,
         "id": "qwen/qwen3.8-2.4t-a95b",
         "label": "Qwen3.8 2.4T A95B (OpenRouter)",
@@ -1093,6 +1728,16 @@
       },
       {
         "_note": "Route, 202,800/182,520 ceilings, text-only modality, gateway pricing and\nthe reasoning object (mandatory false, default_enabled true, efforts\nhigh/medium, default high): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\ncontextWindow and maxOutputTokens are the top_provider pair (BaseTen).\nThe model-level context_length of 262,144 is served only by DeepInfra\n(16,384 output), so it is not recorded.",
+        "catalog": {
+          "bestFor": ["Reasoning", "Orchestration"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Nemotron 3 Ultra (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 68,
+          "tagline": "Open frontier-reasoning and orchestration mixture-of-experts model"
+        },
         "contextWindow": 202800,
         "id": "nvidia/nemotron-3-ultra-550b-a55b",
         "inputModalities": ["text"],
@@ -1115,6 +1760,16 @@
       },
       {
         "_note": "Identity, GA status, text modality, optional reasoning, and native\ncontext: official NVIDIA model card at revision d468880b, retrieved\n2026-08-17. Route, effective hosted limits, and gateway pricing:\nOpenRouter Models API, retrieved 2026-08-17 (BST-1343); the\ntop_provider limit pair re-read 2026-09-23 UTC (BST-1804).\nNVIDIA documents reasoning as optional on/off but publishes no effort\nladder. Declare only the explicit `none` control so offline menus and\npersisted model-switch settings preserve the verified off state.",
+        "catalog": {
+          "bestFor": ["Agentic workflows", "Long-context text", "Tool calling"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Nemotron 3.5 Lightning (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 5,
+          "tagline": "Efficient open reasoning for high-throughput agentic workloads"
+        },
         "contextWindow": 262144,
         "id": "nvidia/nemotron-3.5-lightning",
         "label": "Nemotron 3.5 Lightning (OpenRouter)",
@@ -1133,6 +1788,16 @@
       },
       {
         "_note": "Capabilities and limits: official Google model page, last updated\n2026-08-13. Route and gateway pricing: OpenRouter Models API,\nretrieved 2026-08-14 (BST-1265), RE-PRICED 2026-09-10 (BST-1705): the\n2026-08-14 read recorded 0.375 / 1.875, which is the price of the\nSEPARATE `google/gemini-3.7-flash:batch` route, not of this one. The\nstandard route is 0.75 / 3.75.\nOpenRouter explicitly reports both mandatory=true and\ndefault_enabled=true. Preserve both so Auto uses the gateway's\ndeclared medium default rather than inferring one. Google documents\n65,536 as a maximum, not a distinct default thinking+answer window,\nso there is no vendorDefaultOutputTokens fact to record.",
+        "catalog": {
+          "bestFor": ["Agentic workflows", "Coding", "Multimodal reasoning"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Gemini 3.7 Flash (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 8,
+          "tagline": "Fast multimodal reasoning for agentic workflows"
+        },
         "contextWindow": 1048576,
         "id": "google/gemini-3.7-flash",
         "label": "Gemini 3.7 Flash (OpenRouter)",
@@ -1152,6 +1817,20 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": [
+            "Repository-scale coding",
+            "Terminal workflows",
+            "Tool use"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Laguna S 2.1 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 9,
+          "tagline": "Million-token coding agent from Poolside"
+        },
         "contextWindow": 1048576,
         "id": "poolside/laguna-s-2.1",
         "label": "Laguna S 2.1 (OpenRouter)",
@@ -1165,6 +1844,16 @@
         "vision": "unsupported"
       },
       {
+        "catalog": {
+          "bestFor": ["Coding", "Fast iteration", "Tool use"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Laguna XS 2.1 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 10,
+          "tagline": "Efficient coding agent from Poolside"
+        },
         "contextWindow": 262144,
         "id": "poolside/laguna-xs-2.1",
         "label": "Laguna XS 2.1 (OpenRouter)",
@@ -1179,6 +1868,16 @@
       },
       {
         "_note": "Gateway pricing re-verified against the OpenRouter Models API on\n2026-09-10 (BST-1705): 0.75 / 3.75. The row previously held 1.5 / 7.5,\nwhich matches neither this route nor its `google/gemini-3.6-flash:batch`\nvariant (0.375 / 1.875) — it was a Google DIRECT list price copied into a\ngateway row. Priced from OpenRouter because OpenRouter bills this route.",
+        "catalog": {
+          "bestFor": ["Coding", "Agentic workflows", "Multimodal development"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Gemini 3.6 Flash (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 11,
+          "tagline": "High-efficiency coding and agentic model"
+        },
         "contextWindow": 1048576,
         "id": "google/gemini-3.6-flash",
         "label": "Gemini 3.6 Flash (OpenRouter)",
@@ -1197,6 +1896,20 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": [
+            "Subagents",
+            "Focused coding tasks",
+            "High-volume workflows"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Gemini 3.5 Flash Lite (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 12,
+          "tagline": "Efficient model for focused agent tasks"
+        },
         "contextWindow": 1048576,
         "id": "google/gemini-3.5-flash-lite",
         "label": "Gemini 3.5 Flash Lite (OpenRouter)",
@@ -1216,6 +1929,16 @@
       },
       {
         "_note": "Context window and max output are the route's top_provider pair,\n1,048,756 / 262,144, live Models API read 2026-09-23 UTC (BST-1804).\nThis supersedes 1,000,000 / 131,072, taken from secondary coverage of\nMeituan's LongCat API Platform (first-party docs 404'd). That audit\ncalled 1,048,756 a transposition of 2^20 matching no published limit;\nOpenRouter now publishes exactly that pair for the route, so it is\nrecorded as published rather than corrected.",
+        "catalog": {
+          "bestFor": ["Repository changes", "Long-horizon coding", "Tool use"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "LongCat 2.0 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 13,
+          "tagline": "Long-context repository coding model"
+        },
         "contextWindow": 1048756,
         "id": "meituan/longcat-2.0",
         "label": "LongCat 2.0 (OpenRouter)",
@@ -1230,6 +1953,16 @@
       },
       {
         "_note": "Thinking Machines' model card documents reasoning benchmarks but\npublishes no effort-level parameter, so nothing is declared here:\nabsence is never guessed as support, and the shipped entry's full\neffort enum turned the deliberate `unknown` badge into a silent yes.\nThis places Inkling in the same undeclared bucket as 32 of the 38\nOpenRouter rows (including the default openai/gpt-5.6-terra), where\nefforts resolve from live OpenRouter metadata rather than this table.\nDeclare efforts here only once the provider publishes them.",
+        "catalog": {
+          "bestFor": ["Coding", "Agentic workflows", "Tool use"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Inkling (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 14,
+          "tagline": "Multimodal reasoning for agent systems"
+        },
         "contextWindow": 524288,
         "id": "thinkingmachines/inkling",
         "label": "Inkling (OpenRouter)",
@@ -1244,6 +1977,16 @@
       },
       {
         "_note": "Route, 524,288/262,144 ceilings, text/image/audio input, text output,\ngateway pricing and the reasoning object (mandatory false,\ndefault_enabled true, efforts max..none, default high): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\ncontextWindow and maxOutputTokens are the top_provider pair (DeepInfra).\nThe model-level context_length of 1,048,576 is served only by BaseTen\n(32,768 output), so it is not recorded.",
+        "catalog": {
+          "bestFor": [],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Inkling Small (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 69,
+          "tagline": "Open-weight multimodal mixture-of-experts with 12B of 276B parameters active"
+        },
         "contextWindow": 524288,
         "id": "thinkingmachines/inkling-small",
         "inputModalities": ["text", "image", "audio"],
@@ -1272,6 +2015,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Issue resolution", "Repository editing", "Tool use"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "KAT-Coder Pro V2.5 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 15,
+          "tagline": "Flagship autonomous coding model"
+        },
         "contextWindow": 262144,
         "id": "kwaipilot/kat-coder-pro-v2.5",
         "label": "KAT-Coder Pro V2.5 (OpenRouter)",
@@ -1286,6 +2039,21 @@
       },
       {
         "_note": "Route, 500,000/450,000 ceilings, image input, gateway pricing and the\nreasoning object (mandatory true, default_enabled true, efforts\nxhigh..low, default high): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route also publishes a >=200000 prompt-token tier at 3.2/9.6, which\nis a long-context tier, not a clock band, so 1.6/4.8 is the base rate.\nIt is cheaper than grok-4.6 (2/6) on the same gateway.",
+        "catalog": {
+          "bestFor": [
+            "Coding",
+            "Agentic tasks",
+            "Knowledge work",
+            "Long-running software engineering"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Grok 4.7 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 70,
+          "tagline": "Flagship model for coding, agentic tasks, and knowledge work, succeeding Grok 4.6"
+        },
         "contextWindow": 500000,
         "id": "x-ai/grok-4.7",
         "label": "Grok 4.7 (OpenRouter)",
@@ -1314,6 +2082,20 @@
       },
       {
         "_note": "Identity, modalities, context, output-limit semantics, mandatory\nreasoning, and effort levels: official xAI Grok 4.6 docs/release\nnotes, retrieved 2026-08-18. Route and standard gateway pricing:\nOpenRouter Models API, retrieved 2026-08-18 (BST-1374).\nxAI documents \"No text output limit\". The route's top_provider pair\nis 500,000 / 450,000 (live read 2026-09-23 UTC, BST-1804) and the row\nrecords that pair; it reported a null output limit on 2026-08-18.",
+        "catalog": {
+          "bestFor": [
+            "Agentic coding",
+            "Knowledge work",
+            "Long-context reasoning"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Grok 4.6 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 4,
+          "tagline": "Frontier multimodal reasoning for coding, agentic work, and STEM"
+        },
         "contextWindow": 500000,
         "id": "x-ai/grok-4.6",
         "label": "Grok 4.6 (OpenRouter)",
@@ -1341,6 +2123,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Coding", "Knowledge work", "Reasoning"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Grok 4.5 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 16,
+          "tagline": "Frontier coding and knowledge-work model"
+        },
         "contextWindow": 500000,
         "id": "x-ai/grok-4.5",
         "label": "Grok 4.5 (OpenRouter)",
@@ -1368,6 +2160,20 @@
       },
       {
         "_note": "Identity, lifecycle, modalities, context, streaming, tools, structured\noutput, and mandatory reasoning ladder: official Meta Model API docs\nand 2026-08-05 release notes. Route, effective gateway limit, default\neffort, and gateway pricing: OpenRouter Models API, retrieved\n2026-08-21 (BST-1383).\nMeta's direct-provider examples publish a 131,072 output limit; the\nrow records the route's top_provider pair instead (1,048,576 / 943,718,\nlive read 2026-09-23 UTC, BST-1804), never a provider-local limit.\nMeta does not document that limit as a distinct default combined\nthinking+answer window, so vendorDefaultOutputTokens is absent too.",
+        "catalog": {
+          "bestFor": [
+            "Multi-file refactors",
+            "Long debugging sessions",
+            "Whole-repository generation"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Muse Spark 1.2 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 3,
+          "tagline": "Optimized for real coding workflows, with higher first-attempt accuracy and more reliable tool calling"
+        },
         "contextWindow": 1048576,
         "id": "meta/muse-spark-1.2",
         "label": "Muse Spark 1.2 (OpenRouter)",
@@ -1387,6 +2193,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Agentic coding", "Tool use", "Multimodal workflows"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Muse Spark 1.1 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 17,
+          "tagline": "Multimodal agentic reasoning from Meta"
+        },
         "contextWindow": 1048576,
         "id": "meta/muse-spark-1.1",
         "label": "Muse Spark 1.1 (OpenRouter)",
@@ -1406,6 +2222,16 @@
       },
       {
         "_note": "Context window and max output are the route's top_provider pair,\n1,048,576 / 943,718 (live read 2026-09-23 UTC, BST-1804). It replaced\nthe vendor maximum 1,048,576, recorded while OpenRouter published none.\nAuto deliberately runs below the vendor default: Kimi's `max` spends\nthe whole coding-profile output budget reasoning (BST-833).\nOfficial K3 contract (platform.kimi.ai/docs/guide/kimi-k3-quickstart,\nverified 2026-08-05): max_completion_tokens defaults to 131,072\n(max 1,048,576) — the vendor's operating point for thinking +\nanswer. Moonshot's FIRST-PARTY API cannot disable thinking, but\nthe OpenRouter route declares reasoning optional (mandatory:\nfalse, multiple hosts serve this open-weight model); an explicit\nOff maps to `reasoning.enabled: false` under\n`provider.require_parameters`, which narrows routing to endpoints\nhonouring it — so a reasoning-off request correctly keeps the\ncoding ceiling instead of this window. OpenRouter publishes no\ndefault completion window, so that fact lives here (BST-1170).",
+        "catalog": {
+          "bestFor": ["Long-horizon coding", "Knowledge work", "Tool use"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Kimi K3 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 18,
+          "tagline": "Million-token multimodal reasoning model"
+        },
         "contextWindow": 1048576,
         "id": "moonshotai/kimi-k3",
         "label": "Kimi K3 (OpenRouter)",
@@ -1428,6 +2254,16 @@
       },
       {
         "_note": "BST-1698: PRICED FROM OPENROUTER'S OWN CATALOG, NOT OPENAI'S.\nhttps://openrouter.ai/api/v1/models retrieved 2026-09-08 reports\nprompt \"0.000002\" / completion \"0.00001\" => 2/10 $/MTok, plus a\n>=272000 prompt-token override at 4/15. OpenAI's own standard tier for\nthe same model is 4/20 (see the `openai` block), so the two ROUTES\nDIFFER: every OpenRouter Sol figure is exactly half OpenAI's, and they\ncoincide with OpenAI's batch/flex column. The sibling rows are faithful\npass-throughs (OpenRouter terra 2/12 and luna 0.2/1.2 match OpenAI's\npage exactly), so the divergence is Sol-specific and may be an upstream\ndata error rather than a real discount. Declared from OpenRouter anyway\nbecause this block is a \"curated current subset from OpenRouter's model\ncatalog\" and OpenRouter is the route that bills the user; provider-\nreported billed cost stays authoritative at runtime and this rate is a\ndisplay estimate. BST-1804 re-read both sources 2026-09-23: OpenRouter\nstill 2/10 with the 4/15 tier; OpenAI still 4/20 short-context and 8/30\nabove 272K, so the direct row is not a mis-read long-context tier. The\ngap stands as per-route data.",
+        "catalog": {
+          "bestFor": ["Deep reasoning", "Agentic work"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-5.6 Sol (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 19,
+          "tagline": "Highest-capability GPT-5.6 route"
+        },
         "contextWindow": 1050000,
         "id": "openai/gpt-5.6-sol",
         "label": "GPT-5.6 Sol (OpenRouter)",
@@ -1450,6 +2286,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Reasoning", "Coding", "Tool use"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-5.6 Terra (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 20,
+          "tagline": "Balanced GPT-5.6 route"
+        },
         "contextWindow": 1050000,
         "default": true,
         "id": "openai/gpt-5.6-terra",
@@ -1474,6 +2320,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["High volume", "Fast iteration"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-5.6 Luna (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 21,
+          "tagline": "Efficient GPT-5.6 route"
+        },
         "contextWindow": 1050000,
         "id": "openai/gpt-5.6-luna",
         "label": "GPT-5.6 Luna (OpenRouter)",
@@ -1496,6 +2352,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Deep research", "Complex agents"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Fable 5 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 22,
+          "tagline": "Highest-capability Claude 5 route"
+        },
         "contextWindow": 1000000,
         "id": "anthropic/claude-fable-5",
         "label": "Claude Fable 5 (OpenRouter)",
@@ -1510,6 +2376,16 @@
       },
       {
         "_note": "OpenRouter currently reflects Anthropic's introductory rate.",
+        "catalog": {
+          "bestFor": ["Analysis", "Coding", "Writing"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Sonnet 5 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 23,
+          "tagline": "Balanced Claude 5 route"
+        },
         "contextWindow": 1000000,
         "id": "anthropic/claude-sonnet-5",
         "label": "Claude Sonnet 5 (OpenRouter)",
@@ -1525,6 +2401,16 @@
       },
       {
         "_note": "No autoEffort: Auto follows the vendor default. Verified live\n2026-07-25 at `high` — reasoning visible, 271-line file written,\nfull final answer, 10.3K tokens (BST-833).",
+        "catalog": {
+          "bestFor": ["Reasoning", "Coding", "Tool use"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GLM-5.2 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 24,
+          "tagline": "Long-context agentic reasoning"
+        },
         "contextWindow": 1048576,
         "id": "z-ai/glm-5.2",
         "label": "GLM-5.2 (OpenRouter)",
@@ -1544,6 +2430,16 @@
         "vision": "unsupported"
       },
       {
+        "catalog": {
+          "bestFor": ["Reasoning", "Agents", "Multilingual"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "MiniMax M3 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 25,
+          "tagline": "Long-context general model"
+        },
         "contextWindow": 524288,
         "id": "minimax/minimax-m3",
         "label": "MiniMax M3 (OpenRouter)",
@@ -1557,6 +2453,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Reasoning", "Coding"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "DeepSeek V4 Pro (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 26,
+          "tagline": "High-capability DeepSeek route"
+        },
         "contextWindow": 1024000,
         "id": "deepseek/deepseek-v4-pro",
         "label": "DeepSeek V4 Pro (OpenRouter)",
@@ -1570,6 +2476,16 @@
         "vision": "unsupported"
       },
       {
+        "catalog": {
+          "bestFor": ["Fast iteration", "Coding"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "DeepSeek V4 Flash (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 27,
+          "tagline": "Fast efficient DeepSeek route"
+        },
         "contextWindow": 1024000,
         "id": "deepseek/deepseek-v4-flash",
         "label": "DeepSeek V4 Flash (OpenRouter)",
@@ -1583,6 +2499,16 @@
         "vision": "unsupported"
       },
       {
+        "catalog": {
+          "bestFor": ["Reasoning", "Agents", "Multilingual"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Qwen3.7 Max (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 28,
+          "tagline": "Flagship Qwen reasoning model"
+        },
         "contextWindow": 1000000,
         "id": "qwen/qwen3.7-max",
         "label": "Qwen3.7 Max (OpenRouter)",
@@ -1596,6 +2522,16 @@
         "vision": "unsupported"
       },
       {
+        "catalog": {
+          "bestFor": ["Reasoning", "Coding", "Tool use"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Qwen3.7 Plus (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 29,
+          "tagline": "Balanced Qwen reasoning model"
+        },
         "contextWindow": 1000000,
         "id": "qwen/qwen3.7-plus",
         "label": "Qwen3.7 Plus (OpenRouter)",
@@ -1618,6 +2554,16 @@
         "vision": "unsupported"
       },
       {
+        "catalog": {
+          "bestFor": ["High volume", "Fast iteration"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Qwen3.6 Flash (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 30,
+          "tagline": "Fast Qwen model"
+        },
         "contextWindow": 1000000,
         "id": "qwen/qwen3.6-flash",
         "label": "Qwen3.6 Flash (OpenRouter)",
@@ -1639,6 +2585,16 @@
         "vision": "unsupported"
       },
       {
+        "catalog": {
+          "bestFor": ["Coding", "Agentic development"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Qwen3 Coder Next (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 31,
+          "tagline": "Qwen coding specialist"
+        },
         "contextWindow": 262144,
         "id": "qwen/qwen3-coder-next",
         "label": "Qwen3 Coder Next (OpenRouter)",
@@ -1652,6 +2608,16 @@
         "vision": "unsupported"
       },
       {
+        "catalog": {
+          "bestFor": ["Reasoning", "Agents", "Multilingual"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Kimi K2.6 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 32,
+          "tagline": "Long-context general model"
+        },
         "contextWindow": 262144,
         "id": "moonshotai/kimi-k2.6",
         "label": "Kimi K2.6 (OpenRouter)",
@@ -1665,6 +2631,16 @@
         "vision": "unsupported"
       },
       {
+        "catalog": {
+          "bestFor": ["Coding", "Agentic development"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Kimi K2.7 Code (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 33,
+          "tagline": "Kimi coding specialist"
+        },
         "contextWindow": 262144,
         "id": "moonshotai/kimi-k2.7-code",
         "label": "Kimi K2.7 Code (OpenRouter)",
@@ -1678,6 +2654,16 @@
         "vision": "unsupported"
       },
       {
+        "catalog": {
+          "bestFor": ["Reasoning", "Coding"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-5.5 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 34,
+          "tagline": "Newest OpenAI flagship"
+        },
         "contextWindow": 1050000,
         "id": "openai/gpt-5.5",
         "label": "GPT-5.5 (OpenRouter)",
@@ -1699,6 +2685,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Reasoning", "Coding"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-5.4 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 35,
+          "tagline": "Balanced OpenAI flagship"
+        },
         "contextWindow": 1050000,
         "id": "openai/gpt-5.4",
         "label": "GPT-5.4 (OpenRouter)",
@@ -1720,6 +2716,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Chat", "High volume"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-5.4 Mini (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 36,
+          "tagline": "Lower-cost OpenAI model"
+        },
         "contextWindow": 400000,
         "id": "openai/gpt-5.4-mini",
         "label": "GPT-5.4 Mini (OpenRouter)",
@@ -1733,6 +2739,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Coding", "Agentic"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-5.3 Codex (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 37,
+          "tagline": "Agentic coding model"
+        },
         "contextWindow": 400000,
         "id": "openai/gpt-5.3-codex",
         "label": "GPT-5.3 Codex (OpenRouter)",
@@ -1746,6 +2762,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Reasoning", "Coding"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-5.2 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 38,
+          "tagline": "Previous OpenAI flagship"
+        },
         "contextWindow": 400000,
         "id": "openai/gpt-5.2",
         "label": "GPT-5.2 (OpenRouter)",
@@ -1759,6 +2785,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Deep research"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Opus 4.8 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 39,
+          "tagline": "Most capable Claude"
+        },
         "contextWindow": 1000000,
         "id": "anthropic/claude-opus-4.8",
         "label": "Claude Opus 4.8 (OpenRouter)",
@@ -1772,6 +2808,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Analysis", "Writing"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Sonnet 4.6 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 40,
+          "tagline": "Balanced Claude model"
+        },
         "contextWindow": 1000000,
         "id": "anthropic/claude-sonnet-4.6",
         "label": "Claude Sonnet 4.6 (OpenRouter)",
@@ -1785,6 +2831,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Quick responses"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Haiku 4.5 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 41,
+          "tagline": "Fastest Claude model"
+        },
         "contextWindow": 200000,
         "id": "anthropic/claude-haiku-4.5",
         "label": "Claude Haiku 4.5 (OpenRouter)",
@@ -1800,6 +2856,16 @@
       },
       {
         "_note": "Gateway pricing re-verified against the OpenRouter Models API on\n2026-09-10 (BST-1705): 1.5 / 9. The row previously held 0.3 / 2.5, which is\nthe rate of the SIBLING google/gemini-3.5-flash-lite and google/gemini-2.5-\nflash routes, not of this one — Gemini 3.5 Flash is a near-Pro tier model\nand OpenRouter prices it 5x its Lite sibling. The direct `google` block\nstill carries 0.3 / 2.5 for its own gemini-3.5-flash row; that row is out of\nthis ticket's scope and is separately suspect. Do NOT mirror it back here.",
+        "catalog": {
+          "bestFor": ["Realtime apps"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Gemini 3.5 Flash (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 42,
+          "tagline": "Stable low-latency Gemini"
+        },
         "contextWindow": 1048576,
         "id": "google/gemini-3.5-flash",
         "label": "Gemini 3.5 Flash (OpenRouter)",
@@ -1813,6 +2879,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Complex tasks"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Gemini 3.1 Pro (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 43,
+          "tagline": "Advanced Gemini preview"
+        },
         "contextWindow": 1048576,
         "id": "google/gemini-3.1-pro-preview",
         "label": "Gemini 3.1 Pro (OpenRouter)",
@@ -1834,6 +2910,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Realtime apps"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Gemini 2.5 Flash (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 44,
+          "tagline": "Stable fast Gemini"
+        },
         "contextWindow": 1048576,
         "id": "google/gemini-2.5-flash",
         "label": "Gemini 2.5 Flash (OpenRouter)",
@@ -1848,6 +2934,16 @@
       },
       {
         "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n64,000 ceilings, text-only input modality and gateway pricing\n(0.000000834 / 0.000002501 per token), retrieved 2026-09-08\n(BST-1696). Tencent publishes no effort ladder on this preview route,\nso no `reasoning` block is declared: absence is never guessed as\nsupport. Re-confirm the preview rate when the route leaves preview.",
+        "catalog": {
+          "bestFor": ["Coding agents", "Tool use", "Productivity tasks"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Hy4 Preview (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 51,
+          "tagline": "Mixture-of-experts preview for coding agents and tool use"
+        },
         "contextWindow": 1048576,
         "id": "tencent/hy4-preview",
         "inputModalities": ["text"],
@@ -1864,6 +2960,16 @@
       },
       {
         "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n943,718 top_provider ceilings (re-read 2026-09-23 UTC, BST-1804;\nreplaces 1,310,720 / 131,072), text/image/video input modalities and gateway\npricing (0.00000015 / 0.0000005 per token), retrieved 2026-09-08 and\nre-verified 2026-09-10 (BST-1696, BST-1705). The 2026-09-08 read\nrecorded 0.000000075 / 0.00000025, which is the price of the separate\n`z-ai/glm-5.3-flash:batch` route, not of this one. Z.ai publishes no\neffort ladder for this Flash route, so no `reasoning` block is\ndeclared.",
+        "catalog": {
+          "bestFor": ["Coding", "Long-horizon agents", "Long context"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GLM 5.3 Flash (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 52,
+          "tagline": "Native multimodal model for efficient coding and long-horizon agents"
+        },
         "contextWindow": 1048576,
         "id": "z-ai/glm-5.3-flash",
         "inputModalities": ["text", "image", "video"],
@@ -1880,6 +2986,16 @@
       },
       {
         "_note": "Route, 1,048,576/131,072 ceilings, text/image/video input, text output,\ngateway pricing and the reasoning object (mandatory true,\ndefault_enabled true, efforts max/high/low, default max): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).",
+        "catalog": {
+          "bestFor": [],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GLM 5.3 FlashX (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 71,
+          "tagline": "High-speed variant of GLM-5.3-Flash at up to 200 tokens/s"
+        },
         "contextWindow": 1048576,
         "id": "z-ai/glm-5.3-flashx",
         "inputModalities": ["text", "image", "video"],
@@ -1902,6 +3018,16 @@
       },
       {
         "_note": "OpenRouter Models API owns this fixed route's identity, 262,144 /\n128,000 ceilings, text-only input modality and gateway pricing\n(0.0000000825 / 0.00000033 per token), retrieved 2026-09-08 and\nre-verified 2026-09-10 (BST-1696, BST-1705). The 2026-09-08 read\nrecorded 0.000000132 / 0.000000528 — this route's SURGE rate. Its\n`pricing.overrides` carry two time bands, 00:00-16:00 UTC at\n0.000000132 / 0.000000528 and 16:00-00:00 UTC at the base\n0.0000000825 / 0.00000033, and `pricing.prompt` reports whichever is\nin force at read time. The base rate is what this row records.\nBST-1696 listed the context window as UNVERIFIED; the\nlive route reports 262,144, not the 1M this family's newer routes\ncarry. Tencent's configurable reasoning effort is not enumerated on\nthe route, so no `reasoning` block is declared.",
+        "catalog": {
+          "bestFor": ["Reasoning", "Agentic workflows", "Production use"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Hy3 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 53,
+          "tagline": "Mixture-of-experts model for reasoning and agentic workflows"
+        },
         "contextWindow": 262144,
         "id": "tencent/hy3",
         "inputModalities": ["text"],
@@ -1918,6 +3044,16 @@
       },
       {
         "_note": "Route, 1,048,576/131,072 ceilings, text/image/video/audio input, text\noutput and gateway pricing: OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe reasoning object publishes only mandatory: false and no efforts, so\nno `reasoning` block is declared.",
+        "catalog": {
+          "bestFor": [],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "MiMo-V2.6-Pro (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 72,
+          "tagline": "Xiaomi's flagship foundation model, built at over 1T parameters"
+        },
         "contextWindow": 1048576,
         "id": "xiaomi/mimo-v2.6-pro",
         "inputModalities": ["text", "image", "video", "audio"],
@@ -1934,6 +3070,16 @@
       },
       {
         "_note": "Route, 1,048,576/131,072 ceilings, text/image/video/audio input, text\noutput and gateway pricing: OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe reasoning object publishes only mandatory: false and no efforts, so\nno `reasoning` block is declared.",
+        "catalog": {
+          "bestFor": [],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "MiMo-V2.6-Flash (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 73,
+          "tagline": "Open-source mixture-of-experts model with 15B of 309B parameters active"
+        },
         "contextWindow": 1048576,
         "id": "xiaomi/mimo-v2.6-flash",
         "inputModalities": ["text", "image", "video", "audio"],
@@ -1950,6 +3096,20 @@
       },
       {
         "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n131,072 top_provider ceilings (re-read 2026-09-23 UTC, BST-1804;\nreplaces the model-level 1,050,000 window), text/audio/image/video input modalities and gateway\npricing (0.00000014 / 0.00000028 per token), retrieved 2026-09-08\n(BST-1696). Audio and video are declared inputs on the route; the\ncatalog's `vision` flag only gates the composer's image affordance.",
+        "catalog": {
+          "bestFor": [
+            "Agentic tasks",
+            "Image understanding",
+            "Video understanding"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "MiMo-V2.5 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 54,
+          "tagline": "Omnimodal model with image and video understanding"
+        },
         "contextWindow": 1048576,
         "id": "xiaomi/mimo-v2.5",
         "inputModalities": ["text", "audio", "image", "video"],
@@ -1966,6 +3126,20 @@
       },
       {
         "_note": "OpenRouter Models API owns this fixed route's identity, 524,288 /\n131,072 ceilings and text-only input modality, retrieved 2026-09-08\n(BST-1696). Gateway pricing (0.00000009 / 0.00000036 per token)\nre-read 2026-09-23 (BST-1804).",
+        "catalog": {
+          "bestFor": [
+            "Long-horizon tasks",
+            "Agentic workflows",
+            "Office productivity"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Solar Pro 4 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 55,
+          "tagline": "Cost-efficient long-context model for document-intensive work"
+        },
         "contextWindow": 524288,
         "id": "upstage/solar-pro4",
         "inputModalities": ["text"],
@@ -1982,6 +3156,16 @@
       },
       {
         "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n384,000 top_provider ceilings (re-read 2026-09-23 UTC, BST-1804;\nreplaces 393,216) and text-only input modality, retrieved 2026-09-08\n(BST-1696). Gateway pricing re-read 2026-09-23 (BST-1804): the route\nnow carries UTC clock bands, and the base rate held is the cheapest\nband (0.00000066 / 0.00000198 per token; the surge band is 2x). Dated GA snapshot of the already-carried\n`deepseek/deepseek-v4-pro` route; both are kept so a pinned snapshot\nstays selectable.",
+        "catalog": {
+          "bestFor": [],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "DeepSeek V4 Pro 0813 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 56,
+          "tagline": "GA release snapshot of DeepSeek V4 Pro"
+        },
         "contextWindow": 1048576,
         "id": "deepseek/deepseek-v4-pro-0813",
         "inputModalities": ["text"],
@@ -1998,6 +3182,16 @@
       },
       {
         "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n943,718 ceilings and text-only input modality, retrieved 2026-09-08\n(BST-1041). Gateway pricing (0.00000004 / 0.00000064 per token)\nre-read 2026-09-23 (BST-1804).\ncontextWindow and maxOutputTokens are the top_provider pair. The\nmodel-level context_length of 1,310,720 is served only by Cloudflare,\nso it is not recorded. The route existence BST-1041 could not confirm\nin 2026-07 is now live; its snapshot pricing (0.00000014 / 0.00000028)\nis stale and the live route's rate is used instead.",
+        "catalog": {
+          "bestFor": ["Coding", "Reasoning", "Agent workflows"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "DeepSeek V4 Flash 0731 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 57,
+          "tagline": "Sparse mixture-of-experts revision for coding, reasoning and agents"
+        },
         "contextWindow": 1048576,
         "id": "deepseek/deepseek-v4-flash-0731",
         "inputModalities": ["text"],
@@ -2014,6 +3208,16 @@
       },
       {
         "_note": "OpenRouter Models API owns this route's identity, 1,048,576 / 943,718\ntop_provider ceilings (re-read 2026-09-23 UTC, BST-1804; replaces\n384,000) and text+image input modality, retrieved 2026-09-10\n(BST-1736). Gateway pricing (0.0000001 / 0.0000005 per token) re-read\n2026-09-23 (BST-1804), when the route published no overrides. First stable\nvision-capable DeepSeek flash route; it does NOT supersede\n`deepseek/deepseek-v4-flash-0731`, which is cheaper and text-only, so\nboth are carried. The live route also publishes an input_cache_read\nrate; this one-rate-pair schema carries the base rate only.",
+        "catalog": {
+          "bestFor": [],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "DeepSeek V4.1 Flash (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 58,
+          "tagline": "Sparse mixture-of-experts flash model on DeepSeek's Causal Encoder-Decoder architecture"
+        },
         "contextWindow": 1048576,
         "id": "deepseek/deepseek-v4.1-flash",
         "inputModalities": ["image", "text"],
@@ -2030,6 +3234,16 @@
       },
       {
         "_note": "Paid Ling 3.0 Flash route: identity, 262,144 / 32,768\nceilings, text-only modality, gateway pricing (0.000000021 /\n0.000000063 per token): OpenRouter Models API, retrieved 2026-09-22\n(BST-1702). Like-for-like paid successor to the retired\n`inclusionai/ling-3.0-flash:free`; Nemotron 3.5 Lightning stays as the\ndifferently-priced stopgap.",
+        "catalog": {
+          "bestFor": [],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Ling 3.0 Flash (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 59,
+          "tagline": "Token-efficient 124B-parameter MoE flash route for production-scale agentic inference"
+        },
         "contextWindow": 262144,
         "id": "inclusionai/ling-3.0-flash",
         "label": "Ling 3.0 Flash (OpenRouter)",
@@ -2053,6 +3267,12 @@
       "llm": false,
       "streaming": false
     },
+    "catalog": {
+      "enabled": false,
+      "icon": null,
+      "name": "Cohere",
+      "sortOrder": 6
+    },
     "deprecatedEnvKeys": ["AI_COHERE_API_KEY"],
     "displayName": "Cohere",
     "docsUrl": "https://dashboard.cohere.com/api-keys",
@@ -2061,6 +3281,16 @@
     "models": [
       {
         "availableDimensions": [1024],
+        "catalog": {
+          "bestFor": ["Search", "RAG"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Embed English v3.0",
+          "parameters": null,
+          "sortOrder": 1,
+          "tagline": "Optimized for English"
+        },
         "default": true,
         "defaultDimension": 1024,
         "id": "embed-english-v3.0",
@@ -2069,6 +3299,16 @@
       },
       {
         "availableDimensions": [1024],
+        "catalog": {
+          "bestFor": ["Global apps", "Cross-lingual search"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Embed Multilingual v3.0",
+          "parameters": null,
+          "sortOrder": 2,
+          "tagline": "100+ languages supported"
+        },
         "defaultDimension": 1024,
         "id": "embed-multilingual-v3.0",
         "supportsStandardDimension": true,
@@ -2085,6 +3325,12 @@
       "llm": false,
       "streaming": false
     },
+    "catalog": {
+      "enabled": false,
+      "icon": null,
+      "name": "Voyage AI",
+      "sortOrder": 7
+    },
     "deprecatedEnvKeys": ["AI_VOYAGE_API_KEY"],
     "displayName": "Voyage AI",
     "docsUrl": "https://dashboard.voyageai.com/organization/api-keys",
@@ -2093,6 +3339,16 @@
     "models": [
       {
         "availableDimensions": [1024],
+        "catalog": {
+          "bestFor": ["Legal", "Finance", "Code"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Voyage 3",
+          "parameters": null,
+          "sortOrder": 1,
+          "tagline": "State-of-the-art retrieval"
+        },
         "default": true,
         "defaultDimension": 1024,
         "id": "voyage-3",
@@ -2101,6 +3357,16 @@
       },
       {
         "availableDimensions": [512],
+        "catalog": {
+          "bestFor": ["Low latency apps"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Voyage 3 Lite",
+          "parameters": null,
+          "sortOrder": 2,
+          "tagline": "Efficient retrieval"
+        },
         "defaultDimension": 512,
         "id": "voyage-3-lite",
         "supportsStandardDimension": false,
@@ -2117,6 +3383,12 @@
       "llm": true,
       "streaming": true
     },
+    "catalog": {
+      "enabled": false,
+      "icon": null,
+      "name": "Amazon Bedrock",
+      "sortOrder": 8
+    },
     "displayName": "Amazon Bedrock",
     "docsUrl": "https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html",
     "envKeys": ["BRAINSTRIKE_BEDROCK_API_KEY", "AWS_BEARER_TOKEN_BEDROCK"],
@@ -2126,6 +3398,20 @@
       {
         "_note": "Bedrock model id from the vendor model-ID table, pricing/limits from\nmodels.dev (amazon-bedrock provider, the id source for this block),\nboth retrieved 2026-09-08:\nhttps://platform.claude.com/docs/en/models/fable-5-1/overview\nhttps://models.dev/api.json",
         "bedrockReasoning": "adaptive",
+        "catalog": {
+          "bestFor": [
+            "Long-horizon agentic coding",
+            "Multistep research",
+            "Document, spreadsheet, and slide work"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Fable 5.1 (Bedrock)",
+          "parameters": null,
+          "sortOrder": 13,
+          "tagline": "For demanding reasoning and long-horizon agentic work"
+        },
         "contextWindow": 1000000,
         "id": "anthropic.claude-fable-5-1",
         "label": "Claude Fable 5.1 (Bedrock)",
@@ -2144,6 +3430,16 @@
       },
       {
         "bedrockReasoning": "adaptive",
+        "catalog": {
+          "bestFor": ["Complex reasoning", "Coding", "Agentic workflows"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Fable 5 (Bedrock)",
+          "parameters": null,
+          "sortOrder": 1,
+          "tagline": "Frontier Claude through AWS"
+        },
         "contextWindow": 1000000,
         "id": "anthropic.claude-fable-5",
         "label": "Claude Fable 5 (Bedrock)",
@@ -2162,6 +3458,16 @@
       {
         "_note": "Bedrock id, limits and capabilities read from the AWS model card;\npricing from the AWS Bedrock pricing page; both retrieved 2026-09-22\n(BST-1804):\nhttps://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5-5.html\nhttps://aws.amazon.com/bedrock/pricing/\nIts Programmatic Access table gives the bedrock-runtime Model ID as the\nbare `anthropic.claude-opus-5-5` (geo profiles us./eu./au./jp., global.),\nso there is no -v1:0 suffix; the base id is In-Region unsupported in every\nregion. 1M context, 128K max output, image input and response streaming\ncome from the same card. Reasoning is adaptive thinking, always on (efforts\nlow..max, default medium). Explicit prompt caching is supported (512 min\ntokens per checkpoint, 4 checkpoints, 5min/1hr TTL).\nPRICING is the Global Cross-region Inference rate ($4/$20, 5m cache write\n$5, cache read $0.20), which matches Anthropic first-party, as on the\nsibling Claude rows. Geo and In-region inference bill 10% more: $4.40/$22,\ncache write $5.50, cache read $0.22.",
         "bedrockReasoning": "adaptive",
+        "catalog": {
+          "bestFor": ["Coding", "Knowledge work", "Long-running tasks"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Opus 5.5 (Bedrock)",
+          "parameters": null,
+          "sortOrder": 15,
+          "tagline": "Anthropic's most capable Opus model"
+        },
         "contextWindow": 1000000,
         "id": "anthropic.claude-opus-5-5",
         "label": "Claude Opus 5.5 (Bedrock)",
@@ -2181,6 +3487,16 @@
       {
         "_note": "Bedrock id, limits and capabilities read from the AWS model card,\nretrieved 2026-09-08:\nhttps://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5.html\nIts Programmatic Access table gives the bedrock-runtime Model ID as the\nbare `anthropic.claude-opus-5` (geo profiles us./eu./au., global.), so\nthere is no -v1:0 suffix; 1M context, 128K max output, image input and\nresponse streaming all come from the same card. Reasoning is adaptive\nthinking, on by default. Explicit prompt caching is supported (512 min\ntokens per checkpoint, 4 checkpoints, 5min/1hr TTL).\nAWS defers pricing to the Marketplace listing, so the rates here are\nmodels.dev (amazon-bedrock, retrieved 2026-09-08), which matches\nAnthropic's own $5/$25 first-party rate for the same model.",
         "bedrockReasoning": "adaptive",
+        "catalog": {
+          "bestFor": ["Long-running agents", "Coding", "Professional work"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Opus 5 (Bedrock)",
+          "parameters": null,
+          "sortOrder": 14,
+          "tagline": "Anthropic's most advanced Opus model"
+        },
         "contextWindow": 1000000,
         "id": "anthropic.claude-opus-5",
         "label": "Claude Opus 5 (Bedrock)",
@@ -2199,6 +3515,16 @@
       },
       {
         "bedrockReasoning": "adaptive",
+        "catalog": {
+          "bestFor": ["Complex tasks", "Research", "Coding"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Opus 4.8 (Bedrock)",
+          "parameters": null,
+          "sortOrder": 2,
+          "tagline": "For your toughest challenges"
+        },
         "contextWindow": 1000000,
         "id": "anthropic.claude-opus-4-8",
         "label": "Claude Opus 4.8 (Bedrock)",
@@ -2218,6 +3544,16 @@
       {
         "_note": "Bedrock mirrors Anthropic's introductory rate (models.dev 2026-08-18).",
         "bedrockReasoning": "adaptive",
+        "catalog": {
+          "bestFor": ["Coding", "Analysis", "Writing"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Sonnet 5 (Bedrock)",
+          "parameters": null,
+          "sortOrder": 3,
+          "tagline": "Best mix of smarts and speed"
+        },
         "contextWindow": 1000000,
         "default": true,
         "id": "anthropic.claude-sonnet-5",
@@ -2238,6 +3574,16 @@
       {
         "_note": "models.dev lists a 1M context for this Bedrock route; the registry\npins the vendor's standard tier (200K), consistent with the direct\nAnthropic and OpenRouter rows for the same model.",
         "bedrockReasoning": "adaptive",
+        "catalog": {
+          "bestFor": ["Coding", "Analysis"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Sonnet 4.6 (Bedrock)",
+          "parameters": null,
+          "sortOrder": 4,
+          "tagline": "Balanced Claude model"
+        },
         "contextWindow": 200000,
         "id": "anthropic.claude-sonnet-4-6",
         "label": "Claude Sonnet 4.6 (Bedrock)",
@@ -2256,6 +3602,16 @@
       {
         "_note": "The one catalogued Claude-on-Bedrock route without adaptive thinking\n(installed SDK `getModelCapabilities`), so it keeps the legacy\nexplicit-budget form.",
         "bedrockReasoning": "budget-tokens",
+        "catalog": {
+          "bestFor": ["Quick responses", "High volume"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Haiku 4.5 (Bedrock)",
+          "parameters": null,
+          "sortOrder": 5,
+          "tagline": "Fastest for lightweight tasks"
+        },
         "contextWindow": 200000,
         "id": "anthropic.claude-haiku-4-5-20251001-v1:0",
         "label": "Claude Haiku 4.5 (Bedrock)",
@@ -2274,6 +3630,16 @@
       },
       {
         "_note": "Nova v1 model cards document explicit cache points (system +\nmessages, 4 checkpoints) but NO reasoning capability, so these rows\ndeclare caching without `bedrockReasoning`.",
+        "catalog": {
+          "bestFor": ["Multimodal", "Document analysis"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Amazon Nova Pro",
+          "parameters": null,
+          "sortOrder": 6,
+          "tagline": "Capable multimodal Nova model"
+        },
         "contextWindow": 300000,
         "id": "amazon.nova-pro-v1:0",
         "label": "Amazon Nova Pro",
@@ -2289,6 +3655,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["High throughput", "Multimodal"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Amazon Nova Lite",
+          "parameters": null,
+          "sortOrder": 7,
+          "tagline": "Low-cost multimodal Nova model"
+        },
         "contextWindow": 300000,
         "id": "amazon.nova-lite-v1:0",
         "label": "Amazon Nova Lite",
@@ -2304,6 +3680,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Simple tasks", "Speed"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Amazon Nova Micro",
+          "parameters": null,
+          "sortOrder": 8,
+          "tagline": "Fastest text-only Nova model"
+        },
         "contextWindow": 128000,
         "id": "amazon.nova-micro-v1:0",
         "label": "Amazon Nova Micro",
@@ -2321,6 +3707,16 @@
       {
         "_note": "The ONLY Nova route AWS documents extended thinking for\n(nova2-userguide/extended-thinking.html: `reasoningConfig` with\n`maxReasoningEffort`, no token budget). models.dev publishes no\ncache-read rate for it and no Nova 2 model card documents cache\npoints, so it declares reasoning WITHOUT `promptCaching` — absence\nis the honest record, not an oversight.\nmodels.dev reports `modalities.input: [text, image, video]`. Do NOT\nread vision off the sibling `attachment` flag — that field is about\nfile attachments and is false here despite image input working.",
         "bedrockReasoning": "max-reasoning-effort",
+        "catalog": {
+          "bestFor": ["Reasoning", "Visual analysis", "Tool use"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Amazon Nova 2 Lite",
+          "parameters": null,
+          "sortOrder": 12,
+          "tagline": "Reasoning Nova at low cost"
+        },
         "contextWindow": 128000,
         "id": "amazon.nova-2-lite-v1:0",
         "label": "Amazon Nova 2 Lite",
@@ -2334,6 +3730,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["General purpose", "Multimodal"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Llama 4 Maverick (Bedrock)",
+          "parameters": null,
+          "sortOrder": 9,
+          "tagline": "Open-weight multimodal workhorse"
+        },
         "contextWindow": 1000000,
         "id": "meta.llama4-maverick-17b-instruct-v1:0",
         "label": "Llama 4 Maverick (Bedrock)",
@@ -2347,6 +3753,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Long context", "Large codebases"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Llama 4 Scout (Bedrock)",
+          "parameters": null,
+          "sortOrder": 10,
+          "tagline": "Very long context, open weights"
+        },
         "contextWindow": 3500000,
         "id": "meta.llama4-scout-17b-instruct-v1:0",
         "label": "Llama 4 Scout (Bedrock)",
@@ -2360,6 +3776,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Reasoning", "Cost efficiency"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "DeepSeek V3.2 (Bedrock)",
+          "parameters": null,
+          "sortOrder": 11,
+          "tagline": "Efficient open reasoning model"
+        },
         "contextWindow": 163840,
         "id": "deepseek.v3.2",
         "label": "DeepSeek V3.2 (Bedrock)",
@@ -2383,6 +3809,12 @@
       "llm": true,
       "streaming": true
     },
+    "catalog": {
+      "enabled": false,
+      "icon": null,
+      "name": "OpenAI (ChatGPT)",
+      "sortOrder": 9
+    },
     "displayName": "OpenAI (ChatGPT)",
     "docsUrl": "https://developers.openai.com/codex/auth",
     "envKeys": [],
@@ -2390,6 +3822,16 @@
     "keyNotes": "Sign in with your own ChatGPT Plus or Pro account. Usage draws on your personal subscription quota; commercial or multi-user serving requires platform API keys instead.",
     "models": [
       {
+        "catalog": {
+          "bestFor": ["Complex reasoning", "Coding", "Agentic workflows"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-5.5",
+          "parameters": null,
+          "sortOrder": 1,
+          "tagline": "Included with your ChatGPT subscription"
+        },
         "contextWindow": 400000,
         "default": true,
         "id": "codex/gpt-5.5",
@@ -2405,6 +3847,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["General purpose", "Coding"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-5.4",
+          "parameters": null,
+          "sortOrder": 2,
+          "tagline": "Included with your ChatGPT subscription"
+        },
         "contextWindow": 400000,
         "id": "codex/gpt-5.4",
         "label": "GPT-5.4",
@@ -2419,6 +3871,16 @@
         "vision": "supported"
       },
       {
+        "catalog": {
+          "bestFor": ["Fast responses", "Everyday tasks"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-5.4 Mini",
+          "parameters": null,
+          "sortOrder": 3,
+          "tagline": "Faster, included with your ChatGPT subscription"
+        },
         "contextWindow": 400000,
         "id": "codex/gpt-5.4-mini",
         "label": "GPT-5.4 Mini",
@@ -2434,6 +3896,16 @@
       },
       {
         "_note": "Codex-only route with no direct base-registry row; its family\nanchor is the base `gpt-5.3-codex` entry (same limits, vision).",
+        "catalog": {
+          "bestFor": ["Coding", "Cost efficiency"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-5.3 Codex Spark",
+          "parameters": null,
+          "sortOrder": 4,
+          "tagline": "Lightweight coding, included with your ChatGPT subscription"
+        },
         "contextWindow": 400000,
         "id": "codex/gpt-5.3-codex-spark",
         "label": "GPT-5.3 Codex Spark",
@@ -2458,11 +3930,41 @@
       "llm": true,
       "streaming": false
     },
+    "catalog": {
+      "enabled": true,
+      "icon": null,
+      "name": "Local (Browser)",
+      "sortOrder": 4
+    },
     "displayName": "Local (Browser)",
     "id": "local",
     "models": [
       {
         "_note": "These are the RUNTIME budgets, not Gemma 4 E2B's architectural limits\n(the model spec lists ~128K context). The local provider runs q4f16\nweights through transformers.js on WebGPU, where prefilling a large\nprompt allocates an O(seq^2) attention buffer that exhausts GPU memory\nand aborts ONNX Runtime (SafeInt overflow / std::bad_alloc) well below\nthe architectural window — empirically in the low thousands of tokens\non a typical device. Declaring 131_072/8192 told the context-budget\nmachinery (deriveEffectiveInputBudget -> agentLoop.inputTokenLimit ->\nMastra TokenLimiter) and the meter that ~128K was usable, so multi-turn\nand tool-calling contexts ballooned straight into an OOM crash. These\nconservative values keep the assembled prompt bounded and cap local\ngeneration; a prompt that still exceeds a given device's GPU is caught\nby the engine-fault reset in llm-host-runtime (recovers + reports\ninstead of poisoning the session). NOTE: this is RUNTIME-only metadata\n(no DB model-catalog migration). The DB catalog row (migration\n028-gemma-local-llm.ts) still carries the DESCRIPTIVE\ncapabilities.contextWindow: 131072, which is intentionally NOT\nconsulted for budgeting — this static registry value is the sole\nbudget source for the built-in 'local' provider — so the two\ndiverging is harmless, not a bug. The deeper fix for reliable local\ntool-calling is a leaner local system-prompt/tool-schema footprint.",
+        "catalog": {
+          "bestFor": [
+            "General tasks",
+            "Coding",
+            "Tool calling",
+            "Local reasoning"
+          ],
+          "capabilities": {
+            "contextWindow": 131072,
+            "toolCalling": true
+          },
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "Gemma 4 E2B",
+          "parameters": {
+            "architecture": "Gemma 4 E2B",
+            "device": "webgpu",
+            "quantization": "q4f16",
+            "size": "~3.9GB (text-only q4f16)"
+          },
+          "sortOrder": 7,
+          "tagline": "Desktop and browser local reasoning model with WebGPU acceleration"
+        },
         "contextWindow": 8192,
         "default": true,
         "id": "onnx-community/gemma-4-E2B-it-ONNX",
@@ -2474,30 +3976,183 @@
         "vision": "unsupported"
       },
       {
-        "_note": "BST-1993: Settings recommends granite only with WebGPU, by the embedding\nhost's own detection. On the BST-1922 eval its WASM q8 took 33 s per\n64-chunk batch with a 4.2 GB hidden-host peak, against 26.5 s and 2.2 GB\nfor BGE Small q8, which is recommended without WebGPU instead. Its CLS\npooling, pinned revision and per-device execution dtype live in its DB\ncatalog row (migration 149), which the embedding path reads.",
+        "_note": "BST-1993: Settings recommends granite only with WebGPU, by the embedding\nhost's own detection. On the BST-1922 eval its WASM q8 took 33 s per\n64-chunk batch with a 4.2 GB hidden-host peak, against 26.5 s and 2.2 GB\nfor BGE Small q8, which is recommended without WebGPU instead. Its CLS\npooling, pinned revision and per-device execution dtype live here; web seed migration 149 projects this same profile.",
+        "catalog": {
+          "bestFor": ["English", "Code search", "Retrieval"],
+          "description": "On Brainstrike's retrieval eval of 100 code and docs queries it recalls 60% of relevant results in the top 10, against 52% for all-MiniLM-L6-v2. English, 384 dimensions; a 97 MB download for WebGPU. Without WebGPU it runs on WASM (52 MB), far more slowly and with more than 4 GB of memory.",
+          "enabled": true,
+          "icon": null,
+          "name": "Granite Embedding Small R2",
+          "parameters": {
+            "size": "~97MB"
+          },
+          "sortOrder": 0,
+          "tagline": "Best semantic search with WebGPU"
+        },
         "defaultDimension": 384,
+        "execution": {
+          "wasm": "q8",
+          "webgpu": "fp16"
+        },
         "executionNotes": {
           "wasm": "Without WebGPU, Granite runs about 125 times slower (33 s against 0.26 s per 64 chunks on Brainstrike's retrieval eval), and its embedding host can use more than 4 GB of memory."
         },
         "id": "onnx-community/granite-embedding-small-english-r2-ONNX",
         "label": "Granite Embedding Small R2",
+        "pooling": "cls",
+        "prompts": {
+          "document": "",
+          "query": ""
+        },
         "recommendedExecution": {
           "device": "webgpu",
           "dtype": "fp16",
           "reason": "It finds the most relevant results on Brainstrike's retrieval eval of 100 code and docs queries: 60% in the top 10, against 52% for all-MiniLM-L6-v2."
         },
+        "revision": "1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8",
         "supportsStandardDimension": false,
         "type": "embedding"
       },
       {
         "_note": "BST-1993: the recommended local embedding model without WebGPU. Measured\nagainst granite on WASM q8 (BST-1922 eval, 500-chunk sample).",
+        "catalog": {
+          "bestFor": ["English", "General purpose"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "BGE Small",
+          "parameters": {
+            "size": "~34MB"
+          },
+          "sortOrder": 4,
+          "tagline": "Balanced performance"
+        },
         "defaultDimension": 384,
         "id": "Xenova/bge-small-en-v1.5",
         "label": "BGE Small",
+        "prompts": {
+          "document": "",
+          "query": "Represent this sentence for searching relevant passages: "
+        },
         "recommendedExecution": {
           "device": "wasm",
           "dtype": "q8",
           "reason": "Without WebGPU it embeds faster than Granite with about half the memory: 26 s against 33 s per 64 chunks, and a 2.2 GB peak against 4.2 GB."
+        },
+        "supportsStandardDimension": false,
+        "type": "embedding"
+      },
+      {
+        "catalog": {
+          "bestFor": ["Code search", "Multilingual"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Jina Code",
+          "parameters": {
+            "size": "~300MB"
+          },
+          "sortOrder": 1,
+          "tagline": "Code-aware embeddings"
+        },
+        "defaultDimension": 768,
+        "id": "jinaai/jina-embeddings-v2-base-code",
+        "label": "Jina Code",
+        "prompts": {
+          "document": "",
+          "query": ""
+        },
+        "supportsStandardDimension": true,
+        "type": "embedding"
+      },
+      {
+        "catalog": {
+          "bestFor": ["English", "High performance"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Jina v2 Base EN",
+          "parameters": {
+            "size": "~300MB"
+          },
+          "sortOrder": 2,
+          "tagline": "Best English model"
+        },
+        "defaultDimension": 768,
+        "id": "Xenova/jina-embeddings-v2-base-en",
+        "label": "Jina v2 Base EN",
+        "prompts": {
+          "document": "",
+          "query": ""
+        },
+        "supportsStandardDimension": true,
+        "type": "embedding"
+      },
+      {
+        "catalog": {
+          "bestFor": ["English", "Speed"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "all-MiniLM-L6-v2",
+          "parameters": {
+            "size": "~23MB"
+          },
+          "sortOrder": 3,
+          "tagline": "Fast & efficient"
+        },
+        "defaultDimension": 384,
+        "id": "Xenova/all-MiniLM-L6-v2",
+        "label": "all-MiniLM-L6-v2",
+        "prompts": {
+          "document": "",
+          "query": ""
+        },
+        "supportsStandardDimension": false,
+        "type": "embedding"
+      },
+      {
+        "catalog": {
+          "bestFor": ["English", "Retrieval"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "BGE Base",
+          "parameters": {
+            "size": "~110MB"
+          },
+          "sortOrder": 5,
+          "tagline": "High quality"
+        },
+        "defaultDimension": 768,
+        "id": "Xenova/bge-base-en-v1.5",
+        "label": "BGE Base",
+        "prompts": {
+          "document": "",
+          "query": "Represent this sentence for searching relevant passages: "
+        },
+        "supportsStandardDimension": true,
+        "type": "embedding"
+      },
+      {
+        "catalog": {
+          "bestFor": ["English", "High accuracy"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "BGE Large",
+          "parameters": {
+            "size": "~340MB"
+          },
+          "sortOrder": 6,
+          "tagline": "SOTA performance"
+        },
+        "defaultDimension": 1024,
+        "id": "Xenova/bge-large-en-v1.5",
+        "label": "BGE Large",
+        "prompts": {
+          "document": "",
+          "query": "Represent this sentence for searching relevant passages: "
         },
         "supportsStandardDimension": false,
         "type": "embedding"

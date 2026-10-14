@@ -180,16 +180,17 @@ vi.mock('../thread-identity-mark', async (importOriginal) => {
 export function renderWorkspace(
   props: AssistantThreadTabsWorkspaceProps = {},
   host?: AssistantThreadHostCapability
-): ReturnType<typeof createTestActionRegistry> {
+): ReturnType<typeof createTestActionRegistry> & { readonly rerender: () => void } {
   const actionRegistry = createTestActionRegistry({ actions: assistantThreadActions });
-  render(
+  const element = () => (
     <ActionRegistryProvider registry={actionRegistry.registry}>
       <AssistantThreadHostContext.Provider value={host}>
         <AssistantThreadTabsWorkspace {...props} />
       </AssistantThreadHostContext.Provider>
     </ActionRegistryProvider>
   );
-  return actionRegistry;
+  const view = render(element());
+  return { ...actionRegistry, rerender: () => view.rerender(element()) };
 }
 
 export function openThreadTabs(...threadIds: readonly string[]): void {

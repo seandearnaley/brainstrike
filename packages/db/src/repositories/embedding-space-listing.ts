@@ -32,6 +32,7 @@ export interface EmbeddingSpaceListing {
   readonly modelKey: string;
   readonly name: string | null;
   readonly stats?: EmbeddingSpaceStats;
+  readonly statsUnavailableReason?: string;
 }
 
 interface EmbeddingSpaceListingRow {

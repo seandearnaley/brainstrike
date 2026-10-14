@@ -86,7 +86,7 @@ for (const version of [8, 9] as const) {
       expect(upgraded).toEqual(baseline);
       const audit = openConnection(f.dbPath, { readonly: true });
       try {
-        expect(audit.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(13);
+        expect(audit.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(14);
         expect(audit.prepare('SELECT count(*) FROM state_observation_vectors').pluck().get()).toBe(
           0
         );

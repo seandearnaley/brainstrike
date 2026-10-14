@@ -1,46 +1,102 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  type HostStateIndex,
+  openHostStateIndex,
+} from '@brainstrike/agent-host/test-fixtures/host-state-index';
 import type {
   CanonicalFileIdentity,
   CanonicalOperationContext,
 } from '@brainstrike/canonical-ingestion';
-import { FileRecordRepository, JobQueue, migrate, wasmLoader } from '@brainstrike/db';
-import type { PGlite } from '@electric-sql/pglite';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+  type SourceCatalogPort,
+  type SourceCatalogRecord,
+  StateStore,
+} from '@brainstrike/state-store';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createNativeCanonicalCatalog } from '../native-canonical-catalog';
 
-let db: PGlite;
+let store: StateStore;
+let stateIndex: HostStateIndex;
+let directory: string;
 const workspace = { kind: 'workspace', rootId: 'real-root' } as const;
 const collection = { embeddingSetId: 'real-set', kind: 'collection' } as const;
 const original = 'export const preserved = "original retained source";\n';
-function hash(content: string): string {
-  return createHash('sha256').update(content).digest('hex');
-}
-const context: CanonicalOperationContext = {
+const hash = (content: string): string => createHash('sha256').update(content).digest('hex');
+const context = (): CanonicalOperationContext => ({
   requestId: 'integration-scan',
   signal: new AbortController().signal,
-};
-const retained: CanonicalFileIdentity = {
-  embeddingSetId: 'real-set',
-  fileId: 'retained-file',
-  fileName: 'retained.ts',
-  relativePath: null,
-  rootId: null,
-  sourcePath: null,
-};
-const managed: CanonicalFileIdentity = {
-  embeddingSetId: 'real-set',
-  fileId: 'managed-file',
-  fileName: 'managed.ts',
-  relativePath: 'src/managed.ts',
+});
+const identity = (record: SourceCatalogRecord): CanonicalFileIdentity => ({
+  embeddingSetId: record.embeddingSetId,
+  fileId: record.fileId,
+  fileName: record.fileName,
+  relativePath: record.rootId === null ? null : record.path,
+  rootId: record.rootId,
+  sourcePath: record.rootId === null ? null : `/granted/${record.path}`,
+});
+const input = (path: string, content = original) => ({
+  content,
+  contentHash: hash(content),
+  fileName: path.split('/').at(-1)!,
+  path,
+  stat: { mtimeMs: 42, size: Buffer.byteLength(content) },
+});
+const discovery = (path: string) => ({
+  ...input(path),
+  relativePath: path,
   rootId: 'real-root',
-  sourcePath: '/granted/src/managed.ts',
-};
-function adapter() {
+  sourcePath: `/granted/${path}`,
+});
+async function read(fileId: string): Promise<SourceCatalogRecord | undefined> {
+  return (
+    await store.sourceCatalog({ fileIds: [fileId], maxContentBytes: 4096, operation: 'read' })
+  ).files[0];
+}
+async function find(path: string): Promise<SourceCatalogRecord | undefined> {
+  const record = (await store.sourceCatalog({ operation: 'list' })).files.find(
+    (file) => file.path === path
+  );
+  return record ? read(record.fileId) : undefined;
+}
+async function seed(
+  path: string,
+  rootless = false,
+  content = original
+): Promise<CanonicalFileIdentity> {
+  const request = rootless
+    ? { embeddingSetId: 'real-set', files: [input(path, content)], operation: 'import' as const }
+    : {
+        embeddingSetId: 'real-set',
+        files: [input(path, content)],
+        operation: 'prepare' as const,
+        rootId: 'real-root',
+      };
+  const [record] = (await store.sourceCatalog(request)).files;
+  if (!record) {
+    throw new Error('Source preparation returned no identity');
+  }
+  await store.sourceCatalog({
+    files: [{ chunkCount: 3, expected: record }],
+    operation: 'complete',
+  });
+  return identity(record);
+}
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+function adapter(port: SourceCatalogPort = store, assertCurrent = () => undefined) {
   const joinNativeRemoval = vi.fn(async () => undefined);
   const replaceTrustedBindings = vi.fn(async () => undefined);
   const catalog = createNativeCanonicalCatalog({
-    database: db,
+    catalog: port,
     joinNativeRemoval,
     replaceTrustedBindings,
     resolveProfile: async () => ({
@@ -50,7 +106,7 @@ function adapter() {
       modelKey: 'openai::actual-model',
     }),
     resolveScope: async () => ({
-      assertCurrent: () => undefined,
+      assertCurrent,
       assertDiscoveredSource: (file) => {
         if (file.rootId !== 'real-root' || file.sourcePath !== `/granted/${file.relativePath}`) {
           throw new Error('foreign discovered source');
@@ -69,46 +125,43 @@ function adapter() {
   });
   return { catalog, joinNativeRemoval, replaceTrustedBindings };
 }
-async function seed(file: CanonicalFileIdentity): Promise<void> {
-  await db.query(
-    `INSERT INTO file_records (id, name, path, root_id, embedding_set_id, content, content_hash, size, mtime_ms, token_count, chunks_count, chunks_processed_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,42,1,3,CURRENT_TIMESTAMP)`,
-    [
-      file.fileId,
-      file.fileName,
-      file.relativePath ?? 'actual-retained-import-path',
-      file.rootId,
-      file.embeddingSetId,
-      original,
-      hash(original),
-      Buffer.byteLength(original),
-    ]
-  );
-}
-beforeAll(async () => {
-  db = await wasmLoader.createPGlite('memory://native-canonical-catalog');
-  await migrate(db);
-  await db.query(
-    `INSERT INTO roots (id, kind, display_name, path, status) VALUES ('real-root', 'path', 'Granted root', '/granted', 'live')`
-  );
-  await db.query(
-    `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance) VALUES ('real-set', 'openai::actual-model', 'actual-model', 1536, 'cosine')`
-  );
+beforeEach(async () => {
+  directory = await mkdtemp(join(tmpdir(), 'native-canonical-catalog-'));
+  stateIndex = await openHostStateIndex(directory);
+  store = await StateStore.open(directory, { indexer: stateIndex.indexer });
+  await store.workspaceRoots({
+    operation: 'register',
+    root: { displayName: 'Granted root', path: '/granted', preferredId: 'real-root' },
+  });
+  await store.collections({
+    collection: {
+      createdAt: '2026-10-13T00:00:00.000Z',
+      dimensions: 1536,
+      distance: 'cosine',
+      id: 'real-set',
+      modelId: 'actual-model',
+      modelKey: 'openai::actual-model',
+    },
+    operation: 'create',
+  });
 });
-afterAll(async () => {
-  await db.close();
+afterEach(async () => {
+  await store?.close();
+  await stateIndex?.close();
+  await rm(directory, { force: true, recursive: true });
 });
 
-describe('authoritative catalog with real PGlite and canonical repositories', () => {
-  it('preserves rootless catalog, source and saved collection choices through completion', async () => {
-    await seed(retained);
+describe('authoritative catalog with real SQLite writer and derived state owner', () => {
+  it('preserves rootless source and saved collection choices through completion and reopen', async () => {
+    const retained = await seed('actual-retained-import-path', true);
     const { catalog } = adapter();
-    expect(await catalog.readRetainedSource(retained, 1024, collection, context)).toEqual({
+    const choices = await store.collections({ operation: 'list' });
+    expect(await catalog.readRetainedSource(retained, 1024, collection, context())).toEqual({
       content: original,
       stat: { mtimeMs: 42, size: Buffer.byteLength(original) },
     });
     expect(
-      await catalog.loadAuthorizedBatch({ files: [retained], scope: collection }, context)
+      await catalog.loadAuthorizedBatch({ files: [retained], scope: collection }, context())
     ).toEqual([
       {
         ...retained,
@@ -129,38 +182,29 @@ describe('authoritative catalog with real PGlite and canonical repositories', ()
         ],
         scope: collection,
       },
-      context
+      context()
     );
     await catalog.completeFiles(
       {
         files: [{ chunkCount: 9, contentHash: hash(original), fileId: retained.fileId }],
         scope: collection,
       },
-      context
+      context()
     );
-    const file = await new FileRecordRepository(db).findById(retained.fileId);
-    expect(file).toMatchObject({
+    await store.close();
+    store = await StateStore.open(directory, { indexer: stateIndex.indexer });
+    expect(await read(retained.fileId)).toMatchObject({
       chunksCount: 9,
+      chunksProcessed: true,
       content: original,
       embeddingSetId: 'real-set',
-      id: retained.fileId,
+      fileId: retained.fileId,
       path: 'actual-retained-import-path',
     });
-    const model = await db.query(
-      'SELECT model_key, model_id, dimensions, distance FROM embedding_sets WHERE id = $1',
-      ['real-set']
-    );
-    expect(model.rows).toEqual([
-      {
-        dimensions: 1536,
-        distance: 'cosine',
-        model_id: 'actual-model',
-        model_key: 'openai::actual-model',
-      },
-    ]);
+    expect(await store.collections({ operation: 'list' })).toEqual(choices);
   });
-  it('uses managed-cache replacement policy, invalidates completion and floors actual native mtime', async () => {
-    await seed(managed);
+  it('replaces managed cache, invalidates completion and preserves fractional native mtime', async () => {
+    const managed = await seed('src/managed.ts');
     const { catalog, replaceTrustedBindings } = adapter();
     const next = `${original}// changed original source\n`;
     await catalog.applyManagedCacheBatch(
@@ -175,27 +219,23 @@ describe('authoritative catalog with real PGlite and canonical repositories', ()
         ],
         scope: workspace,
       },
-      context
+      context()
     );
     expect(replaceTrustedBindings).toHaveBeenCalledOnce();
-    const repository = new FileRecordRepository(db);
-    expect(
-      await repository.findByManagedCacheIdentity('real-set', 'real-root', 'src/managed.ts')
-    ).toMatchObject({
-      chunksCount: 0,
+    expect(await read(managed.fileId)).toMatchObject({
+      chunksCount: null,
       content: next,
       contentHash: hash(next),
-      id: managed.fileId,
-      tokenCount: Math.ceil(next.length / 4),
+      fileId: managed.fileId,
     });
     expect(
-      await catalog.loadAuthorizedBatch({ files: [managed], scope: workspace }, context)
+      await catalog.loadAuthorizedBatch({ files: [managed], scope: workspace }, context())
     ).toEqual([
       {
         ...managed,
         chunksProcessed: false,
         contentHash: hash(next),
-        stat: { mtimeMs: 123, size: Buffer.byteLength(next) },
+        stat: { mtimeMs: 123.75, size: Buffer.byteLength(next) },
       },
     ]);
     await expect(
@@ -204,183 +244,85 @@ describe('authoritative catalog with real PGlite and canonical repositories', ()
           files: [{ chunkCount: 999, contentHash: hash(original), fileId: managed.fileId }],
           scope: workspace,
         },
-        context
+        context()
       )
     ).rejects.toThrow('hash');
-    expect(await repository.findById(managed.fileId)).toMatchObject({
-      chunksCount: 0,
-      content: next,
-    });
+    expect(await read(managed.fileId)).toMatchObject({ chunksCount: null, content: next });
   });
-  it('deletes exact managed membership only after native removal and cancels legacy jobs through the canonical policy', async () => {
-    const file = {
-      ...managed,
-      fileId: 'removed-file',
-      fileName: 'removed.ts',
-      relativePath: 'src/removed.ts',
-      sourcePath: '/granted/src/removed.ts',
-    };
-    await seed(file);
-    await db.query(
-      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding_set_id) VALUES ('removed-chunk', 'removed-file', 0, 'derived', 'derived-hash', 1, 'sentence', 7, 'real-set')`
-    );
-    await db.query(
-      `INSERT INTO job_queue (id, queue, job_type, payload, chunk_id, state) VALUES ('removed-job', 'embeddings', 'embed_chunk', '{}'::jsonb, 'removed-chunk', 'queued')`
-    );
-    const { catalog } = adapter();
-    await catalog.removeFiles({ files: [file], scope: workspace }, context);
-    const repository = new FileRecordRepository(db);
-    expect(await repository.findById(file.fileId)).toBeNull();
-    expect(await repository.findById(managed.fileId)).not.toBeNull();
-    expect(
-      (await db.query('SELECT state FROM job_queue WHERE id = $1', ['removed-job'])).rows
-    ).toEqual([{ state: 'canceled' }]);
-    expect(
-      (await db.query('SELECT id FROM file_chunks WHERE id = $1', ['removed-chunk'])).rows
-    ).toEqual([]);
-  });
-  it('joins native rootless removal, cancels queued and running jobs and revokes the running lease', async () => {
-    const file = { ...retained, fileId: 'removed-rootless-file' };
-    const untouched = { ...retained, fileId: 'untouched-rootless-file' };
-    await seed(file);
-    await seed(untouched);
-    await db.query(
-      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding_set_id)
-       VALUES ('rootless-queued-chunk', $1, 0, 'derived', 'queued-hash', 1, 'sentence', 7, 'real-set'),
-              ('rootless-running-chunk', $1, 1, 'derived', 'running-hash', 1, 'sentence', 7, 'real-set'),
-              ('rootless-untouched-chunk', $2, 0, 'derived', 'untouched-hash', 1, 'sentence', 7, 'real-set')`,
-      [file.fileId, untouched.fileId]
-    );
-    const queueName = 'catalog-rootless-removal';
-    await db.query(
-      `INSERT INTO job_queue (id, queue, job_type, payload, chunk_id, state, lease_token, leased_until, worker_id)
-       VALUES ('rootless-queued-job', $1, 'embed_chunk', '{}'::jsonb, 'rootless-queued-chunk', 'queued', NULL, NULL, NULL),
-              ('rootless-running-job', $1, 'embed_chunk', '{}'::jsonb, 'rootless-running-chunk', 'running', 'rootless-lease', $2, 'rootless-worker'),
-              ('rootless-untouched-job', $1, 'embed_chunk', '{}'::jsonb, 'rootless-untouched-chunk', 'queued', NULL, NULL, NULL)`,
-      [queueName, new Date(Date.now() + 60_000).toISOString()]
-    );
-    const { catalog, joinNativeRemoval } = adapter();
-    let entered!: () => void;
-    const admitted = new Promise<void>((resolve) => {
-      entered = resolve;
-    });
-    let release!: () => void;
-    const nativeRemoval = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    joinNativeRemoval.mockImplementation(async () => {
-      entered();
-      await nativeRemoval;
-    });
-    const removal = catalog.removeFiles({ files: [file], scope: collection }, context);
-    await admitted;
-    try {
-      expect(await new FileRecordRepository(db).findById(file.fileId)).not.toBeNull();
-      expect(
-        (
-          await db.query('SELECT state, lease_token FROM job_queue WHERE id = $1', [
-            'rootless-running-job',
-          ])
-        ).rows
-      ).toEqual([{ lease_token: 'rootless-lease', state: 'running' }]);
-    } finally {
-      release();
-      await removal;
+  it.each([false, true])(
+    'joins owned native removal before deleting exact membership (rootless=%s)',
+    async (rootless) => {
+      const removed = await seed('src/removed.ts', rootless);
+      const untouched = await seed(
+        'src/untouched.ts',
+        rootless,
+        `${original}// independent source`
+      );
+      const { catalog, joinNativeRemoval } = adapter();
+      const entered = deferred(),
+        release = deferred();
+      joinNativeRemoval.mockImplementation(async () => {
+        entered.resolve();
+        await release.promise;
+      });
+      const removal = catalog.removeFiles(
+        { files: [removed], scope: rootless ? collection : workspace },
+        context()
+      );
+      await entered.promise;
+      try {
+        expect(await read(removed.fileId)).toMatchObject({
+          chunksProcessed: true,
+          fileId: removed.fileId,
+        });
+      } finally {
+        release.resolve();
+        await removal;
+      }
+      await expect(read(removed.fileId)).rejects.toThrow('identity is missing');
+      expect(await read(untouched.fileId)).toMatchObject({
+        chunksProcessed: true,
+        fileId: untouched.fileId,
+      });
+      // Retired canonical identity cannot complete or be rebound by a late native receipt.
+      await expect(
+        catalog.completeFiles(
+          {
+            files: [{ chunkCount: 4, contentHash: hash(original), fileId: removed.fileId }],
+            scope: rootless ? collection : workspace,
+          },
+          context()
+        )
+      ).rejects.toThrow();
+      await expect(
+        catalog.loadAuthorizedBatch(
+          { files: [removed], scope: rootless ? collection : workspace },
+          context()
+        )
+      ).rejects.toThrow();
     }
-    expect(await new FileRecordRepository(db).findById(file.fileId)).toBeNull();
-    expect(await new FileRecordRepository(db).findById(untouched.fileId)).not.toBeNull();
-    expect(
-      (await db.query('SELECT id FROM file_chunks WHERE file_record_id = $1', [file.fileId])).rows
-    ).toEqual([]);
-    expect(
-      (
-        await db.query(
-          'SELECT id, state, lease_token, leased_until, worker_id FROM job_queue WHERE queue = $1 ORDER BY id',
-          [queueName]
-        )
-      ).rows
-    ).toEqual([
-      {
-        id: 'rootless-queued-job',
-        lease_token: null,
-        leased_until: null,
-        state: 'canceled',
-        worker_id: null,
-      },
-      {
-        id: 'rootless-running-job',
-        lease_token: null,
-        leased_until: null,
-        state: 'canceled',
-        worker_id: null,
-      },
-      {
-        id: 'rootless-untouched-job',
-        lease_token: null,
-        leased_until: null,
-        state: 'queued',
-        worker_id: null,
-      },
-    ]);
-    expect(
-      (
-        await db.query(
-          'SELECT canceled_total::text AS count FROM job_queue_metrics WHERE queue = $1',
-          [queueName]
-        )
-      ).rows
-    ).toEqual([{ count: '2' }]);
-    const queue = new JobQueue(db);
-    const lease = { id: 'rootless-running-job', leaseToken: 'rootless-lease' };
-    expect(await queue.heartbeat({ ...lease, extendMs: 60_000 })).toBeNull();
-    expect(await queue.complete(lease)).toBeNull();
-    expect(
-      (await queue.claimMany({ leaseMs: 60_000, queue: queueName, workerId: 'after-removal' })).map(
-        (job) => job.id
-      )
-    ).toEqual(['rootless-untouched-job']);
-  });
-  it('reuses PG root/path identity, allocates real new UUIDs and retains real content before binding acknowledgment', async () => {
+  );
+  it('reuses root/path identity and retains committed content before binding acknowledgment', async () => {
     const { catalog, replaceTrustedBindings } = adapter();
-    const source = {
-      content: original,
-      contentHash: hash(original),
-      fileName: 'discovered.ts',
-      relativePath: 'src/discovered.ts',
-      rootId: 'real-root',
-      sourcePath: '/granted/src/discovered.ts',
-      stat: { mtimeMs: 246.9, size: Buffer.byteLength(original) },
-    };
-    let acknowledge!: () => void;
-    let admitted!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      acknowledge = resolve;
-    });
-    const entered = new Promise<void>((resolve) => {
-      admitted = resolve;
-    });
+    const source = discovery('src/discovered.ts');
+    const entered = deferred(),
+      release = deferred();
     replaceTrustedBindings.mockImplementationOnce(async () => {
-      admitted();
-      await gate;
+      entered.resolve();
+      await release.promise;
     });
     const operation = catalog.prepareManagedSourcesBatch(
       { files: [source], scope: workspace },
-      context
+      context()
     );
-    await entered;
-    const repository = new FileRecordRepository(db);
-    const committed = await repository.findByManagedCacheIdentity(
-      'real-set',
-      'real-root',
-      source.relativePath
-    );
+    await entered.promise;
+    const committed = await find(source.relativePath);
     expect(committed).toMatchObject({
       content: original,
       contentHash: hash(original),
-      name: source.fileName,
-      tokenCount: Math.ceil(original.length / 4),
+      fileName: source.fileName,
     });
-    expect(committed?.id).toMatch(
+    expect(committed?.fileId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
     );
     let settled = false;
@@ -389,21 +331,10 @@ describe('authoritative catalog with real PGlite and canonical repositories', ()
     });
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(settled).toBe(false);
-    acknowledge();
+    release.resolve();
     const prepared = await result;
-    expect(prepared).toEqual([
-      {
-        contentHash: hash(original),
-        embeddingSetId: 'real-set',
-        fileId: committed?.id,
-        fileName: source.fileName,
-        relativePath: source.relativePath,
-        rootId: source.rootId,
-        sourcePath: source.sourcePath,
-      },
-    ]);
-    const changed = `${original}// real replacement
-`;
+    expect(prepared).toEqual([{ ...identity(committed!), contentHash: hash(original) }]);
+    const changed = `${original}// real replacement\n`;
     const repeated = await catalog.prepareManagedSourcesBatch(
       {
         files: [
@@ -416,174 +347,141 @@ describe('authoritative catalog with real PGlite and canonical repositories', ()
         ],
         scope: workspace,
       },
-      context
+      context()
     );
     expect(repeated[0]?.fileId).toBe(prepared[0]?.fileId);
+    expect(await find(source.relativePath)).toMatchObject({
+      content: changed,
+      fileId: prepared[0]?.fileId,
+    });
     expect(
-      await repository.findByManagedCacheIdentity('real-set', 'real-root', source.relativePath)
-    ).toMatchObject({ content: changed, id: prepared[0]?.fileId });
-    expect(
-      (
-        await db.query('SELECT id FROM file_records WHERE root_id = $1 AND path = $2', [
-          'real-root',
-          source.relativePath,
-        ])
-      ).rows
+      (await store.sourceCatalog({ operation: 'list' })).files.filter(
+        (file) => file.rootId === source.rootId && file.path === source.relativePath
+      )
     ).toHaveLength(1);
   });
-  it('joins admitted preparation ACK on cancellation and suppresses returned identities while preserving committed source', async () => {
+  it('joins admitted preparation ACK after cancellation, retaining committed source but refusing returned identities', async () => {
     const { catalog, replaceTrustedBindings } = adapter();
-    const source = {
-      content: original,
-      contentHash: hash(original),
-      fileName: 'cancelled.ts',
-      relativePath: 'src/cancelled.ts',
-      rootId: 'real-root',
-      sourcePath: '/granted/src/cancelled.ts',
-      stat: { mtimeMs: 42, size: Buffer.byteLength(original) },
-    };
-    const controller = new AbortController();
-    let acknowledge!: () => void;
-    let admitted!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      acknowledge = resolve;
-    });
-    const entered = new Promise<void>((resolve) => {
-      admitted = resolve;
-    });
+    const source = discovery('src/cancelled.ts');
+    const controller = new AbortController(),
+      entered = deferred(),
+      release = deferred();
     replaceTrustedBindings.mockImplementationOnce(async () => {
-      admitted();
-      await gate;
+      entered.resolve();
+      await release.promise;
     });
     const operation = catalog.prepareManagedSourcesBatch(
       { files: [source], scope: workspace },
-      { ...context, signal: controller.signal }
+      { ...context(), signal: controller.signal }
     );
-    await entered;
+    await entered.promise;
     let settled = false;
     const result = operation.finally(() => {
       settled = true;
     });
+    const refused = expect(result).rejects.toThrow('cancelled discovery');
     controller.abort(new Error('cancelled discovery'));
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(settled).toBe(false);
-    acknowledge();
-    await expect(result).rejects.toThrow('cancelled discovery');
-    expect(
-      await new FileRecordRepository(db).findByManagedCacheIdentity(
-        'real-set',
-        'real-root',
-        source.relativePath
-      )
-    ).toMatchObject({ content: original, contentHash: hash(original) });
-  });
-  it('refuses stale prepared source changed while full binding replacement is admitted', async () => {
-    const { catalog, replaceTrustedBindings } = adapter();
-    const source = {
+    release.resolve();
+    await refused;
+    expect(await find(source.relativePath)).toMatchObject({
       content: original,
       contentHash: hash(original),
-      fileName: 'stale.ts',
-      relativePath: 'src/stale.ts',
-      rootId: 'real-root',
-      sourcePath: '/granted/src/stale.ts',
-      stat: { mtimeMs: 42, size: Buffer.byteLength(original) },
-    };
+    });
+  });
+  it('refuses a prepared source changed during full binding replacement', async () => {
+    const { catalog, replaceTrustedBindings } = adapter();
+    const source = discovery('src/stale.ts');
     replaceTrustedBindings.mockImplementationOnce(async () => {
-      await db.query('UPDATE file_records SET content_hash = $1 WHERE root_id = $2 AND path = $3', [
-        'newer-source-hash',
-        'real-root',
-        source.relativePath,
-      ]);
+      const expected = await find(source.relativePath);
+      if (!expected) {
+        throw new Error('Prepared source missing');
+      }
+      await store.sourceCatalog({
+        files: [{ expected, source: input(source.relativePath, 'newer source') }],
+        operation: 'replace',
+      });
     });
     await expect(
-      catalog.prepareManagedSourcesBatch({ files: [source], scope: workspace }, context)
+      catalog.prepareManagedSourcesBatch({ files: [source], scope: workspace }, context())
     ).rejects.toThrow('stale after binding');
   });
-  it('rejects an absent live PG root without allocating a placeholder identity', async () => {
+  it('refuses an absent live root before allocating a source identity', async () => {
     const { catalog } = adapter();
-    const source = {
-      content: original,
-      contentHash: hash(original),
-      fileName: 'revoked.ts',
-      relativePath: 'src/revoked.ts',
-      rootId: 'real-root',
-      sourcePath: '/granted/src/revoked.ts',
-      stat: { mtimeMs: 42, size: Buffer.byteLength(original) },
-    };
-    await db.query('UPDATE roots SET status = $1 WHERE id = $2', ['needs-regrant', 'real-root']);
-    try {
-      await expect(
-        catalog.prepareManagedSourcesBatch({ files: [source], scope: workspace }, context)
-      ).rejects.toThrow('absent or revoked');
-      expect(
-        (await db.query('SELECT id FROM file_records WHERE path = $1', [source.relativePath])).rows
-      ).toEqual([]);
-    } finally {
-      await db.query('UPDATE roots SET status = $1 WHERE id = $2', ['live', 'real-root']);
-    }
+    const source = discovery('src/revoked.ts');
+    await store.workspaceRoots({ mountedPaths: [], operation: 'disconnect-except' });
+    await expect(
+      catalog.prepareManagedSourcesBatch({ files: [source], scope: workspace }, context())
+    ).rejects.toThrow();
+    expect(await find(source.relativePath)).toBeUndefined();
   });
-  it('bounds retained original text in PG and stamps a real missing source hash without changing identity', async () => {
-    const file = { ...retained, fileId: 'retained-unhashed', fileName: 'unhashed.ts' };
-    await seed(file);
-    await db.query('UPDATE file_records SET content_hash = NULL WHERE id = $1', [file.fileId]);
+  it('bounds retained bytes and preserves current-format source hash and identity', async () => {
+    const retained = await seed('bounded-retained.ts', true);
     const { catalog } = adapter();
-    await expect(catalog.readRetainedSource(file, 1, collection, context)).rejects.toThrow('bound');
-    const read = await catalog.readRetainedSource(file, 1024, collection, context);
-    expect(read.content).toBe(original);
+    await expect(catalog.readRetainedSource(retained, 1, collection, context())).rejects.toThrow(
+      'bound'
+    );
+    const source = await catalog.readRetainedSource(retained, 1024, collection, context());
+    expect(source.content).toBe(original);
     await catalog.applyManagedCacheBatch(
-      { files: [{ ...file, ...read, contentHash: hash(read.content) }], scope: collection },
-      context
+      { files: [{ ...retained, ...source, contentHash: hash(source.content) }], scope: collection },
+      context()
     );
     await catalog.completeFiles(
       {
-        files: [{ chunkCount: 1, contentHash: hash(original), fileId: file.fileId }],
+        files: [{ chunkCount: 1, contentHash: hash(original), fileId: retained.fileId }],
         scope: collection,
       },
-      context
+      context()
     );
-    expect(await new FileRecordRepository(db).findById(file.fileId)).toMatchObject({
+    expect(await read(retained.fileId)).toMatchObject({
       chunksCount: 1,
       content: original,
       contentHash: hash(original),
-      id: file.fileId,
-      path: 'actual-retained-import-path',
+      fileId: retained.fileId,
+      path: 'bounded-retained.ts',
     });
   });
-  it('rolls back already admitted completion when the scope becomes stale before transaction completion', async () => {
+  it('retains an acknowledged completion when scope revokes after commit and refuses subsequent work', async () => {
+    const retained = await seed('committed-retained.ts', true);
     let current = true;
-    const catalog = createNativeCanonicalCatalog({
-      database: {
-        query: db.query.bind(db),
-        transaction: async (run) =>
-          await db.transaction(
-            async (tx) =>
-              await run({
-                query: async <T = unknown>(
-                  sql: string,
-                  params?: unknown[]
-                ): Promise<{ rows: T[] }> => {
-                  const result = await tx.query<T>(sql, params);
-                  if (sql.startsWith('UPDATE')) {
-                    current = false;
-                  }
-                  return result;
-                },
-              })
-          ),
-      },
-      joinNativeRemoval: async () => undefined,
-      replaceTrustedBindings: async () => undefined,
-      resolveProfile: async () => null,
-      resolveScope: async () => ({
-        assertCurrent: () => {
-          if (!current) {
-            throw new Error('stale generation');
+    const { catalog, replaceTrustedBindings } = adapter(
+      {
+        sourceCatalog: async (request) => {
+          const result = await store.sourceCatalog(request);
+          if (request.operation === 'complete') {
+            current = false;
           }
+          return result;
         },
-        assertDiscoveredSource: () => undefined,
-        embeddingSetId: 'real-set',
-        resolveIdentity: () => retained,
-      }),
+      },
+      () => {
+        if (!current) {
+          throw new Error('stale generation');
+        }
+      }
+    );
+    const completion = {
+      files: [{ chunkCount: 999, contentHash: hash(original), fileId: retained.fileId }],
+      scope: collection,
+    };
+    await expect(catalog.completeFiles(completion, context())).rejects.toThrow('stale generation');
+    expect(await read(retained.fileId)).toMatchObject({ chunksCount: 999, content: original });
+    await expect(
+      catalog.completeFiles(
+        { ...completion, files: [{ ...completion.files[0]!, chunkCount: 111 }] },
+        context()
+      )
+    ).rejects.toThrow('stale generation');
+    expect(await read(retained.fileId)).toMatchObject({ chunksCount: 999 });
+    expect(replaceTrustedBindings).not.toHaveBeenCalled();
+  });
+  it('revocation before writer admission prevents mutation', async () => {
+    const retained = await seed('not-admitted.ts', true);
+    const sourceCatalog = vi.fn(store.sourceCatalog.bind(store));
+    const { catalog } = adapter({ sourceCatalog }, () => {
+      throw new Error('revoked before write');
     });
     await expect(
       catalog.completeFiles(
@@ -591,12 +489,10 @@ describe('authoritative catalog with real PGlite and canonical repositories', ()
           files: [{ chunkCount: 999, contentHash: hash(original), fileId: retained.fileId }],
           scope: collection,
         },
-        context
+        context()
       )
-    ).rejects.toThrow('stale generation');
-    expect(await new FileRecordRepository(db).findById(retained.fileId)).toMatchObject({
-      chunksCount: 9,
-      content: original,
-    });
+    ).rejects.toThrow('revoked before write');
+    expect(sourceCatalog).not.toHaveBeenCalled();
+    expect(await read(retained.fileId)).toMatchObject({ chunksCount: 3, content: original });
   });
 });

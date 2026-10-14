@@ -10,7 +10,12 @@ import {
   launchHost,
   type StartupMessage,
 } from '@brainstrike/host-lease';
-import { ForeignLockError, RootLock, RootLockedError } from '@brainstrike/state-store';
+import {
+  type ClearContentResult,
+  ForeignLockError,
+  RootLock,
+  RootLockedError,
+} from '@brainstrike/state-store';
 import { Effect, Exit, Scope } from 'effect';
 import { MessageChannelMain, type MessagePortMain, utilityProcess } from 'electron';
 import {
@@ -18,7 +23,7 @@ import {
   type HostNativeChildren,
 } from './agent-host-platform/host-native-children';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
-import type { HostLeaseControl } from './host-lease-control';
+import { decodeHostContentCleared, type HostLeaseControl } from './host-lease-control';
 
 export interface HostLeaseUtilityProcess {
   off(event: 'message', listener: (message: unknown) => void): unknown;
@@ -80,10 +85,14 @@ export type DesktopAgentHostPlatform = Pick<
 >;
 export interface DesktopHostLease {
   acquire(): Promise<HostAttachment>;
+  clearAndRetireContent(): Promise<ClearContentResult>;
   close(reason?: unknown): Promise<void>;
 }
 
 interface OwnedChild {
+  clearFailure?: unknown;
+  clearReceipt?: ClearContentResult;
+  clearRequested?: boolean;
   closing: boolean;
   exitCode: number | undefined;
   readonly exited: Promise<number>;
@@ -159,11 +168,14 @@ async function awaitReady(child: OwnedChild, root: string, signal: AbortSignal):
 /** Joins the real exit: the platform finalizer behind it must not close the port during cleanup. */
 async function closeChild(child: OwnedChild): Promise<void> {
   child.closing = true;
-  if (child.exitCode === undefined) {
+  if (child.exitCode === undefined && !child.clearRequested) {
     child.handle.postMessage({ method: 'close' });
   }
   const code = await child.exited;
   child.handle.off('exit', child.exitListener);
+  if (child.clearRequested && !child.clearReceipt) {
+    throw child.clearFailure ?? new Error('Owned host exited without a content-clear receipt');
+  }
   if (child.ready && code !== 0) {
     throw new Error(`Owned host utility exited with code ${code}`);
   }
@@ -219,6 +231,8 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
   let retired = false;
   let releasing: Promise<void> | undefined;
   let ownedPid: number | undefined;
+  let ownedChild: OwnedChild | undefined;
+  let clearing: Promise<ClearContentResult> | undefined;
   // One release join; each caller bounds its own wait, so a host that exits after
   // a deadline still completes this join instead of leaving a stale failure.
   const closeScope = (): Promise<void> => {
@@ -268,6 +282,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
             // A lost host leaves its native processes to Main (ADR-0017).
             () => nativeChildren?.retire()
           );
+          ownedChild = child;
           // Electron's utilityProcess has no pid until its spawn event.
           child.handle.once('spawn', () => {
             ownedPid = child.handle.pid;
@@ -315,6 +330,42 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
       }
       acquiring ??= acquire();
       return acquiring;
+    },
+    clearAndRetireContent: () => {
+      if (clearing) {
+        return clearing;
+      }
+      const child = ownedChild;
+      if (retired || !child?.ready || child.exitCode !== undefined || !options.platformModule) {
+        return Promise.reject(new Error('Content clear requires this lease’s ready agent host'));
+      }
+      retired = true;
+      child.closing = true;
+      child.clearRequested = true;
+      const received = (input: unknown): void => {
+        try {
+          const { event: _event, ...receipt } = decodeHostContentCleared(input);
+          child.clearReceipt = receipt;
+        } catch (cause) {
+          child.clearFailure = cause;
+        }
+      };
+      child.handle.on('message', received);
+      void child.exited.then(() => child.handle.off('message', received));
+      try {
+        child.handle.postMessage({ method: 'clear-content' });
+      } catch (cause) {
+        child.handle.off('message', received);
+        child.clearRequested = false;
+        return Promise.reject(cause);
+      }
+      clearing = closeScope().then(() => {
+        if (!child.clearReceipt) {
+          throw new Error('Content clear receipt unavailable');
+        }
+        return child.clearReceipt;
+      });
+      return clearing;
     },
     close: (reason = new Error('Desktop host lease owner is closing')) => {
       retired = true;

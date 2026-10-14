@@ -1,45 +1,6 @@
-/**
- * The renderer-side mirror of `apps/desktop/src/assistant-server/forge-pr-cache.ts`'s
- * SELECT: a list-wide live query over `brainstrike_forge_prs`, projected into
- * a `(repoCommonDir, branch)` lookup the thread rows join against.
- *
- * `app-shell` cannot import `apps/desktop` (renderer/main boundary), so this
- * cannot reuse main's reader directly — but both sides CAN import
- * `@brainstrike/types`, which is where `readChecks`, `FORGE_CHECK_CONCLUSIONS`
- * (via `readChecks`) and `forgePrCacheKey` actually live. Importing them here
- * rather than re-declaring them is the point: a conclusion added to
- * `ForgeCheckConclusion` without updating a SECOND copy of the validator would
- * pass on one side and throw the entire projection on the other, and a NUL
- * key builder that drifted between the two sides would silently stop joining
- * rows the desktop cache wrote.
- *
- * THROW-DON'T-COERCE, same posture as main: `projectForgePrRows` fails the
- * WHOLE projection (empty map, `error` set) on a single malformed row rather
- * than rendering the other rows as if the bad one were simply absent — an
- * absent PR and an unreadable one must never look the same to the user.
- */
-import { type DbHandle, makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
-import {
-  type ForgePrCacheEntry,
-  type ForgePrState,
-  forgePrCacheKey,
-  readChecks,
-  rollupForgeChecks,
-} from '@brainstrike/types';
-import { useMemo } from 'react';
-
-export const FORGE_PR_CACHE_SQL = `
-  SELECT
-    repo_common_dir AS "repoCommonDir",
-    branch AS "branch",
-    number AS "number",
-    url AS "url",
-    state AS "state",
-    is_draft AS "isDraft",
-    checks_json AS "checksJson"
-  FROM brainstrike_forge_prs
-  ORDER BY "repoCommonDir" ASC, "branch" ASC
-`;
+import { type ForgePrCacheEntry, type ForgePrState, forgePrCacheKey } from '@brainstrike/types';
+import { useEffect, useState } from 'react';
+import { type ForgeBridge, resolveForgeBridge } from '../forge/forge-bridge';
 
 const EMPTY_FORGE_PR_CACHE: ForgePrCacheLookup = new Map();
 
@@ -97,11 +58,23 @@ export function projectForgePrRows(rows: readonly unknown[]): {
       ) {
         throw new Error('Forge PR cache query returned a malformed pull-request row.');
       }
-      const checks = readChecks(row['checksJson']);
+      const checksRollup = row['checksRollup'];
+      const isDraft = row['isDraft'];
+      if (
+        (checksRollup !== 'none' &&
+          checksRollup !== 'passing' &&
+          checksRollup !== 'failing' &&
+          checksRollup !== 'pending') ||
+        typeof isDraft !== 'boolean'
+      ) {
+        throw new Error(
+          'Forge PR cache snapshot contains an unreadable checks rollup or draft state.'
+        );
+      }
       byRepoBranch.set(forgePrCacheKey(repoCommonDir, branch), {
         branch,
-        checksRollup: rollupForgeChecks(checks),
-        isDraft: row['isDraft'] === true,
+        checksRollup,
+        isDraft,
         number,
         repoCommonDir,
         state,
@@ -114,26 +87,50 @@ export function projectForgePrRows(rows: readonly unknown[]): {
   return { byRepoBranch, error: null };
 }
 
-export function useForgePrCache({
-  database,
-  enabled,
-}: {
-  readonly database: DbHandle | null;
-  readonly enabled: boolean;
-}): ForgePrCacheState {
-  const liveQuery = usePGliteLiveQuery<Record<string, unknown>>({
-    cacheKey: makeLiveQueryKey('forge-pr-cache'),
-    clearOnDisable: true,
-    enabled: database !== null && enabled,
-    params: [],
-    query: FORGE_PR_CACHE_SQL,
-  });
-  const projection = useMemo(() => projectForgePrRows(liveQuery.rows), [liveQuery.rows]);
-  const error = liveQuery.error ?? projection.error;
+async function readCache(bridge: ForgeBridge): Promise<ForgePrCacheState> {
+  try {
+    const result = await bridge.cacheSnapshot();
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+    return { ...projectForgePrRows(result.value), loading: false };
+  } catch (error) {
+    return { byRepoBranch: EMPTY_FORGE_PR_CACHE, error: toError(error), loading: false };
+  }
+}
 
-  return {
-    byRepoBranch: error ? EMPTY_FORGE_PR_CACHE : projection.byRepoBranch,
-    error,
-    loading: liveQuery.loading,
+function subscribeForgeCache(
+  bridge: ForgeBridge,
+  publish: (state: ForgePrCacheState) => void
+): () => void {
+  let pending: Promise<unknown> | undefined;
+  let disposed = false;
+  const refresh = async (): Promise<void> => {
+    const read = readCache(bridge);
+    pending = read;
+    const next = await read;
+    if (!disposed && pending === read) {
+      publish(next);
+    }
   };
+  const unsubscribe = bridge.onPrUpdated(() => {
+    void refresh();
+  });
+  void refresh();
+  return () => {
+    disposed = true;
+    unsubscribe();
+  };
+}
+
+/** The existing Forge publisher invalidates this projection; web omits the capability. */
+export function useForgePrCache({ enabled }: { readonly enabled: boolean }): ForgePrCacheState {
+  const bridge = enabled ? resolveForgeBridge() : null;
+  const [state, setState] = useState<ForgePrCacheState>({
+    byRepoBranch: EMPTY_FORGE_PR_CACHE,
+    error: null,
+    loading: true,
+  });
+  useEffect(() => (bridge ? subscribeForgeCache(bridge, setState) : undefined), [bridge]);
+  return bridge ? state : { byRepoBranch: EMPTY_FORGE_PR_CACHE, error: null, loading: false };
 }

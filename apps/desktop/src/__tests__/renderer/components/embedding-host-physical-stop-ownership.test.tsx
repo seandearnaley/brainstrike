@@ -28,17 +28,16 @@ import { assignWindowRole, clearWindowRoleByWebContentsId } from '../../../windo
 import { createAllowlistedSenderFrame } from '../../helpers/desktop-ipc-sender-frame-test-allowlist';
 import {
   commandListenerRef,
-  dbHandle,
   hostWindow,
   installEmbeddingHostRuntimeFixture,
   ipcHandlers,
   queryEmbeddingCancelListenerRef,
   queryEmbeddingListenerRef,
+  readModelCatalogMock,
+  reopenEmbeddingQueueMock,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
   retireEmbeddingQueueMock,
-  startEmbeddingWorkerMock,
-  stopMock,
   storeState,
 } from './embedding-host-foreground-ownership-fixture';
 
@@ -56,17 +55,16 @@ async function connectControlledQuery(options?: { cancellationCapability?: boole
   vi.stubGlobal('navigator', { gpu: {} });
   vi.stubGlobal('Worker', class {});
   storeState.hasHydrated = true;
-  dbHandle.query.mockResolvedValue({
-    rows: [
-      {
-        capabilities: { defaultDimension: 2 },
-        description: '',
-        id: 'model-a',
-        name: 'Fixture',
-        parameters: {},
-        providerId: 'local',
-      },
-    ],
+  readModelCatalogMock.mockResolvedValue({
+    models: ['model-a', 'model-b', 'model-c'].map((id) => ({
+      capabilities: { defaultDimension: 2 },
+      description: '',
+      id,
+      name: 'Fixture',
+      parameters: {},
+      providerId: 'local',
+    })),
+    providers: [],
   });
   const held = Promise.withResolvers<QueueResult>();
   let physicallyActive = false;
@@ -309,14 +307,14 @@ describe('committed readiness fix physical query ownership controls', () => {
     expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
     expect(run.manager.getStatus().state).toBe('starting');
     expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
-    expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+    expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(1);
     expect(run.isPhysicallyActive()).toBe(true);
     expect(run.dispose).not.toHaveBeenCalled();
     expect(run.cancel).not.toHaveBeenCalled();
     run.finish();
     await expect(resetting).resolves.toMatchObject({ state: 'running' });
     expect(await oldQuery).toBeInstanceOf(Error);
-    expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2);
+    expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(2);
     expect(run.dispose).toHaveBeenCalledOnce();
     await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledOnce());
     expect(run.manager.getStatus().state).toBe('running');
@@ -345,7 +343,7 @@ describe('committed readiness fix physical query ownership controls', () => {
       const backgroundStop = Promise.withResolvers<void>();
       if (action === 'stop' && outcome === 'failure') {
         // Disposal may reject while background Stop is still pending: attach both immediately.
-        stopMock.mockReturnValueOnce(backgroundStop.promise);
+        retireEmbeddingQueueMock.mockReturnValueOnce(backgroundStop.promise);
         onTestFinished(() => backgroundStop.resolve());
       }
       const command = action === 'stop' ? run.manager.stop() : run.manager.reset();
@@ -362,7 +360,7 @@ describe('committed readiness fix physical query ownership controls', () => {
       await act(async () => {});
       expect(settled).toBe(false);
       expect(hostWindow.destroy).not.toHaveBeenCalled();
-      expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce();
+      expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
       expect(run.dispose).toHaveBeenCalledOnce();
       if (outcome === 'failure') {
         held.reject(new Error('Owned service disposal failed.'));
@@ -384,12 +382,12 @@ describe('committed readiness fix physical query ownership controls', () => {
             : { lastError: 'Owned service disposal failed.', state: 'error' }
         );
         expect(hostWindow.destroy).toHaveBeenCalledOnce();
-        expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce();
+        expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
         expect(run.add).toHaveBeenCalledOnce();
       } else {
         expect(completion).toMatchObject({ state: action === 'stop' ? 'stopped' : 'running' });
         expect(hostWindow.destroy).not.toHaveBeenCalled();
-        expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(action === 'stop' ? 1 : 2);
+        expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(action === 'stop' ? 1 : 2);
         if (action === 'reset') {
           await expect(run.manager.queryEmbedding(query)).resolves.toHaveLength(2);
           expect(run.add).toHaveBeenCalledTimes(2);
@@ -577,7 +575,7 @@ describe('committed readiness fix physical query ownership controls', () => {
       'Embedding host query cancellation capability is unavailable.'
     );
     expect(run.add).not.toHaveBeenCalled();
-    expect(dbHandle.query).not.toHaveBeenCalled();
+    expect(readModelCatalogMock).not.toHaveBeenCalled();
     expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });
   it.each(['abort', 'timeout'] as const)(
@@ -635,14 +633,13 @@ describe('committed readiness fix physical query ownership controls', () => {
         await expect(sibling).resolves.toHaveLength(2);
         await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(3));
         expect(run.add).toHaveBeenCalledTimes(2);
-        expect(dbHandle.query.mock.calls.map(([, values]) => values)).toEqual([
-          ['model-a'],
-          ['model-c'],
-        ]);
+        expect(readModelCatalogMock).toHaveBeenCalledTimes(2);
+        expect(run.add.mock.calls.map(([task]) => task.model)).toEqual(['model-a', 'model-c']);
       } else {
         expect(await active).toBeInstanceOf(Error);
         expect(run.add).toHaveBeenCalledOnce();
-        expect(dbHandle.query.mock.calls.map(([, values]) => values)).toEqual([['model-a']]);
+        expect(readModelCatalogMock).toHaveBeenCalledOnce();
+        expect(run.add.mock.calls[0]?.[0].model).toBe('model-a');
       }
       expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
     }
@@ -655,8 +652,8 @@ describe('committed readiness fix physical query ownership controls', () => {
       const originalInitialize = SimpleEmbeddingService.prototype.initializeWithModel;
       const initialize = vi.spyOn(SimpleEmbeddingService.prototype, 'initializeWithModel');
       if (stage === 'model-read') {
-        const original = dbHandle.query.getMockImplementation()!;
-        dbHandle.query.mockImplementationOnce(async (...args: unknown[]) => {
+        const original = readModelCatalogMock.getMockImplementation()!;
+        readModelCatalogMock.mockImplementationOnce(async (...args: unknown[]) => {
           await held.promise;
           return original(...args);
         });
@@ -672,7 +669,7 @@ describe('committed readiness fix physical query ownership controls', () => {
         .queryEmbedding(query, { signal: controller.signal })
         .catch((error: unknown) => error);
       await waitFor(() =>
-        expect(stage === 'model-read' ? dbHandle.query : initialize).toHaveBeenCalledOnce()
+        expect(stage === 'model-read' ? readModelCatalogMock : initialize).toHaveBeenCalledOnce()
       );
       const sibling = run.manager.queryEmbedding({
         ...query,
@@ -684,7 +681,7 @@ describe('committed readiness fix physical query ownership controls', () => {
       expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(2);
       expect(run.add).not.toHaveBeenCalled();
       expect(run.dispose).not.toHaveBeenCalled();
-      expect(dbHandle.query).toHaveBeenCalledOnce();
+      expect(readModelCatalogMock).toHaveBeenCalledOnce();
       held.resolve();
       expect(await head).toMatchObject({ message: 'Preparation canceled' });
       await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
@@ -755,7 +752,7 @@ describe('committed readiness fix physical query ownership controls', () => {
       expect(await queued).toBeInstanceOf(Error);
       expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
       await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(2));
-      expect(dbHandle.query).toHaveBeenCalledOnce();
+      expect(readModelCatalogMock).toHaveBeenCalledOnce();
       if (action === 'reset') {
         const replacement = run.manager.queryEmbedding({
           ...query,
@@ -776,133 +773,89 @@ describe('committed readiness fix physical query ownership controls', () => {
     }
   );
 
-  it.each(['recoverable', 'limit'] as const)(
-    'joins active query ownership on the %s fatal path',
-    async (path) => {
+  it.each(['stop', 'reset'] as const)(
+    'joins a native device-loss rejection and physical retirement before %s settles',
+    async (action) => {
       const run = await connectControlledQuery();
-      const trigger = (index: number): void => {
-        const options = startEmbeddingWorkerMock.mock.calls[index]?.[0] as
-          | { onFatalError?: (error: Error) => void }
-          | undefined;
-        if (!options?.onFatalError) {
-          throw new Error('Expected public worker fatal callback.');
-        }
-        options.onFatalError(new Error('WebGPU device lost: device was lost'));
-      };
-      if (path === 'limit') {
-        trigger(0);
-        await waitFor(() => expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2));
-        trigger(1);
-        await waitFor(() => expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(3));
-      }
-      const starts = path === 'limit' ? 3 : 1;
-      const result = run.manager.queryEmbedding(query).then(
-        () => null,
-        (error: unknown) => error
-      );
+      const result = run.manager.queryEmbedding(query).catch((error: unknown) => error);
       await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
-      trigger(starts - 1);
+      const physical = Promise.withResolvers<void>();
+      retireEmbeddingQueueMock.mockReturnValueOnce(physical.promise);
+      onTestFinished(() => physical.resolve());
+      const completion = action === 'stop' ? run.manager.stop() : run.manager.reset();
+      let settled = false;
+      void result.then(() => {
+        settled = true;
+      });
+      const failure = Object.assign(new Error('Device lost'), { code: 'EMBEDDING_DEVICE_LOST' });
+      run.fail(failure);
       await act(async () => {});
-      expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
-      expect(run.isPhysicallyActive()).toBe(true);
+      expect(settled).toBe(false);
       expect(run.dispose).not.toHaveBeenCalled();
-      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(starts);
-      expect(reportStatusMock).toHaveBeenCalledWith(
-        expect.objectContaining({ active: true, state: 'error' })
-      );
-      run.finish();
-      await result;
-      await waitFor(() => expect(run.dispose).toHaveBeenCalledOnce());
-      if (path === 'recoverable') {
-        await waitFor(() => expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2));
-        expect(run.manager.getStatus().state).toBe('running');
-      } else {
-        await waitFor(() =>
-          expect(reportStatusMock).toHaveBeenLastCalledWith(
-            expect.objectContaining({
-              active: false,
-              lastError: expect.stringContaining('repeated WebGPU device loss'),
-              state: 'error',
-            })
-          )
-        );
-        expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(3);
-      }
+      expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
+      physical.resolve();
+      await completion;
+      expect(await result).toBeInstanceOf(Error);
+      expect(run.dispose).toHaveBeenCalledOnce();
+      expect(run.add).toHaveBeenCalledOnce();
+      expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(action === 'stop' ? 1 : 2);
     }
   );
 
-  it.each(['recoverable', 'limit'] as const)(
-    'reports pending disposal failure on the %s fatal path without retrying or replacing',
-    async (path) => {
+  it.each(['stop', 'reset'] as const)(
+    'retains independent native execution and physical retirement failures on %s',
+    async (action) => {
       const run = await connectControlledQuery();
-      const trigger = (index: number): void => {
-        const options = startEmbeddingWorkerMock.mock.calls[index]?.[0] as {
-          onFatalError: (error: Error) => void;
-        };
-        options.onFatalError(new Error('WebGPU device lost: device was lost'));
-      };
-      if (path === 'limit') {
-        trigger(0);
-        await waitFor(() => expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2));
-        trigger(1);
-        await waitFor(() => expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(3));
-      }
-      const starts = path === 'limit' ? 3 : 1;
-      const warm = run.manager.queryEmbedding(query);
+      const result = run.manager.queryEmbedding(query).catch((error: unknown) => error);
       await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
-      run.finish();
-      await warm;
-      const held = Promise.withResolvers<void>();
-      run.dispose.mockImplementationOnce(() => held.promise);
-      const switching = run.manager
-        .queryEmbedding({ ...query, modelId: 'model-b', modelKey: 'local:model-b' })
-        .catch((error: unknown) => error);
-      await waitFor(() => expect(run.dispose).toHaveBeenCalledOnce());
-      try {
-        trigger(starts - 1);
-        await act(async () => {});
-        expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(starts);
-        expect(run.dispose).toHaveBeenCalledOnce();
-      } finally {
-        held.reject(new Error('Fatal cached-service disposal failed.'));
-      }
-      await switching;
+      retireEmbeddingQueueMock.mockRejectedValueOnce(new Error('Physical retirement failed'));
+      const completion = (action === 'stop' ? run.manager.stop() : run.manager.reset()).catch(
+        (error: unknown) => error
+      );
+      run.fail(new Error('Independent device execution failed'));
+      expect(await completion).toMatchObject(
+        action === 'stop'
+          ? { message: 'Physical retirement failed' }
+          : { lastError: 'Physical retirement failed', state: 'error' }
+      );
+      expect(await result).toBeInstanceOf(Error);
       await waitFor(() =>
-        expect(reportStatusMock).toHaveBeenLastCalledWith(
+        expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledWith(
           expect.objectContaining({
-            lastError: expect.stringContaining('Fatal cached-service disposal failed.'),
-            state: 'error',
+            payload: expect.objectContaining({
+              message: 'Embedding inference and physical retirement failed',
+            }),
+            type: 'error',
           })
         )
       );
-      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(starts);
+      expect(hostWindow.destroy).toHaveBeenCalledOnce();
       expect(run.dispose).toHaveBeenCalledOnce();
+      expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
       expect(run.add).toHaveBeenCalledOnce();
     }
   );
 
-  it('keeps failed fatal restart closed while old physical inference remains active', async () => {
+  it('keeps failed physical retirement closed until old native inference settles', async () => {
     const run = await connectControlledQuery();
     const result = run.manager.queryEmbedding(query).catch((error: unknown) => error);
     await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
-    stopMock.mockRejectedValueOnce(new Error('Worker drain failed'));
-    const options = startEmbeddingWorkerMock.mock.calls[0]?.[0] as {
-      onFatalError: (error: Error) => void;
-    };
-    options.onFatalError(new Error('WebGPU device lost: device was lost'));
-    await waitFor(() =>
-      expect(reportStatusMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({ active: true, lastError: 'Worker drain failed', state: 'error' })
-      )
-    );
+    retireEmbeddingQueueMock.mockRejectedValueOnce(new Error('Worker drain failed'));
+    let settled = false;
+    const resetting = run.manager.reset().then((status) => {
+      settled = true;
+      return status;
+    });
+    await act(async () => {});
+    expect(settled).toBe(false);
     expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
     expect(run.isPhysicallyActive()).toBe(true);
     expect(run.dispose).not.toHaveBeenCalled();
-    expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce();
+    expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
     run.finish();
-    await result;
-    await act(async () => {});
-    expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce();
+    await expect(resetting).resolves.toMatchObject({ state: 'error' });
+    expect(await result).toBeInstanceOf(Error);
+    expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
   });
 
   it.each([
@@ -944,7 +897,7 @@ describe('committed readiness fix physical query ownership controls', () => {
       expect(settled).toBe(false);
       expect(hostWindow.isDestroyed()).toBe(false);
       expect(run.isPhysicallyActive()).toBe(true);
-      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+      expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(1);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1);
       });
@@ -953,12 +906,12 @@ describe('committed readiness fix physical query ownership controls', () => {
       expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
       expect(settled).toBe(true);
       expect(hostWindow.isDestroyed()).toBe(true);
-      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+      expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(1);
       // Public document teardown fences callbacks; this fixture does not pretend to run native workers.
       run.view.unmount();
       run.finish();
       await act(async () => {});
-      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+      expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(1);
       vi.useRealTimers();
     }
   );

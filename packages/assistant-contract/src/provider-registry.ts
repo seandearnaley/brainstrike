@@ -64,7 +64,22 @@ type TokenizerBackedMeasurementCapability = Exclude<
   { mode: 'deterministic-serialized-character-backstop' }
 >;
 
+export interface ProviderCatalogPresentation {
+  readonly enabled: boolean;
+  readonly icon: string | null;
+  readonly name: string;
+  readonly sortOrder: number;
+}
+export interface ModelCatalogPresentation extends ProviderCatalogPresentation {
+  readonly bestFor: readonly string[] | null;
+  readonly capabilities?: { readonly toolCalling?: boolean; readonly contextWindow?: number };
+  readonly description: string | null;
+  readonly parameters: Readonly<Record<string, unknown>> | null;
+  readonly tagline: string | null;
+}
+
 interface BaseModelDefinition {
+  readonly catalog?: ModelCatalogPresentation;
   /**
    * Flag a sensible default for the given model type.
    */
@@ -262,17 +277,22 @@ export interface EmbeddingModelDefinition extends BaseModelDefinition {
    * Name of the parameter used to tune embedding dimension. Used by workers.
    */
   dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension';
+  /** Qualified artifact dtype per device; absence preserves the vendor default. */
+  execution?: Partial<Record<'wasm' | 'webgpu', RecommendedLocalExecution['dtype']>>;
   /**
    * A local model's measured cost per catalog execution device, shown with that
    * execution's plan in Settings (BST-1993).
    */
   executionNotes?: LocalExecutionNotes;
+  pooling?: 'mean' | 'cls';
+  prompts?: { document: string; query: string };
   /**
    * The local execution Settings recommends this model for, and why. Settings
    * recommends it only when the embedding host's own WebGPU detection matches
    * `device` (BST-1993).
    */
   recommendedExecution?: RecommendedLocalExecution;
+  revision?: string;
   /**
    * Indicates whether the provider exposes a parameter to customise the dimension.
    */
@@ -299,6 +319,7 @@ export type ProviderAuthType = 'api_key' | 'oauth_subscription' | 'aws' | 'none'
 export interface ProviderDefinition {
   authType: ProviderAuthType;
   capabilities: ProviderCapabilities;
+  readonly catalog?: ProviderCatalogPresentation;
   /**
    * Historical env names this provider once resolved (BST-1361). NEVER
    * consulted for authentication. They remain in the desktop `.env`

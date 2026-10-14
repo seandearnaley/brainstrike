@@ -47,22 +47,43 @@ const DOMAIN_CASES: readonly ContractDomainCase[] = [
   {
     channels: ['context-files:scan'],
     domain: 'contextFiles',
-    register: (sentinel) => registerContextFilesIpcHandlers(vi.fn(async () => sentinel as never)),
+    register: (sentinel) =>
+      registerContextFilesIpcHandlers(
+        { workspaceRoots: async () => ({ roots: [] }) },
+        vi.fn(async () => sentinel as never)
+      ),
   },
   {
     channels: ['skills:scan'],
     domain: 'skills',
-    register: (sentinel) => registerSkillsIpcHandlers(vi.fn(async () => sentinel as never)),
+    register: (sentinel) =>
+      registerSkillsIpcHandlers(
+        { workspaceRoots: async () => ({ roots: [] }) },
+        vi.fn(async () => sentinel as never)
+      ),
   },
   {
     channels: ['user-commands:list'],
     domain: 'userCommands',
-    register: (sentinel) => registerUserCommandsIpcHandlers(vi.fn(async () => sentinel as never)),
+    register: (sentinel) =>
+      registerUserCommandsIpcHandlers(
+        { workspaceRoots: async () => ({ roots: [] }) },
+        vi.fn(async () => sentinel as never)
+      ),
   },
   {
     channels: ['user-personas:list'],
     domain: 'userPersonas',
-    register: (sentinel) => registerUserPersonasIpcHandlers(vi.fn(async () => sentinel as never)),
+    register: (sentinel) =>
+      registerUserPersonasIpcHandlers(
+        { workspaceRoots: async () => ({ roots: [] }) },
+        {
+          read: async () => {
+            throw new Error('Catalog must not run before sender authorization');
+          },
+        },
+        vi.fn(async () => sentinel as never)
+      ),
   },
 ];
 

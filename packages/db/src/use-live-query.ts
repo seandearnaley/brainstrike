@@ -444,7 +444,7 @@ async function subscribeToLiveSource<T>(
 export function usePGliteLiveQuery<T = Record<string, unknown>>(
   options: UsePGliteLiveQueryOptions<T>
 ): LiveQueryHookResult<T> {
-  const db = usePGliteDatabase();
+  const db = usePGliteDatabase({ enabled: options.enabled !== false });
   const drainRegistry = useLiveQueryDrainRegistry();
   const source = useMemo(() => resolveLiveSource(db), [db]);
   const [leaderRevision, setLeaderRevision] = useState(0);

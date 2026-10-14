@@ -10,7 +10,6 @@ import {
   seedLive3dmolRestoreState,
   seedRestoredExplicitSelectionState,
   seedRestoredQuerySelectionState,
-  seedSelectionSnapshotRows,
   test,
   toggleFileTreeCheckboxAndWaitForSelection,
 } from './file-explorer-selection.shared';
@@ -782,7 +781,7 @@ test.describe('Desktop file explorer selection restore', () => {
     }
   });
 
-  test('snapshot-backed restored root folders stay interactive after the post-click settle window', async ({
+  test('materialized-query restored root folders stay interactive after the post-click settle window', async ({
     electronHarness,
   }) => {
     test.setTimeout(60_000);
@@ -811,7 +810,6 @@ test.describe('Desktop file explorer selection restore', () => {
       await writeFile(path.join(rootPath, 'src/types/viewer.d.ts'), 'export type Viewer = string;');
       await writeFile(path.join(rootPath, 'src/utils/viewer.ts'), 'export const viewer = 1;');
 
-      const snapshotId = '11111111-2222-4333-8444-555555555555';
       const materializedPaths = [
         path.join(rootPath, 'src/App.tsx'),
         path.join(rootPath, 'src/main.tsx'),
@@ -821,12 +819,6 @@ test.describe('Desktop file explorer selection restore', () => {
         path.join(rootPath, 'src/types/viewer.d.ts'),
         path.join(rootPath, 'src/utils/viewer.ts'),
       ];
-
-      await seedSelectionSnapshotRows({
-        electronHarness,
-        filePaths: materializedPaths,
-        snapshotId,
-      });
 
       await seedRestoredQuerySelectionState({
         coveredDirectoryPaths: [
@@ -859,7 +851,7 @@ test.describe('Desktop file explorer selection restore', () => {
           path.join(rootPath, 'src'),
         ],
         includeFilters: ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'],
-        manifestSnapshotId: snapshotId,
+        manifestSnapshotId: null,
         materializedPaths,
         rootPath,
         selectionRootPath: path.join(rootPath, 'src'),
@@ -892,7 +884,7 @@ test.describe('Desktop file explorer selection restore', () => {
     }
   });
 
-  test('restored snapshot-backed query parents ignore unmatched child directories when computing root checkbox state', async ({
+  test('restored materialized-query parents ignore unmatched child directories when computing root checkbox state', async ({
     electronHarness,
   }) => {
     test.setTimeout(60_000);
@@ -918,19 +910,12 @@ test.describe('Desktop file explorer selection restore', () => {
         'export const useViewer = () => null;'
       );
 
-      const snapshotId = '22222222-3333-4444-8555-666666666666';
       const materializedPaths = [
         path.join(rootPath, 'src/App.tsx'),
         path.join(rootPath, 'src/main.tsx'),
         path.join(rootPath, 'src/components/viewer.tsx'),
         path.join(rootPath, 'src/hooks/use-viewer.ts'),
       ];
-
-      await seedSelectionSnapshotRows({
-        electronHarness,
-        filePaths: materializedPaths,
-        snapshotId,
-      });
 
       await seedRestoredQuerySelectionState({
         coveredDirectoryPaths: [
@@ -961,7 +946,7 @@ test.describe('Desktop file explorer selection restore', () => {
           path.join(rootPath, 'src'),
         ],
         includeFilters: ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'],
-        manifestSnapshotId: snapshotId,
+        manifestSnapshotId: null,
         materializedPaths,
         rootPath,
         selectionRootPath: path.join(rootPath, 'src'),

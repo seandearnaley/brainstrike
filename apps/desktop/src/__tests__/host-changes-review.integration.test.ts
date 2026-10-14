@@ -12,7 +12,7 @@
  *   attributed and the side effect not;
  * - once the host owns the thread, no ledger or database read;
  * - a failed capture, or a run that ended without its turn end, fails visibly;
- * - a thread the host does not own keeps the legacy engine's answer.
+ * - a thread the host does not own refuses without a retired ledger lookup.
  */
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
@@ -30,18 +30,13 @@ import {
 import { scriptedModel } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { createHostThreadTurns } from '../assistant-server/changeset-host-turns';
 import { createSnapshotChangesetResolver } from '../assistant-server/changeset-snapshot-view';
-import type { MainQueryHandle } from '../assistant-server/main-query-handle';
-import {
-  FAILED_SNAPSHOT_CAPTURE_OID,
-  type SnapshotRepository,
-} from '../assistant-server/snapshot-repository';
+import { FAILED_SNAPSHOT_CAPTURE_OID } from '../assistant-server/snapshot-repository';
 import { createSnapshotService, type SnapshotService } from '../assistant-server/snapshot-service';
 import { captureRootSnapshot } from '../assistant-server/snapshot-turn-boundaries';
-import { createSnapshotTurnRegistry } from '../assistant-server/snapshot-turn-registry';
 import { fixtureSnapshotGitRunner } from './assistant-server/_git-fixture-environment';
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -97,45 +92,25 @@ function captureWith(
   };
 }
 
-/** Main's resolver over the host client, counting every ledger and database read. */
+const forbiddenPg = vi.hoisted(() =>
+  vi.fn(() => {
+    throw new Error('Changes must not acquire PG');
+  })
+);
+vi.mock('@brainstrike/db/pglite-factory', async (original) => ({
+  ...(await original<typeof import('@brainstrike/db/pglite-factory')>()),
+  createBrainstrikePglite: forbiddenPg,
+}));
+
 function mainResolver(
   service: SnapshotService,
   source: Parameters<typeof createHostThreadTurns>[0]
 ) {
-  const reads = { database: 0, ledger: 0 };
-  const unused = (): never => {
-    throw new Error('a host thread never reaches this ledger operation');
-  };
-  const ledger: SnapshotRepository = {
-    deleteByIds: unused,
-    deleteForThread: unused,
-    insertSnapshot: unused,
-    latestSnapshotFor: unused,
-    rootsForThread: unused,
-    snapshotsForThread: () => {
-      reads.ledger += 1;
-      return Promise.resolve([]);
-    },
-  };
-  const database: MainQueryHandle = {
-    query: () => {
-      throw new Error('the changeset view must not run raw SQL here');
-    },
-  };
   const resolver = createSnapshotChangesetResolver({
-    createRepository: () => ledger,
     hostThreads: createHostThreadTurns(source),
-    readRunAnchor: () => {
-      throw new Error('a host thread never reads the legacy runs table');
-    },
-    registry: createSnapshotTurnRegistry(),
-    resolveDatabase: () => {
-      reads.database += 1;
-      return Promise.resolve(database);
-    },
     resolveService: () => service,
   });
-  return { reads, resolver };
+  return { resolver };
 }
 
 function clientSource(client: HostClient): Parameters<typeof createHostThreadTurns>[0] {
@@ -260,7 +235,7 @@ async function pausedHostRun(options: HostRunOptions = {}) {
 
 test('a host run is reviewed live against the work-tree, then start against end with its tool edit attributed', async () => {
   const paused = await pausedHostRun();
-  const { reads, resolver } = mainResolver(paused.service, clientSource(paused.client));
+  const { resolver } = mainResolver(paused.service, clientSource(paused.client));
   const changeset = { kind: 'agent-run' as const, runId: paused.runId, threadId: paused.threadId };
 
   // A side effect no tool tracked, while the run waits on approval.
@@ -278,7 +253,7 @@ test('a host run is reviewed live against the work-tree, then start against end 
     },
   });
   expect(live.ok && live.value.files[0]).not.toHaveProperty('toolAttributed');
-  const afterFirst = { ...reads };
+  expect(forbiddenPg).not.toHaveBeenCalled();
 
   await paused.client.request('interaction/respond', {
     commandId: randomUUID(),
@@ -320,7 +295,7 @@ test('a host run is reviewed live against the work-tree, then start against end 
   const diff = await resolver.fileDiff(ROOT_ID, changeset, 'permitted.txt');
   expect(diff).toMatchObject({ ok: true, value: { path: 'permitted.txt', status: 'modified' } });
   // Once the host owns the thread, its turns are read from the host's log alone.
-  expect(reads).toEqual(afterFirst);
+  expect(forbiddenPg).not.toHaveBeenCalled();
 });
 
 test('a rewind preview’s host run range is each root’s restore point against the live work-tree', async () => {
@@ -339,7 +314,7 @@ test('a rewind preview’s host run range is each root’s restore point against
   );
   // A change after the turn ended: a rewind restores it too, so its view shows it.
   await writeFile(join(paused.workspace, 'after-the-turn.txt'), 'written later\n');
-  const { reads, resolver } = mainResolver(paused.service, clientSource(paused.client));
+  const { resolver } = mainResolver(paused.service, clientSource(paused.client));
   const changeset = {
     fromRunId: paused.runId,
     kind: 'run-range' as const,
@@ -362,18 +337,18 @@ test('a rewind preview’s host run range is each root’s restore point against
   expect(view.ok && view.value.files).toHaveLength(2);
   const diff = await resolver.fileDiff(ROOT_ID, changeset, 'permitted.txt');
   expect(diff).toMatchObject({ ok: true, value: { path: 'permitted.txt', status: 'modified' } });
-  const afterFirst = { ...reads };
+  expect(forbiddenPg).not.toHaveBeenCalled();
 
   // A host range ending at a TO run is refused visibly, never approximated.
   const bounded = await resolver.resolveView({ ...changeset, toRunId: paused.runId });
   expect(!bounded.ok && bounded.error).toMatch(/^run-range-unsupported: /);
-  expect(reads).toEqual(afterFirst);
+  expect(forbiddenPg).not.toHaveBeenCalled();
 });
 
 test('a run resolved before its turn start is committed resolves once it is', async () => {
   const gate = Promise.withResolvers<void>();
   const started = await startedHostRun({ startGate: gate.promise });
-  const { reads, resolver } = mainResolver(started.service, clientSource(started.client));
+  const { resolver } = mainResolver(started.service, clientSource(started.client));
   const changeset = {
     kind: 'agent-run' as const,
     runId: started.runId,
@@ -394,13 +369,13 @@ test('a run resolved before its turn start is committed resolves once it is', as
     (row) => row.event.type === 'workspace.snapshot.recorded'
   );
   await writeFile(join(started.workspace, 'shell-made.txt'), 'made by a shell\n');
-  const afterFirst = { ...reads };
+  expect(forbiddenPg).not.toHaveBeenCalled();
   const live = await resolver.resolveView(changeset);
   expect(live).toMatchObject({
     ok: true,
     value: { files: [expect.objectContaining({ path: 'shell-made.txt', status: 'added' })] },
   });
-  expect(reads).toEqual(afterFirst);
+  expect(forbiddenPg).not.toHaveBeenCalled();
 });
 
 test('a host run whose turn-start capture failed has no Changes review, visibly', async () => {
@@ -457,7 +432,7 @@ test('a host run that ended without its turn end, or recorded no turn, has no Ch
   );
 });
 
-test('a thread the host does not own keeps the legacy engine answer', async () => {
+test('a thread the host does not own refuses instead of reading a retired ledger', async () => {
   const shadow = await temporaryDirectory('bs-m3-host-changes-shadow-');
   const service = createSnapshotService({
     runner: fixtureSnapshotGitRunner,
@@ -475,6 +450,6 @@ test('a thread the host does not own keeps the legacy engine answer', async () =
     threadId: 'legacy-thread',
   });
   expect(!view.ok && view.error).toMatch(
-    /^changeset-snapshot-missing: .*predates the snapshot engine/
+    /^changeset-snapshot-missing: .*is not owned by the agent host/
   );
 });

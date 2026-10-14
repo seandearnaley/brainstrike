@@ -71,13 +71,20 @@ async function addRoot(page: Page): Promise<string> {
   await page.getByRole('button', { exact: true, name: 'Add Folder to Workspace' }).click();
   await expect(page.getByTestId('single-root-header-row')).toContainText('brainstrike');
   const roots = await page.evaluate(async () => {
-    const result = await window.electronAPI!.db!.query<{ id: string; status: string }>(
-      'SELECT id, status FROM roots'
-    );
-    return result.rows;
+    if (!window.electronAPI) {
+      throw new Error('Desktop bridge unavailable');
+    }
+    const reply = await window.electronAPI.fileSystem.restoreRoots();
+    if (!reply.ok) {
+      throw new Error(reply.error.message);
+    }
+    return reply.value.map((root) => ({
+      id: root.rootId,
+      permissionState: root.permissionState,
+    }));
   });
   expect(roots).toHaveLength(1);
-  expect(roots[0]?.status).toBe('live');
+  expect(roots[0]?.permissionState).toBe('granted');
   const id = roots[0]?.id;
   if (!id) {
     throw new Error('Actual picker did not register a root');

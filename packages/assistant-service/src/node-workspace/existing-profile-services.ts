@@ -1,6 +1,5 @@
 import { access, realpath } from 'node:fs/promises';
-import path from 'node:path';
-import type { BrainstrikePglite } from '@brainstrike/db/pglite-factory';
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type {
   NodeWorkspaceProfileOwner,
   NodeWorkspaceServices,
@@ -8,16 +7,14 @@ import type {
 } from '../node-workspace-services.js';
 import { openNodeWorkspaceServices } from '../node-workspace-services.js';
 import { type DatabaseLocation, joinProfileDirectory } from './database-location.js';
-import { createNodeProfileDatabaseOwner } from './profile-database-owner.js';
 import {
   type SubscribeMountedWorkspaceRoot,
   WorkspaceRootRegistry,
 } from './workspace-root-registry.js';
 import type { WorkspaceRootStorage } from './workspace-root-types.js';
-import { loadWorkspaceRootsFromDatabase, type WorkspaceRootsQueryable } from './workspace-roots.js';
+import { loadWorkspaceRootsFromCatalog } from './workspace-roots.js';
 
-// The legacy PG lock is PID-reentrant. Keep the cold local owner singular too:
-// repeated acquisition under one HostStartupContext must not construct another writer.
+// Keep one cold mount borrower per acquired profile; the existing StateStore owns all records.
 const activeProfiles = new Set<string>();
 
 export interface ExistingNodeWorkspaceServicesOptions {
@@ -31,10 +28,12 @@ export interface ExistingNodeWorkspaceServicesOptions {
   readonly subscribe: SubscribeMountedWorkspaceRoot;
 }
 
-export function openExistingNodeWorkspaceServices(
-  startup: NodeWorkspaceServicesStartup,
+export function openExistingNodeWorkspaceServices<TCatalog extends WorkspaceRootPort>(
+  startup: NodeWorkspaceServicesStartup & {
+    readonly store: TCatalog & NodeWorkspaceServicesStartup['store'];
+  },
   options: ExistingNodeWorkspaceServicesOptions
-): Promise<NodeWorkspaceServices<BrainstrikePglite>> {
+): Promise<NodeWorkspaceServices<TCatalog>> {
   return openNodeWorkspaceServices(startup, async (ownedStartup) => {
     const location = Object.freeze({ ...options.location });
     const profileDirectory = await realpath(
@@ -45,13 +44,10 @@ export function openExistingNodeWorkspaceServices(
     if (ownedStartup.store.lock.isReleased || profileDirectory !== acquiredRoot) {
       throw new Error('Selected profile does not belong to the acquired canonical Root.');
     }
-    // An existing catalog is required; a mistaken selection must never bootstrap another one.
-    await access(path.join(profileDirectory, 'pgdata', 'PG_VERSION'));
     if (activeProfiles.has(profileDirectory)) {
       throw new Error('The existing profile already has a cold workspace owner.');
     }
-    const databaseOwner = createNodeProfileDatabaseOwner({ getLocation: () => location });
-    let database: BrainstrikePglite | undefined;
+    const catalog = startup.store;
     let closing: Promise<void> | undefined;
     const readOnlyGrants: WorkspaceRootStorage = {
       getItem: (key) => options.grants.getItem(key),
@@ -62,18 +58,10 @@ export function openExistingNodeWorkspaceServices(
         throw new Error('Cold workspace borrower cannot write preferences.');
       },
     };
-    const rootsDatabase: WorkspaceRootsQueryable = {
-      query: async (sql, params) => {
-        if (!database) {
-          throw new Error('Existing catalog is not open.');
-        }
-        return await database.query(sql, params ? [...params] : undefined);
-      },
-    };
     const registry = new WorkspaceRootRegistry({
       disposeCommandSessionsForRoot: options.disposeCommandSessionsForRoot,
       evictLspServersForRoot: options.evictLspServersForRoot,
-      getRootsDatabase: async () => rootsDatabase,
+      getRootsCatalog: async () => catalog,
       pathExists: async (rootPath) => {
         try {
           await access(rootPath);
@@ -90,19 +78,17 @@ export function openExistingNodeWorkspaceServices(
     const close = (): Promise<void> => {
       closing ??= (async () => {
         await registry.dispose();
-        await databaseOwner.close();
         activeProfiles.delete(profileDirectory);
       })();
       return closing;
     };
     activeProfiles.add(profileDirectory);
-    // The borrower owns this partial join before either the existing PG or native mount opens.
+    // Register mount retirement before restoration; the acquired StateStore remains borrowed.
     await ownedStartup.register(close);
-    database = await databaseOwner.initialize();
-    const owner: NodeWorkspaceProfileOwner<BrainstrikePglite> = {
+    const owner: NodeWorkspaceProfileOwner<TCatalog> = {
       borrowSourceRoot: (rootId) => registry.borrowSourceRoot(rootId, options.subscribe),
       close,
-      database,
+      database: catalog,
       location,
       profileDirectory,
       readRoots: async () => {
@@ -112,7 +98,7 @@ export function openExistingNodeWorkspaceServices(
             .filter((entry) => entry.permissionState === 'granted')
             .map((entry) => [entry.rootId, entry.handle.path])
         );
-        const roots = await loadWorkspaceRootsFromDatabase(rootsDatabase);
+        const roots = await loadWorkspaceRootsFromCatalog(catalog);
         return roots.filter((root) => granted.get(root.rootId) === root.path);
       },
     };

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL } from '../desktop-platform-diagnostics';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
+import { createAllowlistedSenderFrame } from './helpers/desktop-ipc-sender-frame-test-allowlist';
 
 const { handlers, ipcMainHandle, ipcMainRemoveHandler } = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
@@ -12,6 +13,17 @@ const { handlers, ipcMainHandle, ipcMainRemoveHandler } = vi.hoisted(() => {
     ipcMainRemoveHandler: vi.fn(),
   };
 });
+
+const role = vi.hoisted(() => vi.fn(() => 'visible-ui'));
+const diagnosticReader = vi.hoisted(() => ({
+  countByFingerprint: vi.fn(async () => ({ count: 0, firstSeenMs: null, lastSeenMs: null })),
+  getUnseenCounts: vi.fn(async () => ({ errorCount: 2, warningCount: 1 })),
+  queryEvents: vi.fn(async () => []),
+}));
+vi.mock('../window-role', () => ({ getWindowRoleByWebContentsId: role }));
+vi.mock('../assistant-server/query-diagnostics-tool', () => ({
+  mainDiagnosticEventsReader: diagnosticReader,
+}));
 
 vi.mock('electron', () => ({
   ipcMain: {
@@ -184,4 +196,60 @@ describe('desktop diagnostics IPC', () => {
 
     unregister();
   });
+});
+
+it('validates retained diagnostic filters before I/O and restricts the reader to the visible UI', async () => {
+  const { registerDesktopDiagnosticsIpcHandlers } = await import('../ipc-desktop-diagnostics');
+  const unregister = registerDesktopDiagnosticsIpcHandlers(
+    {} as Parameters<typeof registerDesktopDiagnosticsIpcHandlers>[0]
+  );
+  const query = handlers.get(DESKTOP_IPC_CHANNELS.diagnostics.queryEvents)!;
+  const count = handlers.get(DESKTOP_IPC_CHANNELS.diagnostics.countByFingerprint)!;
+  const event = { sender: { id: 42 }, senderFrame: createAllowlistedSenderFrame() };
+  diagnosticReader.queryEvents.mockClear();
+  diagnosticReader.countByFingerprint.mockClear();
+  for (const invalid of [
+    { limit: 201 },
+    { limit: 0 },
+    { sinceMs: Number.NaN },
+    { sinceMs: 20, untilMs: 10 },
+    { severity: 'debug' },
+    { sql: 'SELECT secret' },
+  ]) {
+    await expect(query(event, invalid)).rejects.toThrow();
+  }
+  await expect(count(event, { fingerprint: '', sinceMs: 0 })).rejects.toThrow();
+  expect(diagnosticReader.queryEvents).not.toHaveBeenCalled();
+  expect(diagnosticReader.countByFingerprint).not.toHaveBeenCalled();
+  await expect(query(event, { limit: 100, runId: 'run-1' })).resolves.toEqual([]);
+  expect(diagnosticReader.queryEvents).toHaveBeenCalledWith({ limit: 100, runId: 'run-1' });
+  await count(event, { fingerprint: 'fp-provider', sinceMs: 0 });
+  expect(diagnosticReader.countByFingerprint).toHaveBeenCalledWith('fp-provider', 0);
+  role.mockReturnValue('embedding-host');
+  await expect(query(event, {})).rejects.toThrow('visible-ui');
+  role.mockReturnValue('visible-ui');
+  await expect(
+    query({ ...event, senderFrame: { url: 'https://foreign.example/' } }, {})
+  ).rejects.toThrow();
+  unregister();
+});
+
+it('validates the unseen watermark before retained reads and keeps the visible role fence', async () => {
+  const { registerDesktopDiagnosticsIpcHandlers } = await import('../ipc-desktop-diagnostics');
+  const unregister = registerDesktopDiagnosticsIpcHandlers(
+    {} as Parameters<typeof registerDesktopDiagnosticsIpcHandlers>[0]
+  );
+  const read = handlers.get(DESKTOP_IPC_CHANNELS.diagnostics.getUnseenCounts)!;
+  const event = { sender: { id: 42 }, senderFrame: createAllowlistedSenderFrame() };
+  diagnosticReader.getUnseenCounts.mockClear();
+  for (const invalid of [-1, Number.NaN, Number.POSITIVE_INFINITY, '1000', {}, null]) {
+    await expect(read(event, invalid)).rejects.toThrow();
+  }
+  expect(diagnosticReader.getUnseenCounts).not.toHaveBeenCalled();
+  await expect(read(event, 1000)).resolves.toEqual({ errorCount: 2, warningCount: 1 });
+  expect(diagnosticReader.getUnseenCounts).toHaveBeenCalledWith(1000);
+  role.mockReturnValue('embedding-host');
+  await expect(read(event, 0)).rejects.toThrow('visible-ui');
+  role.mockReturnValue('visible-ui');
+  unregister();
 });

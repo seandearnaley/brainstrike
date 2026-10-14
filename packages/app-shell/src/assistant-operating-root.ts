@@ -1,4 +1,5 @@
 import type { DbHandle } from '@brainstrike/db/react';
+import { getThreadGroupsCapability } from './thread-groups-capability';
 
 export interface AssistantOperatingRootCandidate {
   readonly displayName: string;
@@ -32,18 +33,24 @@ export class AssistantOperatingRootRowNotFoundError extends Error {
 }
 
 export async function resolveAssistantOperatingRootBinding(
-  database: Pick<DbHandle, 'query'>,
+  database: Pick<DbHandle, 'query'> | null,
   candidate: AssistantOperatingRootCandidate
 ): Promise<PersistedAssistantOperatingRootBinding> {
-  const result = await database.query<{ id: string }>(
-    `SELECT id
-       FROM roots
-      WHERE path = $1
-        AND status = 'live'
-      ORDER BY created_at ASC
-      LIMIT 2`,
-    [candidate.path]
-  );
+  const catalog = getThreadGroupsCapability();
+  const result = catalog
+    ? {
+        rows: (await catalog.readRoots()).filter(
+          (row) => row.path === candidate.path && row.status === 'live'
+        ),
+      }
+    : database
+      ? await database.query<{ id: string }>(
+          `SELECT id FROM roots WHERE path = $1 AND status = 'live' ORDER BY created_at ASC LIMIT 2`,
+          [candidate.path]
+        )
+      : (() => {
+          throw new Error('Workspace root catalog unavailable');
+        })();
   if (result.rows.length !== 1 || !result.rows[0]?.id) {
     throw new AssistantOperatingRootRowNotFoundError(candidate.displayName);
   }

@@ -1,3 +1,4 @@
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { ipcMain } from 'electron';
 import { hostCommandSessions } from './agent-host-platform/host-command-session-client';
 import {
@@ -6,8 +7,7 @@ import {
   createCommandSessionIpcHandlers,
   withHostCommandSessions,
 } from './command-session-ipc-handlers';
-import { getDatabase } from './db-main';
-import { createDatabaseRootResolver } from './git-ipc-handlers';
+import { createWorkspaceRootResolver } from './git-ipc-handlers';
 import { commandSessionsContract } from './ipc-domains/command-sessions.contract';
 import { createDesktopIpcRegistry, registerDomain } from './platform/desktop-ipc-registry';
 import {
@@ -27,8 +27,9 @@ import {
  * channels AND reaps every live pty (no orphans on host re-init / shutdown).
  */
 export function registerTerminalIpc(
+  catalog: WorkspaceRootPort,
   handlers: TerminalIpcHandlers = createTerminalIpcHandlers({
-    resolver: createDatabaseRootResolver(getDatabase),
+    resolver: createWorkspaceRootResolver(catalog),
   }),
   commandSessionHandlers:
     | CommandSessionInventoryHandlers

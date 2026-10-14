@@ -69,7 +69,12 @@ async function fixture() {
   const domain = createApplicationIpcDomain(
     {} as ElectronFileSystemAdapter,
     {} as ElectronStorageAdapter,
-    () => null
+    () => null,
+    {
+      getRootsCatalog: async () => {
+        throw new Error('Unexpected catalog read in injected domain fixture');
+      },
+    }
   );
   const start = watcherComposition.startWatch;
   if (!start) {

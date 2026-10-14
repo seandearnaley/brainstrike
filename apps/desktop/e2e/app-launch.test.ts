@@ -215,13 +215,13 @@ test('joins renderer IPC producers before closing their hosts @smoke', async ({
   ownedProcess.stderr?.on('data', capture);
   ownedProcess.stdout?.on('data', capture);
   await page.evaluate(async () => {
-    const db = window.electronAPI?.db;
+    const catalog = window.modelCatalog;
     const chunkingHost = (
       window as typeof window & {
         chunkingHost?: { ensureStarted(): Promise<unknown> };
       }
     ).chunkingHost;
-    if (!(db && chunkingHost)) {
+    if (!(catalog && chunkingHost)) {
       throw new Error('Desktop producer capabilities unavailable');
     }
     const ready = Promise.withResolvers<void>();
@@ -229,7 +229,12 @@ test('joins renderer IPC producers before closing their hosts @smoke', async ({
       let completed = 0;
       while (true) {
         await Promise.all([
-          db.query('SELECT 1 AS shutdown_producer_probe'),
+          catalog.read().then((result) => {
+            if (!result.ok) {
+              throw new Error(result.error.message);
+            }
+            return result.value;
+          }),
           chunkingHost.ensureStarted(),
         ]);
         completed += 1;

@@ -1,17 +1,15 @@
-import type { usePGliteDatabase } from '@brainstrike/db/react';
-import { getEmbeddingTelemetrySnapshot } from '@brainstrike/embedding-worker';
+import type { ModelCatalogCapability } from '@brainstrike/assistant-contract';
+import type { EmbeddingDeviceType } from '@brainstrike/embeddings';
 import type { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
-import type { EmbeddingWorkerController } from '@brainstrike/embeddings/worker';
 import { createLogger } from '@brainstrike/logging';
 import type { MutableRefObject } from 'react';
-import type { EmbeddingHostRuntimeMetadata } from '../../embedding-host-shared';
-import { reportEmbeddingHostRuntimeStatus } from './embedding-host-bridge';
 
 const logger = createLogger('EmbeddingHostRuntime');
 
 export interface QueryEmbeddingServiceState {
   readonly identity: string;
   readonly modelKey: string;
+  readonly selectedDevicePreference: EmbeddingDeviceType;
   readonly service: SimpleEmbeddingService;
 }
 
@@ -21,9 +19,9 @@ interface QueryEmbeddingStateRefs {
 }
 
 export interface QueryEmbeddingRuntimeOwner extends QueryEmbeddingStateRefs {
+  readonly catalog: Pick<ModelCatalogCapability, 'read'> | undefined;
   closed: boolean;
   readonly closeRef: MutableRefObject<Promise<void> | null>;
-  readonly db: NonNullable<ReturnType<typeof usePGliteDatabase>>;
   readonly disposalRef: MutableRefObject<Promise<void> | null>;
   readonly executionTailRef: MutableRefObject<Promise<void>>;
   readonly inferenceController: AbortController;
@@ -33,14 +31,14 @@ export interface QueryEmbeddingRuntimeOwner extends QueryEmbeddingStateRefs {
 }
 
 export function createQueryEmbeddingRuntimeOwner(
-  db: QueryEmbeddingRuntimeOwner['db'],
+  catalog: QueryEmbeddingRuntimeOwner['catalog'],
   activeCountRef: MutableRefObject<number> = { current: 0 }
 ): QueryEmbeddingRuntimeOwner {
   return {
     activeCountRef,
+    catalog,
     closed: false,
     closeRef: { current: null },
-    db,
     disposalRef: { current: null },
     executionTailRef: { current: Promise.resolve() },
     inferenceController: new AbortController(),
@@ -210,53 +208,4 @@ export async function disposeQueryEmbeddingService(
   if (owner.disposalRef.current === disposal) {
     owner.disposalRef.current = null;
   }
-}
-
-export async function stopEmbeddingHostAfterRestartLimit(options: {
-  readonly queryOwner: QueryEmbeddingRuntimeOwner;
-  readonly retireQueue: () => Promise<void>;
-  readonly controller: EmbeddingWorkerController | null;
-  readonly embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>;
-  readonly isDisposed: () => boolean;
-  readonly runtimeIdRef: MutableRefObject<string>;
-  readonly terminalError: string;
-}): Promise<void> {
-  const {
-    controller,
-    embeddingRuntimeRef,
-    isDisposed,
-    queryOwner,
-    retireQueue,
-    runtimeIdRef,
-    terminalError,
-  } = options;
-  const closeQueries = closeQueryEmbeddingRuntimeOwner(queryOwner, retireQueue, runtimeIdRef);
-  let lastError = terminalError;
-  const [workerStop, queryClose] = await Promise.allSettled([controller?.stop(), closeQueries]);
-  if (workerStop.status === 'rejected') {
-    const error: unknown = workerStop.reason;
-    lastError = `${terminalError}; worker stop failed: ${error instanceof Error ? error.message : String(error)}`;
-    logger.error('Embedding host worker stop after restart limit failed', {
-      error: error instanceof Error ? error.message : String(error),
-      runtimeId: runtimeIdRef.current,
-    });
-  }
-  if (queryClose.status === 'rejected') {
-    const error: unknown = queryClose.reason;
-    lastError = `${lastError}; query owner retirement failed: ${error instanceof Error ? error.message : String(error)}`;
-  }
-  const currentMetadata = embeddingRuntimeRef.current;
-  if (currentMetadata) {
-    embeddingRuntimeRef.current = {
-      ...currentMetadata,
-      telemetry: getEmbeddingTelemetrySnapshot(),
-    };
-  }
-  if (isDisposed()) {
-    return;
-  }
-  reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
-    embeddingRuntime: embeddingRuntimeRef.current,
-    lastError,
-  });
 }

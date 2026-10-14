@@ -8,6 +8,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -130,6 +131,33 @@ test('leadsWithWatchdog accepts valid string or array setup and rejects non-lead
   assert.equal(leadsWithWatchdog('./other.setup.mjs'), false);
   assert.equal(leadsWithWatchdog(['./a', WATCHDOG_SETUP_ID]), false);
   assert.equal(leadsWithWatchdog([WATCHDOG_SETUP_ID]), true);
+});
+
+test('resolved watchdog module identity passes only in first position', async (t) => {
+  const actualConfig = path.join(REPO_ROOT, 'apps/desktop/vitest.config.mts');
+  const watchdogPath = createRequire(actualConfig).resolve(WATCHDOG_SETUP_ID);
+  const root = makeWorkspace(t, {
+    impostor: `export default { test: { setupFiles: ['./vitest.event-loop-watchdog.setup.mjs'] } };`,
+    resolved: `export default { test: { setupFiles: [${JSON.stringify(watchdogPath)}] } };`,
+    second: `export default { test: { setupFiles: ['./other.setup.mjs', ${JSON.stringify(watchdogPath)}] } };`,
+  });
+  symlinkSync(
+    path.join(REPO_ROOT, 'apps/desktop/node_modules'),
+    path.join(root, 'node_modules'),
+    'dir'
+  );
+  writeFileSync(
+    path.join(root, 'packages/impostor/vitest.event-loop-watchdog.setup.mjs'),
+    'export {};'
+  );
+  assert.deepEqual(
+    await missingIn(root, [
+      { config: 'packages/resolved/vitest.config.mts' },
+      { config: 'packages/second/vitest.config.mts' },
+      { config: 'packages/impostor/vitest.config.mts' },
+    ]),
+    ['packages/second/vitest.config.mts', 'packages/impostor/vitest.config.mts']
+  );
 });
 
 test('CONTROL: a scalar setupFiles value loads and passes', async (t) => {

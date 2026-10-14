@@ -4,7 +4,7 @@ import {
   type McpHostRuntimeDependencies,
 } from '@brainstrike/host-capabilities/mcp/node-host-runtime';
 import type { McpOAuthStore } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
-import { createDesktopMcpHostPlatform } from './desktop-host-platform';
+import { createDesktopMcpHostPlatform } from './conformance-host-platform';
 
 export type { ExplicitClient } from '@brainstrike/host-capabilities/mcp/host-connection';
 

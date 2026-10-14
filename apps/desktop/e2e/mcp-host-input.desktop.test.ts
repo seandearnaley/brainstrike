@@ -4,7 +4,7 @@ import type { ElectronHarness } from './fixtures/electron-harness';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { readAgentHostLog, readCommittedMcpTasks, readCommittedRuns } from './utils/agent-host-log';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import {
   type PendingInputFixture,
@@ -47,17 +47,7 @@ async function enableModel(page: Page): Promise<void> {
     compositeModelKey: `openrouter::${MODEL}`,
     provider: 'openrouter',
   });
-  await page.evaluate(async (model) => {
-    const db = (
-      window as unknown as {
-        electronAPI: { db: { query: (sql: string, params: unknown[]) => Promise<unknown> } };
-      }
-    ).electronAPI.db;
-    await db.query('UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2', [
-      model,
-      'openrouter',
-    ]);
-  }, MODEL);
+  await enableAssistantCatalogModel(page, `openrouter::${MODEL}`);
 }
 
 interface InputTaskHarness {

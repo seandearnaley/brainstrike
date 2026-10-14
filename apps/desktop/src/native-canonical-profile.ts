@@ -1,3 +1,4 @@
+import type { ModelCatalogCapability } from '@brainstrike/assistant-contract';
 import type {
   CanonicalCatalogPort,
   CanonicalInferencePort,
@@ -15,6 +16,7 @@ import {
 import { isHostedProvider, parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
 import { type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
 import { decodeCatalogEmbeddingModel } from '@brainstrike/indexing-contract';
+import type { CollectionPort } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import type { EmbeddingHostDocumentEmbeddingsPayload } from './embedding-host-shared';
 import { generateHostedEmbeddings } from './hosted-embeddings';
@@ -29,13 +31,6 @@ const metadataSchema = Schema.Struct({
   modelKey: nonblank,
 });
 const decodeMetadata = makeThrowingDecoder(metadataSchema);
-const decodeSetRow = makeThrowingDecoder(
-  Schema.Struct({
-    ...metadataSchema.fields,
-    catalogCapabilities: Schema.optional(Schema.Unknown),
-    catalogParameters: Schema.optional(Schema.Unknown),
-  })
-);
 type ProfileMetadata = Pick<
   EmbeddingSet,
   'dimensions' | 'distance' | 'id' | 'modelId' | 'modelKey'
@@ -100,7 +95,8 @@ export function resolveNativeCanonicalProfile(
 }
 
 export interface NativeCanonicalProfileDependencies {
-  readonly query: (sql: string, params?: unknown[]) => Promise<{ readonly rows: unknown[] }>;
+  readonly collections: CollectionPort;
+  readonly modelCatalog: Pick<ModelCatalogCapability, 'read'>;
   /** Read the existing explicit preference/plan source. Never derive pins from names or defaults. */
   readonly readLocalSelection: (
     metadata: ProfileMetadata,
@@ -131,18 +127,12 @@ export class NativeCanonicalProfileResolver {
     if (!id.trim() || (scope.kind === 'collection' && id !== scope.embeddingSetId)) {
       throw new Error('Canonical profile embedding set is not authorized for this scope.');
     }
-    // The set and its catalog row in one read: the catalog row owns a local model's pooling and pin.
-    const result = await this.dependencies.query(
-      `SELECT e.id, e.model_key AS "modelKey", e.model_id AS "modelId", e.dimensions, e.distance,
-              m.capabilities AS "catalogCapabilities", m.parameters AS "catalogParameters"
-         FROM embedding_sets e LEFT JOIN models m ON m.id = e.model_id WHERE e.id = $1`,
-      [id]
-    );
+    const result = await this.dependencies.collections.collections({ id, operation: 'get' });
     context.signal.throwIfAborted();
-    if (result.rows.length !== 1) {
+    if (result.collections.length !== 1) {
       throw new Error('Canonical profile embedding set is missing or ambiguous.');
     }
-    const { catalogCapabilities, catalogParameters, ...metadata } = decodeSetRow(result.rows[0]);
+    const metadata = decodeMetadata(result.collections[0]);
     if (metadata.id !== id) {
       throw new Error('Canonical profile query returned an unauthorized embedding set.');
     }
@@ -150,14 +140,14 @@ export class NativeCanonicalProfileResolver {
     if (!(parsed?.provider === 'local' || parsed?.provider === 'transformers')) {
       return resolveNativeCanonicalProfile(metadata);
     }
-    if (catalogCapabilities === null || catalogCapabilities === undefined) {
+    const model = (await this.dependencies.modelCatalog.read()).models.find(
+      (candidate) => candidate.id === metadata.modelId && candidate.providerId === 'local'
+    );
+    context.signal.throwIfAborted();
+    if (!model) {
       throw new Error(`Local embedding model ${metadata.modelId} is not in the model catalog.`);
     }
-    const catalog = decodeCatalogEmbeddingModel({
-      capabilities: catalogCapabilities,
-      id: metadata.modelId,
-      parameters: catalogParameters,
-    });
+    const catalog = decodeCatalogEmbeddingModel(model);
     const selection = await this.dependencies.readLocalSelection(metadata, context);
     context.signal.throwIfAborted();
     // The collection keeps its own dimensions (a local model may be truncated to fewer).

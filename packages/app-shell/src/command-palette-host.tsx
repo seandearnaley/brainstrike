@@ -1,4 +1,3 @@
-import { usePGliteDatabase } from '@brainstrike/db/react';
 import { CommandPalette, useCommandPaletteHotkey } from '@brainstrike/ui';
 import { type ReactElement, useCallback, useEffect, useMemo } from 'react';
 import {
@@ -46,14 +45,13 @@ function resolveCommandPaletteBridge(): CommandPaletteBridge | null {
  * palette, so the tab commands act on the strip the user was in (BST-1842).
  */
 export function CommandPaletteHost(): ReactElement | null {
-  const db = usePGliteDatabase();
   const isOpen = useCommandPaletteStore((state) => state.isOpen);
   const openTarget = useCommandPaletteStore((state) => state.openTarget);
   const tabScope = useCommandPaletteStore((state) => state.tabScope);
   const open = useCommandPaletteStore((state) => state.open);
   const close = useCommandPaletteStore((state) => state.close);
 
-  const handlers = useGlobalCommandHandlers(db);
+  const handlers = useGlobalCommandHandlers();
 
   // The action/capability/service parts are stable for the window's lifetime
   // (capability detection reads the preload bridges that exist before React

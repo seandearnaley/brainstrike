@@ -35,6 +35,7 @@ import {
 import {
   EmbeddingRuntimeProvider,
   IndexingActivityCoordinator,
+  type LocalSearchEmbedderFactory,
   SearchEmbedderProvider,
 } from '@brainstrike/vector-management';
 import {
@@ -144,6 +145,7 @@ export interface RootLayoutContentProps {
   readonly changesPageContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
   readonly contextExplorerPanelContent?: ReactNode;
+  readonly createLocalSearchEmbedder?: LocalSearchEmbedderFactory;
   readonly databaseTabChunkingMode?: 'host-proxy' | 'local';
   readonly deleteRootData?: (rootId: string) => Promise<void>;
   /**
@@ -610,12 +612,13 @@ export function RootLayoutContent({
   worktreeMapPageContent,
   navigationItems,
   loadEmbeddingQueue = null,
+  createLocalSearchEmbedder,
   loadLocalLlmBackend,
   diagnosticFeatureFlags,
   databaseTabChunkingMode = 'local',
   preloadDatabaseTabOnMount = false,
 }: RootLayoutContentProps): ReactElement {
-  const db = usePGliteDatabase();
+  const db = usePGliteDatabase({ enabled: !platformDeleteRootData });
   const deleteRootData = useCallback(
     (rootIdToDelete: string): Promise<void> =>
       deleteOwnedRootData(db, rootIdToDelete, platformDeleteRootData),
@@ -721,13 +724,13 @@ export function RootLayoutContent({
               <TabChordHost />
               <WorkspaceConnectHost />
               <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
-                <EmbeddingRuntimeProvider>
+                <EmbeddingRuntimeProvider databaseEnabled={!nativeIndexSearch}>
                   {/* One shared embedder cache for every semantic-search surface. The
                 machinery is lazy (models load on first embed), so this
                 always-mounted provider is free until the first query. It
                 encloses BOTH the collection browser (sidebar DatabasePanel) and
                 the workspace-search panel (ExplorerSearchTabs) below. */}
-                  <SearchEmbedderProvider>
+                  <SearchEmbedderProvider createLocalEmbedder={createLocalSearchEmbedder}>
                     <IndexingActivityCoordinator nativeIndexSearch={nativeIndexSearch ?? null} />
                     <div
                       aria-hidden={shellTab !== 'explorer'}

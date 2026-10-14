@@ -1,4 +1,5 @@
 import type { UserSlashCommandsListResult } from '@brainstrike/assistant-contract';
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { ipcMain } from 'electron';
 import { userCommandsContract } from './ipc-domains/user-commands.contract';
 import { createUserCommandsListHandler } from './ipc-user-commands-handlers';
@@ -15,7 +16,10 @@ import {
  * roots and the home directory.
  */
 export function registerUserCommandsIpcHandlers(
-  listUserCommands: () => Promise<UserSlashCommandsListResult> = createUserCommandsListHandler()
+  workspaceRoots: WorkspaceRootPort,
+  listUserCommands: () => Promise<UserSlashCommandsListResult> = createUserCommandsListHandler(
+    workspaceRoots
+  )
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
   registerDomain(registry, 'userCommands', userCommandsContract, {

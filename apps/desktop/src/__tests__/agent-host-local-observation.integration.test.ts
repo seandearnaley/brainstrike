@@ -7,7 +7,9 @@ import { join } from 'node:path';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
 import type { LocalLlmHostClient } from '@brainstrike/agent/provider-runtime';
 import { type AgentHost, attachAgentHost, startAgentHost } from '@brainstrike/agent-host';
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract';
 import type { CatalogEmbeddingWorkerPlan } from '@brainstrike/embeddings/inference-plan';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import {
   mainPlatformConnection,
@@ -248,7 +250,7 @@ test('a local observational-memory observer runs through Main’s borrowed local
   }
 });
 
-test('thread/memory/read shows a waiting observer, a missing credential and Main’s reason', async () => {
+test('thread/memory/read shows observer readiness and keeps unknown Main failures private', async () => {
   // No real credential is read: the observer's provider has none in this profile.
   vi.stubEnv('ANTHROPIC_API_KEY', '');
   const reads = recordingReads({
@@ -292,20 +294,29 @@ test('thread/memory/read shows a waiting observer, a missing credential and Main
           'Observational memory requires a configured Anthropic API key. Configure it in Settings → Providers, choose a keyless local observer, or turn observations off.',
       },
     });
-    // Main's own reason: the recall embedder it would resolve is unavailable.
-    expect(
-      await host.memory(
-        threadId,
-        intent({
-          semanticRecall: {
-            embeddingModelTarget: `local/${embeddingPlan.modelId}`,
-            enabled: true,
-          },
+    const records: LogRecord[] = [];
+    const removeListener = addLogListener((record) => records.push(record));
+    try {
+      expect(
+        await host.memory(
+          threadId,
+          intent({
+            semanticRecall: {
+              embeddingModelTarget: `local/${embeddingPlan.modelId}`,
+              enabled: true,
+            },
+          })
+        )
+      ).toEqual({ admission: { ready: false, reason: INTERNAL_FAULT.message } });
+      expect(records.flatMap((record) => record.args)).toContainEqual(
+        expect.objectContaining({
+          correlationId: expect.any(String),
+          error: expect.objectContaining({ message: 'The embedding host is not running.' }),
         })
-      )
-    ).toEqual({
-      admission: { ready: false, reason: 'The embedding host is not running.' },
-    });
+      );
+    } finally {
+      removeListener();
+    }
     expect(reads.admissions).toBe(0);
   } finally {
     await host.close();

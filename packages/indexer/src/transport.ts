@@ -23,6 +23,8 @@ import {
   scopedCoverageBatchRequestSchema,
   scopedCoverageRequestSchema,
   scopedCoverageSchema,
+  scopedFilePageRequestSchema,
+  scopedFilePageSchema,
   scopedManifestRequestSchema,
   scopedManifestResultSchema,
   scopedPlanSchema,
@@ -75,6 +77,7 @@ import type {
   StateMessageVectorPort,
   StateObservationVectorPort,
 } from './index.js';
+import { promptVectorReplySchema, promptVectorRequestSchema } from './prompt-vector-contract.js';
 import { RpcClient } from './rpc-client.js';
 import { validateStateModule } from './state-projection.js';
 
@@ -395,6 +398,12 @@ export function createIndexerConnection(
         decoder(stateObservationPrepareSchema)(request),
         decoder(stateObservationPlanSchema)
       ),
+    promptVectors: (request) =>
+      call(
+        'prompt-vectors',
+        decoder(promptVectorRequestSchema)(request),
+        decoder(promptVectorReplySchema)
+      ),
     purgeFile: async (identity) =>
       call('purge-file', decoder(identitySchema)(identity), decoder(Schema.Boolean)),
     purgeStateMessageVectors: async (request) =>
@@ -426,6 +435,12 @@ export function createIndexerConnection(
         'state-observation-query',
         decoder(stateObservationQuerySchema)(request),
         decoder(Schema.Array(stateObservationHitSchema))
+      ),
+    readScopedFilePage: async (request) =>
+      call(
+        'read-scoped-file-page',
+        decoder(scopedFilePageRequestSchema)(request),
+        decoder(scopedFilePageSchema)
       ),
     rebuildState: async (threadId) => {
       await call(

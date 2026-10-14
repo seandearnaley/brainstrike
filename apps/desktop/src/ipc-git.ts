@@ -1,8 +1,8 @@
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { ipcMain } from 'electron';
-import { getDatabase } from './db-main';
 import {
-  createDatabaseRootResolver,
   createGitIpcHandlers,
+  createWorkspaceRootResolver,
   type GitIpcHandlers,
 } from './git-ipc-handlers';
 import { gitContract } from './ipc-domains/git.contract';
@@ -17,8 +17,9 @@ import { createDesktopIpcRegistry, registerDomain } from './platform/desktop-ipc
  *
  */
 export function registerGitIpcHandlers(
+  catalog: WorkspaceRootPort,
   handlers: GitIpcHandlers = createGitIpcHandlers({
-    resolver: createDatabaseRootResolver(getDatabase),
+    resolver: createWorkspaceRootResolver(catalog),
   })
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });

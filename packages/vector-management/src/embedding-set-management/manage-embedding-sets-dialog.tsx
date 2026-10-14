@@ -1,6 +1,8 @@
+import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import type { DbModel } from '@brainstrike/app-state/stores/model-registry-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import type { EmbeddingSet, IEmbeddingSetsRepository } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 import {
   type EmbeddingProviderType,
   parseEmbeddingProviderModelKey,
@@ -17,9 +19,9 @@ import {
   type ModelPickerModel,
   type ModelPickerProvider,
 } from '@brainstrike/ui';
-import type { PGlite } from '@electric-sql/pglite';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
+import { fetchCollectionsSnapshot } from '../collection-select/collection-select';
 import { CreateEmbeddingSetDialog } from './create-embedding-set-dialog';
 import { DeleteEmbeddingSetDialog } from './delete-embedding-set-dialog';
 import { formatRelativeTimeFromNow } from './format-utils';
@@ -30,10 +32,11 @@ type EmbeddingSetWithStats = EmbeddingSet & {
   embeddingCount: number;
   fileCount: number;
   lastEmbeddedAt: string | null;
+  vectorStatsUnavailableReason?: string;
 };
 
 interface ManageEmbeddingSetsDialogProps {
-  db: PGlite | null;
+  db: DbHandle | null;
   onOpenChange: (open: boolean) => void;
   onSetSelected?: (setId: string) => void;
   open: boolean;
@@ -116,6 +119,7 @@ const logger = createLogger('ManageEmbeddingSetsDialog');
 interface DialogState {
   createDialogOpen: boolean;
   deleteDialogOpen: boolean;
+  error: string | null;
   loading: boolean;
   renameDialogOpen: boolean;
   selectedSet: EmbeddingSetWithStats | null;
@@ -125,7 +129,7 @@ interface DialogState {
 type DialogAction =
   | { type: 'sets_loading' }
   | { type: 'sets_loaded'; sets: EmbeddingSetWithStats[] }
-  | { type: 'sets_error' }
+  | { type: 'sets_error'; error: string }
   | { type: 'open_create' }
   | { type: 'open_rename'; set: EmbeddingSetWithStats }
   | { type: 'open_delete'; set: EmbeddingSetWithStats }
@@ -137,6 +141,7 @@ type DialogAction =
 const INITIAL_DIALOG_STATE: DialogState = {
   createDialogOpen: false,
   deleteDialogOpen: false,
+  error: null,
   loading: false,
   renameDialogOpen: false,
   selectedSet: null,
@@ -146,11 +151,11 @@ const INITIAL_DIALOG_STATE: DialogState = {
 function dialogReducer(state: DialogState, action: DialogAction): DialogState {
   switch (action.type) {
     case 'sets_loading':
-      return { ...state, loading: true };
+      return { ...state, error: null, loading: true };
     case 'sets_loaded':
-      return { ...state, loading: false, sets: action.sets };
+      return { ...state, error: null, loading: false, sets: action.sets };
     case 'sets_error':
-      return { ...state, loading: false };
+      return { ...state, error: action.error, loading: false };
     case 'open_create':
       return { ...state, createDialogOpen: true };
     case 'open_rename':
@@ -181,68 +186,35 @@ export function ManageEmbeddingSetsDialog({
 
   // Get all models from database - single source of truth
   const dbModels = useModelRegistryStore((state) => state.models);
-  const ensureRegistry = useModelRegistryStore((state) => state.ensureRegistry);
+  useEnsureModelRegistry({ db, enabled: open });
 
   const loadSets = useCallback(async () => {
-    if (!db) {
-      return;
-    }
-
     await Promise.resolve();
     dispatch({ type: 'sets_loading' });
     try {
-      const result = await db.query<{
-        id: string;
-        modelKey: string;
-        modelId: string;
-        dimensions: number;
-        distance: string;
-        createdAt: string;
-        name: string | null;
-        description: string | null;
-        tags: string | null;
-        category: string | null;
-        chunkCount: string | number;
-        embeddingCount: string | number;
-        fileCount: string | number;
-        lastEmbeddedAt: string | null;
-      }>(
-        `SELECT s.id,
-                s.model_key AS "modelKey",
-                s.model_id AS "modelId",
-                s.dimensions,
-                s.distance,
-                s.created_at AS "createdAt",
-                s.name,
-                s.description,
-                s.tags,
-                s.category,
-                COALESCE(stats.file_count, 0) AS "fileCount",
-                COALESCE(stats.chunk_count, 0) AS "chunkCount",
-                COALESCE(stats.embedded_chunk_count, 0) AS "embeddingCount",
-                stats.last_refreshed_at AS "lastEmbeddedAt"
-           FROM embedding_sets s
-           LEFT JOIN collection_indexing_stats stats ON stats.embedding_set_id = s.id
-       ORDER BY s.created_at DESC`
-      );
-
-      const mapped: EmbeddingSetWithStats[] = result.rows.map(mapRowToSet);
+      const snapshot = await fetchCollectionsSnapshot(db);
+      const mapped: EmbeddingSetWithStats[] = snapshot.map((entry) => ({
+        ...mapRowToSet({ ...entry, lastEmbeddedAt: entry.statsLastRefreshedAt ?? null }),
+        ...(entry.vectorStatsUnavailableReason
+          ? { vectorStatsUnavailableReason: entry.vectorStatsUnavailableReason }
+          : {}),
+      }));
       dispatch({ sets: mapped, type: 'sets_loaded' });
     } catch (error) {
       logger.error('Failed to load embedding sets', { error });
-      dispatch({ type: 'sets_error' });
+      dispatch({
+        error: error instanceof Error ? error.message : String(error),
+        type: 'sets_error',
+      });
     }
   }, [db]);
 
   // biome-ignore lint/plugin: Load sets when dialog opens — standard modal data loading for controlled open prop
   useEffect(() => {
     if (open) {
-      if (db) {
-        void ensureRegistry(db);
-      }
       void loadSets();
     }
-  }, [open, db, ensureRegistry, loadSets]);
+  }, [open, loadSets]);
 
   const handleDialogOpenChange = useCallback(
     (isOpen: boolean) => {
@@ -310,7 +282,11 @@ export function ManageEmbeddingSetsDialog({
           </DialogHeader>
 
           <div className="flex-1 overflow-auto py-4">
-            {loading ? (
+            {state.error ? (
+              <div className="text-destructive text-sm" role="alert">
+                {state.error}
+              </div>
+            ) : loading ? (
               <div className="py-8 text-center text-muted-foreground text-sm">Loading sets...</div>
             ) : sets.length === 0 ? (
               <div className="rounded-lg border border-dashed py-8 text-center">
@@ -361,6 +337,18 @@ export function ManageEmbeddingSetsDialog({
                           <div>
                             <span className="text-muted-foreground">Chunks:</span>{' '}
                             <span className="font-medium">{set.chunkCount.toLocaleString()}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Files:</span>{' '}
+                            <span className="font-medium">{set.fileCount.toLocaleString()}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Vectors:</span>{' '}
+                            <span className="font-medium" title={set.vectorStatsUnavailableReason}>
+                              {set.vectorStatsUnavailableReason
+                                ? 'Unavailable'
+                                : set.embeddingCount.toLocaleString()}
+                            </span>
                           </div>
                           <div>
                             <span className="text-muted-foreground">Updated:</span>{' '}
@@ -462,7 +450,6 @@ export function ManageEmbeddingSetsDialog({
       />
 
       <DeleteEmbeddingSetDialog
-        db={db}
         embeddingSet={selectedSet}
         onOpenChange={(open) => {
           if (!open) {
@@ -471,6 +458,7 @@ export function ManageEmbeddingSetsDialog({
         }}
         onSetDeleted={handleSetAction}
         open={deleteDialogOpen}
+        repository={repository}
       />
     </>
   );

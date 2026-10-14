@@ -36,11 +36,19 @@ export interface CapturedNativeIndexAuthority {
   /** Read only after admitted sources settle; tied to this exact retained writer owner. */
   readAuthority(): NativeIndexAuthority;
 }
+export interface NativeSourceIdentity {
+  readonly embeddingSetId: string | null;
+  readonly fileId: string;
+  readonly rootId: string | null;
+}
 export interface NativeIndexRuntime<Attachment = unknown> {
   acquire(): Promise<NativePort>;
   /** Borrows the retained attachment; retirement remains owned by this runtime. */
   acquireProfile(options?: { readonly indexIndependent: true }): Promise<Attachment>;
   captureAcknowledgedAuthority(): CapturedNativeIndexAuthority;
+  /** Closed admission only: retire one persisted collection through the retained physical writer. */
+  cleanupCollection(embeddingSetId: string): Promise<void>;
+  cleanupFiles(files: readonly NativeSourceIdentity[]): Promise<void>;
   closeIndex(): Promise<void>;
   destroyIndex(): Promise<void>;
   mutateAuthority<T>(expected: NativePort, work: () => Promise<T>): Promise<T>;
@@ -178,7 +186,11 @@ function unownedRemoval(file: IndexFileBinding): {
  * its scope, so stored rows are listed with no binding held; no reader is
  * installed until this returns.
  */
-async function retireUnownedRows(port: NativePort, requested: NativeIndexAuthority): Promise<void> {
+async function retireUnownedRows(
+  port: NativePort,
+  requested: NativeIndexAuthority,
+  selected?: ReadonlySet<string>
+): Promise<void> {
   if (requested.scopes.length === 0) {
     return;
   }
@@ -210,7 +222,10 @@ async function retireUnownedRows(port: NativePort, requested: NativeIndexAuthori
         : null;
     const stored = await port.verifyScopedManifest({ files: [], scope });
     for (const row of stored.unexpected) {
-      if (!(owned.has(row.fileId) || unowned.has(row.fileId))) {
+      if (
+        (!selected || selected.has(row.fileId)) &&
+        !(owned.has(row.fileId) || unowned.has(row.fileId))
+      ) {
         unowned.set(row.fileId, unownedBinding(row, scope, profile));
       }
     }
@@ -245,6 +260,7 @@ export function createNativeIndexRuntime<Attachment>(
   let closed = false;
   let closing: Promise<void> | undefined;
   let closingKind: 'close' | 'destroy' | undefined;
+  let cleanup: Promise<void> | undefined;
 
   const acquireProfile = async (
     options?: {
@@ -415,8 +431,20 @@ export function createNativeIndexRuntime<Attachment>(
     closing ??= (async () => {
       await acquisition?.catch(() => undefined);
       await authorityMutation?.catch(() => undefined);
+      await cleanup?.catch(() => undefined);
       await joinReads();
       await closeQueries();
+      if (destroy && !indexOwner) {
+        // Clear Content also owns an inactive on-disk index. Borrow the existing
+        // writer with no source/query authority, then destroy through its close join.
+        await acquireProfile({ indexIndependent: true });
+        indexOwner = await dependencies.createIndexOwner({
+          fileBindings: [],
+          rootIds: [],
+          scopes: [],
+        });
+        await indexOwner.start();
+      }
       if (destroy && indexOwner) {
         if (!indexOwner.destroy) {
           throw new Error('Native index owner has no destructive reset capability.');
@@ -438,6 +466,57 @@ export function createNativeIndexRuntime<Attachment>(
       closingKind = undefined;
     });
     return closing;
+  };
+  const cleanupOwned = (
+    requested: NativeIndexAuthority,
+    selected?: ReadonlySet<string>
+  ): Promise<void> => {
+    if (!(closed && readsClosed) || closing || cleanup || indexOwner) {
+      return Promise.reject(
+        new Error('Collection cleanup requires joined native retirement and closed admission.')
+      );
+    }
+    // Retain this operation before yielding. Reset/terminal close joins it and the exact
+    // physical owner it acquires; no query target or inference source is installed.
+    cleanup = (async () => {
+      await acquireProfile({ indexIndependent: true });
+      const owned = await dependencies.createIndexOwner(requested);
+      indexOwner = owned;
+      const writer = await owned.start();
+      await retireUnownedRows(writer, requested, selected);
+    })().finally(() => {
+      cleanup = undefined;
+    });
+    return cleanup;
+  };
+  const cleanupCollection = (embeddingSetId: string): Promise<void> => {
+    if (!embeddingSetId.trim()) {
+      return Promise.reject(new Error('Collection identity is required'));
+    }
+    return cleanupOwned({
+      fileBindings: [],
+      rootIds: [],
+      scopes: [{ embeddingSetId, kind: 'collection' }],
+    });
+  };
+  const cleanupFiles = (files: readonly NativeSourceIdentity[]): Promise<void> => {
+    const roots = [...new Set(files.flatMap((file) => (file.rootId ? [file.rootId] : [])))];
+    const collections = [
+      ...new Set(
+        files.flatMap((file) => (!file.rootId && file.embeddingSetId ? [file.embeddingSetId] : []))
+      ),
+    ];
+    return cleanupOwned(
+      {
+        fileBindings: [],
+        rootIds: roots,
+        scopes: [
+          ...roots.map((rootId) => ({ kind: 'workspace' as const, rootId })),
+          ...collections.map((embeddingSetId) => ({ embeddingSetId, kind: 'collection' as const })),
+        ],
+      },
+      new Set(files.map((file) => file.fileId))
+    );
   };
   const acquireCurrent = (): Promise<NativePort> => {
     if (closed) {
@@ -472,6 +551,8 @@ export function createNativeIndexRuntime<Attachment>(
     acquire: acquireCurrent,
     acquireProfile,
     captureAcknowledgedAuthority,
+    cleanupCollection,
+    cleanupFiles,
     closeIndex: () => closeIndex(),
     destroyIndex: () => closeIndex(true),
     mutateAuthority: <T>(expected: NativePort, work: () => Promise<T>): Promise<T> => {

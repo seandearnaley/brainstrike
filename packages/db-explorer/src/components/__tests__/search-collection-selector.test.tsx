@@ -91,7 +91,45 @@ describe('SearchCollectionSelector', () => {
       ],
       error: null,
       loading: false,
+      sourceReady: true,
     });
+  });
+
+  it('is ready on the desktop catalog path, which has no database handle', () => {
+    render(
+      <SearchCollectionSelector
+        activeCollectionId="set-1"
+        db={null}
+        onCollectionChange={vi.fn()}
+        onCreateCollection={vi.fn()}
+        onDeleteCollection={vi.fn()}
+        onEditCollection={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('loading-state')).toHaveTextContent('ready');
+    expect(screen.getByText('Collection One')).toBeInTheDocument();
+  });
+
+  it('keeps loading while no collection source exists', () => {
+    mockUseCollections.mockReturnValue({
+      collections: [],
+      error: null,
+      loading: false,
+      sourceReady: false,
+    });
+    render(
+      <SearchCollectionSelector
+        activeCollectionId={null}
+        db={null}
+        onCollectionChange={vi.fn()}
+        onCreateCollection={vi.fn()}
+        onDeleteCollection={vi.fn()}
+        onEditCollection={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('loading-state')).toHaveTextContent('loading');
   });
 
   it('renders collections from the shared hook and reports the selected id', () => {

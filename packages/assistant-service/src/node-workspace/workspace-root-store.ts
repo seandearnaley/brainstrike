@@ -132,3 +132,9 @@ export async function clearLastFolderIfMatches(
     logger.warn('Failed to clear the last-folder presentation preference', { error });
   }
 }
+
+/** Content clearing must prevent automatic restoration, including unavailable grants. */
+export async function clearStoredWorkspaceGrants(storage: WorkspaceRootStorage): Promise<void> {
+  await storage.removeItem(LAST_FOLDER_STORAGE_KEY);
+  await writeStoredRoots(storage, []);
+}

@@ -17,8 +17,12 @@ interface StageWindow {
 const WORK_OPTIONS = { label: 'workspace component benchmark', priority: 'background' } as const;
 
 /** Opt-in component verifier stays mounted on both native and browser indexing paths. */
-export function WorkspaceIndexStageProvider(): null {
-  const db = usePGliteDatabase();
+export function WorkspaceIndexStageProvider({
+  native = false,
+}: {
+  readonly native?: boolean;
+} = {}): null {
+  const db = usePGliteDatabase({ enabled: !native });
   const backgroundDb = useMemo(() => (db ? createPriorityDbHandle(db, 'background') : null), [db]);
   useEffect(() => {
     if (
@@ -29,7 +33,7 @@ export function WorkspaceIndexStageProvider(): null {
       return;
     }
     const api = createWorkspaceIndexStageApi(() => {
-      const bridge = getDesktopDatabaseBridge();
+      const bridge = native ? undefined : getDesktopDatabaseBridge();
       const applyBatch = bridge?.applyManagedCacheBatch;
       const hosts = window as Window & StageWindow;
       return {
@@ -51,6 +55,6 @@ export function WorkspaceIndexStageProvider(): null {
         window.__BRAINSTRIKE_WORKSPACE_INDEX_STAGE__ = undefined;
       }
     };
-  }, [backgroundDb]);
+  }, [backgroundDb, native]);
   return null;
 }

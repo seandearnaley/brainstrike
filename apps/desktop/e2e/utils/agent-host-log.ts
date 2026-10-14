@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -250,5 +251,67 @@ export async function readHostThreadTree(userDataDir: string): Promise<readonly 
     return logs;
   } finally {
     await client.close();
+  }
+}
+
+/** Read-only acceptance receipts from the existing host writer, never a renderer SQL capability. */
+export async function readHostRootRecords(
+  userDataDir: string
+): Promise<readonly { id: string; path: string; status: string; displayName: string }[]> {
+  const db = new DatabaseSync(
+    path.join(path.dirname(await hostRecordPath(userDataDir)), 'state.db'),
+    { readOnly: true }
+  );
+  try {
+    return db
+      .prepare('SELECT id,path,status,display_name AS displayName FROM roots ORDER BY id')
+      .all()
+      .map((row) => ({
+        displayName: String(row['displayName']),
+        id: String(row['id']),
+        path: String(row['path']),
+        status: String(row['status']),
+      }));
+  } finally {
+    db.close();
+  }
+}
+
+export async function readHostRetiredTableSnapshot(
+  userDataDir: string,
+  tables: readonly string[]
+): Promise<Record<string, { digest: string; rows: number } | 'absent'>> {
+  const db = new DatabaseSync(
+    path.join(path.dirname(await hostRecordPath(userDataDir)), 'state.db'),
+    { readOnly: true }
+  );
+  try {
+    const names = new Set(
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+        .all()
+        .map((row) => String(row['name']))
+    );
+    return Object.fromEntries(
+      tables.map((table) => {
+        if (!names.has(table)) {
+          return [table, 'absent'];
+        }
+        const records = db
+          .prepare(`SELECT * FROM "${table.replaceAll('"', '""')}"`)
+          .all()
+          .map((row) => JSON.stringify(row))
+          .sort();
+        return [
+          table,
+          {
+            digest: createHash('sha256').update(JSON.stringify(records)).digest('hex'),
+            rows: records.length,
+          },
+        ];
+      })
+    );
+  } finally {
+    db.close();
   }
 }

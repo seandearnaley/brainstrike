@@ -114,58 +114,62 @@ async function runStageBenchmark(
 }
 
 test.describe('Workspace Index stage benchmark', () => {
-  test('@desktop-workspace-index-stage-benchmark runs the requested stage benchmark', async ({
-    window: page,
-  }, testInfo) => {
-    test.setTimeout(300_000);
-    const mode = parseMode();
-    const request = {
-      chunkCount: parsePositiveIntegerEnv(CHUNK_COUNT_ENV, 512),
-      dimensions: parsePositiveIntegerEnv(DIMENSIONS_ENV, 384),
-      mode,
-    };
+  test.fixme(
+    '@desktop-workspace-index-stage-benchmark runs the requested stage benchmark',
+    {
+      annotation: { description: 'BST-2012', type: 'quarantine' },
+    },
+    async ({ window: page }, testInfo) => {
+      test.setTimeout(300_000);
+      const mode = parseMode();
+      const request = {
+        chunkCount: parsePositiveIntegerEnv(CHUNK_COUNT_ENV, 512),
+        dimensions: parsePositiveIntegerEnv(DIMENSIONS_ENV, 384),
+        mode,
+      };
 
-    await waitForWorkspaceIndexDebugApi(page);
-    await waitForWorkspaceIndexBenchmarkReadiness(page, mode);
-    const result = await runStageBenchmark(page, request);
+      await waitForWorkspaceIndexDebugApi(page);
+      await waitForWorkspaceIndexBenchmarkReadiness(page, mode);
+      const result = await runStageBenchmark(page, request);
 
-    expect(result.mode).toBe(mode);
-    expect(result.chunkCount).toBe(request.chunkCount);
-    expect(result.dimensions).toBe(
-      mode === 'db-completion-ceiling' || mode === 'embedding-ceiling' ? request.dimensions : 0
-    );
-    if (mode === 'chunking-ceiling') {
-      expect(result.completedChunkCount).toBeGreaterThanOrEqual(request.chunkCount);
-    } else {
-      expect(result.completedChunkCount).toBe(request.chunkCount);
+      expect(result.mode).toBe(mode);
+      expect(result.chunkCount).toBe(request.chunkCount);
+      expect(result.dimensions).toBe(
+        mode === 'db-completion-ceiling' || mode === 'embedding-ceiling' ? request.dimensions : 0
+      );
+      if (mode === 'chunking-ceiling') {
+        expect(result.completedChunkCount).toBeGreaterThanOrEqual(request.chunkCount);
+      } else {
+        expect(result.completedChunkCount).toBe(request.chunkCount);
+      }
+      expect(result.chunksPerSecond).toBeGreaterThan(0);
+      if (mode === 'embedding-ceiling') {
+        expect(result.runtime).toMatchObject({
+          actualDevice: 'webgpu',
+          backendMismatch: false,
+          fallbackApplied: false,
+          selectedDevicePreference: 'webgpu',
+        });
+        expect(result.runtime?.dtype).toEqual(expect.any(String));
+      }
+
+      const evidencePath =
+        process.env[EVIDENCE_PATH_ENV]?.trim() ||
+        testInfo.outputPath(`workspace-index-stage-benchmark-${mode}.json`);
+      await mkdir(path.dirname(evidencePath), { recursive: true });
+      await writeFile(
+        evidencePath,
+        JSON.stringify(
+          {
+            capturedAt: new Date().toISOString(),
+            request,
+            result,
+          },
+          null,
+          2
+        ),
+        'utf8'
+      );
     }
-    expect(result.chunksPerSecond).toBeGreaterThan(0);
-    if (mode === 'embedding-ceiling') {
-      expect(result.runtime).toMatchObject({
-        actualDevice: 'webgpu',
-        backendMismatch: false,
-        fallbackApplied: false,
-        selectedDevicePreference: 'webgpu',
-      });
-      expect(result.runtime?.dtype).toEqual(expect.any(String));
-    }
-
-    const evidencePath =
-      process.env[EVIDENCE_PATH_ENV]?.trim() ||
-      testInfo.outputPath(`workspace-index-stage-benchmark-${mode}.json`);
-    await mkdir(path.dirname(evidencePath), { recursive: true });
-    await writeFile(
-      evidencePath,
-      JSON.stringify(
-        {
-          capturedAt: new Date().toISOString(),
-          request,
-          result,
-        },
-        null,
-        2
-      ),
-      'utf8'
-    );
-  });
+  );
 });

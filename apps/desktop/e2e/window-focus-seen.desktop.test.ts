@@ -1,6 +1,10 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  type BoundaryResult,
+  readBoundaryResult,
+} from '@brainstrike/assistant-contract/boundary-result';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { readCommittedRunStatus } from './utils/agent-host-log';
@@ -54,12 +58,12 @@ async function readFocusReports(
 ): Promise<{ readonly bridge: boolean | undefined; readonly native: boolean }> {
   const host = await app.browserWindow(page);
   const native = await host.evaluate((win) => win.isFocused());
-  const bridge = await page.evaluate(() =>
+  const result = await page.evaluate(() =>
     (
-      window as unknown as { windowFocus?: { isFocused: () => Promise<boolean> } }
+      window as unknown as { windowFocus?: { isFocused: () => Promise<BoundaryResult<boolean>> } }
     ).windowFocus?.isFocused()
   );
-  return { bridge, native };
+  return { bridge: result === undefined ? undefined : readBoundaryResult(result), native };
 }
 
 test('the seen rule follows the native window focus: a run finishing in an unfocused window is unseen, focusing the window marks it seen', async ({

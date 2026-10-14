@@ -17,14 +17,10 @@ import { useChangeset } from '../use-changeset';
 
 function stubBridge(resolveView: ChangesBridge['resolveView']): void {
   (window as unknown as { changes?: ChangesBridge }).changes = {
-    applyRewind: vi.fn(),
     fileDiff: vi.fn(),
-    finalizeRewinds: vi.fn(),
     inventory: vi.fn(),
     onInvalidated: vi.fn(() => () => {}),
-    redoRewind: vi.fn(),
     resolveView,
-    rewindPreview: vi.fn(),
   };
 }
 

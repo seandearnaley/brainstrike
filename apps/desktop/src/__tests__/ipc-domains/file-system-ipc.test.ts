@@ -29,10 +29,11 @@ import {
   createFileSystem,
   createStorage,
   E2E_FILE_SYSTEM_FIXTURE_KEY,
-  getRootsDatabase,
+  getRootsCatalog,
   handlers,
   removeHandler,
-  rootsDbQuery,
+  resetRootsCatalog,
+  rootsCatalogRequest,
 } from './file-system-ipc-test-harness';
 
 describe('file system IPC domain', () => {
@@ -41,10 +42,11 @@ describe('file system IPC domain', () => {
   let storage: ElectronStorageAdapter;
 
   beforeEach(() => {
+    resetRootsCatalog();
     handlers.clear();
     removeHandler.mockClear();
-    rootsDbQuery.mockClear();
-    getRootsDatabase.mockClear();
+    rootsCatalogRequest.mockClear();
+    getRootsCatalog.mockClear();
     vi.stubEnv('NODE_ENV', 'production');
     delete (globalThis as { [E2E_FILE_SYSTEM_FIXTURE_KEY]?: unknown })[E2E_FILE_SYSTEM_FIXTURE_KEY];
     fileSystem = createFileSystem('/users/test/workspace');
@@ -60,7 +62,7 @@ describe('file system IPC domain', () => {
   function register(): () => void {
     return registerFileSystemIpcHandlers({
       fileSystem,
-      getRootsDatabase,
+      getRootsCatalog,
       isSyntheticFileSystemPath: () => true,
       storage,
     });
@@ -108,7 +110,7 @@ describe('file system IPC domain', () => {
     const onDeleteRootData = vi.fn(() => held.promise);
     const domain = createFileSystemIpcDomain({
       fileSystem,
-      getRootsDatabase,
+      getRootsCatalog,
       isSyntheticFileSystemPath: () => true,
       onDeleteRootData,
       storage,
@@ -124,7 +126,7 @@ describe('file system IPC domain', () => {
     await expect(
       capabilityHandler('fs:deleteRootData')?.(createTrustedInvokeEvent(), 'actual-root')
     ).rejects.toMatchObject({ code: 'boundary.internal' });
-    expect(rootsDbQuery).not.toHaveBeenCalled();
+    expect(rootsCatalogRequest).not.toHaveBeenCalled();
     await domain.close();
   });
 
@@ -133,13 +135,13 @@ describe('file system IPC domain', () => {
     await expect(
       capabilityHandler('fs:deleteRootData')?.(createTrustedInvokeEvent(), 'root')
     ).rejects.toMatchObject({ code: 'boundary.internal' });
-    expect(rootsDbQuery).not.toHaveBeenCalled();
+    expect(rootsCatalogRequest).not.toHaveBeenCalled();
   });
 
   it('joins mounted-root disposal even when handler removal throws', async () => {
     const domain = createFileSystemIpcDomain({
       fileSystem,
-      getRootsDatabase,
+      getRootsCatalog,
       isSyntheticFileSystemPath: () => true,
       storage,
     });
@@ -180,7 +182,7 @@ describe('file system IPC domain', () => {
     const managedWorktreeAuthorizer = vi.fn(async () => 'authorized' as const);
     registerFileSystemIpcHandlers({
       fileSystem,
-      getRootsDatabase,
+      getRootsCatalog,
       isSyntheticFileSystemPath: () => true,
       managedWorktreeAuthorizer,
       storage,
@@ -199,7 +201,7 @@ describe('file system IPC domain', () => {
     fileSystem = createFileSystem('/mock/denied-by-explicit-seam');
     registerFileSystemIpcHandlers({
       fileSystem,
-      getRootsDatabase,
+      getRootsCatalog,
       isSyntheticFileSystemPath: () => false,
       storage,
     });
@@ -213,7 +215,7 @@ describe('file system IPC domain', () => {
     let classificationCalls = 0;
     registerFileSystemIpcHandlers({
       fileSystem,
-      getRootsDatabase,
+      getRootsCatalog,
       isSyntheticFileSystemPath: () => {
         classificationCalls += 1;
         return classificationCalls === 1;
@@ -246,7 +248,7 @@ describe('file system IPC domain', () => {
     );
     registerFileSystemIpcHandlers({
       fileSystem,
-      getRootsDatabase,
+      getRootsCatalog,
       isSyntheticFileSystemPath: (rootPath) => rootPath.startsWith('/mock/'),
       storage,
       workspaceRootRegistryFileSystemSeams: {
@@ -300,7 +302,7 @@ describe('file system IPC domain', () => {
     }));
     registerFileSystemIpcHandlers({
       fileSystem,
-      getRootsDatabase,
+      getRootsCatalog,
       isSyntheticFileSystemPath: () => false,
       storage,
       workspaceRootRegistryFileSystemSeams: {
@@ -343,7 +345,7 @@ describe('file system IPC domain', () => {
     const closeNativeRoot = vi.fn();
     registerFileSystemIpcHandlers({
       fileSystem,
-      getRootsDatabase,
+      getRootsCatalog,
       isSyntheticFileSystemPath: (rootPath) => rootPath === '/mock/test/directory',
       storage,
       workspaceRootRegistryFileSystemSeams: {
@@ -582,7 +584,7 @@ describe('file system IPC domain', () => {
     await expect(
       capabilityHandler('fs:restoreRoots')?.(createTrustedInvokeEvent())
     ).rejects.toMatchObject({ code: 'boundary.internal' });
-    expect(rootsDbQuery).not.toHaveBeenCalled();
+    expect(rootsCatalogRequest).not.toHaveBeenCalled();
   });
 
   it('retains unavailable persisted roots for retry and excludes them from DB authorization', async () => {
@@ -614,10 +616,10 @@ describe('file system IPC domain', () => {
       expect.objectContaining({ permissionState: 'unknown', rootId: 'root-offline' }),
     ]);
     expect(await storage.getItem('rootsList')).toBe(JSON.stringify([available, unavailable]));
-    const convergenceCall = rootsDbQuery.mock.calls.find(([sql]) =>
-      String(sql).includes("SET status = 'disconnected'")
-    );
-    expect(convergenceCall?.[1]).toEqual([['/users/test/workspace']]);
+    expect(rootsCatalogRequest).toHaveBeenCalledWith({
+      mountedPaths: ['/users/test/workspace'],
+      operation: 'disconnect-except',
+    });
   });
 
   it('treats lastFolderPath only as a preference for an already-mounted persisted root', async () => {
@@ -649,7 +651,7 @@ describe('file system IPC domain', () => {
     storage = createStorage({ rootsList: JSON.stringify([entry]) });
     register();
     await capabilityHandler('fs:restoreRoots')?.(createTrustedInvokeEvent());
-    rootsDbQuery.mockRejectedValueOnce(new Error('db unavailable'));
+    rootsCatalogRequest.mockRejectedValueOnce(new Error('db unavailable'));
 
     await expect(
       capabilityHandler('fs:removeRoot')?.(createTrustedInvokeEvent(), 'root-a')

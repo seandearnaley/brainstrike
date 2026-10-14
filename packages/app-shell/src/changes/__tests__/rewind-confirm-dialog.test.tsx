@@ -11,12 +11,6 @@
  * never carry an acknowledgment it did not need, and a composer must not be
  * repopulated from a target that has no prompt.
  */
-import type {
-  AssistantRewindConflict,
-  AssistantRewindPreviewResult,
-  AssistantRewindRedoResult,
-  AssistantRewindResult,
-} from '@brainstrike/assistant-contract';
 import { useRewindComposerStore } from '@brainstrike/assistant-ui/rewind-composer-store';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
@@ -34,10 +28,15 @@ import type {
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ChangesBridge } from '../changes-bridge';
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { useChangesStore } from '../changes-store';
-import { createLegacyRewindPort } from '../rewind-port';
+import type {
+  RewindApplyResult,
+  RewindConflictModel,
+  RewindPort,
+  RewindPreviewModel,
+  RewindRedoResult,
+} from '../rewind-port';
 import { useRewindStore } from '../rewind-store';
 import { RewindConfirmDialog } from '../ui/rewind-confirm-dialog';
 
@@ -84,26 +83,31 @@ const VIEW: ChangesetView = {
 };
 
 function preview(
-  overrides: Partial<Extract<AssistantRewindPreviewResult, { ok: true }>> = {}
-): AssistantRewindPreviewResult {
+  overrides: Partial<Extract<RewindPreviewModel, { ok: true }>> = {}
+): RewindPreviewModel {
   return {
     changeset: { fromRunId: 'run-1', kind: 'run-range', threadId: 'thread-1' },
     conflicts: [],
+    conversation: { kind: 'branched', turns: 2 },
     filesScope: { available: true },
     messageId: 'msg-2',
+    noRecordedEdits: false,
     ok: true,
-    range: { fromRunId: 'run-1', kind: 'runs', runIds: ['run-1', 'run-2'] },
+    previewId: 'preview-1',
+    restoreRoots: [
+      { rootId: ROOT_A, rootPath: '/repo-a' },
+      { rootId: ROOT_B, rootPath: '/repo-b' },
+      { rootId: ROOT_PLAIN, rootPath: '/plain-c' },
+    ],
     threadId: 'thread-1',
-    tombstoneMessageIds: ['msg-2', 'msg-3'],
     view: VIEW,
     ...overrides,
   };
 }
 
-function conflict(rootId: string, path: string, rootLabel: string): AssistantRewindConflict {
+function conflict(rootId: string, path: string, rootLabel: string): RewindConflictModel {
   return {
-    checkpointId: `cp-${rootId}-${path}`,
-    code: 'disk-changed',
+    forceable: true,
     message: 'the file changed on disk since the agent wrote it',
     path,
     rootId,
@@ -111,106 +115,89 @@ function conflict(rootId: string, path: string, rootLabel: string): AssistantRew
   };
 }
 
-const APPLIED: AssistantRewindResult = {
-  fileOutcomes: [
-    { checkpointId: 'cp-a', code: 'reverted', message: null, path: 'src/index.ts', rootId: ROOT_A },
-    { checkpointId: 'cp-b', code: 'reverted', message: null, path: 'src/index.ts', rootId: ROOT_B },
-    {
-      checkpointId: 'cp-c',
-      code: 'reverted',
-      message: null,
-      path: 'notes/scratch.md',
-      rootId: ROOT_PLAIN,
-    },
-  ],
-  mode: 'conversation-and-files',
+const APPLIED = {
   ok: true,
-  range: { fromRunId: 'run-1', kind: 'runs', runIds: ['run-1'] },
-  revertId: 'revert-1',
+  outcome: {
+    conversation: { kind: 'branched', turns: 2 },
+    notRestored: [],
+    roots: [
+      {
+        attempted: 1,
+        conflicts: 0,
+        failed: 0,
+        label: 'Repo A',
+        restored: 1,
+        rootId: ROOT_A,
+        rootPath: '/repo-a',
+      },
+      {
+        attempted: 1,
+        conflicts: 0,
+        failed: 0,
+        label: 'Repo B',
+        restored: 1,
+        rootId: ROOT_B,
+        rootPath: '/repo-b',
+      },
+      {
+        attempted: 1,
+        conflicts: 0,
+        failed: 0,
+        label: 'Scratch',
+        restored: 1,
+        rootId: ROOT_PLAIN,
+        rootPath: '/plain-c',
+      },
+    ],
+  },
   rewindId: 'rewind-1',
-  rootOutcomes: [
-    {
-      attempted: 1,
-      conflicts: 0,
-      failed: 0,
-      reverted: 1,
-      rootId: ROOT_A,
-      rootLabel: 'Repo A',
-      rootPath: '/repo-a',
-    },
-    {
-      attempted: 1,
-      conflicts: 0,
-      failed: 0,
-      reverted: 1,
-      rootId: ROOT_B,
-      rootLabel: 'Repo B',
-      rootPath: '/repo-b',
-    },
-    {
-      attempted: 1,
-      conflicts: 0,
-      failed: 0,
-      reverted: 1,
-      rootId: ROOT_PLAIN,
-      rootLabel: 'Scratch',
-      rootPath: '/plain-c',
-    },
-  ],
-  tombstonedMessageIds: ['msg-2', 'msg-3'],
-};
+} satisfies Extract<RewindApplyResult, { ok: true }>;
 
-interface BridgeStub {
-  readonly applyRewind: ReturnType<typeof vi.fn>;
-  readonly redoRewind: ReturnType<typeof vi.fn>;
-  readonly rewindPreview: ReturnType<typeof vi.fn>;
+let currentPort: RewindPort;
+interface PortStub {
+  readonly apply: Mock<RewindPort['apply']>;
+  readonly preview: Mock<RewindPort['preview']>;
+  readonly redo: Mock<RewindPort['redo']>;
 }
 
-function installBridge(overrides: Partial<BridgeStub> = {}): BridgeStub {
-  const stub: BridgeStub = {
-    applyRewind: vi.fn(
-      async (): Promise<GitResult<AssistantRewindResult>> => ({
+function installPort(overrides: Partial<PortStub> = {}): PortStub {
+  const stub: PortStub = {
+    apply: vi.fn(
+      async (): Promise<GitResult<RewindApplyResult>> => ({
         ok: true,
         value: APPLIED,
       })
     ),
-    redoRewind: vi.fn(
-      async (): Promise<GitResult<AssistantRewindRedoResult>> => ({
-        ok: true,
-        value: {
-          fileOutcomes: [],
-          ok: true,
-          restoredMessageIds: ['msg-2', 'msg-3'],
-          revertId: 'revert-1',
-          rewindId: 'rewind-1',
-          rootOutcomes: [],
-        },
-      })
-    ),
-    rewindPreview: vi.fn(
-      async (): Promise<GitResult<AssistantRewindPreviewResult>> => ({
+    preview: vi.fn(
+      async (): Promise<GitResult<RewindPreviewModel>> => ({
         ok: true,
         value: preview(),
       })
     ),
+    redo: vi.fn(
+      async (): Promise<GitResult<RewindRedoResult>> => ({
+        ok: true,
+        value: {
+          description: 'The conversation returned to its previous branch.',
+          ok: true,
+          roots: [],
+        },
+      })
+    ),
     ...overrides,
   };
-  (window as unknown as { changes?: ChangesBridge }).changes = {
-    fileDiff: vi.fn(async () => ({ error: 'not used', ok: false }) as never),
-    finalizeRewinds: vi.fn(async () => ({ error: 'not used', ok: false }) as never),
-    inventory: vi.fn(async () => ({ ok: true, value: { errors: [], repositories: [] } }) as never),
-    onInvalidated: vi.fn(() => () => {}),
-    resolveView: vi.fn(async () => ({ error: 'not used', ok: false }) as never),
+  currentPort = {
     ...stub,
-  } as unknown as ChangesBridge;
+    conversation: 'branched',
+    fileDiff: vi.fn(async () => ({ error: 'not used', ok: false as const })),
+  };
   return stub;
 }
 
 function openRewind(composerText: string | null = 'my original prompt'): void {
-  const bridge = (window as unknown as { changes: ChangesBridge }).changes;
   useRewindStore.getState().openRewind({
     composerText,
-    port: createLegacyRewindPort(bridge),
+    port: currentPort,
     target: { messageId: 'msg-2', threadId: 'thread-1' },
   });
 }
@@ -288,14 +275,14 @@ afterEach(() => {
 
 describe('RewindConfirmDialog', () => {
   it('renders nothing until an entry point raises a request', () => {
-    installBridge();
+    installPort();
     renderDialog();
 
     expect(screen.queryByTestId('rewind-confirm-dialog')).not.toBeInTheDocument();
   });
 
   it('shows every root of the previewed range, including the out-of-repo file', async () => {
-    installBridge();
+    installPort();
     openRewind();
     renderDialog();
 
@@ -315,7 +302,7 @@ describe('RewindConfirmDialog', () => {
   // ===== Scope choice (Amendment 1 A1.1) =====
 
   it('pre-selects conversation-and-files, VISIBLY', async () => {
-    installBridge();
+    installPort();
     openRewind();
     renderDialog();
 
@@ -326,7 +313,7 @@ describe('RewindConfirmDialog', () => {
 
   it('applies the SELECTED mode, and conversation-only performs no file revert', async () => {
     const user = userEvent.setup();
-    const bridge = installBridge();
+    const bridge = installPort();
     openRewind();
     renderDialog();
 
@@ -338,18 +325,21 @@ describe('RewindConfirmDialog', () => {
     await user.click(screen.getByTestId('rewind-confirm'));
 
     await waitFor(() => {
-      expect(bridge.applyRewind).toHaveBeenCalledWith({
+      expect(bridge.apply).toHaveBeenCalledWith({
         acknowledgeConflicts: false,
-        messageId: 'msg-2',
         mode: 'conversation-only',
-        threadId: 'thread-1',
+        preview: expect.objectContaining({
+          messageId: 'msg-2',
+          previewId: 'preview-1',
+          threadId: 'thread-1',
+        }),
       });
     });
   });
 
   it('hides the open-files warning in conversation-only mode', async () => {
     const user = userEvent.setup();
-    installBridge();
+    installPort();
     openRewind();
     renderDialog();
 
@@ -367,15 +357,14 @@ describe('RewindConfirmDialog', () => {
 
   it('disables the files scope with the engine reason for a pre-snapshot turn, and applies conversation-only', async () => {
     const user = userEvent.setup();
-    const bridge = installBridge({
-      rewindPreview: vi.fn(async () => ({
+    const bridge = installPort({
+      preview: vi.fn(async () => ({
         ok: true,
         value: preview({
           filesScope: {
             available: false,
             message:
               'This turn predates workspace snapshots, so its files cannot be restored. Only the conversation can be restored.',
-            reason: 'turn-predates-snapshots',
           },
           view: null,
         }),
@@ -401,25 +390,27 @@ describe('RewindConfirmDialog', () => {
     // The pre-selected files default must NEVER leak into the wire call when
     // the scope is refused: the effective mode is conversation-only.
     await waitFor(() => {
-      expect(bridge.applyRewind).toHaveBeenCalledWith({
+      expect(bridge.apply).toHaveBeenCalledWith({
         acknowledgeConflicts: false,
-        messageId: 'msg-2',
         mode: 'conversation-only',
-        threadId: 'thread-1',
+        preview: expect.objectContaining({
+          messageId: 'msg-2',
+          previewId: 'preview-1',
+          threadId: 'thread-1',
+        }),
       });
     });
   });
 
   it('renders the snapshot-missing reason the same way for a failed capture', async () => {
-    installBridge({
-      rewindPreview: vi.fn(async () => ({
+    installPort({
+      preview: vi.fn(async () => ({
         ok: true,
         value: preview({
           filesScope: {
             available: false,
             message:
               'No workspace snapshot covers this turn (its capture failed), so its files cannot be restored for this range. Only the conversation can be restored.',
-            reason: 'snapshot-missing',
           },
           view: null,
         }),
@@ -441,7 +432,7 @@ describe('RewindConfirmDialog', () => {
   // deleted with its copy module. These pins keep it from quietly returning.
 
   it('renders NO shell-capture qualifier anywhere in the files-mode dialog', async () => {
-    installBridge();
+    installPort();
     openRewind();
     renderDialog();
 
@@ -451,7 +442,7 @@ describe('RewindConfirmDialog', () => {
 
   it('renders NO shell-capture qualifier in the outcome summary after files came back', async () => {
     const user = userEvent.setup();
-    installBridge();
+    installPort();
     openRewind();
     renderDialog();
 
@@ -469,7 +460,7 @@ describe('RewindConfirmDialog', () => {
 
   it('re-enumerates every reverted root through the overflow refresh pipeline', async () => {
     const user = userEvent.setup();
-    installBridge();
+    installPort();
     openRewind();
     renderDialog();
 
@@ -493,7 +484,7 @@ describe('RewindConfirmDialog', () => {
 
   it('re-watches a root whose watcher the bulk revert killed', async () => {
     const user = userEvent.setup();
-    installBridge();
+    installPort();
     openRewind();
     renderDialog();
 
@@ -520,15 +511,15 @@ describe('RewindConfirmDialog', () => {
 
   it('refreshes nothing when the apply is refused', async () => {
     const user = userEvent.setup();
-    installBridge({
-      applyRewind: vi.fn(
-        async (): Promise<GitResult<AssistantRewindResult>> => ({
+    installPort({
+      apply: vi.fn(
+        async (): Promise<GitResult<RewindApplyResult>> => ({
           ok: true,
           value: {
             conflicts: [],
             message: 'a run is still in flight',
             ok: false,
-            reason: 'run-in-flight',
+            redoable: null,
           },
         })
       ),
@@ -550,8 +541,8 @@ describe('RewindConfirmDialog', () => {
 
   it('BLOCKS Restore until every conflicting path is acknowledged', async () => {
     const user = userEvent.setup();
-    const bridge = installBridge({
-      rewindPreview: vi.fn(async () => ({
+    const bridge = installPort({
+      preview: vi.fn(async () => ({
         ok: true,
         value: preview({
           conflicts: [
@@ -575,15 +566,15 @@ describe('RewindConfirmDialog', () => {
     await user.click(screen.getByTestId('rewind-confirm'));
 
     await waitFor(() => {
-      expect(bridge.applyRewind).toHaveBeenCalledWith(
+      expect(bridge.apply).toHaveBeenCalledWith(
         expect.objectContaining({ acknowledgeConflicts: true })
       );
     });
   });
 
   it('names every conflicting file, DEDUPED across the runs that touched it', async () => {
-    installBridge({
-      rewindPreview: vi.fn(async () => ({
+    installPort({
+      preview: vi.fn(async () => ({
         ok: true,
         value: preview({
           conflicts: [
@@ -610,8 +601,8 @@ describe('RewindConfirmDialog', () => {
 
   it('does NOT gate conversation-only on an acknowledgment: nothing reaches disk', async () => {
     const user = userEvent.setup();
-    const bridge = installBridge({
-      rewindPreview: vi.fn(async () => ({
+    const bridge = installPort({
+      preview: vi.fn(async () => ({
         ok: true,
         value: preview({ conflicts: [conflict(ROOT_A, 'src/index.ts', 'Repo A')] }),
       })),
@@ -626,7 +617,7 @@ describe('RewindConfirmDialog', () => {
     await user.click(screen.getByTestId('rewind-confirm'));
 
     await waitFor(() => {
-      expect(bridge.applyRewind).toHaveBeenCalledWith(
+      expect(bridge.apply).toHaveBeenCalledWith(
         expect.objectContaining({ acknowledgeConflicts: false, mode: 'conversation-only' })
       );
     });
@@ -635,14 +626,14 @@ describe('RewindConfirmDialog', () => {
   it('re-gates on a LATE refusal and clears the stale acknowledgment', async () => {
     const user = userEvent.setup();
     const lateConflicts = [conflict(ROOT_B, 'src/index.ts', 'Repo B')];
-    const bridge = installBridge({
-      applyRewind: vi.fn(async () => ({
+    const bridge = installPort({
+      apply: vi.fn(async () => ({
         ok: true,
         value: {
           conflicts: lateConflicts,
           message: '1 file(s) cannot be restored cleanly and nothing was applied',
           ok: false,
-          reason: 'conflicts-unacknowledged',
+          redoable: null,
         },
       })),
     });
@@ -661,40 +652,40 @@ describe('RewindConfirmDialog', () => {
     expect(screen.getByTestId('rewind-conflict-paths')).toHaveTextContent('Repo B');
     expect(screen.getByTestId('rewind-acknowledge-conflicts')).not.toBeChecked();
     expect(screen.getByTestId('rewind-confirm')).toBeDisabled();
-    expect(bridge.applyRewind).toHaveBeenCalledTimes(1);
+    expect(bridge.apply).toHaveBeenCalledTimes(1);
   });
 
   // ===== Post-apply =====
 
   it('reports EVERY root after applying, including a disconnected one', async () => {
     const user = userEvent.setup();
-    installBridge({
-      applyRewind: vi.fn(async () => ({
+    installPort({
+      apply: vi.fn(async () => ({
         ok: true,
         value: {
           ...APPLIED,
-          fileOutcomes: [
-            ...APPLIED.fileOutcomes.slice(0, 2),
-            {
-              checkpointId: 'cp-c',
-              code: 'conflict' as const,
-              message: 'workspace root is no longer connected',
-              path: 'notes/scratch.md',
-              rootId: ROOT_PLAIN,
-            },
-          ],
-          rootOutcomes: [
-            ...APPLIED.rootOutcomes.slice(0, 2),
-            {
-              attempted: 1,
-              conflicts: 1,
-              failed: 1,
-              reverted: 0,
-              rootId: ROOT_PLAIN,
-              rootLabel: 'Scratch',
-              rootPath: null,
-            },
-          ],
+          outcome: {
+            ...APPLIED.outcome,
+            notRestored: [
+              {
+                message: 'workspace root is no longer connected',
+                path: 'notes/scratch.md',
+                rootId: ROOT_PLAIN,
+              },
+            ],
+            roots: [
+              ...APPLIED.outcome.roots.slice(0, 2),
+              {
+                attempted: 1,
+                conflicts: 1,
+                failed: 1,
+                label: 'Scratch',
+                restored: 0,
+                rootId: ROOT_PLAIN,
+                rootPath: null,
+              },
+            ],
+          },
         },
       })),
     });
@@ -722,9 +713,9 @@ describe('RewindConfirmDialog', () => {
     expect(screen.getByTestId('rewind-outcome-unreverted')).toHaveTextContent('notes/scratch.md');
   });
 
-  it('offers a redo affordance in a toast, and wires it to redoRewind', async () => {
+  it('offers a redo affordance in a toast, and wires it to redo', async () => {
     const user = userEvent.setup();
-    const bridge = installBridge();
+    const bridge = installPort();
     openRewind();
     renderDialog();
 
@@ -758,9 +749,11 @@ describe('RewindConfirmDialog', () => {
       // The FIRST redo attempt is always an honest pre-scan, never a blind
       // force — `acknowledgeConflicts` is explicit-false until a
       // `conflicts-unacknowledged` refusal's own retry action sends `true`.
-      expect(bridge.redoRewind).toHaveBeenCalledWith({
+      expect(bridge.redo).toHaveBeenCalledWith({
         acknowledgeConflicts: false,
         rewindId: 'rewind-1',
+        roots: APPLIED.outcome.roots,
+        threadId: 'thread-1',
       });
     });
   });
@@ -768,30 +761,26 @@ describe('RewindConfirmDialog', () => {
   it('a conflicted redo is not a dead end: the toast carries its own force-retry action', async () => {
     const user = userEvent.setup();
     let redoCalls = 0;
-    const bridge = installBridge({
-      redoRewind: vi.fn(async (): Promise<GitResult<AssistantRewindRedoResult>> => {
+    const bridge = installPort({
+      redo: vi.fn(async (): Promise<GitResult<RewindRedoResult>> => {
         redoCalls += 1;
         if (redoCalls === 1) {
           return {
             ok: true,
             value: {
-              conflicts: [conflict(ROOT_A, 'src/index.ts', 'Repo A')],
+              forceable: true,
               message:
                 '1 file(s) cannot be restored cleanly and nothing was applied: src/index.ts. Re-issue with acknowledgeConflicts to proceed.',
               ok: false,
-              reason: 'conflicts-unacknowledged',
             },
           };
         }
         return {
           ok: true,
           value: {
-            fileOutcomes: [],
+            description: 'The conversation returned to its previous branch.',
             ok: true,
-            restoredMessageIds: ['msg-2', 'msg-3'],
-            revertId: 'revert-1',
-            rewindId: 'rewind-1',
-            rootOutcomes: [],
+            roots: [],
           },
         };
       }),
@@ -825,22 +814,26 @@ describe('RewindConfirmDialog', () => {
     await waitFor(() => {
       expect(redoCalls).toBe(2);
     });
-    expect(bridge.redoRewind).toHaveBeenNthCalledWith(1, {
+    expect(bridge.redo).toHaveBeenNthCalledWith(1, {
       acknowledgeConflicts: false,
       rewindId: 'rewind-1',
+      roots: APPLIED.outcome.roots,
+      threadId: 'thread-1',
     });
-    expect(bridge.redoRewind).toHaveBeenNthCalledWith(2, {
+    expect(bridge.redo).toHaveBeenNthCalledWith(2, {
       acknowledgeConflicts: true,
       rewindId: 'rewind-1',
+      roots: APPLIED.outcome.roots,
+      threadId: 'thread-1',
     });
-    await screen.findByText(/2 message\(s\) are back\./);
+    await screen.findByText('The conversation returned to its previous branch.');
   });
 
   // ===== Composer repopulation (Amendment 2) =====
 
   it('repopulates the composer with the TARGET USER MESSAGE text', async () => {
     const user = userEvent.setup();
-    installBridge();
+    installPort();
     openRewind('my original prompt');
     renderDialog();
 
@@ -857,7 +850,7 @@ describe('RewindConfirmDialog', () => {
 
   /**
    * The re-hydration bump (BST-1115). Without it the apply succeeded, the
-   * tombstones landed, and the user watched an unchanged conversation — the
+   * branch changed, and the user watched an unchanged conversation — the
    * defect the live smoke reported. The COUNTER is the whole contract here: the
    * panel and the Changes surface key their re-read on it.
    *
@@ -868,7 +861,7 @@ describe('RewindConfirmDialog', () => {
    */
   it('bumps the re-hydration generation on a successful apply, before repopulating', async () => {
     const user = userEvent.setup();
-    installBridge();
+    installPort();
     openRewind('my original prompt');
     renderDialog();
 
@@ -888,15 +881,15 @@ describe('RewindConfirmDialog', () => {
 
   it('does NOT bump the generation when the apply is refused', async () => {
     const user = userEvent.setup();
-    installBridge({
-      applyRewind: vi.fn(
-        async (): Promise<GitResult<AssistantRewindResult>> => ({
+    installPort({
+      apply: vi.fn(
+        async (): Promise<GitResult<RewindApplyResult>> => ({
           ok: true,
           value: {
             conflicts: [],
             message: 'thread "thread-1" has a run in flight and nothing was applied.',
             ok: false,
-            reason: 'run-in-flight',
+            redoable: null,
           },
         })
       ),
@@ -918,7 +911,7 @@ describe('RewindConfirmDialog', () => {
 
   it('bumps the generation again when the rewind is undone', async () => {
     const user = userEvent.setup();
-    installBridge();
+    installPort();
     openRewind();
     renderDialog();
 
@@ -943,7 +936,7 @@ describe('RewindConfirmDialog', () => {
 
   it('does NOT repopulate when the target carries no prompt', async () => {
     const user = userEvent.setup();
-    installBridge();
+    installPort();
     // `composerText: null` is what an assistant-message target and the
     // run-anchored header entry point both produce.
     openRewind(null);
@@ -962,14 +955,12 @@ describe('RewindConfirmDialog', () => {
   // ===== Failure surfacing =====
 
   it('surfaces a domain refusal instead of a silent no-op', async () => {
-    installBridge({
-      rewindPreview: vi.fn(async () => ({
+    installPort({
+      preview: vi.fn(async () => ({
         ok: true,
         value: {
-          conflicts: [],
           message: 'message "msg-2" was not found in thread "thread-1".',
           ok: false,
-          reason: 'message-not-found',
         },
       })),
     });
@@ -983,8 +974,8 @@ describe('RewindConfirmDialog', () => {
   });
 
   it('surfaces a transport failure distinctly from a refusal', async () => {
-    installBridge({
-      rewindPreview: vi.fn(async () => ({ error: 'bridge exploded', ok: false })),
+    installPort({
+      preview: vi.fn(async () => ({ error: 'bridge exploded', ok: false })),
     });
     openRewind();
     renderDialog();
@@ -995,7 +986,7 @@ describe('RewindConfirmDialog', () => {
 
   it('closes without applying anything on Cancel', async () => {
     const user = userEvent.setup();
-    const bridge = installBridge();
+    const bridge = installPort();
     openRewind();
     renderDialog();
 
@@ -1005,7 +996,7 @@ describe('RewindConfirmDialog', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('rewind-confirm-dialog')).not.toBeInTheDocument();
     });
-    expect(bridge.applyRewind).not.toHaveBeenCalled();
+    expect(bridge.apply).not.toHaveBeenCalled();
     expect(useRewindStore.getState().request).toBeNull();
   });
 });

@@ -16,6 +16,7 @@ import { HostCore } from '../src/core.js';
 import type { HostPlatform, HostRewindFiles } from '../src/ports.js';
 import type { HostEvent } from '../src/protocol.js';
 import { startAgentHost } from '../src/runtime.js';
+import { pendingRewindSnapshotTargets } from '../src/thread-rewind.js';
 import { scriptedModel } from './fixtures/scripted-model.js';
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -110,12 +111,17 @@ test('a rewind restores files to the message’s turn start, and the next messag
   expect(applied).toEqual([[{ ...ROOT, commitOid: oid('2') }]]);
   expect(types(await core.read(threadId, 0))).toEqual(['thread.rewind.started', 'thread.rewound']);
 
+  expect(pendingRewindSnapshotTargets(await core.read(threadId, 0))).toEqual([
+    { ...ROOT, commitOid: oid('2') },
+  ]);
+
   // The next message names no parent, so it follows the run before the rewound message.
   const third = await finishedRun(core, threadId, 'Third');
   const started = (await core.read(threadId, 0)).flatMap(({ event }) =>
     event.type === 'run.started' && event.runId === third.runId ? [event] : []
   );
   expect(started).toMatchObject([{ parentMessageId: first.runId }]);
+  expect(pendingRewindSnapshotTargets(await core.read(threadId, 0))).toEqual([]);
 });
 
 test('a rewind the host stopped inside is committed as interrupted when the host next opens', async () => {
@@ -159,6 +165,7 @@ test('a rewind the host stopped inside is committed as interrupted when the host
   const rows = await reopened.core.read(threadId, 0);
   expect(types(rows)).toEqual(['thread.rewind.started', 'thread.rewind.interrupted']);
   expect(rows.at(-1)?.event).toMatchObject({ phase: 'rewind', type: 'thread.rewind.interrupted' });
+  expect(pendingRewindSnapshotTargets(rows)).toEqual([{ ...ROOT, commitOid: oid('1') }]);
   restore.reject(new Error('the stopped host never restores'));
 });
 

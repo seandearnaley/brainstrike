@@ -1,3 +1,4 @@
+import { projectModelCatalog } from '@brainstrike/assistant-contract';
 // @vitest-environment node
 import { providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
 import { clearHostedProviderApiKeyCache } from '@brainstrike/embeddings/provider-core';
@@ -35,7 +36,12 @@ it('retires an already physically settled missing-key request after delivering i
   } as const;
   const scope = { embeddingSetId: metadata.id, kind: 'collection' } as const;
   const resolver = new NativeCanonicalProfileResolver({
-    query: async () => ({ rows: [metadata] }),
+    collections: {
+      collections: async () => ({
+        collections: [{ ...metadata, createdAt: '2026-10-13T00:00:00.000Z' }],
+      }),
+    },
+    modelCatalog: { read: async () => projectModelCatalog({ models: [], providers: [] }) },
     readLocalSelection: async () => undefined,
     resolveEmbeddingSetId: async () => metadata.id,
   });

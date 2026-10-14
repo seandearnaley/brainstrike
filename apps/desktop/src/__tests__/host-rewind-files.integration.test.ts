@@ -7,9 +7,9 @@
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { HostLogRow, HostTurnSnapshot } from '@brainstrike/agent-host/protocol';
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { createHostRewindFiles } from '../agent-host-platform/host-rewind-files';
-import type { CheckpointReindexAction } from '../assistant-server/checkpoint-reindex-deps';
 import { execFileSnapshotGitRunner } from '../assistant-server/snapshot-git';
 import { createSnapshotService, type SnapshotService } from '../assistant-server/snapshot-service';
 
@@ -36,12 +36,12 @@ afterEach(async () => {
 const read = (name: string) => readFile(join(root, name), 'utf8').catch(() => null);
 
 /** Every reindex action the restores feed, in order. */
-let reindexed: CheckpointReindexAction[] = [];
+let reindexed: string[] = [];
 
 function owner(mounted = true) {
   return createHostRewindFiles({
-    reindex: async () => async (action) => {
-      reindexed.push(action);
+    refreshWorkspaceIndex: async (rootId) => {
+      reindexed.push(rootId);
     },
     resolveWorkspaceRoot: async (rootId) => {
       if (!(mounted && rootId === ROOT_ID)) {
@@ -94,20 +94,8 @@ test('a rewind restores the turn, refuses drift until acknowledged, and redo und
   );
   expect(await read('notes.txt')).toBe('v1\n');
   expect(await read('made.txt')).toBeNull();
-  // The legacy post-restore reindex: a restored path re-indexes, a deleted one invalidates.
-  expect(reindexed).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        content: 'v1\n',
-        kind: 'restore',
-        rootId: ROOT_ID,
-        workspacePath: 'notes.txt',
-      }),
-      { kind: 'delete', rootId: ROOT_ID, workspacePath: 'made.txt' },
-      { kind: 'delete', rootId: ROOT_ID, workspacePath: 'late.txt' },
-    ])
-  );
-  expect(reindexed).toHaveLength(3);
+  // One native root scan reconciles every restored and deleted file.
+  expect(reindexed).toEqual([ROOT_ID]);
   reindexed = [];
   // A preview binds one apply.
   await expect(files.drift({ previewId, threadId: THREAD })).rejects.toThrow('preview-required');
@@ -121,12 +109,7 @@ test('a rewind restores the turn, refuses drift until acknowledged, and redo und
   expect(await read('notes.txt')).toBe('v2\n');
   expect(await read('made.txt')).toBe('made by the run\n');
   expect(await read('late.txt')).toBe('written after the preview\n');
-  // Redo reindexes the paths it brings back.
-  expect(reindexed.map(({ kind, workspacePath }) => `${kind} ${workspacePath}`).sort()).toEqual([
-    'restore late.txt',
-    'restore made.txt',
-    'restore notes.txt',
-  ]);
+  expect(reindexed).toEqual([ROOT_ID]);
 });
 
 test('a redo names paths changed after the rewind, and forces only those acknowledged', {
@@ -166,4 +149,72 @@ test('an unmounted root, an unknown preview, or a missing pre-revert snapshot re
     owner().redoConflicts({ rewindId: 'never-applied', targets, threadId: THREAD })
   ).rejects.toThrow('snapshot-missing');
   expect(await read('notes.txt')).toBe('v2\n');
+});
+
+test('startup GC preserves an outstanding host redo target older than the retention ring', {
+  timeout: HEAVY_TIMEOUT_MS,
+}, async () => {
+  const { HostLogRowSchema } = await import('@brainstrike/agent-host/protocol');
+  const { listThreadSnapshotChain } = await import('../assistant-server/snapshot-chains');
+  const { runSnapshotStartupGc } = await import('../assistant-server/snapshot-startup-gc');
+  const handle = await service.ensureShadowRepo({ path: root, rootId: ROOT_ID });
+  const rows: HostLogRow[] = [];
+  const targets: HostTurnSnapshot[] = [];
+  for (let turnIndex = 1; turnIndex <= 4; turnIndex += 1) {
+    await writeFile(join(root, 'notes.txt'), `v${turnIndex}\n`);
+    const snapshot = await service.snapshot(handle, {
+      kind: 'turn-start',
+      runId: `run-${turnIndex}`,
+      threadId: THREAD,
+    });
+    const capture = { commitOid: snapshot.commitOid, rootId: ROOT_ID, rootPath: root };
+    if (turnIndex === 1) {
+      targets.push(capture);
+    }
+    rows.push(
+      HostLogRowSchema.parse({
+        event: {
+          boundary: 'turn-start',
+          roots: [capture],
+          runId: `run-${turnIndex}`,
+          type: 'workspace.snapshot.recorded',
+        },
+        seq: rows.length + 1,
+        threadId: THREAD,
+      })
+    );
+  }
+  const files = owner();
+  const { previewId } = await files.preview({ targets, threadId: THREAD });
+  const rewindId = 'pending-old-turn';
+  rows.push(
+    HostLogRowSchema.parse({
+      event: {
+        commandId: 'rewind-command',
+        headId: null,
+        messageId: 'message-1',
+        mode: 'conversation-and-files',
+        rewindId,
+        runId: 'run-1',
+        type: 'thread.rewind.started',
+      },
+      seq: rows.length + 1,
+      threadId: THREAD,
+    })
+  );
+  await files.apply({ previewId, rewindId, targets, threadId: THREAD });
+  const dependencies = {
+    liveRoots: [{ path: root, rootId: ROOT_ID }],
+    readHostThreadIds: async () => new Set([THREAD]),
+    readHostThreadRows: async () => rows,
+    readThreadChain: (repo: typeof handle, threadId: string) =>
+      listThreadSnapshotChain(execFileSnapshotGitRunner, repo, threadId),
+    snapshotService: service,
+    turnRing: 2,
+  };
+  const report = await runSnapshotStartupGc(dependencies);
+  expect(report.failures).toEqual([]);
+  expect(await owner().redoConflicts({ rewindId, targets, threadId: THREAD })).toEqual([]);
+  await owner().redo({ acknowledged: [], rewindId, targets, threadId: THREAD });
+  expect(await read('notes.txt')).toBe('v4\n');
 });

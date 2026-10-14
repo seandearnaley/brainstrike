@@ -10,6 +10,7 @@ import {
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   parseOpenRouterModelMetadata,
 } from '@brainstrike/assistant-contract';
+import type { BoundaryTransport } from '@brainstrike/assistant-contract/boundary-result';
 import { decodeHostRecord } from '@brainstrike/host-lease';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
@@ -255,13 +256,10 @@ async function qualifyVectorSearch(): Promise<void> {
     // enables an existing model, without seeding workspace/search/index rows.
     await page.evaluate(
       async ({ memory, version }) => {
-        if (!(window.electronAPI?.db && 'storage' in window.electronAPI)) {
-          throw new Error('The normal desktop DB/storage bridge is missing');
+        if (!(window.modelCatalog && window.electronAPI && 'storage' in window.electronAPI)) {
+          throw new Error('The normal desktop model catalog/storage bridge is missing');
         }
-        await window.electronAPI.db.query(
-          'UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2',
-          ['anthropic/claude-sonnet-4.6', 'openrouter']
-        );
+        await window.modelCatalog.setModels(['anthropic/claude-sonnet-4.6'], true);
         localStorage.setItem(
           'assistant-preferences.v1',
           JSON.stringify({
@@ -305,16 +303,19 @@ async function qualifyVectorSearch(): Promise<void> {
     await page.getByRole('button', { exact: true, name: 'Add Folder to Workspace' }).click();
     await expect
       .poll(async () => {
-        const roots = await page.evaluate(
-          async (workspace) =>
-            await window.electronAPI?.db.query(
-              'SELECT id FROM roots WHERE path = $1 AND status = $2',
-              [workspace, 'live']
-            ),
-          workspace
-        );
-        const parsed = z.object({ rows: z.array(z.object({ id: z.string() })) }).parse(roots);
-        workspaceRootId = parsed.rows[0]?.id;
+        const roots = await page.evaluate(async (workspace) => {
+          const api = window.electronAPI;
+          if (!(api && 'fileSystem' in api)) {
+            throw new Error('The normal desktop filesystem bridge is missing');
+          }
+          const reply = await api.fileSystem.restoreRoots();
+          if (!reply.ok) {
+            throw new Error(reply.error.message);
+          }
+          return reply.value.filter((root) => root.handle.path === workspace);
+        }, workspace);
+        const parsed = z.array(z.object({ rootId: z.string() })).parse(roots);
+        workspaceRootId = parsed[0]?.rootId;
         return workspaceRootId !== undefined;
       })
       .toBe(true);
@@ -354,17 +355,25 @@ async function qualifyVectorSearch(): Promise<void> {
           const publication = await page.evaluate(async (rootId) => {
             const capability = (
               globalThis as typeof globalThis & {
-                readonly indexSearch?: IndexSearchCapability;
+                readonly indexSearch?: BoundaryTransport<IndexSearchCapability>;
               }
             ).indexSearch;
             if (!capability) {
               throw new Error('The ordinary desktop has no native index capability');
             }
-            const status = await capability.status();
+            const statusReply = await capability.status();
+            if (!statusReply.ok) {
+              throw new Error(statusReply.error.message);
+            }
+            const status = statusReply.value;
             if (status.kind !== 'ready' || status.embedding.indexMode !== 'vector-configured') {
               return { ready: false, status };
             }
-            const observation = await capability.coverageBatch([{ rootIds: [rootId] }]);
+            const coverageReply = await capability.coverageBatch([{ rootIds: [rootId] }]);
+            if (!coverageReply.ok) {
+              throw new Error(coverageReply.error.message);
+            }
+            const observation = coverageReply.value;
             if (observation.kind === 'blocked') {
               throw new Error(observation.reason);
             }

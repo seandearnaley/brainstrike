@@ -1411,6 +1411,14 @@ and the panel and budget-guardrail suites under
 User-defined groups organize the panel: rank-ordered sections, an **Ungrouped**
 section always last, drag-and-drop, and a Group by / Sort by popover.
 
+Desktop groups and placements use the existing profile StateStore writer and authenticated
+host catalog connection. The visible capability preserves their current IDs, ranks,
+colors and icons; group deletion unsets membership without changing flat order.
+Profile reset retires that writer before deleting its SQLite state. Desktop thread
+lists, run badges and search read the agent host; folder display reads the same
+root catalog used by admission, including retained disconnected roots. Web keeps
+its PGlite repositories and provider lifecycle.
+
 Where state lives (see ADR-0012):
 
 - Groups in `brainstrike_assistant_thread_groups`; membership and manual order in
@@ -1687,6 +1695,13 @@ Open tab order is durable workspace-scoped state in `assistant-thread-store.ts`;
 - The non-reloading **Clear Database** path deletes `mastra_threads`, so its composition
   synchronously resets the thread and thread-groups stores right after the clear succeeds
   (`DatabaseDemoPanel` preflights that callback; both stores invalidate in-flight hydration).
+
+Desktop Clear Database joins the existing renderer reset-preparation barrier, then invokes
+that same content-state callback **before** calling Main's terminal clear capability:
+Main replaces the window before replying. Persisted open/active thread IDs must already
+be empty when the replacement coordinator mounts. Preparation remains terminal on failure;
+deletion is skipped if preparation fails, and the existing reload path creates a fresh renderer.
+This content-only callback does not clear credential or provider/model/MCP configuration.
 
 Evidence: `assistant-persistence/assistant-thread-tabs.md`.
 Guard: `packages/assistant-data/src/__tests__/assistant-thread-store.test.ts`; in

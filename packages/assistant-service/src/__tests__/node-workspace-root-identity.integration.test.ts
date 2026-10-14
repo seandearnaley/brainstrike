@@ -43,7 +43,7 @@ for (const mode of ['retarget', 'stable-alias']) {
           capturedRoot: report.profileA,
           catalogPaths: [path.join(fixture, 'a', 'workspace')],
           opened: true,
-          pgLockDuringAttempt: true,
+          pgLockDuringAttempt: false,
           selectedProfile: report.profileA,
         });
         expect(report.grantReads).toBeGreaterThan(0);

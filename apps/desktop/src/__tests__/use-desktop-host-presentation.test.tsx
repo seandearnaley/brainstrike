@@ -13,6 +13,7 @@ import {
   type OpenRouterModelMetadataSnapshot,
   parseOpenRouterModelMetadata,
 } from '@brainstrike/assistant-contract';
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -38,7 +39,7 @@ vi.mock('@brainstrike/app-shell', async (importOriginal) => ({
   useConfiguredAssistantProviders: () => configured.current,
   useFileMentions: () => ({ fileMentions: [] }),
 }));
-// The catalog rows host admission reads (`models`), as the live query returns them.
+// The committed catalog projection consumed by the host presentation hook.
 interface CatalogRead {
   error: Error | null;
   loading: boolean;
@@ -47,17 +48,18 @@ interface CatalogRead {
 const catalog = vi.hoisted((): { current: CatalogRead } => ({
   current: { error: null, loading: false, rows: [] },
 }));
-// The renderer's open database; its `models` reads go through the live query below.
-const DATABASE = { kind: 'database' } as const;
-const database = vi.hoisted((): { current: unknown } => ({ current: null }));
-vi.mock('@brainstrike/db/react', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@brainstrike/db/react')>()),
-  usePGliteDatabase: () => database.current,
-  usePGliteLiveQuery: (options: { query: string }) => {
-    if (!options.query.includes('FROM models')) {
-      throw new Error(`Unexpected live query: ${options.query}`);
+vi.mock('../renderer/use-enabled-catalog-models', () => ({
+  useEnabledCatalogModels: () => {
+    if (catalog.current.error) {
+      return { message: catalog.current.error.message, state: 'error' };
     }
-    return { ...catalog.current, refresh: async () => undefined };
+    if (catalog.current.loading) {
+      return { state: 'loading' };
+    }
+    return {
+      keys: new Set(catalog.current.rows.map((row) => `${row.providerId}::${row.id}`)),
+      state: 'ready',
+    };
   },
 }));
 
@@ -138,8 +140,7 @@ const registry = useModelRegistryStore.getState();
 const threads = useAssistantThreadStore.getState();
 
 beforeEach(() => {
-  database.current = DATABASE;
-  // The registry cache counts as loaded, so its loader never reads the stand-in database.
+  // Presentation tests vary the authoritative projection independently of the Settings cache.
   useModelRegistryStore.setState({ hasLoaded: true });
   useAssistantPreferencesStore.setState({ selectedModel: `openai::${openAiModel.id}` });
 });
@@ -150,7 +151,6 @@ afterEach(() => {
   useAssistantThreadStore.setState(threads, true);
   configured.current = { discoveryState: 'ready', providers: [] };
   catalog.current = { error: null, loading: false, rows: [] };
-  database.current = null;
   Reflect.deleteProperty(navigator, 'gpu');
 });
 
@@ -324,23 +324,22 @@ describe('the host composer gates a send on the provider notice', () => {
 
   test('a catalog still loading names nothing, and a failed catalog read gates the send', () => {
     configured.current = { discoveryState: 'ready', providers: ['openai'] };
-    database.current = null;
-    const noDatabase = renderHook(() => present());
-    expect(noDatabase.result.current.disabledReason).toBeUndefined();
-    noDatabase.unmount();
-    database.current = DATABASE;
+    catalog.current = { error: null, loading: true, rows: [] };
+    const uninitialized = renderHook(() => present());
+    expect(uninitialized.result.current.disabledReason).toBeUndefined();
+    uninitialized.unmount();
     catalog.current = { error: null, loading: true, rows: [] };
     const loading = renderHook(() => present());
     expect(loading.result.current.disabledReason).toBeUndefined();
     loading.unmount();
     catalog.current = {
-      error: new Error('relation "models" does not exist'),
+      error: new Error(INTERNAL_FAULT.message),
       loading: false,
       rows: [],
     };
     const failed = renderHook(() => present());
     expect(failed.result.current.disabledReason).toBe(
-      'Could not read the enabled models: relation "models" does not exist'
+      `Could not read the enabled models: ${INTERNAL_FAULT.message}`
     );
     expect(failed.result.current.isComposerDisabled).toBe(true);
   });

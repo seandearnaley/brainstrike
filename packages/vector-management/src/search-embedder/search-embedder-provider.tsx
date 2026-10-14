@@ -16,12 +16,22 @@
  */
 
 import { createContext, type ReactElement, type ReactNode, useContext } from 'react';
-import { type UseSearchEmbedderResult, useSearchEmbedder } from './use-search-embedder.js';
+import {
+  type LocalSearchEmbedderFactory,
+  type UseSearchEmbedderResult,
+  useSearchEmbedder,
+} from './use-search-embedder.js';
 
 const SearchEmbedderContext = createContext<UseSearchEmbedderResult | null>(null);
 
-export function SearchEmbedderProvider({ children }: { children: ReactNode }): ReactElement {
-  const value = useSearchEmbedder();
+export function SearchEmbedderProvider({
+  children,
+  createLocalEmbedder,
+}: {
+  children: ReactNode;
+  createLocalEmbedder?: LocalSearchEmbedderFactory | undefined;
+}): ReactElement {
+  const value = useSearchEmbedder(createLocalEmbedder);
   return <SearchEmbedderContext.Provider value={value}>{children}</SearchEmbedderContext.Provider>;
 }
 

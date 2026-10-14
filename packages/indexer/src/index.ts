@@ -1,3 +1,8 @@
+import type { PromptVectorReply, PromptVectorRequest } from '@brainstrike/state-store';
+import type { ScopedFilePage } from './contracts.js';
+
+export type { ScopedFilePage, ScopedFilePageRequest } from './contracts.js';
+
 import { fork } from 'node:child_process';
 import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
 import type {
@@ -142,6 +147,7 @@ export interface ScopedIndexerPort {
   coverageBatch(requests: unknown): Promise<readonly ScopedCoverage[]>;
   coverageScope(request: unknown): Promise<ScopedCoverage>;
   prepareScopedFile(request: unknown): Promise<ScopedFilePlan>;
+  readScopedFilePage(request: unknown): Promise<ScopedFilePage>;
   removeScopedFile(identity: unknown): Promise<boolean>;
   replaceFileBindings(bindings: unknown): Promise<void>;
   searchScopes(request: unknown): Promise<ScopedSearchResult>;
@@ -167,6 +173,7 @@ export interface StateIndexerPort {
   catchUpState(threads: readonly string[]): Promise<void>;
   dropStateThread(threadId: string): Promise<readonly string[]>;
   matchState(threadId: string, query: string): Promise<readonly number[]>;
+  promptVectors(request: PromptVectorRequest): Promise<PromptVectorReply>;
   /** Stores the caller's vectors for backlog rows whose text has not changed since. */
   putStateSearchVectors(request: StateSearchVectorBatch): Promise<StateSearchVectorsResult>;
   rebuildState(threadId: string): Promise<void>;
@@ -201,6 +208,7 @@ export function createStateStoreIndexer(
     gcCheck: (threads, hashes) => port.stateBlobCounts(threads, hashes),
     health: () => port.stateHealth(),
     match: (threadId, query) => port.matchState(threadId, query),
+    promptVectors: (request) => port.promptVectors(request),
     rebuild: (threadId) => port.rebuildState(threadId),
     reindex: (threadId, seq) => port.reindexState(threadId, seq),
     reset: () => port.destroy(),

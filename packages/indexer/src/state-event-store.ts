@@ -27,6 +27,7 @@ import {
   stateThreadsSchema,
 } from './contracts.js';
 import { INDEX_SCHEMA_VERSION, type IndexSchemaVersion } from './index-metadata.js';
+import { PromptVectors } from './prompt-vectors.js';
 import { StateMessageVectors } from './state-message-vectors.js';
 import { StateObservationVectors } from './state-observation-vectors.js';
 import type { StateProjection } from './state-projection.js';
@@ -94,6 +95,7 @@ export class StateEventStore {
       ${searchDefinition}
       ${StateSearchVectors.definition}
       ${StateSearchVectors.failureDefinition}
+      ${PromptVectors.definition}
     `);
     StateMessageVectors.initialize(db);
     StateObservationVectors.initialize(db);
@@ -158,6 +160,7 @@ export class StateEventStore {
       ['state_search_fts', 'table', version >= 11],
       ['state_search_vectors', 'table', version >= 12],
       ['state_search_vector_failures', 'table', version >= 13],
+      ['prompt_vectors', 'table', version >= 14],
     ];
     const objects = decoder(
       Schema.Array(Schema.Struct({ name: Schema.String, sql: Schema.String, type: Schema.String }))
@@ -237,6 +240,9 @@ export class StateEventStore {
     if (version < 13) {
       db.exec(StateSearchVectors.failureDefinition);
     }
+    if (version < 14) {
+      db.exec(PromptVectors.definition);
+    }
     StateMessageVectors.validateStorage(db);
   }
 
@@ -290,6 +296,7 @@ export class StateEventStore {
     }
   }
 
+  readonly prompts: PromptVectors;
   readonly messages: StateMessageVectors;
   readonly observations: StateObservationVectors;
   private readonly searchVectors: StateSearchVectors;
@@ -307,6 +314,7 @@ export class StateEventStore {
     this.messages = new StateMessageVectors(db, this.truth, projection, options);
     this.observations = new StateObservationVectors(db, this.truth, projection, this.messages);
     this.searchVectors = new StateSearchVectors(db);
+    this.prompts = new PromptVectors(db);
     db.exec("INSERT INTO state_events_fts(state_events_fts,rank) VALUES('integrity-check',1)");
   }
 

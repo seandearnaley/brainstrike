@@ -1,129 +1,151 @@
-import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { showDatabaseDemoPanel, waitForDatabaseReady } from './utils/layout-helpers';
-import { readResetProbeCounts, seedResetProbeRows } from './utils/reset-seed-helpers';
+import { HomePage } from './page-objects/home-page';
+import { SettingsPage } from './page-objects/settings-page';
+import { readHostThreadTree } from './utils/agent-host-log';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { clearDatabaseRecords, ensureAssistantShellVisible } from './utils/layout-helpers';
+import { readNativeResetProbe, seedNativeResetProbe } from './utils/reset-seed-helpers';
 
-/**
- * Guards the `clearOptionalRelation` call site (called with
- * `MASTRA_WORKFLOW_TABLE`; formerly `clearLazilyCreatedRelation`, renamed and
- * consolidated by PR #1986) in `apps/desktop/src/ipc-domains/db-ipc.ts`
- * against regressing back to PR #1978's bug class: a stale table name, a
- * removed/no-op call, or any change that reintroduces a swallowed statement
- * error inside `db.transaction(...)` and rolls the whole clear back behind a
- * misleading success message — while the unit tests stay green because they
- * mock `tx.query` with `vi.fn()`.
- *
- * #1978's actual trigger — `DELETE FROM mastra_workflow_snapshot` raising
- * 42P01 because the relation is ABSENT — is NOT reachable through this E2E
- * path: on desktop, the assistant server initializes Mastra memory (which
- * creates `mastra_workflow_snapshot` via `PgliteWorkflowsStore.initialize()`)
- * at boot, before any test can run, so a fresh profile always has the
- * relation present (confirmed empirically via `to_regclass` probe — see
- * task-2b). That absent-relation case is covered instead by the real-PGlite
- * integration tests around `clearOptionalRelation`.
- *
- * Asserts ROW COUNTS, never the success toast: the defect class is a FALSE
- * SUCCESS, so asserting the toast would reproduce the original blind spot.
- */
-
-/**
- * The Settings-panel "Clear Database" button is gated on the ACTIVE
- * collection's row counts (`ACTIVE_COLLECTION_LIVE_COUNTS_QUERY` in
- * packages/db/src/services/collection-indexing-stats.ts), not on global table
- * counts. `seedResetProbeRows` deliberately seeds bare probe rows with a NULL
- * `embedding_set_id` (see Task 1), and a fresh profile has zero collections,
- * so without this the button stays disabled in its "Counts pending" state
- * forever and the real UI path can never be exercised.
- *
- * This creates a real `embedding_sets` row and links the seeded probe rows to
- * it purely to satisfy that UI enablement gate. The wipe itself still goes
- * through the unmodified production `db:clearAll` handler once the button is
- * clicked, and that handler clears every relation regardless of collection
- * scoping — so this setup step does not weaken what the test proves.
- */
-async function linkProbeRowsToNewCollection(page: Page): Promise<string> {
-  return await page.evaluate(async () => {
-    const api = (window as Window & { electronAPI?: unknown }).electronAPI;
-    const query = (
-      api as { db?: { query?: (sql: string, params?: readonly unknown[]) => Promise<unknown> } }
-    )?.db?.query;
-    if (typeof query !== 'function') {
-      throw new Error('Electron db.query bridge is not available');
-    }
-
-    const collectionId = crypto.randomUUID();
-    await query(
-      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, name)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [
-        collectionId,
-        'reset-probe-model',
-        'reset-probe-model',
-        8,
-        'cosine',
-        'Reset Probe Collection',
-      ]
+// Incident #1978: an empty toast is not proof that real durable content cleared.
+// Current host approval events replace the retired Mastra workflow SQL fixture.
+test('Clear Database removes native files and a waiting host run while retaining configuration @destructive @desktop-db-storage', async ({
+  electron,
+  modelProvider,
+}) => {
+  modelProvider.setScript(() => ({
+    finalText: 'Read complete',
+    toolCall: {
+      arguments: { path: 'reset-indexed-probe.txt' },
+      name: 'brainstrike_readWorkspaceFile',
+    },
+  }));
+  try {
+    const page = await electron.ensureWindow();
+    const app = await electron.ensureContext();
+    const workspace = await app.app.evaluate(
+      () => process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] ?? ''
     );
-    await query("UPDATE file_records SET embedding_set_id = $1 WHERE path LIKE 'reset-probe://%'", [
-      collectionId,
-    ]);
-    await query(
-      "UPDATE file_chunks SET embedding_set_id = $1 WHERE content = 'reset probe chunk'",
-      [collectionId]
+    const userData = await app.app.evaluate(({ app }) => app.getPath('userData'));
+    const probe = await seedNativeResetProbe(page, workspace);
+    await configureAssistantProvider(page, {
+      compositeModelKey: 'openrouter::anthropic/claude-sonnet-4.6',
+      provider: 'openrouter',
+    });
+    await enableAssistantCatalogModel(page, 'openrouter::anthropic/claude-sonnet-4.6');
+    await new HomePage(page).openSettings();
+    await new SettingsPage(page).openCategory(/Permissions/i, 'permissions');
+    await page.getByRole('combobox', { exact: true, name: 'Read permission' }).selectOption('ask');
+    await ensureAssistantShellVisible(page);
+    const assistant = page.getByRole('region', { exact: true, name: 'Assistant' });
+    await assistant
+      .getByRole('textbox', { name: 'Message input' })
+      .fill('Read reset-indexed-probe.txt.');
+    await assistant.getByRole('button', { exact: true, name: 'Send' }).click();
+    await expect(
+      assistant.getByRole('button', { name: 'Review 1 pending approval' })
+    ).toBeVisible();
+    const before = await readHostThreadTree(userData);
+    expect(
+      before.some((thread) => thread.rows.some((row) => row.event.type === 'interaction.requested'))
+    ).toBe(true);
+    await new HomePage(page).openSettings();
+    await new SettingsPage(page).openCategory(/AI Tools/i, 'ai-tools');
+    await page.getByRole('tab', { exact: true, name: 'Tools' }).click();
+    const appsToggle = page.getByTestId('mcp-extension-toggle-apps');
+    await expect(appsToggle).toHaveAttribute('data-state', 'checked');
+    await appsToggle.click();
+    await expect(appsToggle).toHaveAttribute('data-state', 'unchecked');
+    await expect(appsToggle).toBeEnabled();
+    await expect(page.getByTestId('mcp-extension-toggle-tasks')).toHaveAttribute(
+      'data-state',
+      'checked'
     );
-
-    return collectionId;
-  });
-}
-
-test.describe('Clear Database clears rows (desktop) @destructive @desktop-db-storage', () => {
-  test.describe.configure({ mode: 'serial' });
-
-  test('clears file records, chunks, and workflow snapshots', async ({ window }) => {
-    const shownPage = await showDatabaseDemoPanel(window);
-    const panelPage = await waitForDatabaseReady(shownPage);
-
-    await seedResetProbeRows(panelPage);
-
-    const before = await readResetProbeCounts(panelPage);
-    expect(before.fileRecords).toBeGreaterThan(0);
-    expect(before.fileChunks).toBeGreaterThan(0);
-    expect(before.workflowSnapshots).toBeGreaterThan(0);
-
-    const panelScope = panelPage.locator('[data-testid="database-demo-panel"]');
-
-    // Link the seeded probe rows to a real collection and select it — see
-    // linkProbeRowsToNewCollection for why this step is required.
-    await linkProbeRowsToNewCollection(panelPage);
-    const collectionOption = panelScope.getByRole('option', { name: /Reset Probe Collection/ });
-    await expect(collectionOption).toBeVisible({ timeout: 10_000 });
-    await collectionOption.click();
-
-    // "Clear Database" renders inside `SettingsPanel`, which only
-    // mounts once the "Import Settings" popover trigger (an exact accessible
-    // name, see `database-demo-panel.tsx`) is opened. The settings content
-    // renders in a portal, so the button is queried from the page root rather
-    // than from the panel scope. An exact match, unconditional click replaces
-    // a probe-and-adapt `isVisible({ timeout }).catch(() => false)` check,
-    // which silently ignored the timeout option and swallowed every error
-    // including a Playwright strict-mode violation.
-    await panelPage.getByRole('button', { name: 'Import Settings' }).click();
-
-    const clearButton = panelPage.getByRole('button', { exact: true, name: 'Clear Database' });
-    await expect(clearButton).toBeVisible({ timeout: 10_000 });
-    await expect(clearButton).toBeEnabled({ timeout: 15_000 });
-    await clearButton.click();
-
-    const confirmDialog = panelPage.getByRole('dialog');
-    await expect(confirmDialog).toBeVisible({ timeout: 5000 });
-    await confirmDialog.getByRole('button', { name: /clear/i }).first().click();
-    await expect(confirmDialog).not.toBeVisible({ timeout: 15_000 });
-
-    await expect
-      .poll(() => readResetProbeCounts(panelPage), {
-        message: 'expected Clear Database to empty every probed relation',
-        timeout: 20_000,
-      })
-      .toEqual({ fileChunks: 0, fileRecords: 0, workflowSnapshots: 0 });
-  });
+    const retained = await page.evaluate(async () => {
+      if (!(window.modelCatalog && window.viewFilterPresets)) {
+        throw new Error('Configuration capabilities missing');
+      }
+      localStorage.setItem('clear-content-retained-setting', 'retained');
+      await window.viewFilterPresets
+        .request({
+          input: { excludes: [], includes: ['src/**'], name: 'Clear retained preset' },
+          operation: 'create',
+        })
+        .then((result) => {
+          if (!result.ok) {
+            throw new Error(result.error.message);
+          }
+          return result.value;
+        });
+      return {
+        models: await window.modelCatalog.read().then((result) => {
+          if (!result.ok) {
+            throw new Error(result.error.message);
+          }
+          return result.value;
+        }),
+        presets: await window.viewFilterPresets.request({ operation: 'list' }).then((result) => {
+          if (!result.ok) {
+            throw new Error(result.error.message);
+          }
+          return result.value;
+        }),
+      };
+    });
+    await clearDatabaseRecords(page);
+    const assertCleared = async (current: typeof page) => {
+      expect(await readNativeResetProbe(current, probe)).toEqual({
+        files: 0,
+        retainedProbeIds: [],
+      });
+      await expect
+        .poll(() =>
+          readHostThreadTree(userData).then(
+            () => 'answering',
+            (error: unknown) => String(error)
+          )
+        )
+        .toBe('answering');
+      const tree = await readHostThreadTree(userData);
+      expect(tree.some((thread) => before.some((old) => old.threadId === thread.threadId))).toBe(
+        false
+      );
+      await new HomePage(current).openSettings();
+      await new SettingsPage(current).openCategory(/AI Tools/i, 'ai-tools');
+      await current.getByRole('tab', { exact: true, name: 'Tools' }).click();
+      await expect(current.getByTestId('mcp-extension-toggle-apps')).toBeEnabled();
+      await expect(current.getByTestId('mcp-extension-toggle-apps')).toHaveAttribute(
+        'data-state',
+        'unchecked'
+      );
+      await expect(current.getByTestId('mcp-extension-toggle-tasks')).toHaveAttribute(
+        'data-state',
+        'checked'
+      );
+      expect(
+        await current.evaluate(async () => ({
+          models: await window.modelCatalog!.read().then((result) => {
+            if (!result.ok) {
+              throw new Error(result.error.message);
+            }
+            return result.value;
+          }),
+          presets: await window.viewFilterPresets!.request({ operation: 'list' }).then((result) => {
+            if (!result.ok) {
+              throw new Error(result.error.message);
+            }
+            return result.value;
+          }),
+        }))
+      ).toEqual(retained);
+      expect(
+        await current.evaluate(() => localStorage.getItem('clear-content-retained-setting'))
+      ).toBe('retained');
+    };
+    await assertCleared(page);
+    const reopened = await electron.restart();
+    await assertCleared(reopened.window);
+    expect(modelProvider.refusals()).toEqual([]);
+  } finally {
+    await electron.dispose();
+  }
 });

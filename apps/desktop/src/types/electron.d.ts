@@ -1,4 +1,5 @@
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import type { DiagnosticEventsRepository } from '@brainstrike/db';
 import type {
   WorkspaceIndexingIdleState,
   WorkspaceIndexingPowerSource,
@@ -10,23 +11,29 @@ import type {
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
 } from '@brainstrike/types';
+import type { mainDiagnosticEventsReader } from '../assistant-server/query-diagnostics-tool';
 import type { DesktopPlatformDiagnosticsSnapshot } from '../desktop-platform-diagnostics';
 import type { MainLogWindowRequest, MainLogWindowResult } from '../diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from '../diagnostics/process-counter-ring';
 import type { changesContract } from '../ipc-domains/changes.contract';
 import type { clipboardContract } from '../ipc-domains/clipboard.contract';
+import type { collectionCatalogContract } from '../ipc-domains/collection-catalog.contract';
 import type { commandSessionsContract } from '../ipc-domains/command-sessions.contract';
 import type { contextFilesContract } from '../ipc-domains/context-files.contract';
-import type { databaseIntegrityContract } from '../ipc-domains/database.contract';
 import type { forgeContract } from '../ipc-domains/forge.contract';
 import type { gitContract } from '../ipc-domains/git.contract';
 import type { McpBridge } from '../ipc-domains/mcp.contract';
+import type { modelCatalogContract } from '../ipc-domains/model-catalog.contract';
 import type { notesVaultContract } from '../ipc-domains/notes-vault.contract';
+import type { promptLibraryContract } from '../ipc-domains/prompt-library.contract';
 import type { skillsContract } from '../ipc-domains/skills.contract';
+import type { sourceFilesContract } from '../ipc-domains/source-files.contract';
 import type { settingsContract } from '../ipc-domains/storage-preferences.contract';
 import type { terminalContract } from '../ipc-domains/terminal.contract';
+import type { threadGroupsContract } from '../ipc-domains/thread-groups.contract';
 import type { userCommandsContract } from '../ipc-domains/user-commands.contract';
 import type { userPersonasContract } from '../ipc-domains/user-personas.contract';
+import type { viewFilterPresetsContract } from '../ipc-domains/view-filter-presets.contract';
 import type { windowFocusContract } from '../ipc-domains/window-focus.contract';
 import type { worktreesContract } from '../ipc-domains/worktrees.contract';
 import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
@@ -97,6 +104,7 @@ declare global {
     chunkingHost?: ChunkingHostRuntimeBridge | VisibleChunkingHostBridge;
     /** Desktop-only clipboard write bridge, derived from its contract (BST-1648). */
     clipboard?: TransportBridge<typeof clipboardContract>;
+    collectionCatalog?: TransportBridge<typeof collectionCatalogContract>;
     commandPalette?: {
       onOpen: (callback: () => void) => () => void;
     };
@@ -108,14 +116,8 @@ declare global {
      * to `ContextFilesBridge` in `@brainstrike/assistant-contract`.
      */
     contextFiles?: TransportBridge<typeof contextFilesContract>;
-    /**
-     * Desktop-only database integrity state (BST-1870), derived from its pure IPC
-     * contract, which is itself pinned to `DesktopDatabaseIntegrityBridge` in
-     * `@brainstrike/db`. Held by the visible UI and the embedding host; absent on
-     * web and in the other hidden hosts.
-     */
-    databaseIntegrity?: TransportBridge<typeof databaseIntegrityContract>;
-    desktopDiagnostics?: {
+    desktopDiagnostics?: Pick<DiagnosticEventsRepository, 'queryEvents' | 'countByFingerprint'> & {
+      getUnseenCounts: typeof mainDiagnosticEventsReader.getUnseenCounts;
       getSnapshot: () => Promise<BoundaryResult<DesktopPlatformDiagnosticsSnapshot>>;
       readMainLogWindow: (
         request: MainLogWindowRequest
@@ -205,6 +207,7 @@ declare global {
       ) => (() => void) | undefined;
     };
     mcp: McpBridge;
+    modelCatalog?: TransportBridge<typeof modelCatalogContract>;
     /**
      * Desktop-only notes vault bridge (see
      * packages/notes-vault/src/desktop/bridge-contract.ts). Absent on web (no
@@ -242,6 +245,7 @@ declare global {
       }>;
       onPowerState: (callback: (state: 'resume' | 'suspend') => void) => () => void;
     };
+    promptLibrary?: TransportBridge<typeof promptLibraryContract>;
     /**
      * Provider OAuth bridge (BST-1355). Shape defined ONCE in
      * `@brainstrike/assistant-contract/provider-auth` (`ProviderAuthBridge`);
@@ -274,6 +278,16 @@ declare global {
      */
     skills?: TransportBridge<typeof skillsContract>;
     /**
+     * Desktop-only user-defined slash command discovery bridge. Absent on web
+     * (no preload) — consumers MUST capability-check `window.userCommands`. The
+     * composer's "/" menu calls `list` to load prompt-template commands scanned
+     * from `.brainstrike/commands` + `.claude/commands`.
+     *
+     * Derived from the desktop contract (BST-1648), which is itself pinned
+     * equal to app-shell's `UserCommandsBridge` — nothing here can drift.
+     */
+    sourceFiles?: TransportBridge<typeof sourceFilesContract>;
+    /**
      * Desktop-only terminal (PTY) bridge. Absent on web (no preload) — consumers
      * MUST capability-check `window.terminal`. `create` pins the shell cwd to a
      * validated workspace `rootId` (main resolves + containment-checks it). pty
@@ -283,6 +297,7 @@ declare global {
      * before handler entry.
      */
     terminal?: TransportBridge<typeof terminalContract>;
+    threadGroups?: TransportBridge<typeof threadGroupsContract>;
     tools: {
       onRootTreeSelectionUpdate: (
         callback: (payload: AssistantSelectionUpdatePayload) => void
@@ -297,16 +312,8 @@ declare global {
         callback: (payload: AssistantWorkspaceTapestryUpdatePayload) => void
       ) => (() => void) | undefined;
     };
-    /**
-     * Desktop-only user-defined slash command discovery bridge. Absent on web
-     * (no preload) — consumers MUST capability-check `window.userCommands`. The
-     * composer's "/" menu calls `list` to load prompt-template commands scanned
-     * from `.brainstrike/commands` + `.claude/commands`.
-     *
-     * Derived from the desktop contract (BST-1648), which is itself pinned
-     * equal to app-shell's `UserCommandsBridge` — nothing here can drift.
-     */
     userCommands?: TransportBridge<typeof userCommandsContract>;
+    viewFilterPresets?: TransportBridge<typeof viewFilterPresetsContract>;
     /**
      * Desktop-only native window focus (BST-1864), derived from its pure IPC
      * contract, which is itself pinned to `WindowFocusBridge` in `@brainstrike/utils`.

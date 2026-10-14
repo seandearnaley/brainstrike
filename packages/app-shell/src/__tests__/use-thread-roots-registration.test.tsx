@@ -1,6 +1,6 @@
 import type { DbHandle } from '@brainstrike/db/react';
-import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useThreadRoots } from '../hooks/use-thread-roots';
 import {
   notifyRootRegistered,
@@ -90,4 +90,29 @@ describe('committed registration refreshes bound folder status', () => {
     expect(query).toHaveBeenCalledTimes(1);
     expect(result.current).toBe(before);
   });
+});
+
+afterEach(() => {
+  cleanup();
+  Reflect.deleteProperty(window, 'threadGroups');
+});
+
+it('reads retained native roots and reconnect status without a database provider', async () => {
+  let status = 'disconnected';
+  const readRoots = vi.fn(async () => [{ ...row, status }]);
+  Object.defineProperty(window, 'threadGroups', {
+    configurable: true,
+    value: { readRoots: async () => ({ ok: true, value: await readRoots() }) },
+  });
+  const { result } = renderHook(() => useThreadRoots({ ...params, database: null }));
+  await waitFor(() => expect(result.current.primaryRemoved).toBe(true));
+  expect(result.current.loadedSecondaryRoots).toEqual([
+    { displayName: 'root', path: ROOT_PATH, removed: true, rootId: ROOT_ID },
+  ]);
+  await act(async () => {
+    status = 'live';
+    notifyRootRegistered([ROOT_ID, ROOT_PATH]);
+  });
+  await waitFor(() => expect(result.current.primaryRemoved).toBe(false));
+  expect(result.current.loadedSecondaryRoots[0]?.removed).toBeUndefined();
 });

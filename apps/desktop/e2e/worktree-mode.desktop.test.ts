@@ -251,8 +251,11 @@ test.describe('Worktree mode (desktop)', () => {
     await seedRoot(page, repo);
     await openComposer(page);
 
-    const chip = page.getByTestId('workspace-bar-branch-chip');
+    // Checkout status can render a read-only chip before branch discovery settles.
+    // Wait for the actual menu trigger before this single user action.
+    const chip = page.getByRole('button', { name: /^Branch:/ });
     await expect(chip).toContainText('main', { timeout: 30_000 });
+    await expect(chip).toHaveAttribute('aria-haspopup', 'menu');
     await chip.click();
     await page.getByTestId('workspace-bar-branch-row-feature/alpha').click();
     await expect(chip).toContainText('feature/alpha', { timeout: 60_000 });

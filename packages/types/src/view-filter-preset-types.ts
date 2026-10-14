@@ -171,3 +171,123 @@ export function getPresetIncludes(preset: ViewFilterPreset): string[] {
 export function getPresetExcludes(preset: ViewFilterPreset): string[] {
   return preset.excludes;
 }
+
+/** Canonical fresh-profile defaults shared by native and browser persistence. */
+export const DEFAULT_VIEW_FILTER_PRESETS = [
+  {
+    description: 'Source files for TypeScript and JavaScript projects',
+    excludes: ['node_modules', 'dist', 'build', '.next', 'coverage', '*.test.*', '*.spec.*'],
+    icon: 'file-code',
+    includes: ['*.ts', '*.tsx', '*.js', '*.jsx', '*.mjs', '*.cjs'],
+    isDefault: true,
+    name: 'TypeScript/JavaScript',
+    sortOrder: 1,
+    useRegex: false,
+  },
+  {
+    description: 'All programming language source files',
+    excludes: ['node_modules', 'dist', 'build', 'target', '__pycache__', '.git', 'vendor'],
+    icon: 'code',
+    includes: [
+      '*.ts',
+      '*.tsx',
+      '*.js',
+      '*.jsx',
+      '*.py',
+      '*.rs',
+      '*.go',
+      '*.java',
+      '*.c',
+      '*.cpp',
+      '*.h',
+      '*.hpp',
+      '*.cs',
+      '*.rb',
+      '*.php',
+      '*.swift',
+      '*.kt',
+    ],
+    isDefault: true,
+    name: 'All Code',
+    sortOrder: 2,
+    useRegex: false,
+  },
+  {
+    description: 'Markdown and documentation files',
+    excludes: ['node_modules', '.git'],
+    icon: 'file-text',
+    includes: ['*.md', '*.mdx', '*.txt', '*.rst', 'README*', 'LICENSE*', 'CHANGELOG*'],
+    isDefault: true,
+    name: 'Documentation',
+    sortOrder: 3,
+    useRegex: false,
+  },
+  {
+    description: 'Configuration and environment files',
+    excludes: ['node_modules', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'],
+    icon: 'settings',
+    includes: [
+      '*.json',
+      '*.yaml',
+      '*.yml',
+      '*.toml',
+      '*.ini',
+      '*.env*',
+      '*.config.*',
+      'tsconfig*',
+      'package.json',
+      'Cargo.toml',
+    ],
+    isDefault: true,
+    name: 'Config Files',
+    sortOrder: 4,
+    useRegex: false,
+  },
+  {
+    description: 'CSS and styling files',
+    excludes: ['node_modules', 'dist'],
+    icon: 'palette',
+    includes: ['*.css', '*.scss', '*.sass', '*.less', '*.styl', '*.styled.*'],
+    isDefault: true,
+    name: 'Styles',
+    sortOrder: 5,
+    useRegex: false,
+  },
+  {
+    description: 'Test files only',
+    excludes: ['node_modules', 'coverage'],
+    icon: 'flask-conical',
+    includes: ['*.test.*', '*.spec.*', '**/__tests__/**', '**/tests/**', '**/test/**'],
+    isDefault: true,
+    name: 'Tests',
+    sortOrder: 6,
+    useRegex: false,
+  },
+  {
+    description: 'Show all files without filtering',
+    excludes: ['node_modules', '.git', 'dist', 'build'],
+    icon: 'folder-open',
+    includes: ['*'],
+    isDefault: true,
+    name: 'All Files',
+    sortOrder: 7,
+    useRegex: false,
+  },
+] satisfies readonly Omit<ViewFilterPreset, 'id' | 'createdAt' | 'updatedAt'>[];
+
+export type ViewFilterPresetRecord = Omit<ViewFilterPreset, 'createdAt' | 'updatedAt'> & {
+  createdAt: string;
+  updatedAt: string;
+};
+export type ViewFilterPresetRequest =
+  | { operation: 'list' }
+  | { operation: 'create'; input: CreateViewFilterPresetInput }
+  | { operation: 'update'; id: string; input: UpdateViewFilterPresetInput }
+  | { operation: 'delete'; id: string };
+export interface ViewFilterPresetReply {
+  deleted?: boolean;
+  presets: ViewFilterPresetRecord[];
+}
+export interface ViewFilterPresetCapability {
+  request(input: ViewFilterPresetRequest): Promise<ViewFilterPresetReply>;
+}

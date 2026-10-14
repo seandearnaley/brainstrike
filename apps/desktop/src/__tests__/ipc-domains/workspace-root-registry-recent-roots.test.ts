@@ -2,6 +2,7 @@ import {
   WORKSPACE_ROOT_MANAGED_BUT_UNAUTHORIZED_MESSAGE,
   WORKSPACE_ROOT_NEVER_GRANTED_MESSAGE,
 } from '@brainstrike/app-shell/workspace-connect/workspace-connect-bridge';
+import type { WorkspaceRootReply } from '@brainstrike/state-store';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -11,8 +12,9 @@ import {
 import { loggerMock } from './workspace-root-registry-logger-test-helper';
 import {
   createRegistry,
-  createRegistryDatabaseQuery,
+  createRegistryCatalogRequest,
   createStorage,
+  registryRoot,
   rootHandle,
 } from './workspace-root-registry-test-helpers';
 
@@ -183,14 +185,13 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
     expect(worktreeRootId).toBeDefined();
     await expect(firstRegistry.listRecentRoots()).resolves.toEqual([]);
 
-    const dbQuery = createRegistryDatabaseQuery();
-    dbQuery.mockImplementation(async (sql: string) => {
-      if (sql.includes('SELECT id, kind FROM roots WHERE id = ANY')) {
-        return { rows: [{ id: worktreeRootId, kind: 'worktree' }] };
-      }
-      return { rows: [] };
-    });
-    const relaunchedRegistry = createRegistry({ storage }, dbQuery);
+    if (!worktreeRootId) {
+      throw new Error('Missing mounted worktree ID');
+    }
+    const catalogRequest = createRegistryCatalogRequest([
+      registryRoot(worktreeRootId, '/managed/app/bright-fox', 'worktree'),
+    ]);
+    const relaunchedRegistry = createRegistry({ storage }, catalogRequest);
 
     await relaunchedRegistry.restoreRoots();
 
@@ -207,14 +208,13 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
     expect(ordinaryRootId).toBeDefined();
     await storage.removeItem('recentRootsList');
 
-    const dbQuery = createRegistryDatabaseQuery();
-    dbQuery.mockImplementation(async (sql: string) => {
-      if (sql.includes('SELECT id, kind FROM roots WHERE id = ANY')) {
-        return { rows: [{ id: ordinaryRootId, kind: 'path' }] };
-      }
-      return { rows: [] };
-    });
-    const relaunchedRegistry = createRegistry({ storage }, dbQuery);
+    if (!ordinaryRootId) {
+      throw new Error('Missing mounted folder ID');
+    }
+    const catalogRequest = createRegistryCatalogRequest([
+      registryRoot(ordinaryRootId, '/ws/ordinary'),
+    ]);
+    const relaunchedRegistry = createRegistry({ storage }, catalogRequest);
 
     await relaunchedRegistry.restoreRoots();
 
@@ -229,17 +229,18 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
       JSON.stringify([{ addedAt: 1, path: '/ws/ordinary', rootId: 'root-ordinary' }])
     );
     const order: string[] = [];
-    let resolveKindQuery!: (value: { rows: unknown[] }) => void;
-    const kindQuery = new Promise<{ rows: unknown[] }>((resolve) => {
+    let resolveKindQuery!: (value: WorkspaceRootReply) => void;
+    const kindQuery = new Promise<WorkspaceRootReply>((resolve) => {
       resolveKindQuery = resolve;
     });
-    const dbQuery = createRegistryDatabaseQuery();
-    dbQuery.mockImplementation(async (sql: string) => {
-      if (sql.includes('SELECT id, kind FROM roots WHERE id = ANY')) {
+    const catalogRequest = createRegistryCatalogRequest();
+    const respond = catalogRequest.getMockImplementation()!;
+    catalogRequest.mockImplementation(async (request) => {
+      if (request.operation === 'list') {
         order.push('kind-query');
         return await kindQuery;
       }
-      return { rows: [] };
+      return respond(request);
     });
     const registry = createRegistry(
       {
@@ -257,13 +258,13 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
         },
         storage,
       },
-      dbQuery
+      catalogRequest
     );
 
     const restoring = registry.restoreRoots();
     await vi.waitFor(() => expect(order).toContain('kind-query'));
     expect(order).toEqual(['mount:/ws/ordinary', 'kind-query']);
-    resolveKindQuery({ rows: [{ id: 'root-ordinary', kind: 'path' }] });
+    resolveKindQuery({ roots: [registryRoot('root-ordinary', '/ws/ordinary')] });
     await restoring;
   });
 
@@ -272,14 +273,15 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
       'rootsList',
       JSON.stringify([{ addedAt: 1, path: '/ws/ordinary', rootId: 'root-ordinary' }])
     );
-    const dbQuery = createRegistryDatabaseQuery();
-    dbQuery.mockImplementation(async (sql: string) => {
-      if (sql.includes('SELECT id, kind FROM roots WHERE id = ANY')) {
+    const catalogRequest = createRegistryCatalogRequest();
+    const respond = catalogRequest.getMockImplementation()!;
+    catalogRequest.mockImplementation(async (request) => {
+      if (request.operation === 'list') {
         throw new Error('database unavailable');
       }
-      return { rows: [] };
+      return respond(request);
     });
-    const registry = createRegistry({ storage }, dbQuery);
+    const registry = createRegistry({ storage }, catalogRequest);
 
     await registry.restoreRoots();
 

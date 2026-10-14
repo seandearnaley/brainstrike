@@ -6,6 +6,7 @@ import { expect, test } from './fixtures/electron-fixture';
 import type { ElectronHarness } from './fixtures/electron-harness';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
+import { readAgentHostLog } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
@@ -110,17 +111,7 @@ async function assertLiveReload(
     const admittedTurns = approval ? 2 : 1;
     await expect.poll(() => rootTurns().length).toBe(admittedTurns);
     if (approval) {
-      const graph = await window.evaluate(async () => {
-        const query = (
-          window as unknown as {
-            electronAPI: { db: { query: (sql: string) => Promise<unknown> } };
-          }
-        ).electronAPI.db.query;
-        return query(`SELECT m.id, m.role, m.content, p.parent_id
-          FROM mastra_messages m
-          LEFT JOIN brainstrike_assistant_message_parents p ON p.message_id = m.id
-          ORDER BY m."createdAt"`);
-      });
+      const graph = await readAgentHostLog(electron.getUserDataDir());
       await testInfo.attach('pre-reload-history', {
         body: JSON.stringify(graph, null, 2),
         contentType: 'application/json',

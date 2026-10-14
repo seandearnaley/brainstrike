@@ -456,12 +456,13 @@ export function createWindowThreadCapability(
         });
       }
     },
-    workspaceRepository: (history) => {
+    workspaceRepository: () => {
       const getThreadWorkspace = async (threadId: string) => {
         const host = await threadClient(threadId);
-        return host
-          ? (await host.request('thread/workspace/read', { threadId })).snapshot
-          : history.getThreadWorkspace(threadId);
+        if (!host) {
+          throw new Error('This workspace snapshot is not owned by the attached agent host.');
+        }
+        return (await host.request('thread/workspace/read', { threadId })).snapshot;
       };
       return {
         getThreadWorkspace,
@@ -476,7 +477,7 @@ export function createWindowThreadCapability(
         setThreadWorkspace: async (threadId, resourceId, snapshot) => {
           const host = await threadClient(threadId);
           if (!host) {
-            return history.setThreadWorkspace(threadId, resourceId, snapshot);
+            throw new Error('This workspace snapshot is not owned by the attached agent host.');
           }
           if (resourceId !== WORKSPACE_MEMORY_RESOURCE_ID) {
             throw new Error('The host thread belongs to the workspace resource');

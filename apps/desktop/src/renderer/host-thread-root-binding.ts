@@ -1,9 +1,5 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
-import {
-  type AssistantOperatingRootCandidate,
-  resolveAssistantOperatingRootBinding,
-} from '@brainstrike/app-shell';
-import type { DbHandle } from '@brainstrike/db/react';
+import type { StoredRootDescriptor } from '@brainstrike/types';
 
 /**
  * Legacy parity (workspace-context "Thread and run binding"): a thread's
@@ -16,8 +12,7 @@ import type { DbHandle } from '@brainstrike/db/react';
  */
 export async function bindHostThreadToMainRoot(options: {
   readonly client: Pick<HostClient, 'request'>;
-  readonly database: Pick<DbHandle, 'query'> | null;
-  readonly mainRoot: AssistantOperatingRootCandidate | undefined;
+  readonly mainRoot: StoredRootDescriptor | undefined;
   readonly threadId: string;
 }): Promise<void> {
   const { client, threadId } = options;
@@ -25,12 +20,9 @@ export async function bindHostThreadToMainRoot(options: {
   if (binding?.operatingRootId !== undefined || !options.mainRoot) {
     return;
   }
-  if (!options.database) {
-    throw new Error(
-      'Cannot bind a host thread to its folder before the workspace database is ready.'
-    );
-  }
-  const root = await resolveAssistantOperatingRootBinding(options.database, options.mainRoot);
+  // Main supplies the canonical descriptor; the host validates its live mount
+  // before committing the binding. No second path-to-ID lookup owns this fact.
+  const root = options.mainRoot;
   await client.request('thread/workspace/binding/update', {
     commandId: crypto.randomUUID(),
     patch: {

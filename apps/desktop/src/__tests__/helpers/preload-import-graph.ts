@@ -5,8 +5,8 @@ import ts from 'typescript';
 /**
  * Walks the VALUE-import graph of a preload entry (BST-1648). Type-only
  * imports are skipped because the bundler erases them; every other import
- * is classified: relative → resolved and walked; anything else (bare
- * package, `node:*`, `electron`) → a violation, because
+ * is classified: relative or explicitly bundled alias → resolved and walked;
+ * other bare packages, `node:*`, and `electron` → a violation, because
  * `scripts/build-main-config.mjs` leaves those as `require(...)` calls a
  * sandboxed preload cannot resolve. The entry file itself may `require()`
  * only what `allowedEntryRequires` lists.
@@ -25,14 +25,18 @@ export interface PreloadImportGraph {
 
 interface PreloadImportGraphOptions {
   readonly allowedEntryRequires: readonly string[];
+  readonly bundledAliases?: Readonly<Record<string, string>> | undefined;
 }
 
 const RESOLUTION_CANDIDATES = ['', '.ts', '.tsx', '/index.ts', '/index.tsx'] as const;
 
 function resolveRelativeSpecifier(fromFile: string, specifier: string): string {
   const base = path.resolve(path.dirname(fromFile), specifier);
-  for (const suffix of RESOLUTION_CANDIDATES) {
-    const candidate = `${base}${suffix}`;
+  // esbuild substitutes TypeScript sources for NodeNext .js specifiers.
+  const candidates = base.endsWith('.js')
+    ? [`${base.slice(0, -3)}.ts`, `${base.slice(0, -3)}.tsx`, base]
+    : RESOLUTION_CANDIDATES.map((suffix) => `${base}${suffix}`);
+  for (const candidate of candidates) {
     if (existsSync(candidate) && statSync(candidate).isFile()) {
       return candidate;
     }
@@ -167,6 +171,11 @@ export function collectPreloadImportGraph(
             'require()/import() with a non-literal argument (the bundler cannot inline it; use a string literal)',
           specifier,
         });
+        continue;
+      }
+      const bundledAlias = options.bundledAliases?.[specifier];
+      if (bundledAlias && kind === 'import') {
+        queue.push(resolveRelativeSpecifier(file, bundledAlias));
         continue;
       }
       if (isRelativeSpecifier(specifier)) {

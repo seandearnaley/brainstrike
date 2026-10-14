@@ -4,15 +4,17 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { openHostStateIndex } from '@brainstrike/agent-host/test-fixtures/host-state-index';
+import { projectModelCatalog } from '@brainstrike/assistant-contract';
 import type {
   CanonicalFileIdentity,
   CanonicalManifestFile,
   CanonicalPublicationPort,
   CanonicalVectorPublicationPort,
 } from '@brainstrike/canonical-ingestion';
-import { migrate, wasmLoader } from '@brainstrike/db';
 import type { ScopedFilePlan } from '@brainstrike/indexer';
 import { createIndexerConnection } from '@brainstrike/indexer/transport';
+import { StateStore } from '@brainstrike/state-store';
 import { build } from 'esbuild';
 import { expect, it, vi } from 'vitest';
 import { MAIN_PROCESS_BUILD_OPTIONS } from '../../scripts/build-main-config.mjs';
@@ -24,7 +26,6 @@ import { createNativeCanonicalCatalog } from '../native-canonical-catalog';
 import {
   NativeCanonicalInference,
   NativeCanonicalProfileResolver,
-  resolveNativeCanonicalProfile,
 } from '../native-canonical-profile';
 
 const desktop = path.resolve(import.meta.dirname, '../..');
@@ -81,14 +82,14 @@ it.each([
   { fileName: 'broken.py', mode: 'TEXT', provider: 'local' },
   { fileName: 'broken.ts', mode: 'TEXT', provider: 'local' },
 ] as const)(
-  'publishes $provider $mode $fileName real PG retained source through the built attachment into one native writer and joins process exit',
+  'publishes $provider $mode $fileName real SQLite retained source through the built attachment into one native writer and joins process exit',
   async ({ mode, fileName, provider }) => {
     const identity = { ...baseIdentity, fileName };
     const directory = await mkdtemp(path.join(os.tmpdir(), 'canonical-native-index-'));
     const fixtureDirectory = await mkdtemp(path.join(desktop, '.indexer-proof-'));
-    const db = await wasmLoader.createPGlite('memory://canonical-utility-process');
+    const stateIndex = await openHostStateIndex(directory);
+    const store = await StateStore.open(directory, { indexer: stateIndex.indexer });
     let original = sourceText(fileName, 'firstversion');
-    await migrate(db);
     const metadata = {
       dimensions: mode === 'VECTOR' ? (provider === 'cohere' ? 1024 : 384) : 1536,
       distance: 'cosine' as const,
@@ -112,20 +113,28 @@ it.each([
       dtype: 'q8' as const,
       modelId: 'Xenova/bge-small-en-v1.5',
     };
-    const profile =
-      mode === 'VECTOR' ? resolveNativeCanonicalProfile(metadata, selection).profile : null;
-    await db.query(
-      'INSERT INTO embedding_sets(id,model_key,model_id,dimensions,distance) VALUES ($1,$2,$3,$4,$5)',
-      [metadata.id, metadata.modelKey, metadata.modelId, metadata.dimensions, metadata.distance]
-    );
+    await store.collections({
+      collection: { ...metadata, createdAt: '2026-10-13T00:00:00.000Z' },
+      operation: 'create',
+    });
     const resolver = new NativeCanonicalProfileResolver({
-      query: async (sql, params) => ({ rows: (await db.query(sql, params)).rows }),
+      collections: store,
+      modelCatalog: { read: async () => projectModelCatalog({ models: [], providers: [] }) },
       readLocalSelection: async () => selection,
       resolveEmbeddingSetId: async (requested) => {
         expect(requested).toEqual(scope);
         return scope.embeddingSetId;
       },
     });
+    const profile =
+      mode === 'VECTOR'
+        ? (
+            await resolver.resolve(scope, {
+              requestId: 'profile',
+              signal: new AbortController().signal,
+            })
+          ).profile
+        : null;
     let physicalHold:
       | {
           readonly entered: () => void;
@@ -189,10 +198,37 @@ it.each([
       generate: vi.fn(ownedInference.generate),
       join: vi.fn((requestId: string) => ownedInference.join(requestId)),
     };
-    await db.query(
-      `INSERT INTO file_records(id,name,path,embedding_set_id,content,content_hash,size,mtime_ms) VALUES ('actual-file',$1,'retained-source-path','actual-set',$2,$3,$4,1)`,
-      [fileName, original, hash(original), Buffer.byteLength(original)]
-    );
+    const sourceInput = (mtimeMs: number) => ({
+      content: original,
+      contentHash: hash(original),
+      fileName,
+      path: 'retained-source-path',
+      stat: { mtimeMs, size: Buffer.byteLength(original) },
+    });
+    const [imported] = (
+      await store.sourceCatalog({
+        embeddingSetId: scope.embeddingSetId,
+        files: [sourceInput(1)],
+        operation: 'import',
+      })
+    ).files;
+    if (!imported) {
+      throw new Error('Missing imported canonical identity');
+    }
+    identity.fileId = imported.fileId;
+    const readSource = async () => {
+      const [record] = (
+        await store.sourceCatalog({
+          fileIds: [identity.fileId],
+          maxContentBytes: 4096,
+          operation: 'read',
+        })
+      ).files;
+      if (!record) {
+        throw new Error('Missing retained source');
+      }
+      return record;
+    };
     await build({
       ...MAIN_PROCESS_BUILD_OPTIONS,
       entryPoints: { 'canonical-proof': 'src/__tests__/fixtures/canonical-indexer-node-proof.ts' },
@@ -267,7 +303,7 @@ it.each([
       expect(info.readerQueryOnly).toBe(1);
       const plans = new Map<string, ScopedFilePlan>();
       const catalog = createNativeCanonicalCatalog({
-        database: db,
+        catalog: store,
         joinNativeRemoval: async (files, removalScope) => {
           for (const file of files) {
             await port.removeScopedFile({ fileId: file.fileId, scope: removalScope });
@@ -300,6 +336,25 @@ it.each([
           };
         },
       });
+      const replaceSource = async (mtimeMs: number) => {
+        const previousId = identity.fileId;
+        await catalog.removeFiles(
+          { files: [{ ...identity }], scope },
+          { requestId: `replace-${mtimeMs}`, signal: new AbortController().signal }
+        );
+        const [replacement] = (
+          await store.sourceCatalog({
+            embeddingSetId: scope.embeddingSetId,
+            files: [sourceInput(mtimeMs)],
+            operation: 'import',
+          })
+        ).files;
+        if (!replacement) {
+          throw new Error('Missing replacement imported identity');
+        }
+        expect(replacement.fileId).not.toBe(previousId);
+        identity.fileId = replacement.fileId;
+      };
       const verify = async (files: readonly CanonicalManifestFile[]) => {
         const proof = await port.verifyScopedManifest({
           files: files.map((file) => ({
@@ -432,12 +487,9 @@ it.each([
           })
         ).hits
       ).toHaveLength(1);
-      const result = await db.query<{ content: string; chunks_count: number }>(
-        'SELECT content,chunks_count FROM file_records WHERE id=$1',
-        ['actual-file']
-      );
-      expect(result.rows[0]?.content).toBe(original);
-      expect(result.rows[0]?.chunks_count).toBeGreaterThan(0);
+      const result = await readSource();
+      expect(result.content).toBe(original);
+      expect(result.chunksCount).toBeGreaterThan(0);
       // Every committed chunk is its own source span with words of its own: no
       // lone `export` or `}` whose identical vector outranks real content.
       const chunks = plans.get(identity.fileId)?.chunks ?? [];
@@ -487,10 +539,7 @@ it.each([
         expect(inference.generate).toHaveBeenCalledTimes(generated);
       }
       original = sourceText(fileName, 'secondversion');
-      await db.query(
-        'UPDATE file_records SET content=$1,content_hash=$2,size=$3,mtime_ms=2,chunks_processed_at=NULL WHERE id=$4',
-        [original, hash(original), Buffer.byteLength(original), identity.fileId]
-      );
+      await replaceSource(2);
       expect((await attachment.scan('second-scan')).scanComplete).toBe(true);
       expect(
         (
@@ -536,10 +585,7 @@ it.each([
         });
         physicalHold = { aborted, entered, released };
         original = sourceText(fileName, 'thirdversion');
-        await db.query(
-          'UPDATE file_records SET content=$1,content_hash=$2,size=$3,mtime_ms=3,chunks_processed_at=NULL WHERE id=$4',
-          [original, hash(original), Buffer.byteLength(original), identity.fileId]
-        );
+        await replaceSource(3);
         const scan = attachment.scan('physically-cancelled-scan').then(
           (receipt) => ({ receipt }),
           (error: unknown) => ({ error })
@@ -557,14 +603,7 @@ it.each([
         expect(await scan).toMatchObject({
           error: { message: 'Canonical scan cancelled.', name: 'AbortError' },
         });
-        expect(
-          (
-            await db.query<{ chunks_processed_at: unknown }>(
-              'SELECT chunks_processed_at FROM file_records WHERE id=$1',
-              [identity.fileId]
-            )
-          ).rows[0]?.chunks_processed_at
-        ).toBeNull();
+        expect((await readSource()).chunksProcessed).toBe(false);
         expect(
           (
             await port.searchScopes({
@@ -592,7 +631,8 @@ it.each([
       vi.unstubAllEnvs();
       await parent.close();
       await connection.close();
-      await db.close();
+      await store.close();
+      await stateIndex.close();
       await rm(fixtureDirectory, { force: true, recursive: true });
       await rm(directory, { force: true, recursive: true });
     }

@@ -4,6 +4,7 @@ import { createLogger } from '@brainstrike/logging';
 import { CancellationTokenSource, type MessageConnection } from 'vscode-jsonrpc';
 import type { ZodType } from 'zod';
 import { fromBoundaryResponseError } from './boundary-wire.js';
+import { createHostCatalogClient, type HostCatalog } from './catalog/transport.js';
 import {
   AGENT_HOST_PROTOCOL_VERSION,
   HOST_CHILDREN_CHANGED,
@@ -27,6 +28,7 @@ import {
 } from './protocol.js';
 
 export interface HostClient extends HostAttachment {
+  readonly catalog: HostCatalog;
   /** BST-1932: told the thread whose children changed status; re-read `thread/children`. */
   onChildrenChanged(listener: (threadId: string) => void): () => void;
   onEvent(listener: (row: HostLogRow) => void): () => void;
@@ -165,6 +167,7 @@ export async function authenticateHostClient(
     throw cause;
   }
   return {
+    catalog: createHostCatalogClient(connection),
     close: closeConnection,
     closed: transportClosed,
     onChildrenChanged: (listener) => {

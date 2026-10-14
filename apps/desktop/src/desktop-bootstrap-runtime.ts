@@ -247,6 +247,7 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
     });
     return {
       acquire: lease.acquire,
+      clearAndRetireContent: lease.clearAndRetireContent,
       close: (reason?: unknown) => {
         // No Main capabilities were lent on an unbound port. Closing it rejects
         // the utility's queued readiness request before joining startup rollback.

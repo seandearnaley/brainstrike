@@ -1,36 +1,106 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { readMainSourceSections } from './main-source-test-helpers';
+import { describe, expect, it, vi } from 'vitest';
+import { ProcessCounterRing } from '../../diagnostics/process-counter-ring';
+import { createProcessCounterSampler } from '../../diagnostics/process-counter-sampler';
+import { installWebAssemblyCounter } from '../../diagnostics/webassembly-counter';
+import {
+  createDesktopGracefulShutdown,
+  type DesktopShutdownStepName,
+  type DesktopShutdownStepRun,
+} from '../../main/desktop-graceful-shutdown';
 
-const source = fs.readFileSync(path.resolve(import.meta.dirname, '../../main.ts'), 'utf8');
+vi.mock('../../db-main', () => {
+  throw new Error('Process observations must not acquire PostgreSQL');
+});
 
-/** The `createProcessCounterSampler({ … })` argument, whatever order its keys take. */
-function wiringBlock(): string {
-  const start = source.indexOf('createProcessCounterSampler({');
-  expect(start).toBeGreaterThan(-1);
-  return source.slice(start, source.indexOf('});', start));
+function createObservation() {
+  const target = Object.create(WebAssembly) as typeof WebAssembly;
+  const counter = installWebAssemblyCounter(target);
+  const ring = new ProcessCounterRing(3);
+  const sampler = createProcessCounterSampler({ counter, ring });
+  return { counter, ring, sampler, target };
 }
 
-describe('process counter sampler main wiring', () => {
-  it('reads through db-main getDatabase, not a raw DB host call', () => {
-    expect(wiringBlock()).toContain('getDatabase,');
-    expect(wiringBlock()).not.toContain('getDbHostManager()');
+describe('Main process sampler owner composition', () => {
+  it('starts with real process and WASM observations while the retired queue stays explicitly unavailable', async () => {
+    const { target, counter, ring, sampler } = createObservation();
+    await target.instantiate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]));
+    const memory = process.memoryUsage();
+    await sampler.sample(memory);
+    expect(ring.list()).toEqual([
+      expect.objectContaining({
+        backgroundTasks: null,
+        backgroundTasksUnavailableReason: expect.any(String),
+        heapUsedKb: Math.round(memory.heapUsed / 1024),
+        rssKb: Math.round(memory.rss / 1024),
+        wasm: counter.snapshot().counts,
+      }),
+    ]);
+    expect(counter.snapshot().counts.instantiate).toBe(1);
+    sampler.stop();
   });
 
-  it('submits the read as scheduled work, which waits out the factory-reset barrier', () => {
-    expect(wiringBlock()).toContain('runScheduledWork: runDesktopScheduledDatabaseWork,');
-  });
-
-  it('stops the sampler in the shutdown database-drain step before the scheduler idle join', () => {
-    // Bounded to the drain step's own body: an unbounded slice runs to end
-    // of file, where a LATER step's idle join could stand in for this one's.
-    const step = readMainSourceSections().stepBody('database-drain');
-
-    const stopAt = step.indexOf('processCounterSampler.stop();');
-    const idleJoinAt = step.indexOf('await waitForDesktopDatabaseWorkSchedulerIdle();');
-    expect(stopAt).toBeGreaterThan(-1);
-    expect(idleJoinAt).toBeGreaterThan(-1);
-    expect(stopAt).toBeLessThan(idleJoinAt);
-  });
+  it.each([false, true])(
+    'stops publication before physical shutdown joins, including preceding owner failure=%s',
+    async (failEarlierOwner) => {
+      const { ring, sampler } = createObservation();
+      await sampler.sample(process.memoryUsage());
+      const retained = ring.list();
+      const enteredClose = Promise.withResolvers<void>();
+      const releaseClose = Promise.withResolvers<void>();
+      const exit = vi.fn();
+      const closeLog = vi.fn();
+      const logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
+      const steps: Record<DesktopShutdownStepName, DesktopShutdownStepRun> = {
+        'child-processes': () => {},
+        'chunking-host': () => {},
+        'database-drain': () => {},
+        'embedding-host': () => {},
+        'factory-reset': () => {},
+        'file-system': () => {},
+        forge: () => {},
+        'git-inventory': () => {},
+        'llm-host': () => {},
+        'mcp-runtime': () => {},
+        'native-index': () => {},
+        'parser-host': () => {},
+        renderers: () => {},
+      };
+      steps['native-index'] = () => {
+        if (failEarlierOwner) {
+          throw new Error('Recorded native owner retirement failure');
+        }
+      };
+      steps['database-drain'] = () => sampler.stop();
+      const shutdown = createDesktopGracefulShutdown({
+        deadlineMs: 5000,
+        exitProcess: exit,
+        logger,
+        markShuttingDown: vi.fn(),
+        planRun: () => ({
+          closeDatabase: async () => {
+            enteredClose.resolve();
+            await releaseClose.promise;
+          },
+          closeErrorLogSink: closeLog,
+          steps,
+        }),
+        retireBackgroundAdmission: vi.fn(),
+      });
+      const closing = shutdown.run('before-quit', 'before-quit');
+      try {
+        await enteredClose.promise;
+        await sampler.sample(process.memoryUsage());
+        expect(ring.list()).toEqual(retained);
+        expect(closeLog).not.toHaveBeenCalled();
+        expect(exit).not.toHaveBeenCalled();
+      } finally {
+        releaseClose.resolve();
+        await closing;
+      }
+      await sampler.sample(process.memoryUsage());
+      expect(ring.list()).toEqual(retained);
+      expect(closeLog).toHaveBeenCalledOnce();
+      expect(logger.warn).toHaveBeenCalledTimes(failEarlierOwner ? 1 : 0);
+    }
+  );
 });

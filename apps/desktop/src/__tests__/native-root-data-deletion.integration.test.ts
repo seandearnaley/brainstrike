@@ -1,11 +1,14 @@
 // @vitest-environment node
+
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { deleteManagedRootData, migrate, wasmLoader } from '@brainstrike/db';
+import { pathToFileURL } from 'node:url';
+import { openHostStateIndex } from '@brainstrike/agent-host/test-fixtures/host-state-index';
 import type { IndexFileBinding, IndexScope } from '@brainstrike/indexer';
-// Exercise the actual built host entry rather than Vitest's source aliases.
-import { openIndexer } from '@brainstrike/indexer';
+import { StateStore } from '@brainstrike/state-store';
 import { expect, it, vi } from 'vitest';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { WorkspaceRootRegistry } from '../ipc-domains/workspace-root-registry';
@@ -13,17 +16,21 @@ import { createNativeIndexRuntime, type NativeIndexAuthority } from '../native-i
 import { createNativeRootDataDeletion } from '../native-root-data-deletion';
 import { createStorage, rootHandle } from './ipc-domains/workspace-root-registry-test-helpers';
 
-it('holds native acknowledgment ahead of real PG cascade and preserves remaining native/PG authority after reopen', async () => {
+// Node resolves the emitted process entry; a Vite source alias cannot spawn emitted JS.
+const { openIndexer }: typeof import('@brainstrike/indexer') = await import(
+  pathToFileURL(createRequire(import.meta.url).resolve('@brainstrike/indexer')).href
+);
+
+it('holds native acknowledgment ahead of real catalog deletion and preserves remaining native/catalog authority after reopen', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'brainstrike-root-delete-'));
-  const database = await wasmLoader.createPGlite('memory://root-deletion');
-  await migrate(database);
+  const stateRoot = path.join(directory, 'state');
+  await mkdir(stateRoot);
+  const stateIndex = await openHostStateIndex(stateRoot);
+  const database = await StateStore.open(stateRoot, { indexer: stateIndex.indexer });
   const registry = new WorkspaceRootRegistry({
     disposeCommandSessionsForRoot: async () => 0,
     evictLspServersForRoot: async () => undefined,
-    getRootsDatabase: async () => ({
-      query: <T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[] }> =>
-        database.query<T>(sql, params ? [...params] : undefined),
-    }),
+    getRootsCatalog: async () => database,
     pathExists: async () => true,
     storage: createStorage(),
   });
@@ -36,10 +43,20 @@ it('holds native acknowledgment ahead of real PG cascade and preserves remaining
   // Main's registry records each mount in `roots` itself (BST-1990).
   const root = await registry.addRoot(rootHandle(rootPath));
   const other = await registry.addRoot(rootHandle(otherPath));
-  await database.query(
-    `INSERT INTO embedding_sets (id, model_key, model_id, dimensions) VALUES ('actual-collection', 'actual-key', 'actual-model', 3), ('other-collection', 'other-key', 'other-model', 3)`
-  );
-  const bindings: IndexFileBinding[] = [
+  for (const id of ['actual-collection', 'other-collection']) {
+    await database.collections({
+      collection: {
+        createdAt: '2026-10-13T00:00:00.000Z',
+        dimensions: 3,
+        distance: 'cosine',
+        id,
+        modelId: id,
+        modelKey: `local::${id}`,
+      },
+      operation: 'create',
+    });
+  }
+  const sourceBindings: IndexFileBinding[] = [
     {
       embeddingSetId: 'actual-collection',
       fileId: 'owned-file',
@@ -73,6 +90,40 @@ it('holds native acknowledgment ahead of real PG cascade and preserves remaining
       sourcePath: null,
     },
   ];
+  const bindings: IndexFileBinding[] = [];
+  for (const binding of sourceBindings) {
+    const content = 'actual source\n';
+    const files = [
+      {
+        content,
+        contentHash: createHash('sha256').update(content).digest('hex'),
+        fileName: binding.fileId,
+        path: binding.relativePath ?? binding.fileId,
+        stat: { mtimeMs: null, size: Buffer.byteLength(content) },
+      },
+    ];
+    const reply = await database.sourceCatalog(
+      binding.rootId
+        ? {
+            embeddingSetId: binding.embeddingSetId,
+            files,
+            operation: 'prepare',
+            rootId: binding.rootId,
+          }
+        : { embeddingSetId: binding.embeddingSetId, files, operation: 'import' }
+    );
+    const recorded = reply.files[0];
+    if (!recorded) {
+      throw new Error('Canonical source admission omitted its identity');
+    }
+    bindings.push({ ...binding, fileId: recorded.fileId });
+  }
+  const ownedFileId = bindings[0]!.fileId;
+  const remainingFileIds = bindings
+    .slice(1)
+    .map((binding) => binding.fileId)
+    .sort();
+  const canonicalFiles = async () => (await database.sourceCatalog({ operation: 'list' })).files;
   const scopes: IndexScope[] = [
     { kind: 'workspace', rootId: root.rootId },
     { kind: 'workspace', rootId: other.rootId },
@@ -144,11 +195,12 @@ it('holds native acknowledgment ahead of real PG cascade and preserves remaining
     },
     deleteCanonicalRoot: async (mounted) => {
       expect(() => captured.readAuthority()).toThrow('retired or replaced');
-      await deleteManagedRootData(database, {
+      await database.workspaceRoots({
+        operation: 'delete',
         paths: [mounted.canonicalPath, mounted.presentationPath],
         rootId: mounted.rootId,
       });
-      events.push('pg-cascade');
+      events.push('catalog-delete');
     },
     reserveRoot: (rootId) => registry.reserveRootDataDeletion(rootId),
     resume: async () => {
@@ -169,15 +221,6 @@ it('holds native acknowledgment ahead of real PG cascade and preserves remaining
   });
   try {
     for (const binding of bindings) {
-      await database.query(
-        `INSERT INTO file_records (id, name, path, root_id, embedding_set_id, content, content_hash, size, token_count) VALUES ($1, $1, $2, $3, $4, 'actual source', 'actual hash', 13, 2)`,
-        [
-          binding.fileId,
-          binding.relativePath ?? binding.fileId,
-          binding.rootId,
-          binding.embeddingSetId,
-        ]
-      );
       const { profile: _profile, ...file } = binding;
       await port.commitScopedTextFile({
         plan: await port.prepareScopedFile({
@@ -190,13 +233,17 @@ it('holds native acknowledgment ahead of real PG cascade and preserves remaining
       expect(service.transition(async () => undefined)).rejects.toThrow('deletion owns')
     );
     expect(
-      (await database.query('SELECT id FROM file_records WHERE root_id = $1', [root.rootId])).rows
-    ).toEqual([{ id: 'owned-file' }]);
+      (await canonicalFiles())
+        .filter((file) => file.rootId === root.rootId)
+        .map((file) => ({ id: file.fileId }))
+    ).toEqual([{ id: ownedFileId }]);
     sourceStopped.resolve();
     await nativeRemoved.promise;
     expect(
-      (await database.query('SELECT id FROM file_records WHERE root_id = $1', [root.rootId])).rows
-    ).toEqual([{ id: 'owned-file' }]);
+      (await canonicalFiles())
+        .filter((file) => file.rootId === root.rootId)
+        .map((file) => ({ id: file.fileId }))
+    ).toEqual([{ id: ownedFileId }]);
     expect(events).toEqual(['sources-joined']);
     held.resolve();
     await deletion;
@@ -204,15 +251,11 @@ it('holds native acknowledgment ahead of real PG cascade and preserves remaining
       'sources-joined',
       'native-ack',
       'writer-exited',
-      'pg-cascade',
+      'catalog-delete',
       'resume',
       'reopened',
     ]);
-    expect((await database.query('SELECT id FROM file_records ORDER BY id')).rows).toEqual([
-      { id: 'other-collection-file' },
-      { id: 'other-file' },
-      { id: 'rootless-file' },
-    ]);
+    expect((await canonicalFiles()).map((file) => file.fileId).sort()).toEqual(remainingFileIds);
     expect(
       await port.coverageScope({
         scope: { embeddingSetId: 'actual-collection', kind: 'collection' },
@@ -229,6 +272,7 @@ it('holds native acknowledgment ahead of real PG cascade and preserves remaining
     await runtime.retireProfile();
     await registry.dispose();
     await database.close();
+    await stateIndex.close();
     await rm(directory, { force: true, recursive: true });
   }
 });

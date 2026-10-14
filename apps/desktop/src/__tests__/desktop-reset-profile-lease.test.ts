@@ -42,7 +42,6 @@ describe('desktop reset profile ownership', () => {
   async function handler(state: ReturnType<typeof setup>) {
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     return createDesktopFactoryResetHandler({
-      cleanupLiveSubscriptionsForShutdown: async () => undefined,
       completeSuccessfulReset: state.renderer,
       logger: { error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset: state.prepare,
@@ -50,12 +49,8 @@ describe('desktop reset profile ownership', () => {
       resetPersistentStorageAfterDataDeletion: state.storage,
       runTransition: (work) => work(),
       runtimes: [],
-      runWithDatabaseResetBarrier: async (work) => {
-        await work();
-      },
       sessionDataPath: '/userData/session-data',
       userDataPath: '/userData',
-      waitForDatabaseWorkSchedulerIdle: async () => undefined,
     }).reset;
   }
 

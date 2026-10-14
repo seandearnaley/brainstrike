@@ -9,25 +9,25 @@ import type {
 } from '../../ipc-domains/workspace-root-registry';
 import {
   createRegistry,
-  createRegistryDatabaseQuery,
+  createRegistryCatalogRequest,
   createStorage,
   rootHandle,
   secureRoot,
 } from './workspace-root-registry-test-helpers';
 
 describe('WorkspaceRootRegistry', () => {
-  let dbQuery: ReturnType<typeof createRegistryDatabaseQuery>;
+  let catalogRequest: ReturnType<typeof createRegistryCatalogRequest>;
   let storage: ElectronStorageAdapter;
 
   beforeEach(() => {
-    dbQuery = createRegistryDatabaseQuery();
+    catalogRequest = createRegistryCatalogRequest();
     storage = createStorage();
   });
 
   function createTestRegistry(
     overrides: Partial<ConstructorParameters<typeof WorkspaceRootRegistry>[0]> = {}
   ): WorkspaceRootRegistry {
-    return createRegistry(overrides, dbQuery);
+    return createRegistry(overrides, catalogRequest);
   }
 
   it('durably logs a read denial before rethrowing (BST-1257)', async () => {
@@ -326,7 +326,7 @@ describe('WorkspaceRootRegistry', () => {
     await expect(registry.restoreRoots()).rejects.toThrow(
       'persisted workspace root registry is not valid JSON'
     );
-    expect(dbQuery).not.toHaveBeenCalled();
+    expect(catalogRequest).not.toHaveBeenCalled();
   });
 
   it('addRoot quarantines a corrupt rootsList and proceeds with a fresh list', async () => {
@@ -372,7 +372,7 @@ describe('WorkspaceRootRegistry', () => {
     // the not-found branch below must not be gated on sessionRootIds, since
     // a persisted (non-session) root was never added to that set.
     await storage.setItem('rootsList', '{not json');
-    dbQuery.mockClear();
+    catalogRequest.mockClear();
 
     await expect(registry.removeRoot('root-a')).resolves.toBeUndefined();
     await expect(
@@ -388,10 +388,10 @@ describe('WorkspaceRootRegistry', () => {
     // now-unmounted path and run DB-id-keyed cleanup) — not just retire the
     // in-memory mount — otherwise the roots row stays live and server-side
     // consumers keep serving the folder until next boot.
-    expect(dbQuery).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE roots'),
-      expect.anything()
-    );
+    expect(catalogRequest).toHaveBeenCalledWith({
+      mountedPaths: [],
+      operation: 'disconnect-except',
+    });
   });
 
   it('propagates a quarantine I/O failure instead of swallowing it', async () => {
@@ -468,7 +468,7 @@ describe('WorkspaceRootRegistry', () => {
       storage,
     });
     await registry.restoreRoots();
-    dbQuery.mockRejectedValueOnce(new Error('db unavailable'));
+    catalogRequest.mockRejectedValueOnce(new Error('db unavailable'));
 
     await expect(registry.removeRoot('root-a')).rejects.toThrow('db unavailable');
     expect(await storage.getItem('rootsList')).toBe(JSON.stringify([entry]));

@@ -2,7 +2,7 @@
  * Persona discovery IPC handlers (desktop main). Lists built-in + user-defined
  * personas — INCLUDING invalid user files with their parse/validation error —
  * for the Settings → Subagents panel. Mirrors ipc-user-commands-handlers:
- * injected fs + DB for unit tests, SecureRoot-backed real disk in production.
+ * injected fs + root catalog for unit tests, SecureRoot-backed real disk in production.
  */
 
 import { homedir } from 'node:os';
@@ -12,8 +12,10 @@ import {
   type AssistantPersonaListItem,
   type AssistantPersonasListResult,
   BUILT_IN_PERSONAS,
+  type ModelCatalogCapability,
   personaScope,
 } from '@brainstrike/assistant-contract';
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { createNodeFsScanDeps } from './assistant-server/node-fs-scan-deps';
 import {
   scanUserPersonas,
@@ -21,7 +23,7 @@ import {
 } from './assistant-server/user-personas-loader';
 import { resolveScanRoots, type UserCommandsListDeps } from './ipc-user-commands-handlers';
 
-/** Same deps shape as the commands list handler (fs + DB + homedir). */
+/** Same deps shape as the commands list handler (fs + root catalog + homedir). */
 export interface UserPersonasListDeps extends UserCommandsListDeps {
   readonly inspectAvailability?: (
     persona: AssistantPersonaDefinition
@@ -80,7 +82,7 @@ export async function listUserPersonas(
     source: 'built-in',
     status: 'ok',
   }));
-  const roots = await resolveScanRoots(deps.getDatabase);
+  const roots = await resolveScanRoots(deps.workspaceRoots);
   const scan = scanUserPersonas({ homeDir: deps.homedir(), roots }, deps.fs);
   const definitions = new Map(
     [...BUILT_IN_PERSONAS, ...scan.personas].map((persona) => [persona.id, persona])
@@ -105,33 +107,30 @@ export async function listUserPersonas(
 }
 
 /**
- * Production entry point: real DB host, home dir, and SecureRoot disk fs. The
- * DB loader is imported lazily so this module stays cheap at registration time.
+ * Production entry point: injected root catalog, home dir, and SecureRoot fs.
+ * The existing model catalog remains required for persona availability checks.
  */
-export function createUserPersonasListHandler(): () => Promise<AssistantPersonasListResult> {
+export function createUserPersonasListHandler(
+  workspaceRoots: WorkspaceRootPort,
+  modelCatalog: Pick<ModelCatalogCapability, 'read'>
+): () => Promise<AssistantPersonasListResult> {
   return async () => {
     const filesystem = createNodeFsScanDeps();
     try {
       const [
-        { getDatabase },
         { getMainMcpHostControl },
         { resolveProviderCredential },
         { inspectPersonaAvailability },
       ] = await Promise.all([
-        import('./db-main'),
         import('./mcp/main-host-control'),
         import('./assistant-server/provider-credentials'),
         import('./assistant-server/persona-availability'),
       ]);
-      const database = await getDatabase();
-      if (!database) {
-        throw new Error('Persona availability requires the host model catalog.');
-      }
-      const { rows: models } = await database.query<{
-        id: string;
-        providerId: string;
-        type: string | null;
-      }>(`SELECT id, provider_id AS "providerId", capabilities->>'type' AS type FROM models`);
+      const models = (await modelCatalog.read()).models.map((model) => ({
+        id: model.id,
+        providerId: model.providerId,
+        type: model.capabilities.type,
+      }));
       // The host owns the MCP tools; Main reads them once per listing.
       const mcpTools = new Map(
         Object.values(await getMainMcpHostControl().readTools())
@@ -141,7 +140,6 @@ export function createUserPersonasListHandler(): () => Promise<AssistantPersonas
       const credentials = new Map<string, ReturnType<typeof resolveProviderCredential>>();
       return await listUserPersonas({
         fs: filesystem,
-        getDatabase: async () => database,
         homedir,
         inspectAvailability: (persona) =>
           inspectPersonaAvailability(persona, {
@@ -156,6 +154,7 @@ export function createUserPersonasListHandler(): () => Promise<AssistantPersonas
               return credential;
             },
           }),
+        workspaceRoots,
       });
     } finally {
       filesystem.dispose();

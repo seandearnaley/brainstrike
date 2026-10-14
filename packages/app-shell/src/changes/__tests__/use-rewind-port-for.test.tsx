@@ -23,14 +23,10 @@ const HOST_PORT: RewindPort = {
 function installChangesBridge(): void {
   const unused = vi.fn();
   (window as unknown as { changes?: unknown }).changes = {
-    applyRewind: unused,
     fileDiff: unused,
-    finalizeRewinds: unused,
     inventory: unused,
     onInvalidated: unused,
-    redoRewind: unused,
     resolveView: unused,
-    rewindPreview: unused,
   };
 }
 
@@ -38,7 +34,7 @@ afterEach(() => {
   Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
 });
 
-it('routes a host-owned thread to the host’s port and any other thread to the legacy service', () => {
+it('routes host-owned threads and refuses unknown ownership without a legacy fallback', () => {
   installChangesBridge();
   const host = {
     rewindPort: (threadId: string) => (threadId === 'host-thread' ? HOST_PORT : undefined),
@@ -49,7 +45,7 @@ it('routes a host-owned thread to the host’s port and any other thread to the 
     ),
   });
   expect(result.current?.('host-thread')).toBe(HOST_PORT);
-  expect(result.current?.('history-thread')).toMatchObject({ conversation: 'hidden' });
+  expect(() => result.current?.('history-thread')).toThrow();
 });
 
 it('offers no rewind without the desktop changes bridge (web)', () => {

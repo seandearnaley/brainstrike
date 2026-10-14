@@ -8,9 +8,8 @@
  * the composer's "/" menu. Invalid skills travel WITH their exact validation
  * errors so authors see why a skill did not load (fail closed, never silent).
  *
- * A DB failure does NOT abort discovery: global (`~`) skills need no roots, so
- * the failure is logged and the scan continues with an empty root set
- * (mirrors the user-commands handler).
+ * Root catalog failure rejects discovery. A successful empty catalog still
+ * scans global skills (mirrors the user-commands handler).
  */
 
 import { homedir } from 'node:os';
@@ -20,17 +19,17 @@ import type {
   SkillScanEntrySummary,
   SkillsScanResultSummary,
 } from '@brainstrike/assistant-contract';
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { createSecureSkillsFs } from './assistant-server/skills-fs-deps';
-import type { WorkspaceRootsQueryable } from './assistant-server/workspace-roots';
 import { resolveScanRoots } from './ipc-user-commands-handlers';
 
 export interface SkillsScanHandlerDeps {
   /** Injected fs surface (SecureRoot-backed in production, in-memory in tests). */
   readonly fs: SkillContentDeps;
-  /** Resolve the queryable DB, or null when it is unavailable. */
-  readonly getDatabase: () => Promise<WorkspaceRootsQueryable | null>;
   /** The user's home directory (for `~/.brainstrike` / `~/.claude`). */
   readonly homedir: () => string;
+  /** Required authoritative workspace-root catalog. */
+  readonly workspaceRoots: WorkspaceRootPort;
 }
 
 function toSummary(entry: SkillScanEntry): SkillScanEntrySummary {
@@ -68,7 +67,7 @@ function toSummary(entry: SkillScanEntry): SkillScanEntrySummary {
 export async function scanSkillsForRenderer(
   deps: SkillsScanHandlerDeps
 ): Promise<SkillsScanResultSummary> {
-  const roots = await resolveScanRoots(deps.getDatabase);
+  const roots = await resolveScanRoots(deps.workspaceRoots);
   const result = scanSkills(
     { homeDir: deps.homedir(), roots },
     {
@@ -79,18 +78,12 @@ export async function scanSkillsForRenderer(
   return { entries: result.entries.map(toSummary) };
 }
 
-/**
- * Production entry point: wires the real DB host, home dir, and SecureRoot fs.
- * The DB loader is imported lazily so this module stays cheap to import at
- * main registration time.
- */
-export function createSkillsScanHandler(): () => Promise<SkillsScanResultSummary> {
+/** Production borrows the catalog and uses the existing secure skills reader. */
+export function createSkillsScanHandler(
+  workspaceRoots: WorkspaceRootPort
+): () => Promise<SkillsScanResultSummary> {
   return async () => {
-    const getDatabase = async () => {
-      const { getDatabase: resolve } = await import('./db-main');
-      return resolve();
-    };
-    const roots = await resolveScanRoots(getDatabase);
+    const roots = await resolveScanRoots(workspaceRoots);
     const filesystem = createSecureSkillsFs([...roots.map((root) => root.absPath), homedir()]);
     const result = scanSkills(
       { homeDir: homedir(), roots },

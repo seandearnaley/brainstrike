@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type ModelProviderScript,
@@ -31,6 +32,18 @@ async function request(body: Record<string, unknown>): Promise<unknown> {
 }
 
 describe('model provider shim', () => {
+  it('refuses the old packaged model metadata and serves the recorded replacement identity', async () => {
+    shim = await startModelProviderShim({ finalText: 'Done' });
+    const old = await fetch(`${shim.baseUrlFor('OPENROUTER_BASE_URL')}/model/openai/gpt-5.4`);
+    expect(old.ok).toBe(false);
+    expect(shim.refusals()).toMatchObject([{ reason: 'unrecorded-model-metadata' }]);
+    const current = await fetch(
+      `${shim.baseUrlFor('OPENROUTER_BASE_URL')}/model/openai/gpt-5.6-terra`
+    );
+    expect(current.status).toBe(200);
+    expect(await current.json()).toMatchObject({ data: { id: 'openai/gpt-5.6-terra' } });
+  });
+
   it('serves the recorded OpenRouter verification response only when scripted', async () => {
     shim = await startModelProviderShim({ finalText: 'Done', verifyOpenRouterKey: true });
     const response = await fetch(`${shim.baseUrlFor('OPENROUTER_BASE_URL')}/key`);

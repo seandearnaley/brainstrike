@@ -1,5 +1,5 @@
 import type { EmbeddingSet } from '@brainstrike/db';
-import type { useEmbeddingSetsRepository, usePGliteDatabase } from '@brainstrike/db/react';
+import type { useEmbeddingSetsRepository } from '@brainstrike/db/react';
 import { DeleteEmbeddingSetDialog, RenameEmbeddingSetDialog } from '@brainstrike/vector-management';
 import type { ReactElement } from 'react';
 import type { useCollectionDialogs } from '../hooks/use-collection-dialogs';
@@ -8,7 +8,6 @@ interface DatabaseDemoCollectionDialogsProps {
   readonly activeCollectionId: string | null;
   readonly collectionDialogs: ReturnType<typeof useCollectionDialogs>;
   readonly createDialog: ReactElement | null;
-  readonly dbContext: ReturnType<typeof usePGliteDatabase>;
   readonly embeddingSetsRepository: ReturnType<typeof useEmbeddingSetsRepository>;
   readonly onActiveCollectionDeleted: () => void;
 }
@@ -55,7 +54,6 @@ export function DatabaseDemoCollectionDialogs({
   activeCollectionId,
   collectionDialogs,
   createDialog,
-  dbContext,
   embeddingSetsRepository,
   onActiveCollectionDeleted,
 }: DatabaseDemoCollectionDialogsProps): ReactElement {
@@ -79,7 +77,6 @@ export function DatabaseDemoCollectionDialogs({
       ) : null}
       {collectionDialogs.deleteDialogOpen && selectedCollection ? (
         <DeleteEmbeddingSetDialog
-          db={dbContext as never}
           embeddingSet={toDeleteEmbeddingSet(selectedCollection)}
           onOpenChange={(open: boolean) => {
             if (!open) {
@@ -93,6 +90,7 @@ export function DatabaseDemoCollectionDialogs({
             }
           }}
           open={collectionDialogs.deleteDialogOpen}
+          repository={embeddingSetsRepository}
         />
       ) : null}
     </>

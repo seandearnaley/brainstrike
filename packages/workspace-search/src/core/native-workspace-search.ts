@@ -640,7 +640,7 @@ function nativeLineMatches(
   );
 }
 
-function completeScopeReceipts(
+export function completeScopeReceipts(
   status: Extract<Awaited<ReturnType<IndexSearchCapability['status']>>, { kind: 'ready' }>,
   rootIds: readonly string[],
   collectionId: string | null

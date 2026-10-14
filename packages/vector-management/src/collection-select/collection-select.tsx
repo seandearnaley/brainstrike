@@ -2,6 +2,11 @@ import {
   compareCollectionsDesc,
   useVectorStatusUIStore,
 } from '@brainstrike/app-state/stores/vector-status-ui-store';
+import type { CollectionCatalogCapability } from '@brainstrike/assistant-contract';
+import {
+  type BoundaryTransport,
+  createBoundaryCapability,
+} from '@brainstrike/assistant-contract/boundary-result';
 import type { EmbeddingSetSystemRole } from '@brainstrike/db';
 import type { usePGliteDatabase } from '@brainstrike/db/react';
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
@@ -73,6 +78,7 @@ export interface CollectionWithDocCount {
   statsLastRefreshedAt?: string | null;
   systemRole?: EmbeddingSetSystemRole | null;
   tags: string | null;
+  vectorStatsUnavailableReason?: string;
 }
 
 /**
@@ -355,6 +361,8 @@ function areCollectionsEqual(
       leftCollection.fileCount !== rightCollection.fileCount ||
       leftCollection.chunkCount !== rightCollection.chunkCount ||
       leftCollection.embeddingCount !== rightCollection.embeddingCount ||
+      leftCollection.vectorStatsUnavailableReason !==
+        rightCollection.vectorStatsUnavailableReason ||
       leftStatsAvailable !== rightStatsAvailable ||
       leftStatsLastRefreshedAt !== rightStatsLastRefreshedAt
     ) {
@@ -362,6 +370,15 @@ function areCollectionsEqual(
     }
   }
   return true;
+}
+
+function getCollectionCatalog(): CollectionCatalogCapability | undefined {
+  const transport =
+    typeof window === 'undefined'
+      ? undefined
+      : (window as Window & { collectionCatalog?: BoundaryTransport<CollectionCatalogCapability> })
+          .collectionCatalog;
+  return transport ? createBoundaryCapability<CollectionCatalogCapability>(transport) : undefined;
 }
 
 /**
@@ -376,6 +393,30 @@ function areCollectionsEqual(
 export async function fetchCollectionsSnapshot(
   db: ReturnType<typeof usePGliteDatabase>
 ): Promise<CollectionWithDocCount[]> {
+  const catalog = getCollectionCatalog();
+  if (catalog) {
+    const entries = await catalog.snapshot();
+    return entries
+      .map(
+        (entry): CollectionWithDocCount => ({
+          ...entry,
+          category: entry.category ?? null,
+          chunkCount: entry.counts.chunks,
+          description: entry.description ?? null,
+          // Existing cache count is only meaningful when statsAvailable is true.
+          embeddingCount: entry.vectors.kind === 'available' ? entry.vectors.count : 0,
+          fileCount: entry.counts.files,
+          name: entry.name ?? null,
+          statsAvailable: entry.vectors.kind === 'available',
+          tags: entry.tags ?? null,
+          ...(entry.vectors.kind === 'unavailable'
+            ? { vectorStatsUnavailableReason: entry.vectors.reason }
+            : {}),
+          statsLastRefreshedAt: null,
+        })
+      )
+      .sort(compareCollectionsDesc);
+  }
   // NO SILENT FALLBACKS: an empty array here is indistinguishable from "this
   // workspace has no collections", which reads to the user as an invitation to
   // create a duplicate. An unusable handle is a programming error - throw.
@@ -410,6 +451,7 @@ export async function fetchCollectionsSnapshot(
  * `onEmbeddingSetUpdated` contract, not a reason to mount a second live query.
  */
 export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null | undefined) {
+  const catalog = getCollectionCatalog();
   const isImporting = useVectorStatusUIStore((s) => s.isImporting);
   const schemaVerified = useVectorStatusUIStore((s) => s.schemaVerified);
   // Use Zustand store for caching - persists across component unmounts during bulk operations
@@ -427,7 +469,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
   //
   // Background embedding must not detach foreground collection updates: the
   // collection selector is the user's navigation surface while indexing runs.
-  const liveQueryEnabled = Boolean(db) && schemaVerified && !isImporting;
+  const liveQueryEnabled = !catalog && Boolean(db) && schemaVerified && !isImporting;
   // Track loading/error state for initial fetch
   interface FetchState {
     error: Error | null;
@@ -471,14 +513,11 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
 
   const refreshCollectionsSnapshot = useCallback(async () => {
     const canQuery = Boolean(db && typeof (db as { query?: unknown }).query === 'function');
-    if (!(schemaVerified && canQuery)) {
+    if (!(catalog || (schemaVerified && canQuery))) {
       return;
     }
     try {
-      const result = await (
-        db as { query: (query: string) => Promise<{ rows: CollectionRow[] }> }
-      ).query(COLLECTIONS_QUERY);
-      const normalizedRows = normalizeCollectionRows(result.rows);
+      const normalizedRows = await fetchCollectionsSnapshot(db ?? null);
       clearSatisfiedPendingCollectionMutations(normalizedRows, pendingMutationsRef.current);
       const nextCollections = applyPendingCollectionMutations(
         normalizedRows,
@@ -495,7 +534,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
       dispatchFetch({ error: normalized, type: 'error' });
       throw normalized;
     }
-  }, [db, schemaVerified, setCachedCollections]);
+  }, [catalog, db, schemaVerified, setCachedCollections]);
 
   // Listen for embedding set update events (create/delete/rename) and refresh live query
   // This ensures UI updates on Electron where PGlite live query may not auto-detect changes
@@ -604,8 +643,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
   useEffect(() => {
     const canQuery = Boolean(db && typeof (db as { query?: unknown }).query === 'function');
     const shouldFetch =
-      schemaVerified && // Wait for schema to be ready (tables exist)
-      canQuery &&
+      (catalog || (schemaVerified && canQuery)) &&
       !fetchState.loading &&
       !initialFetchedRef.current;
     if (!shouldFetch) {
@@ -636,12 +674,12 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     return () => {
       cancelled = true;
     };
-  }, [db, refreshCollectionsSnapshot, schemaVerified]);
+  }, [catalog, db, refreshCollectionsSnapshot, schemaVerified]);
 
   // Reset initial fetch flag when db changes (e.g., reconnection)
   useEffect(() => {
     initialFetchedRef.current = false;
-  }, [db]);
+  }, [catalog, db]);
 
   // Return live data when enabled, otherwise return cached data from Zustand store
   // Use initial loading/error state when live query is disabled
@@ -649,6 +687,8 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     collections: resolvedCollections,
     error: liveQueryEnabled ? error : fetchState.error,
     loading: liveQueryEnabled ? loading : fetchState.loading,
+    /** Desktop reads the native catalog; web waits for its database handle. */
+    sourceReady: Boolean(catalog || db),
   };
 }
 
@@ -660,6 +700,9 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
  */
 export function formatCollectionLabel(collection: CollectionWithDocCount): string {
   const name = collection.name || collection.modelId;
+  if (collection.vectorStatsUnavailableReason) {
+    return `${name} (${collection.fileCount.toLocaleString()} ${collection.fileCount === 1 ? 'file' : 'files'} · vectors unavailable)`;
+  }
   if (collection.statsAvailable === false) {
     return `${name} (stats pending)`;
   }

@@ -6,11 +6,8 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
-import {
-  ensureAssistantShellVisible,
-  ensureMockWorkspaceOpen,
-  waitForDatabaseReady,
-} from './utils/layout-helpers';
+import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const ENABLED = 'RESET_RELEASE_ENABLED';
@@ -57,6 +54,7 @@ test.describe('@destructive', () => {
     electron,
     modelProvider,
   }, testInfo) => {
+    const { waitForAppReady } = await loadElectronHelpers();
     const catalogs = new Map<string, readonly string[]>();
     modelProvider.setScript(({ messages, requestBody, toolNames }) => {
       if ((requestBody as { stream?: unknown }).stream !== true) {
@@ -174,12 +172,11 @@ test.describe('@destructive', () => {
       const reloaded = page.waitForEvent('load');
       await confirmReset(page, true);
       await reloaded;
-      await waitForDatabaseReady(page);
+      await waitForAppReady(page);
       const oldIds = new Set(before.map((thread) => thread.threadId));
       const assertCleared = async (): Promise<void> => {
-        // Main starts the agent host without awaiting it (acquireProfile at boot), so a
-        // ready database does not mean the host has published its record. Wait until the
-        // host answers, then read what it committed.
+        // Native search intentionally has no setup after reset. Wait for the current
+        // host's public catalog to answer, then inspect its committed conversation facts.
         await expect
           .poll(() =>
             readTree().then(
@@ -199,7 +196,7 @@ test.describe('@destructive', () => {
       };
       await assertCleared();
       page = (await electron.restart()).window;
-      await waitForDatabaseReady(page);
+      await waitForAppReady(page);
       await assertCleared();
       await ensureMockWorkspaceOpen(page);
       await configureAssistantProvider(page, {

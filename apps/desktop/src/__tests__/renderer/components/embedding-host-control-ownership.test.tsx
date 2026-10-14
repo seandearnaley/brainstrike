@@ -11,9 +11,9 @@ import {
   dbHandle,
   hostWindow,
   installEmbeddingHostRuntimeFixture,
+  reopenEmbeddingQueueMock,
   reportStatusMock,
-  startEmbeddingWorkerMock,
-  stopMock,
+  retireEmbeddingQueueMock,
   storeState,
 } from './embedding-host-runtime-fixture';
 
@@ -42,7 +42,7 @@ describe('Embedding host manager and renderer control ownership', () => {
     await waitFor(() => expect(manager.getStatus().state).toBe('running'));
     const previousRuntimeId = manager.getStatus().runtimeId;
     let failDrain: ((error: Error) => void) | undefined;
-    stopMock.mockImplementationOnce(
+    retireEmbeddingQueueMock.mockImplementationOnce(
       () =>
         new Promise<void>((_resolve, reject) => {
           failDrain = reject;
@@ -73,7 +73,7 @@ describe('Embedding host manager and renderer control ownership', () => {
         })
       );
       await reset;
-      expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce();
+      expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
       expect(hostWindow.isDestroyed()).toBe(true);
       view.unmount();
       await manager.ensureStarted({ waitForRunning: false });
@@ -82,7 +82,7 @@ describe('Embedding host manager and renderer control ownership', () => {
       await waitFor(() => expect(manager.getStatus().state).toBe('running'));
       expect(manager.getStatus().runtimeId).not.toBe(previousRuntimeId);
       expect(createHostWindowMock).toHaveBeenCalledTimes(2);
-      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2);
+      expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(2);
       await manager.stop();
       freshView.unmount();
     } finally {
@@ -118,7 +118,7 @@ describe('Embedding host manager and renderer control ownership', () => {
       onTestFinished(() => view.unmount());
       await waitFor(() => expect(manager.getStatus().state).toBe('running'));
       let finishDrain: (() => void) | undefined;
-      stopMock.mockImplementationOnce(
+      retireEmbeddingQueueMock.mockImplementationOnce(
         () =>
           new Promise<void>((resolve) => {
             finishDrain = resolve;
@@ -155,7 +155,7 @@ describe('Embedding host manager and renderer control ownership', () => {
           currentDbRef.current = dbHandle;
           view.rerender(<EmbeddingHostRuntime />);
         });
-        expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce();
+        expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
       } finally {
         finishDrain?.();
         hostWindow.destroy();
@@ -188,12 +188,12 @@ describe('Embedding host manager and renderer control ownership', () => {
     onTestFinished(() => view.unmount());
     await waitFor(() => expect(manager.getStatus().state).toBe('running'));
     const previousRuntimeId = manager.getStatus().runtimeId;
-    startEmbeddingWorkerMock.mockRejectedValueOnce(new Error('Replacement worker failed'));
+    reopenEmbeddingQueueMock.mockRejectedValueOnce(new Error('Replacement worker failed'));
     const result = await manager.reset();
     expect(result).toMatchObject({ lastError: 'Replacement worker failed', state: 'error' });
     expect(result.runtimeId).not.toBe(previousRuntimeId);
     expect(hostWindow.isDestroyed()).toBe(true);
-    expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2);
+    expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(2);
   });
 
   it('completes a successful reset under its new runtime identity', async () => {
@@ -222,7 +222,7 @@ describe('Embedding host manager and renderer control ownership', () => {
       const result = await manager.reset();
       expect(result.state).toBe('running');
       expect(result.runtimeId).not.toBe(previousRuntimeId);
-      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2);
+      expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(2);
       expect(hostWindow.isDestroyed()).toBe(false);
     } finally {
       await manager.dispose();
@@ -253,7 +253,7 @@ describe('Embedding host manager and renderer control ownership', () => {
     onTestFinished(() => view.unmount());
     await waitFor(() => expect(manager.getStatus().state).toBe('running'));
     let finishDrain: (() => void) | undefined;
-    stopMock.mockImplementationOnce(
+    retireEmbeddingQueueMock.mockImplementationOnce(
       () =>
         new Promise<void>((resolve) => {
           finishDrain = resolve;
@@ -272,7 +272,7 @@ describe('Embedding host manager and renderer control ownership', () => {
           message: 'embedding-host window closed before its state transition completed.',
         })
       );
-      expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce();
+      expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
     } finally {
       finishDrain?.();
       await manager.dispose();

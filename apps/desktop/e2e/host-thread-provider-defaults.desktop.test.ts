@@ -15,31 +15,20 @@ const REPLY = 'A reply from a newly enabled model.';
 async function recommendedRows(page: Page): Promise<Record<string, boolean>> {
   return await page.evaluate(
     async (ids) => {
-      const db = window.electronAPI?.db;
-      if (!db) {
-        throw new Error('The app database query path is unavailable');
+      if (!window.modelCatalog) {
+        throw new Error('Canonical model catalog unavailable');
       }
-      const result = await db.query(
-        `SELECT id, is_enabled AS "isEnabled" FROM models WHERE provider_id = 'openrouter' AND id = ANY($1)`,
-        [ids]
-      );
-      const rows: readonly unknown[] = result.rows;
+      const { models } = await window.modelCatalog.read().then((result) => {
+        if (!result.ok) {
+          throw new Error(result.error.message);
+        }
+        return result.value;
+      });
+      const wanted = new Set<string>(ids);
       return Object.fromEntries(
-        rows.map((row) => {
-          if (
-            !(
-              typeof row === 'object' &&
-              row !== null &&
-              'id' in row &&
-              typeof row.id === 'string' &&
-              'isEnabled' in row &&
-              typeof row.isEnabled === 'boolean'
-            )
-          ) {
-            throw new Error(`An unexpected models row: ${JSON.stringify(row)}`);
-          }
-          return [row.id, row.isEnabled];
-        })
+        models
+          .filter((row) => row.providerId === 'openrouter' && wanted.has(row.id))
+          .map((row) => [row.id, row.isEnabled])
       );
     },
     [...OPENROUTER_RECOMMENDED_CODING_MODEL_IDS]

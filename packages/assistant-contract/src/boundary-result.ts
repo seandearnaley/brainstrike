@@ -53,3 +53,25 @@ export async function callBoundary<T>(invoke: () => Promise<BoundaryResult<T>>):
   }
   return readBoundaryResult(wire);
 }
+
+const receivedCapabilities = new WeakMap<object, object>();
+
+/** Adapt an async-only preload transport at its renderer consumer, never in preload. */
+export function createBoundaryCapability<C extends object>(transport: BoundaryTransport<C>): C {
+  const existing = receivedCapabilities.get(transport);
+  if (existing) {
+    return existing as C;
+  }
+  const capability: Record<string, unknown> = {};
+  for (const [name, method] of Object.entries(transport)) {
+    if (typeof method !== 'function') {
+      throw new BoundaryFailureError(INTERNAL_FAULT);
+    }
+    capability[name] = (...args: unknown[]) =>
+      callBoundary(
+        () => Reflect.apply(method, transport, args) as Promise<BoundaryResult<unknown>>
+      );
+  }
+  receivedCapabilities.set(transport, capability);
+  return capability as C;
+}

@@ -23,6 +23,7 @@
  * dead.
  */
 import type {
+  AssistantThreadCatalogRepository,
   AssistantThreadMetadata,
   AssistantThreadRepository,
 } from '@brainstrike/assistant-data';
@@ -532,7 +533,7 @@ describe('useWorkspaceBar — write tail chaining', () => {
     await act(async () => {
       useAssistantThreadStore.setState({
         updateThreadMetadata: async (
-          repository: AssistantThreadRepository,
+          repository: AssistantThreadCatalogRepository,
           _resourceId: string,
           threadId: string,
           metadata: AssistantThreadMetadata
@@ -601,7 +602,7 @@ describe('useWorkspaceBar — write tail chaining', () => {
     let firstWrite = true;
     useAssistantThreadStore.setState({
       updateThreadMetadata: async (
-        repository: AssistantThreadRepository,
+        repository: AssistantThreadCatalogRepository,
         resourceId: string,
         threadId: string,
         metadata: AssistantThreadMetadata
@@ -691,7 +692,7 @@ describe('useWorkspaceBar — write tail chaining', () => {
     });
     useAssistantThreadStore.setState({
       updateThreadMetadata: async (
-        repository: AssistantThreadRepository,
+        repository: AssistantThreadCatalogRepository,
         _resourceId: string,
         threadId: string,
         metadata: AssistantThreadMetadata
@@ -819,7 +820,7 @@ describe('useWorkspaceBar — write tail chaining', () => {
     await act(async () => {
       useAssistantThreadStore.setState({
         updateThreadMetadata: async (
-          repository: AssistantThreadRepository,
+          repository: AssistantThreadCatalogRepository,
           _resourceId: string,
           threadId: string,
           metadata: AssistantThreadMetadata
@@ -861,7 +862,7 @@ describe('useWorkspaceBar — write tail chaining', () => {
     await act(async () => {
       useAssistantThreadStore.setState({
         updateThreadMetadata: async (
-          repository: AssistantThreadRepository,
+          repository: AssistantThreadCatalogRepository,
           _resourceId: string,
           threadId: string,
           metadata: AssistantThreadMetadata
@@ -921,7 +922,7 @@ describe('useWorkspaceBar — write tail chaining', () => {
     await act(async () => {
       useAssistantThreadStore.setState({
         updateThreadMetadata: async (
-          repository: AssistantThreadRepository,
+          repository: AssistantThreadCatalogRepository,
           _resourceId: string,
           threadId: string,
           metadata: AssistantThreadMetadata
@@ -986,7 +987,7 @@ describe('useWorkspaceBar — write tail chaining', () => {
     await act(async () => {
       useAssistantThreadStore.setState({
         updateThreadMetadata: async (
-          repository: AssistantThreadRepository,
+          repository: AssistantThreadCatalogRepository,
           _resourceId: string,
           threadId: string,
           metadata: AssistantThreadMetadata

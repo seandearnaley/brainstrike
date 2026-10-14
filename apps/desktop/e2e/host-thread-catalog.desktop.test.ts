@@ -3,10 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import { withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
-import { seedRetiredThreadRows } from './utils/seed-threads';
+import { seedHostThreads } from './utils/seed-threads';
 
 const root = mkdtempSync(join(tmpdir(), 'bs-e2e-current-chat-root-'));
 writeFileSync(join(root, 'notes.txt'), 'Current chat acceptance fixture.\n');
@@ -87,12 +88,14 @@ test('@smoke every offered chat opens, New sends, and current conversations surv
     timeout: 30_000,
   });
 
-  const [retired] = await seedRetiredThreadRows(page, [
+  const userData = await page.evaluate(() => globalThis.window.electronAPI!.getUserDataPath());
+  const [retired] = await seedHostThreads(userData, [
     { folder: null, title: 'Retired conversation' },
   ]);
   if (!retired) {
     throw new Error('Retired fixture was not seeded');
   }
+  await withAppHost(userData, (client) => client.request('thread/delete', { threadId: retired }));
   // A saved tab is UI state, not permission to reopen a retired conversation.
   await page.evaluate((id) => {
     const key = 'brainstrike-assistant-threads-v1';

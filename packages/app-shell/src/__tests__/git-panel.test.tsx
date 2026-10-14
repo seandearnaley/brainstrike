@@ -140,15 +140,6 @@ function ok<T>(value: T): GitResult<T> {
   return { ok: true, value };
 }
 
-/**
- * Rewind methods are required by `ChangesBridge` but never exercised by the
- * git panel; an unexpected call fails the assertion that consumes it rather
- * than silently succeeding.
- */
-function rewindNotStubbed(method: string): GitResult<never> {
-  return { error: `git-panel fixture: ${method} is not stubbed`, ok: false };
-}
-
 function makeStatus(overrides: Partial<GitStatus> = {}): GitStatus {
   return {
     ahead: 2,
@@ -255,17 +246,13 @@ function installBridge(bridge: Partial<GitBridge>): GitBridge {
  */
 function installChangesBridge(bridge: Partial<ChangesBridge>): ChangesBridge {
   const full: ChangesBridge = {
-    applyRewind: vi.fn(async () => rewindNotStubbed('applyRewind')),
     fileDiff: vi.fn(async () => ok(makeStructuredFileDiff())),
-    finalizeRewinds: vi.fn(async () => rewindNotStubbed('finalizeRewinds')),
     inventory: vi.fn(async () => ok({ errors: [], repositories: [] })),
     onInvalidated: vi.fn(() => () => {}),
-    redoRewind: vi.fn(async () => rewindNotStubbed('redoRewind')),
     resolveView: vi.fn(
       async (_rootId: string, changeset: Changeset): Promise<GitResult<ChangesetView>> =>
         ok({ changeset, files: [], totalAdditions: null, totalDeletions: null })
     ),
-    rewindPreview: vi.fn(async () => rewindNotStubbed('rewindPreview')),
     ...bridge,
   };
   (window as unknown as { changes?: ChangesBridge }).changes = full;

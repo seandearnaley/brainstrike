@@ -19,6 +19,8 @@ import { CollectionDebugDrawer } from './components/collection-debug-drawer';
 import { CreateCollectionDialog } from './components/create-collection-dialog';
 import { DatabaseDemoCollectionDialogs } from './components/database-demo-collection-dialogs';
 import { DatabaseDemoPrimaryPanel } from './components/database-demo-primary-panel';
+import { NativeLibraryPanel } from './components/native-library-panel';
+import { getSourceFilesCapability } from './file-import/native-source-import';
 import { useCollectionDialogs } from './hooks/use-collection-dialogs';
 import { useDatabaseClearAction } from './hooks/use-database-clear-action';
 import { useDatabaseDemoActions } from './hooks/use-database-demo-actions';
@@ -121,7 +123,7 @@ function DatabasePanelStateContent({ error }: { error?: Error }): ReactElement {
 const logger = createLogger('DatabaseDemoPanel');
 
 // Factory reset is now provided via the shared Preferences UI (FactoryResetPanel).
-export function DatabaseDemoPanel({
+function WebDatabaseDemoPanel({
   embeddingQueue = null,
   onDatabaseCleared,
 }: DatabaseDemoPanelProps) {
@@ -328,10 +330,18 @@ export function DatabaseDemoPanel({
             />
           ) : null
         }
-        dbContext={dbContext}
         embeddingSetsRepository={embeddingSetsRepository}
         onActiveCollectionDeleted={() => setActiveCollectionId(null)}
       />
     </DatabasePanelFrame>
+  );
+}
+
+export function DatabaseDemoPanel(props: DatabaseDemoPanelProps) {
+  const files = getSourceFilesCapability();
+  return files ? (
+    <NativeLibraryPanel files={files} onDatabaseCleared={props.onDatabaseCleared} />
+  ) : (
+    <WebDatabaseDemoPanel {...props} />
   );
 }

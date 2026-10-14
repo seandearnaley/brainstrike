@@ -63,7 +63,7 @@ export function SearchCollectionSelector({
   const lastToastErrorRef = useRef<string | null>(null);
 
   // Use shared hook for collection data
-  const { collections, loading, error } = useCollections(db);
+  const { collections, loading, error, sourceReady } = useCollections(db);
   const visibleCollections = useMemo(
     () => collections.filter((collection) => collection.systemRole !== 'workspace-index'),
     [collections]
@@ -139,7 +139,7 @@ export function SearchCollectionSelector({
     [collections, onCollectionChange]
   );
 
-  const isLoading = loading || !db;
+  const isLoading = loading || !sourceReady;
 
   return (
     <ErrorBoundary>

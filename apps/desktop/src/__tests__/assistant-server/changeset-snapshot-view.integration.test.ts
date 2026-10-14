@@ -1,624 +1,294 @@
-/**
- * Real-git coverage for the W7 snapshot changeset resolution (BST-1164 T2):
- * the turn-boundary triggers + `changeset-snapshot-view.ts` end to end over
- * REAL temp roots and the production `execFileSnapshotGitRunner` (house
- * pattern of `snapshot-service.integration.test.ts`).
- *
- * THE MULTI-ROOT BAR (plan global constraint 7): every scenario runs over
- * TWO git roots + ONE plain (non-git) root, and the shell-side-effect
- * fixture — a file created by a DIRECT `fs` write, never a tool — MUST
- * appear in the turn's changeset. This is the fixture class the journal
- * engine structurally could not pass.
- *
- * Also pinned here:
- * - the LIVE Last Turn view (worktree side) shows mid-turn edits with ZERO
- *   database reads (the BST-1169 starvation rule) and no turn-end snapshot;
- * - totals are REAL numbers (numstat sums), never the journal's null;
- * - a legacy ledger turn has no attribution source, so no file carries
- *   `toolAttributed` (host turns attribute from their committed log);
- * - failed captures and pre-engine turns resolve to typed, honest errors —
- *   never a partial diff (plan global constraint 4);
- * - `fileDiff` disambiguates the same relative path across roots by rootId;
- * - `run-range` spans turns (from turn's start ↔ to turn's end).
- */
-import { execFile } from 'node:child_process';
-import fsPromises from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-import { promisify } from 'node:util';
-import type { GitResult } from '@brainstrike/types';
-import { afterEach, describe, expect, it } from 'vitest';
-import {
-  createSnapshotChangesetResolver,
-  type SnapshotChangesetResolver,
-  type SnapshotRunAnchor,
-} from '../../assistant-server/changeset-snapshot-view';
-import type { MainQueryHandle } from '../../assistant-server/main-query-handle';
-import { execFileSnapshotGitRunner } from '../../assistant-server/snapshot-git';
-import {
-  FAILED_SNAPSHOT_CAPTURE_OID,
-  type InsertWorkspaceSnapshotInput,
-  type SnapshotRepository,
-  type WorkspaceSnapshotRow,
-} from '../../assistant-server/snapshot-repository';
-import { createSnapshotService } from '../../assistant-server/snapshot-service';
-import {
-  createTurnBoundaryController,
-  type TurnBoundaryController,
-} from '../../assistant-server/snapshot-turn-boundaries';
-import {
-  createSnapshotTurnRegistry,
-  type SnapshotTurnRegistry,
-} from '../../assistant-server/snapshot-turn-registry';
+// @vitest-environment node
+/** Host-owned Changes: real committed snapshots, two Git roots and one plain root. */
+import { randomUUID } from 'node:crypto';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const execFileAsync = promisify(execFile);
+vi.mock('../../db-main', () => ({
+  getDatabase: vi.fn(() => {
+    throw new Error('PGlite is unavailable in host snapshot tests');
+  }),
+}));
+
+import { FAILED_SNAPSHOT_CAPTURE_OID } from '../../assistant-server/snapshot-repository';
+import {
+  cleanHostFixtures,
+  editAll,
+  hostSnapshotFixture,
+  write,
+} from './host-snapshot-test-support';
+
+afterEach(cleanHostFixtures);
 const HEAVY_TIMEOUT_MS = 60_000;
-const THREAD = 'thread-1';
-
-const createdDirs: string[] = [];
-
-afterEach(async () => {
-  while (createdDirs.length > 0) {
-    const dir = createdDirs.pop();
-    if (dir) {
-      await fsPromises.rm(dir, { force: true, recursive: true });
-    }
-  }
+const agentRun = (threadId: string, runId: string) => ({
+  kind: 'agent-run' as const,
+  runId,
+  threadId,
 });
 
-async function makeTempDir(prefix: string): Promise<string> {
-  const dir = await fsPromises.mkdtemp(path.join(os.tmpdir(), prefix));
-  // realpath so the macOS /var → /private/var symlink never trips path math.
-  const real = await fsPromises.realpath(dir);
-  createdDirs.push(real);
-  return real;
-}
-
-async function makeGitRoot(prefix: string): Promise<string> {
-  const root = await makeTempDir(prefix);
-  await execFileAsync('git', ['init', '-q'], { cwd: root });
-  await execFileAsync('git', ['config', 'user.email', 'test@brainstrike.dev'], { cwd: root });
-  await execFileAsync('git', ['config', 'user.name', 'Brainstrike Test'], { cwd: root });
-  await execFileAsync('git', ['config', 'commit.gpgsign', 'false'], { cwd: root });
-  return root;
-}
-
-async function write(root: string, relative: string, content: string): Promise<void> {
-  const absolute = path.join(root, relative);
-  await fsPromises.mkdir(path.dirname(absolute), { recursive: true });
-  await fsPromises.writeFile(absolute, content, 'utf8');
-}
-
-/** In-memory SnapshotRepository with mint-ordered lexicographic timestamps. */
-function makeLedger() {
-  const rows: WorkspaceSnapshotRow[] = [];
-  let counter = 0;
-  let reads = 0;
-  const repository: SnapshotRepository = {
-    deleteByIds: () => {
-      throw new Error('deleteByIds is not under test');
-    },
-    deleteForThread: () => {
-      throw new Error('deleteForThread is not under test');
-    },
-    insertSnapshot: (input: InsertWorkspaceSnapshotInput) => {
-      counter += 1;
-      const row: WorkspaceSnapshotRow = {
-        commitOid: input.commitOid,
-        createdAt: String(counter).padStart(8, '0'),
-        id: `row-${counter}`,
-        kind: input.kind,
-        rootId: input.rootId,
-        rootPath: input.rootPath,
-        runId: input.runId ?? null,
-        threadId: input.threadId,
-      };
-      rows.push(row);
-      return Promise.resolve(row);
-    },
-    latestSnapshotFor: () => {
-      throw new Error('latestSnapshotFor is not under test');
-    },
-    rootsForThread: () => {
-      throw new Error('rootsForThread is not under test');
-    },
-    snapshotsForThread: (threadId: string) => {
-      reads += 1;
-      return Promise.resolve(rows.filter((row) => row.threadId === threadId));
-    },
-  };
-  return { readCount: () => reads, repository, rows };
-}
-
-interface Harness {
-  readonly controller: TurnBoundaryController;
-  readonly dbReadCount: () => number;
-  readonly ledgerReadCount: () => number;
-  readonly registry: SnapshotTurnRegistry;
-  readonly resolver: SnapshotChangesetResolver;
-  readonly rows: WorkspaceSnapshotRow[];
-}
-
-interface HarnessOptions {
-  readonly runAnchors?: Readonly<Record<string, SnapshotRunAnchor>>;
-}
-
-async function makeHarness(options: HarnessOptions = {}): Promise<Harness> {
-  const snapshotsBaseDir = await makeTempDir('brainstrike-w7t2-shadow-');
-  const service = createSnapshotService({
-    runner: execFileSnapshotGitRunner,
-    snapshotsBaseDir,
-  });
-  const registry = createSnapshotTurnRegistry();
-  const { readCount, repository, rows } = makeLedger();
-  let dbReads = 0;
-  // The database handle is a COUNTER, never a real DB: everything DB-bound
-  // is injected (the `readRunAnchor` fake below), so any query
-  // through this object is a bug in the module under test.
-  const db: MainQueryHandle = {
-    query: () => {
-      throw new Error('the snapshot view must not run raw SQL in these tests');
-    },
-  };
-  const resolveDatabase = () => {
-    dbReads += 1;
-    return Promise.resolve(db);
-  };
-  const controller = createTurnBoundaryController({
-    registry,
-    resolveDatabase,
-    snapshots: { createRepository: () => repository, service },
-  });
-  const resolver = createSnapshotChangesetResolver({
-    createRepository: () => repository,
-    readRunAnchor: (_db, _threadId, runId): Promise<GitResult<SnapshotRunAnchor | null>> =>
-      Promise.resolve({ ok: true, value: options.runAnchors?.[runId] ?? null }),
-    registry,
-    resolveDatabase,
-    resolveService: () => service,
-  });
-  return {
-    controller,
-    dbReadCount: () => dbReads,
-    ledgerReadCount: readCount,
-    registry,
-    resolver,
-    rows,
-  };
-}
-
-interface MultiRootFixture {
-  readonly gitA: string;
-  readonly gitB: string;
-  readonly plainC: string;
-  readonly roots: readonly { readonly path: string; readonly rootId: string }[];
-}
-
-async function makeMultiRootFixture(): Promise<MultiRootFixture> {
-  const gitA = await makeGitRoot('brainstrike-w7t2-git-a-');
-  const gitB = await makeGitRoot('brainstrike-w7t2-git-b-');
-  const plainC = await makeTempDir('brainstrike-w7t2-plain-c-');
-  await write(gitA, 'src/index.ts', 'v1 line\n');
-  await execFileAsync('git', ['add', '-A'], { cwd: gitA });
-  await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: gitA });
-  await write(gitB, 'README.md', 'git b\n');
-  await write(plainC, 'notes.txt', 'plain v1\n');
-  return {
-    gitA,
-    gitB,
-    plainC,
-    roots: [
-      { path: gitA, rootId: 'root-a' },
-      { path: gitB, rootId: 'root-b' },
-      { path: plainC, rootId: 'root-c' },
-    ],
-  };
-}
-
-function agentRun(runId: string) {
-  return { kind: 'agent-run' as const, runId, threadId: THREAD };
-}
-
-describe('changeset-snapshot-view — multi-root settled turn (the headline bar)', () => {
+describe('host snapshot changes — real multi-root Git', () => {
   it(
-    'a turn over 2 git roots + 1 plain root captures the tool edit, the SHELL-created file, and the plain-root edit, with REAL totals and no attribution',
+    'captures shell-created and plain-root files with real totals and no fabricated tool attribution',
     async () => {
-      const fixture = await makeMultiRootFixture();
-      const harness = await makeHarness();
-
-      await harness.controller.beginLeg({
-        anchorMessageId: 'msg-1',
-        isResume: false,
-        roots: fixture.roots,
-        runId: 'run-1',
-        threadId: THREAD,
-      });
-      // Mid-turn mutations. NONE of these go through a tool seam:
-      await write(fixture.gitA, 'src/index.ts', 'v1 line\nv2 line added by tool\n');
-      await write(fixture.gitB, 'shell-note.txt', 'created by a direct fs write\n');
-      await write(fixture.plainC, 'notes.txt', 'plain v2\n');
-      await write(fixture.plainC, 'new-plain.txt', 'brand new in the plain root\n');
-      await harness.controller.completeLeg({
-        paused: false,
-        runId: 'run-1',
-        status: 'completed',
-        threadId: THREAD,
-      });
-
-      const result = await harness.resolver.resolveView(agentRun('run-1'));
+      const f = await hostSnapshotFixture();
+      const run = await f.send(() => editAll(f));
+      const result = await f.resolver().resolveView(agentRun(f.threadId, run.runId));
       expect(result.ok).toBe(true);
       if (!result.ok) {
-        return;
+        throw new Error(result.error);
       }
       const byKey = new Map(
         result.value.files.map((file) => [`${file.rootId}:${file.path}`, file])
       );
-
-      // The tool edit (gitA).
       expect(byKey.get('root-a:src/index.ts')).toMatchObject({ status: 'modified' });
-      // THE BAR: the shell-created file (gitB) appears.
-      expect(byKey.get('root-b:shell-note.txt')).toMatchObject({
+      expect(byKey.get('root-b:src/index.ts')).toMatchObject({ status: 'modified' });
+      expect(byKey.get('root-c:notes/scratch.md')).toMatchObject({ status: 'modified' });
+      expect(byKey.get('root-c:notes/generated.lock')).toMatchObject({
         additions: 1,
         status: 'added',
       });
-      // A legacy ledger turn has no attribution source: no file claims one.
-      for (const file of result.value.files) {
-        expect(file).not.toHaveProperty('toolAttributed');
-      }
-      // The plain (non-git) root's edit and addition both appear.
-      expect(byKey.get('root-c:notes.txt')?.status).toBe('modified');
-      expect(byKey.get('root-c:new-plain.txt')?.status).toBe('added');
-
-      // REAL totals — the numstat sum, never the journal's null.
-      const expectedAdditions = result.value.files.reduce(
-        (sum, file) => sum + (file.additions ?? 0),
-        0
+      // Host log has no workspace.edit.recorded: direct shell writes are visible but unattributed.
+      expect(result.value.files.every((file) => file.toolAttributed === false)).toBe(true);
+      expect(result.value.totalAdditions).toBe(
+        result.value.files.reduce((n, file) => n + (file.additions ?? 0), 0)
       );
-      expect(result.value.totalAdditions).toBe(expectedAdditions);
       expect(result.value.totalAdditions).toBeGreaterThan(0);
-      expect(result.value.totalDeletions).not.toBeNull();
       expect(typeof result.value.totalDeletions).toBe('number');
     },
     HEAVY_TIMEOUT_MS
   );
-
   it(
-    'fileDiff disambiguates the SAME relative path across two roots by rootId (multi-root identity)',
+    'disambiguates the same relative path across roots',
     async () => {
-      const fixture = await makeMultiRootFixture();
-      const harness = await makeHarness();
-      await harness.controller.beginLeg({
-        anchorMessageId: 'msg-1',
-        isResume: false,
-        roots: fixture.roots,
-        runId: 'run-1',
-        threadId: THREAD,
+      const f = await hostSnapshotFixture();
+      const run = await f.send(async () => {
+        await write(f.a, 'same.txt', 'root A\n');
+        await write(f.c, 'same.txt', 'root C\n');
       });
-      await write(fixture.gitA, 'same.txt', 'content in git root A\n');
-      await write(fixture.plainC, 'same.txt', 'content in plain root C\n');
-      await harness.controller.completeLeg({
-        paused: false,
-        runId: 'run-1',
-        status: 'completed',
-        threadId: THREAD,
-      });
-
-      const inA = await harness.resolver.fileDiff('root-a', agentRun('run-1'), 'same.txt');
-      const inC = await harness.resolver.fileDiff('root-c', agentRun('run-1'), 'same.txt');
-      expect(inA.ok && inC.ok).toBe(true);
-      if (!(inA.ok && inC.ok)) {
-        return;
+      const resolver = f.resolver();
+      for (const [rootId, content] of [
+        ['root-a', 'root A\n'],
+        ['root-c', 'root C\n'],
+      ] as const) {
+        const diff = await resolver.fileDiff(rootId, agentRun(f.threadId, run.runId), 'same.txt');
+        expect(diff).toMatchObject({
+          ok: true,
+          value: { content: { kind: 'full', newContent: content } },
+        });
       }
-      expect(inA.value.content).toMatchObject({
-        kind: 'full',
-        newContent: 'content in git root A\n',
-      });
-      expect(inC.value.content).toMatchObject({
-        kind: 'full',
-        newContent: 'content in plain root C\n',
-      });
     },
     HEAVY_TIMEOUT_MS
   );
-});
-
-describe('changeset-snapshot-view — LIVE Last Turn (worktree side)', () => {
   it(
-    'shows mid-turn edits with NO turn-end snapshot and ZERO database reads (BST-1169 hot-path rule)',
+    'grows the live view before turn-end, reading only incremental host rows with PGlite unavailable',
     async () => {
-      const fixture = await makeMultiRootFixture();
-      const harness = await makeHarness();
-      await harness.controller.beginLeg({
-        anchorMessageId: 'msg-1',
-        isResume: false,
-        roots: fixture.roots,
-        runId: 'run-1',
-        threadId: THREAD,
+      const f = await hostSnapshotFixture();
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const run = await f.start(async () => {
+        entered.resolve();
+        await release.promise;
       });
-      const ledgerReadsBefore = harness.ledgerReadCount();
-      const dbReadsBefore = harness.dbReadCount();
-
-      await write(fixture.gitB, 'mid-turn-shell.txt', 'appeared mid-run\n');
-      const first = await harness.resolver.resolveView(agentRun('run-1'));
-      expect(first.ok).toBe(true);
-      if (!first.ok) {
-        return;
+      try {
+        await entered.promise;
+        const resolver = f.resolver();
+        await write(f.b, 'mid-turn-shell.txt', 'first\n');
+        const first = await resolver.resolveView(agentRun(f.threadId, run.runId));
+        expect(first).toMatchObject({
+          ok: true,
+          value: {
+            files: expect.arrayContaining([
+              expect.objectContaining({ path: 'mid-turn-shell.txt', rootId: 'root-b' }),
+            ]),
+          },
+        });
+        if (!first.ok) {
+          throw new Error(first.error);
+        }
+        expect(first.value.files.every((file) => file.toolAttributed === undefined)).toBe(true);
+        await write(f.c, 'second-mid-turn.txt', 'later\n');
+        const second = await resolver.resolveView(agentRun(f.threadId, run.runId));
+        expect(second).toMatchObject({
+          ok: true,
+          value: {
+            files: expect.arrayContaining([
+              expect.objectContaining({ path: 'second-mid-turn.txt', rootId: 'root-c' }),
+            ]),
+          },
+        });
+        expect(f.requestedSeqs[0]).toBe(0);
+        expect(f.requestedSeqs[1]).toBeGreaterThan(0);
+        expect(
+          (await f.rows()).filter(
+            ({ event }) =>
+              event.type === 'workspace.snapshot.recorded' && event.boundary === 'turn-end'
+          )
+        ).toHaveLength(0);
+      } finally {
+        release.resolve();
+        await f.settled(run.runId);
       }
+    },
+    HEAVY_TIMEOUT_MS
+  );
+  it(
+    'one failed root capture refuses the whole view and remains failed after physical host reopen',
+    async () => {
+      const f = await hostSnapshotFixture({ failedRoot: 'root-b' });
+      const run = await f.send();
+      const check = async () => {
+        const result = await f.resolver().resolveView(agentRun(f.threadId, run.runId));
+        expect(result).toMatchObject({
+          error: expect.stringMatching(/^changeset-snapshot-capture-failed:/),
+          ok: false,
+        });
+      };
+      await check();
       expect(
-        first.value.files.find(
-          (file) => file.rootId === 'root-b' && file.path === 'mid-turn-shell.txt'
-        )
-      ).toMatchObject({ status: 'added' });
-      // Attribution is DELIBERATELY absent on the live path (no DB reads).
-      for (const file of first.value.files) {
-        expect(file.toolAttributed).toBeUndefined();
-      }
-
-      // The live view GROWS as the turn continues — same changeset, re-resolved.
-      await write(fixture.plainC, 'second-mid-turn.txt', 'later in the same run\n');
-      const second = await harness.resolver.resolveView(agentRun('run-1'));
-      expect(second.ok).toBe(true);
-      if (!second.ok) {
-        return;
-      }
-      expect(
-        second.value.files.some(
-          (file) => file.rootId === 'root-c' && file.path === 'second-mid-turn.txt'
+        (await f.rows()).some(
+          ({ event }) =>
+            event.type === 'workspace.snapshot.recorded' &&
+            event.roots.some(
+              (root) => root.rootId === 'root-b' && root.commitOid === FAILED_SNAPSHOT_CAPTURE_OID
+            )
         )
       ).toBe(true);
-      expect(typeof second.value.totalAdditions).toBe('number');
-
-      // ZERO database work on the hot path: no ledger rows read, no handle resolved.
-      expect(harness.ledgerReadCount()).toBe(ledgerReadsBefore);
-      expect(harness.dbReadCount()).toBe(dbReadsBefore);
-      // And no turn-end rows exist yet — the turn is still open.
-      expect(harness.rows.filter((row) => row.kind === 'turn-end')).toHaveLength(0);
+      await f.reopen();
+      await check();
     },
     HEAVY_TIMEOUT_MS
   );
-});
-
-describe('changeset-snapshot-view — honest failure states', () => {
   it(
-    'a failed turn-start capture resolves the WHOLE changeset to the typed capture-failed error (never a partial diff)',
+    'a failed whole capture stays explicit instead of an empty successful diff',
     async () => {
-      const fixture = await makeMultiRootFixture();
-      const harness = await makeHarness();
-      // Make root-b's capture fail: replace its path with a nonexistent dir.
-      const roots = [
-        fixture.roots[0],
-        { path: path.join(fixture.gitB, 'does-not-exist'), rootId: 'root-b' },
-        fixture.roots[2],
-      ].filter((root): root is { path: string; rootId: string } => root !== undefined);
-      await harness.controller.beginLeg({
-        anchorMessageId: 'msg-1',
-        isResume: false,
-        roots,
-        runId: 'run-1',
-        threadId: THREAD,
+      const f = await hostSnapshotFixture({ captureFailure: true });
+      const run = await f.send();
+      expect(await f.resolver().resolveView(agentRun(f.threadId, run.runId))).toMatchObject({
+        error: expect.stringMatching(/^changeset-snapshot-capture-failed:/),
+        ok: false,
       });
-      await harness.controller.completeLeg({
-        paused: false,
-        runId: 'run-1',
-        status: 'completed',
-        threadId: THREAD,
-      });
-
-      const result = await harness.resolver.resolveView(agentRun('run-1'));
-      expect(result.ok).toBe(false);
-      if (result.ok) {
-        return;
-      }
-      expect(result.error).toMatch(/^changeset-snapshot-capture-failed:/);
-      // The durable marker exists too (post-restart honesty).
       expect(
-        harness.rows.some(
-          (row) => row.rootId === 'root-b' && row.commitOid === FAILED_SNAPSHOT_CAPTURE_OID
+        (await f.rows()).some(
+          ({ event }) => event.type === 'workspace.snapshot.recorded' && 'failure' in event
         )
       ).toBe(true);
     },
     HEAVY_TIMEOUT_MS
   );
-
-  it('a settled ledger bracket containing a SENTINEL row renders the typed capture-failed error', async () => {
-    const harness = await makeHarness();
-    // Hand-write a settled bracket whose turn-start capture failed (as a
-    // fresh process would find it after a restart — registry empty).
-    const insert = (input: InsertWorkspaceSnapshotInput) =>
-      harness.rows.push({
-        commitOid: input.commitOid,
-        createdAt: String(harness.rows.length + 1).padStart(8, '0'),
-        id: `row-${harness.rows.length + 1}`,
-        kind: input.kind,
-        rootId: input.rootId,
-        rootPath: input.rootPath,
-        runId: input.runId ?? null,
-        threadId: input.threadId,
-      });
-    insert({
-      commitOid: FAILED_SNAPSHOT_CAPTURE_OID,
-      kind: 'turn-start',
-      rootId: 'root-a',
-      rootPath: '/ws/a',
-      runId: 'run-1',
-      threadId: THREAD,
-    });
-    insert({
-      commitOid: 'c'.repeat(40),
-      kind: 'turn-end',
-      rootId: 'root-a',
-      rootPath: '/ws/a',
-      runId: 'run-1',
-      threadId: THREAD,
-    });
-
-    const result = await harness.resolver.resolveView(agentRun('run-1'));
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      return;
-    }
-    expect(result.error).toMatch(/^changeset-snapshot-capture-failed:/);
-  });
-
-  it('a PRE-ENGINE turn (no snapshot rows at all) renders the typed snapshot-missing error', async () => {
-    const harness = await makeHarness({
-      runAnchors: { 'run-old': { completedAt: '00000001', startedAt: '00000000' } },
-    });
-    const result = await harness.resolver.resolveView(agentRun('run-old'));
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      return;
-    }
-    expect(result.error).toMatch(/^changeset-snapshot-missing:/);
-  });
-
-  it('an unknown run id renders the run-anchor-missing error (reused journal-engine prefix)', async () => {
-    const harness = await makeHarness();
-    // One settled bracket exists, but the requested run matches nothing and
-    // the runs table knows no such run.
-    const insert = (input: InsertWorkspaceSnapshotInput) =>
-      harness.rows.push({
-        commitOid: input.commitOid,
-        createdAt: String(harness.rows.length + 1).padStart(8, '0'),
-        id: `row-${harness.rows.length + 1}`,
-        kind: input.kind,
-        rootId: input.rootId,
-        rootPath: input.rootPath,
-        runId: input.runId ?? null,
-        threadId: input.threadId,
-      });
-    insert({
-      commitOid: 'a'.repeat(40),
-      kind: 'turn-start',
-      rootId: 'root-a',
-      rootPath: '/ws/a',
-      runId: 'run-1',
-      threadId: THREAD,
-    });
-    insert({
-      commitOid: 'b'.repeat(40),
-      kind: 'turn-end',
-      rootId: 'root-a',
-      rootPath: '/ws/a',
-      runId: 'run-1',
-      threadId: THREAD,
-    });
-    const result = await harness.resolver.resolveView(agentRun('run-ghost'));
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      return;
-    }
-    expect(result.error).toMatch(/^run-anchor-missing:/);
-  });
-});
-
-describe('changeset-snapshot-view — turns are not runs', () => {
   it(
-    'a settled MID-TURN resume run id resolves to its turn via the run-row timestamp fallback (cold path)',
+    'a current host run with no snapshot capability refuses instead of consulting legacy rows',
     async () => {
-      const fixture = await makeMultiRootFixture();
-      const harness = await makeHarness({
-        // 'run-mid' appears on NO snapshot row; its timestamps sit inside the
-        // first (and only) bracket: started after the bracket opened
-        // (createdAt '00000001'…) and completed before any later bracket.
-        runAnchors: { 'run-mid': { completedAt: '00000099', startedAt: '00000002' } },
+      const f = await hostSnapshotFixture({ capture: false });
+      const run = await f.send();
+      expect(await f.resolver().resolveView(agentRun(f.threadId, run.runId))).toMatchObject({
+        error: expect.stringMatching(/^changeset-snapshot-missing:/),
+        ok: false,
       });
-      await harness.controller.beginLeg({
-        anchorMessageId: 'msg-1',
-        isResume: false,
-        roots: fixture.roots,
-        runId: 'run-1',
-        threadId: THREAD,
-      });
-      await write(fixture.gitA, 'src/index.ts', 'v1 line\nresumed edit\n');
-      // The approval-resume leg attaches, then ends the turn.
-      await harness.controller.beginLeg({
-        anchorMessageId: 'msg-1',
-        isResume: true,
-        roots: fixture.roots,
-        runId: 'run-2',
-        threadId: THREAD,
-      });
-      await harness.controller.completeLeg({
-        paused: false,
-        runId: 'run-2',
-        status: 'completed',
-        threadId: THREAD,
-      });
-      // Force the ledger path: a fresh process would have an empty registry.
-      harness.registry.clear();
-
-      const result = await harness.resolver.resolveView(agentRun('run-mid'));
-      expect(result.ok).toBe(true);
-      if (!result.ok) {
-        return;
-      }
-      expect(
-        result.value.files.some((file) => file.rootId === 'root-a' && file.path === 'src/index.ts')
-      ).toBe(true);
     },
     HEAVY_TIMEOUT_MS
   );
-
   it(
-    'run-range spans turns: FROM turn-start of the first turn TO turn-end of the second',
+    'unknown run and thread identities never alias a nearby timestamp or a prior turn',
     async () => {
-      const fixture = await makeMultiRootFixture();
-      const harness = await makeHarness();
-      // Turn 1 (run-1): modify gitA.
-      await harness.controller.beginLeg({
-        anchorMessageId: 'msg-1',
-        isResume: false,
-        roots: fixture.roots,
-        runId: 'run-1',
-        threadId: THREAD,
+      const f = await hostSnapshotFixture();
+      await f.send(() => editAll(f));
+      const resolver = f.resolver();
+      expect(await resolver.resolveView(agentRun(f.threadId, 'run-ghost'))).toMatchObject({
+        error: expect.stringMatching(/^changeset-snapshot-missing:/),
+        ok: false,
       });
-      await write(fixture.gitA, 'src/index.ts', 'v1 line\nturn one\n');
-      await harness.controller.completeLeg({
-        paused: false,
-        runId: 'run-1',
-        status: 'completed',
-        threadId: THREAD,
+      expect(await resolver.resolveView(agentRun('thread-ghost', 'run-ghost'))).toMatchObject({
+        error: expect.stringMatching(/^changeset-snapshot-missing:/),
+        ok: false,
       });
-      // Turn 2 (run-2): modify gitA again + shell file in gitB.
-      await harness.controller.beginLeg({
-        anchorMessageId: 'msg-2',
-        isResume: false,
-        roots: fixture.roots,
-        runId: 'run-2',
-        threadId: THREAD,
+    },
+    HEAVY_TIMEOUT_MS
+  );
+  it(
+    'a host range spans committed runs to the live worktree and refuses a fabricated terminal range',
+    async () => {
+      const f = await hostSnapshotFixture();
+      const first = await f.send(() => write(f.a, 'src/index.ts', 'a-v0\nturn one\n'));
+      const second = await f.send(async () => {
+        await write(f.a, 'src/index.ts', 'a-v0\nturn one\nturn two\n');
+        await write(f.b, 'range-shell.txt', 'shell turn two\n');
       });
-      await write(fixture.gitA, 'src/index.ts', 'v1 line\nturn one\nturn two\n');
-      await write(fixture.gitB, 'range-shell.txt', 'shell write in turn two\n');
-      await harness.controller.completeLeg({
-        paused: false,
-        runId: 'run-2',
-        status: 'completed',
-        threadId: THREAD,
-      });
-      harness.registry.clear();
-
-      const result = await harness.resolver.resolveView({
-        fromRunId: 'run-1',
+      await f.reopen();
+      const resolver = f.resolver();
+      const result = await resolver.resolveView({
+        fromRunId: first.runId,
         kind: 'run-range',
-        threadId: THREAD,
-        toRunId: 'run-2',
+        threadId: f.threadId,
       });
-      expect(result.ok).toBe(true);
-      if (!result.ok) {
-        return;
-      }
-      const gitAEntry = result.value.files.find(
-        (file) => file.rootId === 'root-a' && file.path === 'src/index.ts'
-      );
-      // BOTH turns' lines are in the range diff (start of turn 1 → end of turn 2).
-      expect(gitAEntry?.additions).toBe(2);
+      expect(result).toMatchObject({
+        ok: true,
+        value: {
+          files: expect.arrayContaining([
+            expect.objectContaining({ additions: 2, path: 'src/index.ts', rootId: 'root-a' }),
+            expect.objectContaining({ path: 'range-shell.txt', rootId: 'root-b' }),
+          ]),
+        },
+      });
       expect(
-        result.value.files.some(
-          (file) => file.rootId === 'root-b' && file.path === 'range-shell.txt'
-        )
-      ).toBe(true);
-      expect(typeof result.value.totalAdditions).toBe('number');
+        await resolver.resolveView({
+          fromRunId: first.runId,
+          kind: 'run-range',
+          threadId: f.threadId,
+          toRunId: second.runId,
+        })
+      ).toMatchObject({ error: expect.stringMatching(/^run-range-unsupported:/), ok: false });
+    },
+    HEAVY_TIMEOUT_MS
+  );
+  it(
+    'approval resumes the same committed run and keeps one start/end bracket across all roots',
+    async () => {
+      const f = await hostSnapshotFixture({ approval: true });
+      const requested = Promise.withResolvers<string>();
+      const unsubscribe = f.onCommitted((row) => {
+        if (row.threadId === f.threadId && row.event.type === 'interaction.requested') {
+          requested.resolve(row.event.interactionId);
+        }
+      });
+      try {
+        const run = await f.start(() => editAll(f));
+        const interactionId = await requested.promise;
+        expect((await f.rows()).filter(({ event }) => event.type === 'run.started')).toHaveLength(
+          1
+        );
+        await f.client().request('interaction/respond', {
+          commandId: randomUUID(),
+          decision: 'approve',
+          interactionId,
+          runId: run.runId,
+          threadId: f.threadId,
+        });
+        await f.settled(run.runId);
+        const rows = await f.rows();
+        expect(rows.filter(({ event }) => event.type === 'run.started')).toHaveLength(1);
+        const snapshots = rows.flatMap(({ event }) =>
+          event.type === 'workspace.snapshot.recorded' ? [event] : []
+        );
+        expect(
+          snapshots.map((event) => ({
+            boundary: event.boundary,
+            roots: event.roots.length,
+            runId: event.runId,
+          }))
+        ).toEqual([
+          { boundary: 'turn-start', roots: 3, runId: run.runId },
+          { boundary: 'turn-end', roots: 3, runId: run.runId },
+        ]);
+        expect(await f.resolver().resolveView(agentRun(f.threadId, run.runId))).toMatchObject({
+          ok: true,
+          value: {
+            files: expect.arrayContaining([
+              expect.objectContaining({ path: 'notes/generated.lock', rootId: 'root-c' }),
+            ]),
+          },
+        });
+      } finally {
+        unsubscribe();
+      }
     },
     HEAVY_TIMEOUT_MS
   );

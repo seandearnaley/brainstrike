@@ -3,6 +3,7 @@ import path from 'node:path';
 import { writePrivateCredentialFile } from '@brainstrike/agent-host/file-credentials';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import { enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 
 const STORED_KEY = 'profile-store-openrouter-key';
@@ -47,15 +48,11 @@ test('the panel, Settings and the composer read provider facts from the host', a
 
   // Select the OpenRouter model without the availability override, so the
   // panel gates on the host's real status answer.
-  await page.evaluate(async (model) => {
+  await enableAssistantCatalogModel(page, `openrouter::${MODEL}`);
+  await page.evaluate((model) => {
     const globals = window as unknown as {
       __brainstrikeTestHooks__?: { setAssistantModel: (compositeKey: string) => void };
-      electronAPI: { db: { query: (sql: string, params: unknown[]) => Promise<unknown> } };
     };
-    await globals.electronAPI.db.query(
-      'UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2',
-      [model, 'openrouter']
-    );
     const hooks = globals.__brainstrikeTestHooks__;
     if (!hooks) {
       throw new Error('Brainstrike desktop test hooks are unavailable.');
@@ -94,17 +91,19 @@ test('the panel, Settings and the composer read provider facts from the host', a
     expect.objectContaining({ knob: 'OPENROUTER_BASE_URL', method: 'GET', route: '/key' })
   );
 
-  // Canary: the listener records this window's fetches to Main's server, the
-  // transport the old clients used. Main then served none of the three routes.
-  await page.evaluate(async () => {
-    const bridge = (window as unknown as { assistant?: { getUrl?: () => Promise<string> } })
-      .assistant;
-    const base = await bridge?.getUrl?.();
-    if (!base) {
-      throw new Error("Main's assistant server URL is unavailable.");
+  // Exercise the request observer through an intercepted loopback request.
+  // The retired Main assistant HTTP server and URL bridge must stay absent.
+  const canaryUrl = `${modelProvider.baseUrl}/request-listener-canary`;
+  await page.route(canaryUrl, (route) =>
+    route.fulfill({ headers: { 'access-control-allow-origin': '*' }, status: 204 })
+  );
+  await page.evaluate(async (url) => {
+    const bridge = (window as unknown as { assistant?: { getUrl?: unknown } }).assistant;
+    if (bridge?.getUrl !== undefined) {
+      throw new Error('The retired Main assistant URL bridge is still exposed.');
     }
-    await fetch(`${base}/request-listener-canary`).catch(() => undefined);
-  });
+    await fetch(url);
+  }, canaryUrl);
   await expect.poll(() => requests).toContain('/request-listener-canary');
   expect(requests.filter((pathname) => MAIN_PROVIDER_ROUTES.test(pathname))).toEqual([]);
 });

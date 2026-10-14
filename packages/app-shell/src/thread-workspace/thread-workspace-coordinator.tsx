@@ -19,18 +19,17 @@ const EMPTY_THREAD_IDS: readonly string[] = [];
 
 /**
  * Mounts the thread⇄workspace coordinator (BST-1268). Must render inside the
- * FileExplorerProvider (app-shell's AppLayout provides it) and the PGlite
- * provider. Renders nothing.
+ * FileExplorerProvider (app-shell's AppLayout provides it). The host owns desktop
+ * snapshots; web uses its database provider. Renders nothing.
  */
 export function ThreadWorkspaceCoordinator(): null {
-  const db = usePGliteDatabase();
   const host = useAssistantThreadHost();
+  const db = usePGliteDatabase({ enabled: !host });
   const repository = useMemo(() => {
-    if (!db) {
-      return null;
+    if (host) {
+      return host.workspaceRepository();
     }
-    const history = createThreadWorkspaceRepository(db);
-    return host ? host.workspaceRepository(history) : history;
+    return db ? createThreadWorkspaceRepository(db) : null;
   }, [db, host]);
   const resourceId = resolveAssistantMemoryResourceId();
   const activeThreadId = useAssistantThreadStore(

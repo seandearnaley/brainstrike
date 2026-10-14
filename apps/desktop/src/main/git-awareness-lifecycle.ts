@@ -5,15 +5,18 @@
  * and the ONE `WorktreeService`, plus the two main→renderer pushes they
  * drive (`changes:invalidated`, `forge:prUpdated`) with their monotonic
  * generations. Constructed only from inside `app.whenReady()` — never at
- * module scope (BST-1112: `start()`'s first step reaches `getDatabase()` →
- * `utilityProcess.fork`, which Electron rejects before ready). `main.ts`
- * keeps the returned services in its shutdown-runner slots: git-inventory
- * and forge are graceful-shutdown steps BEFORE 'database' (both read the
- * DB); `main/desktop-graceful-shutdown.ts` owns that order.
+ * module scope. Persisted services borrow the app-ready host profile and its
+ * private SQLite writer. `main.ts` closes these borrowers before retiring
+ * that profile during graceful shutdown.
  */
 import path from 'node:path';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { createLogger } from '@brainstrike/logging';
+import type {
+  ForgeCachePort,
+  WorkspaceRootPort,
+  WorktreeLedgerPort,
+} from '@brainstrike/state-store';
 import type { StorageAdapter } from '@brainstrike/storage';
 import type { ChangesInvalidationEvent, ForgePrUpdatedEvent } from '@brainstrike/types';
 import { execFileGhRunner } from '../assistant-server/forge-gh-client';
@@ -22,14 +25,12 @@ import {
   createGitInventoryService,
   type GitInventoryService,
 } from '../assistant-server/git-inventory-service';
-import { recordDesktopAssistantRunEvent } from '../assistant-server/run-persistence';
-import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
+import { loadWorkspaceRootsFromCatalog } from '../assistant-server/workspace-roots';
 import { createWorktreeService } from '../assistant-server/worktree-service';
 import { readWorktreeSettings } from '../assistant-server/worktree-settings';
 import { runWorktreeSetup } from '../assistant-server/worktree-setup';
-import type { getDatabase as getDesktopDatabase } from '../db-main';
 import { createForgeIpcHandlers, createForgeRepositoryResolver } from '../forge-ipc-handlers';
-import { createDatabaseRootResolver, execFileGitRunner } from '../git-ipc-handlers';
+import { createWorkspaceRootResolver, execFileGitRunner } from '../git-ipc-handlers';
 import { registerForgeIpcHandlers } from '../ipc-forge';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { resolveRootCwd } from '../workspace-root-cwd';
@@ -37,10 +38,11 @@ import { resolveRootCwd } from '../workspace-root-cwd';
 export interface GitAwarenessLifecycleDeps {
   /** Push one payload to every live renderer window (ipc-mcp precedent). */
   readonly broadcast: (channel: string, payload: unknown) => void;
-  readonly getDatabase: typeof getDesktopDatabase;
+  readonly hasRunningThread: (worktreeId: string) => Promise<boolean>;
   readonly homePath: string;
   readonly logger: Pick<ReturnType<typeof createLogger>, 'debug' | 'error' | 'info' | 'warn'>;
   readonly storage: StorageAdapter;
+  readonly workspaceRoots: WorkspaceRootPort & WorktreeLedgerPort & ForgeCachePort;
 }
 
 export interface GitAwarenessLifecycle {
@@ -51,7 +53,7 @@ export interface GitAwarenessLifecycle {
 }
 
 export function startGitAwarenessLifecycle(deps: GitAwarenessLifecycleDeps): GitAwarenessLifecycle {
-  const { broadcast, getDatabase, homePath, logger, storage } = deps;
+  const { broadcast, homePath, logger, storage, workspaceRoots } = deps;
   // Uses a PRIVATE `ElectronFileSystemAdapter` instance — never the shared
   // `fileSystem` and never the renderer-owned `fs:watch` IPC pipeline
   // (`ipc-domains/file-system-watch-ipc.ts` dedupes native subscriptions
@@ -89,10 +91,10 @@ export function startGitAwarenessLifecycle(deps: GitAwarenessLifecycleDeps): Git
   // clear this resolver's per-rootId cache on the SAME commonDir signal
   // that already drives `forgeService.onRepositoryInvalidated`.
   const forgeRepositoryResolver = createForgeRepositoryResolver(
-    createDatabaseRootResolver(getDatabase)
+    createWorkspaceRootResolver(workspaceRoots)
   );
   const forgeService = createForgeService({
-    getDatabase,
+    getForgeCache: async () => workspaceRoots,
     onPrUpdated: (event) => {
       forgePrUpdatedGeneration += 1;
       const payload: ForgePrUpdatedEvent = {
@@ -105,11 +107,14 @@ export function startGitAwarenessLifecycle(deps: GitAwarenessLifecycleDeps): Git
     run: execFileGhRunner,
   });
   const unregisterForgeIpc = registerForgeIpcHandlers(
-    createForgeIpcHandlers({ service: forgeService })
+    createForgeIpcHandlers({
+      readCacheSnapshot: () => workspaceRoots.forgeCacheSnapshot(),
+      service: forgeService,
+    })
   );
   const gitInventoryService = createGitInventoryService({
     loadRoots: async () => {
-      const roots = await loadWorkspaceRootsFromDatabase(await getDatabase());
+      const roots = await loadWorkspaceRootsFromCatalog(workspaceRoots);
       return roots.map((root) => ({ id: root.rootId, path: root.path }));
     },
     // The refs watcher moving `refs/remotes/<remote>/<branch>` is the
@@ -144,9 +149,9 @@ export function startGitAwarenessLifecycle(deps: GitAwarenessLifecycleDeps): Git
   });
   gitInventoryService.start();
   const worktreeService = createWorktreeService({
-    getDatabase,
+    getWorktreeStore: async () => workspaceRoots,
+    hasRunningThread: deps.hasRunningThread,
     readSettings: () => readWorktreeSettings(storage, homePath),
-    recordRunEvent: (runId, event) => recordDesktopAssistantRunEvent(runId, event, getDatabase),
     resolveInventory: async (options) => {
       // `maxAgeMs: 0` is FORCED (git-inventory-service.ts's own doc
       // comment): it guarantees a build that started after this call, not
@@ -159,9 +164,9 @@ export function startGitAwarenessLifecycle(deps: GitAwarenessLifecycleDeps): Git
       return { errors: snapshot.errors, repositories: snapshot.repositories };
     },
     resolveRootCwd: (rootId) =>
-      resolveRootCwd(createDatabaseRootResolver(getDatabase), rootId, 'worktrees', logger),
+      resolveRootCwd(createWorkspaceRootResolver(workspaceRoots), rootId, 'worktrees', logger),
     resolveRootPaths: async () => {
-      const roots = await loadWorkspaceRootsFromDatabase(await getDatabase());
+      const roots = await loadWorkspaceRootsFromCatalog(workspaceRoots);
       return roots.map((root) => ({ id: root.rootId, path: root.path }));
     },
     run: execFileGitRunner,

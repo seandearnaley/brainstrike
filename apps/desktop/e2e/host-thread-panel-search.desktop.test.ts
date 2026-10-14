@@ -1,17 +1,16 @@
 /**
  * Desktop E2E (gap 10): the Threads panel search finds agent-host threads by
- * their content and by their title, excluding retired PGlite conversations.
+ * their content and by their title, excluding deleted host conversations.
  * The host's semantic arm also answers, once the backlog drain has embedded
  * the host's rows; the search runs after that, so its rows are deterministic.
  */
 import type { Page } from '@playwright/test';
 import { setVectorDevicePreference } from './embedding-worker-renderer.shared';
 import { expect, test } from './fixtures/electron-fixture';
-import { readHostSearchVectorCounts } from './utils/agent-host-log';
+import { readHostSearchVectorCounts, withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
-import { seedRetiredThreadRows, waitForMastraMemorySchema } from './utils/seed-threads';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const WORD = 'marigold';
@@ -19,7 +18,6 @@ const HISTORY_TITLE = 'Watering notes';
 const CONTENT_TITLE = 'Garden plan';
 const TITLE_MATCH = 'Marigold seeds';
 const REPLY = 'Noted.';
-const WORKSPACE_MEMORY_RESOURCE_ID = 'brainstrike:workspace';
 
 async function openThreadsPanel(page: Page): Promise<void> {
   const showSidebar = page.getByTestId('show-threads-panel');
@@ -28,28 +26,6 @@ async function openThreadsPanel(page: Page): Promise<void> {
   }
   await page.getByTestId('threads-tab-trigger').click();
   await expect(page.getByTestId('threads-panel')).toBeVisible({ timeout: 30_000 });
-}
-
-/** A history (PGlite) user message, in the shape Mastra persists. */
-async function seedHistoryMessage(page: Page, threadId: string, text: string): Promise<void> {
-  await page.evaluate(
-    async ({ resourceId, text: body, threadId: thread }) => {
-      const query = window.electronAPI?.db?.query;
-      if (!query) {
-        throw new Error('Electron db.query bridge is not available');
-      }
-      await query(
-        `INSERT INTO mastra_messages (id, thread_id, content, role, type, "createdAt", "resourceId") VALUES ($1, $2, $3::jsonb, 'user', 'v2', NOW(), $4)`,
-        [
-          `${thread}-message`,
-          thread,
-          JSON.stringify({ content: body, format: 2, parts: [{ text: body, type: 'text' }] }),
-          resourceId,
-        ]
-      );
-    },
-    { resourceId: WORKSPACE_MEMORY_RESOURCE_ID, text, threadId }
-  );
 }
 
 test('the Threads panel searches only usable host threads by content and title', async ({
@@ -64,16 +40,8 @@ test('the Threads panel searches only usable host threads by content and title',
   await mockFileSystemOperations(page);
   await ensureMockWorkspaceOpen(page);
   await configureAssistantProvider(page);
-  await waitForMastraMemorySchema(page);
-  // History: a thread whose message mentions the word; its title does not.
-  const [history] = await seedRetiredThreadRows(page, [{ folder: null, title: HISTORY_TITLE }]);
-  if (!history) {
-    throw new Error('The history thread was not seeded');
-  }
-  await seedHistoryMessage(page, history, `Water the ${WORD} beds at dawn.`);
-
   // Each run streams; its thread's title request is the one non-streaming request.
-  let title = CONTENT_TITLE;
+  let title = HISTORY_TITLE;
   modelProvider.setScript(({ requestBody }) =>
     (requestBody as { stream?: unknown }).stream === true
       ? { finalText: REPLY }
@@ -93,6 +61,20 @@ test('the Threads panel searches only usable host threads by content and title',
     await region.getByRole('button', { exact: true, name: 'Send' }).click();
     await expect(strip.getByRole('tab', { name: titled })).toHaveCount(1, { timeout: 60_000 });
   };
+  // A real deleted host conversation must not survive as an unusable search hit.
+  await send(`Water the ${WORD} beds at dawn.`, HISTORY_TITLE);
+  await page.getByTestId('assistant-new-thread-button').click();
+  await expect(strip.getByRole('tab', { name: 'New Thread', selected: true })).toBeVisible();
+  await withAppHost(electron.getUserDataDir(), async (client) => {
+    const old = (await client.request('thread/list', {})).threads.find(
+      (thread) => thread.title === HISTORY_TITLE
+    );
+    if (!old) {
+      throw new Error('The sent history thread was not committed');
+    }
+    await client.request('thread/delete', { threadId: old.threadId });
+  });
+  title = CONTENT_TITLE;
   // A host thread found by its content.
   await send(`Plan the ${WORD} garden.`, CONTENT_TITLE);
   // A host thread found by its title alone.
@@ -107,8 +89,7 @@ test('the Threads panel searches only usable host threads by content and title',
 
   await openThreadsPanel(page);
   const search = page.getByRole('combobox', { name: 'Search threads' });
-  // Any search starts the backlog drain, which embeds history's rows and then
-  // the host's. Search for the word only once the host holds a vector for each
+  // Any search starts the backlog drain, which embeds the surviving host rows. Search for the word only once the host holds a vector for each
   // of its four messages, so the semantic arm answers from all of them.
   await search.fill('zinnia');
   await expect

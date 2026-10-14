@@ -1,17 +1,59 @@
 import path from 'node:path';
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import type { WorkspaceRootPort, WorkspaceRootRecord } from '@brainstrike/state-store';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { type Mock, vi } from 'vitest';
-import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
 import {
   type SecureWorkspaceRoot,
   WorkspaceRootRegistry,
 } from '../../ipc-domains/workspace-root-registry';
 
-export function createRegistryDatabaseQuery(): Mock<
-  (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>
-> {
-  return vi.fn(async (_sql: string, _params?: unknown[]) => ({ rows: [] }));
+export function registryRoot(
+  id: string,
+  path: string,
+  kind: 'path' | 'worktree' = 'path'
+): WorkspaceRootRecord {
+  return {
+    createdAt: 1,
+    displayName: path.split('/').at(-1) ?? path,
+    id,
+    kind,
+    lastVerifiedAt: 1,
+    path,
+    status: 'live',
+  };
+}
+
+export function createRegistryCatalogRequest(
+  initial: readonly WorkspaceRootRecord[] = []
+): Mock<WorkspaceRootPort['workspaceRoots']> {
+  const roots = new Map(initial.map((root) => [root.path, root]));
+  return vi.fn(async (request) => {
+    switch (request.operation) {
+      case 'list':
+        return { roots: [...roots.values()] };
+      case 'register': {
+        const previous = roots.get(request.root.path);
+        const root = {
+          ...(previous ?? registryRoot(request.root.preferredId, request.root.path)),
+          status: 'live' as const,
+        };
+        roots.set(root.path, root);
+        return { roots: [root] };
+      }
+      case 'disconnect-except': {
+        const disconnected = [...roots.values()]
+          .filter((root) => root.status === 'live' && !request.mountedPaths.includes(root.path))
+          .map((root) => ({ ...root, status: 'disconnected' as const }));
+        for (const root of disconnected) {
+          roots.set(root.path, root);
+        }
+        return { roots: disconnected };
+      }
+      case 'delete':
+        throw new Error('Unexpected catalog deletion in a registry fixture');
+    }
+  });
 }
 
 export function createStorage(initial: Record<string, string> = {}): ElectronStorageAdapter {
@@ -49,16 +91,14 @@ export function secureRoot(canonicalPath: string): SecureWorkspaceRoot {
 
 export function createRegistry(
   overrides: Partial<ConstructorParameters<typeof WorkspaceRootRegistry>[0]> = {},
-  dbQuery: Mock<
-    (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>
-  > = createRegistryDatabaseQuery()
+  catalogRequest: Mock<WorkspaceRootPort['workspaceRoots']> = createRegistryCatalogRequest()
 ): WorkspaceRootRegistry {
-  const db = { query: dbQuery } as unknown as WorkspaceRootsQueryable;
+  const catalog = { workspaceRoots: catalogRequest };
   return new WorkspaceRootRegistry({
     createSecureRoot: async (rootPath) => secureRoot(rootPath),
     disposeCommandSessionsForRoot: vi.fn(async () => 0),
     evictLspServersForRoot: vi.fn(async () => undefined),
-    getRootsDatabase: async () => db,
+    getRootsCatalog: async () => catalog,
     pathExists: async () => true,
     resolveCanonicalRoot: async (rootPath) => path.normalize(rootPath),
     storage: createStorage(),

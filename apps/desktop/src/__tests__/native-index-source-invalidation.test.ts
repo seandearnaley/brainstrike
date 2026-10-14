@@ -16,6 +16,7 @@ import {
   requestedScope,
   resetActivationFixture,
   saveSettingsChange,
+  setCatalogRoot,
   storeId,
   unused,
   writer,
@@ -116,13 +117,7 @@ function heldWorkspace(beforeAttach?: () => Promise<void>) {
     },
     watches: { subscribe: unused },
   } as unknown as ApplicationIpcDomain;
-  mocks.database.query.mockImplementation(async (sql: string) => ({
-    rows: sql.includes('FROM roots')
-      ? [{ id: 'root', kind: 'path' }]
-      : sql.includes('FROM embedding_sets')
-        ? [{ id: 'selected' }]
-        : [],
-  }));
+  setCatalogRoot();
   mocks.readyPort.mockReturnValue({
     ...writer(),
     verifyScopedManifest: async (

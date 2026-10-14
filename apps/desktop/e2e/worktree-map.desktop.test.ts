@@ -2,7 +2,7 @@
  * Desktop E2E for the Worktree Map (BST-1392 W5).
  *
  * Drives the built Electron app against real on-disk Git repositories and the
- * real PGlite-backed worktree ledger. Map discovery, adoption, root mounting,
+ * real StateStore worktree ledger. Map discovery, adoption, root mounting,
  * and thread checkout all cross the production renderer, preload, IPC, and
  * service boundaries. Cases 1-3 use setupAssistantMock, which replaces the
  * app's own internal `/assistant` endpoint and is sufficient for direct,
@@ -50,6 +50,7 @@ import {
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { type ModelProviderShim, startModelProviderShim } from './utils/model-provider-shim';
 import { seedRoot as seedWorkspaceRoot } from './utils/seed-root';
+import { readActiveManagedWorktrees } from './utils/worktree-ledger';
 
 const tempDirs = createTempDirTracker();
 const ROOT_ID = 'w5-worktree-map-root-00000000-0000-4000-8000-000000000013';
@@ -144,71 +145,21 @@ async function expectNewCommittedThread(page: Page, previousThreadId: string): P
   await expect(panel.getByTestId('chat-panel')).toHaveCount(0);
 }
 
-async function queryRows<Row extends Record<string, unknown>>(
-  page: Page,
-  sql: string,
-  params: readonly unknown[] = []
-): Promise<readonly Row[]> {
-  return (await page.evaluate(
-    async ({ parameters, statement }) => {
-      const query = (
-        window as unknown as {
-          electronAPI: {
-            db: {
-              query: (
-                sqlText: string,
-                sqlParams?: readonly unknown[]
-              ) => Promise<{ rows: Record<string, unknown>[] }>;
-            };
-          };
-        }
-      ).electronAPI.db.query;
-      return (await query(statement, parameters)).rows;
-    },
-    { parameters: params, statement: sql }
-  )) as readonly Row[];
-}
-
-async function queryLiveWorktreeRows(page: Page, worktreePath: string): Promise<unknown[]> {
-  return [
-    ...(await queryRows(
-      page,
-      'SELECT path FROM brainstrike_worktrees WHERE path = $1 AND archived_at IS NULL',
-      [worktreePath]
-    )),
-  ];
-}
-
-interface ManagedWorktreeProvenanceRow extends Record<string, unknown> {
-  readonly createdBy: string;
-  readonly path: string;
-  readonly runId: string | null;
-}
-
-async function queryManagedWorktreeByBranch(
-  page: Page,
-  branch: string
-): Promise<readonly ManagedWorktreeProvenanceRow[]> {
-  return await queryRows<ManagedWorktreeProvenanceRow>(
-    page,
-    `SELECT created_by AS "createdBy", path, run_id AS "runId"
-       FROM brainstrike_worktrees
-      WHERE branch = $1 AND archived_at IS NULL`,
-    [branch]
-  );
-}
-
-async function queryManagedWorktreeByPath(
-  page: Page,
+async function queryLiveWorktreeRows(
+  userDataDir: string,
   worktreePath: string
-): Promise<readonly ManagedWorktreeProvenanceRow[]> {
-  return await queryRows<ManagedWorktreeProvenanceRow>(
-    page,
-    `SELECT created_by AS "createdBy", path, run_id AS "runId"
-       FROM brainstrike_worktrees
-      WHERE path = $1 AND archived_at IS NULL`,
-    [worktreePath]
-  );
+): Promise<readonly { path: string }[]> {
+  return (await readActiveManagedWorktrees(userDataDir))
+    .filter((row) => row.path === worktreePath)
+    .map(({ path: committedPath }) => ({ path: committedPath }));
+}
+
+async function queryManagedWorktreeByBranch(userDataDir: string, branch: string) {
+  return (await readActiveManagedWorktrees(userDataDir)).filter((row) => row.branch === branch);
+}
+
+async function queryManagedWorktreeByPath(userDataDir: string, worktreePath: string) {
+  return (await readActiveManagedWorktrees(userDataDir)).filter((row) => row.path === worktreePath);
 }
 
 interface ShellCreatedEventRow extends Record<string, unknown> {
@@ -396,7 +347,7 @@ test.describe('Worktree Map (desktop)', () => {
     );
   });
 
-  test('adoption from the Map binds a thread', async ({ window: page }) => {
+  test('adoption from the Map binds a thread', async ({ electron, window: page }) => {
     test.setTimeout(240_000);
     // Adoption requires the checkout to be reachable through an open root or
     // the configured managed directory. Keep it external to the repo while
@@ -421,7 +372,7 @@ test.describe('Worktree Map (desktop)', () => {
     await actionsMenu.getByRole('menuitem', { exact: true, name: 'Adopt' }).click();
 
     await expect
-      .poll(() => queryLiveWorktreeRows(page, worktree), { timeout: 30_000 })
+      .poll(() => queryLiveWorktreeRows(electron.getUserDataDir(), worktree), { timeout: 30_000 })
       .toEqual([{ path: worktree }]);
 
     const newThread = externalCard.getByTestId('worktree-map-new-thread');
@@ -439,6 +390,7 @@ test.describe('Worktree Map (desktop)', () => {
   });
 
   test('adoption from the Map binds a thread for a NESTED in-root checkout outside the managed directory', async ({
+    electron,
     window: page,
   }) => {
     test.setTimeout(240_000);
@@ -467,7 +419,9 @@ test.describe('Worktree Map (desktop)', () => {
     await actionsMenu.getByRole('menuitem', { exact: true, name: 'Adopt' }).click();
 
     await expect
-      .poll(() => queryLiveWorktreeRows(page, canonicalWorktree), { timeout: 30_000 })
+      .poll(() => queryLiveWorktreeRows(electron.getUserDataDir(), canonicalWorktree), {
+        timeout: 30_000,
+      })
       .toEqual([{ path: canonicalWorktree }]);
 
     const newThread = nestedCard.getByTestId('worktree-map-new-thread');
@@ -553,7 +507,10 @@ test.describe('Worktree Map (desktop)', () => {
       modelProviderShim = undefined;
     });
 
-    test('the agent tool creates a worktree with agent provenance', async ({ window: page }) => {
+    test('the agent tool creates a worktree with agent provenance', async ({
+      electron,
+      window: page,
+    }) => {
       test.setTimeout(300_000);
       const shim = requireModelProviderShim();
       shim.setScript({
@@ -586,7 +543,10 @@ test.describe('Worktree Map (desktop)', () => {
       await expect
         .poll(
           async () => {
-            const rows = await queryManagedWorktreeByBranch(page, 'bs/agent-created');
+            const rows = await queryManagedWorktreeByBranch(
+              electron.getUserDataDir(),
+              'bs/agent-created'
+            );
             const row = rows[0];
             return (
               rows.length === 1 &&
@@ -645,7 +605,10 @@ test.describe('Worktree Map (desktop)', () => {
       await expect
         .poll(
           async () => {
-            const rows = await queryManagedWorktreeByPath(page, shellWorktreePath);
+            const rows = await queryManagedWorktreeByPath(
+              electron.getUserDataDir(),
+              shellWorktreePath
+            );
             const row = rows[0];
             return (
               rows.length === 1 &&

@@ -13,6 +13,7 @@
 import { createLogger } from '@brainstrike/logging';
 import type {
   ForgeIdentityState,
+  ForgePrCacheEntry,
   ForgePrStatus,
   ForgeRendererRefreshReason,
   ForgeResult,
@@ -48,6 +49,7 @@ function formatReasonList(reasons: readonly string[]): string {
 const REFRESH_REASON_ERROR = `forge refresh requires reason ${formatReasonList(REFRESH_REASON_KEYS)}`;
 
 export interface ForgeIpcHandlers {
+  readonly cacheSnapshot: () => Promise<ForgeResult<readonly ForgePrCacheEntry[]>>;
   readonly identity: (rootId: unknown) => Promise<ForgeResult<ForgeIdentityState>>;
   readonly prStatus: (rootId: unknown) => Promise<ForgeResult<ForgePrStatus>>;
   readonly refresh: (rootId: unknown, params: unknown) => Promise<ForgeResult<ForgePrStatus>>;
@@ -163,9 +165,12 @@ export function createForgeRepositoryResolver(
 
 export function createForgeIpcHandlers(options: {
   readonly service: ForgeService;
+  readonly readCacheSnapshot: () => Promise<readonly ForgePrCacheEntry[]>;
 }): ForgeIpcHandlers {
   const { service } = options;
   return {
+    cacheSnapshot: () =>
+      guard(async () => ({ ok: true, value: await options.readCacheSnapshot() })),
     identity: (rootId) =>
       guard(async () => {
         const id = requireRootId(rootId);

@@ -1,11 +1,11 @@
 import { forgePrCacheKey } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
-import { FORGE_PR_CACHE_SQL, projectForgePrRows } from '../hooks/use-forge-pr-cache';
+import { projectForgePrRows } from '../hooks/use-forge-pr-cache';
 
 function passingRow(): Record<string, unknown> {
   return {
     branch: 'main',
-    checksJson: [{ conclusion: 'success', name: 'unit', url: 'https://github.test/checks/1' }],
+    checksRollup: 'passing',
     isDraft: false,
     number: 2574,
     repoCommonDir: '/repos/widgets/.git',
@@ -14,21 +14,12 @@ function passingRow(): Record<string, unknown> {
   };
 }
 
-describe('forge PR cache SQL', () => {
-  it('selects only the cache columns the thread pill needs', () => {
-    expect(FORGE_PR_CACHE_SQL).toContain('FROM brainstrike_forge_prs');
-    expect(FORGE_PR_CACHE_SQL).toContain('repo_common_dir');
-    expect(FORGE_PR_CACHE_SQL).toContain('checks_json');
-    expect(FORGE_PR_CACHE_SQL).not.toContain('title');
-  });
-});
-
 describe('projectForgePrRows', () => {
   it('keys a normal entry by repository and branch and derives its checks rollup', () => {
     const projected = projectForgePrRows([
       {
         ...passingRow(),
-        checksJson: [{ conclusion: 'failure', name: 'unit', url: null }],
+        checksRollup: 'failing',
       },
     ]);
 
@@ -44,11 +35,11 @@ describe('projectForgePrRows', () => {
     });
   });
 
-  it('accepts normalized checks delivered as a JSON string', () => {
+  it("accepts the writer's normalized pending rollup", () => {
     const projected = projectForgePrRows([
       {
         ...passingRow(),
-        checksJson: JSON.stringify([{ conclusion: 'pending', name: 'integration', url: null }]),
+        checksRollup: 'pending',
       },
     ]);
 
@@ -73,9 +64,7 @@ describe('projectForgePrRows', () => {
   });
 
   it('fails when cached checks use an unreadable raw provider shape', () => {
-    const projected = projectForgePrRows([
-      { ...passingRow(), checksJson: [{ status: 'COMPLETED' }] },
-    ]);
+    const projected = projectForgePrRows([{ ...passingRow(), checksRollup: 'COMPLETED' }]);
 
     expect(projected.error).toBeInstanceOf(Error);
     expect(projected.byRepoBranch.size).toBe(0);
@@ -86,7 +75,7 @@ describe('projectForgePrRows', () => {
       passingRow(),
       {
         branch: 'release',
-        checksJson: null,
+        checksRollup: null,
         isDraft: null,
         number: null,
         repoCommonDir: '/repos/widgets/.git',
@@ -101,4 +90,10 @@ describe('projectForgePrRows', () => {
       false
     );
   });
+});
+
+it('rejects SQLite integers at the renderer boundary instead of coercing draft state', () => {
+  const projected = projectForgePrRows([{ ...passingRow(), isDraft: 1 }]);
+  expect(projected.error).toBeInstanceOf(Error);
+  expect(projected.byRepoBranch.size).toBe(0);
 });

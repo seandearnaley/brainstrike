@@ -1,12 +1,7 @@
 /**
- * The wrapper half of Conversation Rewind finalization (BST-1115, W5 T4b).
- *
- * `use-rewind-finalization.test.ts` proves the hook's conjunction in isolation.
- * This proves the WIRING: that the composer submit really reaches
- * `markUserAuthoredSend`, that the finalization really rides the run-creation
- * seam, and — the part that cannot be tested in the hook alone — that a
- * finalization which never settles does not stall `prepareRequestData`, which
- * the send is genuinely blocked on.
+ * Retiring Main's tombstone finalizer must leave request preparation intact.
+ * The retired method is a negative-control spy: no send or resume may call it.
+ * Host branch changes still advance the existing hydration generation.
  */
 import './assistant-ui-panel-wrapper-test-support';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
@@ -20,14 +15,12 @@ import {
   renderAssistantPanel,
 } from './assistant-ui-panel-wrapper-test-support';
 
-function installChangesBridge(
-  finalizeRewinds: ChangesBridge['finalizeRewinds']
-): ReturnType<typeof vi.fn> {
+function installChangesBridge(finalizeRewinds: () => Promise<unknown>): ReturnType<typeof vi.fn> {
   const spy = vi.fn(finalizeRewinds);
   (window as unknown as { changes?: ChangesBridge }).changes = {
     applyRewind: vi.fn(),
     fileDiff: vi.fn(),
-    finalizeRewinds: spy as unknown as ChangesBridge['finalizeRewinds'],
+    finalizeRewinds: spy,
     inventory: vi.fn(),
     onInvalidated: vi.fn(() => () => {}),
     redoRewind: vi.fn(),
@@ -56,8 +49,8 @@ afterEach(() => {
   Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
 });
 
-describe('AssistantUiPanelWrapper — rewind finalization', () => {
-  test('finalizes the thread when a composer submit is followed by a run creation', async () => {
+describe('AssistantUiPanelWrapper — host rewind ownership', () => {
+  test('prepares a new run without dispatching retired rewind finalization', async () => {
     const user = userEvent.setup();
     const finalizeRewinds = installChangesBridge(async () => NOTHING_OUTSTANDING);
 
@@ -67,8 +60,8 @@ describe('AssistantUiPanelWrapper — rewind finalization', () => {
       await user.click(screen.getByTestId('prepare-thread-request'));
     });
 
-    await waitFor(() => expect(finalizeRewinds).toHaveBeenCalledTimes(1));
-    expect(finalizeRewinds.mock.calls[0]?.[0]).toEqual({ threadId: expect.any(String) });
+    await waitFor(() => expect(preparedRequestDataLog).toHaveLength(1));
+    expect(finalizeRewinds).not.toHaveBeenCalled();
   });
 
   // A tool-approval resume prepares a request WITHOUT a composer submit. It is
@@ -100,10 +93,8 @@ describe('AssistantUiPanelWrapper — rewind finalization', () => {
     expect(finalizeRewinds).not.toHaveBeenCalled();
   });
 
-  // THE SEND IS NEVER BLOCKED. `prepareRequestData` is what the composer
-  // awaits before the request goes out; a finalization that never answers (a
-  // wedged main process, a slow delete) must not hold it.
-  test('resolves the prepared request while the finalization is still in flight', async () => {
+  // A stale bridge with an unavailable retired method must not stall Send.
+  test('prepares the request without invoking an unavailable retired finalizer', async () => {
     const user = userEvent.setup();
     const finalizeRewinds = installChangesBridge(() => new Promise<never>(() => undefined));
 
@@ -115,13 +106,11 @@ describe('AssistantUiPanelWrapper — rewind finalization', () => {
 
     await waitFor(() => expect(preparedRequestDataLog).toHaveLength(1));
     expect(preparedRequestDataLog[0]).toMatchObject({ memory: expect.any(Object) });
-    expect(finalizeRewinds).toHaveBeenCalledTimes(1);
+    expect(finalizeRewinds).not.toHaveBeenCalled();
   });
 
-  // A failing finalization is reported (the hook logs + toasts) but the
-  // prepared request still lands: the user's message is not hostage to a
-  // cleanup they never asked for.
-  test('still resolves the prepared request when the finalization fails', async () => {
+  // A stale bridge with a throwing retired method must not affect Send.
+  test('prepares the request without invoking a throwing retired finalizer', async () => {
     const user = userEvent.setup();
     const finalizeRewinds = installChangesBridge(async () => {
       throw new Error('preload detached');
@@ -135,15 +124,15 @@ describe('AssistantUiPanelWrapper — rewind finalization', () => {
 
     await waitFor(() => expect(preparedRequestDataLog).toHaveLength(1));
     expect(preparedRequestDataLog[0]).not.toMatchObject({ error: expect.any(String) });
-    expect(finalizeRewinds).toHaveBeenCalledTimes(1);
+    expect(finalizeRewinds).not.toHaveBeenCalled();
   });
 
   /**
    * The wrapper half of the re-hydration seam (BST-1115). `rewind-store.test.ts`
    * pins the counter and `rewind-history-generation.behavior.test.tsx` pins what
    * the panel does with it; this pins the WIRE between them, which is the link
-   * that was missing entirely — a rewind wrote its tombstones and the live
-   * thread went on rendering the messages it had just hidden.
+   * that was missing entirely — a rewind changed the branch and the live
+   * thread went on rendering the previous branch.
    */
   test('forwards the rewind re-hydration counter to the panel', async () => {
     installChangesBridge(async () => NOTHING_OUTSTANDING);

@@ -8,14 +8,10 @@ import {
 
 function fullBridge(): ChangesBridge {
   return {
-    applyRewind: vi.fn(),
     fileDiff: vi.fn(),
-    finalizeRewinds: vi.fn(),
     inventory: vi.fn(),
     onInvalidated: vi.fn(),
-    redoRewind: vi.fn(),
     resolveView: vi.fn(),
-    rewindPreview: vi.fn(),
   };
 }
 
@@ -131,27 +127,17 @@ describe('resolveChangesBridge', () => {
     });
   });
 
-  // BST-1115 W5 T4: the three rewind methods joined `REQUIRED_METHODS` in the
-  // SAME commit that added them to the preload. A desktop build that shipped
-  // only the BST-1114 bridge must read as MALFORMED — a half-present rewind
-  // bridge would let the affordance render and then throw on click.
-  //
-  // `finalizeRewinds` (W5 T4b) joined on the same terms: a bridge that can
-  // rewind but cannot finalize leaves the redo window permanently open and the
-  // tombstoned messages permanently undeleted.
   it.each(['applyRewind', 'finalizeRewinds', 'redoRewind', 'rewindPreview'] as const)(
-    'rejects a pre-rewind bridge that is missing %s',
+    'does not depend on the retired %s method',
     (method) => {
-      const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
-      (window as unknown as { changes?: Partial<ChangesBridge> }).changes = bridgeWithout(method);
-
-      expect(resolveChangesBridge()).toBeNull();
-      expect(errorSpy).toHaveBeenCalledWith(
-        'window.changes bridge is malformed; changes disabled',
-        {
-          missing: [method],
-        }
-      );
+      const retired = vi.fn(() => {
+        throw new Error('Legacy owner is absent');
+      });
+      const bridge = { ...fullBridge(), [method]: retired };
+      (window as unknown as { changes?: ChangesBridge }).changes = bridge;
+      expect(resolveChangesBridge()).toBe(bridge);
+      expect(isChangesBridgeAvailable()).toBe(true);
+      expect(retired).not.toHaveBeenCalled();
     }
   );
 });

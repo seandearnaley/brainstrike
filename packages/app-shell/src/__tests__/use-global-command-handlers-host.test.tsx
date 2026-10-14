@@ -50,11 +50,13 @@ describe('useGlobalCommandHandlers new thread', () => {
       renameThread: vi.fn(),
       renderThread: vi.fn(),
       updateThreadBinding: vi.fn(),
-      workspaceRepository: (repository) => repository,
+      workspaceRepository: () => {
+        throw new Error('Unexpected workspace snapshot access in this fixture');
+      },
     };
     const wrapper = ({ children }: { readonly children: ReactNode }) =>
       createElement(AssistantThreadHostContext.Provider, { value: host }, children);
-    const { result } = renderHook(() => useGlobalCommandHandlers(DATABASE), { wrapper });
+    const { result } = renderHook(() => useGlobalCommandHandlers(null), { wrapper });
 
     await act(async () => {
       await result.current.newThread?.();

@@ -9,7 +9,6 @@ import {
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
-import { DbProvider } from '@brainstrike/db/react';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
@@ -25,7 +24,6 @@ import {
   redactSensitiveLogValue,
 } from '@brainstrike/logging';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
-import { DbSchemaVerifier } from '@brainstrike/settings-ui/components/db-schema-verifier';
 import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-measure-guard';
 import { bindRuntimeLogRecord, createRuntimeLogBindings } from '@brainstrike/worker-runtime';
 import { StrictMode, Suspense, useEffect } from 'react';
@@ -368,12 +366,6 @@ const forwardedDiagnosticRecords =
     : undefined;
 
 function App() {
-  // With useElectronIPC below, the renderer routes all DB ops to the main-process
-  // filesystem PGlite (engine-versioned via the pg-data-version guard). This idb
-  // path is just a stable IPC-channel identifier — no renderer-side PGlite database
-  // is opened here, so it intentionally is NOT engine-versioned like idb://app-pg18.
-  const dbPath = 'idb://brainstrike-desktop';
-
   // biome-ignore lint/plugin: Fires a one-time DOM event on mount to signal the desktop app is ready.
   useEffect(() => {
     if (!window.__BRAINSTRIKE_READY__) {
@@ -407,19 +399,17 @@ function App() {
   }, []);
 
   return (
-    <DbProvider dbPath={dbPath} useElectronIPC={true}>
+    <>
       <DiagnosticSinkBridge
         forwardedRecords={forwardedDiagnosticRecords}
         source="desktop-renderer"
       />
-      <DbSchemaVerifier>
-        <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-          <AppReloadGate buildId={__BRAINSTRIKE_BUILD_ID__}>
-            <RootLayoutContent />
-          </AppReloadGate>
-        </AdaptersProvider>
-      </DbSchemaVerifier>
-    </DbProvider>
+      <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+        <AppReloadGate buildId={__BRAINSTRIKE_BUILD_ID__}>
+          <RootLayoutContent />
+        </AppReloadGate>
+      </AdaptersProvider>
+    </>
   );
 }
 
@@ -501,10 +491,7 @@ if (!existingRoot) {
 
 const bridgeValidation =
   desktopRendererRole === 'visible-ui'
-    ? validateDesktopBridgeContract({
-        electronAPI: window.electronAPI,
-        logging: window.logging,
-      })
+    ? validateDesktopBridgeContract(window)
     : ({ ok: true } as const);
 
 // A failed contract inside Electron means the preload script broke — keep that

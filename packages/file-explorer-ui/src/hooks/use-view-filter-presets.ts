@@ -1,3 +1,7 @@
+import {
+  createViewFilterPresetRepository,
+  getViewFilterPresetCapability,
+} from './view-filter-preset-capability';
 /**
  * View Filter Presets Hook
  *
@@ -68,10 +72,16 @@ interface UseViewFilterPresetsResult {
  * ```
  */
 export function useViewFilterPresets(): UseViewFilterPresetsResult {
-  const drizzleDb = useDrizzleDb();
-  const dbInitializing = useDbInitializing();
-  const dbProviderError = useDbProviderError();
-  const repository = useViewFilterPresetsRepository();
+  const capability = getViewFilterPresetCapability();
+  const drizzleDb = useDrizzleDb({ enabled: !capability });
+  const dbInitializing = useDbInitializing({ enabled: !capability });
+  const dbProviderError = useDbProviderError({ enabled: !capability });
+  const webRepository = useViewFilterPresetsRepository({ enabled: !capability });
+  const nativeRepository = useMemo(
+    () => (capability ? createViewFilterPresetRepository(capability) : null),
+    [capability]
+  );
+  const repository = nativeRepository ?? webRepository;
 
   // State for Electron/repository-based presets
   const [repoPresets, setRepoPresets] = useState<ViewFilterPreset[]>([]);

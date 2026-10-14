@@ -62,24 +62,25 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
     window,
   }) => {
     const collectionId = await window.evaluate(async () => {
-      const query = globalThis.window.electronAPI?.db.query;
-      if (!query) {
-        throw new Error('Desktop DB query bridge is unavailable.');
+      if (!globalThis.window.collectionCatalog) {
+        throw new Error('Desktop collection catalog is unavailable');
       }
-      const id = crypto.randomUUID();
-      await query(
-        `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, name)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [
-          id,
-          'local::Xenova/all-MiniLM-L6-v2',
-          'Xenova/all-MiniLM-L6-v2',
-          384,
-          'cosine',
-          'Pause control collection',
-        ]
-      );
-      return id;
+      return (
+        await globalThis.window.collectionCatalog
+          .create({
+            dimensions: 384,
+            distance: 'cosine',
+            metadata: { name: 'Pause control collection' },
+            modelId: 'Xenova/all-MiniLM-L6-v2',
+            modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+          })
+          .then((result) => {
+            if (!result.ok) {
+              throw new Error(result.error.message);
+            }
+            return result.value;
+          })
+      ).id;
     });
     await homePage.openSettings();
     await expect(window.getByRole('navigation', { name: 'Settings categories' })).toBeVisible();
@@ -164,7 +165,7 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
     // Native search has no JS embedding worker: fe6b0f85e (BST-1974) omits the
     // retired "Worker state" row, so the expanded diagnostics open on the
     // database rows it still shows.
-    await expect(indexingPopover.getByText('Database QoS')).toBeVisible();
+    await expect(indexingPopover.getByText('Database QoS', { exact: true })).toBeVisible();
     await expect(indexingPopover.getByText('Worker state')).toHaveCount(0);
     expectStableRect(triggerBeforePause, await requireBoundingBox(indexingTrigger));
     expectStableRect(popoverBeforeDiagnostics, await requireBoundingBox(indexingPopover));

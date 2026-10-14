@@ -24,13 +24,9 @@ const trustedEvent = createTrustedInvokeEvent();
  */
 function stubHandlers() {
   return {
-    applyRewind: vi.fn(async () => ({ ok: true, value: {} }) as never),
     fileDiff: vi.fn(async () => ({ ok: true, value: {} }) as never),
-    finalizeRewinds: vi.fn(async () => ({ ok: true, value: {} }) as never),
     inventory: vi.fn(async () => ({ ok: true, value: {} }) as never),
-    redoRewind: vi.fn(async () => ({ ok: true, value: {} }) as never),
     resolveView: vi.fn(async () => ({ ok: true, value: {} }) as never),
-    rewindPreview: vi.fn(async () => ({ ok: true, value: {} }) as never),
   };
 }
 
@@ -107,13 +103,9 @@ describe('registerChangesIpcHandlers', () => {
         DESKTOP_IPC_CHANNELS.changes.resolveView,
         DESKTOP_IPC_CHANNELS.changes.fileDiff,
         DESKTOP_IPC_CHANNELS.changes.inventory,
-        DESKTOP_IPC_CHANNELS.changes.rewindPreview,
-        DESKTOP_IPC_CHANNELS.changes.applyRewind,
-        DESKTOP_IPC_CHANNELS.changes.redoRewind,
-        DESKTOP_IPC_CHANNELS.changes.finalizeRewinds,
       ])
     );
-    expect(removedChannels).toHaveLength(7);
+    expect(removedChannels).toHaveLength(3);
   });
 
   it('preserves raw GitResult failures for type-valid inventory limits', async () => {
@@ -136,47 +128,17 @@ describe('registerChangesIpcHandlers', () => {
     expect(handlers.inventory).toHaveBeenCalledWith({ maxAgeMs: Number.NaN });
   });
 
-  // BST-1115 W5 T4: each rewind channel must be wired to its OWN handler, and
-  // each must forward the renderer payload WITHOUT the IpcMainInvokeEvent.
-  it('registers each rewind channel against its own handler', async () => {
+  it('does not expose a second rewind writer through the Changes bridge', async () => {
     const { ipcMain } = await import('electron');
-    const handlers = stubHandlers();
-
-    registerChangesIpcHandlers(handlers);
-
-    const handleMock = ipcMain.handle as unknown as ReturnType<typeof vi.fn>;
-    const handlerFor = (channel: string) =>
-      handleMock.mock.calls.find(([registered]) => registered === channel)?.[1] as (
-        event: unknown,
-        payload: unknown
-      ) => unknown;
-
-    await handlerFor(DESKTOP_IPC_CHANNELS.changes.rewindPreview)(trustedEvent, {
-      messageId: 'm1',
-      threadId: 't1',
-    });
-    expect(handlers.rewindPreview).toHaveBeenCalledWith({ messageId: 'm1', threadId: 't1' });
-    expect(handlers.applyRewind).not.toHaveBeenCalled();
-    expect(handlers.redoRewind).not.toHaveBeenCalled();
-
-    await handlerFor(DESKTOP_IPC_CHANNELS.changes.applyRewind)(trustedEvent, {
-      messageId: 'm1',
-      mode: 'conversation-only',
-      threadId: 't1',
-    });
-    expect(handlers.applyRewind).toHaveBeenCalledWith({
-      messageId: 'm1',
-      mode: 'conversation-only',
-      threadId: 't1',
-    });
-
-    await handlerFor(DESKTOP_IPC_CHANNELS.changes.redoRewind)(trustedEvent, { rewindId: 'r1' });
-    expect(handlers.redoRewind).toHaveBeenCalledWith({ rewindId: 'r1' });
-
-    // W5 T4b.
-    await handlerFor(DESKTOP_IPC_CHANNELS.changes.finalizeRewinds)(trustedEvent, {
-      threadId: 't1',
-    });
-    expect(handlers.finalizeRewinds).toHaveBeenCalledWith({ threadId: 't1' });
+    registerChangesIpcHandlers(stubHandlers());
+    const registered = vi.mocked(ipcMain.handle).mock.calls.map(([channel]) => channel);
+    for (const channel of [
+      'changes:applyRewind',
+      'changes:finalizeRewinds',
+      'changes:redoRewind',
+      'changes:rewindPreview',
+    ]) {
+      expect(registered).not.toContain(channel);
+    }
   });
 });

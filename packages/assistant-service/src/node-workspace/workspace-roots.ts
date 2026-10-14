@@ -2,6 +2,7 @@ import path from 'node:path';
 import type { RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { StoredWorkspaceRoot } from './workspace-root-types.js';
 
 const logger = createLogger('AssistantWorkspaceRoots');
@@ -413,6 +414,29 @@ export async function loadWorkspaceRootsFromDatabase(
     disconnectedRootIds.delete(root.rootId);
   }
   return roots;
+}
+
+/** A current typed catalog read is also the only way to lift a root revocation. */
+export async function loadWorkspaceRootsFromCatalog(
+  catalog: WorkspaceRootPort
+): Promise<RuntimeWorkspaceRoot[]> {
+  const { roots } = await catalog.workspaceRoots({ operation: 'list' });
+  const live = roots
+    .filter((root) => root.status === 'live')
+    .map((root) =>
+      normalizeRoot({ displayName: root.displayName, path: root.path, rootId: root.id })
+    )
+    .filter((root): root is RuntimeWorkspaceRoot => root !== null);
+  for (const root of live) {
+    disconnectedRootIds.delete(root.rootId);
+  }
+  return live;
+}
+
+export function recordWorkspaceRootDisconnections(rootIds: readonly string[]): void {
+  for (const rootId of rootIds) {
+    disconnectedRootIds.add(rootId);
+  }
 }
 
 /**

@@ -1,3 +1,4 @@
+import { DEFAULT_VIEW_FILTER_PRESETS } from '@brainstrike/types';
 /**
  * Test for migration 027 (view_filter_presets table and seed data)
  * Verifies that the migration creates the table AND seeds default presets.
@@ -67,6 +68,19 @@ describe('View Filter Presets Migration (027)', () => {
         FROM view_filter_presets
         ORDER BY sort_order
       `);
+
+    expect(
+      result.rows.map((row) => ({
+        description: row.description,
+        excludes: row.excludes,
+        icon: row.icon,
+        includes: row.includes,
+        isDefault: row.is_default,
+        name: row.name,
+        sortOrder: row.sort_order,
+        useRegex: row.use_regex,
+      }))
+    ).toEqual(DEFAULT_VIEW_FILTER_PRESETS);
 
     // Should have 7 default presets
     expect(result.rows.length).toBe(7);

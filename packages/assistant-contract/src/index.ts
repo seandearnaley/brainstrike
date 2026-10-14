@@ -10,6 +10,11 @@ export * from './child-followup.js';
 export * from './child-input.js';
 export * from './child-input-model.js';
 export * from './child-permission-ceiling.js';
+export type { CollectionCatalogCapability, CollectionCatalogEntry } from './collection-catalog.js';
+export {
+  WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS,
+  WORKSPACE_INDEX_SYSTEM_ROLE,
+} from './collection-catalog.js';
 export * from './compaction-summary.js';
 export * from './context-breakdown.js';
 export * from './context-budget.js';
@@ -45,6 +50,13 @@ export * from './mcp-task-presentation.js';
 export * from './mcp-tool-preferences.js';
 export * from './memory-credential-reasons.js';
 export * from './memory-settings.js';
+export type {
+  CatalogModel,
+  CatalogProvider,
+  ModelCatalogCapability,
+  ModelCatalogSnapshot,
+} from './model-catalog.js';
+export { projectModelCatalog } from './model-catalog.js';
 export * from './model-reasoning.js';
 export * from './native-tool-catalog.js';
 export * from './openai-codex-defaults.js';
@@ -70,6 +82,12 @@ export * from './secret-read-error.js';
 export * from './shell-git-correlation.js';
 export * from './shell-output.js';
 export * from './skills.js';
+export type {
+  SourceChunkPage,
+  SourceChunkRequest,
+  SourceFilesCapability,
+  SourceImportIndexing,
+} from './source-files.js';
 export * from './subagent-settings.js';
 export * from './suspended-run-discovery.js';
 export * from './thread-history-adapter.js';

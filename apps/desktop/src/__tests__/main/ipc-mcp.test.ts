@@ -135,6 +135,17 @@ describe('Main MCP IPC (BST-1930 c5a-c5d)', () => {
     expect(runtime.resumeSettings).toHaveBeenCalledTimes(1);
   });
 
+  it('suspends content-clear surfaces without erasing MCP preferences', async () => {
+    await mcpIpc.suspendMcpSurfacesForContentClear();
+    expect(runtime.resetSettings).not.toHaveBeenCalled();
+    await expect(handler('mcp:config:selectPath')(event())).rejects.toThrow(
+      'MCP settings are closed for a factory reset'
+    );
+    await mcpIpc.resumeMcpRuntimeAfterFactoryReset(runtime, 'succeeded');
+    vi.mocked(dialog.showOpenDialog).mockResolvedValue({ canceled: true, filePaths: [] });
+    await expect(handler('mcp:config:selectPath')(event())).resolves.toBeNull();
+  });
+
   it('stays closed when the host cannot resume its settings', async () => {
     await mcpIpc.resetMcpRuntimeForFactoryReset(runtime);
     runtime.resumeSettings.mockRejectedValueOnce(new Error('host gone'));

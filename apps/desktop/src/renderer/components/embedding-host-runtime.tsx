@@ -1,16 +1,14 @@
-import { createEmbeddingCacheRepository } from '@brainstrike/db';
-import { usePGliteDatabase } from '@brainstrike/db/react';
+import type { ModelCatalogCapability } from '@brainstrike/assistant-contract';
+import { createBoundaryCapability } from '@brainstrike/assistant-contract/boundary-result';
 import { getEmbeddingTelemetrySnapshot } from '@brainstrike/embedding-worker';
 import { resolveViteEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
 import type { EmbeddingResult } from '@brainstrike/embeddings';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
 import {
   createForegroundEmbeddingGate,
-  type EmbeddingWorkerController,
   type ForegroundEmbeddingGate,
   POWER_BROADCAST_CHANNEL,
   runCoordinatedQueryEmbedding,
-  startEmbeddingWorker,
 } from '@brainstrike/embeddings/worker';
 import { createLogger } from '@brainstrike/logging';
 import { type MutableRefObject, useEffect, useRef } from 'react';
@@ -34,7 +32,6 @@ import { subscribeDocumentEmbeddingsRequests } from './embedding-host-document-l
 import {
   createEmbeddingHostCommandHandler,
   createEmbeddingHostLifecycleFailureHandler,
-  EmbeddingBackgroundAdmissionError,
   runEmbeddingHostCleanupStep,
 } from './embedding-host-lifecycle';
 import { subscribeQueryEmbeddingRequests } from './embedding-host-query-listener';
@@ -49,8 +46,8 @@ import {
   disposeQueryEmbeddingService,
   joinQueryEmbeddingFailure,
   type QueryEmbeddingRuntimeOwner,
+  type QueryEmbeddingServiceState,
   runOwnedQueryEmbeddingInference,
-  stopEmbeddingHostAfterRestartLimit,
 } from './embedding-host-query-owner';
 import {
   createBackendMismatchError,
@@ -59,16 +56,11 @@ import {
   withResolvedHostDevice,
 } from './embedding-host-runtime-metadata';
 import { answerWebGpuAdapterRequest } from './embedding-host-webgpu';
-import {
-  resolveHydratedEmbeddingWorkerPreferences,
-  resolveHydratedVectorDevicePreference,
-} from './embedding-host-worker-preferences';
+import { resolveHydratedVectorDevicePreference } from './embedding-host-worker-preferences';
 import { startEmbeddingTelemetryReporter } from './embedding-telemetry-reporter';
-import { createEmbeddingWorkerConfig } from './embedding-worker-config';
 
 const logger = createLogger('EmbeddingHostRuntime');
 const QUERY_DRAIN_TIMEOUT_MS = 5000;
-const MAX_RECOVERABLE_WEBGPU_DEVICE_LOSS_RESTARTS = 2;
 async function ensureEmbeddingQueueBootstrapLoaded(isCurrent: () => boolean): Promise<void> {
   const module = await import('../create-embedding-queue');
   await module.reopenEmbeddingQueue(isCurrent);
@@ -77,33 +69,6 @@ async function ensureEmbeddingQueueBootstrapLoaded(isCurrent: () => boolean): Pr
 async function retireEmbeddingQueue(): Promise<void> {
   const module = await import('../create-embedding-queue');
   await module.retireEmbeddingQueue();
-}
-
-function createFatalErrorHandler(
-  runtimeIdRef: MutableRefObject<string>,
-  embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>,
-  fatalErrorRef: MutableRefObject<string | null>,
-  activeRef: MutableRefObject<boolean>,
-  isQueryInferenceActive: () => boolean
-): (error: Error) => void {
-  return (error: Error) => {
-    const message = error.message;
-    fatalErrorRef.current = message;
-    activeRef.current = false;
-    logger.error('Embedding host worker stopped after fatal local model error', {
-      error: message,
-      runtimeId: runtimeIdRef.current,
-    });
-    reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
-      active: isQueryInferenceActive(),
-      embeddingRuntime: embeddingRuntimeRef.current,
-      lastError: message,
-    });
-  };
-}
-
-function isRecoverableEmbeddingWorkerFatalError(message: string): boolean {
-  return /WebGPU device lost|device lost/i.test(message);
 }
 
 function assertEmbeddingResultDimensions(
@@ -125,21 +90,21 @@ function assertQueryEmbeddingRuntimeCurrent(isCurrent: () => boolean): void {
 }
 
 async function getQueryEmbeddingService(
-  db: NonNullable<ReturnType<typeof usePGliteDatabase>>,
+  catalog: Pick<ModelCatalogCapability, 'read'> | undefined,
   request: EmbeddingHostInferenceRequest,
   runtimeIdRef: MutableRefObject<string>,
   owner: QueryEmbeddingRuntimeOwner,
   isCurrent: () => boolean,
   onServiceDisposalFailure: (error: unknown) => void,
   signal: AbortSignal
-): Promise<SimpleEmbeddingService> {
+): Promise<QueryEmbeddingServiceState> {
   signal.throwIfAborted();
   const serviceStateRef = owner.serviceStateRef;
   assertQueryEmbeddingRuntimeCurrent(isCurrent);
   const existing = serviceStateRef.current;
   const identity = queryEmbeddingServiceIdentity(request);
   if (existing?.identity === identity) {
-    return existing.service;
+    return existing;
   }
   try {
     await disposeQueryEmbeddingService(runtimeIdRef, owner);
@@ -153,7 +118,7 @@ async function getQueryEmbeddingService(
   }
   assertQueryEmbeddingRuntimeCurrent(isCurrent);
   signal.throwIfAborted();
-  const modelConfig = await loadQueryEmbeddingModelConfig(db, request);
+  const modelConfig = await loadQueryEmbeddingModelConfig(catalog, request);
   assertQueryEmbeddingRuntimeCurrent(isCurrent);
   signal.throwIfAborted();
   const plan = request.payload.inferencePlan;
@@ -172,18 +137,20 @@ async function getQueryEmbeddingService(
     await service.dispose();
     assertQueryEmbeddingRuntimeCurrent(isCurrent);
   }
-  serviceStateRef.current = {
+  const state: QueryEmbeddingServiceState = {
     identity,
     modelKey: request.payload.modelKey,
+    selectedDevicePreference: hydratedDevicePref,
     service,
   };
+  serviceStateRef.current = state;
   signal.throwIfAborted();
-  return service;
+  return state;
 }
 
 async function handleQueryEmbeddingRequest(options: {
   readonly activeRef: MutableRefObject<boolean>;
-  readonly db: NonNullable<ReturnType<typeof usePGliteDatabase>>;
+  readonly catalog: Pick<ModelCatalogCapability, 'read'> | undefined;
   readonly embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>;
   readonly fatalErrorRef: MutableRefObject<string | null>;
   readonly gate: ForegroundEmbeddingGate;
@@ -196,7 +163,7 @@ async function handleQueryEmbeddingRequest(options: {
 }): Promise<void> {
   const {
     activeRef,
-    db,
+    catalog,
     embeddingRuntimeRef,
     fatalErrorRef,
     gate,
@@ -239,8 +206,8 @@ async function handleQueryEmbeddingRequest(options: {
       gate,
       generate: async () => {
         reportQueryPhase('service-preparation');
-        const service = await getQueryEmbeddingService(
-          db,
+        const serviceState = await getQueryEmbeddingService(
+          catalog,
           request,
           runtimeIdRef,
           queryOwner,
@@ -265,8 +232,12 @@ async function handleQueryEmbeddingRequest(options: {
           queryOwner,
           (inferenceSignal) =>
             request.channel === 'document-embeddings'
-              ? service.generateEmbeddings(request.payload.texts, { signal: inferenceSignal })
-              : service.generateQueryEmbedding(request.payload.query, { signal: inferenceSignal }),
+              ? serviceState.service.generateEmbeddings(request.payload.texts, {
+                  signal: inferenceSignal,
+                })
+              : serviceState.service.generateQueryEmbedding(request.payload.query, {
+                  signal: inferenceSignal,
+                }),
           signal
         );
         assertQueryEmbeddingRuntimeCurrent(isCurrent);
@@ -284,15 +255,16 @@ async function handleQueryEmbeddingRequest(options: {
         reportQueryPhase('complete');
         const runtime = results[0]?.runtime;
         if (runtime) {
-          const selectedDevicePreference =
-            request.payload.inferencePlan?.device ??
-            embeddingRuntimeRef.current?.selectedDevicePreference ??
-            runtime.device;
           embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(
-            selectedDevicePreference,
+            serviceState.selectedDevicePreference,
             runtime,
             embeddingHostDevice(embeddingRuntimeRef.current)
           );
+          const mismatch = createBackendMismatchError(embeddingRuntimeRef.current);
+          if (mismatch) {
+            fatalErrorRef.current = mismatch;
+            throw new Error(mismatch);
+          }
           reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
             active: true,
             embeddingRuntime: embeddingRuntimeRef.current,
@@ -341,30 +313,13 @@ async function handleQueryEmbeddingRequest(options: {
   } finally {
     if (isCurrent()) {
       queryEmbeddingActiveCountRef.current = Math.max(queryEmbeddingActiveCountRef.current - 1, 0);
-      reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
+      reportEmbeddingHostRuntimeStatus(runtimeIdRef, fatalErrorRef.current ? 'error' : 'running', {
         active: activeRef.current || queryEmbeddingActiveCountRef.current > 0,
         embeddingRuntime: embeddingRuntimeRef.current,
+        lastError: fatalErrorRef.current,
       });
     }
   }
-}
-
-function createActivityChangeHandler(
-  runtimeIdRef: MutableRefObject<string>,
-  embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>,
-  fatalErrorRef: MutableRefObject<string | null>,
-  activeRef: MutableRefObject<boolean>
-): (active: boolean) => void {
-  return (active: boolean) => {
-    if (fatalErrorRef.current) {
-      return;
-    }
-    activeRef.current = active;
-    reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
-      active,
-      embeddingRuntime: embeddingRuntimeRef.current,
-    });
-  };
 }
 
 function resolveEmbeddingHostRuntimeId(): string {
@@ -375,166 +330,25 @@ function resolveEmbeddingHostRuntimeId(): string {
   return runtimeId;
 }
 
-interface StartEmbeddingHostWorkerOptions {
-  readonly activeRef: MutableRefObject<boolean>;
-  readonly backgroundAdmission: boolean;
-  readonly backgroundWorker: boolean;
-  readonly controllerRef: MutableRefObject<EmbeddingWorkerController | null>;
-  readonly db: NonNullable<ReturnType<typeof usePGliteDatabase>>;
-  readonly embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>;
-  readonly fatalErrorRef: MutableRefObject<string | null>;
-  readonly gate: ForegroundEmbeddingGate;
-  readonly isDisposed: () => boolean;
-  readonly isQueryActive: () => boolean;
-  readonly isStopping: () => boolean;
-  readonly onFatalError: (error: Error) => void;
-  readonly onWorkerActivityChange: (active: boolean) => void;
+async function startEmbeddingHostWorkerRuntime(options: {
+  readonly isCurrent: () => boolean;
   readonly runtimeIdRef: MutableRefObject<string>;
-  readonly startingRef: MutableRefObject<boolean>;
-  readonly stopPromiseRef: MutableRefObject<Promise<void> | null>;
-}
-
-async function startEmbeddingHostWorkerRuntime({
-  backgroundAdmission,
-  backgroundWorker,
-  activeRef,
-  controllerRef,
-  db,
-  embeddingRuntimeRef,
-  fatalErrorRef,
-  gate,
-  isDisposed,
-  isStopping,
-  isQueryActive,
-  onFatalError,
-  onWorkerActivityChange,
-  runtimeIdRef,
-  startingRef,
-  stopPromiseRef,
-}: StartEmbeddingHostWorkerOptions): Promise<void> {
-  const pendingStop = stopPromiseRef.current;
-  if (pendingStop) {
-    await pendingStop;
-  }
-  if (isDisposed() || startingRef.current || controllerRef.current) {
-    return;
-  }
-
-  startingRef.current = true;
-  if (!backgroundAdmission) {
-    fatalErrorRef.current = null;
-    reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'starting');
-  }
-
-  try {
-    await ensureEmbeddingQueueBootstrapLoaded(() => !(isDisposed() || isStopping()));
-    if (isDisposed() || isStopping()) {
-      return;
-    }
-    // Native pinned requests own their execution plan. Opening their request queue
-    // must not admit the unrelated legacy background worker or resolve its device.
-    if (!backgroundWorker) {
-      reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running');
-      return;
-    }
-    const hydratedPreferences = await resolveHydratedEmbeddingWorkerPreferences().catch(
-      (error: unknown) => {
-        if (backgroundAdmission) {
-          throw new EmbeddingBackgroundAdmissionError(error);
-        }
-        throw error;
-      }
-    );
-    const hydratedDevicePref = hydratedPreferences.devicePref;
-    embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(hydratedDevicePref, null, {
-      hostDevice: hydratedDevicePref,
-    });
-    const workerConfig = createEmbeddingWorkerConfig(db, gate);
-    const controller = await startEmbeddingWorker({
-      ...workerConfig,
-      device: hydratedDevicePref,
-      embeddingCache: createEmbeddingCacheRepository(workerConfig.db),
-      initializeLocalModelOnStart: false,
-      onFatalError,
-      onRuntimeMetadataChange: (metadata) => {
-        embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(
-          hydratedDevicePref,
-          metadata,
-          embeddingHostDevice(embeddingRuntimeRef.current)
-        );
-        const backendMismatchError = createBackendMismatchError(embeddingRuntimeRef.current);
-        if (backendMismatchError) {
-          fatalErrorRef.current = backendMismatchError;
-        }
-        if (isStopping()) {
-          return;
-        }
-        reportEmbeddingHostRuntimeStatus(runtimeIdRef, backendMismatchError ? 'error' : 'running', {
-          active: isQueryActive() || (!backendMismatchError && activeRef.current),
-          embeddingRuntime: embeddingRuntimeRef.current,
-          lastError: backendMismatchError,
-        });
-      },
-      onWorkerActivityChange,
-      reinitEveryN: hydratedPreferences.reinitEveryN,
-      stopOnFatalLocalError: true,
-      streamingWorkerUrl: resolveViteEmbeddingWorkerUrlHref(),
-    });
-    if (isDisposed()) {
-      logger.info(
-        'Stopping embedding host worker immediately after start because runtime is disposed',
-        {
-          runtimeId: runtimeIdRef.current,
-        }
-      );
-      await controller.stop();
-      return;
-    }
-    controllerRef.current = controller;
-    if (isStopping()) {
-      return;
-    }
-    const fatalError = fatalErrorRef.current;
-    reportEmbeddingHostRuntimeStatus(runtimeIdRef, fatalError ? 'error' : 'running', {
-      active: isQueryActive() || (!fatalError && activeRef.current),
-      embeddingRuntime: embeddingRuntimeRef.current,
-      lastError: fatalError,
-    });
-  } catch (error) {
-    if (error instanceof EmbeddingBackgroundAdmissionError) {
-      throw error;
-    }
-    const message = error instanceof Error ? error.message : String(error);
-    logger.error('Failed to start embedding host worker', {
-      error: message,
-      runtimeId: runtimeIdRef.current,
-    });
-    fatalErrorRef.current = message;
-    if (!isStopping()) {
-      reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
-        active: isQueryActive(),
-        lastError: message,
-      });
-    }
-  } finally {
-    startingRef.current = false;
+}): Promise<void> {
+  reportEmbeddingHostRuntimeStatus(options.runtimeIdRef, 'starting');
+  await ensureEmbeddingQueueBootstrapLoaded(options.isCurrent);
+  if (options.isCurrent()) {
+    reportEmbeddingHostRuntimeStatus(options.runtimeIdRef, 'running');
   }
 }
 
 export function EmbeddingHostRuntime(): null {
-  const db = usePGliteDatabase();
-  const controllerRef = useRef<EmbeddingWorkerController | null>(null);
   const embeddingRuntimeRef = useRef<EmbeddingHostRuntimeMetadata | null>(null);
   const fatalErrorRef = useRef<string | null>(null);
-  const startingRef = useRef(false);
   const startPromiseRef = useRef<Promise<void> | null>(null);
   const activeRef = useRef(false);
   const runtimeIdRef = useRef<string>(resolveEmbeddingHostRuntimeId());
   const stopPromiseRef = useRef<Promise<void> | null>(null);
   const stoppedByCommandRef = useRef(false);
-  const backgroundWorkerRef = useRef(
-    new URLSearchParams(window.location.search).get('embeddingStart') !== 'on-demand'
-  );
   const controlsRef = useRef<{
     stop(): Promise<void>;
     reset(nextRuntimeId: string): Promise<void>;
@@ -544,28 +358,16 @@ export function EmbeddingHostRuntime(): null {
   const gateRef = useRef<ForegroundEmbeddingGate>(createForegroundEmbeddingGate());
 
   useEffect(() => {
-    if (!db) {
-      if (!stoppedByCommandRef.current) {
-        reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'starting');
-      }
-      return;
-    }
-
-    let queryOwner = createQueryEmbeddingRuntimeOwner(db);
+    const catalog = window.modelCatalog
+      ? createBoundaryCapability<Pick<ModelCatalogCapability, 'read'>>(window.modelCatalog)
+      : undefined;
+    let queryOwner = createQueryEmbeddingRuntimeOwner(catalog);
     queryEmbeddingOwnerRef.current = queryOwner;
     const queryEmbeddingActiveCountRef = queryOwner.activeCountRef;
     let disposed = false;
-    let restartAfterFatalErrorPromise: Promise<void> | null = null;
-    let recoverableDeviceLossRestartCount = 0;
-    const onWorkerActivityChange = createActivityChangeHandler(
-      runtimeIdRef,
-      embeddingRuntimeRef,
-      fatalErrorRef,
-      activeRef
-    );
     const disposeEmbeddingTelemetryReporter = startEmbeddingTelemetryReporter({
-      controllerRef,
       embeddingRuntimeRef,
+      isClosed: () => queryOwner.closed,
       isDisposed: () => disposed,
       reportStatus: () => {
         const fatalError = fatalErrorRef.current;
@@ -592,7 +394,7 @@ export function EmbeddingHostRuntime(): null {
       }
     );
 
-    const startWorker = async (backgroundAdmission = false): Promise<void> => {
+    const startWorker = async (): Promise<void> => {
       if (stoppedByCommandRef.current) {
         return;
       }
@@ -604,29 +406,15 @@ export function EmbeddingHostRuntime(): null {
         return;
       }
       if (queryOwner.closed) {
-        queryOwner = createQueryEmbeddingRuntimeOwner(db, queryEmbeddingActiveCountRef);
+        queryOwner = createQueryEmbeddingRuntimeOwner(catalog, queryEmbeddingActiveCountRef);
         queryEmbeddingOwnerRef.current = queryOwner;
       }
       if (startPromiseRef.current) {
         return startPromiseRef.current;
       }
       const started = startEmbeddingHostWorkerRuntime({
-        activeRef,
-        backgroundAdmission,
-        backgroundWorker: backgroundWorkerRef.current,
-        controllerRef,
-        db,
-        embeddingRuntimeRef,
-        fatalErrorRef,
-        gate: gateRef.current,
-        isDisposed: () => disposed,
-        isQueryActive: () => queryEmbeddingActiveCountRef.current > 0,
-        isStopping: () => stopPromiseRef.current !== null,
-        onFatalError,
-        onWorkerActivityChange,
+        isCurrent: () => !(disposed || stoppedByCommandRef.current || stopPromiseRef.current),
         runtimeIdRef,
-        startingRef,
-        stopPromiseRef,
       });
       startPromiseRef.current = started;
       try {
@@ -669,23 +457,9 @@ export function EmbeddingHostRuntime(): null {
             if (startPromiseRef.current) {
               await startPromiseRef.current;
             }
-            const controller = controllerRef.current;
-            controllerRef.current = null;
             fatalErrorRef.current = null;
             activeRef.current = false;
             queryEmbeddingActiveCountRef.current = 0;
-            try {
-              await controller?.stop();
-            } catch (error) {
-              const message = error instanceof Error ? error.message : String(error);
-              fatalErrorRef.current = message;
-              reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
-                active: stoppingQueryOwner.inferenceRef.current !== null,
-                embeddingRuntime: embeddingRuntimeRef.current,
-                lastError: message,
-              });
-              throw error;
-            }
           })(),
         ]);
         const failures = stopped.flatMap((result) =>
@@ -721,77 +495,6 @@ export function EmbeddingHostRuntime(): null {
       return trackedStopPromise;
     };
 
-    const restartAfterFatalError = (message: string): void => {
-      if (restartAfterFatalErrorPromise || disposed) {
-        return;
-      }
-      if (recoverableDeviceLossRestartCount >= MAX_RECOVERABLE_WEBGPU_DEVICE_LOSS_RESTARTS) {
-        const terminalError = `Embedding host stopped after repeated WebGPU device loss (${recoverableDeviceLossRestartCount} restart(s)): ${message}`;
-        logger.error('Embedding host recoverable fatal restart limit reached', {
-          error: message,
-          restartCount: recoverableDeviceLossRestartCount,
-          runtimeId: runtimeIdRef.current,
-        });
-        fatalErrorRef.current = terminalError;
-        activeRef.current = false;
-        const controller = controllerRef.current;
-        controllerRef.current = null;
-        restartAfterFatalErrorPromise = stopEmbeddingHostAfterRestartLimit({
-          controller,
-          embeddingRuntimeRef,
-          isDisposed: () => disposed,
-          queryOwner,
-          retireQueue: retireEmbeddingQueue,
-          runtimeIdRef,
-          terminalError,
-        }).finally(() => {
-          restartAfterFatalErrorPromise = null;
-        });
-        return;
-      }
-
-      restartAfterFatalErrorPromise = (async () => {
-        recoverableDeviceLossRestartCount += 1;
-        logger.warn('Restarting embedding host worker after recoverable fatal error', {
-          error: message,
-          restartCount: recoverableDeviceLossRestartCount,
-          runtimeId: runtimeIdRef.current,
-        });
-        await stopWorker('fatal-worker-restart');
-        await startWorker();
-      })()
-        .catch((error: unknown) => {
-          const restartError = error instanceof Error ? error.message : String(error);
-          logger.error('Embedding host worker restart after fatal error failed', {
-            error: restartError,
-            runtimeId: runtimeIdRef.current,
-          });
-          fatalErrorRef.current = restartError;
-          reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
-            active: queryOwner.inferenceRef.current !== null,
-            embeddingRuntime: embeddingRuntimeRef.current,
-            lastError: restartError,
-          });
-        })
-        .finally(() => {
-          restartAfterFatalErrorPromise = null;
-        });
-    };
-
-    const onFatalError = (error: Error): void => {
-      createFatalErrorHandler(
-        runtimeIdRef,
-        embeddingRuntimeRef,
-        fatalErrorRef,
-        activeRef,
-        () => queryOwner.inferenceRef.current !== null
-      )(error);
-      if (!isRecoverableEmbeddingWorkerFatalError(error.message)) {
-        return;
-      }
-      restartAfterFatalError(error.message);
-    };
-
     const resetWorker = async (nextRuntimeId: string): Promise<void> => {
       const previousRuntimeId = runtimeIdRef.current;
       logger.info('Resetting embedding host worker runtime', {
@@ -800,7 +503,7 @@ export function EmbeddingHostRuntime(): null {
       });
       await stopWorker('command-reset', previousRuntimeId);
       if (disposed) {
-        throw new Error('Embedding host database is unavailable for reset.');
+        throw new Error('Embedding host runtime is unavailable for reset.');
       }
       stoppedByCommandRef.current = false;
       runtimeIdRef.current = nextRuntimeId;
@@ -810,17 +513,9 @@ export function EmbeddingHostRuntime(): null {
     controlsRef.current = {
       reset: resetWorker,
       startBackground: async () => {
-        if (fatalErrorRef.current) {
-          throw new Error(fatalErrorRef.current);
-        }
-        backgroundWorkerRef.current = true;
-        await startWorker(true);
-        if (fatalErrorRef.current) {
-          throw new Error(fatalErrorRef.current);
-        }
-        if (stoppedByCommandRef.current || disposed) {
-          throw new Error('Embedding host stopped during background startup.');
-        }
+        throw new Error(
+          'Desktop background indexing is owned by the native indexer, not a database job queue.'
+        );
       },
       stop: () => stopWorker('command-stop'),
     };
@@ -864,7 +559,7 @@ export function EmbeddingHostRuntime(): null {
         reportLifecycleFailure('Embedding host disposal failed', error);
       });
     };
-  }, [db]);
+  }, []);
 
   useEffect(
     () =>
@@ -872,7 +567,7 @@ export function EmbeddingHostRuntime(): null {
         handle: ({ queryOwner, request, signal, isCurrent }) =>
           handleQueryEmbeddingRequest({
             activeRef,
-            db: queryOwner.db,
+            catalog: queryOwner.catalog,
             embeddingRuntimeRef,
             fatalErrorRef,
             gate: gateRef.current,
@@ -895,7 +590,7 @@ export function EmbeddingHostRuntime(): null {
         handle: ({ queryOwner, request, signal, isCurrent }) =>
           handleQueryEmbeddingRequest({
             activeRef,
-            db: queryOwner.db,
+            catalog: queryOwner.catalog,
             embeddingRuntimeRef,
             fatalErrorRef,
             gate: gateRef.current,
@@ -952,7 +647,7 @@ export function EmbeddingHostRuntime(): null {
           stoppedByCommandRef.current = true;
           const controls = controlsRef.current;
           if (!controls) {
-            throw new Error('Embedding host database is unavailable for reset.');
+            throw new Error('Embedding host runtime is unavailable for reset.');
           }
           await controls.reset(nextRuntimeId);
         },
@@ -973,7 +668,7 @@ export function EmbeddingHostRuntime(): null {
         startBackground: async () => {
           const controls = controlsRef.current;
           if (!controls) {
-            throw new Error('Embedding host database is unavailable for background startup.');
+            throw new Error('Embedding host runtime is unavailable for background startup.');
           }
           await controls.startBackground();
         },

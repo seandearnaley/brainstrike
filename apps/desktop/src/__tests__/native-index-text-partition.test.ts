@@ -17,6 +17,7 @@ import {
   mocks,
   requestedScope,
   resetActivationFixture,
+  setCatalogRoot,
   storeId,
   unused,
   writer,
@@ -63,9 +64,7 @@ function mountedRoot(): ApplicationIpcDomain {
 }
 
 it('activates TEXT with no collection as its workspace roots alone', async () => {
-  mocks.database.query.mockImplementation(async (sql: string) => ({
-    rows: sql.includes('FROM roots') ? [{ id: 'root', kind: 'path' }] : [],
-  }));
+  setCatalogRoot();
   const native = {
     ...writer(),
     verifyScopedManifest: vi.fn(
@@ -118,15 +117,14 @@ it('activates TEXT with no collection as its workspace roots alone', async () =>
       expect.objectContaining({ managedCollectionId: null, mode: 'TEXT' })
     );
     expect(mocks.manager.attachCanonicalCollection).not.toHaveBeenCalled();
-    const statements = mocks.database.query.mock.calls.map(([sql]) => String(sql));
-    expect(statements.filter((sql) => sql.includes('FROM embedding_sets'))).toEqual([]);
-    const catalogReads = statements.filter((sql) => sql.includes('FROM file_records'));
+    expect(mocks.catalog.collections).not.toHaveBeenCalled();
+    const catalogReads = mocks.catalog.sourceCatalog.mock.calls.map(([request]) => request);
     expect(catalogReads.length).toBeGreaterThan(0);
     expect(
-      catalogReads.filter(
-        (sql) => !sql.includes('embedding_set_id IS NULL AND root_id IS NOT NULL')
+      catalogReads.every(
+        (request) => request.operation === 'inventory' && request.embeddingSetId === null
       )
-    ).toEqual([]);
+    ).toBe(true);
     expect(activation.getReadiness()).toEqual([
       expect.objectContaining({ scanComplete: true, scope: workspace }),
     ]);
@@ -149,6 +147,90 @@ it('still asks for a model and collection before VECTOR indexing', async () => {
       'message',
       'Choose an embedding model and collection in Search & Indexing settings.'
     );
+    expect(mocks.manager.attachCanonicalWorkspace).not.toHaveBeenCalled();
+  } finally {
+    await activation.close();
+  }
+});
+
+it('routes explicit workspace scans to the existing admitted trigger and refuses unknown or retired roots', async () => {
+  setCatalogRoot();
+  const completion = Promise.withResolvers<void>();
+  const trigger = vi.fn(() => completion.promise);
+  mocks.readyPort.mockReturnValue({
+    ...writer(),
+    verifyScopedManifest: async (
+      request: Parameters<ScopedIndexerPort['verifyScopedManifest']>[0]
+    ) => ({
+      authorityEpoch: 'b'.repeat(64),
+      authorityRevision: 1,
+      changed: [],
+      complete: true,
+      missing: [],
+      scope: requestedScope(request),
+      storeId,
+      unexpected: [],
+    }),
+  });
+  mocks.manager.attachCanonicalWorkspace.mockImplementation(
+    async (dependencies: CanonicalWorkspaceRuntimeDependencies) => {
+      const ticket = await dependencies.publication.beginScan({
+        requestId: 'initial',
+        scope: workspace,
+      });
+      dependencies.onReceipt(
+        await dependencies.publication.finishScan({
+          aborted: false,
+          errors: [],
+          files: [],
+          full: true,
+          ticket,
+          truncatedDirectories: [],
+        })
+      );
+      return { close: async () => {}, trigger };
+    }
+  );
+  const activation = createActivation({
+    application: mountedRoot(),
+    embedding: { documentEmbeddings: vi.fn(unused) },
+    onError: vi.fn(),
+    storage: savedSettings({ managedCollectionId: null, nativeIndexMode: 'TEXT' }),
+  });
+  try {
+    await activation.acquire();
+    await expect(activation.requestWorkspaceScan('unknown')).rejects.toThrow();
+    expect(trigger).not.toHaveBeenCalled();
+    let settled = false;
+    const requested = activation.requestWorkspaceScan('root').then(() => {
+      settled = true;
+    });
+    expect(trigger).toHaveBeenCalledOnce();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    completion.resolve();
+    await requested;
+    expect(mocks.acquire).toHaveBeenCalledOnce();
+    expect(mocks.manager.attachCanonicalWorkspace).toHaveBeenCalledOnce();
+  } finally {
+    completion.resolve();
+    await activation.close();
+  }
+  await expect(activation.requestWorkspaceScan('root')).rejects.toThrow();
+  expect(trigger).toHaveBeenCalledOnce();
+});
+
+it('refuses explicit workspace scans while source admission is paused', async () => {
+  setCatalogRoot();
+  const activation = createActivation({
+    application: mountedRoot(),
+    embedding: { documentEmbeddings: vi.fn(unused) },
+    onError: vi.fn(),
+    storage: savedSettings({ managedCollectionId: null, nativeIndexMode: 'TEXT', paused: true }),
+  });
+  try {
+    await activation.acquire();
+    await expect(activation.requestWorkspaceScan('root')).rejects.toThrow();
     expect(mocks.manager.attachCanonicalWorkspace).not.toHaveBeenCalled();
   } finally {
     await activation.close();

@@ -25,17 +25,13 @@ export const DESKTOP_IPC_CHANNELS = {
     tabsChanged: 'browser:tabsChanged',
   },
   changes: {
-    applyRewind: 'changes:applyRewind',
     fileDiff: 'changes:fileDiff',
-    finalizeRewinds: 'changes:finalizeRewinds',
     // One-way main→renderer push (BST-1161, spec §6): the git-metadata
     // watcher observed external git activity on a repository. NOT an
     // ipcMain.handle channel — never registered on the registry.
     invalidated: 'changes:invalidated',
     inventory: 'changes:inventory',
-    redoRewind: 'changes:redoRewind',
     resolveView: 'changes:resolveView',
-    rewindPreview: 'changes:rewindPreview',
   },
   // Hidden chunking host (renderer-only inference, docs/agents/local-inference.md).
   // `request`/`progress`/`status` are one-way main→host pushes; `report*` are
@@ -56,6 +52,15 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   clipboard: {
     writeText: 'clipboard:write-text',
+  },
+  collectionCatalog: {
+    create: 'collection-catalog:create',
+    delete: 'collection-catalog:delete',
+    ensureWorkspaceIndex: 'collection-catalog:ensure-workspace-index',
+    get: 'collection-catalog:get',
+    list: 'collection-catalog:list',
+    snapshot: 'collection-catalog:snapshot',
+    update: 'collection-catalog:update',
   },
   commandPalette: {
     // One-way main→renderer push: the app menu's Cmd+K accelerator triggers
@@ -94,7 +99,10 @@ export const DESKTOP_IPC_CHANNELS = {
     transaction: 'db:transaction',
   },
   diagnostics: {
+    countByFingerprint: 'desktop-diagnostics:count-by-fingerprint',
     getSnapshot: 'desktop-diagnostics:get-snapshot',
+    getUnseenCounts: 'desktop-diagnostics:get-unseen-counts',
+    queryEvents: 'desktop-diagnostics:query-events',
     readMainLogWindow: 'desktop-diagnostics:read-main-log-window',
     readProcessCounters: 'desktop-diagnostics:read-process-counters',
   },
@@ -153,6 +161,7 @@ export const DESKTOP_IPC_CHANNELS = {
     watchTelemetry: 'fs:watch-telemetry',
   },
   forge: {
+    cacheSnapshot: 'forge:cacheSnapshot',
     identity: 'forge:identity',
     prStatus: 'forge:prStatus',
     // One-way main→renderer push (BST-1391): a forge observation changed for a
@@ -227,6 +236,12 @@ export const DESKTOP_IPC_CHANNELS = {
     appsReleaseShell: 'mcp:apps:releaseShell',
     configSelectPath: 'mcp:config:selectPath',
   },
+  modelCatalog: {
+    initializeProviderDefaults: 'model-catalog:initialize-provider-defaults',
+    read: 'model-catalog:read',
+    setModels: 'model-catalog:set-models',
+    setProvider: 'model-catalog:set-provider',
+  },
   notesVault: {
     // One-way main→renderer push: a watched vault directory changed. Pushed to
     // the OWNING renderer's WebContents only — NOT an ipcMain.handle channel,
@@ -250,6 +265,7 @@ export const DESKTOP_IPC_CHANNELS = {
     layoutSave: 'layout:save',
     settingsClearAll: 'settings:clearAll',
   },
+  promptLibrary: { request: 'prompt-library:request' },
   // Provider OAuth engine (BST-1355). Renderer-visible surface is STATUS
   // ONLY — token material never crosses these channels (legal gate BST-1351
   // constraint 3; pinned by provider-auth-ipc tests).
@@ -297,6 +313,13 @@ export const DESKTOP_IPC_CHANNELS = {
   skills: {
     scan: 'skills:scan',
   },
+  sourceFiles: {
+    chunks: 'source-files:chunks',
+    delete: 'source-files:delete',
+    import: 'source-files:import',
+    list: 'source-files:list',
+    read: 'source-files:read',
+  },
   storage: {
     clear: 'storage:clear',
     clearAllForE2e: 'storage:clearAllForE2e',
@@ -316,6 +339,7 @@ export const DESKTOP_IPC_CHANNELS = {
     resize: 'terminal:resize',
     write: 'terminal:write',
   },
+  threadGroups: { readRoots: 'thread-groups:read-roots', request: 'thread-groups:request' },
   userCommands: {
     list: 'user-commands:list',
   },
@@ -334,6 +358,7 @@ export const DESKTOP_IPC_CHANNELS = {
     read: 'vector-preferences:read',
     write: 'vector-preferences:write',
   },
+  viewFilterPresets: { request: 'view-filter-presets:request' },
   // Native focus of the host BrowserWindow (BST-1864). `isFocused` is the ONLY
   // invoke: the value for the asking window, served on request so a renderer
   // that (re)loads after a focus change still reads the truth. `changed` is a

@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react';
+import { type ReactElement, StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The gate and the recovery wiring have their own suites in app-shell; here they are
@@ -99,21 +99,8 @@ describe('renderer main entry', () => {
     rootEl.id = 'root';
     document.body.appendChild(rootEl);
     window.electronAPI = {
-      db: {
-        clearAll: vi.fn(),
-        diagnostics: vi.fn(),
-        exec: vi.fn(),
-        insertChunksAndEnqueueEmbeddingJobs: vi.fn(),
-        query: vi.fn(),
-        resetLocal: vi.fn(),
-        test: vi.fn(),
-      },
-      dbLive: {
-        onUpdate: vi.fn(),
-        refresh: vi.fn(),
-        start: vi.fn(),
-        stop: vi.fn(),
-      },
+      content: { clear: vi.fn() },
+      factoryReset: { resetLocal: vi.fn() },
       fileSystem: {
         exists: vi.fn(),
         readDirectory: vi.fn(),
@@ -133,6 +120,12 @@ describe('renderer main entry', () => {
         setItem: vi.fn(),
       },
     } as never;
+    window.modelCatalog = { read: vi.fn() } as never;
+    window.collectionCatalog = { snapshot: vi.fn() } as never;
+    window.sourceFiles = { chunks: vi.fn(), list: vi.fn(), read: vi.fn() } as never;
+    window.viewFilterPresets = { request: vi.fn() };
+    window.threadGroups = { readRoots: vi.fn(), request: vi.fn() };
+    window.promptLibrary = { request: vi.fn() };
     window.logging = {
       getBufferedLogs: vi.fn(),
       getPreferences: vi.fn(async () => ({
@@ -181,6 +174,13 @@ describe('renderer main entry', () => {
     expect(renderArg).toBeDefined();
     expect(isReactElement(renderArg)).toBe(true);
   }, 30_000); // Increased timeout for CI - dynamic import of main.tsx loads entire app
+
+  it('validates the actual Window capabilities and reaches the visible application', async () => {
+    await import('../../renderer/main.tsx');
+    const rendered = mockRender.mock.calls[0]?.[0];
+    expect(isReactElement(rendered)).toBe(true);
+    expect(rendered.type).toBe(StrictMode);
+  });
 
   it('starts failed-chunk recovery with this build id before the first render', async () => {
     await import('../../renderer/main.tsx');

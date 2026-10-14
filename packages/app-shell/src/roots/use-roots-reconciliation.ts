@@ -6,14 +6,24 @@ import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } fro
 import { type ChangesBridge, resolveChangesBridge } from '../changes/changes-bridge';
 import { resolveWorktreesBridge } from '../worktrees/worktrees-bridge';
 import { notifyRootRegistered } from './root-registration-events';
-import { mapHostRecordedRoots, reconcileRoots } from './root-registry';
+import { mapHostRecordedRoots, type ReconcileRootsArgs, reconcileRoots } from './root-registry';
 
 /**
  * Desktop Main's root registry owns folder records (BST-1990), so reconciliation
  * only maps onto them there; elsewhere (web) it writes them.
  */
-function reconcilerFor(adapter: FileSystemAdapter): typeof reconcileRoots {
-  return adapter.ownsRootRecords ? mapHostRecordedRoots : reconcileRoots;
+function reconcileAdapterRoots(
+  adapter: FileSystemAdapter,
+  db: DbHandle | null,
+  args: Omit<ReconcileRootsArgs, 'query'>
+): ReturnType<typeof reconcileRoots> {
+  if (adapter.ownsRootRecords) {
+    return mapHostRecordedRoots(args);
+  }
+  if (!db) {
+    throw new Error('Browser root catalog is unavailable.');
+  }
+  return reconcileRoots({ ...args, query: db.query });
 }
 
 const logger = createLogger('useRootsReconciliation');
@@ -294,7 +304,7 @@ async function performRootRegistration({
     // Already mapped — the boot reconcile (or an earlier registerRoot) won.
     return;
   }
-  if (!db) {
+  if (!(db || adapter.ownsRootRecords)) {
     logger.warn('registerRoot skipped: db handle unavailable', {
       rootId: descriptor.rootId,
     });
@@ -308,12 +318,11 @@ async function performRootRegistration({
       adapter.platform === 'electron',
       managedWorktreePathsRef
     );
-    const result = await reconcilerFor(adapter)({
+    const result = await reconcileAdapterRoots(adapter, db, {
       adapterRoots: [descriptor],
       managedWorktreePaths: managedWorktreePathsRef.current,
       managedWorktreePathsKnown: managedWorktreePathsKnownRef.current,
       platformKind,
-      query: db.query,
     });
     const dbRootId = result.dbRootIdByAdapterRootId.get(descriptor.rootId);
     if (dbRootId !== undefined) {
@@ -474,7 +483,7 @@ export function useRootsReconciliation({
       settledWithoutRestoreRef.current = false;
       publishReconciliationSettled(false);
     }
-    if (!db) {
+    if (!(db || adapter.ownsRootRecords)) {
       // Deliberately NOT settled: db is not ready YET and the effect re-runs
       // when it arrives. Settling empty here would be permanent (promises
       // resolve once), silently dropping the later real mapping. No consumer
@@ -496,12 +505,11 @@ export function useRootsReconciliation({
           adapter.platform === 'electron',
           managedWorktreePathsRef
         );
-        const result = await reconcilerFor(adapter)({
+        const result = await reconcileAdapterRoots(adapter, db, {
           adapterRoots,
           managedWorktreePaths: managedWorktreePathsRef.current,
           managedWorktreePathsKnown: managedWorktreePathsKnownRef.current,
           platformKind,
-          query: db.query,
         });
         const { dbRootIdMap, insertedAny } = applyBootReconciliationResult({
           adapterRoots,

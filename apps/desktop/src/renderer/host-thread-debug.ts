@@ -10,7 +10,7 @@ import type { HostEvent, HostLogRow } from '@brainstrike/agent-host/protocol';
 import {
   buildHostThreadDebugPack,
   collectCorrelatedDiagnostics,
-  type DebugBundleDatabase,
+  type DebugBundleDiagnosticsReader,
   formatThreadDebugBundle,
   type HostThreadDebugSnapshot,
   readDebugBundleEnvironment,
@@ -264,12 +264,12 @@ export async function readHostThreadDebugSnapshot(
 /**
  * The thread debug pack and Copy debug bundle for a host thread, built from
  * the host's committed log when asked. Correlated diagnostics come from the
- * renderer's own diagnostic store, as they do for history threads.
+ * Main's retained diagnostic log through its read-only capability.
  */
 export function createHostDebugBundleBinding(
   host: HostReader,
   threadId: string,
-  diagnostics: DebugBundleDatabase
+  diagnostics: DebugBundleDiagnosticsReader
 ): DebugBundleBinding {
   return {
     buildBundle: async ({ runId }) => {

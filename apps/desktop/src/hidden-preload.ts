@@ -3,17 +3,13 @@
 // duplicated, or unknown role is a packaging error and fails closed.
 const { contextBridge, ipcRenderer } = require('electron');
 
-import {
-  databaseChunkingContract,
-  databaseEmbeddingContract,
-  databaseIntegrityContract,
-} from './ipc-domains/database.contract';
+import { modelCatalogContract } from './ipc-domains/model-catalog.contract';
+import { sourceFilesContract } from './ipc-domains/source-files.contract';
 import { vectorPreferencesContract } from './ipc-domains/storage-preferences.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createIpcBridge } from './platform/ipc-bridge';
 import {
   assertDesktopElectronApiKeyParity,
-  type ChunkingHostElectronApi,
   type ChunkingHostRuntimeBridge,
   type EmbeddingHostElectronApi,
   type EmbeddingHostRuntimeBridge,
@@ -84,10 +80,6 @@ function exposeLoggingBridge(): void {
 }
 
 function exposeChunkingHostBridge(): void {
-  const db = createIpcBridge(
-    ipcRenderer,
-    databaseChunkingContract
-  ) as unknown as ChunkingHostElectronApi['db'];
   const chunkingHost = {
     onRequest: (callback: (request: ChunkingHostRequest) => void) =>
       subscribe(DESKTOP_IPC_CHANNELS.chunkingHost.request, callback),
@@ -103,29 +95,22 @@ function exposeChunkingHostBridge(): void {
     parse: (request: unknown) =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.parserHostParse, request),
   });
-  const electronAPI = {
-    db,
-  } satisfies ChunkingHostElectronApi;
-  assertDesktopElectronApiKeyParity('chunking-host', electronAPI);
-  contextBridge.exposeInMainWorld('electronAPI', electronAPI);
+  contextBridge.exposeInMainWorld(
+    'sourceFiles',
+    createIpcBridge(ipcRenderer, { read: sourceFilesContract.read })
+  );
 }
 
 /**
- * The embedding host's `electronAPI` surface: the database capabilities the
- * renderer-owned queue needs, plus the scoped vector-preferences capability
+ * The native inference host needs only the scoped vector-preferences capability
  * (BST-1380). The host must resolve its device preference from the SAME
  * canonical record the visible UI writes; it deliberately does NOT receive the
  * visible UI's unrestricted `storage` bridge, and these channels carry no key
  * because main pins the record server-side.
  */
 function exposeEmbeddingElectronApiBridge(): void {
-  const db = createIpcBridge(
-    ipcRenderer,
-    databaseEmbeddingContract
-  ) as unknown as EmbeddingHostElectronApi['db'];
   const vectorPreferences = createIpcBridge(ipcRenderer, vectorPreferencesContract);
   const electronAPI = {
-    db,
     vectorPreferences,
   } satisfies EmbeddingHostElectronApi;
   assertDesktopElectronApiKeyParity('embedding-host', electronAPI);
@@ -133,6 +118,10 @@ function exposeEmbeddingElectronApiBridge(): void {
 }
 
 function exposeEmbeddingHostBridge(): void {
+  contextBridge.exposeInMainWorld(
+    'modelCatalog',
+    createIpcBridge(ipcRenderer, { read: modelCatalogContract.read })
+  );
   exposeEmbeddingElectronApiBridge();
   const embeddingHost = {
     onCommand: (callback: (command: EmbeddingHostCommand) => void) =>
@@ -169,12 +158,6 @@ function exposeEmbeddingHostBridge(): void {
     },
   } satisfies EmbeddingHostRuntimeBridge;
   contextBridge.exposeInMainWorld('embeddingHost', embeddingHost);
-  // BST-1870: the claim permit parks while database integrity is contained, so
-  // the host reads the main-owned state. Read-only; chunking/LLM hosts get none.
-  contextBridge.exposeInMainWorld(
-    'databaseIntegrity',
-    createIpcBridge(ipcRenderer, databaseIntegrityContract)
-  );
   contextBridge.exposeInMainWorld('power', {
     getSnapshot: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.runtime.powerSnapshot),
     onPowerState: (callback: (state: 'resume' | 'suspend') => void) =>

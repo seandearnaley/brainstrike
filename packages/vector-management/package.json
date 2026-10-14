@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/app-state": "workspace:*",
+    "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/hooks": "workspace:*",

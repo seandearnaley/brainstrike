@@ -8,9 +8,7 @@ describe('validateDesktopBridgeContract', () => {
   it('returns missing critical bridge members when the preload surface is incomplete', () => {
     const result = validateDesktopBridgeContract({
       electronAPI: {
-        db: {
-          query: async () => ({ rows: [] }),
-        },
+        content: { clear: async () => ({}) },
       },
       logging: undefined,
     });
@@ -20,22 +18,16 @@ describe('validateDesktopBridgeContract', () => {
       throw new Error('Expected contract validation to fail.');
     }
     expect(result.missing).toContain('window.electronAPI.fileSystem.requestDirectoryAccess');
-    expect(result.missing).toContain('window.electronAPI.db.insertChunksAndEnqueueEmbeddingJobs');
+    expect(result.missing).toContain('window.sourceFiles.list');
     expect(result.missing).toContain('window.logging.getPreferences');
   });
 
-  it('passes when the required visible-ui desktop bridges are present', () => {
+  it('passes with current catalog/source owners and no retired database bridge', () => {
     const result = validateDesktopBridgeContract({
+      collectionCatalog: { snapshot: async () => [] },
       electronAPI: {
-        db: {
-          clearAll: async () => ({ deletedChunks: 0, deletedFiles: 0, success: true }),
-          diagnostics: async () => null,
-          exec: async () => undefined,
-          insertChunksAndEnqueueEmbeddingJobs: async () => undefined,
-          query: async () => ({ rows: [] }),
-          resetLocal: async () => ({ success: true }),
-          test: async () => ({ dbLocation: '/tmp/db', message: 'ok', success: true }),
-        },
+        content: { clear: async () => ({}) },
+        factoryReset: { resetLocal: async () => ({ success: true }) },
         fileSystem: {
           exists: async () => true,
           readDirectory: async () => [],
@@ -107,7 +99,12 @@ describe('validateDesktopBridgeContract', () => {
             redactPaths: [],
           },
         }),
-      } as unknown as NonNullable<Parameters<typeof validateDesktopBridgeContract>[0]['logging']>,
+      },
+      modelCatalog: { read: async () => ({}) },
+      promptLibrary: { request: async () => ({}) },
+      sourceFiles: { chunks: async () => ({}), list: async () => [], read: async () => [] },
+      threadGroups: { readRoots: async () => [], request: async () => ({}) },
+      viewFilterPresets: { request: async () => ({}) },
     });
 
     expect(result.ok).toBe(true);

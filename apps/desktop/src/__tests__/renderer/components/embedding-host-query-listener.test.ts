@@ -14,14 +14,13 @@ import {
 import {
   closeQueryEmbeddingRuntimeOwner,
   createQueryEmbeddingRuntimeOwner,
-  type QueryEmbeddingRuntimeOwner,
   runOwnedQueryEmbeddingInference,
 } from '../../../renderer/components/embedding-host-query-owner';
 import {
-  dbHandle,
   installEmbeddingHostRuntimeFixture,
   queryEmbeddingCancelListenerRef,
   queryEmbeddingListenerRef,
+  readModelCatalogMock,
   reportQueryEmbeddingResponseMock,
 } from './embedding-host-foreground-ownership-fixture';
 
@@ -31,9 +30,7 @@ describe('embedding query listener request ownership', () => {
   installEmbeddingHostRuntimeFixture();
 
   it('retains canceled request identity until FIFO settlement and releases both entries afterward', async () => {
-    const owner = createQueryEmbeddingRuntimeOwner(
-      dbHandle as unknown as QueryEmbeddingRuntimeOwner['db']
-    );
+    const owner = createQueryEmbeddingRuntimeOwner({ read: readModelCatalogMock });
     const held = Promise.withResolvers<void>();
     const handle = vi.fn(async (_request: AdmittedQueryEmbeddingRequest) => {
       await held.promise;
@@ -80,9 +77,7 @@ describe('embedding query listener request ownership', () => {
   });
 
   it('joins physical retirement and retains queued cancellation after the generation closes', async () => {
-    const owner = createQueryEmbeddingRuntimeOwner(
-      dbHandle as unknown as QueryEmbeddingRuntimeOwner['db']
-    );
+    const owner = createQueryEmbeddingRuntimeOwner({ read: readModelCatalogMock });
     const fifo = Promise.withResolvers<void>();
     const physical = Promise.withResolvers<void>();
     owner.executionTailRef.current = fifo.promise;
@@ -123,9 +118,7 @@ describe('embedding query listener request ownership', () => {
   });
 
   it('clears every admitted request on generation close while joining active inference settlement', async () => {
-    const owner = createQueryEmbeddingRuntimeOwner(
-      dbHandle as unknown as QueryEmbeddingRuntimeOwner['db']
-    );
+    const owner = createQueryEmbeddingRuntimeOwner({ read: readModelCatalogMock });
     const held = Promise.withResolvers<EmbeddingResult>();
     const handle = vi.fn(async (request: AdmittedQueryEmbeddingRequest) => {
       await runOwnedQueryEmbeddingInference(owner, () => held.promise, request.signal);

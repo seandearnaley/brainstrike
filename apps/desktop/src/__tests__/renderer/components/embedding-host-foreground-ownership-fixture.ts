@@ -4,6 +4,8 @@ import { beforeEach, vi } from 'vitest';
 
 const {
   commandListenerRef,
+  readModelCatalogMock,
+  reopenEmbeddingQueueMock,
   queryEmbeddingCancelListenerRef,
   currentDbRef,
   dbHandle,
@@ -57,6 +59,8 @@ const {
   queryEmbeddingListenerRef: {
     current: null as null | ((request: unknown) => void),
   },
+  readModelCatalogMock: vi.fn(),
+  reopenEmbeddingQueueMock: vi.fn(),
   reportQueryEmbeddingResponseMock: vi.fn(),
   reportStatusMock: vi.fn(),
   retireEmbeddingQueueMock: vi.fn(async () => {}),
@@ -120,17 +124,17 @@ vi.mock('electron', () => ({
   powerSaveBlocker: { isStarted: vi.fn(), start: vi.fn(), stop: vi.fn() },
 }));
 
-vi.mock('@brainstrike/db', async (importOriginal) => ({
+vi.mock('@brainstrike/db', () => ({
   createEmbeddingCacheRepository: createEmbeddingCacheRepositoryMock,
-  // The real priority proxy: the runtime's model read must reach the handle
-  // with the foreground lane's work options.
-  createPriorityDbHandle: (await importOriginal<typeof import('@brainstrike/db')>())
-    .createPriorityDbHandle,
-  usePGliteDatabase: () => currentDbRef.current,
+  usePGliteDatabase: () => {
+    throw new Error('PGlite is unavailable in the native hidden host');
+  },
 }));
 vi.mock('@brainstrike/db/react', () => ({
   createEmbeddingCacheRepository: createEmbeddingCacheRepositoryMock,
-  usePGliteDatabase: () => currentDbRef.current,
+  usePGliteDatabase: () => {
+    throw new Error('PGlite is unavailable in the native hidden host');
+  },
 }));
 
 vi.mock('@brainstrike/app-state/stores/vector-preferences-store', () => ({
@@ -157,11 +161,7 @@ vi.mock('../../../renderer/create-embedding-queue', () => ({
     embeddingQueueBootstrapMock();
     return {
       getEmbeddingQueue: getEmbeddingQueueMock,
-      reopenEmbeddingQueue: async (isCurrent: () => boolean) => {
-        if (isCurrent()) {
-          getEmbeddingQueueMock();
-        }
-      },
+      reopenEmbeddingQueue: reopenEmbeddingQueueMock,
       retireEmbeddingQueue: retireEmbeddingQueueMock,
     };
   })(),
@@ -178,6 +178,16 @@ export function installEmbeddingHostRuntimeFixture(): void {
     hostWindow.removeAllListeners();
     hostWindow.webContents.removeAllListeners();
     vi.clearAllMocks();
+    readModelCatalogMock.mockReset().mockResolvedValue({ models: [], providers: [] });
+    reopenEmbeddingQueueMock.mockReset().mockImplementation(async (isCurrent: () => boolean) => {
+      if (isCurrent()) {
+        getEmbeddingQueueMock();
+      }
+    });
+    Object.defineProperty(window, 'modelCatalog', {
+      configurable: true,
+      value: { read: async () => ({ ok: true, value: await readModelCatalogMock() }) },
+    });
     retireEmbeddingQueueMock.mockReset().mockResolvedValue(undefined);
     reportStatusMock.mockReset();
     stopMock.mockResolvedValue(undefined);
@@ -264,6 +274,8 @@ export {
   ipcHandlers,
   queryEmbeddingCancelListenerRef,
   queryEmbeddingListenerRef,
+  readModelCatalogMock,
+  reopenEmbeddingQueueMock,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
   retireEmbeddingQueueMock,

@@ -6,33 +6,26 @@
  * status — so the user can opt an OVERSIZED file in.
  */
 
-import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { WorkspaceFileReader } from './assistant-server/workspace-instructions-context';
 import {
   scanWorkspaceContextFiles,
   type WorkspaceContextFileStatus,
 } from './assistant-server/workspace-instructions-scan';
-import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roots';
-import { getDatabase } from './db-main';
+import { loadWorkspaceRootsFromCatalog } from './assistant-server/workspace-roots';
 
 export interface ContextFilesScanDeps {
-  /** Loads the active, path-backed workspace roots. Defaults to the DB `roots` table. */
-  readonly loadRoots?: () => Promise<readonly RuntimeWorkspaceRoot[]>;
   /** Reads a guarded workspace text file. Defaults to `readWorkspaceTextFile`. */
   readonly readFile?: WorkspaceFileReader;
+  /** Required authoritative workspace-root catalog. */
+  readonly workspaceRoots: WorkspaceRootPort;
 }
 
 export async function scanWorkspaceContextFilesForReview(
-  deps: ContextFilesScanDeps = {}
+  deps: ContextFilesScanDeps
 ): Promise<WorkspaceContextFileStatus[]> {
   const readFile = deps.readFile ?? readWorkspaceTextFile;
-  const loadRoots =
-    deps.loadRoots ??
-    (async () => {
-      const db = await getDatabase();
-      return loadWorkspaceRootsFromDatabase(db);
-    });
-  const roots = await loadRoots();
+  const roots = await loadWorkspaceRootsFromCatalog(deps.workspaceRoots);
   return scanWorkspaceContextFiles(roots, readFile);
 }

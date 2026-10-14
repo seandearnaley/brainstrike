@@ -25,6 +25,7 @@ import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platfo
 import { MainMcpHostControl } from '../mcp/main-host-control';
 import { noRunAdmission } from './fixtures/desktop-admission-reads';
 import { desktopAppPaths, writeDesktopMcpConfig } from './fixtures/desktop-host-profile';
+import { expectHostPrivateFailure } from './fixtures/host-private-boundary-failure';
 import { serveInProcessDesktopPlatform } from './fixtures/in-process-desktop-platform';
 
 /** Same public MessageEvent shape as the Electron utility port, backed by real Node ports. */
@@ -177,15 +178,19 @@ test('the desktop client reads, follows and controls MCP server status on the ag
 
     // A public-socket client reaches no desktop MCP status, control or presentations.
     cli = await hostClient(host, 'public-socket');
-    await expect(cli.request('mcp/tasks/list', {})).rejects.toThrow(
-      "MCP presentations are available only to the desktop's private client"
+    const publicClient = cli;
+    await expectHostPrivateFailure(
+      () => publicClient.request('mcp/tasks/list', {}),
+      'mcp/tasks/list'
     );
-    await expect(cli.request('mcp/status/read', {})).rejects.toThrow(
-      "MCP settings are available only to the desktop's private client"
+    await expectHostPrivateFailure(
+      () => publicClient.request('mcp/status/read', {}),
+      'mcp/status/read'
     );
-    await expect(
-      cli.request('mcp/server/control', { action: 'connect', configuredServerId })
-    ).rejects.toThrow("MCP settings are available only to the desktop's private client");
+    await expectHostPrivateFailure(
+      () => publicClient.request('mcp/server/control', { action: 'connect', configuredServerId }),
+      'mcp/server/control'
+    );
   } finally {
     await cli?.close();
     await desktop?.close();

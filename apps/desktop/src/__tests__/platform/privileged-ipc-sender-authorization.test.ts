@@ -120,14 +120,6 @@ function contractDomainInvokeArgs(channel: string): readonly unknown[] {
       ];
     case 'changes:inventory':
       return [];
-    case 'changes:rewindPreview':
-      return [{ messageId: 'message-1', threadId: 'thread-1' }];
-    case 'changes:applyRewind':
-      return [{ messageId: 'message-1', mode: 'conversation-only', threadId: 'thread-1' }];
-    case 'changes:redoRewind':
-      return [{ rewindId: 'rewind-1' }];
-    case 'changes:finalizeRewinds':
-      return [{ threadId: 'thread-1' }];
     case 'notes-vault:ensure-default-vault':
     case 'notes-vault:pick-directory':
       return [];
@@ -145,6 +137,8 @@ function contractDomainInvokeArgs(channel: string): readonly unknown[] {
     case 'notes-vault:unwatch':
     case 'notes-vault:watch':
       return ['/vault'];
+    case 'forge:cacheSnapshot':
+      return [];
     case 'forge:identity':
     case 'forge:prStatus':
       return ['root-1'];
@@ -200,7 +194,11 @@ const DOMAIN_CASES: readonly PrivilegedDomainCase[] = [
     ],
     domain: 'commandSessions',
     register: (stub) =>
-      registerTerminalIpc(stub() as TerminalIpcHandlers, stub() as CommandSessionIpcHandlers),
+      registerTerminalIpc(
+        stub() as Parameters<typeof registerTerminalIpc>[0],
+        stub() as TerminalIpcHandlers,
+        stub() as CommandSessionIpcHandlers
+      ),
   },
   {
     channels: ['shell:show-item-in-folder', 'shell:open-path', 'shell:open-external'],
@@ -226,23 +224,19 @@ const DOMAIN_CASES: readonly PrivilegedDomainCase[] = [
       'git:switchBranch',
     ],
     domain: 'git',
-    register: (stub) => registerGitIpcHandlers(stub() as GitIpcHandlers),
+    register: (stub) =>
+      registerGitIpcHandlers(
+        stub() as Parameters<typeof registerGitIpcHandlers>[0],
+        stub() as GitIpcHandlers
+      ),
   },
   {
-    channels: [
-      'changes:resolveView',
-      'changes:fileDiff',
-      'changes:inventory',
-      'changes:rewindPreview',
-      'changes:applyRewind',
-      'changes:redoRewind',
-      'changes:finalizeRewinds',
-    ],
+    channels: ['changes:resolveView', 'changes:fileDiff', 'changes:inventory'],
     domain: 'changes',
     register: (stub) => registerChangesIpcHandlers(stub() as ChangesIpcHandlers),
   },
   {
-    channels: ['forge:identity', 'forge:prStatus', 'forge:refresh'],
+    channels: ['forge:cacheSnapshot', 'forge:identity', 'forge:prStatus', 'forge:refresh'],
     domain: 'forge',
     register: (stub) => registerForgeIpcHandlers(stub() as ForgeIpcHandlers),
   },

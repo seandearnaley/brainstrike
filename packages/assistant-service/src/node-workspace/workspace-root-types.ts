@@ -1,3 +1,4 @@
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { StorageAdapter } from '@brainstrike/storage';
 
 export type WorkspaceRootStorage = Pick<StorageAdapter, 'getItem' | 'setItem' | 'removeItem'>;
@@ -57,4 +58,16 @@ export interface RootDataDeletionReservation {
   release(): void;
   retireSources(): Promise<void>;
   run(operation: () => Promise<void>): Promise<void>;
+}
+
+export interface WorkspaceRootRegistryOptions {
+  readonly createSecureRoot?: (rootPath: string) => Promise<SecureWorkspaceRoot>;
+  readonly disposeCommandSessionsForRoot: (rootId: string) => Promise<number>;
+  readonly evictLspServersForRoot: (rootId: string) => Promise<void>;
+  readonly getRootsCatalog: () => Promise<WorkspaceRootPort>;
+  readonly onRootGranted?: (grantedPath: string) => void;
+  readonly pathExists: (rootPath: string) => Promise<boolean>;
+  readonly resolveCanonicalRoot?: (rootPath: string) => Promise<string>;
+  readonly resolveReadPath?: (requestedPath: string, canonicalRoot: string) => Promise<string>;
+  readonly storage: WorkspaceRootStorage;
 }

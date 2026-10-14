@@ -1,11 +1,12 @@
 /**
  * Skills scan IPC handler tests: entry → serializable summary mapping (ok /
  * invalid / shadowed, with durable preference keys and exact validation
- * errors) and DB-failure degradation to global-only scanning.
+ * errors) and explicit catalog-failure propagation.
  */
 
 import type { SkillContentDeps } from '@brainstrike/agent';
 import { __resetSkillScanWarningsForTests } from '@brainstrike/agent';
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { scanSkillsForRenderer } from '../../ipc-skills-handlers';
 
@@ -59,13 +60,20 @@ const FS: MemoryFs = {
   },
 };
 
-const DB_WITH_ROOT = {
-  // Minimal WorkspaceRootsQueryable-compatible stub: resolveScanRoots calls
-  // loadWorkspaceRootsFromDatabase(db), which queries the roots table.
-  query: (_sql: string) =>
-    Promise.resolve({
-      rows: [{ displayName: 'A', id: 'root-a', path: '/proj/a' }],
-    }),
+const CATALOG_WITH_ROOT: WorkspaceRootPort = {
+  workspaceRoots: async () => ({
+    roots: [
+      {
+        createdAt: 1,
+        displayName: 'A',
+        id: 'root-a',
+        kind: 'path',
+        lastVerifiedAt: 1,
+        path: '/proj/a',
+        status: 'live',
+      },
+    ],
+  }),
 };
 
 beforeEach(() => {
@@ -76,8 +84,8 @@ describe('scanSkillsForRenderer', () => {
   it('maps ok, shadowed, and invalid entries to serializable summaries', async () => {
     const result = await scanSkillsForRenderer({
       fs: makeFs(FS),
-      getDatabase: () => Promise.resolve(DB_WITH_ROOT as never),
       homedir: () => '/home/user',
+      workspaceRoots: CATALOG_WITH_ROOT,
     });
 
     const byStatus = new Map(result.entries.map((entry) => [entry.status, entry]));
@@ -104,11 +112,26 @@ describe('scanSkillsForRenderer', () => {
     expect(invalid?.errors?.join('\n')).toMatch(/must match directory name "broken"/);
   });
 
-  it('degrades to global-only scanning when the DB is unavailable', async () => {
+  it('rejects catalog failure instead of degrading to global-only scanning', async () => {
+    const failure = new Error('Catalog unavailable');
+    await expect(
+      scanSkillsForRenderer({
+        fs: makeFs(FS),
+        homedir: () => '/home/user',
+        workspaceRoots: {
+          workspaceRoots: async () => {
+            throw failure;
+          },
+        },
+      })
+    ).rejects.toBe(failure);
+  });
+
+  it('scans global skills after an authoritative empty root catalog', async () => {
     const result = await scanSkillsForRenderer({
       fs: makeFs(FS),
-      getDatabase: () => Promise.reject(new Error('db down')),
       homedir: () => '/home/user',
+      workspaceRoots: { workspaceRoots: async () => ({ roots: [] }) },
     });
     const names = result.entries
       .filter((entry) => entry.status === 'ok')

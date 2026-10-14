@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import type { ForgeCachePort } from '@brainstrike/state-store';
 import type { ForgePullRequest } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ForgeCacheReplySchema } from '../../agent-host-platform/worktree-forge-store';
 import type { ForgeCommandRun, ForgeCommandRunner } from '../../assistant-server/forge-gh-client';
-import type { ForgeCacheDatabase } from '../../assistant-server/forge-pr-cache';
 import {
   createForgeService,
   FORGE_REFRESH_MIN_INTERVAL_MS,
@@ -57,30 +58,17 @@ function resolver(
 }
 
 /** In-memory stand-in for `brainstrike_forge_prs`, keyed like the real PK. */
-function fakeDatabase(): ForgeCacheDatabase & {
-  readonly rows: Map<string, Record<string, unknown>>;
-} {
-  const rows = new Map<string, Record<string, unknown>>();
+function fakeDatabase(): ForgeCachePort & { readonly rows: Map<string, unknown> } {
+  const rows = new Map<string, unknown>();
   return {
-    query: async (sql: string, params: unknown[] = []) => {
-      const key = `${String(params[0])}\0${String(params[1])}`;
-      if (sql.includes('SELECT')) {
-        const row = rows.get(key);
-        return { rows: row ? [row] : [] };
+    forgeCache: async (request) => {
+      const key = `${request.repoCommonDir}\0${request.branch}`;
+      if (request.operation === 'write') {
+        rows.set(key, { observedAt: request.observedAt, pullRequest: request.pullRequest });
       }
-      rows.set(key, {
-        checksJson: params[8],
-        headSha: params[9],
-        isDraft: params[6],
-        number: params[2],
-        observedAt: params[10],
-        reviewDecision: params[7],
-        state: params[5],
-        title: params[4],
-        url: params[3],
-      });
-      return { rows: [] };
+      return ForgeCacheReplySchema.parse({ entry: rows.get(key) ?? null });
     },
+    forgeCacheSnapshot: async () => [],
     rows,
   };
 }
@@ -125,7 +113,7 @@ describe('createForgeService', () => {
   it('fetches, caches and reports a pull request', async () => {
     const database = fakeDatabase();
     const service = createForgeService({
-      getDatabase: async () => database,
+      getForgeCache: async () => database,
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -150,7 +138,7 @@ describe('createForgeService', () => {
     // some other value.
     const run = ghRunner(HEALTHY_GH);
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -170,7 +158,7 @@ describe('createForgeService', () => {
   it('reports the first observation as an "opened" transition', async () => {
     const onPrUpdated = vi.fn();
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated,
       resolveRepository: resolver(),
@@ -205,7 +193,7 @@ describe('createForgeService', () => {
       return HEALTHY_GH[args[0] === 'auth' ? 'auth' : '--version'] as ForgeCommandRun;
     });
     const service = createForgeService({
-      getDatabase: async () => database,
+      getForgeCache: async () => database,
       now,
       onPrUpdated,
       resolveRepository: resolver(),
@@ -232,7 +220,7 @@ describe('createForgeService', () => {
         : (HEALTHY_GH[args[0] === 'auth' ? 'auth' : '--version'] as ForgeCommandRun)
     );
     const service = createForgeService({
-      getDatabase: async () => database,
+      getForgeCache: async () => database,
       now,
       onPrUpdated,
       resolveRepository: resolver(),
@@ -258,7 +246,7 @@ describe('createForgeService', () => {
         : (HEALTHY_GH[args[0] === 'auth' ? 'auth' : '--version'] as ForgeCommandRun)
     );
     const service = createForgeService({
-      getDatabase: async () => database,
+      getForgeCache: async () => database,
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -269,7 +257,10 @@ describe('createForgeService', () => {
     expect(second.ok && second.value.kind).toBe('none');
     // The row survives — as a durable "none" observation, not a deletion.
     expect(database.rows.size).toBe(1);
-    expect(database.rows.get(`${COMMON_DIR}\0feature/bar`)?.['number']).toBeNull();
+    expect(
+      ForgeCacheReplySchema.parse({ entry: database.rows.get(`${COMMON_DIR}\0feature/bar`) }).entry
+        ?.pullRequest
+    ).toBeNull();
   });
 
   it('reports the SAME durable "none" observedAt on an immediate prStatus read (R1)', async () => {
@@ -280,7 +271,7 @@ describe('createForgeService', () => {
         : (HEALTHY_GH[args[0] === 'auth' ? 'auth' : '--version'] as ForgeCommandRun)
     );
     const service = createForgeService({
-      getDatabase: async () => database,
+      getForgeCache: async () => database,
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -305,7 +296,7 @@ describe('createForgeService', () => {
         : (HEALTHY_GH[args[0] === 'auth' ? 'auth' : '--version'] as ForgeCommandRun)
     );
     const first = createForgeService({
-      getDatabase: async () => database,
+      getForgeCache: async () => database,
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -314,7 +305,7 @@ describe('createForgeService', () => {
     await first.refresh(ROOT_ID, 'user');
 
     const restarted = createForgeService({
-      getDatabase: async () => database,
+      getForgeCache: async () => database,
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -339,7 +330,7 @@ describe('createForgeService', () => {
         : (HEALTHY_GH[args[0] === 'auth' ? 'auth' : '--version'] as ForgeCommandRun)
     );
     const service = createForgeService({
-      getDatabase: async () => database,
+      getForgeCache: async () => database,
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -357,15 +348,18 @@ describe('createForgeService', () => {
   it('returns the durable cache as STALE (not bare unavailable) when a REFRESH auth preflight fails (R6)', async () => {
     const database = fakeDatabase();
     database.rows.set(`${COMMON_DIR}\0feature/bar`, {
-      checksJson: '[{"conclusion":"success","name":"unit","url":null}]',
-      headSha: 'sha-1',
-      isDraft: false,
-      number: 42,
       observedAt: new Date(now()).toISOString(),
-      reviewDecision: null,
-      state: 'open',
-      title: 'Widget it',
-      url: 'https://github.com/acme/widgets/pull/42',
+      pullRequest: {
+        checks: [{ conclusion: 'success', name: 'unit', url: null }],
+        checksRollup: 'passing',
+        headSha: 'sha-1',
+        isDraft: false,
+        number: 42,
+        reviewDecision: null,
+        state: 'open',
+        title: 'Widget it',
+        url: 'https://github.com/acme/widgets/pull/42',
+      },
     });
     const run: ForgeCommandRunner = vi.fn(async ({ args }) =>
       args[0] === 'auth'
@@ -373,7 +367,7 @@ describe('createForgeService', () => {
         : (HEALTHY_GH['--version'] as ForgeCommandRun)
     );
     const service = createForgeService({
-      getDatabase: async () => database,
+      getForgeCache: async () => database,
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -390,7 +384,7 @@ describe('createForgeService', () => {
   it('throttles a window refresh but never an invalidation or a user refresh', async () => {
     const run = ghRunner(HEALTHY_GH);
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -414,7 +408,7 @@ describe('createForgeService', () => {
 
   it('is unavailable with a reason on a detached HEAD', async () => {
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver({ branch: null }),
@@ -429,7 +423,7 @@ describe('createForgeService', () => {
 
   it('is unavailable with the git reason when the repository has no usable remote', async () => {
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver({
@@ -447,7 +441,7 @@ describe('createForgeService', () => {
 
   it('is unavailable with a parse reason on an unparsable remote', async () => {
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver({ remoteUrl: '/Users/sean/mirrors/widgets.git' }),
@@ -462,7 +456,7 @@ describe('createForgeService', () => {
   it('says GitLab is not supported yet instead of running gh against it', async () => {
     const run = ghRunner(HEALTHY_GH);
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver({ remoteUrl: 'git@gitlab.com:acme/widgets.git' }),
@@ -481,7 +475,7 @@ describe('createForgeService', () => {
   it('refreshes only the repositories it has already resolved when a repo is invalidated', async () => {
     const run = ghRunner(HEALTHY_GH);
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -503,7 +497,7 @@ describe('createForgeService', () => {
 
   it('reports identity separately so the BranchChip can explain a missing chip', async () => {
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver({ remoteUrl: '/Users/sean/mirrors/widgets.git' }),
@@ -518,7 +512,7 @@ describe('createForgeService', () => {
 
   it('propagates a repository resolution failure as an error result', async () => {
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: async () => ({ error: 'No open folder matches root id "x".', ok: false }),
@@ -532,7 +526,7 @@ describe('createForgeService', () => {
 
   it('reports "unknown" instead of a fabricated "none" before anything has ever been fetched', async () => {
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -545,7 +539,7 @@ describe('createForgeService', () => {
   it('does not re-fire "opened" on restart for a PR already recorded in the durable cache', async () => {
     const database = fakeDatabase();
     const first = createForgeService({
-      getDatabase: async () => database,
+      getForgeCache: async () => database,
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -559,7 +553,7 @@ describe('createForgeService', () => {
     // "this PR has never been observed".
     const onPrUpdated = vi.fn();
     const restarted = createForgeService({
-      getDatabase: async () => database,
+      getForgeCache: async () => database,
       now,
       onPrUpdated,
       resolveRepository: resolver(),
@@ -570,12 +564,13 @@ describe('createForgeService', () => {
   });
 
   it('degrades to delivering the fetched PR uncached when the cache write throws', async () => {
-    const throwingDatabase: ForgeCacheDatabase = {
-      query: () => Promise.reject(new Error('PGlite not ready')),
+    const throwingDatabase: ForgeCachePort = {
+      forgeCache: () => Promise.reject(new Error('StateStore not ready')),
+      forgeCacheSnapshot: async () => [],
     };
     const onPrUpdated = vi.fn();
     const service = createForgeService({
-      getDatabase: async () => throwingDatabase,
+      getForgeCache: async () => throwingDatabase,
       now,
       onPrUpdated,
       resolveRepository: resolver(),
@@ -602,7 +597,7 @@ describe('createForgeService', () => {
         : (HEALTHY_GH[args[0] === 'auth' ? 'auth' : '--version'] as ForgeCommandRun)
     );
     const service = createForgeService({
-      getDatabase: async () => database,
+      getForgeCache: async () => database,
       now,
       onPrUpdated,
       resolveRepository: resolver(),
@@ -618,7 +613,7 @@ describe('createForgeService', () => {
   it('dedupes concurrent refreshes for the same key into one gh invocation', async () => {
     const run = ghRunner(HEALTHY_GH);
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -636,7 +631,7 @@ describe('createForgeService', () => {
   it('stops new refresh work, aborts an in-flight gh command, and drains before resolving', async () => {
     const loggerInfo = vi.spyOn(desktopAssistantServerLogger, 'info').mockImplementation(() => {});
     const database = fakeDatabase();
-    const getDatabase = vi.fn(async () => database);
+    const getForgeCache = vi.fn(async () => database);
     let resolvePrStarted: ((signal: AbortSignal) => void) | undefined;
     const prStarted = new Promise<AbortSignal>((resolve) => {
       resolvePrStarted = resolve;
@@ -660,7 +655,7 @@ describe('createForgeService', () => {
       } satisfies ForgeCommandRun;
     });
     const service = createForgeService({
-      getDatabase,
+      getForgeCache,
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -684,7 +679,7 @@ describe('createForgeService', () => {
         host: 'github.com',
         outcome: 'resolved',
       });
-      expect(getDatabase).toHaveBeenCalledTimes(1);
+      expect(getForgeCache).toHaveBeenCalledTimes(1);
       expect(countArgCalls(run, 'pr')).toBe(1);
     } finally {
       loggerInfo.mockRestore();
@@ -714,7 +709,7 @@ describe('createForgeService', () => {
       );
     });
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -755,7 +750,7 @@ describe('createForgeService', () => {
       return await pendingPr;
     });
     const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
+      getForgeCache: async () => fakeDatabase(),
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -786,7 +781,7 @@ describe('createForgeService', () => {
       .spyOn(desktopAssistantServerLogger, 'error')
       .mockImplementation(() => {});
     const database = fakeDatabase();
-    const getDatabase = vi.fn(async () => database);
+    const getForgeCache = vi.fn(async () => database);
     let resolvePrStarted: ((signal: AbortSignal) => void) | undefined;
     const prStarted = new Promise<AbortSignal>((resolve) => {
       resolvePrStarted = resolve;
@@ -814,7 +809,7 @@ describe('createForgeService', () => {
       return await pendingPr;
     });
     const service = createForgeService({
-      getDatabase,
+      getForgeCache,
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: async (rootId) => {
@@ -852,7 +847,7 @@ describe('createForgeService', () => {
 
       resolvePr?.(HEALTHY_GH['pr'] as ForgeCommandRun);
       await expect(refresh).resolves.toEqual({ error: 'Forge service has stopped.', ok: false });
-      expect(getDatabase).toHaveBeenCalledTimes(1);
+      expect(getForgeCache).toHaveBeenCalledTimes(1);
     } finally {
       resolvePr?.(HEALTHY_GH['pr'] as ForgeCommandRun);
       resolveIdentity?.();
@@ -864,18 +859,21 @@ describe('createForgeService', () => {
   it('fails loudly on a corrupted cached review decision rather than silently coercing to null', async () => {
     const database = fakeDatabase();
     database.rows.set(`${COMMON_DIR}\0feature/bar`, {
-      checksJson: '[]',
-      headSha: 'sha-1',
-      isDraft: false,
-      number: 42,
       observedAt: new Date(now()).toISOString(),
-      reviewDecision: 'BOGUS',
-      state: 'open',
-      title: 'Widget it',
-      url: 'https://github.com/acme/widgets/pull/42',
+      pullRequest: {
+        checks: [],
+        checksRollup: 'none',
+        headSha: 'sha-1',
+        isDraft: false,
+        number: 42,
+        reviewDecision: 'BOGUS',
+        state: 'open',
+        title: 'Widget it',
+        url: 'https://github.com/acme/widgets/pull/42',
+      },
     });
     const service = createForgeService({
-      getDatabase: async () => database,
+      getForgeCache: async () => database,
       now,
       onPrUpdated: vi.fn(),
       resolveRepository: resolver(),
@@ -888,7 +886,7 @@ describe('createForgeService', () => {
     );
     expect(
       status.ok && status.value.kind === 'unavailable' && status.value.failure.detail
-    ).toContain('review decision');
+    ).toContain('reviewDecision');
   });
 });
 

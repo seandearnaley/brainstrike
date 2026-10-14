@@ -43,6 +43,8 @@ import {
   resetActivationFixture,
   saveSettingsChange,
   scope,
+  setCatalogRecords,
+  setCatalogRoot,
   storeId,
   unused,
   writer,
@@ -338,8 +340,8 @@ it('rebuilds only the derived writer with the saved collection and no inference 
   expect(transport.documentEmbeddings).not.toHaveBeenCalled();
   expect(storage.getItem).toHaveBeenCalledTimes(2);
   expect(
-    mocks.database.query.mock.calls.every(
-      ([sql]) => typeof sql === 'string' && sql.trim().startsWith('SELECT')
+    mocks.catalog.sourceCatalog.mock.calls.every(([request]) =>
+      ['inventory', 'read'].includes(request.operation)
     )
   ).toBe(true);
   expect(onReceipt).toHaveBeenCalledTimes(2);
@@ -424,16 +426,7 @@ function catalogRows(count: number): NativeCanonicalCatalogRecord[] {
   }));
 }
 function useCatalogRows(read: () => readonly NativeCanonicalCatalogRecord[]): void {
-  mocks.database.query.mockImplementation(async (sql: string, params: readonly unknown[] = []) => {
-    if (sql.includes('FROM embedding_sets')) {
-      return { rows: [{ id: 'selected' }] };
-    }
-    if (sql.includes('FROM roots')) {
-      return { rows: [] };
-    }
-    const ids = params[0];
-    return { rows: Array.isArray(ids) ? read().filter((row) => ids.includes(row.fileId)) : read() };
-  });
+  setCatalogRecords(read);
 }
 it.each(['close', 'destroyAndRetireProfile'] as const)(
   'fences and joins held reconfiguration before %s acknowledges terminal retirement',
@@ -444,6 +437,14 @@ it.each(['close', 'destroyAndRetireProfile'] as const)(
     const { activation, storage } = fixture();
     await activation.acquire();
     const writerExit = Promise.withResolvers<void>();
+    const destroyed = Promise.withResolvers<void>();
+    if (operation === 'destroyAndRetireProfile') {
+      mocks.destroy.mockReturnValueOnce(destroyed.promise);
+    }
+    onTestFinished(() => {
+      writerExit.resolve();
+      destroyed.resolve();
+    });
     mocks.close.mockReturnValueOnce(writerExit.promise);
     await saveSettingsChange(storage, { indexingPolicyPreset: 'full-root' });
     const changing = activation.reconfigure().catch((error: unknown) => error);
@@ -456,15 +457,31 @@ it.each(['close', 'destroyAndRetireProfile'] as const)(
     await Promise.resolve();
     expect(terminalSettled).toBe(false);
     writerExit.resolve();
+    if (operation === 'destroyAndRetireProfile') {
+      await vi.waitFor(() => expect(mocks.destroy).toHaveBeenCalledOnce());
+      // The previous writer has physically closed. Clear must borrow a cold,
+      // authority-free owner to remove its retained on-disk index as well.
+      expect(mocks.acquire).toHaveBeenCalledTimes(2);
+      expect(mocks.acquire.mock.calls[1]?.[0]).toMatchObject({
+        fileBindings: [],
+        rootIds: [],
+        scopes: [],
+      });
+      expect(terminalSettled).toBe(false);
+      expect(mocks.closeProfile).not.toHaveBeenCalled();
+      destroyed.resolve();
+    } else {
+      expect(mocks.acquire).toHaveBeenCalledOnce();
+      expect(mocks.destroy).not.toHaveBeenCalled();
+    }
     await Promise.all([changing, terminal]);
-    expect(mocks.acquire).toHaveBeenCalledTimes(1);
     expect(mocks.closeProfile).toHaveBeenCalledOnce();
     await expect(activation.acquireRead()).rejects.toThrow('closed');
   }
 );
 
 it('refuses a nonexistent saved TEXT collection before opening a writer or completing a receipt', async () => {
-  mocks.database.query.mockResolvedValue({ rows: [] });
+  mocks.catalog.collections.mockResolvedValue({ collections: [] });
   mocks.manager.attachCanonicalCollection.mockImplementation(
     async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
   );
@@ -500,13 +517,11 @@ it.each([251, 1501])(
     const { activation } = fixture();
     await activation.acquire();
     expect(inventory.map((file) => file.fileId)).toEqual(records.map((record) => record.fileId));
-    const batches = mocks.database.query.mock.calls.filter(
-      ([sql]) => typeof sql === 'string' && sql.includes('ANY($1::text[])')
-    );
+    const batches = mocks.catalog.sourceCatalog.mock.calls
+      .map(([request]) => request)
+      .filter((request) => request.operation === 'read');
     expect(batches).toHaveLength(2 * Math.ceil(count / 250));
-    expect(
-      batches.every(([, params]) => Array.isArray(params?.[0]) && params[0].length <= 250)
-    ).toBe(true);
+    expect(batches.every((request) => request.fileIds.length <= 250)).toBe(true);
     await activation.close();
   }
 );
@@ -598,15 +613,8 @@ it('joins retained rooted-row convergence before admitting the replacement write
   const records = catalogRows(2).map((record, index) =>
     index === 0 ? { ...record, path: 'file.txt', rootId: 'root' } : record
   );
-  mocks.database.query.mockImplementation(async (sql: string, params: readonly unknown[] = []) => {
-    if (sql.includes('FROM roots')) {
-      return { rows: [{ id: 'root', kind: 'path' }] };
-    }
-    if (sql.includes('FROM embedding_sets')) {
-      return { rows: [{ id: params[0] }] };
-    }
-    return { rows: params[0] === 'selected' ? records : [] };
-  });
+  setCatalogRoot();
+  setCatalogRecords(() => records);
   const removal = Promise.withResolvers<boolean>();
   let retired = false;
   const native = {
@@ -670,6 +678,17 @@ it('joins retained rooted-row convergence before admitting the replacement write
   const { activation, storage } = fixture(application);
   await activation.acquire();
   const saved = JSON.parse(await storage.getItem()) as { state: Record<string, unknown> };
+  const selected = (await mocks.catalog.collections({ id: 'selected', operation: 'get' }))
+    .collections[0];
+  if (!selected) {
+    throw new Error('Expected selected collection');
+  }
+  mocks.catalog.collections.mockImplementation(async (request) => ({
+    collections:
+      request.operation === 'get' && request.id === 'next'
+        ? [{ ...selected, id: 'next' }]
+        : [selected],
+  }));
   saved.state['managedCollectionId'] = 'next';
   storage.getItem.mockResolvedValue(JSON.stringify(saved));
   const changing = activation.reconfigure();
@@ -713,28 +732,8 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
     rootId: 'root',
     stat: { mtimeMs: 1, size: 9 },
   };
-  mocks.database.query.mockImplementation(async (sql: string) => ({
-    rows: sql.includes('FROM roots')
-      ? [{ id: 'root', kind: 'path' }]
-      : sql.includes('FROM embedding_sets')
-        ? [
-            {
-              // Its catalog row: a mean-pooled local model states no pooling or pins.
-              catalogCapabilities: {
-                defaultDimension: 384,
-                prompts: { document: '', query: '' },
-                type: 'embedding',
-              },
-              catalogParameters: null,
-              dimensions: 384,
-              distance: 'cosine',
-              id: 'selected',
-              modelId: profile.modelId,
-              modelKey: `transformers::${profile.modelId}`,
-            },
-          ]
-        : [record],
-  }));
+  setCatalogRoot();
+  setCatalogRecords(() => [record]);
   const lease: CanonicalWorkspaceLease = {
     canonicalPath: '/actual/root',
     generation: 'actual-generation',

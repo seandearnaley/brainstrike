@@ -8,7 +8,6 @@ import type {
 import { getFileSizeConfig } from '@brainstrike/file-system';
 import type { HostAttachment } from '@brainstrike/host-lease';
 import type { IndexerPort, ScopedIndexerPort, VectorProfile } from '@brainstrike/indexer';
-import { getDatabase } from './db-main';
 import { resolveDesktopDatabaseProfileDirectory } from './desktop-database-location';
 import { generateHostedEmbeddings } from './hosted-embeddings';
 import {
@@ -37,6 +36,7 @@ import {
   observeNativeIndexCatalog,
   triggerCatalogWorkspaces,
 } from './native-index-catalog-observation';
+import { createNativeIndexContentOperations } from './native-index-content-operations';
 import {
   nativeGraphContext as contextFor,
   type NativeIndexActivationDependencies as Dependencies,
@@ -54,12 +54,12 @@ import {
   partitionScopes,
   vectorCollectionId,
 } from './native-index-partition';
-import { decodeRoots } from './native-index-pg-decoders';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from './native-index-runtime';
 import { createNativeScanAdmission } from './native-index-scan-admission';
 import {
   NATIVE_INDEX_SETTINGS_KEY,
   type NativeIndexSettings,
+  prepareSavedNativeIndexPause,
   readNativeIndexSettings,
 } from './native-index-settings';
 import { createNativeSourceInventory } from './native-index-source-inventory';
@@ -88,10 +88,12 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   };
   const identity = (current: Graph, record: NativeCanonicalCatalogRecord) =>
     nativeFileIdentity(current.leases, record);
-  const loadRecords = (current: Graph) => loadNativeGraphRecords(current, assertCurrent);
+  const loadRecords = (current: Graph) =>
+    loadNativeGraphRecords(current, assertCurrent, dependencies.catalog);
   const resolver = (current: Graph): NativeCanonicalProfileResolver =>
     new NativeCanonicalProfileResolver({
-      query: async (sql, params) => (await getDatabase()).query(sql, params),
+      collections: dependencies.catalog,
+      modelCatalog: dependencies.modelCatalog,
       readLocalSelection: async () => {
         assertCurrent(current);
         return current.settings.selection ?? undefined;
@@ -114,10 +116,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       throw new TransitionError('Native indexing has no current saved authority.');
     }
     assertCurrent(current);
-    await assertSavedCollection(
-      current.settings,
-      async (sql, params) => (await getDatabase()).query(sql, params),
-      () => assertCurrent(current)
+    await assertSavedCollection(current.settings, dependencies.catalog, () =>
+      assertCurrent(current)
     );
     const profile =
       current.settings.mode === 'VECTOR'
@@ -223,9 +223,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     graph = current;
     const descriptors = await dependencies.application.roots.restoreRoots();
     assertCurrent(current);
-    const database = await getDatabase();
-    const roots = decodeRoots(
-      (await database.query(`SELECT id, kind FROM roots WHERE status='live'`)).rows
+    const roots = (await dependencies.catalog.workspaceRoots({ operation: 'list' })).roots.filter(
+      (root) => root.status === 'live'
     );
     for (const descriptor of descriptors) {
       if (descriptor.permissionState !== 'granted') {
@@ -282,8 +281,6 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     };
     assertSource();
     const settings = current.settings;
-    const database = await getDatabase();
-    assertSource();
     const publication = current.publication;
     if (!publication) {
       throw new Error('Native ingestion has no authoritative publication owner.');
@@ -304,7 +301,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     sources.scanAdmission = scanAdmission;
     const profileResolver = resolver(current);
     const catalog = createNativeCanonicalCatalog<VectorProfile>({
-      database,
+      catalog: dependencies.catalog,
       joinNativeRemoval: async (files, scope) => {
         for (const file of files) {
           await runtime.mutateAuthority(port, () =>
@@ -859,10 +856,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     await (await lifecycle).configure(() => settings, roots);
     await graph?.sources?.startup;
   };
-  const prepareSavedPause = async () => {
-    const settings = captureSettings();
-    return (await lifecycle).prepareSavedPause(() => settings);
-  };
+  const prepareSavedPause = () => prepareSavedNativeIndexPause(dependencies.storage, lifecycle);
   const assertReadAdmission = async (): Promise<void> => {
     const state = await (await lifecycle).state();
     if (state.kind !== 'idle' && nativeIndexReadiness(state).kind !== 'ready') {
@@ -938,6 +932,17 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     }
   };
   return {
+    ...createNativeIndexContentOperations({
+      acquire,
+      assertCurrent,
+      captureSettings,
+      closeNativeOwner: () => dispatch({ kind: 'terminal', reason: 'root-data-deletion' }),
+      closeOwned,
+      getGraph: () => graph,
+      retireProfile: close,
+      runtime,
+      stopSources,
+    }),
     acquire,
     acquireProfile,
     acquireRead,
@@ -970,11 +975,6 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         return;
       }
       await dispatch({ kind: 'terminal', reason: 'host-released' });
-    },
-    destroyAndRetireProfile: async () => {
-      await stopSources();
-      await closeOwned(true);
-      await close();
     },
     fenceTerminal,
     getReadiness: () => (graph ? catalogReadiness(graph) : []),

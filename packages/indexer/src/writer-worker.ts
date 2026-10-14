@@ -67,6 +67,9 @@ try {
         case 'state-search-pending':
           value = writer.requireState().searchPending(request.payload);
           break;
+        case 'prompt-vectors':
+          value = writer.requireState().prompts.execute(request.payload);
+          break;
         case 'state-search-vectors':
           value = writer.requireState().putSearchVectors(request.payload);
           break;

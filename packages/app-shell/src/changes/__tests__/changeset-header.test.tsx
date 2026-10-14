@@ -11,7 +11,12 @@ import type {
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  type AssistantThreadHostCapability,
+  AssistantThreadHostContext,
+} from '../../assistant-thread-host-context';
 import type { GitBridge } from '../../git-panel/git-bridge';
+import type { RewindPort } from '../rewind-port';
 import { useRewindStore } from '../rewind-store';
 import { ChangesetHeader } from '../ui/changeset-header';
 
@@ -26,20 +31,28 @@ function ok<T>(value: T): Promise<GitResult<T>> {
  * `resolveGitBridge()` sees no bridge and renders nothing regardless of the
  * `isViewingActiveWorktree` result under test.
  */
-/** The desktop `window.changes` bridge the rewind action's legacy port needs; never called here. */
+const HOST_PORT: RewindPort = {
+  apply: vi.fn(),
+  conversation: 'branched',
+  fileDiff: vi.fn(),
+  preview: vi.fn(),
+  redo: vi.fn(),
+};
+const HOST = { rewindPort: () => HOST_PORT } as Pick<
+  AssistantThreadHostCapability,
+  'rewindPort'
+> as AssistantThreadHostCapability;
+
+/** The desktop changes capability; the header only raises the host modal. */
 function installChangesBridge(): void {
   const unused = vi.fn(() => {
     throw new Error('the header only raises the modal');
   });
   (window as unknown as { changes?: unknown }).changes = {
-    applyRewind: unused,
     fileDiff: unused,
-    finalizeRewinds: unused,
     inventory: unused,
     onInvalidated: unused,
-    redoRewind: unused,
     resolveView: unused,
-    rewindPreview: unused,
   };
 }
 
@@ -188,7 +201,11 @@ describe('ChangesetHeader', () => {
   });
 
   it('states agent-run provenance in words, distinct from git-scope', () => {
-    render(<ChangesetHeader {...baseProps({ changeset: AGENT_RUN_CHANGESET })} />);
+    render(
+      <AssistantThreadHostContext value={HOST}>
+        <ChangesetHeader {...baseProps({ changeset: AGENT_RUN_CHANGESET })} />
+      </AssistantThreadHostContext>
+    );
     expect(screen.getByTestId('changeset-provenance')).toHaveTextContent(
       'Agent edits only — this turn'
     );
@@ -387,7 +404,11 @@ describe('ChangesetHeader', () => {
   it('offers "Restore to before this" for an agent-run changeset', async () => {
     const user = userEvent.setup();
     installChangesBridge();
-    render(<ChangesetHeader {...baseProps({ changeset: AGENT_RUN_CHANGESET })} />);
+    render(
+      <AssistantThreadHostContext value={HOST}>
+        <ChangesetHeader {...baseProps({ changeset: AGENT_RUN_CHANGESET })} />
+      </AssistantThreadHostContext>
+    );
 
     const action = screen.getByTestId('changeset-rewind-action');
     expect(action).toHaveTextContent('Restore to before this');
@@ -397,7 +418,7 @@ describe('ChangesetHeader', () => {
     // Both ids come from the CHANGESET, never from a synthesised identity.
     expect(useRewindStore.getState().request).toEqual({
       composerText: null,
-      port: expect.objectContaining({ conversation: 'hidden' }),
+      port: expect.objectContaining({ conversation: 'branched' }),
       target: { runId: 'run-1', threadId: 'thread-1' },
     });
   });
@@ -410,7 +431,11 @@ describe('ChangesetHeader', () => {
       threadId: 'thread-9',
     };
     installChangesBridge();
-    render(<ChangesetHeader {...baseProps({ changeset: runRange })} />);
+    render(
+      <AssistantThreadHostContext value={HOST}>
+        <ChangesetHeader {...baseProps({ changeset: runRange })} />
+      </AssistantThreadHostContext>
+    );
 
     await user.click(screen.getByTestId('changeset-rewind-action'));
 

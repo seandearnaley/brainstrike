@@ -1,3 +1,12 @@
+import type { DiagnosticEventsQueryFilter, DiagnosticEventsRepository } from '@brainstrike/db';
+import type { mainDiagnosticEventsReader } from './assistant-server/query-diagnostics-tool';
+import { collectionCatalogContract } from './ipc-domains/collection-catalog.contract';
+import { contentClearContract } from './ipc-domains/content-clear.contract';
+import { modelCatalogContract } from './ipc-domains/model-catalog.contract';
+import { promptLibraryContract } from './ipc-domains/prompt-library.contract';
+import { sourceFilesContract } from './ipc-domains/source-files.contract';
+import { threadGroupsContract } from './ipc-domains/thread-groups.contract';
+import { viewFilterPresetsContract } from './ipc-domains/view-filter-presets.contract';
 import type { IpcResult } from './platform/ipc-contract';
 
 // Electron preload script. `electron` is the ONE runtime require a sandboxed
@@ -12,15 +21,8 @@ import { changesContract } from './ipc-domains/changes.contract';
 import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { commandSessionsContract } from './ipc-domains/command-sessions.contract';
 import { contextFilesContract } from './ipc-domains/context-files.contract';
-import {
-  type DatabaseLiveBridge,
-  type DatabaseLiveQueryUpdate,
-  type DatabasePathBridge,
-  databaseContract,
-  databaseIntegrityContract,
-  databaseLiveContract,
-  databasePathContract,
-} from './ipc-domains/database.contract';
+import { type DatabasePathBridge, databasePathContract } from './ipc-domains/database.contract';
+import { factoryResetContract } from './ipc-domains/factory-reset.contract';
 import { fileSystemContract, fileSystemWatchContract } from './ipc-domains/file-system.contract';
 import { forgeContract } from './ipc-domains/forge.contract';
 import { gitContract } from './ipc-domains/git.contract';
@@ -47,7 +49,7 @@ type McpAppShellBridge = import('@brainstrike/assistant-contract').McpAppShellBr
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 // Contract-derived bridges (BST-1648): `exposeBridge(name, contract)` exposes
 // exactly `Object.keys(contract)`, each routed to its manifest channel with
-// the ONE `IpcResult` unwrap. Pinned by preload-contract-bridges.test.ts.
+// unchanged result envelope. Pinned by preload-contract-bridges.test.ts.
 const exposeBridge = createBridgeExposer({ contextBridge, ipcRenderer });
 // Only the visible preload receives this client transport. Main authorizes the
 // requesting frame before transferring a port; the host authenticates commands.
@@ -126,53 +128,7 @@ if (DESKTOP_TEST_MODE) {
   contextBridge.exposeInMainWorld('__brainstrike_e2e_expose_file_explorer_store__', true);
 }
 
-type DbLiveUpdateCallback = (payload: DatabaseLiveQueryUpdate) => void;
-
-const dbLiveUpdateCallbacks = new Set<DbLiveUpdateCallback>();
-let dbLiveUpdateIpcListener: ((_event: unknown, payload: DatabaseLiveQueryUpdate) => void) | null =
-  null;
-
-function subscribeToDbLiveUpdates(callback: DbLiveUpdateCallback): () => void {
-  dbLiveUpdateCallbacks.add(callback);
-
-  if (!dbLiveUpdateIpcListener) {
-    dbLiveUpdateIpcListener = (_event: unknown, payload: DatabaseLiveQueryUpdate) => {
-      for (const subscriber of Array.from(dbLiveUpdateCallbacks)) {
-        try {
-          subscriber(payload);
-        } catch (error) {
-          ipcRenderer.send(DESKTOP_IPC_CHANNELS.logging.ingestBufferedRecord, {
-            args: ['[preload] db live-query subscriber threw:', error],
-            bindings: { runtime: 'electron-renderer' },
-            level: 'error' as LogRecord['level'],
-            message: 'DB live-query subscriber threw',
-            scope: 'Preload',
-            timestamp: Date.now(),
-          } satisfies LogRecord);
-        }
-      }
-    };
-    ipcRenderer.on(databaseLiveContract.onUpdate.channel, dbLiveUpdateIpcListener);
-  }
-
-  return () => {
-    dbLiveUpdateCallbacks.delete(callback);
-    if (dbLiveUpdateCallbacks.size === 0 && dbLiveUpdateIpcListener) {
-      ipcRenderer.removeListener(databaseLiveContract.onUpdate.channel, dbLiveUpdateIpcListener);
-      dbLiveUpdateIpcListener = null;
-    }
-  };
-}
-
-const databaseBridge = {
-  ...createIpcBridge(ipcRenderer, databaseContract),
-  factoryResetUnavailableReason: getFactoryResetUnavailableReason(process.platform),
-} as unknown as VisibleDesktopElectronApi['db'];
 const databasePathBridge: DatabasePathBridge = createIpcBridge(ipcRenderer, databasePathContract);
-const databaseLiveBridge: DatabaseLiveBridge = {
-  ...createIpcBridge(ipcRenderer, databaseLiveContract),
-  onUpdate: subscribeToDbLiveUpdates,
-};
 
 function disabledPreloadBridges(): Set<string> {
   if (!DESKTOP_TEST_MODE) {
@@ -326,16 +282,16 @@ if (shouldExposeBridge('electronAPI')) {
   const layoutBridge = createIpcBridge(ipcRenderer, layoutContract);
   const storageBridge = createIpcBridge(ipcRenderer, storageContract);
   const electronAPI = {
-    // Database invokes are contract-derived. Live updates keep the intentional
-    // single IPC listener fan-out below while their channel/type comes from the
-    // same contract as main registration.
-    db: databaseBridge,
-    dbLive: databaseLiveBridge,
+    content: createIpcBridge(ipcRenderer, contentClearContract),
+    factoryReset: {
+      ...createIpcBridge(ipcRenderer, factoryResetContract),
+      unavailableReason: getFactoryResetUnavailableReason(process.platform),
+    },
     fileSystem: {
       ...createIpcBridge(ipcRenderer, fileSystemContract),
       ...createIpcBridge(ipcRenderer, fileSystemWatchContract),
     },
-    // Database path (legacy - kept for compatibility)
+    // Current profile path, independent of database engine ownership.
     getUserDataPath: databasePathBridge.getUserDataPath,
     loadLayout: layoutBridge.loadLayout,
     // Panel layout persistence
@@ -571,8 +527,24 @@ if (shouldExposeBridge('logging')) {
 
 if (shouldExposeBridge('desktopDiagnostics')) {
   contextBridge.exposeInMainWorld('desktopDiagnostics', {
+    countByFingerprint: (
+      fingerprint: string,
+      sinceMs: number
+    ): ReturnType<DiagnosticEventsRepository['countByFingerprint']> =>
+      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.countByFingerprint, {
+        fingerprint,
+        sinceMs,
+      }),
     getSnapshot: (): Promise<IpcResult<DesktopPlatformDiagnosticsSnapshot>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.getSnapshot),
+    getUnseenCounts: (
+      sinceMs: number
+    ): ReturnType<typeof mainDiagnosticEventsReader.getUnseenCounts> =>
+      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.getUnseenCounts, sinceMs),
+    queryEvents: (
+      filter: DiagnosticEventsQueryFilter
+    ): ReturnType<DiagnosticEventsRepository['queryEvents']> =>
+      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.queryEvents, filter),
     readMainLogWindow: (request: MainLogWindowRequest): Promise<IpcResult<MainLogWindowResult>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.readMainLogWindow, request),
     readProcessCounters: (): Promise<IpcResult<ProcessCounterSnapshot>> =>
@@ -933,9 +905,6 @@ if (shouldExposeBridge('windowFocus')) {
 // capability-checks `window.databaseIntegrity`; the embedding host gets its own
 // copy from hidden-preload.ts, the other hidden hosts get none, and web has no
 // preload at all.
-if (shouldExposeBridge('databaseIntegrity')) {
-  exposeBridge('databaseIntegrity', databaseIntegrityContract);
-}
 
 // File-export save bridge (desktop-only): writes export bytes into the OS
 // Downloads folder from MAIN, bypassing Chromium's blob-download pipeline
@@ -1146,4 +1115,26 @@ if (shouldExposeBridge('commandSessions')) {
 // must capability-check `window.notesVault` rather than `isElectron()`.
 if (shouldExposeBridge('notesVault')) {
   exposeBridge('notesVault', notesVaultContract);
+}
+
+if (shouldExposeBridge('promptLibrary')) {
+  exposeBridge('promptLibrary', promptLibraryContract);
+}
+if (shouldExposeBridge('threadGroups')) {
+  exposeBridge('threadGroups', threadGroupsContract);
+}
+if (shouldExposeBridge('viewFilterPresets')) {
+  exposeBridge('viewFilterPresets', viewFilterPresetsContract);
+}
+
+if (shouldExposeBridge('modelCatalog')) {
+  exposeBridge('modelCatalog', modelCatalogContract);
+}
+
+if (shouldExposeBridge('collectionCatalog')) {
+  exposeBridge('collectionCatalog', collectionCatalogContract);
+}
+
+if (shouldExposeBridge('sourceFiles')) {
+  exposeBridge('sourceFiles', sourceFilesContract);
 }

@@ -37,7 +37,9 @@ function host(
     renderThread: vi.fn((threadId: string) => <p>{`child view ${threadId}`}</p>),
     resolveChildThread,
     updateThreadBinding: refused,
-    workspaceRepository: (history) => history,
+    workspaceRepository: () => {
+      throw new Error('Unexpected workspace snapshot access in this fixture');
+    },
   };
 }
 

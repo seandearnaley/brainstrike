@@ -27,5 +27,9 @@ export function bindDesktopPlatformPort(
 ): { close(): Promise<void> } {
   const connection = mainPlatformConnection(port);
   const owner = serveDesktopPlatform(connection, capabilities);
-  return owner;
+  return {
+    close: async () => {
+      await owner.close();
+    },
+  };
 }

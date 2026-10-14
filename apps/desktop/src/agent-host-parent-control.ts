@@ -1,4 +1,5 @@
 import type { AgentHost } from '@brainstrike/agent-host';
+import type { ClearContentResult } from '@brainstrike/state-store';
 import { bindDesktopClientPort } from './agent-host-platform/desktop-client-port';
 import { installParentPlatformPort } from './agent-host-platform/parent-platform-port';
 import { decodeHostLeaseControl, decodeHostLeaseParentMessage } from './host-lease-control';
@@ -9,7 +10,7 @@ export function receiveAgentHostParentMessage(
   input: unknown,
   host: AgentHost | undefined,
   cancel: () => void
-): void {
+): Promise<ClearContentResult> | undefined {
   if (
     installParentPlatformPort(input) ||
     installHostLifetimePort(input, cancel) ||
@@ -17,6 +18,13 @@ export function receiveAgentHostParentMessage(
   ) {
     return;
   }
-  decodeHostLeaseControl(decodeHostLeaseParentMessage(input).data);
+  const control = decodeHostLeaseControl(decodeHostLeaseParentMessage(input).data);
+  if (control.method === 'clear-content') {
+    if (!host) {
+      throw new Error('Content clear requires a ready owned host');
+    }
+    return host.clearAndRetireContent();
+  }
   cancel();
+  return;
 }

@@ -1,8 +1,8 @@
 import { resolveCacheDirectorySelectionTestOverride } from '@brainstrike/app-state/automation-overrides';
+import { useModelRegistrySource } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
 import { type BoundaryResult, callBoundary } from '@brainstrike/assistant-contract/boundary-result';
-import { usePGliteDatabase } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import {
   Button,
@@ -22,8 +22,8 @@ const logger = createLogger('ModelCacheDirectoryPopover');
 type ToastFn = ReturnType<typeof useToast>['toast'];
 
 function applySelectedCacheDirectory(args: {
-  db: ReturnType<typeof usePGliteDatabase>;
-  fetchRegistry: (db: NonNullable<ReturnType<typeof usePGliteDatabase>>) => Promise<void>;
+  db: ReturnType<typeof useModelRegistrySource>;
+  fetchRegistry: (db: NonNullable<ReturnType<typeof useModelRegistrySource>>) => Promise<void>;
   selectedPath: string;
   setModelCacheDir: (dir: string) => void;
   toast: ToastFn;
@@ -41,8 +41,8 @@ function applySelectedCacheDirectory(args: {
 }
 
 function applyCacheDirectorySelectionTestOverride(args: {
-  db: ReturnType<typeof usePGliteDatabase>;
-  fetchRegistry: (db: NonNullable<ReturnType<typeof usePGliteDatabase>>) => Promise<void>;
+  db: ReturnType<typeof useModelRegistrySource>;
+  fetchRegistry: (db: NonNullable<ReturnType<typeof useModelRegistrySource>>) => Promise<void>;
   setModelCacheDir: (dir: string) => void;
   toast: ToastFn;
 }): boolean {
@@ -94,7 +94,7 @@ function applyCacheDirectorySelectionTestOverride(args: {
  * the current value and opens the original form (design §3.1).
  */
 export function ModelCacheDirectoryPopover() {
-  const db = usePGliteDatabase();
+  const db = useModelRegistrySource();
   const { fetchRegistry, modelCacheDir, setModelCacheDir } = useModelRegistryStore(
     useShallow((state) => ({
       fetchRegistry: state.fetchRegistry,

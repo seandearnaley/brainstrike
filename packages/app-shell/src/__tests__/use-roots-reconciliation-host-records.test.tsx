@@ -1,4 +1,3 @@
-import type { DbHandle } from '@brainstrike/db/react';
 import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
@@ -42,8 +41,7 @@ it('registers a folder re-added under its one id again after it was removed', as
   const query = vi.fn(async (sql: string) =>
     sql.includes('SELECT') ? { rows: [{ id: 'one-id', path: '/workspace/docs' }] } : { rows: [] }
   );
-  const db = { query } as unknown as DbHandle;
-  const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+  const { result } = renderHook(() => useRootsReconciliation({ adapter, db: null }));
   await waitFor(() => expect(result.current.rootsReconciliationSettled).toBe(true));
 
   expect([...result.current.dbRootIdByAdapterRootId]).toEqual([['one-id', 'one-id']]);
@@ -66,5 +64,5 @@ it('registers a folder re-added under its one id again after it was removed', as
   expect([...result.current.dbRootIdByAdapterRootId]).toEqual([['one-id', 'one-id']]);
   await expect(result.current.resolveDbRootId('/workspace/docs', 'one-id')).resolves.toBe('one-id');
   // The host owns the record: the hook only ever read it.
-  expect(query.mock.calls.every(([sql]) => sql.trimStart().startsWith('SELECT'))).toBe(true);
+  expect(query).not.toHaveBeenCalled();
 });

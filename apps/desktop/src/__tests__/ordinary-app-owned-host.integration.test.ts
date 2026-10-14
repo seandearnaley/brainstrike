@@ -244,13 +244,10 @@ setInterval(() => {}, 1000);
       await page.getByRole('textbox', { name: 'Message input' }).waitFor();
       await page.evaluate(
         async ({ memory, version }) => {
-          if (!(window.electronAPI?.db && 'storage' in window.electronAPI)) {
-            throw new Error('The normal desktop DB/storage bridge is missing');
+          if (!(window.modelCatalog && window.electronAPI && 'storage' in window.electronAPI)) {
+            throw new Error('The normal desktop model catalog/storage bridge is missing');
           }
-          await window.electronAPI.db.query(
-            'UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2',
-            ['anthropic/claude-sonnet-4.6', 'openrouter']
-          );
+          await window.modelCatalog.setModels(['anthropic/claude-sonnet-4.6'], true);
           localStorage.setItem(
             'assistant-preferences.v1',
             JSON.stringify({
@@ -305,16 +302,19 @@ setInterval(() => {}, 1000);
       await page.getByRole('button', { exact: true, name: 'Add Folder to Workspace' }).click();
       await expect
         .poll(async () => {
-          const roots = await page.evaluate(
-            async (workspace) =>
-              await window.electronAPI?.db.query(
-                'SELECT id FROM roots WHERE path = $1 AND status = $2',
-                [workspace, 'live']
-              ),
-            workspace
-          );
-          const parsed = z.object({ rows: z.array(z.object({ id: z.string() })) }).parse(roots);
-          workspaceRootId = parsed.rows[0]?.id;
+          const roots = await page.evaluate(async (workspace) => {
+            const api = window.electronAPI;
+            if (!(api && 'fileSystem' in api)) {
+              throw new Error('The normal desktop filesystem bridge is missing');
+            }
+            const reply = await api.fileSystem.restoreRoots();
+            if (!reply.ok) {
+              throw new Error(reply.error.message);
+            }
+            return reply.value.filter((root) => root.handle.path === workspace);
+          }, workspace);
+          const parsed = z.array(z.object({ rootId: z.string() })).parse(roots);
+          workspaceRootId = parsed[0]?.rootId;
           return workspaceRootId !== undefined;
         })
         .toBe(true);

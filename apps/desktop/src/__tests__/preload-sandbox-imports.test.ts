@@ -2,14 +2,16 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { MAIN_PROCESS_BUILD_OPTIONS } from '../../scripts/build-main-config.mjs';
 import { collectPreloadImportGraph } from './helpers/preload-import-graph';
 
 /**
  * BST-1648: the preload bundles (`dist/preload.js`, `dist/hidden-preload.js`)
  * run in sandboxed renderers where `require` resolves NOTHING but `electron`.
  * `scripts/build-main-config.mjs` bundles every RELATIVE import into the
- * preload output (`bundle: true`), while bare package, `node:*`, and
- * `electron` imports stay external `require(...)` calls — so a preload may
+ * preload output (`bundle: true`), along with configured source aliases. Other
+ * bare package, `node:*`, and `electron` imports stay external `require(...)`
+ * calls — so a preload may
  * import any sibling module whose transitive VALUE-import graph is pure.
  * This walk is the allowlist that replaced the old "preload imports nothing"
  * ban: type-only imports are erased by the bundler and ignored; every other
@@ -84,6 +86,30 @@ describe('preload sandbox import graph', () => {
     );
   });
 
+  it.each([
+    ['pure', 'export const value = 1;', []],
+    ['impure', "import fs from 'node:fs'; export const value = fs;", ['node:fs']],
+  ])(
+    'walks a configured bundled alias and its %s transitive exports',
+    (_label, source, rejected) => {
+      const root = createFixture({
+        'contract/index.ts': "export { value } from './value.js';",
+        'contract/value.ts': source,
+        'entry.ts': "import { value } from '@fixture/contract';",
+      });
+      const graph = collectPreloadImportGraph(path.join(root, 'entry.ts'), {
+        allowedEntryRequires: PRELOAD_ENTRY_REQUIRES,
+        bundledAliases: { '@fixture/contract': path.join(root, 'contract/index.ts') },
+      });
+      expect(graph.modules).toEqual([
+        path.join(root, 'contract/index.ts'),
+        path.join(root, 'contract/value.ts'),
+        path.join(root, 'entry.ts'),
+      ]);
+      expect(graph.violations.map(({ specifier }) => specifier)).toEqual(rejected);
+    }
+  );
+
   it('ignores type-only imports because the bundler erases them', () => {
     const root = createFixture({
       'contract.ts':
@@ -115,6 +141,7 @@ describe('preload sandbox import graph', () => {
       const sourceRoot = path.resolve(import.meta.dirname, '..');
       const graph = collectPreloadImportGraph(path.join(sourceRoot, entry), {
         allowedEntryRequires: PRELOAD_ENTRY_REQUIRES,
+        bundledAliases: MAIN_PROCESS_BUILD_OPTIONS.alias,
       });
       expect(graph.violations).toEqual([]);
       expect(graph.modules).toContain(path.join(sourceRoot, 'platform', 'desktop-ipc-channels.ts'));

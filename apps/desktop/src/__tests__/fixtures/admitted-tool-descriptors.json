@@ -321,7 +321,7 @@
       "risk": "read"
     },
     "brainstrike_grepSearch": {
-      "description": "Grep indexed and live on-disk file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns matches grouped under one file header per file — 'root:path' when several folders are open — with 'line: text' rows ('-' marks opt-in context rows). Reuse that root and path (and the row's line number as startLine) in readWorkspaceFile calls",
+      "description": "Grep indexed and live on-disk file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns matches grouped under one file header per file \u2014 'root:path' when several folders are open \u2014 with 'line: text' rows ('-' marks opt-in context rows). Reuse that root and path (and the row's line number as startLine) in readWorkspaceFile calls",
       "identity": "brainstrike.grepSearch",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -643,7 +643,7 @@
       "risk": "read"
     },
     "brainstrike_manageCanvas": {
-      "description": "Create, list, or version-update a persisted HTML Canvas document for the current thread. create needs a title and a document with content: the write IS the deliverable, so never create an empty or placeholder canvas — call create once, when the content is ready. update replaces oldString only when it occurs exactly once; rewrite replaces the whole HTML. Every change creates a new reversible version",
+      "description": "Create, list, or version-update a persisted HTML Canvas document for the current thread. create needs a title and a document with content: the write IS the deliverable, so never create an empty or placeholder canvas \u2014 call create once, when the content is ready. update replaces oldString only when it occurs exactly once; rewrite replaces the whole HTML. Every change creates a new reversible version",
       "identity": "brainstrike.manageCanvas",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -866,7 +866,7 @@
               ],
               "additionalProperties": false
             },
-            "description": "The full task list to store (whole-list replace — pass the entire desired list every call). Maximum 50 tasks."
+            "description": "The full task list to store (whole-list replace \u2014 pass the entire desired list every call). Maximum 50 tasks."
           }
         },
         "required": [
@@ -935,7 +935,7 @@
       "risk": "execute"
     },
     "brainstrike_queryDiagnostics": {
-      "description": "Query Brainstrike durable diagnostic events without re-running the app. Use mode=events for newest matching rows or mode=fingerprints to group recurring failures. Filters are exact severity/fingerprint/run/thread plus an inclusive ISO time window; results are hard-capped and output-budget truncation is explicit. Read-only",
+      "description": "Query Brainstrike retained desktop diagnostic logs without re-running the app. Older rotated-out events are unavailable. Use mode=events for newest matching rows or mode=fingerprints to group recurring failures. Filters are exact severity/fingerprint/run/thread plus an inclusive ISO time window; results are hard-capped and output-budget truncation is explicit. Read-only",
       "identity": "brainstrike.queryDiagnostics",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1290,7 +1290,7 @@
       "risk": "read"
     },
     "brainstrike_renameWorkspaceFile": {
-      "description": "Rename or move a single file within a chosen open workspace root, creating missing destination parents and invalidating the source index rows. Refuses overwriting an existing destination and refuses directories; refuses if the source changed on disk since you last read it — re-read and retry; acts on a symlink itself (moves the link, never its target). Workspace-scoped; requires approval",
+      "description": "Rename or move a single file within a chosen open workspace root, creating missing destination parents and invalidating the source index rows. Refuses overwriting an existing destination and refuses directories; refuses if the source changed on disk since you last read it \u2014 re-read and retry; acts on a symlink itself (moves the link, never its target). Workspace-scoped; requires approval",
       "identity": "brainstrike.renameWorkspaceFile",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1425,7 +1425,7 @@
       "risk": "execute"
     },
     "brainstrike_stringReplaceWorkspaceFile": {
-      "description": "Surgically edit a file in a chosen open workspace root by replacing one oldStr block with newStr (fuzzy-matched; refuses ambiguous matches; refuses if the file changed on disk since you last read it — re-read and retry; workspace-scoped, requires approval). matchType \"exact\" confirms verbatim placement; other matchTypes are fuzzy — re-read for precision",
+      "description": "Surgically edit a file in a chosen open workspace root by replacing one oldStr block with newStr (fuzzy-matched; refuses ambiguous matches; refuses if the file changed on disk since you last read it \u2014 re-read and retry; workspace-scoped, requires approval). matchType \"exact\" confirms verbatim placement; other matchTypes are fuzzy \u2014 re-read for precision",
       "identity": "brainstrike.stringReplaceWorkspaceFile",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1715,9 +1715,9 @@
               "type": "string",
               "minLength": 10,
               "maxLength": 2000,
-              "description": "Absolute http(s) URL of a PUBLIC page — never internal/private hosts"
+              "description": "Absolute http(s) URL of a PUBLIC page \u2014 never internal/private hosts"
             },
-            "description": "Public web pages to extract as markdown (1-5). Sent to an external extraction service (Tavily) — never include URLs carrying secrets or pointing at private/internal hosts."
+            "description": "Public web pages to extract as markdown (1-5). Sent to an external extraction service (Tavily) \u2014 never include URLs carrying secrets or pointing at private/internal hosts."
           }
         },
         "required": [
@@ -1745,7 +1745,7 @@
             "type": "string",
             "minLength": 2,
             "maxLength": 400,
-            "description": "The web search query. Sent to an external search service (Tavily) — never include secrets or private workspace contents."
+            "description": "The web search query. Sent to an external search service (Tavily) \u2014 never include secrets or private workspace contents."
           }
         },
         "required": [
@@ -1757,7 +1757,7 @@
       "risk": "read"
     },
     "brainstrike_writeWorkspaceFile": {
-      "description": "Write or create a UTF-8 file in a chosen open workspace root (overwrites existing content; refuses if the file changed on disk since you last read it — re-read and retry; workspace-scoped, requires approval). bytesWritten confirms it landed; skip re-reading",
+      "description": "Write or create a UTF-8 file in a chosen open workspace root (overwrites existing content; refuses if the file changed on disk since you last read it \u2014 re-read and retry; workspace-scoped, requires approval). bytesWritten confirms it landed; skip re-reading",
       "identity": "brainstrike.writeWorkspaceFile",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -2012,7 +2012,7 @@
       "risk": "read"
     },
     "brainstrike_grepSearch": {
-      "description": "Grep indexed and live on-disk file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns matches grouped under one file header per file — 'root:path' when several folders are open — with 'line: text' rows ('-' marks opt-in context rows). Reuse that root and path (and the row's line number as startLine) in readWorkspaceFile calls",
+      "description": "Grep indexed and live on-disk file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns matches grouped under one file header per file \u2014 'root:path' when several folders are open \u2014 with 'line: text' rows ('-' marks opt-in context rows). Reuse that root and path (and the row's line number as startLine) in readWorkspaceFile calls",
       "identity": "brainstrike.grepSearch",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -2243,7 +2243,7 @@
       "risk": "read"
     },
     "brainstrike_queryDiagnostics": {
-      "description": "Query Brainstrike durable diagnostic events without re-running the app. Use mode=events for newest matching rows or mode=fingerprints to group recurring failures. Filters are exact severity/fingerprint/run/thread plus an inclusive ISO time window; results are hard-capped and output-budget truncation is explicit. Read-only",
+      "description": "Query Brainstrike retained desktop diagnostic logs without re-running the app. Older rotated-out events are unavailable. Use mode=events for newest matching rows or mode=fingerprints to group recurring failures. Filters are exact severity/fingerprint/run/thread plus an inclusive ISO time window; results are hard-capped and output-budget truncation is explicit. Read-only",
       "identity": "brainstrike.queryDiagnostics",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -2598,7 +2598,7 @@
       "risk": "read"
     },
     "brainstrike_renameWorkspaceFile": {
-      "description": "Rename or move a single file within a chosen open workspace root, creating missing destination parents and invalidating the source index rows. Refuses overwriting an existing destination and refuses directories; refuses if the source changed on disk since you last read it — re-read and retry; acts on a symlink itself (moves the link, never its target). Workspace-scoped; requires approval",
+      "description": "Rename or move a single file within a chosen open workspace root, creating missing destination parents and invalidating the source index rows. Refuses overwriting an existing destination and refuses directories; refuses if the source changed on disk since you last read it \u2014 re-read and retry; acts on a symlink itself (moves the link, never its target). Workspace-scoped; requires approval",
       "identity": "brainstrike.renameWorkspaceFile",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -2629,7 +2629,7 @@
       "risk": "edit"
     },
     "brainstrike_stringReplaceWorkspaceFile": {
-      "description": "Surgically edit a file in a chosen open workspace root by replacing one oldStr block with newStr (fuzzy-matched; refuses ambiguous matches; refuses if the file changed on disk since you last read it — re-read and retry; workspace-scoped, requires approval). matchType \"exact\" confirms verbatim placement; other matchTypes are fuzzy — re-read for precision",
+      "description": "Surgically edit a file in a chosen open workspace root by replacing one oldStr block with newStr (fuzzy-matched; refuses ambiguous matches; refuses if the file changed on disk since you last read it \u2014 re-read and retry; workspace-scoped, requires approval). matchType \"exact\" confirms verbatim placement; other matchTypes are fuzzy \u2014 re-read for precision",
       "identity": "brainstrike.stringReplaceWorkspaceFile",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -2830,9 +2830,9 @@
               "type": "string",
               "minLength": 10,
               "maxLength": 2000,
-              "description": "Absolute http(s) URL of a PUBLIC page — never internal/private hosts"
+              "description": "Absolute http(s) URL of a PUBLIC page \u2014 never internal/private hosts"
             },
-            "description": "Public web pages to extract as markdown (1-5). Sent to an external extraction service (Tavily) — never include URLs carrying secrets or pointing at private/internal hosts."
+            "description": "Public web pages to extract as markdown (1-5). Sent to an external extraction service (Tavily) \u2014 never include URLs carrying secrets or pointing at private/internal hosts."
           }
         },
         "required": [
@@ -2860,7 +2860,7 @@
             "type": "string",
             "minLength": 2,
             "maxLength": 400,
-            "description": "The web search query. Sent to an external search service (Tavily) — never include secrets or private workspace contents."
+            "description": "The web search query. Sent to an external search service (Tavily) \u2014 never include secrets or private workspace contents."
           }
         },
         "required": [
@@ -2872,7 +2872,7 @@
       "risk": "read"
     },
     "brainstrike_writeWorkspaceFile": {
-      "description": "Write or create a UTF-8 file in a chosen open workspace root (overwrites existing content; refuses if the file changed on disk since you last read it — re-read and retry; workspace-scoped, requires approval). bytesWritten confirms it landed; skip re-reading",
+      "description": "Write or create a UTF-8 file in a chosen open workspace root (overwrites existing content; refuses if the file changed on disk since you last read it \u2014 re-read and retry; workspace-scoped, requires approval). bytesWritten confirms it landed; skip re-reading",
       "identity": "brainstrike.writeWorkspaceFile",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -3225,7 +3225,7 @@
       "risk": "read"
     },
     "brainstrike_grepSearch": {
-      "description": "Grep indexed and live on-disk file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns matches grouped under one file header per file — 'root:path' when several folders are open — with 'line: text' rows ('-' marks opt-in context rows). Reuse that root and path (and the row's line number as startLine) in readWorkspaceFile calls",
+      "description": "Grep indexed and live on-disk file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns matches grouped under one file header per file \u2014 'root:path' when several folders are open \u2014 with 'line: text' rows ('-' marks opt-in context rows). Reuse that root and path (and the row's line number as startLine) in readWorkspaceFile calls",
       "identity": "brainstrike.grepSearch",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -3528,7 +3528,7 @@
       "risk": "read"
     },
     "brainstrike_manageCanvas": {
-      "description": "Create, list, or version-update a persisted HTML Canvas document for the current thread. create needs a title and a document with content: the write IS the deliverable, so never create an empty or placeholder canvas — call create once, when the content is ready. update replaces oldString only when it occurs exactly once; rewrite replaces the whole HTML. Every change creates a new reversible version",
+      "description": "Create, list, or version-update a persisted HTML Canvas document for the current thread. create needs a title and a document with content: the write IS the deliverable, so never create an empty or placeholder canvas \u2014 call create once, when the content is ready. update replaces oldString only when it occurs exactly once; rewrite replaces the whole HTML. Every change creates a new reversible version",
       "identity": "brainstrike.manageCanvas",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -3751,7 +3751,7 @@
               ],
               "additionalProperties": false
             },
-            "description": "The full task list to store (whole-list replace — pass the entire desired list every call). Maximum 50 tasks."
+            "description": "The full task list to store (whole-list replace \u2014 pass the entire desired list every call). Maximum 50 tasks."
           }
         },
         "required": [
@@ -3763,7 +3763,7 @@
       "risk": "read"
     },
     "brainstrike_queryDiagnostics": {
-      "description": "Query Brainstrike durable diagnostic events without re-running the app. Use mode=events for newest matching rows or mode=fingerprints to group recurring failures. Filters are exact severity/fingerprint/run/thread plus an inclusive ISO time window; results are hard-capped and output-budget truncation is explicit. Read-only",
+      "description": "Query Brainstrike retained desktop diagnostic logs without re-running the app. Older rotated-out events are unavailable. Use mode=events for newest matching rows or mode=fingerprints to group recurring failures. Filters are exact severity/fingerprint/run/thread plus an inclusive ISO time window; results are hard-capped and output-budget truncation is explicit. Read-only",
       "identity": "brainstrike.queryDiagnostics",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -4118,7 +4118,7 @@
       "risk": "read"
     },
     "brainstrike_renameWorkspaceFile": {
-      "description": "Rename or move a single file within a chosen open workspace root, creating missing destination parents and invalidating the source index rows. Refuses overwriting an existing destination and refuses directories; refuses if the source changed on disk since you last read it — re-read and retry; acts on a symlink itself (moves the link, never its target). Workspace-scoped; requires approval",
+      "description": "Rename or move a single file within a chosen open workspace root, creating missing destination parents and invalidating the source index rows. Refuses overwriting an existing destination and refuses directories; refuses if the source changed on disk since you last read it \u2014 re-read and retry; acts on a symlink itself (moves the link, never its target). Workspace-scoped; requires approval",
       "identity": "brainstrike.renameWorkspaceFile",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -4187,7 +4187,7 @@
       "risk": "execute"
     },
     "brainstrike_stringReplaceWorkspaceFile": {
-      "description": "Surgically edit a file in a chosen open workspace root by replacing one oldStr block with newStr (fuzzy-matched; refuses ambiguous matches; refuses if the file changed on disk since you last read it — re-read and retry; workspace-scoped, requires approval). matchType \"exact\" confirms verbatim placement; other matchTypes are fuzzy — re-read for precision",
+      "description": "Surgically edit a file in a chosen open workspace root by replacing one oldStr block with newStr (fuzzy-matched; refuses ambiguous matches; refuses if the file changed on disk since you last read it \u2014 re-read and retry; workspace-scoped, requires approval). matchType \"exact\" confirms verbatim placement; other matchTypes are fuzzy \u2014 re-read for precision",
       "identity": "brainstrike.stringReplaceWorkspaceFile",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -4477,9 +4477,9 @@
               "type": "string",
               "minLength": 10,
               "maxLength": 2000,
-              "description": "Absolute http(s) URL of a PUBLIC page — never internal/private hosts"
+              "description": "Absolute http(s) URL of a PUBLIC page \u2014 never internal/private hosts"
             },
-            "description": "Public web pages to extract as markdown (1-5). Sent to an external extraction service (Tavily) — never include URLs carrying secrets or pointing at private/internal hosts."
+            "description": "Public web pages to extract as markdown (1-5). Sent to an external extraction service (Tavily) \u2014 never include URLs carrying secrets or pointing at private/internal hosts."
           }
         },
         "required": [
@@ -4507,7 +4507,7 @@
             "type": "string",
             "minLength": 2,
             "maxLength": 400,
-            "description": "The web search query. Sent to an external search service (Tavily) — never include secrets or private workspace contents."
+            "description": "The web search query. Sent to an external search service (Tavily) \u2014 never include secrets or private workspace contents."
           }
         },
         "required": [
@@ -4519,7 +4519,7 @@
       "risk": "read"
     },
     "brainstrike_writeWorkspaceFile": {
-      "description": "Write or create a UTF-8 file in a chosen open workspace root (overwrites existing content; refuses if the file changed on disk since you last read it — re-read and retry; workspace-scoped, requires approval). bytesWritten confirms it landed; skip re-reading",
+      "description": "Write or create a UTF-8 file in a chosen open workspace root (overwrites existing content; refuses if the file changed on disk since you last read it \u2014 re-read and retry; workspace-scoped, requires approval). bytesWritten confirms it landed; skip re-reading",
       "identity": "brainstrike.writeWorkspaceFile",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -4811,7 +4811,7 @@
       "risk": "read"
     },
     "brainstrike_grepSearch": {
-      "description": "Grep indexed and live on-disk file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns matches grouped under one file header per file — 'root:path' when several folders are open — with 'line: text' rows ('-' marks opt-in context rows). Reuse that root and path (and the row's line number as startLine) in readWorkspaceFile calls",
+      "description": "Grep indexed and live on-disk file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns matches grouped under one file header per file \u2014 'root:path' when several folders are open \u2014 with 'line: text' rows ('-' marks opt-in context rows). Reuse that root and path (and the row's line number as startLine) in readWorkspaceFile calls",
       "identity": "brainstrike.grepSearch",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -5174,7 +5174,7 @@
               ],
               "additionalProperties": false
             },
-            "description": "The full task list to store (whole-list replace — pass the entire desired list every call). Maximum 50 tasks."
+            "description": "The full task list to store (whole-list replace \u2014 pass the entire desired list every call). Maximum 50 tasks."
           }
         },
         "required": [
@@ -5186,7 +5186,7 @@
       "risk": "read"
     },
     "brainstrike_queryDiagnostics": {
-      "description": "Query Brainstrike durable diagnostic events without re-running the app. Use mode=events for newest matching rows or mode=fingerprints to group recurring failures. Filters are exact severity/fingerprint/run/thread plus an inclusive ISO time window; results are hard-capped and output-budget truncation is explicit. Read-only",
+      "description": "Query Brainstrike retained desktop diagnostic logs without re-running the app. Older rotated-out events are unavailable. Use mode=events for newest matching rows or mode=fingerprints to group recurring failures. Filters are exact severity/fingerprint/run/thread plus an inclusive ISO time window; results are hard-capped and output-budget truncation is explicit. Read-only",
       "identity": "brainstrike.queryDiagnostics",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -5644,9 +5644,9 @@
               "type": "string",
               "minLength": 10,
               "maxLength": 2000,
-              "description": "Absolute http(s) URL of a PUBLIC page — never internal/private hosts"
+              "description": "Absolute http(s) URL of a PUBLIC page \u2014 never internal/private hosts"
             },
-            "description": "Public web pages to extract as markdown (1-5). Sent to an external extraction service (Tavily) — never include URLs carrying secrets or pointing at private/internal hosts."
+            "description": "Public web pages to extract as markdown (1-5). Sent to an external extraction service (Tavily) \u2014 never include URLs carrying secrets or pointing at private/internal hosts."
           }
         },
         "required": [
@@ -5674,7 +5674,7 @@
             "type": "string",
             "minLength": 2,
             "maxLength": 400,
-            "description": "The web search query. Sent to an external search service (Tavily) — never include secrets or private workspace contents."
+            "description": "The web search query. Sent to an external search service (Tavily) \u2014 never include secrets or private workspace contents."
           }
         },
         "required": [

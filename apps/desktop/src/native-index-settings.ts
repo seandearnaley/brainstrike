@@ -5,6 +5,10 @@ import {
   validateNativeLocalSelection,
 } from '@brainstrike/indexing-contract/indexer-producer';
 import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils/background-indexing-policy';
+import type {
+  NativeIndexLifecycle,
+  PreparedNativeIndexPause,
+} from './native-index-lifecycle-owner';
 import { NativeIndexSetupRequiredError } from './native-index-setup-required';
 
 export const NATIVE_INDEX_SETTINGS_KEY = 'background-indexing-preferences.v1';
@@ -66,6 +70,40 @@ export function readNativeIndexSettings(value: string | null): NativeIndexSettin
     selection,
     worktreeOptIns,
   };
+}
+
+/** Pause preparation is distinct from configuring a search index. A host can be
+ * started/stopped before any search choice exists; only an actual saved Pause
+ * enters the strict settings/lifecycle path. Malformed persisted state still fails.
+ */
+export function readNativeSavedPause(value: string | null): NativeIndexSettings | null {
+  if (value === null) {
+    return null;
+  }
+  const state = readPreferenceState(value);
+  const paused: unknown = Reflect.get(state, 'paused');
+  if (typeof paused !== 'boolean') {
+    throw new Error('Native indexing requires an explicit saved pause choice.');
+  }
+  return paused ? readNativeIndexSettings(value) : null;
+}
+
+/** Read once; genuine read/parse failures still enter the existing lifecycle's
+ * invalid-settings fence and physical cleanup before being reported.
+ */
+export async function prepareSavedNativeIndexPause(
+  storage: { getItem(key: string): Promise<string | null> },
+  lifecycle: Promise<Pick<NativeIndexLifecycle, 'prepareSavedPause'>>
+): Promise<PreparedNativeIndexPause | null> {
+  let settings: NativeIndexSettings | null;
+  try {
+    settings = readNativeSavedPause(await storage.getItem(NATIVE_INDEX_SETTINGS_KEY));
+  } catch (error) {
+    return (await lifecycle).prepareSavedPause(() => Promise.reject(error));
+  }
+  return settings === null
+    ? null
+    : (await lifecycle).prepareSavedPause(() => Promise.resolve(settings));
 }
 
 function isOptionalCollectionId(value: unknown): value is string | null | undefined {

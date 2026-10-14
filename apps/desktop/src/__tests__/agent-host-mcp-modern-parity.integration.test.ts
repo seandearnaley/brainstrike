@@ -42,6 +42,7 @@ import {
   TASK_INPUT_REQUEST,
   TASKS_SERVER,
 } from './fixtures/agent-host-mcp-modern-harness';
+import { expectHostPrivateFailure } from './fixtures/host-private-boundary-failure';
 
 // BST-1930/BST-1931: the lab in a forked plain-Node child over loopback HTTP (2026-07-28), the
 // shipped collector, MCP runtime, production platform and Core behind the public host/client
@@ -54,7 +55,6 @@ afterEach(releaseOwned);
 const REFUSED = 'MCP Tasks reference task "reference-task-1" received an unexpected input response';
 const UNKNOWN =
   'MCP task "reference-task-1" input "approval" has an unknown delivery outcome; it is not resent.';
-const STALE = /MCP input authority is unavailable, stale or incompatible/u;
 const APPROVE = { action: 'accept', content: { approved: true } } as const;
 /** A restarted host replays its thread; only a freshly requested input is a recovery. */
 const requested = (items: readonly PublicInput[]): PublicInput | undefined =>
@@ -117,19 +117,28 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
       status: 'input_required',
     });
     // Negative controls through the public client: invalid values, then a stale address.
-    await expect(
-      modern.client.request('mcp/input/stage', { ...input.address, content: { approved: 'yes' } })
-    ).rejects.toThrow(STALE);
-    await expect(
-      answerPublicly(modern.client, { ...input.address, runId: randomUUID() }, APPROVE)
-    ).rejects.toThrow(STALE);
+    await expectHostPrivateFailure(
+      () =>
+        modern.client.request('mcp/input/stage', {
+          ...input.address,
+          content: { approved: 'yes' },
+        }),
+      'mcp/input/stage'
+    );
+    await expectHostPrivateFailure(
+      () => answerPublicly(modern.client, { ...input.address, runId: randomUUID() }, APPROVE),
+      'mcp/input/stage'
+    );
     // A real GUI answer: one decision, committed by Core before native delivery.
     await snapshots.until((items) =>
       items.find((snapshot) => snapshot.input?.presentation?.id === presentation.id)
     );
     await gui.settle(answerFor(presentation, 'accept'));
     // Exact-once authorization: once Core holds the intent, a second command is refused.
-    await expect(answerPublicly(modern.client, input.address, APPROVE)).rejects.toThrow(STALE);
+    await expectHostPrivateFailure(
+      () => answerPublicly(modern.client, input.address, APPROVE),
+      'mcp/input/stage'
+    );
     expect(await log.finished()).toMatchObject({ outcome: 'completed', runId });
     const effect = await log.effect();
     expect(effect).toMatchObject({
@@ -187,7 +196,10 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
       { code: 'mcp-elicitation-caller-aborted', id: presentation.id },
     ]);
     // Core retired the input with its capability, so the late public answer is refused.
-    await expect(answerPublicly(modern.client, input.address, APPROVE)).rejects.toThrow(STALE);
+    await expectHostPrivateFailure(
+      () => answerPublicly(modern.client, input.address, APPROVE),
+      'mcp/input/stage'
+    );
     await expect(modern.client.request('mcp/input/read', input.address)).resolves.toMatchObject({
       status: 'retired',
     });
@@ -482,9 +494,11 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     expect(input.status).toBe('requested');
     // Durable history carries only the safe envelope; the presentation came from the read.
     expect(JSON.stringify(log.rows())).not.toContain(presentation.message);
-    await expect(
-      answerPublicly(modern.client, { ...input.address, interactionId: randomUUID() }, APPROVE)
-    ).rejects.toThrow(STALE);
+    await expectHostPrivateFailure(
+      () =>
+        answerPublicly(modern.client, { ...input.address, interactionId: randomUUID() }, APPROVE),
+      'mcp/input/stage'
+    );
     const commandId = randomUUID();
     await expect(answerPublicly(modern.client, input.address, APPROVE, commandId)).resolves.toEqual(
       { accepted: true, status: 'accepted' }
@@ -493,7 +507,10 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     await expect(
       modern.client.request('mcp/input/settle', { ...input.address, action: 'accept', commandId })
     ).resolves.toMatchObject({ accepted: true });
-    await expect(answerPublicly(modern.client, input.address, APPROVE)).rejects.toThrow(STALE);
+    await expectHostPrivateFailure(
+      () => answerPublicly(modern.client, input.address, APPROVE),
+      'mcp/input/stage'
+    );
     expect(await log.finished()).toMatchObject({ outcome: 'completed', runId });
     expect(await log.until((rows) => eventOf(rows, 'mcp.input.settled'))).toMatchObject({
       interactionId: presentation.id,
@@ -516,16 +533,13 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     ).resolves.toEqual({ outcome: 'stopped' });
     expect(await log.finished()).toMatchObject({ outcome: 'stopped', runId });
     const finalizedAfterStop = [...first.finalized.items];
-    let lateAnswer: unknown = 'accepted';
-    await answerPublicly(first.client, input.address, APPROVE).catch((cause: unknown) => {
-      lateAnswer = causeMessage(cause);
-    });
-    expect({ finalizedAfterStop, lateAnswer }).toEqual({
-      finalizedAfterStop: [
-        { code: expect.stringMatching(/^mcp-elicitation-/u), id: presentation.id },
-      ],
-      lateAnswer: expect.stringMatching(STALE),
-    });
+    await expectHostPrivateFailure(
+      () => answerPublicly(first.client, input.address, APPROVE),
+      'mcp/input/stage'
+    );
+    expect(finalizedAfterStop).toEqual([
+      { code: expect.stringMatching(/^mcp-elicitation-/u), id: presentation.id },
+    ]);
     await first.client.request('host/stop', {});
     await first.host.closed;
     // Nothing reached the server: a restarted host still recovers the input. The recovered answer

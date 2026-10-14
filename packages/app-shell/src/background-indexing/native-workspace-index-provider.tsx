@@ -11,7 +11,6 @@ import {
   BoundaryFailureError,
   describeBoundaryFailure,
 } from '@brainstrike/assistant-contract/boundary-failure';
-import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import type {
@@ -259,11 +258,10 @@ export function NativeWorkspaceIndexProvider({
 }) {
   const retained = useRef<RetainedProgress | null>(null);
   const { fileSystemAdapter } = useAdapters();
-  const db = usePGliteDatabase();
   const { rootDirectoryHandles } = useFileSystem();
   const { dbRootIdByAdapterRootId, syncMountedRoots } = useRootsReconciliation({
     adapter: fileSystemAdapter,
-    db,
+    db: null,
   });
   useEffect(() => {
     let disposed = false;

@@ -9,22 +9,19 @@ import { subscribeDocumentEmbeddingsRequests } from '../../../renderer/component
 import {
   closeQueryEmbeddingRuntimeOwner,
   createQueryEmbeddingRuntimeOwner,
-  type QueryEmbeddingRuntimeOwner,
 } from '../../../renderer/components/embedding-host-query-owner';
 import {
-  dbHandle,
   documentEmbeddingsCancelListenerRef,
   documentEmbeddingsListenerRef,
   installEmbeddingHostRuntimeFixture,
+  readModelCatalogMock,
   reportDocumentEmbeddingsResponseMock,
 } from './embedding-host-runtime-fixture';
 
 describe('document listener retirement', () => {
   installEmbeddingHostRuntimeFixture();
   it('joins physical retirement and retains queued cancellation after the generation closes', async () => {
-    const owner = createQueryEmbeddingRuntimeOwner(
-      dbHandle as unknown as QueryEmbeddingRuntimeOwner['db']
-    );
+    const owner = createQueryEmbeddingRuntimeOwner({ read: readModelCatalogMock });
     const fifo = Promise.withResolvers<void>();
     const physical = Promise.withResolvers<void>();
     owner.executionTailRef.current = fifo.promise;

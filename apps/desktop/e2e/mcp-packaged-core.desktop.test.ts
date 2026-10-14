@@ -21,6 +21,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from 'playwright';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
+import { readHostProcess } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
@@ -351,12 +352,16 @@ async function readOwnedPid(pidFile: string, previous?: number): Promise<number>
 async function expectOwnedProcessGone(pid: number): Promise<void> {
   await expect.poll(() => processIsGone(pid), { timeout: 30_000 }).toBe(true);
 }
-async function readLifecycleDiagnostics(page: Page): Promise<{ hostPid: number; reset: unknown }> {
-  return await page.evaluate(async () => {
+async function readLifecycleDiagnostics(
+  page: Page,
+  userDataDir: string
+): Promise<{ hostPid: number; reset: unknown }> {
+  const { pid: hostPid } = await readHostProcess(userDataDir);
+  const reset = await page.evaluate(async () => {
     const bridge = (
       window as unknown as {
         desktopDiagnostics?: {
-          getSnapshot: () => Promise<BoundaryResult<{ database: unknown; reset: unknown }>>;
+          getSnapshot: () => Promise<BoundaryResult<{ reset: unknown }>>;
         };
       }
     ).desktopDiagnostics;
@@ -367,13 +372,9 @@ async function readLifecycleDiagnostics(page: Page): Promise<{ hostPid: number; 
     if (!response.ok) {
       throw new Error(JSON.stringify(response.error));
     }
-    const { database, reset } = response.value;
-    const hostPid = Reflect.get(database ?? {}, 'hostPid');
-    if (!(typeof hostPid === 'number' && Number.isSafeInteger(hostPid) && hostPid > 0)) {
-      throw new Error('Packaged desktop database host PID is unavailable');
-    }
-    return { hostPid, reset };
+    return response.value.reset;
   });
+  return { hostPid, reset };
 }
 /**
  * BST-1592 — user-initiated `resources/read` reaching the packaged renderer.
@@ -464,35 +465,41 @@ async function executeAssistantTool(
 ): Promise<void> {
   await page.keyboard.press('Escape');
   await configureAssistantProvider(page, {
-    compositeModelKey: 'openrouter::openai/gpt-5.4',
+    compositeModelKey: 'openrouter::openai/gpt-5.6-terra',
     provider: 'openrouter',
   });
-  // Renderer selection alone does not enable the catalog row Main admits.
-  // Use the same ordinary DB bridge as the saved Models setting, scoped to
-  // this existing model in the disposable packaged profile.
-  const catalog = await page.evaluate(async () => {
-    const db = window.electronAPI?.db;
-    if (!db) {
-      throw new Error('The ordinary desktop catalog DB bridge is unavailable');
-    }
-    const selection = ['openai/gpt-5.4', 'openrouter'];
-    const query =
-      'SELECT id, provider_id AS "providerId", is_enabled AS "isEnabled" FROM models WHERE id = $1 AND provider_id = $2';
-    const before = await db.query(query, selection);
-    await db.query(
-      'UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2',
-      selection
-    );
-    const after = await db.query(query, selection);
-    return { after: after.rows, before: before.rows };
-  });
+  const readSelectedModel = async () =>
+    await page.evaluate(async () => {
+      if (!window.modelCatalog) {
+        throw new Error('Desktop model catalog unavailable');
+      }
+      const result = await window.modelCatalog.read();
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.value.models
+        .filter((row) => row.id === 'openai/gpt-5.6-terra' && row.providerId === 'openrouter')
+        .map((row) => ({ id: row.id, isEnabled: row.isEnabled, providerId: row.providerId }));
+    });
+  const before = await readSelectedModel();
+  // The Settings action commits the choice and publishes the acknowledged
+  // catalog snapshot to the same renderer registry the composer observes.
+  await new HomePage(page).openSettings();
+  await new SettingsPage(page).openCategory(/Model Catalog/i, 'models');
+  await page.getByRole('searchbox', { name: 'Search models' }).fill('openai/gpt-5.6-terra');
+  const modelToggle = page.getByTestId('model-toggle-openai/gpt-5.6-terra');
+  await expect(modelToggle).toBeVisible();
+  await modelToggle.setChecked(true);
+  await expect(modelToggle).toBeChecked();
+  const catalog = { after: await readSelectedModel(), before };
   await testInfo.attach('packaged-assistant-saved-catalog', {
     body: JSON.stringify(catalog, null, 2),
     contentType: 'application/json',
   });
   expect(catalog.after).toEqual([
-    { id: 'openai/gpt-5.4', isEnabled: true, providerId: 'openrouter' },
+    { id: 'openai/gpt-5.6-terra', isEnabled: true, providerId: 'openrouter' },
   ]);
+  await new HomePage(page).leaveSettings();
   await ensureAssistantShellVisible(page);
   const input = page.getByRole('textbox', { name: 'Message input' });
   await expect(input).toBeVisible({ timeout: 30_000 });
@@ -836,7 +843,7 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     await waitForServerState(restarted.window, 'modern', /Connected/i);
     await waitForServerState(restarted.window, 'stdio', /Connected/i);
     const restartedStdioPid = await readOwnedPid(stdioPidFile, firstStdioPid);
-    const beforeResetDiagnostics = await readLifecycleDiagnostics(restarted.window);
+    const beforeResetDiagnostics = await readLifecycleDiagnostics(restarted.window, userDataDir);
     // A persisted grant reconnects during startup discovery, without another
     // Connect action. Waiting for authentication-required encoded the old bug.
     await waitForServerState(restarted.window, 'oauth', /Connected/i);
@@ -904,13 +911,14 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
       });
       const resetCloseReport = Reflect.get(resetEvidence ?? {}, 'hostCloseReport') as CloseReport;
       expect(resetCloseReport['requestsSettled']).toBeGreaterThanOrEqual(3);
-      const afterResetDiagnostics = await readLifecycleDiagnostics(restarted.window);
+      const afterResetDiagnostics = await readLifecycleDiagnostics(restarted.window, userDataDir);
       expect(afterResetDiagnostics.reset).toMatchObject({
         lastCompletedAt: expect.any(String),
         lastError: null,
         status: 'completed',
       });
       expect(afterResetDiagnostics.hostPid).not.toBe(beforeResetDiagnostics.hostPid);
+      await expectOwnedProcessGone(beforeResetDiagnostics.hostPid);
       await configureThroughUi(
         restarted.window,
         JSON.stringify({ servers: [oauthServer(oauth.manifest.url)] })

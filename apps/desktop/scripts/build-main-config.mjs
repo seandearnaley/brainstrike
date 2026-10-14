@@ -125,6 +125,11 @@ export const MAIN_PROCESS_BUILD_OPTIONS = {
       appRoot,
       '../../packages/notes-vault/src/core/index.ts'
     ),
+    // Shared request parsing is pure and must be bundled into the sandbox preload.
+    '@brainstrike/types/catalog-args': path.resolve(
+      appRoot,
+      '../../packages/types/src/catalog-args/index.ts'
+    ),
     '@brainstrike/workspace-search/core': path.resolve(
       appRoot,
       '../../packages/workspace-search/src/core/index.ts'
