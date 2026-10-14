@@ -4,17 +4,14 @@ import {
   type NodeChunker,
   type NodeChunkerOptions,
 } from '@brainstrike/chunking-worker/node';
-import type { CanonicalChunkEvent } from '@brainstrike/file-import';
-import {
-  type CanonicalIndexPayload,
-  canonicalIndexPayload,
-} from '@brainstrike/file-import/canonical-index-publication';
+import type { CanonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
 import {
   type ScopedFilePlan,
   type ScopedManifestFile,
   type VectorProfile,
   vectorProfileHash,
 } from '@brainstrike/indexer';
+import { chunkCanonicalRead } from './canonical-chunk-eligibility.js';
 import type {
   CanonicalCatalogFile,
   CanonicalCatalogPort,
@@ -517,32 +514,17 @@ export class CanonicalIngestionHost {
     manifest.push(...prepared.map((read) => ({ ...read.file, contentHash: read.contentHash })));
     const completed: { fileId: string; contentHash: string; chunkCount: number }[] = [];
     const vectorInputs: VectorFileInput[] = [];
+    const ineligible = new Set<string>();
     for (const read of reads) {
-      const original = {
-        content: read.content,
-        fileName: read.file.fileName,
-        filePath: read.file.relativePath ?? read.file.sourcePath ?? read.file.fileName,
-        fileRecordId: read.file.fileId,
-      };
-      const event: CanonicalChunkEvent =
-        read.content === ''
-          ? { kind: 'empty-source', source: original }
-          : {
-              kind: 'worker-result',
-              result: {
-                ...(await this.chunk(read.content, {
-                  ...request.chunkingOptions,
-                  fileName: original.fileName,
-                  filePath: original.filePath,
-                })),
-                fileRecordId: read.file.fileId,
-                id: request.requestId,
-                type: 'result',
-              },
-              source: original,
-            };
+      const outcome = await chunkCanonicalRead(this.chunk, read, request);
       context.signal.throwIfAborted();
-      const payload = canonicalIndexPayload(event);
+      if (outcome.kind === 'excluded') {
+        excluded.push(outcome.exclusion);
+        removals.push(read.file);
+        ineligible.add(read.file.fileId);
+        continue;
+      }
+      const { payload } = outcome;
       if (profile) {
         vectorInputs.push({ file: read.file, payload });
       } else {
@@ -569,7 +551,9 @@ export class CanonicalIngestionHost {
     if (removals.length > 0) {
       await catalog.removeFiles({ files: removals, scope: request.scope }, context);
     }
-    return manifest;
+    return ineligible.size === 0
+      ? manifest
+      : manifest.filter((file) => !ineligible.has(file.fileId));
   }
   private async publishVectors(
     inputs: readonly VectorFileInput[],

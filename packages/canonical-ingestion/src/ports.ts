@@ -148,7 +148,12 @@ export interface CanonicalManifestResult {
 }
 export interface CanonicalSourceExclusion {
   readonly fileId: string | null;
-  readonly reason: 'null-byte-content' | 'binary-content';
+  readonly reason:
+    | 'binary-content'
+    | 'dependency-manifest'
+    | 'generated-content'
+    | 'null-byte-content'
+    | 'too-large';
   readonly relativePath: string | null;
   readonly rootId: string | null;
 }

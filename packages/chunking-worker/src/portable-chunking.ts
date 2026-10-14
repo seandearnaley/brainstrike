@@ -36,9 +36,18 @@ const BINARY_DETECTION_PROBE_BYTES = 4096;
 const TOKEN_COUNT_YIELD_CHECK_INTERVAL = 20;
 const TOKEN_COUNT_YIELD_TIME_BUDGET_MS = 5;
 
+/** Why content is deliberately not chunked; consumers exclude the file instead of failing. */
+export type ChunkSkipCode =
+  | 'binary-content'
+  | 'dependency-manifest'
+  | 'empty-content'
+  | 'generated-content'
+  | 'too-large';
+
 export interface PortableChunkingResult {
   avgTokensPerChunk: number;
   chunks: PortableChunk[];
+  skipCode?: ChunkSkipCode;
   skipped: boolean;
   skipReason?: string;
   sourceRangeSkippedChunks?: number;
@@ -136,11 +145,14 @@ function detectCodeLanguage(fileName: string): CodeLanguage | null {
 function shouldSkipChunking(
   content: string,
   options: ChunkingRequestOptions & { fileName?: string; filePath?: string }
-): { skip: boolean; reason?: string } {
+):
+  | { readonly skip: false }
+  | { readonly code: ChunkSkipCode; readonly reason: string; readonly skip: true } {
   const fileName = options.fileName || options.filePath || '';
   for (const pattern of SKIP_CHUNKING_PATTERNS) {
     if (pattern.test(fileName)) {
       return {
+        code: 'dependency-manifest',
         reason: `Lock file or dependency manifest: ${fileName}`,
         skip: true,
       };
@@ -150,18 +162,23 @@ function shouldSkipChunking(
   // Zero-byte files are valid repository inputs. Skip them explicitly so the
   // worker never treats an empty accurate token count as a chunking failure.
   if (content.length === 0) {
-    return { reason: 'Empty file content', skip: true };
+    return { code: 'empty-content', reason: 'Empty file content', skip: true };
   }
 
   // Skip binary-like content early (NUL bytes in the first few KB)
   const probeWindow = content.slice(0, BINARY_DETECTION_PROBE_BYTES);
   if (probeWindow.includes('\u0000')) {
-    return { reason: 'Binary content detected (NUL bytes present)', skip: true };
+    return {
+      code: 'binary-content',
+      reason: 'Binary content detected (NUL bytes present)',
+      skip: true,
+    };
   }
 
   // Check content size
   if (!options.allowLargeFiles && content.length > CHUNKING_CONFIG.maxChunkableSize) {
     return {
+      code: 'too-large',
       reason: `File too large: ${Math.round(content.length / 1024)}KB (max: ${Math.round(
         CHUNKING_CONFIG.maxChunkableSize / 1024
       )}KB)`,
@@ -172,6 +189,7 @@ function shouldSkipChunking(
   // Check for very repetitive content (common in generated files)
   if (analyzeContentRepetition(content).isHighlyRepetitive) {
     return {
+      code: 'generated-content',
       reason: 'Highly repetitive content (likely generated file)',
       skip: true,
     };
@@ -656,18 +674,15 @@ export async function chunkContent(
   // Check if we should skip this file
   const skipResult = shouldSkipChunking(content, options);
   if (skipResult.skip) {
-    const skippedResult: PortableChunkingResult = {
+    return {
       avgTokensPerChunk: 0,
       chunks: [],
+      skipCode: skipResult.code,
       skipped: true,
+      skipReason: skipResult.reason,
       strategyUsed: initialStrategy,
       totalTokens: 0,
     };
-    // Only include skipReason if defined (exactOptionalPropertyTypes compliance)
-    if (skipResult.reason !== undefined) {
-      skippedResult.skipReason = skipResult.reason;
-    }
-    return skippedResult;
   }
 
   const adjusted = adjustChunkingForFileType(content, options);

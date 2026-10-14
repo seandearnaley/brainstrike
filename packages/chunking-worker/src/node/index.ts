@@ -4,7 +4,7 @@ import { treeSitterAdapter } from '../parsers/tree-sitter-adapter';
 import { chunkContent, type PortableChunkingResult } from '../portable-chunking';
 import type { ChunkingRequestOptions } from '../shared';
 
-export type { PortableChunkingResult } from '../portable-chunking';
+export type { ChunkSkipCode, PortableChunkingResult } from '../portable-chunking';
 export type { ChunkingRequestOptions, PortableChunk } from '../shared';
 
 /**
