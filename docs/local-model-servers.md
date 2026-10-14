@@ -2,9 +2,9 @@
 
 Brainstrike Desktop can use models served by Ollama or LM Studio without a
 hosted-provider API key. Both integrations use the servers' OpenAI-compatible
-`/v1/chat/completions` endpoint through Mastra's OpenAI-compatible model
-configuration, so the normal Brainstrike agent loop, tools, persistence, and
-run events remain active.
+`/v1/chat/completions` endpoint through Brainstrike's shared provider/model
+adapters. The agent host owns the AI SDK run loop, tools, committed persistence
+and run events; model routing does not start another Mastra agent loop.
 
 The desktop app is the recommended surface for local servers. Its main process
 performs discovery without browser CORS restrictions. The web app can work only
@@ -141,14 +141,17 @@ and [tool use](https://lmstudio.ai/docs/developer/openai-compat/tools).
   tool-capable by the runtime. Server reachability and model tool proficiency
   are separate capabilities.
 - **Assistant stream initialization fails before the server receives a
-  request**: observational memory uses its own explicit model. Configure that
-  model and its credentials under **Settings → Model Catalog → Assistant
-  Memory**, or turn off observations. Brainstrike does not silently replace
-  the chosen memory model with the active chat model.
+  request**: observational memory resolves its model separately. **Auto** uses
+  enabled candidates from the chat provider; an explicit target retains its own
+  credential/capability requirements. Check **Settings → Model Catalog → Assistant
+  Memory** and its credentials, or disable observations deliberately. A working
+  chat endpoint alone does not qualify the observer model.
 
 Brainstrike intentionally does not fall back to a hosted provider, another
 local runtime, or a different model when a selected local server fails. The
 runtime error remains visible so configuration and model failures can be fixed
 at their source.
 
-Mastra reference: [local OpenAI-compatible models and the LM Studio example](https://mastra.ai/models#use-local-models-with-mastra).
+Brainstrike boundaries: [assistant runtime](agents/assistant-runtime.md),
+[provider configuration](agents/assistant-providers.md) and
+[ADR-0012](adr/0012-ai-sdk-loop-mastra-memory-library.md).

@@ -1,82 +1,55 @@
 # @brainstrike/queue
 
-Core embedding queue primitives used across Brainstrike web and desktop runtimes. Provides a browser-first workerpool adapter plus shared telemetry, typing, and utilities for scheduling embedding tasks.
+Ephemeral workerpool queue primitives, task/result contracts and telemetry.
+Durable PGlite `JobQueue` records belong to `@brainstrike/db`; desktop native
+indexing and the host catalog have separate owners.
 
-## Why This Package Exists
+## Renderer integration
 
-- **Unified queue abstraction** – expose a consistent `QueueAdapter` API regardless of runtime (browser workerpool, Electron renderer, server-side fallback).
-- **Control semantics** – standardized pause/resume/cancel/drain lifecycle per ADR-0002.
-- **Worker-friendly task model** – convert high-level embedding requests into `EmbedWorkerRequest` objects consumed by `@brainstrike/embedding-worker`.
-- **Telemetry & instrumentation** – emit enqueue/progress/error events that power the HUD, analytics, and the standalone telemetry collector.
-
-## Features
-
-- `createBrowserEmbeddingQueue()` – wraps `workerpool` with batching, concurrency control, and adapter wiring for module workers.
-- Type-safe task/result helpers (`toWorkerRequest`, `QueueAdapter`, `QueueResult`) shared with downstream packages.
-- Telemetry utilities (`addQueueTelemetryListener`, `createQueueTelemetryAggregator`) for real-time monitoring.
-- `WorkerClient` types for standardized worker lifecycle state.
-
-## Installation
-
-```bash
-pnpm --filter @brainstrike/queue install
-```
-
-## Usage
+The browser factory is exported from `@brainstrike/queue/browser`, not the root.
+It returns a `QueueAdapter` synchronously and loads its workerpool adapter lazily.
+Web Workers, an explicit `worker.workerUrl` string and the renderer-owned telemetry
+sink are required; missing capabilities refuse instead of selecting a Node adapter.
 
 ```ts
-import { createBrowserEmbeddingQueue } from '@brainstrike/queue';
+import { embeddingWorkerTelemetrySink } from '@brainstrike/embedding-worker';
+import { resolveViteEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
+import { createBrowserEmbeddingQueue } from '@brainstrike/queue/browser';
 
-const queue = await createBrowserEmbeddingQueue({
-  workerUrl: new URL('@brainstrike/embedding-worker/dist/embedding.worker.js', import.meta.url),
+const queue = createBrowserEmbeddingQueue({
+  worker: {
+    workerUrl: resolveViteEmbeddingWorkerUrlHref(),
+    telemetry: embeddingWorkerTelemetrySink,
+  },
 });
-
-const task = await queue.add({
-  kind: 'embed',
-  id: crypto.randomUUID(),
-  model: 'bge-m3',
-  texts: ['hello world'],
-  truncateDim: 1024,
-  deviceHint: 'webgpu',
-});
-
-console.log(task.metadata.device, task.vectors[0]);
 ```
 
-### Telemetry
+The Vite app must install the existing ONNX WASM asset plugin described in the
+[worker guide](../embedding-worker/README.md). Reuse the app's owned queue instead
+of constructing another one at each call. The web composition root in
+[`create-embedding-queue.ts`](../../apps/web/src/create-embedding-queue.ts) also
+registers the queue and streaming worker URL with the embeddings runtime.
 
-```ts
-import { addQueueTelemetryListener } from '@brainstrike/queue';
+The `QueueAdapter` and task shapes live in [`types.ts`](src/types.ts); worker
+options live in [`browser-workerpool-options.ts`](src/browser-workerpool-options.ts).
+A request carries its admitted model/device/profile; construction does not choose
+a different backend after a failure. Pause, resume, cancel, drain and dispose
+have different lifetime effects. Cancellation is complete only when the existing
+physical worker owner has joined its work or retirement.
 
-const unsubscribe = addQueueTelemetryListener((event) => {
-  console.info('queue event', event);
-});
+## Telemetry
 
-// Later
-unsubscribe();
-```
-
-When running in the browser with `initializeQueueTelemetrySink`, events are batched and POSTed to the `endpoint` supplied in its options.
+Root exports include local listeners/aggregation and
+`initializeQueueTelemetrySink`. Remote reporting is an explicit sink with an
+endpoint supplied by its caller; naming an environment variable alone does not
+wire it into an app. Keep runtime telemetry source-scoped and separate from
+canonical progress/publication facts. A transport report does not establish
+that work stopped or vectors committed.
 
 ## Development
 
-- `src/adapters/` – queue implementations (`browser-workerpool`).
-- `src/telemetry.ts` – aggregator and listener plumbing.
-- `src/types.ts` – shared embedding task primitives.
-- Vitest suites in `test/` cover adapters, telemetry, and task conversion.
-
-### Commands
-
-```bash
-pnpm --filter @brainstrike/queue test      # run unit tests
-pnpm --filter @brainstrike/queue run build # clean + tsc project build (JavaScript + declarations)
-```
-
-`vitest.config.mts` aliases internal packages (`@brainstrike/embedding-worker`, `@brainstrike/utils`) to source paths so tests run without prebuilding.
-
-## Integration Notes
-
-- Browser queues assume module worker support (`new URL(..., import.meta.url)` pattern). Ensure bundlers keep the worker asset alongside your build output.
-- Telemetry is opt-in: set `VITE_QUEUE_TELEMETRY_ENDPOINT` (and optional `VITE_QUEUE_TELEMETRY_API_KEY`) to enable batch uploads.
-- In non-browser environments, construct a custom adapter by implementing the `QueueAdapter` interface if neither built-in option fits your runtime.
-- Durable queue orchestration lives in `@brainstrike/db` (`JobQueue`); this package focuses on ephemeral workerpool queues.
+[`package.json`](package.json) owns exports and scripts. Use `pnpm build`,
+`pnpm type-check` and `pnpm test` from this package. Local consumers declare
+`"@brainstrike/queue": "workspace:*"`.
+**CI is disabled due to cost; validation must run locally.** See
+[validation guidance](../../docs/agents/ci-quality.md).

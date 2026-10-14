@@ -2,9 +2,15 @@
 
 ## Ownership
 
-Owns renderer-only embedding queue processing. The worker lifecycle module starts and stops queue polling, enforces one in-flight claim budget across every runtime loop, coordinates leases, loads chunks, writes vectors, and delegates focused responsibilities to worker-local modules.
+Owns renderer-only processing for the surviving database-backed `JobQueue` path.
+It is not the desktop native-index writer or the hidden host's entire inference
+lifecycle. See the [package guide](../../README.md) and
+[indexer contract](../../../../docs/agents/indexer.md). The worker lifecycle module
+starts and stops queue polling, enforces one in-flight claim budget across runtime
+loops, coordinates leases, loads chunks and writes vectors.
 
 Current owned modules:
+
 - `embedding-worker.ts` - lifecycle and queue processing composition.
 - `embedding-cache-types.ts` - cache contract types for embedding dedupe.
 - `embedding-model-config.ts` - database-backed model metadata lookup and cache.
@@ -21,7 +27,10 @@ Current owned modules:
 
 ## Public surface
 
-Use `@brainstrike/embeddings/worker` or the root `@brainstrike/embeddings` exports for application code. Existing compatibility re-exports from `embedding-worker.ts` are preserved while the monolith is split.
+Use `@brainstrike/embeddings/worker` or the root `@brainstrike/embeddings` exports
+for application code. The current options/controller come from
+`embedding-worker.ts`; use their actual types rather than historical abbreviated
+payload examples.
 
 ## Allowed dependencies
 
@@ -37,3 +46,6 @@ hot path and is not allowed.
 ```bash
 pnpm --filter @brainstrike/embeddings exec vitest run src/__tests__/embedding-worker-architecture.test.ts src/__tests__/embedding-worker-batch.test.ts -t "stats refresh|embedding worker architecture"
 ```
+
+CI is disabled due to cost; validation must run locally. Select checks with
+[validation guidance](../../../../docs/agents/ci-quality.md).
