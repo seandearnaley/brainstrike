@@ -7,8 +7,8 @@
 
 ## Context
 
-Brainstrike runs on Mastra's agent loop with a 606-line vendor patch. In six months
-307 merged PRs (13%) touched the Mastra integration or its patch, and 110 of them were
+At adoption, Brainstrike ran on Mastra's agent loop with a 606-line vendor patch.
+In six months 307 merged PRs (13%) touched the integration or its patch, and 110 were
 fixes or reverts. The October spikes built the target host on both engines against
 real local models; both passed every behavioural check with no vendor patch. As
 tested, Mastra's loop with its own memory store wrote observational-memory markers
@@ -32,9 +32,13 @@ Brainstrike state lives in Brainstrike tables.
   Rebuilding what Mastra's loop provides is about 9–13K lines, and the spikes already
   proved the riskiest parts: provider history rules, per-provider tool schemas, tool
   discovery, usage and cost, the MCP adapter, and memory through Mastra's library.
-- Deleted with the old path: Mastra's agent loop and processors, the 606-line patch
-  and the 4.7K-line PGlite storage adapter. The two paths run side by side for at
-  most six weeks, and the old path gets no new features.
+- Retirement targets for the old desktop path were Mastra's agent loop and
+  processors, the 606-line patch and the 4.7K-line PGlite storage adapter.
+  The original six-week parallel-runtime window was superseded by
+  [ADR-0020](0020-greenfield-data-lifecycle.md): greenfield development requires
+  no legacy-data compatibility period or switch-back gate. Surviving web and
+  conformance PGlite consumers are distinct from the retired desktop engine;
+  see the current [database contract](../agents/database.md).
 - A Mastra server adapter would move ownership of auth, CORS, secrets and the desktop
   loopback lifecycle for no capability Brainstrike lacks. A Mastra browser runtime
   needs a product decision naming which runtime owns browser state, credentials,

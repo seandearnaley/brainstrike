@@ -25,10 +25,15 @@ bounded owner policy. Cooperative close fences admission, joins Core/platform/na
 tails and SQLite, then removes discovery and releases Root. The requesting
 transport remains through its actual response write and final socket join.
 
-Native descendants retain the appropriate POSIX lock or Windows Job ownership.
-Do not substitute a closed transport, a process record deletion or a parent exit
-for physical retirement. Failed cleanup retains the lock/owner and remains an
-error across repeated close calls.
+POSIX children that inherit Root's descriptor retain its flock; PTY sessions,
+SDK stdio MCP servers and short `execFile` calls do not inherit it. Desktop's
+registry supervises those processes; a CLI host has no desktop supervisor.
+Closing inherited descriptors loses flock protection; a daemon that also leaves
+its process group escapes group retirement. Windows uses kill-on-close Job
+ownership. See
+[ADR-0017's native-process limits](../adr/0017-cli-first-agent-host.md#native-processes-hold-the-root).
+A closed transport, deleted record or parent exit does not prove physical
+retirement. Failed cleanup retains ownership and remains an error on repeat close.
 
 ## Destructive reset
 

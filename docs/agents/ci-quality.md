@@ -48,5 +48,6 @@ retest what they invalidate. Normal hooks and existing checks remain in force.
 
 Tool versions, lane membership, worker counts, thresholds and setup order are
 owned by executable configuration. Consult those files when changing tooling.
-Historical explanations remain in `ci-quality/` and Git history; they are not
-additional gates or mandatory reading.
+Historical explanations remain in the
+[archived CI notes](../archive/agent-contract-history/ci-quality/) and Git history;
+they are not additional gates or mandatory reading.

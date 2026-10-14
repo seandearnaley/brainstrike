@@ -57,6 +57,6 @@ verbatim (`toolNameMap.get(toolId) ?? toolId`), so one logical tool can land
 under both spellings, and a split would halve a waste score and silently push
 the worst tool out of the top N.
 
-The opt-in [self-improvement signal injection](../../../agents/agent-self-query/workspace-context.md#self-improvement-signal-injection-bst-1241)
+The opt-in [self-improvement signal injection](../workspace-context/self-improvement-signal.md)
 executes an app-owned copy of `self-improvement-signal`, pinned to the shipped
 lens SQL body by a parity test; it never executes a workspace-scanned lens.
