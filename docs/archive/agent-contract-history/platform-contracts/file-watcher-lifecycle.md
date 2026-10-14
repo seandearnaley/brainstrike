@@ -124,7 +124,7 @@ indexed state only.
   rather than trying to resurrect a disposed instance.
 - **Packaging**: asarUnpack for the parcel prebuilds is BINARY-ONLY
   (`**/node_modules/@parcel/**/*.node`) — whole-directory globs corrupt the
-  asar under pnpm symlinks (see docs/agents/research/bst-568-parcel-watcher-spike.md).
+  asar under pnpm symlinks (see docs/archive/agent-contract-history/research/bst-568-parcel-watcher-spike.md).
   Packaged proof: `pnpm --filter @brainstrike/file-system test:packaged` in
   the Native Electron Package CI job.
 

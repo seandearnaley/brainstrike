@@ -1,6 +1,6 @@
 # Transactional embedding admission evidence
 
-Supports [Effect boundary contract](../effect-boundary.md) § "Shared helpers".
+Supports [Effect boundary contract](../../../agents/effect-boundary.md) § "Shared helpers".
 BST-1833 moves the renderer embedding worker's in-flight admission authority from
 an integer plus a waiter set into one public `TxSemaphore`. A transaction waits
 for nonzero availability without taking a slot; after the existing background

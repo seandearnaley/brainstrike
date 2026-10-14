@@ -56,4 +56,4 @@ installation remains under userData on both platforms. The real-archive
 integration test invokes `resetDesktopApplicationData` against a temporary
 profile, observes deletion of the installed binary, and resolves and executes
 it again from the immutable resource archive without fetch or PATH Python.
-See `docs/agents/code-execution/bundled-linux-python.md` for provenance and limits.
+See `docs/archive/agent-contract-history/code-execution/bundled-linux-python.md` for provenance and limits.

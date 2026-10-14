@@ -1,91 +1,45 @@
-# SQLite state store
-
-> Read before changing `packages/state-store`. It owns the host's canonical state
-> through the existing writer boundary. [ADR-0020](../adr/0020-greenfield-data-lifecycle.md)
-> requires current-schema creation and fresh-data durability, not legacy-data upgrades.
+# Canonical SQLite state
 
 ## Writer and durability
 
-- Keep the state DB's sole writing connection on the writer worker. Serialize
-  mutations, blob writes and boundary syncs through the store's write chain.
-- Use pinned better-sqlite3, WAL, NORMAL streaming commits, secure_delete=ON,
-  foreign_keys=ON and wal_autocheckpoint=0. Enable fullfsync on macOS. A step
-  boundary performs a FULL marker commit covering all earlier NORMAL commits;
-  checkpoint only within that boundary. The auto-checkpoint option is a tracer
-  negative control, never an application setting.
-- Deliver committed rows only after COMMIT returns. Worker failure rejects
-  pending and later requests with its cause; closed readers reject promptly.
-  Do not reuse an allocated sequence.
-- Verify per-row CRC and contiguous per-thread sequence. A damaged thread is
-  read-only; database integrity damage is visible and never triggers deletion.
-- Keep WAL torn-tail qualification exhaustive at both commit endpoints and every
-  byte between them. Report bounded sequential cases and reject gaps/duplicates
-  in both planned and completed offsets without changing recovery or deadlines.
-- Create the current schema transactionally and validate its version on reopen.
-  Qualify populated current-schema run rows and settings across reopen and recovery.
-  Initial-scaffold upgrade compatibility is not an acceptance requirement; existing
-  upgrade code creates no new cleanup or compatibility requirement. Unsupported state must not be silently
-  repaired, deleted or treated as an empty store.
-- SQLite authoritative records use validated JSON TEXT, checked boolean
-  INTEGERs, UTC timestamp TEXT and caller-minted UUID TEXT. Preserve exact billed
-  cost decimals as TEXT. Keep current relational ownership explicit; do not infer
-  legacy parents.
+StateStore has one serialized writer. Core commits accepted commands, run events,
+decisions, usage, workspace metadata and their atomic projections through it.
+Renderer state and derived indexes are readers/projections, not additional durable
+owners. Acknowledgement means the transaction committed with the existing SQLite
+WAL/durability policy, not merely queued or copied to UI state.
 
-Guard: `packages/state-store/__tests__/m0-sqlite.test.ts`, `schema.test.ts`,
-`i3-corruption.test.ts`, `wal-cut-cases.test.ts`, `kill-harness.integration.test.ts`,
-`kernel-sync.integration.test.ts`, `m0-coalescer.test.ts`, `lifecycle.test.ts`.
-Evidence: `state-store/foundation.md`, `state-store/wal-cases-2026-10-05.md`.
+Keep parameterized statements, runtime row decoding and bounded public reads.
+Preserve canonical IDs and append ordering across reopen/replay. Current schema
+creation and populated same-schema recovery are required; legacy conversion is
+not. Read-only metadata inspection must not stamp versions or perform DDL.
+Corruption refuses or contains reads without deleting/replacing canonical data.
 
-## Root ownership
+## Root and content identity
 
-- Refuse synced roots before creating anything. Check provider directories,
-  OneDrive environment roots and POSIX symlink aliases.
-- Acquire the root lock before opening SQLite. Identity includes host, canonical
-  root, PID and OS process start time; a live owner is never replaced or killed.
-- Never take over a lock from another host, including when a callback approves.
-  Same-host copied roots require explicit confirmation; stale same-root owners
-  use atomic generation takeover with exactly one winning contender.
-- Windows uses the real UTC FILETIME process creation time; unavailable identity
-  must throw rather than imply that a live process disappeared.
-- Release uses one fsynced, closed, exclusively owned temp and atomic rename.
-  Before every rename, validate the generation and full owner identity; missing,
-  changed, malformed or superseded authority is terminal.
-- On Windows, use the existing bounded filesystem retry for release rename only;
-  POSIX attempts once. Set released only after publication, clean up only the
-  owned temp on failure, and preserve primary plus cleanup causes and temp path.
-- Expose detached release retry statistics without changing shared accounting:
-  retries count eventual success; exhausted failures retain attempts and codes.
+The root lease supplies writer authority through acquisition, admitted work and
+physical close. Preserve PID/start/generation checks and OS lock ownership; neither
+a saved path nor an attachment can take over a live owner. Root records and thread
+bindings carry actual canonical identity, while mount descriptors and UI choices
+are projections.
 
-Guard: `packages/state-store/__tests__/d5-root-lock.test.ts`,
-`m0-lock-start-time.test.ts`, `m0-lock-release.test.ts`, `i6-synced.test.ts`.
-Evidence: `state-store/foundation.md`, `state-store/windows-release-2026-10-05.md`.
+Content-addressed blobs store canonical edit baselines and current-format content
+through their existing owner. Hashes and scope must match the bytes; a transient
+cache or derived embedding does not become another source of truth. Delete/purge
+joins referencing work before collecting blobs and canonical records.
 
-## Blobs, purge and interchange
+## Deletion, reset and interchange
 
-- Store large text as content-addressed files. Verify supplied and existing blob
-  hashes, fsync before committing a referencing row, and preserve shared blobs.
-- Purge requires the indexer port. Persist and replay the purge intent, reindex
-  the tombstone, require explicit nonnegative reference counts and truncate WAL
-  before claiming deletion. A pinned reader rejects purge; retry completes it.
-- Use the production indexer's state adapter for physical FTS/reference-count qualification. Keep its truth reader on the existing indexer writer worker; do not model state events as canonical files or add another application-state writer.
-- Export complete state through a consistent VACUUM INTO snapshot. Defer blob GC
-  while exports reference older snapshots; import verifies every manifest hash.
-  Validate the complete canonical relative-path manifest before payload reads or
-  destination writes; refuse source symlinks that resolve outside the bundle,
-  including its manifest and lock files. Preserve contained links as byte copies.
-- Flush copied import files through non-truncating writable descriptors; close
-  each descriptor in finally and surface flush failures.
-- JSONL interchange contains run rows and referenced blob bytes, with a version
-  header, CRCs and contiguous sequences. Import validates the complete file before
-  inserting rows into an empty run log and preserves timestamps and raw counts.
-  Complete authoritative records use the state bundle instead.
-- Reset closes writer and indexer handles before deleting every owned store entry
-  and removing the root lock. Preserve unrelated files in a shared profile.
-- Keep desktop factory reset covering all currently owned store files and joining
-  the existing host/index lifecycles. Greenfield scope does not permit removing
-  cleanup for an owner that is still present or creating another reset authority.
+Preserve transaction scope and referential integrity for thread/subtree/root
+removal. Derived index cleanup is a separately joined resource; it must not race
+late canonical writes or turn a root deletion into whole-profile retirement.
+Failures retain the owner and data needed for retry.
 
-Guard: `packages/state-store/__tests__/blobs.test.ts`, `i1-purge.test.ts`,
-`i2-reset.test.ts`, `i5-export.test.ts`, `bundle-import-paths.test.ts`, `jsonl.test.ts`,
-`large-thread.integration.test.ts`, `i7-single-writer.test.ts`.
-Evidence: `state-store/foundation.md`, `state-store/import-flush-windows-2026-10-05.md`.
+Clear and Factory Reset use the existing profile barrier/reset lease; consumers
+must stop writes and retire durable view references before content destruction.
+Export/import validate the supported current format and retain canonical identity
+and authority constraints; unsupported developer data is not silently converted,
+repaired or deleted.
+
+Decisions: [ADR-0011](../adr/0011-run-log-and-state-store.md) and
+[ADR-0020](../adr/0020-greenfield-data-lifecycle.md).
+Implementation: `packages/state-store` and `packages/agent-host`.

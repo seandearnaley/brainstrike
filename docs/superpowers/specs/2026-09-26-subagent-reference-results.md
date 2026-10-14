@@ -11,7 +11,7 @@ was introduced.
 The candidate pins `@mastra/core` 1.71.0 and `@mastra/memory` 1.32.1, the stable
 versions verified for this work. It uses an explicit pnpm vendor patch, not an
 installed-package monkeypatch. The four logical repairs and removal conditions are recorded in
-`docs/agents/mastra-boundary/upgrade-1-71.md`.
+`docs/archive/agent-contract-history/mastra-boundary/upgrade-1-71.md`.
 
 The native reference proves:
 
@@ -160,7 +160,7 @@ with a clean exit. The startup-timeout cause is not established. No assertion,
 timeout, retry policy or supported feature was weakened.
 
 No upstream issue or PR has been submitted. Expanded report drafts and related
-report checks are in `docs/agents/mastra-boundary/upstream-1-71-drafts.md`.
+report checks are in `docs/archive/agent-contract-history/mastra-boundary/upstream-1-71-drafts.md`.
 
 ## Why the integration became fragile
 

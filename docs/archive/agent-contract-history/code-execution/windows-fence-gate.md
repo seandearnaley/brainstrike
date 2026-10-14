@@ -40,4 +40,4 @@ rules; this file is the record of why.
       bullet under "resolve before asking" above.
 
     Full assessment, capability spec, the test plan, and the hardware results:
-    `docs/agents/research/bst-1068-srt-windows-fence-spike.md`.
+    `docs/archive/agent-contract-history/research/bst-1068-srt-windows-fence-spike.md`.

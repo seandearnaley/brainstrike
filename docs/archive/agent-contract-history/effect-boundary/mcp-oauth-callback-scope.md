@@ -1,6 +1,6 @@
 # MCP OAuth callback lifetime evidence
 
-Supports [Effect boundary contract](../effect-boundary.md) § "Shared helpers".
+Supports [Effect boundary contract](../../../agents/effect-boundary.md) § "Shared helpers".
 
 BST-1832 replaces the callback listener's manual teardown paths with one held
 Effect Scope. The server is acquired and its release finalizer registered before

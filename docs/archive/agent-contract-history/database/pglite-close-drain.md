@@ -111,11 +111,11 @@ awaited `exit`, then SIGKILL on timeout, and a transaction or init timeout SIGKI
 awaits the exit before another host forks. A host stuck in synchronous WASM can run no
 signal handler, so SIGKILL is the only signal that ends it. A failed `syncToFs` or `close`
 in the host now rejects and keeps the process lock instead of being swallowed. Record:
-`docs/agents/platform-contracts/graceful-shutdown-ownership.md`.
+`docs/archive/agent-contract-history/platform-contracts/graceful-shutdown-ownership.md`.
 
 ### Update (BST-1872 L2a, 2026-09-29)
 
 The host now closes itself on SIGINT, SIGTERM and SIGHUP (finish the in-flight envelope, reject the
 backlog, unsubscribe live queries, `closeDatabase()`, exit 0 after a clean close), so SIGTERM ends
 a healthy host cleanly. SIGKILL is still the only signal that ends a host wedged in synchronous
-WASM: no JS handler can run there. Record: `docs/agents/platform-contracts/graceful-shutdown-ownership.md`.
+WASM: no JS handler can run there. Record: `docs/archive/agent-contract-history/platform-contracts/graceful-shutdown-ownership.md`.

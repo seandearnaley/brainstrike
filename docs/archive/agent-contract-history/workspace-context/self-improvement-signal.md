@@ -52,7 +52,7 @@ strictly parses it with malformed input failing safe to OFF.
 - **Measurement/removal protocol:** compare equivalent before/after windows with
   both the `run-outcome-tool-correlation` and `self-improvement-signal` lenses,
   following the comparable-window method in
-  [`docs/tool-token-efficiency-2026-08-07/BASELINE.md`](../tool-token-efficiency-2026-08-07/BASELINE.md).
+  [`docs/tool-token-efficiency-2026-08-07/BASELINE.md`](../../../agents/tool-token-efficiency-2026-08-07/BASELINE.md).
   After a meaningful sample, remove the feature if truncation and zero-match
   rates do not improve.
 

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by owner (2026-09-25 UTC)
 - **Context:** ADR-0004 reserves desktop main's composition root for its own
-  decision. Evidence: `docs/agents/effect-boundary/desktop-composition-root.md`.
+  decision. Evidence: `docs/archive/agent-contract-history/effect-boundary/desktop-composition-root.md`.
 
 ## Context
 

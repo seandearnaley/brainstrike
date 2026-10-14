@@ -4,7 +4,7 @@
 - **Date:** 2026-09-24
 - **Ticket:** none yet (Linear was not reachable from the authoring session)
 - **Contract:** `docs/agents/effect-boundary.md`; measurements in
-  `docs/agents/effect-boundary/adoption-review.md`.
+  `docs/archive/agent-contract-history/effect-boundary/adoption-review.md`.
 
 ## Context
 

@@ -78,7 +78,7 @@ effect-kit's `runShutdownSequence`. The in-flight tracking that
 `main.ts` keeps the step bodies. Step names, order, the 5s budget and every
 log message are unchanged. At the deadline the running step's `AbortSignal`
 now aborts before the forced-exit log. Record:
-`docs/agents/effect-boundary/phase-three-lifecycle.md`.
+`docs/archive/agent-contract-history/effect-boundary/phase-three-lifecycle.md`.
 
 ### Update (2026-09-26): deferred HNSW recovery joins shutdown ownership
 

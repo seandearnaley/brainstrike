@@ -144,5 +144,5 @@ history compatibility seam and a real PGlite-to-provider serialization proof.
 The paired live requalification still rejected production adoption: native
 search used materially more input tokens and estimated cost than Mastra across
 both OpenAI models, and it was slower on both GPT-5.4 Mini scenarios. See
-[`bst-680-openai-native-tool-search-requalification.md`](./bst-680-openai-native-tool-search-requalification.md)
+[`bst-680-openai-native-tool-search-requalification.md`](bst-680-openai-native-tool-search-requalification.md)
 for the measurements and revisit gate.

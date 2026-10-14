@@ -1,21 +1,35 @@
-# Repository retrieval quality
+# Retrieval quality
 
-### Source judgments
+## Judgments before ranking
 
-- Freeze queries and source-span judgments before measuring retrieval. Each judgment names an exact repository path, one-based inclusive source span, implementation evidence and relevance rationale; pin its source SHA256 and source revision. Changed sources require an explicit judgment review.
-- Treat this fixture as judged answer retrieval. Its positive spans are not exhaustive relevance labels for every chunk; report precision against those known answers and preserve raw candidates for review. Do not derive or tune judgments from ranked output.
-- Name and hash the entire candidate corpus separately from the judged sources. Include every judged source in that corpus; a corpus of only positives does not qualify repository-wide retrieval.
+Freeze queries and source-span judgments before measuring retrieval. Each judgment
+names its path, source revision/hash, inclusive span, implementation evidence and
+relevance rationale. A changed source needs judgment review. Do not derive or tune
+labels from ranked output.
 
-Evidence: `retrieval-quality/repository-fixture.md`.
-Guard: `packages/agent/src/__tests__/repository-retrieval-quality.spec.ts`.
+Judged positives are known answer spans, not exhaustive relevance labels for every
+chunk. Preserve raw candidates and explain that limit when reporting precision.
+Hash the entire candidate corpus separately; include every judged source, but a
+corpus made only of positives does not qualify repository-wide retrieval.
 
-### Comparison gate
+## Comparable arms
 
-- Run BM25, literal grep, trigram and vector arms explicitly with the same authorized corpus, pinned model revision, dtype, device, dimensions, tokenizer cap, pooling and normalization. Record actual source pools and scores; a missing or failing arm prevents a report.
-- Evaluate at ranks 1, 3, 5 and 10 with the existing agent metrics, resolving actual indexer hit spans to judged answer identities. A hit must overlap the judged span and contain its frozen implementation evidence; an unrelated partial fragment on the same line is not an answer. Preserve raw source paths and spans beside metric identities.
-- Use 100 candidates per arm and final top 10. The lexical comparator fuses BM25 plus literal grep; the hybrid adds vectors to those same pools. Trigram is a separate measured arm. Use the existing equal-weight reciprocal-rank contribution `1 / (60 + rank)`, with one-based source ranks and one contribution per chunk per arm.
-- Retain vectors by default only when hybrid improves mean recall@10 or MRR by at least 0.05 without lowering the other metric. A mocked adapter check or an incomplete run cannot satisfy this gate.
-- Record an explicit chunking policy. Production qualification uses canonical desktop host chunks with their parser, producer revision, token settings and character offsets; line-policy diagnostics remain labelled separately. Validate hit content against its exact source offsets and line ranges. Chunker token counts do not guarantee the model tokenizer cap; record uncapped model-token lengths and cap application. Root-scoped native search, real renderer inference and consumer fusion remain separately qualified boundaries.
+Measure BM25, literal grep, trigram and vectors explicitly against the same
+authorized corpus and actual model/profile/chunk policy. A missing or failed arm
+makes the comparison incomplete. Preserve each source pool, score and rank; lexical
+fusion and hybrid use the same lexical candidates, with trigram reported separately.
 
-Evidence: `retrieval-quality/repository-fixture.md`.
-Guard: `packages/agent/src/__tests__/repository-retrieval-quality.spec.ts`.
+Resolve hits to exact canonical content, offsets and judged spans. A fragment on
+the same line is not an answer unless it contains the frozen implementation
+evidence. Production uses canonical host/parser chunks; line-policy diagnostics
+remain labeled separately. Record actual model-token lengths and cap application,
+not just chunker token counts.
+
+Keep the existing fusion, rank/candidate limits and measured quality thresholds
+in their executable owner. Vector promotion requires the actual comparative gain
+without degrading its paired metric; a mock or an incomplete report cannot prove it.
+Native scope authorization, renderer inference and consumer fusion are separate
+boundaries from a package comparison and must be represented honestly.
+
+Implementation: the repository quality fixture/adapters in `packages/agent` and
+the canonical native retrieval pipeline. Related: [indexer](indexer.md).

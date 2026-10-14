@@ -61,7 +61,7 @@ packages/ui/
     __tests__/tab-strip.browser.css
     __tests__/tab-strip.browser.test.tsx
 docs/agents/ui-conventions.md      MODIFY  new "## TAB STRIPS" section
-docs/agents/ui-conventions/tab-strips.md CREATE evidence file
+docs/archive/agent-contract-history/ui-conventions/tab-strips.md CREATE evidence file
 ```
 
 ---
@@ -3061,7 +3061,7 @@ git commit -m "test(BST-1837): real-browser geometry, axe, keyboard-menu and dra
 
 **Files:**
 - Modify: `docs/agents/ui-conventions.md`. Insert a new `## TAB STRIPS` section immediately BEFORE the line `## CONTEXT ACTION SYSTEM`, followed by a `---` separator.
-- Create: `docs/agents/ui-conventions/tab-strips.md`.
+- Create: `docs/archive/agent-contract-history/ui-conventions/tab-strips.md`.
 
 - [ ] **Step 1: Add the contract section** (rule-shaped, per `docs/agents/README.md`)
 
@@ -3146,7 +3146,7 @@ Expected: PASS, with no behaviour change.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add docs/agents/ui-conventions.md docs/agents/ui-conventions/tab-strips.md
+git add docs/agents/ui-conventions.md docs/archive/agent-contract-history/ui-conventions/tab-strips.md
 git commit -m "docs(BST-1837): TAB STRIPS contract and evidence"
 ```
 

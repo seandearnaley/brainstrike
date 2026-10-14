@@ -31,7 +31,7 @@
 | `packages/file-explorer-ui/src/shell/watcher-health-status.tsx` (new) | Explorer status indicator + retry action (slice 3). |
 | `packages/file-system/scripts/watcher-benchmark.mjs` (new) | Synthetic large-tree benchmark harness (slice 1). |
 | `packages/file-system/scripts/validate-parcel-binding.mjs` (new) | Packaging-matrix binding validation, runnable in CI and packaged app (slice 1). |
-| `docs/agents/research/bst-568-parcel-watcher-spike.md` (new) | Spike findings + packaging matrix (slice 1). |
+| `docs/archive/agent-contract-history/research/bst-568-parcel-watcher-spike.md` (new) | Spike findings + packaging matrix (slice 1). |
 
 ---
 
@@ -63,7 +63,7 @@
 
 - [ ] Failing unit test for `generateSyntheticTree(root, {dirs, filesPerDir})` helper (exported from the script file as a lib function): creates exact counts, bounded fanout.
 - [ ] Implement generator + benchmark runner; run at small scale locally, record 30k-dir numbers into the spike doc.
-- [ ] Write `docs/agents/research/bst-568-parcel-watcher-spike.md`: packaging matrix (darwin-arm64/x64, linux-x64/arm64 glibc+musl, win32-x64 — which prebuild optional dep serves each), electron/NAPI note (no ABI rebuild needed; asarUnpack requirement recorded for slice 4), benchmark numbers, EMFILE behavior note.
+- [ ] Write `docs/archive/agent-contract-history/research/bst-568-parcel-watcher-spike.md`: packaging matrix (darwin-arm64/x64, linux-x64/arm64 glibc+musl, win32-x64 — which prebuild optional dep serves each), electron/NAPI note (no ABI rebuild needed; asarUnpack requirement recorded for slice 4), benchmark numbers, EMFILE behavior note.
 - [ ] Commit. Full gate (`build lint type-check test`) green → opus review → PR → merge.
 
 ## Slice 2 — `BST-568/parcel-adapter`: adapter behind existing contract, no UI change

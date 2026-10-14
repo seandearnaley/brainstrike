@@ -56,5 +56,5 @@ a profile scope, database ownership, or new admission policies.
 
 ## Evidence
 
-`docs/agents/effect-boundary/desktop-maintenance-runtime.md` records falsification,
+`docs/archive/agent-contract-history/effect-boundary/desktop-maintenance-runtime.md` records falsification,
 resource counts, bundle measurements and runtime costs with the implementation.
