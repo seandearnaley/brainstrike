@@ -32,9 +32,22 @@ describe('ReadWorkspaceFileCursorRegistry', () => {
     expect(registry.issue(SCOPE, STATE)).toBe(HANDLE);
     expect(registry.resolve(HANDLE, SCOPE)).toEqual(STATE);
     expect(HANDLE).not.toContain(STATE.path);
-    registry.release(HANDLE, SCOPE);
-    expect(() => registry.resolve(HANDLE, SCOPE)).toThrow(/unknown or no longer available/i);
-    expect(registry.issue(SCOPE, STATE)).toBe(HANDLE);
+    // Resolving does not consume the handle; a replay sees the same state.
+    expect(registry.resolve(HANDLE, SCOPE)).toEqual(STATE);
+  });
+
+  it('evicts the oldest handle instead of refusing to issue when full', () => {
+    let next = 0;
+    const registry = new ReadWorkspaceFileCursorRegistry({
+      createHandle: () => `rfh_${String(next++).padStart(22, 'a')}`,
+      maxEntries: 2,
+    });
+    const first = registry.issue(SCOPE, STATE);
+    const second = registry.issue(SCOPE, STATE);
+    const third = registry.issue(SCOPE, STATE);
+    expect(() => registry.resolve(first, SCOPE)).toThrow(/unknown or no longer available/i);
+    expect(registry.resolve(second, SCOPE)).toEqual(STATE);
+    expect(registry.resolve(third, SCOPE)).toEqual(STATE);
   });
 
   it('rejects cross-thread and one-character-mutated handles', () => {
@@ -82,14 +95,11 @@ describe('ReadWorkspaceFileCursorRegistry', () => {
     expect(registry.resolve(HANDLE, SCOPE)).toEqual(STATE);
   });
 
-  it('keeps registry capacity and generation failures as internal faults', () => {
-    const fullRegistry = new ReadWorkspaceFileCursorRegistry({
-      createHandle: () => HANDLE,
-      maxEntries: 1,
-    });
-    fullRegistry.issue(SCOPE, STATE);
+  it('keeps handle collision and generation failures as internal faults', () => {
+    const collidingRegistry = new ReadWorkspaceFileCursorRegistry({ createHandle: () => HANDLE });
+    collidingRegistry.issue(SCOPE, STATE);
     const invalidRegistry = new ReadWorkspaceFileCursorRegistry({ createHandle: () => 'invalid' });
-    for (const registry of [fullRegistry, invalidRegistry]) {
+    for (const registry of [collidingRegistry, invalidRegistry]) {
       expect(() => registry.issue(SCOPE, STATE)).toThrow(Error);
       expect(() => registry.issue(SCOPE, STATE)).not.toThrow(ToolInputError);
     }

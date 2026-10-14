@@ -771,9 +771,8 @@ export async function runReadWorkspaceFile(
       page: ReadWorkspaceFilePage,
       result: ReturnType<typeof buildResult>
     ): ReturnType<typeof buildResult> => {
-      if (input.cursor && cursorRegistry && cursorScope) {
-        cursorRegistry.release(input.cursor, cursorScope);
-      }
+      // A handle stays valid until it expires or is evicted, so a replayed or
+      // parallel read of the same handle returns the same page.
       const nextCursor =
         page.nextPosition && cursorRegistry
           ? cursorRegistry.issue(
