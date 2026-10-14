@@ -10,7 +10,7 @@ Transformers.js needs Web Workers. In Electron main or plain Node it falls back 
 synchronous WASM and freezes whatever that thread serves, and the local Gemma
 runtime also depends on renderer-only WebGPU surfaces. Desktop therefore runs
 embeddings and the local LLM in hidden renderer hosts, and main owns only their
-lifecycle and IPC (`docs/agents/local-inference/hidden-host-manifest.md`). The
+lifecycle and IPC (`docs/archive/agent-contract-history/local-inference/hidden-host-manifest.md`). The
 CLI-first host (ADR-0017) adds an Electron-free Node process, so "never in Electron
 main" no longer names every thread that has to stay free.
 

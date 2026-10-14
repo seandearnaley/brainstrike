@@ -1,70 +1,53 @@
 # @brainstrike/embedding-worker
 
-Transformers.js worker implementation that powers local embedding tasks across browsers and Electron renderers. It loads Hugging Face models inside a dedicated worker, batches text inputs, and streams progress events with explicit device selection.
+Transformers.js inference in managed Web Workers, shared by browser and desktop
+hidden-renderer owners. This is the low-level local embedding runtime; it neither
+owns the canonical catalog/index nor processes durable database jobs.
 
-## Why This Package Exists
+## Placement and assets
 
-- **Isolate heavy GPU/WASM inference** – keep UI threads responsive while executing local embedding workloads.
-- **Share logic across platforms** – the same worker bundle runs in web and desktop renderer contexts.
-- **Expose deterministic telemetry** – emits progress/error events that the queue uses for HUDs and automated recovery.
+Local inference runs only in renderer workers. Electron main has no opt-in
+exception. Use [the inference contract](../../docs/agents/local-inference.md)
+for admitted model/device identity and physical retirement.
 
-## Key Features
+Vite consumers import `resolveViteEmbeddingWorkerUrlHref` and
+`resolveViteOnnxWasmPaths` from `@brainstrike/embedding-worker/vite`. This source-only
+entry needs Vite's worker transformation and the existing
+`transformersOnnxRuntimeWasmUrlsPlugin` from `@brainstrike/build-utils` in the
+consuming app's Vite config. It emits the installed ONNX Runtime module/binary
+assets and carries their absolute URLs to the worker. It is not a Node entry or
+an implicit CDN/runtime-file fallback.
 
-- Adaptive batching via `computeInitialBatchSize` tuned for workerpool usage.
-- Explicit device enforcement (`webgpu` or `wasm`) with no automatic fallbacks.
-- Local-only runtime (hosted providers are handled by `@brainstrike/embeddings`).
-- Vector normalization helpers (`l2Normalize`, `truncateVector`, `vectorsFromPipelineOutput`) shared with queue adapters.
-- Progress streaming through `workerpool.workerEmit`, covering initialization, embedding progress, and completion states.
+Use the managed queue integration in [the queue guide](../queue/README.md).
+A raw `new Worker` does not supply the workerpool protocol, managed instance
+identity or required lifetime telemetry. Web runtime composition is implemented in
+[`create-embedding-queue.ts`](../../apps/web/src/create-embedding-queue.ts).
 
-## Vite Renderer Usage
+## Requests and results
 
-```ts
-import { resolveViteEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
+Request/result types are owned by `@brainstrike/indexing-contract`, re-exported
+through [`shared.ts`](src/shared.ts). Preserve model, optional revision, explicit
+device, dtype, pooling, request identity and expected dimensions. Local workers
+consume no provider credentials. Hosted providers belong to the embeddings
+provider boundary.
 
-const worker = new Worker(resolveViteEmbeddingWorkerUrlHref(), { type: 'module' });
-// wire the worker into @brainstrike/queue createBrowserEmbeddingQueue or a manual workerpool
-```
+The worker reports progress, vector batches, completion and typed failures.
+Validate cardinality and finite dimensions before committing results; a progress
+message is not a publication acknowledgement. Do not use old abbreviated request
+examples as a substitute for the current admitted execution plan.
 
-`@brainstrike/embedding-worker/vite` is intentionally a source-only entry. Vite
-must transform its `?worker&url` import in the consuming renderer build, so it is
-not a Node entry and is not included in the package's `dist/**` files.
+Cancellation retains its exact owner until physical work or joined retirement
+settles. Genuine GPU device loss retires the worker rather than replaying the
+request or selecting another backend. Healthy model switches reuse the device.
+A failed cleanup cannot release a replacement generation's resources.
 
-Queue adapters convert tasks into `EmbedWorkerRequest` objects:
+## Development
 
-```ts
-{
-  type: 'embed',
-  id: 'job-123',
-  model: 'bge-m3',
-  texts: ['Hello world'],
-  truncateDim: 1024,
-  deviceHint: 'webgpu',
-  maxBatchSize: 8,
-}
-```
+[`package.json`](package.json) owns exports/builds and opt-in probes.
+`pnpm test` runs the unit project; `pnpm test:browser` runs the deterministic
+browser suite. `pnpm test:webgpu-memory` is a separate hardware probe.
+`pnpm build` emits the declared worker bundle and types; the Vite source entry
+still belongs to the consuming renderer build.
 
-Results arrive as `EmbedWorkerSuccess` instances containing Float32Array vectors and metadata (device, dtype, elapsed time, dimensions, and fallbackApplied).
-
-## Developing
-
-- `src/embedding.worker.ts` – worker runtime registered via `workerpool`.
-- `src/shared.ts` – shared types and numeric helpers exported publicly.
-- `test/embedding.worker.runtime.spec.ts` – Vitest coverage for device errors, batch sizing, and error propagation.
-
-### Commands
-
-```bash
-pnpm --filter @brainstrike/embedding-worker test                # unit project only
-pnpm --filter @brainstrike/embedding-worker test:browser        # deterministic Chromium suite
-pnpm --filter @brainstrike/embedding-worker test:webgpu-memory  # opt-in hardware memory probe
-pnpm --filter @brainstrike/embedding-worker run build           # clean + tsc + tsup bundle
-```
-
-`vitest.config.mts` aliases internal dependencies so tests reference source files directly without building `dist/`.
-
-## Integration Notes
-
-- Depends on `@huggingface/transformers` with remote models enabled for browser deployments (`env.allowRemoteModels`).
-- Designed to be loaded through bundlers that respect `new URL('./embedding.worker.js', import.meta.url)` semantics (Vite, Rspack, Webpack 5).
-- Renderer-only: local models require Web Workers. Do not run this in Electron main unless you explicitly accept the risk.
-- JobQueue-based orchestration lives in `@brainstrike/embeddings` (`startEmbeddingWorker`), not in this package.
+**CI is disabled due to cost; validation must run locally.** Select checks with
+[validation guidance](../../docs/agents/ci-quality.md).

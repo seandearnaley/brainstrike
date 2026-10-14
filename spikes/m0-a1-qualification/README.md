@@ -15,7 +15,7 @@ an execution step, not approval by itself.
 
 One complete local macOS A1 qualification passed on the archived measured
 source. Its receipt and limits are recorded in
-`docs/agents/state-store/m0-a1-qualification-2026-10-04.md`. A failed criterion
+`docs/archive/agent-contract-history/state-store/m0-a1-qualification-2026-10-04.md`. A failed criterion
 remains a failed criterion; the no-host observation cannot qualify or excuse it.
 
 `SOURCES.sha256` freezes the delivery source, excluding the manifest itself

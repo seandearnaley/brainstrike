@@ -863,7 +863,7 @@ Guard: `packages/assistant-contract/src/__tests__/provider-model-default-policie
 `packages/app-shell/src/hooks/use-provider-model-defaults.test.tsx`.
 ```
 
-Then create the evidence file `docs/agents/assistant-providers/model-enablement-defaults.md`, following the format of a sibling file in that directory (read one first — the contract holds rules, the evidence file holds their history). It records: the seven dark models with their migration numbers, the `Boolean(row.is_enabled)` predicate that caused it, why adding a per-provider hook would have been a no-op, and the `all`/`seed` split with the OpenRouter opt-in consequence.
+Then create the evidence file `docs/archive/agent-contract-history/assistant-providers/model-enablement-defaults.md`, following the format of a sibling file in that directory (read one first — the contract holds rules, the evidence file holds their history). It records: the seven dark models with their migration numbers, the `Boolean(row.is_enabled)` predicate that caused it, why adding a per-provider hook would have been a no-op, and the `all`/`seed` split with the OpenRouter opt-in consequence.
 
 - [ ] **Step 4: Run the full affected suites**
 

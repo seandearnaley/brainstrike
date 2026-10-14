@@ -35,14 +35,18 @@ automatic reset. Use disposable profiles and fake keys for qualification.
 
 ## Delivery boundary
 
-M3 retains its owner-approved closeout scope. M4 starts on a separate integration
-branch from the demonstrated M3 head. M4 completes child/client/history/retrieval
-parity and removes the obsolete runtime; it does not migrate data. Existing
-compatibility code and cleanup joins are not claimed removed by this document.
-Removal stays within the existing BST-1935 inventory; this ruling does not add a
-repository-wide compatibility cleanup campaign. Any actual removal must preserve
-supported fresh-data behavior and current resource retirement. Do not delete a failing behavior test to manufacture green.
+At adoption, M3 retained its owner-approved closeout scope and M4 used a separate
+integration branch for child/client/history/retrieval parity and obsolete-runtime
+removal. That milestone ordering is historical. Since M5 (12 October 2026),
+development branches from `main` and merges back to `main`; there is no milestone
+stack or continuing main freeze.
+
+This decision does not itself demonstrate removal of compatibility code or cleanup
+joins. Removal stays within the existing BST-1935 inventory; this ruling adds no
+repository-wide compatibility cleanup campaign. Actual removal preserves
+supported fresh-data behavior and resource retirement. Do not delete a failing
+behavior test to manufacture green.
 
 The live Architecture Reset milestone and existing tickets define acceptance.
 BST-1934 is canceled, not implemented, and no longer blocks client parity or
-demolition. Main remains frozen; this decision authorizes no release or signing.
+demolition. This decision authorizes no release or signing.

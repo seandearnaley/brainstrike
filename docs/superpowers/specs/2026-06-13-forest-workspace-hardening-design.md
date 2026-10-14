@@ -50,11 +50,11 @@ This was proven the hard way this session: restoring the dark nightly E2E (PR #1
 
 **Verified facts (2026-06-13):**
 
-- `RootId` is a bare alias: `export type RootId = string;` ([packages/types/src/file-system.ts:141](packages/types/src/file-system.ts)). A directory name in a `RootId` slot type-checks.
-- `rootKeyOf(handle) = handle.rootId ?? handle.path` ([use-file-system.ts:86](packages/file-explorer-hooks/src/use-file-system.ts)). The `?? path` fallback is the latent collision: two roots both named `project` with no stamped `rootId` share a key.
+- `RootId` is a bare alias: `export type RootId = string;` ([packages/types/src/file-system.ts:141](../../../packages/types/src/file-system.ts)). A directory name in a `RootId` slot type-checks.
+- `rootKeyOf(handle) = handle.rootId ?? handle.path` ([use-file-system.ts:86](../../../packages/file-explorer-hooks/src/use-file-system.ts)). The `?? path` fallback is the latent collision: two roots both named `project` with no stamped `rootId` share a key.
 - The dual-match `rootKeyOf(h) === key || h.path === …` pattern is **hand-rolled in 4 places** with a subtle asymmetry: `setRoot` (line 144), `addOrFocusHandle` (line 168, *has* the `h.rootId === undefined` guard from #1200's fix), `runMultiRootRestore` (line 286), `setFocusedRoot` (lines 482-483, **lacks** the `undefined` guard). A future edit can break same-named dedup inconsistently across these.
 - `encodeFileSelection(folderId: string, path: string)` accepts any string `folderId` with no UUID validation, and has real production callers (workspace collection sync import, assistant-ui-panel-wrapper). A bare path leaking into `folderId` merges selections across same-named roots.
-- Boot restore stamps handles with the **adapter** id (`stampRootId(d.handle, d.rootId)`, [use-file-system.ts:272](packages/file-explorer-hooks/src/use-file-system.ts)), while the only DB-id bridge is `resolveDbRootId(path)` in a *different* hook (`use-roots-reconciliation.ts`), keyed by path. When reconciliation converges two same-path adapter roots onto one DB row, the reducer keeps the adapter id and DB writes key by another — **`file_records` cross-talk that survives reload**, exercised by zero tests.
+- Boot restore stamps handles with the **adapter** id (`stampRootId(d.handle, d.rootId)`, [use-file-system.ts:272](../../../packages/file-explorer-hooks/src/use-file-system.ts)), while the only DB-id bridge is `resolveDbRootId(path)` in a *different* hook (`use-roots-reconciliation.ts`), keyed by path. When reconciliation converges two same-path adapter roots onto one DB row, the reducer keeps the adapter id and DB writes key by another — **`file_records` cross-talk that survives reload**, exercised by zero tests.
 - Store mutations desync silently: `addActiveRoot` upserts a descriptor without clearing the stale `folderState`; `removeActiveRoot` filters with no existence check; `coerceRootDescriptors` drops malformed entries at `logger.debug` with no count.
 - Partial-forest restore is invisible: only `permissionState === 'granted'` handles load; a stale handle is silently removed from cache while its DB row stays "live" and the sync gate skips that rootId — with no log or metric.
 - **No E2E asserts `treegrid count === active root count`.** The `@web-smoke` lane (run on every PR) is single-root; forest coverage is `@web-file-explorer-persistence`, a non-smoke nightly lane.
@@ -97,7 +97,7 @@ After `adapter.restoreRoots()`, resolve each handle's `dbRootId` via the reconci
 
 **2b. Unconditional cross-root key cleanup.** In `removeRootDirectory`, strip every composite key prefixed with the removed `rootId` from `selectedFilePaths` and all surviving `folderStates[*].selectedFilePaths` — **independent of the `deleteRootData` option**. Today disconnect leaves stale prefixed keys that inflate union selection counts indefinitely.
 
-**2c. Promote silent drops to observable events.** `coerceRootDescriptors` drop ([state-serialization.ts](packages/file-explorer/src/state-serialization.ts)) and the stale-handle `removeRootHandle` (web-handle-cache) move from `logger.debug` → `logger.warn` with a count, and a single boot-time forest-snapshot log records `{ persistedRoots, restoredRoots, grantedHandles }`.
+**2c. Promote silent drops to observable events.** `coerceRootDescriptors` drop ([state-serialization.ts](../../../packages/file-explorer/src/persistence/state-serialization.ts)) and the stale-handle `removeRootHandle` (web-handle-cache) move from `logger.debug` → `logger.warn` with a count, and a single boot-time forest-snapshot log records `{ persistedRoots, restoredRoots, grantedHandles }`.
 
 ### Phase 3 — Fail fast in CI (P0/P1)
 
