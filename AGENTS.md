@@ -52,8 +52,8 @@ own source and historical evidence in `docs/archive/`.
 
 | Area | Reference |
 | --- | --- |
-| Host, storage and indexing | `docs/agents/state-store.md`, `host-lease.md`, `indexer.md`; ADRs 0011, 0017, 0018 |
-| Assistant runs, persistence, providers and MCP | `docs/agents/assistant-runtime.md`, `assistant-persistence.md`, `assistant-providers.md`, `mcp-conformance.md` |
-| UI and workspace behavior | `docs/agents/ui-conventions.md`, `workspace-context.md`, `explorer-search-tapestry.md` |
-| Inference, execution and reset | `docs/agents/local-inference.md`, `code-execution.md`, `platform-contracts.md` |
-| Product tickets | `docs/agents/issue-tracker.md`; Linear is the product tracker |
+| Host, storage and indexing | [State store](docs/agents/state-store.md), [host lease](docs/agents/host-lease.md), [indexer](docs/agents/indexer.md); ADRs 0011, 0017, 0018 |
+| Assistant runs, persistence, providers and MCP | [Runtime](docs/agents/assistant-runtime.md), [persistence](docs/agents/assistant-persistence.md), [providers](docs/agents/assistant-providers.md), [MCP](docs/agents/mcp-conformance.md) |
+| UI and workspace behavior | [UI conventions](docs/agents/ui-conventions.md), [workspace context](docs/agents/workspace-context.md), [search and Tapestry](docs/agents/explorer-search-tapestry.md) |
+| Inference, execution and reset | [Local inference](docs/agents/local-inference.md), [code execution](docs/agents/code-execution.md), [platform contracts](docs/agents/platform-contracts.md) |
+| Product tickets | [Issue tracker](docs/agents/issue-tracker.md); Linear is the product tracker |

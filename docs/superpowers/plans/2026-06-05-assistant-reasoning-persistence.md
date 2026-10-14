@@ -11,7 +11,7 @@
 **Spec:** `docs/superpowers/specs/2026-06-05-assistant-reasoning-persistence-design.md`
 
 **Verified facts:**
-- Hydration choke point: `toAssistantHistoryContentParts` ([assistant-memory-repository.ts:598-627](../../../packages/app-shell/src/assistant-memory-repository.ts)); part union `AssistantHydratedContentPart` (line 495) = text | tool-call.
+- Hydration choke point: `toAssistantHistoryContentParts` ([assistant-memory-repository.ts:598-627](https://github.com/seandearnaley/brainstrike/blob/b0b960a2bd36cb7f86f2150cfc8572739032b72a/packages/app-shell/src/assistant-memory-repository.ts)); part union `AssistantHydratedContentPart` (line 495) = text | tool-call.
 - assistant-ui exports `ReasoningMessagePart = { readonly type: 'reasoning'; readonly text: string; readonly parentId?: string }` (from `@assistant-ui/core`), and `AssistantHistoryMessagePart` is derived from the adapter's `load()` message content union — so `Extract<AssistantHistoryMessagePart, { type: 'reasoning' }>` resolves to a valid reasoning part type.
 - Existing test drives the PUBLIC path: `createAssistantThreadHistoryAdapter({ repository })` with a `listMessages` mock, then `adapter.load()` → assert `history.messages`. File: `packages/app-shell/src/__tests__/assistant-memory-repository.test.ts`. `readContentPartArray` accepts `content` that is a direct array OR `{ content: [...] }` / `{ parts: [...] }`.
 - App-shell tests: `cd packages/app-shell && pnpm vitest run <path>`. Repo uses ultracite (`pnpm dlx ultracite fix`).
