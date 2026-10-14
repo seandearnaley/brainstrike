@@ -106,7 +106,9 @@ export * from './workspace-wire.js';
 // `mcp/content/prompt`, `mcp/content/read`), an MCP App's own tool calls
 // (`mcp/app/admit`, `mcp/app/call`), which Core decides under the owning
 // thread's policy, and `worktree.created` (a worktree a call's shell command
-// made, which the desktop adopted). These additions are optional fields, new
+// made, which the desktop adopted), and a provider request's tool calls (the
+// breakdown's `toolCallsTokens` and `toolCallsByTool`, and the request's
+// `toolCallWindow`). These additions are optional fields, new
 // variants and new methods, so a v11 reader that uses none of them sees
 // nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
@@ -572,14 +574,49 @@ export const HostMcpInputRequestSchema = z.strictObject({
   taskId: Id.optional(),
   type: z.literal('mcp.input.requested'),
 });
-/** A prepared provider prompt's composition (the context popover's breakdown). */
-export const HostPromptBreakdownSchema = z.strictObject({
-  attachmentsCount: z.number().int().nonnegative(),
-  historyMessagesTokens: z.number().int().nonnegative(),
-  provenance: z.literal('heuristic'),
-  systemInstructionsTokens: z.number().int().nonnegative(),
-  toolDefinitionsProvenance: z.enum(['heuristic', 'measured']),
-  toolDefinitionsTokens: z.number().int().nonnegative(),
+const Tokens = z.number().int().nonnegative();
+/**
+ * A prepared provider prompt's composition (the context popover's breakdown).
+ * The tool-call total and its per-tool rows are optional together: a receipt
+ * without them did not measure tool calls, which is not the same as none.
+ */
+export const HostPromptBreakdownSchema = z
+  .strictObject({
+    attachmentsCount: Tokens,
+    historyMessagesTokens: Tokens,
+    provenance: z.literal('heuristic'),
+    systemInstructionsTokens: Tokens,
+    toolCallsByTool: z
+      .array(z.strictObject({ calls: Tokens, tokens: Tokens, toolName: Id }))
+      .optional(),
+    toolCallsTokens: Tokens.optional(),
+    toolDefinitionsProvenance: z.enum(['heuristic', 'measured']),
+    toolDefinitionsTokens: Tokens,
+  })
+  .refine(
+    (breakdown) =>
+      (breakdown.toolCallsTokens === undefined) === (breakdown.toolCallsByTool === undefined),
+    {
+      message: 'toolCallsTokens and toolCallsByTool are committed together',
+    }
+  );
+/**
+ * The tool calls one provider request carried, as a change from the run's
+ * previous request (assistant-contract `PromptToolCallWindow`): `run-start`
+ * lists every call, `previous` only what entered, changed or left.
+ */
+export const HostPromptToolCallWindowSchema = z.strictObject({
+  base: z.enum(['previous', 'run-start']),
+  removed: z.array(Id),
+  upserted: z.array(
+    z.strictObject({
+      inputTokens: Tokens,
+      output: z.enum(['absent', 'full', 'marker']),
+      outputTokens: Tokens,
+      toolCallId: Id,
+      toolName: Id,
+    })
+  ),
 });
 /**
  * Every committed event, routed by its `type`; each member validates its full
@@ -689,6 +726,8 @@ export function hostEventSchema(json: JsonSchemaFactory) {
       breakdown: HostPromptBreakdownSchema.optional(),
       modelId: Id,
       provider: Id,
+      /** The tool calls this request carried, as a change from the run's previous request. */
+      toolCallWindow: HostPromptToolCallWindowSchema.optional(),
     }),
     z.strictObject({
       type: z.literal('interaction.requested'),

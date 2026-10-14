@@ -28,8 +28,9 @@ function collectPresentToolCallIds(prompt: Prompt): Set<string> {
 export function rewriteToolProjectionPrompt(
   inputPrompt: Prompt,
   rewrites: ReadonlyMap<string, ToolProjectionRewriteEntry>
-): { prompt: Prompt; rewrittenCount: number } {
+): { prompt: Prompt; rewrittenCount: number; rewrittenToolCallIds: ReadonlySet<string> } {
   const presentToolCallIds = collectPresentToolCallIds(inputPrompt);
+  const rewrittenToolCallIds = new Set<string>();
   let rewrittenCount = 0;
   const rewritePart = <Part extends RewritablePart>(part: Part): Part => {
     if (part.type !== 'tool-result' || !part.toolCallId) {
@@ -49,6 +50,7 @@ export function rewriteToolProjectionPrompt(
       return part;
     }
     rewrittenCount += 1;
+    rewrittenToolCallIds.add(part.toolCallId);
     return {
       ...part,
       output: { type: 'text' as const, value: rewrite.markerText },
@@ -67,5 +69,5 @@ export function rewriteToolProjectionPrompt(
     const contentChanged = content.some((part, index) => part !== message.content[index]);
     return contentChanged ? { ...message, content } : message;
   });
-  return { prompt, rewrittenCount };
+  return { prompt, rewrittenCount, rewrittenToolCallIds };
 }

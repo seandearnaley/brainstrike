@@ -23,6 +23,13 @@ const MARKER = '[pruned old tool result — tool=brainstrike.grepSearch args=fix
 
 afterEach(() => vi.unstubAllGlobals());
 
+/** Each committed provider request's tool-call window, oldest first. */
+function preparedWindows(events: readonly HostEvent[]) {
+  return events.flatMap((event) =>
+    event.type === 'provider.request.prepared' ? [event.toolCallWindow] : []
+  );
+}
+
 /** A committed earlier turn whose one step called grep and got `result` back. */
 function grepTurn(threadId: string, index: number, result: string): HostEvent[] {
   const runId = randomUUID();
@@ -223,6 +230,29 @@ test('a committed tool-output rewrite replaces that result in the next request, 
   expect(requests[0]).toContain(MARKER);
   expect(requests[0]).not.toContain('old-grep-output');
   expect(requests[0]).toContain('new-grep-output');
+  // The receipt records which calls the request carried, and that the pruned
+  // one went out as its marker.
+  expect(preparedWindows(first)).toEqual([
+    {
+      base: 'run-start',
+      removed: [],
+      upserted: [
+        expect.objectContaining({
+          output: 'marker',
+          toolCallId: 'call-grep-0',
+          toolName: 'brainstrike.grepSearch',
+        }),
+        expect.objectContaining({ output: 'full', toolCallId: 'call-grep-1' }),
+      ],
+    },
+  ]);
+  const breakdown = first.find((event) => event.type === 'provider.request.prepared');
+  expect(breakdown).toMatchObject({
+    breakdown: {
+      toolCallsByTool: [expect.objectContaining({ calls: 2, toolName: 'brainstrike.grepSearch' })],
+      toolCallsTokens: expect.any(Number),
+    },
+  });
 
   // A later run reapplies the committed rewrite and never offers that call again.
   await run('One more');
@@ -277,6 +307,22 @@ test('a stale read is superseded within the run once the run edits that file, us
   expect(prompts[0]).toContain('stale-read-body');
   expect(prompts[1]).toContain(marker);
   expect(prompts[1]).not.toContain('stale-read-body');
+  // The second request's window changes only what changed: the superseded read
+  // now goes out as its marker, and the run's own edit call joins.
+  const [firstWindow, secondWindow] = preparedWindows(events);
+  expect(firstWindow).toEqual({
+    base: 'run-start',
+    removed: [],
+    upserted: [expect.objectContaining({ output: 'full', toolCallId: 'call-grep-0' })],
+  });
+  expect(secondWindow).toEqual({
+    base: 'previous',
+    removed: [],
+    upserted: [
+      expect.objectContaining({ output: 'marker', toolCallId: 'call-grep-0' }),
+      expect.objectContaining({ output: 'full', toolCallId: 'recorded-call-1', toolName: 'edit' }),
+    ],
+  });
   // The second step's policy request carries the run's own call and its raw output.
   expect(asked).toHaveLength(2);
   expect(asked[1]?.currentTurnToolCallIds).toEqual(new Set(['recorded-call-1']));

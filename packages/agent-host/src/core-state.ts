@@ -14,6 +14,7 @@ import {
   type HostParams,
   type HostPermissionGrant,
   HostPromptBreakdownSchema,
+  HostPromptToolCallWindowSchema,
   type HostRunSnapshot,
 } from './protocol.js';
 
@@ -509,6 +510,7 @@ export function createHostRunContext(
           modelId: receipt.modelId,
           provider: receipt.provider,
           runId: run.id,
+          toolCallWindow: HostPromptToolCallWindowSchema.parse(receipt.toolCallWindow),
           type: 'provider.request.prepared',
         },
       ]);
