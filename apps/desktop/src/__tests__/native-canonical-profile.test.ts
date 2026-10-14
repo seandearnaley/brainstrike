@@ -392,7 +392,7 @@ describe('canonical inference ownership', () => {
     const f = fixture();
     f.documentEmbeddings.mockResolvedValueOnce(output);
     await expect(f.inference.generate(request())).rejects.toThrow(/response/);
-    await expect(f.inference.join('request')).rejects.toThrow(/response/);
+    await expect(f.inference.join('request')).resolves.toBeUndefined();
   });
 
   it.each(['l2', 'ip'] as const)(
@@ -477,6 +477,25 @@ describe('canonical inference ownership', () => {
     const canceled = f.inference.cancel('reentrant');
     await Promise.all([rejected, canceled]);
     expect(f.documentEmbeddings).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports an uncancelled generation failure once and releases the settled request', async () => {
+    const f = fixture();
+    // Recorded from the dev embedding host (granite-embedding-small-english-r2, WASM, batch 64).
+    const failure = new Error(
+      "failed to call OrtRun(). ERROR_CODE: 2, ERROR_MESSAGE: Non-zero status code returned while running Tile node. Name:'/model/global_attn_mask/Tile' Status Message: Tile output tensor would require more than 4294967295 bytes, which exceeds the supported maximum of 4294967295 bytes."
+    );
+    f.documentEmbeddings.mockRejectedValueOnce(failure);
+    await expect(f.inference.generate(request())).rejects.toBe(failure);
+    // generate delivered the failure; cancel and join only prove physical settlement, so the
+    // canonical host neither repeats it as a retirement fault nor keeps the request owned.
+    await expect(f.inference.cancel('request')).resolves.toBeUndefined();
+    await expect(f.inference.join('request')).resolves.toBeUndefined();
+    await expect(f.inference.generate(request('next'))).resolves.toMatchObject({
+      requestId: 'next',
+    });
+    await f.inference.join('next');
+    await expect(f.inference.close()).resolves.toBeUndefined();
   });
 
   it('preserves failed cancellation through physical join then retires the settled request', async () => {

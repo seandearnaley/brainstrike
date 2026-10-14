@@ -1,5 +1,6 @@
 import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { expect, it, vi } from 'vitest';
+import { attachStandInTokenizer } from '../test/helpers/stand-in-tokenizer';
 
 const BATCH_SIZE = 8;
 const INPUT_COUNT = 4096;
@@ -33,7 +34,7 @@ vi.mock('workerpool', () => ({
 
 vi.mock('@huggingface/transformers', () => ({
   env: { allowRemoteModels: false },
-  pipeline: (...args: unknown[]) => pipelineMock(...args),
+  pipeline: async (...args: unknown[]) => attachStandInTokenizer(await pipelineMock(...args)),
   ['Tensor']: MockTensor,
 }));
 

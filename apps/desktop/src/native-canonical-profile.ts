@@ -235,7 +235,10 @@ export class NativeCanonicalInference implements InferencePort {
     const completion = operation.then(
       () => undefined,
       (error: unknown) => {
-        if (controller.signal.aborted && error === controller.signal.reason) {
+        // generate already delivered a failure its caller did not cancel, so cancel and
+        // join only prove physical settlement. After cancellation the caller expects its
+        // owned reason; join then preserves an independent failure.
+        if (!controller.signal.aborted || error === controller.signal.reason) {
           return;
         }
         throw error;

@@ -166,6 +166,8 @@ export class EmbeddingHostManager {
       EmbeddingHostDocumentEmbeddingsRequest,
       EmbeddingHostDocumentEmbeddingsResponseReport
     >({
+      // Each completed slice re-arms the window: a long batch on slow hardware is alive.
+      isProgress: (report) => report.type === 'progress',
       joinOnInterrupt: (request, context) =>
         joinDocumentEmbeddingInterruption(
           request,

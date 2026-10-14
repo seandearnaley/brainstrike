@@ -685,6 +685,69 @@ describe('utility canonical retained-source ingestion', () => {
   });
 });
 
+describe('chunker-ineligible content through the canonical scan', () => {
+  // Recorded: one 548 KB data file blocked the whole index with "Canonical chunking
+  // skipped: File too large: 548KB (max: 500KB)"; lockfiles and generated files skip too.
+  it.each([
+    ['dependency-manifest', 'pnpm-lock.yaml', "lockfileVersion: '9.0'\n"],
+    ['too-large', 'pairs.json', `[${'{"left":"a","right":"b"},'.repeat(22_000)}{}]`],
+    ['generated-content', 'generated.ts', 'export const value = 1;\n'.repeat(2000)],
+  ] as const)(
+    'completes the eligible manifest and reports a %s exclusion for %s',
+    async (reason, fileName, content) => {
+      const f = await fixture();
+      const skippedFile: CanonicalSourceFile = {
+        ...f.file,
+        fileId: 'existing-ineligible',
+        fileName,
+        relativePath: fileName,
+        sourcePath: fileName,
+      };
+      vi.mocked(f.catalog.loadAuthorizedBatch).mockImplementation(async (request) =>
+        request.files.map((entry) => ({
+          ...f.file,
+          chunksProcessed: false,
+          contentHash: 'unused',
+          ...entry,
+        }))
+      );
+      f.source.discover = async function* () {
+        yield { files: [f.file, skippedFile], removed: [] };
+        return { errors: [], full: true, truncatedDirectories: [] };
+      };
+      vi.mocked(f.source.read).mockImplementation(async (file) =>
+        'fileId' in file && file.fileId === skippedFile.fileId
+          ? { content, stat: { mtimeMs: 123, size: Buffer.byteLength(content) } }
+          : { content: f.recorded.content, stat: f.file.stat }
+      );
+      const host = new CanonicalIngestionHost({
+        catalog: f.catalog,
+        parser: { parser: 'oxc' },
+        publication: f.publication,
+        source: f.source,
+      });
+      // Desktop's read bound (getFileSizeConfig().maxFileSize) admits files above the chunker's.
+      const receipt = await host.scan({ ...f.request, maxFileBytes: 1024 * 1024 });
+      expect(receipt.scanComplete).toBe(true);
+      expect(receipt).toMatchObject({
+        excluded: [{ fileId: skippedFile.fileId, reason, relativePath: fileName, rootId: 'root' }],
+      });
+      expect(f.publication.commitTextFile).toHaveBeenCalledOnce();
+      expect(f.publication.finishScan).toHaveBeenCalledWith(
+        expect.objectContaining({
+          files: [expect.objectContaining({ fileId: f.file.fileId })],
+          full: true,
+        })
+      );
+      expect(f.publication.removeFile).toHaveBeenCalledExactlyOnceWith({
+        file: expect.objectContaining({ fileId: skippedFile.fileId }),
+        ticket: f.ticket,
+      });
+      expect(f.publication.abortScan).not.toHaveBeenCalled();
+    }
+  );
+});
+
 describe('workspace content eligibility through the canonical scan', () => {
   it.each([
     ['null-byte-content', false],

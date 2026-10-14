@@ -97,6 +97,8 @@ export interface EmbeddingWorkerRuntimeMetadata {
 }
 
 export interface EmbeddingExecutionOptions {
+  /** Texts embedded so far, after each completed worker slice of this request. */
+  readonly onProgress?: (completed: number) => void;
   readonly signal?: AbortSignal;
 }
 

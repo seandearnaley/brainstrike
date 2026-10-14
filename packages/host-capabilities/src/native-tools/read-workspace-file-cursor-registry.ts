@@ -88,10 +88,12 @@ export class ReadWorkspaceFileCursorRegistry {
   issue(scope: ReadWorkspaceFileCursorScope, state: ReadWorkspaceFileCursorState): string {
     const now = this.#now();
     this.#deleteExpired(now);
-    if (this.#entries.size >= this.#maxEntries) {
-      throw new Error(
-        'The readWorkspaceFile continuation handle registry is full. Wait for existing handles to expire or start a new desktop session.'
-      );
+    // Handles are reusable until they expire; when full, evict the oldest issue.
+    for (const handle of this.#entries.keys()) {
+      if (this.#entries.size < this.#maxEntries) {
+        break;
+      }
+      this.#entries.delete(handle);
     }
 
     for (let attempt = 0; attempt < MAX_HANDLE_GENERATION_ATTEMPTS; attempt += 1) {
@@ -117,11 +119,6 @@ export class ReadWorkspaceFileCursorRegistry {
 
   resolve(handle: string, scope: ReadWorkspaceFileCursorScope): ReadWorkspaceFileCursorState {
     return { ...this.#getEntry(handle, scope).state };
-  }
-
-  release(handle: string, scope: ReadWorkspaceFileCursorScope): void {
-    this.#getEntry(handle, scope);
-    this.#entries.delete(handle);
   }
 
   #getEntry(handle: string, scope: ReadWorkspaceFileCursorScope): ReadWorkspaceFileCursorEntry {

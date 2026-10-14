@@ -567,12 +567,16 @@ describe('assistant-tools read tools', () => {
     }
   );
 
-  it.each(['thread', 'resource', 'stale', 'expired', 'released'] as const)(
+  it.each(['thread', 'resource', 'stale', 'expired', 'evicted'] as const)(
     'keeps a guarded continuation fail-closed for %s rejection',
     async (rejection) => {
       const workspaceRootPath = await createWorkspaceFixture();
       let now = 0;
-      const registry = new ReadWorkspaceFileCursorRegistry({ now: () => now, ttlMs: 1000 });
+      const registry = new ReadWorkspaceFileCursorRegistry({
+        now: () => now,
+        ttlMs: 1000,
+        ...(rejection === 'evicted' ? { maxEntries: 1 } : {}),
+      });
       const runtime = workspaceRuntime(workspaceRootPath);
       const toolName = 'brainstrike.readWorkspaceFile';
       const tools = hostTools(runtime, {
@@ -593,13 +597,14 @@ describe('assistant-tools read tools', () => {
         if (rejection === 'expired') {
           now = 1000;
         }
-        if (rejection === 'released') {
+        if (rejection === 'evicted') {
+          // A newer page handle evicts the oldest from the full registry.
           await requireToolExecute<ReadWorkspaceFileResult>(
             tools,
             toolName
           )({
-            cursor: first.nextCursor,
-            maxChars: 10,
+            maxChars: 5,
+            path: '/src/main.ts',
           });
         }
         const rejectedTools = hostTools(
@@ -709,6 +714,26 @@ describe('assistant-tools read tools', () => {
       expect(JSON.stringify(result)).not.toContain(workspaceRootPath);
     } finally {
       openSpy.mockRestore();
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('serves the same page to parallel reads that share one continuation handle', async () => {
+    // Recorded: the model sent four parallel reads with one nextCursor; three failed as
+    // "continuation handle is unknown or no longer available".
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = hostTools(workspaceRuntime(workspaceRootPath));
+    const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+
+    try {
+      const first = await executeTool({ maxChars: 10, path: '/src/main.ts' });
+      const pages = await Promise.all(
+        Array.from({ length: 4 }, () => executeTool({ cursor: first.nextCursor, maxChars: 10 }))
+      );
+      expect(pages.map((page) => page.content)).toEqual(new Array(4).fill('2: line 2'));
+      const replay = await executeTool({ cursor: first.nextCursor, maxChars: 10 });
+      expect(replay.content).toBe('2: line 2');
+    } finally {
       await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }
   });

@@ -18,7 +18,11 @@ import type {
   Tensor as TransformersTensor,
 } from '@huggingface/transformers';
 import { Transfer, worker, workerEmit } from 'workerpool';
-import { extractEmbeddingBatch } from './embedding-input-plan';
+import {
+  extractEmbeddingBatch,
+  measurePipelineTokenLengths,
+  planAttentionBoundedBatchEnds,
+} from './embedding-input-plan';
 import {
   createEmbeddingPipelineCacheController,
   type PipelineCacheDiagnosticSink,
@@ -1111,7 +1115,7 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
   let dimensions = context.truncateDim ?? 0;
   let peakVectorsInFlight = 0;
   let startIndex = 0;
-  for (const endIndex of createBatchEnds(context, state)) {
+  for (const endIndex of createBatchEnds(context, state, extractor)) {
     const slice = texts.slice(startIndex, endIndex);
     const rawOutput = await extractOwnedEmbeddingBatch(extractor, slice, context.pooling);
     const vectorsFromBatch = isTransformersTensor(rawOutput, runtime)
@@ -1192,7 +1196,7 @@ async function runBatches(
   const runtime = await getTransformersRuntime();
 
   let startIndex = 0;
-  for (const endIndex of createBatchEnds(context, state)) {
+  for (const endIndex of createBatchEnds(context, state, extractor)) {
     throwIfWorkerpoolRequestCanceled(id);
     const slice = texts.slice(startIndex, endIndex);
     const rawOutput = await extractOwnedEmbeddingBatch(extractor, slice, context.pooling);
@@ -1223,12 +1227,15 @@ async function runBatches(
   return vectors;
 }
 
-function createBatchEnds(context: EmbeddingContext, state: EmbeddingState): number[] {
-  const ends: number[] = [];
-  for (let start = 0; start < context.total; start += state.batchSize) {
-    ends.push(Math.min(context.total, start + state.batchSize));
-  }
-  return ends;
+function createBatchEnds(
+  context: EmbeddingContext,
+  state: EmbeddingState,
+  extractor: FeatureExtractor
+): number[] {
+  return planAttentionBoundedBatchEnds(
+    measurePipelineTokenLengths(extractor, context.texts),
+    state.batchSize
+  );
 }
 
 function buildSuccessResult(

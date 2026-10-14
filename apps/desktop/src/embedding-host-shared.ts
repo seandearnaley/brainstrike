@@ -7,6 +7,7 @@ import type {
   BackgroundRuntimeProgress,
   BackgroundRuntimeStatus,
   RuntimeErrorEnvelope,
+  RuntimeProgressEnvelope,
   RuntimeRequestEnvelope,
   RuntimeResultEnvelope,
 } from '@brainstrike/worker-runtime';
@@ -598,8 +599,14 @@ export type EmbeddingHostDocumentEmbeddingsCancel = RuntimeRequestEnvelope<
   'document-embeddings-cancel',
   Record<string, never>
 >;
+/** Liveness from the hidden host: texts completed so far; it never settles the request. */
+export type EmbeddingHostDocumentEmbeddingsProgressReport = RuntimeProgressEnvelope<
+  'document-embeddings-progress',
+  { readonly completed: number }
+>;
 export type EmbeddingHostDocumentEmbeddingsResponseReport =
   | RuntimeResultEnvelope<'document-embeddings-result', { readonly embeddings: number[][] }>
+  | EmbeddingHostDocumentEmbeddingsProgressReport
   | RuntimeErrorEnvelope<'document-embeddings-error'>;
 export type EmbeddingHostInferenceRequest =
   | EmbeddingHostQueryEmbeddingRequest
@@ -703,6 +710,18 @@ export function createEmbeddingHostDocumentEmbeddingsResultReport(
     type: 'result',
   };
 }
+export function createEmbeddingHostDocumentEmbeddingsProgressReport(
+  request: EmbeddingHostDocumentEmbeddingsRequest,
+  completed: number
+): EmbeddingHostDocumentEmbeddingsProgressReport {
+  return {
+    channel: 'document-embeddings-progress',
+    payload: { completed },
+    requestId: request.requestId,
+    runtimeId: request.runtimeId,
+    type: 'progress',
+  };
+}
 export function createEmbeddingHostDocumentEmbeddingsErrorReport(
   request: EmbeddingHostDocumentEmbeddingsRequest,
   error: unknown
@@ -748,6 +767,24 @@ export function assertEmbeddingHostDocumentEmbeddingsResponseReport(
       channel: 'document-embeddings-result',
       payload: { embeddings: embeddings.map(assertEmbeddingVector) },
       type: 'result',
+    };
+  }
+  if (envelopeBase.type === 'progress' && envelopeBase.channel === 'document-embeddings-progress') {
+    const completed = payload['completed'];
+    if (
+      !(
+        Number.isSafeInteger(completed) &&
+        (completed as number) >= 0 &&
+        (completed as number) <= MAX_DOCUMENT_EMBEDDING_BATCH_SIZE
+      )
+    ) {
+      throw new Error('Invalid document embeddings progress count.');
+    }
+    return {
+      ...envelopeBase,
+      channel: 'document-embeddings-progress',
+      payload: { completed: completed as number },
+      type: 'progress',
     };
   }
   if (envelopeBase.type === 'error' && envelopeBase.channel === 'document-embeddings-error') {

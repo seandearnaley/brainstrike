@@ -45,7 +45,7 @@ const missing = () =>
   });
 
 describe('native missing-key outcome (BST-2008)', () => {
-  it('preserves both recorded generate/join failures and their safe refusal through the channel', async () => {
+  it('reports the recorded generate failure once with its safe refusal through the channel', async () => {
     const original = missing();
     const profile = {
       dimensions: 1024,
@@ -74,20 +74,13 @@ describe('native missing-key outcome (BST-2008)', () => {
         requestId: 'recorded-operation',
       })
       .catch((error: unknown) => error);
-    const joinFailure = await inference.join('recorded-operation').catch((error: unknown) => error);
     expect(generationFailure).toBe(original);
-    expect(joinFailure).toBe(original);
-    const [generate, join] = await Promise.all([
-      roundTrip(generationFailure),
-      roundTrip(joinFailure),
-    ]);
+    // generate delivered the failure; join only proves physical settlement.
+    await expect(inference.join('recorded-operation')).resolves.toBeUndefined();
+    const generate = await roundTrip(generationFailure);
     expect(generate).toBeInstanceOf(BoundaryFailureError);
-    expect(join).not.toBe(generate);
-    const aggregate = await roundTrip(
-      new AggregateError([generate, join], 'Canonical inference and retirement failed.')
-    );
     const log = vi.fn();
-    const failure = nativeIndexBoundaryFailure(aggregate, log);
+    const failure = nativeIndexBoundaryFailure(generate, log);
     expect(BoundaryFailureSchema.parse(failure)).toMatchObject({
       category: 'configuration',
       code: 'embedding.missing-key',
@@ -97,14 +90,9 @@ describe('native missing-key outcome (BST-2008)', () => {
     expect(JSON.stringify(failure)).not.toContain('private fixture diagnostic');
     expect(log).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ cause: aggregate })
+      expect.objectContaining({ cause: generate })
     );
-    expect(aggregate).toBeInstanceOf(AggregateError);
-    if (!(aggregate instanceof AggregateError)) {
-      throw new Error('Missing aggregate');
-    }
-    expect(aggregate.errors).toHaveLength(2);
-    expect(aggregate.errors[0].cause.message).toBe('private fixture diagnostic');
+    expect(generate).toMatchObject({ cause: { message: 'private fixture diagnostic' } });
   });
   it.each([
     new Error('cleanup failed'),
@@ -156,7 +144,7 @@ it.each([
   [413, 'input-too-long', 'input'],
   [429, 'rate-limit', 'availability'],
 ] as const)(
-  'retains actionable HTTP %s through actual generate/join and uniform aggregate',
+  'retains actionable HTTP %s through actual generate and its settled join',
   async (status, kind, category) => {
     const records: LogRecord[] = [];
     const unsubscribe = addLogListener((record) => records.push(record));
@@ -205,16 +193,10 @@ it.each([
     });
     expect(generated).toMatchObject({ kind });
     expect(fetch).toHaveBeenCalledOnce();
-    const joined: unknown = await inference
-      .join('recorded-operation')
-      .catch((error: unknown) => error);
-    expect(joined).toBe(generated);
-    const [generate, join] = await Promise.all([roundTrip(generated), roundTrip(joined)]);
-    const aggregate = await roundTrip(
-      new AggregateError([generate, join], 'Canonical inference and retirement failed.')
-    );
+    await expect(inference.join('recorded-operation')).resolves.toBeUndefined();
+    const generate = await roundTrip(generated);
     const log = vi.fn();
-    const failure = nativeIndexBoundaryFailure(aggregate, log);
+    const failure = nativeIndexBoundaryFailure(generate, log);
     expect(BoundaryFailureSchema.parse(failure)).toMatchObject({
       category,
       code: `embedding.${kind}`,
@@ -224,14 +206,9 @@ it.each([
     expect(JSON.stringify(failure)).not.toContain('private provider fixture body');
     expect(log).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ cause: aggregate })
+      expect.objectContaining({ cause: generate })
     );
-    expect(aggregate).toBeInstanceOf(AggregateError);
-    if (!(aggregate instanceof AggregateError)) {
-      throw new Error('Missing aggregate');
-    }
-    expect(aggregate.errors).toHaveLength(2);
-    expect(aggregate.errors[0]).toMatchObject({ cause: expect.any(Error) });
+    expect(generate).toMatchObject({ cause: expect.any(Error) });
     await expect(inference.close()).resolves.toBeUndefined();
   }
 );

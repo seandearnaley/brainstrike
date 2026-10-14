@@ -18,6 +18,7 @@ import {
   EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_MARKER,
   EMBEDDING_WORKER_TEST_RUNTIME_PHASE_KEY,
 } from '../src/test-runtime-bootstrap';
+import { attachStandInTokenizer } from './helpers/stand-in-tokenizer';
 
 const workerEmitMock = vi.fn();
 const transferMock = vi.fn(function TransferStub<T>(value: T) {
@@ -90,11 +91,11 @@ vi.mock('@huggingface/transformers', () => ({
     }
     return transformersImportState.env;
   },
-  pipeline: (...args: unknown[]) => {
+  pipeline: async (...args: unknown[]) => {
     if (transformersImportState.error) {
       throw transformersImportState.error;
     }
-    return pipelineMock(...args);
+    return attachStandInTokenizer(await pipelineMock(...args));
   },
   get Tensor() {
     if (transformersImportState.error) {
@@ -171,7 +172,7 @@ describe('embedding worker runtime', () => {
   describe('webdriver test runtime validation', () => {
     it('boots the production worker from a valid fixed runtime without importing Transformers', async () => {
       transformersImportState.error = new Error('Transformers import must remain unused');
-      const extractor = vi.fn(async () => Float32Array.from([0.25, 0.75]));
+      const extractor = attachStandInTokenizer(vi.fn(async () => Float32Array.from([0.25, 0.75])));
       const injectedPipeline = vi.fn(async () => extractor);
       installTestRuntime({
         env: { allowRemoteModels: false },

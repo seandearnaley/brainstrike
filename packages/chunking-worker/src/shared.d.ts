@@ -8,6 +8,7 @@ import type {
   ChunkingStrategy as SharedChunkingStrategy,
 } from '@brainstrike/text-splitter';
 import type { PortableSymbol, PortableSymbolRef } from './extract-symbols';
+import type { ChunkSkipCode } from './portable-chunking';
 
 /**
  * Chunking strategy determines how content is split into chunks.
@@ -124,6 +125,8 @@ export interface ChunkResult {
   fileRecordId: string;
   /** Request ID for correlation */
   id: string;
+  /** Structured reason for a deliberate skip */
+  skipCode?: ChunkSkipCode;
   /** True if the file was skipped (lock file, binary, etc.) */
   skipped: boolean;
   /** Reason for skipping, if applicable */

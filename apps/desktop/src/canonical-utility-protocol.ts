@@ -66,7 +66,13 @@ export const receiptSchema = Schema.Struct({
     Schema.Array(
       Schema.Struct({
         fileId: Schema.NullOr(identifier),
-        reason: Schema.Literals(['null-byte-content', 'binary-content']),
+        reason: Schema.Literals([
+          'binary-content',
+          'dependency-manifest',
+          'generated-content',
+          'null-byte-content',
+          'too-large',
+        ]),
         relativePath: Schema.NullOr(identifier),
         rootId: Schema.NullOr(identifier),
       })

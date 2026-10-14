@@ -148,7 +148,12 @@ export interface CanonicalManifestResult {
 }
 export interface CanonicalSourceExclusion {
   readonly fileId: string | null;
-  readonly reason: 'null-byte-content' | 'binary-content';
+  readonly reason:
+    | 'binary-content'
+    | 'dependency-manifest'
+    | 'generated-content'
+    | 'null-byte-content'
+    | 'too-large';
   readonly relativePath: string | null;
   readonly rootId: string | null;
 }
@@ -208,7 +213,7 @@ export interface CanonicalInferencePort<Profile> {
     readonly requestId: string;
     readonly vectors: readonly { readonly chunkId: string; readonly vector: readonly number[] }[];
   }>;
-  /** Physically join, preserving independent generate/cleanup faults even when the caller cancelled. Expected owned cancellation may settle normally. */
+  /** Physically join. A failure generate already delivered to an uncancelled caller is not repeated; after cancellation, independent generate/cleanup faults are preserved and the expected owned cancellation may settle normally. */
   join(requestId: string): Promise<void>;
 }
 

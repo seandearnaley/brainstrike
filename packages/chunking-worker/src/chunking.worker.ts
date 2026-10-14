@@ -341,6 +341,9 @@ async function processFile(request: Omit<ChunkRequest, 'type'>): Promise<ChunkRe
     if (result.skipReason !== undefined) {
       chunkResult.skipReason = result.skipReason;
     }
+    if (result.skipCode !== undefined) {
+      chunkResult.skipCode = result.skipCode;
+    }
     if (result.sourceRangeSkippedChunks !== undefined) {
       chunkResult.sourceRangeSkippedChunks = result.sourceRangeSkippedChunks;
     }

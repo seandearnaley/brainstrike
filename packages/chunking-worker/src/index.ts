@@ -45,7 +45,7 @@ export type {
 // Apps call this at startup and assign the result to
 // globalThis.__BRAINSTRIKE_TREE_SITTER_LANGUAGES__ (Phase 8 of #998).
 export { resolveBootstrapTreeSitterLanguages } from './parsers/tree-sitter-rollout';
-export type { PortableChunkingResult } from './portable-chunking';
+export type { ChunkSkipCode, PortableChunkingResult } from './portable-chunking';
 // Re-export portable chunking for direct usage (if needed outside worker)
 export { chunkContent } from './portable-chunking';
 // Re-export shared types
