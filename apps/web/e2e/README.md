@@ -1,107 +1,45 @@
-# E2E Testing with Playwright
+# Web E2E tests
 
-This directory contains end-to-end tests using Playwright for the Brainstrike web application.
+**CI is disabled due to cost; validation must run locally.** Choose meaningful
+checks with [validation guidance](../../../docs/agents/ci-quality.md).
 
-## Running Tests
+## Run locally
 
-We've simplified the testing approach to make it easier to run tests in different environments:
+From the repository root:
 
-### From the web app directory (`apps/web`)
-
-```bash
-# Run all tests
-pnpm test:e2e
-
-# Run tests with UI mode (for debugging)
-pnpm test:e2e:ui
-
-# Run tests with debug mode
-pnpm test:e2e:debug
+```sh
+pnpm build --filter @brainstrike/web
+pnpm --filter @brainstrike/web test:e2e:lane:smoke
 ```
 
-### From the root directory
+From `apps/web`, run a focused functional spec:
 
-```bash
-# Run all tests 
-pnpm test:e2e
-
-# Run tests with UI mode
-pnpm test:e2e:ui
-
-# Run tests with debug mode
-pnpm test:e2e:debug
+```sh
+pnpm exec playwright test e2e/layout.test.ts --project=functional
 ```
 
-## Configuration
+Use `pnpm test:e2e:ui` or `pnpm test:e2e:debug` for interactive diagnosis.
+Root `pnpm test:e2e` targets both apps; filter to web for a web-only run.
+The package scripts own smoke, regression and opt-in performance selection.
 
-Tests are configured in `playwright.config.ts` at the root of the web application. The configuration:
+## Harness boundaries
 
-- Automatically handles both CI and local development environments
-- Starts a development server if one is not already running
-- Uses headless mode in CI and headed mode in local development
-- Captures screenshots on failures and videos on retries
+[`playwright.config.mts`](../playwright.config.mts) starts the built preview with
+`pnpm start` and refuses automatic reuse of an existing server. Build first;
+this is not a Vite dev-server test. Runs default to headless, including locally;
+`--headed` is an explicit override. Browser projects and artifact/retry settings
+are owned by that config and the shared Playwright environment configuration.
 
-## Test Files
+Use existing helpers under `utils/`, including app readiness and state cleanup.
+Prefer accessible role/text/test IDs. Exercise the actual reported flow and
+fresh-data reopen/reset behavior where relevant. Fake-provider assertions prove
+only that fixture boundary; they do not demonstrate a real model response.
+Use isolated browser state and fake credentials for automation.
 
-### Core Application Tests
-- `layout.test.ts` - Basic application layout and navigation tests
-- `file-explorer.test.ts` - File explorer functionality tests
-- `file-explorer-filters.test.ts` - File type filtering tests
-- `theme-switching.test.ts` - Theme switching functionality tests
-- `complete-workflow.test.ts` - End-to-end workflow tests
+## Diagnose failures
 
-### Layout Persistence Tests
-- `layout-persistence.test.ts` - Comprehensive IDE layout persistence tests
-  - Panel visibility persistence across page reloads
-  - Panel resize persistence
-  - Complex layout state management
-  - Error handling and recovery scenarios
-### Test Utilities
-- `utils/layout-helpers.ts` - Helper functions for layout testing
-- `utils/mock-fs.ts` - File system mocking utilities
-
-## Writing Tests
-
-Place your test files in this directory with the `.test.ts` extension. See existing tests for examples.
-
-Why `.test.ts` in 2025? Consistency across unit, integration, and E2E tests improves discoverability and tooling. Playwright supports both `.spec` and `.test`, and we standardize on `.test` to:
-- align naming with Vitest and our unit/integration conventions;
-- keep runner-agnostic file names (no leaky abstraction of the test framework);
-- simplify TypeScript and tooling exclude/include globs.
-
-### Layout Testing Patterns
-
-When writing layout tests, use the helper utilities from `utils`. The `resetAppState` helper ensures localStorage is cleared before tests:
-
-```typescript
-import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
-import { resetAppState } from './utils/app-state';
-
-test('my layout test', async ({ page }) => {
-  await page.goto('/');
-  await waitForAppLoad(page);
-  await resetAppState(page);
-  await page.reload();
-  await waitForAppLoad(page);
-  
-  const elements = getPanelElements(page);
-  // Your test logic here
-});
-```
-
-## CI Integration
-
-Tests run automatically in CI via GitHub Actions. The configuration:
-
-- Builds the application before running tests
-- Runs tests in headless mode
-- Saves test artifacts for later inspection
-
-## Troubleshooting
-
-If you encounter issues:
-
-1. Ensure Playwright is installed: `pnpm exec playwright install`
-2. Check if Vite is running correctly: `pnpm dev` 
-3. Try running with debug mode: `pnpm test:e2e:debug`
-4. Inspect the Playwright report: `pnpm exec playwright show-report`
+Read the runner's output/report paths; open a report with
+`pnpm exec playwright show-report`. Inspect the first failure, app/server logs
+and available traces before retrying. A port conflict or absent build needs its
+own correction. Existing GitHub workflow definitions are references, not active
+scheduled or automatic runs.

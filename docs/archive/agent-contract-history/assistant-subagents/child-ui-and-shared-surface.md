@@ -10,7 +10,7 @@ Extracted verbatim from `docs/agents/assistant-subagents.md` lines 766–849 at 
 ---
 
 The planned first-class child UI is specified in
-[`docs/design/subagent-threads/README.md`](../../../agents/design/subagent-threads/README.md),
+[`docs/design/subagent-threads/README.md`](../../../design/subagent-threads/README.md),
 with a clickable isolated design fixture beside it and behavioral browser
 coverage in `apps/web/e2e/subagent-design-prototype.test.ts`. It is a design
 contract for BST-1724/1725, not a claim that the current runtime persists full

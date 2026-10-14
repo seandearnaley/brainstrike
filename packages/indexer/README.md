@@ -1,123 +1,67 @@
 # @brainstrike/indexer
 
-Independent Node-only derived index. Build with
-`pnpm exec turbo run build --filter=@brainstrike/indexer`; import the emitted
-public package. `openIndexer()` forks `dist/process-entry.js`, which launches
-`dist/writer-worker.js`. Electron main uses the explicit utility-process adapter in
-`apps/desktop/src/indexer-host-manager.ts`; product cutover remains separate.
-Both transports use the same process core and compiled writer worker.
+A Node-only, rebuildable SQLite index with one writer process and authorized
+readers. It does no inference and is separate from the canonical host StateStore
+and committed conversation log.
 
-```ts
-import { openIndexer } from '@brainstrike/indexer';
+## Acquire the existing owner
 
-const profile = {
-  modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
-  revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
-  dtype: 'fp16',
-  dimensions: 384,
-  tokenCap: 256,
-} as const;
-const indexer = await openIndexer({
-  dbPath: '/owned/data-root/derived-index.sqlite',
-  profile,
-  rootIds: ['authorized-workspace-root'],
-}, { startupMs, requestMs, closeMs, exitMs });
-const plan = await indexer.prepareFile({
-  rootId: 'authorized-workspace-root',
-  fileId: 'canonical-file-record-id',
-  relativePath: 'src/example.ts',
-  content: sourceText,
-  chunkLines: explicitChunkLinePolicy,
-});
-// Hidden renderer producer supplies one vector per embeddingChunkId, carrying
-// the exact profile above. Forward existing parser metadata; do not parse again.
-await indexer.commitFile({ plan, profile, embeddings, syntax });
-const result = await indexer.search({
-  mode: 'bm25', rootIds: ['authorized-workspace-root'], text: 'example', limit: 10,
-});
-await indexer.close();
-```
+`openIndexer(options, deadlines)` launches the package process entry and compiled
+writer worker. Desktop uses the explicit Electron utility-process adapter in
+[`indexer-host-manager.ts`](../../apps/desktop/src/indexer-host-manager.ts).
+Both transports share the same process core. Desktop native-index wiring is
+implemented; the original foundation-stage “cutover pending” notes are historical.
 
-`prepareFile` returns byte-preserving line chunks, stable `chunkId`, text/profile
-hashes, missing `embeddingChunkIds`, and a previous snapshot hash. A concurrent
-commit invalidates an older preparation. Line count is an explicit caller policy
-and does not guarantee a tokenizer cap; the producer owns tokenization/inference.
+The public shapes live in [`contracts.ts`](src/contracts.ts) and
+[`index.ts`](src/index.ts). Opening specifies the owned database path, authorized
+roots/scopes and an explicit embedding mode: `text-only`, `vector-configured` or
+`open-existing`. The last mode requires an existing index. Text-only acquisition
+loads no model. Each deadline is a finite positive duration supplied by the owner;
+package defaults do not establish product latency policy.
 
-`commitFile` receives `{plan,profile,embeddings,syntax?}`. Every requested chunk
-requires exactly one finite, nonzero 384-dimensional Float32 vector. Syntax uses
-canonical `FileSymbolInsert`/`FileSymbolRefInsert` field names; omitted syntax
-retains metadata for unchanged content and clears it for changed content.
-Commit results report `writtenChunks`, `reusedEmbeddings`, `writtenSymbols`,
-`writtenRefs`, `syntaxStatus` and `unchanged`. `removeFile({rootId,fileId})`
-transactionally removes the file's chunks, vectors and syntax graph.
+## Publish and read
 
-`search` accepts `bm25` or `trigram` with `text`, or `vector` with a full `profile`
-and vector. Each request names a subset of the roots authorized at open and a
-limit from 1 to 100. Results contain `profileHash`, `candidateCount` and ordered
-hits with `chunkId`, `rootId`, `fileId`, `relativePath`, source line span, content
-and score. Scores sort ascending: native BM25 or cosine distance. Vector coarse
-selection retains at most 100 candidates per requested root before exact
-rescoring; hybrid fusion belongs to a consumer with an explicit quality policy.
+Forward the canonical producer's unchanged chunks, source spans, hashes and syntax
+metadata through `prepareFile`/`prepareScopedFile`; do not reparse or split them.
+The standalone line-chunk preparation API has an explicit caller line policy and
+does not prove a tokenizer limit.
 
-Profile/schema mismatches raise `IndexerError` with code `rebuild-required`.
-Startup never deletes an existing database. `destroy()` closes and joins the
-process before deleting this owned database, WAL and shared-memory files.
-Consumers must coordinate their data-root ownership and factory-reset lifecycle.
+A prepared plan captures the previous snapshot. `commitFile` or scoped publication
+validates that authority and commits text, vectors and syntax together.
+`commitTextFile` accepts no embeddings and requires no inference; it retains valid
+unchanged vectors and removes stale ones. Publication acknowledgements, source
+scan completion and coverage are different facts.
 
-Qualification:
+The root-list API uses its qualified 384-dimensional `EmbeddingProfile`; the
+scoped desktop API carries the full `VectorProfile` for each binding/request,
+including provider, model, dimensions, distance and applicable local model facts.
+Vector reuse requires matching text and profile identity. Do not infer one API's
+profile limits from the other.
 
-```sh
-pnpm exec turbo run build test test:integration type-check --filter=@brainstrike/indexer --force
-```
+BM25/trigram reads need text; vector reads need the admitted profile and vector.
+Authorize the roots/scopes before ranking, retain canonical hit metadata and exact
+rescoring, and expose incomplete coverage honestly. Hybrid fusion belongs to the
+consumer's explicit retrieval policy. State-message/observation projections are
+also derived indexes, not another transcript writer.
 
-The integration task is uncached and requires actual native dependencies. See
-`docs/agents/indexer.md` and ADR-0018 for the boundary and remaining product gates.
+## Retirement and rebuild
 
-The four deadlines are required finite positive milliseconds supplied by the
-owner. No package default is a product latency policy. A timeout or transport
-failure fails pending work, requests termination once, and joins exit. Refused
-termination or an expired exit join raises `IndexerLifecycleError`, retaining an
-explicit `close()` cleanup handle; do not replace that owner before cleanup.
+Unsupported profile/schema acquisition refuses visibly; opening never deletes the
+index. Supported schema construction is owned by
+[`index-metadata.ts`](src/index-metadata.ts) and the store acquisition code.
+A rebuild preserves canonical chats/catalog/configuration.
 
-Electron bootstrap after `app.whenReady()`:
+`close()` joins the physical process. `destroy()` joins it before deleting its
+owned database, WAL and shared-memory files. A transport failure or deadline does
+not prove retirement: `IndexerLifecycleError` retains the explicit cleanup owner
+when termination/join fails. Keep profile/reset ownership until cleanup succeeds.
 
-```ts
-const owner = await IndexerHostManager.create(options, deadlines);
-const indexer = await owner.start();
-// owner.databasePath/profile/rootIds are immutable consumer metadata.
-// Use the same IndexerPort methods above.
-await owner.close(); // joins Electron's UtilityProcess exit event
-// A deliberate fresh owner can reopen; destroy() joins before deleting files.
-```
+## Development
 
-The adapter uses `utilityProcess.fork` and `process.parentPort` exclusively.
-It dynamically imports emitted ESM subpaths from the CJS desktop bundle and
-resolves its entry beside that bundle. There is no implicit child-process
-substitution. Desktop profile/reset/IPC wiring and canonical provided-chunk
-production are pending; the foundation line chunker must not replace the
-existing desktop parser/chunker policy.
+Build and check with this package's configured `build`, `test`, `test:integration`
+and `type-check` scripts. Integration checks require actual native dependencies.
+**CI is disabled due to cost; validation must run locally.** Use
+[validation guidance](../../docs/agents/ci-quality.md).
 
-Canonical producer preparation uses a separate explicit input shape:
-
-```ts
-const plan = await indexer.prepareFile({ rootId, fileId, relativePath, content,
-  providedChunks: canonicalResult.chunks });
-```
-
-Forward the unchanged `PortableChunk[]` from the existing chunker. Every item
-carries chunkIndex, content, SHA256 contentHash, startLine/endLine, UTF-16
-startOffset inclusive/endOffset exclusive, tokenCount, chunkType and chunkSize.
-The indexer validates each claimed source span with the existing canonical
-matcher and line-offset helper; canonical whitespace/CRLF normalization remains
-supported. It rejects incorrect hashes/spans/indices and mixed `chunkLines`
-inputs, without re-splitting or relocating chunks. Symbols/refs still accompany
-commitFile from that same parser result.
-
-Plan chunks and all search hits preserve the complete producer metadata.
-Legacy line-policy chunks carry explicit null producer metadata. Provided IDs
-hash root/file/chunkIndex/offsets; vectors reuse only with identical text and
-profile hash. Metadata-only changes update persisted metadata without replacing
-vector bytes. Derived schema3 explicitly refuses schemas1/2 with rebuild-required;
-opening never migrates or erases it. No product producer/IPC cutover is implied.
-
-Text-only ingestion uses explicit `port.commitTextFile({plan,syntax?})`. It never requests inference or accepts embeddings. The host still requires a complete configured profile. Text writes retain valid unchanged vectors and remove stale ones; strict `commitFile` requires every missing vector, including explicit backfill after text ingestion. Vector search returns only persisted vector rows.
+Contract: [indexer](../../docs/agents/indexer.md).
+Decision: [ADR-0018](../../docs/adr/0018-derived-sqlite-indexer.md).

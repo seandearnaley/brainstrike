@@ -52,7 +52,7 @@ Markdown extensions recognized for the toggle: `.md`, `.markdown`, `.mdown`, `.m
 
 - **Desktop:** new `openExternal(url)` handler in the existing `shell` IPC domain (`apps/desktop/src/ipc-shell.ts`), exposed on the `window.platform` preload bridge. Protocol allowlist: `http:`, `https:`, `mailto:` — everything else (`file:`, `javascript:`, custom schemes) rejected in **main** before reaching `shell.openExternal`.
 - **Web:** `window.open(url, '_blank', 'noopener,noreferrer')` behind the same allowlist.
-- **Relative `.md` links** (`[spec](./design.md)`): resolve against the file's path; if inside a mounted workspace root, open via the existing `openFileInTab(compositeKey)` ide-layout seam. Outside mounted roots → toast ("outside workspace"). Never a silent no-op.
+- **Relative `.md` links** (for example, a link to `./design.md`): resolve against the file's path; if inside a mounted workspace root, open via the existing `openFileInTab(compositeKey)` ide-layout seam. Outside mounted roots → toast ("outside workspace"). Never a silent no-op.
 - **Anchor links** (`#heading`): in-preview scroll; `rehype-slug` provides stable heading ids.
 
 ### Local relative images (`resolveImageSrc`)
