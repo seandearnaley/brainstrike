@@ -1,6 +1,14 @@
 import type { ThreadWorkspaceRepository, WorkspaceSnapshotV1 } from '@brainstrike/assistant-data';
 import { EMPTY_WORKSPACE_SNAPSHOT } from '@brainstrike/assistant-data';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render as renderComponent,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { delegatedWorkspaceTabId } from '../../delegated-workspace-tab';
 import { hostChildWorkspaceTabId } from '../../host-child-workspace-tab';
@@ -244,9 +252,8 @@ describe('useThreadWorkspaceCoordinator', () => {
   }
 
   it('Clear joins a mounted workspace save before retiring tabs and the host content', async () => {
-    const { useNativeContentClear } = await import(
-      '../../../../db-explorer/src/hooks/use-native-content-clear'
-    );
+    const { DatabaseDemoPanel } = await import('@brainstrike/db-explorer');
+    const { TooltipProvider } = await import('@brainstrike/ui');
     const { resetAssistantThreadStore, useAssistantThreadStore, useAssistantThreadGroupsStore } =
       await import('@brainstrike/assistant-data');
     const harness = createHarness();
@@ -283,32 +290,40 @@ describe('useThreadWorkspaceCoordinator', () => {
       return { deletedChunks: 0, deletedFiles: 0 };
     });
     vi.stubGlobal('electronAPI', { content: { clear } });
-    const files: import('@brainstrike/assistant-contract').SourceFilesCapability = {
+    const files: import('@brainstrike/assistant-contract/boundary-result').BoundaryTransport<
+      import('@brainstrike/assistant-contract').SourceFilesCapability
+    > = {
       chunks: vi.fn(),
       delete: vi.fn(),
       import: vi.fn(),
-      list: async () => [],
+      list: async () => ({ ok: true, value: [] }),
       read: vi.fn(),
     };
+    vi.stubGlobal('sourceFiles', files);
+    vi.stubGlobal('collectionCatalog', { snapshot: async () => ({ ok: true, value: [] }) });
     const retireTabs = vi.fn(() => {
       resetAssistantThreadStore();
       useAssistantThreadGroupsStore.getState().reset();
     });
-    const action = renderHook(() => useNativeContentClear(files, 0, retireTabs));
-    let completion: Promise<void> | undefined;
-    act(() => {
-      completion = action.result.current.onClear();
-    });
+    const action = renderComponent(
+      <TooltipProvider>
+        <DatabaseDemoPanel onDatabaseCleared={retireTabs} />
+      </TooltipProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Import settings' }));
+    const trigger = await screen.findByRole('button', { name: 'Clear Database' });
+    await waitFor(() => expect(trigger).not.toBeDisabled());
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole('dialog', { name: 'Clear Database' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Clear Database' }));
     try {
       expect(clear).not.toHaveBeenCalled();
       expect(retireTabs).not.toHaveBeenCalled();
     } finally {
       pending.resolve();
-      await act(async () => {
-        await completion;
-      });
+      await act(async () => pending.promise);
     }
-    expect(clear).toHaveBeenCalledOnce();
+    await waitFor(() => expect(clear).toHaveBeenCalledOnce());
     vi.mocked(harness.repository.setThreadWorkspace).mockClear();
     act(() => {
       harness.state.openAppIds = [];

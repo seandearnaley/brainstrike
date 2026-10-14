@@ -14,6 +14,7 @@
 // effective `setupFiles` rather than grepping source text, so an unused
 // import, a comment, or a second-position entry cannot satisfy it.
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfigFromFile } from 'vite';
@@ -51,11 +52,28 @@ export const PGLITE_LANES = Object.freeze([
 /** A shrunken lane list means the contract was edited, not that fewer lanes host PGlite. */
 export const MIN_LANES = 18;
 
-/** True only when the watchdog setup is the FIRST effective setup file. */
-export function leadsWithWatchdog(setupFiles) {
-  return typeof setupFiles === 'string'
-    ? setupFiles === WATCHDOG_SETUP_ID
-    : Array.isArray(setupFiles) && setupFiles[0] === WATCHDOG_SETUP_ID;
+function isWatchdogSetup(setupFile, configPath) {
+  if (setupFile === WATCHDOG_SETUP_ID) {
+    return true;
+  }
+  if (typeof setupFile !== 'string' || configPath === undefined) {
+    return false;
+  }
+  const resolveModule = createRequire(configPath).resolve;
+  try {
+    return resolveModule(setupFile) === resolveModule(WATCHDOG_SETUP_ID);
+  } catch (error) {
+    if (error?.code === 'MODULE_NOT_FOUND') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+/** True only when the watchdog module is the FIRST effective setup file. */
+export function leadsWithWatchdog(setupFiles, configPath) {
+  const first = Array.isArray(setupFiles) ? setupFiles[0] : setupFiles;
+  return isWatchdogSetup(first, configPath);
 }
 
 /** The `setupFiles` vitest would use for this config (or one of its inline projects). */
@@ -93,7 +111,7 @@ export async function loadEffectiveSetupFiles(configPath, projectName) {
   return project.test.setupFiles;
 }
 
-function describeSetupFiles(setupFiles) {
+function describeSetupFiles(setupFiles, configPath) {
   if (setupFiles === undefined) {
     return 'no setupFiles';
   }
@@ -103,7 +121,7 @@ function describeSetupFiles(setupFiles) {
   if (!Array.isArray(setupFiles)) {
     return `setupFiles is ${typeof setupFiles}, not a string or array`;
   }
-  const position = setupFiles.indexOf(WATCHDOG_SETUP_ID);
+  const position = setupFiles.findIndex((setupFile) => isWatchdogSetup(setupFile, configPath));
   if (position === -1) {
     return `setupFiles omits the watchdog: ${JSON.stringify(setupFiles)}`;
   }
@@ -121,8 +139,8 @@ export async function findLanesMissingWatchdog(repoRoot, lanes) {
     }
     try {
       const setupFiles = await loadEffectiveSetupFiles(configPath, lane.project);
-      if (!leadsWithWatchdog(setupFiles)) {
-        missing.push({ ...lane, reason: describeSetupFiles(setupFiles) });
+      if (!leadsWithWatchdog(setupFiles, configPath)) {
+        missing.push({ ...lane, reason: describeSetupFiles(setupFiles, configPath) });
       }
     } catch (error) {
       missing.push({
