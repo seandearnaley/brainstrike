@@ -48,4 +48,4 @@ permission admission. Keep semantic/adaptive retrieval, web/citation work,
 artifact continuation, MCP discovery, LSP diagnostics, command sessions,
 shell, approvals, writes, task/plan state, external actions, and unknown tools
 direct. There is no silent route switch. Full evidence is in
-`docs/agents/research/bst-616-programmatic-orchestration-spike.md`.
+`docs/archive/agent-contract-history/research/bst-616-programmatic-orchestration-spike.md`.

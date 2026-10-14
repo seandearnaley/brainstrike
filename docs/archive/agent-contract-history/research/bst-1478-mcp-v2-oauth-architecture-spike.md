@@ -3,7 +3,7 @@
 Date: 2026-08-28
 
 Status: historical research evidence; decisions promoted to the
-[living provider contract](../assistant-providers.md#mcp-2026-host-architecture)
+[living provider contract](../../../agents/assistant-providers.md#mcp-2026-host-architecture)
 
 This document preserves the source analysis and rejected alternatives from the
 spike date. It is not the authority for current implementation behavior; the
@@ -43,9 +43,9 @@ receives token-free states and explicit Authenticate/Reauthorize/Disconnect acti
 
 Brainstrike directly depends on `@modelcontextprotocol/sdk@1.30.0`; transitive v2
 `core`/`server` packages in the lockfile do not make its client v2.
-[catalog](../../../pnpm-workspace.yaml#L52),
-[agent package](../../../packages/agent/package.json#L23),
-[desktop package](../../../apps/desktop/package.json#L89)
+[catalog](../../../../pnpm-workspace.yaml#L52),
+[agent package](../../../../packages/agent/package.json#L23),
+[desktop package](../../../../apps/desktop/package.json#L89)
 
 Linear's native endpoint is Streamable HTTP. Its interactive flow uses OAuth 2.1 with
 Dynamic Client Registration (DCR); read-only access is available through
@@ -103,14 +103,14 @@ gate. [spec](https://modelcontextprotocol.io/specification/2026-07-28),
 
 | Area | Evidence | Gap |
 | --- | --- | --- |
-| SDK/protocol | Direct v1.30 dependency and v1 imports. [HTTP client](../../../packages/agent/src/mcp/explicit-http-client.ts#L1-L6), [stdio client](../../../packages/agent/src/mcp/explicit-stdio-client.ts#L1-L2) | No SDK v2 or modern era. |
-| Config/auth | Schema supports transport, URL/process fields, headers/env, and enabled tools only. [config](../../../packages/agent/src/mcp/config.ts#L3-L37) Desktop examples place bearer auth in headers. [template](../../../apps/desktop/src/mcp-loader.ts#L148-L180) | No OAuth/auth-mode contract or token-free secret reference. |
-| Client surface | Runtime and desktop contracts expose only list/call tools and close. [runtime](../../../packages/agent/src/mastra/mcp-runtime-client.ts#L32-L45), [desktop](../../../apps/desktop/src/mcp/types.ts#L3-L23) | No resources, prompts, completion, discovery metadata, subscriptions, elicitation, tasks, or auth state. |
-| Ownership | Settings maintains a desktop client map while assistant runs construct another set. [desktop owner](../../../apps/desktop/src/mcp/index.ts#L6-L36), [runtime owner](../../../packages/agent/src/mastra/mcp-runtime-client.ts#L62-L108) | Duplicate child/HTTP/auth/refresh/subscription lifecycles; unsafe for rotating refresh tokens. |
-| OAuth timeout | Desktop stdio connect has a 10-second default deadline, overridable only through `MCP_STDIO_CONNECT_TIMEOUT_MS`. [stdio](../../../apps/desktop/src/mcp/stdio-client.ts#L7-L24) | Human authorization is incorrectly coupled to child connection when using a proxy. |
-| Capability honesty | HTTP and stdio clients always advertise `io.modelcontextprotocol/ui: {}`. [HTTP](../../../packages/agent/src/mcp/explicit-http-client.ts#L336-L341), [stdio](../../../packages/agent/src/mcp/explicit-stdio-client.ts#L218-L223) | False MCP Apps claim; no resource reader/sandbox/postMessage host. |
-| Existing foundation | Provider OAuth already has main-process ownership, token-free statuses/IPC, loopback/browser patterns, refresh single-flight, and encrypted storage. [contract](../../../packages/assistant-contract/src/provider-auth.ts#L1-L46) | Reuse security/UI primitives, not its fixed endpoint descriptor or narrow credential shape; MCP SDK must own MCP OAuth algorithms. |
-| UI/diagnostics | MCP status is connected/disconnected/error plus tool count. [settings](../../../packages/settings-ui/src/settings/tools/types.ts#L84-L92) | No auth-required/reconnect/scope/era/capability states; child stderr and protocol phases are not durable status. |
+| SDK/protocol | Direct v1.30 dependency and v1 imports. [HTTP client](../../../../packages/agent/src/mcp/explicit-http-client.ts#L1-L6), [stdio client](../../../../packages/agent/src/mcp/explicit-stdio-client.ts#L1-L2) | No SDK v2 or modern era. |
+| Config/auth | Schema supports transport, URL/process fields, headers/env, and enabled tools only. [config](../../../../packages/agent/src/mcp/config.ts#L3-L37) Desktop examples place bearer auth in headers. [template](../../../../apps/desktop/src/mcp-loader.ts#L148-L180) | No OAuth/auth-mode contract or token-free secret reference. |
+| Client surface | Runtime and desktop contracts expose only list/call tools and close. [runtime](../../../../packages/agent/src/mastra/mcp-runtime-client.ts#L32-L45), [desktop](../../../../apps/desktop/src/mcp/types.ts#L3-L23) | No resources, prompts, completion, discovery metadata, subscriptions, elicitation, tasks, or auth state. |
+| Ownership | Settings maintains a desktop client map while assistant runs construct another set. [desktop owner](../../../../apps/desktop/src/mcp/index.ts#L6-L36), [runtime owner](../../../../packages/agent/src/mastra/mcp-runtime-client.ts#L62-L108) | Duplicate child/HTTP/auth/refresh/subscription lifecycles; unsafe for rotating refresh tokens. |
+| OAuth timeout | Desktop stdio connect has a 10-second default deadline, overridable only through `MCP_STDIO_CONNECT_TIMEOUT_MS`. [stdio](../../../../apps/desktop/src/mcp/stdio-client.ts#L7-L24) | Human authorization is incorrectly coupled to child connection when using a proxy. |
+| Capability honesty | HTTP and stdio clients always advertise `io.modelcontextprotocol/ui: {}`. [HTTP](../../../../packages/agent/src/mcp/explicit-http-client.ts#L336-L341), [stdio](../../../../packages/agent/src/mcp/explicit-stdio-client.ts#L218-L223) | False MCP Apps claim; no resource reader/sandbox/postMessage host. |
+| Existing foundation | Provider OAuth already has main-process ownership, token-free statuses/IPC, loopback/browser patterns, refresh single-flight, and encrypted storage. [contract](../../../../packages/assistant-contract/src/provider-auth.ts#L1-L46) | Reuse security/UI primitives, not its fixed endpoint descriptor or narrow credential shape; MCP SDK must own MCP OAuth algorithms. |
+| UI/diagnostics | MCP status is connected/disconnected/error plus tool count. [settings](../../../../packages/settings-ui/src/settings/tools/types.ts#L84-L92) | No auth-required/reconnect/scope/era/capability states; child stderr and protocol phases are not durable status. |
 
 ## Recommended architecture
 

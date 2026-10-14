@@ -106,8 +106,8 @@ do not establish those product outcomes.
 ## References
 
 - Live contract: `docs/agents/indexer.md`.
-- Evidence: `docs/agents/indexer/2026-10-02-independent-package.md`,
-  `docs/agents/indexer/2026-10-02-electron-utility.md`.
+- Evidence: `docs/archive/agent-contract-history/indexer/2026-10-02-independent-package.md`,
+  `docs/archive/agent-contract-history/indexer/2026-10-02-electron-utility.md`.
 - [Electron utility process](https://www.electronjs.org/docs/latest/api/utility-process).
 - [Electron ParentPort](https://www.electronjs.org/docs/latest/api/parent-port).
 - [SQLite FTS5](https://sqlite.org/fts5.html).

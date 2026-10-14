@@ -75,7 +75,7 @@ pnpm --filter @brainstrike/state-store type-check
 pnpm --filter @brainstrike/state-store build
 pnpm --filter @brainstrike/state-store test
 BRAINSTRIKE_STATE_STORE_KERNEL_SYNC=1 pnpm --filter @brainstrike/state-store test:integration
-pnpm dlx ultracite@7.9.2 fix packages/state-store docs/agents/state-store.md docs/agents/state-store/foundation.md
+pnpm dlx ultracite@7.9.2 fix packages/state-store docs/agents/state-store.md docs/archive/agent-contract-history/state-store/foundation.md
 ```
 
 For Linux, source files were copied without host dependency/native binary

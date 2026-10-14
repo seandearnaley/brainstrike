@@ -1,51 +1,34 @@
-# Agent contract idiom
+# Agent contracts
 
-How every `docs/agents/<area>.md` is written. `AGENTS.md` routes an agent to a
-**contract**; the agent reads the whole contract before touching that area, so
-every line is paid for on every task.
+These pages contain the non-obvious invariants for a subsystem. Use the relevant
+page when the task needs it; there is no mandatory document-reading itinerary.
+Root `AGENTS.md` owns working rules, [validation](ci-quality.md) owns delivery
+policy, and accepted decisions live in `docs/adr/`. Verify implementation details
+against current source and tests. Historical notes are reference, not more rules. Earlier records live in the
+[contract history](../archive/agent-contract-history/README.md).
 
-## Two tiers
+| Working on | Contract |
+| --- | --- |
+| Run admission, streaming and Stop | [Runtime](assistant-runtime.md) |
+| Logs, hydration and memory | [Persistence](assistant-persistence.md) |
+| Providers, credentials and MCP | [Providers](assistant-providers.md) |
+| Child runs and parent continuation | [Subagents](assistant-subagents.md) |
+| Canonical SQLite state and root lease | [StateStore](state-store.md), [host lease](host-lease.md) |
+| Catalogs and remaining PGlite | [Database](database.md) |
+| Derived search and indexing | [Indexer](indexer.md), [retrieval quality](retrieval-quality.md) |
+| Embeddings and local LLM | [Local inference](local-inference.md) |
+| Workspace instructions, roots and edits | [Workspace](workspace-context.md) |
+| Explorer, search and file previews | [Explorer](explorer-search-tapestry.md) |
+| Git changes and managed worktrees | [Changesets](changeset-diff.md) |
+| Shared UI, menus and reload | [UI](ui-conventions.md) |
+| IPC, logging and reset | [Platform](platform-contracts.md) |
+| Sandboxed code execution | [Execution](code-execution.md) |
+| Effect and Mastra boundaries | [Effect](effect-boundary.md), [Mastra](mastra-boundary.md) |
+| MCP protocol qualification | [Conformance](mcp-conformance.md) |
+| Tickets and project vocabulary | [Tracker](issue-tracker.md), [triage](triage-labels.md), [domain](domain.md) |
 
-| Tier | Path | Read when | Holds |
-| --- | --- | --- | --- |
-| **Contract** | `docs/agents/<area>.md` | Before any change to the area | The rules that are true now |
-| **Evidence** | `docs/agents/<area>/<topic>.md` | Before proposing to change a settled rule, or when debugging that topic | Why the rule exists: incidents, measurements, rejected alternatives, prior designs |
-
-## Contract sections
-
-Present tense, imperative, checkable. One topic per `###` heading, shaped:
-
-```markdown
-### <Topic>
-
-- <Rule an agent can obey or verify.>
-- <Rule.> Why: <one clause, only when the rule looks wrong without it>.
-
-Evidence: `<area>/<topic>.md`.
-Guard: `<test or script that fails when the rule breaks>`.
-```
-
-- State the current behaviour only. A design that was replaced belongs in evidence.
-- Name the guard. A rule with a guard needs less prose; the test is the detail.
-- Keep a heading's words stable: code comments cite sections by name.
-- Ticket IDs and PR numbers live in evidence, where they explain something.
-
-## What moves to evidence
-
-Anything answering *"how did we learn this?"*: dated incidents, PR and run
-numbers, byte counts and timings, "previously…" designs, rejected alternatives,
-trust-model arguments, vendor links. Evidence files open with the rule they
-support, then the record. They are historical once written — correct a wrong
-fact, otherwise append.
-
-## What is deleted
-
-Text that restates its source of truth: what a workflow, config, script, or test
-already says line by line. Point at the file; it cannot go stale.
-
-## Adding knowledge
-
-Update a contract only when the behaviour it describes changes (AGENTS.md
-working rule 11). A rule is one or two contract lines, and its story goes in an
-evidence file. Contracts carry no line-count pins; real decisions go in
-`docs/adr/`.
+Keep each contract roughly one page. Preserve current ownership, security,
+durability and lifetime constraints. API inventories, pins, limits and command
+recipes belong to their executable owners. Resolved incidents and measurements
+belong in history; adding one does not create a new agent procedure. Change docs
+when their meaning changes, not as a routine PR requirement.

@@ -35,7 +35,7 @@ tokens and cost an estimated 36–79% more across all four comparisons. It was
 also slower on both GPT-5.4 Mini scenarios; Luna's isolated exact-path latency
 win was not a consistent cross-model advantage. The broader paid matrix stopped
 at that failed gate. The full measurements and revisit condition are in
-`docs/agents/research/bst-680-openai-native-tool-search-requalification.md`.
+`docs/archive/agent-contract-history/research/bst-680-openai-native-tool-search-requalification.md`.
 
 There is no fallback between discovery adapters. A future provider-native slice
 must be selected explicitly and independently prove provider-history
@@ -43,5 +43,5 @@ serialization, normal-prompt selection/miss quality, post-policy catalog
 admission, MCP/provider-web coexistence, approval suspension, durable restart
 resume, cache behavior, and non-inferior token/cost measurements. The complete
 evidence and live tables are in
-`docs/agents/research/bst-614-native-tool-search-spike.md` and
-`docs/agents/research/bst-680-openai-native-tool-search-requalification.md`.
+`docs/archive/agent-contract-history/research/bst-614-native-tool-search-spike.md` and
+`docs/archive/agent-contract-history/research/bst-680-openai-native-tool-search-requalification.md`.

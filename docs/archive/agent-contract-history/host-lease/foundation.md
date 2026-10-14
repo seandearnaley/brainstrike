@@ -79,7 +79,7 @@ pnpm --filter @brainstrike/host-lease build
 pnpm --filter @brainstrike/host-lease type-check
 pnpm --filter @brainstrike/host-lease test
 pnpm --filter @brainstrike/host-lease test:integration
-pnpm dlx ultracite@7.9.2 fix packages/host-lease docs/agents/host-lease.md docs/agents/host-lease/foundation.md
+pnpm dlx ultracite@7.9.2 fix packages/host-lease docs/agents/host-lease.md docs/archive/agent-contract-history/host-lease/foundation.md
 ```
 
 TypeScript source/tests and strict Effect diagnostics: 22 files, zero errors or
