@@ -1,11 +1,14 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { updateSettingsTestOverrides } from '@brainstrike/e2e-test-utils/settings-test-overrides';
 import type { ConsoleMessage } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
+import { ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
+import { captureResetLogs } from './utils/reset-log-capture';
 import { readNativeResetProbe, seedNativeResetProbe } from './utils/reset-seed-helpers';
 
 type ConfirmOverrideTarget = typeof globalThis & {
@@ -339,4 +342,111 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     await restartedSettingsPage.openCategory(/Permissions/i, 'permissions');
     await expect(restartedWindow.getByTestId('permission-policy-edit')).toHaveValue('ask');
   });
+  for (const folderCount of [1, 2]) {
+    test(`reset with ${folderCount} mounted folders retires cleanly and stays fresh after reopen`, async ({
+      window,
+      homePage,
+      electronApp,
+      electronHarness,
+    }, testInfo) => {
+      test.skip(
+        process.platform === 'win32',
+        'Windows Factory Reset is disabled for M3 by owner decision.'
+      );
+      const logs = captureResetLogs();
+      logs.observeApp(electronApp.app);
+      const firstRoot = await electronApp.app.evaluate(
+        () => process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH']
+      );
+      if (!firstRoot) {
+        throw new Error('Disposable workspace fixture missing');
+      }
+      const extraRoots: string[] = [];
+      const roots = [firstRoot];
+      try {
+        for (let index = 1; index < folderCount; index += 1) {
+          const root = fs.realpathSync(
+            fs.mkdtempSync(path.join(os.tmpdir(), 'brainstrike-reset-root-'))
+          );
+          extraRoots.push(root);
+          roots.push(root);
+        }
+        for (const [index, root] of roots.entries()) {
+          const fileName = `reset-folder-${index}.txt`;
+          fs.writeFileSync(path.join(root, fileName), 'external workspace survives reset', 'utf8');
+          await electronApp.app.evaluate((_electron, rootPath) => {
+            process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = rootPath;
+          }, root);
+          if (index === 0) {
+            await ensureMockWorkspaceOpen(window);
+          } else {
+            await window
+              .getByRole('button', { exact: true, name: 'Add Folder to Workspace' })
+              .click();
+          }
+          await expect(window.getByText(fileName, { exact: true })).toBeVisible();
+        }
+        const readFolders = async (page: import('@playwright/test').Page) =>
+          await page.evaluate(async () => {
+            const storage = (
+              globalThis as typeof globalThis & {
+                electronAPI?: { storage?: { getItem: (key: string) => Promise<string | null> } };
+              }
+            ).electronAPI?.storage;
+            if (!storage) {
+              throw new Error('Desktop storage capability unavailable');
+            }
+            const values = await Promise.all(
+              ['rootsList', 'recentRootsList'].map((key) => storage.getItem(key))
+            );
+            return values.map((value): unknown => (value === null ? [] : JSON.parse(value)));
+          });
+        const mounted = await readFolders(window);
+        expect(mounted[0]).toHaveLength(folderCount);
+        expect(mounted[1]).toHaveLength(folderCount);
+        await openFactoryResetSettings(homePage, new SettingsPage(window));
+        await overrideNextConfirm(window, true);
+        // Join the actual reload initiated by the UI reset, not another reset call.
+        await Promise.all([
+          window.waitForEvent('framenavigated', {
+            predicate: (frame) => frame === window.mainFrame(),
+          }),
+          window.getByTestId('factory-reset-button').click(),
+        ]);
+        const { waitForAppReady } = await loadElectronHelpers();
+        await waitForAppReady(window);
+        await expect.poll(() => readFolders(window)).toEqual([[], []]);
+        await homePage.leaveSettings();
+        for (const index of roots.keys()) {
+          await expect(window.getByText(`reset-folder-${index}.txt`, { exact: true })).toHaveCount(
+            0
+          );
+        }
+        const reopened = await electronHarness.restart(logs.observeApp);
+        await waitForAppReady(reopened.window);
+        await new HomePage(reopened.window).leaveSettings();
+        expect(await readFolders(reopened.window)).toEqual([[], []]);
+        for (const [index, root] of roots.entries()) {
+          await expect(
+            reopened.window.getByText(`reset-folder-${index}.txt`, { exact: true })
+          ).toHaveCount(0);
+          expect(fs.readFileSync(path.join(root, `reset-folder-${index}.txt`), 'utf8')).toBe(
+            'external workspace survives reset'
+          );
+        }
+      } finally {
+        // Capture ordinary shutdown too; a known-looking shutdown error still fails.
+        try {
+          await electronHarness.dispose();
+          await logs.join();
+        } finally {
+          await logs.attach(testInfo);
+          logs.assertClean();
+        }
+        for (const root of extraRoots) {
+          fs.rmSync(root, { force: true, recursive: true });
+        }
+      }
+    });
+  }
 });
