@@ -16,7 +16,7 @@ afterEach(() => {
   clearHostedProviderApiKeyCache();
 });
 
-it('retires an already physically settled missing-key request after delivering its original join failure', async () => {
+it('retires an already physically settled missing-key request after generate delivers its failure', async () => {
   for (const key of providerEnvKeys('cohere')) {
     vi.stubEnv(key, '');
     vi.stubEnv(`VITE_${key}`, '');
@@ -65,6 +65,7 @@ it('retires an already physically settled missing-key request after delivering i
   expect(failure).toMatchObject({ kind: 'missing-key' });
   expect(fetch).not.toHaveBeenCalled();
   expect(documentEmbeddings).not.toHaveBeenCalled();
-  await expect(inference.join('request')).rejects.toBe(failure);
+  // generate delivered the failure; join only proves the request physically settled.
+  await expect(inference.join('request')).resolves.toBeUndefined();
   await expect(inference.close()).resolves.toBeUndefined();
 });
