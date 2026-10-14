@@ -5,6 +5,7 @@ import {
   EMBEDDING_WORKER_TEST_RUNTIME_PHASE_KEY,
 } from '../../src/test-runtime-bootstrap';
 import type { GpuDeviceHandle } from '../../src/webgpu-device-owner';
+import { attachStandInTokenizer } from './stand-in-tokenizer';
 
 export const workerEmitMock = vi.fn();
 export const transferMock = vi.fn(function TransferStub<T>(value: T) {
@@ -27,7 +28,7 @@ vi.mock('workerpool', () => ({
 
 vi.mock('@huggingface/transformers', () => ({
   env: { allowRemoteModels: false },
-  pipeline: (...args: unknown[]) => pipelineMock(...args),
+  pipeline: async (...args: unknown[]) => attachStandInTokenizer(await pipelineMock(...args)),
   Tensor: class MockTensor {
     readonly data: Float32Array;
     readonly dims: readonly number[];
