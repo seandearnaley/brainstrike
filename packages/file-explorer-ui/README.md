@@ -1,64 +1,35 @@
 # @brainstrike/file-explorer-ui
 
-React components for displaying and interacting with the file explorer state. These components build upon `@brainstrike/ui` and `@brainstrike/file-explorer` to render file trees, toolbars and related settings screens.
+Explorer composition, treegrid, context preview, file tabs and token-status UI.
+It reuses core explorer state and shared UI rather than owning another selection,
+content loader or virtualization system.
 
-## Virtualization
+## Compose existing providers
 
-Large file trees render through the shared `TreeTable` treegrid primitives from
-`@brainstrike/ui`. The tree slice owns row-model and lazy-loading composition;
-do not reintroduce a package-local virtual-list hook. See `src/tree/README.md`
-and the root `AGENTS.md` UI-conventions route before changing this boundary.
+The platform supplies `AdaptersProvider` with admitted filesystem/storage
+capabilities. `FileExplorerProvider` owns its explorer store and receives a stable
+storage adapter. Mount the shared `FileSystemProvider` once for consumers of the
+UI's filesystem hook; a fallback instance would split root state.
 
-## Installation
+Use the declared `/shell`, `/tree`, `/preview` and `/indexing` public subpaths.
+Source props and the [`package.json`](package.json) export map define the exact
+composition. A placeholder adapter expression or a newly constructed memory
+store in each render is not a production persistence recipe.
 
-This package ships as part of the Brainstrike Turborepo. Link it to another
-workspace instead of pulling from the public registry.
+## Slice contracts
 
-```bash
-# Add to a specific workspace (example: the web app)
-pnpm add @brainstrike/file-explorer-ui --filter @brainstrike/web
+- [Tree](src/tree/README.md): TreeTable row models, lazy loading and selection.
+- [Shell](src/shell/README.md): providers, tabs, toolbar and root composition.
+- [Preview](src/preview/README.md): Tapestry, summary and report/context curation.
+- [Indexing](src/indexing/README.md): token cache/counting and budget presentation.
+- [Stores](src/stores/README.md): persisted presentation metadata and transient state.
 
-# Or declare it manually inside the target package.json
-"dependencies": {
-  "@brainstrike/file-explorer-ui": "workspace:*"
-}
-```
+File reads require the exact mounted-root authority. Keep binary/inaccessible
+results, selection limits, per-key retry and provider-owned generations visible.
+File bytes remain ephemeral. Reuse TreeTable, TabStrip and context-action owners,
+including their scrollport, keyboard and focus behavior.
 
-## Usage
-
-```tsx
-import { AdaptersProvider } from "@brainstrike/file-explorer-hooks";
-import { MemoryStorageAdapter } from "@brainstrike/storage";
-import {
-  FileExplorerProvider,
-  FileExplorerSidebar,
-  FileTree,
-} from "@brainstrike/file-explorer-ui";
-
-function Sidebar() {
-  return (
-    <AdaptersProvider
-      fileSystemAdapter={/* platform specific adapter */}
-      storageAdapter={new MemoryStorageAdapter()}
-    >
-      <FileExplorerProvider storageAdapter={new MemoryStorageAdapter()}>
-        <FileExplorerSidebar>
-          <FileTree />
-        </FileExplorerSidebar>
-      </FileExplorerProvider>
-    </AdaptersProvider>
-  );
-}
-```
-
-Providers from `@brainstrike/file-explorer-hooks` and
-`@brainstrike/file-explorer` must wrap these components so they can resolve the
-Zustand store and worker helpers.
-
-## Development
-
-```bash
-pnpm run build
-pnpm run dev # watch mode
-pnpm run test
-```
+See [UI conventions](../../docs/agents/ui-conventions.md) and
+[explorer/preview](../../docs/agents/explorer-search-tapestry.md).
+Scripts and dependencies belong to the manifest; contribution/validation rules
+live in [root guidance](../../AGENTS.md).

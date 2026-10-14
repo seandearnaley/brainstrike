@@ -1,59 +1,31 @@
 # @brainstrike/hooks
 
-This package contains reusable React hooks used across the Brainstrike project.
+Small shared React hooks. [`index.ts`](src/index.ts) owns exports including
+`useDebouncedValue`, `useFileFilters` and `useLoadingManager`.
 
-## Installation
-
-Link the hooks package through pnpm workspaces rather than the public registry.
-
-```bash
-# Add to a specific workspace (example: apps/web)
-pnpm add @brainstrike/hooks --filter @brainstrike/web
-
-# Or declare it manually inside the target package.json
-"dependencies": {
-  "@brainstrike/hooks": "workspace:*"
-}
-```
-
-## Usage
+`useDebouncedValue(value, delay)` takes an explicit delay and cancels its prior
+scheduled update when the value/delay changes or the component unmounts:
 
 ```tsx
-import { useDebouncedValue } from "@brainstrike/hooks";
+import { useState } from 'react';
+import { useDebouncedValue } from '@brainstrike/hooks';
 
-function MyComponent() {
-  const [value, setValue] = useState("");
-  // Value will only update after 300ms of no changes
-  const debouncedValue = useDebouncedValue(value, 300);
-
+export function QueryPreview() {
+  const [query, setQuery] = useState('');
+  const debouncedQuery = useDebouncedValue(query, 300);
   return (
-    <div>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-      />
-      <p>Debounced value: {debouncedValue}</p>
-    </div>
+    <>
+      <input value={query} onChange={(event) => setQuery(event.target.value)} />
+      <output>{debouncedQuery}</output>
+    </>
   );
 }
 ```
 
-## Available Hooks
+Hook cleanup is scoped to its own resources; a loading flag does not own or cancel
+a longer-lived host operation. Use the filter/loading hooks' actual input and
+result types instead of copying package-local stores into this generic layer.
 
-- **useDebouncedValue**: Creates a debounced version of a value
-- **useFileFilters**: Applies include or exclude filters to a file tree using globs or regex
-- **useLoadingManager**: Manages asynchronous loading state for a collection of keys
-
-## Development
-
-```bash
-# Build the package
-pnpm run build
-
-# Run in watch mode during development
-pnpm run dev
-
-# Run tests
-pnpm run test
-```
+Exports, scripts and versions live in [`package.json`](package.json). Local
+consumers use `workspace:*`; [shared contribution/validation policy](../../AGENTS.md)
+applies.

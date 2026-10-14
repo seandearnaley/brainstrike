@@ -1,28 +1,21 @@
-# File Explorer Tree Slice
+# Explorer tree
 
-## Ownership
+Owns TreeTable row models, lazy-loading composition, tree context and selection
+projections. Shared TreeTable remains the treegrid/virtualization owner, including
+its two-axis scrollport and accessible keyboard/focus contract.
 
-Owns tree rendering (via shared TreeTable treegrid primitives from `@brainstrike/ui`), lazy loading, file-tree provider state, file-tree index helpers, row-level selection behavior, and tree selection-count projections. Do not reintroduce a local virtual-list hook — TreeTable is the canonical treegrid (see root AGENTS.md TREEGRID CONVERGENCE CONTRACT).
+Keep `optimized-file-tree.tsx` as composition over the existing row-model,
+selection-count and directory-mutation helpers. Preserve canonical root/composite
+identities, load/error state and explicit selection behavior. Truncation or UI
+pseudo-nodes cannot establish complete source membership or file counts.
 
-Top churn owned here:
-- `optimized-file-tree.tsx`
-- `optimized-file-tree-model.ts`
-- `optimized-file-tree-selection-counts.ts`
-- `use-lazy-file-tree.ts`
-- `file-tree-provider.tsx`
+Use `@brainstrike/file-explorer-ui/tree` across packages. Its
+[`index.ts`](index.ts) routes public exports; consumers do not deep-import a new
+parallel tree implementation. Tree dependencies remain directed toward core
+explorer state, shell selectors, tree-worker helpers and shared UI/hooks. Preview
+or indexing coupling needs the existing explicit contract/architecture coverage.
 
-`optimized-file-tree.tsx` must stay a composition module. Row model construction, selection state derivation, directory mutation helpers, and selected-directory count calculations belong in the owned helper modules listed above.
-
-## Public surface
-
-Use `@brainstrike/file-explorer-ui/tree` for cross-package imports. The root package barrel delegates to this public barrel; it should not export individual tree implementation files directly.
-
-## Allowed dependencies
-
-Allowed inward dependencies are shell store selectors, file-tree-worker helpers, file-explorer core types, shared hooks, shared UI primitives, platform utils, and React. Tree should not import preview or indexing unless the dependency is explicitly documented and covered by package-local architecture tests.
-
-## Focused local test
-
-```bash
-pnpm --filter @brainstrike/file-explorer-ui exec vitest run src/__tests__/optimized-file-tree.test.tsx src/__tests__/optimized-file-tree-selection.test.tsx src/__tests__/optimized-file-tree-query-expansion.test.tsx src/__tests__/optimized-file-tree-selection-mutations.test.tsx src/__tests__/file-tree-provider.test.tsx src/__tests__/use-file-tree-context.test.ts
-```
+For shared behavior see [UI conventions](../../../../docs/agents/ui-conventions.md)
+and [explorer contracts](../../../../docs/agents/explorer-search-tapestry.md).
+Commands and validation selection live in the package manifest and
+[root guidance](../../../../AGENTS.md).

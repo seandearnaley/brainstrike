@@ -1,40 +1,26 @@
 # @brainstrike/file-explorer-hooks
 
-This package contains React hooks for the file explorer feature, designed to be reused across different front-ends.
+React integration for adapter-backed filesystem access, selection, loading,
+watcher health, restoration and report generation. The root exports are defined
+in [`index.ts`](src/index.ts).
 
-## Available Hooks
+`AdaptersProvider` receives actual filesystem and storage adapters. Preserve its
+owned lifetime; components must not create independent root registries or silently
+substitute capabilities. The low-level `useFileSystem` hook has its own instance
+state. Shared explorer UI uses the single `FileSystemProvider` instance from
+`@brainstrike/file-explorer-ui/shell` so every consumer sees the same mounted roots.
 
-- `useFileSystem`: Provides core file system access functionalities, including selecting a root directory and checking API compatibility.
-- `useSelectionManager`: Manages file and directory selection state, including selection limits.
-- `useToastManager`: Provides helper functions for displaying file-explorer related toasts.
-- `useReportGeneration`: Coordinates file loading and context generation for explorer exports.
-- `createReportGenerationWorker`: Platform-neutral context generator used by the report hook. It requires the active `FileSystemAdapter`; missing capabilities throw instead of selecting a browser-only fallback.
+`useSelectionManager` takes the current selected paths, limit and writer;
+it is not a zero-argument store lookup. Keep canonical root/composite identities
+and the existing selection-limit behavior through those inputs.
 
-## Installation
+`useReportGeneration` and `createReportGenerationWorker` compose the existing file
+loader and pure explorer context projection. They require the active adapter;
+unavailable capabilities and invalid filters fail visibly. File loading preserves
+per-key accessible/inaccessible results, explicit retry and generation fences.
+A callback or abort notification alone does not retire physical reads.
 
-This package is internal to the `@brainstrike` monorepo and is typically consumed via workspace linking.
-
-## Usage
-
-```tsx
-import { useFileSystem, useSelectionManager } from '@brainstrike/file-explorer-hooks';
-import { useFileExplorerStore } from '@brainstrike/file-explorer'; // Assuming the store is also used
-
-function MyFileExplorerComponent() {
-  const { rootDirectoryHandle, selectRootDirectory, isFileSystemAccessSupported } = useFileSystem();
-  const { selectedFilePaths, handleSelectionChange } = useSelectionManager();
-  const { maxSelectionCount } = useFileExplorerStore(); // Example from store
-
-  // ... component logic ...
-
-  return (
-    <div>
-      <button onClick={selectRootDirectory} disabled={!isFileSystemAccessSupported().supported}>
-        Select Root Folder
-      </button>
-      <p>Selected {selectedFilePaths.size} of {maxSelectionCount} files.</p>
-      {/* ... other UI elements ... */}
-    </div>
-  );
-}
-``` 
+Hook signatures and exports live in source and [`package.json`](package.json).
+See [workspace](../../docs/agents/workspace-context.md) and
+[explorer](../../docs/agents/explorer-search-tapestry.md) contracts, with
+[shared contribution/validation policy](../../AGENTS.md).

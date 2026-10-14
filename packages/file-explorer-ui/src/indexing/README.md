@@ -1,29 +1,21 @@
-# File Explorer Indexing Slice
+# Explorer token indexing
 
-## Ownership
+Owns token-counting/cache integration, background token-indexer composition,
+budget controls and token meters. This is separate from semantic/native workspace
+indexing and cannot establish committed retrieval coverage.
 
-Owns file-explorer token indexing UI and token-cache integration. This slice is responsible for background token indexer wiring, token budget controls, token meters, and the token cache provider surface consumed by app settings and diagnostics.
+Keep the background integration hook as orchestration. Handle classification,
+admitted content resolution, path normalization, batching and selection-shrink
+reconciliation belong to its existing helpers. Preserve root identity, per-key
+failures and late-completion generations; a missing capability is not permission
+to substitute another filesystem reader.
 
-Top churn owned here:
-- `use-background-token-indexer-integration.ts`
-- `background-token-indexer-handles.ts`
-- `background-token-indexer-dispatch-helpers.ts`
-- `background-token-indexer-selection-shrink.ts`
-- `token-cache-context.tsx`
-- `use-token-counting.ts`
+Use `@brainstrike/file-explorer-ui/indexing` across packages, with exports routed
+by [`index.ts`](index.ts). Dependencies point toward tree context, token cache,
+preferences, shared types/utilities and React, not app or assistant runtimes.
+Keep token/cache lifetime within its actual owner and reset lifecycle.
 
-`use-background-token-indexer-integration.ts` must stay an orchestration hook. File-handle classification, synthetic Electron handle construction, batch-yield helpers, path normalization, large-selection diagnostics, and selection-shrink reconciliation belong in the owned helper modules listed above.
-
-## Public surface
-
-Use `@brainstrike/file-explorer-ui/indexing` for cross-package imports. The root package barrel may re-export this slice, but should not export individual indexing implementation files directly.
-
-## Allowed dependencies
-
-Allowed inward dependencies are file-explorer tree context, token-cache, preferences, db types, shared utils, and React. Indexing should not import app-shell, desktop, web, or assistant runtime internals.
-
-## Focused local test
-
-```bash
-pnpm --filter @brainstrike/file-explorer-ui exec vitest run src/__tests__/use-background-token-indexer-integration.test.tsx src/__tests__/use-background-token-indexer-integration-web-resolver.test.tsx src/__tests__/token-cache-context.test.tsx src/__tests__/use-token-counting.test.ts
-```
+[Explorer contracts](../../../../docs/agents/explorer-search-tapestry.md) and
+[shared contribution/validation policy](../../../../AGENTS.md) apply. The manifest
+and package tests define executable checks; this README does not prescribe another
+fixed test list.

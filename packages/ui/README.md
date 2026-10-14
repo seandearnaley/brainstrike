@@ -1,130 +1,40 @@
 # @brainstrike/ui
 
-A UI component library built with Shadcn UI components and Tailwind CSS v4.
+Shared shadcn/Radix components, TreeTable/TabStrip primitives, markdown/code
+surfaces and theme assets. The assistant feature belongs to
+[`@brainstrike/assistant-ui`](../assistant-ui/README.md), with app integration in
+`@brainstrike/app-shell`.
 
-## Installation
+## Styles and imports
 
-This UI kit is a workspace package. Link it locally rather than fetching it from
-the registry.
-
-```bash
-# Add to a specific workspace (example: apps/web)
-pnpm add @brainstrike/ui --filter @brainstrike/web
-
-# Or declare it manually in the target package.json
-"dependencies": {
-  "@brainstrike/ui": "workspace:*"
-}
-```
-
-## Setup
-
-### 1. Import CSS Variables
-
-Add the following import to your main CSS file (e.g., `globals.css`):
+App CSS owns its single Tailwind entry; import the UI theme variables after it:
 
 ```css
 @import "tailwindcss";
 @import "@brainstrike/ui/globals.css";
 ```
 
-**Note:** Make sure to import the UI package's CSS _after_ the main Tailwind import.
+`@brainstrike/ui/styles.css` supplies the package's source-scanning directive when
+needed by the consuming build. Follow the existing app Vite/Tailwind configuration;
+this package does not require a second PostCSS pipeline.
 
-### 2. Configure PostCSS
+Components such as `Button` and `Input` are root exports. Use the manifest's
+explicit code/markdown/icon subpaths for those boundaries. Component props and
+exported hooks come from the source; the old `/hooks`/`usePanelPersistence` layout
+example is not a current public entrypoint.
 
-Ensure your `postcss.config.mjs` includes the Tailwind PostCSS plugin:
+## Invariants
 
-```js
-/** @type {import('postcss-load-config').Config} */
-const config = {
-  plugins: {
-    "postcss-import": {},
-    "@tailwindcss/postcss": {},
-  },
-};
+TreeTable owns the shared treegrid and its two-axis scrollport. TabStrip, context
+actions and modal/focus layering retain their existing accessible interaction
+contracts. Do not create per-feature virtual lists or context-menu systems.
 
-export default config;
-```
+Shared UI is browser-safe: consumers inject capabilities and callback events.
+It does not import Electron, own preference stores or access platform bridges
+itself. Cached highlighting and code/markdown surfaces reuse their existing
+resource owners. Keep feature-specific runtime/persistence out of primitives.
 
-## Usage
-
-Import components directly from the package:
-
-```jsx
-import { Button, Input, Dialog } from "@brainstrike/ui";
-
-function MyComponent() {
-  return (
-    <div>
-      <Button variant="default">Click me</Button>
-      <Input placeholder="Enter some text" />
-    </div>
-  );
-}
-```
-
-## Available Components
-
-The package includes the following components:
-
-- Accordion
-- Badge
-- Button
-- Checkbox
-- Dialog
-- Input
-- Label
-- Popover
-- Progress
-- ScrollArea
-- Select
-- Switch
-- Table
-- Tabs
-- Toast/Toaster
-- Tooltip
-- LoadingFallback
-- ErrorFallback
-- UnsupportedFeature
-
-And utility hooks:
-
-- useToast
-
-## IDE Layout & Panels
-
-`IdeLayout` creates an IDE-style workspace with optional left, right and console panels.
-Panel state can persist across sessions with the `usePanelPersistence` hook.
-
-```tsx
-import { IdeLayout } from "@brainstrike/ui";
-import { usePanelPersistence } from "@brainstrike/ui/hooks";
-
-function MyIde() {
-  const panel = usePanelPersistence([25, 20, 30]);
-
-  return (
-    <IdeLayout
-      navigationItems={[{ title: "Home", href: "/" }]}
-      currentPath="/"
-      leftPanelContent={<FileExplorer />}
-      rightPanelContent={<Tools />}
-      consoleContent={<Console />}
-    >
-      <Editor />
-    </IdeLayout>
-  );
-}
-```
-
-## Assistant UI Ownership
-
-The assistant panel feature moved to `packages/assistant-ui`. This package keeps
-the shared shadcn/Radix primitives, model picker, code surfaces, and markdown
-building blocks consumed by `@brainstrike/assistant-ui` and other features.
-
-Focused local verification:
-
-```bash
-pnpm --filter @brainstrike/ui type-check
-```
+See [UI conventions](../../docs/agents/ui-conventions.md) and
+[preview contracts](../../docs/agents/explorer-search-tapestry.md).
+[`package.json`](package.json) owns dependencies, exports and scripts; use
+[shared contribution/validation policy](../../AGENTS.md).

@@ -1,75 +1,25 @@
 # @brainstrike/file-explorer
 
-Core state management and actions for the Brainstrike file explorer feature. This package exposes a Zustand store along with helper actions for expanding directories, selecting files and managing preferences.
+Explorer state, actions, persistence and UI-independent context projection.
+The source store/actions and shared types define the API; a path-only example
+is not a root/folder identity contract.
 
-## Installation
+Use the exported action owners for directory expansion, explicit/query selection,
+folder state and settings. Preserve canonical composite selection keys, acknowledged
+root/source membership, large-selection batching and cancellation. A partial tree
+or matching path cannot establish missing membership.
 
-This store lives inside the Brainstrike monorepo. Link it into another
-workspace rather than pulling it from a registry.
+Context/filter projection has narrow `/selection`, `/file-tree`,
+`/project-tree-text` and `/context-generation` subpaths. It uses the platform-neutral
+adapter/handle contracts; raw browser handles belong at the adapter boundary.
+Invalid filters and traversal failures remain visible. Context generation never
+silently widens a filter or presents an incomplete tree as complete.
 
-```bash
-# Add to a specific workspace (example: the desktop app)
-pnpm add @brainstrike/file-explorer --filter @brainstrike/desktop
+Persist only lightweight explorer state in its existing owner. File bytes remain
+ephemeral; provider isolation and reset must fence stale content/generations.
+Keep paths and file content out of diagnostics.
 
-# Or declare it manually inside that workspace package.json
-"dependencies": {
-  "@brainstrike/file-explorer": "workspace:*"
-}
-```
-
-## Usage
-
-```ts
-import { useFileExplorerStore } from "@brainstrike/file-explorer";
-
-const { expandedDirectoryPaths, expandDirectory } = useFileExplorerStore();
-
-expandDirectory("/src/components");
-```
-
-The store also includes actions for selecting files, persisting folder states and updating settings.
-
-Feature-owned, UI-agnostic utilities are exposed through narrow subpaths:
-
-- `@brainstrike/file-explorer/selection`: composite selection key contracts.
-- `@brainstrike/file-explorer/file-tree`: file-explorer tree queries.
-- `@brainstrike/file-explorer/project-tree-text`: filtered project-tree rendering.
-- `@brainstrike/file-explorer/context-generation`: selected-file and project-tree context projection.
-
-Context traversal requires the platform-neutral `FileSystemAdapter` and
-`DirectoryHandle`; raw browser handles stay in adapter/consumer layers. Invalid
-filters and adapter traversal failures surface as errors, while synchronous UI
-previews render the typed pattern-validation result. Context generation never
-silently widens a filter or returns a partial tree.
-
-## Actions Ownership
-
-The file-explorer actions layer owns store mutations and keeps UI concerns out of the core package.
-
-Owned surfaces:
-
-- `src/actions/file-selection-actions.ts`: selection mutation commands, query-selection mutation support, chunked large-selection handling, cancellation, and max-selection enforcement.
-- `src/actions/__tests__/file-selection-actions.test.ts`: executable behavior coverage for explicit selection, query selection, batch mutation, and chunked mutation.
-- `src/actions/__tests__/file-selection-actions-null-folder.test.ts`: focused early-return behavior for null folder ids.
-- `src/actions/__tests__/file-selection-actions-test-support.ts`: shared action-test fixture for selection mocks and full store state construction.
-
-Allowed dependencies:
-
-- `@brainstrike/types` for the canonical file-explorer state and selection model.
-- `@brainstrike/file-explorer/selection` for composite selection key encoding.
-- `@brainstrike/logging` for action logging.
-
-Focused local verification:
-
-```bash
-pnpm --filter @brainstrike/file-explorer exec vitest run src/__tests__/actions-architecture.test.ts src/actions/__tests__/file-selection-actions.test.ts src/actions/__tests__/file-selection-actions-null-folder.test.ts
-pnpm --filter @brainstrike/file-explorer build
-```
-
-## Development
-
-```bash
-pnpm run build
-pnpm run dev # watch mode
-pnpm run test
-```
+[`package.json`](package.json) owns exports/scripts. Relevant contracts:
+[workspace](../../docs/agents/workspace-context.md) and
+[explorer/preview](../../docs/agents/explorer-search-tapestry.md).
+For contribution and validation policy, use [root guidance](../../AGENTS.md).
