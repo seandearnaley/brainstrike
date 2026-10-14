@@ -57,7 +57,7 @@ Phase 1 spike (~2 hours of `npm view` and a worker build) revealed:
 2. **`@swc/wasm-web` is 15.2 MB unpacked / ~5 MB gzipped.** Adding it to `apps/web`'s chunking-worker would quadruple the worker bundle (from 1.8 MB to 6.7 MB gzipped). Unacceptable.
 3. **`@biomejs/wasm-web` is 35.4 MB.** Even worse.
 4. **Babel today costs ~103 KB gzipped** in the chunking-worker bundle — small enough that the bundle-size argument *for* swapping it is weak. The compelling argument is CPU time, not bundle bytes.
-5. **Existing process architecture supports this swap cleanly.** The chunking-worker in Electron already runs in a dedicated renderer process (`?mode=chunking-host`) managed by [`ChunkingHostManager`](../apps/desktop/src/chunking-host-manager.ts), and the codebase already uses Electron `utilityProcess` for the db-host ([db-host-manager.ts:394](../apps/desktop/src/db-host-manager.ts:394)). We have a precedent to follow.
+5. **Existing process architecture supports this swap cleanly.** The chunking-worker in Electron already runs in a dedicated renderer process (`?mode=chunking-host`) managed by [`ChunkingHostManager`](../apps/desktop/src/chunking-host-manager.ts), and the codebase already uses Electron `utilityProcess` for the db-host ([db-host-manager.ts:394](https://github.com/seandearnaley/brainstrike/blob/1019bb5ce2c275cc9c668e3955867f8ad4c75b2d/apps/desktop/src/db-host-manager.ts#L394)). We have a precedent to follow.
 
 ### What's already WASM/native in this codebase
 
@@ -70,7 +70,7 @@ This PRD adds: **`oxc-parser` (NAPI native)** in a new utility process for chunk
 
 ### What the AST is used for
 
-The chunking worker uses Babel only to identify **function-level boundaries** ([portable-chunking.ts:733](../packages/chunking-worker/src/portable-chunking.ts:733)). It walks the tree generically via `iterateAstChildren` ([portable-chunking.ts:653](../packages/chunking-worker/src/portable-chunking.ts:653)) and reads only `node.type`, `node.start`, `node.end`. Narrow contract → easy adapter.
+The chunking worker uses Babel only to identify **function-level boundaries** ([portable-chunking.ts:733](https://github.com/seandearnaley/brainstrike/blob/1019bb5ce2c275cc9c668e3955867f8ad4c75b2d/packages/chunking-worker/src/portable-chunking.ts#L733)). It walks the tree generically via `iterateAstChildren` ([portable-chunking.ts:653](https://github.com/seandearnaley/brainstrike/blob/1019bb5ce2c275cc9c668e3955867f8ad4c75b2d/packages/chunking-worker/src/portable-chunking.ts#L653)) and reads only `node.type`, `node.start`, `node.end`. Narrow contract → easy adapter.
 
 We do *not* use: transforms, codegen, type info, source maps from the parser, comments, or token streams.
 

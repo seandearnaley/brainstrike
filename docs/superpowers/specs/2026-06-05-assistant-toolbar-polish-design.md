@@ -10,7 +10,7 @@
 ## Problem
 
 The per-message hover toolbar (`AssistantActionBar` in
-[assistant-ui-panel.tsx:1132-1155](../../../packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx))
+[assistant-ui-panel.tsx:1132-1155](https://github.com/seandearnaley/brainstrike/blob/b0b960a2bd36cb7f86f2150cfc8572739032b72a/packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx))
 renders copy/retry as `size-6` icon buttons inside a floating **rounded bordered box**
 (`data-[floating]:rounded-md border bg-background p-1 shadow-sm`). The user finds the box
 unnecessary and the buttons larger than needed.

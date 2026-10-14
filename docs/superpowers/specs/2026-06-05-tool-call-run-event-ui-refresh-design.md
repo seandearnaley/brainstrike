@@ -12,9 +12,9 @@
 The assistant conversation renders two kinds of activity cards, both with the same UX
 problems the user reported:
 
-1. **Per-tool card** — [tool-fallback.tsx](../../../packages/ui/src/assistant-ui-panel/tool-fallback.tsx)
+1. **Per-tool card** — [tool-fallback.tsx](https://github.com/seandearnaley/brainstrike/blob/b0b960a2bd36cb7f86f2150cfc8572739032b72a/packages/ui/src/assistant-ui-panel/tool-fallback.tsx)
    ("Used <toolName>").
-2. **Run-event card** — [assistant-run-timeline.tsx](../../../packages/ui/src/assistant-ui-panel/assistant-run-timeline.tsx)
+2. **Run-event card** — [assistant-run-timeline.tsx](https://github.com/seandearnaley/brainstrike/blob/b0b960a2bd36cb7f86f2150cfc8572739032b72a/packages/ui/src/assistant-ui-panel/assistant-run-timeline.tsx)
    ("working memory loaded", "Generation step started", "observational memory read", etc.).
 
 Issues (verified in code):

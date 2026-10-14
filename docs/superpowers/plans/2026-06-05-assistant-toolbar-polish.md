@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-06-05-assistant-toolbar-polish-design.md`
 
-**Verified facts (current code, [assistant-ui-panel.tsx:1132-1155](../../../packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx)):**
+**Verified facts (current code, [assistant-ui-panel.tsx:1132-1155](https://github.com/seandearnaley/brainstrike/blob/b0b960a2bd36cb7f86f2150cfc8572739032b72a/packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx)):**
 - Root className: `col-start-3 row-start-2 -ml-1 flex gap-1 text-muted-foreground data-[floating]:absolute data-[floating]:rounded-md data-[floating]:border data-[floating]:bg-background data-[floating]:p-1 data-[floating]:shadow-sm`.
 - Buttons: `TooltipIconButton` (default `size-6 p-1`, merges extra className via `cn`), `aria-label="Copy message"` / `"Regenerate response"`. Icons `CheckIcon`/`CopyIcon`/`RefreshCwIcon` at `size-4`.
 - `TooltipIconButton` sets the accessible name from the passed `aria-label` ("Copy message"), so e2e can target `getByRole('button', { name: 'Copy message' })`.

@@ -1,52 +1,45 @@
-# Electron Test Fixtures
+# Electron test fixtures
 
-This directory contains Playwright fixtures for optimized Electron testing.
-
-## Worker-Scoped Electron Fixture
-
-The `electron-fixture.ts` implements a worker-scoped fixture that launches Electron once per worker instead of per test. This provides significant performance improvements:
-
-- **Before**: ~18 launches (one per test) × 6s = ~108s launch overhead
-- **After**: 2 launches (one per worker) × 6s = ~12s launch overhead
-- **Savings**: ~96s (~5 minutes) per test run
-
-## Usage
+Import `test` and `expect` from [electron-fixture.ts](electron-fixture.ts). The
+fixture owns an `ElectronHarness` for each test, with a disposable profile keyed
+by run, shard, worker, test ID and retry, plus a real disposable workspace root.
+Tests do not share one Electron app or profile across a worker.
 
 ```typescript
-import { test, expect } from './fixtures/electron-fixture';
+import { test } from './fixtures/electron-fixture';
 
-test.describe('My Feature', () => {
-  test('should work', async ({ electronApp, electron, homePage, window }) => {
-    // electronApp is shared across tests in the same worker
-    // homePage is a fresh instance for each test
-    expect(electronApp.window).toBeTruthy();
-    await homePage.shouldBeVisible();
-
-    // Optional: restart Electron without leaving the worker
-    await electron.restart();
-
-    // Optional: reuse the renderer after restart
-    await window.waitForEvent('load');
-  });
+test('opens home', async ({ homePage }) => {
+  await homePage.shouldBeVisible();
 });
 ```
 
-## Migration Pattern
+The example import is relative to a spec in `e2e/`. Available fixtures include
+`electron` (the harness), `electronApp` (its context), `window`, `homePage`,
+`modelProvider` and `failureCollector`. Supply launch overrides through the
+`electronEnv` option.
 
-To migrate existing tests:
+## Restarts and ownership
 
-1. Replace `import { test, expect } from '@playwright/test'` with `import { test, expect } from './fixtures/electron-fixture'`
-2. Remove `beforeEach`/`afterEach` hooks that launch/close Electron
-3. Add `{ electronApp, homePage }` parameters to test functions
-4. Replace `appContext` references with `electronApp` or `window` (the pre-reset renderer page)
-5. Replace manual `homePage` instantiation with the fixture parameter
-6. Annotate specs that must keep renderer state with
-   `test.info().annotations.push({ type: 'preserve-electron-state' })`
+`await electron.restart()` closes the owned app and returns a fresh context for
+the same disposable profile. Use the returned context's `window` and recreate
+page objects; earlier fixture values still refer to the previous context.
 
-## Benefits
+The `preserve-electron-state` annotation, set before the window fixture starts,
+skips its renderer reset. It does not change fixture scope or share state between
+tests. For on-disk state seeding, use `closeForStateSeeding()` before writing and
+then reopen through the harness. Signal/crash tests use `endOutOfBand()` so the
+harness can track intentional exit and confirm termination.
 
-- Faster test execution (~5min savings)
-- Reduced flakiness from repeated app launches
-- Automatic cleanup between test files
-- Consistent app state initialization with per-test renderer resets
-- Opt-in renderer preservation for persistence scenarios
+Teardown awaits app disposal before removing the profile and root. A failed
+retirement retains those resources for the still-owned process. Keep lifecycle
+ownership in the harness when adapting a spec.
+
+## Provider boundary
+
+The default provider shim runs on loopback and refuses unscripted requests.
+Script responses through `modelProvider.setScript()`; this proves behavior against
+the shim, not a live provider. Use disposable profiles and fake credentials for
+automation.
+
+See the [E2E guide](../README.md) and [validation guidance](../../../../docs/agents/ci-quality.md)
+for setup and check selection.

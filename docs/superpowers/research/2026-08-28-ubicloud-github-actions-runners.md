@@ -21,7 +21,7 @@ Brainstrike's required PR workflow is intentionally only partly migrated:
 `ubicloud-standard-4`; admission remains on GitHub `ubuntu-slim`, Static and
 the Unit fan-in remain on GitHub arm64, and Native Windows remains on GitHub
 Windows. That boundary and its measured provenance are recorded in the
-[CI contract](../../agents/ci-quality.md#cost-ranked-linux-x64-jobs-run-on-ubicloud)
+[historical CI evidence](../../archive/agent-contract-history/ci-quality/ubicloud-runners.md)
 and guarded by
 [`ubicloud-runner-contract.test.mjs`](../../../scripts/__tests__/ubicloud-runner-contract.test.mjs).
 The service supports migrating more Linux jobs, but “change every Ubuntu

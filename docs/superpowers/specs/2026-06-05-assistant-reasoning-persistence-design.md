@@ -9,10 +9,10 @@
 ## Problem
 
 The assistant streams `reasoning-delta` chunks and renders them live (`LocalReasoningPart` /
-`LocalChainOfThought` in [assistant-ui-panel.tsx](../../../packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx)),
+`LocalChainOfThought` in [assistant-ui-panel.tsx](https://github.com/seandearnaley/brainstrike/blob/b0b960a2bd36cb7f86f2150cfc8572739032b72a/packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx)),
 but **reasoning disappears on reload**. Thread history is rehydrated by
 `toAssistantHistoryContentParts` in
-[assistant-memory-repository.ts:598-627](../../../packages/app-shell/src/assistant-memory-repository.ts),
+[assistant-memory-repository.ts:598-627](https://github.com/seandearnaley/brainstrike/blob/b0b960a2bd36cb7f86f2150cfc8572739032b72a/packages/app-shell/src/assistant-memory-repository.ts),
 which reconstructs only `text` and `tool-call` parts from the persisted message
 `content`. Any `reasoning` part present in `content` is silently dropped, and the hydrated
 part union (`AssistantHydratedContentPart`, line 495) doesn't include reasoning.
