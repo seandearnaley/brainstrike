@@ -23,18 +23,18 @@ const done = {
 
 // Scope, stated exactly: this measures the STATUS ROW (the summary button).
 // The trace's header as a whole does change height at the running↔done
-// boundary — `.bs-trace-detail` is added and removed wholesale — which is the
+// boundary — the live tail is added and removed wholesale — which is the
 // documented design, not a regression (review finding 7).
-test('the status row (summary button) keeps one height across live and resting states; the detail slot below it is added/removed at the boundary', () => {
+test('the status row (summary button) keeps one height across live and resting states; the live tail below it is added/removed at the boundary', () => {
   const { rerender } = render(
     <div className="assistant-ui-panel">
       <ActivityTrace
-        detail="src/app.ts"
         fallbackMs={1000}
         incompleteReason={undefined}
         isActive
         restingOverride={null}
         summary={live}
+        tail={[{ family: 'read', id: 'call-1', state: 'done', target: 'src/app.ts', verb: 'Read' }]}
       />
     </div>
   );
@@ -50,12 +50,12 @@ test('the status row (summary button) keeps one height across live and resting s
   rerender(
     <div className="assistant-ui-panel">
       <ActivityTrace
-        detail={null}
         fallbackMs={1000}
         incompleteReason={undefined}
         isActive={false}
         restingOverride={null}
         summary={done}
+        tail={[]}
       />
     </div>
   );
@@ -74,12 +74,12 @@ test('a long live label truncates instead of wrapping the status row taller', ()
   const row = (summary: typeof live, isActive: boolean) => (
     <div className="assistant-ui-panel" style={{ width: 480 }}>
       <ActivityTrace
-        detail={null}
         fallbackMs={1000}
         incompleteReason={undefined}
         isActive={isActive}
         restingOverride={null}
         summary={summary}
+        tail={[]}
       />
     </div>
   );
@@ -99,16 +99,16 @@ test('a long live label truncates instead of wrapping the status row taller', ()
   );
 });
 
-test('the detail slot renders only while active and the chevron rotates when open', async () => {
+test('the live tail renders only while active and the chevron rotates when open', async () => {
   render(
     <div className="assistant-ui-panel">
       <ActivityTrace
-        detail="src/app.ts"
         fallbackMs={1000}
         incompleteReason={undefined}
         isActive
         restingOverride={null}
         summary={live}
+        tail={[{ family: 'read', id: 'call-1', state: 'done', target: 'src/app.ts', verb: 'Read' }]}
       >
         <div>x</div>
       </ActivityTrace>
@@ -145,12 +145,12 @@ test('a long resting headline truncates instead of pushing the step count out of
   const row = (headline: string) => (
     <div className="assistant-ui-panel" style={{ width: 480 }}>
       <ActivityTrace
-        detail={null}
         fallbackMs={12_000}
         incompleteReason={undefined}
         isActive={false}
         restingOverride={headline}
         summary={summary}
+        tail={[]}
       />
     </div>
   );
@@ -188,12 +188,12 @@ test('the status headline enters only when its wording changes, never on the fir
   const row = (headline: string) => (
     <div className="assistant-ui-panel">
       <ActivityTrace
-        detail={null}
         fallbackMs={1000}
         incompleteReason={undefined}
         isActive={false}
         restingOverride={headline}
         summary={done}
+        tail={[]}
       />
     </div>
   );
@@ -221,12 +221,12 @@ test('a re-render that leaves the wording alone never re-triggers the entrance',
   const { container } = render(
     <div className="assistant-ui-panel">
       <ActivityTrace
-        detail={null}
         fallbackMs={1000}
         incompleteReason={undefined}
         isActive={false}
         restingOverride={null}
         summary={done}
+        tail={[]}
       >
         <div>x</div>
       </ActivityTrace>
@@ -259,12 +259,12 @@ test('the entrance class is sticky: after a wording change, an unchanged rerende
   const row = (headline: string) => (
     <div className="assistant-ui-panel">
       <ActivityTrace
-        detail={null}
         fallbackMs={1000}
         incompleteReason={undefined}
         isActive={false}
         restingOverride={headline}
         summary={done}
+        tail={[]}
       />
     </div>
   );
@@ -295,12 +295,12 @@ test('the live label composes its entrance with the shimmer: shimmer alone on fi
   const row = (liveLabel: string) => (
     <div className="assistant-ui-panel">
       <ActivityTrace
-        detail={null}
         fallbackMs={1000}
         incompleteReason={undefined}
         isActive
         restingOverride={null}
         summary={{ ...live, live: liveLabel }}
+        tail={[]}
       />
     </div>
   );
@@ -342,12 +342,12 @@ test('collapsed activity releases display subscriptions and restores manual deta
   }
   render(
     <ActivityTrace
-      detail={null}
       fallbackMs={undefined}
       incompleteReason={undefined}
       isActive={false}
       restingOverride={null}
       summary={done}
+      tail={[]}
     >
       <SubscribedDetail />
     </ActivityTrace>
@@ -390,13 +390,13 @@ test('a streamed effect owner preserves sibling disclosure state and DOM as owne
   }
   const row = (preserveBodyEffects: boolean, output: string) => (
     <ActivityTrace
-      detail={null}
       fallbackMs={undefined}
       incompleteReason={undefined}
       isActive
       preserveBodyEffects={preserveBodyEffects}
       restingOverride={null}
       summary={live}
+      tail={[]}
     >
       <Detail output={output} />
     </ActivityTrace>

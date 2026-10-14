@@ -26,12 +26,12 @@ describe('ActivityTrace', () => {
   it('names the current step while active and stays collapsed', () => {
     render(
       <ActivityTrace
-        detail="foo"
         fallbackMs={1500}
         incompleteReason={undefined}
         isActive
         restingOverride={null}
         summary={live}
+        tail={[{ family: 'read', id: 'call-1', state: 'done', target: 'foo', verb: 'Read' }]}
       >
         <div>body</div>
       </ActivityTrace>
@@ -40,18 +40,19 @@ describe('ActivityTrace', () => {
     expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-state', 'running');
     expect(screen.getByTestId('assistant-activity-body')).toHaveAttribute('hidden');
     expect(document.querySelectorAll('[data-live="true"]')).toHaveLength(1);
-    expect(screen.getByText('foo')).toHaveClass('bs-trace-detail');
+    // The live tail names the newest settled step; the running one is the label.
+    expect(screen.getByTestId('assistant-activity-tail')).toHaveTextContent('Readfoo');
   });
 
   it('settles into the verb summary with Worked for as meta', () => {
     render(
       <ActivityTrace
-        detail={null}
         fallbackMs={12_000}
         incompleteReason={undefined}
         isActive={false}
         restingOverride={null}
         summary={done}
+        tail={[]}
       />
     );
     const summary = screen.getByTestId('assistant-activity-summary');
@@ -69,12 +70,12 @@ describe('ActivityTrace', () => {
   it('prefers a model-written override for the resting headline', () => {
     render(
       <ActivityTrace
-        detail={null}
         fallbackMs={undefined}
         incompleteReason={undefined}
         isActive={false}
         restingOverride="Checked the three configs"
         summary={done}
+        tail={[]}
       />
     );
     expect(screen.getByTestId('assistant-activity-summary')).toHaveTextContent(
@@ -86,12 +87,12 @@ describe('ActivityTrace', () => {
   it('never demotes a model-written override into the meta of a stopped or failed group', () => {
     const { rerender } = render(
       <ActivityTrace
-        detail={null}
         fallbackMs={4000}
         incompleteReason="cancelled"
         isActive={false}
         restingOverride="Checked the three configs"
         summary={done}
+        tail={[]}
       />
     );
     const summary = screen.getByTestId('assistant-activity-summary');
@@ -99,12 +100,12 @@ describe('ActivityTrace', () => {
     expect(summary).not.toHaveTextContent('Checked the three configs');
     rerender(
       <ActivityTrace
-        detail={null}
         fallbackMs={4000}
         incompleteReason="error"
         isActive={false}
         restingOverride="Checked the three configs"
         summary={done}
+        tail={[]}
       />
     );
     expect(summary).toHaveTextContent('Activity failed');
@@ -114,12 +115,12 @@ describe('ActivityTrace', () => {
   it("keeps Stopped and Activity failed as headlines for the group's own incomplete status", () => {
     const { rerender } = render(
       <ActivityTrace
-        detail={null}
         fallbackMs={4000}
         incompleteReason="cancelled"
         isActive={false}
         restingOverride={null}
         summary={done}
+        tail={[]}
       />
     );
     expect(screen.getByTestId('assistant-activity-summary')).toHaveTextContent(
@@ -128,12 +129,12 @@ describe('ActivityTrace', () => {
     expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'false');
     rerender(
       <ActivityTrace
-        detail={null}
         fallbackMs={4000}
         incompleteReason="error"
         isActive={false}
         restingOverride={null}
         summary={done}
+        tail={[]}
       />
     );
     expect(screen.getByTestId('assistant-activity-summary')).toHaveTextContent('Activity failed');
@@ -148,7 +149,6 @@ describe('ActivityTrace', () => {
   it('omits the verb meta when a cancelled group has no settled step', () => {
     render(
       <ActivityTrace
-        detail={null}
         fallbackMs={4000}
         incompleteReason="cancelled"
         isActive={false}
@@ -160,6 +160,7 @@ describe('ActivityTrace', () => {
           verbs: null,
           waiting: false,
         }}
+        tail={[]}
       />
     );
     const row = screen
@@ -177,12 +178,12 @@ describe('ActivityTrace', () => {
   it('keeps the live region outside the button and describes the button with the summary row', () => {
     render(
       <ActivityTrace
-        detail={null}
         fallbackMs={12_000}
         incompleteReason={undefined}
         isActive={false}
         restingOverride={null}
         summary={done}
+        tail={[]}
       />
     );
     const group = screen.getByTestId('assistant-activity-group');
@@ -199,12 +200,12 @@ describe('ActivityTrace', () => {
   it('shows the failed count without failing the group', () => {
     render(
       <ActivityTrace
-        detail={null}
         fallbackMs={1000}
         incompleteReason={undefined}
         isActive={false}
         restingOverride={null}
         summary={{ ...done, counts: { failed: 1, steps: 3 } }}
+        tail={[]}
       />
     );
     expect(screen.getByTestId('assistant-activity-failed-count')).toHaveTextContent('1 failed');
@@ -219,12 +220,12 @@ describe('ActivityTrace', () => {
     const user = userEvent.setup();
     render(
       <ActivityTrace
-        detail={null}
         fallbackMs={1000}
         incompleteReason={undefined}
         isActive={false}
         restingOverride={null}
         summary={done}
+        tail={[]}
       >
         <div>body</div>
       </ActivityTrace>
@@ -247,12 +248,12 @@ describe('ActivityTrace', () => {
       try {
         render(
           <ActivityTrace
-            detail={null}
             fallbackMs={undefined}
             incompleteReason={undefined}
             isActive
             restingOverride={null}
             summary={live}
+            tail={[]}
           />
         );
 
@@ -273,12 +274,12 @@ describe('ActivityTrace', () => {
       try {
         render(
           <ActivityTrace
-            detail={null}
             fallbackMs={2000}
             incompleteReason={undefined}
             isActive
             restingOverride={null}
             summary={live}
+            tail={[]}
           />
         );
         expect(screen.getByText('2.0s')).toBeInTheDocument();
@@ -297,12 +298,12 @@ describe('ActivityTrace', () => {
       try {
         const { rerender } = render(
           <ActivityTrace
-            detail={null}
             fallbackMs={undefined}
             incompleteReason={undefined}
             isActive
             restingOverride={null}
             summary={live}
+            tail={[]}
           />
         );
         act(() => {
@@ -310,12 +311,12 @@ describe('ActivityTrace', () => {
         });
         rerender(
           <ActivityTrace
-            detail={null}
             fallbackMs={1000}
             incompleteReason={undefined}
             isActive={false}
             restingOverride={null}
             summary={done}
+            tail={[]}
           />
         );
         expect(screen.getByTestId('assistant-activity-summary')).toHaveTextContent(
@@ -326,12 +327,12 @@ describe('ActivityTrace', () => {
         });
         rerender(
           <ActivityTrace
-            detail={null}
             fallbackMs={1000}
             incompleteReason={undefined}
             isActive
             restingOverride={null}
             summary={live}
+            tail={[]}
           />
         );
         expect(screen.getByText('3.4s')).toBeInTheDocument();
@@ -368,12 +369,12 @@ describe('ActivityTrace', () => {
         };
         render(
           <ActivityTrace
-            detail={null}
             fallbackMs={undefined}
             incompleteReason={undefined}
             isActive
             restingOverride={null}
             summary={gatedWhileRunning}
+            tail={[]}
           />
         );
         act(() => {
@@ -408,12 +409,12 @@ describe('ActivityTrace', () => {
         };
         const { rerender } = render(
           <ActivityTrace
-            detail={null}
             fallbackMs={undefined}
             incompleteReason={undefined}
             isActive
             restingOverride={null}
             summary={reading}
+            tail={[]}
           />
         );
         act(() => {
@@ -423,12 +424,12 @@ describe('ActivityTrace', () => {
 
         rerender(
           <ActivityTrace
-            detail={null}
             fallbackMs={undefined}
             incompleteReason={undefined}
             isActive
             restingOverride={null}
             summary={waitingForApproval}
+            tail={[]}
           />
         );
         act(() => {
@@ -438,12 +439,12 @@ describe('ActivityTrace', () => {
 
         rerender(
           <ActivityTrace
-            detail={null}
             fallbackMs={undefined}
             incompleteReason={undefined}
             isActive
             restingOverride={null}
             summary={reading}
+            tail={[]}
           />
         );
         act(() => {

@@ -845,12 +845,15 @@
  *   (the caller re-keys the element on the label string).
  * - .bs-trace-collapse[data-open]: grid-rows disclosure, no measured heights.
  * - .bs-trace-reveal: one-shot fade-up with a --bs-stagger index capped at 5.
- * - .bs-trace-detail: a fixed one-line slot under the header while running,
- *   so the header itself never changes height (scroll-anchoring rule).
+ * - .bs-trace-tail: the newest settled steps under the header while running;
+ *   it only grows (to three lines) mid-run and leaves with the run.
  */
+/* From a partly visible label, never from nothing: a fast run changes the
+   live label every few hundred milliseconds, and an entrance from opacity 0
+   left the header blank for most of such a run. */
 @keyframes bs-trace-label-enter {
   from {
-    opacity: 0;
+    opacity: 0.45;
     transform: translateY(2px);
   }
 
@@ -920,16 +923,41 @@
   animation-delay: calc(min(var(--bs-stagger, 0), 5) * 40ms);
 }
 
-.assistant-ui-panel .bs-trace-detail {
+/* The live tail: up to three newest settled steps under a running header,
+   indented so each line's family icon sits under the phase glyph and its verb
+   under the label (0.6rem padding + 0.875rem chevron + 0.5rem gap). Every line
+   keeps the muted foreground at full opacity, so small text stays at 4.5:1. */
+.assistant-ui-panel .bs-trace-tail {
+  display: grid;
+  padding: 0 0.6rem 0.375rem 1.975rem;
+}
+
+.assistant-ui-panel .bs-trace-tail-line {
+  align-items: center;
   color: hsl(var(--muted-foreground));
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  display: flex;
   font-size: 0.7rem;
-  height: 1.25rem;
-  line-height: 1.25rem;
+  gap: 0.5rem;
+  height: 1.125rem;
+  min-width: 0;
   overflow: hidden;
-  padding-inline: 0.6rem 0.6rem;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.assistant-ui-panel .bs-trace-tail-line[data-state="failed"] {
+  color: hsl(var(--destructive));
+}
+
+.assistant-ui-panel .bs-trace-tail-verb {
+  flex-shrink: 0;
+}
+
+.assistant-ui-panel .bs-trace-tail-target {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.6875rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .assistant-ui-panel .bs-trace-glyph {
@@ -1168,6 +1196,302 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * ACTIVITY TRACE AT SCALE. A run of hundreds of calls stays readable: the
+ * header row carries the disclosure, the failed-step jump and the run strip;
+ * inside the body, settled calls are one-line rows and repeated work folds
+ * into cluster rows that unfold in place.
+ */
+.assistant-ui-panel {
+  --bs-family-call: oklch(0.56 0.09 195);
+  --bs-family-delegate: oklch(0.56 0.15 350);
+  --bs-family-edit: oklch(0.64 0.14 65);
+  --bs-family-read: oklch(0.56 0.15 270);
+  --bs-family-run: oklch(0.56 0.11 170);
+  --bs-family-search: oklch(0.54 0.16 300);
+  --bs-family-skill: oklch(0.58 0.14 325);
+  --bs-family-thought: oklch(0.66 0.1 300);
+  --bs-family-web: oklch(0.58 0.12 235);
+}
+
+.dark .assistant-ui-panel {
+  --bs-family-call: oklch(0.74 0.09 195);
+  --bs-family-delegate: oklch(0.74 0.13 350);
+  --bs-family-edit: oklch(0.78 0.13 70);
+  --bs-family-read: oklch(0.74 0.12 270);
+  --bs-family-run: oklch(0.76 0.1 170);
+  --bs-family-search: oklch(0.74 0.13 300);
+  --bs-family-skill: oklch(0.76 0.12 325);
+  --bs-family-thought: oklch(0.78 0.08 300);
+  --bs-family-web: oklch(0.76 0.1 235);
+}
+
+.assistant-ui-panel .bs-activity-header {
+  align-items: center;
+  container-type: inline-size;
+  display: flex;
+  min-width: 0;
+}
+
+/* The disclosure yields room to its siblings instead of claiming the row. */
+.assistant-ui-panel .bs-activity-header > .bs-activity-summary {
+  flex: 1 1 auto;
+  width: auto;
+}
+
+.assistant-ui-panel .bs-activity-header > .bs-activity-summary-failed {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  padding-inline-end: 0.5rem;
+}
+
+.assistant-ui-panel .bs-activity-failed-jump {
+  background: none;
+  border: 0;
+  border-radius: 0.375rem;
+  color: hsl(var(--destructive));
+  cursor: pointer;
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.375rem;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+
+.assistant-ui-panel .bs-activity-failed-jump:hover {
+  background: hsl(var(--destructive) / 0.08);
+}
+
+/* One button, one tab stop, however many marks: see `ActivityRunStrip`. The
+   headline outranks it for room: the strip shrinks first, narrows in a
+   mid-width header and leaves a narrow one, where the failed count still
+   opens the failure. */
+.assistant-ui-panel .bs-run-strip {
+  align-items: center;
+  align-self: stretch;
+  background: none;
+  border: 0;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  display: flex;
+  flex: 0 4 8rem;
+  margin-inline-end: 0.375rem;
+  min-width: 2.5rem;
+  padding: 0 0.25rem;
+}
+
+@container (max-width: 40rem) {
+  .assistant-ui-panel .bs-run-strip {
+    flex-basis: 4rem;
+  }
+}
+
+@container (max-width: 26rem) {
+  .assistant-ui-panel .bs-run-strip {
+    display: none;
+  }
+}
+
+.assistant-ui-panel .bs-run-strip:hover {
+  background: hsl(var(--muted) / 0.5);
+}
+
+.assistant-ui-panel .bs-run-strip svg {
+  display: block;
+  height: 0.875rem;
+  width: 100%;
+}
+
+.assistant-ui-panel :is(.bs-activity-failed-jump, .bs-run-strip, .bs-activity-filter-chip, .bs-activity-filter-action):focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -2px;
+}
+
+.assistant-ui-panel .bs-run-mark {
+  fill: hsl(var(--muted-foreground) / 0.55);
+}
+
+.assistant-ui-panel .bs-run-mark-call {
+  fill: var(--bs-family-call);
+}
+
+.assistant-ui-panel .bs-run-mark-delegate {
+  fill: var(--bs-family-delegate);
+}
+
+.assistant-ui-panel .bs-run-mark-edit {
+  fill: var(--bs-family-edit);
+}
+
+.assistant-ui-panel .bs-run-mark-read {
+  fill: var(--bs-family-read);
+}
+
+.assistant-ui-panel .bs-run-mark-run {
+  fill: var(--bs-family-run);
+}
+
+.assistant-ui-panel .bs-run-mark-search {
+  fill: var(--bs-family-search);
+}
+
+.assistant-ui-panel .bs-run-mark-skill {
+  fill: var(--bs-family-skill);
+}
+
+.assistant-ui-panel .bs-run-mark-thought {
+  fill: var(--bs-family-thought);
+}
+
+.assistant-ui-panel .bs-run-mark-web {
+  fill: var(--bs-family-web);
+}
+
+.assistant-ui-panel .bs-run-mark-failed {
+  fill: hsl(var(--destructive));
+}
+
+.assistant-ui-panel .bs-run-mark-waiting {
+  fill: hsl(var(--warning));
+}
+
+.assistant-ui-panel .bs-run-mark-running {
+  animation: bs-run-mark-pulse 1s ease-in-out infinite;
+  fill: hsl(var(--primary));
+}
+
+@keyframes bs-run-mark-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* The filter bar of a long group: family chips with counts, then one control
+   that opens or closes every cluster. */
+.assistant-ui-panel .bs-activity-filters {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  justify-content: space-between;
+  padding-block: 0.125rem 0.375rem;
+}
+
+.assistant-ui-panel .bs-activity-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.assistant-ui-panel .bs-activity-filter-chip {
+  align-items: center;
+  background: transparent;
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.6875rem;
+  gap: 0.3rem;
+  line-height: 1.2;
+  padding: 0.125rem 0.5rem;
+}
+
+.assistant-ui-panel .bs-activity-filter-chip:hover {
+  background: hsl(var(--muted) / 0.5);
+  color: hsl(var(--foreground));
+}
+
+.assistant-ui-panel .bs-activity-filter-chip[aria-pressed="true"] {
+  background: hsl(var(--foreground));
+  border-color: hsl(var(--foreground));
+  color: hsl(var(--background));
+}
+
+.assistant-ui-panel .bs-activity-filter-chip[data-filter="failed"] {
+  border-color: hsl(var(--destructive) / 0.45);
+  color: hsl(var(--destructive));
+}
+
+.assistant-ui-panel .bs-activity-filter-chip[data-filter="failed"][aria-pressed="true"] {
+  background: hsl(var(--destructive));
+  border-color: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+}
+
+.assistant-ui-panel .bs-activity-filter-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.assistant-ui-panel .bs-activity-filter-action {
+  align-items: center;
+  background: none;
+  border: 0;
+  border-radius: 0.375rem;
+  color: hsl(var(--primary));
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.6875rem;
+  gap: 0.25rem;
+  padding: 0.125rem 0.25rem;
+}
+
+/* Compact rows and cluster rows: one 28px line, 2px apart. A card (an opened,
+   failed or waiting call) keeps the 12px card rhythm on either side. Unlayered,
+   so `margin-block-end: 0` also wins over `ActivityPartLayout`'s `mb-2`. */
+.assistant-ui-panel .bs-tool-compact {
+  /* No card: not the base card shadow, nor an agent-coloured card fill. */
+  background-color: transparent;
+  border-radius: 0.375rem;
+  box-shadow: none;
+}
+
+.assistant-ui-panel :is(.bs-tool-compact, .bs-activity-cluster) .bs-step-row {
+  min-height: 1.75rem;
+  padding-block: 0.125rem;
+}
+
+.assistant-ui-panel .bs-activity-cluster .bs-step-row-verb {
+  font-weight: 600;
+}
+
+.assistant-ui-panel
+  .bs-step-list
+  > :is(.bs-activity-cluster, .bs-cluster-member, :has(> .bs-tool-compact)) {
+  margin-block-end: 0;
+}
+
+.assistant-ui-panel
+  .bs-step-list
+  > :is(.bs-activity-cluster, .bs-cluster-member, :has(> .bs-tool-compact))
+  + :is(.bs-activity-cluster, .bs-cluster-member, :has(> .bs-tool-compact)) {
+  margin-block-start: 0.125rem;
+}
+
+/* An open cluster's members hang under its row on a hairline. */
+.assistant-ui-panel .bs-cluster-member {
+  border-inline-start: 1px solid hsl(var(--border));
+  margin-inline-start: 1rem;
+  padding-inline-start: 0.375rem;
+}
+
+.assistant-ui-panel .bs-cluster-member > * {
+  margin-block: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-ui-panel .bs-run-mark-running {
+    animation: none;
+  }
 }
 
 /* Approval depth remains a layout cue; color follows the durable owner id. */

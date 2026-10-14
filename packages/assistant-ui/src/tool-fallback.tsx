@@ -18,6 +18,7 @@ import {
 } from './tool-fallback-state';
 import { extractPrimaryArg, summarizeResult } from './tool-summaries';
 import { categoryTintClasses, classifyToolName } from './tool-visual-classification';
+import { useActivityGroupView } from './use-activity-group-view';
 import { useToolCallProgressLabel } from './use-tool-call-progress';
 
 function useDisplayToolArguments(
@@ -72,6 +73,7 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
   } = props;
   const { detailLevel } = useAssistantDetailLevel();
   const policy = resolveToolDisplayPolicy(detailLevel);
+  const groupView = useActivityGroupView();
   const durationMs = useToolDurationMs(toolCallId);
   const durationLabel = durationMs === undefined ? undefined : formatActivityDuration(durationMs);
   const { args: displayArgs, argsText: displayArgsText } = useDisplayToolArguments(
@@ -131,16 +133,35 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
     () => (isError || !policy.showResultSummary ? undefined : summarizeResult(result)),
     [isError, policy.showResultSummary, result]
   );
-  const resolvedRootName = useMemo(() => extractResolvedRootName(result), [result]);
+  // A group spanning one root says so once, in its folder chip; each row
+  // names its root only when the group's calls span more than one.
+  const resolvedRootName = useMemo(
+    () => (groupView?.showRootChip === false ? undefined : extractResolvedRootName(result)),
+    [groupView, result]
+  );
 
   const category = classifyToolName(toolName);
   const tint = categoryTintClasses(category);
+  // Activity trace at scale: inside a group a settled call is one line with
+  // no card chrome. It becomes a card when opened, when it failed, while it
+  // waits on a person and whenever it carries a decision.
+  const compact =
+    groupView !== undefined &&
+    isCollapsed &&
+    !isError &&
+    glyphState !== 'waiting' &&
+    props.approval === undefined;
 
   return (
     <div
-      className={`bs-tool-timeline my-1 rounded-lg border outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-        isError ? 'border-destructive/50 bg-destructive/5' : tint.card
-      }`}
+      className={
+        compact
+          ? 'bs-tool-timeline bs-tool-compact outline-none focus-visible:ring-2 focus-visible:ring-ring'
+          : `bs-tool-timeline my-1 rounded-lg border outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+              isError ? 'border-destructive/50 bg-destructive/5' : tint.card
+            }`
+      }
+      data-chrome={compact ? 'row' : 'card'}
       data-testid="tool-fallback"
       data-tool-category={category}
       ref={cardRef}

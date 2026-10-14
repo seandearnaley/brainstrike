@@ -10,6 +10,14 @@ import type {
  * strict field access, and the always-visible timeline notices.
  */
 
+/**
+ * Committed host rows and stream chunks the projection keeps verbatim with no
+ * part of their own (step boundaries, provider bookkeeping). No renderer draws
+ * them.
+ */
+export const HOST_EVENT_DATA_NAME = 'brainstrike.host-event';
+export const HOST_STREAM_DATA_NAME = 'brainstrike.host-stream';
+
 /** A committed row's address: a notice's key, never a new identity. */
 interface CommittedRowAddress {
   readonly seq: number;

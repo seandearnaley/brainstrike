@@ -157,3 +157,46 @@ it('omits recorded empty thinking disclosures while retaining the answer and vis
     ]).map(({ part }) => part.text)
   ).toEqual(['Visible reasoning.']);
 });
+
+function reasonings(projection: CommittedAssistantLogProjection) {
+  const answer = projection
+    .getSnapshot()
+    .repository.messages.find(({ message }) => message.id === runId)?.message;
+  return (answer?.content ?? []).flatMap((part) =>
+    part.type === 'reasoning' ? [{ status: part.status, text: part.text }] : []
+  );
+}
+
+// October 14 owner screenshot: the open step drew the same empty disclosure live.
+it('shows no live thinking row for an open step’s opaque reasoning, yet streams readable reasoning', () => {
+  const projection = projector();
+  const finalStep = rows.findLastIndex(
+    ({ event }) =>
+      event['type'] === 'stream.chunk' &&
+      (event['chunk'] as { type?: string })?.type === 'start-step'
+  );
+  const committed = rows.findLastIndex(({ event }) => event['type'] === 'model.step');
+  projection.acceptCommitted(rows.slice(0, finalStep + 1));
+  const itemId = emptyReasoning[0]?.content[0]?.providerOptions.openai.itemId;
+  const providerMetadata = { openai: { itemId, reasoningEncryptedContent: 'opaque-state' } };
+  projection.acceptLive(runId, { id: `${itemId}:0`, providerMetadata, type: 'reasoning-start' });
+  expect(reasonings(projection)).toEqual([]);
+  projection.acceptLive(runId, { id: `${itemId}:0`, providerMetadata, type: 'reasoning-end' });
+  expect(reasonings(projection)).toEqual([]);
+
+  projection.acceptLive(runId, { id: 'reasoning-2', type: 'reasoning-start' });
+  projection.acceptLive(runId, { id: 'reasoning-2', text: '\n', type: 'reasoning-delta' });
+  expect(reasonings(projection)).toEqual([]);
+  projection.acceptLive(runId, {
+    id: 'reasoning-2',
+    text: 'Checking the store.',
+    type: 'reasoning-delta',
+  });
+  expect(reasonings(projection)).toEqual([
+    { status: { type: 'running' }, text: 'Checking the store.' },
+  ]);
+
+  // The committed step owns its parts; the recording's step carries no reasoning.
+  projection.acceptCommitted(rows.slice(finalStep + 1, committed + 1));
+  expect(reasonings(projection)).toEqual([]);
+});

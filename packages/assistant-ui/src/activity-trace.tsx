@@ -1,5 +1,8 @@
 import { AlertCircle, CheckCircle, ChevronRight, Square } from 'lucide-react';
 import { Activity, type ReactNode, useId, useState } from 'react';
+import type { ActivityTailEntry, RunStripMark } from './activity-group-view-model';
+import { ActivityRunStrip } from './activity-run-strip';
+import { StepFamilyIcon } from './activity-step-icons';
 import {
   announcementFor,
   headlineFor,
@@ -19,17 +22,30 @@ import { useLabelEnterClass } from './use-label-enter-class';
 
 export interface ActivityTraceProps {
   readonly children?: ReactNode;
-  /** Current target for the running detail line. */
-  readonly detail: string | null;
+  /**
+   * Controlled disclosure, for a group that opens itself (a jump to a failed
+   * step or a strip mark). Omitted, the trace owns it: collapsed until toggled.
+   */
+  readonly expanded?: boolean;
   /** Elapsed seed (group run-event span) — same semantics as before. */
   readonly fallbackMs: number | undefined;
   readonly incompleteReason: TraceIncompleteReason | undefined;
   readonly isActive: boolean;
+  readonly onExpandedChange?: (expanded: boolean) => void;
+  /** Makes the resting `· N failed` count a control that opens the first failure. */
+  readonly onShowFailed?: () => void;
   /** Host sessions remain mounted when their disclosure is hidden. */
   readonly preserveBodyEffects?: boolean;
   /** Model-written summary seam; null today. */
   readonly restingOverride: string | null;
+  /** The run strip's marks and what a pick opens; no strip when absent or empty. */
+  readonly strip?: {
+    readonly marks: readonly RunStripMark[];
+    readonly onPick: (stepId: string) => void;
+  };
   readonly summary: ActivitySummary;
+  /** The newest settled steps, shown under the header while the group runs. */
+  readonly tail: readonly ActivityTailEntry[];
 }
 
 function PhaseGlyph({ phase }: { readonly phase: TracePhase }): ReactNode {
@@ -78,7 +94,6 @@ function LiveSummary({
 }
 
 function RestingSummary({
-  failedCount,
   headline,
   id,
   labelClassName,
@@ -86,7 +101,6 @@ function RestingSummary({
   steps,
   verbMeta,
 }: {
-  readonly failedCount: number;
   readonly headline: string;
   readonly id: string;
   readonly labelClassName: string;
@@ -98,21 +112,56 @@ function RestingSummary({
   // test lane has no Tailwind utilities); do not re-add utility classes here.
   return (
     <span className="bs-activity-summary-row" id={id}>
-      <span className={`bs-activity-summary-label truncate ${labelClassName}`} key={headline}>
+      <span
+        className={`bs-activity-summary-label truncate ${labelClassName}`}
+        key={headline}
+        title={headline}
+      >
         {headline}
       </span>
       {meta ? <span className="bs-activity-summary-meta">{meta}</span> : null}
       {verbMeta ? <span className="bs-activity-summary-meta">· {verbMeta}</span> : null}
       {steps ? <span className="bs-activity-summary-meta">· {steps}</span> : null}
-      {failedCount > 0 ? (
-        <span
-          className="bs-activity-summary-meta bs-activity-summary-failed"
-          data-testid="assistant-activity-failed-count"
-        >
-          · {failedCount} failed
-        </span>
-      ) : null}
     </span>
+  );
+}
+
+/**
+ * The resting `· N failed` count, a sibling of the disclosure button (never
+ * nested in it). With a handler it opens the group at its first failure;
+ * without one it is plain text.
+ */
+function FailedCount({
+  count,
+  onShow,
+}: {
+  readonly count: number;
+  readonly onShow: (() => void) | undefined;
+}): ReactNode {
+  if (count === 0) {
+    return null;
+  }
+  const label = `· ${count} failed`;
+  if (!onShow) {
+    return (
+      <span
+        className="bs-activity-summary-meta bs-activity-summary-failed"
+        data-testid="assistant-activity-failed-count"
+      >
+        {label}
+      </span>
+    );
+  }
+  return (
+    <button
+      aria-label={`Show ${count} failed ${count === 1 ? 'step' : 'steps'}`}
+      className="bs-activity-failed-jump"
+      data-testid="assistant-activity-failed-count"
+      onClick={onShow}
+      type="button"
+    >
+      {label}
+    </button>
   );
 }
 
@@ -169,7 +218,6 @@ function TraceSummaryButton({
         <LiveSummary id={summaryId} label={summary.live} labelClassName={labelClassName} />
       ) : (
         <RestingSummary
-          failedCount={summary.counts.failed}
           headline={headline}
           id={summaryId}
           labelClassName={labelClassName}
@@ -188,22 +236,36 @@ function TraceSummaryButton({
 }
 
 /**
- * The fixed-height detail line naming the current running target. Removed from
- * the DOM entirely once the group finishes — never a zero-height placeholder.
+ * The live tail: the newest settled steps under a running header, oldest
+ * first, so a person can follow the run without opening it. The running step
+ * is the header's own label. Lines only accumulate while the group runs, so
+ * the header grows at most to three lines and never shrinks mid-run; the tail
+ * leaves the DOM entirely once the group finishes. Hidden from assistive
+ * technology: the polite live region announces phase changes, not every step.
  */
-function TraceDetailLine({
-  detail,
+function TraceTail({
   isActive,
+  tail,
 }: {
-  readonly detail: string | null;
   readonly isActive: boolean;
+  readonly tail: readonly ActivityTailEntry[];
 }): ReactNode {
-  if (!isActive) {
+  if (!isActive || tail.length === 0) {
     return null;
   }
   return (
-    <div className="bs-trace-detail" title={detail ?? undefined}>
-      {detail ?? ''}
+    <div aria-hidden="true" className="bs-trace-tail" data-testid="assistant-activity-tail">
+      {tail.map((entry) => (
+        <div className="bs-trace-tail-line" data-state={entry.state} key={entry.id}>
+          <StepFamilyIcon family={entry.family} />
+          <span className="bs-trace-tail-verb">{entry.verb}</span>
+          {entry.target ? (
+            <span className="bs-trace-tail-target" title={entry.target}>
+              {entry.target}
+            </span>
+          ) : null}
+        </div>
+      ))}
     </div>
   );
 }
@@ -255,18 +317,29 @@ function TraceCollapse({
  */
 export function ActivityTrace({
   children,
-  detail,
+  expanded: controlledExpanded,
   fallbackMs,
   incompleteReason,
   isActive,
+  onExpandedChange,
+  onShowFailed,
   preserveBodyEffects = false,
   restingOverride,
+  strip,
   summary,
+  tail,
 }: ActivityTraceProps): ReactNode {
   const bodyId = useId();
   const summaryId = useId();
   const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
-  const expanded = userExpanded ?? false;
+  const expanded = controlledExpanded ?? userExpanded ?? false;
+  const setExpanded = (next: boolean): void => {
+    if (onExpandedChange) {
+      onExpandedChange(next);
+      return;
+    }
+    setUserExpanded(next);
+  };
   const phase = phaseOf(isActive, incompleteReason);
   // The same "is this the one live pause" test the sr-announcement already
   // makes (`announcementFor`) — reused here so the elapsed clock pauses while
@@ -302,21 +375,37 @@ export function ActivityTrace({
       data-state={isActive ? 'running' : 'done'}
       data-testid="assistant-activity-group"
     >
-      <TraceSummaryButton
-        bodyId={bodyId}
-        elapsedLabel={elapsedLabel}
-        expanded={expanded}
-        headline={headline}
-        isActive={isActive}
-        labelClassName={labelClassName}
-        meta={meta}
-        onToggle={() => setUserExpanded(!expanded)}
-        phase={phase}
-        steps={steps}
-        summary={summary}
-        summaryId={summaryId}
-        verbMeta={verbMeta}
-      />
+      {/* The header row: the disclosure button and its sibling controls. The
+          failed count and the run strip are buttons of their own, so they sit
+          beside the disclosure, never inside it (nested interactives are
+          invalid HTML). */}
+      <div className="bs-activity-header">
+        <TraceSummaryButton
+          bodyId={bodyId}
+          elapsedLabel={elapsedLabel}
+          expanded={expanded}
+          headline={headline}
+          isActive={isActive}
+          labelClassName={labelClassName}
+          meta={meta}
+          onToggle={() => setExpanded(!expanded)}
+          phase={phase}
+          steps={steps}
+          summary={summary}
+          summaryId={summaryId}
+          verbMeta={verbMeta}
+        />
+        {phase === 'running' ? null : (
+          <FailedCount count={summary.counts.failed} onShow={onShowFailed} />
+        )}
+        {strip ? (
+          <ActivityRunStrip
+            failed={summary.counts.failed}
+            marks={strip.marks}
+            onPick={strip.onPick}
+          />
+        ) : null}
+      </div>
       {/* A `button`'s children are presentational per ARIA — several screen
           readers prune the subtree — so a live region nested inside the toggle
           is unreliable and may never fire. It is a SIBLING of the button (in
@@ -326,7 +415,7 @@ export function ActivityTrace({
       <span aria-live="polite" className="sr-only">
         {announcement}
       </span>
-      <TraceDetailLine detail={detail} isActive={isActive} />
+      <TraceTail isActive={isActive} tail={tail} />
       <TraceCollapse bodyId={bodyId} expanded={expanded} preserveBodyEffects={preserveBodyEffects}>
         {children}
       </TraceCollapse>

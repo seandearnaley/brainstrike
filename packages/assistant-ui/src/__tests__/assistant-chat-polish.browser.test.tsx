@@ -351,17 +351,25 @@ describe('shared code-block chrome (real browser)', () => {
 });
 
 describe('ActivityTrace (real browser)', () => {
-  test('active turn: live current-step label + detail line in the header, body collapsed until expanded', async () => {
+  test('active turn: live current-step label + live tail in the header, body collapsed until expanded', async () => {
     const user = userEvent.setup();
     render(
       <div className="assistant-ui-panel">
         <ActivityTrace
-          detail="packages/db/src/registry.ts"
           fallbackMs={undefined}
           incompleteReason={undefined}
           isActive
           restingOverride={null}
           summary={activeSummary}
+          tail={[
+            {
+              family: 'read',
+              id: 'call-1',
+              state: 'done',
+              target: 'packages/db/src/schema.ts',
+              verb: 'Read',
+            },
+          ]}
         >
           <div data-testid="tool-rows">tool rows</div>
         </ActivityTrace>
@@ -371,7 +379,8 @@ describe('ActivityTrace (real browser)', () => {
     expect(screen.getByTestId('assistant-activity-working')).toHaveTextContent(
       'Searching packages/db/src/registry.ts'
     );
-    expect(screen.getByText('packages/db/src/registry.ts')).toHaveClass('bs-trace-detail');
+    expect(screen.getByText('packages/db/src/schema.ts')).toHaveClass('bs-trace-tail-target');
+    expect(screen.getByTestId('assistant-activity-tail')).toBeVisible();
     // Collapsed by default even while active (BST-1677 wave 3, Sean's
     // request): the header is the live cycler, so the body starts hidden.
     const body = screen.getByTestId('assistant-activity-body');
@@ -392,12 +401,12 @@ describe('ActivityTrace (real browser)', () => {
     render(
       <div className="assistant-ui-panel">
         <ActivityTrace
-          detail={null}
           fallbackMs={12_000}
           incompleteReason={undefined}
           isActive={false}
           restingOverride={null}
           summary={doneSummary}
+          tail={[]}
         >
           <div data-testid="tool-rows">tool rows</div>
         </ActivityTrace>
@@ -437,12 +446,12 @@ describe('ActivityTrace (real browser)', () => {
         <style>{'.text-destructive { color: hsl(var(--destructive)); }'}</style>
         <span className="text-destructive" data-testid="destructive-token-probe" />
         <ActivityTrace
-          detail={null}
           fallbackMs={undefined}
           incompleteReason={undefined}
           isActive={false}
           restingOverride={null}
           summary={{ ...doneSummary, counts: { failed: 2, steps: 5 } }}
+          tail={[]}
         />
       </div>
     );

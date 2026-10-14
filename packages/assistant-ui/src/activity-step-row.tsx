@@ -78,6 +78,8 @@ interface RowShellProps {
   readonly name: string;
   readonly onToggle: (() => void) | undefined;
   readonly state: StepGlyphState;
+  /** The step this row stands for, so a jump or a key can find it (`data-step-id`). */
+  readonly stepId: string | undefined;
   readonly testId: string;
   readonly toolName: string | undefined;
 }
@@ -123,6 +125,7 @@ function RowShell(props: RowShellProps): ReactNode {
         aria-labelledby={props.contentId}
         className="bs-step-row bs-trace-reveal"
         data-state={props.state}
+        data-step-id={props.stepId}
         data-testid={props.testId}
         role="group"
         title={props.toolName}
@@ -137,6 +140,7 @@ function RowShell(props: RowShellProps): ReactNode {
       aria-label={props.name}
       className="bs-step-row bs-trace-reveal"
       data-state={props.state}
+      data-step-id={props.stepId}
       data-testid={props.testId}
       onClick={props.onToggle}
       title={props.toolName}
@@ -182,6 +186,7 @@ export function StepRowHeader(props: StepRowHeaderProps): ReactNode {
       }
       onToggle={props.onToggle}
       state={props.state}
+      stepId={props.stepId}
       testId={props.testId ?? 'activity-step-row'}
       toolName={props.toolName}
     >

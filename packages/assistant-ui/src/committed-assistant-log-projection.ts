@@ -36,6 +36,8 @@ import { committedFileNotices } from './committed-file-notices';
 import {
   committedAttachments,
   committedStreamData,
+  HOST_EVENT_DATA_NAME,
+  HOST_STREAM_DATA_NAME,
   mcpToolsUnavailableNotice,
   readRunAttempt,
   record,
@@ -361,12 +363,17 @@ export class CommittedAssistantLogProjection {
     this.view = { ...this.view, repository: { ...this.view.repository, messages } };
   }
 
-  private part(run: ProjectedRun, key: string, update: (previous?: Part) => Part): void {
+  /** Write the keyed part; an update that returns undefined has nothing to show yet. */
+  private part(
+    run: ProjectedRun,
+    key: string,
+    update: (previous?: Part) => Part | undefined
+  ): void {
     const message = this.message(run);
     const index = run.partIndexes.get(key) ?? message.content.length;
     const previous = message.content[index];
     const next = update(previous);
-    if (next === previous) {
+    if (next === undefined || next === previous) {
       return;
     }
     const content = [...message.content];
@@ -711,7 +718,7 @@ export class CommittedAssistantLogProjection {
       };
     }
     if (event['type'] !== 'memory.observation.withheld') {
-      this.data(run, row, event, 'brainstrike.host-event');
+      this.data(run, row, event, HOST_EVENT_DATA_NAME);
       return;
     }
     if (event['reason'] !== 'branched-thread') {
@@ -723,7 +730,7 @@ export class CommittedAssistantLogProjection {
   private stream(run: ProjectedRun, row: CommittedAssistantLogRow): void {
     const chunk = record(row.event['chunk']);
     if (!chunk) {
-      this.data(run, row, row.event['chunk'], 'brainstrike.host-stream');
+      this.data(run, row, row.event['chunk'], HOST_STREAM_DATA_NAME);
       return;
     }
     const type = chunk['type'];
@@ -777,7 +784,7 @@ export class CommittedAssistantLogProjection {
     }
     // SDK approval IDs are intentionally never native decision identities.
     // Preserve unhandled rich chunks and provider/child data verbatim.
-    this.data(run, row, chunk, 'brainstrike.host-stream');
+    this.data(run, row, chunk, HOST_STREAM_DATA_NAME);
   }
 
   private finish(
@@ -973,7 +980,7 @@ export class CommittedAssistantLogProjection {
         this.view = { ...this.view, contextUsage: { inputTokens, outputTokens } };
       }
       this.commitStepText(run, event['messages']);
-      this.data(run, row, event, 'brainstrike.host-event');
+      this.data(run, row, event, HOST_EVENT_DATA_NAME);
     } else if (event['type'] === 'model.messages' && run.stepOpen) {
       // Only a Stop's partial reply commits assistant text inside an open step.
       this.commitStepText(run, event['messages']);

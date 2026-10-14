@@ -433,9 +433,8 @@ describe('assistant activity chronology through the real runtime', () => {
       expect(within(group).getByTestId('assistant-activity-working')).toHaveTextContent(
         'Reading packages/db/src/registry.ts'
       );
-      const detail = group.querySelector('.bs-trace-detail');
-      expect(detail).not.toBeNull();
-      expect(detail).toHaveTextContent('packages/db/src/registry.ts');
+      // The running step is the label; nothing has settled, so there is no tail yet.
+      expect(within(group).queryByTestId('assistant-activity-tail')).toBeNull();
     } finally {
       await act(async () => {
         finish.release();

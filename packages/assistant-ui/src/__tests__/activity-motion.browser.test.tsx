@@ -67,13 +67,17 @@ test('reveal rows carry a bounded stagger delay', () => {
   expect(delay(7)).toBe(delay(1) * 5);
 });
 
-test('the detail slot has a fixed one-line height', () => {
+test('each live tail line has a fixed one-line height', () => {
   const { container } = render(
     <div className="assistant-ui-panel">
-      <div className="bs-trace-detail" data-testid="detail" />
+      <div className="bs-trace-tail">
+        <div className="bs-trace-tail-line" data-testid="line">
+          <span className="bs-trace-tail-target">{'src/'.repeat(80)}</span>
+        </div>
+      </div>
     </div>
   );
-  const detail = container.querySelector('[data-testid="detail"]') as HTMLElement;
-  expect(px(getComputedStyle(detail).height)).toBeGreaterThan(0);
-  expect(getComputedStyle(detail).overflow).toBe('hidden');
+  const line = container.querySelector('[data-testid="line"]') as HTMLElement;
+  expect(px(getComputedStyle(line).height)).toBe(18);
+  expect(getComputedStyle(line).overflow).toBe('hidden');
 });
