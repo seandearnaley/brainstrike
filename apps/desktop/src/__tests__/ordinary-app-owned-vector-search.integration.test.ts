@@ -10,6 +10,7 @@ import {
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   parseOpenRouterModelMetadata,
 } from '@brainstrike/assistant-contract';
+import type { BoundaryTransport } from '@brainstrike/assistant-contract/boundary-result';
 import { decodeHostRecord } from '@brainstrike/host-lease';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
@@ -354,17 +355,25 @@ async function qualifyVectorSearch(): Promise<void> {
           const publication = await page.evaluate(async (rootId) => {
             const capability = (
               globalThis as typeof globalThis & {
-                readonly indexSearch?: IndexSearchCapability;
+                readonly indexSearch?: BoundaryTransport<IndexSearchCapability>;
               }
             ).indexSearch;
             if (!capability) {
               throw new Error('The ordinary desktop has no native index capability');
             }
-            const status = await capability.status();
+            const statusReply = await capability.status();
+            if (!statusReply.ok) {
+              throw new Error(statusReply.error.message);
+            }
+            const status = statusReply.value;
             if (status.kind !== 'ready' || status.embedding.indexMode !== 'vector-configured') {
               return { ready: false, status };
             }
-            const observation = await capability.coverageBatch([{ rootIds: [rootId] }]);
+            const coverageReply = await capability.coverageBatch([{ rootIds: [rootId] }]);
+            if (!coverageReply.ok) {
+              throw new Error(coverageReply.error.message);
+            }
+            const observation = coverageReply.value;
             if (observation.kind === 'blocked') {
               throw new Error(observation.reason);
             }
