@@ -3167,19 +3167,17 @@ describe('useFileTree (lazy loading version)', () => {
         throw new Error('Expected parent directory before restoration');
       }
 
-      await act(async () => {
-        await result.current.loadChildren(parentDir.path);
-      });
-
-      const loadedParent = result.current.fileTree.find((node) => node.path === parentDir.path);
-      expect(loadedParent?.type).toBe('directory');
-      if (loadedParent?.type !== 'directory') {
-        throw new Error('Expected loaded parent directory before worker patch');
+      // The worker reads `parent` through the main-thread load handler, which
+      // registers the child handles used for rehydration while `parent` itself
+      // stays unloaded in the rendered tree.
+      if (!requestLoadHandler) {
+        throw new Error('Expected file tree worker load handler to be registered');
       }
-      const childDir = loadedParent.children?.find((node) => node.name === 'child');
+      const [parentResult] = await requestLoadHandler('restore-parent', [parentDir.path]);
+      const childDir = parentResult?.children?.find((node) => node.name === 'child');
       expect(childDir?.type).toBe('directory');
       if (childDir?.type !== 'directory') {
-        throw new Error('Expected child directory handle before worker patch');
+        throw new Error('Expected child directory from the worker load request');
       }
 
       const progress = vi.fn();
@@ -3189,16 +3187,7 @@ describe('useFileTree (lazy loading version)', () => {
         patches: [
           {
             payload: {
-              children: [
-                {
-                  depth: childDir.depth,
-                  loadState: 'loaded',
-                  name: childDir.name,
-                  path: childDir.path,
-                  rootFolderId: childDir.rootFolderId,
-                  type: 'directory',
-                },
-              ],
+              children: [childDir],
               loadState: 'loaded',
               path: parentDir.path,
             },

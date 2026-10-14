@@ -21,6 +21,7 @@ import {
 } from '../utils/lazy-tree-loader';
 import {
   applyNormalizedDirectoryChildrenUpdates,
+  getNormalizedNode,
   materializeNormalizedFileTree,
   type NormalizedDirectoryChildrenUpdate,
   type NormalizedFileTreeState,
@@ -668,6 +669,13 @@ export function applyWorkerPatchesToNormalizedTree(args: {
 
   for (const patch of patches) {
     if (patch.type === 'childrenLoaded') {
+      loadedChildrenPaths.add(patch.payload.path);
+      // Bulk operations only fill directories the worker saw as unloaded. A directory
+      // already loaded in the latest tree was committed by a direct load while this
+      // request was in flight; re-listing it would discard that load's descendants.
+      if (getNormalizedNode(args.normalizedTree, patch.payload.path)?.loadState === 'loaded') {
+        continue;
+      }
       const children = rehydrateWorkerChildrenStrict(
         patch.payload.path,
         patch.payload.children,
@@ -678,7 +686,6 @@ export function applyWorkerPatchesToNormalizedTree(args: {
         loadState: patch.payload.loadState,
         path: patch.payload.path,
       });
-      loadedChildrenPaths.add(patch.payload.path);
       indexedNodes.push(...children);
       continue;
     }
