@@ -3,6 +3,10 @@ import {
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
 import {
+  formatProjectionShownCount,
+  PROJECTION_OMITTED_CONTEXT_CHARS,
+} from '@brainstrike/assistant-contract/context-provenance';
+import {
   clipProjectionEnd as clipEnd,
   clipProjectionMiddle,
   decodedWorkspaceTextModelOutputChars as decodedChars,
@@ -280,7 +284,7 @@ function fitSemanticContext(
     const candidate = [
       ...fixed,
       codePoints.slice(0, midpoint).join(''),
-      `projection_omitted_context_chars=${codePoints.length - midpoint}`,
+      `${PROJECTION_OMITTED_CONTEXT_CHARS}=${codePoints.length - midpoint}`,
       refinement,
     ];
     if (decodedChars(candidate) <= domainModelResultCharBudget) {
@@ -292,7 +296,7 @@ function fitSemanticContext(
   const fitted = [
     ...fixed,
     codePoints.slice(0, low).join(''),
-    `projection_omitted_context_chars=${codePoints.length - low}`,
+    `${PROJECTION_OMITTED_CONTEXT_CHARS}=${codePoints.length - low}`,
     refinement,
   ];
   if (decodedChars(fitted) > domainModelResultCharBudget) {
@@ -354,7 +358,7 @@ function hybridHeader(result: HybridResult, kept: number): string {
   const root = result.root ? ` | root=${clipEnd(result.root, MAX_ROOT_CHARS, 'root-name')}` : '';
   return (
     `hybrid | set=${clipEnd(result.embeddingSetId, MAX_ID_CHARS, 'set-id')}` +
-    ` | shown=${kept}/${result.metadata.fusedResultCount}${root}` +
+    ` | ${formatProjectionShownCount(kept, result.metadata.fusedResultCount)}${root}` +
     ` | truncated=${result.truncated} | vector=${result.metadata.vectorResultCount}` +
     ` | fts=${result.metadata.ftsResultCount} | fused=${result.metadata.fusedResultCount}` +
     ` | weights=${result.vectorWeight}:${result.ftsWeight} | total_ms=${result.metadata.totalMs}`
