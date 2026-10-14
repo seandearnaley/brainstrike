@@ -98,6 +98,68 @@ describe('TransformersBackend queue integration', () => {
     }
   });
 
+  it('forwards only its own worker progress as completed texts, then unsubscribes', async () => {
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('Worker', class {});
+    const { queue, add } = createQueueStub();
+    const listeners = new Set<Parameters<QueueAdapter['onProgress']>[0]>();
+    const unsubscribe = vi.fn();
+    vi.mocked(queue.onProgress).mockImplementation((listener) => {
+      listeners.add(listener);
+      return () => {
+        unsubscribe();
+        listeners.delete(listener);
+      };
+    });
+    const model = 'Xenova/all-MiniLM-L6-v2';
+    const revision = '751bff37182d3f1213fa05d7196b954e230abad9';
+    add.mockImplementationOnce(async (request) => {
+      const id = (request as QueueAddCall & { id: string }).id;
+      for (const listener of listeners) {
+        listener({ id: 'other-task', phase: 'embedding', progress: 1, type: 'progress' });
+        listener({ id, phase: 'embedding', progress: 0.5, type: 'progress' });
+        listener({ id, phase: 'complete', progress: 1, type: 'progress' });
+      }
+      const result = createQueueResult(id, [0.4, 0.6]);
+      return {
+        ...result,
+        metadata: {
+          ...result.metadata,
+          batchSize: 2,
+          device: 'wasm',
+          dtype: 'q8',
+          model,
+          revision,
+        },
+        vectors: [Float32Array.from([0.4, 0.6]), Float32Array.from([0.6, 0.4])],
+      };
+    });
+    const { TransformersBackend } = await import('../transformers-backend.js');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config.js'
+    );
+    registerEmbeddingQueueFactory(() => queue);
+    const backend = new TransformersBackend();
+    try {
+      backend.setTargetDimensions(2);
+      await backend.initialize({
+        device: 'wasm',
+        dtype: 'q8',
+        modelId: model,
+        quantized: false,
+        revision,
+      });
+      const onProgress = vi.fn();
+      await backend.generateEmbeddings(['first', 'second'], model, { onProgress });
+      expect(onProgress.mock.calls).toEqual([[1]]);
+      expect(unsubscribe).toHaveBeenCalledOnce();
+      expect(listeners.size).toBe(0);
+    } finally {
+      await backend.dispose();
+      resetEmbeddingQueueFactory();
+    }
+  });
+
   it.each([
     ['webgpu', 384],
     ['wasm', 384],

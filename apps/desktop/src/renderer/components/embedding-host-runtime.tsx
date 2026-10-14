@@ -14,6 +14,7 @@ import { createLogger } from '@brainstrike/logging';
 import { type MutableRefObject, useEffect, useRef } from 'react';
 import {
   createEmbeddingHostDocumentEmbeddingsErrorReport,
+  createEmbeddingHostDocumentEmbeddingsProgressReport,
   createEmbeddingHostDocumentEmbeddingsResultReport,
   createEmbeddingHostQueryEmbeddingErrorReport,
   createEmbeddingHostQueryEmbeddingResultReport,
@@ -233,6 +234,11 @@ async function handleQueryEmbeddingRequest(options: {
           (inferenceSignal) =>
             request.channel === 'document-embeddings'
               ? serviceState.service.generateEmbeddings(request.payload.texts, {
+                  // Main re-arms the batch window on each slice (liveness, not settlement).
+                  onProgress: (completed) =>
+                    reportDocumentEmbeddingsResponse(
+                      createEmbeddingHostDocumentEmbeddingsProgressReport(request, completed)
+                    ),
                   signal: inferenceSignal,
                 })
               : serviceState.service.generateQueryEmbedding(request.payload.query, {

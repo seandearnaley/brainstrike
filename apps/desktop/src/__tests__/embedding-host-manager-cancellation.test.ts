@@ -37,6 +37,7 @@ import { EmbeddingHostManager } from '../embedding-host-manager';
 import {
   createEmbeddingHostDocumentCancellationError,
   createEmbeddingHostDocumentEmbeddingsErrorReport,
+  createEmbeddingHostDocumentEmbeddingsProgressReport,
   createEmbeddingHostQueryCancellationError,
   createEmbeddingHostQueryEmbeddingErrorReport,
   type EmbeddingHostDocumentEmbeddingsRequest,
@@ -218,6 +219,34 @@ describe('document batch manager cancellation', () => {
       )
     );
     await rejected;
+  });
+  it('keeps a document batch alive while the host reports progress past one timeout window', async () => {
+    // Recorded: a granite WASM batch of dense chunks outlived the fixed 60 s window and
+    // blocked the index ("Embedding host request ... timed out after 60000ms").
+    vi.useFakeTimers();
+    try {
+      const manager = new EmbeddingHostManager();
+      const result = manager.documentEmbeddings(DOCUMENT);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(windowMock.webContents.send).toHaveBeenCalledOnce();
+      const request = windowMock.webContents.send.mock
+        .calls[0]?.[1] as EmbeddingHostDocumentEmbeddingsRequest;
+      await vi.advanceTimersByTimeAsync(50_000);
+      manager.acceptDocumentEmbeddingsResponseReport(
+        91,
+        createEmbeddingHostDocumentEmbeddingsProgressReport(request, 1)
+      );
+      await vi.advanceTimersByTimeAsync(50_000);
+      manager.acceptDocumentEmbeddingsResponseReport(91, {
+        ...request,
+        channel: 'document-embeddings-result',
+        payload: { embeddings: DOCUMENT.texts.map(() => Array.from({ length: 384 }, () => 0.1)) },
+        type: 'result',
+      });
+      await expect(result).resolves.toHaveLength(DOCUMENT.texts.length);
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it('rejects count/dimension mismatches independently at the main receiver', async () => {
     const manager = new EmbeddingHostManager();

@@ -17,6 +17,10 @@ export function documentResponseFailure(
   if (report.type === 'error') {
     return deserializeRuntimeError(report.payload);
   }
+  if (report.type === 'progress') {
+    // The request channel consumes progress as liveness; it can never settle a batch.
+    return new Error('Document embedding progress cannot settle its request.');
+  }
   if (
     report.payload.embeddings.length !== payload.texts.length ||
     report.payload.embeddings.some(

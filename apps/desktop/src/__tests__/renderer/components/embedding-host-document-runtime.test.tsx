@@ -108,6 +108,7 @@ describe('hidden pinned document batch', () => {
       )
     );
     expect(generateDocumentEmbeddingsMock).toHaveBeenCalledExactlyOnceWith(next.payload.texts, {
+      onProgress: expect.any(Function),
       signal: expect.any(AbortSignal),
     });
     expect(generateQueryEmbeddingMock).not.toHaveBeenCalled();

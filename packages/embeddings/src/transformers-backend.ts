@@ -392,10 +392,25 @@ export class TransformersBackend {
       signal?.throwIfAborted();
       const queue = await this.ensureQueue();
       signal?.throwIfAborted();
-      const response = await queue.add(
-        this.createWorkerRequest(texts, modelId),
-        signal ? { signal } : undefined
-      );
+      const request = this.createWorkerRequest(texts, modelId);
+      const onProgress = options?.onProgress;
+      const unsubscribe = onProgress
+        ? queue.onProgress((event) => {
+            if (
+              event.type === 'progress' &&
+              event.id === request.id &&
+              event.phase === 'embedding'
+            ) {
+              onProgress(Math.round(event.progress * texts.length));
+            }
+          })
+        : undefined;
+      let response: Awaited<ReturnType<typeof queue.add>>;
+      try {
+        response = await queue.add(request, signal ? { signal } : undefined);
+      } finally {
+        unsubscribe?.();
+      }
       signal?.throwIfAborted();
 
       if (!response.vectors || response.vectors.length === 0) {
