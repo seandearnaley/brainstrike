@@ -77,7 +77,7 @@ test.describe('Assistant tool card visuals (desktop)', () => {
     await configureAssistantProvider(window);
   });
 
-  test('tool card is compact, tinted internal, and badge-free', async ({
+  test('a settled internal call is a badge-free row that opens into a tinted card', async ({
     modelProvider,
     window,
   }) => {
@@ -101,9 +101,13 @@ test.describe('Assistant tool card visuals (desktop)', () => {
     const toolCard = window.getByTestId('tool-fallback').first();
     await expect(toolCard).toBeVisible({ timeout: E2E_TIMEOUTS.toolVisibility });
     await expect(toolCard).toHaveAttribute('data-tool-category', 'internal');
+    // Inside a group a settled call is a one-line row; opened, it is a card.
+    await expect(toolCard).toHaveAttribute('data-chrome', 'row');
     // The refreshed card no longer renders a visible status badge; the status is
     // conveyed by the rail icon (tooltip-only label), so "Completed" is absent.
     await expect(toolCard.getByText('Completed', { exact: true })).toHaveCount(0);
+    await toolCard.getByRole('button', { name: /expand details$/iu }).click();
+    await expect(toolCard).toHaveAttribute('data-chrome', 'card');
 
     await window.screenshot({ path: 'e2e-artifacts/tool-card-success.png' });
   });
@@ -120,7 +124,10 @@ test.describe('Assistant tool card visuals (desktop)', () => {
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
     const summary = window.getByTestId('assistant-activity-summary').first();
-    await expect(summary).toContainText('1 failed');
+    // The failed count sits beside the disclosure as its own control.
+    await expect(activityGroup.getByTestId('assistant-activity-failed-count')).toHaveText(
+      '· 1 failed'
+    );
     // The resting headline is the verb summary now (BST-1679), not the fixed
     // word "Worked": the file read reads "Read". `data-state` (synced above) is
     // the state sync; the text proves which step it summarizes.

@@ -630,12 +630,12 @@ describe('assistant UI panel architecture', () => {
     };
     const { getByTestId, unmount } = render(
       createElement(ActivityTrace, {
-        detail: null,
         fallbackMs: undefined,
         incompleteReason: undefined,
         isActive: true,
         restingOverride: null,
         summary: runningSummary,
+        tail: [],
       })
     );
     try {

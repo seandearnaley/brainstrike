@@ -10,6 +10,12 @@ import {
 import { cn } from '@brainstrike/ui';
 import { Brain } from 'lucide-react';
 import { memo, type ReactNode, useId, useMemo, useState } from 'react';
+import {
+  ActivityFilterBar,
+  ActivityGroupViewProvider,
+  ActivityReasoningSlot,
+  ActivityToolSlot,
+} from './activity-group-view';
 import { ActivityStepMetaProvider } from './activity-step-context';
 import { deriveStepMeta } from './activity-step-meta';
 import { StepRowHeader } from './activity-step-row';
@@ -34,6 +40,7 @@ import { ShellOutputProvider } from './shell-output-context';
 import { isSubagentDelegationToolName } from './subagent-tool-cards';
 import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS, TodoProgress } from './todo-progress';
 import { ToolDurationProvider } from './tool-duration-context';
+import { useActivityGroupLayout } from './use-activity-group-layout';
 import { useChainActivityDerivations } from './use-chain-activity-derivations';
 import { useShellOutputs } from './use-shell-outputs';
 import {
@@ -350,12 +357,10 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
   // and handed down through the provider; with two calls in flight, a card
   // reading only its own status would shimmer both.
   const stepMeta = useMemo(() => deriveStepMeta(steps), [steps]);
-  const detail = useMemo(
-    () =>
-      steps.findLast((step) => step.kind === 'tool' && step.state === 'running')?.target ?? null,
-    [steps]
-  );
   const restingOverride = useAuiState((state) => readActivitySummaryOverride(state.message));
+  // Clusters, filters, the live tail, the run strip, jumps and keys (activity
+  // trace at scale): derived from the same step list, before any early return.
+  const layout = useActivityGroupLayout(steps, groupParts, renderers);
 
   // A group can coalesce purely from group-transparent bookkeeping (e.g. a
   // run of `tool.started`/`tool.completed` events with no reasoning or
@@ -367,25 +372,45 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
   }
 
   return (
-    <div className="bs-chain-of-thought mb-2 block max-w-2xl">
+    // biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/noNoninteractiveElementInteractions: keys bubble here from the group's own buttons; the wrapper takes no focus itself.
+    <div
+      className="bs-chain-of-thought mb-2 block max-w-2xl"
+      onKeyDown={layout.onKeyDown}
+      ref={layout.rootRef}
+    >
       {isFirstGroup && taskList ? <TodoProgress result={taskList} /> : null}
       <ToolDurationProvider durations={toolDurations}>
         <ShellOutputProvider outputs={shellOutputs}>
           <ActivityStepMetaProvider meta={stepMeta}>
-            <ActivityTrace
-              detail={detail}
-              fallbackMs={activityFallbackMs}
-              incompleteReason={incompleteReason}
-              isActive={isActivityActive}
-              preserveBodyEffects={preserveBodyEffects}
-              restingOverride={restingOverride}
-              summary={summary}
-            >
-              {/* `.bs-step-list` is what the reveal stagger counts
-                  (`:nth-child`), so each step keeps exactly ONE wrapper here
-                  — `ActivityPartLayout`'s div. */}
-              <div className="bs-step-list">{children}</div>
-            </ActivityTrace>
+            <ActivityGroupViewProvider view={layout.view}>
+              <ActivityTrace
+                expanded={layout.expanded}
+                fallbackMs={activityFallbackMs}
+                incompleteReason={incompleteReason}
+                isActive={isActivityActive}
+                onExpandedChange={layout.setExpanded}
+                {...(layout.showFirstFailure ? { onShowFailed: layout.showFirstFailure } : {})}
+                preserveBodyEffects={preserveBodyEffects}
+                restingOverride={restingOverride}
+                strip={{ marks: layout.strip, onPick: layout.jumpTo }}
+                summary={summary}
+                tail={layout.tail}
+              >
+                <ActivityFilterBar
+                  allClustersOpen={layout.allClustersOpen}
+                  clusterCount={layout.clusterCount}
+                  filter={layout.filter}
+                  onFilter={layout.setFilter}
+                  onToggleAllClusters={layout.toggleAllClusters}
+                  options={layout.filterOptions}
+                />
+                {/* `.bs-step-list` is what the reveal stagger counts
+                    (`:nth-child`), so each step keeps exactly ONE wrapper here
+                    — `ActivityPartLayout`'s div, or a cluster's row and its
+                    open members. */}
+                <div className="bs-step-list">{children}</div>
+              </ActivityTrace>
+            </ActivityGroupViewProvider>
           </ActivityStepMetaProvider>
         </ShellOutputProvider>
       </ToolDurationProvider>
@@ -450,7 +475,11 @@ export function AssistantActivityParts(): ReactNode {
           case 'text':
             return <AssistantMessageText />;
           case 'reasoning':
-            return <ActivityReasoningBlock part={part} />;
+            return (
+              <ActivityReasoningSlot>
+                <ActivityReasoningBlock part={part} />
+              </ActivityReasoningSlot>
+            );
           case 'tool-call':
             if (
               part.result === undefined &&
@@ -461,11 +490,13 @@ export function AssistantActivityParts(): ReactNode {
               return null;
             }
             return (
-              <ShellOutputProvider outputs={shellOutputs}>
-                <ActivityPartLayout>
-                  {part.toolUI ?? <ActivityToolPart {...part} />}
-                </ActivityPartLayout>
-              </ShellOutputProvider>
+              <ActivityToolSlot toolCallId={part.toolCallId}>
+                <ShellOutputProvider outputs={shellOutputs}>
+                  <ActivityPartLayout>
+                    {part.toolUI ?? <ActivityToolPart {...part} />}
+                  </ActivityPartLayout>
+                </ShellOutputProvider>
+              </ActivityToolSlot>
             );
           case 'data':
             return part.dataRendererUI;
