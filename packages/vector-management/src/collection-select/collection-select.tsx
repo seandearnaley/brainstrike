@@ -687,6 +687,8 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     collections: resolvedCollections,
     error: liveQueryEnabled ? error : fetchState.error,
     loading: liveQueryEnabled ? loading : fetchState.loading,
+    /** Desktop reads the native catalog; web waits for its database handle. */
+    sourceReady: Boolean(catalog || db),
   };
 }
 

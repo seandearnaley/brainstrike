@@ -5,6 +5,7 @@ import {
 } from '@brainstrike/assistant-contract/boundary-result';
 import { type DrizzleFileRecordRepository, ElectronFileRecordRepository } from '@brainstrike/db';
 import { useFileRecordRepository } from '@brainstrike/db/react';
+import type { IndexLifecycleCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { useEffect } from 'react';
 import { useDatabaseStatusStore } from '../stores/database-status-store';
 
@@ -38,27 +39,43 @@ export function useDatabaseStatusSync(): void {
   const catalog = transport
     ? createBoundaryCapability<ModelCatalogCapability>(transport)
     : undefined;
+  const lifecycle =
+    typeof window === 'undefined'
+      ? undefined
+      : (window as Window & { indexSearch?: IndexLifecycleCapability }).indexSearch;
   const repository = useFileRecordRepository({ enabled: !catalog });
 
   useEffect(() => {
     const store = useDatabaseStatusStore.getState();
     if (catalog) {
       let active = true;
+      let latest = 0;
+      const read = (): void => {
+        const request = ++latest;
+        void catalog.read().then(
+          () => {
+            if (active && request === latest) {
+              store.setConnected('SQLite', 'Connected (agent host)');
+            }
+          },
+          (error: unknown) => {
+            if (active && request === latest) {
+              store.setDisconnected(
+                'SQLite',
+                error instanceof Error ? error.message : String(error)
+              );
+            }
+          }
+        );
+      };
       store.setLoading();
-      void catalog.read().then(
-        () => {
-          if (active) {
-            store.setConnected('SQLite', 'Connected (agent host)');
-          }
-        },
-        (error: unknown) => {
-          if (active) {
-            store.setDisconnected('SQLite', error instanceof Error ? error.message : String(error));
-          }
-        }
-      );
+      read();
+      // Clear replaces this renderer before the host reopens; the lifecycle push
+      // announces the reopened host, so a refused first read does not latch.
+      const unsubscribe = lifecycle?.onLifecycleChanged(read);
       return () => {
         active = false;
+        unsubscribe?.();
       };
     }
 
@@ -81,5 +98,5 @@ export function useDatabaseStatusSync(): void {
 
     store.setConnected(location, testResult);
     return;
-  }, [catalog, repository]);
+  }, [catalog, lifecycle, repository]);
 }

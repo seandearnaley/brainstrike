@@ -50,6 +50,45 @@ describe('useDatabaseStatusSync', () => {
       location: 'SQLite',
     });
   });
+  it('re-reads the native catalog when the host reopens after a Clear refusal', async () => {
+    // Recorded from the replacement renderer while Clear held the native index closed.
+    const closed = {
+      category: 'availability',
+      code: 'native-index-closed',
+      kind: 'refusal',
+      message: 'The search index is closed.',
+      remedy: 'Reopen the workspace to search again.',
+    } as const;
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce({ error: closed, ok: false })
+      .mockResolvedValueOnce({ ok: true, value: { models: [], providers: [] } });
+    let notify: ((observation: { generation: number; kind: 'ready' }) => void) | undefined;
+    const unsubscribe = vi.fn();
+    vi.stubGlobal('modelCatalog', { read });
+    vi.stubGlobal('indexSearch', {
+      onLifecycleChanged: (listener: typeof notify) => {
+        notify = listener;
+        return unsubscribe;
+      },
+    });
+    mockUseFileRecordRepository.mockReturnValue(null);
+    const hook = renderHook(() => useDatabaseStatusSync());
+    await waitFor(() =>
+      expect(useDatabaseStatusStore.getState()).toMatchObject({
+        connected: false,
+        loading: false,
+        testResult: closed.message,
+      })
+    );
+    await act(async () => notify?.({ generation: 2, kind: 'ready' }));
+    await waitFor(() =>
+      expect(useDatabaseStatusStore.getState()).toMatchObject({ connected: true, loading: false })
+    );
+    expect(read).toHaveBeenCalledTimes(2);
+    hook.unmount();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
   it('reports a failed native writer without selecting the PG arm', async () => {
     vi.stubGlobal('modelCatalog', {
       read: async () => ({ error: INTERNAL_FAULT, ok: false }),

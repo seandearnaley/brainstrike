@@ -274,7 +274,7 @@ test('database persistence specs do not treat fail-closed cleanup as a graceful 
     /throw new Error\([^)]*cleanup could not be verified[^)]*\)/i,
     'the shared button cleanup path must throw an observation-bounded verification error'
   );
-  for (const callerName of ['executeClearDatabaseWorkflow', 'cleanupExistingData']) {
+  for (const callerName of ['executeClearDatabaseWorkflow']) {
     const callerSource = findNamedFunctionSource(source, callerName);
     assert.match(
       callerSource,
