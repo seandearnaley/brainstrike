@@ -5,6 +5,13 @@ import { type FileTree, mockBrowserApis } from './mock-fs';
 
 interface AssistantWorkspaceOptions {
   readonly clipboard?: boolean;
+  /**
+   * Wait for the hosted composer to accept input before returning. The
+   * provider and model themselves come from the mocked
+   * `/api/assistant/status` payload (`HOSTED_ASSISTANT_STATUS`); this is the
+   * readiness barrier, so a suite never races the first `Send`.
+   */
+  readonly hostedAssistantModel?: boolean;
   readonly rootName?: string;
   readonly tree?: FileTree;
 }
@@ -38,4 +45,10 @@ export async function openAssistantWorkspace(
   await expect(page.getByTestId('assistant-thread-tabs-workspace')).toBeVisible({
     timeout: 15_000,
   });
+
+  if (options.hostedAssistantModel === true) {
+    await expect(page.getByRole('textbox', { name: 'Message input' })).toBeEnabled({
+      timeout: 15_000,
+    });
+  }
 }
