@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Actual HostCore + native StateStore captures. The approval run is Packet B's
 // shared public fixture; the question and plan runs are byte-identical copies of the
 // desktop fixtures apps/desktop/src/__tests__/fixtures/committed-host-*.json.

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { ThreadAssistantMessage } from '@assistant-ui/react';
 import { describe, expect, it } from 'vitest';
 import {

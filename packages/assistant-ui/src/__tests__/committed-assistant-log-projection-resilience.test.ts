@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Actual HostCore + native StateStore capture (record-attempt-log.mjs): run 1's
 // first attempt stalls after partial text and recovers; run 2's stall after
 // streamed tool input is refused. Each provider call reports a warning.

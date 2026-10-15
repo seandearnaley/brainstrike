@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Actual standalone host recording (real bin, MCP lab reference server, one
 // refused and one protocol-mismatched server), shared through test-utils.
 import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';

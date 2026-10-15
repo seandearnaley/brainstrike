@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { resolveReasoningControlsAvailability } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import {

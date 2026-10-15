@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { SHELL_OUTPUT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import { collectShellOutputs, createShellOutputAccumulator } from '../shell-output-parts';

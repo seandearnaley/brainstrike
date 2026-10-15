@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { deriveStepMeta } from '../activity-step-meta';
 import type { ActivityStep } from '../activity-trace-model';

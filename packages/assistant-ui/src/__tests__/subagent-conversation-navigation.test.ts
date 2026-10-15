@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { DELEGATED_CONVERSATION_DATA_NAME } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import {

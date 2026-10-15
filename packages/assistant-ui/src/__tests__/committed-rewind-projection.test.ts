@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Actual HostCore + StateStore recording (record-rewind-log.mjs): runs A and B;
 // a conversation-only rewind to before B; its redo; a second rewind to before
 // B; then run C, whose committed parent is A.

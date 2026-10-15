@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { describe, expect, it } from 'vitest';
 import { resolveCardStatus, resolveErrorMessage } from '../tool-fallback-state';

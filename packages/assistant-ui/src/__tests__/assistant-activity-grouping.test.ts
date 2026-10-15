@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { PartState } from '@assistant-ui/react';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,

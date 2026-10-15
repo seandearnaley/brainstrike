@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract/tool-approval';
 import { describe, expect, it } from 'vitest';
 import {

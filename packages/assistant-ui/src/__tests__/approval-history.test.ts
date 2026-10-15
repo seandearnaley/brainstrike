@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { getToolActionIdentityKey } from '@brainstrike/assistant-contract';
 import type { AssistantToolApprovalAnswered } from '@brainstrike/assistant-contract/tool-approval';
 import { expect, it } from 'vitest';

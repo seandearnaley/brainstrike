@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { COMPACTION_SUMMARY_METADATA_KEY } from '@brainstrike/assistant-contract/compaction-summary';
 import { describe, expect, it } from 'vitest';
 import { isCompactionSummaryMessage } from '../compaction-summary-message';

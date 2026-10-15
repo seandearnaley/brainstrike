@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { AssistantClient } from '@assistant-ui/react';
 import { describe, expectTypeOf, it } from 'vitest';
 

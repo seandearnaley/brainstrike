@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Actual HostCore + native StateStore + pinned AI SDK approved-run capture,
 // shared unchanged through test-utils' public recorded fixture.
 // No private cross-package code/fixture imports or alternate wire decoder.
