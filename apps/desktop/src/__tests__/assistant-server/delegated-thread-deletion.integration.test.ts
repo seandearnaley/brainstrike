@@ -4,13 +4,9 @@ import {
   createThreadWorkspaceRepository,
   EMPTY_WORKSPACE_SNAPSHOT,
 } from '@brainstrike/assistant-data';
-import {
-  migrate,
-  ThreadSearchRepository,
-  ToolOutputArtifactRepository,
-  wasmLoader,
-} from '@brainstrike/db';
+import { ThreadSearchRepository, ToolOutputArtifactRepository } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -19,8 +15,7 @@ describe.each(['single', 'bulk', 'native'] as const)(
   (mode) => {
     let database: PGlite;
     beforeEach(async () => {
-      database = await wasmLoader.createPGlite('memory://delegated-delete');
-      await migrate(database);
+      database = await createMigratedTestDb();
       for (const id of ['root', 'child', 'grandchild', 'sibling', 'unrelated']) {
         await database.query(
           `INSERT INTO mastra_threads

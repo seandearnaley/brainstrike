@@ -14,7 +14,7 @@
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { migrate, wasmLoader } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -119,8 +119,7 @@ async function seedIndexedFile(content: string): Promise<void> {
 
 beforeEach(async () => {
   rootPath = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'bs-reindex-'));
-  db = await wasmLoader.createPGlite('memory://reindex-on-edit-integration');
-  await migrate(db);
+  db = await createMigratedTestDb();
   dbHolder.db = db;
   const now = new Date().toISOString();
   await db.query(

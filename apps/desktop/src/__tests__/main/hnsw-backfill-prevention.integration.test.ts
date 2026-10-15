@@ -4,18 +4,16 @@ import {
   dimensionIndexIsReady,
   EmbeddingSetsRepository,
   JobQueue,
-  migrate,
   precreateEmptyDimensionIndex,
-  wasmLoader,
 } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { enqueueEmbeddingBackfill } from '../../embedding-backfill';
 
 let db: PGlite;
 beforeEach(async () => {
-  db = await wasmLoader.createPGlite('memory://hnsw-backfill-prevention');
-  await migrate(db);
+  db = await createMigratedTestDb();
 });
 afterEach(async () => {
   await db.close();

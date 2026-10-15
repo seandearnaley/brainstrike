@@ -28,7 +28,7 @@
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { migrate, wasmLoader } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { PGlite } from '@electric-sql/pglite';
 import type { CheckpointReindexAction } from '../../assistant-server/checkpoint-reindex-deps';
 import type { MainQueryHandle } from '../../assistant-server/main-query-handle';
@@ -82,14 +82,15 @@ export async function insertThread(db: PGlite, threadId: string): Promise<void> 
 
 /**
  * Fresh in-memory database with the migrated schema, the fixture's thread, and
- * one `roots` row per supplied root.
+ * one `roots` row per supplied root. The schema is an isolated restore of a
+ * migrated snapshot (the chain runs once per test file), not a cold migration
+ * per fixture. `databaseName` only labels the call site.
  */
 export async function createRewindFixture(
   roots: Readonly<Record<string, string>>,
-  databaseName: string
+  _databaseName: string
 ): Promise<RewindFixture> {
-  const db = await wasmLoader.createPGlite(`memory://${databaseName}`);
-  await migrate(db);
+  const db = await createMigratedTestDb();
   await insertThread(db, THREAD_ID);
   let created = 0;
   for (const [rootId, rootPath] of Object.entries(roots)) {
