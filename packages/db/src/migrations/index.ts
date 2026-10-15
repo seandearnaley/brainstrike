@@ -5,10 +5,11 @@ import type { Migration } from './migration-runner';
  * The migration registry: one step, which constructs the current schema.
  *
  * Brainstrike is greenfield (ADR-0020), so schema construction has no history
- * to replay. A schema change edits `src/schema/index.ts` and the DDL is
- * regenerated (`pnpm --filter @brainstrike/db db:schema:ddl`); the regenerated
- * DDL carries a new ledger key, which is what makes an already-built profile
- * refuse to open rather than drift.
+ * to replay. A schema change is authored in `current-schema-ddl.ts` itself and
+ * then normalized (`pnpm --filter @brainstrike/db db:schema:ddl`); the
+ * renormalized DDL carries a new ledger key, which is what makes an
+ * already-built profile refuse to open rather than drift. Editing
+ * `src/schema/index.ts` alone does NOT change the shipped schema.
  */
 export const migrations: Migration[] = [migration001CurrentSchema];
 

@@ -63,11 +63,30 @@ schema changes the ledger identity automatically and
 rather than silently stay on a schema this build no longer ships. There is no
 `down`: ADR-0020 does not build rollback, and `MigrationRunner.rollback` refuses.
 
-A SCHEMA CHANGE is therefore: edit `src/schema/index.ts`, run `pnpm --filter
-@brainstrike/db db:schema:ddl`, then run `pnpm --filter @brainstrike/db
-db:schema:catalog` to regenerate
-`__tests__/fixtures/schema-catalog.snapshot.txt`. Both regenerated files belong
-in the same commit, and the snapshot diff is the review surface for what moved.
+A SCHEMA CHANGE is authored IN THE DDL. `current-schema-ddl.ts` is the source of
+truth for what the database contains, so:
+
+1. Edit `src/migrations/current-schema-ddl.ts` -- add the column, table, index
+   or seed row there.
+2. Run `pnpm --filter @brainstrike/db db:schema:ddl`. This NORMALIZES what you
+   wrote (boot, read the catalogs back, re-emit), so `VARCHAR(64)` comes back as
+   `character varying(64)`, and it re-derives the ledger key from the new text.
+3. Run `pnpm --filter @brainstrike/db db:schema:catalog` to regenerate
+   `__tests__/fixtures/schema-catalog.snapshot.txt`.
+4. Update `src/schema/index.ts` as well **if** drizzle's typed query building
+   needs to see the change.
+
+Both regenerated files belong in the same commit, and the snapshot diff is the
+review surface for what moved.
+
+Step 4 is SEPARATE and does not drive step 1. Editing `src/schema/index.ts`
+alone changes nothing about the shipped schema: that file is the deliberately
+drifted drizzle model (see the "SNAPSHOT DRIFT (intentional)" sentries) and
+`db:generate` is blocked, so there is no path from it to the DDL. Running
+`db:schema:ddl` after editing only that file is a NO-OP -- the generator boots
+the existing DDL and re-emits it unchanged. This mirrors the pre-collapse rule,
+where a numbered migration created the table and `src/schema/index.ts` described
+it for drizzle; only the authoring file changed.
 
 The schema is held to that frozen snapshot by
 `__tests__/current-schema-catalog.integration.test.ts`, which boots production
