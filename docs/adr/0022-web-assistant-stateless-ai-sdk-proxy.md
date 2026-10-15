@@ -104,11 +104,17 @@ direction, and acting on them would have deleted live code.
 The 82 came from subtracting a tool-projection cluster that was seeded from a
 hand-listed set of module names. That seed omitted published entries of
 `packages/agent`. Most consequentially `./provider-request` and
-`./provider-runtime`, which reach 13 `src/mastra/` modules through **runtime**
-imports — four of them Mastra `Processor` implementations (`error-processors`,
-`projection-safe-tool-call-filter`, `token-measurement`,
-`tool-projection-rewrite-processor`). `./tool-runtime` and `./mcp-client` reach
-nine more. Deleting any of them breaks a published entry.
+`./provider-runtime`, which between them reach 13 `src/mastra/` modules: 12
+through **runtime** imports, and `permission-policy-request` through a
+type-only edge. Six are written against `@mastra/core/processors` —
+`error-processors`, `tool-projection-rewrite-processor`,
+`projection-safe-tool-call-filter`, `openai-tool-search-history-compat`,
+`openai-duplicate-item-compat` and `bedrock-message-hygiene` — and
+`error-processors` instantiates Mastra's own `PrefillErrorHandler`,
+`ProviderHistoryCompat` and `StreamErrorRetryProcessor`. `token-measurement` is
+not one of them: it reaches `@mastra/core/schema`, not the processor
+interfaces. `./tool-runtime` and `./mcp-client` reach nine more. Deleting any of
+them breaks a published entry.
 
 Recomputing by seeding from the public entries instead moved the figure four
 times — 83, 79, 75, 69 — each revision caused by the same thing, an incomplete
@@ -123,8 +129,9 @@ further modules and cancels most of the deletion.
 
 Hence the rule, and its e2e clause. Two independently seeded walks then agreed
 on **34 survivors / 66 retirable**, which is why that figure appears as a dated
-measurement rather than as the instruction. The relocation set in the first step
-is likewise computed, not fixed at 16.
+measurement rather than as the instruction. It is never to be cited as a
+standing fact: recompute it, by the rule, at the moment the step runs. The
+relocation set in the first step is likewise computed, not fixed at 16.
 
 Nothing else in this ADR changes. Web still stops calling the loop, and the
 deletion is still the largest subtraction available.
