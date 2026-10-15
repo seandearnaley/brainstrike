@@ -5,8 +5,14 @@
  * Optional fields are exact (`exactOptional`), matching the store types under
  * `exactOptionalPropertyTypes`.
  */
-import { NATIVE_TOOL_INPUT_SCHEMAS } from '@brainstrike/agent';
+import {
+  type BrowserGetPageTextInput,
+  type BrowserNavigateInput,
+  type BrowserReadPageInput,
+  NATIVE_TOOL_INPUT_SCHEMAS,
+} from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { validateToolInputValue } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { z } from 'zod';
 
 const Id = z.string().min(1);
@@ -150,19 +156,49 @@ export const BrowserPageTextResultSchema = browserResult({
   truncated: z.boolean(),
 });
 
-/** Main re-parses the tool input with the catalog schema the host parsed it with. */
-export const BrowserNavigateRequestSchema = z.strictObject({
-  input: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserNavigate],
-  threadId: Id,
-});
-export const BrowserReadPageRequestSchema = z.strictObject({
-  input: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserReadPage],
-  threadId: Id,
-});
-export const BrowserPageTextRequestSchema = z.strictObject({
-  input: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserGetPageText],
-  threadId: Id,
-});
+/**
+ * Main re-parses the tool input with the catalog schema the host parsed it
+ * with — so a hallucinated parameter is refused on this side of the window
+ * boundary too, not only in the host.
+ *
+ * The input CANNOT be embedded as a zod field any more. A registered catalog
+ * schema is authored in Effect Schema or zod (ADR-0004, amended 2026-10-15),
+ * and `z.strictObject` rejects a non-zod element at its first parse ("expected
+ * a Zod schema") — lazily, so it would have thrown on the first browser tool
+ * call rather than at construction. The envelope stays zod; the input goes
+ * through the catalog's own producer-neutral validator.
+ */
+const BrowserRequestEnvelopeSchema = z.strictObject({ input: z.json(), threadId: Id });
+
+function browserRequestParser<Input>(toolId: keyof typeof NATIVE_TOOL_INPUT_SCHEMAS) {
+  return (value: unknown): { readonly input: Input; readonly threadId: string } => {
+    const envelope = BrowserRequestEnvelopeSchema.parse(value);
+    const parsed = validateToolInputValue(NATIVE_TOOL_INPUT_SCHEMAS[toolId], envelope.input);
+    if (!parsed.success) {
+      throw new Error(
+        `invalid ${toolId} input — ${parsed.issues
+          .map(
+            (issue) =>
+              `${issue.path.length > 0 ? issue.path.map(String).join('.') : 'input'}: ${issue.message}`
+          )
+          .join('; ')}`
+      );
+    }
+    // Sound: the value was just decoded by the catalog schema this `Input` is
+    // the authored type of.
+    return { input: parsed.value as Input, threadId: envelope.threadId };
+  };
+}
+
+export const parseBrowserNavigateRequest = browserRequestParser<BrowserNavigateInput>(
+  NATIVE_TOOL_ID.browserNavigate
+);
+export const parseBrowserReadPageRequest = browserRequestParser<BrowserReadPageInput>(
+  NATIVE_TOOL_ID.browserReadPage
+);
+export const parseBrowserPageTextRequest = browserRequestParser<BrowserGetPageTextInput>(
+  NATIVE_TOOL_ID.browserGetPageText
+);
 
 const Severity = z.enum(['warn', 'error', 'fatal']);
 

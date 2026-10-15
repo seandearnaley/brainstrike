@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { BrowserReadPageInputSchema } from '../schemas/schemas-browser.js';
 
 export const browserReadPage = defineNativeTool({
@@ -14,7 +14,7 @@ export const browserReadPage = defineNativeTool({
     "Read the browser pane's current page as a compact accessibility tree. Interactive elements carry [ref=eN] handles for later actions; filter 'interactive' returns only actionable elements",
   discovery: { family: 'browser pages', namespace: 'web' },
   id: 'brainstrike.browserReadPage',
-  inputSchema: providerCompatibleInputSchema(BrowserReadPageInputSchema),
+  inputSchema: effectToolInputSchema(BrowserReadPageInputSchema),
   kind: 'desktop',
   localProvider: 'unregistered',
   returns: 'Indented role "name" [ref=eN] tree text with a truncated flag',
