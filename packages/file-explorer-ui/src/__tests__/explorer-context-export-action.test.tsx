@@ -14,6 +14,9 @@ const state = vi.hoisted(() => ({
     useRegex: false,
   },
   exportInput: undefined as unknown,
+  /** The focused root's own selection; in query mode it leaves out the other roots. */
+  focused: new Set<string>(),
+  /** The whole forest's selection: what the selection bar counts. */
   selected: new Set<string>(),
 }));
 
@@ -37,8 +40,9 @@ vi.mock('../shell/use-file-explorer-context', () => ({
 }));
 vi.mock('../shell/use-selection-manager-context', () => ({
   useSelectionManager: () => ({
+    forestSelection: state.selected,
     selectedCount: state.selected.size,
-    selectedFilePaths: state.selected,
+    selectedFilePaths: state.focused,
   }),
 }));
 vi.mock('../shell/use-context-export-actions', () => ({
@@ -52,7 +56,9 @@ import { ExplorerContextExportAction } from '../shell/explorer-context-export-ac
 import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 
 beforeEach(() => {
-  state.selected = new Set(['root|@|a.ts', 'root|@|b.ts']);
+  // Query mode on the focused root: its own set leaves out the other root's file.
+  state.focused = new Set(['root|@|a.ts']);
+  state.selected = new Set(['root|@|a.ts', 'other|@|b.ts']);
   state.copy.mockClear();
   state.download.mockClear();
   state.download.mockResolvedValue({ ok: true });
@@ -68,7 +74,7 @@ describe('ExplorerContextExportAction', () => {
     expect(screen.getByTestId('explorer-export-trigger')).toBeDisabled();
   });
 
-  it('exports the selected files whole, and closes once the export succeeds', async () => {
+  it("exports every root's selected files whole, and closes once the export succeeds", async () => {
     render(<ExplorerContextExportAction />);
     fireEvent.click(screen.getByTestId('explorer-export-trigger'));
     expect(screen.getByText('Export the contents of 2 files')).toBeInTheDocument();

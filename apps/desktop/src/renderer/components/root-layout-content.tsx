@@ -24,6 +24,7 @@ import {
 // startup check does not defeat the lazy code-split in terminal-page-content.tsx.
 import { isTerminalBridgeAvailable } from '@brainstrike/app-shell/terminal-panel/availability';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
+import { useDocumentTitle } from '@brainstrike/app-shell/use-document-title';
 import { isWorktreesBridgeAvailable } from '@brainstrike/app-shell/worktrees/availability';
 import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import { McpTaskBridgeProvider } from '@brainstrike/assistant-ui/mcp-task-bridge-context';
@@ -39,6 +40,7 @@ import { McpElicitationCapabilityProvider } from '@brainstrike/settings-ui/setti
 import { GitBranch, Globe, NotebookPen } from 'lucide-react';
 import { type ReactElement, type ReactNode, useEffect, useMemo, useRef } from 'react';
 import { indexSearchContract } from '../../ipc-domains/index-search.contract';
+import { DESKTOP_DOCUMENT_META } from '../desktop-document-meta';
 import { DesktopHostThreadProvider } from '../desktop-host-thread-provider';
 import {
   resolveDesktopMcpContent,
@@ -92,6 +94,8 @@ const MCP_APP_TOOL_RESULT_RENDERERS = Object.freeze([mcpAppToolResultRenderer]);
 
 /** Desktop shell; the host owns persistence and hidden hosts own inference. */
 export default function RootLayoutContent() {
+  // The one writer of the window title, keyed on the route on screen.
+  useDocumentTitle(DESKTOP_DOCUMENT_META);
   const nativeSearch = useMemo(
     () =>
       window.indexSearch ? createIpcCapability(window.indexSearch, indexSearchContract) : null,
