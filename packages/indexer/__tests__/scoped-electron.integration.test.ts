@@ -14,6 +14,14 @@ it('uses the actual Electron utility writer and node:sqlite read-only scoped/vec
   if (typeof executable !== 'string') {
     throw new TypeError('Expected the installed Electron executable.');
   }
+  // Derived from the installed package, never a literal: the catalog pin moves on
+  // every Chromium security bump, and a hardcoded version turns that into a test
+  // failure in an unrelated lane. The proof is that the child reports the Electron
+  // we actually launched, so the version it should report IS the installed one.
+  const installedElectronVersion: unknown = require('electron/package.json').version;
+  if (typeof installedElectronVersion !== 'string' || installedElectronVersion.length === 0) {
+    throw new TypeError('Expected the installed Electron version.');
+  }
   const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-scoped-electron-'));
   const userData = path.join(directory, 'electron-profile');
   const sessionData = path.join(userData, 'session-data');
@@ -37,7 +45,7 @@ it('uses the actual Electron utility writer and node:sqlite read-only scoped/vec
         timeout: 20_000,
       }
     );
-    expect(stdout).toContain('SCOPED_ELECTRON_PROOF_OK:44.4.5');
+    expect(stdout).toContain(`SCOPED_ELECTRON_PROOF_OK:${installedElectronVersion}`);
     expect(stdout).toContain(
       `SCOPED_ELECTRON_PROFILE:${JSON.stringify({ sessionData, userData })}`
     );

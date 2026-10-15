@@ -852,4 +852,72 @@ describe('MCP OAuth credential boundary', () => {
       })
     ).rejects.toThrow('clientMetadataUrl must be a valid HTTPS URL');
   });
+  // GHSA-6qxp-vccf-f47h / CVE-2026-104850: the SDK fix binds a saved credential
+  // to the authorization server that issued it and refuses to send it anywhere
+  // else. That binding is only as good as this provider, which is the host's own
+  // OAuthClientProvider and therefore owns the persistence the SDK relies on.
+  // Adopting a default issuer here instead of refusing would re-open the hole
+  // while every other test still passed, so both guards are pinned by failure.
+  it('refuses to persist OAuth tokens that carry no authorization-server issuer', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    const provider = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store,
+    });
+    try {
+      await expect(
+        provider.saveTokens({ access_token: 'unbound-access', token_type: 'Bearer' })
+      ).rejects.toThrow('MCP OAuth tokens have no issuer.');
+      const persisted = await store.read(identity);
+      expect(Object.values(persisted).some((record) => record?.tokens !== undefined)).toBe(false);
+    } finally {
+      await provider.close();
+    }
+  });
+
+  it('keys persisted OAuth tokens by the issuer the authorization server reported', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    const provider = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store,
+    });
+    try {
+      await provider.saveTokens(
+        { access_token: 'bound-access', token_type: 'Bearer' },
+        { issuer: 'https://auth.example.test' }
+      );
+      await expect(store.read(identity)).resolves.toMatchObject({
+        'https://auth.example.test': {
+          tokens: { access_token: 'bound-access', token_type: 'Bearer' },
+        },
+      });
+    } finally {
+      await provider.close();
+    }
+  });
+
+  it('refuses to persist OAuth client information that carries no authorization-server issuer', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    const provider = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store,
+    });
+    try {
+      await expect(
+        provider.saveClientInformation?.({ client_id: 'unbound-client' })
+      ).rejects.toThrow('MCP OAuth client information has no issuer.');
+      const persisted = await store.read(identity);
+      expect(
+        Object.values(persisted).some((record) => record?.clientInformation !== undefined)
+      ).toBe(false);
+    } finally {
+      await provider.close();
+    }
+  });
 });

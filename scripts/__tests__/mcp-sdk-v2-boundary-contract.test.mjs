@@ -51,8 +51,18 @@ test('BST-1497: Brainstrike source and manifests use only stable SDK v2 split pa
 
   const workspace = parse(readFileSync(path.join(repoRoot, 'pnpm-workspace.yaml'), 'utf8'));
   assert.equal(workspace.catalog['@modelcontextprotocol/sdk'], undefined);
+  // GHSA-6qxp-vccf-f47h / CVE-2026-104850: 2.2.0 is the first patched client, so
+  // this fence may only ever move forward within the patched line. `node` has no
+  // 2.3.x release and peer-depends on `server` at ^2.3.0, hence the split.
+  const expectedCatalogVersions = {
+    [clientPackage]: '2.3.1',
+    '@modelcontextprotocol/core': '2.3.1',
+    '@modelcontextprotocol/node': '2.1.1',
+    '@modelcontextprotocol/server': '2.3.1',
+    '@modelcontextprotocol/server-legacy': '2.3.1',
+  };
   for (const packageName of [clientPackage, '@modelcontextprotocol/core', ...serverTestPackages]) {
-    assert.equal(workspace.catalog[packageName], '2.1.0');
+    assert.equal(workspace.catalog[packageName], expectedCatalogVersions[packageName], packageName);
   }
   assert.match(
     readJson('packages/agent/package.json').scripts.build,
