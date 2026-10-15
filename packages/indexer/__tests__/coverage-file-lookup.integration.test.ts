@@ -9,6 +9,7 @@ import type {
 } from '@brainstrike/indexer';
 import { vectorProfileHash } from '@brainstrike/indexer';
 import { afterEach, expect, it, vi } from 'vitest';
+import { openDesktopIndex, openDesktopIndexReader } from '../src/desktop-index-connection.js';
 import { IndexReader, IndexWriter } from '../src/store.js';
 
 const profile = {
@@ -60,7 +61,7 @@ async function fixture(outsideProfile: VectorProfile = profile): Promise<{
     rootIds: ['root'],
     scopes: [workspace, collection, { embeddingSetId: 'outside', kind: 'collection' }],
   };
-  const writer = new IndexWriter(options);
+  const writer = new IndexWriter(options, openDesktopIndex(options));
   cleanup.push(() => {
     if (writer.db.open) {
       writer.close();
@@ -86,7 +87,7 @@ async function fixture(outsideProfile: VectorProfile = profile): Promise<{
       profile: fileProfile,
     });
   }
-  const reader = new IndexReader(options);
+  const reader = new IndexReader(options, openDesktopIndexReader(options));
   cleanup.push(() => {
     if (reader.db.open) {
       reader.db.close();
@@ -318,17 +319,18 @@ it('refuses schema6 unchanged and creates the lookup index only through explicit
   writer.close();
   const previous = await readFile(options.dbPath);
   const reopen = { ...options, embedding: { indexMode: 'open-existing' } };
-  expect(() => new IndexWriter(reopen)).toThrow(
+  expect(() => new IndexWriter(reopen, openDesktopIndex(reopen))).toThrow(
     expect.objectContaining({ code: 'rebuild-required' })
   );
-  expect(() => new IndexReader(reopen)).toThrow(
+  expect(() => new IndexReader(reopen, openDesktopIndexReader(reopen))).toThrow(
     expect.objectContaining({ code: 'rebuild-required' })
   );
   expect(await readFile(options.dbPath)).toEqual(previous);
-  const rebuilt = new IndexWriter({
+  const rebuiltOptions = {
     ...options,
     dbPath: path.join(path.dirname(options.dbPath), 'rebuilt.sqlite'),
-  });
+  };
+  const rebuilt = new IndexWriter(rebuiltOptions, openDesktopIndex(rebuiltOptions));
   try {
     expect(rebuilt.identity.storeId).not.toBe(storeId);
     expect(rebuilt.db.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(14);

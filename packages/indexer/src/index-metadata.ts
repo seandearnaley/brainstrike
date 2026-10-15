@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
 import { embeddingProfileHash, sha256 } from './chunks.js';
@@ -11,6 +10,7 @@ import {
   profileSchema,
   scopedProofIdentitySchema,
 } from './contracts.js';
+import { randomHex } from './portable.js';
 
 export const INDEX_SCHEMA_VERSION = 14;
 const supportedSchemaVersion = Schema.Literals([8, 9, 10, 11, 12, 13, INDEX_SCHEMA_VERSION]);
@@ -46,7 +46,7 @@ export function freshIdentity(options: IndexerOptions): IndexerIdentity {
       options.embedding.indexMode === 'text-only'
         ? { indexMode: 'text-only' }
         : configuredEmbedding(options.embedding.profile),
-    storeId: randomBytes(32).toString('hex'),
+    storeId: randomHex(32),
   };
 }
 /** Driver-neutral row boundary; the supplied metadata must come from the caller's owned snapshot. */

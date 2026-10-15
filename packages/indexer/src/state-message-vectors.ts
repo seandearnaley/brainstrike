@@ -1,4 +1,4 @@
-import type { SqliteReader } from '@brainstrike/state-store';
+import type { StateTruthReader } from '@brainstrike/state-store/state-truth-reader';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
 import { checkedTruncateCheckpoint } from './checked-checkpoint.js';
@@ -23,6 +23,7 @@ import {
   vectorProfileSchema,
 } from './contracts.js';
 import { readIndexIdentity } from './index-metadata.js';
+import { float32Bytes } from './portable.js';
 import { vectorProfileHash } from './scope-authority.js';
 import { validateStoredVectorBytes } from './scoped-vector-validation.js';
 import type { StateMessageEvent, StateProjection } from './state-projection.js';
@@ -51,14 +52,11 @@ export function profileHash(profile: VectorProfile): string {
   }
   return vectorProfileHash(profile);
 }
-export function vectorBytes(vector: readonly number[], dimensions: number): Buffer {
+export function vectorBytes(vector: readonly number[], dimensions: number): Uint8Array {
   if (vector.length !== dimensions) {
     throw new TypeError('Message vector dimensions disagree with the complete profile.');
   }
-  const emb = Buffer.alloc(dimensions * 4);
-  vector.forEach((value, index) => {
-    emb.writeFloatLE(value, index * 4);
-  });
+  const emb = float32Bytes(vector);
   validateStoredVectorBytes({ dimensions, emb });
   return emb;
 }
@@ -98,7 +96,7 @@ export class StateMessageVectors {
 
   constructor(
     private readonly db: Database.Database,
-    private readonly truth: SqliteReader,
+    private readonly truth: StateTruthReader,
     private readonly projection: StateProjection,
     private readonly options: IndexerOptions
   ) {

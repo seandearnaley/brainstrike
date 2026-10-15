@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-import path from 'node:path';
 import {
   buildLineStartOffsets,
   findLineForOffset,
@@ -17,9 +15,10 @@ import {
   scopedSnapshotSchema,
   snapshotSchema,
 } from './contracts.js';
+import { float32Bytes, isAbsolutePosix, sha256Hex } from './portable.js';
 
 export function sha256(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
+  return sha256Hex(value);
 }
 /**
  * The one rule for pooling in a profile identity: absent means 'mean', and the
@@ -168,21 +167,17 @@ export function validateSnapshot(snapshot: FileSnapshot | ScopedFileSnapshot): v
     throw new TypeError('Workspace files require a normalized relative path.');
   }
   if (
-    path.posix.isAbsolute(snapshot.relativePath) ||
+    isAbsolutePosix(snapshot.relativePath) ||
     snapshot.relativePath.includes('\\') ||
     snapshot.relativePath.split('/').some((part) => part === '..' || part === '' || part === '.')
   ) {
     throw new TypeError('Indexer file paths must be normalized root-relative paths.');
   }
 }
-export function vectorBlob(vector: readonly number[]): Buffer {
+export function vectorBlob(vector: readonly number[]): Uint8Array {
   const values = Float32Array.from(vector);
   if (values.some((value) => !Number.isFinite(value)) || !values.some((value) => value !== 0)) {
     throw new TypeError('Embedding must remain finite and nonzero as float32.');
   }
-  const blob = Buffer.alloc(values.length * 4);
-  for (const [index, value] of values.entries()) {
-    blob.writeFloatLE(value, index * 4);
-  }
-  return blob;
+  return float32Bytes(values);
 }

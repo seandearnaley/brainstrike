@@ -132,6 +132,7 @@ export {
   sha256Hex,
   type WriteSpan,
 } from './state-store.js';
+export { StateTruthReader, type TruthConnection } from './state-truth-reader.js';
 export { assertNotSyncedRoot, type SyncEnv, SyncedRootError } from './sync-roots.js';
 export type { ViewFilterPresetPort } from './view-filter-preset-types.js';
 export type {

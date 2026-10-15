@@ -1,6 +1,7 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { Schema } from 'effect';
 import { decoder, fault, IndexerError, requestSchema } from './contracts.js';
+import { openDesktopIndex } from './desktop-index-connection.js';
 import { loadStateProjection } from './state-projection.js';
 import { IndexWriter } from './store.js';
 import { validateIndexerOptions } from './transport.js';
@@ -15,7 +16,7 @@ try {
   const projection = options.stateProjection
     ? await loadStateProjection(options.stateProjection, options.stateRoot)
     : undefined;
-  writer = new IndexWriter(options, projection);
+  writer = new IndexWriter(options, openDesktopIndex(options, projection), projection);
   port.postMessage({ kind: 'ready', value: writer.info });
   port.on('message', (input: unknown) => {
     let id: number | undefined;
