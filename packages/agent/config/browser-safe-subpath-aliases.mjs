@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 const AGENT_BROWSER_SAFE_SOURCE_FILES = {
   '@brainstrike/agent/client': 'src/client.ts',
   '@brainstrike/agent/local-llm': 'src/local-llm.ts',
+  '@brainstrike/agent/mcp-tasks': 'src/mcp-tasks.ts',
   '@brainstrike/agent/pglite-mastra-memory/schema': 'src/pglite-mastra-memory/schema.ts',
   '@brainstrike/agent/provider-metadata': 'src/provider-metadata.ts',
   '@brainstrike/agent/tool-metadata': 'src/tool-metadata.ts',
