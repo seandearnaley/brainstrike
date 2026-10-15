@@ -733,9 +733,11 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       throw error;
     });
     await refreshCatalog(current, false, undefined, false);
+    // While a catalog change waits for its scan, reads stay on the acknowledged bindings.
+    const read = current.queuedCatalogRecords ? runtime.acknowledged : runtime.acquire;
     return current.sources?.scanAdmission
-      ? current.sources.scanAdmission.acquireRead(() => runtime.acquire())
-      : runtime.acquire();
+      ? current.sources.scanAdmission.acquireRead(read)
+      : read();
   };
   const acquire = async (): Promise<IndexerPort & ScopedIndexerPort> => {
     const current = await currentReader();

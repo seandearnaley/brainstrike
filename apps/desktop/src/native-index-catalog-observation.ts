@@ -56,7 +56,7 @@ export function deferNativeIndexCatalog(
  * then readiness reports it as incomplete (BST-2012).
  */
 export async function settleDeferredNativeIndexCatalog(
-  current: CatalogObservation & { queuedCatalogRefresh?: Promise<void> | undefined },
+  current: { queuedCatalogRefresh?: Promise<void> | undefined },
   settled: Promise<void>,
   join: boolean,
   refresh: () => Promise<void>,
@@ -64,6 +64,8 @@ export async function settleDeferredNativeIndexCatalog(
 ): Promise<void> {
   if (join) {
     await settled;
+    // A read's queued refresh applies the change first; this writer then refreshes after it.
+    await current.queuedCatalogRefresh;
     await refresh();
     return;
   }

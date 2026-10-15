@@ -31,8 +31,11 @@ it.each(['discovery', 'newer', 'reverted'] as const)(
       const discovered = test.state.files;
       if (change !== 'discovery') {
         test.state.files = [...discovered, ...records(1)];
+        const acknowledged = test.bindings.at(-1);
         expect(await test.activation.acquireRead()).not.toBeInstanceOf(Error);
         await test.sawNewInventory.promise;
+        // The read stays on the acknowledged bindings while the publication owns completion.
+        expect(test.bindings.at(-1)).toEqual(acknowledged);
         if (change === 'reverted') {
           test.state.files = discovered;
         }
