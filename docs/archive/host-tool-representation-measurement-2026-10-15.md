@@ -368,16 +368,32 @@ below has to say which, or two readers will compute two answers.
 ### Independent convergence, and two further files
 
 `delete-the-orphaned-mastra-agent-loop` re-ran its own walk after the e2e-helper
-clause and reported **34 survivors / 10,873 lines, 66 retirable / 22,074 lines**,
-from a differently-seeded walk (union of `closure(surviving public entries)` and
-`closure(the 21 production-consumed files)`).
+clause, from a differently-seeded walk (union of `closure(surviving public
+entries)` and `closure(the 21 production-consumed files)`). Re-running the walk
+here with `mcp-app-tool-call.ts` excluded — its only consumer outside
+`packages/agent` being that same e2e helper — lands on the same place:
 
-Re-running the walk here with `mcp-app-tool-call.ts` excluded — its only
-consumer outside `packages/agent` being that same e2e helper — gives **34
-survivors / 10,839 lines, 66 retirable / 22,008 lines**. The file counts agree
-exactly; the ~34-line difference is a trailing-newline counting convention. The
-**65** this document reported in an earlier revision was one file high for
-exactly that reason, and 66 is the figure to quote.
+**34 survivors / 10,839 lines, 66 retirable / 22,008 lines.**
+
+The **65** an earlier revision of this document reported was one file high: it
+kept `mcp-app-tool-call.ts`. 66 is the figure to quote.
+
+### The counting convention is `wc -l`, and it is a trap
+
+The two walks first disagreed on line counts — 10,873 / 22,074 against 10,839 /
+22,008 — and that was not a rounding difference. `split('\n').length` counts the
+empty string after a file's trailing newline, so it returns exactly one line too
+many **per file**: across these 100 files it gives 32,947 where `wc -l` gives
+32,847, a delta of exactly 100.
+
+ADR-0022's own "100 files / 32,847 lines" is `wc -l`, so that is the project's
+convention and the inflated pair was wrong.
+
+**The check that catches this: survivors + retirable must equal the directory
+total.** 10,839 + 22,008 = 32,847 ✓. 10,873 + 22,074 = 32,947 ✗ — and it
+contradicts the 32,847 sitting in the same paragraph. Any recomputation under
+the rule should be reconciled that way before it is written down. Noted here
+because whoever measures next will reach for `split('\n')`.
 
 Two independently seeded walks landing on the same file count is stronger
 evidence than either alone — and it is still a dated measurement, not a

@@ -76,9 +76,10 @@ on a host no later request can reach.
 
 - The last production caller of the Mastra agent loop goes away. The retirable
   set is computed by the rule in [ADR-0023](0023-host-owns-its-tool-representation.md)
-  rather than fixed here; measured 2026-10-15 it is **66 files / ~22,074 lines**,
-  with 34 files / 10,873 lines surviving and relocated rather than deleted. The
-  directory total is 100 files / 32,847 lines.
+  rather than fixed here; measured 2026-10-15 it is **66 files / 22,008 lines**,
+  with 34 files / 10,839 lines surviving and relocated rather than deleted
+  (10,839 + 22,008 = the directory total of 100 files / 32,847 lines, which is
+  the check any recomputation should satisfy). Line counts are `wc -l`.
 - `apps/web` stops tracing `@mastra/core` and `@mastra/memory` into its Vercel
   functions.
 - `docs/agents/mastra-boundary.md` becomes true. It already says the agent loop
