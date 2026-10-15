@@ -25,17 +25,20 @@
 // silently stopped counting an edge kind would still report "clean". They are
 // therefore tested directly over fixture source text.
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-
+import { resolveThroughAliases } from '../../packages/test-utils/workspace-src-aliases.mjs';
 import {
+  classifySpecifier,
   deferredImportSpecifiers,
   findCycles,
   findSourceCycles,
   main,
+  RENDERER_APPS,
+  rendererAliasEntries,
   resolveSourceFile,
   staticImportSpecifiers,
 } from '../verify-no-source-cycles.mjs';
@@ -220,6 +223,107 @@ test('resolves an ESM `.js` specifier to the `.ts` file it names', () => {
   );
 });
 
+// --- scope: a workspace specifier is never third-party ----------------------
+
+const WEB_APP = RENDERER_APPS.find((app) => app.name === 'web');
+
+test('an unmapped @brainstrike/* specifier is UNRESOLVED, not out of scope', () => {
+  // The scope hole. `@brainstrike/hooks` exports only its root, so no alias
+  // claims this subpath; the guard used to classify it as a third-party package
+  // and drop the edge, so a cycle through it was reported clean.
+  const aliases = rendererAliasEntries(REPO_ROOT, []);
+  const fromFile = path.join(REPO_ROOT, 'apps/web/src/main.tsx');
+
+  assert.deepEqual(
+    classifySpecifier({ aliases, fromFile, specifier: '@brainstrike/hooks/use-app-active' }),
+    { unresolved: true }
+  );
+  // The two legitimate out-of-scope classes are unchanged.
+  assert.deepEqual(classifySpecifier({ aliases, fromFile, specifier: 'react' }), {
+    outOfScope: true,
+  });
+  assert.deepEqual(
+    classifySpecifier({ aliases, fromFile, specifier: '@brainstrike/ui/styles.css' }),
+    { outOfScope: true }
+  );
+});
+
+test('the planted-cycle repro: an unmapped @brainstrike/* edge refuses instead of reporting clean', async () => {
+  // The reproduction that found the hole: a cross-package cycle planted
+  // through `@brainstrike/hooks/use-app-active` reported "No source cycles"
+  // and exit 0. Its closing edge lives in package source this test may not
+  // edit, and the guard by definition cannot see where an unmapped specifier
+  // lands — so the contract pinned here is the one that matters: the walk
+  // REFUSES and names the edge. The web app rides along to clear the module
+  // floor, so the refusal cannot be the floor's.
+  const fixtureDir = mkdtempSync(path.join(os.tmpdir(), 'bst890-unmapped-'));
+  const fixtureEntry = path.join(fixtureDir, 'planted.ts');
+  writeFileSync(
+    fixtureEntry,
+    "import { useAppActive } from '@brainstrike/hooks/use-app-active';\nexport const planted = useAppActive;\n"
+  );
+
+  await assert.rejects(
+    () =>
+      findSourceCycles({
+        apps: [
+          WEB_APP,
+          {
+            entrypoint: path.relative(REPO_ROOT, fixtureEntry),
+            name: 'planted',
+            overrides: [],
+          },
+        ],
+        root: REPO_ROOT,
+      }),
+    /@brainstrike\/hooks\/use-app-active {2}\(in [^)]*planted\.ts\)/
+  );
+});
+
+test('a source-pointing workspace export resolves the way Vite resolves it', () => {
+  // After an alias miss, Vite resolves `@brainstrike/*` through the package's
+  // own `exports`. `@brainstrike/embedding-worker/vite` targets `./src/vite.ts`,
+  // so that file IS what both renderers load; the registry gives it no alias
+  // because it needs none.
+  const aliases = rendererAliasEntries(REPO_ROOT, []);
+
+  assert.deepEqual(
+    classifySpecifier({
+      aliases,
+      fromFile: path.join(REPO_ROOT, 'apps/web/src/create-embedding-queue.ts'),
+      specifier: '@brainstrike/embedding-worker/vite',
+    }),
+    { file: path.join(REPO_ROOT, 'packages/embedding-worker/src/vite.ts') }
+  );
+});
+
+test('a dist-pointing workspace export stays UNRESOLVED unless an app decides it', () => {
+  // A dist target means the build would bundle COMPILED output, which a source
+  // guard cannot analyse. That must stay loud, so each case gets an explicit
+  // decision: fix the app's resolution, or a documented RENDERER_APPS override.
+  const fromFile = path.join(
+    REPO_ROOT,
+    'apps/web/src/embedding-model-switch-memory-probe.worker.ts'
+  );
+  const specifier = '@brainstrike/embedding-worker/worker';
+
+  // Checked on the alias list itself, so it holds whether or not `dist` has
+  // been built: an exports-derived alias to dist would resolve once it exists.
+  assert.equal(resolveThroughAliases(specifier, rendererAliasEntries(REPO_ROOT, [])), null);
+  assert.deepEqual(
+    classifySpecifier({ aliases: rendererAliasEntries(REPO_ROOT, []), fromFile, specifier }),
+    { unresolved: true }
+  );
+  assert.deepEqual(
+    classifySpecifier({
+      aliases: rendererAliasEntries(REPO_ROOT, WEB_APP.overrides),
+      fromFile,
+      specifier,
+    }),
+    { file: path.join(REPO_ROOT, 'packages/embedding-worker/src/embedding.worker.ts') }
+  );
+});
+
 // --- the real verdict --------------------------------------------------------
 
 test('VERDICT: the renderer source graph has no cycles', async () => {
@@ -274,6 +378,25 @@ test('the app overrides mirror what each vite config declares before the registr
     'apps/web no longer pins @brainstrike/file-explorer to dist. The guard deliberately does not ' +
       'mirror that pin; if the pin is gone, delete this assertion and the explanation beside ' +
       'RENDERER_APPS so the divergence is not documented as live when it no longer is.'
+  );
+
+  // The second deliberate divergence. The web BUILD resolves
+  // @brainstrike/embedding-worker/worker through `exports` to the prebuilt dist
+  // bundle; the guard analyses the source that bundle is built from, which is
+  // the pin the web Vitest lane already declares. Both halves are pinned so the
+  // explanation beside RENDERER_APPS cannot outlive either fact.
+  const webVitest = readFileSync(path.join(REPO_ROOT, 'apps/web/vitest.config.mts'), 'utf8');
+  assert.ok(
+    webVitest.includes("find: '@brainstrike/embedding-worker/worker'") &&
+      webVitest.includes('packages/embedding-worker/src/embedding.worker.ts'),
+    'apps/web/vitest.config.mts no longer pins @brainstrike/embedding-worker/worker to source. ' +
+      "RENDERER_APPS' web override cites that pin; revisit it."
+  );
+  assert.ok(
+    !overridesFor('apps/web/vite.config.mts').includes('@brainstrike/embedding-worker/worker'),
+    'apps/web/vite.config.mts now aliases @brainstrike/embedding-worker/worker itself, so the web ' +
+      'override mirrors the build instead of diverging from it; update the explanation beside ' +
+      'RENDERER_APPS.'
   );
 });
 

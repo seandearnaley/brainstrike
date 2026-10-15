@@ -35,6 +35,10 @@
 //   813  + curated agent browser-safe subpaths and @brainstrike/workers
 //  1261  + per-app vite overrides, dynamic/worker imports as ROOTS, and the ESM
 //         `.js`-names-a-`.ts`-file rewrite
+//  2283  (from 2263) + a `@brainstrike/*` specifier no alias claims is a dropped
+//         edge, never third-party; source-pointing package `exports`; curated
+//         agent `mcp-tasks`. The scope hole was hiding the production embedding
+//         worker's whole source graph and desktop's MCP Tasks closure.
 // `EXPECTED_UNRESOLVED` is consequently EMPTY: every in-scope specifier resolves.
 //
 // EDGES vs ROOTS — the distinction the cycle definition rests on:
@@ -48,7 +52,7 @@
 //
 // Full rationale: docs/superpowers/specs/2026-07-25-chunk-cycle-invariant-design.md
 
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -84,23 +88,35 @@ function parseRepoRootArgument(argv) {
  * asserts parity with those configs, so an override added there and forgotten
  * here fails loudly instead of quietly changing which modules are analyzed.
  *
- * ONE DELIBERATE DIVERGENCE: `apps/web` pins `@brainstrike/file-explorer` to
- * `dist`, and this guard does NOT mirror that. Two reasons, both decisive.
- * First, `dist` is COMPILED OUTPUT — analyzing it would make a *source*-cycle
- * guard report on generated JavaScript. Second, it only exists after a build,
- * so mirroring it made the guard pass locally (where dist was present) and fail
- * in CI's Static job, which does not build. The web pin exists so the emitted
- * worker artifact is available to a module Worker at RUNTIME; that is not a
- * module-structure concern. Desktop already analyzes this package's source, so
- * using source for both is the consistent and correct choice.
+ * TWO DELIBERATE DIVERGENCES, both where the web build consumes `dist`:
+ *
+ * 1. `apps/web` pins `@brainstrike/file-explorer` to `dist`, and this guard does
+ *    NOT mirror that. Two reasons, both decisive. First, `dist` is COMPILED
+ *    OUTPUT — analyzing it would make a *source*-cycle guard report on generated
+ *    JavaScript. Second, it only exists after a build, so mirroring it made the
+ *    guard pass locally (where dist was present) and fail in CI's Static job,
+ *    which does not build. The web pin exists so the emitted worker artifact is
+ *    available to a module Worker at RUNTIME; that is not a module-structure
+ *    concern. Desktop already analyzes this package's source, so using source
+ *    for both is the consistent and correct choice.
+ * 2. `@brainstrike/embedding-worker/worker` resolves through the package's
+ *    `exports` to the prebuilt `dist/embedding.worker.js` (the registry skips
+ *    `*.worker` bundles on purpose), imported only by the web E2E memory probe.
+ *    The guard analyzes `src/embedding.worker.ts`, the source that bundle is
+ *    built from, for the same two reasons. It is the pin
+ *    `apps/web/vitest.config.mts` already declares, and the module production
+ *    reaches anyway through `@brainstrike/embedding-worker/vite`'s
+ *    `?worker&url` import.
  */
-const RENDERER_APPS = Object.freeze([
+export const RENDERER_APPS = Object.freeze([
   {
     entrypoint: 'apps/web/src/main.tsx',
     name: 'web',
     overrides: [
       ['@brainstrike/file-tree-worker', 'packages/file-tree-worker/src/vite.ts'],
       ['@brainstrike/workers', 'packages/workers'],
+      // Divergence 2 above: the source of the prebuilt bundle the build loads.
+      ['@brainstrike/embedding-worker/worker', 'packages/embedding-worker/src/embedding.worker.ts'],
       // App-local aliases. Unused by any import today, but modelled anyway: an
       // unmodelled alias makes its imports look third-party, and third-party is
       // silently out of scope — so a future `@/foo` would vanish from the graph
@@ -135,11 +151,11 @@ const MIN_MODULES = 1000;
  * In-scope specifiers excused from resolving.
  *
  * DELIBERATELY EMPTY. Stylesheets, non-module assets and third-party packages
- * are classified out of scope by `classifySpecifier` rather than excused here,
- * so every remaining specifier — relative, workspace, or app-aliased —
- * currently resolves to a real source file. Adding an entry means accepting a
- * dropped edge, and a dropped edge can hide a cycle; do it only with a written
- * reason.
+ * are classified out of scope by `classifySpecifier` rather than excused here
+ * (and a `@brainstrike/*` specifier is never third-party), so every remaining
+ * specifier — relative, workspace, or app-aliased — currently resolves to a
+ * real source file. Adding an entry means accepting a dropped edge, and a
+ * dropped edge can hide a cycle; do it only with a written reason.
  *
  * This is what caught the ESM `.js`-extension class: `packages/assistant-contract`
  * and `packages/utils` import TypeScript source as `./thing.js`, and before
@@ -150,6 +166,9 @@ const EXPECTED_UNRESOLVED = Object.freeze([]);
 
 /** Vite's asset/worker query suffixes: `./x.ts?worker&url`, `./y.svg?raw`. */
 const VITE_QUERY_SUFFIX = /\?.*$/;
+
+/** Every package in this monorepo, and nothing third-party, lives under this scope. */
+const WORKSPACE_SCOPE = '@brainstrike/';
 
 /** A stylesheet import is not a module edge, whatever shape the specifier takes. */
 function isStyleSheetSpecifier(specifier) {
@@ -169,9 +188,10 @@ function isStyleSheetSpecifier(specifier) {
  * 2. `createAgentBrowserSafeAliasEntries` — `@brainstrike/agent` is deliberately
  *    excluded from the shared registry (root and most subpaths pull Node-only
  *    Mastra deps), so only the curated browser-safe subpaths resolve;
- * 3. `workspaceSrcAliases` — every other `@brainstrike/*` package to SOURCE.
+ * 3. `workspaceSrcAliases` — every other `@brainstrike/*` package to SOURCE;
+ * 4. `workspaceSourceExportEntries` — what Vite does after every alias misses.
  */
-function rendererAliasEntries(root, overrides) {
+export function rendererAliasEntries(root, overrides) {
   return [
     ...overrides.map(([find, replacement]) => ({
       find,
@@ -179,7 +199,48 @@ function rendererAliasEntries(root, overrides) {
     })),
     ...createAgentBrowserSafeAliasEntries(path.join(root, 'packages/agent')),
     ...workspaceSrcAliases(path.join(root, 'packages')),
+    ...workspaceSourceExportEntries(path.join(root, 'packages')),
   ];
+}
+
+/**
+ * Vite's NEXT step when no alias matches: the package's own `exports` map. The
+ * registry aliases only `dist`-backed exports, because a source-pointing one
+ * (`"./vite": "./src/vite.ts"`) already lands in source without an alias. That
+ * is right for Vite and invisible to a guard that resolves through aliases
+ * alone, so these entries model the exports step for exactly that case.
+ *
+ * ONLY source targets. A `dist` target is compiled output the renderer would
+ * bundle as-is, so it stays UNRESOLVED on purpose: each one needs a decision —
+ * fix the app's resolution, or a documented `RENDERER_APPS` override. The
+ * renderer imports ESM, so the `import` (else `default`) condition names the
+ * file; any other shape is skipped and therefore also reported, never guessed.
+ */
+function workspaceSourceExportEntries(packagesDir) {
+  const entries = [];
+  for (const dirName of readdirSync(packagesDir)) {
+    const manifestPath = path.join(packagesDir, dirName, 'package.json');
+    if (!existsSync(manifestPath)) {
+      continue;
+    }
+    const { exports: exportsMap, name } = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    if (!name?.startsWith(WORKSPACE_SCOPE) || typeof exportsMap !== 'object') {
+      continue;
+    }
+    for (const [key, value] of Object.entries(exportsMap)) {
+      const target = typeof value === 'string' ? value : (value?.import ?? value?.default);
+      if (key.includes('*') || typeof target !== 'string' || !target.startsWith('./src/')) {
+        continue;
+      }
+      const specifier = key === '.' ? name : `${name}/${key.slice('./'.length)}`;
+      const escaped = specifier.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+      entries.push({
+        find: new RegExp(`^${escaped}$`),
+        replacement: path.join(packagesDir, dirName, target),
+      });
+    }
+  }
+  return entries;
 }
 
 const RESOLVABLE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.js', '.jsx', '.mjs'];
@@ -452,12 +513,13 @@ export function findCycles(graph) {
  *   { file }        resolved to a source module — a real node
  *   { outOfScope }  legitimately not a module here: a stylesheet, a non-source
  *                   asset named by `new URL`, or a third-party package (no
- *                   alias matched and it is not relative)
+ *                   alias matched, not relative, not `@brainstrike/*`)
  *   { unresolved }  an IN-SCOPE specifier that failed to resolve — a dropped
  *                   edge, which can hide a cycle. Always reported, never
- *                   tolerated.
+ *                   tolerated. Includes every `@brainstrike/*` specifier no
+ *                   alias claims: a workspace package is never third-party.
  */
-function classifySpecifier({ aliases, fromFile, isAssetReference = false, specifier }) {
+export function classifySpecifier({ aliases, fromFile, isAssetReference = false, specifier }) {
   // Stylesheets are not modules in the init-order sense, and a relative one
   // WOULD otherwise resolve — `resolveSourceFile` returns any existing file —
   // padding the graph with non-modules. `apps/web/src/main.tsx` imports
@@ -472,8 +534,15 @@ function classifySpecifier({ aliases, fromFile, isAssetReference = false, specif
   const aliased = isRelative ? null : resolveThroughAliases(bare, aliases);
 
   if (!(isRelative || aliased)) {
-    // Not relative and no alias matched: a third-party package. Scope is decided
-    // by the SAME alias list used to resolve, so the two can no longer disagree.
+    // No alias matched. A `@brainstrike/*` specifier is never third-party in
+    // this monorepo, so a miss is a DROPPED EDGE, not something out of scope.
+    // Treating it as third-party let a cross-package cycle planted through an
+    // unexported subpath report "No source cycles" with exit 0.
+    if (bare.startsWith(WORKSPACE_SCOPE)) {
+      return { unresolved: true };
+    }
+    // Anything else is a third-party package. Scope is decided by the SAME
+    // alias list used to resolve, so the two can no longer disagree.
     return { outOfScope: true };
   }
 
@@ -606,9 +675,10 @@ export async function findSourceCycles({ apps = RENDERER_APPS, root = REPO_ROOT 
     throw new Error(
       'These specifiers did not resolve to a source module, so their edges are missing from the ' +
         `graph:\n- ${unexpected.join('\n- ')}\n` +
-        'A missing edge can hide a real cycle. Either teach this guard to resolve them (an app-local ' +
-        'vite alias it does not yet mirror is the usual cause), or add them to EXPECTED_UNRESOLVED ' +
-        'with a reason.'
+        'A missing edge can hide a real cycle. Either teach this guard to resolve them, or add them ' +
+        'to EXPECTED_UNRESOLVED with a reason. Usual causes: an app-local vite alias it does not ' +
+        'yet mirror; a `@brainstrike/*` subpath the package does not export; or an export that ' +
+        'targets built `dist`, which the app would bundle instead of source.'
     );
   }
 
