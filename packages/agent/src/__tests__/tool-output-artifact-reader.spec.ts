@@ -7,17 +7,17 @@ import {
 } from '@brainstrike/assistant-contract/tool-output-artifact';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  decodedTextModelOutputChars,
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  resolveScaledToolResultBudget,
+} from '../stream/tool-output-limits';
+import {
   projectToolOutputArtifactPage,
   ReadToolOutputArtifactInputSchema,
   readToolOutputArtifact,
   readToolOutputArtifactPage,
   type ScopedToolOutputArtifactReader,
 } from '../tool-projection/tool-output-artifact-reader';
-import {
-  decodedTextModelOutputChars,
-  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
-  resolveScaledToolResultBudget,
-} from '../stream/tool-output-limits';
 
 const TEXT_ENCODER = new TextEncoder();
 const NOW = new Date('2026-07-20T12:00:00.000Z');

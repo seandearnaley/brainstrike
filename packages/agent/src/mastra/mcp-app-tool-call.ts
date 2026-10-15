@@ -1,11 +1,11 @@
 import type { ToolRiskCategory } from '@brainstrike/assistant-contract/tool-metadata';
 import type { McpAppPreparedToolCall, McpAppToolCall } from '@brainstrike/mcp-app-host';
 import type { ToolsInput } from '@mastra/core/agent';
+import { retainRawMcpCallToolResult } from '../mcp/mcp-runtime-client';
+import type { PermissionAskToolMetadata } from '../permissions/permission-tool-gate';
 import { isGuardedToolError } from '../tools/guard-tool-execution';
 import { readHookResultEnvelope } from '../tools/hook-runner';
 import type { ToolLogger } from '../tools/types';
-import { retainRawMcpCallToolResult } from '../mcp/mcp-runtime-client';
-import type { PermissionAskToolMetadata } from '../permissions/permission-tool-gate';
 
 export interface McpAppOrdinaryToolCallOptions {
   readonly admission: McpAppToolAdmissionCapability;

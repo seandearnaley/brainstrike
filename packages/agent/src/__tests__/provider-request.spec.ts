@@ -11,7 +11,6 @@ import { type MastraDBMessage, MessageList } from '@mastra/core/agent';
 import { ModelRouterLanguageModel } from '@mastra/core/llm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { createPreparedTokenMeasurement } from '../token-measurement';
 import {
   type CanonicalProviderSchemaLayer,
   createProviderRequestMiddleware,
@@ -27,6 +26,7 @@ import {
 } from '../provider-request';
 import { createProvider } from '../providers/provider-factory';
 import type { SupportedProvider } from '../providers/types';
+import { createPreparedTokenMeasurement } from '../token-measurement';
 
 // Resolve the exact SDK installed for the owning host without changing leaf
 // dependencies/pins. Public contracts below are qualified by real SDK calls.

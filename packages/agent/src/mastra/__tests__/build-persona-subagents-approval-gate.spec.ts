@@ -17,6 +17,7 @@ import type { MastraModelConfig } from '@mastra/core/llm';
 import { createTool } from '@mastra/core/tools';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import type { PermissionToolGateLogger } from '../../permissions/permission-tool-gate';
 import { resolveScaledToolResultBudget } from '../../stream/tool-output-limits';
 import {
   hasToolResult,
@@ -27,7 +28,6 @@ import {
 import { buildPersonaSubAgents } from '../build-persona-subagents';
 import { createDelegatedConversationBinding } from '../delegated-conversation-binding';
 import { createLiveDecisionChannel } from '../live-decision-channel';
-import type { PermissionToolGateLogger } from '../../permissions/permission-tool-gate';
 
 type LanguageModelV2 = Extract<MastraModelConfig, { specificationVersion: 'v2' }>;
 

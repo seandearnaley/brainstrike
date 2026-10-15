@@ -1,4 +1,5 @@
 import { createLogger } from '@brainstrike/logging';
+import { createMastraAgentError } from './mastra-boundary/mastra-agent-error';
 import {
   isSupportedProvider,
   resolveProviderApiKey,
@@ -12,7 +13,6 @@ import {
 } from './providers/provider-auth-input';
 import { providerAuthType } from './providers/types';
 import type { RuntimeData } from './types';
-import { createMastraAgentError } from './mastra-boundary/mastra-agent-error';
 
 const logger = createLogger('MastraAgentRuntimeConfig');
 

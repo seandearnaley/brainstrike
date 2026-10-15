@@ -186,79 +186,16 @@ export {
   streamMastraToolResumeAction,
 } from './mastra/agent-streaming';
 export {
-  clipGrepProjectionLine,
-  formatGrepContentHeader,
-  formatGrepContentRow,
-  formatGrepProjectionPageRange,
-  GREP_MATCH_LINE_MAX_CHARS,
-  normalizeGrepProjectionLine,
-} from './tool-projection/grep-model-format';
+  createMcpAppOrdinaryToolCallPreparer,
+  McpAppToolNotAdmittedError,
+} from './mastra/mcp-app-tool-call';
+export { composeRuntimeToolMap } from './mastra/runtime-assembly/tool-pipeline';
 export {
   createMastraAgentError,
   isMastraAgentError,
   MastraAgentError,
   type MastraAgentErrorCode,
 } from './mastra-boundary/mastra-agent-error';
-export {
-  createMcpAppOrdinaryToolCallPreparer,
-  McpAppToolNotAdmittedError,
-} from './mastra/mcp-app-tool-call';
-export { readMcpCreatedTaskResult } from './mcp/mcp-task-tool-result';
-export {
-  type CollectCombinedToolsOptions,
-  type CollectCombinedToolsResult,
-  collectCombinedTools,
-} from './mcp/mcp-tool-loader';
-export {
-  type AssistantPermissionPolicyRequest,
-  isAssistantPermissionPolicyRequest,
-  resolveRequestPermissionPolicy,
-} from './permissions/permission-policy-request';
-export { resolveSelfApprovalDecision } from './permissions/permission-tool-gate';
-export { composeRuntimeToolMap } from './mastra/runtime-assembly/tool-pipeline';
-export {
-  SHELL_OUTPUT_STREAM_PART_TYPE,
-  type ShellOutputWriter,
-  writeShellOutputChunk,
-} from './tool-projection/shell-output-stream';
-export type { ToolCallTelemetryMetadata } from './tool-projection/tool-call-telemetry';
-export {
-  attachToolCallTelemetryMetadata,
-  readToolCallTelemetryMetadata,
-} from './tool-projection/tool-call-telemetry';
-export {
-  applyToolModelOutputProjections,
-  getActiveToolResultBudget,
-} from './tool-projection/tool-model-output';
-export {
-  projectToolOutputArtifactPage,
-  type ReadToolOutputArtifactCursorInput,
-  ReadToolOutputArtifactCursorInputSchema,
-  type ReadToolOutputArtifactInput,
-  ReadToolOutputArtifactInputSchema,
-  type ReadToolOutputArtifactPageOptions,
-  readToolOutputArtifact,
-  readToolOutputArtifactPage,
-  type ScopedToolOutputArtifactRangeResult,
-  type ScopedToolOutputArtifactReader,
-  type ToolOutputArtifactModelProjection,
-  ToolOutputArtifactReadError,
-  type ToolOutputArtifactReadFailureReason,
-  type ToolOutputArtifactSearchProjection,
-  type ToolOutputArtifactSearchResult,
-} from './tool-projection/tool-output-artifact-reader';
-export {
-  TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES,
-  TOOL_OUTPUT_ARTIFACT_SETTLEMENT_MAX_BYTES,
-  ToolOutputArtifactSettlementError,
-  type ToolOutputArtifactSettlementFailureReason,
-  type ToolOutputArtifactSettlementStore,
-} from './tool-projection/tool-output-artifact-settlement';
-export {
-  isToolProjectionInputRejected,
-  ToolProjectionInputRejectedError,
-} from './tool-projection/tool-projection-input-rejected';
-export { createSanitizedToolNameMap } from './tool-projection/tool-sanitizer';
 // MCP config types and parser (desktop-only usage typically)
 export type {
   McpConfig,
@@ -281,6 +218,12 @@ export {
   resolveMcpStartupPolicy,
   toMcpVersionNegotiation,
 } from './mcp/config';
+export { readMcpCreatedTaskResult } from './mcp/mcp-task-tool-result';
+export {
+  type CollectCombinedToolsOptions,
+  type CollectCombinedToolsResult,
+  collectCombinedTools,
+} from './mcp/mcp-tool-loader';
 export {
   createDefaultToolPreferences,
   deleteToolPreferences,
@@ -315,6 +258,12 @@ export {
   convertAssistantUiMessages,
   convertAssistantUiMessagesWithFinalInput,
 } from './message-utils';
+export {
+  type AssistantPermissionPolicyRequest,
+  isAssistantPermissionPolicyRequest,
+  resolveRequestPermissionPolicy,
+} from './permissions/permission-policy-request';
+export { resolveSelfApprovalDecision } from './permissions/permission-tool-gate';
 export {
   extractProviderRunError,
   isContextOverflowProviderErrorCode,
@@ -517,6 +466,57 @@ export {
   type ToolRegistry,
   type ToolRegistryEntry,
 } from './stream/tool-registry';
+export {
+  clipGrepProjectionLine,
+  formatGrepContentHeader,
+  formatGrepContentRow,
+  formatGrepProjectionPageRange,
+  GREP_MATCH_LINE_MAX_CHARS,
+  normalizeGrepProjectionLine,
+} from './tool-projection/grep-model-format';
+export {
+  SHELL_OUTPUT_STREAM_PART_TYPE,
+  type ShellOutputWriter,
+  writeShellOutputChunk,
+} from './tool-projection/shell-output-stream';
+export type { ToolCallTelemetryMetadata } from './tool-projection/tool-call-telemetry';
+export {
+  attachToolCallTelemetryMetadata,
+  readToolCallTelemetryMetadata,
+} from './tool-projection/tool-call-telemetry';
+export {
+  applyToolModelOutputProjections,
+  getActiveToolResultBudget,
+} from './tool-projection/tool-model-output';
+export {
+  projectToolOutputArtifactPage,
+  type ReadToolOutputArtifactCursorInput,
+  ReadToolOutputArtifactCursorInputSchema,
+  type ReadToolOutputArtifactInput,
+  ReadToolOutputArtifactInputSchema,
+  type ReadToolOutputArtifactPageOptions,
+  readToolOutputArtifact,
+  readToolOutputArtifactPage,
+  type ScopedToolOutputArtifactRangeResult,
+  type ScopedToolOutputArtifactReader,
+  type ToolOutputArtifactModelProjection,
+  ToolOutputArtifactReadError,
+  type ToolOutputArtifactReadFailureReason,
+  type ToolOutputArtifactSearchProjection,
+  type ToolOutputArtifactSearchResult,
+} from './tool-projection/tool-output-artifact-reader';
+export {
+  TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES,
+  TOOL_OUTPUT_ARTIFACT_SETTLEMENT_MAX_BYTES,
+  ToolOutputArtifactSettlementError,
+  type ToolOutputArtifactSettlementFailureReason,
+  type ToolOutputArtifactSettlementStore,
+} from './tool-projection/tool-output-artifact-settlement';
+export {
+  isToolProjectionInputRejected,
+  ToolProjectionInputRejectedError,
+} from './tool-projection/tool-projection-input-rejected';
+export { createSanitizedToolNameMap } from './tool-projection/tool-sanitizer';
 // Suspending tools (plan mode + ask-user)
 export { ASK_USER_TOOL_ID, createAskUserTool, formatAskUserAnswer } from './tools/ask-user-tool';
 // System diagnostics tool factory (Tier 3)

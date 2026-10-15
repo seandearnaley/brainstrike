@@ -110,9 +110,6 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   return { ...actual };
 });
 
-const { AssistantDataStreamSession } = await import('@brainstrike/agent');
-
-import { createMainLlmHostClient } from '@brainstrike/assistant-service/ports';
 import { LlmHostManager } from '../llm-host-manager';
 import { assertLlmHostRequest } from '../llm-host-shared';
 import { assignWindowRole } from '../window-role';
@@ -144,22 +141,6 @@ function requireResolver<T>(
     throw new Error(`expected ${description}`);
   }
   return resolver;
-}
-
-async function drainResponse(response: Response): Promise<string> {
-  const reader = response.body?.getReader();
-  if (!reader) {
-    throw new Error('Expected an assistant response body.');
-  }
-  const decoder = new TextDecoder();
-  let output = '';
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) {
-      return output;
-    }
-    output += decoder.decode(value, { stream: true });
-  }
 }
 
 describe('LlmHostManager', () => {

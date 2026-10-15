@@ -1,12 +1,12 @@
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import { describe, expect, it } from 'vitest';
+import type { PermissionAskToolMetadata } from '../../permissions/permission-tool-gate';
 import {
   allowedBySnapshot,
   applyLiveApprovalGate,
   createApprovalGate,
   resolveRequireToolApproval,
 } from '../approval-gate';
-import type { PermissionAskToolMetadata } from '../../permissions/permission-tool-gate';
 
 const NAME_MAP = new Map([
   ['brainstrike_grepSearch', 'brainstrike.grepSearch'],

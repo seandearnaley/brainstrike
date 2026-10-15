@@ -11,7 +11,6 @@ import type {
 } from '@ai-sdk/provider';
 import { MessageList } from '@mastra/core/agent';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createPreparedTokenMeasurement } from '../token-measurement';
 import {
   createProviderRequestMiddleware,
   healInterruptedModelMessages,
@@ -19,6 +18,7 @@ import {
   prepareProviderRequest,
 } from '../provider-request';
 import { dropAbortedOpenAIItems } from '../providers/request-history';
+import { createPreparedTokenMeasurement } from '../token-measurement';
 
 const hostRequire = createRequire(new URL('../../../agent-host/package.json', import.meta.url));
 interface PinnedSdk {

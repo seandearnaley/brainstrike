@@ -39,11 +39,7 @@ import { OpenAIStoredItemExpiredError } from '../providers/openai-expired-item';
 import type { AssistantRunEventJson, AssistantRunEventMetadata } from '../run-events';
 import { sanitizeAssistantRunEventMetadata } from '../run-events';
 import type { RuntimeData, StreamChunkTool, StreamFinishReason } from '../types';
-import {
-  readOpenRouterDiagnostics,
-  readStreamPartUsage,
-  type UsageLike,
-} from '../usage-metering';
+import { readOpenRouterDiagnostics, readStreamPartUsage, type UsageLike } from '../usage-metering';
 
 /** Shape of a Mastra stream part with potential usage/text/tool payload fields. */
 export interface MastraStreamPart {

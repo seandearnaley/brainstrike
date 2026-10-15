@@ -28,6 +28,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { BackgroundTaskManager } from '@mastra/core/background-tasks';
 import type { ChunkType } from '@mastra/core/stream';
 import type { AssistantResilienceConfig } from '../config/resilience-config';
+import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import type { AssistantRunEventMetadata } from '../run-events';
 import {
   type HeldWorkWatch,
@@ -36,17 +37,19 @@ import {
   type StreamStallPhase,
   withInactivityTimeout,
 } from '../stream/with-inactivity-timeout';
+import {
+  readMastraStreamPartString,
+  readMastraStreamPartValue,
+} from '../tool-projection/tool-event-mapper';
 import type {
   DelegatedCancellationTarget,
   DelegatedConversationBinding,
 } from './delegated-conversation-binding';
-import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import {
   describeMastraStreamPartType,
   resolveMastraProducerOptions,
   unwrapDelegatedChildPart,
 } from './mastra-watchdog-options';
-import { readMastraStreamPartString, readMastraStreamPartValue } from '../tool-projection/tool-event-mapper';
 
 const logger = createLogger('BackgroundChildWatchdog');
 
