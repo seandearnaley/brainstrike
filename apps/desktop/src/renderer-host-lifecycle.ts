@@ -7,6 +7,7 @@ import { Effect, Schedule } from 'effect';
 import { app, BrowserWindow } from 'electron';
 import {
   type DesktopRendererTarget,
+  rendererDocumentUrl,
   resolveDesktopRendererTarget,
 } from './desktop-renderer-target';
 import { resolveDistRoot } from './dist-root';
@@ -399,13 +400,11 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     // `app.isPackaged || --test-mode` on its own and point `pnpm start`'s
     // hosts at a dev server that wasn't running).
     const query = { ...this.options.startupQuery?.(), mode: this.options.mode, runtimeId };
-    if (target.kind === 'built-renderer') {
-      await window.loadFile(target.rendererPath, {
-        query,
-      });
-      return;
+    const url = new URL(rendererDocumentUrl(target));
+    for (const [key, value] of Object.entries(query)) {
+      url.searchParams.set(key, value);
     }
-    await window.loadURL(`${target.url}?${new URLSearchParams(query).toString()}`);
+    await window.loadURL(url.href);
   }
 
   private async createWindow(runtimeId: string): Promise<BrowserWindow> {
@@ -425,7 +424,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       assignWindowRole(window, owner.options.role);
       // Expose the in-flight window to status-report acceptance BEFORE the
       // page-load await: the host app can mount and send its one-shot
-      // 'running' status while loadURL/loadFile is still pending. If the
+      // 'running' status while loadURL is still pending. If the
       // manager's acceptStatusReport can't see this window yet, that report
       // is dropped and ensureStarted waits out the full ready timeout (then
       // destroys a perfectly healthy host).

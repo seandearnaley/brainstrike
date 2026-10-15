@@ -4,6 +4,7 @@ import { app, BrowserWindow } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWindow, noteNextWindowReload } from '../create-window';
 import {
+  APP_RENDERER_DOCUMENT_URL,
   configureDesktopRendererTarget,
   createDesktopRendererTarget,
 } from '../desktop-renderer-target';
@@ -317,7 +318,7 @@ describe('createWindow', () => {
       Reflect.deleteProperty(process.env, 'CI');
 
       let resolveLoad: (() => void) | undefined;
-      mockBrowserWindow.loadFile.mockImplementation(
+      mockBrowserWindow.loadURL.mockImplementation(
         () =>
           new Promise<void>((resolve) => {
             resolveLoad = resolve;
@@ -327,7 +328,7 @@ describe('createWindow', () => {
       const pending = createWindow();
 
       expect(mockBrowserWindow.show).toHaveBeenCalledTimes(1);
-      expect(mockBrowserWindow.loadFile).toHaveBeenCalled();
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalled();
 
       resolveLoad?.();
       await pending;
@@ -337,7 +338,7 @@ describe('createWindow', () => {
       existsSyncMock.mockReturnValue(true);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: true });
       Reflect.deleteProperty(process.env, 'CI');
-      mockBrowserWindow.loadFile.mockRejectedValue(new Error('ERR_FILE_NOT_FOUND'));
+      mockBrowserWindow.loadURL.mockRejectedValue(new Error('ERR_FILE_NOT_FOUND'));
 
       await expect(createWindow()).rejects.toThrow('ERR_FILE_NOT_FOUND');
 
@@ -749,7 +750,7 @@ describe('createWindow', () => {
 
       const handler = mockWebContents.setWindowOpenHandler.mock.calls[0][0];
 
-      expect(handler({ url: `${DESKTOP_DEV_RENDERER_URL}/debug` })).toEqual({
+      expect(handler({ url: APP_RENDERER_DOCUMENT_URL })).toEqual({
         action: 'allow',
       });
       expect(handler({ url: 'http://localhost:3000' })).toEqual({ action: 'deny' });
@@ -772,7 +773,7 @@ describe('createWindow', () => {
       const mockEvent = { preventDefault: vi.fn() };
 
       // Should allow only the configured dev renderer origin
-      handler?.(mockEvent, `${DESKTOP_DEV_RENDERER_URL}/path`);
+      handler?.(mockEvent, `${APP_RENDERER_DOCUMENT_URL}?mode=visible-ui`);
       expect(mockEvent.preventDefault).not.toHaveBeenCalled();
 
       // Should prevent arbitrary localhost and file navigation
@@ -805,10 +806,8 @@ describe('createWindow', () => {
 
       await createWindow();
 
-      expect(mockBrowserWindow.loadFile).toHaveBeenCalledWith(
-        expect.stringContaining(path.join('renderer', 'index.html'))
-      );
-      expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith(APP_RENDERER_DOCUMENT_URL);
+      expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
     });
 
     it('loads the configured built renderer target when unpackaged', async () => {
@@ -817,10 +816,8 @@ describe('createWindow', () => {
 
       await createWindow();
 
-      expect(mockBrowserWindow.loadFile).toHaveBeenCalledWith(
-        expect.stringContaining(path.join('renderer', 'index.html'))
-      );
-      expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith(APP_RENDERER_DOCUMENT_URL);
+      expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
     });
 
     it('connects to the dev server only when the configured target is the dev renderer', async () => {
@@ -855,10 +852,8 @@ describe('createWindow', () => {
 
       await createWindow();
 
-      expect(mockBrowserWindow.loadFile).toHaveBeenCalledWith(
-        expect.stringContaining(path.join('renderer', 'index.html'))
-      );
-      expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith(APP_RENDERER_DOCUMENT_URL);
+      expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
       expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
     });
 

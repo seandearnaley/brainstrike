@@ -1,9 +1,14 @@
 import type { IndexerPort, ScopedCoverageRequest, ScopedIndexerPort } from '@brainstrike/indexer';
-import { app, BrowserWindow, ipcMain } from 'electron';
-import { configureDesktopRendererTarget } from '../../desktop-renderer-target';
+import { app, BrowserWindow, ipcMain, protocol } from 'electron';
+import {
+  APP_RENDERER_DOCUMENT_URL,
+  configureDesktopRendererTarget,
+  type DesktopRendererTarget,
+} from '../../desktop-renderer-target';
 import { registerIndexSearchIpcHandlers } from '../../ipc-index-search';
 import { createNativeScopedSearchCapability } from '../../native-scoped-search';
 import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
+import { APP_RENDERER_PROTOCOL_PRIVILEGE, registerRendererProtocol } from '../../renderer-protocol';
 import { assignWindowRole } from '../../window-role';
 
 const profile = process.env['BRAINSTRIKE_COVERAGE_PROOF_PROFILE'];
@@ -13,11 +18,14 @@ if (!(profile && preload && document)) {
   throw new Error('Coverage transport proof requires explicit profile, preload and document.');
 }
 app.setPath('userData', profile);
-configureDesktopRendererTarget({
+// The production document: served from its bundle on the app origin, as main serves it.
+const target: DesktopRendererTarget = {
   kind: 'built-renderer',
   launchMode: 'built',
   rendererPath: document,
-});
+};
+configureDesktopRendererTarget(target);
+protocol.registerSchemesAsPrivileged([APP_RENDERER_PROTOCOL_PRIVILEGE]);
 const scope = { kind: 'workspace', rootId: 'root' } as const;
 const storeId = 'a'.repeat(64);
 let revision = 0;
@@ -116,7 +124,8 @@ app
       webPreferences: { contextIsolation: true, nodeIntegration: false, preload, sandbox: true },
     });
     assignWindowRole(window, 'visible-ui');
-    await window.loadFile(document);
+    registerRendererProtocol(target);
+    await window.loadURL(APP_RENDERER_DOCUMENT_URL);
   })
   .catch((error: unknown) => {
     process.stderr.write(String(error));

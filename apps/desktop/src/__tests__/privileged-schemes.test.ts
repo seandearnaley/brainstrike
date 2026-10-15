@@ -26,6 +26,7 @@ describe('registerPrivilegedSchemes', () => {
       Array<{ privileges: Record<string, boolean>; scheme: string }>,
     ];
     expect(entries.map((entry) => entry.scheme).sort()).toEqual([
+      'brainstrike-app',
       'brainstrike-asset',
       'brainstrike-canvas',
       'brainstrike-mcp-app',

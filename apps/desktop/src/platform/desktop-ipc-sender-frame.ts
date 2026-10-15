@@ -1,7 +1,6 @@
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   type DesktopRendererTarget,
+  rendererDocumentUrl,
   resolveDesktopRendererTarget,
 } from '../desktop-renderer-target';
 
@@ -17,10 +16,10 @@ import {
  * `renderer-host-lifecycle.ts` load their document from — so the allowlist
  * can never trust a document the loaders do not load, or reject the one they
  * do. It is launch-mode-exact: a built renderer (packaged, `pnpm start`, or
- * the Playwright `--test-mode` harness) accepts ONLY the dist `file://`
+ * the Playwright `--test-mode` harness) accepts ONLY the bundled app-origin
  * document, and the dev-server mode accepts ONLY the configured Vite origin
- * document — so a packaged app never trusts `http://localhost:38181` and a
- * dev app never trusts a stray `file://` page. Hidden inference hosts load
+ * document — so a built app never trusts `http://localhost:38181` or a `file://` page, and
+ * dev accepts only its configured document. Hidden inference hosts load
  * the SAME document with `?mode=<role>&runtimeId=…`, so query and fragment
  * are ignored.
  *
@@ -39,8 +38,8 @@ import {
 export type DesktopIpcSenderFrameAllowlist =
   | {
       readonly kind: 'built-renderer';
-      /** Absolute on-disk path of `dist/renderer/index.html` (normalized). */
-      readonly rendererPath: string;
+      /** Exact bundled application document URL. */
+      readonly documentUrl: string;
     }
   | {
       readonly kind: 'dev-renderer';
@@ -59,7 +58,7 @@ export function createDesktopIpcSenderFrameAllowlist(
 ): DesktopIpcSenderFrameAllowlist {
   switch (target.kind) {
     case 'built-renderer':
-      return { kind: 'built-renderer', rendererPath: path.normalize(target.rendererPath) };
+      return { documentUrl: rendererDocumentUrl(target), kind: 'built-renderer' };
     case 'dev-renderer': {
       const devUrl = new URL(target.url);
       return {
@@ -83,18 +82,15 @@ function parseSenderFrameUrl(url: string): URL | null {
   }
 }
 
-function matchesBuiltRenderer(rendererPath: string, url: URL): boolean {
-  if (url.protocol !== 'file:') {
-    return false;
-  }
-  try {
-    // `fileURLToPath` decodes percent-escapes and ignores query/fragment, so
-    // the hidden hosts' `?mode=…&runtimeId=…` variants compare equal to the
-    // visible document while `index.html.evil` or a sibling file do not.
-    return path.normalize(fileURLToPath(url)) === rendererPath;
-  } catch {
-    return false;
-  }
+function matchesBuiltRenderer(documentUrl: string, url: URL): boolean {
+  const expected = new URL(documentUrl);
+  return (
+    url.protocol === expected.protocol &&
+    url.host === expected.host &&
+    url.pathname === expected.pathname &&
+    url.username === '' &&
+    url.password === ''
+  );
 }
 
 export function isAllowedDesktopIpcSenderFrameUrl(
@@ -106,7 +102,7 @@ export function isAllowedDesktopIpcSenderFrameUrl(
     return false;
   }
   if (allowlist.kind === 'built-renderer') {
-    return matchesBuiltRenderer(allowlist.rendererPath, url);
+    return matchesBuiltRenderer(allowlist.documentUrl, url);
   }
   return url.origin === allowlist.origin && normalizePathname(url.pathname) === allowlist.pathname;
 }

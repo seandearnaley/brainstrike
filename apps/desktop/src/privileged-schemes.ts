@@ -12,8 +12,10 @@ import { protocol } from 'electron';
 import { ASSET_PROTOCOL_PRIVILEGE } from './asset-protocol';
 import { CANVAS_PROTOCOL_PRIVILEGE } from './canvas-protocol';
 import { MCP_APP_SHELL_PROTOCOL_PRIVILEGE } from './mcp/apps-shell-protocol';
+import { APP_RENDERER_PROTOCOL_PRIVILEGE } from './renderer-protocol';
 
 export const PRIVILEGED_SCHEMES = [
+  APP_RENDERER_PROTOCOL_PRIVILEGE,
   ASSET_PROTOCOL_PRIVILEGE,
   CANVAS_PROTOCOL_PRIVILEGE,
   MCP_APP_SHELL_PROTOCOL_PRIVILEGE,

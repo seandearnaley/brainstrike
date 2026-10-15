@@ -1,6 +1,45 @@
 import path from 'node:path';
 import type { DesktopRendererLaunchMode } from './desktop-launch-mode';
 
+/** Built renderers load one document on this origin, served by `renderer-protocol.ts`. */
+export const APP_RENDERER_SCHEME = 'brainstrike-app';
+/** Spelled out: Node's URL gives a non-special scheme the opaque origin "null". */
+export const APP_RENDERER_ORIGIN = `${APP_RENDERER_SCHEME}://bundle`;
+export const APP_RENDERER_DOCUMENT_URL = `${APP_RENDERER_ORIGIN}/index.html`;
+
+/** The hidden hosts that run local inference on ONNX Runtime's WASM threads. */
+const CROSS_ORIGIN_ISOLATED_HOST_MODES: ReadonlySet<string> = new Set([
+  'embedding-host',
+  'llm-host',
+]);
+const EMBEDDER_POLICY = { 'Cross-Origin-Embedder-Policy': 'require-corp' } as const;
+
+/**
+ * The cross-origin isolation headers for one renderer response (BST-1999).
+ * A hidden inference host's document opts in (COOP and COEP), so its workers
+ * get SharedArrayBuffer and ONNX Runtime picks its own WASM thread count.
+ * Every other same-origin response carries COEP, which a worker script needs
+ * to start under an isolated document and which an ordinary document ignores.
+ * The visible document stays unisolated: it frames the Canvas and MCP App
+ * shells, which COEP would block.
+ */
+export function rendererIsolationHeaders(
+  url: URL,
+  documentPathnames: readonly string[]
+): Readonly<Record<string, string>> {
+  if (!documentPathnames.includes(url.pathname)) {
+    return EMBEDDER_POLICY;
+  }
+  return CROSS_ORIGIN_ISOLATED_HOST_MODES.has(url.searchParams.get('mode') ?? '')
+    ? { ...EMBEDDER_POLICY, 'Cross-Origin-Opener-Policy': 'same-origin' }
+    : {};
+}
+
+/** The document a loader loads for this target; hidden hosts add their query. */
+export function rendererDocumentUrl(target: DesktopRendererTarget): string {
+  return target.kind === 'built-renderer' ? APP_RENDERER_DOCUMENT_URL : target.url;
+}
+
 /**
  * The ONE resolved description of the renderer document this process loads
  * (BST-1641). `main.ts` resolves the launch mode once, builds this target,

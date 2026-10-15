@@ -24,6 +24,7 @@ import {
   type ModelProviderRequest,
   startModelProviderShim,
 } from '../../e2e/utils/model-provider-shim';
+import { APP_RENDERER_ORIGIN } from '../desktop-renderer-target';
 import { createDisposableAppProfile } from './helpers/disposable-app-profile';
 import { electronExecutablePath } from './helpers/electron-executable';
 
@@ -617,10 +618,23 @@ async function qualifyVectorSearch(): Promise<void> {
         visible: window.isVisible(),
       }))
     );
+    // BST-1999: the hidden embedding host is cross-origin isolated, so ONNX
+    // Runtime's WASM threads get SharedArrayBuffer.
+    const hiddenRealm = await application.evaluate(async ({ BrowserWindow }) => {
+      const host = BrowserWindow.getAllWindows().find((window) =>
+        window.webContents.getURL().includes('mode=embedding-host')
+      );
+      return host
+        ? ((await host.webContents.executeJavaScript(
+            '({ crossOriginIsolated, sharedArrayBuffer: typeof SharedArrayBuffer })'
+          )) as unknown)
+        : null;
+    });
     await writeFile(
       join(evidence, 'hidden-runtime.json'),
-      JSON.stringify({ hiddenStatus, windows }, null, 2)
+      JSON.stringify({ hiddenRealm, hiddenStatus, windows }, null, 2)
     );
+    expect(hiddenRealm).toEqual({ crossOriginIsolated: true, sharedArrayBuffer: 'function' });
     expect(hiddenStatus.embeddingRuntime?.actualWorkerMetadata).toEqual({
       device: 'wasm',
       dtype: 'q8',
@@ -827,11 +841,11 @@ async function copyExistingModelCache(disposable: string): Promise<CachedModelAs
   const source = process.env['BRAINSTRIKE_M3_TRANSFORMERS_CACHE_ORIGIN'];
   if (!source) {
     throw new Error(
-      'BRAINSTRIKE_M3_TRANSFORMERS_CACHE_ORIGIN must identify an existing file:/// transformers-cache; no model downloads are permitted.'
+      'BRAINSTRIKE_M3_TRANSFORMERS_CACHE_ORIGIN must identify an existing app-origin transformers-cache; no model downloads are permitted.'
     );
   }
   const index = await readFile(join(source, 'index.txt'));
-  if (!(index.includes('file:///') && index.includes('transformers-cache'))) {
+  if (!(index.includes(APP_RENDERER_ORIGIN) && index.includes('transformers-cache'))) {
     throw new Error('Installed model cache has the wrong origin or cache name');
   }
   const origin = source.split('/').at(-1);
