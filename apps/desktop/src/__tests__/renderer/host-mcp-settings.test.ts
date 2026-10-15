@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import type { McpPresentationEvent, McpSettingsEvent } from '@brainstrike/agent-host/protocol';
 import type { McpHostSnapshot, McpTaskPresentation } from '@brainstrike/assistant-contract';

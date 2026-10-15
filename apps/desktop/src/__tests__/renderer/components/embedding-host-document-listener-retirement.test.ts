@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import './embedding-host-runtime-fixture';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import {

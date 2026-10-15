@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import type { useConfiguredAssistantProviders } from '@brainstrike/app-shell';
 import {
   type AssistantThreadHostCapability,

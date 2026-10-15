@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import {
   AGENT_HOST_PROTOCOL_VERSION,

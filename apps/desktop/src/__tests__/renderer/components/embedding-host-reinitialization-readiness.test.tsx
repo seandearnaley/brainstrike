@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import './embedding-host-runtime-fixture';
 import { recordEmbeddingTelemetryFailure } from '@brainstrike/embedding-worker';
 import { act, render, waitFor } from '@testing-library/react';

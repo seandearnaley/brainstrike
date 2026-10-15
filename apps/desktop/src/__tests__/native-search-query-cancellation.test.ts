@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { EventEmitter } from 'node:events';
 import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';

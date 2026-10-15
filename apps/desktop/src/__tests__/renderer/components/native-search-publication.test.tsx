@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/core';
 import { act } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import { type HostLedgerThread, ThreadLedgerFold } from '@brainstrike/agent-host/ledger-projection';
 import {

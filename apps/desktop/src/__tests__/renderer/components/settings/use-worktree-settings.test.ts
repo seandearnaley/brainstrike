@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { resolveWorktreesBridge } from '@brainstrike/app-shell/worktrees/availability';
 import type { WorktreeSettings } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
