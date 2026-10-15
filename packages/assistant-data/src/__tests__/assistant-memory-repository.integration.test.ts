@@ -5,7 +5,6 @@ import {
 } from '@brainstrike/assistant-contract/compaction-summary';
 import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import { UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND } from '@brainstrike/assistant-contract/tool-suspend';
-import { MigrationRunner, migrations } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -2785,28 +2784,26 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     }
   });
 
-  it('keeps the token-estimate calibration bootstrap shape identical to migrations 086, 089, then 091', async () => {
-    const bootstrapDataDir = createPgliteTestDataDir('token-estimate-calibration-bootstrap-shape');
-    const migratedDataDir = createPgliteTestDataDir('token-estimate-calibration-migrated-shape');
-    const bootstrapDb = await createMigratedTestPGlite(bootstrapDataDir);
-    const migratedDb = await createMigratedTestPGlite(migratedDataDir);
+  /**
+   * Test-OWNED literal pins for `brainstrike_token_estimate_calibration`.
+   *
+   * Was "keeps the token-estimate calibration bootstrap shape identical to
+   * migrations 086, 089, then 091". Two things it did are gone. The
+   * bootstrap-vs-migration comparison was already a tautology once BST-1651
+   * removed the renderer bootstrap mirror: both databases came from the same
+   * `createMigratedTestPGlite`, so it compared a database with itself. And the
+   * 086/089/091 lookups cannot resolve since the chain collapsed into one
+   * current-schema DDL (ADR-0020).
+   *
+   * The literals below are kept deliberately. They are a SECOND instrument:
+   * packages/db's catalog fixture pins this shape from the production side, and
+   * these pins are authored here, so the two cannot drift together.
+   */
+  it('pins the token-estimate calibration column and index shape', async () => {
+    const dataDir = createPgliteTestDataDir('token-estimate-calibration-shape');
+    const db = await createMigratedTestPGlite(dataDir);
     try {
-      const repository = createPgliteAssistantThreadRepository(bootstrapDb as DbHandle);
-      await repository.createThread('workspace-a');
-
-      const migration086 = migrations.find((migration) => migration.version === 86);
-      const migration089 = migrations.find((migration) => migration.version === 89);
-      const migration091 = migrations.find((migration) => migration.version === 91);
-      expect(migration086).toBeDefined();
-      expect(migration089).toBeDefined();
-      expect(migration091).toBeDefined();
-      const runner = new MigrationRunner(migratedDb);
-      await runner.initialize();
-      await runner.runMigration(migration086!);
-      await runner.runMigration(migration089!);
-      await runner.runMigration(migration091!);
-
-      const bootstrapColumns = await bootstrapDb.query<{
+      const columns = await db.query<{
         column_name: string;
         data_type: string;
         is_nullable: string;
@@ -2816,17 +2813,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
          WHERE table_name = 'brainstrike_token_estimate_calibration'
          ORDER BY ordinal_position`
       );
-      const migratedColumns = await migratedDb.query<{
-        column_name: string;
-        data_type: string;
-        is_nullable: string;
-      }>(
-        `SELECT column_name, data_type, is_nullable
-         FROM information_schema.columns
-         WHERE table_name = 'brainstrike_token_estimate_calibration'
-         ORDER BY ordinal_position`
-      );
-      expect(migratedColumns.rows).toEqual([
+      expect(columns.rows).toEqual([
         { column_name: 'id', data_type: 'text', is_nullable: 'NO' },
         { column_name: 'thread_id', data_type: 'text', is_nullable: 'NO' },
         { column_name: 'run_id', data_type: 'text', is_nullable: 'NO' },
@@ -2861,9 +2848,8 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
           is_nullable: 'YES',
         },
       ]);
-      expect(bootstrapColumns.rows).toEqual(migratedColumns.rows);
 
-      const indexes = await bootstrapDb.query<{ indexname: string }>(
+      const indexes = await db.query<{ indexname: string }>(
         `SELECT indexname
          FROM pg_indexes
          WHERE tablename = 'brainstrike_token_estimate_calibration'
@@ -2877,8 +2863,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         ].sort()
       );
     } finally {
-      await bootstrapDb.close();
-      await migratedDb.close();
+      await db.close();
     }
   });
 

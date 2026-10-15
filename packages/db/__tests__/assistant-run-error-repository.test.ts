@@ -4,14 +4,14 @@ import {
   AssistantRunErrorRepository,
   AssistantRunErrorStorageError,
 } from '../src/repositories/assistant-run-error-repository.js';
-import { createDbAtVersion, LATEST_MIGRATION_VERSION } from './helpers/migrated-test-db.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 describe('AssistantRunErrorRepository', () => {
   let db: PGlite;
   let repository: AssistantRunErrorRepository;
 
   beforeEach(async () => {
-    db = await createDbAtVersion(LATEST_MIGRATION_VERSION);
+    db = await createMigratedTestDb();
     // The parent run row, seeded into the REAL relations. This used to create a
     // three-column stand-in because no migration created `thread_runs`;
     // migration 118 does (BST-1651), so the repository's ownership derivation

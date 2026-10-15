@@ -101,8 +101,10 @@ export {
 // Legacy migration export
 export * from './migrations/bootstrap.js';
 export type { Migration } from './migrations/index.js';
-// New migration system
+// Schema construction (ADR-0020: one current-schema DDL)
 export {
+  CURRENT_SCHEMA_DDL,
+  CURRENT_SCHEMA_LEDGER_KEY,
   createDimensionIndex,
   dimensionIndexIsReady,
   dropDimensionIndex,

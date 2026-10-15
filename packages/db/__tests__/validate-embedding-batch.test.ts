@@ -6,7 +6,7 @@ import {
 } from '../src/repositories/_shared.js';
 import { EmbeddingSetsRepository } from '../src/repositories/embedding-sets-repository.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
-import { createDbAtVersion, LATEST_MIGRATION_VERSION } from './helpers/migrated-test-db.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 const DIMENSION_SELECT_PATTERN = /SELECT\b[^;]*\bdimensions\b[^;]*\bFROM\s+embedding_sets\b/i;
 
@@ -23,7 +23,7 @@ describe('validateEmbeddingDimensions batch N+1 regression', () => {
 
   beforeEach(async () => {
     clearEmbeddingDimensionCache();
-    db = await createDbAtVersion(LATEST_MIGRATION_VERSION);
+    db = await createMigratedTestDb();
 
     const setRepo = new EmbeddingSetsRepository(db);
     const set1 = await setRepo.getOrCreateSet('set-1', 'model1', 3, 'cosine');

@@ -1,15 +1,21 @@
 #!/usr/bin/env tsx
 /**
  * Dumps the canonical schema (and seeded data) of a freshly constructed
- * Brainstrike database, for migration-collapse equivalence proofs.
+ * Brainstrike database. An ad-hoc diagnostic, not a guard: the standing
+ * equivalence check is `__tests__/current-schema-catalog.integration.test.ts`
+ * against `__tests__/fixtures/schema-catalog.snapshot.txt`.
  *
  * Both modes build an EMPTY in-memory cluster with the production engine
  * extension set and then construct the schema one way or the other:
  *
- *   --mode=migrations   the production bootstrap (`migrate()`), i.e. the drizzle
- *                       manifest followed by the derived custom migrations
- *   --mode=ddl          a single SQL file applied through the same statement
- *                       splitter the migration runner uses
+ *   --mode=migrations   the production bootstrap (`migrate()`), which since
+ *                       ADR-0020 applies ONE step, the current-schema DDL
+ *   --mode=ddl          an arbitrary SQL file applied through the same
+ *                       statement splitter the migration runner uses -- for
+ *                       comparing a candidate schema against the shipped one.
+ *                       The repository no longer keeps a `.sql` schema file;
+ *                       the shipped DDL is `CURRENT_SCHEMA_DDL` in
+ *                       `src/migrations/current-schema-ddl.ts`.
  *
  * Usage:
  *   tsx scripts/dump-schema.ts --mode=migrations --out=<dir>

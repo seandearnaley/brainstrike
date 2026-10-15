@@ -1,27 +1,29 @@
-import { PGlite } from '@electric-sql/pglite';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { migration001InitialSchema } from '../src/migrations/001-initial-schema.js';
-import { migration002AddVectorColumns } from '../src/migrations/002-add-vector-columns.js';
-import { migration012FileRecordsEmbeddingSet } from '../src/migrations/012-file-records-embedding-set.js';
-import { migration029FileRecordSourceRootPath } from '../src/migrations/029-file-record-source-root-path.js';
-import { MigrationRunner } from '../src/migrations/migration-runner.js';
+import type { PGlite } from '@electric-sql/pglite';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FileImportRequest } from '../src/models/file-record.js';
 import { FileRecordRepository } from '../src/repositories/file-record-repository.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
+/**
+ * File import behaviour around `embedding_set_id`.
+ *
+ * Used to hand-assemble a partial schema from four specific chain steps
+ * (001/002/012/029). That is no longer possible, and was never desirable: one of
+ * those steps added `source_root_path`, which migration 040 later DROPPED, so
+ * the schema under test had not matched production for a long time. It now runs
+ * against the shipped schema (ADR-0020: one current-schema DDL).
+ */
 describe('File Import with embedding_set_id', () => {
   let db: PGlite;
   let repository: FileRecordRepository;
 
   beforeEach(async () => {
-    db = new PGlite();
-    const runner = new MigrationRunner(db);
-    await runner.initialize();
-    // Only run migrations needed for file_records with embedding_set_id
-    await runner.runMigration(migration001InitialSchema);
-    await runner.runMigration(migration002AddVectorColumns);
-    await runner.runMigration(migration012FileRecordsEmbeddingSet);
-    await runner.runMigration(migration029FileRecordSourceRootPath);
+    db = await createMigratedTestDb();
     repository = new FileRecordRepository(db);
+  });
+
+  afterEach(async () => {
+    await db.close();
   });
 
   it('should set embedding_set_id on imported files when provided', async () => {

@@ -1,10 +1,19 @@
 /**
- * Drizzle Migration Runner for Browser + Electron
+ * Migration Runner for Browser + Electron
  *
  * This module provides migration execution that works in both
  * browser (no filesystem) and Electron (filesystem available) contexts.
  *
- * Migration SQL is bundled as JSON at build time via the export-migrations script.
+ * It applies the registry in `../migrations/index.ts`, which since ADR-0020 is a
+ * single step: the current-schema DDL. Its SQL is bundled as a TypeScript module
+ * (`../migrations/current-schema-ddl.ts`) rather than read from disk, because
+ * this path runs in the browser where there is no filesystem.
+ *
+ * The drizzle-kit artifacts are NOT on this path. `drizzle/meta/`'s snapshot is
+ * deliberately drifted from `src/schema/index.ts` and `db:generate` is blocked,
+ * so drizzle-kit emits nothing production applies; what survives of it is the
+ * drift audit in `../architecture/db-migration-authority.ts`, which is now that
+ * manifest's only reader.
  */
 
 import { createLogger } from '@brainstrike/logging';
@@ -13,10 +22,6 @@ import { assertNoLegacyMigrationLedger } from '../architecture/db-migration-auth
 import { migrations } from '../migrations/index.js';
 import type { Migration } from '../migrations/migration-runner.js';
 
-// Import the pre-compiled migrations manifest
-// Using import attribute for Node.js 22+ ESM compatibility
-import migrationsManifest from './migrations.json' with { type: 'json' };
-
 const logger = createLogger('DrizzleMigrate');
 
 interface DrizzleMigration {
@@ -24,12 +29,6 @@ interface DrizzleMigration {
   name: string;
   sql: string;
   version: string;
-}
-
-interface MigrationManifest {
-  generatedAt: string;
-  migrations: DrizzleMigration[];
-  version: number;
 }
 
 interface MigrationResult {
@@ -91,12 +90,6 @@ async function recordMigration(db: PGlite, hash: string): Promise<void> {
   await db.query(`INSERT INTO "${MIGRATIONS_TABLE}" (hash) VALUES ($1)`, [hash]);
 }
 
-// These numbered migrations are already represented by the immutable
-// drizzle-kit snapshot. In particular, 008 remains numbered-only (ADR-0002).
-const FOLDED_INTO_DRIZZLE_SNAPSHOT: ReadonlySet<number> = new Set([
-  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 29, 31,
-]);
-
 function toDrizzleMigration(migration: Migration): DrizzleMigration {
   if (typeof migration.up !== 'string') {
     throw new Error(`Drizzle migration "${migration.name}" must be a SQL string.`);
@@ -110,18 +103,13 @@ function toDrizzleMigration(migration: Migration): DrizzleMigration {
   };
 }
 
-// Append-only persisted keys live on the numbered migrations. The shipped
-// keys are frozen independently in drizzle-ledger-keys.test.ts. Keys are
-// scattered across one file per migration, so uniqueness is enforced here at
-// derivation time: a cloned migration that kept its source's ledgerKey would
+// Persisted keys live on the migrations themselves. Uniqueness is enforced here
+// at derivation time: a cloned migration that kept its source's ledgerKey would
 // otherwise be silently skipped on every profile that already recorded it.
 function deriveCustomMigrations(source: readonly Migration[]): DrizzleMigration[] {
   const derived: DrizzleMigration[] = [];
   const seenLedgerKeys = new Set<string>();
   for (const migration of source) {
-    if (FOLDED_INTO_DRIZZLE_SNAPSHOT.has(migration.version)) {
-      continue;
-    }
     if (seenLedgerKeys.has(migration.ledgerKey)) {
       throw new Error(
         `Drizzle migration "${migration.name}" reuses ledger key "${migration.ledgerKey}"; ledger keys must be unique.`
@@ -136,14 +124,13 @@ function deriveCustomMigrations(source: readonly Migration[]): DrizzleMigration[
 export const customMigrations: DrizzleMigration[] = deriveCustomMigrations(migrations);
 
 /**
- * Every bundled ledger hash in the order `runMigrations` applies it (the drizzle
- * manifest, then the custom ones), fixed once at load like `customMigrations`
- * itself, so the head and the known set always describe the same bundle.
+ * Every bundled ledger hash in the order `runMigrations` applies it, fixed once
+ * at load like `customMigrations` itself, so the head and the known set always
+ * describe the same bundle.
  */
-const BUNDLED_LEDGER_HASHES: readonly string[] = [
-  ...(migrationsManifest as MigrationManifest).migrations.map((migration) => migration.hash),
-  ...customMigrations.map((migration) => migration.hash),
-];
+const BUNDLED_LEDGER_HASHES: readonly string[] = customMigrations.map(
+  (migration) => migration.hash
+);
 const KNOWN_LEDGER_HASHES: ReadonlySet<string> = new Set(BUNDLED_LEDGER_HASHES);
 
 /** The newest migration this build ships: the ledger head a fully migrated database reports. */
@@ -496,20 +483,7 @@ export async function runMigrations(
 
     await ensureMigrationsTable(db);
     const applied = await getAppliedMigrations(db);
-    const manifest = migrationsManifest as MigrationManifest;
-    const allMigrations = [...manifest.migrations, ...customMigrations];
-    assertNoStaleDrizzleMigrationLedger(applied, allMigrations);
-
-    for (const migration of manifest.migrations) {
-      if (applied.has(migration.hash)) {
-        continue;
-      }
-
-      onMigrationStart?.(migration.name);
-      await applySingleMigration(db, migration);
-      appliedMigrations.push(migration.name);
-      onMigrationComplete?.(migration.name);
-    }
+    assertNoStaleDrizzleMigrationLedger(applied, customMigrations);
 
     for (const migration of customMigrations) {
       if (applied.has(migration.hash)) {
@@ -537,8 +511,7 @@ export async function getMigrationStatus(db: PGlite): Promise<{
   applied: number;
   pending: string[];
 }> {
-  const manifest = migrationsManifest as MigrationManifest;
-  const allMigrations = [...manifest.migrations, ...customMigrations];
+  const allMigrations = customMigrations;
 
   await assertNoLegacyMigrationLedger(db);
 
@@ -585,4 +558,4 @@ export async function resetMigrations(db: PGlite): Promise<void> {
   }
 }
 
-export type { DrizzleMigration as Migration, MigrationManifest, MigrationResult };
+export type { DrizzleMigration as Migration, MigrationResult };

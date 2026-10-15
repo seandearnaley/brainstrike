@@ -1,7 +1,7 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PromptItemRepository } from '../src/repositories/prompt-item-repository.js';
-import { createDbAtVersion, LATEST_MIGRATION_VERSION } from './helpers/migrated-test-db.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 const vector = (hotIndex: number): number[] =>
   Array.from({ length: 384 }, (_, index) => (index === hotIndex ? 1 : 0));
@@ -11,7 +11,7 @@ describe('PromptItemRepository', () => {
   let repository: PromptItemRepository;
 
   beforeEach(async () => {
-    db = await createDbAtVersion(LATEST_MIGRATION_VERSION);
+    db = await createMigratedTestDb();
     repository = new PromptItemRepository(db);
   });
 

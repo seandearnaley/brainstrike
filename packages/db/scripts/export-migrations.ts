@@ -1,29 +1,27 @@
 #!/usr/bin/env npx tsx
 /**
- * Export Drizzle Migrations to JSON
+ * Export the drizzle-kit snapshot audit to JSON
  *
- * This script reads drizzle-kit generated migrations and exports them
- * as a JSON file that can be bundled for browser execution.
+ * This script reads the drizzle-kit snapshot under `drizzle/meta/` and exports
+ * the two projections `src/architecture/db-migration-authority.ts` audits:
+ * the final snapshot's table names, and its column types.
+ *
+ * It no longer exports migration SQL. Production applies ONE step, the
+ * current-schema DDL (`src/migrations/current-schema-ddl.ts`), and drizzle-kit
+ * emits nothing on that path: the snapshot is deliberately drifted from
+ * `src/schema/index.ts` and `db:generate` is blocked (ADR-0002, ADR-0020). The
+ * drift itself is the thing worth auditing, which is all this manifest carries.
  *
  * Usage: npx tsx scripts/export-migrations.ts
  */
 
-import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-
-interface Migration {
-  hash: string;
-  name: string;
-  sql: string;
-  version: string;
-}
 
 interface MigrationManifest {
   finalSnapshotColumnTypes: Record<string, Record<string, string>>;
   finalSnapshotTables: string[];
   generatedAt: string;
-  migrations: Migration[];
   version: 1;
 }
 
@@ -34,49 +32,6 @@ interface DrizzleSnapshotTable {
 
 interface DrizzleSnapshot {
   tables?: Record<string, DrizzleSnapshotTable>;
-}
-
-/**
- * Compute a cryptographic hash for migration content verification.
- * Uses SHA-256 for collision resistance and integrity verification.
- */
-function computeHash(content: string): string {
-  return createHash('sha256').update(content, 'utf-8').digest('hex');
-}
-
-function extractMigrations(migrationsDir: string): Migration[] {
-  const migrations: Migration[] = [];
-
-  // Read the meta/_journal.json to get migration order
-  const journalPath = join(migrationsDir, 'meta', '_journal.json');
-
-  let journal: { entries: Array<{ idx: number; version: string; tag: string }> };
-  try {
-    journal = JSON.parse(readFileSync(journalPath, 'utf-8'));
-  } catch (error) {
-    throw new Error(`Could not read migration journal at ${journalPath}`, { cause: error });
-  }
-
-  // Sort by index to ensure correct order
-  const sortedEntries = [...journal.entries].sort((a, b) => a.idx - b.idx);
-
-  for (const entry of sortedEntries) {
-    const sqlFile = join(migrationsDir, `${entry.tag}.sql`);
-    try {
-      const sql = readFileSync(sqlFile, 'utf-8');
-      migrations.push({
-        hash: computeHash(sql),
-        name: entry.tag,
-        sql,
-        version: entry.version,
-      });
-    } catch {
-      console.error(`Could not read migration file: ${sqlFile}`);
-      process.exit(1);
-    }
-  }
-
-  return migrations;
 }
 
 function extractFinalSnapshotTables(migrationsDir: string): string[] {
@@ -122,6 +77,11 @@ function extractFinalSnapshotColumnTypes(
   return columnTypes;
 }
 
+/**
+ * The newest snapshot the journal names. The journal is kept (and the snapshots
+ * with it) precisely so the drift it records stays auditable; the per-migration
+ * `.sql` files it also indexes are gone, and nothing here reads them.
+ */
 function readFinalSnapshot(migrationsDir: string): DrizzleSnapshot {
   const journalPath = join(migrationsDir, 'meta', '_journal.json');
 
@@ -135,7 +95,7 @@ function readFinalSnapshot(migrationsDir: string): DrizzleSnapshot {
   const latestEntry = [...journal.entries].sort((a, b) => b.idx - a.idx)[0];
 
   if (!latestEntry) {
-    return [];
+    throw new Error(`Migration journal at ${journalPath} names no snapshot to audit.`);
   }
 
   const snapshotFileName = `${latestEntry.idx.toString().padStart(4, '0')}_snapshot.json`;
@@ -155,9 +115,8 @@ function main() {
   const migrationsDir = join(packageRoot, 'drizzle');
   const outputPath = join(packageRoot, 'src', 'drizzle', 'migrations.json');
 
-  console.log('Exporting migrations from:', migrationsDir);
+  console.log('Exporting drizzle snapshot audit from:', migrationsDir);
 
-  const migrations = extractMigrations(migrationsDir);
   const finalSnapshotTables = extractFinalSnapshotTables(migrationsDir);
   const finalSnapshotColumnTypes = extractFinalSnapshotColumnTypes(migrationsDir);
 
@@ -165,13 +124,11 @@ function main() {
     finalSnapshotColumnTypes,
     finalSnapshotTables,
     generatedAt: new Date().toISOString(),
-    migrations,
     version: 1,
   };
 
   writeFileSync(outputPath, JSON.stringify(manifest, null, 2));
-  console.log(`Exported ${migrations.length} migrations to:`, outputPath);
-  console.log('Migration versions:', migrations.map((m) => m.name).join(', '));
+  console.log(`Exported ${finalSnapshotTables.length} snapshot tables to:`, outputPath);
 }
 
 try {

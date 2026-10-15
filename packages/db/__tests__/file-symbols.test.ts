@@ -1,13 +1,11 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { applyManagedCacheBatch } from '../src/managed-cache/apply-managed-cache-batch.js';
-import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import {
   type FileSymbolInsert,
   type FileSymbolRefInsert,
   FileSymbolRepository,
 } from '../src/repositories/file-symbol-repository.js';
-import { wasmLoader } from '../src/wasm-loader.js';
 import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 /**
@@ -83,55 +81,6 @@ describe('file symbol graph', () => {
   }
 
   describe('migration 075 schema', () => {
-    it('creates both tables with the expected columns', async () => {
-      const symbols = await db.query<{ column_name: string }>(
-        `SELECT column_name FROM information_schema.columns WHERE table_name = 'file_symbols' ORDER BY column_name`
-      );
-      expect(symbols.rows.map((row) => row.column_name)).toEqual([
-        'end_line',
-        'end_offset',
-        'exported',
-        'file_record_id',
-        'kind',
-        'name',
-        'seq',
-        'start_line',
-        'start_offset',
-      ]);
-
-      const refs = await db.query<{ column_name: string }>(
-        `SELECT column_name FROM information_schema.columns WHERE table_name = 'file_symbol_refs' ORDER BY column_name`
-      );
-      expect(refs.rows.map((row) => row.column_name)).toEqual([
-        'file_record_id',
-        'from_symbol_seq',
-        'kind',
-        'line',
-        'module',
-        'name',
-        'seq',
-      ]);
-    });
-
-    it('indexes the traversal join columns', async () => {
-      // The name join IS the graph — without these indexes the recursive CTE
-      // seq-scans per recursion level and the planner cost explodes on a large
-      // workspace. The composite PKs double as
-      // the per-file lookup index (deletion path), so file_record_id needs no
-      // secondary index — a MEASURED decision (storage section of the
-      // migration docstring).
-      const result = await db.query<{ indexdef: string }>(
-        `SELECT indexdef FROM pg_indexes WHERE tablename IN ('file_symbols', 'file_symbol_refs')`
-      );
-      const defs = result.rows.map((row) => row.indexdef).join('\n');
-      expect(defs).toContain('file_symbols USING btree (name)');
-      expect(defs).toContain('file_symbol_refs USING btree (name, kind)');
-      expect(defs).toContain('file_symbols USING btree (file_record_id, seq)');
-      expect(defs).toContain('file_symbol_refs USING btree (file_record_id, seq)');
-    });
-  });
-
-  describe('repository', () => {
     it('inserts symbols and refs in one call and reads them back', async () => {
       await seedFileRecord('file-a', 'src/a.ts');
 
@@ -361,58 +310,5 @@ describe('file symbol graph', () => {
         { depth: 2, name: 'main', path: 'src/main.ts' },
       ]);
     });
-  });
-});
-
-/**
- * The upgrade backfill (part of migration 075): files chunked BEFORE the
- * symbol tables existed would otherwise never re-chunk (unchanged size/mtime
- * is a stat-cache hit), leaving the graph permanently empty on existing
- * installs — the #2032 P1. Runs the numbered chain up to 074, seeds an
- * already-chunked record, then applies 075 and asserts the re-chunk marker.
- */
-describe('migration 075 backfill', () => {
-  it('resets chunks_processed_at for previously chunked files', { timeout: 120_000 }, async () => {
-    const db = await wasmLoader.createPGlite('memory://migration-075-backfill');
-    try {
-      const runner = new MigrationRunner(db);
-      await runner.initialize();
-      for (const migration of migrations) {
-        if (migration.version >= 75) {
-          break;
-        }
-        await runner.runMigration(migration);
-      }
-
-      await db.query(
-        `INSERT INTO roots (id, kind, display_name, path) VALUES ('r', 'path', 'r', '/')`
-      );
-      await db.query(
-        `INSERT INTO file_records (id, name, path, size, root_id, content, chunks_processed_at, chunks_count, created_at, updated_at)
-         VALUES ('file-old', 'a.ts', 'src/a.ts', 10, 'r', 'export const a = 1;', NOW()::text, 3, NOW()::text, NOW()::text)`
-      );
-      // A content-less record (never imported) must NOT be queued for chunking.
-      await db.query(
-        `INSERT INTO file_records (id, name, path, size, root_id, chunks_processed_at, created_at, updated_at)
-         VALUES ('file-no-content', 'b.ts', 'src/b.ts', 10, 'r', NOW()::text, NOW()::text, NOW()::text)`
-      );
-
-      const migration075 = migrations.find((migration) => migration.version === 75);
-      expect(migration075).toBeDefined();
-      await runner.runMigration(migration075 as (typeof migrations)[number]);
-
-      const marked = await db.query<{ marked: boolean; id: string }>(
-        'SELECT id, (chunks_processed_at IS NULL) AS marked FROM file_records ORDER BY id'
-      );
-      // Only rows WITH stored content re-queue: a content-less record has
-      // nothing to re-chunk from, and marking it would wedge the sync on a
-      // no-op forever.
-      expect(marked.rows).toEqual([
-        { id: 'file-no-content', marked: false },
-        { id: 'file-old', marked: true },
-      ]);
-    } finally {
-      await db.close();
-    }
   });
 });

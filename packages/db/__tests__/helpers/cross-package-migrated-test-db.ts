@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { MigrationRunner, migrate, migrations, wasmLoader } from '@brainstrike/db';
+import { migrate, wasmLoader } from '@brainstrike/db';
 import { createBrainstrikePglite } from '@brainstrike/db/pglite-factory';
 import type { PGlite } from '@electric-sql/pglite';
 import { inject } from 'vitest';
@@ -21,6 +21,17 @@ import { inject } from 'vitest';
  *
  * Do NOT use it where the subject is migration, boot, reopen-on-disk or
  * instantiation behavior; those tests must keep running the real cold path.
+ *
+ * There used to be a second export, `createNumberedChainTestDb`, for a database
+ * built by the NUMBERED `MigrationRunner` instead. It existed because the two
+ * runners genuinely built different schemas -- the numbered chain created
+ * `file_records.embedding`, which production never had, and lacked
+ * `embedding_cache` and `token_cache`, which only the drizzle manifest created.
+ * Since the collapse to one current-schema DDL (ADR-0020) both runners apply the
+ * SAME single migration and differ only in which ledger table they write, so
+ * the distinction was a name without a difference and the variant is gone.
+ * `migrated-test-db-contract.integration.test.ts` now asserts that parity
+ * directly, with no divergence allowlist.
  */
 
 declare module 'vitest' {
@@ -37,7 +48,6 @@ type TemplateBytes = Uint8Array<ArrayBuffer>;
  * once and every test in the file restores from the same bytes.
  */
 let drizzleTemplate: Promise<TemplateBytes> | undefined;
-let numberedChainTemplate: Promise<TemplateBytes> | undefined;
 
 async function dumpMigratedTemplate(
   migrateTemplate: (template: PGlite) => Promise<void>
@@ -85,20 +95,4 @@ async function restore(bytes: TemplateBytes): Promise<PGlite> {
 export async function createMigratedTestDb(): Promise<PGlite> {
   drizzleTemplate ??= loadDrizzleTemplate();
   return await restore(await drizzleTemplate);
-}
-
-/**
- * Returns a fresh, isolated in-memory PGlite holding exactly what
- * `new MigrationRunner(db).initialize()` followed by `runner.up(migrations)`
- * produces on `wasmLoader.createPGlite('memory://')`, `_migrations` ledger
- * included. The chain runs once per test file. The caller owns the instance
- * and must `close()` it.
- */
-export async function createNumberedChainTestDb(): Promise<PGlite> {
-  numberedChainTemplate ??= dumpMigratedTemplate(async (template) => {
-    const runner = new MigrationRunner(template);
-    await runner.initialize();
-    await runner.up(migrations);
-  });
-  return await restore(await numberedChainTemplate);
 }

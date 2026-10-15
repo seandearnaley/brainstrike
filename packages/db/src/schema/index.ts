@@ -187,15 +187,16 @@ export const fileChunks = pgTable(
     // runtime "cannot insert into generated column" failure. GIN-indexed for fast
     // ts_query lookups.
     //
-    // SNAPSHOT DRIFT (intentional): the committed drizzle manifest/snapshots
-    // (`src/drizzle/migrations.json`, `drizzle/meta/*_snapshot.json`) still describe
-    // this as a PLAIN tsvector column with no GIN index. The real DDL is owned by
-    // custom migration 034, which runs AFTER the manifest (see `runMigrations`) and
-    // converts it to STORED-generated + adds the GIN index. Do NOT `drizzle-kit
-    // generate` to "fix" the drift — this repo's snapshots have already diverged for
-    // other reasons (see CLAUDE.md migration-architecture note), so regenerating would
-    // emit a spurious `ALTER COLUMN ... SET GENERATED`/index migration plus unrelated
-    // churn. Schema changes go in a numbered migration + the customMigrations ledger.
+    // SNAPSHOT DRIFT (intentional): the committed drizzle snapshots
+    // (`drizzle/meta/*_snapshot.json`) still describe this as a PLAIN tsvector
+    // column with no GIN index. The shipped DDL makes it STORED-generated with a
+    // GIN index — read `src/migrations/current-schema-ddl.ts`, which is what
+    // production applies and the only description of the schema that is true. Do
+    // NOT `drizzle-kit generate` to "fix" the drift: this repo's snapshots have
+    // diverged for several reasons, so regenerating would emit a spurious
+    // `ALTER COLUMN ... SET GENERATED`/index migration plus unrelated churn.
+    // Schema changes go in `src/schema/index.ts` and are then picked up by
+    // `pnpm --filter @brainstrike/db db:schema:ddl` (see docs/agents/database.md).
     contentTsvector: tsvector('content_tsvector').generatedAlwaysAs(
       sql`to_tsvector('english', coalesce(content, ''))`
     ),
@@ -398,10 +399,10 @@ export const promptItemRevisions = pgTable(
   (table) => [
     uniqueIndex('idx_prompt_item_revisions_unique').on(table.promptItemId, table.revision),
     // SNAPSHOT DRIFT (intentional): idx_prompt_item_revisions_item_revision
-    // (same key as the UNIQUE above; B-tree scans run backwards, so the 051
-    // DESC ordering adds nothing) was dropped by migration 063 (PG18 skip-scan
-    // audit). Do NOT `drizzle-kit generate` — see the content_tsvector note in
-    // file_chunks.
+    // (same key as the UNIQUE above; B-tree scans run backwards, so a DESC
+    // ordering adds nothing) is in the committed drizzle snapshots and NOT in
+    // the shipped schema — the PG18 skip-scan audit retired it. Do NOT
+    // `drizzle-kit generate` — see the content_tsvector note in file_chunks.
   ]
 );
 
@@ -513,9 +514,8 @@ export const fileTokenCache = pgTable(
     uniqueIndex('idx_file_token_cache_folder_path_unique').on(table.folderId, table.filePath),
     // SNAPSHOT DRIFT (intentional): idx_file_token_cache_lookup (exact duplicate
     // of the UNIQUE above) and idx_file_token_cache_folder (prefix of the UNIQUE
-    // and of the mode index) were dropped by migration 063 (PG18 skip-scan
-    // audit). The committed drizzle manifest/snapshots still create them;
-    // migration 063 runs after the manifest and drops them. Do NOT
+    // and of the mode index) are in the committed drizzle snapshots and NOT in
+    // the shipped schema — the PG18 skip-scan audit retired them. Do NOT
     // `drizzle-kit generate` — see the content_tsvector note in file_chunks.
     index('idx_file_token_cache_hash').on(table.contentHash),
     index('idx_file_token_cache_mode').on(table.folderId, table.countingMode),
@@ -601,11 +601,10 @@ export const embeddingCache = pgTable(
     // Unique constraint on (contentHash, modelKey) - the cache key
     uniqueIndex('idx_embedding_cache_content_model').on(table.contentHash, table.modelKey),
     // SNAPSHOT DRIFT (intentional): idx_embedding_cache_content_hash (prefix of
-    // the UNIQUE above; no hash-only query shape exists) was dropped by
-    // migration 063 (PG18 skip-scan audit). The committed drizzle
-    // manifest/snapshots still create it; migration 063 runs after the manifest
-    // and drops it. Do NOT `drizzle-kit generate` — see the content_tsvector
-    // note in file_chunks.
+    // the UNIQUE above; no hash-only query shape exists) is in the committed
+    // drizzle snapshots and NOT in the shipped schema — the PG18 skip-scan audit
+    // retired it. Do NOT `drizzle-kit generate` — see the content_tsvector note
+    // in file_chunks.
     // Index for cache eviction queries (oldest accessed first)
     index('idx_embedding_cache_accessed_at').on(table.accessedAt),
   ]

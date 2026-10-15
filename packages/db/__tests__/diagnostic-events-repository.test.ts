@@ -5,7 +5,7 @@ import {
   DIAGNOSTIC_RETENTION_MAX_ROWS,
   DiagnosticEventsRepository,
 } from '../src/repositories/diagnostic-events-repository.js';
-import { createDbAtVersion, LATEST_MIGRATION_VERSION } from './helpers/migrated-test-db.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 const NUL = String.fromCharCode(0);
 // U+2400 SYMBOL FOR NULL: the visible stand-in stored in place of a NUL.
@@ -44,7 +44,7 @@ describe('DiagnosticEventsRepository', () => {
   let repo: DiagnosticEventsRepository;
 
   beforeEach(async () => {
-    db = await createDbAtVersion(LATEST_MIGRATION_VERSION);
+    db = await createMigratedTestDb();
     repo = new DiagnosticEventsRepository(db);
   });
 

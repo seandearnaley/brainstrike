@@ -1,17 +1,12 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { runMigrations } from '../src/drizzle/migrate.js';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   type McpTaskAuthorityLease,
   McpTaskMetadataTooLargeError,
   McpTaskRepository,
 } from '../src/repositories/mcp-task-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
-import {
-  createDbAtVersion,
-  LATEST_MIGRATION_VERSION,
-  prebuildDbAtVersion,
-} from './helpers/migrated-test-db.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 import { createPGliteTestDataDir } from './test-data-dir';
 
 const authorityInput = {
@@ -35,15 +30,11 @@ function identity(authority: McpTaskAuthorityLease, taskId = 'task-1') {
 describe('McpTaskRepository', () => {
   let db: PGlite | undefined;
 
-  /** The numbered chain, in memory unless a restart test needs a real data dir. */
-  async function openNumbered(dataDir?: string): Promise<PGlite> {
-    db = await createDbAtVersion(LATEST_MIGRATION_VERSION, { dataDir });
+  /** The migrated schema, in memory unless a restart test needs a real data dir. */
+  async function openMigrated(dataDir?: string): Promise<PGlite> {
+    db = await createMigratedTestDb({ dataDir });
     return db;
   }
-
-  beforeAll(async () => {
-    await prebuildDbAtVersion(LATEST_MIGRATION_VERSION);
-  });
 
   afterEach(async () => {
     await db?.close();
@@ -51,7 +42,7 @@ describe('McpTaskRepository', () => {
 
   it('persists a principal-bound task across a real PGlite restart', async () => {
     const dataDir = createPGliteTestDataDir('pglite-mcp-tasks');
-    await openNumbered(dataDir);
+    await openMigrated(dataDir);
     const firstRepository = new McpTaskRepository(db);
     const authority = await firstRepository.openAuthority(authorityInput);
     const taskIdentity = identity(authority);
@@ -72,7 +63,7 @@ describe('McpTaskRepository', () => {
 
   it('rebinds the live durable authority across restart without resurrecting a retired epoch', async () => {
     const dataDir = createPGliteTestDataDir('pglite-mcp-task-authority-restart');
-    await openNumbered(dataDir);
+    await openMigrated(dataDir);
     const firstRepository = new McpTaskRepository(db);
     const first = await firstRepository.openAuthority({
       connectionGeneration: 7,
@@ -145,22 +136,8 @@ describe('McpTaskRepository', () => {
     ).rejects.toThrow(/missing or stale/u);
   });
 
-  it('is discovered by the production Drizzle migration ledger', async () => {
-    db = await wasmLoader.createPGlite('memory://');
-    await expect(runMigrations(db)).resolves.toMatchObject({ success: true });
-    const tables = await db.query<{ table_name: string }>(
-      `SELECT table_name FROM information_schema.tables
-       WHERE table_name IN ('brainstrike_mcp_task_authorities', 'brainstrike_mcp_tasks')
-       ORDER BY table_name`
-    );
-    expect(tables.rows).toEqual([
-      { table_name: 'brainstrike_mcp_task_authorities' },
-      { table_name: 'brainstrike_mcp_tasks' },
-    ]);
-  });
-
   it('updates metadata, bounds history, and makes terminal state immutable', async () => {
-    await openNumbered();
+    await openMigrated();
     let tick = 0;
     const repository = new McpTaskRepository(
       db,
@@ -197,7 +174,7 @@ describe('McpTaskRepository', () => {
   });
 
   it('rejects stale writes and isolates server, principal, resource, and authority epoch', async () => {
-    await openNumbered();
+    await openMigrated();
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
     const taskIdentity = identity(authority);
@@ -236,7 +213,7 @@ describe('McpTaskRepository', () => {
   });
 
   it('enforces merged input metadata before entering input_required', async () => {
-    await openNumbered();
+    await openMigrated();
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
     const taskIdentity = identity(authority);
@@ -261,7 +238,7 @@ describe('McpTaskRepository', () => {
   it('enforces merged result metadata before a terminal status', async () => {
     // Review of #2913: input metadata was merged but result metadata had to
     // arrive in the same call, so a stashed result made `completed` throw.
-    await openNumbered();
+    await openMigrated();
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
     const taskIdentity = identity(authority);
@@ -283,7 +260,7 @@ describe('McpTaskRepository', () => {
   it('rejects a bare trailing fragment marker in the resource', async () => {
     // Review of #2913: `url.hash` is '' for 'https://…/mcp#', so the guard
     // let a second row for the same endpoint through.
-    await openNumbered();
+    await openMigrated();
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
     const taskIdentity = identity(authority);
@@ -298,7 +275,7 @@ describe('McpTaskRepository', () => {
   it('bounds listActive deterministically', async () => {
     // Review of #2915: the row count of this query is the number of pollers
     // recover() fans out, so it is capped like every other bound here.
-    await openNumbered();
+    await openMigrated();
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
     for (const taskId of ['a-task', 'b-task', 'c-task']) {
@@ -313,7 +290,7 @@ describe('McpTaskRepository', () => {
   });
 
   it('accepts empty status messages from the protocol contract', async () => {
-    await openNumbered();
+    await openMigrated();
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
     await expect(
@@ -322,7 +299,7 @@ describe('McpTaskRepository', () => {
   });
 
   it('rejects DB-normalized oversized metadata with a typed contract error', async () => {
-    await openNumbered();
+    await openMigrated();
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
     const taskIdentity = identity(authority);
@@ -346,7 +323,7 @@ describe('McpTaskRepository', () => {
   });
 
   it('lists only resumable tasks for one exact live identity scope', async () => {
-    await openNumbered();
+    await openMigrated();
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
     await repository.create({ ...identity(authority, 'working'), status: 'working' }, authority);
@@ -403,7 +380,7 @@ describe('McpTaskRepository', () => {
   });
 
   it('rejects malformed inputs and corrupted persisted rows', async () => {
-    await openNumbered();
+    await openMigrated();
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
     const taskIdentity = identity(authority);
@@ -426,7 +403,7 @@ describe('McpTaskRepository', () => {
   });
 
   it('rejects non-monotonic or contradictory durable history during hydration', async () => {
-    await openNumbered();
+    await openMigrated();
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
     const corruptions = [

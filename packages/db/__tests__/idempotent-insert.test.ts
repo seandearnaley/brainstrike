@@ -2,7 +2,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FileChunkInsert } from '../src/models/file-chunk';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository';
-import { createDbAtVersion, LATEST_MIGRATION_VERSION } from './helpers/migrated-test-db.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 describe('Idempotent Chunk Insertion', () => {
   let db: PGlite;
@@ -14,7 +14,7 @@ describe('Idempotent Chunk Insertion', () => {
 
   beforeEach(async () => {
     // A fresh in-memory database for each test, with every migration applied
-    db = await createDbAtVersion(LATEST_MIGRATION_VERSION);
+    db = await createMigratedTestDb();
 
     repository = new FileChunkRepository(db);
 

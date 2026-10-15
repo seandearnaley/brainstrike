@@ -1,20 +1,29 @@
 #!/usr/bin/env tsx
 /**
- * Generates the single current-schema DDL **from a migrated database**.
+ * Generates the single current-schema DDL **from a booted database**.
  *
- * The DDL is read back out of the engine's own catalogs after the real
- * migration chain has run, never transcribed from the migration sources. That
- * is the whole point: Postgres normalizes as it applies DDL, so only catalog
- * readback reproduces what was actually built rather than what the migrations
- * meant to build.
+ * The DDL is read back out of the engine's own catalogs after the production
+ * bootstrap has run, never transcribed from source. That is the whole point:
+ * Postgres normalizes as it applies DDL, so only catalog readback reproduces
+ * what was actually built rather than what the SQL meant to build.
+ *
+ * Production now applies this DDL itself, so a regeneration is a ROUND TRIP:
+ * apply the emitted DDL, read the catalogs back, re-emit. A correct DDL is a
+ * fixed point of that round trip, which is what makes regeneration safe to run
+ * at any time and makes a non-canonical hand edit visible as a diff.
+ *
+ * The emitted module is TypeScript, not .sql, because it is on the browser boot
+ * path: `packages/db` compiles with plain `tsc` and ships `dist/`, so a `.sql`
+ * file is never emitted and could not be read without `node:fs`.
  *
  * Emission order is dependency-safe:
  *   extensions -> owned sequences -> tables -> sequence ownership ->
  *   primary/unique/check constraints -> foreign keys -> indexes -> seed rows
  *
- * Usage: tsx scripts/generate-current-schema-ddl.ts --out=<file.sql>
+ * Usage: tsx scripts/generate-current-schema-ddl.ts --out=<file.ts>
  */
 
+import { createHash } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import type { PGlite } from '@electric-sql/pglite';
 import { migrate } from '../src/migrations/bootstrap.js';
@@ -356,6 +365,56 @@ async function emitSeedData(db: PGlite, tables: readonly string[]): Promise<stri
   return statements;
 }
 
+/** Signatures of every function PUBLIC may NOT execute in `db`. */
+async function publicRevokedFunctions(db: PGlite): Promise<Set<string>> {
+  const result = await db.query<{ signature: string }>(
+    `SELECT quote_ident(n.nspname) || '.' || quote_ident(p.proname) || '(' ||
+            pg_get_function_identity_arguments(p.oid) || ')' AS signature
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE NOT has_function_privilege('public', p.oid, 'EXECUTE')`
+  );
+  return new Set(result.rows.map((row) => row.signature));
+}
+
+/**
+ * The `REVOKE EXECUTE ... FROM PUBLIC` statements THIS schema is responsible
+ * for, derived by diffing the built database against a pristine one.
+ *
+ * Postgres ships a number of its own functions PUBLIC-revoked (`lo_import`,
+ * `pg_backup_start`, ...), so "PUBLIC cannot execute it" alone does not mean
+ * the schema revoked it. The baseline is built here, with the SAME extensions,
+ * so the difference is exactly what this repository took away and the list
+ * re-derives itself if the engine's own defaults ever change. Deliberately not
+ * a hand-written list of function names: that is the kind of shortcut this
+ * whole file exists to avoid.
+ *
+ * The chain revoked `pg_sleep`, `pg_sleep_for`, `pg_sleep_until` and
+ * `set_config` in migration 074 and migration 151 deliberately kept them; they
+ * are verified sandbox escapes, not hardening theatre, and a schema that stops
+ * reproducing them silently restores a denial-of-service primitive to every
+ * role.
+ */
+async function emitFunctionPrivileges(
+  db: PGlite,
+  extensionStatements: readonly string[]
+): Promise<string[]> {
+  const baseline = await createEnginePglite();
+  try {
+    for (const statement of extensionStatements) {
+      await baseline.query(statement);
+    }
+    const pristine = await publicRevokedFunctions(baseline);
+    const built = await publicRevokedFunctions(db);
+    return [...built]
+      .filter((signature) => !pristine.has(signature))
+      .sort()
+      .map((signature) => `REVOKE EXECUTE ON FUNCTION ${signature} FROM PUBLIC;`);
+  } finally {
+    await baseline.close();
+  }
+}
+
 function section(title: string, statements: readonly string[]): string {
   if (statements.length === 0) {
     return `-- ${title}: none\n`;
@@ -363,35 +422,92 @@ function section(title: string, statements: readonly string[]): string {
   return `-- ${title} (${statements.length})\n${statements.join('\n')}\n`;
 }
 
+/**
+ * The DDL is emitted inside a template literal, so a backtick, a `${` or a
+ * backslash in the SQL would change what the module evaluates to. No construct
+ * in this schema produces one; if one ever does, fail here rather than emit a
+ * module whose DDL silently differs from the database it was read from.
+ */
+function assertTemplateLiteralSafe(ddl: string): void {
+  const hazards = ['`', '${', '\\'].filter((hazard) => ddl.includes(hazard));
+  if (hazards.length > 0) {
+    throw new Error(
+      `Current-schema DDL contains template-literal hazards (${hazards.join(' ')}); the emitter must be taught to escape them before this schema can ship.`
+    );
+  }
+}
+
+/**
+ * The ledger identity of the schema, derived from the DDL text itself rather
+ * than maintained by hand. Any change to the schema therefore changes the
+ * ledger key, and `assertNoStaleDrizzleMigrationLedger` rejects a profile built
+ * by the previous one instead of leaving it on a schema this build no longer
+ * ships. ADR-0020: greenfield databases are reset, not upgraded.
+ */
+function ledgerKeyFor(ddl: string): string {
+  return `custom-current-schema-${createHash('sha256').update(ddl, 'utf-8').digest('hex')}`;
+}
+
+function renderModule(ddl: string): string {
+  assertTemplateLiteralSafe(ddl);
+  return `/**
+ * Brainstrike current-schema DDL: the whole schema in one step.
+ *
+ * THIS FILE IS THE SCHEMA'S SOURCE OF TRUTH. To change the schema, EDIT IT
+ * HERE, then run \`pnpm --filter @brainstrike/db db:schema:ddl\` to normalize
+ * what you wrote and \`db:schema:catalog\` to regenerate the fixture it is held
+ * to. Editing \`src/schema/index.ts\` alone changes NOTHING about the shipped
+ * schema -- that file is the deliberately drifted drizzle model used for typed
+ * query building, and \`db:generate\` is blocked (ADR-0002).
+ *
+ * \`db:schema:ddl\` NORMALIZES rather than authors: it boots this DDL, reads the
+ * catalogs back and re-emits them, so a hand edit survives and comes back in
+ * the engine's canonical spelling (\`VARCHAR(64)\` becomes
+ * \`character varying(64)\`). A correct file is a fixed point of that round
+ * trip. It cannot invent a change you did not write here.
+ *
+ * This is what production applies at boot (via migrations/001-current-schema.ts).
+ * It replaced a 151-step incremental chain whose only remaining job was to
+ * construct this schema (ADR-0020: the product is greenfield, so there is no
+ * migration history worth replaying). The schema is held to the catalog
+ * readback of the database that chain built, frozen in
+ * __tests__/fixtures/schema-catalog.snapshot.txt; changing this file without
+ * regenerating that snapshot fails
+ * __tests__/current-schema-catalog.integration.test.ts.
+ */
+
+/** sha256 of {@link CURRENT_SCHEMA_DDL}; the schema's ledger identity. */
+// Pre-wrapped: the key is longer than the formatter's line width, so emitting it
+// on one line would make a freshly generated file fail \`biome check\` until a
+// \`--fix\` pass rewrote it. Regeneration has to be clean on its own.
+export const CURRENT_SCHEMA_LEDGER_KEY =
+  '${ledgerKeyFor(ddl)}';
+
+export const CURRENT_SCHEMA_DDL = \`${ddl}\`;
+`;
+}
+
 async function main(): Promise<void> {
   const outPath = process.argv.find((arg) => arg.startsWith('--out='))?.slice('--out='.length);
   if (outPath === undefined) {
-    throw new Error('--out=<file.sql> is required');
+    throw new Error('--out=<file.ts> is required');
   }
 
   const db = await createEnginePglite();
   try {
-    // Build the reference database with the real production chain, then read
-    // the schema back out of it.
+    // Build the reference database with the real production bootstrap, then
+    // read the schema back out of it.
     await migrate(db);
 
     const tables = await listTables(db);
     const sequences = await emitOwnedSequences(db, tables);
+    const extensionStatements = await emitExtensions(db);
 
     const ddl = [
-      '-- Brainstrike current-schema DDL: the whole schema in one step.',
-      '--',
-      '-- GENERATED by packages/db/scripts/generate-current-schema-ddl.ts from a',
-      '-- database built by the REAL migration chain, never transcribed from the',
-      '-- migration sources. Do not hand-edit: run `pnpm db:schema:ddl`.',
-      '--',
-      '-- NOT YET APPLIED AT BOOT. Production still replays the chain; this file is',
-      '-- the proven replacement, held under test by',
-      '-- __tests__/current-schema-ddl-equivalence.integration.test.ts, which fails',
-      '-- if the chain and this file stop constructing the same database. Any',
-      '-- migration added to the chain must be followed by a regeneration.',
-      '',
-      section('EXTENSIONS', await emitExtensions(db)),
+      section('EXTENSIONS', extensionStatements),
+      // After EXTENSIONS, because a revoke may target a function an extension
+      // created; before everything else, because nothing below depends on it.
+      section('FUNCTION PRIVILEGES', await emitFunctionPrivileges(db, extensionStatements)),
       section('SEQUENCES', sequences.create),
       section('TABLES', await emitTables(db, tables)),
       section('SEQUENCE OWNERSHIP', sequences.own),
@@ -404,7 +520,7 @@ async function main(): Promise<void> {
       section('SEED DATA', await emitSeedData(db, tables)),
     ].join('\n');
 
-    await writeFile(outPath, ddl);
+    await writeFile(outPath, renderModule(ddl));
     process.stdout.write(`wrote current-schema DDL to ${outPath}\n`);
   } finally {
     await db.close();
