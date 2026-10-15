@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { resolveCrossRootCostRows } from '../assistant-cross-root-cost';
 import type { CrossRootUsageRow } from '../assistant-memory-repository';

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { ModelTokenPricing } from '@brainstrike/tokenization';
 import { describe, expect, it } from 'vitest';
 import { resolveCumulativeUsageDisplay } from '../assistant-cumulative-usage';
