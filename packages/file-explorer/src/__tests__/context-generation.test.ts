@@ -8,11 +8,7 @@ import type {
 } from '@brainstrike/types';
 import { extractPathSegments } from '@brainstrike/utils/path-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  generateReport,
-  generateReportFromAdapter,
-  normalizeContextLineRanges,
-} from '../context-generation.js';
+import { generateReport, generateReportFromAdapter } from '../context-generation.js';
 
 interface MockFileEntry {
   children?: Record<string, MockFileEntry>;
@@ -507,26 +503,6 @@ describe('reportGenerator', () => {
     vi.clearAllMocks();
   });
 
-  it('normalizes context line ranges by filtering, clamping, sorting, and merging', () => {
-    expect(normalizeContextLineRanges(undefined, 10)).toEqual([]);
-
-    expect(
-      normalizeContextLineRanges(
-        [
-          { endLine: 9, startLine: 7 },
-          { endLine: 5.8, startLine: 2 },
-          { endLine: 3, startLine: 1 },
-          { endLine: 1, isActive: false, startLine: 0 },
-          { endLine: 30, startLine: 20 },
-        ],
-        10
-      )
-    ).toEqual([
-      { endLine: 5, startLine: 1 },
-      { endLine: 10, startLine: 7 },
-    ]);
-  });
-
   it('generates a basic report without project tree', async () => {
     const selectedFiles = new Set(['src/lib/utils.ts', 'src/components/ui/Button.tsx']);
     const report = await generateReport(
@@ -698,110 +674,6 @@ describe('reportGenerator', () => {
     expect(report).toContain('index.tsx');
     expect(report).toContain('globals.css');
     expect(report).toContain('Button.test.tsx');
-  });
-
-  it('supports tapestry-aware range output for selected files', async () => {
-    const selectedFiles = new Set(['src/lib/utils.ts']);
-    const report = await generateReport(
-      selectedFiles,
-      mockFileContents,
-      mockFileSystemAdapter,
-      mockRootDirectoryHandle,
-      [],
-      [],
-      false,
-      false,
-      5,
-      {
-        selectedLineRangesByFile: {
-          'src/lib/utils.ts': [{ endLine: 1, isActive: true, startLine: 0 }],
-        },
-      }
-    );
-
-    expect(report).toContain('<selection index="1" start_line="0" end_line="1">');
-    expect(report).toContain('export const formatDate');
-  });
-
-  it('treats files without explicit ranges as fully selected in tapestry mode', async () => {
-    const selectedFiles = new Set(['src/lib/utils.ts', 'README.md']);
-    const report = await generateReport(
-      selectedFiles,
-      mockFileContents,
-      mockFileSystemAdapter,
-      mockRootDirectoryHandle,
-      [],
-      [],
-      false,
-      false,
-      5,
-      {
-        selectedLineRangesByFile: {
-          'src/lib/utils.ts': [{ endLine: 1, isActive: true, startLine: 0 }],
-        },
-      }
-    );
-
-    expect(report).toContain('<selection index="1" start_line="0" end_line="1">');
-    expect(report).toContain('export const formatDate');
-    expect(report).toContain('<file path="README.md">');
-    expect(report).toContain('# My Project');
-    expect(report).not.toContain(
-      '<selection_summary>No active tapestry ranges selected.</selection_summary>'
-    );
-  });
-
-  it('emits selection_summary when all tapestry ranges are inactive', async () => {
-    const selectedFiles = new Set(['src/lib/utils.ts']);
-    const report = await generateReport(
-      selectedFiles,
-      mockFileContents,
-      mockFileSystemAdapter,
-      mockRootDirectoryHandle,
-      [],
-      [],
-      false,
-      false,
-      5,
-      {
-        selectedLineRangesByFile: {
-          'src/lib/utils.ts': [{ endLine: 1, isActive: false, startLine: 0 }],
-        },
-      }
-    );
-
-    expect(report).toContain(
-      '<selection_summary>No active tapestry ranges selected.</selection_summary>'
-    );
-    expect(report).not.toContain('export const formatDate');
-  });
-
-  it('treats a literally-present EMPTY range array as whole file (empty ≡ absent)', async () => {
-    const selectedFiles = new Set(['src/lib/utils.ts']);
-    const report = await generateReport(
-      selectedFiles,
-      mockFileContents,
-      mockFileSystemAdapter,
-      mockRootDirectoryHandle,
-      [],
-      [],
-      false,
-      false,
-      5,
-      {
-        // A stray present-but-empty entry must behave exactly like absence: the
-        // whole file is emitted, NOT the "no active ranges" exclusion notice.
-        selectedLineRangesByFile: {
-          'src/lib/utils.ts': [],
-        },
-      }
-    );
-
-    expect(report).toContain('<file path="src/lib/utils.ts">');
-    expect(report).toContain('export const formatDate');
-    expect(report).not.toContain(
-      '<selection_summary>No active tapestry ranges selected.</selection_summary>'
-    );
   });
 
   it('strips all XML-illegal control characters from file paths', async () => {

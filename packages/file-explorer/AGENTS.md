@@ -14,5 +14,5 @@ UI-agnostic; React and platform adapters belong to its consumers.
 - Keep persisted paths/identifiers and file contents out of diagnostics. Preserve
   public actions and their batching semantics for large selections.
 
-Consult `docs/agents/explorer-search-tapestry.md` and `workspace-context.md` when
+Consult `docs/agents/explorer-search-context-map.md` and `workspace-context.md` when
 changing these contracts.

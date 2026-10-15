@@ -32,7 +32,7 @@
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
 import { getFileExtension, isBinaryFile } from '@brainstrike/utils/file-utils';
-import { EXTENSIONLESS_FILE_TYPE } from '../utils/grouping-configs';
+import { EXTENSIONLESS_FILE_TYPE } from '../utils/metadata-formatters';
 
 /**
  * Why the indexer will never produce a count for a row. These mirror the two

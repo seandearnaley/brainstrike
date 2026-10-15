@@ -463,7 +463,7 @@ export function FileExplorerProvider({
   // Factory reset clears chunk selections via the session-store registry, but
   // search also selects containing files in this live store. Without clearing
   // those file selections, "no chunk subset + file selected" reads as a
-  // whole-file selection after reset (docs/agents/explorer-search-tapestry.md search bridge invariant).
+  // whole-file selection after reset (docs/agents/explorer-search-context-map.md search bridge invariant).
   // Persist keys are wiped by localStorage.clear(); this drains the in-memory
   // instance for reset paths that do not immediately reload.
   useEffect(

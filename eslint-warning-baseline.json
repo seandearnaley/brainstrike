@@ -1,10 +1,10 @@
 {
   "react-hooks/immutability": 3,
   "react-hooks/incompatible-library": 2,
-  "react-hooks/memo-dependencies": 67,
+  "react-hooks/memo-dependencies": 65,
   "react-hooks/preserve-manual-memoization": 1,
-  "react-hooks/refs": 122,
-  "react-hooks/set-state-in-effect": 39,
+  "react-hooks/refs": 118,
+  "react-hooks/set-state-in-effect": 37,
   "react-hooks/use-memo": 3,
   "react-refresh/only-export-components": 118
 }

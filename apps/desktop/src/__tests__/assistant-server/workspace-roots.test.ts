@@ -8,7 +8,6 @@ import {
   markRootDisconnectedByPath,
   markRootsDisconnectedExcept,
   orderWorkspaceRoots,
-  resolveFocusedWorkspaceRoot,
   resolveOptionalWorkspaceRoot,
   resolveWorkspaceRoot,
   type WorkspaceRootsQueryable,
@@ -249,19 +248,6 @@ describe('resolveWorkspaceRoot', () => {
     expect(() => resolveWorkspaceRoot(runtime({ workspaceRoots: [dupA, dupB] }), 'src')).toThrow(
       /multiple folders.*named "src".*id/is
     );
-  });
-});
-
-describe('resolveFocusedWorkspaceRoot', () => {
-  it('rejects focused-path authorization without an authoritative inventory', () => {
-    expect(() =>
-      resolveFocusedWorkspaceRoot(
-        runtime({
-          boundWorkspaceRootId: 'root-b',
-          workspaceRootPath: '/Users/me/ProjectA',
-        })
-      )
-    ).toThrow(/authoritative workspace root inventory is unavailable/i);
   });
 });
 

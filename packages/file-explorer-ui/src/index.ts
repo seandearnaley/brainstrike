@@ -13,13 +13,11 @@ export { default as IncludeProjectTreeSetting } from './include-project-tree-set
 export * from './indexing';
 export { default as NodeCheckbox } from './node-checkbox';
 export { default as NodeIcon } from './node-icon';
-export * from './preview';
 export * from './restoration-status';
 export * from './scanning-status';
 export * from './selection-counter';
 export * from './selection-mode-badge';
 export * from './shell';
-export * from './tapestry/types';
 // Explicit so the barrel's `LoadingProgressState` is a deliberate choice rather
 // than an artefact of export precedence. Until BST-965 an explicit re-export
 // from the (now deleted) loading-overlay shadowed this one, and the two are
@@ -38,5 +36,3 @@ export { processDirectoryEntry } from './utils/process-directory-entry';
 export { processFileEntry } from './utils/process-file-entry';
 export { readFullTree, readFullTreeWithOptions } from './utils/read-full-tree';
 export * from './view-filter-preset-dropdown';
-export * from './workspace-context-curation-store';
-export * from './workspace-context-line-ranges';

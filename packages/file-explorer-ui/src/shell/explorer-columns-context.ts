@@ -14,7 +14,7 @@
  * control (`@[300px]/explorer-toolbar`), and that is not a coincidence: below
  * it the right-hand toolbar track cannot host a fourth 28px control without
  * breaking the documented narrow-toolbar geometry
- * (docs/agents/explorer-search-tapestry.md). Tying them together means the
+ * (docs/agents/explorer-search-context-map.md). Tying them together means the
  * grid never shows a column the user has no way to turn off, and the control
  * never appears for columns the panel is too narrow to render.
  *

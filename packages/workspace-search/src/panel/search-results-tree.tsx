@@ -1,20 +1,19 @@
-import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import {
   Badge,
+  Button,
   Checkbox,
   type CheckboxState,
   type TreeNode,
   TreeTable,
   type TreeTableCheckboxNextState,
 } from '@brainstrike/ui';
-import { File as FileIcon, TextQuote } from 'lucide-react';
+import { File as FileIcon, Paperclip, TextQuote } from 'lucide-react';
 import type * as React from 'react';
 import { useCallback, useMemo } from 'react';
-import type { SelectedChunk } from '../bridge/chunk-selection-store';
 import type { FileSelectionState } from '../bridge/use-search-selection-bridge';
 import { useSearchSelectionBridge } from '../bridge/use-search-selection-bridge';
 import { useWorkspaceSearchStore } from '../core/workspace-search-store';
-import { buildSearchTreeNodes, fileResultChunks, type SearchNodeData } from './build-tree-nodes';
+import { buildSearchTreeNodes, type SearchNodeData } from './build-tree-nodes';
 
 /** A rendered headline/highlight fragment: plain text or an emphasized match. */
 export type HeadlineSegment = string | { mark: string };
@@ -90,10 +89,17 @@ function renderSegments(segments: HeadlineSegment[]): React.ReactNode {
   );
 }
 
-/** The SelectedChunk for a chunk-level row (semantic chunk or grouped text chunk). */
+/** A chunk-level row's line bounds, 1-based and inclusive. */
+interface ChunkBounds {
+  chunkId: string;
+  endLine: number;
+  startLine: number;
+}
+
+/** The bounds of a chunk-level row (semantic chunk or grouped text chunk). */
 function chunkRowSelected(
   data: Extract<SearchNodeData, { kind: 'chunk' | 'text-chunk' }>
-): SelectedChunk {
+): ChunkBounds {
   return data.kind === 'text-chunk'
     ? { chunkId: data.chunkId, endLine: data.chunkEndLine, startLine: data.chunkStartLine }
     : { chunkId: data.chunk.chunkId, endLine: data.chunk.endLine, startLine: data.chunk.startLine };
@@ -133,6 +139,8 @@ function openTargetForData(data: SearchNodeData): SearchOpenTarget | undefined {
 interface RowRenderContext {
   caseSensitive: boolean;
   highlightEnabled: boolean;
+  /** Attach a result file to the active thread; absent where nothing can read mentions (web). */
+  onAttachFile?: ((compositeKey: string) => void) | undefined;
   query: string;
   showRootBadge: boolean;
 }
@@ -144,8 +152,9 @@ function FileRow({
   data: Extract<SearchNodeData, { kind: 'file' }>;
   ctx: RowRenderContext;
 }): React.ReactNode {
-  const { file } = data;
-  // Checkbox lives on TreeTable via the pluggable API (file = only tri-state).
+  const { compositeKey, file } = data;
+  const { onAttachFile } = ctx;
+  // The checkbox (the explorer selection) lives on TreeTable via the pluggable API.
   return (
     <span className="flex min-w-0 items-center gap-2">
       <FileIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -160,14 +169,31 @@ function FileRow({
           {file.rootDisplayName}
         </Badge>
       ) : null}
+      {onAttachFile && compositeKey ? (
+        <Button
+          aria-label={`Attach ${file.path} to the thread`}
+          className="ml-auto size-6 shrink-0"
+          data-testid="search-attach-file"
+          onClick={(event) => {
+            // The row itself opens the file; the button only attaches it.
+            event.stopPropagation();
+            onAttachFile(compositeKey);
+          }}
+          size="icon"
+          title="Attach this file to the thread"
+          variant="ghost"
+        >
+          <Paperclip aria-hidden="true" className="size-3.5" />
+        </Button>
+      ) : null}
     </span>
   );
 }
 
 /**
- * Chunk-level row content: the ONLY child-checkbox level in both modes (checkbox
- * itself is rendered by TreeTable). Text mode groups matches under a
- * "Lines X–Y · N matches" chunk; semantic mode renders the chunk headline/content.
+ * Chunk-level row content. Text mode groups matches under a "Lines X–Y · N
+ * matches" chunk; semantic mode renders the chunk headline/content. A chunk has
+ * no checkbox: attaching is per file, and a row click opens the chunk's lines.
  */
 function ChunkRow({
   data,
@@ -175,7 +201,6 @@ function ChunkRow({
   data: Extract<SearchNodeData, { kind: 'chunk' | 'text-chunk' }>;
 }): React.ReactNode {
   const chunk = chunkRowSelected(data);
-  // Checkbox lives on TreeTable via the pluggable API (chunk = binary only).
   const content =
     data.kind === 'text-chunk' ? (
       <>
@@ -230,29 +255,23 @@ function MatchRow({
 
 /**
  * Rolls up the header tri-state from `fileState` over the currently rendered
- * (loaded) files only: all checked -> checked; any checked or indeterminate
- * (a chunk-refined file reads 'indeterminate' from fileState and counts as
- * "some") -> indeterminate; none -> unchecked.
+ * (loaded) files only: all checked -> checked; some -> indeterminate; none ->
+ * unchecked.
  */
 function rollupSelectAllState(
   bridge: ReturnType<typeof useSearchSelectionBridge>,
   fileKeys: readonly string[]
-): FileSelectionState {
+): FileSelectionState | 'indeterminate' {
   let checkedCount = 0;
-  let anySelected = false;
   for (const key of fileKeys) {
-    const state = bridge.fileState(key);
-    if (state === 'checked') {
+    if (bridge.fileState(key) === 'checked') {
       checkedCount += 1;
-      anySelected = true;
-    } else if (state === 'indeterminate') {
-      anySelected = true;
     }
   }
   if (fileKeys.length > 0 && checkedCount === fileKeys.length) {
     return 'checked';
   }
-  return anySelected ? 'indeterminate' : 'unchecked';
+  return checkedCount > 0 ? 'indeterminate' : 'unchecked';
 }
 
 /**
@@ -293,6 +312,11 @@ function SelectAllHeader({
 
 export interface SearchResultsTreeProps {
   /**
+   * Attach a result file to the active thread as an `@file` mention. Absent
+   * where nothing reads mentions (web): file rows then show no Attach button.
+   */
+  onAttachFile?: ((compositeKey: string) => void) | undefined;
+  /**
    * Row-click navigation. Match rows pass `{ line }` (their match line); chunk
    * rows pass `{ line, selection }` (the chunk range to scroll to AND select in
    * the opened file so the block is highlighted, ready to copy); file rows pass
@@ -319,11 +343,11 @@ export interface SearchResultsTreeProps {
 /**
  * Results tree for workspace search. Composes the shared TreeTable over the
  * pre-flattened row model from `buildSearchTreeNodes`. Row CLICK navigates;
- * checkboxes use TreeTable's pluggable API (`getCheckboxState` /
- * `onCheckboxChange`) so the selected-chunk set stays the source of truth —
- * file = tri-state, chunk = binary, match leaves = hidden.
+ * file checkboxes use TreeTable's pluggable API (`getCheckboxState` /
+ * `onCheckboxChange`) to select explorer files; chunk and match rows have none.
  */
 export function SearchResultsTree({
+  onAttachFile,
   onOpenFile,
   resolveAdapterRootId,
   onShowMore,
@@ -381,78 +405,41 @@ export function SearchResultsTree({
     return roots.size > 1;
   }, [nodes, workspaceRootCount]);
 
-  // Authoritative per-file result-chunk list (independent of tree expansion) so
-  // the bridge can convert a whole-file selection into "all chunks but this one".
-  const siblingChunksByKey = useMemo(() => {
-    const map = new Map<string, SelectedChunk[]>();
-    if (!results) {
-      return map;
-    }
-    for (const file of results.files) {
-      const adapterRootId = file.dbRootId === null ? null : resolveAdapterRootId(file.dbRootId);
-      if (adapterRootId === null) {
-        continue;
-      }
-      map.set(encodeFileSelection(adapterRootId, file.path), fileResultChunks(file));
-    }
-    return map;
-  }, [results, resolveAdapterRootId]);
-
   const ctx = useMemo<RowRenderContext>(
     () => ({
       caseSensitive,
       highlightEnabled: mode === 'text' && !isRegex,
+      onAttachFile,
       query: query.trim(),
       showRootBadge,
     }),
-    [caseSensitive, mode, isRegex, query, showRootBadge]
+    [caseSensitive, mode, isRegex, onAttachFile, query, showRootBadge]
   );
 
   const getCheckboxState = useCallback(
     (node: TreeNode<SearchNodeData>): CheckboxState | 'hidden' => {
       const { data } = node;
-      if (data.kind === 'match' || data.compositeKey === null) {
+      if (data.kind !== 'file' || data.compositeKey === null) {
         return 'hidden';
       }
-      if (data.kind === 'file') {
-        return bridge.fileState(data.compositeKey);
-      }
-      // chunk | text-chunk — binary only (bridge never returns indeterminate).
-      return bridge.chunkState(data.compositeKey, chunkRowSelected(data).chunkId);
+      return bridge.fileState(data.compositeKey);
     },
     [bridge]
   );
 
   const getCheckboxAriaLabel = useCallback((node: TreeNode<SearchNodeData>): string | undefined => {
     const { data } = node;
-    if (data.kind === 'file') {
-      return `Select ${data.file.path}`;
-    }
-    if (data.kind === 'chunk' || data.kind === 'text-chunk') {
-      const chunk = chunkRowSelected(data);
-      return `Select lines ${chunk.startLine}-${chunk.endLine}`;
-    }
-    return;
+    return data.kind === 'file' ? `Select ${data.file.path}` : undefined;
   }, []);
 
   const onCheckboxChange = useCallback(
     (node: TreeNode<SearchNodeData>, nextState: TreeTableCheckboxNextState) => {
       const { data } = node;
-      if (data.compositeKey === null) {
-        return;
-      }
-      const nextChecked = nextState === 'checked';
-      if (data.kind === 'file') {
-        bridge.toggleFile(data.compositeKey, nextChecked);
-        return;
-      }
-      if (data.kind === 'chunk' || data.kind === 'text-chunk') {
-        const chunk = chunkRowSelected(data);
-        const siblings = siblingChunksByKey.get(data.compositeKey) ?? [chunk];
-        bridge.toggleChunk(data.compositeKey, chunk, nextChecked, siblings);
+      if (data.kind === 'file' && data.compositeKey !== null) {
+        bridge.toggleFile(data.compositeKey, nextState === 'checked');
       }
     },
-    [bridge, siblingChunksByKey]
+    [bridge]
   );
 
   const columns = useMemo(

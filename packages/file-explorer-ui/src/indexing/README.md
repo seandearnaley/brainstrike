@@ -1,8 +1,8 @@
 # Explorer token indexing
 
-Owns token-counting/cache integration, background token-indexer composition,
-budget controls and token meters. This is separate from semantic/native workspace
-indexing and cannot establish committed retrieval coverage.
+Owns token-counting/cache integration and background token-indexer composition.
+This is separate from semantic/native workspace indexing and cannot establish
+committed retrieval coverage.
 
 Keep the background integration hook as orchestration. Handle classification,
 admitted content resolution, path normalization, batching and selection-shrink
@@ -15,7 +15,7 @@ by [`index.ts`](index.ts). Dependencies point toward tree context, token cache,
 preferences, shared types/utilities and React, not app or assistant runtimes.
 Keep token/cache lifetime within its actual owner and reset lifecycle.
 
-[Explorer contracts](../../../../docs/agents/explorer-search-tapestry.md) and
+[Explorer contracts](../../../../docs/agents/explorer-search-context-map.md) and
 [shared contribution/validation policy](../../../../AGENTS.md) apply. The manifest
 and package tests define executable checks; this README does not prescribe another
 fixed test list.

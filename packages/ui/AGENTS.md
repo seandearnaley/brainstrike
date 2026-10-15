@@ -23,7 +23,7 @@ doc before changing these areas:
   (never hand-roll per-surface menus) → `docs/agents/ui-conventions.md`
 - `src/markdown-surface/`, `src/shiki/`, `src/code-surface/` — markdown preview
   + shared cached highlighter + read-only CodeMirror viewer →
-  `docs/agents/explorer-search-tapestry.md`
+  `docs/agents/explorer-search-context-map.md`
 
 ## Package rules
 

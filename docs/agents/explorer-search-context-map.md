@@ -1,4 +1,4 @@
-# Explorer, search and file previews
+# Explorer, search and the thread context map
 
 ## Data and authority
 
@@ -11,10 +11,28 @@ Retry targets the failed key instead of restarting every consumer.
 
 Search hits retain exact file/chunk identity, source text, offsets and line ranges.
 Open the actual owning file and range; do not reconstruct snippets or count an
-unverified fragment as an answer. Tapestry and per-file panes use those same source
-ranges. Raw file content remains ephemeral in explorer state; it is not copied
-into durable selection snapshots or diagnostics. Markdown previews must not
+unverified fragment as an answer. File tabs use those same source ranges. Raw file
+content remains ephemeral in explorer state; it is not copied into durable
+selection snapshots or diagnostics. Markdown previews must not
 execute content or load arbitrary external resources.
+
+## Thread context map
+
+The Context tab and the explorer's This thread column show what the active
+thread's model received. Both read one client fold of the thread's committed log:
+the host's committed request breakdown says what was in the window, and each
+tool's committed result says which lines. Clients never re-derive rewrite,
+compaction or branch rules. A result the fold can't read shows as unmapped, and an
+unmeasured request as "not measured", never as zero. It is desktop-only: web has
+no committed run log.
+
+"Changed since read" compares through the shared content owner. A file that
+wasn't checked reads "not checked", and a failed check says so; neither reads as
+unchanged.
+
+Checked files are a bulk selection, not model context. "Attach to thread" appends
+`@file` mentions to the composer, so the user sees what goes to the model and the
+admission reader applies its caps. Export copies whole selected files.
 
 ## Ignore and traversal policy
 
@@ -44,6 +62,7 @@ reconciliation before complete coverage can be claimed; partial change evidence
 cannot stand in for a full scan. Disposers join their actual subscriptions and
 cannot remove a replacement owner's watch.
 
-Decision: [ADR-0016](../adr/0016-workspace-trust-and-ignore-chain.md).
+Decisions: [ADR-0016](../adr/0016-workspace-trust-and-ignore-chain.md),
+[ADR-0021](../adr/0021-thread-context-map-and-explicit-attachment.md).
 Implementation: `packages/file-explorer`, `packages/file-explorer-ui`,
 `packages/file-system` and desktop workspace readers.

@@ -24,12 +24,7 @@ const createReportGenerator = vi.fn(
         request.useRegex,
         request.includeProjectTree,
         request.folderSummaryThreshold,
-        {
-          projectTreeUsesViewFilters: request.projectTreeUsesViewFilters ?? false,
-          ...(request.selectedLineRangesByFile
-            ? { selectedLineRangesByFile: request.selectedLineRangesByFile }
-            : {}),
-        }
+        { projectTreeUsesViewFilters: request.projectTreeUsesViewFilters ?? false }
       );
     }
 );

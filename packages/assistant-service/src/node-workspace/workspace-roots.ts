@@ -266,38 +266,6 @@ export function resolveWorkspaceRoot(
 }
 
 /**
- * Resolve the FOCUSED root that owns renderer-selected context. A durable
- * thread binding deliberately does not participate: selection paths and
- * Tapestry ranges are relative to `workspaceRootPath`, not the thread root.
- */
-export function resolveFocusedWorkspaceRoot(
-  runtimeData: RuntimeData | undefined
-): RuntimeWorkspaceRoot {
-  const focusedPath = runtimeData?.workspaceRootPath?.trim();
-  if (!(focusedPath && path.isAbsolute(focusedPath))) {
-    throw new ToolInputError(
-      'The focused workspace root is unavailable. Focus an open folder before reading selected workspace context.'
-    );
-  }
-
-  const resolvedFocusedPath = path.resolve(focusedPath);
-  const matches = getWorkspaceRoots(runtimeData).filter(
-    (root) => root.path === resolvedFocusedPath
-  );
-  if (matches.length === 0) {
-    throw new ToolInputError(
-      'The focused workspace root is not in the authoritative open-root inventory. Reload the workspace roots before reading selected workspace context.'
-    );
-  }
-  if (matches.length > 1) {
-    throw new ToolInputError(
-      'The authoritative open-root inventory contains multiple entries for the focused workspace path. Reconnect the folder before reading selected workspace context.'
-    );
-  }
-  return resolveWorkspaceRoot(runtimeData, (matches[0] as RuntimeWorkspaceRoot).rootId);
-}
-
-/**
  * Root-topology fields the search-result envelopes carry for the model
  * projections (BST-1185). `openRoots` is present only when more than one
  * folder is open (the projection's root-prefix trigger); `ambiguousRootNames`

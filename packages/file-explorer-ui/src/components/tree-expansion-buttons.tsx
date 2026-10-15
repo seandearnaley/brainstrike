@@ -13,7 +13,7 @@
  *
  * They sit in the toolbar's LEFT track, which is the one cluster with real
  * slack: the right track is exactly full at every documented width step
- * (see `docs/agents/explorer-search-tapestry.md`). They reuse the toolbar's
+ * (see `docs/agents/explorer-search-context-map.md`). They reuse the toolbar's
  * EXISTING 236px step — below it they fold into the compact "More Explorer
  * actions" menu that is already there, so no new breakpoint is introduced.
  *

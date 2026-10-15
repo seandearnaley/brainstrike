@@ -10,35 +10,28 @@ import FileFilterBar, { FileFilterBar as NamedFileFilterBar } from '../shell/fil
 describe('file-explorer-ui index exports', () => {
   it('delegates owned domain exports through public slice barrels', () => {
     const indexSource = readFileSync(path.resolve(process.cwd(), 'src/index.ts'), 'utf8');
-    const forbiddenDeepExports = ['./indexing/', './preview/', './shell/', './tree/'].flatMap(
-      (slicePath) =>
-        indexSource
-          .split('\n')
-          .filter((line) => line.startsWith('export ') && line.includes(`from '${slicePath}`))
+    const forbiddenDeepExports = ['./indexing/', './shell/', './tree/'].flatMap((slicePath) =>
+      indexSource
+        .split('\n')
+        .filter((line) => line.startsWith('export ') && line.includes(`from '${slicePath}`))
     );
 
     expect(forbiddenDeepExports).toEqual([]);
     expect(indexSource).toContain("export * from './indexing';");
-    expect(indexSource).toContain("export * from './preview';");
     expect(indexSource).toContain("export * from './shell';");
     expect(indexSource).toContain("export * from './tree';");
   });
 
-  it('exports the preview summary without the stale footer component name', () => {
-    expect(index).toHaveProperty('PreviewPanelSummary');
-    expect(index).not.toHaveProperty('PreviewPanelFooter');
-  });
-
-  it('does not expose retired preview footer-height helpers', () => {
-    expect(index).not.toHaveProperty('PREVIEW_FOOTER_HEIGHTS');
-    expect(index).not.toHaveProperty('clampPreviewFooterHeight');
-    expect(index).not.toHaveProperty('getPreviewFooterModeHeight');
-    expect(index).not.toHaveProperty('inferPreviewFooterMode');
+  it('does not expose the retired preview, tapestry or curation surface', () => {
+    expect(index).not.toHaveProperty('PreviewPanel');
+    expect(index).not.toHaveProperty('PreviewPanelSummary');
+    expect(index).not.toHaveProperty('usePreviewPanelState');
+    expect(index).not.toHaveProperty('useWorkspaceContextCurationStore');
   });
 
   it('documents ownership for each public slice barrel', () => {
     const sourceRoot = path.resolve(process.cwd(), 'src');
-    const publicSlices = ['indexing', 'preview', 'shell', 'tree'] as const;
+    const publicSlices = ['indexing', 'shell', 'tree'] as const;
 
     for (const slice of publicSlices) {
       const readmePath = path.join(sourceRoot, slice, 'README.md');
@@ -140,41 +133,12 @@ describe('file-explorer-ui index exports', () => {
     }
   });
 
-  it('keeps preview implementation files inside the preview slice', () => {
-    const sourceRoot = path.resolve(process.cwd(), 'src');
-    const previewImplementationMoves = [
-      ['hooks/use-preview-panel-preferences.ts', 'preview/use-preview-panel-preferences.ts'],
-      ['preview-footer-layout.ts', 'preview/preview-summary-mode.ts'],
-      ['preview-panel-footer.tsx', 'preview/preview-panel-summary.tsx'],
-      ['preview-panel.tsx', 'preview/preview-panel.tsx'],
-      ['use-preview-panel-state.ts', 'preview/use-preview-panel-state.ts'],
-    ] as const;
-
-    const legacyFiles = previewImplementationMoves
-      .map(([legacyPath]) => legacyPath)
-      .filter((filePath) => existsSync(path.join(sourceRoot, filePath)));
-    const missingPreviewFiles = previewImplementationMoves
-      .map(([, previewPath]) => previewPath)
-      .filter((filePath) => !existsSync(path.join(sourceRoot, filePath)));
-    const stalePreviewFiles = [
-      'preview/preview-footer-layout.ts',
-      'preview/preview-panel-footer.tsx',
-    ].filter((filePath) => existsSync(path.join(sourceRoot, filePath)));
-
-    expect(legacyFiles).toEqual([]);
-    expect(missingPreviewFiles).toEqual([]);
-    expect(stalePreviewFiles).toEqual([]);
-  });
-
   it('keeps indexing implementation files inside the indexing slice', () => {
     const sourceRoot = path.resolve(process.cwd(), 'src');
     const indexingImplementationMoves = [
       ['hooks/use-text-token-count.ts', 'indexing/use-text-token-count.ts'],
       ['resolve-token-cache-worker-url.ts', 'indexing/resolve-token-cache-worker-url.ts'],
-      ['token-budget-control.tsx', 'indexing/token-budget-control.tsx'],
       ['token-cache-context.tsx', 'indexing/token-cache-context.tsx'],
-      ['token-meter.tsx', 'indexing/token-meter.tsx'],
-      ['token-summary-bar.tsx', 'indexing/token-summary-bar.tsx'],
       [
         'use-background-token-indexer-integration.ts',
         'indexing/use-background-token-indexer-integration.ts',
@@ -199,7 +163,6 @@ describe('file-explorer-ui index exports', () => {
     const shellImplementationMoves = [
       ['file-content-context.tsx', 'shell/file-content-context.tsx'],
       ['file-explorer-panel.tsx', 'shell/file-explorer-panel.tsx'],
-      ['file-explorer-middle-panel-base.tsx', 'shell/file-explorer-middle-panel-base.tsx'],
       ['file-explorer-provider.tsx', 'shell/file-explorer-provider.tsx'],
       ['file-explorer-sidebar.tsx', 'shell/file-explorer-sidebar.tsx'],
       ['file-explorer-toolbar.tsx', 'shell/file-explorer-toolbar.tsx'],
@@ -241,10 +204,9 @@ describe('file-explorer-ui index exports', () => {
     expect(index.ViewFilterPresetDropdown).toBeDefined();
   });
 
-  it('exposes stable domain barrels for tree, preview, indexing, and shell responsibilities', async () => {
-    const [tree, preview, indexing, shell] = await Promise.all([
+  it('exposes stable domain barrels for tree, indexing, and shell responsibilities', async () => {
+    const [tree, indexing, shell] = await Promise.all([
       import('../tree'),
-      import('../preview'),
       import('../indexing'),
       import('../shell'),
     ]);
@@ -253,9 +215,6 @@ describe('file-explorer-ui index exports', () => {
     expect(tree.OptimizedFileTree).toBe(index.OptimizedFileTree);
     expect(tree.useFileTree).toBe(index.useFileTree);
     expect(tree.readFullTreeWithOptions).toBe(index.readFullTreeWithOptions);
-
-    expect(preview.PreviewPanel).toBe(index.PreviewPanel);
-    expect(preview.usePreviewPanelState).toBe(index.usePreviewPanelState);
 
     expect(indexing.TokenCacheProvider).toBe(index.TokenCacheProvider);
     expect(indexing.useOptionalTokenCacheContext).toBe(index.useOptionalTokenCacheContext);

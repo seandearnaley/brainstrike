@@ -1,15 +1,27 @@
 import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   ExplorerContextExportAction: () => null,
   FileExplorerPanel: () => <div data-testid="file-explorer-panel-mock" />,
 }));
 
+const searchPanelProps = vi.hoisted(() => ({ onAttachFile: undefined as unknown }));
+const attachFiles = vi.hoisted(() => vi.fn());
+
 vi.mock('@brainstrike/workspace-search', () => ({
-  WorkspaceSearchPanel: () => <div data-testid="workspace-search-panel-mock" />,
+  WorkspaceSearchPanel: ({ onAttachFile }: { onAttachFile?: (fileKey: string) => void }) => {
+    searchPanelProps.onAttachFile = onAttachFile;
+    return <div data-testid="workspace-search-panel-mock" />;
+  },
+}));
+
+vi.mock('../use-attach-files-to-thread', () => ({ useAttachFilesToThread: () => attachFiles }));
+vi.mock('../explorer-attach-action', () => ({ ExplorerAttachAction: () => null }));
+vi.mock('../context-map/explorer-thread-status-provider', () => ({
+  ExplorerThreadStatusProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 vi.mock('../use-workspace-search-controller', () => ({
@@ -27,6 +39,12 @@ import { ExplorerSearchTabs } from '../explorer-search-tabs';
 describe('ExplorerSearchTabs', () => {
   beforeEach(() => {
     useContextExplorerLayoutStore.getState().setExplorerActiveTab('explorer');
+    searchPanelProps.onAttachFile = undefined;
+    attachFiles.mockClear();
+  });
+
+  afterEach(() => {
+    (window as Window & { agentHost?: unknown }).agentHost = undefined;
   });
 
   it('renders both tabs through the shared Tabs primitive with Explorer selected by default and Search not yet mounted', () => {
@@ -113,5 +131,24 @@ describe('ExplorerSearchTabs', () => {
     expect(screen.getByTestId('workspace-search-panel-mock')).toBeInTheDocument();
     expect(screen.getByTestId('explorer-search-panel-search')).not.toBeVisible();
     expect(screen.getByTestId('explorer-search-panel-explorer')).toBeVisible();
+  });
+
+  it('lets a Search result file attach to the thread where the desktop host reads mentions', async () => {
+    (window as Window & { agentHost?: unknown }).agentHost = {};
+    useContextExplorerLayoutStore.getState().setExplorerActiveTab('search');
+    render(<ExplorerSearchTabs />);
+
+    await screen.findByTestId('workspace-search-panel-mock');
+    const onAttachFile = searchPanelProps.onAttachFile as (fileKey: string) => void;
+    onAttachFile('root-a|@|src/a.ts');
+    expect(attachFiles).toHaveBeenCalledExactlyOnceWith(['root-a|@|src/a.ts'], 1);
+  });
+
+  it('offers no Search attach without the desktop host', async () => {
+    useContextExplorerLayoutStore.getState().setExplorerActiveTab('search');
+    render(<ExplorerSearchTabs />);
+
+    await screen.findByTestId('workspace-search-panel-mock');
+    expect(searchPanelProps.onAttachFile).toBeUndefined();
   });
 });

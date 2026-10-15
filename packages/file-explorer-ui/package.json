@@ -55,14 +55,6 @@
       "types": "./dist/indexing/index.d.ts",
       "import": "./dist/indexing/index.js"
     },
-    "./preview": {
-      "types": "./dist/preview/index.d.ts",
-      "import": "./dist/preview/index.js"
-    },
-    "./workspace-context-curation-store": {
-      "types": "./dist/workspace-context-curation-store.d.ts",
-      "import": "./dist/workspace-context-curation-store.js"
-    },
     "./thread-folder-scope-store": {
       "types": "./dist/thread-folder-scope-store.d.ts",
       "import": "./dist/thread-folder-scope-store.js"

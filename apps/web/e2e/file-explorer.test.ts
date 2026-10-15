@@ -488,7 +488,6 @@ test.describe('File Explorer', () => {
         force: true,
       });
 
-      await expect(page.getByTestId('tapestry-command-dock')).toHaveCount(0);
       await expect(page.getByTestId('show-explorer-panel')).toHaveCount(0);
       await expect(page.getByTestId('hide-explorer-panel')).toHaveCount(0);
       await expect(page.getByText('2 files selected', { exact: true })).toBeVisible();

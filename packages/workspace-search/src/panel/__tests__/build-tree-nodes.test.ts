@@ -6,7 +6,7 @@ import type {
   WorkspaceSearchResults,
   WorkspaceSearchTextMatch,
 } from '../../core/search-result-model';
-import { buildSearchTreeNodes, fileResultChunks, type SearchNodeData } from '../build-tree-nodes';
+import { buildSearchTreeNodes, type SearchNodeData } from '../build-tree-nodes';
 
 function textMatch(overrides: Partial<WorkspaceSearchTextMatch> = {}): WorkspaceSearchTextMatch {
   return {
@@ -232,28 +232,5 @@ describe('buildSearchTreeNodes', () => {
     expect(chunkData.filePath).toBe('src/a.ts');
     expect(matchData.compositeKey).toBe(expectedKey);
     expect(matchData.filePath).toBe('src/a.ts');
-  });
-});
-
-describe('fileResultChunks', () => {
-  it('returns grouped text chunks (deduped by chunkId, first-seen bounds)', () => {
-    const file = fileResult({
-      children: [
-        textMatch({ chunkEndLine: 12, chunkId: 'chunk-1', chunkStartLine: 8, line: 9 }),
-        textMatch({ chunkEndLine: 12, chunkId: 'chunk-1', chunkStartLine: 8, line: 11 }),
-        textMatch({ chunkEndLine: 40, chunkId: 'chunk-2', chunkStartLine: 30, line: 31 }),
-      ],
-    });
-    expect(fileResultChunks(file)).toEqual([
-      { chunkId: 'chunk-1', endLine: 12, startLine: 8 },
-      { chunkId: 'chunk-2', endLine: 40, startLine: 30 },
-    ]);
-  });
-
-  it('returns semantic chunk hits 1:1', () => {
-    const file = fileResult({
-      children: [chunkHit({ chunkId: 'chunk-9', endLine: 20, startLine: 14 })],
-    });
-    expect(fileResultChunks(file)).toEqual([{ chunkId: 'chunk-9', endLine: 20, startLine: 14 }]);
   });
 });

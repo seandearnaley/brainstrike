@@ -30,10 +30,6 @@ vi.mock('../shell/file-tab-explorer-pane', () => ({
   FileTabExplorerPane: () => <div data-testid="pane-spy" />,
 }));
 
-vi.mock('../preview/preview-panel', () => ({
-  PreviewPanel: vi.fn(() => <div data-testid="preview-panel">PreviewPanel</div>),
-}));
-
 vi.mock('../shell/use-file-explorer-context', () => ({
   useFileExplorer: vi.fn(() => ({
     canLoadWithoutTree: false,
@@ -107,10 +103,6 @@ describe('workspace tab strip on the shared TabStrip', () => {
     vi.spyOn(uiModule, 'useIdeFileEditor').mockReturnValue({
       openFileInTab: vi.fn(),
       registerOpenFileInTab: vi.fn(),
-    });
-    vi.spyOn(uiModule, 'useUndoableAction').mockReturnValue({
-      clearUndoTimeout: vi.fn(),
-      performUndoableAction: vi.fn(),
     });
   });
 

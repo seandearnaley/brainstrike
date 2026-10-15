@@ -17,20 +17,8 @@ interface FileExplorerTestSnapshot {
   }>;
 }
 
-interface ContextExplorerPreviewTestSnapshot {
-  /** Paths visible on the current Tapestry page, grouped or not. */
-  renderedFilePaths: string[];
-  selectedFilesCount: number;
-  totalRows: number;
-}
-
 declare global {
   interface Window {
-    __brainstrikeContextExplorerPreviewTestHooks__?:
-      | {
-          getSnapshot: () => ContextExplorerPreviewTestSnapshot;
-        }
-      | undefined;
     __brainstrikeFileExplorerTestHooks__?:
       | {
           getSnapshot: () => FileExplorerTestSnapshot;

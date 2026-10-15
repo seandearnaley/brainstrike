@@ -9,10 +9,8 @@ import { useRewindComposerStore } from '@brainstrike/assistant-ui/rewind-compose
 import { resetThreadContextStore } from '@brainstrike/assistant-ui/thread-context-store';
 import { resetDatabaseDemoStoreToDefault } from '@brainstrike/db-explorer/database-demo-store';
 import { useTabManagerStore } from '@brainstrike/file-explorer-ui/tab-manager-store';
-import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/workspace-context-curation-store';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-reset';
-import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-selection-store';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { useChangesLiveRefreshStore } from './changes/changes-live-refresh-store';
 import { useChangesNavigationStore } from './changes/changes-navigation-store';
@@ -44,13 +42,6 @@ registerFactoryResetSessionStore(() => {
 });
 
 registerFactoryResetSessionStore(() => {
-  // Chunk subset only. Containing-file selections are cleared by
-  // FileExplorerProvider's live registerFactoryResetSessionStore callback
-  // (search bridge selects files alongside chunks).
-  useChunkSelectionStore.getState().clearAll();
-});
-
-registerFactoryResetSessionStore(() => {
   resetContextUsageStore();
 });
 
@@ -62,10 +53,6 @@ registerFactoryResetSessionStore(() => {
 registerFactoryResetSessionStore(() => {
   // Queued-but-unsent follow-up messages must never survive a reset.
   resetFollowUpQueueStore();
-});
-
-registerFactoryResetSessionStore(() => {
-  useWorkspaceContextCurationStore.getState().reset();
 });
 
 registerFactoryResetSessionStore(() => {

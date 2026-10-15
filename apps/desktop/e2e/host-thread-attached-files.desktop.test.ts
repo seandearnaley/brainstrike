@@ -4,17 +4,20 @@
  * mention in the composer; sent, it reaches the model as attached content
  * marked as coming from outside the thread's folders, and the notice says so.
  * "Add to this thread" then makes the folder a thread folder, after which the
- * agent's tools may read its other files.
+ * agent's tools may read its other files. A Search result file attaches the
+ * same way.
  */
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
+import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { readHostRootRecords, readHostThreadTree, withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import type { ModelProviderRequest } from './utils/model-provider-shim';
+import { chooseTextSearch, textReadiness } from './utils/text-search-mode';
 
 const API_KEY = 'test-key-host-attached-files';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
@@ -22,6 +25,7 @@ const MODEL = 'anthropic/claude-sonnet-4.6';
 const ATTACHED_MARKER = 'BRAVO_ATTACHED_MARKER_2018';
 const OTHER_MARKER = 'BRAVO_OTHER_MARKER_2018';
 const OUTSIDE_MARK = "not one of this thread's folders; attached for this run only";
+const SEARCH_MARKER = 'SEARCH_ATTACH_MARKER_2019';
 
 test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
 
@@ -177,5 +181,74 @@ test('a file attached from outside the thread reaches the model marked, and Add 
   } finally {
     await electron.dispose();
     rmSync(bravoRoot, { force: true, recursive: true });
+  }
+});
+
+test('a Search result file attaches to the thread as a mention and reaches the model', async ({
+  electron,
+  electronApp,
+  modelProvider,
+  window: page,
+}) => {
+  test.setTimeout(300_000);
+  const alphaRoot = await electronApp.app.evaluate(
+    () => process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] ?? ''
+  );
+  expect(alphaRoot).not.toBe('');
+  writeFileSync(path.join(alphaRoot, 'search-hit.txt'), `${SEARCH_MARKER} in the notes\n`);
+  writeFileSync(path.join(alphaRoot, 'search-miss.txt'), 'nothing to find here\n');
+  try {
+    await chooseTextSearch(page);
+    await ensureMockWorkspaceOpen(page);
+    await expect(page.getByText('search-hit.txt').first()).toBeVisible({ timeout: 60_000 });
+    await expect
+      .poll(() => textReadiness(page), { timeout: 120_000 })
+      .toEqual({ folders: 1, indexMode: 'text-only', kind: 'ready' });
+    await enableModel(page);
+    const seen = { attached: false };
+    modelProvider.setScript((request) => {
+      const turn = /SEARCH_TURN_(\d)/u.exec(lastUserMessage(request))?.[1];
+      if (turn === '1') {
+        // The attached file arrives with the run's context, not through a tool.
+        seen.attached ||= JSON.stringify(request.messages).includes(SEARCH_MARKER);
+      }
+      return { finalText: `SEARCH_REPLY_${turn ?? 'x'}` };
+    });
+    await ensureAssistantShellVisible(page);
+    const region = page.getByRole('region', { exact: true, name: 'Assistant' });
+    const input = region.getByRole('textbox', { name: 'Message input' });
+    const submit = async (turn: number): Promise<void> => {
+      await region.getByRole('button', { exact: true, name: 'Send' }).click();
+      await expect(region.getByText(`SEARCH_REPLY_${turn}`)).toBeVisible({ timeout: 90_000 });
+    };
+
+    // The thread binds the folder on its first run.
+    await input.fill('SEARCH_TURN_0: start');
+    await submit(0);
+    const alphaId = await rootIdOf(page, alphaRoot);
+
+    // Search finds the marker; the hit's Attach button writes its mention into the draft.
+    await ensureFileExplorerPanelVisible(page);
+    await page
+      .getByRole('tablist', { name: 'Explorer and search' })
+      .getByRole('tab', { name: 'Search' })
+      .click();
+    const searchPanel = page.getByTestId('explorer-search-panel-search');
+    await searchPanel.getByPlaceholder('Search workspace').fill(SEARCH_MARKER);
+    const attach = searchPanel.getByRole('button', { name: 'Attach search-hit.txt to the thread' });
+    await expect(attach).toBeVisible({ timeout: 30_000 });
+    await expect(searchPanel.getByText('search-miss.txt')).toHaveCount(0);
+    await attach.click();
+    await expect(input).toHaveValue(`:file[search-hit.txt]{name=${alphaId}::search-hit.txt}`);
+
+    // Sent, the attached file reaches the model with the message.
+    await input.focus();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type(' SEARCH_TURN_1: what does it say?');
+    await submit(1);
+    expect(seen).toEqual({ attached: true });
+    expect(modelProvider.refusals()).toEqual([]);
+  } finally {
+    await electron.dispose();
   }
 });

@@ -84,10 +84,7 @@ describe('ExplorerContextExportAction', () => {
     });
     fireEvent.click(screen.getByTestId('explorer-export-download'));
     await waitFor(() =>
-      expect(state.download).toHaveBeenCalledExactlyOnceWith({
-        projectTreeUsesViewFilters: false,
-        selectedLineRangesByFile: {},
-      })
+      expect(state.download).toHaveBeenCalledExactlyOnceWith({ projectTreeUsesViewFilters: false })
     );
     await waitFor(() => expect(screen.queryByTestId('explorer-export-download')).toBeNull());
   });

@@ -5,10 +5,6 @@ import { Minimatch } from 'minimatch';
 
 class InvalidProjectTreePatternError extends Error {}
 
-export type ProjectTreeTextGenerationResult =
-  | { ok: true; text: string }
-  | { error: string; ok: false };
-
 export function compilePatterns(patterns: string[], useRegex: boolean): (RegExp | Minimatch)[] {
   const processed = useRegex ? patterns : patterns.map(processFilter);
   const compiled: (RegExp | Minimatch)[] = [];
@@ -202,37 +198,4 @@ export function generateProjectTreeText(
   }
 
   return lines.join('\n');
-}
-
-/**
- * Render-safe project-tree generation for user-authored view filters.
- *
- * Known pattern-validation failures stay in-band so React callers can render
- * them. Unexpected implementation failures still throw to the error boundary.
- */
-export function generateProjectTreeTextResult(
-  fileTree: IFileNode[],
-  includeFilters: string[] = [],
-  excludeFilters: string[] = [],
-  useRegex = false,
-  folderSummaryThreshold = 5
-): ProjectTreeTextGenerationResult {
-  try {
-    return {
-      ok: true,
-      text: generateProjectTreeText(
-        fileTree,
-        includeFilters,
-        excludeFilters,
-        useRegex,
-        folderSummaryThreshold
-      ),
-    };
-  } catch (error) {
-    if (!(error instanceof InvalidProjectTreePatternError)) {
-      throw error;
-    }
-
-    return { error: error.message, ok: false };
-  }
 }

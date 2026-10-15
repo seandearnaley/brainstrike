@@ -2,7 +2,6 @@ import type { ActionRegistry } from '@brainstrike/context-actions';
 import { type RenderResult, render } from '@testing-library/react';
 import { GitCompare, LayoutGrid, MessageSquare, PanelsTopLeft } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { ContextExplorerAppBody } from '../shell/context-explorer-app-body';
 import type { WorkspaceApp } from '../shell/workspace-app';
 import { WorkspaceBody } from '../shell/workspace-body';
 import { WorkspaceTabStrip } from '../shell/workspace-tab-strip';
@@ -15,7 +14,7 @@ export const FILES_APP: WorkspaceApp = {
   id: 'context-explorer',
   label: 'Files',
   placement: 'pinned',
-  render: () => <ContextExplorerAppBody />,
+  render: () => <div data-testid="files-app-body">Files body</div>,
 };
 
 export const CHANGES_APP: WorkspaceApp = {

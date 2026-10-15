@@ -7,11 +7,8 @@
  * tree, filter, grouping, and toolbar types went with the browser.
  */
 
-import type { CollectionNodeType } from '../bulk-action-bar';
-
-// The node-kind union is owned by the shared bulk action bar; this module
-// re-exports it because the inspector's display config is keyed by it.
-export type { CollectionNodeType };
+/** The node kinds the inspector renders; its display config is keyed by them. */
+export type CollectionNodeType = 'collection' | 'file' | 'chunk' | 'embedding';
 
 /**
  * Embedding status for filtering

@@ -828,22 +828,6 @@ describe('AssistantUiPanelWrapper', () => {
         return 0;
       },
     };
-    fileExplorerMocks.workspaceContextSnapshot = {
-      files: [
-        {
-          approxTokens: 200,
-          outputApproxTokens: 60,
-          path: '/alpha.ts',
-          ranges: [{ endLine: 12, isActive: true, startLine: 4 }],
-        },
-      ],
-      includeProjectTree: false,
-      projectTreeApproxTokens: 1200,
-      projectTreeTokenCountLoading: false,
-      selectedOutputApproxTokens: 180,
-      selectedSourceApproxTokens: 320,
-      tokenBudget: 8192,
-    };
     mockDb.query.mockImplementation(async (sql: string) => {
       if (sql.includes('token_count')) {
         return {

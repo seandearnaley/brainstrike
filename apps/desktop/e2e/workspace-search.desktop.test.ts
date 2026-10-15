@@ -28,6 +28,36 @@ async function searchControlLayout(page: Page) {
 }
 
 /**
+ * Drags the Files pane's separator until the pane sits at its minimum width,
+ * 15% of the layout: the narrowest the Search panel gets. Returns the layout's
+ * width.
+ */
+async function shrinkFilesPaneToMinimum(page: Page): Promise<number> {
+  const drag = await page.getByTestId('explorer-search-panel-search').evaluate((panel) => {
+    const pane = panel.closest('[data-panel]');
+    const separator = pane?.previousElementSibling;
+    const group = pane?.parentElement;
+    if (!(pane && group && separator?.getAttribute('role') === 'separator')) {
+      throw new Error('The Files pane has no resize separator');
+    }
+    const handle = separator.getBoundingClientRect();
+    const layout = group.getBoundingClientRect();
+    return {
+      layoutWidth: layout.width,
+      // Past the minimum but short of the collapse threshold, so the pane stops at its minimum.
+      targetX: layout.right - layout.width * 0.12,
+      x: handle.left + handle.width / 2,
+      y: handle.top + handle.height / 2,
+    };
+  });
+  await page.mouse.move(drag.x, drag.y);
+  await page.mouse.down();
+  await page.mouse.move(drag.targetX, drag.y, { steps: 10 });
+  await page.mouse.up();
+  return drag.layoutWidth;
+}
+
+/**
  * Workspace-search smoke (desktop).
  *
  * Scope decision: text search only returns rows against INDEXED content
@@ -92,12 +122,13 @@ test.describe('Desktop workspace search', () => {
     });
   });
 
-  test('every search control fits inside the Search panel at the default window size', async ({
+  test('every search control fits inside the Search panel at the Files pane minimum width', async ({
     window,
   }) => {
     test.setTimeout(60_000);
-    // BST-1981: the default 1536px window gives the Explorer panel 180px; the
-    // header once laid out at 311px and pushed the toggles past its edge.
+    // BST-1981: the header once laid out at 311px in a 180px panel and pushed the
+    // toggles past its edge. The Search panel fills the Files pane, so the pane
+    // is narrowed to its minimum first.
     await ensureMockWorkspaceOpen(window);
     await ensureFileExplorerPanelVisible(window);
     const tabStrip = window.getByRole('tablist', { name: 'Explorer and search' });
@@ -109,8 +140,9 @@ test.describe('Desktop workspace search', () => {
     // A query's error card is part of the panel too.
     await searchPanel.getByPlaceholder('Search workspace').fill('export');
     await expect(searchPanel.getByRole('alert')).toBeVisible({ timeout: 20_000 });
+    const layoutWidth = await shrinkFilesPaneToMinimum(window);
     const layout = await searchControlLayout(window);
-    expect(layout.panelWidth).toBeLessThanOrEqual(200);
+    expect(layout.panelWidth).toBeLessThanOrEqual(layoutWidth * 0.16);
     expect(layout.scrollWidth).toBeLessThanOrEqual(Math.ceil(layout.panelWidth));
     expect(layout.controls.map(({ name }) => name)).toEqual(
       expect.arrayContaining([

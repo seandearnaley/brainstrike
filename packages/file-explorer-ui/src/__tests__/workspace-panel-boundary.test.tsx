@@ -26,10 +26,6 @@ vi.mock('../shell/file-tab-body', () => ({
   },
 }));
 
-vi.mock('../preview/preview-panel', () => ({
-  PreviewPanel: vi.fn(() => <div data-testid="preview-panel">PreviewPanel</div>),
-}));
-
 vi.mock('../shell/use-file-explorer-context', () => ({
   useFileExplorer: vi.fn(() => ({
     canLoadWithoutTree: false,
@@ -91,10 +87,6 @@ describe('workspace panel error boundaries (TabPanelBoundary)', () => {
       openFileInTab: vi.fn(),
       registerOpenFileInTab: vi.fn(),
     });
-    vi.spyOn(uiModule, 'useUndoableAction').mockReturnValue({
-      clearUndoTimeout: vi.fn(),
-      performUndoableAction: vi.fn(),
-    });
   });
 
   afterEach(() => {
@@ -125,7 +117,7 @@ describe('workspace panel error boundaries (TabPanelBoundary)', () => {
 
     // The strip still switches tabs, and the other app renders.
     await user.click(tabNamed(/files/i));
-    expect(await screen.findByTestId('preview-panel')).toBeVisible();
+    expect(await screen.findByTestId('files-app-body')).toBeVisible();
 
     // Switching back re-shows the fallback without re-running the crashed app.
     const rendersBeforeReturn = renders;
@@ -168,7 +160,7 @@ describe('workspace panel error boundaries (TabPanelBoundary)', () => {
     // The strip survives and the other app still renders.
     expect(screen.getByRole('tablist', { name: 'Workspace tabs' })).toBeInTheDocument();
     await user.click(tabNamed(/files/i));
-    expect(await screen.findByTestId('preview-panel')).toBeVisible();
+    expect(await screen.findByTestId('files-app-body')).toBeVisible();
     consoleError.mockRestore();
   });
 

@@ -1,15 +1,9 @@
-import type {
-  ContextLineRange,
-  RootDisplayInfo,
-} from '@brainstrike/file-explorer/context-generation';
+import type { RootDisplayInfo } from '@brainstrike/file-explorer/context-generation';
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { useEventCallback } from '@brainstrike/hooks';
 import { useState } from 'react';
 
-export type {
-  ContextLineRange,
-  RootDisplayInfo,
-} from '@brainstrike/file-explorer/context-generation';
+export type { RootDisplayInfo } from '@brainstrike/file-explorer/context-generation';
 
 export interface ReportGenerationRequest {
   excludeFilters: string[];
@@ -25,7 +19,6 @@ export interface ReportGenerationRequest {
    */
   rootDisplayInfoById?: Record<string, RootDisplayInfo>;
   selectedFiles: Set<string>;
-  selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
   useRegex: boolean;
 }
 
@@ -47,7 +40,6 @@ export type CreateReportGenerator = (options: ReportGenerationWorkerOptions) => 
 
 export interface ContextGenerationOverrides {
   projectTreeUsesViewFilters?: boolean;
-  selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
 }
 
 interface UseReportGenerationProps {
@@ -141,9 +133,6 @@ export function useReportGeneration({
             projectTreeUsesViewFilters:
               overrides?.projectTreeUsesViewFilters ?? projectTreeUsesViewFilters,
             useRegex,
-            ...(overrides?.selectedLineRangesByFile
-              ? { selectedLineRangesByFile: overrides.selectedLineRangesByFile }
-              : {}),
           },
           (event: ReportProgressEvent) => setProgress(event)
         );

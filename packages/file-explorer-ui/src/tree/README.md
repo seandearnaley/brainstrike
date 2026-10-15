@@ -12,10 +12,10 @@ pseudo-nodes cannot establish complete source membership or file counts.
 Use `@brainstrike/file-explorer-ui/tree` across packages. Its
 [`index.ts`](index.ts) routes public exports; consumers do not deep-import a new
 parallel tree implementation. Tree dependencies remain directed toward core
-explorer state, shell selectors, tree-worker helpers and shared UI/hooks. Preview
-or indexing coupling needs the existing explicit contract/architecture coverage.
+explorer state, shell selectors, tree-worker helpers and shared UI/hooks. Indexing
+coupling needs the existing explicit contract/architecture coverage.
 
 For shared behavior see [UI conventions](../../../../docs/agents/ui-conventions.md)
-and [explorer contracts](../../../../docs/agents/explorer-search-tapestry.md).
+and [explorer contracts](../../../../docs/agents/explorer-search-context-map.md).
 Commands and validation selection live in the package manifest and
 [root guidance](../../../../AGENTS.md).

@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest';
 import {
   compilePatterns,
   generateProjectTreeText,
-  generateProjectTreeTextResult,
   traverseFileTree,
 } from '../project-tree-text.js';
 
@@ -207,11 +206,6 @@ describe('folderTreeGenerator pattern matching', () => {
     expect(() => generateProjectTreeText([srcDir], ['[abc'], [], true, 0)).toThrow(
       'Invalid regular expression pattern: [abc'
     );
-
-    expect(generateProjectTreeTextResult([srcDir], ['[abc'], [], true, 0)).toEqual({
-      error: 'Invalid regular expression pattern: [abc',
-      ok: false,
-    });
   });
 });
 

@@ -1,6 +1,6 @@
 # @brainstrike/file-explorer-ui
 
-Explorer composition, treegrid, context preview, file tabs and token-status UI.
+Explorer composition, treegrid, file tabs and token-status UI.
 It reuses core explorer state and shared UI rather than owning another selection,
 content loader or virtualization system.
 
@@ -20,8 +20,7 @@ store in each render is not a production persistence recipe.
 
 - [Tree](src/tree/README.md): TreeTable row models, lazy loading and selection.
 - [Shell](src/shell/README.md): providers, tabs, toolbar and root composition.
-- [Preview](src/preview/README.md): Tapestry, summary and report/context curation.
-- [Indexing](src/indexing/README.md): token cache/counting and budget presentation.
+- [Indexing](src/indexing/README.md): token cache and counting.
 - [Stores](src/stores/README.md): persisted presentation metadata and transient state.
 
 File reads require the exact mounted-root authority. Keep binary/inaccessible
@@ -30,6 +29,6 @@ File bytes remain ephemeral. Reuse TreeTable, TabStrip and context-action owners
 including their scrollport, keyboard and focus behavior.
 
 See [UI conventions](../../docs/agents/ui-conventions.md) and
-[explorer/preview](../../docs/agents/explorer-search-tapestry.md).
+[explorer](../../docs/agents/explorer-search-context-map.md) contracts.
 Scripts and dependencies belong to the manifest; contribution/validation rules
 live in [root guidance](../../AGENTS.md).

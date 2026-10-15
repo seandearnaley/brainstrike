@@ -1,16 +1,4 @@
 export {
-  type SelectedChunk,
-  useChunkSelectionStore,
-} from './bridge/chunk-selection-store';
-export {
-  type ChunkBounds,
-  deriveSearchRanges,
-  searchRangeColor,
-  type TapestrySpan,
-  toTapestrySpan,
-} from './bridge/range-math';
-export {
-  type ChunkSelectionState,
   type FileSelectionState,
   type SearchSelectionBridge,
   useSearchSelectionBridge,
@@ -40,7 +28,6 @@ export {
   buildSearchTreeNodes,
   childNodeId,
   fileNodeId,
-  fileResultChunks,
   type HeadlineSegment,
   highlightQuery,
   SearchCollectionPicker,

@@ -11,6 +11,7 @@ import { lazy, type ReactElement, Suspense, useCallback, useMemo } from 'react';
 import { ExplorerThreadStatusProvider } from './context-map/explorer-thread-status-provider';
 import { ExplorerAttachAction } from './explorer-attach-action';
 import { ExplorerImportActionLazy } from './explorer-import-action-lazy';
+import { useAttachFilesToThread } from './use-attach-files-to-thread';
 import { useWorkspaceSearchController } from './use-workspace-search-controller';
 import { useWorkspaceRootActions } from './workspace-root-context-actions';
 
@@ -35,10 +36,14 @@ function isExplorerActiveTab(value: string): value is ExplorerActiveTab {
  */
 function WorkspaceSearchTabContent(): ReactElement {
   const controller = useWorkspaceSearchController();
+  const attachFiles = useAttachFilesToThread();
+  const onAttachFile = useCallback((fileKey: string) => attachFiles([fileKey], 1), [attachFiles]);
   return (
     <Suspense fallback={<div className="p-3 text-muted-foreground text-sm">Loading search…</div>}>
       <LazyWorkspaceSearchPanel
         allowTextPaging={controller.allowTextPaging}
+        // A result file attaches like the selection bar's Attach: desktop host threads read mentions.
+        {...(hasDurableAssistantUsageCapability() ? { onAttachFile } : {})}
         onOpenFile={controller.onOpenFile}
         resolveAdapterRootId={controller.resolveAdapterRootId}
         runSemanticSearch={controller.runSemanticSearch}

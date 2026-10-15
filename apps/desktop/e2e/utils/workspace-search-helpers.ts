@@ -7,7 +7,7 @@
  * retrieve and render; Workspace Search is now the only surface that does that,
  * so the embedding suites drive it instead.
  *
- * Two contracts from `docs/agents/explorer-search-tapestry.md` shape these
+ * Two contracts from `docs/agents/explorer-search-context-map.md` shape these
  * helpers, and both are load-bearing for any fixture that wants to be visible
  * here:
  *
