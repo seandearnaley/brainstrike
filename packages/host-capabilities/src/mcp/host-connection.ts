@@ -142,6 +142,12 @@ export interface TransportActorClient extends McpServerActorClient {
   readonly transportClient: ExplicitClient;
 }
 
+/**
+ * Bounds a connect that no user is pacing: automatic startup or a
+ * non-interactive attempt. User-paced authorization is never bounded by it.
+ */
+export const MCP_UNATTENDED_CONNECT_TIMEOUT_MS = 10_000;
+
 export async function connectClient(
   client: ExplicitClient,
   server: ResolvedMcpServer,
@@ -150,13 +156,14 @@ export async function connectClient(
   extensionRegistry: McpClientExtensionRegistry | undefined,
   diagnostics?: McpStdioDiagnosticCollector,
   provider?: McpOAuthClientProvider,
-  onConnected?: () => Promise<void>
+  onConnected?: () => Promise<void>,
+  unattendedConnectTimeoutMs = MCP_UNATTENDED_CONNECT_TIMEOUT_MS
 ): Promise<TransportActorClient> {
   try {
     await client.connect({
       signal: context.signal,
       ...(server.startup === 'automatic' || context.interactiveAuthorization !== true
-        ? { timeout: 10_000 }
+        ? { timeout: unattendedConnectTimeoutMs }
         : {}),
     });
     await onConnected?.();

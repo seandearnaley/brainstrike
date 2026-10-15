@@ -18,6 +18,11 @@ import { runProductionMcpConformanceClient } from '../../mcp/official-conformanc
 const stdioLifecycleServerEntrypoint = fileURLToPath(
   import.meta.resolve('@brainstrike/agent/test-fixtures/mcp-stdio-host-lifecycle-server.mjs')
 );
+/**
+ * Stands in for the production 10 s unattended connect deadline (pinned in
+ * mcp-host-runtime-oauth.test.ts); fixtures delay their handshake just past it.
+ */
+const NARROWED_UNATTENDED_CONNECT_MS = 1000;
 
 interface StdioLifecycleFixture {
   readonly directory: string;
@@ -205,10 +210,15 @@ describe('surviving Desktop MCP host integration', () => {
     }
   }, 30_000);
 
-  test('keeps startup responsive while user-paced stdio authorization exceeds ten seconds', async () => {
-    const fixture = await createStdioLifecycleFixture('desktop-mcp-auth-startup-', 10_100);
+  test('keeps startup responsive while user-paced stdio authorization exceeds the unattended connect deadline', async () => {
+    const fixture = await createStdioLifecycleFixture(
+      'desktop-mcp-auth-startup-',
+      NARROWED_UNATTENDED_CONNECT_MS + 100
+    );
     const configuredServerId = parseConfiguredMcpServerId('stdio.auth-wait');
-    const runtime = createDesktopMcpHostRuntime();
+    const runtime = createDesktopMcpHostRuntime({
+      unattendedConnectTimeoutMs: NARROWED_UNATTENDED_CONNECT_MS,
+    });
     try {
       const startedAt = performance.now();
       await runtime.replaceResolvedConfig({
@@ -234,6 +244,53 @@ describe('surviving Desktop MCP host integration', () => {
       await expect.poll(() => runtime.host.snapshot().servers[0]?.state).toBe('authorizing');
       await expect(connecting).resolves.toMatchObject({ state: 'connected' });
       await expect(fsp.stat(fixture.pidFile)).resolves.toBeTruthy();
+    } finally {
+      await runtime.host.close();
+      await fsp.rm(fixture.directory, { force: true, recursive: true });
+    }
+  }, 30_000);
+
+  test('bounds an unattended stdio connect by the same narrowed deadline', async () => {
+    const fixture = await createStdioLifecycleFixture(
+      'desktop-mcp-unattended-',
+      NARROWED_UNATTENDED_CONNECT_MS + 100
+    );
+    const configuredServerId = parseConfiguredMcpServerId('stdio.unattended-wait');
+    const internalErrors: unknown[] = [];
+    const runtime = createDesktopMcpHostRuntime({
+      onInternalError: (_code, cause) => {
+        internalErrors.push(cause);
+      },
+      unattendedConnectTimeoutMs: NARROWED_UNATTENDED_CONNECT_MS,
+    });
+    try {
+      await runtime.replaceResolvedConfig({
+        servers: [
+          {
+            args: [stdioLifecycleServerEntrypoint],
+            command: process.execPath,
+            env: fixture.env,
+            name: configuredServerId,
+            protocol: 'legacy',
+            startup: 'automatic',
+            transport: 'stdio',
+          },
+        ],
+      });
+      // The deadline the authorization test outlives really bounds a connect nobody paces.
+      await expect(
+        runtime.host.invoke({ configuredServerId, type: 'tools/list' })
+      ).rejects.toMatchObject({ code: 'mcp-protocol-timeout' });
+      expect(runtime.host.snapshot().servers[0]).toMatchObject({
+        error: { code: 'mcp-protocol-timeout' },
+        state: 'error',
+      });
+      expect(internalErrors).toContainEqual(
+        expect.objectContaining({
+          cause: expect.objectContaining({ data: { timeout: NARROWED_UNATTENDED_CONNECT_MS } }),
+          code: 'mcp-protocol-timeout',
+        })
+      );
     } finally {
       await runtime.host.close();
       await fsp.rm(fixture.directory, { force: true, recursive: true });

@@ -204,6 +204,12 @@ export interface McpHostRuntimeDependencies {
   ) => McpClientExtensionRegistry | undefined;
   /** Durable task authorities; defaults to the process-local `McpDesktopTaskHost`. */
   taskHost?: McpDesktopTaskHostPort;
+  /**
+   * Narrows the unattended connect deadline for lifecycle tests; production
+   * keeps `MCP_UNATTENDED_CONNECT_TIMEOUT_MS`. User-paced authorization is
+   * never bounded by it.
+   */
+  unattendedConnectTimeoutMs?: number;
 }
 
 interface PrivateConfigEntry {
@@ -273,12 +279,21 @@ export class McpHostRuntime {
   private readonly createStdioTransportClient: NonNullable<
     McpHostRuntimeDependencies['createStdioTransportClient']
   >;
+  private readonly unattendedConnectTimeoutMs: number | undefined;
 
   constructor(
     private readonly platform: McpHostRuntimePlatform,
     dependencies: McpHostRuntimeDependencies = {}
   ) {
     this.bearerCredentialAuthority = platform.bearerCredentialAuthority;
+    const { unattendedConnectTimeoutMs } = dependencies;
+    if (
+      unattendedConnectTimeoutMs !== undefined &&
+      !(Number.isSafeInteger(unattendedConnectTimeoutMs) && unattendedConnectTimeoutMs > 0)
+    ) {
+      throw new RangeError('MCP unattended connect timeout must be a positive safe integer');
+    }
+    this.unattendedConnectTimeoutMs = unattendedConnectTimeoutMs;
     this.clientName = dependencies.clientName ?? 'brainstrike-host';
     this.createConfigRef = dependencies.createConfigRef ?? randomUUID;
     this.createHttpTransportClient =
@@ -811,7 +826,10 @@ export class McpHostRuntime {
         context,
         (code, cause) => this.reportInternalError(code, cause),
         extensionRegistry,
-        diagnostics
+        diagnostics,
+        undefined,
+        undefined,
+        this.unattendedConnectTimeoutMs
       );
     }
     let provider: McpOAuthClientProvider | undefined;
@@ -876,7 +894,8 @@ export class McpHostRuntime {
         extensionRegistry,
         undefined,
         provider,
-        provider ? () => this.recordOAuthConnection(provider, updateAuth) : undefined
+        provider ? () => this.recordOAuthConnection(provider, updateAuth) : undefined,
+        this.unattendedConnectTimeoutMs
       );
     } finally {
       // SDK refresh failure may invalidate persisted tokens before authorization.
