@@ -119,7 +119,7 @@ describe('table durability registry (real migrated database)', () => {
     expect(registered.filter((table, index) => registered.indexOf(table) !== index)).toEqual([]);
     expect(
       existing.filter((table) => !registered.includes(table)).sort(),
-      'Unclassified table(s). Add each to TABLE_DURABILITY_REGISTRY in packages/db/src/table-durability-registry.ts with a durability class and reason (docs/agents/database.md § "TABLE DURABILITY CLASSES").'
+      'Unclassified table(s). Add each to TABLE_DURABILITY_REGISTRY in packages/db/src/table-durability-registry.ts with a durability class and reason (docs/agents/database.md § "Data loss boundaries").'
     ).toEqual([]);
   });
 

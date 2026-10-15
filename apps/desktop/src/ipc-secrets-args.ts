@@ -1,6 +1,6 @@
 /**
  * Argument decoders for the handwritten `secrets:*` IPC handlers in
- * `ipc-secrets.ts` (docs/agents/effect-boundary.md § "Schema at boundaries").
+ * `ipc-secrets.ts` (docs/agents/effect-boundary.md § "Decoding and tooling").
  *
  * Main-only by construction: only `ipc-secrets.ts` imports this module, and no
  * preload reaches it, so importing `effect` here keeps the preload import graph

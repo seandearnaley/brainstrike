@@ -1,7 +1,7 @@
 /**
  * Workspace instructions settings panel (auto-injection of a mounted root's
  * `AGENTS.md`/`AGENT.md`/`CLAUDE.md` into the assistant's system context — see
- * docs/agents/workspace-context.md "WORKSPACE INSTRUCTIONS CONTEXT").
+ * docs/agents/workspace-context.md § "Instructions, prompts and skills").
  *
  * CONSUMES `workspace-instructions-preferences-store.ts` (master toggle +
  * per-root oversized opt-in) and the desktop `window.contextFiles` bridge (a

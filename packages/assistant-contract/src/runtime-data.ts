@@ -242,7 +242,7 @@ export type RuntimeMemoryOptions = RuntimeJsonObject;
 /**
  * Renderer-supplied preference for auto-injecting a mounted root's workspace
  * instructions file (`AGENTS.md`/`AGENT.md`/`CLAUDE.md`) into the assistant's
- * system context (see docs/agents/workspace-context.md "WORKSPACE INSTRUCTIONS CONTEXT"). Mirrors the
+ * system context (see docs/agents/workspace-context.md § "Instructions, prompts and skills"). Mirrors the
  * persisted `workspace-instructions-preferences-store` slice as plain JSON.
  *
  * Threshold-hybrid policy: a file that FITS the per-file char budget is injected

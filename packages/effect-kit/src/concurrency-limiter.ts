@@ -25,7 +25,7 @@ export type ConcurrencyLimiter = <T>(
  * arrival order, but a task that arrives while a permit is momentarily free
  * starts at once, ahead of waiters that have not woken yet. Code that needs
  * strict FIFO (a mutex whose callers rely on submission order) must not use
- * this (docs/agents/effect-boundary.md § "Shared helpers").
+ * this (docs/agents/effect-boundary.md § "Promise and resource contracts").
  */
 export function createConcurrencyLimiter(permits: number): ConcurrencyLimiter {
   if (!(Number.isInteger(permits) && permits > 0)) {

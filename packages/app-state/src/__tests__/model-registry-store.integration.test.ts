@@ -13,8 +13,8 @@
  * This file exercises the REAL store action against a REAL PGlite database,
  * built with the same production entry points the app itself uses:
  *   - `createEnginePglite` (packages/db/src/pglite-factory.ts) for the full
- *     engine-extension set (docs/agents/database.md § PGLITE EXTENSION
- *     INVARIANT — every construction site loads pg_textsearch/pg_trgm/vector).
+ *     engine-extension set (docs/agents/database.md § "Remaining PGlite
+ *     consumers" — every construction site loads pg_textsearch/pg_trgm/vector).
  *   - `migrate` (packages/db/src/migrations/bootstrap.ts), the production
  *     drizzle migration bootstrap — the exact path a greenfield app database
  *     runs, not a hand-rolled subset of migrations.

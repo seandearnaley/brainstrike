@@ -1,6 +1,6 @@
 /**
  * Notification settings section (assistant run finished/failed/tool-approval
- * OS notifications — see docs/agents/assistant-persistence.md "ASSISTANT RUN NOTIFICATIONS").
+ * OS notifications — see docs/agents/assistant-persistence.md § "Thread state and clients").
  *
  * CONSUMES `notification-preferences-store.ts` only — permission handling
  * lives in `@brainstrike/app-state/notifications/notification-permission.ts`. Requests browser

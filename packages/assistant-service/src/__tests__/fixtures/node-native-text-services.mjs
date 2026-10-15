@@ -642,7 +642,8 @@ try {
         receipt.cleanupFailureVisible = true;
       } else if (mode === 'query-refused') {
         // A runtime whose SQLite cannot enforce the sandbox heap limit is refused at open
-        // (docs/agents/agent-self-query.md); plain Node/CLI support is BST-1941's.
+        // (docs/archive/agent-contract-history/agent-self-query/sqlite-index-foundation.md);
+        // plain Node/CLI support is BST-1941's.
         await assert.rejects(
           capability.grep({
             caseSensitive: true,

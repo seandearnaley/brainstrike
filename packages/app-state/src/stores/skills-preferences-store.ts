@@ -1,7 +1,7 @@
 /**
  * Agent Skills preferences (SKILL.md skills discovered from `.brainstrike/skills`
  * + `.claude/skills` across mounted roots and the home dir — see
- * docs/agents/workspace-context.md "AGENT SKILLS").
+ * docs/agents/workspace-context.md § "Instructions, prompts and skills").
  *
  * - `masterEnabled` — top-level opt-out for the whole feature. Defaults ON
  *   (matching Claude Code's baseline: installed skills are available). When

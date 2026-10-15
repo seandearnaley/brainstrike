@@ -1074,7 +1074,7 @@ export function AssistantUiPanelWrapper({
   const { fileMentions } = useFileMentions(fileMentionQuery);
 
   // Run-lifecycle OS notifications (run finished/failed, tool approval
-  // required) — see docs/agents/assistant-persistence.md "ASSISTANT RUN NOTIFICATIONS". Only ever fires
+  // required) — see docs/agents/assistant-persistence.md § "Thread state and clients". Only ever fires
   // for the Mastra-loop transport; the settings/permission/focus gates live
   // entirely inside the hook.
   const notificationCallbacks = useAssistantRunNotifications();
