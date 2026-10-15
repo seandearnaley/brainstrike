@@ -91,7 +91,7 @@ function PromptsTabContent({
  * The Library switcher. Its value is local React state, so a switch renders in
  * a transition: the committed panel stays on screen while the next one
  * renders, and the incoming trigger carries `data-pending` meanwhile.
- * Collections and Prompts mount on first activation and are then kept mounted
+ * All Library panels mount on first activation and are then kept mounted
  * (hidden) so their state survives switches.
  */
 export function AgentSidebarPanel({
@@ -190,6 +190,7 @@ export function AgentSidebarPanel({
       <TabsContent
         className="min-h-0 flex-1 overflow-hidden"
         data-testid="threads-tab-content"
+        keepMounted
         value="threads"
       >
         {/* No resetKey: this panel is a singleton; "Reload tab" is the reset. */}

@@ -48,6 +48,10 @@
     "./sqlite-checkpoint": {
       "types": "./dist/sqlite-checkpoint.d.mts",
       "default": "./dist/sqlite-checkpoint.mjs"
+    },
+    "./state-truth-reader": {
+      "types": "./dist/state-truth-reader.d.ts",
+      "default": "./dist/state-truth-reader.js"
     }
   },
   "files": [

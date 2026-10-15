@@ -261,6 +261,39 @@ describe('AgentSidebarPanel', () => {
     expect(screen.getByText('Prompts content')).toBeVisible();
   });
 
+  it.each(['Collections', 'Prompts'])(
+    'keeps Threads mounted when switching through %s',
+    async (destination) => {
+      render(
+        <AgentSidebarPanel
+          databaseContent={<div>Database content</div>}
+          promptsContent={<div>Prompts content</div>}
+          threadsContent={<input aria-label="Thread search" defaultValue="" />}
+        />
+      );
+      const search = screen.getByRole('textbox', { name: 'Thread search' });
+      fireEvent.change(search, { target: { value: 'retain thread state' } });
+      fireEvent.mouseDown(screen.getByRole('tab', { name: destination }), {
+        button: 0,
+        ctrlKey: false,
+      });
+      await waitFor(() =>
+        expect(screen.getByRole('tab', { name: destination })).toHaveAttribute(
+          'aria-selected',
+          'true'
+        )
+      );
+      expect(search).toBeInTheDocument();
+      expect(search).not.toBeVisible();
+      fireEvent.mouseDown(screen.getByRole('tab', { name: 'Threads' }), {
+        button: 0,
+        ctrlKey: false,
+      });
+      expect(await screen.findByRole('textbox', { name: 'Thread search' })).toBe(search);
+      expect(search).toHaveValue('retain thread state');
+    }
+  );
+
   it('keeps database tab state mounted after the first visit', async () => {
     render(
       <AgentSidebarPanel

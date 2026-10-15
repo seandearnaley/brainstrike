@@ -19,6 +19,13 @@ type Row = Record<string, SqlValue>;
 /** Statements mid-use, so a re-entrant use of the same SQL compiles its own. */
 const busy = new WeakSet<PreparedStatement>();
 
+/** better-sqlite3's transaction function: BEGIN by default, or a chosen BEGIN mode. */
+export type Transaction<Args extends unknown[], Result> = ((...args: Args) => Result) & {
+  readonly deferred: (...args: Args) => Result;
+  readonly exclusive: (...args: Args) => Result;
+  readonly immediate: (...args: Args) => Result;
+};
+
 export interface RunResult {
   readonly changes: number;
   readonly lastInsertRowid: number | bigint;
@@ -32,30 +39,58 @@ function withCode(sqlite3: Sqlite3Static, error: unknown): unknown {
   return error;
 }
 
-function bindings(params: readonly unknown[]): Bindable[] {
+/** One statement's parameters, as better-sqlite3 takes them: anonymous values in order, and named values by name. */
+interface Bindings {
+  readonly named: Readonly<Record<string, Bindable>> | undefined;
+  readonly positional: readonly Bindable[];
+}
+
+function bindable(value: unknown, where: string): Bindable {
+  if (
+    value === null ||
+    typeof value === 'number' ||
+    typeof value === 'bigint' ||
+    typeof value === 'string' ||
+    value instanceof Uint8Array
+  ) {
+    return value;
+  }
+  throw new TypeError(
+    `SQLite can bind only numbers, bigints, strings, Uint8Arrays and null (${where} is ${
+      value === undefined ? 'undefined' : typeof value
+    })`
+  );
+}
+
+function isNamed(value: unknown): value is Readonly<Record<string, unknown>> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    !(value instanceof Uint8Array)
+  );
+}
+
+function bindings(params: readonly unknown[]): Bindings {
   const values = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
-  return values.map((value: unknown, index: number) => {
-    if (typeof value === 'object' && value !== null && !(value instanceof Uint8Array)) {
-      // better-sqlite3 reads a plain object as named parameters; the state DB modules bind positionally only.
-      throw new RangeError(
-        `Named parameters are not supported (parameter ${index + 1} is an object)`
+  const positional: Bindable[] = [];
+  let named: Record<string, Bindable> | undefined;
+  for (const value of values) {
+    if (isNamed(value)) {
+      if (named) {
+        throw new TypeError('You cannot specify named parameters in two different objects');
+      }
+      named = Object.fromEntries(
+        Object.entries(value).map(([key, entry]) => [
+          key,
+          bindable(entry, `named parameter "${key}"`),
+        ])
       );
+    } else {
+      positional.push(bindable(value, `parameter ${positional.length + 1}`));
     }
-    if (
-      value === null ||
-      typeof value === 'number' ||
-      typeof value === 'bigint' ||
-      typeof value === 'string' ||
-      value instanceof Uint8Array
-    ) {
-      return value;
-    }
-    throw new TypeError(
-      `SQLite can bind only numbers, bigints, strings, Uint8Arrays and null (parameter ${index + 1} is ${
-        value === undefined ? 'undefined' : typeof value
-      })`
-    );
-  });
+  }
+  return { named, positional };
 }
 
 /** A rowid as better-sqlite3 reports it: a number while it is a safe integer. */
@@ -170,38 +205,46 @@ export class SqliteWasmDatabase {
   }
 
   /**
-   * better-sqlite3's `transaction(fn)`: BEGIN/COMMIT, or a savepoint when
-   * called inside another transaction; any throw rolls back and rethrows.
+   * better-sqlite3's `transaction(fn)`: BEGIN/COMMIT (or the `.deferred`,
+   * `.immediate` or `.exclusive` BEGIN), or a savepoint when called inside
+   * another transaction; any throw rolls back and rethrows.
    */
   transaction<Args extends unknown[], Result>(
     fn: (...args: Args) => Result
-  ): (...args: Args) => Result {
-    return (...args: Args): Result => {
-      if (!this.inTransaction) {
-        this.exec('BEGIN');
+  ): Transaction<Args, Result> {
+    const run =
+      (begin: string) =>
+      (...args: Args): Result => {
+        if (!this.inTransaction) {
+          this.exec(begin);
+          try {
+            const result = fn(...args);
+            this.exec('COMMIT');
+            return result;
+          } catch (error) {
+            if (this.inTransaction) {
+              this.exec('ROLLBACK');
+            }
+            throw error;
+          }
+        }
+        const savepoint = `wasm_txn_${++this.#savepoints}`;
+        this.exec(`SAVEPOINT ${savepoint}`);
         try {
           const result = fn(...args);
-          this.exec('COMMIT');
+          this.exec(`RELEASE ${savepoint}`);
           return result;
         } catch (error) {
-          if (this.inTransaction) {
-            this.exec('ROLLBACK');
-          }
+          this.exec(`ROLLBACK TO ${savepoint}`);
+          this.exec(`RELEASE ${savepoint}`);
           throw error;
         }
-      }
-      const savepoint = `wasm_txn_${++this.#savepoints}`;
-      this.exec(`SAVEPOINT ${savepoint}`);
-      try {
-        const result = fn(...args);
-        this.exec(`RELEASE ${savepoint}`);
-        return result;
-      } catch (error) {
-        this.exec(`ROLLBACK TO ${savepoint}`);
-        this.exec(`RELEASE ${savepoint}`);
-        throw error;
-      }
-    };
+      };
+    return Object.assign(run('BEGIN'), {
+      deferred: run('BEGIN DEFERRED'),
+      exclusive: run('BEGIN EXCLUSIVE'),
+      immediate: run('BEGIN IMMEDIATE'),
+    });
   }
 
   /**
@@ -236,7 +279,7 @@ export class SqliteWasmDatabase {
    * it. A statement already mid-use (re-entered from inside `use`) gets a
    * one-off compile, finalized afterwards.
    */
-  execute<T>(source: string, params: Bindable[], use: (stmt: PreparedStatement) => T): T {
+  execute<T>(source: string, params: Bindings, use: (stmt: PreparedStatement) => T): T {
     let stmt = this.compiled(source);
     let oneOff = false;
     if (busy.has(stmt)) {
@@ -245,9 +288,7 @@ export class SqliteWasmDatabase {
     }
     busy.add(stmt);
     try {
-      if (params.length > 0) {
-        stmt.bind(params);
-      }
+      this.bind(stmt, params);
       const result = use(stmt);
       stmt.reset(true);
       return result;
@@ -264,6 +305,36 @@ export class SqliteWasmDatabase {
       if (oneOff) {
         stmt.finalize();
       }
+    }
+  }
+
+  /**
+   * Binds as better-sqlite3 does: each `?` takes the next anonymous value, each
+   * `@name`, `:name` or `$name` the named value of that name, and a missing or
+   * surplus value is a RangeError.
+   */
+  private bind(stmt: PreparedStatement, params: Bindings): void {
+    const { capi } = this.sqlite3;
+    const pointer = stmt.pointer as number;
+    const count = capi.sqlite3_bind_parameter_count(pointer);
+    let next = 0;
+    for (let index = 1; index <= count; index++) {
+      const name = capi.sqlite3_bind_parameter_name(pointer, index);
+      if (!name) {
+        if (next >= params.positional.length) {
+          throw new RangeError('Too few parameter values were provided');
+        }
+        stmt.bind(index, params.positional[next++] as Bindable);
+        continue;
+      }
+      const key = name.slice(1);
+      if (!(params.named && Object.hasOwn(params.named, key))) {
+        throw new RangeError(`Missing named parameter "${key}"`);
+      }
+      stmt.bind(index, params.named[key] as Bindable);
+    }
+    if (next < params.positional.length) {
+      throw new RangeError('Too many parameter values were provided');
     }
   }
 

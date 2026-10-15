@@ -1,6 +1,5 @@
-import { realpathSync } from 'node:fs';
-import path from 'node:path';
-import { blobsOf, SqliteReader } from '@brainstrike/state-store';
+import { blobsOf } from '@brainstrike/state-store/run-log-format';
+import type { StateTruthReader } from '@brainstrike/state-store/state-truth-reader';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
 import type { IndexerOptions } from './contracts.js';
@@ -58,7 +57,6 @@ const normalizedDefinition = (sql: string): string =>
 
 /** The same derived writer owns this projection, FTS, references and physical purge. */
 export class StateEventStore {
-  private readonly truth: SqliteReader;
   private readonly failures: string[] = [];
 
   static assertProjection(root: string | undefined, projection: StateProjection | undefined): void {
@@ -250,6 +248,7 @@ export class StateEventStore {
   static acquire(
     db: Database.Database,
     root: string | undefined,
+    truth: StateTruthReader | undefined,
     projection: StateProjection | undefined,
     options: IndexerOptions,
     version: IndexSchemaVersion
@@ -262,7 +261,10 @@ export class StateEventStore {
     if (!projection) {
       throw new TypeError('State projection requires its acquired producer schema.');
     }
-    const store = new StateEventStore(db, root, projection, options);
+    if (!truth) {
+      throw new TypeError('State projection requires its authoritative truth reader.');
+    }
+    const store = new StateEventStore(db, truth, projection, options);
     if (version < 11) {
       store.backfillSearch();
     }
@@ -301,16 +303,13 @@ export class StateEventStore {
   readonly observations: StateObservationVectors;
   private readonly searchVectors: StateSearchVectors;
 
+  /** `truth` reads the state DB this store projects; its host owns the connection under it. */
   constructor(
     private readonly db: Database.Database,
-    root: string,
+    private readonly truth: StateTruthReader,
     private readonly projection: StateProjection,
     options: IndexerOptions
   ) {
-    if (!path.isAbsolute(root) || realpathSync(root) !== root) {
-      throw new TypeError('State projection requires the trusted canonical absolute truth root.');
-    }
-    this.truth = new SqliteReader(root);
     this.messages = new StateMessageVectors(db, this.truth, projection, options);
     this.observations = new StateObservationVectors(db, this.truth, projection, this.messages);
     this.searchVectors = new StateSearchVectors(db);

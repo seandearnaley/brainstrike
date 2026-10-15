@@ -1,7 +1,4 @@
-import { existsSync, mkdirSync } from 'node:fs';
-import path from 'node:path';
-import { threadId } from 'node:worker_threads';
-import { openConnection } from '@brainstrike/sqlite-native';
+import type { StateTruthReader } from '@brainstrike/state-store/state-truth-reader';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
 import { checkedTruncateCheckpoint } from './checked-checkpoint.js';
@@ -32,6 +29,7 @@ import {
   snapshotSchema,
   textCommitSchema,
 } from './contracts.js';
+import type { IndexConnection, IndexReaderConnection } from './index-connection.js';
 import { verifyIndexManifest } from './index-manifest.js';
 import {
   configuredEmbedding,
@@ -43,12 +41,13 @@ import {
   validateAcquisition,
   validateChunkEmbeddingState,
 } from './index-metadata.js';
+import { assertFreshOpen, decodeIndexerOptions } from './options.js';
+import { basenamePosix, float32At } from './portable.js';
 import { ScopeAuthority } from './scope-authority.js';
 import { ScopedIndex } from './scoped-store.js';
 import { StateEventStore } from './state-event-store.js';
 import type { StateProjection } from './state-projection.js';
-import { validateIndexerOptions } from './transport.js';
-import { type CoarseVectorEngine, sqliteVecEngine } from './vector-engine.js';
+import type { CoarseVectorEngine } from './vector-engine.js';
 
 type PreparedCommit = Pick<FileCommit, 'plan' | 'syntax' | 'embeddings'>;
 const numberId = Schema.Int.check(
@@ -91,16 +90,16 @@ function existingFile(
       .get(snapshot.rootId, snapshot.fileId) ?? null
   );
 }
-function decodeBlob(blob: Uint8Array): Buffer {
+function decodeBlob(blob: Uint8Array): Uint8Array {
   if (blob.byteLength !== 384 * 4) {
     throw new IndexerError(
       'rebuild-required',
       'Stored embedding length differs from its pinned profile.'
     );
   }
-  const buffer = Buffer.from(blob);
-  vectorBlob(Array.from({ length: 384 }, (_, index) => buffer.readFloatLE(index * 4)));
-  return buffer;
+  const bytes = Uint8Array.from(blob);
+  vectorBlob(Array.from({ length: 384 }, (_, index) => float32At(bytes, index)));
+  return bytes;
 }
 
 /** Counts/hashes alone did not qualify retained auxiliary Float32 bytes for a legacy upgrade. */
@@ -129,9 +128,9 @@ function requireEmbeddingHash(value: string | null): string {
 
 function resolveEmbedding(
   previous: { embeddingHash: string | null; emb: Uint8Array | null } | undefined,
-  supplied: Buffer | undefined,
+  supplied: Uint8Array | undefined,
   hash: string
-): Buffer {
+): Uint8Array {
   const reusable = previous?.embeddingHash === hash && previous.emb !== null;
   if (supplied && reusable) {
     throw new TypeError('An unchanged embedding was unexpectedly supplied.');
@@ -146,33 +145,33 @@ function resolveEmbedding(
 export class IndexWriter {
   private readonly state: StateEventStore | undefined;
   readonly db: Database.Database;
-  /** sqlite-vec, which `openConnection` loads into this connection. */
-  readonly engine: CoarseVectorEngine = sqliteVecEngine;
+  readonly engine: CoarseVectorEngine;
+  private readonly truth: StateTruthReader | undefined;
   readonly options: IndexerOptions;
   readonly allowed: ReadonlySet<string>;
   readonly info: IndexerInfo;
   readonly scoped: ScopedIndex;
+  /** `connection` is the index database its host opened (`desktop-index-connection.ts` on desktop). */
   constructor(
     input: unknown,
+    connection: IndexConnection,
     private readonly projection?: StateProjection
   ) {
-    this.options = validateIndexerOptions(input);
-    StateEventStore.assertProjection(this.options.stateRoot, projection);
-    this.allowed = new Set(this.options.rootIds);
-    new ScopeAuthority(this.options);
-    const fresh = !existsSync(this.options.dbPath);
-    if (fresh && this.options.embedding.indexMode === 'open-existing') {
-      throw new IndexerError(
-        'index-not-found',
-        'Explicit open-existing requires an existing index file.'
-      );
-    }
-    if (fresh && this.options.embedding.indexMode === 'vector-configured') {
-      configuredEmbedding(this.options.embedding.profile);
-    }
-    mkdirSync(path.dirname(this.options.dbPath), { recursive: true });
-    this.db = openConnection(this.options.dbPath);
     try {
+      this.options = decodeIndexerOptions(input);
+    } catch (error) {
+      connection.db.close();
+      throw error;
+    }
+    this.db = connection.db;
+    this.engine = connection.engine;
+    this.truth = connection.truth;
+    const fresh = connection.fresh;
+    try {
+      StateEventStore.assertProjection(this.options.stateRoot, projection);
+      this.allowed = new Set(this.options.rootIds);
+      new ScopeAuthority(this.options);
+      assertFreshOpen(this.options, fresh);
       const vecVersion = this.engine.attach(this.db);
       if (fresh) {
         this.initialize();
@@ -251,11 +250,11 @@ export class IndexWriter {
       this.info = {
         dbPath: this.options.dbPath,
         journalMode: decoder(Schema.String)(this.db.pragma('journal_mode', { simple: true })),
-        pid: process.pid,
+        pid: connection.owner.pid,
         ...this.identity,
         readerQueryOnly: 0,
         vecVersion,
-        writerThreadId: threadId,
+        writerThreadId: connection.owner.writerThreadId,
       };
     } catch (error) {
       this.state?.close();
@@ -283,6 +282,7 @@ export class IndexWriter {
           acquiredState = StateEventStore.acquire(
             this.db,
             this.options.stateRoot,
+            this.truth,
             this.projection,
             this.options,
             version
@@ -560,7 +560,7 @@ export class IndexWriter {
       .run(
         plan.snapshot.fileId,
         plan.snapshot.rootId,
-        path.posix.basename(plan.snapshot.relativePath),
+        basenamePosix(plan.snapshot.relativePath),
         plan.snapshot.relativePath,
         plan.contentHash,
         snapshotHash(plan.snapshot)
@@ -594,7 +594,7 @@ export class IndexWriter {
     previous:
       | { id: number; chunkId: string; embeddingHash: string | null; emb: Uint8Array | null }
       | undefined,
-    supplied: Buffer | undefined,
+    supplied: Uint8Array | undefined,
     snapshot: FileSnapshot,
     vectorsRequired: boolean
   ): Pick<CommitResult, 'reusedEmbeddings' | 'writtenChunks'> {
@@ -765,20 +765,22 @@ export class IndexWriter {
 export class IndexReader {
   readonly scoped: ScopedIndex;
   readonly db: Database.Database;
-  /** sqlite-vec, which `openConnection` loads into this connection. */
-  readonly engine: CoarseVectorEngine = sqliteVecEngine;
+  readonly engine: CoarseVectorEngine;
   readonly options: IndexerOptions;
   readonly allowed: ReadonlySet<string>;
-  constructor(input: unknown) {
+  /** `connection` is a read connection to the index its host opened; the reader closes it on failure. */
+  constructor(input: unknown, connection: IndexReaderConnection) {
     this.options = decoder(optionsSchema)(input);
     this.allowed = new Set(this.options.rootIds);
-    this.db = openConnection(this.options.dbPath, { fileMustExist: true, readonly: true });
+    this.db = connection.db;
+    this.engine = connection.engine;
     try {
       validateAcquisition(this.db, this.options);
-      this.db.pragma('query_only = ON');
       this.scoped = new ScopedIndex(this.db, this.options, this.engine);
     } catch (error) {
-      this.db.close();
+      if (connection.owned) {
+        this.db.close();
+      }
       throw error;
     }
   }

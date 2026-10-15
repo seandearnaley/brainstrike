@@ -10,6 +10,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
+    },
     "./transport": {
       "types": "./dist/transport.d.ts",
       "default": "./dist/transport.js"
@@ -37,6 +41,7 @@
     "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/sqlite-native": "workspace:*",
     "@brainstrike/state-store": "workspace:*",
+    "@noble/hashes": "catalog:",
     "effect": "catalog:"
   },
   "devDependencies": {

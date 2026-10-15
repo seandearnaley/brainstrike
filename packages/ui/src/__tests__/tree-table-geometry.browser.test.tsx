@@ -24,9 +24,9 @@ const nodes = (count: number, height = 34): TreeNode<Data>[] =>
     parentId: null,
     type: 'file',
   }));
-function Fixture({ rows }: { rows: TreeNode<Data>[] }) {
+function Fixture({ rows, height = 400 }: { rows: TreeNode<Data>[]; height?: number }) {
   return (
-    <div style={{ height: 400, width: 440 }}>
+    <div style={{ height, width: 440 }}>
       <TreeTable
         className="border-separate border-spacing-0"
         columns={columns}
@@ -165,4 +165,87 @@ test.each([32, 40])('aligns disclosure and selection to a %ipx first line', asyn
     center(screen.getByTestId('primary-line'))
   );
   expect(center(screen.getByRole('checkbox'))).toBe(center(screen.getByTestId('primary-line')));
+});
+
+// The shell keeps Explorer mounted under display:none while Settings is open.
+// Exercise actual ResizeObserver delivery, rather than unmounting the tree.
+test('preserves visible rows when a mounted panel is hidden and shown', async () => {
+  const rows = nodes(15, 32);
+  const view = render(
+    <div style={{ display: 'block' }}>
+      <Fixture height={1100} rows={rows} />
+    </div>
+  );
+  const viewport = screen.getByTestId('tree-table-viewport');
+  await waitFor(() => expect(viewport.querySelector('[data-node-id="row-0"]')).not.toBeNull());
+  for (let cycle = 0; cycle < 3; cycle++) {
+    view.rerender(
+      <div style={{ display: 'none' }}>
+        <Fixture height={1100} rows={rows} />
+      </div>
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+    view.rerender(
+      <div style={{ display: 'block' }}>
+        <Fixture height={1100} rows={rows} />
+      </div>
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+    await waitFor(() => {
+      const first = viewport.querySelector('[data-node-id]')!;
+      expect(first.getAttribute('data-node-id')).toBe('row-0');
+      expect(first.getBoundingClientRect().top - viewport.getBoundingClientRect().top).toBe(0);
+    });
+  }
+});
+
+test('preserves a scrolled window and measures content changed while hidden', async () => {
+  const rows = nodes(100, 32);
+  const view = render(
+    <div style={{ display: 'block' }}>
+      <Fixture rows={rows} />
+    </div>
+  );
+  const viewport = screen.getByTestId('tree-table-viewport');
+  await waitFor(() => expect(viewport.scrollHeight).toBe(3200));
+  await scrollTo(viewport, 1600);
+  const anchor = viewport.querySelector('[data-node-id="row-50"]')!;
+  const top = anchor.getBoundingClientRect().top;
+  view.rerender(
+    <div style={{ display: 'none' }}>
+      <Fixture rows={rows} />
+    </div>
+  );
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  });
+  // A real child/status update arrives while Settings is showing.
+  const updated = rows.map((row) => (row.id === 'row-52' ? { ...row, data: { height: 96 } } : row));
+  view.rerender(
+    <div style={{ display: 'none' }}>
+      <Fixture rows={updated} />
+    </div>
+  );
+  view.rerender(
+    <div style={{ display: 'block' }}>
+      <Fixture rows={updated} />
+    </div>
+  );
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  });
+  await waitFor(() => {
+    expect(viewport.scrollTop).toBe(1600);
+    expect(viewport.querySelector('[data-node-id="row-50"]')!.getBoundingClientRect().top).toBe(
+      top
+    );
+    expect(viewport.querySelector('[data-node-id="row-52"]')!.getBoundingClientRect().height).toBe(
+      96
+    );
+    expect(viewport.scrollHeight).toBe(3264);
+  });
 });

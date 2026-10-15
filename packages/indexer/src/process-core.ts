@@ -26,6 +26,7 @@ import {
   stateStatsSchema,
 } from './contracts.js';
 import { assertCoverageAuthorityBound, coverageAuthoritySchema } from './coverage-authority.js';
+import { openDesktopIndexReader } from './desktop-index-connection.js';
 import { readScopedIdentity } from './index-metadata.js';
 import { promptVectorReplySchema } from './prompt-vector-contract.js';
 import { RpcClient } from './rpc-client.js';
@@ -139,7 +140,7 @@ export async function runIndexerProcess(
       await close();
       return;
     }
-    reader = new IndexReader(options);
+    reader = new IndexReader(options, openDesktopIndexReader(options));
     const connection = reader;
     const nativeInfo: IndexerInfo = {
       ...info,

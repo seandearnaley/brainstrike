@@ -80,6 +80,9 @@ catalog:
   '@modelcontextprotocol/node': 2.1.1
   '@modelcontextprotocol/server': 2.3.1
   '@modelcontextprotocol/server-legacy': 2.3.1
+  # BST-1940: SHA-256 for the derived indexer where Node's crypto is absent (the
+  # browser writer); packages/indexer/src/portable.ts uses node:crypto when present.
+  '@noble/hashes': 2.2.0
   '@openrouter/ai-sdk-provider': 2.10.0
   '@parcel/watcher': ^2.6.0
   '@playwright/test': 1.63.0
