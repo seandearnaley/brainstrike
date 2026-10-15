@@ -34,6 +34,7 @@ import {
   validateScopedStorage,
   vectorTable,
 } from './scoped-vector-validation.js';
+import type { CoarseVectorEngine } from './vector-engine.js';
 
 const integer = Schema.Int.check(
   Schema.isGreaterThan(0),
@@ -87,6 +88,7 @@ export class ScopedIndex {
   constructor(
     readonly db: Database.Database,
     options: IndexerOptions,
+    readonly engine: CoarseVectorEngine,
     readonly syntax?: SyntaxWriter
   ) {
     this.authority = new ScopeAuthority(options);
@@ -405,7 +407,11 @@ export class ScopedIndex {
       .prepare('INSERT INTO vector_profiles VALUES(?,?,?) ON CONFLICT(profile_hash) DO NOTHING')
       .run(hash, JSON.stringify(profile), profile.dimensions);
     this.db.exec(
-      `CREATE VIRTUAL TABLE IF NOT EXISTS ${vectorTable(profile.dimensions)} USING vec0(id INTEGER PRIMARY KEY,profile_hash TEXT PARTITION KEY,bin BIT[${Math.ceil(profile.dimensions / 8) * 8}]);`
+      this.engine.tableDefinition(vectorTable(profile.dimensions), {
+        bits: Math.ceil(profile.dimensions / 8) * 8,
+        ifNotExists: true,
+        partition: 'profile_hash',
+      })
     );
   }
   private deleteVectors(chunkPk: number): void {
@@ -589,12 +595,20 @@ export class ScopedIndex {
         .pluck()
         .get(profileHash, ...params)
     );
+    const nearest = this.engine.candidates(
+      this.db,
+      vectorTable(profile.dimensions),
+      {
+        among: { params: [profileHash, ...params], sql: source },
+        k: 100,
+        partition: profileHash,
+        partitionColumn: 'profile_hash',
+        vector: coarseVectorBlob(q),
+      },
+      ['id']
+    );
     const candidates = decoder(Schema.Array(Schema.Struct({ id: integer })))(
-      this.db
-        .prepare(
-          `SELECT id FROM ${vectorTable(profile.dimensions)} WHERE bin MATCH vec_quantize_binary(?) AND k=100 AND profile_hash=? AND id IN (${source})`
-        )
-        .all(coarseVectorBlob(q), profileHash, profileHash, ...params)
+      this.db.prepare(nearest.sql).all(...nearest.params)
     );
     const scoreSql =
       profile.distance === 'ip'

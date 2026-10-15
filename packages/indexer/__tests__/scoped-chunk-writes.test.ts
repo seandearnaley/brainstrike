@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { scopedFileChunks, sha256 } from '../src/chunks.js';
 import { providedChunkSchema, type ScopedFileSnapshot } from '../src/contracts.js';
 import { ScopedIndex } from '../src/scoped-store.js';
+import { sqliteVecEngine } from '../src/vector-engine.js';
 
 const recording = Schema.decodeUnknownSync(
   Schema.Struct({
@@ -170,6 +171,7 @@ function writer(
       rootIds: ['root'],
       scopes: [{ embeddingSetId: 'collection', kind: 'collection' }],
     },
+    sqliteVecEngine,
     syntax
   );
   return { chunkWrites, coarseWrites, index, legacyDeletes, syntax, vectorWrites };
