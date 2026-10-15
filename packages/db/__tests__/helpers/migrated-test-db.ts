@@ -21,8 +21,8 @@ import { wasmLoader } from '../../src/wasm-loader.js';
  * unchanged — only the cost is removed.
  *
  * This is the same memory-migrate → dump → load pattern the production browser
- * first-run bootstrap already relies on (see docs/agents/database.md § BROWSER
- * FIRST-RUN FAST BOOTSTRAP), applied to tests.
+ * first-run bootstrap already relies on (see docs/agents/database.md § "Remaining
+ * PGlite consumers"), applied to tests.
  *
  * Use this anywhere a test just needs "a migrated database". Do NOT use it in
  * tests whose subject is schema construction itself (the current-schema catalog
@@ -32,7 +32,7 @@ import { wasmLoader } from '../../src/wasm-loader.js';
 
 /**
  * The engine-extension set every db PGlite construction site must load
- * (docs/agents/database.md § PGLITE EXTENSION INVARIANT). Declared once here so
+ * (docs/agents/database.md § "Remaining PGlite consumers"). Declared once here so
  * every snapshot-loaded test instance is identical to the production loader.
  */
 export const TEST_ENGINE_EXTENSIONS = {

@@ -1,6 +1,6 @@
 /**
  * Diagnostic-log retention preferences (Flight Recorder P2b — see
- * docs/agents/platform-contracts.md "DIAGNOSTIC EVENTS (FLIGHT RECORDER P1)"
+ * docs/archive/agent-contract-history/platform-contracts/p2b-diagnostics-stores.md
  * → "Retention" for the repository-side purge this store's values feed).
  *
  * - `maxAgeDays` — how many days of warn+ diagnostic events to keep. PERSISTED.

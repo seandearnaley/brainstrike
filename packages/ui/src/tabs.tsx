@@ -7,7 +7,7 @@ import { cn } from './lib/utils';
 /**
  * The fixed view switcher: a segmented control over a fixed set of views
  * (Library, Explorer|Search, Git Changes|History, Settings Tools). Rules live in
- * docs/agents/ui-conventions.md § VIEW SWITCHERS (Tabs).
+ * docs/agents/ui-conventions.md § "Trees, tabs and focus".
  *
  * Every class below is a literal: Tailwind emits only what its scanner sees.
  */

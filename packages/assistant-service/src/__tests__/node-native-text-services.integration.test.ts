@@ -152,7 +152,8 @@ test('public plain Node TEXT borrows real native SQLite authority: stop', async 
 }, 60_000);
 
 // The query sandbox refuses a SQLite build without memory accounting
-// (docs/agents/agent-self-query.md), and the plain Node runtimes here (24.16.0
+// (docs/archive/agent-contract-history/agent-self-query/sqlite-index-foundation.md),
+// and the plain Node runtimes here (24.16.0
 // and the pinned 26.8.2) are such builds. Plain Node/CLI support is BST-1941's.
 test('public plain Node TEXT refuses a query runtime without SQLite memory accounting', async ({
   signal,

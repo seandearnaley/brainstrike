@@ -3,10 +3,21 @@
 ## Allowed ownership
 
 [ADR-0012](../adr/0012-ai-sdk-loop-mastra-memory-library.md) governs current runs:
-the host owns one AI SDK loop per root or child. Mastra is an embedded memory
-library behind a host adapter. It does not own a second transcript, permission
-system, workspace, server or run coordinator. Do not resurrect the removed agent
-loop or its vendor patch under a new name.
+the host owns one AI SDK loop per root or child. Mastra owns no transcript,
+permission system, workspace, server or run coordinator. Do not resurrect the
+removed agent loop or its vendor patch under a new name.
+
+`@mastra/memory` is an embedded memory library behind a host adapter, and that is
+the only ownership Mastra has. `@mastra/core` is **not** present merely as its
+peer: per [ADR-0023](../adr/0023-host-owns-its-tool-representation.md) it is a
+direct dependency of `packages/agent` and `packages/agent-host`, additionally
+reached at runtime by hosted tool discovery (`ToolSearchProcessor`), skills,
+provider-request shaping (`TripWire`, `TokenLimiter`, `ProviderHistoryCompat`,
+`ModelRouterLanguageModel`) and background tasks. Each is a separate decision on
+its own evidence — none of them makes Mastra an owner of product state, and none
+is a licence to widen the surface. The host's tool representation is its own
+(`HostTool`, converted to the AI SDK's `ToolSet` at the edge); do not reintroduce
+a vendor tool type as the pipeline's intermediate shape.
 
 Brainstrike owns HTTP entry/auth/origin checks, streaming, tool admission, native
 workspace tools and committed persistence. Mastra-owned tables are not altered to

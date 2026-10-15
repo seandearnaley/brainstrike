@@ -269,7 +269,8 @@ async function readDesktopNativeAdmission(
   );
   // BST-2018: a mention in a live folder outside the thread is attached for
   // this run only; the reader reads exactly the mentioned files, while live.
-  const mentioned = placeMentionedFiles(request.prompt ?? '', roots, liveRoots);
+  // A CLI selection is the run's whole inventory: its prompt cannot widen it.
+  const mentioned = placeMentionedFiles(request.prompt ?? '', roots, selection ? roots : liveRoots);
   const attachedMentions: AttachedMentionFolders | undefined =
     mentioned.attachedRoots.length > 0
       ? {

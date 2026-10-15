@@ -46,7 +46,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
  * Server adapters are the R1 tripwire: each one exists solely to give a Mastra
  * instance an HTTP surface. @mastra/mcp is the R7 tripwire — the official
  * @modelcontextprotocol/sdk clients own MCP transport (see
- * docs/agents/assistant-providers.md "MCP TRANSPORT SELECTION (CRITICAL)"), and
+ * docs/agents/assistant-providers.md § "MCP configuration and lifetime"), and
  * reintroducing @mastra/mcp would stand up a second connection lifecycle beside
  * them. @mastra/agent-browser is the R4 tripwire.
  */

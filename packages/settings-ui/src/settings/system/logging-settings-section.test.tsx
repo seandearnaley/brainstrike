@@ -328,8 +328,9 @@ describe('LoggingSettingsSection export NDJSON button', () => {
   });
 
   // Pins FIX 4 (no silent caps): a truncated export must say so in BOTH the
-  // downloaded filename and a visible toast, per docs/agents/platform-
-  // contracts.md's P2a section and AGENTS.md's "no silent caps" rule.
+  // downloaded filename and a visible toast, per
+  // docs/archive/agent-contract-history/platform-contracts/log-viewer-sources.md
+  // and AGENTS.md's "make failure visible" rule.
   it('suffixes the filename and shows a truncation toast with the N of M counts when the export was truncated', async () => {
     const ndjsonPayload = '{"id":"evt-1"}\n';
     const onExportDurableNdjson = vi.fn(async () =>

@@ -23,9 +23,8 @@
  * function of the path and can never change under a row.
  */
 
-import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { getFileExtension } from '@brainstrike/utils/file-utils';
-import { memo, useCallback, useMemo, useSyncExternalStore } from 'react';
+import { memo, useCallback, useSyncExternalStore } from 'react';
 import { ExtensionBadge } from '../extension-badge';
 import { useFileRowMetadata } from '../indexing/file-row-metadata-context';
 import type {
@@ -36,9 +35,8 @@ import type {
 import { formatTokenCount } from '../preview/use-preview-panel-state';
 import { EXTENSIONLESS_FILE_TYPE } from '../utils/grouping-configs';
 import { formatPreviewFileSize } from '../utils/preview-formatters';
-import { reportUnidentifiedRow } from './file-tree-metadata-diagnostics';
-import { useFileTreeSelection } from './file-tree-selection-context';
 import type { FileTreeRowData } from './optimized-file-tree-model';
+import { useRowCompositeKey } from './use-row-composite-key';
 
 export const EXCLUDED_TOKENS_TITLE = 'binary file excluded from token counts';
 
@@ -91,34 +89,6 @@ function NumericValue({ children, title }: { children: string; title: string }) 
  * with an error tooltip, and the cause is logged once per row.
  */
 const UNIDENTIFIED_ROW_TITLE = 'Metadata unavailable — this row has no workspace identity';
-
-/**
- * Composite key for a row. Prefers the node's OWN root identity — in forest
- * mode a row can belong to a different root than the tree's fallback folderId,
- * and a key built from the wrong root would read another workspace's metadata.
- *
- * Returns null ONLY when the row cannot be identified at all, which the cells
- * surface as an explicit error rather than an empty cell.
- */
-function useRowCompositeKey(rowData: FileTreeRowData): string | null {
-  const { folderId: fallbackFolderId } = useFileTreeSelection();
-  const { path, rootFolderId } = rowData.fileNode;
-  return useMemo(() => {
-    const folderId = rootFolderId || fallbackFolderId;
-    if (!(folderId && path)) {
-      reportUnidentifiedRow(path);
-      return null;
-    }
-    try {
-      return encodeFileSelection(folderId, path);
-    } catch (error) {
-      // encodeFileSelection rejects paths it cannot round-trip. Catching here
-      // is what stops a malformed key from ever reaching the store.
-      reportUnidentifiedRow(path, error);
-      return null;
-    }
-  }, [fallbackFolderId, path, rootFolderId]);
-}
 
 function useFileSnapshot(store: FileRowMetadataStore, compositeKey: string): FileRowMetadata {
   const subscribe = useCallback(
