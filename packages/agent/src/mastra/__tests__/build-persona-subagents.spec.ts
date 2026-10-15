@@ -1,3 +1,7 @@
+// biome-ignore-all lint/style/noExcessiveLinesPerFile: one cohesive persona-assembly
+// lifecycle suite. It crossed the 1000-line cap only because import sorting reflowed
+// a single import across four lines; no test content was added. Splitting it belongs
+// with the src/mastra relocation (ADR-0022/0023), not with a lint fix.
 import { deriveEffectiveInputBudget } from '@brainstrike/assistant-contract';
 import { GEMMA4_E2B_MODEL_ID } from '@brainstrike/assistant-contract/local-llm';
 import {
@@ -12,6 +16,8 @@ import type { MastraModelConfig } from '@mastra/core/llm';
 import { createTool, noopObserve } from '@mastra/core/tools';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { BrainstrikeToolSearchProcessor } from '../../mastra-processors/tool-search-runtime';
+import type { PermissionToolGateLogger } from '../../permissions/permission-tool-gate';
 import { createListingOnlyModel } from '../../providers/listing-only-model';
 import {
   decodedTextModelOutputChars,
@@ -20,14 +26,15 @@ import {
   type ScaledToolResultBudget,
 } from '../../stream/tool-output-limits';
 import { scriptedAgentModel, textParts } from '../../test-fixtures/scripted-agent-model';
+import {
+  applyToolModelOutputProjections,
+  getActiveToolResultBudget,
+} from '../../tool-projection/tool-model-output';
 import { createAskUserTool } from '../../tools/ask-user-tool';
 import { createSubmitPlanTool } from '../../tools/submit-plan-tool';
 import { buildPersonaSubAgents, resolveChildToolCallConcurrency } from '../build-persona-subagents';
 import { createDelegatedConversationBinding } from '../delegated-conversation-binding';
-import type { PermissionToolGateLogger } from '../../permissions/permission-tool-gate';
 import { ProjectionAwareTokenLimiter } from '../projection-aware-token-limiter';
-import { applyToolModelOutputProjections, getActiveToolResultBudget } from '../../tool-projection/tool-model-output';
-import { BrainstrikeToolSearchProcessor } from '../../mastra-processors/tool-search-runtime';
 
 // Mastra vendors its own AI SDK v5 provider types (the workspace
 // `@ai-sdk/provider` is a different major and is NOT assignable), so extract

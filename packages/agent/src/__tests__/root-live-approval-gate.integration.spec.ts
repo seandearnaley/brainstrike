@@ -31,9 +31,9 @@ import { createTool, noopObserve } from '@mastra/core/tools';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { createMastraAgentRuntime, type MastraAgentRuntime } from '../mastra/agent-runtime';
-import { sanitizeToolName } from '../tool-projection/tool-sanitizer';
 import { createPgliteMastraMemory, type PgliteDatabase } from '../pglite-mastra-memory';
 import { createListingOnlyModel } from '../providers/listing-only-model';
+import { sanitizeToolName } from '../tool-projection/tool-sanitizer';
 
 /** Unknown caller-supplied local tools stay on the eager (core) surface. */
 const EAGER_ASK_TOOL = 'fixture.shell';

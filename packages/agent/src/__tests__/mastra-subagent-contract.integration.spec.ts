@@ -26,7 +26,6 @@ import { createDelegatedStreamProjection } from '../mastra/delegated-stream-proj
 import { createDelegatedTurnPersistence } from '../mastra/delegated-turn-persistence';
 import { makeDelegatedStreamTermination } from '../mastra/stream-termination';
 import { createDelegationConfig } from '../mastra/subagent-delegation';
-import { readMastraStreamPartString, readMastraStreamPartValue } from '../tool-projection/tool-event-mapper';
 import { createTurnAttemptLifecycleState } from '../mastra/turn-attempts';
 import { createPgliteMastraMemory, type PgliteDatabase } from '../pglite-mastra-memory';
 import {
@@ -36,6 +35,10 @@ import {
   toolCallParts,
   toolThenAnswer,
 } from '../test-fixtures/scripted-agent-model';
+import {
+  readMastraStreamPartString,
+  readMastraStreamPartValue,
+} from '../tool-projection/tool-event-mapper';
 import { assertStaleDelegatedDecision } from './fixtures/delegated-decision-contract';
 import { createPristineEngineTestDb } from './helpers/migrated-agent-test-db';
 

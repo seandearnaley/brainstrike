@@ -7,18 +7,6 @@ export {
   ElicitRequestFormParamsSchema,
   ElicitRequestURLParamsSchema,
 } from '@modelcontextprotocol/core';
-export type { McpDiscoverySkip } from './mcp/mcp-discovery-diagnostics';
-export {
-  type CreateMcpRuntimeClientOptions,
-  createMcpRuntimeClient,
-  type McpRuntimeClient,
-  type McpToolsetsWithErrors,
-} from './mcp/mcp-runtime-client';
-export {
-  type CollectCombinedToolsOptions,
-  type CollectCombinedToolsResult,
-  collectCombinedTools,
-} from './mcp/mcp-tool-loader';
 export {
   MCP_APPS_CLIENT_EXTENSION_CONTRACT,
   registerMcpAppsClientCapability,
@@ -99,6 +87,18 @@ export {
   type ExplicitStdioMcpSubscription,
   type ExplicitStdioMcpSubscriptionFilter,
 } from './mcp/explicit-stdio-client';
+export type { McpDiscoverySkip } from './mcp/mcp-discovery-diagnostics';
+export {
+  type CreateMcpRuntimeClientOptions,
+  createMcpRuntimeClient,
+  type McpRuntimeClient,
+  type McpToolsetsWithErrors,
+} from './mcp/mcp-runtime-client';
+export {
+  type CollectCombinedToolsOptions,
+  type CollectCombinedToolsResult,
+  collectCombinedTools,
+} from './mcp/mcp-tool-loader';
 export type {
   McpServerFeatureEventDiagnosticSink,
   McpServerFeatureEventHandlers,

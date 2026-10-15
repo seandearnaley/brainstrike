@@ -14,5 +14,5 @@ export {
   claimDelegatedToolAction,
 } from '../mastra/delegated-tool-actions';
 export { createResponseBoundaryProcessor } from '../mastra/response-boundary-processor';
-export { sanitizeTools } from '../tool-projection/tool-sanitizer';
 export { createTurnAttemptLifecycleState } from '../mastra/turn-attempts';
+export { sanitizeTools } from '../tool-projection/tool-sanitizer';

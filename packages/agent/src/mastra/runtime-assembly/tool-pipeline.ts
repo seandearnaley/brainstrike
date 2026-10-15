@@ -25,13 +25,46 @@ import {
   type AssistantResilienceConfig,
   resolveAssistantResilienceConfig,
 } from '../../config/resilience-config';
+import { createMastraAgentError } from '../../mastra-boundary/mastra-agent-error';
+import { ProjectionSafeToolCallFilter } from '../../mastra-processors/projection-safe-tool-call-filter';
+import {
+  BrainstrikeToolSearchProcessor,
+  isHostedProviderRuntime,
+  resolveHostedToolDiscoveryAdapter,
+  resolveToolDiscoverySurface,
+  type ToolDiscoverySurface,
+} from '../../mastra-processors/tool-search-runtime';
 import type { McpConfig } from '../../mcp/config';
+import type { McpDiscoverySkip } from '../../mcp/mcp-discovery-diagnostics';
+import { createMcpRuntimeClient, type McpRuntimeClient } from '../../mcp/mcp-runtime-client';
+import { collectCombinedTools } from '../../mcp/mcp-tool-loader';
 import type { McpTaskTrackingCapability } from '../../mcp/task-tracking';
+import {
+  filterToolsByPermissionWithMetadata,
+  type PermissionAskToolMetadata,
+  type PermissionToolGateSnapshot,
+} from '../../permissions/permission-tool-gate';
+import {
+  filterToolsForPlanMode,
+  resolveSuspendToolsForRun,
+} from '../../permissions/plan-mode-tool-gate';
 import { createListingOnlyModel } from '../../providers/listing-only-model';
 import { applyProviderNativeWebSearch } from '../../providers/native-web-search';
 import type { ProviderAuthInput } from '../../providers/provider-auth-input';
+import type { ResolvedRuntimeConfiguration } from '../../runtime-configuration';
 import { createAssistantSkillTools } from '../../skills/skill-tools';
 import type { ScaledToolResultBudget } from '../../stream/tool-output-limits';
+import { createRunTokenDiagnostics, type RunTokenDiagnostics } from '../../token-measurement';
+import type { ModelOutputProjectionObserver } from '../../tool-projection/tool-model-output';
+import {
+  applyToolModelOutputProjections,
+  wouldTruncateMcpModelOutput,
+} from '../../tool-projection/tool-model-output';
+import {
+  applyToolOutputArtifactSettlement,
+  type ToolOutputArtifactSettlementStore,
+} from '../../tool-projection/tool-output-artifact-settlement';
+import { sanitizeToolName, sanitizeTools } from '../../tool-projection/tool-sanitizer';
 import { applyToolGuards } from '../../tools/guard-tool-execution';
 import type { AgentHookRunner } from '../../tools/hook-runner';
 import { applyToolHooks } from '../../tools/hook-tool-wrap';
@@ -45,38 +78,11 @@ import {
   createApprovalGate,
   type RuntimeApprovalGate,
 } from '../approval-gate';
-import { createMastraAgentError } from '../../mastra-boundary/mastra-agent-error';
 import {
   createMcpAppToolAdmissionCapability,
   type McpAppToolAdmissionCapability,
 } from '../mcp-app-tool-call';
-import type { McpDiscoverySkip } from '../../mcp/mcp-discovery-diagnostics';
-import { createMcpRuntimeClient, type McpRuntimeClient } from '../../mcp/mcp-runtime-client';
-import { collectCombinedTools } from '../../mcp/mcp-tool-loader';
 import { type PermissionGateSummary, summarizePermissionGate } from '../permission-gate-run-events';
-import {
-  filterToolsByPermissionWithMetadata,
-  type PermissionAskToolMetadata,
-  type PermissionToolGateSnapshot,
-} from '../../permissions/permission-tool-gate';
-import { filterToolsForPlanMode, resolveSuspendToolsForRun } from '../../permissions/plan-mode-tool-gate';
-import { ProjectionSafeToolCallFilter } from '../../mastra-processors/projection-safe-tool-call-filter';
-import type { ResolvedRuntimeConfiguration } from '../../runtime-configuration';
-import { createRunTokenDiagnostics, type RunTokenDiagnostics } from '../../token-measurement';
-import type { ModelOutputProjectionObserver } from '../../tool-projection/tool-model-output';
-import { applyToolModelOutputProjections, wouldTruncateMcpModelOutput } from '../../tool-projection/tool-model-output';
-import {
-  applyToolOutputArtifactSettlement,
-  type ToolOutputArtifactSettlementStore,
-} from '../../tool-projection/tool-output-artifact-settlement';
-import { sanitizeToolName, sanitizeTools } from '../../tool-projection/tool-sanitizer';
-import {
-  BrainstrikeToolSearchProcessor,
-  isHostedProviderRuntime,
-  resolveHostedToolDiscoveryAdapter,
-  resolveToolDiscoverySurface,
-  type ToolDiscoverySurface,
-} from '../../mastra-processors/tool-search-runtime';
 
 const logger = createLogger('MastraAgent');
 

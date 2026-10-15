@@ -16,11 +16,11 @@ import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import type { WorkspaceSkills } from '@mastra/core/skills';
 import { createSkillTools } from '@mastra/core/workspace';
 import type { z } from 'zod';
-import { sanitizeToolName } from '../tool-projection/tool-sanitizer';
 import {
   NATIVE_TOOL_RESULT_TOKEN_BUDGET,
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
 } from '../stream/tool-output-limits';
+import { sanitizeToolName } from '../tool-projection/tool-sanitizer';
 
 export { SKILL_ACTIVATION_RESULT_TOKEN_BUDGET };
 

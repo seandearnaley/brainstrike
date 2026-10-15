@@ -1,6 +1,9 @@
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { describe, expect, it } from 'vitest';
-import { mapMastraToolEvent, readNestedToolOutputChunk } from '../tool-projection/tool-event-mapper';
+import {
+  mapMastraToolEvent,
+  readNestedToolOutputChunk,
+} from '../tool-projection/tool-event-mapper';
 import { createHookResultEnvelope } from '../tools/hook-runner';
 
 describe('readNestedToolOutputChunk', () => {

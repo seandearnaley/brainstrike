@@ -15,8 +15,32 @@ import type { MastraMemory } from '@mastra/core/memory';
 import type { InputProcessor } from '@mastra/core/processors';
 import type { MastraCompositeStore } from '@mastra/core/storage';
 import type { AssistantResilienceConfig } from '../config/resilience-config';
+import {
+  buildContextBudgetNote,
+  buildCurrentDateNote,
+  buildCurrentTaskListNote,
+  buildDefaultInstructions,
+  buildLocalDefaultInstructions,
+  type DelegationPersonaSummary,
+} from '../instructions/default-instructions';
+import { createMastraAgentError, isMastraAgentError } from '../mastra-boundary/mastra-agent-error';
+import {
+  ASSISTANT_MAX_PROCESSOR_RETRIES,
+  buildAssistantErrorProcessors,
+} from '../mastra-processors/error-processors';
+import type { ProjectionSafeToolCallFilter } from '../mastra-processors/projection-safe-tool-call-filter';
+import type {
+  BrainstrikeToolSearchProcessor,
+  ToolDiscoveryMetadata,
+} from '../mastra-processors/tool-search-runtime';
 import type { McpConfig } from '../mcp/config';
+import type { McpDiscoverySkip } from '../mcp/mcp-discovery-diagnostics';
+import type { McpRuntimeClient } from '../mcp/mcp-runtime-client';
 import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
+import type {
+  PermissionAskToolMetadata,
+  PermissionToolGateSnapshot,
+} from '../permissions/permission-tool-gate';
 import type { BackgroundTaskScope } from '../pglite-mastra-memory/background-store';
 import { isListingOnlyModel } from '../providers/listing-only-model';
 import type { ProviderAuthInput } from '../providers/provider-auth-input';
@@ -32,9 +56,15 @@ import {
   toMastraModelConfiguration,
 } from '../providers/provider-factory';
 import {
+  type ResolvedRuntimeConfiguration,
+  resolveRuntimeConfiguration,
+} from '../runtime-configuration';
+import {
   resolveToolResultBudgetForModel,
   type ScaledToolResultBudget,
 } from '../stream/tool-output-limits';
+import type { RunTokenDiagnostics } from '../token-measurement';
+import type { ToolOutputArtifactSettlementStore } from '../tool-projection/tool-output-artifact-settlement';
 import type { AgentHookRunner } from '../tools/hook-runner';
 import type { ToolExecutionDurations } from '../tools/tool-execution-durations';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
@@ -52,14 +82,6 @@ import { requireBackgroundResultDelivery } from './background-result-delivery';
 import type { DelegatedExecutionOptions } from './build-persona-subagents';
 import type { ChildContinuationRuntimeScope } from './child-continuation-usage';
 import { captureRuntimeChildExecution } from './child-run-configuration';
-import {
-  buildContextBudgetNote,
-  buildCurrentDateNote,
-  buildCurrentTaskListNote,
-  buildDefaultInstructions,
-  buildLocalDefaultInstructions,
-  type DelegationPersonaSummary,
-} from '../instructions/default-instructions';
 import type {
   DelegatedCancellationControl,
   DelegatedConversationBinding,
@@ -73,16 +95,10 @@ import {
   createDelegatedTurnPersistence,
   type DelegatedTurnPersistence,
 } from './delegated-turn-persistence';
-import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from '../mastra-processors/error-processors';
 import { createLiveDecisionChannel, type LiveDecisionChannel } from './live-decision-channel';
-import { createMastraAgentError, isMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import type { McpAppToolAdmissionCapability } from './mcp-app-tool-call';
-import type { McpDiscoverySkip } from '../mcp/mcp-discovery-diagnostics';
-import type { McpRuntimeClient } from '../mcp/mcp-runtime-client';
 import type { PermissionGateSummary } from './permission-gate-run-events';
-import type { PermissionAskToolMetadata, PermissionToolGateSnapshot } from '../permissions/permission-tool-gate';
 import { createPersonaPinnedModelResolver } from './persona-pinned-model';
-import type { ProjectionSafeToolCallFilter } from '../mastra-processors/projection-safe-tool-call-filter';
 import { computeInstructionBreakdown, type InstructionBreakdown } from './prompt-breakdown';
 import { createAssistantMessageIdGenerator } from './runtime-assembly/assistant-message-id';
 import { resolvePersonaRuntimeParts } from './runtime-assembly/persona-assembly';
@@ -91,14 +107,7 @@ import {
   createToolHistoryFilter,
   prepareHostedToolDiscovery,
 } from './runtime-assembly/tool-pipeline';
-import {
-  type ResolvedRuntimeConfiguration,
-  resolveRuntimeConfiguration,
-} from '../runtime-configuration';
 import type { ChildPromptFacts } from './subagent-delegation';
-import type { RunTokenDiagnostics } from '../token-measurement';
-import type { ToolOutputArtifactSettlementStore } from '../tool-projection/tool-output-artifact-settlement';
-import type { BrainstrikeToolSearchProcessor, ToolDiscoveryMetadata } from '../mastra-processors/tool-search-runtime';
 
 export interface MastraAgentRuntimeOptions {
   /**

@@ -23,15 +23,21 @@ import {
   UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
 } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger } from '@brainstrike/logging';
-import { resolveRunPythonExecutionContext } from '../tools/run-python-approval-context';
-import type { StreamChunk } from '../types';
-import { type PermissionAskToolMetadata, resolveAskToolMetadata } from '../permissions/permission-tool-gate';
+import {
+  type PermissionAskToolMetadata,
+  resolveAskToolMetadata,
+} from '../permissions/permission-tool-gate';
 import {
   makeErrorFinishChunk,
   makeRunEventChunk,
   makeToolCallsFinishChunk,
 } from '../tool-projection/stream-run-event-chunks';
-import { readMastraStreamPartString, readMastraStreamPartValue } from '../tool-projection/tool-event-mapper';
+import {
+  readMastraStreamPartString,
+  readMastraStreamPartValue,
+} from '../tool-projection/tool-event-mapper';
+import { resolveRunPythonExecutionContext } from '../tools/run-python-approval-context';
+import type { StreamChunk } from '../types';
 
 const logger = createLogger('MastraAgent');
 

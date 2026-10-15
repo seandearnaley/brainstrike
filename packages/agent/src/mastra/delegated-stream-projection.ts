@@ -10,6 +10,12 @@ import {
   readAssistantChildSignalContents,
 } from '@brainstrike/assistant-contract';
 import { z } from 'zod';
+import { MCP_PROGRESS_STREAM_PART_TYPE } from '../mcp/mcp-runtime-client';
+import { SHELL_OUTPUT_STREAM_PART_TYPE } from '../tool-projection/shell-output-stream';
+import {
+  readMastraStreamPartString,
+  readMastraStreamPartValue,
+} from '../tool-projection/tool-event-mapper';
 import type { ConversationStreamChunk, StreamChunkDelegatedConversation } from '../types';
 import { readChildContinuationUserMessage } from './child-continuation-user-message';
 import type { DelegatedRunIdentity } from './delegated-run-publication';
@@ -18,10 +24,7 @@ import {
   type DelegatedSynthesisPart,
   readDelegatedSynthesisPart,
 } from './delegated-synthesis-outcomes';
-import { MCP_PROGRESS_STREAM_PART_TYPE } from '../mcp/mcp-runtime-client';
-import { SHELL_OUTPUT_STREAM_PART_TYPE } from '../tool-projection/shell-output-stream';
 import type { SubagentChildUsageReport } from './subagent-delegation';
-import { readMastraStreamPartString, readMastraStreamPartValue } from '../tool-projection/tool-event-mapper';
 import { resolveDelegationPersona } from './tool-lifecycle-processors';
 
 type DelegatedPause = Extract<

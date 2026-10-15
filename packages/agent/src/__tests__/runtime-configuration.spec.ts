@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PERSONA_PIN_KEYLESS_PROVIDERS } from '../mastra/persona-pinned-model';
-import { resolveRuntimeConfiguration } from '../runtime-configuration';
 import { listProviders, providerAuthType, providerEnvKeys } from '../providers/types';
+import { resolveRuntimeConfiguration } from '../runtime-configuration';
 
 const KEYLESS_PROVIDERS = listProviders()
   .filter((provider) => provider.authType === 'none')

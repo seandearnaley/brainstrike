@@ -1,5 +1,8 @@
 import type { DelegatedRunIdentity } from '@brainstrike/assistant-contract/delegated-conversation-stream';
-import { readMastraStreamPartString, readMastraStreamPartValue } from '../tool-projection/tool-event-mapper';
+import {
+  readMastraStreamPartString,
+  readMastraStreamPartValue,
+} from '../tool-projection/tool-event-mapper';
 
 export type { DelegatedRunIdentity } from '@brainstrike/assistant-contract/delegated-conversation-stream';
 
