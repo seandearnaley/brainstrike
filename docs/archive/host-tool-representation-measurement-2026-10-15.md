@@ -347,8 +347,33 @@ reached over **runtime (value)** edges, not type edges. This set was found by
 
 Verified as value edges by reading the entry files: `provider-request.ts:22-32`
 is seven plain `import { … }` statements and `provider-runtime.ts:15-23` is
-three `export { … } from`. Four are Mastra `Processor` implementations.
-Deleting any of them breaks a published entry.
+three `export { … } from`. Deleting any of them breaks a published entry.
+
+The table above lists the **12** modules reached by a runtime edge. A
+thirteenth, `permission-policy-request`, is reached type-only and erases at
+build — an earlier revision of this document said "13 … through runtime
+imports", which conflated the two.
+
+**Correction (PR #3653):** that revision also called four of them "Mastra
+`Processor` implementations" — `error-processors`,
+`projection-safe-tool-call-filter`, `token-measurement`,
+`tool-projection-rewrite-processor` — and got two wrong in opposite directions.
+Grepping each of the 13 for an `@mastra/core/processors` import gives **six**:
+`error-processors`, `tool-projection-rewrite-processor`,
+`projection-safe-tool-call-filter`, `openai-tool-search-history-compat`,
+`openai-duplicate-item-compat` and `bedrock-message-hygiene`.
+`token-measurement` is **not** one — it imports `ToolsInput` from
+`@mastra/core/agent` and `toStandardSchema`/`standardSchemaToJSONSchema` from
+`@mastra/core/schema`, and nothing from `@mastra/core/processors`.
+`error-processors` is the strongest case and went unremarked: it instantiates
+Mastra's own `PrefillErrorHandler`, `ProviderHistoryCompat` and
+`StreamErrorRetryProcessor`.
+
+The wrong four were inferred from module names instead of grepping the imports
+— the same class of error as the incomplete seed sets behind 83, 79, 75 and 69,
+committed in the same document that catalogues them. Verified here by
+`git grep -l "@mastra/core/processors"`, which after ADR-0022's step 2 finds all
+six under their relocated path `packages/agent/src/mastra-processors/`.
 
 ### The last row is one file, and it is a decision
 
