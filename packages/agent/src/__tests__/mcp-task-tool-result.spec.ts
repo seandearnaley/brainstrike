@@ -1,6 +1,7 @@
 import type { McpTaskPresentation } from '@brainstrike/assistant-contract';
 import type { CreateTaskResult } from '@brainstrike/mcp-tasks-extension';
 import { describe, expect, it, vi } from 'vitest';
+import { REGISTERED_EXTENSION_RESULT_KEY } from '../mcp/client-extension-registry';
 import {
   createMcpTaskToolTracking,
   MCP_TASK_SETTLEMENT_WAIT_MS,
@@ -9,11 +10,10 @@ import {
   resolveMcpTaskSettlementTimeoutMs,
   settleMcpTaskToolResult,
 } from '../mcp/mcp-task-tool-result';
-import { applyToolModelOutputProjections } from '../tool-projection/tool-model-output';
-import { REGISTERED_EXTENSION_RESULT_KEY } from '../mcp/client-extension-registry';
 import { MCP_TASK_CONTEXT_MAX_BYTES } from '../mcp/task-presentation';
 import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
 import { resolveScaledToolResultBudget } from '../stream/tool-output-limits';
+import { applyToolModelOutputProjections } from '../tool-projection/tool-model-output';
 
 const CREATED_TASK: CreateTaskResult = {
   createdAt: '2026-09-01T05:00:00.000Z',

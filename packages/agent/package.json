@@ -98,11 +98,6 @@
       "import": "./dist/mcp-client.mjs",
       "require": "./dist/mcp-client.js"
     },
-    "./test-fixtures/delegated-stream": {
-      "types": "./dist/test-fixtures/delegated-stream.d.ts",
-      "import": "./dist/test-fixtures/delegated-stream.mjs",
-      "require": "./dist/test-fixtures/delegated-stream.js"
-    },
     "./test-fixtures/scripted-agent-model": {
       "types": "./dist/test-fixtures/scripted-agent-model.d.ts",
       "import": "./dist/test-fixtures/scripted-agent-model.mjs",

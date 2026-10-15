@@ -12,9 +12,9 @@
  */
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import { createLogger } from '@brainstrike/logging';
+import { makeSyntheticFinishChunk } from '../tool-projection/stream-run-event-chunks';
 import type { RuntimeData, StreamChunk } from '../types';
 import type { MastraAgentRuntime } from './agent-runtime';
-import { makeSyntheticFinishChunk } from '../tool-projection/stream-run-event-chunks';
 import type { DelegationUsageCapture, ToolLifecycleState } from './tool-lifecycle-processors';
 import { makePendingToolOutputRunEventChunks } from './tool-lifecycle-processors';
 

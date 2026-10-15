@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { ElectronApplication, Page } from 'playwright';
-import { APP_RENDERER_ORIGIN } from '../src/desktop-renderer-target';
+import { APP_RENDERER_ORIGIN } from '../src/desktop-renderer-origin';
 import type { VisibleEmbeddingHostBridge } from '../src/types/desktop-electron-api';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';

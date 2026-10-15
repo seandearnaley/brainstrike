@@ -1,11 +1,11 @@
 import { getToolActionIdentityKey } from '@brainstrike/assistant-contract';
+import { makeRunEventChunk } from '../tool-projection/stream-run-event-chunks';
 import type {
   ConversationStreamChunk,
   StreamChunk,
   StreamChunkToolApprovalRequired,
   StreamChunkToolSuspendRequired,
 } from '../types';
-import { makeRunEventChunk } from '../tool-projection/stream-run-event-chunks';
 
 type PauseNotice = StreamChunkToolApprovalRequired | StreamChunkToolSuspendRequired;
 

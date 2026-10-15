@@ -2,13 +2,13 @@ import type { TokenMeasurementCapability } from '@brainstrike/assistant-contract
 import { createTool } from '@mastra/core/tools';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { createProviderNativeWebSearchTool } from '../providers/native-web-search';
+import { resolveScaledToolResultBudget } from '../stream/tool-output-limits';
 import {
   createPreparedTokenMeasurement,
   createRunTokenDiagnostics as createRunTokenDiagnosticsWithBudget,
   serializeModelOutputForTokenMeasurement,
 } from '../token-measurement';
-import { createProviderNativeWebSearchTool } from '../providers/native-web-search';
-import { resolveScaledToolResultBudget } from '../stream/tool-output-limits';
 import { TOKEN_MEASUREMENT_FIXTURES } from './fixtures/token-measurement-fixtures';
 
 const EXACT_O200K: TokenMeasurementCapability = {

@@ -17,12 +17,12 @@ import type {
   PermissionToolGateSnapshot,
   ToolRiskCategory,
 } from '@brainstrike/assistant-contract/tool-metadata';
-import type { StreamChunk } from '../types';
 import type {
   PermissionAskToolMetadata,
   PermissionDeniedToolMetadata,
 } from '../permissions/permission-tool-gate';
 import { makeRunDetailEventChunk } from '../tool-projection/stream-run-event-chunks';
+import type { StreamChunk } from '../types';
 
 export interface PermissionGateToolEntry {
   readonly riskCategory: ToolRiskCategory;

@@ -9,7 +9,7 @@ import {
   DEFAULT_PERMISSION_POLICIES,
   type PermissionToolGateSnapshot,
 } from '@brainstrike/assistant-contract';
-import { RootLock, RootLockedError, StateStore } from '@brainstrike/state-store';
+import { BLOB_MIN_BYTES, RootLock, RootLockedError, StateStore } from '@brainstrike/state-store';
 import { toStandardSchema } from '@mastra/core/schema';
 import type { JSONSchema7 } from 'ai';
 import type { MockLanguageModelV4 } from 'ai/test';
@@ -478,20 +478,20 @@ test('host/stop reports cleanup failure and retains Root instead of reporting re
   }
 });
 
-test('large real tool content is spooled before publication and survives host reopen with model history', async () => {
-  const text = await readFile(
-    new URL('../../../docs/agents/assistant-runtime.md', import.meta.url),
-    'utf8'
-  );
-  expect(Buffer.byteLength(text)).toBeGreaterThan(12 * 1024);
+// Tool output wide enough to cross the store's spool boundary, owned here and
+// sized from the production threshold. Reading a live repository document for
+// these bytes made the premise hostage to unrelated prose edits: #3598
+// condensed docs/agents/assistant-runtime.md from 193 KB to 3.4 KB and this
+// proof went red without the spool path changing at all.
+test('large tool content is spooled before publication and survives host reopen with model history', async () => {
+  const paragraph =
+    'The host owns the run loop; every client observes the committed rows. ' +
+    'A spooled row keeps its identity while its body moves to a blob \u2014 caf\u00e9, na\u00efve, \u65e5\u672c\u8a9e.\n';
+  const text = paragraph.repeat(Math.ceil((BLOB_MIN_BYTES * 2) / Buffer.byteLength(paragraph)));
+  expect(Buffer.byteLength(text)).toBeGreaterThan(BLOB_MIN_BYTES);
   const native: HostTool = {
-    description: 'Read the real repository runtime contract',
-    execute: async () => ({
-      text: await readFile(
-        new URL('../../../docs/agents/assistant-runtime.md', import.meta.url),
-        'utf8'
-      ),
-    }),
+    description: 'Return the owned wide document',
+    execute: async () => ({ text }),
     identity: 'native-owned-document-reader',
     inputSchema: z.object({ text: z.string() }),
     risk: 'read',
@@ -504,7 +504,7 @@ test('large real tool content is spooled before publication and survives host re
   const stored = await host.core.store.read(threadId);
   const spooled = stored.filter((row) => typeof row.event['blob'] === 'string');
   expect(spooled.length).toBeGreaterThan(0);
-  expect(spooled.every((row) => Buffer.byteLength(row.raw) < 12 * 1024)).toBe(true);
+  expect(spooled.every((row) => Buffer.byteLength(row.raw) < BLOB_MIN_BYTES)).toBe(true);
   for (const row of spooled) {
     expect(
       Buffer.byteLength(await readFile(join(root, 'blobs', String(row.event['blob'])), 'utf8'))

@@ -23,8 +23,8 @@ import type {
   ProviderCallWarning,
   ProviderCallWarningSink,
 } from '../providers/provider-call-warnings';
-import type { StreamChunk } from '../types';
 import { makeRunDetailEventChunk } from '../tool-projection/stream-run-event-chunks';
+import type { StreamChunk } from '../types';
 
 // The wording is shared with the host path (assistant-contract).
 export {

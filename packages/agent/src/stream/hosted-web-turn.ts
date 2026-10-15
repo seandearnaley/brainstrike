@@ -21,9 +21,12 @@ import {
   type TextStreamPart,
   type ToolSet,
 } from 'ai';
-import { buildCurrentDateNote, buildDefaultInstructions } from '../instructions/default-instructions';
-import { readOpenRouterBilledCost } from '../usage-metering';
+import {
+  buildCurrentDateNote,
+  buildDefaultInstructions,
+} from '../instructions/default-instructions';
 import type { AgentMessage, StreamChunk, StreamFinishReason, StreamIterator } from '../types';
+import { readOpenRouterBilledCost } from '../usage-metering';
 
 export interface HostedWebTurnParams {
   readonly messages: readonly AgentMessage[];

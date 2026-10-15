@@ -19,8 +19,8 @@
  */
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
-import type { AgentMessage } from '../types';
 import type { ToolDefinitionContextBreakdown } from '../token-measurement';
+import type { AgentMessage } from '../types';
 
 /**
  * Instruction-side counts, computed where the composed system instructions are

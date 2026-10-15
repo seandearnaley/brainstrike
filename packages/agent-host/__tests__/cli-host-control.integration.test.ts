@@ -8,7 +8,7 @@ import { createAskUserTool, createSubmitPlanTool } from '@brainstrike/agent';
 import type { RuntimeData } from '@brainstrike/agent/tool-runtime';
 import { DEFAULT_PERMISSION_POLICIES, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { processStartTime, RootLock, RootLockedError, StateStore } from '@brainstrike/state-store';
-import { afterEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeAll, expect, test, vi } from 'vitest';
 import {
   canonicalToolInputSchema,
   canonicalToolModelOutput,
@@ -30,6 +30,26 @@ import { removeFixtureRoot } from './fixtures/cooperative-host-fixture.js';
 // The tracked product executable composes this Core CLI with host-capabilities.
 const cli = fileURLToPath(new URL('../../host-capabilities/bin/brainstrike.mjs', import.meta.url));
 const platform = fileURLToPath(new URL('./fixtures/process-platform.mjs', import.meta.url));
+// Every alias here runs that same bin, which refuses with its own message until
+// host-capabilities has emitted dist/platform.js. turbo declares that build
+// (packages/agent-host/turbo.json), but `pnpm --filter … run test:integration`
+// and the root `test:fast` script reach the package script directly, so the
+// premise can be absent. An unbuilt CLI exits 1 with a non-empty stderr, which
+// is exactly the shape of this lane's cold-root refusals — prove the premise
+// once and loudly rather than let it read as 21 opaque assertion failures.
+const composedPlatformModule = fileURLToPath(
+  new URL('../../host-capabilities/dist/platform.js', import.meta.url)
+);
+beforeAll(async () => {
+  try {
+    await access(composedPlatformModule);
+  } catch {
+    throw new Error(
+      `The composed product CLI is not built: ${composedPlatformModule} is absent. ` +
+        'Run pnpm -w build --filter @brainstrike/host-capabilities, or run this lane through turbo.'
+    );
+  }
+});
 const roots: string[] = [];
 const hosts: AgentHost[] = [];
 const clients: HostClient[] = [];
@@ -153,7 +173,7 @@ test.each(['status', 'stop'] as const)(
     const result = await command(dataRoot, name);
     expect(result.code).toBe(1);
     expect(result.stdout).toBe('');
-    expect(result.stderr.length).toBeGreaterThan(0);
+    expect(result.stderr.trim()).toBe('No host is running for this root');
     expect(RootLock.inspect(dataRoot)).toBeNull();
     await expect(access(join(dataRoot, 'host.json'))).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(access(join(dataRoot, 'fixture-platform-pids'))).rejects.toMatchObject({

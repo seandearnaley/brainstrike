@@ -35,9 +35,24 @@ import { type MastraMemory, parseMemoryRequestContext } from '@mastra/core/memor
 import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
 import { Memory } from '@mastra/memory';
 import {
+  ASSISTANT_MAX_PROCESSOR_RETRIES,
+  buildAssistantErrorProcessors,
+} from '../mastra-processors/error-processors';
+import { buildOpenAIDuplicateItemCompatInputProcessor } from '../mastra-processors/openai-duplicate-item-compat';
+import {
+  filterToolsByPermissionWithMetadata,
+  type PermissionToolGateLogger,
+  type PermissionToolGateSnapshot,
+} from '../permissions/permission-tool-gate';
+import { resolveSuspendToolsForRun } from '../permissions/plan-mode-tool-gate';
+import {
   resolveToolResultBudgetForModel,
   type ScaledToolResultBudget,
 } from '../stream/tool-output-limits';
+import {
+  applyToolModelOutputProjections,
+  type ModelOutputProjectionObserver,
+} from '../tool-projection/tool-model-output';
 import type { RuntimeData } from '../types';
 import { applyLiveApprovalGate, createApprovalGate } from './approval-gate';
 import type { ChildContinuationRuntimeScope } from './child-continuation-usage';
@@ -62,15 +77,7 @@ import {
   queueDelegatedTools,
   resolveDelegatedWorkBudget,
 } from './delegated-work-budget';
-import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from '../mastra-processors/error-processors';
 import type { LiveDecisionChannel } from './live-decision-channel';
-import { buildOpenAIDuplicateItemCompatInputProcessor } from '../mastra-processors/openai-duplicate-item-compat';
-import {
-  filterToolsByPermissionWithMetadata,
-  type PermissionToolGateLogger,
-  type PermissionToolGateSnapshot,
-} from '../permissions/permission-tool-gate';
-import { resolveSuspendToolsForRun } from '../permissions/plan-mode-tool-gate';
 import { createResponseBoundaryProcessor } from './response-boundary-processor';
 import { buildToolLoopOptions } from './runtime-assembly/stream-options';
 import {
@@ -78,10 +85,6 @@ import {
   prepareHostedToolDiscovery,
 } from './runtime-assembly/tool-pipeline';
 import type { ChildPromptFacts } from './subagent-delegation';
-import {
-  applyToolModelOutputProjections,
-  type ModelOutputProjectionObserver,
-} from '../tool-projection/tool-model-output';
 
 export interface PersonaSubAgentBuildResult {
   readonly artifactReaderDelegationTools: readonly string[];

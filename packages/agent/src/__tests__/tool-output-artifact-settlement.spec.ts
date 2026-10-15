@@ -13,6 +13,7 @@ import type { ToolsInput } from '@mastra/core/agent';
 import { RequestContext } from '@mastra/core/request-context';
 import { describe, expect, it, vi } from 'vitest';
 import { resolveEligibleArtifactReaderName } from '../mastra/runtime-assembly/tool-pipeline';
+import { resolveScaledToolResultBudget } from '../stream/tool-output-limits';
 import {
   applyToolModelOutputProjections,
   wouldTruncateMcpModelOutput,
@@ -24,7 +25,6 @@ import {
   type ToolOutputArtifactSettlementError,
   type ToolOutputArtifactSettlementStore,
 } from '../tool-projection/tool-output-artifact-settlement';
-import { resolveScaledToolResultBudget } from '../stream/tool-output-limits';
 import { applyToolHooks } from '../tools/hook-tool-wrap';
 
 const ANCHOR_TOOL_RESULT_BUDGET = resolveScaledToolResultBudget(131_072);

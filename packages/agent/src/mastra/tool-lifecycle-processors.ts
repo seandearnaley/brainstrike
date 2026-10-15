@@ -20,10 +20,6 @@ import {
   SUBAGENT_TRUNCATED_OUTCOME,
 } from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
-import type { AssistantRunEventMetadata } from '../run-events';
-import type { ToolExecutionDurations } from '../tools/tool-execution-durations';
-import type { RuntimeData, StreamChunk, StreamChunkTool } from '../types';
-import type { DelegatedSynthesisOutcomes } from './delegated-synthesis-outcomes';
 import {
   asMastraStreamPart,
   getToolCallIdFromToolEvent,
@@ -31,23 +27,27 @@ import {
   makeToolEventMetadata,
   readFinishReason,
 } from '../mastra-boundary/mastra-chunk-decoding';
+import type { AssistantRunEventMetadata } from '../run-events';
+import { makeRunEventChunk } from '../tool-projection/stream-run-event-chunks';
+import {
+  mapMastraToolEvent,
+  readMastraStreamPartString,
+  readNestedToolOutputChunk,
+} from '../tool-projection/tool-event-mapper';
+import type { ToolExecutionDurations } from '../tools/tool-execution-durations';
+import type { RuntimeData, StreamChunk, StreamChunkTool } from '../types';
 import {
   type ProviderMetadataStreamPart,
   readCacheTokenCount,
   readOpenRouterBilledCost,
   readStreamPartUsage,
 } from '../usage-metering';
-import { makeRunEventChunk } from '../tool-projection/stream-run-event-chunks';
+import type { DelegatedSynthesisOutcomes } from './delegated-synthesis-outcomes';
 import type {
   DelegationLifecycleTracker,
   DelegationOutcomeCapture,
   SubagentChildUsageReport,
 } from './subagent-delegation';
-import {
-  mapMastraToolEvent,
-  readMastraStreamPartString,
-  readNestedToolOutputChunk,
-} from '../tool-projection/tool-event-mapper';
 
 type TerminalToolCallState = 'completed' | 'failed';
 

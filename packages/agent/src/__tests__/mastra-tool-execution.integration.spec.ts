@@ -40,13 +40,13 @@ import type { Transport } from '@modelcontextprotocol/server';
 import { McpServer } from '@modelcontextprotocol/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { ExplicitHttpMcpClient } from '../mcp/explicit-http-client';
+import { ExplicitStdioMcpClient } from '../mcp/explicit-stdio-client';
 import {
   projectToolOutputArtifactPage,
   readToolOutputArtifact,
 } from '../tool-projection/tool-output-artifact-reader';
 import type { StoreSettledToolOutputInput } from '../tool-projection/tool-output-artifact-settlement';
-import { ExplicitHttpMcpClient } from '../mcp/explicit-http-client';
-import { ExplicitStdioMcpClient } from '../mcp/explicit-stdio-client';
 import {
   type AgentHookRunner,
   HOOK_RESULT_ENVELOPE_FIELD,
