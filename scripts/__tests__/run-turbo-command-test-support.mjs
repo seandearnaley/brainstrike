@@ -3,6 +3,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 
+import { isForeignCheckout, REPO_ROOT_IGNORED_DIRECTORIES } from '../lib/repo-root-walk.mjs';
+
 const require = createRequire(import.meta.url);
 
 export function resolvedBuildPackages(turboArgs) {
@@ -26,15 +28,6 @@ export function resolvedBuildPackages(turboArgs) {
     .filter((task) => task.task === 'build' && task.command !== '<NONEXISTENT>')
     .map((task) => task.package);
 }
-
-const sweepIgnoredDirectories = new Set([
-  '.claude',
-  '.git',
-  '.stryker-tmp',
-  '.turbo',
-  'dist',
-  'node_modules',
-]);
 
 export function packageScriptEntries() {
   return findPackageJsonFiles(process.cwd()).flatMap((packageJsonPath) => {
@@ -105,11 +98,17 @@ function findRepoFiles(root, matches) {
         continue;
       }
 
-      if (sweepIgnoredDirectories.has(entry.name)) {
+      if (REPO_ROOT_IGNORED_DIRECTORIES.has(entry.name)) {
         continue;
       }
 
       const child = join(dir, entry.name);
+      // Agent tooling parks whole checkouts in the tree (`.muse/worktrees`
+      // reached this sweep even though `.claude` was listed). A foreign
+      // checkout's scripts are not this repository's to assert on.
+      if (isForeignCheckout(child)) {
+        continue;
+      }
       if (statSync(child).isDirectory()) {
         visit(child);
       }

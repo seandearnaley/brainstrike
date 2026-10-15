@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+
+import { collectFilesByExtension } from '../lib/repo-root-walk.mjs';
 
 // BST-1734: the Tailwind v3 preset is deleted and must not drift back in.
 // Lives here (not in packages/config's lane) so Turborepo input scoping can't
@@ -10,25 +12,18 @@ import { fileURLToPath } from 'node:url';
 // `node --test scripts/__tests__/*.test.mjs` always walks the live tree.
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-const SKIP_DIRS = new Set(['.git', '.pnpm-store', '.turbo', 'dist', 'node_modules']);
+// Source extensions that could carry the preset back in, plus the config file
+// names themselves. One traversal serves every one of them.
+const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs', '.css'];
+const CONFIG_NAMES = ['tailwind.config.js', 'tailwind.config.ts'];
+
+// `collectFilesByExtension` owns the repo-root ignore set: `.claude/worktrees`
+// holds a full checkout per live session, and walking into one reports a
+// preset that exists only in an unmerged branch as if it were on this tree.
+const repoFiles = collectFilesByExtension(repoRoot, [...SOURCE_EXTENSIONS, ...CONFIG_NAMES]);
 
 function collectFiles(extension) {
-  const found = [];
-  const walk = (directory) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        if (!SKIP_DIRS.has(entry.name)) {
-          walk(path.join(directory, entry.name));
-        }
-        continue;
-      }
-      if (entry.name.endsWith(extension)) {
-        found.push(path.join(directory, entry.name));
-      }
-    }
-  };
-  walk(repoRoot);
-  return found.sort();
+  return repoFiles.get(extension);
 }
 
 test('no tailwind v3 preset or app configs exist', () => {
