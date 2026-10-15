@@ -66,6 +66,7 @@
     "@vitejs/plugin-react": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "@vitest/ui": "catalog:",
+    "ai": "catalog:",
     "idb": "catalog:",
     "jsdom": "catalog:",
     "jszip": "catalog:",

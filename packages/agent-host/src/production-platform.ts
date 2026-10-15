@@ -7,6 +7,7 @@ import {
 import {
   createProvider,
   createProviderNativeWebSearchTool,
+  materializeHostProviderModel,
   type ProviderAuthInput,
   providerSupportsNativeWebSearch,
   type RuntimeData,
@@ -33,7 +34,6 @@ import {
 import type { StateStoreMemoryVector } from './adapters/state-store-memory-vector.js';
 import { withHostDelegationTools } from './child-runs.js';
 import { type HostStateIndex, openHostStateIndex } from './host-state-index.js';
-import { materializeHostProviderModel } from './model-router-sdk.js';
 import type {
   HostDelegation,
   HostMcpRuntime,

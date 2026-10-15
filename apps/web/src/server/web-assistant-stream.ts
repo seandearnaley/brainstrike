@@ -1,21 +1,26 @@
 import {
   type AgentMessage,
+  createProvider,
+  injectWorkspaceRootManifestContext,
+  materializeHostProviderModel,
   type ProviderAuthInput,
   type RuntimeData,
   type StreamChunk,
-  toAiSdkStyleStream,
+  streamHostedWebTurn,
 } from '@brainstrike/agent/hosted-web';
 import type { ResolvedProviderCredential } from '@brainstrike/assistant-service/ports';
 import { providerAuthInputFromCredential } from '@brainstrike/assistant-service/provider-credential-projection';
 
 /**
- * Build a stateless Hosted Web stream (BST-973-2 converged entry).
+ * Build a stateless Hosted Web stream (BST-973-2 converged entry, ADR-0022).
  *
- * Vercel may move consecutive requests across function instances, so module
- * state cannot own Mastra workflow snapshots or continuation replay. The Web
- * runtime also exposes no tool registry. Approval/suspend actions are rejected
- * by the HTTP boundary before this function is called; normal turns therefore
- * run without a storage argument and cannot accidentally advertise persistence.
+ * One AI SDK 7 `streamText` call, no agent loop. Vercel may move consecutive
+ * requests across function instances, so nothing here may own session state or
+ * continuation replay. The Web runtime exposes no tool registry, no memory and
+ * no storage: approval/suspend actions are rejected by the HTTP boundary before
+ * this function is called, and the allow-list
+ * (`web-assistant-runtime-schema.ts`) is what keeps every other stateful field
+ * off the wire.
  *
  * The runtime arrives ALREADY TRUSTED — the allow-list pre-filter ran before
  * the shared prepareAssistantPostRequest, which stamped the provider. This
@@ -35,20 +40,28 @@ export async function buildWebAssistantStreamFromPrepared(params: {
   readonly runtimeData: RuntimeData;
   readonly signal?: AbortSignal;
 }): Promise<AsyncIterable<StreamChunk>> {
-  // Rides the STREAM OPTIONS as a direct parameter, never RuntimeData —
-  // RuntimeData reaches Mastra RequestContext serialization (BST-1352).
   const provider =
     typeof params.runtimeData.provider === 'string' ? params.runtimeData.provider : '';
+  // Rides the model construction as a direct parameter, never RuntimeData.
   const authInput: ProviderAuthInput | undefined = providerAuthInputFromCredential(
     provider,
     params.credential
   );
-  return await toAiSdkStyleStream(
-    params.agentMessages,
-    {
-      ...params.runtimeData,
-      ...(params.signal ? { signal: params.signal } : {}),
-    },
-    authInput ? { authInput } : {}
+  const runtime: RuntimeData = {
+    ...params.runtimeData,
+    ...(params.signal ? { signal: params.signal } : {}),
+  };
+  // The workspace root manifest is a prompt preamble derived from the
+  // allow-listed workspace fields; it is engine-independent and still runs.
+  const messages = injectWorkspaceRootManifestContext(params.agentMessages, runtime);
+  // No model argument: Hosted Web owns model policy server-side, so the
+  // provider's registry default is the model, exactly as before ADR-0022.
+  const model = materializeHostProviderModel(
+    createProvider(provider, authInput, undefined, runtime)
   );
+  return await streamHostedWebTurn({
+    messages,
+    model,
+    ...(params.signal ? { signal: params.signal } : {}),
+  });
 }

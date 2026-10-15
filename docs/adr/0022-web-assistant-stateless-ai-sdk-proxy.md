@@ -72,8 +72,21 @@ on a host no later request can reach.
   files / ~27,808 lines** retirable. The directory total is 100 files / 32,847
   lines; 16 files / 4,983 lines are tool-projection modules the new loop uses
   and are relocated, not deleted.
-- `apps/web` stops tracing `@mastra/core` and `@mastra/memory` into its Vercel
-  functions.
+- `apps/web` stops tracing the agent loop and `@mastra/memory` into its Vercel
+  functions. Measured on the `./hosted-web` entry: its transitive closure falls
+  from 203 files to 45, the `src/mastra/` files it reaches from 98 (32,791
+  lines) to 2 (154 lines), and the PGlite files it reaches from 5 to 0.
+- **Amended on implementation:** `@mastra/core` does NOT leave the function.
+  OpenRouter — one of web's four hosted providers — is deliberately built on
+  `ModelRouterLanguageModel` from `@mastra/core/llm`
+  (`providers/provider-factory.ts`), because the generic OpenAI-compatible
+  client discards OpenRouter's exact billed-cost `providerMetadata` and the
+  model must route through `OpenRouterStrictContentGateway`. That is Mastra's
+  *model router*, not the retired agent loop, and ADR-0012 never asked web to
+  drop it. Rebuilding it would be a capability regression, so it stays; the
+  two `src/mastra/` files still reached (`mastra-agent-error`,
+  `permission-policy-request`) are pure helpers, misfiled rather than retired.
+  Owner decision, 2026-10-15.
 - `docs/agents/mastra-boundary.md` becomes true. It already says the agent loop
   is removed.
 - Web gains nothing. It has no tools, memory or persistence today and has none

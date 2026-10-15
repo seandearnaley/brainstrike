@@ -52,11 +52,16 @@ export {
 export {
   type AssistantUiMessageConversionResult,
   convertAssistantUiMessagesWithFinalInput,
-  toAiSdkStyleStream,
 } from './message-utils';
+// ADR-0022: the Hosted Web turn is one AI SDK `streamText` call. The provider
+// factory and its materializer are the SAME ones the host uses, so web keeps
+// the shipped Anthropic cache breakpoints and the OpenRouter strict-content
+// gateway rather than re-deriving a second, thinner provider path.
+export { materializeHostProviderModel } from './providers/model-router-sdk';
 // The provider auth seam (BST-1352): Hosted Web adapts its env-resolved key
 // via `kind: 'api_key'` only (no typed-credential resolution on web).
 export type { ProviderAuthInput } from './providers/provider-auth-input';
+export { createProvider } from './providers/provider-factory';
 // Slim by construction: tool-categories has zero imports. Lets the shared
 // assistant-service preparation validate native-tool ids without dragging the
 // agent ROOT entry (and its Mastra/Node graph) into traced Vercel functions.
@@ -68,9 +73,11 @@ export {
   resolveAssistantRequestBodyLimitBytes,
 } from './request-boundary';
 export { createStatelessAssistantDataStreamResponse } from './stream/data-stream';
+export { streamHostedWebTurn } from './stream/hosted-web-turn';
 export type {
   AgentMessage,
   RuntimeData,
   StreamChunk,
   StreamIterator,
 } from './types';
+export { injectWorkspaceRootManifestContext } from './workspace-root-manifest';

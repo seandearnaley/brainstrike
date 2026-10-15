@@ -37,7 +37,13 @@ describe('hosted Web agent entrypoint', () => {
     expect(typeof hostedWebModule.readToolApprovalRunConfigAction).toBe('function');
     expect(typeof hostedWebModule.readToolResumeRunConfigAction).toBe('function');
     expect(typeof hostedWebModule.resolveAssistantRequestBodyLimitBytes).toBe('function');
-    expect(typeof hostedWebModule.toAiSdkStyleStream).toBe('function');
+    expect(typeof hostedWebModule.streamHostedWebTurn).toBe('function');
+    expect(typeof hostedWebModule.createProvider).toBe('function');
+    expect(typeof hostedWebModule.materializeHostProviderModel).toBe('function');
+    expect(typeof hostedWebModule.injectWorkspaceRootManifestContext).toBe('function');
+    // ADR-0022 retired the agent loop for web; the old entry must be gone so
+    // a caller cannot quietly route back through it.
+    expect('toAiSdkStyleStream' in hostedWebModule).toBe(false);
     expect(hostedWebModule.HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES).toBe(4 * 1024 * 1024);
 
     expect('assistantDataStreamSessions' in hostedWebModule).toBe(false);
@@ -49,12 +55,9 @@ describe('hosted Web agent entrypoint', () => {
   it('fails loudly instead of running the local provider without an llm-host client', async () => {
     const hostedWebModule = await import('../hosted-web');
 
-    await expect(
-      hostedWebModule.toAiSdkStyleStream(
-        [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
-        { provider: 'local' }
-      )
-    ).rejects.toThrow('requires the local LLM host client (renderer-only inference)');
+    expect(() => hostedWebModule.createProvider('local', undefined, undefined, {})).toThrow(
+      'requires the local LLM host client (renderer-only inference)'
+    );
     expect(localInferenceImport).not.toHaveBeenCalled();
   });
 });
