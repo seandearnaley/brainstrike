@@ -1,5 +1,5 @@
 import type { IDatabase } from '@brainstrike/db';
-import { migrate, wasmLoader } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatProviderModelKey, startEmbeddingWorker } from '../index.js';
@@ -95,8 +95,7 @@ describe('embedding-worker', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite('memory://embedding-worker');
-    await migrate(db);
+    db = await createMigratedTestDb();
   });
 
   it('processes an embed_chunk job and writes embedding', async () => {

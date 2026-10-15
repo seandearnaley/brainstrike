@@ -27,6 +27,7 @@
 // download lane is excluded by the base config's `exclude` (inherited here) and
 // would not match this include anyway. Base `test:coverage` keeps the full
 // include so coverage still measures pure + integration in one process.
+import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 import baseConfig from './vitest.config.mts';
 
@@ -43,6 +44,12 @@ export default defineConfig({
     // removed the coverage directory ... Vitest created earlier"). Full-suite
     // coverage is owned by the single-process `test:coverage` script.
     coverage: { ...(baseTest.coverage ?? {}), enabled: false },
+    // Migrate one PGlite template per lane run instead of once per test: the
+    // files get isolated restored copies from
+    // `@brainstrike/db/test-support/migrated-test-db`. Lane-only, because the
+    // pure lane opens no PGlite; the base-config coverage run falls back to one
+    // template per file.
+    globalSetup: [resolve(import.meta.dirname, '../db/__tests__/helpers/db-snapshot-global.ts')],
     // This include MIRRORS the pure lane's --exclude glob exactly (any
     // extension), so the two lanes partition the suffix by construction: a file
     // the pure lane excludes is always picked up here — it can never be

@@ -2,18 +2,16 @@ import {
   createDatabaseWorkScheduler,
   createScheduledDbHandle,
   JobQueue,
-  migrate,
   precreateEmptyDimensionIndex,
-  wasmLoader,
 } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import { buildEmbeddingInputHash } from '@brainstrike/indexing-contract';
 import { expect, it, vi } from 'vitest';
 import { startEmbeddingWorker } from '../index.js';
 import type { EmbeddingService } from '../types.js';
 
 it('settles each committed completion before a later statement fails and retries only unfinished jobs', async () => {
-  const db = await wasmLoader.createPGlite('memory://partial-completion-worker');
-  await migrate(db);
+  const db = await createMigratedTestDb();
   await precreateEmptyDimensionIndex(db, 768);
   const modelKey = 'local::jinaai/jina-embeddings-v2-base-code';
   await db.query(

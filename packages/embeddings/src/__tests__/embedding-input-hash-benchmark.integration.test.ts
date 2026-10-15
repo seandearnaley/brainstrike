@@ -1,5 +1,6 @@
 import type { IDatabase, Job } from '@brainstrike/db';
-import { JobQueue, migrate, wasmLoader } from '@brainstrike/db';
+import { JobQueue } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import { buildEmbeddingJobInputHashes } from '@brainstrike/indexing-contract';
 import type { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
@@ -368,8 +369,7 @@ describe('embedding input hash relocation benchmark', { concurrent: false }, () 
     async () => {
       const batchSizes = [1, 8, 32] as const;
       const contentLengths = [128, 4096] as const;
-      const db = await wasmLoader.createPGlite('memory://bst-393-hash-relocation');
-      await migrate(db);
+      const db = await createMigratedTestDb();
       const results: HashRelocationBenchmarkResult[] = [];
 
       try {
