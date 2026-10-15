@@ -22,16 +22,24 @@ export const KIND_LABEL: Readonly<Record<ContextSpanKind, string>> = {
 };
 
 /**
- * Text color per kind; a cell fills with `bg-current` or the hatch below, so
- * one static class carries both. Values meet 3:1 against the muted track in
- * both themes; every cell also names its kind in its title and the lens table.
+ * Text color per kind; a cell fills with `bg-current` or the hatch below, so one
+ * static class carries both. Every value clears AA (4.5:1) as a foreground on
+ * every light surface, enforced by
+ * `scripts/__tests__/source-foreground-contract.test.mjs`, which measures a
+ * `text-*` utility as text wherever it appears. That bar is stricter than the
+ * 3:1 these fills actually need under WCAG 1.4.11, so each also clears 4.8:1
+ * against the muted track in both themes. Warning hues go through the measured
+ * `--warning` token rather than a raw amber, which is where this drifted:
+ * amber-600 sat at 2.80:1 on the light muted track and 2.55:1 in high contrast,
+ * below even the 3:1 non-text floor. Every cell also names its kind in its
+ * title and the lens table.
  */
 export const KIND_COLOR_CLASS: Readonly<Record<ContextSpanKind, string>> = {
-  edit: 'text-green-700 dark:text-green-500',
-  grep: 'text-amber-600 dark:text-amber-400',
-  pinned: 'text-pink-600 dark:text-pink-400',
-  read: 'text-blue-600 dark:text-blue-400',
-  semantic: 'text-purple-600 dark:text-purple-400',
+  edit: 'text-green-800 dark:text-green-500',
+  grep: 'text-warning',
+  pinned: 'text-pink-800 dark:text-pink-400',
+  read: 'text-blue-700 dark:text-blue-400',
+  semantic: 'text-purple-700 dark:text-purple-400',
 };
 
 /** Seen, but no longer in the window: hatched in the kind's color. */

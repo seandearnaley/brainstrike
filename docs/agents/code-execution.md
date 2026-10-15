@@ -28,8 +28,10 @@ A parent shell exiting does not prove its descendants released the workspace.
 
 Join output streams, native process groups/Jobs and temporary-file cleanup before
 releasing ownership. Report cleanup failure beside the original execution error;
-never turn it into success or erase one cause with another. Failed physical cleanup
-retains the owner for its existing retry/retirement policy.
+never turn it into success or erase one cause with another. Cold interpreter
+installation joins native resource close and staging cleanup;
+retain the primary error and report secondary cleanup failures.
+Failed physical cleanup retains the owner for its existing retry/retirement policy.
 
 ## Results and future VM work
 

@@ -47,5 +47,10 @@ notice, closed transport or deleted row does not prove physical work stopped.
 Stale callbacks cannot affect replacement generations. Debug sessions use
 isolated disposable profiles and own their whole spawned process tree.
 
+Parser host Stop joins every owned generation’s exit and listeners with a 500ms
+caller wait; timeout rejects while actual cleanup stays owned. A failed kill
+remains visible and retryable, blocks parsing on that generation, and never
+acknowledges successful cleanup.
+
 Decision: [ADR-0015](../adr/0015-desktop-platform-ipc-reset-diagnostics.md).
 Implementation: desktop platform/IPC/reset owners and `packages/app-state`.
