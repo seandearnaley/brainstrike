@@ -1,73 +1,17 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync } from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import {
-  decodeEvent,
-  type EventSchema,
-  type MemoryObservationRecord,
-} from '@brainstrike/state-store';
-import { Predicate, Schema } from 'effect';
-import {
-  decoder,
-  type StateMessageIdentity,
-  type StateObservationGroup,
-  type StateProjectionOptions,
-  type StateSearchRow,
-  stateMessageIdentitySchema,
-  stateObservationGroupSchema,
-  stateSearchRowSchema,
-} from './contracts.js';
+import type { StateProjectionOptions } from './contracts.js';
+import { createStateProjection, type StateProjection } from './state-producer.js';
 
-const callable = Schema.declare<(...args: readonly unknown[]) => unknown>(
-  (input): input is (...args: readonly unknown[]) => unknown => Predicate.isFunction(input)
-);
-const record = Schema.Record(Schema.String, Schema.Unknown);
-const moduleSchema = Schema.Struct({
-  decode: Schema.optional(callable),
-  messages: Schema.optional(callable),
-  observationChunks: Schema.optional(callable),
-  observations: Schema.optional(callable),
-  schema: Schema.optional(
-    Schema.Struct({
-      currentVersion: Schema.Int.check(Schema.isGreaterThan(0)),
-      upgraders: Schema.Record(Schema.String, callable),
-      validate: callable,
-    })
-  ),
-  search: Schema.optional(callable),
-  text: callable,
-});
-const eventIdentity = Schema.StructWithRest(
-  Schema.Struct({ seq: Schema.Int.check(Schema.isGreaterThan(0)), type: Schema.String }),
-  [record]
-);
-const unreadable = Schema.Struct({ reason: Schema.String, type: Schema.Literal('unreadable') });
-
-export interface StateProjectionRow {
-  readonly gap: string | null;
-  /** Gap 10: the event's searchable conversation row, when its producer projects one. */
-  readonly search: StateSearchRow;
-  readonly seq: number;
-  readonly text: string | null;
-}
-export interface StateMessageEvent {
-  readonly event: unknown;
-  readonly seq: number;
-  readonly threadId: string;
-}
-export type StateProducerDecoder = (
-  raw: string,
-  mode: 'dev' | 'prod',
-  stateRoot?: string
-) => unknown;
-export interface StateProjection {
-  decode(raw: string): StateProjectionRow;
-  event(raw: string): unknown;
-  readonly identity: string;
-  messages?(rows: readonly StateMessageEvent[]): readonly StateMessageIdentity[];
-  observationChunks?(text: string): readonly string[];
-  observations?(record: MemoryObservationRecord): readonly StateObservationGroup[];
-}
+export {
+  createStateProjection,
+  type StateMessageEvent,
+  type StateProducerDecoder,
+  type StateProjection,
+  type StateProjectionRow,
+} from './state-producer.js';
 
 export function validateStateModule(module: string): string {
   const url = new URL(module);
@@ -81,84 +25,52 @@ export function validateStateModule(module: string): string {
   return filename;
 }
 
-/** Only the trusted acquisition owner supplies this module; callbacks stay in the writer. */
+/** Relative module specifiers a source file imports or re-exports statically. */
+const RELATIVE_IMPORT =
+  /\b(?:import|export)\s[^'"`;]*?\bfrom\s*['"](\.{1,2}\/[^'"]+)['"]|\bimport\s*['"](\.{1,2}\/[^'"]+)['"]/g;
+
+/**
+ * The producer's implementation: its module and every module it reaches by
+ * relative import, with their sources, in a stable order. Package imports
+ * are not followed; their versions belong to the build.
+ */
+function producerSources(entry: string): readonly (readonly [string, string])[] {
+  const root = path.dirname(entry);
+  const sources = new Map<string, string>();
+  const pending = [entry];
+  for (let file = pending.pop(); file !== undefined; file = pending.pop()) {
+    if (sources.has(file)) {
+      continue;
+    }
+    const source = readFileSync(file, 'utf8');
+    sources.set(file, source);
+    for (const match of source.matchAll(RELATIVE_IMPORT)) {
+      const specifier = match[1] ?? match[2];
+      if (specifier) {
+        pending.push(path.resolve(path.dirname(file), specifier));
+      }
+    }
+  }
+  return [...sources]
+    .map(([file, source]) => [path.relative(root, file).split(path.sep).join('/'), source] as const)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/**
+ * The desktop's producer, loaded by file URL: only the trusted acquisition
+ * owner supplies this module, and its callbacks stay in the writer. Its
+ * identity covers the producer's implementation (`producerSources`), so
+ * changing any module the producer reaches rebuilds the index (the host state
+ * index does so automatically).
+ */
 export async function loadStateProjection(
   options: StateProjectionOptions,
   stateRoot?: string
 ): Promise<StateProjection> {
   const filename = validateStateModule(options.module);
-  const loaded = decoder(moduleSchema)(await import(options.module));
-  if ((loaded.observations === undefined) !== (loaded.observationChunks === undefined)) {
-    throw new TypeError(
-      'State observation projection and native chunk primitive must be acquired together.'
-    );
-  }
-  if ((loaded.schema === undefined) === (loaded.decode === undefined)) {
-    throw new TypeError(
-      'State producer must export exactly one versioned schema or canonical decode function.'
-    );
-  }
-  const versioned = loaded.schema;
-  const schema: EventSchema<unknown> | undefined = versioned
-    ? {
-        currentVersion: versioned.currentVersion,
-        upgraders: Object.fromEntries(
-          Object.entries(versioned.upgraders).map(([version, upgrade]) => [
-            version,
-            (event: Readonly<Record<string, unknown>>) => decoder(record)(upgrade(event)),
-          ])
-        ),
-        validate: (event, seq) => versioned.validate(event, seq),
-      }
-    : undefined;
-  const decode = (raw: string): unknown => {
-    if (schema) {
-      return decodeEvent(raw, options.mode, schema);
-    }
-    const source = decoder(eventIdentity)(JSON.parse(raw));
-    if (source.type === 'purged') {
-      return { seq: source.seq, type: 'purged' };
-    }
-    const event = loaded.decode?.(raw, options.mode, stateRoot);
-    if (decoder(eventIdentity)(event).seq !== source.seq) {
-      throw new Error('State producer decoder changed the committed sequence identity');
-    }
-    return event;
-  };
-  return {
-    ...(loaded.observations && loaded.observationChunks
-      ? {
-          observationChunks: (text: string) =>
-            decoder(Schema.Array(Schema.NonEmptyString))(loaded.observationChunks?.(text)),
-          observations: (record: MemoryObservationRecord) =>
-            decoder(Schema.Array(stateObservationGroupSchema))(loaded.observations?.(record)),
-        }
-      : {}),
-    ...(loaded.messages
-      ? {
-          messages: (rows: readonly StateMessageEvent[]) =>
-            decoder(Schema.Array(stateMessageIdentitySchema))(loaded.messages?.(rows)),
-        }
-      : {}),
-    decode: (raw) => {
-      const event = decode(raw);
-      const { seq, type } = decoder(eventIdentity)(event);
-      if (type === 'purged') {
-        return { gap: null, search: null, seq, text: null };
-      }
-      if (Schema.is(unreadable)(event)) {
-        return { gap: event.reason, search: null, seq, text: null };
-      }
-      return {
-        gap: null,
-        search: loaded.search ? decoder(stateSearchRowSchema)(loaded.search(event)) : null,
-        seq,
-        text: decoder(Schema.NullOr(Schema.String))(loaded.text(event)),
-      };
-    },
-    event: decode,
-    identity: createHash('sha256')
-      .update(JSON.stringify([options.module, options.mode, readFileSync(filename, 'utf8')]))
-      .digest('hex'),
-  };
+  const producer = await import(options.module);
+  const identity = createHash('sha256')
+    .update(JSON.stringify([options.module, options.mode, producerSources(filename)]))
+    .digest('hex');
+  return createStateProjection(producer, options.mode, identity, stateRoot);
 }

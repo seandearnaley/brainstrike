@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -5,6 +6,8 @@ import {
   generateUUID,
   isCryptoRandomUUIDAvailable,
   isCryptoSubtleAvailable,
+  sha256Bytes,
+  sha256Hex,
 } from '../crypto.js';
 
 describe('crypto', () => {
@@ -276,6 +279,39 @@ describe('crypto', () => {
       });
 
       expect(isCryptoRandomUUIDAvailable()).toBe(false);
+    });
+  });
+
+  describe('sha256Hex and sha256Bytes', () => {
+    const inputs: (string | Uint8Array)[] = [
+      '',
+      'héllo wörld ✓ 𝄞',
+      '\ud800 lone surrogate',
+      'x'.repeat(100_000),
+      new Uint8Array([0, 1, 2, 255]),
+    ];
+
+    /** The module as a runtime without Node's builtins loads it, which hashes with @noble/hashes. */
+    async function withoutNodeBuiltins(): Promise<typeof import('../crypto.js')> {
+      vi.resetModules();
+      const original = process.getBuiltinModule;
+      Object.defineProperty(process, 'getBuiltinModule', { configurable: true, value: undefined });
+      try {
+        return await import('../crypto.js');
+      } finally {
+        Object.defineProperty(process, 'getBuiltinModule', { configurable: true, value: original });
+      }
+    }
+
+    it("hash synchronously exactly as Node's crypto does, with and without Node", async () => {
+      const portable = await withoutNodeBuiltins();
+      for (const input of inputs) {
+        const expected = createHash('sha256').update(input).digest('hex');
+        expect(sha256Hex(input)).toBe(expected);
+        expect(Buffer.from(sha256Bytes(input)).toString('hex')).toBe(expected);
+        expect(portable.sha256Hex(input)).toBe(expected);
+        expect(Buffer.from(portable.sha256Bytes(input)).toString('hex')).toBe(expected);
+      }
     });
   });
 });

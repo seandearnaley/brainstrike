@@ -13,7 +13,10 @@ The store runs on a connection its host opens (`IndexConnection`): desktop's
 `desktop-index-connection.ts` opens better-sqlite3 with sqlite-vec and the state
 root's `SqliteReader`. The browser writer (BST-1940) opens sqlite-wasm with
 EXCLUSIVE locking, the binary vector engine and a `StateTruthReader` over its
-own state DB connection. `src/browser.ts` is the browser entry, and
+own state DB connection. A producer module's projection is built by
+`createStateProjection` (`state-producer.ts`): desktop loads its producer by file
+URL (`state-projection.ts`), and the browser writer passes `@brainstrike/agent-host`'s
+`host-state-producer` with its own blob reader. `src/browser.ts` is the browser entry, and
 `browser-entry.test.ts` fails if a Node import becomes reachable from it. Reach a
 Node-only capability through `portable.ts` or `process.getBuiltinModule`, never
 by a static import in the store's modules.

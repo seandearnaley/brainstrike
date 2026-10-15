@@ -101,6 +101,34 @@ describe('producer-owned state schema projection', () => {
     ).toThrow('must be acquired together');
   });
 
+  it("binds projection identity to the producer's implementation, not only its entry module", async () => {
+    const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'state-producer-closure-')));
+    try {
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(path.join(root, 'lib'));
+      const entry = path.join(root, 'producer.mjs');
+      const tag = path.join(root, 'lib', 'tag.mjs');
+      await writeFile(
+        entry,
+        "export { decode } from './lib/decode.mjs';\nexport * from './lib/text.mjs';\n"
+      );
+      await writeFile(
+        path.join(root, 'lib', 'decode.mjs'),
+        "import { tag } from './tag.mjs';\nexport const decode = (raw) => ({ ...JSON.parse(raw), tag });\n"
+      );
+      await writeFile(path.join(root, 'lib', 'text.mjs'), 'export const text = () => null;\n');
+      await writeFile(tag, "export const tag = 'one';\n");
+      const load = () => loadStateProjection({ mode: 'prod', module: pathToFileURL(entry).href });
+      const first = (await load()).identity;
+      expect((await load()).identity).toBe(first);
+      // A module reached only through nested relative imports still changes the identity.
+      await writeFile(tag, "export const tag = 'two';\n");
+      expect((await load()).identity).not.toBe(first);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
   it('refuses a producer module without the required schema instead of indexing raw JSON', async () => {
     const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'state-schema-module-')));
     try {

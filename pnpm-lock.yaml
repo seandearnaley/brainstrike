@@ -1383,6 +1383,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+      esbuild:
+        specifier: 'catalog:'
+        version: 0.28.2
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -3104,9 +3107,9 @@ importers:
       '@brainstrike/state-store':
         specifier: workspace:*
         version: link:../state-store
-      '@noble/hashes':
-        specifier: 'catalog:'
-        version: 2.2.0
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
       effect:
         specifier: 'catalog:'
         version: 4.0.4
@@ -4139,6 +4142,9 @@ importers:
       '@eslint-community/regexpp':
         specifier: 'catalog:'
         version: 4.12.2
+      '@noble/hashes':
+        specifier: 'catalog:'
+        version: 2.2.0
       ignore:
         specifier: 'catalog:'
         version: 7.0.8
@@ -4264,6 +4270,9 @@ importers:
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
       '@sqlite.org/sqlite-wasm':
         specifier: 'catalog:'
         version: 3.53.4-build2

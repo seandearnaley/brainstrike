@@ -5,6 +5,7 @@
   "dependencies": {
     "@brainstrike/state-store": "workspace:*",
     "@brainstrike/types": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
     "@sqlite.org/sqlite-wasm": "catalog:"
   },
   "devDependencies": {

@@ -27,7 +27,7 @@ import sqlite3InitModule, {
   type SAHPoolUtil,
   type Sqlite3Static,
 } from '@sqlite.org/sqlite-wasm';
-import { OpfsBlobStore } from './blob-store';
+import { SqliteBlobStore } from './blob-store';
 import {
   type ChannelMessage,
   type TabMessage,
@@ -50,6 +50,9 @@ declare const self: DedicatedWorkerGlobalScope;
 /** The desktop writer's checkpoint threshold (`StateStore` `checkpointPages`). */
 const CHECKPOINT_PAGES = 1000;
 const STATE_DB_FILE = '/state.db';
+/** Content-addressed blobs, apart from the state DB's shared schema. */
+const BLOBS_DB_FILE = '/blobs.db';
+const POOL_CAPACITY = 16;
 /** The writer record: the lease's epoch, apart from the state DB's shared schema. */
 const WRITER_DB_FILE = '/writer.db';
 const WRITER_SCHEMA = `CREATE TABLE IF NOT EXISTS writer (
@@ -63,7 +66,7 @@ const RETIRED = 'The state store was retired for factory reset; reload the tab t
 type AppendRows = Parameters<RunLog['append']>[0];
 
 interface Writer {
-  readonly blobs: OpfsBlobStore;
+  readonly blobs: SqliteBlobStore;
   readonly db: SqliteWasmDatabase;
   readonly log: RunLog;
   readonly pool: SAHPoolUtil;
@@ -195,11 +198,18 @@ async function openWriter(
   if (store.testHooks?.failPoolInitOnce) {
     failNextAccessHandle();
   }
-  const pool = await sqlite3.installOpfsSAHPoolVfs({ directory: names.pool, name: names.vfs });
+  const pool = await sqlite3.installOpfsSAHPoolVfs({
+    directory: names.pool,
+    // Each database and its WAL hold a file: state, writer, blobs and the derived index, with room to spare.
+    initialCapacity: POOL_CAPACITY,
+    name: names.vfs,
+  });
   const epoch = recordWriter(sqlite3, pool);
-  const blobs = await OpfsBlobStore.open(names.pool);
   // The pool's constructor takes oo1's (filename, flags); its declaration names only the filename.
   const PoolDb = pool.OpfsSAHPoolDb as unknown as new (filename: string, flags: string) => Database;
+  const blobs = new SqliteBlobStore(
+    new SqliteWasmDatabase(sqlite3, new PoolDb(BLOBS_DB_FILE, 'c'), BLOBS_DB_FILE)
+  );
   const { damage, db } = openStateDb(
     (readOnly) =>
       new SqliteWasmDatabase(
@@ -245,14 +255,15 @@ function retire(active: Writer): void {
   retired = true;
   refusal = { error: RETIRED, errorKind: 'unavailable' };
   active.db.close();
+  active.blobs.close();
   active.pool.pauseVfs();
 }
 
 /** The desktop writer's `verifyBlobReferences`: every blob an event names exists and is intact. */
-async function verifyBlobReferences(blobs: OpfsBlobStore, rows: readonly WebStateAppendRow[]) {
+function verifyBlobReferences(blobs: SqliteBlobStore, rows: readonly WebStateAppendRow[]): void {
   for (const row of rows) {
     for (const hash of blobsOf(row[3])) {
-      await blobs.verify(hash);
+      blobs.verify(hash);
     }
   }
 }
@@ -264,7 +275,7 @@ async function handle(active: Writer, request: WebStateRequest): Promise<unknown
   switch (request.op) {
     case 'append': {
       const { boundary = false, rows } = params as WebStateRequests['append']['params'];
-      await verifyBlobReferences(blobs, rows);
+      verifyBlobReferences(blobs, rows);
       if (boundary) {
         db.pragma('synchronous = FULL');
       }
@@ -303,7 +314,7 @@ async function handle(active: Writer, request: WebStateRequest): Promise<unknown
       );
     case 'putBlob': {
       const { content, hash } = params as WebStateRequests['putBlob']['params'];
-      await blobs.put(hash, content);
+      blobs.put(hash, content);
       return {};
     }
     case 'read': {
@@ -313,7 +324,7 @@ async function handle(active: Writer, request: WebStateRequest): Promise<unknown
     }
     case 'readBlob': {
       const { hash, maxBytes } = params as WebStateRequests['readBlob']['params'];
-      return { content: await blobs.read(hash, maxBytes) };
+      return { content: blobs.read(hash, maxBytes) };
     }
     case 'readHydration':
       return {
@@ -344,7 +355,7 @@ async function handle(active: Writer, request: WebStateRequest): Promise<unknown
       return { threads: log.threads() };
     case 'unlinkBlobs': {
       const { hashes } = params as WebStateRequests['unlinkBlobs']['params'];
-      return { deleted: await blobs.unlink(hashes) };
+      return { deleted: blobs.unlink(hashes) };
     }
     case 'viewFilterPresets':
       return executeViewFilterPresetRequest(

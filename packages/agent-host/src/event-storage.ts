@@ -8,17 +8,10 @@ import {
   type LogRow,
   largeText,
   type StateStore,
-  sha256Hex,
 } from '@brainstrike/state-store';
 import { z } from 'zod';
-import { storedJson } from './json-value.js';
-import {
-  type HostEvent,
-  HostEventSchema,
-  type HostLogRow,
-  type HostRunSnapshot,
-  hostEventSchema,
-} from './protocol.js';
+import { decodeStoredHostEvent, hostEventSpool, storedHostBody } from './host-event-decoding.js';
+import { type HostEvent, HostEventSchema, type HostLogRow } from './protocol.js';
 import { readRunSnapshot, storedRunSnapshot, takeRunSnapshotRef } from './run-snapshot-blobs.js';
 
 export async function readHostThreadHistory(
@@ -35,67 +28,7 @@ export async function readHostThreadHistory(
   );
 }
 
-const Spool = z.object({
-  blob: z.string().regex(/^[a-f0-9]{64}$/u),
-  blobRefs: z.array(z.string().regex(/^[a-f0-9]{64}$/u)).optional(),
-  bytes: z.number().int().positive(),
-  preview: z.string(),
-  runId: z.string().optional(),
-  type: z.string(),
-});
-
-export function hostEventSpool(
-  stored: Readonly<Record<string, unknown>>
-): z.output<typeof Spool> | undefined {
-  return 'blob' in stored ? Spool.parse(stored) : undefined;
-}
-
-/** Stored rows' events, over stored JSON values (ADR-0011). */
-const StoredHostEventSchema = hostEventSchema(storedJson);
-
-/** A stored row's body: the row itself, or the JSON of the blob it spooled to. */
-export function storedHostBody(
-  stored: Readonly<Record<string, unknown>>,
-  blob?: Uint8Array
-): Readonly<Record<string, unknown>> {
-  const spool = hostEventSpool(stored);
-  if (!spool) {
-    return stored;
-  }
-  if (!(blob && blob.byteLength === spool.bytes && sha256Hex(Buffer.from(blob)) === spool.blob)) {
-    throw new Error('Committed host event blob is damaged');
-  }
-  const body = z
-    .record(z.string(), z.unknown())
-    .parse(JSON.parse(Buffer.from(blob).toString('utf8')));
-  if (body['type'] !== spool.type || body['runId'] !== spool.runId) {
-    throw new Error('Committed host event blob identity does not match its row');
-  }
-  if (JSON.stringify(body['blobRefs'] ?? []) !== JSON.stringify(spool.blobRefs ?? [])) {
-    throw new Error('Committed host event blob references do not match its row');
-  }
-  return body;
-}
-
-/**
- * Shared producer decoder; the caller owns asynchronous or worker-local blob
- * IO, including resolving a run snapshot reference to its committed snapshot.
- */
-export function decodeStoredHostEvent(
-  stored: Readonly<Record<string, unknown>>,
-  blob?: Uint8Array,
-  snapshot?: (hash: string) => HostRunSnapshot
-): HostEvent {
-  const { body, ref } = takeRunSnapshotRef(storedHostBody(stored, blob));
-  const event = StoredHostEventSchema.parse(body);
-  if (ref === undefined) {
-    return event;
-  }
-  if (!snapshot) {
-    throw new Error('A committed run snapshot reference needs its blob reader');
-  }
-  return { ...event, snapshot: snapshot(ref) } as HostEvent;
-}
+export { decodeStoredHostEvent, hostEventSpool, storedHostBody };
 
 /**
  * The streamed chunk kinds Core's open folds: the ledger's tool-call and tool-error counts

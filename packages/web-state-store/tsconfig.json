@@ -14,5 +14,5 @@
   },
   "include": ["src/**/*.ts"],
   "exclude": ["dist", "node_modules", "src/**/__tests__/**"],
-  "references": [{ "path": "../state-store" }, { "path": "../types" }]
+  "references": [{ "path": "../state-store" }, { "path": "../types" }, { "path": "../utils" }]
 }
