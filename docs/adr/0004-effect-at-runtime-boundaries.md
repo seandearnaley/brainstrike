@@ -74,9 +74,14 @@ Later phases (main's composition root as a Layer graph, RPC over workers,
   (ADR-0001) until their own contracts change.
 - zod remains the schema library for LLM tool definitions. The AI SDK
   special-cases it, and migrating 99 exported schemas buys little.
-- The release candidate still moves: rc.117's `effect/unstable/*` paths were
-  renamed on `main` two days after it shipped. The exact pin and the ban on
-  unstable imports contain that churn.
+- Import churn is contained by an allowlist, not by a ban on one directory.
+  `effect/unstable/*` existed when this ADR was written and was dropped in
+  rc.118; the contract allows exactly `effect` and `effect/testing`, so that
+  deletion cost nothing and every other subpath still needs a contract change.
+- Stability is no longer visible in the import path. In Effect 4 each API
+  carries a `@stability` JSDoc tag — stable, unstable or experimental — and an
+  unstable API may break in a minor, an experimental one in a patch. The exact
+  pin is what keeps that reviewable; the language service is what detects it.
 
 ## Alternatives considered
 

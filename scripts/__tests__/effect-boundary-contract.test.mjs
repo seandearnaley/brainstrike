@@ -33,7 +33,9 @@ const RAW_RUNNER_METHOD = /^run[A-Z]/u;
 const isEffectPackage = (name) => name === 'effect' || name.startsWith('@effect/');
 const isEffectModule = (specifier) => specifier === 'effect' || specifier.startsWith('effect/');
 // The contract's import surface: the barrel and the test kit. Everything else
-// (`effect/unstable/*`, deep `effect/Schema`-style paths) needs a contract change.
+// (subsystems like `effect/rpc` or `effect/sql`, deep `effect/Schema`-style
+// paths, and the `effect/unstable/*` tree that 4.x dropped) needs a contract
+// change. An allowlist, so a subpath the library removes or adds is inert here.
 const ALLOWED_EFFECT_MODULES = new Set(['effect', 'effect/testing']);
 
 const trackedFiles = (...patterns) =>

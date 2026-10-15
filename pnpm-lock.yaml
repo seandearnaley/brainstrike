@@ -31,8 +31,8 @@ catalogs:
       specifier: ^6.7.4
       version: 6.7.4
     '@effect/tsgo':
-      specifier: 0.45.0
-      version: 0.45.0
+      specifier: 0.52.0
+      version: 0.52.0
     '@electric-sql/pglite':
       specifier: 0.5.8
       version: 0.5.8
@@ -199,8 +199,8 @@ catalogs:
       specifier: 0.45.2
       version: 0.45.2
     effect:
-      specifier: 4.0.0-rc.118
-      version: 4.0.0-rc.118
+      specifier: 4.0.4
+      version: 4.0.4
     electron:
       specifier: ^44.7.2
       version: 44.7.2
@@ -645,7 +645,7 @@ importers:
         version: typescript@6.0.3
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-rc.118
+        version: 4.0.4
       electron-store:
         specifier: ^11.0.2
         version: 11.0.2
@@ -718,7 +718,7 @@ importers:
         version: link:../../packages/vector-management
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.45.0
+        version: 0.52.0
       '@modelcontextprotocol/ext-apps':
         specifier: 1.7.5
         version: 1.7.5(@modelcontextprotocol/sdk@1.32.1(supports-color@10.2.2)(zod@4.6.5))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.6.5)
@@ -1602,7 +1602,7 @@ importers:
         version: 2.3.1
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-rc.118
+        version: 4.0.4
       zod:
         specifier: 'catalog:'
         version: 4.6.5
@@ -1615,7 +1615,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.45.0
+        version: 0.52.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -1736,14 +1736,14 @@ importers:
         version: link:../utils
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-rc.118
+        version: 4.0.4
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.45.0
+        version: 0.52.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -1982,7 +1982,7 @@ importers:
         version: link:../tokenization
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-rc.118
+        version: 4.0.4
       oxc-parser:
         specifier: 'catalog:'
         version: 0.144.0
@@ -1995,7 +1995,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.45.0
+        version: 0.52.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -2106,7 +2106,7 @@ importers:
         version: 0.45.2(@electric-sql/pglite@0.5.8(patch_hash=07412deadecaa3a5f5ba73c838108f930cb9092762ffb0c8f8deb495ef138311))(@opentelemetry/api@1.9.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-rc.118
+        version: 4.0.4
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -2122,7 +2122,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.45.0
+        version: 0.52.0
       '@stryker-mutator/api':
         specifier: 'catalog:'
         version: 10.0.0
@@ -2297,14 +2297,14 @@ importers:
     dependencies:
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-rc.118
+        version: 4.0.4
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.45.0
+        version: 0.52.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -2407,7 +2407,7 @@ importers:
         version: 4.3.0(patch_hash=a572be510cf95f8a4974ce5aeffe247c5faa0a595e23015ad5f9012cfaab0155)(@types/node@24.13.3)
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-rc.118
+        version: 4.0.4
       glob:
         specifier: 'catalog:'
         version: 13.0.6
@@ -2420,7 +2420,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.45.0
+        version: 0.52.0
       '@electric-sql/pglite':
         specifier: 'catalog:'
         version: 0.5.8(patch_hash=07412deadecaa3a5f5ba73c838108f930cb9092762ffb0c8f8deb495ef138311)
@@ -2858,14 +2858,14 @@ importers:
         version: link:../worker-runtime
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-rc.118
+        version: 4.0.4
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.45.0
+        version: 0.52.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -2998,7 +2998,7 @@ importers:
         version: 2.3.1
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-rc.118
+        version: 4.0.4
       jsonc-parser:
         specifier: ^3.3.1
         version: 3.3.1
@@ -3023,7 +3023,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.45.0
+        version: 0.52.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -3050,14 +3050,14 @@ importers:
         version: link:../state-store
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-rc.118
+        version: 4.0.4
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.45.0
+        version: 0.52.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -3090,14 +3090,14 @@ importers:
         version: link:../state-store
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-rc.118
+        version: 4.0.4
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.45.0
+        version: 0.52.0
       '@types/better-sqlite3':
         specifier: 'catalog:'
         version: 9.6.0
@@ -3614,7 +3614,7 @@ importers:
         version: link:../utils
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-rc.118
+        version: 4.0.4
     devDependencies:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
@@ -3624,7 +3624,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.45.0
+        version: 0.52.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -3819,7 +3819,7 @@ importers:
         version: 0.5.8(patch_hash=07412deadecaa3a5f5ba73c838108f930cb9092762ffb0c8f8deb495ef138311)
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-rc.118
+        version: 4.0.4
       xxhash-wasm:
         specifier: 'catalog:'
         version: 1.1.0
@@ -3829,7 +3829,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.45.0
+        version: 0.52.0
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -4254,14 +4254,14 @@ importers:
         version: link:../utils
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-rc.118
+        version: 4.0.4
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.45.0
+        version: 0.52.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -5349,43 +5349,43 @@ packages:
     resolution: {integrity: sha512-0dEVyRLM/lG4gp1R/Ik5bfPl/1wX00xFwd5KcNH602tzBa09oF7pbTKETEhR1GjZ75K6OJnYFu8II2dyMhONMw==}
     engines: {node: '>=16'}
 
-  '@effect/tsgo-darwin-arm64@0.45.0':
-    resolution: {integrity: sha512-WUoiEVcm8E19QK6fl63lsssM4dkT9IFnULbmqQ6LBfv7H9uRkpE9S3thj8ZtZ+vl/QY8atwfuaTf+3A1m/kGtQ==}
+  '@effect/tsgo-darwin-arm64@0.52.0':
+    resolution: {integrity: sha512-UkC9wLIaO/8R8a3Z4M0GBUamaCYipjHcHFiO2K01dmnmQ2VFDG4SsWktfnAZOxGh+Dc0cVo8dUVQMYLoOxycpA==}
     cpu: [arm64]
     os: [darwin]
 
-  '@effect/tsgo-darwin-x64@0.45.0':
-    resolution: {integrity: sha512-s3yz7ZfIzvObXJ/r5xd9sEPxHKC3L+D+yedS1BV2Kpn47Je2svYCNYKxzXIpqFLkNjK+RcOQrcfYbYEpKZZa6g==}
+  '@effect/tsgo-darwin-x64@0.52.0':
+    resolution: {integrity: sha512-UhGdUAK947Cl/khX/yAAleA65qyPcGyGuVrgYIdpJ2/q08YcaDPWoEI5S+yKlluNGvHubt2V8LCG8qUvKwX4fQ==}
     cpu: [x64]
     os: [darwin]
 
-  '@effect/tsgo-linux-arm64@0.45.0':
-    resolution: {integrity: sha512-N+lyzixtylOOn49demDaqg0kb/U8ISxM10Gphs1pIMSGlqlfqC4inYEoFpYej+f4T/cRlkA11Ue7wJzNz83ePA==}
+  '@effect/tsgo-linux-arm64@0.52.0':
+    resolution: {integrity: sha512-5eLXezrIODBQQGVUTyhxJb2byXoA62c4OyVIcRwZpyGK/ZivjWbpxj3pEPqzDADo7s85s2QDHTix4gt3xDiqBA==}
     cpu: [arm64]
     os: [linux]
 
-  '@effect/tsgo-linux-arm@0.45.0':
-    resolution: {integrity: sha512-f6zL6YbWA9lXdfJ//KOjUz/U3CdGtajKi5NsR/lcQaKfZiJwHfeeLBB3yetF3qbPGSA149/kuMoDMWL13RUH3A==}
+  '@effect/tsgo-linux-arm@0.52.0':
+    resolution: {integrity: sha512-QUZlIzXcM0xuHoKwfLeYo4H/SsVHWzcD8RFjBkF5wQ7PsQYmmPizOXx9ntTLGhRNEJhNm+3SaLIsITgMu4fxVg==}
     cpu: [arm]
     os: [linux]
 
-  '@effect/tsgo-linux-x64@0.45.0':
-    resolution: {integrity: sha512-aWt0G8celAxJOis4+xiILkyMP/3J+vukimUhSoCmUAPt8zoT9qhZcN64XYZE7jfqp88ByRdgN9GK1/C7YfPtcQ==}
+  '@effect/tsgo-linux-x64@0.52.0':
+    resolution: {integrity: sha512-UhqpcF9QYkR8Ow94Pc77bXLeHWuudRkYb4WRKpZgMQ9WIgtHpgRscQL4kys1XEBmq4NzHlWcoHPoMjrtddd/TA==}
     cpu: [x64]
     os: [linux]
 
-  '@effect/tsgo-win32-arm64@0.45.0':
-    resolution: {integrity: sha512-EAdeV366ja+M4XCx6xjXMv4Xkc0Fgzy4bapa0saDWcGhllNLqJDfOk4lk0BgAEjBUI8+0xC+PXKVB5SMz4EpVA==}
+  '@effect/tsgo-win32-arm64@0.52.0':
+    resolution: {integrity: sha512-Q1lwa5gxiH09NxU/li8fklCiGACSsht/Zru3je26NVRpu1G7oahbhVF9xoINU8twLi7/jc50mdJc1DZrLg5dTw==}
     cpu: [arm64]
     os: [win32]
 
-  '@effect/tsgo-win32-x64@0.45.0':
-    resolution: {integrity: sha512-1Hsr/sT5dmIafoY9L0ASJo4VqGyPNzM1nwTb4Wj1Lmjq6kGuwO/PVozFg3WZZ0piChFmgiU3nx1AKZfyqgjGUw==}
+  '@effect/tsgo-win32-x64@0.52.0':
+    resolution: {integrity: sha512-34nH7qthdhaWaFjeUamZtC7OnV4rv36kLuJy2SVJxi+gRmLMDtXXI+Jo2f1G/dDs2SsudHga+nmwDFbxnuIbkg==}
     cpu: [x64]
     os: [win32]
 
-  '@effect/tsgo@0.45.0':
-    resolution: {integrity: sha512-gPG0ixVHgtYBUe5DbKX9vzHlhqd9+ZEfs4m/XWy0808av0A2XqMzaG3F5rnPBN7EUJRPlo9TluIi8WHx/pBV+A==}
+  '@effect/tsgo@0.52.0':
+    resolution: {integrity: sha512-ue6Xl8lbamtOXY4pH2W7aLr/Vb2Bhv/kOy3xoL/Hgdai1ns+16xCmhSQbUkKYl75kKCAPl6I1TwpdsQkfk6OOw==}
     hasBin: true
 
   '@electric-sql/pglite-pg_textsearch@0.0.10':
@@ -11467,8 +11467,8 @@ packages:
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
 
-  effect@4.0.0-rc.118:
-    resolution: {integrity: sha512-hxhpCd+swzrtu9lnyPpEFre2ODQzJ9qxgyL1oHIEY8NKnW4PxTbM1XzplMZXiAsLD62HO+KJc41Nqxr9T791ZQ==}
+  effect@4.0.4:
+    resolution: {integrity: sha512-Sr50OeVSC3M5UkoUYUhFf3EULryhGaZZUf6OzDHTvaznOw7HRlxOKdF3/4nvQXHL22StOyMG3Cvo8Bt7xUp+Ng==}
 
   ejs@3.1.10:
     resolution: {integrity: sha512-UeJmFfOrAQS8OJWPZ4qtgHyWExa088/MtK5UEyoJGFH67cDEXkZSviOiKRCZ4Xij0zxI3JECgYs3oKx+AizQBA==}
@@ -16941,36 +16941,36 @@ snapshots:
     dependencies:
       '@edge-runtime/primitives': 4.1.0
 
-  '@effect/tsgo-darwin-arm64@0.45.0':
+  '@effect/tsgo-darwin-arm64@0.52.0':
     optional: true
 
-  '@effect/tsgo-darwin-x64@0.45.0':
+  '@effect/tsgo-darwin-x64@0.52.0':
     optional: true
 
-  '@effect/tsgo-linux-arm64@0.45.0':
+  '@effect/tsgo-linux-arm64@0.52.0':
     optional: true
 
-  '@effect/tsgo-linux-arm@0.45.0':
+  '@effect/tsgo-linux-arm@0.52.0':
     optional: true
 
-  '@effect/tsgo-linux-x64@0.45.0':
+  '@effect/tsgo-linux-x64@0.52.0':
     optional: true
 
-  '@effect/tsgo-win32-arm64@0.45.0':
+  '@effect/tsgo-win32-arm64@0.52.0':
     optional: true
 
-  '@effect/tsgo-win32-x64@0.45.0':
+  '@effect/tsgo-win32-x64@0.52.0':
     optional: true
 
-  '@effect/tsgo@0.45.0':
+  '@effect/tsgo@0.52.0':
     optionalDependencies:
-      '@effect/tsgo-darwin-arm64': 0.45.0
-      '@effect/tsgo-darwin-x64': 0.45.0
-      '@effect/tsgo-linux-arm': 0.45.0
-      '@effect/tsgo-linux-arm64': 0.45.0
-      '@effect/tsgo-linux-x64': 0.45.0
-      '@effect/tsgo-win32-arm64': 0.45.0
-      '@effect/tsgo-win32-x64': 0.45.0
+      '@effect/tsgo-darwin-arm64': 0.52.0
+      '@effect/tsgo-darwin-x64': 0.52.0
+      '@effect/tsgo-linux-arm': 0.52.0
+      '@effect/tsgo-linux-arm64': 0.52.0
+      '@effect/tsgo-linux-x64': 0.52.0
+      '@effect/tsgo-win32-arm64': 0.52.0
+      '@effect/tsgo-win32-x64': 0.52.0
 
   '@electric-sql/pglite-pg_textsearch@0.0.10(@electric-sql/pglite@0.5.8(patch_hash=07412deadecaa3a5f5ba73c838108f930cb9092762ffb0c8f8deb495ef138311))':
     dependencies:
@@ -22531,7 +22531,7 @@ snapshots:
 
   ee-first@1.1.1: {}
 
-  effect@4.0.0-rc.118: {}
+  effect@4.0.4: {}
 
   ejs@3.1.10:
     dependencies:

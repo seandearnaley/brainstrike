@@ -46,9 +46,12 @@ catalog:
   '@codemirror/state': ^6.7.4
   # ADR-0004: the Effect language service on TypeScript 7. Run in dedicated
   # `effect-tsgo diagnostics` mode from each Effect package's type-check, never
-  # `effect-tsgo patch` (which would rewrite the shared `tsc`). Exact pin: its
-  # supported TypeScript list moves with every release.
-  '@effect/tsgo': 0.45.0
+  # `effect-tsgo patch`: patch rewrites the shared `tsc`, and the `typescript`
+  # entry below is TypeScript 6, which this tool does not support. That is why
+  # the second type-check stands; see docs/agents/effect-boundary.md.
+  # Exact pin: its supported TypeScript list moves with every release (0.52.0
+  # supports 7.0.2 and 7.1.0-dev, matching the `@typescript/native` alias).
+  '@effect/tsgo': 0.52.0
   '@electric-sql/pglite': 0.5.8
   '@electric-sql/pglite-pg_textsearch': 0.0.10
   '@electric-sql/pglite-pgvector': 0.0.9
@@ -134,10 +137,13 @@ catalog:
   bindings: 1.5.0
   concurrently: ^10.0.5
   drizzle-orm: 0.45.2
-  # ADR-0004: Effect v4 is a release candidate, so the pin is EXACT. The RC
-  # line still renames import paths between candidates, so a bump is a
-  # reviewed change, never a range resolution. docs/agents/effect-boundary.md.
-  effect: 4.0.0-rc.118
+  # ADR-0004: Effect v4 is an LTS line, with fixes committed through September
+  # 2029. The pin stays EXACT: `^4.0.0` constraints elsewhere in the ecosystem
+  # reject rc builds, so a range here would have silently re-resolved the whole
+  # tree the moment 4.0.0 shipped. Stability is now a `@stability` JSDoc tag per
+  # API, not a path segment, so an exact pin is what makes an unstable-API
+  # change reviewable. docs/agents/effect-boundary.md.
+  effect: 4.0.4
   # Chromium security patches only. Stay on the 44 line: Electron 45 is a
   # separate, reviewed decision, not a security bump.
   electron: ^44.7.2
