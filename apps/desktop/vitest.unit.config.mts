@@ -29,12 +29,14 @@ const workers = resolveDesktopUnitWorkers();
 // The first test in each Main import file imports main.ts, whose module graph
 // the Vitest server transforms inside that test's deadline. Beside the parallel
 // files under load that took the full 30s, so these files run alone afterwards,
-// one at a time, when most of those transforms are already cached.
+// one at a time, when most of those transforms are already cached. Vitest does
+// not pass the CLI `--exclude` to projects, so they exclude integration files.
+const UNIT_EXCLUDE = '**/*.integration.test.*';
 const PARALLEL_UNIT_PROJECTS: TestProjectConfiguration[] = [
   {
     extends: true,
     test: {
-      exclude: MAIN_IMPORT_TESTS,
+      exclude: [...MAIN_IMPORT_TESTS, UNIT_EXCLUDE],
       maxWorkers: workers,
       name: 'desktop',
       sequence: { groupOrder: 0 },
