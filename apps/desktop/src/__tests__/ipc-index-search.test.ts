@@ -1,7 +1,10 @@
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
 import { IndexerError } from '@brainstrike/indexer';
-import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
+import type {
+  IndexChunkBoundsCapability,
+  IndexSearchCapability,
+} from '@brainstrike/indexing-contract/indexer-client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { registerIndexSearchIpcHandlers } from '../ipc-index-search';
@@ -40,13 +43,16 @@ function handler(name: keyof typeof indexSearchContract) {
   }
   return entry[1];
 }
-function capability(): IndexSearchCapability {
+function capability(): IndexSearchCapability & IndexChunkBoundsCapability {
   return {
     coverage: vi.fn(async () => {
       throw new Error('Coverage failure');
     }),
     coverageBatch: vi.fn(async () => {
       throw new Error('Unexpected coverage batch');
+    }),
+    fileChunks: vi.fn(async () => {
+      throw new Error('Unexpected file chunks');
     }),
     grep: vi.fn(async () => {
       throw new Error('Grep failure');
@@ -213,6 +219,44 @@ it('parses every batch selector and preserves visible-ui authority and failure p
   const result = await handler('coverageBatch')(createTrustedInvokeEvent(), requests);
   expect(result).toMatchObject({ ok: false });
   expect(cap.coverageBatch).toHaveBeenCalledExactlyOnceWith(requests);
+});
+
+it('parses file chunk requests strictly and keeps them visible-ui only', async () => {
+  const cap = capability();
+  dispose.push(
+    registerIndexSearchIpcHandlers(cap, {
+      rootsRegistered: async () => {
+        throw new Error('Unexpected root registration in read-only test');
+      },
+    })
+  );
+  const request = { paths: ['src/a.ts', '/docs/b.md'], rootId: 'root-1' };
+  expect(indexSearchContract.fileChunks.parseArgs([request])).toEqual([request]);
+  for (const invalid of [
+    { paths: [], rootId: 'root-1' },
+    { paths: Array.from({ length: 101 }, (_, index) => `f${index}.ts`), rootId: 'root-1' },
+    { paths: [''], rootId: 'root-1' },
+    { paths: ['a.ts'], rootId: ' ' },
+    { paths: ['a.ts'], rootId: 'root-1', withContent: true },
+  ]) {
+    expect(() => indexSearchContract.fileChunks.parseArgs([invalid])).toThrow();
+  }
+  await expect(
+    handler('fileChunks')(createTrustedInvokeEvent('embedding-host'), request)
+  ).rejects.toThrow();
+  expect(cap.fileChunks).not.toHaveBeenCalled();
+  vi.mocked(cap.fileChunks).mockResolvedValueOnce({
+    files: [
+      { kind: 'outside-index', path: 'src/a.ts' },
+      { kind: 'not-indexed', path: '/docs/b.md' },
+    ],
+    rootId: 'root-1',
+    storeId: 'store-1',
+  });
+  await expect(handler('fileChunks')(createTrustedInvokeEvent(), request)).resolves.toMatchObject({
+    ok: true,
+  });
+  expect(cap.fileChunks).toHaveBeenCalledExactlyOnceWith(request);
 });
 
 it.each([

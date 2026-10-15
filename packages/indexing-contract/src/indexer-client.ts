@@ -191,6 +191,45 @@ export interface IndexerSearchResult {
   readonly storeId: string;
   readonly truncated: boolean;
 }
+/** Exact canonical relative paths in one workspace root (at most 100). */
+export interface IndexerFileChunksRequest {
+  readonly paths: readonly string[];
+  readonly rootId: string;
+}
+export interface IndexerFileChunkBounds {
+  readonly chunkId: string;
+  readonly contentHash: string;
+  readonly endLine: number;
+  readonly startLine: number;
+  readonly tokenCount: number | null;
+}
+/**
+ * One requested path: its current index chunks' line bounds, or why it has
+ * none. `not-indexed` is a bound file with no current chunks; `outside-index`
+ * is a path the active native index does not bind (ignored, unscanned or not a
+ * text file). Neither is an empty chunk list.
+ */
+export type IndexerFileChunks =
+  | {
+      readonly chunks: readonly IndexerFileChunkBounds[];
+      readonly contentHash: string;
+      readonly kind: 'indexed';
+      readonly path: string;
+    }
+  | { readonly kind: 'not-indexed' | 'outside-index'; readonly path: string };
+export interface IndexerFileChunksResult {
+  readonly files: readonly IndexerFileChunks[];
+  readonly rootId: string;
+  readonly storeId: string;
+}
+/**
+ * Chunk line bounds of files in one workspace root, without content or vectors
+ * (BST-2015). A separate capability from search: a surface that draws a file's
+ * chunks receives it by presence.
+ */
+export interface IndexChunkBoundsCapability {
+  fileChunks(request: IndexerFileChunksRequest): Promise<IndexerFileChunksResult>;
+}
 export interface IndexerGrepRequest {
   readonly caseSensitive: boolean;
   readonly collectionId?: string;

@@ -52,12 +52,33 @@ export type StringReplaceMatchType =
   | 'delete-line';
 
 export interface StringReplaceResult {
+  /**
+   * 1-based inclusive lines the replacement occupies in `newContent`. A pure
+   * deletion is the one line where the removed block was.
+   */
+  editedLines: { readonly endLine: number; readonly startLine: number };
   /** Which cascade branch matched (for logging / model feedback). */
   matchType: StringReplaceMatchType;
   /** The full new file content with the single block replaced. */
   newContent: string;
   /** 0-based line index where the replacement began (best effort). */
   startLine: number;
+}
+
+/** A branch's edit, with the exact text it placed at `startLine` (after its own normalization). */
+type LocatedReplacement = Omit<StringReplaceResult, 'editedLines'> & {
+  readonly insertedText: string;
+};
+
+/** Every branch keeps the lines before the edit, so the new block starts at `startLine`. */
+function withEditedLines({ insertedText, ...result }: LocatedReplacement): StringReplaceResult {
+  const newLineCount = result.newContent.split('\n').length;
+  const startLine = Math.min(result.startLine + 1, newLineCount);
+  const blockLines = insertedText === '' ? 1 : insertedText.split('\n').length;
+  return {
+    ...result,
+    editedLines: { endLine: Math.min(startLine + blockLines - 1, newLineCount), startLine },
+  };
 }
 
 // --- Verbatim helpers from mastra-code file-editor.ts ------------------------
@@ -125,7 +146,7 @@ function tryExactMatch(
   fileContent: string,
   oldStr: string,
   newStr: string
-): StringReplaceResult | undefined {
+): LocatedReplacement | undefined {
   const index = fileContent.indexOf(oldStr);
   if (index === -1) {
     return;
@@ -134,7 +155,7 @@ function tryExactMatch(
     fileContent.slice(0, index) + newStr + fileContent.slice(index + oldStr.length);
   // 0-based start line of the (single) occurrence.
   const startLine = fileContent.slice(0, index).split('\n').length - 1;
-  return { matchType: 'exact', newContent, startLine };
+  return { insertedText: newStr, matchType: 'exact', newContent, startLine };
 }
 
 interface NormalizedWindow {
@@ -192,7 +213,7 @@ function tryWhitespaceNormalizedMatch(
   fileContent: string,
   oldStr: string,
   newStr: string
-): StringReplaceResult | undefined {
+): LocatedReplacement | undefined {
   const normalizeWhitespace = (str: string): string => str.replace(/\s+/g, ' ').trim();
   const normalizedOldStr = normalizeWhitespace(oldStr);
   const normalizedContent = normalizeWhitespace(fileContent);
@@ -219,7 +240,12 @@ function tryWhitespaceNormalizedMatch(
   const beforeLines = lines.slice(0, bestMatch.start);
   const afterLines = lines.slice(bestMatch.end + 1);
   const newContent = [...beforeLines, newStr, ...afterLines].join('\n');
-  return { matchType: 'whitespace-normalized', newContent, startLine: bestMatch.start };
+  return {
+    insertedText: newStr,
+    matchType: 'whitespace-normalized',
+    newContent,
+    startLine: bestMatch.start,
+  };
 }
 
 interface FuzzyBestMatch {
@@ -238,7 +264,7 @@ function tryFuzzyMatch(
   fileContent: string,
   rawOldStr: string,
   rawNewStr: string
-): StringReplaceResult {
+): LocatedReplacement {
   let oldStr = removeLeadingLineNumbers(rawOldStr);
   let newStr = removeLeadingLineNumbers(rawNewStr);
   if (oldStr.startsWith('\\\n')) {
@@ -398,7 +424,9 @@ function tryFuzzyMatch(
 
   // Apply the located edit (mastra-code file-editor.ts:417-453).
   let newContent = '';
+  let insertedText = '';
   if (bestMatch.type === 'replace-lines') {
+    insertedText = newStr;
     const newFileLines = [
       ...fileLines.slice(0, bestMatch.start),
       ...(newStr ? newStr.split('\n') : []),
@@ -409,6 +437,7 @@ function tryFuzzyMatch(
     newContent = newFileLines.join('\n');
   } else if (bestMatch.type === 'replace-in-line') {
     const [firstNew, ...restNew] = newStr ? newStr.split('\n') : [];
+    insertedText = restNew?.length ? [firstNew, ...restNew].join('\n') : (firstNew ?? '');
     const newFileLines = [
       ...fileLines.slice(0, bestMatch.start),
       ...(restNew?.length
@@ -427,7 +456,7 @@ function tryFuzzyMatch(
     newContent = newFileLines.join('\n');
   }
 
-  return { matchType: bestMatch.type, newContent, startLine: bestMatch.start };
+  return { insertedText, matchType: bestMatch.type, newContent, startLine: bestMatch.start };
 }
 
 /**
@@ -438,7 +467,7 @@ function tryFuzzyMatch(
  * — the model believes its edit landed when it did not. Throw instead so the
  * caller re-reads and supplies a matching oldStr (no silent fallbacks).
  */
-function assertChanged(result: StringReplaceResult, fileContent: string): StringReplaceResult {
+function assertChanged(result: LocatedReplacement, fileContent: string): LocatedReplacement {
   if (result.newContent === fileContent) {
     throw new StringReplaceError(
       'not_found',
@@ -495,15 +524,15 @@ export function applyStringReplace(args: {
   // Phase 1: exact (replaces only the single located occurrence, by index).
   const exact = tryExactMatch(fileContent, oldStr, newStr);
   if (exact) {
-    return assertChanged(exact, fileContent);
+    return withEditedLines(assertChanged(exact, fileContent));
   }
 
   // Phase 2: whitespace-normalized.
   const whitespace = tryWhitespaceNormalizedMatch(fileContent, oldStr, newStr);
   if (whitespace) {
-    return assertChanged(whitespace, fileContent);
+    return withEditedLines(assertChanged(whitespace, fileContent));
   }
 
   // Phase 3: char-level / Levenshtein-fuzzy (throws on ambiguity / no-match).
-  return assertChanged(tryFuzzyMatch(fileContent, oldStr, newStr), fileContent);
+  return withEditedLines(assertChanged(tryFuzzyMatch(fileContent, oldStr, newStr), fileContent));
 }

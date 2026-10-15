@@ -417,6 +417,8 @@ describe('assistant-tools write tools', () => {
         expect(result.replaced).toBe(true);
         expect(result.path).toBe('/src/lib/math.ts');
         expect(result.matchType).toBe('exact');
+        // The written range the context map draws as an edit (BST-2015).
+        expect(result.editedLines).toEqual({ endLine: 1, startLine: 1 });
         const onDisk = await fsPromises.readFile(
           path.join(workspaceRootPath, 'src', 'lib', 'math.ts'),
           'utf8'

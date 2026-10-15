@@ -27,7 +27,7 @@ import {
 } from './contracts.js';
 import { readIndexIdentity, readScopeEpoch } from './index-metadata.js';
 import { ScopeAuthority, supportedVectorProfile, vectorProfileHash } from './scope-authority.js';
-import { readScopedFilePage } from './scoped-file-page.js';
+import { readScopedFileChunkBounds, readScopedFilePage } from './scoped-file-page.js';
 import { scopeCoverage, scopeCoverageBatch, verifyScopedManifest } from './scoped-proofs.js';
 import {
   coarseVectorBlob,
@@ -100,6 +100,9 @@ export class ScopedIndex {
   }
   readFilePage(input: unknown): import('./contracts.js').ScopedFilePage {
     return readScopedFilePage(this.db, this.authority, input);
+  }
+  readFileChunkBounds(input: unknown): import('./contracts.js').ScopedFileChunkBounds {
+    return readScopedFileChunkBounds(this.db, this.authority, input);
   }
   beginOwnerEpoch(): void {
     this.db

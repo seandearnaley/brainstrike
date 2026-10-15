@@ -9,10 +9,14 @@ import {
   vectorProfileHash,
 } from '@brainstrike/indexer';
 import type {
+  IndexChunkBoundsCapability,
   IndexerCoverage,
   IndexerCoverageBatch,
   IndexerCoverageRequest,
   IndexerEmbeddingState,
+  IndexerFileChunks,
+  IndexerFileChunksRequest,
+  IndexerFileChunksResult,
   IndexerSearchHit,
   IndexerSourceObservation,
   IndexerStatus,
@@ -345,10 +349,61 @@ function projectStatus(
     ...(authority.queryPlan === undefined ? {} : { queryPlan: authority.queryPlan }),
   };
 }
+const MAX_FILE_CHUNK_PATHS = 100;
+
+/** A root-relative path as bindings hold it: POSIX, without the explorer's leading slash. */
+function bindingPath(path: string): string {
+  return path.startsWith('/') ? path.slice(1) : path;
+}
+
+async function readFileChunks(
+  snapshot: {
+    readonly assertCurrent: () => Promise<NativeSearchAuthority>;
+    readonly authority: NativeSearchAuthority;
+    readonly port: NativeScopedRead['port'];
+    readonly storeId: string;
+  },
+  request: IndexerFileChunksRequest
+): Promise<IndexerFileChunksResult> {
+  if (request.paths.length === 0 || request.paths.length > MAX_FILE_CHUNK_PATHS) {
+    throw new TypeError(`Native file chunks need 1 to ${MAX_FILE_CHUNK_PATHS} paths.`);
+  }
+  const bound = new Map(
+    snapshot.authority.bindings
+      .filter((binding) => binding.rootId === request.rootId && binding.relativePath !== null)
+      .map((binding) => [binding.relativePath, binding.fileId])
+  );
+  const fileIds = [...new Set(request.paths.flatMap((path) => bound.get(bindingPath(path)) ?? []))];
+  const read =
+    fileIds.length === 0
+      ? undefined
+      : await snapshot.port.readScopedFileChunkBounds({
+          fileIds,
+          scope: { kind: 'workspace', rootId: request.rootId },
+        });
+  if (read && read.storeId !== snapshot.storeId) {
+    throw new Error('Native file chunks returned a different store.');
+  }
+  const byFile = new Map(read?.files.map((file) => [file.fileId, file]));
+  const files = request.paths.map((path): IndexerFileChunks => {
+    const fileId = bound.get(bindingPath(path));
+    const file = fileId === undefined ? undefined : byFile.get(fileId);
+    if (!file) {
+      return { kind: 'outside-index', path };
+    }
+    if (file.kind === 'not-indexed') {
+      return { kind: 'not-indexed', path };
+    }
+    return { chunks: file.chunks, contentHash: file.contentHash, kind: 'indexed', path };
+  });
+  await snapshot.assertCurrent();
+  return { files, rootId: request.rootId, storeId: snapshot.storeId };
+}
+
 /** Project the current scoped writer and its exact saved profile into the visible read capability. */
 export function createNativeScopedSearchCapability(
   dependencies: NativeScopedSearchDependencies
-): IndexSearchCapability {
+): IndexSearchCapability & IndexChunkBoundsCapability {
   const capture = async (read: NativeScopedRead) => {
     const port = read.port;
     const authority = await read.getAuthority();
@@ -447,6 +502,8 @@ export function createNativeScopedSearchCapability(
       return result;
     },
     coverageBatch,
+    fileChunks: (request) =>
+      dependencies.withRead(async (read) => readFileChunks(await capture(read), request)),
     grep: (request) =>
       dependencies.withRead(async (read) => {
         const snapshot = await capture(read);

@@ -145,3 +145,58 @@ test('paged native Library reads preserve all recorded chunks and refuse foreign
     await rm(directory, { force: true, recursive: true });
   }
 });
+
+test('chunk bounds give each bound file its stored line ranges, and an unwritten file is not indexed', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'native-chunk-bounds-'));
+  const pending = { ...binding, fileId: `${recording.fileId}-pending`, sourcePath: '/import/b.ts' };
+  const port = await openIndexer(
+    {
+      dbPath: join(directory, 'index.sqlite'),
+      embedding: { indexMode: 'text-only' },
+      fileBindings: [binding, pending],
+      rootIds: [],
+      scopes: [scope],
+    },
+    { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
+  );
+  try {
+    const plan = await port.prepareScopedFile({
+      snapshot: { ...source, content: recording.content, providedChunks: recording.result.chunks },
+    });
+    await port.commitScopedTextFile({ plan });
+
+    const bounds = await port.readScopedFileChunkBounds({
+      fileIds: [pending.fileId, binding.fileId],
+      scope,
+    });
+    expect(bounds.files).toEqual([
+      { fileId: pending.fileId, kind: 'not-indexed' },
+      {
+        chunks: plan.chunks.map((chunk) => ({
+          chunkId: chunk.chunkId,
+          contentHash: chunk.contentHash,
+          endLine: chunk.endLine,
+          startLine: chunk.startLine,
+          tokenCount: chunk.tokenCount,
+        })),
+        contentHash: plan.contentHash,
+        fileId: binding.fileId,
+        kind: 'indexed',
+        snapshotHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      },
+    ]);
+    // The same scope and binding authorization as a Library page.
+    await expect(
+      port.readScopedFileChunkBounds({
+        fileIds: [binding.fileId],
+        scope: { embeddingSetId: 'foreign', kind: 'collection' },
+      })
+    ).rejects.toThrow();
+    await expect(
+      port.readScopedFileChunkBounds({ fileIds: ['unbound-file'], scope })
+    ).rejects.toThrow();
+  } finally {
+    await port.close();
+    await rm(directory, { force: true, recursive: true });
+  }
+});
