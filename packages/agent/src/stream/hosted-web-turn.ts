@@ -21,12 +21,16 @@ import {
   type TextStreamPart,
   type ToolSet,
 } from 'ai';
+import { buildCurrentDateNote, buildDefaultInstructions } from '../mastra/default-instructions';
+import { readOpenRouterBilledCost } from '../mastra/runtime-assembly/usage-metering';
 import type { AgentMessage, StreamChunk, StreamFinishReason, StreamIterator } from '../types';
 
 export interface HostedWebTurnParams {
   readonly messages: readonly AgentMessage[];
   /** Resolved by the caller, exactly as the host resolves its own model. */
   readonly model: LanguageModel;
+  /** Prompt-assembly clock, injected so the composed instructions stay pure. */
+  readonly now?: Date;
   readonly signal?: AbortSignal;
 }
 
@@ -43,7 +47,18 @@ export async function streamHostedWebTurn(params: HostedWebTurnParams): Promise<
     // rather than reorder the conversation behind the caller's back.
     throw new Error('Hosted Web cannot send a system message after the first turn');
   }
-  const instructions = preamble.map(toSystemText).join('\n');
+  // Parity with the retired path, which composed these on EVERY hosted turn
+  // (agent-runtime.ts:495 and :511). Web registers no tools, so the builder
+  // gets an empty name map and degrades to the behaviour rules alone. Order
+  // matches the engine: instructions, then the date, then the request's own
+  // system preamble (the workspace root manifest).
+  const instructions = [
+    buildDefaultInstructions(new Map(), {}),
+    buildCurrentDateNote(params.now ?? new Date()),
+    ...preamble.map(toSystemText),
+  ]
+    .filter((part) => part.length > 0)
+    .join('\n');
   const result = streamText({
     messages: toModelMessages(rest),
     model: params.model,
@@ -56,8 +71,22 @@ export async function streamHostedWebTurn(params: HostedWebTurnParams): Promise<
 async function* toStreamChunks(
   fullStream: AsyncIterable<TextStreamPart<ToolSet>>
 ): AsyncGenerator<StreamChunk> {
+  // OpenRouter reports its exact charge in the STEP's providerMetadata; the
+  // run-level `finish` part carries none. Keeping the provider-authoritative
+  // number is the whole reason web still routes through the Mastra model
+  // router, so dropping it here would defeat that. `absent` and `malformed`
+  // both mean "cost unknown", and unknown is expressed by omitting the field
+  // rather than by reporting zero — the same rule agent-streaming.ts:419 uses.
+  let billedCostUsd: number | undefined;
   for await (const part of fullStream) {
     switch (part.type) {
+      case 'finish-step': {
+        const reading = readOpenRouterBilledCost(part);
+        if (reading.kind === 'reported') {
+          billedCostUsd = (billedCostUsd ?? 0) + reading.usd;
+        }
+        break;
+      }
       case 'text-delta': {
         if (part.text) {
           yield { type: 'text-delta', value: part.text };
@@ -75,6 +104,7 @@ async function* toStreamChunks(
       }
       case 'finish': {
         yield {
+          ...(billedCostUsd === undefined ? {} : { billedCostUsd }),
           finishReason: part.finishReason satisfies StreamFinishReason,
           path: [],
           type: 'message-finish',
@@ -139,12 +169,12 @@ function toContentPart(part: AgentMessage['parts'][number]) {
     return { text: part.text, type: 'text' as const };
   }
   if (part.type === 'file') {
-    return {
-      data: part.data,
-      ...(part.filename === undefined ? {} : { filename: part.filename }),
-      mediaType: part.mediaType,
-      type: 'file' as const,
-    };
+    // The canonical AI SDK ImagePart, as the retired path emitted
+    // (agent-runtime.ts:440) — the shape provider adapters convert for vision.
+    // A generic `file` part is NOT equivalent: vision routes that do not
+    // implement file parts ignore or reject it. This endpoint admits only
+    // validated image attachments, so image is always the right shape.
+    return { image: part.data, mediaType: part.mediaType, type: 'image' as const };
   }
   // Hosted Web runs no tools, so a tool part cannot have come from a turn this
   // endpoint served. Refuse it rather than drop it on the way to the provider.
