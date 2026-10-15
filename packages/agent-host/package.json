@@ -36,6 +36,10 @@
       "types": "./dist/state-projection.d.ts",
       "default": "./dist/state-projection.js"
     },
+    "./host-state-producer": {
+      "types": "./dist/host-state-producer.d.ts",
+      "default": "./dist/host-state-producer.js"
+    },
     "./run-verdicts": {
       "types": "./dist/run-verdicts.d.ts",
       "default": "./dist/run-verdicts.js"
@@ -147,6 +151,7 @@
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
+    "esbuild": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

@@ -29,6 +29,10 @@
       "types": "./dist/catalog-domains.d.mts",
       "default": "./dist/catalog-domains.mjs"
     },
+    "./event-schema": {
+      "types": "./dist/event-schema.d.ts",
+      "default": "./dist/event-schema.js"
+    },
     "./native-children": {
       "types": "./dist/native-children.d.ts",
       "default": "./dist/native-children.js"

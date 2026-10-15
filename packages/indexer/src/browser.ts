@@ -5,5 +5,6 @@
  */
 export { BINARY_VECTOR_ENGINE_VERSION, binaryVectorEngine } from './binary-vector-engine.js';
 export type { IndexConnection, IndexReaderConnection } from './index-connection.js';
+export { createStateProjection, type StateProjection } from './state-producer.js';
 export { IndexReader, IndexWriter } from './store.js';
 export type { CoarseVectorEngine } from './vector-engine.js';

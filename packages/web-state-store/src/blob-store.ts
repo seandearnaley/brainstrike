@@ -1,126 +1,102 @@
 /**
  * The browser writer's content-addressed blobs: the desktop writer's blob
- * directory (`writer-worker.mjs` putBlob/unlinkBlobs), as OPFS files in the
- * store's pool directory, which Factory Reset removes whole. A blob is
- * written to a temporary name, flushed, then moved to its hash, so a name
- * only ever holds complete bytes; reads verify the bytes against the name.
+ * directory (`writer-worker.mjs` putBlob/unlinkBlobs), as rows of their own
+ * database in the store's OPFS pool, which Factory Reset removes whole.
+ *
+ * SQLite rather than one OPFS file per blob, because the shared state
+ * projection decodes rows synchronously (`@brainstrike/agent-host`'s
+ * host-state-producer): a spooled body or a run snapshot is read in the same
+ * call that reads its row. `synchronous = FULL` makes a stored blob durable
+ * before the append that names it commits, as desktop's fsync does. Every read
+ * verifies the bytes against their hash.
  */
+import { sha256Hex } from '@brainstrike/utils/crypto';
+import type { SqliteWasmDatabase } from './sqlite-wasm-database';
 
 const HASH = /^[a-f0-9]{64}$/;
 const utf8 = new TextEncoder();
 const fromUtf8 = new TextDecoder('utf-8', { fatal: true });
 
-/** OPFS's move, which lib.dom does not declare yet. */
-interface MovableFileHandle extends FileSystemFileHandle {
-  move(newName: string): Promise<void>;
+export const BLOB_SCHEMA = `CREATE TABLE IF NOT EXISTS blobs (
+  hash TEXT PRIMARY KEY CHECK (length(hash) = 64),
+  content BLOB NOT NULL
+) STRICT`;
+
+function checkedHash(hash: string): string {
+  if (!HASH.test(hash)) {
+    throw new Error(`invalid blob hash ${hash}`);
+  }
+  return hash;
 }
 
-async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
-  return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function isMissing(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'NotFoundError';
-}
-
-export class OpfsBlobStore {
-  private constructor(private readonly directory: FileSystemDirectoryHandle) {}
-
-  /** The `blobs` directory inside `poolDirectory`, created if absent. */
-  static async open(poolDirectory: string): Promise<OpfsBlobStore> {
-    const root = await navigator.storage.getDirectory();
-    const pool = await root.getDirectoryHandle(poolDirectory, { create: true });
-    return new OpfsBlobStore(await pool.getDirectoryHandle('blobs', { create: true }));
+export class SqliteBlobStore {
+  /** `db` is the pool's blob database; the store configures it and keeps it open. */
+  constructor(readonly db: SqliteWasmDatabase) {
+    db.pragma('locking_mode = EXCLUSIVE');
+    db.pragma('journal_mode = WAL');
+    db.pragma('synchronous = FULL');
+    db.exec(BLOB_SCHEMA);
   }
 
   /** Stores `content` under `hash`; an existing blob is kept after its bytes are verified. */
-  async put(hash: string, content: string): Promise<void> {
+  put(hash: string, content: string): void {
     const bytes = utf8.encode(content);
-    if (!HASH.test(hash) || (await sha256(bytes)) !== hash) {
+    if (!HASH.test(hash) || sha256Hex(bytes) !== hash) {
       throw new Error('blob hash does not match its content');
     }
-    if (await this.bytes(hash)) {
-      await this.verify(hash);
+    if (this.stored(hash)) {
+      this.verify(hash);
       return;
     }
-    const temporary = await this.directory.getFileHandle(`${hash}.tmp`, { create: true });
-    const access = await temporary.createSyncAccessHandle();
-    try {
-      access.truncate(0);
-      let offset = 0;
-      while (offset < bytes.length) {
-        offset += access.write(bytes.subarray(offset), { at: offset });
-      }
-      access.flush();
-    } finally {
-      access.close();
-    }
-    await (temporary as MovableFileHandle).move(hash);
+    this.db.prepare('INSERT INTO blobs (hash, content) VALUES (?, ?)').run(hash, bytes);
   }
 
   /** Throws unless `hash` names a stored blob whose bytes still hash to it. */
-  async verify(hash: string): Promise<void> {
-    const bytes = await this.bytes(hash);
+  verify(hash: string): void {
+    this.bytes(hash);
+  }
+
+  /** A stored blob's verified bytes. */
+  bytes(hash: string): Uint8Array {
+    const bytes = this.stored(hash);
     if (!bytes) {
       throw new Error(`event references missing blob ${hash}`);
     }
-    if ((await sha256(bytes)) !== hash) {
+    if (sha256Hex(bytes) !== hash) {
       throw new Error(`blob ${hash} checksum mismatch`);
     }
+    return bytes;
   }
 
   /** The blob's text, verified; null when it is larger than `maxBytes`. */
-  async read(hash: string, maxBytes: number): Promise<string | null> {
-    const file = await this.file(hash);
-    if (!file) {
+  read(hash: string, maxBytes: number): string | null {
+    const size = this.db
+      .prepare('SELECT length(content) FROM blobs WHERE hash = ?')
+      .pluck()
+      .get(checkedHash(hash));
+    if (typeof size !== 'number') {
       throw new Error(`blob ${hash} is missing`);
     }
-    if (file.size > maxBytes) {
-      return null;
-    }
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    if ((await sha256(bytes)) !== hash) {
-      throw new Error(`blob ${hash} checksum mismatch`);
-    }
-    return fromUtf8.decode(bytes);
+    return size > maxBytes ? null : fromUtf8.decode(this.bytes(hash));
   }
 
   /** Removes the named blobs that exist; returns the hashes actually removed. */
-  async unlink(hashes: readonly string[]): Promise<string[]> {
-    const deleted: string[] = [];
-    for (const hash of hashes) {
-      if (!HASH.test(hash)) {
-        throw new Error(`invalid blob hash ${hash}`);
-      }
-      try {
-        await this.directory.removeEntry(hash);
-        deleted.push(hash);
-      } catch (error) {
-        if (!isMissing(error)) {
-          throw error;
-        }
-      }
-    }
-    return deleted;
+  unlink(hashes: readonly string[]): string[] {
+    const remove = this.db.prepare('DELETE FROM blobs WHERE hash = ?');
+    return this.db.transaction(() =>
+      hashes.filter((hash) => remove.run(checkedHash(hash)).changes > 0)
+    )();
   }
 
-  private async bytes(hash: string): Promise<Uint8Array<ArrayBuffer> | undefined> {
-    const file = await this.file(hash);
-    return file ? new Uint8Array(await file.arrayBuffer()) : undefined;
+  close(): void {
+    this.db.close();
   }
 
-  private async file(hash: string): Promise<File | undefined> {
-    if (!HASH.test(hash)) {
-      throw new Error(`invalid blob hash ${hash}`);
-    }
-    try {
-      return await (await this.directory.getFileHandle(hash)).getFile();
-    } catch (error) {
-      if (isMissing(error)) {
-        return undefined;
-      }
-      throw error;
-    }
+  private stored(hash: string): Uint8Array | undefined {
+    const content = this.db
+      .prepare('SELECT content FROM blobs WHERE hash = ?')
+      .pluck()
+      .get(checkedHash(hash));
+    return content instanceof Uint8Array ? content : undefined;
   }
 }

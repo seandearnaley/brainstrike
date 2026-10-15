@@ -1,15 +1,13 @@
 /**
  * The indexer's few platform needs, written so its store runs both in the
- * desktop's utility process and in the browser writer (BST-1940). Hashing
- * uses Node's native SHA-256 where the runtime provides it and the same
- * SHA-256 from `@noble/hashes` elsewhere. Random ids come from Web Crypto.
+ * desktop's utility process and in the browser writer (BST-1940). Hashing is
+ * `@brainstrike/utils/crypto`'s synchronous SHA-256 (Node's native crypto
+ * where the runtime provides it). Random ids come from Web Crypto.
  * Float32 vectors are plain little-endian bytes, not Node Buffers.
  */
-import { sha256 as nobleSha256 } from '@noble/hashes/sha2.js';
+export { sha256Bytes, sha256Hex } from '@brainstrike/utils/crypto';
 
-const nodeCrypto = globalThis.process?.getBuiltinModule?.('node:crypto');
 const nodePath = globalThis.process?.getBuiltinModule?.('node:path');
-const utf8 = new TextEncoder();
 
 function hex(bytes: Uint8Array): string {
   let text = '';
@@ -17,20 +15,6 @@ function hex(bytes: Uint8Array): string {
     text += byte.toString(16).padStart(2, '0');
   }
   return text;
-}
-
-/** SHA-256 of `text`'s UTF-8 bytes. */
-export function sha256Bytes(text: string): Uint8Array {
-  return nodeCrypto
-    ? new Uint8Array(nodeCrypto.createHash('sha256').update(text).digest())
-    : nobleSha256(utf8.encode(text));
-}
-
-/** SHA-256 of `text`'s UTF-8 bytes, as lowercase hex. */
-export function sha256Hex(text: string): string {
-  return nodeCrypto
-    ? nodeCrypto.createHash('sha256').update(text).digest('hex')
-    : hex(nobleSha256(utf8.encode(text)));
 }
 
 /** `byteCount` random bytes, as lowercase hex. */

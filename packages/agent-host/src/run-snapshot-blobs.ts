@@ -2,9 +2,8 @@ import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { BLOBS_DIR, type BlobContent, sha256Hex } from '@brainstrike/state-store';
-import { storedJson } from './json-value.js';
-import { type HostEvent, type HostRunSnapshot, hostRunSnapshotSchema } from './protocol.js';
-import { Sha256 } from './workspace-wire.js';
+import { decodeRunSnapshot } from './host-event-decoding.js';
+import type { HostEvent, HostRunSnapshot } from './protocol.js';
 
 /**
  * ADR-0011 amendment: a committed run.started keeps its run snapshot (the run
@@ -27,42 +26,7 @@ export function storedRunSnapshot(event: HostEvent): {
   return { blobs: [{ content, hash }], body: { ...started, blobRefs: [hash], snapshotRef: hash } };
 }
 
-/** A stored body's run snapshot reference, removed from the body it came with. */
-export function takeRunSnapshotRef(body: Readonly<Record<string, unknown>>): {
-  readonly body: Readonly<Record<string, unknown>>;
-  readonly ref?: string;
-} {
-  if (!('snapshotRef' in body)) {
-    return { body };
-  }
-  const { blobRefs, snapshotRef, ...rest } = body;
-  const ref = Sha256.parse(snapshotRef);
-  if (body['type'] !== 'run.started' || JSON.stringify(blobRefs) !== JSON.stringify([ref])) {
-    throw new Error('Committed run snapshot reference does not match its row');
-  }
-  return { body: rest, ref };
-}
-
-/** Deep-frozen: one resolved snapshot is shared by every run that references it. */
-function frozen<T>(value: T): T {
-  if (value !== null && typeof value === 'object') {
-    for (const child of Object.values(value)) {
-      frozen(child);
-    }
-    Object.freeze(value);
-  }
-  return value;
-}
-
-/** A snapshot blob is stored JSON, like a stored row (ADR-0011). */
-const StoredRunSnapshotSchema = hostRunSnapshotSchema(storedJson);
-
-function decodeSnapshot(hash: string, bytes: Uint8Array): HostRunSnapshot {
-  if (sha256Hex(Buffer.from(bytes)) !== hash) {
-    throw new Error('Committed run snapshot blob is damaged');
-  }
-  return frozen(StoredRunSnapshotSchema.parse(JSON.parse(Buffer.from(bytes).toString('utf8'))));
-}
+export { takeRunSnapshotRef } from './host-event-decoding.js';
 
 /**
  * Resolved snapshots by store root and content hash. Blobs are immutable, so a
@@ -91,12 +55,12 @@ export function readRunSnapshot(root: string, hash: string): Promise<HostRunSnap
     resolved.get(key) ??
     remember(
       key,
-      readFile(join(root, BLOBS_DIR, hash)).then((bytes) => decodeSnapshot(hash, bytes))
+      readFile(join(root, BLOBS_DIR, hash)).then((bytes) => decodeRunSnapshot(hash, bytes))
     )
   );
 }
 
 /** For a synchronous reader (the state projection); it neither awaits nor fills the cache. */
 export function readRunSnapshotSync(root: string, hash: string): HostRunSnapshot {
-  return decodeSnapshot(hash, readFileSync(join(root, BLOBS_DIR, hash)));
+  return decodeRunSnapshot(hash, readFileSync(join(root, BLOBS_DIR, hash)));
 }

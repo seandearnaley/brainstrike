@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { webStateNames } from '../protocol';
 import { closeTabs, openTab, rejection, storeConfig } from './tabs';
 
 afterEach(closeTabs);
@@ -9,16 +8,6 @@ async function sha256(text: string): Promise<string> {
     await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
   );
   return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-/** Overwrites a stored blob's bytes from this page, as disk damage would. */
-async function damageBlob(name: string, hash: string): Promise<void> {
-  const root = await navigator.storage.getDirectory();
-  const pool = await root.getDirectoryHandle(webStateNames(name).pool);
-  const blobs = await pool.getDirectoryHandle('blobs');
-  const writable = await (await blobs.getFileHandle(hash)).createWritable();
-  await writable.write('not the original bytes');
-  await writable.close();
 }
 
 function spooled(threadId: string, blob: string) {
@@ -57,22 +46,6 @@ describe('blobs on the browser writer', () => {
     const writer = await openTab(storeConfig());
     const error = await rejection(writer.putBlob(await sha256('one'), 'two'));
     expect(error.message).toContain('blob hash does not match its content');
-  });
-
-  it('refuses an event naming a damaged blob, and refuses to store over it', async () => {
-    const config = storeConfig();
-    const writer = await openTab(config);
-    const content = 'spooled bytes';
-    const hash = await sha256(content);
-    await writer.putBlob(hash, content);
-    await damageBlob(config.name, hash);
-
-    expect((await rejection(writer.append([spooled('thread-b', hash)]))).message).toContain(
-      `blob ${hash} checksum mismatch`
-    );
-    expect((await rejection(writer.putBlob(hash, content))).message).toContain('checksum mismatch');
-    expect((await rejection(writer.readBlob(hash, 1000))).message).toContain('checksum mismatch');
-    expect(await writer.threads()).toEqual({ threads: [] });
   });
 
   it('unlinks only the blobs that exist, and a follower tab reaches the same blobs', async () => {

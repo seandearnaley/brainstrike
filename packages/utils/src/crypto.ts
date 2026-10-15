@@ -1,6 +1,37 @@
 /**
  * Cross-platform utilities backed by secure runtime crypto APIs.
  */
+import { sha256 as nobleSha256 } from '@noble/hashes/sha2.js';
+
+/** Node's native crypto where the runtime provides it (desktop); `@noble/hashes` elsewhere (the browser). */
+const nodeCrypto = globalThis.process?.getBuiltinModule?.('node:crypto');
+const utf8 = new TextEncoder();
+
+function hexOf(bytes: Uint8Array): string {
+  let text = '';
+  for (const byte of bytes) {
+    text += byte.toString(16).padStart(2, '0');
+  }
+  return text;
+}
+
+/**
+ * SHA-256 of `input` (a string as its UTF-8 bytes), computed synchronously
+ * on every runtime: for code that must hash inside a synchronous read, such
+ * as the derived index and the browser state writer.
+ */
+export function sha256Bytes(input: string | Uint8Array): Uint8Array {
+  return nodeCrypto
+    ? new Uint8Array(nodeCrypto.createHash('sha256').update(input).digest())
+    : nobleSha256(typeof input === 'string' ? utf8.encode(input) : input);
+}
+
+/** `sha256Bytes` as lowercase hex. */
+export function sha256Hex(input: string | Uint8Array): string {
+  return nodeCrypto
+    ? nodeCrypto.createHash('sha256').update(input).digest('hex')
+    : hexOf(nobleSha256(typeof input === 'string' ? utf8.encode(input) : input));
+}
 
 /**
  * Generate a UUID using secure runtime crypto APIs.

@@ -41,7 +41,7 @@
     "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/sqlite-native": "workspace:*",
     "@brainstrike/state-store": "workspace:*",
-    "@noble/hashes": "catalog:",
+    "@brainstrike/utils": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {
