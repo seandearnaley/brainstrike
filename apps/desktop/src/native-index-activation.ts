@@ -24,7 +24,7 @@ import {
 } from './native-canonical-catalog';
 import {
   NativeCanonicalInference,
-  NativeCanonicalProfileResolver,
+  type NativeCanonicalProfileResolver,
 } from './native-canonical-profile';
 import { createNativeCanonicalPublication } from './native-canonical-publication';
 import { isolateNativeCoverage } from './native-coverage-reader';
@@ -34,11 +34,13 @@ import {
   catalogReadiness,
   deferNativeIndexCatalog,
   observeNativeIndexCatalog,
+  settleDeferredNativeIndexCatalog,
   triggerCatalogWorkspaces,
 } from './native-index-catalog-observation';
 import { createNativeIndexContentOperations } from './native-index-content-operations';
 import {
   nativeGraphContext as contextFor,
+  createNativeGraphProfileResolver,
   type NativeIndexActivationDependencies as Dependencies,
   type NativeIndexActivationGraph as Graph,
   loadNativeGraphRecords,
@@ -91,24 +93,9 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   const loadRecords = (current: Graph) =>
     loadNativeGraphRecords(current, assertCurrent, dependencies.catalog);
   const resolver = (current: Graph): NativeCanonicalProfileResolver =>
-    new NativeCanonicalProfileResolver({
+    createNativeGraphProfileResolver(current, assertCurrent, {
       collections: dependencies.catalog,
       modelCatalog: dependencies.modelCatalog,
-      readLocalSelection: async () => {
-        assertCurrent(current);
-        return current.settings.selection ?? undefined;
-      },
-      resolveEmbeddingSetId: async (scope) => {
-        assertCurrent(current);
-        const collectionId = vectorCollectionId(current.settings);
-        if (
-          (scope.kind === 'workspace' && !current.leases.has(scope.rootId)) ||
-          (scope.kind === 'collection' && scope.embeddingSetId !== collectionId)
-        ) {
-          throw new Error('Canonical profile scope is not authorized by current desktop settings.');
-        }
-        return collectionId;
-      },
     });
   const authority = async (): Promise<NativeIndexAuthority> => {
     const current = graph;
@@ -553,7 +540,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   const refreshCatalog = async (
     current: Graph,
     join: boolean,
-    inventory?: readonly NativeCanonicalCatalogRecord[]
+    inventory?: readonly NativeCanonicalCatalogRecord[],
+    joinScan = true
   ): Promise<void> => {
     const records = inventory ?? (await loadRecords(current));
     const sources = current.sources;
@@ -567,8 +555,18 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     if (pending) {
       // Passive catalog observation must not invalidate the discovery publication
       // whose committed records it just read. Internal inventory never joins itself.
-      await (sources?.scanAdmission?.joinPublication(pending) ?? pending);
-      await refreshCatalog(current, join);
+      await settleDeferredNativeIndexCatalog(
+        current,
+        sources?.scanAdmission?.joinPublication(pending) ?? pending,
+        joinScan,
+        () => refreshCatalog(current, join),
+        (error) => {
+          if (graph === current && !current.controller.signal.aborted) {
+            recordFailure(current, error);
+            dependencies.onError('catalog refresh after scan', error);
+          }
+        }
+      );
       return;
     }
     const changedRoots = observeNativeIndexCatalog(current, records);
@@ -734,7 +732,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       }
       throw error;
     });
-    await refreshCatalog(current, false);
+    await refreshCatalog(current, false, undefined, false);
     return current.sources?.scanAdmission
       ? current.sources.scanAdmission.acquireRead(() => runtime.acquire())
       : runtime.acquire();
