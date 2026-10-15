@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 import type { EnhancedImportResult } from '../../types';
 import { createImportCompletionHandler } from '../use-import-completion';

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { getImportPathFileName } from '../file-import/file-import-coordinator';
 

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { ActionServices, ContextTarget } from '@brainstrike/context-actions';
 import { describe, expect, it, vi } from 'vitest';
 import {
