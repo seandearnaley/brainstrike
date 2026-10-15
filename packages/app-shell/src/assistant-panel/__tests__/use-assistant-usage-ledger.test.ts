@@ -82,7 +82,6 @@ function createInput(
     prepareRequestData: async () => ({ memory: {} }),
     refreshThreadsAfterRun: () => {},
     selectedMemoryThreadId: THREAD_ID,
-    selectedProvider: 'openai',
     ...overrides,
   };
 }

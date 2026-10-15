@@ -90,7 +90,6 @@ export interface UseAssistantUsageLedgerInput {
   /** Thread recency/ordering refresh fired after each turn's usage lands. */
   readonly refreshThreadsAfterRun: () => void;
   readonly selectedMemoryThreadId: string | undefined;
-  readonly selectedProvider: SupportedProvider | null;
 }
 
 export interface AssistantUsageLedger {
@@ -115,7 +114,6 @@ export function useAssistantUsageLedger({
   prepareRequestData,
   refreshThreadsAfterRun,
   selectedMemoryThreadId,
-  selectedProvider,
 }: UseAssistantUsageLedgerInput): AssistantUsageLedger {
   // Durable CUMULATIVE usage for the active thread, hydrated from the DB
   // (honest, not a heuristic). Desktop-only: when the repo is absent (web) the
@@ -354,7 +352,6 @@ export function useAssistantUsageLedger({
       refreshCumulativeUsage,
       refreshThreadsAfterRun,
       selectedMemoryThreadId,
-      selectedProvider,
     ]
   );
 

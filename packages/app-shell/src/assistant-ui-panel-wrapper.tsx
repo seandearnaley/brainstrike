@@ -1017,7 +1017,6 @@ export function AssistantUiPanelWrapper({
     prepareRequestData,
     refreshThreadsAfterRun,
     selectedMemoryThreadId,
-    selectedProvider,
   });
 
   // OM informational stats (observed tokens + compaction saved). Desktop-only:
