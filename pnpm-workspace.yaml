@@ -93,6 +93,11 @@ catalog:
   '@shikijs/themes': ^4.4.3
   '@smithy/eventstream-codec': ^4.5.2
   '@smithy/util-utf8': ^4.5.2
+  # BST-1940: the official SQLite WASM build for the browser state writer
+  # (@brainstrike/web-state-store). Exact pin. The web app does not run on it yet: up to
+  # 3.53.4, a failed opfs-sahpool init removes the whole pool (upstream check-in
+  # ad1bbfc2bd adds preserveOnInitFailure in 3.54), and the owner gated shipping on that fix.
+  '@sqlite.org/sqlite-wasm': 3.53.4-build2
   # LOCKSTEP: typescript-checker and vitest-runner peer-depend on
   # `@stryker-mutator/core` at an EXACT version ("10.0.0"), never a range, so the
   # `^` below is looser than what the plugins actually accept. Bump all four in

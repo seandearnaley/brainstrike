@@ -17,8 +17,8 @@ import { seedViewFilterPresets, VIEW_FILTER_PRESET_SCHEMA } from './view-filter-
 import { AUTHORITATIVE_SCHEMA } from './authoritative-schema.mjs';
 import { MCP_TASK_THREAD_SCHEMA } from './mcp-task-domain.mjs';
 import { MEMORY_SCHEMA } from './memory-domain.mjs';
-import { SOURCE_CATALOG_SCHEMA } from './source-catalog-domain.mjs';
-import { WORKSPACE_ROOT_SCHEMA } from './workspace-root-domain.mjs';
+import { SOURCE_CATALOG_SCHEMA } from './source-catalog-schema.mjs';
+import { WORKSPACE_ROOT_SCHEMA } from './workspace-root-schema.mjs';
 
 export const SCHEMA_VERSION = 13;
 

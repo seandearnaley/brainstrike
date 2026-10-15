@@ -1,5 +1,4 @@
 // @ts-check
-import { randomUUID } from 'node:crypto';
 import { DEFAULT_VIEW_FILTER_PRESETS } from '@brainstrike/types';
 
 export const VIEW_FILTER_PRESET_SCHEMA = `
@@ -17,7 +16,7 @@ export function seedViewFilterPresets(db) {
     'INSERT INTO view_filter_presets(id,value,sort_order,is_default) VALUES (?,?,?,1)'
   );
   for (const defaults of DEFAULT_VIEW_FILTER_PRESETS) {
-    const preset = { ...defaults, createdAt: now, id: randomUUID(), updatedAt: now };
+    const preset = { ...defaults, createdAt: now, id: crypto.randomUUID(), updatedAt: now };
     write.run(preset.id, JSON.stringify(preset), preset.sortOrder);
   }
 }
@@ -59,7 +58,7 @@ export function executeViewFilterPresetRequest(db, request) {
           createdAt: now,
           description: request.input.description ?? null,
           icon: request.input.icon ?? 'file',
-          id: randomUUID(),
+          id: crypto.randomUUID(),
           isDefault: false,
           sortOrder: maximum.value + 1,
           updatedAt: now,

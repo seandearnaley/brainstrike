@@ -132,7 +132,8 @@
         "@brainstrike/db",
         "@brainstrike/host-lease",
         "@brainstrike/queue",
-        "@brainstrike/state-store"
+        "@brainstrike/state-store",
+        "@brainstrike/web-state-store"
       ],
       "mayDependOn": [
         "shared-foundation",

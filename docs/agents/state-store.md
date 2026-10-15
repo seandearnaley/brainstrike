@@ -14,6 +14,11 @@ creation and populated same-schema recovery are required; legacy conversion is
 not. Read-only metadata inspection must not stamp versions or perform DDL.
 Corruption refuses or contains reads without deleting/replacing canonical data.
 
+The browser writer (`@brainstrike/web-state-store`, ADR-0011's 2026-10-15
+amendment) runs the same `schema.mjs`, `run-log.mjs` and their imports on
+sqlite-wasm. Keep those modules free of static Node imports; reach a Node-only
+fast path through `process.getBuiltinModule`, as the run-log crc does.
+
 ## Root and content identity
 
 The root lease supplies writer authority through acquisition, admitted work and

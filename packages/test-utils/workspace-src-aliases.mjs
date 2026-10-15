@@ -64,7 +64,7 @@ export const DEFAULT_SRC_ALIAS_EXCLUSIONS = Object.freeze([
   '@brainstrike/agent',
 ]);
 
-const SRC_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts'];
+const SRC_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.mjs'];
 const CODE_EXT_RE = /\.(d\.ts|d\.mts|d\.cts|mjs|cjs|js|tsx|ts)$/;
 
 /** Escape a specifier for embedding in a RegExp. */

@@ -28,6 +28,22 @@
     "./native-children": {
       "types": "./dist/native-children.d.ts",
       "default": "./dist/native-children.js"
+    },
+    "./run-log": {
+      "types": "./dist/run-log.d.mts",
+      "default": "./dist/run-log.mjs"
+    },
+    "./run-log-format": {
+      "types": "./dist/run-log-format.d.mts",
+      "default": "./dist/run-log-format.mjs"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.mts",
+      "default": "./dist/schema.mjs"
+    },
+    "./sqlite-checkpoint": {
+      "types": "./dist/sqlite-checkpoint.d.mts",
+      "default": "./dist/sqlite-checkpoint.mjs"
     }
   },
   "files": [
