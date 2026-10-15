@@ -1,5 +1,6 @@
 import type { PermissionPolicies } from '@brainstrike/assistant-contract/tool-metadata';
 import { describe, expect, it } from 'vitest';
+import type { PermissionAskToolMetadata } from '../../permissions/permission-tool-gate';
 import { sanitizeAssistantRunEventMetadata } from '../../run-events';
 import type { StreamChunk, StreamChunkRunEvent } from '../../types';
 import {
@@ -7,7 +8,6 @@ import {
   type PermissionGateSummary,
   summarizePermissionGate,
 } from '../permission-gate-run-events';
-import type { PermissionAskToolMetadata } from '../../permissions/permission-tool-gate';
 
 const POLICIES: PermissionPolicies = { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'ask' };
 

@@ -26,17 +26,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 });
 
 import {
-  attachToolCallTelemetryMetadata,
-  readToolCallTelemetryMetadata,
-} from '../tool-projection/tool-call-telemetry';
-import {
-  applyToolModelOutputProjections as applyToolModelOutputProjectionsWithBudget,
-  assertDomainProjectionWithinBudget,
-  buildDefaultModelProjectionBudget,
-  getActiveToolResultBudget,
-} from '../tool-projection/tool-model-output';
-import { ToolProjectionInputRejectedError } from '../tool-projection/tool-projection-input-rejected';
-import {
   CEILING_SCALED_TOOL_RESULT_BUDGET,
   decodedTextModelOutputChars,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
@@ -47,6 +36,17 @@ import {
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
   TOOL_RESULT_TRUNCATED_CODE,
 } from '../stream/tool-output-limits';
+import {
+  attachToolCallTelemetryMetadata,
+  readToolCallTelemetryMetadata,
+} from '../tool-projection/tool-call-telemetry';
+import {
+  applyToolModelOutputProjections as applyToolModelOutputProjectionsWithBudget,
+  assertDomainProjectionWithinBudget,
+  buildDefaultModelProjectionBudget,
+  getActiveToolResultBudget,
+} from '../tool-projection/tool-model-output';
+import { ToolProjectionInputRejectedError } from '../tool-projection/tool-projection-input-rejected';
 import {
   createHookResultEnvelope,
   HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET,

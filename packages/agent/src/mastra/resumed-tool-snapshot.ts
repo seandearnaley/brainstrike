@@ -1,10 +1,10 @@
 import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
+import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import type { RuntimeData } from '../types';
 import type { MastraAgentRuntime } from './agent-runtime';
 import type { ResumedApprovalToolCall } from './agent-streaming';
 import { findPendingBackgroundTask } from './background-resume';
 import { assertDelegatedToolActionPending } from './delegated-tool-actions';
-import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 
 /**
  * The suspend-resume transport answers a tool's OWN `suspend()` pause and
