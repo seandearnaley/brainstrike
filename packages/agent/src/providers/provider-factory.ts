@@ -35,6 +35,7 @@ import {
   requireCustomFetchAuthInput,
 } from './provider-auth-input';
 import {
+  getProviderDefinition,
   isSupportedProvider,
   listProviders,
   PROVIDER_DEFAULT_MODELS,
@@ -156,6 +157,18 @@ export function createProvider(
   }
 
   const validatedProvider = provider;
+  // Registry-derived, never a provider-id branch: an EMBEDDINGS-ONLY provider
+  // (the built-in on-device one, cohere, voyage) has no chat model for this
+  // factory to build. Refusing here names that, instead of falling through to
+  // "no default model" or to the unsupported-provider default — both of which
+  // read as "misconfigured" for a provider that is configured correctly and
+  // simply does not do chat.
+  if (!getProviderDefinition(validatedProvider).capabilities.llm) {
+    throw createMastraAgentError('mastra_agent_unsupported_provider', {
+      context: { provider },
+      detail: `Provider ${provider} serves embeddings only; it has no chat model.`,
+    });
+  }
   const modelName = model ?? PROVIDER_DEFAULT_MODELS[validatedProvider];
   if (!modelName) {
     throw createMastraAgentError('mastra_agent_runtime_init_failed', {

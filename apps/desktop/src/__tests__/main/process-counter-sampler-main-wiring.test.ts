@@ -59,7 +59,6 @@ describe('Main process sampler owner composition', () => {
         'file-system': () => {},
         forge: () => {},
         'git-inventory': () => {},
-        'llm-host': () => {},
         'mcp-runtime': () => {},
         'native-index': () => {},
         'parser-host': () => {},

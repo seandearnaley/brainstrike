@@ -40,7 +40,6 @@ it('serves confined assets with the embedder policy workers need and preserved M
 });
 it.each([
   ['embedding-host', 'same-origin', 'require-corp'],
-  ['llm-host', 'same-origin', 'require-corp'],
   ['chunking-host', null, null],
   [null, null, null],
 ])('isolates the document only for an inference host (mode %s)', async (mode, opener, embedder) => {

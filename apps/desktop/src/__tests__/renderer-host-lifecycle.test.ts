@@ -323,7 +323,7 @@ describe('RendererHostLifecycle', () => {
     // loadURL's promise settles. Managers gate acceptStatusReport on
     // getHostWindow(); if the loading window is not visible yet, that report
     // is dropped and ensureStarted waits out the full ready timeout, then
-    // destroys a healthy host (the first-run "Timed out waiting for llm host
+    // destroys a healthy host (the first-run "Timed out waiting for host
     // state transition" bug).
     const hostWindow = createFakeWindow(42);
     let hostWindowIdDuringLoad: number | undefined;
@@ -342,12 +342,12 @@ describe('RendererHostLifecycle', () => {
         createStatus({
           active: false,
           lastError: null,
-          runtimeId: 'llm-host:stopped',
+          runtimeId: 'embedding-host:stopped',
           state: 'stopped',
         }),
-      mode: 'llm-host',
-      role: 'llm-host',
-      statusEventName: 'llm-host:status',
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
       timeoutMessage: 'timeout',
     });
 
@@ -417,7 +417,7 @@ describe('RendererHostLifecycle', () => {
     );
   });
 
-  it.each(['chunking-host', 'embedding-host', 'llm-host'] as const)(
+  it.each(['chunking-host', 'embedding-host'] as const)(
     'pins the %s window to the narrow hidden-host preload manifest',
     async (role) => {
       const hostWindow = createFakeWindow(411);

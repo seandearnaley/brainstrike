@@ -176,7 +176,7 @@ describe('window-focus IPC handler', () => {
     });
   });
 
-  it.each(['chunking-host', 'embedding-host', 'llm-host'] as const)(
+  it.each(['chunking-host', 'embedding-host'] as const)(
     'rejects a %s sender before reading any window',
     async (role) => {
       registerWindowFocusIpcHandlers();

@@ -121,7 +121,6 @@ describe('desktop graceful shutdown', () => {
       'chunking-host',
       'parser-host',
       'embedding-host',
-      'llm-host',
       'git-inventory',
       'forge',
       'database-drain',
@@ -303,7 +302,7 @@ describe('desktop graceful shutdown', () => {
     expect(events.indexOf(FORCED_EXIT_LOG)).toBeLessThan(events.indexOf('close:database'));
     expect(events.indexOf('close:database')).toBeLessThan(events.indexOf('exit:1'));
     // Nothing after the stuck owner runs, no completion is claimed, and the sink stays open.
-    expect(events).not.toContain('step:llm-host');
+    expect(events).not.toContain('step:git-inventory');
     expect(events).not.toContain('close:error-log-sink');
     expect(logger.info).not.toHaveBeenCalled();
     // The step deadline handled it, so the backstop was cleared: one exit.

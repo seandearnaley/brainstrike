@@ -59,7 +59,6 @@ describe('hidden preload runtime capability manifest', () => {
   it.each([
     ['chunking-host', ['chunkingHost', 'sourceFiles', 'logging', 'parserHost']],
     ['embedding-host', ['electronAPI', 'embeddingHost', 'logging', 'modelCatalog', 'power']],
-    ['llm-host', ['llmHost', 'logging']],
   ] as const)('exposes only the %s capability manifest', async (role, expectedGlobals) => {
     const exposed = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}${role}`]);
 
@@ -185,10 +184,7 @@ describe('hidden preload runtime capability manifest', () => {
     }
   });
 
-  it.each([
-    ['chunking-host', 'electronAPI'],
-    ['llm-host', 'electronAPI'],
-  ] as const)(
+  it.each([['chunking-host', 'electronAPI']] as const)(
     'withholds the vector preferences capability from the %s role',
     async (role, globalName) => {
       const exposed = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}${role}`]);
@@ -206,7 +202,7 @@ describe('hidden preload runtime capability manifest', () => {
     ['an unsupported role', [`${ROLE_ARGUMENT_PREFIX}visible-ui`]],
     [
       'duplicate roles',
-      [`${ROLE_ARGUMENT_PREFIX}embedding-host`, `${ROLE_ARGUMENT_PREFIX}llm-host`],
+      [`${ROLE_ARGUMENT_PREFIX}embedding-host`, `${ROLE_ARGUMENT_PREFIX}chunking-host`],
     ],
   ] as const)('fails closed for %s', async (_description, roleArguments) => {
     await expect(loadHiddenPreload(roleArguments)).rejects.toThrow(

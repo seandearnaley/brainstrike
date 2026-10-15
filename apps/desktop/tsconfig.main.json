@@ -60,9 +60,6 @@
       "@brainstrike/agent/mcp-client": [
         "../../packages/agent/dist/mcp-client.d.ts"
       ],
-      "@brainstrike/agent/local-llm": [
-        "../../packages/agent/dist/local-llm.d.ts"
-      ],
       "@brainstrike/agent/pglite-mastra-memory": [
         "../../packages/agent/dist/pglite-mastra-memory/index.d.ts"
       ],

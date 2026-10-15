@@ -159,15 +159,6 @@ describe('desktop platform diagnostics', () => {
       lastUpdatedAt: 1000,
       peakVectorsInFlight: 3,
     };
-    const llmHostStatus = {
-      active: true,
-      lastError: null,
-      pendingRequestCount: 1,
-      runtimeId: 'llm-host:running',
-      runtimeKind: 'llm-host' as const,
-      sourceState: 'running' as const,
-      state: 'active' as const,
-    };
     const loggingState = {
       capabilities: {
         canSelectDestination: true,
@@ -204,7 +195,6 @@ describe('desktop platform diagnostics', () => {
         getBackfillsInFlight: vi.fn(() => activeBackfills),
         getDimensionIndexMaintenanceSnapshot: vi.fn(() => dimensionIndexMaintenance),
       },
-      llmHost: { getPlatformStatus: vi.fn(() => llmHostStatus) },
       logging: { getState: vi.fn(() => loggingState) },
       processCounters: { getSnapshot: vi.fn(() => processCounters) },
       reset: {
@@ -236,7 +226,6 @@ describe('desktop platform diagnostics', () => {
         },
         dimensionIndexMaintenance,
       },
-      llmHost: llmHostStatus,
       logging: loggingState,
       migration: {
         attemptCount: 2,
@@ -304,11 +293,6 @@ describe('desktop platform diagnostics', () => {
           throw new Error('dimension maintenance unavailable');
         }),
       },
-      llmHost: {
-        getPlatformStatus: vi.fn(() => {
-          throw new Error('llm unavailable');
-        }),
-      },
       logging: {
         getState: vi.fn(() => {
           throw new Error('logging unavailable');
@@ -341,7 +325,6 @@ describe('desktop platform diagnostics', () => {
       dimensionIndexMaintenance: 'dimension maintenance unavailable',
       embeddingHost: 'embedding unavailable',
       embeddingTelemetry: 'embedding telemetry unavailable',
-      llmHost: 'llm unavailable',
       logging: 'logging unavailable',
       processCounters: 'process counters unavailable',
       reset: 'reset unavailable',

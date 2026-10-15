@@ -60,9 +60,6 @@
       "@brainstrike/agent/mcp-client": [
         "../../packages/agent/dist/mcp-client.d.ts"
       ],
-      "@brainstrike/agent/local-llm": [
-        "../../packages/agent/dist/local-llm.d.ts"
-      ],
       "@brainstrike/queue": [
         "../../packages/queue/src/index.ts"
       ],

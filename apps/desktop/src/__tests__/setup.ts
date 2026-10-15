@@ -163,26 +163,6 @@ if (typeof window !== 'undefined') {
     value: mockAgent,
     writable: true,
   });
-
-  Object.defineProperty(window, 'llmHost', {
-    value: {
-      ensureStarted: vi
-        .fn()
-        .mockResolvedValue({ active: false, lastError: null, state: 'running' }),
-      generate: vi.fn().mockResolvedValue(null),
-      getStatus: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'running' }),
-      onProgress: vi.fn(() => () => {}),
-      onRequest: vi.fn(() => () => {}),
-      onStatus: vi.fn(() => () => {}),
-      reportProgress: vi.fn(),
-      reportResponse: vi.fn(),
-      reportStatus: vi.fn(),
-      reset: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'running' }),
-      stop: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'stopped' }),
-      warmup: vi.fn().mockResolvedValue(undefined),
-    },
-    writable: true,
-  });
 }
 
 process.env['BRAINSTRIKE_AGENT_TEST_MODE'] = '1';

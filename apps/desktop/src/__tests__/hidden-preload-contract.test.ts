@@ -13,7 +13,6 @@ describe('hidden renderer preload contract', () => {
 
     expect(source).toContain("'chunking-host'");
     expect(source).toContain("'embedding-host'");
-    expect(source).toContain("'llm-host'");
     expect(source).toContain('brainstrike-hidden-renderer-role');
   });
 

@@ -74,7 +74,7 @@ describe('IPC disposer ledger in main', () => {
 
     expect(unledgered).toEqual([]);
     // Non-vacuous: main registers dozens of IPC domains.
-    expect(labels.length).toBeGreaterThan(25);
+    expect(labels.length).toBeGreaterThan(24);
     expect(new Set(labels).size).toBe(labels.length);
     for (const label of ['workspace-open-ready', 'secrets', 'provider-auth', 'runtime']) {
       expect(labels).toContain(label);

@@ -657,17 +657,6 @@ describe('registry-derived keyless auth (BST-1349)', () => {
     });
   });
 
-  it('never calls the key reader for the in-browser local provider', async () => {
-    const result = await prepare(
-      JSON.stringify({
-        data: { provider: 'local' },
-        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
-      })
-    );
-    expect(result.ok).toBe(true);
-    expect(resolveProviderCredential).not.toHaveBeenCalled();
-  });
-
   it('injects the optional bearer token only for local-runtime servers', () => {
     for (const provider of providers) {
       const hydrated = hydrateRuntimeDataWithLocalRuntimeToken(

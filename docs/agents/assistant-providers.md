@@ -21,10 +21,14 @@ enforces the order (`pnpm lint:catalog-key-order`), because Biome's
 naming the entry; nothing is reordered for you. ROW order is deliberately
 unchecked — providers and models are curated.
 
-The built-in `local` provider is desktop-only and has one engine. It resolves
-solely through an injected `runtime.localLlmHostClient` and refuses visibly
-without one; surfaces that cannot reach the desktop hidden llm-host do not
-offer it. See [local inference](local-inference.md).
+The built-in `local` provider is EMBEDDINGS-ONLY on both shells
+(`capabilities.llm: false`): its chat model, engine and `llm-host` renderer role
+were retired. It is configured in Settings → Embedding, not Settings →
+Providers — it has neither a credential nor a connection — and the factory
+refuses to build a chat model for it (the same derived refusal covers cohere
+and voyage). Its registry runtime is `on-device`, which stays distinct from
+`local` (an Ollama/LM Studio SERVER with a base URL). See
+[local inference](local-inference.md).
 
 Prepare provider history through
 [the shared request boundary](../../packages/agent/src/provider-request.ts).

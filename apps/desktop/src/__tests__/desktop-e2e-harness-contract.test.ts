@@ -24,7 +24,7 @@ function extractDesktopWindowRoles(source: string): string[] {
     throw new Error('Could not find the DesktopWindowRole union in src/window-role.ts');
   }
   const roles = [...unionMatch[1].matchAll(/'([^']+)'/g)].map((match) => match[1] ?? '');
-  if (roles.length < 4 || roles.some((role) => role.length === 0)) {
+  if (roles.length < 3 || roles.some((role) => role.length === 0)) {
     throw new Error(
       `DesktopWindowRole extraction looks broken (got ${JSON.stringify(roles)}); fix the parser before trusting this contract.`
     );
@@ -91,7 +91,7 @@ describe('desktop E2E harness contract', () => {
   });
 
   it('keeps the E2E window-mode classifiers in lockstep with DesktopWindowRole', () => {
-    // This PR class exists because DesktopWindowRole gained 'llm-host' and the
+    // This PR class exists because DesktopWindowRole once gained a role and the
     // two serialized classifier closures in embedding-worker-renderer.shared.ts
     // (readDesktopProcessSnapshot and readTrackedRuntimeWorkingSetMB) kept
     // silently bucketing it as 'visible-ui'. Both closures run inside

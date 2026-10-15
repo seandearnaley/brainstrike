@@ -57,10 +57,6 @@ vi.mock('../../renderer/components/chunking-host-app', () => ({
   ChunkingHostApp: () => <div>ChunkingHostApp</div>,
 }));
 
-vi.mock('../../renderer/components/llm-host-app', () => ({
-  LlmHostApp: () => <div>LlmHostApp</div>,
-}));
-
 vi.mock('../../renderer/log-buffer', () => ({}));
 
 // The renderer transport uses vscode-jsonrpc's browser-only export. This Node
@@ -190,7 +186,7 @@ describe('renderer main entry', () => {
     );
   }, 30_000);
 
-  it.each(['embedding-host', 'chunking-host', 'llm-host'])(
+  it.each(['embedding-host', 'chunking-host'])(
     'leaves the hidden %s window without chunk recovery, which has no UI to offer a reload',
     async (mode) => {
       window.history.replaceState({}, '', `/?mode=${mode}&runtimeId=${mode}:test`);
@@ -228,21 +224,8 @@ describe('renderer main entry', () => {
     expect(renderArg.type).toBeDefined();
   });
 
-  it('renders the llm host app in llm-host mode', async () => {
-    window.history.replaceState({}, '', '/?mode=llm-host&runtimeId=llm-host:test');
-
-    await import('../../renderer/main.tsx');
-
-    const renderArg = mockRender.mock.calls[0]?.[0];
-    expect(isReactElement(renderArg)).toBe(true);
-    if (!isReactElement(renderArg)) {
-      throw new Error('Expected llm host render element');
-    }
-    expect(renderArg.type).toBeDefined();
-  });
-
   it('forwards redacted, cycle-safe log graphs from a hidden renderer', async () => {
-    window.history.replaceState({}, '', '/?mode=llm-host&runtimeId=llm-host:test');
+    window.history.replaceState({}, '', '/?mode=embedding-host&runtimeId=embedding-host:test');
     await import('../../renderer/main.tsx');
     const { logRecordToDiagnosticEvent } = await import('@brainstrike/utils/diagnostics');
     const { configureLogger, createLogger } = await import('@brainstrike/logging');
@@ -282,7 +265,7 @@ describe('renderer main entry', () => {
         makeId: () => 'diagnostic-test',
         platform: 'test',
         sessionId: 'session-test',
-        source: 'llm-host',
+        source: 'embedding-host',
       })?.causeChain?.[0]
     ).toMatchObject({
       code: 'E_UPSTREAM',
@@ -317,7 +300,7 @@ describe('renderer main entry', () => {
       makeId: () => 'diagnostic-cyclic-test',
       platform: 'test',
       sessionId: 'session-test',
-      source: 'llm-host',
+      source: 'embedding-host',
     });
     expect(cyclicEvent?.causeChain).toEqual([
       { message: 'cyclic provider failure', name: 'Error' },
@@ -340,7 +323,7 @@ describe('renderer main entry', () => {
         makeId: () => 'diagnostic-metadata-test',
         platform: 'test',
         sessionId: 'session-test',
-        source: 'llm-host',
+        source: 'embedding-host',
       })?.context
     ).toEqual({
       operation: 'provider-request',

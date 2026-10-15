@@ -677,7 +677,7 @@ const NO_API_KEY_HOSTED_PROVIDERS: ReadonlySet<HostedProviderType> = new Set([
 
 const EMBEDDING_PROVIDER_DEFINITIONS: readonly EmbeddingProviderDefinition[] = [
   {
-    displayName: 'Local (Browser)',
+    displayName: 'Local (On device)',
     id: 'local',
     models: [],
     runtime: 'browser',

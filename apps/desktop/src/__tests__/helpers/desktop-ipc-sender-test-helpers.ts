@@ -21,7 +21,6 @@ export function trackTestWindowRole(webContentsId: number, role: DesktopWindowRo
 const DEFAULT_TRUSTED_SENDER_ID: Record<DesktopWindowRole, number> = {
   'chunking-host': 990_002,
   'embedding-host': 990_003,
-  'llm-host': 990_004,
   'visible-ui': 990_001,
 };
 

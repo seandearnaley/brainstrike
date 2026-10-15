@@ -56,7 +56,7 @@ describe('hosted Web agent entrypoint', () => {
     const hostedWebModule = await import('../hosted-web');
 
     expect(() => hostedWebModule.createProvider('local', undefined, undefined, {})).toThrow(
-      'No default model configured for provider: local'
+      'Provider local serves embeddings only'
     );
     expect(localInferenceImport).not.toHaveBeenCalled();
   });

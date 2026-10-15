@@ -1740,7 +1740,7 @@ providers :: [["created_at","<install-time-default>"],["icon",null],["id","anthr
 providers :: [["created_at","<install-time-default>"],["icon",null],["id","bedrock"],["is_enabled",false],["name","Amazon Bedrock"],["sort_order",8],["updated_at","<install-time-default>"]]
 providers :: [["created_at","<install-time-default>"],["icon",null],["id","cohere"],["is_enabled",false],["name","Cohere"],["sort_order",6],["updated_at","<install-time-default>"]]
 providers :: [["created_at","<install-time-default>"],["icon",null],["id","google"],["is_enabled",true],["name","Google AI Studio"],["sort_order",3],["updated_at","<install-time-default>"]]
-providers :: [["created_at","<install-time-default>"],["icon",null],["id","local"],["is_enabled",true],["name","Local (Browser)"],["sort_order",4],["updated_at","<install-time-default>"]]
+providers :: [["created_at","<install-time-default>"],["icon",null],["id","local"],["is_enabled",true],["name","Local (On device)"],["sort_order",4],["updated_at","<install-time-default>"]]
 providers :: [["created_at","<install-time-default>"],["icon",null],["id","openai"],["is_enabled",true],["name","OpenAI"],["sort_order",1],["updated_at","<install-time-default>"]]
 providers :: [["created_at","<install-time-default>"],["icon",null],["id","openai-codex"],["is_enabled",false],["name","OpenAI (ChatGPT)"],["sort_order",9],["updated_at","<install-time-default>"]]
 providers :: [["created_at","<install-time-default>"],["icon",null],["id","openrouter"],["is_enabled",false],["name","OpenRouter"],["sort_order",5],["updated_at","<install-time-default>"]]

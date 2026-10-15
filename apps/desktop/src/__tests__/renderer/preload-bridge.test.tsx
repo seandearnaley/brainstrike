@@ -46,14 +46,9 @@ describe('preload bridge APIs', () => {
     expect(exposed.has('agent')).toBe(false);
   });
 
-  it('exposes window.llmHost with lifecycle methods', () => {
-    const llmHost = exposed.get('llmHost');
-    expect(llmHost).toBeDefined();
-    expect(typeof llmHost?.['ensureStarted']).toBe('function');
-    expect(typeof llmHost?.['getStatus']).toBe('function');
-    expect(typeof llmHost?.['stop']).toBe('function');
-    expect(typeof llmHost?.['reset']).toBe('function');
-    expect(typeof llmHost?.['onProgress']).toBe('function');
-    expect(typeof llmHost?.['reportProgress']).toBe('function');
+  // The visible preload no longer exposes a local-LLM host bridge: that host
+  // and its channels were retired with the built-in local chat model.
+  it('exposes no llmHost bridge', () => {
+    expect(exposed.has('llmHost')).toBe(false);
   });
 });

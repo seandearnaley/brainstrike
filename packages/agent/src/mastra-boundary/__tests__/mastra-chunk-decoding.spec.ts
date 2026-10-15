@@ -567,11 +567,11 @@ describe('buildProviderErrorDiagnosticCode', () => {
     );
   });
 
-  it('namespaces the local-model tool-arguments fault under the local classification', () => {
-    // local_tool_call_arguments_invalid is raised before anything crosses to a
+  it('namespaces the evidence-free local fault under the local classification', () => {
+    // The evidence-free local fallback is raised before anything crosses to a
     // provider — it must not wear the provider prefix in the log fingerprint.
-    expect(buildProviderErrorDiagnosticCode({ code: 'local_tool_call_arguments_invalid' })).toBe(
-      `${LOCAL_RUN_ERROR_FALLBACK_CODE}:local_tool_call_arguments_invalid:no_status`
+    expect(buildProviderErrorDiagnosticCode({ code: LOCAL_RUN_ERROR_FALLBACK_CODE })).toBe(
+      `${LOCAL_RUN_ERROR_FALLBACK_CODE}:no_status`
     );
   });
 });

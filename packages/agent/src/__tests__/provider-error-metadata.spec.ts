@@ -142,8 +142,7 @@ describe('provider error metadata', () => {
       cause: new Error('ENOENT /Users/fixture/private/credentials.json'),
     });
     expect(extractProviderRunError(error)).toEqual({ code: LOCAL_RUN_ERROR_FALLBACK_CODE });
-    Object.assign(error, { code: 'local_tool_call_arguments_invalid' });
-    expect(extractProviderRunError(error)).toEqual({ code: 'local_tool_call_arguments_invalid' });
+    // Extraction reads the error; it never strips the cause off it.
     expect(error.cause).toBeInstanceOf(Error);
   });
 
@@ -190,9 +189,11 @@ describe('provider error metadata', () => {
     ).toBe(PROVIDER_RUN_ERROR_FALLBACK_CODE);
   });
 
-  it('classifies exactly the local fallback and local-model tool fault as local', () => {
+  it('classifies exactly the evidence-free local fallback as local', () => {
+    // `local_tool_call_arguments_invalid` was the retired on-device chat
+    // model's malformed-tool-arguments fault; nothing raises it now.
     expect(isLocalRunErrorClassification(LOCAL_RUN_ERROR_FALLBACK_CODE)).toBe(true);
-    expect(isLocalRunErrorClassification('local_tool_call_arguments_invalid')).toBe(true);
+    expect(isLocalRunErrorClassification('local_tool_call_arguments_invalid')).toBe(false);
     expect(isLocalRunErrorClassification(PROVIDER_RUN_ERROR_FALLBACK_CODE)).toBe(false);
     expect(isLocalRunErrorClassification('context_length_exceeded')).toBe(false);
   });

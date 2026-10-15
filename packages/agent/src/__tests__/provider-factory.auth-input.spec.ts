@@ -148,7 +148,7 @@ describe('createProvider ProviderAuthInput seam (BST-1352)', () => {
         fetch: globalThis.fetch,
         kind: 'custom_fetch',
       };
-      for (const provider of ['openrouter', 'ollama', 'lmstudio', 'local'] as const) {
+      for (const provider of ['openrouter', 'ollama', 'lmstudio'] as const) {
         let thrown: unknown;
         try {
           createProvider(provider, auth, 'some-model');
@@ -193,7 +193,6 @@ describe('createProvider ProviderAuthInput seam (BST-1352)', () => {
         'openrouter',
         'ollama',
         'lmstudio',
-        'local',
       ] as const) {
         let thrown: unknown;
         try {

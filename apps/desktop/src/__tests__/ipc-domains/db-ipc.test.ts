@@ -306,9 +306,9 @@ describe('database IPC domain', () => {
   // `hidden-preload.ts` (`exposeEmbeddingElectronApiBridge`) besides the
   // shared `db:query` is sender-authorized for exactly the roles that hold it
   // in a preload manifest — the embedding host and the visible UI (the
-  // chunking host holds only `db:query`; the llm host has no db bridge).
+  // chunking host holds only `db:query`).
   // Each accepted case proves the handler ran (a guard it throws, or a result
-  // only it produces); the chunking/llm hosts and untracked senders never get
+  // only it produces); the chunking host and untracked senders never get
   // there.
   describe('sender authorization', () => {
     type Invoke = () => Promise<unknown> | unknown;
@@ -383,14 +383,11 @@ describe('database IPC domain', () => {
     );
 
     it.each(CASES)(
-      '%s rejects the chunking host, the llm host, and an untracked sender',
+      '%s rejects the chunking host and an untracked sender',
       async (channel, args) => {
         const rejection = `Desktop IPC ${channel} requires sender role embedding-host, visible-ui.`;
         await expect(
           handlers.get(channel)?.(createTrustedInvokeEvent('chunking-host'), ...args)
-        ).rejects.toThrow(rejection);
-        await expect(
-          handlers.get(channel)?.(createTrustedInvokeEvent('llm-host'), ...args)
         ).rejects.toThrow(rejection);
         await expect(
           handlers.get(channel)?.(
@@ -411,13 +408,17 @@ describe('database IPC domain', () => {
         ).rejects.toThrow('database query sql must be a string');
       }
 
-      for (const role of ['llm-host'] as const) {
-        await expect(
-          handlers.get('db:query')?.(createTrustedInvokeEvent(role), 42)
-        ).rejects.toThrow(
-          'Desktop IPC db:query requires sender role chunking-host, embedding-host, visible-ui.'
-        );
-      }
+      await expect(
+        handlers.get('db:query')?.(
+          {
+            sender: { id: 777_001 },
+            senderFrame: createAllowlistedSenderFrame(),
+          } as unknown as IpcMainInvokeEvent,
+          42
+        )
+      ).rejects.toThrow(
+        'Desktop IPC db:query requires sender role chunking-host, embedding-host, visible-ui.'
+      );
       await expect(
         handlers.get('db:query')?.(
           {
@@ -444,7 +445,7 @@ describe('database IPC domain', () => {
         handlers.get(channel)?.(createTrustedInvokeEvent('visible-ui'), ...args)
       ).rejects.toThrow(acceptedGuard);
 
-      for (const role of ['chunking-host', 'embedding-host', 'llm-host'] as const) {
+      for (const role of ['chunking-host', 'embedding-host'] as const) {
         await expect(
           handlers.get(channel)?.(createTrustedInvokeEvent(role), ...args)
         ).rejects.toThrow(`Desktop IPC ${channel} requires sender role visible-ui.`);

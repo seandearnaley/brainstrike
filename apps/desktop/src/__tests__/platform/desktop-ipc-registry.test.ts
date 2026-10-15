@@ -62,18 +62,18 @@ describe('desktop IPC registry', () => {
     const eventHandler = vi.fn();
 
     registry.registerUnauthenticatedInvoke(
-      'llm-host',
-      'llm-host:warmup',
+      'embeddings',
+      'embedding-host:warmup',
       UNAUTHENTICATED,
       invokeHandler
     );
-    registry.registerEvent('llm-host', 'llm-host:report-status', eventHandler);
+    registry.registerEvent('embeddings', 'embedding-host:report-status', eventHandler);
 
-    expect(ipcMain.handle).toHaveBeenCalledWith('llm-host:warmup', invokeHandler);
-    expect(ipcMain.on).toHaveBeenCalledWith('llm-host:report-status', eventHandler);
+    expect(ipcMain.handle).toHaveBeenCalledWith('embedding-host:warmup', invokeHandler);
+    expect(ipcMain.on).toHaveBeenCalledWith('embedding-host:report-status', eventHandler);
     expect(registry.getSnapshot()).toEqual([
-      { channel: 'llm-host:report-status', domain: 'llm-host', kind: 'event' },
-      { channel: 'llm-host:warmup', domain: 'llm-host', kind: 'invoke' },
+      { channel: 'embedding-host:report-status', domain: 'embeddings', kind: 'event' },
+      { channel: 'embedding-host:warmup', domain: 'embeddings', kind: 'invoke' },
     ]);
   });
 
