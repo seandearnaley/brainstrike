@@ -13,6 +13,7 @@ import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { _electron, type ElectronApplication } from 'playwright';
 import { expect, test } from 'vitest';
 import { createDisposableAppProfile } from './helpers/disposable-app-profile';
+import { electronExecutablePath } from './helpers/electron-executable';
 
 const desktop = resolve(import.meta.dirname, '../..');
 /** The name host-lease-manager forks every host utility under (Electron's ProcessMetric name). */
@@ -84,9 +85,7 @@ require(${JSON.stringify(join(desktop, 'dist/main.js'))});
       '--brainstrike-desktop-launch-mode=test-built',
     ],
     env,
-    executablePath:
-      process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ??
-      join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
+    executablePath: electronExecutablePath(),
   });
   const main = app.process();
   let output = '';

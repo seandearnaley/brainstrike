@@ -28,6 +28,7 @@ import {
   startModelProviderShim,
 } from '../../../e2e/utils/model-provider-shim';
 import { createDisposableAppProfile } from './disposable-app-profile';
+import { electronExecutablePath } from './electron-executable';
 import { launchAppWithLauncher } from './electron-launcher-watchdog';
 import { type OwnedTestProcess, retireOwnedTestProcesses } from './retire-owned-test-processes';
 
@@ -241,7 +242,7 @@ export async function qualifyOrdinaryAppIndexedText(
           '--brainstrike-desktop-launch-mode=test-built',
         ],
         env,
-        executablePath: process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ?? electronPath(),
+        executablePath: electronExecutablePath(),
       })
     );
     const appProcess = application.process();
@@ -709,12 +710,4 @@ export async function qualifyOrdinaryAppIndexedText(
   if (failure) {
     throw failure;
   }
-}
-
-function electronPath(): string {
-  const value: unknown = createRequire(import.meta.url)('electron');
-  if (typeof value !== 'string') {
-    throw new TypeError('Electron package did not expose its executable path');
-  }
-  return value;
 }

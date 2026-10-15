@@ -243,6 +243,8 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
   let ownedPid: number | undefined;
   let ownedChild: OwnedChild | undefined;
   let clearing: Promise<ClearContentResult> | undefined;
+  /** A lost host's native processes, settled once their SIGTERM grace ran (ADR-0017). */
+  let lostTail: Promise<void> | undefined;
   // One release join; each caller bounds its own wait, so a host that exits after
   // a deadline still completes this join instead of leaving a stale failure.
   const closeScope = (): Promise<void> => {
@@ -291,7 +293,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
             ]),
             (code) => {
               // A lost host leaves its native processes to Main (ADR-0017).
-              nativeChildren?.retire();
+              lostTail = nativeChildren?.retire();
               // A child lost before ready fails its acquisition instead.
               if (child.ready) {
                 options.onLost?.(code);
@@ -387,7 +389,11 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
       retired = true;
       abort.abort(reason);
       // The acquire path owns failure rollback; close still joins every finalizer.
-      return (acquiring?.catch(() => undefined) ?? Promise.resolve()).then(closeScope);
+      // A lost host's processes keep their SIGTERM grace, even when the next
+      // client's admission is what closes this owner (BST-2004).
+      return (acquiring?.catch(() => undefined) ?? Promise.resolve())
+        .then(() => lostTail)
+        .then(closeScope);
     },
   };
 }

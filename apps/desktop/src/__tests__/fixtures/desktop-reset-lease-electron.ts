@@ -52,6 +52,21 @@ function assert(condition: boolean, message: string): void {
     throw new Error(message);
   }
 }
+/**
+ * A process closes every descriptor before it becomes a zombie, so the zombie
+ * state is the proof and this list only corroborates it. Linux x64 refused it
+ * (EACCES) for an exited Electron utility.
+ */
+function readZombieFds(pid: number): readonly string[] | 'unreadable' {
+  try {
+    return readdirSync(`/proc/${pid}/fd`);
+  } catch (cause) {
+    if (cause instanceof Error && 'code' in cause && cause.code === 'EACCES') {
+      return 'unreadable';
+    }
+    throw cause;
+  }
+}
 
 app
   .whenReady()
@@ -77,13 +92,16 @@ app
       try {
         const stat = readFileSync(`/proc/${pgPid}/stat`, 'utf8');
         const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-        const fd = readdirSync(`/proc/${pgPid}/fd`);
+        const fd = readZombieFds(pgPid);
         process.stderr.write(
           `RESET_PG_EXIT_OBSERVATION ${JSON.stringify({ fd, observedExit: pgExitObserved, parentPid: process.pid, pgPid, stat })}\n`
         );
         assert(fields[0] === 'Z', 'Legacy PG process is still running after exit');
         assert(Number(fields[1]) === process.pid, 'Zombie PG process has an unexpected parent');
-        assert(fd.length === 0, 'Exited PG process still owns file descriptors');
+        assert(
+          fd === 'unreadable' || fd.length === 0,
+          'Exited PG process still owns file descriptors'
+        );
       } catch (cause) {
         // Concurrent OS reaping is sufficient only when the original identity is
         // independently gone; an unreadable or still-live process is never proof.
