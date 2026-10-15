@@ -778,7 +778,9 @@ export class IndexReader {
       validateAcquisition(this.db, this.options);
       this.scoped = new ScopedIndex(this.db, this.options, this.engine);
     } catch (error) {
-      this.db.close();
+      if (connection.owned) {
+        this.db.close();
+      }
       throw error;
     }
   }

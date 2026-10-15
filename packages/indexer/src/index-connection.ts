@@ -22,5 +22,13 @@ export interface IndexConnection {
   readonly truth?: StateTruthReader | undefined;
 }
 
-/** A reader's connection: the same, without truth or an owner. */
-export type IndexReaderConnection = Pick<IndexConnection, 'db' | 'engine'>;
+/** A reader's connection to an index its host opened. */
+export interface IndexReaderConnection extends Pick<IndexConnection, 'db' | 'engine'> {
+  /**
+   * True when the reader owns `db` and closes it if construction fails (the
+   * desktop's separate read-only connection). False when it reads on a
+   * connection another owner keeps, such as the browser writer's own: an
+   * EXCLUSIVE database has no second connection.
+   */
+  readonly owned: boolean;
+}

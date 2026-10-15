@@ -98,7 +98,11 @@ function webIndex(): OpenIndex {
     fresh: true,
     owner: { pid: 1, writerThreadId: 0 },
   });
-  const reader = new IndexReader(options, { db: writer.db, engine: binaryVectorEngine });
+  const reader = new IndexReader(options, {
+    db: writer.db,
+    engine: binaryVectorEngine,
+    owned: false,
+  });
   cleanup.push(() => writer.close());
   return { reader, writer };
 }
@@ -197,6 +201,21 @@ describe('the derived index on sqlite-wasm', () => {
     // The workload exercised every search mode with hits.
     const searches = (web as unknown[])[24] as { hits: unknown[] }[];
     expect(searches.every((result) => result.hits.length > 0)).toBe(true);
+  });
+
+  it("keeps the writer's connection open when a reader on it is refused", () => {
+    const index = webIndex();
+    commit(index, 'kept', 'root-a', content(7, 4));
+    expect(
+      () =>
+        new IndexReader(
+          { dbPath: '/other.sqlite', embedding: { indexMode: 'text-only' }, rootIds },
+          { db: index.writer.db, engine: binaryVectorEngine, owned: false }
+        )
+    ).toThrow();
+    // The writer still writes, and its reader still reads.
+    commit(index, 'after', 'root-b', content(8, 4));
+    expect(index.reader.coverage({ rootIds }).totals).toMatchObject({ indexedFiles: 2 });
   });
 
   it('reopens an existing browser index under the same identity', () => {

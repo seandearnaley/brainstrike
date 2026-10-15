@@ -43,5 +43,5 @@ export function openDesktopIndexReader(input: unknown): IndexReaderConnection {
     db.close();
     throw error;
   }
-  return { db, engine: sqliteVecEngine };
+  return { db, engine: sqliteVecEngine, owned: true };
 }
