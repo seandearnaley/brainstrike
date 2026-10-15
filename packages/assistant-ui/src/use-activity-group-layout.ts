@@ -30,6 +30,19 @@ import { extractResolvedRootName } from './tool-fallback-state';
 import { useStableByKey } from './use-stable-by-key';
 import type { ToolResultRenderer } from './use-tool-result-renderers';
 
+/**
+ * The group's root element handle, returned BESIDE `ActivityGroupLayout` rather
+ * than inside it. React Compiler's `refs` rule infers any object carrying a ref
+ * as a ref container, so folding `rootRef` into the layout made every
+ * `layout.<field>` read during render report "Cannot access refs during render"
+ * (18 findings in `assistant-activity-parts.tsx`). Keeping the two apart lets
+ * the layout stay an ordinary derived value the component may read freely.
+ */
+export interface ActivityGroupLayoutResult {
+  readonly layout: ActivityGroupLayout;
+  readonly rootRef: RefObject<HTMLDivElement | null>;
+}
+
 export interface ActivityGroupLayout {
   readonly allClustersOpen: boolean;
   readonly clusterCount: number;
@@ -39,7 +52,6 @@ export interface ActivityGroupLayout {
   /** Opens the group at a step: clears a filter that hides it, unfolds its cluster, focuses its row. */
   readonly jumpTo: (stepId: string) => void;
   readonly onKeyDown: (event: KeyboardEvent<HTMLElement>) => void;
-  readonly rootRef: RefObject<HTMLDivElement | null>;
   readonly setExpanded: (expanded: boolean) => void;
   readonly setFilter: (filter: ActivityFilter) => void;
   /** Opens the first failure; undefined when nothing failed. */
@@ -99,7 +111,7 @@ export function useActivityGroupLayout(
   steps: readonly ActivityStep[],
   groupParts: readonly PartState[],
   renderers: readonly ToolResultRenderer[]
-): ActivityGroupLayout {
+): ActivityGroupLayoutResult {
   const domBase = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -224,20 +236,22 @@ export function useActivityGroupLayout(
   const strip = useMemo(() => deriveRunStrip(steps), [steps]);
 
   return {
-    allClustersOpen,
-    clusterCount: clusters.length,
-    expanded,
-    filter,
-    filterOptions,
-    jumpTo,
-    onKeyDown,
+    layout: {
+      allClustersOpen,
+      clusterCount: clusters.length,
+      expanded,
+      filter,
+      filterOptions,
+      jumpTo,
+      onKeyDown,
+      setExpanded,
+      setFilter,
+      showFirstFailure,
+      strip,
+      tail,
+      toggleAllClusters,
+      view,
+    },
     rootRef,
-    setExpanded,
-    setFilter,
-    showFirstFailure,
-    strip,
-    tail,
-    toggleAllClusters,
-    view,
   };
 }
