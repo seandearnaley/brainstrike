@@ -117,9 +117,9 @@ describe('fileFreshness', () => {
     expect(fileFreshness(file, 'one\nTWO\nthree', ready)).toBe('changed');
   });
 
-  it('is checking while the text loads, and unknown when it cannot be read', () => {
+  it('is checking while the text loads, and unavailable when it cannot be read', () => {
     expect(fileFreshness(file, undefined, { failed: false, loading: true })).toBe('checking');
-    expect(fileFreshness(file, undefined, { failed: true, loading: false })).toBe('unknown');
+    expect(fileFreshness(file, undefined, { failed: true, loading: false })).toBe('unavailable');
   });
 });
 
@@ -135,14 +135,16 @@ describe('ExplorerThreadStatusProvider', () => {
   }
 
   function Tree({
+    failed = false,
     fileContents = {},
     watch,
   }: {
+    readonly failed?: boolean;
     readonly fileContents?: Record<string, string>;
     readonly watch: boolean;
   }): ReactElement {
     const tabs = {
-      fileContentErrors: new Map(),
+      fileContentErrors: new Map(failed ? [[A_CONTENT_KEY, new Error('EACCES')]] : []),
       fileContents,
       loadingFiles: new Set<string>(),
       onRetryFileContent,
@@ -184,6 +186,18 @@ describe('ExplorerThreadStatusProvider', () => {
     rerender(<Tree fileContents={{ [A_CONTENT_KEY]: 'one\nTWO\nthree' }} watch />);
     expect(published?.getFileStatus(A_KEY)?.freshness).toBe('changed');
     expect(onRetryFileContent).toHaveBeenCalledTimes(1);
+  });
+
+  it('says a failed read could not be checked, and reads again when the row next shows', () => {
+    const { rerender } = render(<Tree watch />);
+    expect(onRetryFileContent).toHaveBeenCalledTimes(1);
+    rerender(<Tree failed watch />);
+    expect(published?.getFileStatus(A_KEY)?.freshness).toBe('unavailable');
+
+    rerender(<Tree failed watch={false} />);
+    rerender(<Tree failed watch />);
+    expect(onRetryFileContent).toHaveBeenCalledTimes(2);
+    expect(onRetryFileContent).toHaveBeenLastCalledWith(A_CONTENT_KEY);
   });
 
   it('publishes nothing without an active thread', () => {

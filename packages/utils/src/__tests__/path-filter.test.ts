@@ -1,5 +1,6 @@
 import { createDirectoryNode, createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import type { FileFilterOptions } from '@brainstrike/types';
+import { Minimatch } from 'minimatch';
 import { describe, expect, it, vi } from 'vitest';
 import { buildIgnorePatternRegex, fileFilter, literalFilterPattern } from '../path-filter.js';
 
@@ -633,5 +634,13 @@ describe('literalFilterPattern', () => {
     expect(fileFilter.matchWildcard('/work/src/a1x.ts', pattern)).toBe(false);
     expect(fileFilter.matchWildcard('/work/src/a[1]*.tsx', pattern)).toBe(false);
     expect(fileFilter.matchWildcard('/work/src/b.ts', pattern)).toBe(false);
+  });
+
+  it('writes a Windows path with forward slashes, which minimatch matches on Windows', () => {
+    const pattern = literalFilterPattern('C:\\work\\src\\a[1].ts');
+    expect(pattern).toBe('**/C:/work/src/a\\[1\\].ts');
+    const onWindows = new Minimatch(pattern, { dot: true, platform: 'win32' });
+    expect(onWindows.match('C:\\work\\src\\a[1].ts')).toBe(true);
+    expect(onWindows.match('C:\\work\\src\\b.ts')).toBe(false);
   });
 });

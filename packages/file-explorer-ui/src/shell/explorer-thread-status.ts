@@ -13,7 +13,13 @@ import { createContext, useContext } from 'react';
 /** How the model received a file, highest drawing priority first in `kinds`. */
 export type ExplorerThreadTouchKind = 'edit' | 'grep' | 'pinned' | 'read' | 'semantic';
 
-export type ExplorerThreadFreshness = 'changed' | 'checking' | 'unchanged' | 'unknown';
+/** `unknown`: nothing to compare, or not checked yet; `unavailable`: the file could not be read. */
+export type ExplorerThreadFreshness =
+  | 'changed'
+  | 'checking'
+  | 'unavailable'
+  | 'unchanged'
+  | 'unknown';
 
 export interface ExplorerThreadFileStatus {
   /** An edit reached lines no earlier delivery of the file showed the model. */

@@ -26,6 +26,7 @@ import { useRowCompositeKey } from './use-row-composite-key';
 const FRESHNESS_TEXT: Readonly<Record<ExplorerThreadFreshness, string>> = {
   changed: 'changed since read',
   checking: 'checking for changes',
+  unavailable: 'could not check for changes',
   unchanged: 'unchanged since read',
   unknown: 'not checked for changes',
 };

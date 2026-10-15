@@ -119,8 +119,8 @@ function cachedLines(text: string): readonly string[] {
 
 /**
  * The file's delivered lines against its current text. Only reads and grep
- * hits kept their lines; a file with none of those, or whose text cannot be
- * compared, is `unknown`, never "unchanged".
+ * hits kept their lines; a file with none of those is `unknown`, and one whose
+ * text could not be read or compared is `unavailable`, never "unchanged".
  */
 export function fileFreshness(
   file: ExplorerThreadFile,
@@ -128,7 +128,7 @@ export function fileFreshness(
   state: { readonly failed: boolean; readonly loading: boolean }
 ): ExplorerThreadFreshness {
   if (state.failed || (text !== undefined && !isComparableFileText(text))) {
-    return 'unknown';
+    return 'unavailable';
   }
   if (text === undefined || state.loading) {
     return 'checking';

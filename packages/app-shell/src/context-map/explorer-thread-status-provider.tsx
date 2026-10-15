@@ -66,20 +66,35 @@ export function ExplorerThreadStatusProvider({
 
   // Content keys read since the watcher last reported a change under them.
   const requested = useRef(new Set<string>());
-  // A row that starts showing a touched file reads it, once.
+  // A row that starts showing a touched file reads it, once; a row that shows
+  // again after a failed read tries again.
   useEffect(() => {
-    const readNewlyWatched = (): void => {
+    let shown: ReadonlySet<string> = new Set<string>();
+    const readNewlyShown = (): void => {
       const watchedNow = store.getWatchedKeys();
       for (const file of touched.files) {
-        if (watchedNow.has(file.key) && !requested.current.has(file.contentKey)) {
+        if (
+          watchedNow.has(file.key) &&
+          !shown.has(file.key) &&
+          !requested.current.has(file.contentKey)
+        ) {
           requested.current.add(file.contentKey);
           onRetryFileContent(file.contentKey);
         }
       }
+      shown = watchedNow;
     };
-    readNewlyWatched();
-    return store.subscribeWatched(readNewlyWatched);
+    readNewlyShown();
+    return store.subscribeWatched(readNewlyShown);
   }, [onRetryFileContent, store, touched]);
+  useEffect(() => {
+    // A failed read is not a result: the next time its row shows, read it again.
+    for (const file of touched.files) {
+      if (fileContentErrors.has(file.contentKey)) {
+        requested.current.delete(file.contentKey);
+      }
+    }
+  }, [fileContentErrors, touched]);
   useEffect(() => {
     const onRefresh = (event: Event): void => {
       const { detail } = event as FileExplorerRefreshEvent;
