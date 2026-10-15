@@ -16,7 +16,7 @@ import {
   infoSchema,
   manifestRequestSchema,
   manifestResultSchema,
-  optionsSchema,
+  type optionsSchema,
   planSchema,
   profileSchema,
   scopedCommitSchema,
@@ -79,6 +79,7 @@ import type {
   StateMessageVectorPort,
   StateObservationVectorPort,
 } from './index.js';
+import { decodeIndexerOptions } from './options.js';
 import { promptVectorReplySchema, promptVectorRequestSchema } from './prompt-vector-contract.js';
 import { RpcClient } from './rpc-client.js';
 import { validateStateModule } from './state-projection.js';
@@ -110,13 +111,11 @@ export class IndexerLifecycleError extends AggregateError {
     this.name = 'IndexerLifecycleError';
   }
 }
+/** The desktop's options: the portable rules, then its file-path rules for the database and the state root. */
 export function validateIndexerOptions(input: unknown): typeof optionsSchema.Type {
-  const options = decoder(optionsSchema)(input);
+  const options = decodeIndexerOptions(input);
   if (!path.isAbsolute(options.dbPath) || options.dbPath === ':memory:') {
     throw new TypeError('Indexer requires an absolute persistent database file path.');
-  }
-  if ((options.stateRoot === undefined) !== (options.stateProjection === undefined)) {
-    throw new TypeError('State root and producer schema must be acquired together.');
   }
   if (options.stateProjection) {
     validateStateModule(options.stateProjection.module);
@@ -132,18 +131,6 @@ export function validateIndexerOptions(input: unknown): typeof optionsSchema.Typ
     }
     if (path.resolve(options.dbPath) === path.join(options.stateRoot, 'state.db')) {
       throw new TypeError('Derived index cannot use the authoritative state database path.');
-    }
-  }
-  if (options.stateResources !== undefined) {
-    if (options.stateRoot === undefined) {
-      throw new TypeError('Message resource grants require acquired State truth.');
-    }
-    const resources = new Set<string>();
-    for (const grant of options.stateResources) {
-      if (!options.rootIds.includes(grant.rootId) || resources.has(grant.resourceId)) {
-        throw new TypeError('A Memory resource requires one authorized immutable Root grant.');
-      }
-      resources.add(grant.resourceId);
     }
   }
   return options;

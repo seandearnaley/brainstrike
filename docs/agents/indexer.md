@@ -9,6 +9,15 @@ root/file/chunk identity and the full embedding profile. Changing profile or
 unsupported schema requires an explicit rebuild, not deletion during open or a
 silent downgrade. Text-only startup loads no model.
 
+The store runs on a connection its host opens (`IndexConnection`): desktop's
+`desktop-index-connection.ts` opens better-sqlite3 with sqlite-vec and the state
+root's `SqliteReader`. The browser writer (BST-1940) opens sqlite-wasm with
+EXCLUSIVE locking, the binary vector engine and a `StateTruthReader` over its
+own state DB connection. `src/browser.ts` is the browser entry, and
+`browser-entry.test.ts` fails if a Node import becomes reachable from it. Reach a
+Node-only capability through `portable.ts` or `process.getBuiltinModule`, never
+by a static import in the store's modules.
+
 ## Publication
 
 Use the canonical producer's chunks, spans, hashes and syntax metadata; do not

@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { IndexFileBinding, IndexScope, ScopedFilePlan } from '@brainstrike/indexer';
 import { openConnection } from '@brainstrike/sqlite-native';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { openDesktopIndex, openDesktopIndexReader } from '../src/desktop-index-connection.js';
 import { IndexReader, IndexWriter } from '../src/store.js';
 
 const profile = {
@@ -77,7 +78,7 @@ describe('native scoped searches above the SQLite variable limit', () => {
       rootIds: [],
       scopes: [...largeScopes, { embeddingSetId: 'outside', kind: 'collection' }],
     };
-    writer = new IndexWriter(options);
+    writer = new IndexWriter(options, openDesktopIndex(options));
     for (const [binding, content, vector] of [
       [
         inventory[0]!,
@@ -100,7 +101,7 @@ describe('native scoped searches above the SQLite variable limit', () => {
       });
       published.set(binding.fileId, plan);
     }
-    reader = new IndexReader(options);
+    reader = new IndexReader(options, openDesktopIndexReader(options));
     expect(reader.db.pragma('query_only', { simple: true })).toBe(1);
     writer.scoped.replaceBindings([...inventory, outside]);
     reader.scoped.replaceBindings([...inventory, outside]);

@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { isMainThread, Worker, workerData } from 'node:worker_threads';
 import { openConnection } from '@brainstrike/sqlite-native';
+import { openDesktopIndex } from '../../dist/desktop-index-connection.js';
 import { loadStateProjection } from '../../dist/state-projection.js';
 import { IndexWriter } from '../../dist/store.js';
 
@@ -38,7 +39,7 @@ if (isMainThread) {
     }
     return prepare.call(this, sql);
   };
-  const writer = new IndexWriter(options, projection);
+  const writer = new IndexWriter(options, openDesktopIndex(options, projection), projection);
   writer.close();
   throw new Error('Crash frontier was not reached');
 }

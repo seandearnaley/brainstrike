@@ -1,4 +1,3 @@
-import { serialize } from 'node:v8';
 import { Schema } from 'effect';
 import {
   fileBindingsSchema,
@@ -20,8 +19,15 @@ export interface CoverageAuthorityPort {
 }
 /** Trusted coverage authority has its own bound; generic SQL budgets are unchanged. */
 export const MAX_NATIVE_COVERAGE_AUTHORITY_BYTES = 32 * 1024 * 1024;
+/** The desktop's native message codec; this module is also part of the browser's derived index. */
+const v8 = globalThis.process?.getBuiltinModule?.('node:v8');
 export function assertCoverageAuthorityBound(input: unknown): number {
-  const bytes = serialize(input).byteLength;
+  if (!v8) {
+    throw new Error(
+      'The native coverage message budget is measured with node:v8, which this runtime lacks.'
+    );
+  }
+  const bytes = v8.serialize(input).byteLength;
   if (bytes > MAX_NATIVE_COVERAGE_AUTHORITY_BYTES) {
     throw new RangeError('Native coverage authority exceeds its 32 MiB message budget.');
   }

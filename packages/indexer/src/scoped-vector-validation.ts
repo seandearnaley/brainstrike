@@ -12,8 +12,8 @@ export function vectorTable(dimensions: number): string {
   return `scope_vec_${dimensions}`;
 }
 /** Padding belongs only to the coarse sign index; retained vectors keep their exact dimensions. */
-export function coarseVectorBlob(embedding: Uint8Array): Buffer {
-  const padded = Buffer.alloc(Math.ceil(embedding.byteLength / 32) * 32);
+export function coarseVectorBlob(embedding: Uint8Array): Uint8Array {
+  const padded = new Uint8Array(Math.ceil(embedding.byteLength / 32) * 32);
   padded.set(embedding);
   return padded;
 }

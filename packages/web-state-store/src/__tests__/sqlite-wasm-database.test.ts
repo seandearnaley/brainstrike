@@ -159,6 +159,32 @@ describe('the better-sqlite3 API subset', () => {
     expect(web).toEqual(desktop);
   });
 
+  it('binds named and positional parameters as better-sqlite3 does', () => {
+    const { desktop, web } = both((db) => {
+      db.exec('CREATE TABLE t (a, b, c)');
+      db.prepare('INSERT INTO t VALUES (@a, :b, $c)').run({ a: 1, b: 'two', c: null });
+      db.prepare('INSERT INTO t VALUES (?, @b, ?)').run(3, { b: 'four' }, 5);
+      return {
+        missing: caught(() => db.prepare('SELECT @x, @y').get({ x: 1 })).name,
+        reused: db.prepare('SELECT @x + @x AS twice').pluck().get({ x: 21 }),
+        rows: db.prepare('SELECT a, b, c FROM t ORDER BY rowid').all(),
+        short: caught(() => db.prepare('SELECT ?, ?').get(1)).name,
+        surplus: caught(() => db.prepare('SELECT ?').get(1, 2)).name,
+      };
+    });
+    expect(web).toEqual({
+      missing: 'RangeError',
+      reused: 42,
+      rows: [
+        { a: 1, b: 'two', c: null },
+        { a: 3, b: 'four', c: 5 },
+      ],
+      short: 'RangeError',
+      surplus: 'RangeError',
+    });
+    expect(web).toEqual(desktop);
+  });
+
   it('runs JavaScript SQL functions as better-sqlite3 does', () => {
     const { desktop, web } = both((db) => {
       db.function('byte_count', { deterministic: true }, (value: unknown) =>

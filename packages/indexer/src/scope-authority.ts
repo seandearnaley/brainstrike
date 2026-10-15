@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
 import { poolingIdentity, promptIdentity, validateSnapshot } from './chunks.js';
@@ -13,24 +12,23 @@ import {
   type VectorProfile,
   vectorProfileSchema,
 } from './contracts.js';
+import { sha256Hex } from './portable.js';
 
 export function vectorProfileHash(input: unknown): string {
   const profile = decoder(vectorProfileSchema)(input);
-  return createHash('sha256')
-    .update(
-      JSON.stringify([
-        profile.provider,
-        profile.modelId,
-        profile.dimensions,
-        profile.distance,
-        'revision' in profile ? profile.revision : null,
-        'dtype' in profile ? profile.dtype : null,
-        'tokenCap' in profile ? profile.tokenCap : null,
-        ...poolingIdentity('pooling' in profile ? profile.pooling : undefined),
-        ...promptIdentity('prompts' in profile ? profile.prompts : undefined),
-      ])
-    )
-    .digest('hex');
+  return sha256Hex(
+    JSON.stringify([
+      profile.provider,
+      profile.modelId,
+      profile.dimensions,
+      profile.distance,
+      'revision' in profile ? profile.revision : null,
+      'dtype' in profile ? profile.dtype : null,
+      'tokenCap' in profile ? profile.tokenCap : null,
+      ...poolingIdentity('pooling' in profile ? profile.pooling : undefined),
+      ...promptIdentity('prompts' in profile ? profile.prompts : undefined),
+    ])
+  );
 }
 export function supportedVectorProfile(profile: VectorProfile): void {
   decoder(vectorProfileSchema)(profile);

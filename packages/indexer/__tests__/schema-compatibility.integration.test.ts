@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { openIndexer } from '@brainstrike/indexer';
 import { openConnection } from '@brainstrike/sqlite-native';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { openDesktopIndexReader } from '../src/desktop-index-connection.js';
 import { IndexReader } from '../src/store.js';
 import {
   compatibleFixture,
@@ -59,7 +60,7 @@ for (const version of [8, 9] as const) {
       const bytes = readFileSync(f.dbPath);
       const truth = truthHash(f.root);
       const baseline = retained(f.dbPath, version);
-      const reader = new IndexReader(f.options);
+      const reader = new IndexReader(f.options, openDesktopIndexReader(f.options));
       let searches: readonly unknown[];
       try {
         const results = [

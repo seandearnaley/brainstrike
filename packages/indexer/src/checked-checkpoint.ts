@@ -1,4 +1,4 @@
-import { CheckpointBlockedError } from '@brainstrike/state-store';
+import { CheckpointBlockedError } from '@brainstrike/state-store/sqlite-checkpoint';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
 import { decoder } from './contracts.js';
