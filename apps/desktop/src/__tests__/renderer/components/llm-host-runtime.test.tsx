@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { LocalLlmBackend } from '@brainstrike/agent/local-llm';
 import { render, waitFor } from '@testing-library/react';
 import { act } from 'react';

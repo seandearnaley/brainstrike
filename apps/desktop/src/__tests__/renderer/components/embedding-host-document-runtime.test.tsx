@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import './embedding-host-runtime-fixture';
 import type { EmbeddingResult } from '@brainstrike/embeddings';
 import { act, render, waitFor } from '@testing-library/react';

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import './embedding-host-foreground-ownership-fixture';
 import { EventEmitter } from 'node:events';
 import {

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import './embedding-host-runtime-fixture';
 import type { EmbeddingResult } from '@brainstrike/embeddings';
 import { EMBEDDING_RUNTIME_STATUS_EXTENSION_KEYS } from '@brainstrike/vector-management';

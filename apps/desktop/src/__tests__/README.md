@@ -16,6 +16,11 @@ pnpm type-check
 ```
 
 `test` runs the unit configuration and excludes `*.integration.test.*` files.
+On Linux and macOS it runs files in parallel forks under the Node environment. A
+unit file that needs a DOM starts with `// @vitest-environment jsdom`. Files share
+nothing but external state, so keep temporary files in a per-test `mkdtemp`
+directory and bind servers to port 0; the lane fails if a test leaves new files in
+this package.
 `test:integration` uses the existing runner for environment-sensitive tests,
 including native/process boundaries and tests requiring Electron. `test:coverage`
 uses that runner for the full suite, with Node and Electron passes. These commands

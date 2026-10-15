@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import './embedding-host-foreground-ownership-fixture';
 import type { EmbeddingResult } from '@brainstrike/embeddings';
 import { waitFor } from '@testing-library/react';

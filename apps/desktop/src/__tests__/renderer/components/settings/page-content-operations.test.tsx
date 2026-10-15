@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import type { McpSettingsEvent } from '@brainstrike/agent-host/protocol';
 import {
   type McpExtensionEnablement,

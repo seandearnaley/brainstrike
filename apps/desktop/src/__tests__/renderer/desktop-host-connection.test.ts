@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopHostConnection } from '../../renderer/desktop-host-connection';

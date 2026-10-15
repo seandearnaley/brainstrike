@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { ThreadLedgerFold } from '@brainstrike/agent-host/ledger-projection';
 import { type HostLogRow, HostLogRowSchema } from '@brainstrike/agent-host/protocol';
 import { EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY } from '@brainstrike/assistant-data';

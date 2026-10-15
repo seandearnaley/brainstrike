@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import './embedding-host-runtime-fixture';
 import {
   recordEmbeddingBatchTelemetry,

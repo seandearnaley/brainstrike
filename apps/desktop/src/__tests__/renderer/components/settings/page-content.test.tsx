@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { DESKTOP_NATIVE_TOOL_IDS } from '@brainstrike/agent/client';
 import { __resetAssistantPreferencesStoreForTests } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { __resetNativeToolPreferencesStoreForTests } from '@brainstrike/app-state/stores/native-tool-preferences-store';

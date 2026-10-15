@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Live per-server MCP Apps enablement in the visible renderer (BST-1604).
  * A generation whose effective Apps state is off must reach the app host as
