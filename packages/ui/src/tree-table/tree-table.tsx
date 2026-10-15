@@ -13,7 +13,7 @@
  */
 
 import { useEventCallback, usePagination } from '@brainstrike/hooks';
-import { observeElementRect, useVirtualizer } from '@tanstack/react-virtual';
+import { measureElement, observeElementRect, useVirtualizer } from '@tanstack/react-virtual';
 import * as React from 'react';
 
 import { warnCycleOnce } from '../lib/cycle-warning';
@@ -435,6 +435,23 @@ function TreeTableViewport({
     </div>
   );
 }
+
+/**
+ * Keep-mounted shell routes use display:none. Their zero-size notifications
+ * describe visibility, not row heights. Preserve TanStack's keyed measurements
+ * until the row has a layout box again (the same policy as its documented
+ * useCachedMeasurements option, scoped to the measured element so hidden
+ * ancestors do not need to thread a visibility prop through every tree).
+ */
+const measureVisibleRow: typeof measureElement = (element, entry, instance) => {
+  const size = measureElement(element, entry, instance);
+  if (size !== 0 || element.getClientRects().length > 0) {
+    return size;
+  }
+  const index = instance.indexFromElement(element);
+  const key = instance.options.getItemKey(index);
+  return instance.itemSizeCache.get(key) ?? instance.options.estimateSize(index);
+};
 
 /**
  * Track this table's vertical offset (TanStack scrollMargin) within a shared
@@ -1052,6 +1069,11 @@ export function TreeTable<T>({
   const heightOnlyObserveRect: typeof observeElementRect = React.useCallback(
     (instance, cb) =>
       observeElementRect(instance, (rect) => {
+        // A hidden viewport has no layout box. Keep its last visible window,
+        // otherwise the empty range drops the spacers and clamps scrollTop.
+        if (rect.height === 0 && instance.scrollElement?.getClientRects().length === 0) {
+          return;
+        }
         if (rect.height !== observedHeightRef.current) {
           observedHeightRef.current = rect.height;
           cb(rect);
@@ -1092,6 +1114,7 @@ export function TreeTable<T>({
     getItemKey,
     getScrollElement: () =>
       resolveVirtualScrollElement(isExternalScroll, scrollParentRef, parentRef),
+    measureElement: measureVisibleRow,
     observeElementRect: heightOnlyObserveRect,
     overscan,
     scrollMargin: externalScrollMargin,
