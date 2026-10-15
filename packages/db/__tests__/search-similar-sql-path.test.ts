@@ -1,5 +1,5 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import {
   EXACT_FILTERED_SCAN_MAX_RATIO,
   EXACT_FILTERED_SCAN_MAX_ROWS,
@@ -11,6 +11,7 @@ import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 describe('searchSimilar SQL path guards', () => {
   it('requires embeddingSetId when vectorEnabled', async () => {
     const db: PGlite = await createMigratedTestDb();
+    onTestFinished(() => db.close());
     const repo = new FileChunkRepository(db);
     await expect(repo.searchSimilar([0.1, 0.2, 0.3], { limit: 5 })).rejects.toThrowError(
       /requires embeddingSetId/

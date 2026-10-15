@@ -1,5 +1,5 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished } from 'vitest';
 import type { FileChunkInsert } from '../src/models/file-chunk.js';
 import type {
   FileChunkDatabase,
@@ -20,6 +20,7 @@ function makeVector(dim: number, entries: [number, number][]): number[] {
 describe('searchSimilar SQL path (pgvector integration)', () => {
   it('returns ranked results and does not regress parameter indexing', async () => {
     const db: PGlite = await createMigratedTestDb();
+    onTestFinished(() => db.close());
 
     // Sanity: ensure vector extension is available
     await db.query('CREATE EXTENSION IF NOT EXISTS vector');
