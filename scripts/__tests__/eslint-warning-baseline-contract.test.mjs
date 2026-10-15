@@ -14,14 +14,17 @@
 //     invisible — a false green, not a loud failure.
 //   - The baseline file must be well-formed, so a hand-edit cannot smuggle in a
 //     negative or non-integer budget.
+//   - The verifier's ESLint result cache must start over when dependencies or
+//     eslint.config.js change, or a plugin upgrade is judged on stale results.
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { parseCliArgs } from '../verify-eslint-warning-baselines.mjs';
+import { eslintCacheFile, parseCliArgs } from '../verify-eslint-warning-baselines.mjs';
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 const read = (relative) => readFileSync(path.join(repoRoot, relative), 'utf8');
@@ -73,6 +76,35 @@ test('verifier CLI rejects ambiguous or unsupported control arguments', () => {
     () => parseCliArgs(['--write-baseline', '--write-baseline']),
     /duplicate --write-baseline/u
   );
+});
+
+// ESLint's own cache key names a plugin by meta.name@meta.version, which neither
+// counted plugin keeps in step with its installed version. Without these inputs
+// in the cache file name, a plugin upgrade would be judged on the old plugin's
+// cached results.
+test('the ESLint cache file changes with the lockfile and eslint.config.js', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'eslint-cache-key-'));
+  const write = (name, content) => writeFileSync(path.join(root, name), content);
+  try {
+    write('pnpm-lock.yaml', "lockfileVersion: '9.0'\n");
+    write('eslint.config.js', 'export default [];\n');
+    const initial = eslintCacheFile(root);
+    assert.equal(
+      path.dirname(path.relative(root, initial)),
+      path.join('node_modules', '.cache', 'eslint'),
+      'the cache must stay under the ignored node_modules tree, so fresh checkouts start cold'
+    );
+    assert.equal(eslintCacheFile(root), initial);
+
+    write('pnpm-lock.yaml', "lockfileVersion: '9.0'\n# a plugin upgrade\n");
+    const afterUpgrade = eslintCacheFile(root);
+    assert.notEqual(afterUpgrade, initial, 'a dependency change must start a new cache');
+
+    write('eslint.config.js', 'export default [{}];\n');
+    assert.notEqual(eslintCacheFile(root), afterUpgrade, 'a config change must start a new cache');
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
 });
 
 test('verifier TARGETS match the eslint.config.js files globs', () => {
