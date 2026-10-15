@@ -5,8 +5,7 @@ import { vector } from '@electric-sql/pglite-pgvector';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { type Migration, MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 const TABLES = [
   'brainstrike_assistant_compaction_ranges',
@@ -45,10 +44,8 @@ describe('migration 147: drop the unwritten PGlite chat sidecars (BST-1980)', ()
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(createPGliteTestDataDir('pglite-test-drop-chat-sidecars'));
+    db = await createDbAtVersion(146);
     runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 147));
   });
 
   afterEach(async () => db.close());

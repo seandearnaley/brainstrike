@@ -1,19 +1,15 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 describe('migration 073: diagnostic events', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    const dataDir = createPGliteTestDataDir('pglite-test-diagnostic-events');
-    db = await wasmLoader.createPGlite(dataDir);
+    db = await createDbAtVersion(72);
     runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 73));
   });
 
   afterEach(async () => {

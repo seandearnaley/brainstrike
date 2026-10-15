@@ -6,8 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import { McpTaskRepository } from '../src/repositories/mcp-task-repository.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 const TASKS_TABLE = 'brainstrike_mcp_tasks';
 const AUTHORITY_TABLE = 'brainstrike_mcp_task_authorities';
@@ -47,12 +46,8 @@ describe('migration 115: durable MCP task authority', () => {
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(
-      createPGliteTestDataDir('pglite-mcp-task-authority-migration')
-    );
+    db = await createDbAtVersion(114);
     runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 115));
   });
 
   afterEach(async () => {

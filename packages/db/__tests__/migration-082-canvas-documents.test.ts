@@ -1,8 +1,7 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 const TABLE = 'brainstrike_canvas_versions';
 const THREAD_INDEX = 'brainstrike_canvas_versions_thread_idx';
@@ -29,10 +28,8 @@ describe('migration 082: canvas documents (BST-1173)', () => {
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(createPGliteTestDataDir('pglite-test-canvas-documents'));
+    db = await createDbAtVersion(81);
     runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 82));
   });
 
   afterEach(async () => {

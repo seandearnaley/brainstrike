@@ -1,8 +1,7 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 interface FileRecordRootRow {
   id: string;
@@ -24,12 +23,9 @@ describe('migration 040: retire source_root_path', () => {
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    const dataDir = createPGliteTestDataDir('pglite-test-retire-source-root-path');
-    db = await wasmLoader.createPGlite(dataDir);
-    runner = new MigrationRunner(db);
-    await runner.initialize();
     // Stop BEFORE 040 so source_root_path + the 029 indexes still exist.
-    await runner.up(migrations.filter((migration) => migration.version < 40));
+    db = await createDbAtVersion(39);
+    runner = new MigrationRunner(db);
   });
 
   afterEach(async () => {

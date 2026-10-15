@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migration140AssistantNativeRuns } from '../src/migrations/140-assistant-native-runs.js';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import { wasmLoader } from '../src/wasm-loader.js';
+import { createDbAtVersion, LATEST_MIGRATION_VERSION } from './helpers/migrated-test-db.js';
 import { createPGliteTestDataDir } from './test-data-dir.js';
 
 const SEED_ROOT_AND_LEG = `INSERT INTO mastra_threads (id, "resourceId", title, "createdAt", "updatedAt")
@@ -23,10 +24,7 @@ async function columns(db: PGlite, table: string): Promise<string[]> {
 describe('migration 140 assistant native runs', () => {
   let db: PGlite;
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(createPGliteTestDataDir('migration-140'));
-    const runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations);
+    db = await createDbAtVersion(LATEST_MIGRATION_VERSION);
     await db.exec(MASTRA_MEMORY_SCHEMA_SQL);
   });
   afterEach(async () => {

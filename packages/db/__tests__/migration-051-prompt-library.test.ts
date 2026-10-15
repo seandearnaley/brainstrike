@@ -1,8 +1,7 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 interface PromptLibraryEmbeddingProfileRow {
   dimensions: number;
@@ -19,10 +18,8 @@ describe('migration 051: prompt library', () => {
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(createPGliteTestDataDir('pglite-test-prompt-library'));
+    db = await createDbAtVersion(50);
     runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 51));
   });
 
   afterEach(async () => {

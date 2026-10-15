@@ -1,9 +1,8 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import type { Migration } from '../src/migrations/migration-runner.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 const DELISTED_IDS = [
   'inclusionai/ling-3.0-flash:free',
@@ -41,15 +40,17 @@ describe('migration 121 retire delisted OpenRouter models', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
-  beforeEach(async () => {
-    db = await wasmLoader.createPGlite(
-      createPGliteTestDataDir('pglite-retire-delisted-openrouter')
-    );
+  /** A fresh copy of the numbered chain through `version` (see createDbAtVersion). */
+  async function openAtVersion(version: number): Promise<void> {
+    db = await createDbAtVersion(version);
     runner = new MigrationRunner(db);
-  });
+  }
 
   afterEach(async () => {
-    await db.close();
+    // A test that failed before opening its database left the previous one closed.
+    if (db && !db.closed) {
+      await db.close();
+    }
   });
 
   async function readOrdering(providerId: string): Promise<OrderedModel[]> {
@@ -87,8 +88,7 @@ describe('migration 121 retire delisted OpenRouter models', () => {
   it('deletes exactly the four delisted routes, closes the sort_order gaps they leave, leaves other providers untouched, and round-trips', {
     timeout: 120_000,
   }, async () => {
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version <= 119));
+    await openAtVersion(119);
 
     const before = await readOrdering('openrouter');
     const anthropicBefore = await readOrdering('anthropic');
@@ -134,8 +134,7 @@ describe('migration 121 retire delisted OpenRouter models', () => {
   it('deletes only the rows a profile actually holds, without shifting by a fixed offset', {
     timeout: 120_000,
   }, async () => {
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version <= 119));
+    await openAtVersion(119);
 
     // A profile that never received two of the four (they were removed out
     // of band). A ±4 shift would corrupt this ordering; the set-based

@@ -5,8 +5,7 @@ import { vector } from '@electric-sql/pglite-pgvector';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { type Migration, MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 const ROLE = 'brainstrike_agent_readonly';
 
@@ -37,10 +36,8 @@ describe('migration 151: drop the querySelf read-only role (BST-1995)', () => {
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(createPGliteTestDataDir('pglite-test-drop-agent-readonly'));
+    db = await createDbAtVersion(150);
     runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 151));
   });
 
   afterEach(async () => db.close());

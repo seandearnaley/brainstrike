@@ -1,8 +1,7 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 const TABLE = 'brainstrike_assistant_compaction_ranges';
 const THREAD_INDEX = 'brainstrike_assistant_compaction_ranges_thread_idx';
@@ -20,10 +19,8 @@ describe('migration 088: assistant compaction ranges (BST-1200)', () => {
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(createPGliteTestDataDir('pglite-test-compaction-ranges'));
+    db = await createDbAtVersion(87);
     runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 88));
   });
 
   afterEach(async () => db.close());

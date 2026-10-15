@@ -1,21 +1,18 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migration074AgentReadonlyRole } from '../src/migrations/074-agent-readonly-role.js';
-import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir.js';
+import { MigrationRunner } from '../src/migrations/index.js';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 describe('migration 074 rollback semantics', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(createPGliteTestDataDir('rollback-074'));
-    runner = new MigrationRunner(db);
-    await runner.initialize();
     // Migration 151 drops this role (BST-1995) by running 074's rollback, so
     // these semantics are measured on the schema just before it.
-    await runner.up(migrations.filter((migration) => migration.version < 151));
+    db = await createDbAtVersion(150);
+    runner = new MigrationRunner(db);
     await db.exec(`
       CREATE TABLE rollback_user_data (id integer PRIMARY KEY, content text NOT NULL);
       INSERT INTO rollback_user_data VALUES (1, 'retain this user content');

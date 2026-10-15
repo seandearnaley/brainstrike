@@ -6,8 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import { getResetTables } from '../src/reset-table-registry.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 const TABLE = 'brainstrike_assistant_message_tombstones';
 const THREAD_INDEX = 'brainstrike_assistant_message_tombstones_thread_idx';
@@ -35,12 +34,8 @@ describe('migration 080: assistant message tombstones (BST-1115)', () => {
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(
-      createPGliteTestDataDir('pglite-test-assistant-message-tombstones')
-    );
+    db = await createDbAtVersion(79);
     runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 80));
   });
 
   afterEach(async () => {

@@ -1,8 +1,7 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 interface ColumnRow {
   column_default: string | null;
@@ -15,11 +14,8 @@ describe('migration 077: run-usage run_kind attribution', () => {
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    const dataDir = createPGliteTestDataDir('pglite-test-run-usage-kind');
-    db = await wasmLoader.createPGlite(dataDir);
+    db = await createDbAtVersion(76);
     runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 77));
   });
 
   afterEach(async () => {

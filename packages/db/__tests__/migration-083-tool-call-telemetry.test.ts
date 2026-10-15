@@ -6,8 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import { getResetTables } from '../src/reset-table-registry.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 const TABLE = 'brainstrike_tool_call_telemetry';
 const THREAD_INDEX = 'brainstrike_tool_call_telemetry_thread_idx';
@@ -26,10 +25,8 @@ describe('migration 083: tool-call telemetry (BST-1190)', () => {
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(createPGliteTestDataDir('pglite-test-tool-telemetry'));
+    db = await createDbAtVersion(82);
     runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 83));
   });
 
   afterEach(async () => db.close());

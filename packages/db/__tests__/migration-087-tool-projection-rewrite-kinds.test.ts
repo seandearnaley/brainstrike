@@ -1,20 +1,15 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { migrations } from '../src/migrations/index.js';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 const TABLE = 'brainstrike_assistant_tool_projection_rewrites';
 
 describe('migration 087: tool projection rewrite kinds (BST-1200)', () => {
   let db: PGlite;
-  let runner: MigrationRunner;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(createPGliteTestDataDir('pglite-test-tool-rewrite-kinds'));
-    runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 87));
+    db = await createDbAtVersion(86);
   });
 
   afterEach(async () => db.close());

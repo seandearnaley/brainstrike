@@ -11,8 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import { getResetTables } from '../src/reset-table-registry.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 const TABLE = 'brainstrike_worktrees';
 const DRIZZLE_RUN_TIMEOUT_MS = 300_000;
@@ -53,11 +52,8 @@ describe('migration 109: managed worktree ledger', () => {
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    const dataDir = createPGliteTestDataDir('pglite-test-worktrees');
-    db = await wasmLoader.createPGlite(dataDir);
+    db = await createDbAtVersion(108);
     runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 109));
   });
 
   afterEach(async () => {

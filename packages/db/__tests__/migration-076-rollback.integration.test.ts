@@ -1,19 +1,16 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migration076AssistantRunErrors } from '../src/migrations/076-assistant-run-errors.js';
-import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir.js';
+import { MigrationRunner } from '../src/migrations/index.js';
+import { createDbAtVersion, LATEST_MIGRATION_VERSION } from './helpers/migrated-test-db.js';
 
 describe('migration 076 rollback semantics', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(createPGliteTestDataDir('rollback-076'));
+    db = await createDbAtVersion(LATEST_MIGRATION_VERSION);
     runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations);
     await db.exec(`
       INSERT INTO mastra_threads (id, "resourceId", title, "createdAt", "updatedAt")
         VALUES ('rollback-thread', 'rollback-resource', 'Retained conversation', NOW(), NOW());

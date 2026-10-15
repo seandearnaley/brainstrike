@@ -5,8 +5,7 @@ import { vector } from '@electric-sql/pglite-pgvector';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { type Migration, MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 const TABLE = 'brainstrike_assistant_edit_checkpoints';
 
@@ -39,12 +38,8 @@ describe('migration 148: drop the unread edit-checkpoint journal (BST-1980)', ()
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(
-      createPGliteTestDataDir('pglite-test-drop-assistant-edit-checkpoints')
-    );
+    db = await createDbAtVersion(147);
     runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 148));
   });
 
   afterEach(async () => db.close());

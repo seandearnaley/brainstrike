@@ -30,7 +30,7 @@
  */
 import { MASTRA_MEMORY_SCHEMA_SQL } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import type { PGlite } from '@electric-sql/pglite';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { customMigrations, splitMigrationStatements } from '../src/drizzle/migrate.js';
 import migrationsManifest from '../src/drizzle/migrations.json' with { type: 'json' };
 import { migrate } from '../src/migrations/bootstrap.js';
@@ -260,7 +260,9 @@ async function indexNames(db: PGlite, table: string): Promise<string[]> {
 describe('migrations 117/118: a bootstrapped database upgrades to the fresh shape', () => {
   let freshCatalog: CatalogSnapshot;
 
-  beforeEach(async () => {
+  // A fresh install is deterministic, so its reference catalog is migrated cold
+  // once per file rather than once per test.
+  beforeAll(async () => {
     const fresh = await wasmLoader.createPGlite('memory://bst1651-upgrade-fresh');
     try {
       await migrate(fresh);
