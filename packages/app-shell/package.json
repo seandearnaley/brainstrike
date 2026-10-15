@@ -106,6 +106,10 @@
       "types": "./dist/changes/use-last-turn-follower.d.ts",
       "import": "./dist/changes/use-last-turn-follower.js"
     },
+    "./context-map": {
+      "types": "./dist/context-map/index.d.ts",
+      "import": "./dist/context-map/index.js"
+    },
     "./cost-tracking-settings": {
       "types": "./dist/cost-tracking/index.d.ts",
       "import": "./dist/cost-tracking/index.js"

@@ -23,6 +23,7 @@ describe('@brainstrike/app-shell package contract', () => {
         './changes/availability',
         './changes/use-last-turn-follower',
         './connected-prompt-manager-lazy',
+        './context-map',
         './cost-tracking-settings',
         './diagnostics',
         './forge/availability',

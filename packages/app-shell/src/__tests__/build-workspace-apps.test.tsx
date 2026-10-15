@@ -10,6 +10,7 @@ import {
   CHANGES_APP_ID,
   CONTEXT_EXPLORER_APP_ID,
   TERMINAL_APP_ID,
+  THREAD_CONTEXT_APP_ID,
   WORKTREE_MAP_APP_ID,
 } from '@brainstrike/file-explorer-ui/shell';
 import { describe, expect, it } from 'vitest';
@@ -93,5 +94,25 @@ describe('buildWorkspaceApps', () => {
     const apps = buildWorkspaceApps({ filesContent: <div>files</div> });
 
     expect(apps.map((app) => app.id)).toEqual([CONTEXT_EXPLORER_APP_ID]);
+  });
+
+  it('registers the Context tab beside Changes only when its page exists', () => {
+    const apps = buildWorkspaceApps({
+      changesPageContent: 'changes',
+      filesContent: 'files',
+      threadContextPageContent: 'context',
+      worktreeMapPageContent: 'worktrees',
+    });
+    expect(apps.map((app) => app.id)).toEqual([
+      CONTEXT_EXPLORER_APP_ID,
+      CHANGES_APP_ID,
+      THREAD_CONTEXT_APP_ID,
+      WORKTREE_MAP_APP_ID,
+    ]);
+    expect(apps[2]?.label).toBe('Context');
+    expect(apps[2]?.render()).toBe('context');
+    expect(
+      buildWorkspaceApps({ filesContent: 'files' }).some((app) => app.id === THREAD_CONTEXT_APP_ID)
+    ).toBe(false);
   });
 });

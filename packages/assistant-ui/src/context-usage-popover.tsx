@@ -649,10 +649,49 @@ export interface ContextUsagePopoverContentProps {
   /** In-flight run's billed step usage (BST-953 live tick). */
   liveRunUsage?: ThreadTokenUsage | undefined;
   omSegment?: OmMeterState | undefined;
+  /** Opens the Context tab; present only where that tab exists. */
+  onOpenContextMap?: (() => void) | undefined;
   percentage: number;
   usage?: ThreadTokenUsage | undefined;
   usedTokens: number;
+  /**
+   * Tokens the latest window holds for tool calls that delivered file lines,
+   * from the thread context fold (null: the window was not recorded). Absent
+   * where no fold exists (web, before the first committed run).
+   */
+  workspaceFileTokens?: number | null | undefined;
 }
+
+/** The same figure the Context tab's header shows, with the way there. */
+const WorkspaceFilesRow = ({
+  onOpenContextMap,
+  tokens,
+}: {
+  readonly onOpenContextMap?: (() => void) | undefined;
+  readonly tokens: number | null;
+}) => (
+  <p
+    className="mt-1 flex items-center justify-between gap-2 text-muted-foreground"
+    data-testid="context-usage-workspace-files"
+  >
+    <span className="flex items-center gap-1.5">
+      Workspace files in the window
+      {onOpenContextMap && (
+        <button
+          className="text-[11px] text-foreground underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          data-testid="context-usage-open-context-map"
+          onClick={onOpenContextMap}
+          type="button"
+        >
+          Open context map
+        </button>
+      )}
+    </span>
+    <span className="tabular-nums">
+      {tokens === null ? 'not recorded' : `~${formatCompact(tokens)}`}
+    </span>
+  </p>
+);
 
 export const ContextUsagePopoverContent = ({
   breakdownState,
@@ -664,9 +703,11 @@ export const ContextUsagePopoverContent = ({
   isEstimated,
   liveRunUsage,
   omSegment,
+  onOpenContextMap,
   percentage,
   usage,
   usedTokens,
+  workspaceFileTokens,
 }: ContextUsagePopoverContentProps) => {
   const breakdownInvalid = breakdownState?.invalid === true;
   const { rows, segments, subRowsByTestId } = composeBreakdown({
@@ -751,6 +792,10 @@ export const ContextUsagePopoverContent = ({
             </li>
           ))}
         </ul>
+      )}
+
+      {workspaceFileTokens !== undefined && (
+        <WorkspaceFilesRow onOpenContextMap={onOpenContextMap} tokens={workspaceFileTokens} />
       )}
 
       {/* OM informational stats (observed tokens + compaction saved), or an

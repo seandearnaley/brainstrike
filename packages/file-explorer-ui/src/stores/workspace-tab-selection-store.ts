@@ -6,12 +6,19 @@ import {
   CHANGES_APP_ID,
   CONTEXT_EXPLORER_APP_ID,
   TERMINAL_APP_ID,
+  THREAD_CONTEXT_APP_ID,
 } from '../shell/workspace-app';
 
 // Re-exported so non-UI consumers (entry-point stores, factory reset) can
 // reach the app ids through this dependency-light subpath instead of the
 // shell barrel (which drags the whole UI graph into a plain store module).
-export { CANVAS_APP_ID, CHANGES_APP_ID, CONTEXT_EXPLORER_APP_ID, TERMINAL_APP_ID };
+export {
+  CANVAS_APP_ID,
+  CHANGES_APP_ID,
+  CONTEXT_EXPLORER_APP_ID,
+  TERMINAL_APP_ID,
+  THREAD_CONTEXT_APP_ID,
+};
 
 export type WorkspaceTabSelection =
   | { kind: 'app'; appId: string }

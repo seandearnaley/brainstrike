@@ -104,7 +104,7 @@ function changeAffectsTab(change: FileSystemChange, tabPath: string, rootPath: s
 
 /** @internal Exported for focused root/path regression coverage. */
 export function planOpenFileRefresh(
-  tabs: readonly FileTab[],
+  tabs: readonly Pick<FileTab, 'compositeKey'>[],
   detail: FileExplorerRefreshEvent['detail']
 ): OpenFileRefreshPlan {
   const decodedTabs: DecodedOpenTab[] = [];
@@ -147,6 +147,17 @@ export function planOpenFileRefresh(
     invalidCompositeKeys,
     keysToReload: [...keysToReload],
   };
+}
+
+/**
+ * Whether a refresh reaches one file's composite key, by the same root and
+ * path rules that reload open tabs. For views that read a file without a tab.
+ */
+export function refreshReachesFile(
+  detail: FileExplorerRefreshEvent['detail'],
+  compositeKey: string
+): boolean {
+  return planOpenFileRefresh([{ compositeKey }], detail).keysToReload.length > 0;
 }
 
 /**
