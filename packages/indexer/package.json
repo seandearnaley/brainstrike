@@ -41,7 +41,9 @@
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
+    "@brainstrike/web-state-store": "workspace:*",
     "@effect/tsgo": "catalog:",
+    "@sqlite.org/sqlite-wasm": "catalog:",
     "@types/better-sqlite3": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",

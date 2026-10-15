@@ -22,6 +22,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./sqlite-wasm-database": {
+      "types": "./dist/sqlite-wasm-database.d.ts",
+      "default": "./dist/sqlite-wasm-database.js"
     }
   },
   "files": [

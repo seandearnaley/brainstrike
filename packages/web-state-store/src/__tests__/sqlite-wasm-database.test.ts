@@ -159,6 +159,39 @@ describe('the better-sqlite3 API subset', () => {
     expect(web).toEqual(desktop);
   });
 
+  it('runs JavaScript SQL functions as better-sqlite3 does', () => {
+    const { desktop, web } = both((db) => {
+      db.function('byte_count', { deterministic: true }, (value: unknown) =>
+        value instanceof Uint8Array ? value.length : -1
+      );
+      db.function(
+        'doubled',
+        { deterministic: true },
+        (value: unknown) => [...(value as Uint8Array)].map((byte) => byte * 2).length
+      );
+      db.function('refuse', { deterministic: true }, () => {
+        throw new Error('refused by the function');
+      });
+      db.exec('CREATE TABLE t (b BLOB CHECK (byte_count(b) = 3))');
+      db.prepare('INSERT INTO t VALUES (?)').run(new Uint8Array([1, 2, 3]));
+      return {
+        check: caught(() => db.prepare('INSERT INTO t VALUES (?)').run(new Uint8Array([1]))).code,
+        counted: db.prepare('SELECT byte_count(b) FROM t').pluck().get(),
+        doubled: db.prepare('SELECT doubled(?)').pluck().get(new Uint8Array(4)),
+        notBlob: db.prepare('SELECT byte_count(?)').pluck().get('text'),
+        refused: caught(() => db.prepare('SELECT refuse()').get()).name.length > 0,
+      };
+    });
+    expect(web).toEqual({
+      check: 'SQLITE_CONSTRAINT_CHECK',
+      counted: 3,
+      doubled: 4,
+      notBlob: -1,
+      refused: true,
+    });
+    expect(web).toEqual(desktop);
+  });
+
   it('keeps a statement usable when the same SQL is used inside its own iteration', () => {
     const db = wasm();
     try {

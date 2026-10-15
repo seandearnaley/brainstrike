@@ -204,6 +204,25 @@ export class SqliteWasmDatabase {
     };
   }
 
+  /**
+   * better-sqlite3's `function(name, options, fn)`: a scalar SQL function
+   * written in JavaScript. Arguments arrive as numbers, strings, `Uint8Array`
+   * blobs or null; a throw fails the statement that called the function.
+   */
+  function(
+    name: string,
+    options: { readonly deterministic?: boolean; readonly varargs?: boolean },
+    fn: (...args: never[]) => unknown
+  ): this {
+    this.connection.createFunction(name, {
+      arity: options.varargs ? -1 : fn.length,
+      deterministic: options.deterministic === true,
+      xFunc: (_context: number, ...values: SqlValue[]) =>
+        (fn as (...args: SqlValue[]) => unknown)(...values) as SqlValue,
+    });
+    return this;
+  }
+
   close(): void {
     for (const stmt of this.#compiled.values()) {
       stmt.finalize();

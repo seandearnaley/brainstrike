@@ -4,6 +4,7 @@ import type { IndexFileBinding, VectorProfile } from '../src/contracts.js';
 import { vectorProfileHash } from '../src/scope-authority.js';
 import { scopeCoverageBatch } from '../src/scoped-proofs.js';
 import { ScopedIndex } from '../src/scoped-store.js';
+import { sqliteVecEngine } from '../src/vector-engine.js';
 
 const profile = {
   dimensions: 384,
@@ -142,13 +143,17 @@ function fixture(secondProfile: VectorProfile = profile) {
         }
       },
   } as unknown as Database.Database;
-  const index = new ScopedIndex(db, {
-    dbPath: '/unused',
-    embedding: { indexMode: 'text-only' },
-    fileBindings: files,
-    rootIds: ['root'],
-    scopes: [collection, { embeddingSetId: 'imports', kind: 'collection' }],
-  });
+  const index = new ScopedIndex(
+    db,
+    {
+      dbPath: '/unused',
+      embedding: { indexMode: 'text-only' },
+      fileBindings: files,
+      rootIds: ['root'],
+      scopes: [collection, { embeddingSetId: 'imports', kind: 'collection' }],
+    },
+    sqliteVecEngine
+  );
   return {
     bindingQueries,
     corrupt: (kind: Exclude<typeof corruption, null> = 'bytes') => {

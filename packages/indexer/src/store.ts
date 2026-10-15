@@ -48,6 +48,7 @@ import { ScopedIndex } from './scoped-store.js';
 import { StateEventStore } from './state-event-store.js';
 import type { StateProjection } from './state-projection.js';
 import { validateIndexerOptions } from './transport.js';
+import { type CoarseVectorEngine, sqliteVecEngine } from './vector-engine.js';
 
 type PreparedCommit = Pick<FileCommit, 'plan' | 'syntax' | 'embeddings'>;
 const numberId = Schema.Int.check(
@@ -89,16 +90,6 @@ function existingFile(
       )
       .get(snapshot.rootId, snapshot.fileId) ?? null
   );
-}
-function assertVec(db: Database.Database): string {
-  const version = decoder(Schema.String)(db.prepare('SELECT vec_version()').pluck().get());
-  if (version !== 'v0.1.9') {
-    throw new IndexerError(
-      'rebuild-required',
-      `Indexer requires sqlite-vec v0.1.9, received ${version}.`
-    );
-  }
-  return version;
 }
 function decodeBlob(blob: Uint8Array): Buffer {
   if (blob.byteLength !== 384 * 4) {
@@ -155,6 +146,8 @@ function resolveEmbedding(
 export class IndexWriter {
   private readonly state: StateEventStore | undefined;
   readonly db: Database.Database;
+  /** sqlite-vec, which `openConnection` loads into this connection. */
+  readonly engine: CoarseVectorEngine = sqliteVecEngine;
   readonly options: IndexerOptions;
   readonly allowed: ReadonlySet<string>;
   readonly info: IndexerInfo;
@@ -180,7 +173,7 @@ export class IndexWriter {
     mkdirSync(path.dirname(this.options.dbPath), { recursive: true });
     this.db = openConnection(this.options.dbPath);
     try {
-      const vecVersion = assertVec(this.db);
+      const vecVersion = this.engine.attach(this.db);
       if (fresh) {
         this.initialize();
       } else {
@@ -249,7 +242,7 @@ export class IndexWriter {
         throw new IndexerError('rebuild-required', 'Derived chunk/vector counts disagree.');
       }
       validateChunkEmbeddingState(this.db, this.identity);
-      this.scoped = new ScopedIndex(this.db, this.options, {
+      this.scoped = new ScopedIndex(this.db, this.options, this.engine, {
         replace: (syntax, fileId, changed) => this.replaceSyntax(syntax, fileId, changed),
         validate: (syntax, fileId) => this.validateSyntax(syntax, fileId),
       });
@@ -324,7 +317,7 @@ export class IndexWriter {
         CREATE INDEX idx_file_symbol_refs_name_kind ON file_symbol_refs(name,kind);
         CREATE VIRTUAL TABLE file_chunks_fts USING fts5(content,content='file_chunks',content_rowid='pk',tokenize='porter unicode61');
         CREATE VIRTUAL TABLE file_chunks_trigram USING fts5(content,content='file_chunks',content_rowid='pk',tokenize='trigram');
-        CREATE VIRTUAL TABLE vec_chunks USING vec0(id INTEGER PRIMARY KEY,root_id TEXT PARTITION KEY,bin BIT[384],+emb BLOB);
+        ${this.engine.tableDefinition('vec_chunks', { auxiliary: 'emb', bits: 384, partition: 'root_id' })}
         CREATE TRIGGER chunks_insert AFTER INSERT ON file_chunks BEGIN
           INSERT INTO file_chunks_fts(rowid,content) VALUES(new.pk,new.content);
           INSERT INTO file_chunks_trigram(rowid,content) VALUES(new.pk,new.content);
@@ -772,6 +765,8 @@ export class IndexWriter {
 export class IndexReader {
   readonly scoped: ScopedIndex;
   readonly db: Database.Database;
+  /** sqlite-vec, which `openConnection` loads into this connection. */
+  readonly engine: CoarseVectorEngine = sqliteVecEngine;
   readonly options: IndexerOptions;
   readonly allowed: ReadonlySet<string>;
   constructor(input: unknown) {
@@ -781,7 +776,7 @@ export class IndexReader {
     try {
       validateAcquisition(this.db, this.options);
       this.db.pragma('query_only = ON');
-      this.scoped = new ScopedIndex(this.db, this.options);
+      this.scoped = new ScopedIndex(this.db, this.options, this.engine);
     } catch (error) {
       this.db.close();
       throw error;
@@ -951,18 +946,27 @@ export class IndexReader {
       let candidatesTruncated = false;
       for (const root of new Set(request.rootIds)) {
         if (request.mode === 'vector') {
+          if (!q) {
+            throw new TypeError('Vector search requires its query vector.');
+          }
           const available = decoder(Schema.Int)(
             this.db.prepare('SELECT count(*) FROM vec_chunks WHERE root_id=?').pluck().get(root)
           );
           candidatesTruncated ||= available > 100;
+          const nearest = this.engine.candidates(
+            this.db,
+            'vec_chunks',
+            { k: 100, partition: root, partitionColumn: 'root_id', vector: q },
+            ['id', 'emb']
+          );
           const candidates = decoder(
             Schema.Array(Schema.Struct({ id: numberId, score: Schema.Finite }))
           )(
             this.db
               .prepare(
-                'SELECT id,vec_distance_cosine(emb,@q) AS score FROM (SELECT id,emb FROM vec_chunks WHERE bin MATCH vec_quantize_binary(@q) AND k=100 AND root_id=@root) ORDER BY score,id'
+                `SELECT id,vec_distance_cosine(emb,?) AS score FROM (${nearest.sql}) ORDER BY score,id`
               )
-              .all({ q, root })
+              .all(q, ...nearest.params)
           );
           candidateCount += candidates.length;
           for (const candidate of candidates) {
