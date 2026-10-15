@@ -13,10 +13,9 @@ import { cn } from '@brainstrike/ui';
 import { EyeOff, FileDiff } from 'lucide-react';
 import { memo, useCallback, useEffect, useSyncExternalStore } from 'react';
 import {
-  EXPLORER_THREAD_KIND_COLOR_CLASS,
-  EXPLORER_THREAD_KIND_LABEL,
   type ExplorerThreadFileStatus,
   type ExplorerThreadFreshness,
+  type ExplorerThreadKindAppearance,
   type ExplorerThreadStatusStore,
   useOptionalExplorerThreadStatus,
 } from '../shell/explorer-thread-status';
@@ -31,9 +30,12 @@ const FRESHNESS_TEXT: Readonly<Record<ExplorerThreadFreshness, string>> = {
   unknown: 'not checked for changes',
 };
 
-function describe(status: ExplorerThreadFileStatus): string {
+function describe(
+  status: ExplorerThreadFileStatus,
+  appearance: ExplorerThreadKindAppearance
+): string {
   const parts = [
-    status.kinds.map((kind) => EXPLORER_THREAD_KIND_LABEL[kind]).join(', '),
+    status.kinds.map((kind) => appearance.label[kind]).join(', '),
     FRESHNESS_TEXT[status.freshness],
   ];
   if (status.editedWithoutRead) {
@@ -65,7 +67,7 @@ function FileThreadValue({
   if (!status) {
     return null;
   }
-  const summary = describe(status);
+  const summary = describe(status, store.appearance);
   return (
     <span
       className="inline-flex items-center gap-1"
@@ -73,16 +75,17 @@ function FileThreadValue({
       data-testid="explorer-thread-file"
       title={summary}
     >
-      <span
-        aria-hidden="true"
-        className={cn('inline-flex items-center gap-0.5', status.gone && 'opacity-50')}
-      >
+      {/* Gone from the window: outlined rather than faded, so the mark keeps its
+          full-strength colour against the row. */}
+      <span aria-hidden="true" className="inline-flex items-center gap-0.5">
         {status.kinds.map((kind) => (
           <span
             className={cn(
-              'size-2 rounded-[2px] bg-current',
-              EXPLORER_THREAD_KIND_COLOR_CLASS[kind]
+              'size-2 rounded-[2px]',
+              status.gone ? 'border border-current' : 'bg-current',
+              store.appearance.colorClass[kind]
             )}
+            data-gone={status.gone ? 'true' : undefined}
             key={kind}
           />
         ))}

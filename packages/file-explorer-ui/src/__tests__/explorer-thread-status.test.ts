@@ -3,6 +3,7 @@ import {
   createExplorerThreadStatusStore,
   type ExplorerThreadFileStatus,
 } from '../shell/explorer-thread-status';
+import { THREAD_KIND_APPEARANCE } from './thread-kind-appearance.fixture';
 
 const READ: ExplorerThreadFileStatus = {
   editedWithoutRead: false,
@@ -21,7 +22,7 @@ function snapshot(files: Record<string, ExplorerThreadFileStatus>, touchedPaths:
 
 describe('createExplorerThreadStatusStore', () => {
   it("keeps a file's status identity while its content is unchanged, so its row does not repaint", () => {
-    const store = createExplorerThreadStatusStore();
+    const store = createExplorerThreadStatusStore(THREAD_KIND_APPEARANCE);
     store.publish(snapshot({ a: READ, b: READ }));
     const first = store.getFileStatus('a');
     const listener = vi.fn();
@@ -35,7 +36,7 @@ describe('createExplorerThreadStatusStore', () => {
   });
 
   it('does not notify for a publish that changes nothing', () => {
-    const store = createExplorerThreadStatusStore();
+    const store = createExplorerThreadStatusStore(THREAD_KIND_APPEARANCE);
     store.publish(snapshot({ a: READ }, ['/w/a.ts']));
     const listener = vi.fn();
     store.subscribe(listener);
@@ -44,7 +45,7 @@ describe('createExplorerThreadStatusStore', () => {
   });
 
   it('drops files the thread no longer touched', () => {
-    const store = createExplorerThreadStatusStore();
+    const store = createExplorerThreadStatusStore(THREAD_KIND_APPEARANCE);
     store.publish(snapshot({ a: READ, b: READ }, ['/w/a.ts', '/w/b.ts']));
     store.publish(snapshot({ a: READ }, ['/w/a.ts']));
     expect(store.getFileStatus('b')).toBeUndefined();
@@ -52,7 +53,7 @@ describe('createExplorerThreadStatusStore', () => {
   });
 
   it('watches a key while any row shows it, and releases each watch once', () => {
-    const store = createExplorerThreadStatusStore();
+    const store = createExplorerThreadStatusStore(THREAD_KIND_APPEARANCE);
     const listener = vi.fn();
     store.subscribeWatched(listener);
     const first = store.watch('a');

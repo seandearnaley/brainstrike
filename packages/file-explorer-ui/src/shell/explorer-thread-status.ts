@@ -39,7 +39,18 @@ export interface ExplorerThreadStatusSnapshot {
   readonly touchedPaths: readonly string[];
 }
 
+/**
+ * How each kind is named and colored: the Context tab's palette, handed in by
+ * its owner (app-shell's `context-map-kinds`), so both views draw kinds alike.
+ */
+export interface ExplorerThreadKindAppearance {
+  /** A text color utility; a mark fills or outlines with `currentColor`. */
+  readonly colorClass: Readonly<Record<ExplorerThreadTouchKind, string>>;
+  readonly label: Readonly<Record<ExplorerThreadTouchKind, string>>;
+}
+
 export interface ExplorerThreadStatusStore {
+  readonly appearance: ExplorerThreadKindAppearance;
   getDirectoryFileCount: (key: string) => number | undefined;
   getFileStatus: (key: string) => ExplorerThreadFileStatus | undefined;
   getTouchedPaths: () => readonly string[];
@@ -73,7 +84,9 @@ function samePaths(a: readonly string[], b: readonly string[]): boolean {
  * A row's snapshot is its own status object, kept by identity while its
  * content is unchanged, so a publish repaints only the rows it changed.
  */
-export function createExplorerThreadStatusStore(): ExplorerThreadStatusStore {
+export function createExplorerThreadStatusStore(
+  appearance: ExplorerThreadKindAppearance
+): ExplorerThreadStatusStore {
   let files = new Map<string, ExplorerThreadFileStatus>();
   let directories: ReadonlyMap<string, number> = new Map();
   let touchedPaths = EMPTY_PATHS;
@@ -93,6 +106,7 @@ export function createExplorerThreadStatusStore(): ExplorerThreadStatusStore {
   };
 
   return {
+    appearance,
     getDirectoryFileCount: (key) => directories.get(key),
     getFileStatus: (key) => files.get(key),
     getTouchedPaths: () => touchedPaths,
@@ -167,30 +181,3 @@ export const ExplorerThreadStatusContext = createContext<ExplorerThreadStatusSto
 export function useOptionalExplorerThreadStatus(): ExplorerThreadStatusStore | null {
   return useContext(ExplorerThreadStatusContext);
 }
-
-/** What a reader sees for each kind, in the context map's colors. */
-export const EXPLORER_THREAD_KIND_LABEL: Readonly<Record<ExplorerThreadTouchKind, string>> = {
-  edit: 'Edited',
-  grep: 'Grep hit',
-  pinned: 'Attached by you',
-  read: 'Read',
-  semantic: 'Semantic hit',
-};
-
-/**
- * Text color per kind; a mark fills with `bg-current` (the Context tab's
- * cells also use it for their hatch). Every value clears AA (4.5:1) as a
- * foreground on every light surface, enforced by
- * `scripts/__tests__/source-foreground-contract.test.mjs`, which measures a
- * `text-*` utility as text wherever it appears. That bar is stricter than the
- * 3:1 these fills need under WCAG 1.4.11, so each also clears 4.8:1 against
- * the muted track in both themes. Warning hues go through the measured
- * `--warning` token rather than a raw amber. Every mark is also named in text.
- */
-export const EXPLORER_THREAD_KIND_COLOR_CLASS: Readonly<Record<ExplorerThreadTouchKind, string>> = {
-  edit: 'text-green-800 dark:text-green-500',
-  grep: 'text-warning',
-  pinned: 'text-pink-800 dark:text-pink-400',
-  read: 'text-blue-700 dark:text-blue-400',
-  semantic: 'text-purple-700 dark:text-purple-400',
-};

@@ -8,6 +8,7 @@ import {
   createExplorerThreadStatusStore,
   ExplorerThreadStatusContext,
 } from '../shell/explorer-thread-status';
+import { THREAD_KIND_APPEARANCE } from './thread-kind-appearance.fixture';
 
 function optionLabels(): (string | null)[] {
   return screen.getAllByRole('checkbox').map((box) => {
@@ -34,7 +35,9 @@ describe('ExplorerColumnVisibilityControls', () => {
 
   it('offers This thread, on by default, where it can render', () => {
     render(
-      <ExplorerThreadStatusContext.Provider value={createExplorerThreadStatusStore()}>
+      <ExplorerThreadStatusContext.Provider
+        value={createExplorerThreadStatusStore(THREAD_KIND_APPEARANCE)}
+      >
         <ExplorerColumnVisibilityControls show />
       </ExplorerThreadStatusContext.Provider>,
       withTooltips

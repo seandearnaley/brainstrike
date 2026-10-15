@@ -193,9 +193,10 @@ import {
   type ExplorerThreadStatusStore,
 } from '../shell/explorer-thread-status';
 import { ToolbarPresetSelector } from '../toolbar-preset-selector';
+import { THREAD_KIND_APPEARANCE } from './thread-kind-appearance.fixture';
 
 function threadStore(touchedPaths: string[], files: string[]): ExplorerThreadStatusStore {
-  const store = createExplorerThreadStatusStore();
+  const store = createExplorerThreadStatusStore(THREAD_KIND_APPEARANCE);
   store.publish({
     directories: new Map(),
     files: new Map(

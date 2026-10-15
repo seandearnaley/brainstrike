@@ -29,6 +29,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { useOptionalRootIdentity } from '../roots/root-identity-context';
+import { KIND_COLOR_CLASS, KIND_LABEL } from './context-map-kinds';
 import {
   type ExplorerFolder,
   explorerThreadFileStatus,
@@ -42,7 +43,9 @@ export function ExplorerThreadStatusProvider({
 }: {
   readonly children: ReactNode;
 }): ReactElement {
-  const [store] = useState(createExplorerThreadStatusStore);
+  const [store] = useState(() =>
+    createExplorerThreadStatusStore({ colorClass: KIND_COLOR_CLASS, label: KIND_LABEL })
+  );
   const threadId = useActiveAssistantThreadId();
   const record = useThreadContextStore((state) =>
     threadId ? state.byThread[threadId] : undefined

@@ -15,6 +15,7 @@ import {
 } from '../tree/file-tree-selection-context';
 import { FileTreeThreadCell } from '../tree/file-tree-thread-cell';
 import type { FileTreeRowData } from '../tree/optimized-file-tree-model';
+import { THREAD_KIND_APPEARANCE } from './thread-kind-appearance.fixture';
 
 const SELECTION = { folderId: 'root' } as FileTreeSelectionContextValue;
 const FILE_KEY = encodeFileSelection('root', '/w/src/a.ts');
@@ -71,7 +72,7 @@ function Cell({
 
 describe('FileTreeThreadCell', () => {
   it("names how the thread's model received a file, and its signals", () => {
-    const store = createExplorerThreadStatusStore();
+    const store = createExplorerThreadStatusStore(THREAD_KIND_APPEARANCE);
     publish(store, {
       editedWithoutRead: true,
       freshness: 'changed',
@@ -88,16 +89,19 @@ describe('FileTreeThreadCell', () => {
   });
 
   it('says freshness nobody checked is not checked, never unchanged', () => {
-    const store = createExplorerThreadStatusStore();
+    const store = createExplorerThreadStatusStore(THREAD_KIND_APPEARANCE);
     publish(store, { editedWithoutRead: false, freshness: 'unknown', gone: true, kinds: ['grep'] });
     render(<Cell rowData={row('file', '/w/src/a.ts')} store={store} />);
-    expect(screen.getByTestId('explorer-thread-file')).toHaveAccessibleName(
+    const cell = screen.getByTestId('explorer-thread-file');
+    expect(cell).toHaveAccessibleName(
       'This thread: Grep hit; not checked for changes; no longer in the window'
     );
+    // Gone marks are outlined at full strength, never faded.
+    expect(cell.querySelector('[data-gone="true"]')).toHaveClass('border-current', 'text-warning');
   });
 
   it('asks for freshness only while a touched file is shown', () => {
-    const store = createExplorerThreadStatusStore();
+    const store = createExplorerThreadStatusStore(THREAD_KIND_APPEARANCE);
     const { unmount } = render(<Cell rowData={row('file', '/w/src/a.ts')} store={store} />);
     expect(store.getWatchedKeys().size).toBe(0);
     act(() => {
@@ -114,7 +118,7 @@ describe('FileTreeThreadCell', () => {
   });
 
   it('counts the touched files under a folder, and shows nothing for untouched rows', () => {
-    const store = createExplorerThreadStatusStore();
+    const store = createExplorerThreadStatusStore(THREAD_KIND_APPEARANCE);
     publish(store, {
       editedWithoutRead: false,
       freshness: 'unknown',

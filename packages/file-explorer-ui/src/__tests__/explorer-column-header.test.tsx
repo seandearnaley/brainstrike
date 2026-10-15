@@ -45,6 +45,7 @@ import {
 import FileExplorerSidebar from '../shell/file-explorer-sidebar';
 import OptimizedFileTree from '../tree/optimized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
+import { THREAD_KIND_APPEARANCE } from './thread-kind-appearance.fixture';
 
 const ROOT = 'root';
 
@@ -603,7 +604,7 @@ describe('column id identity stability', () => {
     const without = renderHook(() => useExplorerColumnsValue(containerRef));
     expect(without.result.current.visibleMetadataColumnIds).toEqual(['tokens']);
 
-    const store = createExplorerThreadStatusStore();
+    const store = createExplorerThreadStatusStore(THREAD_KIND_APPEARANCE);
     const withStore = renderHook(() => useExplorerColumnsValue(containerRef), {
       wrapper: ({ children }: { children: ReactNode }) => (
         <ExplorerThreadStatusContext.Provider value={store}>
