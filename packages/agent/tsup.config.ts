@@ -15,7 +15,6 @@ const broadEntries = [
   'src/code-execution.ts',
   'src/fence-executor.ts',
   'src/mcp-client.ts',
-  'src/test-fixtures/delegated-stream.ts',
   'src/test-fixtures/mcp-host-lifecycle.ts',
   'src/test-fixtures/scripted-agent-model.ts',
   'src/mcp-tasks.ts',

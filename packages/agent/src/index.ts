@@ -185,43 +185,7 @@ export {
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
 } from './mastra/agent-streaming';
-export {
-  cancelStoredBackgroundInvocations,
-  cancelStoredBackgroundTasks,
-} from './mastra/background-cancellation';
-export {
-  buildPersonaSubAgents,
-  type PersonaSubAgentBuildResult,
-} from './mastra/build-persona-subagents';
-export type {
-  ChildContinuationBaseline,
-  ChildContinuationDecision,
-  ChildContinuationHostPort,
-  ChildContinuationScope,
-  ChildContinuationStatus,
-} from './mastra/child-continuation-host-port';
-export {
-  type BackgroundGeneration,
-  createDelegatedConversationBinding,
-  type DelegatedCancellationControl,
-  type DelegatedCancellationTarget,
-  type DelegatedConversationBinding,
-  type DelegatedConversationIdentity,
-  type DelegatedDecisionControl,
-  type DelegatedDecisionRequest,
-  type DelegatedFollowupControl,
-  type DelegatedFollowupInput,
-  type DelegatedFollowupTarget,
-  type DelegatedLiveDecisionRecord,
-  type DelegatedPromptManifestKind,
-  type DelegatedPromptManifestRecord,
-  type DelegatedToolActionScope,
-  type DelegatedWakeupInvocation,
-  type DelegatedWakeupRecord,
-} from './mastra/delegated-conversation-binding';
 export type { DelegatedRunIdentity } from './mastra/delegated-run-publication';
-export type { DelegatedSuspensionResolver } from './mastra/delegated-suspension-discovery';
-export { captureDelegatedSystemContext } from './mastra/delegated-system-context';
 export {
   clipGrepProjectionLine,
   formatGrepContentHeader,
@@ -231,20 +195,11 @@ export {
   normalizeGrepProjectionLine,
 } from './tool-projection/grep-model-format';
 export {
-  isLiveDecisionUnavailableError,
-  LiveDecisionUnavailableError,
-} from './mastra/live-decision-channel';
-export {
   createMastraAgentError,
   isMastraAgentError,
   MastraAgentError,
   type MastraAgentErrorCode,
 } from './mastra-boundary/mastra-agent-error';
-export type {
-  McpAppOrdinaryToolCallOptions,
-  McpAppToolAdmissionCapability,
-  McpAppToolCallTelemetry,
-} from './mastra/mcp-app-tool-call';
 export {
   createMcpAppOrdinaryToolCallPreparer,
   McpAppToolNotAdmittedError,
@@ -261,7 +216,6 @@ export {
   resolveRequestPermissionPolicy,
 } from './permissions/permission-policy-request';
 export { resolveSelfApprovalDecision } from './permissions/permission-tool-gate';
-export { PERSONA_PIN_KEYLESS_PROVIDERS } from './mastra/persona-pinned-model';
 export { buildModelSettingsOption } from './mastra/runtime-assembly/stream-options';
 export { composeRuntimeToolMap } from './mastra/runtime-assembly/tool-pipeline';
 export {
@@ -270,17 +224,12 @@ export {
   writeShellOutputChunk,
 } from './tool-projection/shell-output-stream';
 export {
-  createDelegationConfig,
-  shouldEnablePersonas,
-} from './mastra/subagent-delegation';
-export {
   type DiscoveredSuspendedApproval,
   type DiscoveredSuspendedPause,
   type ListSuspendedRunsResult,
   listSuspendedChildContinuation,
   listSuspendedMastraRuns,
 } from './mastra/suspended-run-discovery';
-export { toAiSdkStyleStream } from './mastra/to-ai-sdk-style-stream';
 export type { ToolCallTelemetryMetadata } from './tool-projection/tool-call-telemetry';
 export {
   attachToolCallTelemetryMetadata,
