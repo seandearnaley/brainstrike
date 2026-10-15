@@ -185,7 +185,6 @@ export {
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
 } from './mastra/agent-streaming';
-export type { DelegatedRunIdentity } from './mastra/delegated-run-publication';
 export {
   clipGrepProjectionLine,
   formatGrepContentHeader,
@@ -216,20 +215,12 @@ export {
   resolveRequestPermissionPolicy,
 } from './permissions/permission-policy-request';
 export { resolveSelfApprovalDecision } from './permissions/permission-tool-gate';
-export { buildModelSettingsOption } from './mastra/runtime-assembly/stream-options';
 export { composeRuntimeToolMap } from './mastra/runtime-assembly/tool-pipeline';
 export {
   SHELL_OUTPUT_STREAM_PART_TYPE,
   type ShellOutputWriter,
   writeShellOutputChunk,
 } from './tool-projection/shell-output-stream';
-export {
-  type DiscoveredSuspendedApproval,
-  type DiscoveredSuspendedPause,
-  type ListSuspendedRunsResult,
-  listSuspendedChildContinuation,
-  listSuspendedMastraRuns,
-} from './mastra/suspended-run-discovery';
 export type { ToolCallTelemetryMetadata } from './tool-projection/tool-call-telemetry';
 export {
   attachToolCallTelemetryMetadata,
