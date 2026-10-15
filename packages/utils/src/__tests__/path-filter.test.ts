@@ -1,7 +1,8 @@
 import { createDirectoryNode, createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import type { FileFilterOptions } from '@brainstrike/types';
+import { Minimatch } from 'minimatch';
 import { describe, expect, it, vi } from 'vitest';
-import { buildIgnorePatternRegex, fileFilter } from '../path-filter.js';
+import { buildIgnorePatternRegex, fileFilter, literalFilterPattern } from '../path-filter.js';
 
 // Mock the logger
 const mockLogger = vi.hoisted(() => ({
@@ -621,5 +622,25 @@ describe('fileFilter', () => {
       const result = fileFilter.filterNode(dirWithoutChildren, options);
       expect(result).not.toBeNull();
     });
+  });
+});
+
+describe('literalFilterPattern', () => {
+  it('matches its file with or without the leading slash, glob characters included', () => {
+    const pattern = literalFilterPattern('/work/src/a[1]*.ts');
+    expect(fileFilter.matchWildcard('/work/src/a[1]*.ts', pattern)).toBe(true);
+    // The explorer's tree filter strips the leading slash before matching.
+    expect(fileFilter.matchWildcard('work/src/a[1]*.ts', pattern)).toBe(true);
+    expect(fileFilter.matchWildcard('/work/src/a1x.ts', pattern)).toBe(false);
+    expect(fileFilter.matchWildcard('/work/src/a[1]*.tsx', pattern)).toBe(false);
+    expect(fileFilter.matchWildcard('/work/src/b.ts', pattern)).toBe(false);
+  });
+
+  it('writes a Windows path with forward slashes, which minimatch matches on Windows', () => {
+    const pattern = literalFilterPattern('C:\\work\\src\\a[1].ts');
+    expect(pattern).toBe('**/C:/work/src/a\\[1\\].ts');
+    const onWindows = new Minimatch(pattern, { dot: true, platform: 'win32' });
+    expect(onWindows.match('C:\\work\\src\\a[1].ts')).toBe(true);
+    expect(onWindows.match('C:\\work\\src\\b.ts')).toBe(false);
   });
 });

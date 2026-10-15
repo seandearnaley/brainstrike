@@ -4,7 +4,8 @@
  * The Explorer panel is the narrowest surface in the app, so it ships with the
  * two columns that always earn their width (decision D1): the Name tree column
  * — which is pinned and has no visibility toggle at all — plus Tokens. Type and
- * Size are opt-in.
+ * Size are opt-in. "This thread" (ADR-0021) ships on, but only renders where a
+ * thread's context is available (desktop).
  *
  * This is a preference, not layout: widths live in
  * `explorer-column-sizes-store.ts`. Keeping them apart means a resize never
@@ -20,7 +21,7 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createSanitizedPersistMerge } from './sanitized-persist-merge';
 
 /** Metadata columns only — `name` is the pinned tree column and never hides. */
-export const EXPLORER_METADATA_COLUMN_IDS = ['type', 'tokens', 'size'] as const;
+export const EXPLORER_METADATA_COLUMN_IDS = ['thread', 'type', 'tokens', 'size'] as const;
 
 export type ExplorerMetadataColumnId = (typeof EXPLORER_METADATA_COLUMN_IDS)[number];
 
@@ -34,6 +35,7 @@ export interface ExplorerColumnVisibilityStoreState extends ExplorerColumnVisibi
 /** Decision D1: Tokens ships on; Type and Size are opt-in. */
 const DEFAULT_VISIBILITY: ExplorerColumnVisibility = {
   size: false,
+  thread: true,
   tokens: true,
   type: false,
 };
@@ -81,6 +83,7 @@ function createExplorerColumnVisibilityStore() {
         name: STORE_NAME,
         partialize: (state): ExplorerColumnVisibility => ({
           size: state.size,
+          thread: state.thread,
           tokens: state.tokens,
           type: state.type,
         }),

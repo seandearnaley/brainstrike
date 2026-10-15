@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { expandNextDirectoryIfNeeded } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
@@ -13,6 +14,8 @@ import { seedRoot } from './utils/seed-root';
 const REPLY = 'Context tour finished.';
 const ALPHA = 'src/alpha.ts';
 const BETA = 'src/beta.ts';
+// Never touched by the thread: the Files explorer's thread filter hides it.
+const GAMMA = 'src/gamma.ts';
 const READ = 'brainstrike_readWorkspaceFile';
 const GREP = 'brainstrike_grepSearch';
 const EDIT = 'brainstrike_stringReplaceWorkspaceFile';
@@ -42,6 +45,7 @@ const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'bs-e2e-context-map
 mkdirSync(path.join(root, 'src'));
 writeFileSync(path.join(root, ALPHA), `${lines('alpha', 60).join('\n')}\n`);
 writeFileSync(path.join(root, BETA), `${lines('beta', 30).join('\n')}\n`);
+writeFileSync(path.join(root, GAMMA), `${lines('gamma', 10).join('\n')}\n`);
 test.afterAll(() => {
   rmSync(root, { force: true, recursive: true });
 });
@@ -140,6 +144,44 @@ test('the Context tab shows the files a thread received and edited, the same fig
   await page.screenshot({
     animations: 'disabled',
     path: testInfo.outputPath('context-map-changed.png'),
+  });
+
+  // BST-2018: the Files explorer shows the same thread's files in its "This
+  // thread" column, and its "Touched in this thread" filter keeps only them.
+  await page.getByTestId('workspace-tab-strip').getByRole('tab', { name: 'Files' }).click();
+  const tree = page.getByRole('treegrid', { name: 'File tree' });
+  await expandNextDirectoryIfNeeded({
+    directoryName: 'src',
+    directoryPath: path.join(root, 'src'),
+    expectedChildText: 'alpha.ts',
+    fileTree: tree,
+  });
+  const treeRow = (name: string) => tree.getByRole('row').filter({ hasText: name });
+  await expect(treeRow('alpha.ts').getByTestId('explorer-thread-file')).toHaveAccessibleName(
+    'This thread: Read; changed since read',
+    { timeout: 30_000 }
+  );
+  await expect(treeRow('beta.ts').getByTestId('explorer-thread-file')).toHaveAccessibleName(
+    /^This thread: Edited, Grep hit; .*; edited without reading$/u
+  );
+  await expect(treeRow('gamma.ts').getByTestId('explorer-thread-file')).toHaveCount(0);
+  await expect(treeRow('gamma.ts')).toBeVisible();
+
+  const filters = page.getByTestId('toggle-view-filters-button');
+  if ((await filters.getAttribute('aria-expanded')) !== 'true') {
+    await filters.click();
+  }
+  await page.locator('#view-filters-content').getByRole('button').first().click();
+  await page
+    .getByTestId('thread-touched-preset')
+    .getByRole('button', { name: /Touched in this thread/u })
+    .click();
+  await expect(treeRow('gamma.ts')).toHaveCount(0, { timeout: 30_000 });
+  await expect(treeRow('alpha.ts')).toBeVisible();
+  await expect(treeRow('beta.ts')).toBeVisible();
+  await page.screenshot({
+    animations: 'disabled',
+    path: testInfo.outputPath('files-this-thread.png'),
   });
   expect(modelProvider.refusals()).toEqual([]);
 });

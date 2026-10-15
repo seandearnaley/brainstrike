@@ -8,6 +8,7 @@ import {
 import type { QueueAdapter } from '@brainstrike/queue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
 import { lazy, type ReactElement, Suspense, useCallback, useMemo } from 'react';
+import { ExplorerThreadStatusProvider } from './context-map/explorer-thread-status-provider';
 import { ExplorerAttachAction } from './explorer-attach-action';
 import { ExplorerImportActionLazy } from './explorer-import-action-lazy';
 import { useWorkspaceSearchController } from './use-workspace-search-controller';
@@ -98,6 +99,9 @@ export function ExplorerSearchTabs({
     [loadEmbeddingQueue]
   );
   const rootActions = useWorkspaceRootActions();
+  const explorer = (
+    <FileExplorerPanel rootActions={rootActions} selectionActions={selectionActions} />
+  );
 
   return (
     <Tabs
@@ -125,7 +129,12 @@ export function ExplorerSearchTabs({
         forceMount
         value="explorer"
       >
-        <FileExplorerPanel rootActions={rootActions} selectionActions={selectionActions} />
+        {/* The "This thread" column reads the desktop host's committed thread log. */}
+        {hasDurableAssistantUsageCapability() ? (
+          <ExplorerThreadStatusProvider>{explorer}</ExplorerThreadStatusProvider>
+        ) : (
+          explorer
+        )}
       </TabsContent>
 
       <TabsContent

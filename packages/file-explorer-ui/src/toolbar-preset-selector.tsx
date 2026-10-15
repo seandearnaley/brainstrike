@@ -13,13 +13,15 @@ import { createLogger } from '@brainstrike/logging';
 import type { ViewFilterPreset } from '@brainstrike/types';
 import { isDevEnv } from '@brainstrike/utils/env-utils';
 import * as React from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { hasPersistApi } from './hooks/recursive-selection-utils';
 import { useViewFilterPresets } from './hooks/use-view-filter-presets';
+import { useOptionalExplorerThreadStatus } from './shell/explorer-thread-status';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './shell/file-explorer-provider';
+import { threadTouchedPreset } from './thread-touched-preset';
 import { persistFileExplorerStateImmediately } from './utils/persist-file-explorer-state';
 import { ViewFilterPresetDropdown } from './view-filter-preset-dropdown';
 
@@ -50,6 +52,21 @@ function useStoreHydrated(store: unknown): boolean {
     return persist.onFinishHydration(() => setHydrated(true));
   }, [hydrated, persist]);
   return hydrated;
+}
+
+const subscribeNothing = (): (() => void) => () => undefined;
+const NO_TOUCHED_PATHS: readonly string[] = [];
+const noTouchedPaths = (): readonly string[] => NO_TOUCHED_PATHS;
+
+/** "Touched in this thread", where the active thread's context is published. */
+function useThreadTouchedPreset(): ViewFilterPreset | null {
+  const threadStatus = useOptionalExplorerThreadStatus();
+  const subscribe = threadStatus?.subscribe ?? subscribeNothing;
+  const touchedPaths = useSyncExternalStore(
+    subscribe,
+    threadStatus?.getTouchedPaths ?? noTouchedPaths
+  );
+  return useMemo(() => threadTouchedPreset(touchedPaths), [touchedPaths]);
 }
 
 interface ToolbarPresetSelectorProps {
@@ -156,6 +173,12 @@ const ToolbarPresetSelectorInner = React.memo(
     // Load presets from database
     const { presets, loading, error, createPreset, updatePreset, deletePreset } =
       useViewFilterPresets();
+    const threadPreset = useThreadTouchedPreset();
+    // Stored presets first: the thread's never shadows a stored preset with the same filters.
+    const selectablePresets = useMemo(
+      () => (threadPreset ? [...presets, threadPreset] : presets),
+      [presets, threadPreset]
+    );
 
     const activeFilters = useMemo<ActiveFilterState>(
       () => ({
@@ -170,8 +193,8 @@ const ToolbarPresetSelectorInner = React.memo(
     // The active preset is the exact preset whose filter triplet matches the live filter state.
     // viewFilterPresetId is synchronized to that canonical match and must not drift independently.
     const selectedPreset = useMemo(
-      () => resolveSelectedPreset(presets, viewFilterPresetId, activeFilters),
-      [presets, viewFilterPresetId, activeFilters]
+      () => resolveSelectedPreset(selectablePresets, viewFilterPresetId, activeFilters),
+      [selectablePresets, viewFilterPresetId, activeFilters]
     );
 
     const displayedPreset = useMemo(() => {
@@ -179,8 +202,8 @@ const ToolbarPresetSelectorInner = React.memo(
         return selectedPreset;
       }
 
-      return presets.find((preset) => preset.id === optimisticPresetId) ?? selectedPreset;
-    }, [optimisticPresetId, presets, selectedPreset]);
+      return selectablePresets.find((preset) => preset.id === optimisticPresetId) ?? selectedPreset;
+    }, [optimisticPresetId, selectablePresets, selectedPreset]);
 
     useEffect(() => {
       if (!optimisticPresetId) {
@@ -192,11 +215,12 @@ const ToolbarPresetSelectorInner = React.memo(
         return;
       }
 
-      const optimisticPreset = presets.find((preset) => preset.id === optimisticPresetId) ?? null;
+      const optimisticPreset =
+        selectablePresets.find((preset) => preset.id === optimisticPresetId) ?? null;
       if (!optimisticPreset) {
         setOptimisticPresetId(null);
       }
-    }, [optimisticPresetId, presets, selectedPreset]);
+    }, [optimisticPresetId, selectablePresets, selectedPreset]);
 
     useEffect(() => {
       // Pre-rehydration the store holds DEFAULT filters — syncing (and
@@ -285,6 +309,7 @@ const ToolbarPresetSelectorInner = React.memo(
         onUpdate={updatePreset}
         presets={presets}
         selectedPreset={displayedPreset}
+        threadPreset={threadPreset}
       />
     );
   }

@@ -1,6 +1,7 @@
 export * from '../components/worktree-indexing-control';
 export * from './context-explorer-app-body';
 export * from './explorer-context-export-action';
+export * from './explorer-thread-status';
 export * from './file-content-context';
 export * from './file-explorer-panel';
 export * from './file-explorer-provider';

@@ -1,6 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import type { FileFilterOptions, IFileNode } from '@brainstrike/types';
-import { Minimatch } from 'minimatch';
+import { escape as escapeWildcard, Minimatch } from 'minimatch';
 
 /**
  * Common file patterns to ignore.
@@ -119,6 +119,22 @@ const matchWildcardPattern = (str: string, pattern: string): boolean => {
   const matcher = getOrCreateWildcardMatcher(pattern);
   return matcher.match(str);
 };
+
+/** A Windows drive or UNC path, whose backslashes are separators. */
+const WINDOWS_PATH = /^(?:[A-Za-z]:[\\/]|\\\\)/u;
+
+/**
+ * A wildcard filter that matches the file at `path` and no other: its glob
+ * characters are escaped, so `a[1].ts` filters as itself, not as a class. The
+ * explorer's tree filter matches a path without its leading `/` and this
+ * module's `filterNode` matches it with one, so the literal follows a leading
+ * `**` segment, which both accept. A Windows path is written with `/`: in a
+ * glob a backslash escapes, and minimatch compares Windows paths by `/`.
+ */
+export function literalFilterPattern(path: string): string {
+  const separated = WINDOWS_PATH.test(path) ? path.replaceAll('\\', '/') : path;
+  return `**/${escapeWildcard(separated.replace(/^\/+/u, ''))}`;
+}
 
 /**
  * Utilities for filtering files and directories

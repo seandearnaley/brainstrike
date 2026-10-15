@@ -50,6 +50,7 @@ import {
 import { createContext, type RefObject, useContext, useMemo } from 'react';
 import { useContainerWidth } from '../hooks/use-container-width';
 import { EXPLORER_METADATA_COLUMN_CONFIGS } from '../tree/file-tree-columns';
+import { useOptionalExplorerThreadStatus } from './explorer-thread-status';
 
 /**
  * Below this container width the grid is name-only. At 300px the toolbar's
@@ -191,7 +192,7 @@ function deserializeColumnWidths(contentKey: string): Record<string, number> {
  * the user chose, so widening the panel restores it. Columns shrink in
  * proportion to how much each asked for and never below their own `minWidth`;
  * when even the minimums do not fit, the minimums are returned (unreachable
- * above the 300px threshold, where 120 + 48 + 52 + 52 = 272 always fits).
+ * above the 300px threshold, where 120 + 28 + 48 + 52 + 52 = 300 always fits).
  *
  * `availableWidth <= 0` means "not measured yet" and passes the widths through
  * untouched rather than guessing a layout for a panel we cannot see.
@@ -271,8 +272,11 @@ export function useExplorerColumnsValue(
   containerRef: RefObject<HTMLElement | null>
 ): ExplorerColumnsContextValue {
   const size = useExplorerColumnVisibilityStore((state) => state.size);
+  const thread = useExplorerColumnVisibilityStore((state) => state.thread);
   const tokens = useExplorerColumnVisibilityStore((state) => state.tokens);
   const type = useExplorerColumnVisibilityStore((state) => state.type);
+  // "This thread" exists only where the active thread's context is published.
+  const threadAvailable = useOptionalExplorerThreadStatus() !== null;
   const sizes = useExplorerColumnSizesStore((state: TreeTableColumnSizesStoreState) => state.sizes);
   const containerWidth = useContainerWidth(containerRef);
   // Width 0 means "not measured yet" (first paint, or a hidden panel), and the
@@ -294,7 +298,7 @@ export function useExplorerColumnsValue(
   const visibleMetadataColumnIds = useStableColumnIds(
     resolveVisibleMetadataColumnIds({
       isSuppressed: areMetadataColumnsSuppressed,
-      visibility: { size, tokens, type },
+      visibility: { size, thread: thread && threadAvailable, tokens, type },
     })
   );
   const resolvedColumnWidths = useMemo(
