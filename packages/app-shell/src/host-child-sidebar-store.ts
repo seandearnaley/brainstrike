@@ -4,7 +4,7 @@ import type {
 } from './assistant-thread-host-context';
 
 export interface HostChildSidebarSnapshot {
-  /** Each expanded host parent's children, in delegation order, or why they could not be read. */
+  /** Each observed host parent's children, in delegation order, or why they could not be read. */
   readonly children: ReadonlyMap<string, readonly AssistantThreadHostChild[] | Error>;
   /** Children whose status changed while their tab was not the selected one. */
   readonly unread: ReadonlySet<string>;
@@ -21,13 +21,14 @@ function asError(value: unknown): Error {
 }
 
 /**
- * BST-1932 (F19–F21): the threads panel's host child rows. An expanded parent's
+ * BST-1932 (F19–F21): the threads panel's host child rows. A visible parent's
  * children are read from the host, and read again only when the host says that
  * parent's children changed: no polling, and no child log is watched. A child
  * whose status changes while its tab is not selected is unread until seen.
  */
 export class HostChildSidebarStore {
   private readonly listeners = new Set<() => void>();
+  private observed = new Set<string>();
   private readonly requests = new Map<string, number>();
   private snapshot: HostChildSidebarSnapshot = { children: new Map(), unread: new Set() };
   private readonly release: () => void;
@@ -61,6 +62,21 @@ export class HostChildSidebarStore {
     return () => this.listeners.delete(listener);
   };
 
+  /** Discover disclosure for visible parents, including collapsed ones. */
+  observe(threadIds: readonly string[]): void {
+    const next = new Set(threadIds);
+    const previous = this.observed;
+    this.observed = next;
+    for (const threadId of previous) {
+      if (!next.has(threadId)) {
+        this.collapse(threadId);
+      }
+    }
+    for (const threadId of next) {
+      this.expand(threadId);
+    }
+  }
+
   expand(threadId: string): void {
     if (!this.requests.has(threadId)) {
       this.read(threadId);
@@ -68,6 +84,9 @@ export class HostChildSidebarStore {
   }
 
   collapse(threadId: string): void {
+    if (this.observed.has(threadId)) {
+      return;
+    }
     this.requests.delete(threadId);
     const children = new Map(this.snapshot.children);
     children.delete(threadId);
@@ -88,6 +107,7 @@ export class HostChildSidebarStore {
     this.release();
     this.releaseSelection();
     this.requests.clear();
+    this.observed.clear();
     this.listeners.clear();
   }
 

@@ -117,3 +117,22 @@ it('a collapsed parent stops being listed, and a refused listing shows why', asy
   store.collapse('missing');
   expect(store.getSnapshot().children.has('missing')).toBe(false);
 });
+
+it('discovers children on visible collapsed parents and follows new children without polling', async () => {
+  const listed = new Map<string, readonly AssistantThreadHostChild[]>([['root-1', []]]);
+  const fake = host(listed);
+  const store = new HostChildSidebarStore(fake.capability, selection());
+  stores.push(store);
+  store.observe(['root-1']);
+  await vi.waitFor(() => expect(store.getSnapshot().children.get('root-1')).toEqual([]));
+  store.observe(['root-1']);
+  store.collapse('root-1');
+  expect(fake.childThreads).toHaveBeenCalledTimes(1);
+  listed.set('root-1', [child('a', 'working')]);
+  fake.notify('root-1');
+  await vi.waitFor(() => expect(store.getSnapshot().children.get('root-1')).toHaveLength(1));
+  store.observe([]);
+  fake.notify('root-1');
+  expect(fake.childThreads).toHaveBeenCalledTimes(2);
+  expect(store.getSnapshot().children.has('root-1')).toBe(false);
+});

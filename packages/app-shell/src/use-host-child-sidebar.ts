@@ -20,7 +20,7 @@ interface ExpandedParent {
 const EMPTY: HostChildSidebarSnapshot = { children: new Map(), unread: new Set() };
 const NO_SUBSCRIPTION = (): (() => void) => () => undefined;
 
-/** A collapsed parent hides, and stops reading, every row beneath it. */
+/** A collapsed parent hides its descendants; its own child discovery stays observed. */
 function collapseHostParent(
   expanded: ReadonlyMap<string, ExpandedParent>,
   rowId: string,
@@ -109,7 +109,6 @@ function projectHostChildRows(
       return;
     }
     if (children.length === 0) {
-      state('No child conversations');
       return;
     }
     for (const child of children) {
@@ -153,7 +152,7 @@ const WORKSPACE_TAB_SELECTION: HostChildTabSelection = {
  * the host derives and re-reads only when the host says it changed; a child's
  * row is unread until its tab is selected.
  */
-export function useHostChildSidebar() {
+export function useHostChildSidebar(base: readonly ThreadPanelVisibleRow[]) {
   const host = useAssistantThreadHost();
   const store = useMemo(() => {
     const childThreads = host?.childThreads?.bind(host);
@@ -186,11 +185,53 @@ export function useHostChildSidebar() {
     },
     [expanded, owns, snapshot, store]
   );
-  const project = useCallback(
-    (base: readonly ThreadPanelVisibleRow[]): ThreadPanelVisibleRow[] =>
-      projectHostChildRows(base, expanded, snapshot),
-    [expanded, snapshot]
+  const rows = useMemo(
+    () =>
+      projectHostChildRows(base, expanded, snapshot).flatMap((row): ThreadPanelVisibleRow[] => {
+        if (!(row.kind === 'thread' || row.kind === 'host-child') || expanded.has(row.id)) {
+          return [row];
+        }
+        const threadId = row.kind === 'host-child' ? row.child.threadId : row.id;
+        const failure = snapshot.children.get(threadId);
+        if (!(failure instanceof Error)) {
+          return [row];
+        }
+        return [
+          row,
+          {
+            depth: row.kind === 'host-child' ? row.depth + 1 : row.parentId === null ? 1 : 2,
+            groupId: row.groupId,
+            id: `delegated-state:${row.id}`,
+            isError: true,
+            kind: 'delegated-state',
+            label: failure.message,
+            parentId: row.id,
+          },
+        ];
+      }),
+    [base, expanded, snapshot]
+  );
+  useEffect(() => {
+    store?.observe(
+      rows.flatMap((row) => {
+        if (!owns(row)) {
+          return [];
+        }
+        return row.kind === 'host-child' ? [row.child.threadId] : [row.id];
+      })
+    );
+  }, [owns, rows, store]);
+  const hasChildren = useCallback(
+    (row: ThreadPanelVisibleRow): boolean => {
+      if (!owns(row)) {
+        return false;
+      }
+      const threadId = row.kind === 'host-child' ? row.child.threadId : row.id;
+      const children = snapshot.children.get(threadId);
+      return Array.isArray(children) && children.length > 0;
+    },
+    [owns, snapshot]
   );
   const expandedIds = useMemo(() => new Set(expanded.keys()), [expanded]);
-  return { enabled: store !== undefined, expandedIds, owns, project, toggle };
+  return { expandedIds, hasChildren, owns, rows, toggle };
 }

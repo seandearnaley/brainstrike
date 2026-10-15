@@ -1760,7 +1760,7 @@ describe('ThreadsPanel groups', () => {
     const nestedThreadRow = screen.getByText('Second thread').closest('tr');
     expect(nestedThreadRow).toHaveAttribute('data-depth', '1');
     expect(nestedThreadRow?.querySelector<HTMLElement>('td > div > span')).toHaveStyle({
-      width: '24px',
+      width: '16px',
     });
     const ungrouped = screen.getByTestId('threads-ungrouped-section');
     expect(ungrouped.closest('tr')).not.toHaveClass('[&_[role=gridcell]>div]:pl-7');
@@ -3033,13 +3033,17 @@ it('loads host conversations, retained folders and custom groups without a PG pr
     title: 'Host current',
     updatedAt: new Date(),
   };
+  const childThreads = vi.fn(async () => []);
   const host: AssistantThreadHostCapability = {
+    childThreads,
     createThread: vi.fn(async () => thread),
     deleteThread: vi.fn(async () => [thread.id]),
+    isHostThread: () => true,
     listThreads: vi.fn(async () => [thread]),
     ownsThread: vi.fn(async () => true),
     renameThread: vi.fn(),
     renderThread: () => null,
+    subscribeChildren: () => () => undefined,
     updateThreadBinding: vi.fn(),
     workspaceRepository: () => {
       throw new Error('Unexpected workspace snapshot access in this fixture');
@@ -3080,7 +3084,13 @@ it('loads host conversations, retained folders and custom groups without a PG pr
     },
   });
   renderThreadsPanel(host);
-  expect(await screen.findByText('Host current')).toBeVisible();
+  const leaf = await screen.findByText('Host current');
+  expect(leaf).toBeVisible();
+  await waitFor(() => expect(childThreads).toHaveBeenCalledWith(thread.id));
+  expect(
+    within(leaf.closest('tr') as HTMLElement).queryByRole('button', { name: 'Expand' })
+  ).toBeNull();
+  expect(screen.queryByText('No child conversations')).toBeNull();
   expect(await screen.findByText('My work')).toBeVisible();
   await userEvent.setup().click(screen.getByRole('button', { name: 'View options' }));
   await userEvent.setup().click(screen.getByRole('radio', { name: 'Folder' }));

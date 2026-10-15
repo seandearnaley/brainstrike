@@ -5,7 +5,7 @@ import {
   __resetWorkspaceTabSelectionStoreForTests,
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, expect, it } from 'vitest';
 import {
@@ -62,16 +62,21 @@ const root: ThreadPanelVisibleRow = {
 
 /** The threads panel's use of the hook: a root row that expands, then its child rows. */
 function Panel() {
-  const sidebar = useHostChildSidebar();
+  const sidebar = useHostChildSidebar([root]);
   return (
     <>
-      {sidebar.project([root]).map((row) => {
+      {sidebar.rows.map((row) => {
         if (row.kind === 'host-child') {
           return <HostChildSidebarCell key={row.id} row={row} />;
         }
         if (row.kind === 'thread') {
           return (
-            <button key={row.id} onClick={() => sidebar.toggle(row)} type="button">
+            <button
+              disabled={!sidebar.hasChildren(row)}
+              key={row.id}
+              onClick={() => sidebar.toggle(row)}
+              type="button"
+            >
               Expand {row.thread.title}
             </button>
           );
@@ -115,6 +120,9 @@ it('a child’s row opens it in its own root’s workspace, whichever root is op
       <Panel />
     </AssistantThreadHostContext.Provider>
   );
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Expand Plan the release' })).toBeEnabled()
+  );
   await userEvent.click(screen.getByRole('button', { name: 'Expand Plan the release' }));
   await userEvent.click(await screen.findByRole('button', { name: /^Cedar-1a2b3c\s*Child$/u }));
   // The child's root opens first; its tab opens once that root's workspace is ready.
@@ -144,6 +152,9 @@ it('a host thread’s child row follows the host’s notices and is unread until
       <Panel />
     </AssistantThreadHostContext.Provider>
   );
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Expand Plan the release' })).toBeEnabled()
+  );
   await userEvent.click(screen.getByRole('button', { name: 'Expand Plan the release' }));
   // jsdom applies no layout, so the flex items' names join without the browser's spaces.
   expect(await screen.findByRole('button', { name: /^Cedar-1a2b3c\s*Working$/u })).toBeVisible();
@@ -164,4 +175,55 @@ it('a host thread’s child row follows the host’s notices and is unread until
   act(() => notify?.('root-1'));
   // The selected child's change is seen as it happens.
   expect(await screen.findByRole('button', { name: /^Cedar-1a2b3c\s*Child$/u })).toBeVisible();
+});
+
+it('keeps leaves quiet and discovers children added while the parent is collapsed', async () => {
+  let listed: readonly AssistantThreadHostChild[] = [];
+  let notify: ((threadId: string) => void) | undefined;
+  const host = hostWith(
+    async () => listed,
+    (listener) => {
+      notify = listener;
+      return () => undefined;
+    }
+  );
+  render(
+    <AssistantThreadHostContext.Provider value={host}>
+      <Panel />
+    </AssistantThreadHostContext.Provider>
+  );
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Expand Plan the release' })).toBeDisabled()
+  );
+  expect(screen.queryByText('No child conversations')).toBeNull();
+  expect(screen.queryByText('Loading child conversations…')).toBeNull();
+  listed = [child('working')];
+  act(() => notify?.('root-1'));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Expand Plan the release' })).toBeEnabled()
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Expand Plan the release' }));
+  expect(await screen.findByRole('button', { name: /^Cedar-1a2b3c\s*Working$/u })).toBeVisible();
+  listed = [];
+  act(() => notify?.('root-1'));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Expand Plan the release' })).toBeDisabled()
+  );
+  expect(screen.queryByText('No child conversations')).toBeNull();
+});
+
+it('shows failed child discovery rather than treating failure as an empty leaf', async () => {
+  render(
+    <AssistantThreadHostContext.Provider
+      value={hostWith(
+        async () => {
+          throw new Error('Children unavailable');
+        },
+        () => () => undefined
+      )}
+    >
+      <Panel />
+    </AssistantThreadHostContext.Provider>
+  );
+  expect(await screen.findByText('Children unavailable')).toBeVisible();
 });
