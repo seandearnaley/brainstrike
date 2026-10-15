@@ -73,6 +73,11 @@ export {
   isCompactionSummaryMessage,
   readCompactionSummaryPayload,
 } from './compaction-summary-message';
+export {
+  ContextMapLinkContext,
+  type ContextMapLinkValue,
+  useContextMapLink,
+} from './context-map-link-context';
 export type { OmAwaitingObserverReason, OmMeterState } from './context-usage-meter';
 export { CumulativeUsageSection, type CumulativeUsageSectionProps } from './context-usage-popover';
 export {

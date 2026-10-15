@@ -715,3 +715,23 @@ export function threadContextAt(
   }
   return { branch, calls, turn: selected };
 }
+
+/**
+ * Tokens the selected turn's window holds for tool calls that delivered file
+ * lines: the one figure the composer popover and the Context tab both show.
+ * Null when the window is unknown. Attachments are left out: their text rides
+ * in the system prompt, which the popover counts as system instructions.
+ */
+export function fileWindowTokens(view: ThreadContextAtTurn): number | null {
+  let total = 0;
+  for (const at of view.calls) {
+    if (at.call.attachment || at.call.spans.length === 0) {
+      continue;
+    }
+    if (at.windowTokens === null) {
+      return null;
+    }
+    total += at.windowTokens;
+  }
+  return total;
+}

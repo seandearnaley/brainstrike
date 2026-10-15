@@ -53,3 +53,5 @@ export const CHANGES_APP_ID = 'changes';
 export const CANVAS_APP_ID = 'canvas';
 export const TERMINAL_APP_ID = 'terminal';
 export const WORKTREE_MAP_APP_ID = 'worktree-map';
+/** The thread context map (ADR-0021): what the active thread's model received. */
+export const THREAD_CONTEXT_APP_ID = 'thread-context';

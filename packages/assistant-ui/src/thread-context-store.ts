@@ -14,10 +14,23 @@ export interface ThreadContextRecord {
   readonly snapshot: ThreadContextSnapshot;
 }
 
+/**
+ * The composer ring's figure for a thread, written only by `ContextUsageMeter`
+ * so the Context tab shows the same total and budget without recomputing it.
+ */
+export interface ContextRingFigure {
+  /** The effective input budget the ring divides by. */
+  readonly budgetTokens: number;
+  readonly isEstimated: boolean;
+  readonly usedTokens: number;
+}
+
 interface ThreadContextState {
   readonly byThread: Readonly<Record<string, ThreadContextRecord>>;
   clearThread: (threadId: string) => void;
   record: (threadId: string, record: ThreadContextRecord) => void;
+  recordRing: (threadId: string, figure: ContextRingFigure) => void;
+  readonly ringByThread: Readonly<Record<string, ContextRingFigure>>;
 }
 
 export const useThreadContextStore = create<ThreadContextState>((set) => ({
@@ -32,8 +45,21 @@ export const useThreadContextStore = create<ThreadContextState>((set) => ({
     }),
   record: (threadId, record) =>
     set((state) => ({ byThread: { ...state.byThread, [threadId]: record } })),
+  recordRing: (threadId, figure) =>
+    set((state) => {
+      const current = state.ringByThread[threadId];
+      if (
+        current?.budgetTokens === figure.budgetTokens &&
+        current.isEstimated === figure.isEstimated &&
+        current.usedTokens === figure.usedTokens
+      ) {
+        return state;
+      }
+      return { ringByThread: { ...state.ringByThread, [threadId]: figure } };
+    }),
+  ringByThread: {},
 }));
 
 export function resetThreadContextStore(): void {
-  useThreadContextStore.setState({ byThread: {} });
+  useThreadContextStore.setState({ byThread: {}, ringByThread: {} });
 }
