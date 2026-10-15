@@ -4,7 +4,6 @@ import {
   DEFAULT_FOLDER_SUMMARY_THRESHOLD,
   DEFAULT_MAX_SELECTION_COUNT,
   DEFAULT_STATE,
-  DEFAULT_TOKEN_BUDGET,
   MAX_FOLDER_STATES,
   MIN_MAX_SELECTION_COUNT,
 } from '@brainstrike/types';
@@ -141,7 +140,6 @@ describe('Folder State Actions', () => {
       maxSelectionCount: 50,
       selectedFilePaths: selectedPaths,
       selectionModel: createEmptySelectionModel(),
-      tokenBudget: DEFAULT_TOKEN_BUDGET,
       useRegex: true,
       viewFilterPresetId: null,
     };
@@ -165,8 +163,8 @@ describe('Folder State Actions', () => {
     expect(state.excludeFilters).toEqual(DEFAULT_STATE.excludeFilters);
     expect(state.useRegex).toBe(DEFAULT_STATE.useRegex);
     expect(state.maxSelectionCount).toBe(DEFAULT_STATE.maxSelectionCount);
-    // Hardening B: tokenBudget/includeProjectTree/folderSummaryThreshold/
-    // lastActiveTab joined the WORKSPACE-GLOBAL doctrine — never hydrated.
+    // Hardening B: includeProjectTree/folderSummaryThreshold/lastActiveTab
+    // joined the WORKSPACE-GLOBAL doctrine — never hydrated.
     expect(state.includeProjectTree).toBe(DEFAULT_STATE.includeProjectTree);
     expect(state.folderSummaryThreshold).toBe(DEFAULT_STATE.folderSummaryThreshold);
     expect(state.lastActiveTab).toBe(DEFAULT_STATE.lastActiveTab);
@@ -209,7 +207,6 @@ describe('Folder State Actions', () => {
         maxSelectionCount: 100,
         selectedFilePaths: new Set([`${id}-file`]),
         selectionModel: createEmptySelectionModel(),
-        tokenBudget: DEFAULT_TOKEN_BUDGET,
         useRegex: false,
         viewFilterPresetId: null,
       };

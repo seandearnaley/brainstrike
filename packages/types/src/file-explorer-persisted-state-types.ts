@@ -24,7 +24,6 @@ export interface SerializedFolderState {
   maxSelectionCount: number;
   selectedFilePaths: string[];
   selectionModel?: SerializedSelectionModel;
-  tokenBudget: number;
   useRegex: boolean;
   /**
    * ID of the selected view filter preset.
@@ -87,7 +86,6 @@ export interface SerializedState {
    * Optional for backward compatibility with existing persisted state.
    */
   selectionModel?: SerializedSelectionModel;
-  tokenBudget: number;
   useRegex: boolean;
   /**
    * ID of the selected view filter preset.
@@ -112,7 +110,6 @@ export interface FolderState {
   maxSelectionCount: number;
   selectedFilePaths: Set<string>;
   selectionModel: SelectionModel;
-  tokenBudget: number;
   useRegex: boolean;
   /**
    * ID of the selected view filter preset.

@@ -65,13 +65,13 @@ function buildRestoreState(
     selectionModel: normalizeHydratedSelectionModel(state, folderState),
     // WORKSPACE-GLOBAL state is never hydrated from folder snapshots:
     // maxSelectionCount, includeFilters, excludeFilters, useRegex,
-    // viewFilterPresetId, expandedDirectoryPaths, tokenBudget,
-    // includeProjectTree, folderSummaryThreshold, and lastActiveTab. Forest
-    // mode switches focus on every section click; stale per-folder copies
-    // would silently revert the user's setting per clicked root (caps
-    // flipping, "all files" reverting, expansions collapsing, the token
-    // budget / ACTIVE TAB flipping mid-click). Only the SELECTION
-    // (selectedFilePaths + selectionModel) is genuinely per-root.
+    // viewFilterPresetId, expandedDirectoryPaths, includeProjectTree,
+    // folderSummaryThreshold, and lastActiveTab. Forest mode switches focus
+    // on every section click; stale per-folder copies would silently revert
+    // the user's setting per clicked root (caps flipping, "all files"
+    // reverting, expansions collapsing, the ACTIVE TAB flipping mid-click).
+    // Only the SELECTION (selectedFilePaths + selectionModel) is genuinely
+    // per-root.
   };
 }
 

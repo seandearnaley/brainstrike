@@ -117,52 +117,6 @@ test.describe('IDE Layout Persistence', () => {
     });
   });
 
-  test.describe('Panel Resize Persistence', () => {
-    test('should persist console panel visibility across page reloads', async ({ page }) => {
-      const elements = getPanelElements(page);
-      const consolePanel = elements.consolePanel;
-
-      // Console should be hidden by default
-      await expect(consolePanel).not.toBeVisible();
-
-      const showConsoleVisible = await elements.showConsoleShim.isVisible().catch(() => false);
-      const hideConsoleVisible = await elements.hideConsoleButton.isVisible().catch(() => false);
-      if (!(showConsoleVisible || hideConsoleVisible)) {
-        test.skip(true, 'Console panel controls not available in this environment');
-      }
-
-      if (showConsoleVisible) {
-        await elements.showConsoleShim.click();
-      }
-      await expectLayoutState(page, (state) => state?.state?.showConsole === true, {
-        storageKey: CONTEXT_EXPLORER_LAYOUT_STORE_KEY,
-      });
-
-      // Wait for layout to settle
-      await page.waitForTimeout(500);
-
-      // Reload page
-      await reloadAndWait(page);
-
-      // Verify console is still visible after reload (main persistence test)
-      await expectLayoutState(page, (state) => state?.state?.showConsole === true, {
-        storageKey: CONTEXT_EXPLORER_LAYOUT_STORE_KEY,
-      });
-
-      // Hide console and verify persistence
-      await elements.hideConsoleButton.click();
-      await expectLayoutState(page, (state) => state?.state?.showConsole === false, {
-        storageKey: CONTEXT_EXPLORER_LAYOUT_STORE_KEY,
-      });
-
-      // Reload and verify it stays hidden
-      await reloadAndWait(page);
-      await expectLayoutState(page, (state) => state?.state?.showConsole === false, {
-        storageKey: CONTEXT_EXPLORER_LAYOUT_STORE_KEY,
-      });
-    });
-  });
-
   test.describe('Complex Layout State Persistence', () => {
     // NOTE (honest scope): this test and its sibling below no longer exercise
     // cross-page persistence. Settings became a dialog rendered OVER the

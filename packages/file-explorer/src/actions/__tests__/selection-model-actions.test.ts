@@ -31,7 +31,6 @@ describe('selection-model-actions', () => {
       selectedFilePaths: new Set<string>(),
       selectionModel: createEmptySelectionModel(),
       selectionVersion: 0,
-      tokenBudget: 100_000,
       useRegex: false,
       ...overrides,
     }) as FileExplorerState;

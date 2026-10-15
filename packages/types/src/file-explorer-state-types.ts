@@ -135,7 +135,6 @@ export interface FileExplorerData {
    * This is ephemeral state (not persisted).
    */
   selectionVersion: number;
-  tokenBudget: number;
   useRegex: boolean;
   /**
    * ID of the selected view filter preset.
@@ -284,7 +283,6 @@ export interface FileExplorerState extends FileExplorerData {
 
   // Selection model actions
   setSelectionMode: (mode: SelectionMode) => void;
-  setTokenBudget: (budget: number) => void;
   setUseRegex: (useRegex: boolean) => void;
   /**
    * Set the view filter preset ID for the current folder.
@@ -316,9 +314,6 @@ export const DEFAULT_MAX_SELECTION_COUNT = 1000;
  * silent truncation. Any other persisted value is preserved verbatim.
  */
 export const LEGACY_DEFAULT_MAX_SELECTION_COUNT = 10;
-
-/** Default token budget for reports/token meter */
-export const DEFAULT_TOKEN_BUDGET = 100_000;
 
 export const DEFAULT_STATE = {
   // Multi-root (Phase 4) — empty initial state (single-root compat)
@@ -361,7 +356,6 @@ export const DEFAULT_STATE = {
   selectedFilePaths: new Set<string>(),
   selectionModel: createEmptySelectionModel(),
   selectionVersion: 0,
-  tokenBudget: DEFAULT_TOKEN_BUDGET,
   useRegex: false,
   viewFilterPresetId: null as string | null,
 } as const;

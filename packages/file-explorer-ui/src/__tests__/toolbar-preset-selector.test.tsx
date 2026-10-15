@@ -72,7 +72,6 @@ interface MockStoreState {
       lastActiveTab: string;
       maxSelectionCount: number;
       selectedFilePaths: Set<string>;
-      tokenBudget: number;
       useRegex: boolean;
       viewFilterPresetId: string | null;
     }
@@ -98,7 +97,6 @@ const defaultMockStoreState = (): MockStoreState => ({
       lastActiveTab: 'files',
       maxSelectionCount: 10,
       selectedFilePaths: new Set<string>(),
-      tokenBudget: 100_000,
       useRegex: false,
       viewFilterPresetId: 'preset-1',
     },

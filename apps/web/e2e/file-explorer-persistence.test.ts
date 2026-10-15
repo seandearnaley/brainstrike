@@ -335,7 +335,6 @@ async function seedPersistedSelectionState(
         maxSelectionCount: count,
         selectedFilePaths,
         selectionModel,
-        tokenBudget: 100_000,
         useRegex: false,
         viewFilterPresetId: null,
       };
@@ -361,7 +360,6 @@ async function seedPersistedSelectionState(
             quickFilter: '',
             selectedFilePaths,
             selectionModel,
-            tokenBudget: 100_000,
             useRegex: false,
             viewFilterPresetId: null,
           },

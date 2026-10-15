@@ -661,7 +661,7 @@ describe('AssistantUiPanel model picker', () => {
         {...baseProps}
         onModelChange={() => {}}
         prepareRequestData={prepareRequestData}
-        requestData={{ tokenBudget: 123 }}
+        requestData={{ projectId: 'project-1' }}
       />
     );
 
@@ -677,8 +677,8 @@ describe('AssistantUiPanel model picker', () => {
           threadId: 'thread-1',
         },
         model: 'gpt-5.2',
+        projectId: 'project-1',
         provider: 'openai',
-        tokenBudget: 123,
       },
     });
     expect(prepareRequestData).toHaveBeenCalledTimes(1);

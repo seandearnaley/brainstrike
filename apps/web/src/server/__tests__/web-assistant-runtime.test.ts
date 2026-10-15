@@ -109,11 +109,11 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
     const runtime = resolveWebAssistantRuntime(
       asRuntimeData({
         agentLoop: { inputTokenLimit: 1_000_000, maxSteps: 999 },
-        contextTokenCount: 1200,
         enabledNativeToolIds: ['execute-anything'],
         mcpEnabled: true,
         model: 'attacker-model',
         modelSettings: { maxOutputTokens: 1_000_000, temperature: 2 },
+        projectId: 'project-1',
         provider: 'anthropic',
         providerOptions: { ollama: { baseUrl: 'https://attacker.example' } },
         requestedReasoningEffort: 'high',
@@ -124,7 +124,7 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
     );
     expect(runtime).toEqual({
       apiKey: 'key-3',
-      contextTokenCount: 1200,
+      projectId: 'project-1',
       provider: 'anthropic',
       signal,
     });
@@ -272,7 +272,6 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
   });
 
   it.each([
-    ['contextTokenCount', '1200'],
     ['mainRootId', 42],
     ['mainRootPath', 'x'.repeat(4097)],
     ['projectId', false],
@@ -298,6 +297,7 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
   });
 
   it.each([
+    'contextTokenCount',
     'selectionFilePaths',
     'selectionFilePathsFromOtherRoots',
     'tokenBudget',
@@ -313,7 +313,6 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
   it('accepts bounded request metadata without dropping or coercing it', () => {
     vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
     const data = {
-      contextTokenCount: 1200,
       mainRootId: 'root-1',
       mainRootPath: '/workspace',
       projectId: 'project-1',
@@ -337,7 +336,6 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
 
     expect(resolveWebAssistantRuntime(asRuntimeData(data), 'key-4')).toEqual({
       apiKey: 'key-4',
-      contextTokenCount: 1200,
       mainRootId: 'root-1',
       mainRootPath: '/workspace',
       projectId: 'project-1',

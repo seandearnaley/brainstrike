@@ -1,6 +1,5 @@
 import { createMemoryStorageAdapter } from '@brainstrike/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createContextExplorerLayoutStore } from '../stores/context-explorer-layout-store';
 import { createPanelLayoutStore } from '../stores/panel-layout-store';
 import {
   createAdapterPersistStorage,
@@ -188,9 +187,8 @@ describe('persisted-layout-store helper', () => {
     });
   });
 
-  describe('both layout stores share the recovery path', () => {
+  describe('the panel layout store recovers through the shared path', () => {
     const PANEL_DEFAULTS = [18, 40, 20];
-    const EXPLORER_DEFAULTS = [25, 20, 20];
 
     async function hydrate<TStore extends { getState: () => { sizes: number[] } }>(
       name: string,
@@ -212,16 +210,10 @@ describe('persisted-layout-store helper', () => {
     it.each([
       { label: 'corrupted sizes', state: { showConsole: true, sizes: [4.488, 5.386, 0] } },
       { label: 'missing sizes', state: { showConsole: true } },
-    ])('both stores hydrate $label to their own defaults', async ({ state }) => {
+    ])('hydrates $label to its defaults', async ({ state }) => {
       await expect(
         hydrate('panel-layout-store.v1', createPanelLayoutStore, { state, version: 4 })
       ).resolves.toEqual(PANEL_DEFAULTS);
-      await expect(
-        hydrate('context-explorer-layout-store.v1', createContextExplorerLayoutStore, {
-          state,
-          version: 3,
-        })
-      ).resolves.toEqual(EXPLORER_DEFAULTS);
     });
   });
 });

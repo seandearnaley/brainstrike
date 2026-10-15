@@ -3,13 +3,6 @@ export interface LocalModelLoadingStateForUtils {
   stage: 'downloading' | 'generating' | 'loading' | 'ready' | 'error';
 }
 
-export interface AssistantContextMenuConfigForUtils {
-  contextTokenCount?: number;
-  tokenBudget?: number;
-}
-
-export type BudgetStatus = 'near' | 'over' | 'within';
-
 export function getLocalModelStatusLabel(stage: LocalModelLoadingStateForUtils['stage']): string {
   switch (stage) {
     case 'downloading':
@@ -37,28 +30,6 @@ export function truncateMiddle(value: string, head = 12, tail = 6): string {
     return value;
   }
   return `${value.slice(0, head)}…${value.slice(-tail)}`;
-}
-
-export function resolveBudgetStatus(
-  contextMenu?: AssistantContextMenuConfigForUtils | undefined
-): BudgetStatus | undefined {
-  if (
-    typeof contextMenu?.contextTokenCount !== 'number' ||
-    typeof contextMenu.tokenBudget !== 'number' ||
-    contextMenu.tokenBudget <= 0
-  ) {
-    return;
-  }
-
-  if (contextMenu.contextTokenCount > contextMenu.tokenBudget) {
-    return 'over';
-  }
-
-  if (contextMenu.contextTokenCount >= contextMenu.tokenBudget * 0.85) {
-    return 'near';
-  }
-
-  return 'within';
 }
 
 export function clampNumber(value: number, min: number, max: number): number {

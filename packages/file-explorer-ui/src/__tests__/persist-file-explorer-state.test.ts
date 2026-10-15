@@ -30,7 +30,6 @@ const createSerializedState = (overrides: Partial<SerializedState> = {}): Serial
   maxSelectionCount: 500,
   quickFilter: '',
   selectedFilePaths: [],
-  tokenBudget: 10_000,
   useRegex: false,
   ...overrides,
 });

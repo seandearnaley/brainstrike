@@ -129,7 +129,6 @@ function isBoundedJsonObject(value: unknown): value is Record<string, unknown> {
 }
 
 const FORWARDED_REQUEST_SCHEMAS = {
-  contextTokenCount: countSchema,
   mainRootId: idSchema,
   mainRootPath: pathSchema,
   projectId: idSchema,

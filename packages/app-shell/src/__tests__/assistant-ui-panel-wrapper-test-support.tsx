@@ -76,8 +76,6 @@ const { fileExplorerMocks, preparedRequestDataLog, testEnabledModels } = vi.hois
     } as { path: string; name: string } | null,
     setIncludeProjectTree: vi.fn<(value: boolean) => void>(),
     setSelectedFiles: vi.fn<(files: ReadonlySet<string>) => void>(),
-    setTokenBudget: vi.fn<(budget: number) => void>(),
-    tokenBudget: 100_000,
     tokenCache: null as null | {
       cacheVersion: number;
       getTokenCount: (folderId: string, path: string) => number | undefined;
@@ -592,8 +590,6 @@ vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => {
     rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle,
     setIncludeProjectTree: fileExplorerMocks.setIncludeProjectTree,
     setSelectedFiles: fileExplorerMocks.setSelectedFiles,
-    setTokenBudget: fileExplorerMocks.setTokenBudget,
-    tokenBudget: fileExplorerMocks.tokenBudget,
   });
 
   const store = (selector?: (state: ReturnType<typeof getState>) => unknown) => {
@@ -1176,13 +1172,11 @@ beforeEach(() => {
     name: 'test-workspace',
     path: '/tmp/test-workspace',
   };
-  fileExplorerMocks.tokenBudget = 100_000;
   fileExplorerMocks.addMultipleSelectedFiles.mockReset();
   fileExplorerMocks.resetSelectionToExplicit.mockReset();
   fileExplorerMocks.removeMultipleSelectedFiles.mockReset();
   fileExplorerMocks.setIncludeProjectTree.mockReset();
   fileExplorerMocks.setSelectedFiles.mockReset();
-  fileExplorerMocks.setTokenBudget.mockReset();
   mockDb.query.mockReset();
   initializeProviderModelDefaultsMock.mockClear();
   mockDb.exec.mockReset();

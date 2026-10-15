@@ -593,7 +593,6 @@ export function createRestoredExplicitSelectionSnapshot(args: {
         maxSelectionCount: DEFAULT_STATE.maxSelectionCount,
         selectedFilePaths: new Set(selectedCompositeKeys),
         selectionModel: explicitSelectionModel,
-        tokenBudget: DEFAULT_STATE.tokenBudget,
         useRegex: DEFAULT_STATE.useRegex,
         viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
       },
@@ -607,7 +606,6 @@ export function createRestoredExplicitSelectionSnapshot(args: {
     quickFilter: DEFAULT_STATE.quickFilter,
     selectedFilePaths: new Set(selectedCompositeKeys),
     selectionModel: explicitSelectionModel,
-    tokenBudget: DEFAULT_STATE.tokenBudget,
     useRegex: DEFAULT_STATE.useRegex,
     viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
   };
@@ -692,7 +690,6 @@ export function createRestoredQuerySelectionSnapshot(args: {
           mode: 'query',
           queryDescriptor: descriptor,
         },
-        tokenBudget: DEFAULT_STATE.tokenBudget,
         useRegex: false,
         viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
       },
@@ -713,7 +710,6 @@ export function createRestoredQuerySelectionSnapshot(args: {
       mode: 'query',
       queryDescriptor: descriptor,
     },
-    tokenBudget: DEFAULT_STATE.tokenBudget,
     useRegex: false,
     viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
   };

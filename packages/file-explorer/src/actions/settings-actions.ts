@@ -2,10 +2,8 @@ import type { FileExplorerState, FolderState } from '@brainstrike/types';
 import {
   MAX_FOLDER_SUMMARY_THRESHOLD,
   MAX_SELECTION_COUNT,
-  MAX_TOKEN_BUDGET,
   MIN_FOLDER_SUMMARY_THRESHOLD,
   MIN_MAX_SELECTION_COUNT,
-  MIN_TOKEN_BUDGET,
 } from '@brainstrike/types';
 import type { GetState, SetState } from '../types/store-types';
 
@@ -61,7 +59,6 @@ export interface SettingsActions {
   setIncludeProjectTree: (value: boolean) => void;
   setLastActiveTab: (tab: string) => void; // Note: Moved from folder-state-actions
   setMaxSelectionCount: (count: number) => void; // Note: Moved from folder-state-actions
-  setTokenBudget: (budget: number) => void;
   setUseRegex: (useRegex: boolean) => void;
   setViewFilterPresetId: (presetId: string | null) => void;
   toggleFilterEnabled: (filter: string, type: 'include' | 'exclude') => void;
@@ -134,16 +131,6 @@ export const createSettingsActions = (
         selectedFilePaths: newSelectedFilePaths,
       };
     });
-  },
-
-  setTokenBudget: (budget: number) => {
-    if (!Number.isFinite(budget)) {
-      return;
-    }
-
-    const normalized = Math.round(budget);
-    const clamped = Math.max(MIN_TOKEN_BUDGET, Math.min(normalized, MAX_TOKEN_BUDGET));
-    set((state: FileExplorerState) => updateWithFolderState(state, { tokenBudget: clamped }));
   },
 
   setUseRegex: (useRegex: boolean) => {

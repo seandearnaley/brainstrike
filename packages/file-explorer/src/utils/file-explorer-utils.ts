@@ -2,7 +2,6 @@ import {
   createEmptySelectionModel,
   DEFAULT_FOLDER_SUMMARY_THRESHOLD,
   DEFAULT_MAX_SELECTION_COUNT,
-  DEFAULT_TOKEN_BUDGET,
   type FileExplorerData,
   type FolderState,
   MAX_FOLDER_STATES,
@@ -168,7 +167,6 @@ export const saveFolderState = (
     maxSelectionCount: state.maxSelectionCount,
     selectedFilePaths: ownKeys,
     selectionModel: snapshotModel,
-    tokenBudget: state.tokenBudget,
     useRegex: state.useRegex,
     viewFilterPresetId: state.viewFilterPresetId,
   };
@@ -241,7 +239,6 @@ export const createNewFolderState = (
         | 'includeProjectTree'
         | 'lastActiveTab'
         | 'maxSelectionCount'
-        | 'tokenBudget'
         | 'useRegex'
         | 'viewFilterPresetId'
       >
@@ -262,7 +259,6 @@ export const createNewFolderState = (
     maxSelectionCount: state?.maxSelectionCount ?? DEFAULT_MAX_SELECTION_COUNT,
     selectedFilePaths: new Set<string>(),
     selectionModel: createEmptySelectionModel(),
-    tokenBudget: state?.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
     useRegex: state?.useRegex ?? false,
     viewFilterPresetId: state?.viewFilterPresetId ?? null,
   };

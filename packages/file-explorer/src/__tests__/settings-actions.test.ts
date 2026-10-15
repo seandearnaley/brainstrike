@@ -2,10 +2,8 @@ import { createMemoryStorageAdapter } from '@brainstrike/storage';
 import {
   MAX_FOLDER_SUMMARY_THRESHOLD,
   MAX_SELECTION_COUNT,
-  MAX_TOKEN_BUDGET,
   MIN_FOLDER_SUMMARY_THRESHOLD,
   MIN_MAX_SELECTION_COUNT,
-  MIN_TOKEN_BUDGET,
 } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
 import { createFileExplorerStore } from '../store';
@@ -135,82 +133,6 @@ describe('settings-actions', () => {
 
     expect(store.getState().useRegex).toBe(true);
     expect(store.getState().folderStates['root']?.useRegex).toBe(true);
-  });
-
-  it('persists tokenBudget to the active folder state', () => {
-    const store = makeStore();
-    const s = store.getState();
-
-    s.setCurrentFolderId('root');
-
-    s.setTokenBudget(42);
-    expect(store.getState().tokenBudget).toBe(42);
-    expect(store.getState().folderStates['root']?.tokenBudget).toBe(42);
-
-    s.setTokenBudget(MIN_TOKEN_BUDGET - 100);
-    expect(store.getState().tokenBudget).toBe(MIN_TOKEN_BUDGET);
-    expect(store.getState().folderStates['root']?.tokenBudget).toBe(MIN_TOKEN_BUDGET);
-
-    s.setTokenBudget(MAX_TOKEN_BUDGET + 100);
-    expect(store.getState().tokenBudget).toBe(MAX_TOKEN_BUDGET);
-    expect(store.getState().folderStates['root']?.tokenBudget).toBe(MAX_TOKEN_BUDGET);
-  });
-
-  describe('setTokenBudget edge cases', () => {
-    it('ignores NaN values', () => {
-      const store = makeStore();
-      const s = store.getState();
-      const initialBudget = store.getState().tokenBudget;
-
-      s.setTokenBudget(Number.NaN);
-      expect(store.getState().tokenBudget).toBe(initialBudget);
-    });
-
-    it('ignores Infinity values', () => {
-      const store = makeStore();
-      const s = store.getState();
-      const initialBudget = store.getState().tokenBudget;
-
-      s.setTokenBudget(Number.POSITIVE_INFINITY);
-      expect(store.getState().tokenBudget).toBe(initialBudget);
-
-      s.setTokenBudget(Number.NEGATIVE_INFINITY);
-      expect(store.getState().tokenBudget).toBe(initialBudget);
-    });
-
-    it('sets tokenBudget without folder state when no currentFolderId', () => {
-      const store = makeStore();
-      const s = store.getState();
-
-      // Ensure no currentFolderId
-      expect(store.getState().currentFolderId).toBeNull();
-
-      s.setTokenBudget(5000);
-      expect(store.getState().tokenBudget).toBe(5000);
-    });
-
-    it('sets tokenBudget when currentFolderId has no folderState', () => {
-      const store = makeStore();
-
-      // Manually set a currentFolderId without creating folderState
-      store.setState({ currentFolderId: 'nonexistent-folder' });
-
-      store.getState().setTokenBudget(6000);
-      expect(store.getState().tokenBudget).toBe(6000);
-      // No folderState should be created for nonexistent folder
-      expect(store.getState().folderStates['nonexistent-folder']).toBeUndefined();
-    });
-
-    it('rounds fractional token budgets', () => {
-      const store = makeStore();
-      const s = store.getState();
-
-      s.setTokenBudget(1000.7);
-      expect(store.getState().tokenBudget).toBe(1001);
-
-      s.setTokenBudget(1000.2);
-      expect(store.getState().tokenBudget).toBe(1000);
-    });
   });
 
   describe('setLastActiveTab', () => {

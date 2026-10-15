@@ -1,5 +1,5 @@
 import type { FileExplorerState, FolderState } from '@brainstrike/types';
-import { createEmptySelectionModel, DEFAULT_TOKEN_BUDGET } from '@brainstrike/types';
+import { createEmptySelectionModel } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFolderStateActions } from '../folder-state-actions';
 
@@ -75,13 +75,11 @@ const createMockState = (overrides: Partial<FileExplorerState> = {}): FileExplor
   setQuickFilter: vi.fn(),
   setSelectedFiles: vi.fn(),
   setSelectionMode: vi.fn(),
-  setTokenBudget: vi.fn(),
   setUseRegex: vi.fn(),
   setViewFilterPresetId: vi.fn(),
   toggleDirectoryExpansion: vi.fn(),
   toggleFilterEnabled: vi.fn(),
   toggleSelectedFile: vi.fn(),
-  tokenBudget: DEFAULT_TOKEN_BUDGET,
   useRegex: false,
   viewFilterPresetId: null,
   ...overrides,
@@ -108,7 +106,6 @@ describe('folder-state-actions hydrateFolderState', () => {
       maxSelectionCount: 10,
       selectedFilePaths: new Set(['a']),
       selectionModel: createEmptySelectionModel(),
-      tokenBudget: DEFAULT_TOKEN_BUDGET,
       useRegex: true,
       viewFilterPresetId: null,
     };
@@ -136,7 +133,6 @@ describe('folder-state-actions hydrateFolderState', () => {
     // Hardening B: the report/tab settings joined the doctrine too — only
     // the SELECTION is per-root.
     expect(updated.includeProjectTree).toBeUndefined();
-    expect(updated.tokenBudget).toBeUndefined();
     expect(updated.folderSummaryThreshold).toBeUndefined();
     expect(updated.lastActiveTab).toBeUndefined();
   });
