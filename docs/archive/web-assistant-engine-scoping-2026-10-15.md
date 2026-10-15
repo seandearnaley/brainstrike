@@ -1,7 +1,8 @@
 # Scoping: what `apps/web`'s assistant endpoint runs on, and what it should
 
 Date: 2026-10-15 · Base: `3a13e147c` · Decision document, no source changed.
-Resulting proposal: [ADR-0022](../adr/0022-web-assistant-stateless-ai-sdk-proxy.md).
+Resulting decision: [ADR-0022](../adr/0022-web-assistant-stateless-ai-sdk-proxy.md),
+accepted by Sean on 2026-10-15.
 
 The web assistant route is the last production caller of the Mastra agent loop.
 Until it is answered, the ~32.8K lines in `packages/agent/src/mastra/` cannot be

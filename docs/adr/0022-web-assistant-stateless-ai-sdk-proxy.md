@@ -1,6 +1,6 @@
 # ADR-0022: The web assistant calls the AI SDK directly, not a hosted host
 
-- **Status:** Proposed (2026-10-15; accepted when the owner merges this ADR)
+- **Status:** Accepted by Sean
 - **Date:** 2026-10-15
 - **Ticket:** none yet
 - **Completes:** [ADR-0012](0012-ai-sdk-loop-mastra-memory-library.md)
