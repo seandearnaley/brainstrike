@@ -7,11 +7,12 @@ import { Mastra } from '@mastra/core/mastra';
 import { expect, it } from 'vitest';
 import { repairBackgroundResults } from '../mastra/background-results';
 import { createPgliteMastraMemory } from '../pglite-mastra-memory';
+import { createPristineEngineTestDb } from './helpers/migrated-agent-test-db';
 
 it.each(['completed', 'failed', 'timed_out', 'cancelled'] as const)(
   'recovers an undelivered %s outcome without its retained parent message, exactly once',
   async (status) => {
-    const database = await createEnginePglite();
+    const database = await createPristineEngineTestDb();
     const scope = { resourceId: 'owner', threadId: 'root' };
     const backing = await createPgliteMastraMemory({
       backgroundTaskScope: scope,

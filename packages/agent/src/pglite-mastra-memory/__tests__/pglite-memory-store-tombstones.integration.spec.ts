@@ -1,6 +1,7 @@
-import { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from '@electric-sql/pglite';
 import type { MastraDBMessage } from '@mastra/core/memory';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createPristineBareTestDb } from '../../__tests__/helpers/migrated-agent-test-db';
 import { PgliteMemoryStore } from '../memory-store';
 import type { PgliteDatabase } from '../types';
 
@@ -72,7 +73,7 @@ describe('PgliteMemoryStore soft-rewind tombstones', () => {
   }
 
   beforeEach(async () => {
-    db = new PGlite();
+    db = await createPristineBareTestDb();
     database = db as unknown as PgliteDatabase;
     store = new PgliteMemoryStore({ database });
     await store.initialize();
@@ -301,7 +302,7 @@ describe('PgliteMemoryStore soft-rewind tombstones', () => {
     it('reads normally against a database that has no sidecar, and filters as soon as it appears', async () => {
       // A standalone store (no migrations, no app-shell bootstrap) is a real
       // configuration — `initialize()` creates only the Mastra schema.
-      const bareDb = new PGlite();
+      const bareDb = await createPristineBareTestDb();
       const bareStore = new PgliteMemoryStore({ database: bareDb as unknown as PgliteDatabase });
       await bareStore.initialize();
       await bareStore.saveThread({

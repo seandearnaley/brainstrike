@@ -10,7 +10,7 @@ import {
   resolveChildTaskTimeoutMs,
 } from '@brainstrike/assistant-contract/subagent-settings';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
-import { createEnginePglite } from '@brainstrike/db/pglite-factory';
+import type { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import type { BackgroundTaskManager } from '@mastra/core/background-tasks';
 import { createTool, type ToolExecutionContext, ToolStream } from '@mastra/core/tools';
 import { vi } from 'vitest';
@@ -46,6 +46,7 @@ import {
 import { createAskUserTool } from '../../tools/ask-user-tool';
 import { createSubmitPlanTool } from '../../tools/submit-plan-tool';
 import type { RuntimeData } from '../../types';
+import { createPristineEngineTestDb } from '../helpers/migrated-agent-test-db';
 
 /**
  * A durable-style budget port (the desktop host's `createDelegatedStepBudget`
@@ -287,7 +288,7 @@ export async function createBackgroundFixture(
     readonly customSuspendedToolOutput?: 'shell' | 'mcp';
   } = {}
 ): Promise<BackgroundFixture> {
-  const database = await createEnginePglite();
+  const database = await createPristineEngineTestDb();
   const scope = { resourceId: 'background-owner', threadId: 'background-root' };
   let observerCall = 0;
   const observer = scriptedAgentModel((options) => {

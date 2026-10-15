@@ -1,6 +1,6 @@
-import { PGlite } from '@electric-sql/pglite';
-import { vector } from '@electric-sql/pglite-pgvector';
+import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createPristineVectorTestDb } from '../../__tests__/helpers/migrated-agent-test-db';
 import { PgliteVectorStore } from '../vector-store';
 
 async function readIndexDef(db: PGlite, indexName: string): Promise<string | null> {
@@ -16,7 +16,7 @@ describe('PgliteVectorStore per-dimension HNSW indexes', () => {
   let store: PgliteVectorStore;
 
   beforeEach(async () => {
-    db = await PGlite.create({ extensions: { vector } });
+    db = await createPristineVectorTestDb();
     store = new PgliteVectorStore({ database: db });
   });
 

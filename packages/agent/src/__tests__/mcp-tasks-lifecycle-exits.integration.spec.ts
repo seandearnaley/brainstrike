@@ -1,10 +1,5 @@
-import {
-  type McpTaskAuthorityLease,
-  McpTaskRepository,
-  MigrationRunner,
-  migrations,
-  wasmLoader,
-} from '@brainstrike/db';
+import { type McpTaskAuthorityLease, McpTaskRepository } from '@brainstrike/db';
+import { createNumberedChainTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -72,11 +67,7 @@ function deferred<Value>(): {
 }
 
 async function openDatabase(): Promise<PGlite> {
-  const db = await wasmLoader.createPGlite('memory://');
-  const runner = new MigrationRunner(db);
-  await runner.initialize();
-  await runner.up(migrations);
-  return db;
+  return await createNumberedChainTestDb();
 }
 
 function expectNoLifecycleLeaks(lifecycle: McpTaskLifecycle): void {

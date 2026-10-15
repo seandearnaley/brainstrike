@@ -2,12 +2,12 @@ import {
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
   resolveChildTaskTimeoutMs,
 } from '@brainstrike/assistant-contract/subagent-settings';
-import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import type { PGlite } from '@electric-sql/pglite';
 import { MessageList } from '@mastra/core/agent';
 import type { MastraDBMessage } from '@mastra/core/memory';
 import { getTransformedToolPayload } from '@mastra/core/tools';
 import { afterEach, beforeEach, expect, it } from 'vitest';
+import { createPristineEngineTestDb } from '../../__tests__/helpers/migrated-agent-test-db';
 import { saveBackgroundResult } from '../../mastra/background-results';
 import { createPgliteMastraMemory } from '../memory-factory';
 import type { PgliteDatabase } from '../types';
@@ -75,7 +75,7 @@ function parentMessage(): MastraDBMessage {
 let database: PGlite;
 
 beforeEach(async () => {
-  database = await createEnginePglite();
+  database = await createPristineEngineTestDb();
 });
 
 afterEach(async () => {

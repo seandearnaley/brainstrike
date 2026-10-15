@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createAgentMemoryTestDb } from './helpers/migrated-agent-test-db';
+import {
+  createAgentMemoryTestDb,
+  createPristineBareTestDb,
+  createPristineEngineTestDb,
+} from './helpers/migrated-agent-test-db';
 
 describe('agent memory test database', () => {
   it('returns a fresh isolated database for every test', async () => {
@@ -36,6 +40,39 @@ describe('agent memory test database', () => {
          ORDER BY extname`
       );
       expect(result.rows.map((row) => row.extname)).toEqual(['pg_textsearch', 'pg_trgm', 'vector']);
+    } finally {
+      await database.close();
+    }
+  });
+});
+
+describe('pristine test databases', () => {
+  it('restores an empty, isolated engine database for every call', async () => {
+    const first = await createPristineEngineTestDb();
+    const second = await createPristineEngineTestDb();
+    try {
+      await first.exec(`
+        CREATE EXTENSION IF NOT EXISTS vector;
+        CREATE TABLE only_in_first (id text PRIMARY KEY);
+      `);
+
+      const tables = await second.query<{ tablename: string }>(
+        "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
+      );
+      const extensions = await second.query<{ extname: string }>(
+        "SELECT extname FROM pg_extension WHERE extname = 'vector'"
+      );
+      expect(tables.rows).toEqual([]);
+      expect(extensions.rows).toEqual([]);
+    } finally {
+      await Promise.all([first.close(), second.close()]);
+    }
+  });
+
+  it('keeps the construction of the suite it replaces: a bare restore has no engine extensions', async () => {
+    const database = await createPristineBareTestDb();
+    try {
+      await expect(database.exec('CREATE EXTENSION vector')).rejects.toThrow(/vector/u);
     } finally {
       await database.close();
     }
