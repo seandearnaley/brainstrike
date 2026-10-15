@@ -156,23 +156,46 @@ test('cache cleanup leaves a sibling checkout sharing node_modules untouched', (
   }
 });
 
-test('verifier TARGETS match the eslint.config.js files globs', () => {
+test('every directory eslint.config.js lints is covered by the verifier TARGETS', () => {
   const targets = [
     ...read('scripts/verify-eslint-warning-baselines.mjs').matchAll(/^ {2}'([^']+)',$/gm),
   ].map((match) => match[1]);
 
-  const globbed = [
-    ...read('eslint.config.js').matchAll(/^ {6}'([^']+)\/\*\*\/\*\.\{js,jsx,ts,tsx\}',$/gm),
-  ].map((match) => match[1]);
+  // BOTH config blocks, not just the react one. The no-memo block (#3629
+  // follow-up) deliberately lints a WIDER surface with a different extension
+  // set, so an equality check against a single extension spelling would either
+  // miss it entirely or fail on the overlap. What the invariant actually needs
+  // is coverage in both directions, so that is what is asserted.
+  const config = read('eslint.config.js');
+  const globbedDirectories = [...config.matchAll(/^ {6}'([^']+)\/\*\*\/\*\.\{[a-z,]+\}',$/gm)].map(
+    (match) => match[1]
+  );
 
   assert.ok(targets.length > 0, 'failed to parse TARGETS from the verifier');
-  assert.ok(globbed.length > 0, 'failed to parse files globs from eslint.config.js');
+  assert.ok(globbedDirectories.length > 0, 'failed to parse files globs from eslint.config.js');
+
+  const isUnderSome = (directory, roots) =>
+    roots.some((root) => directory === root || directory.startsWith(`${root}/`));
+
+  // 1. Nothing the config lints may go unscanned: a warning in a directory the
+  //    verifier never passes to lintFiles drops out of the baseline silently
+  //    instead of failing.
+  const unscanned = globbedDirectories.filter((directory) => !isUnderSome(directory, targets));
   assert.deepEqual(
-    [...targets].sort(),
-    [...globbed].sort(),
-    'eslint.config.js lints a different set of directories than the verifier ' +
-      'passes to lintFiles. Warnings in an unscanned directory silently drop ' +
-      'out of the baseline instead of failing.'
+    unscanned,
+    [],
+    'eslint.config.js lints these directories but the verifier never passes them ' +
+      'to lintFiles, so their findings cannot reach the baseline'
+  );
+
+  // 2. And nothing is scanned that no block lints: a TARGETS entry no glob
+  //    covers is a silent no-op that makes the scanned set look wider than it is.
+  const unlinted = targets.filter((target) => !isUnderSome(target, globbedDirectories));
+  assert.deepEqual(
+    unlinted,
+    [],
+    'the verifier passes these directories to lintFiles but no eslint.config.js ' +
+      'block lints them, so they contribute nothing and overstate the scanned set'
   );
 });
 
