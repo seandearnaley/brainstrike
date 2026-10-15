@@ -180,6 +180,7 @@ import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { VECTOR_PREFERENCES_STORAGE_KEY } from './platform/vector-preferences-storage-key';
 import { warmDesktopPythonRuntime } from './python-runtime';
+import { registerRendererProtocol } from './renderer-protocol';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
 import { createSourceChunkReader } from './source-file-chunks';
@@ -1245,6 +1246,7 @@ if (singleInstanceLockAcquired) {
         launchMode,
       });
       configureDesktopRendererTarget(rendererTarget);
+      registerRendererProtocol(rendererTarget);
       const reportInitialNativeFailure = createNativeStartupFailureReporter((error) =>
         reportNativeIndexActivationError('Native index activation unavailable', error)
       );

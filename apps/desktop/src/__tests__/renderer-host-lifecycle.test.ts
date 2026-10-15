@@ -3,6 +3,7 @@ import path from 'node:path';
 import { app, BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  APP_RENDERER_DOCUMENT_URL,
   configureDesktopRendererTarget,
   createDesktopRendererTarget,
 } from '../desktop-renderer-target';
@@ -311,7 +312,7 @@ describe('RendererHostLifecycle', () => {
     expect(hostWindow.loadURL).toHaveBeenCalledWith(
       expect.stringMatching(
         new RegExp(
-          `^http://localhost:${DESKTOP_DEV_RENDERER_PORT}\\?mode=chunking-host&runtimeId=chunking-host%3A`
+          `^http://localhost:${DESKTOP_DEV_RENDERER_PORT}/\\?mode=chunking-host&runtimeId=chunking-host%3A`
         )
       )
     );
@@ -491,9 +492,9 @@ describe('RendererHostLifecycle', () => {
     );
   });
 
-  it('loads host windows from the built renderer target file with strict query params', async () => {
+  it('loads host windows from the built renderer app document with strict query params', async () => {
     const hostWindow = createFakeWindow(142);
-    hostWindow.loadFile.mockResolvedValue(undefined);
+    hostWindow.loadURL.mockResolvedValue(undefined);
     // Built, test-built, and packaged launches all configure a built target.
     // The `pnpm start` regression (unpackaged + `--launch-mode=built` once
     // pointed the hosts at a dev server that wasn't running) is now pinned at
@@ -525,16 +526,11 @@ describe('RendererHostLifecycle', () => {
 
     await lifecycle.ensureStarted({ waitForRunning: false });
 
-    expect(hostWindow.loadFile).toHaveBeenCalledWith(
-      BUILT_RENDERER_PATH,
-      expect.objectContaining({
-        query: expect.objectContaining({
-          mode: 'embedding-host',
-          runtimeId: expect.stringContaining('embedding-host:'),
-        }),
-      })
-    );
-    expect(hostWindow.loadURL).not.toHaveBeenCalled();
+    const loaded = new URL(hostWindow.loadURL.mock.calls[0]?.[0]);
+    expect(`${loaded.protocol}//${loaded.host}${loaded.pathname}`).toBe(APP_RENDERER_DOCUMENT_URL);
+    expect(loaded.searchParams.get('mode')).toBe('embedding-host');
+    expect(loaded.searchParams.get('runtimeId')).toMatch(/^embedding-host:/u);
+    expect(hostWindow.loadFile).not.toHaveBeenCalled();
   });
 
   it('keeps sandbox enabled when only CI=true is present without --test-mode', async () => {
@@ -616,7 +612,7 @@ describe('RendererHostLifecycle', () => {
 
   it('keeps sandbox enabled in packaged builds even if --test-mode is present', async () => {
     const hostWindow = createFakeWindow(45);
-    hostWindow.loadFile.mockResolvedValue(undefined);
+    hostWindow.loadURL.mockResolvedValue(undefined);
     process.argv = [...baseArgv, '--test-mode'];
     setAppPackaged(true);
 
@@ -1422,7 +1418,7 @@ describe('RendererHostLifecycle', () => {
     }
   );
 
-  it('retries loadFile on transient failure and succeeds on second attempt', async () => {
+  it('retries document load on transient failure and succeeds on second attempt', async () => {
     vi.useFakeTimers();
     const failWindow = createFakeWindow(101);
     const successWindow = createFakeWindow(102);

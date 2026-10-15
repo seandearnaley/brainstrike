@@ -8,6 +8,7 @@ import { createInterface } from 'node:readline';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { type Browser, chromium, type Page } from 'playwright';
+import { APP_RENDERER_DOCUMENT_URL } from '../src/desktop-renderer-target';
 import {
   createLoopbackToolServer,
   type LoopbackToolServer,
@@ -247,12 +248,12 @@ async function evaluateElectronMain(endpoint: string, expression: string): Promi
   }
 }
 
-const RENDERER_PAGE_SUFFIX = '/renderer/index.html';
+const RENDERER_PAGE_URL = APP_RENDERER_DOCUMENT_URL;
 
 /**
  * Launches the packaged app and attaches to its REAL main window (default
  * session, production preload, the production CSP stamped by setup-security
- * on the file:// renderer) instead of a harness window on a private
+ * on the bundled renderer origin) instead of a harness window on a private
  * partition: the earlier harness partition escaped the header stamp and hid
  * a `frame-src` regression that blocked the app shell in production.
  */
@@ -359,8 +360,8 @@ async function launchPackagedHarness(
           page = browser
             .contexts()[0]
             ?.pages()
-            .find((candidate) => candidate.url().endsWith(RENDERER_PAGE_SUFFIX));
-          return page?.url().endsWith(RENDERER_PAGE_SUFFIX) ?? false;
+            .find((candidate) => candidate.url() === RENDERER_PAGE_URL);
+          return page?.url() === RENDERER_PAGE_URL;
         },
         { timeout: 60_000 }
       )
@@ -1077,7 +1078,7 @@ async function probeSandboxSessionPolicy(
   const probe = await application.evaluateInMain(`(async()=>{
     const requireFromMain=process.getBuiltinModule('node:module').createRequire(process.execPath);
     const{BrowserWindow,session}=requireFromMain('electron');
-    const win=BrowserWindow.getAllWindows().find(candidate=>candidate.webContents.getURL().endsWith(${JSON.stringify(RENDERER_PAGE_SUFFIX)}));
+    const win=BrowserWindow.getAllWindows().find(candidate=>candidate.webContents.getURL()===${JSON.stringify(RENDERER_PAGE_URL)});
     if(!win)throw new Error('BST-1599 main window is unavailable');
     const frames=win.webContents.mainFrame.framesInSubtree;
     const shell=frames.find(frame=>frame.url.startsWith('brainstrike-mcp-app://'));

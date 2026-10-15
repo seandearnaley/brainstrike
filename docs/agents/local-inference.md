@@ -16,6 +16,13 @@ model: a host without the llm-host bridge does not offer the `local` provider,
 and `createProvider('local')` without an injected `runtime.localLlmHostClient`
 throws rather than substituting another engine.
 
+Hidden inference host documents (`embedding-host`, `llm-host`) are cross-origin
+isolated: the renderer protocol and the Vite dev server send them COOP and COEP,
+and COEP on every other bundled response so their workers start (BST-1999). ONNX
+Runtime then chooses its own WASM thread count; nothing sets `numThreads`. The
+visible document stays unisolated because it frames the Canvas and MCP App shells.
+`rendererIsolationHeaders` is the one policy.
+
 The visible renderer starts no duplicate embedding worker. Query and document
 inference share the hidden runtime's physical owner and serialization. Local LLM
 generations and disposal are likewise serialized by the backend, not caller locks.

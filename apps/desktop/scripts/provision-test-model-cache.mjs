@@ -3,7 +3,7 @@
 // apps/desktop/test-cache/transformers-cache/<storage origin>/.
 //
 // Electron itself downloads the four public Xenova/bge-small-en-v1.5 files from
-// huggingface.co into a file:// page's Cache Storage under "transformers-cache",
+// huggingface.co into the app renderer origin's Cache Storage under "transformers-cache",
 // keyed by their resolve URLs (transformers.js's own cache name and keys), so
 // the on-disk layout is Chromium's. The origin directory then replaces the
 // dedicated cache. Run once: `pnpm --filter @brainstrike/desktop provision:test-model-cache`.
@@ -16,7 +16,6 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
-  writeFileSync,
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
@@ -24,6 +23,8 @@ import { fileURLToPath } from 'node:url';
 
 const desktop = fileURLToPath(new URL('..', import.meta.url));
 const destinationRoot = join(desktop, 'test-cache', 'transformers-cache');
+/** The renderer origin the hidden embedding host caches under (src/desktop-renderer-target.ts). */
+const APP_RENDERER_ORIGIN = 'brainstrike-app://bundle';
 const MODEL_URLS = [
   'https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main/config.json',
   'https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main/tokenizer_config.json',
@@ -41,11 +42,8 @@ if (typeof electron !== 'string') {
 mkdirSync(join(desktop, 'test-cache'), { recursive: true });
 const work = mkdtempSync(join(desktop, 'test-cache', '.provision-'));
 try {
-  const page = join(work, 'provision.html');
-  writeFileSync(page, '<!doctype html><title>Model cache provisioning</title>');
   const environment = {
     ...process.env,
-    BRAINSTRIKE_PROVISION_PAGE: page,
     BRAINSTRIKE_PROVISION_URLS: JSON.stringify(MODEL_URLS),
     BRAINSTRIKE_PROVISION_USER_DATA: join(work, 'user-data'),
   };
@@ -69,10 +67,12 @@ try {
       return false;
     }
     const text = readFileSync(index, 'latin1');
-    return text.includes('file:///') && text.includes('transformers-cache');
+    return text.includes(APP_RENDERER_ORIGIN) && text.includes('transformers-cache');
   });
   if (origins.length !== 1) {
-    throw new Error(`Expected one file:/// transformers-cache origin; found ${origins.length}.`);
+    throw new Error(
+      `Expected one ${APP_RENDERER_ORIGIN} transformers-cache origin; found ${origins.length}.`
+    );
   }
   const [origin] = origins;
   rmSync(destinationRoot, { force: true, recursive: true });

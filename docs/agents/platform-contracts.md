@@ -5,7 +5,14 @@
 Sensitive invokes authorize both the server-owned window role and sender frame
 against the single configured renderer target before parsing arguments. Preload
 possession is not authority; unknown roles/frames fail closed. Hidden roles receive
-only their manifest capabilities. Shared IPC contracts and preload value imports
+only their manifest capabilities.
+
+Built renderers, visible and hidden, load one exact document on the bundled
+`brainstrike-app://bundle` origin, served only from the renderer dist by the
+confined protocol handler (`renderer-protocol.ts`); loaders, navigation and the
+sender-frame allowlist derive it from the same target and never admit the old
+`file://` document. Browser storage, Cache Storage models included, belongs to
+that origin. Shared IPC contracts and preload value imports
 remain pure; Node/runtime validation belongs on the main side. Bundles expose only
 the declared capability graph, not arbitrary bridges.
 

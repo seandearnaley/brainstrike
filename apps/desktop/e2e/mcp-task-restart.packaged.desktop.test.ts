@@ -5,6 +5,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
+import { APP_RENDERER_DOCUMENT_URL } from '../src/desktop-renderer-target';
 import { closeElectronApp } from './utils/electron-helpers.mts';
 
 type HarnessScenario =
@@ -111,7 +112,7 @@ async function launchPackagedApp(
 }
 
 async function openHarness(app: ElectronApplication): Promise<Page> {
-  await app.evaluate(async ({ app: electronApp, BrowserWindow }) => {
+  await app.evaluate(async ({ app: electronApp, BrowserWindow }, documentUrl) => {
     const appPath = electronApp.getAppPath();
     const window = new BrowserWindow({
       show: false,
@@ -123,10 +124,8 @@ async function openHarness(app: ElectronApplication): Promise<Page> {
         webSecurity: true,
       },
     });
-    await window.loadFile(`${appPath}/dist/renderer/index.html`, {
-      query: { mode: 'mcp-task-harness' },
-    });
-  });
+    await window.loadURL(`${documentUrl}?mode=mcp-task-harness`);
+  }, APP_RENDERER_DOCUMENT_URL);
   await expect
     .poll(() => app.windows().some((candidate) => candidate.url().includes('mcp-task-harness')))
     .toBe(true);

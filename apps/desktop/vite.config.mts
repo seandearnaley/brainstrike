@@ -23,15 +23,34 @@ import {
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
 import { createAgentBrowserSafeAliasEntries } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
 import { getDevCSP } from './src/csp-utils';
+import { rendererIsolationHeaders } from './src/desktop-renderer-target';
 import { DESKTOP_DEV_RENDERER_PORT } from './src/desktop-renderer-url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/** The dev server applies the built protocol's cross-origin isolation policy (BST-1999). */
+function rendererIsolationPlugin(): Plugin {
+  return {
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        const url = new URL(request.url ?? '/', 'http://renderer.invalid');
+        for (const [name, value] of Object.entries(
+          rendererIsolationHeaders(url, ['/', '/index.html'])
+        )) {
+          response.setHeader(name, value);
+        }
+        next();
+      });
+    },
+    name: 'brainstrike-renderer-isolation',
+  };
+}
 const require = createRequire(import.meta.url);
 const pinoBrowserPath = require.resolve('pino/browser.js');
 const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);
@@ -141,6 +160,7 @@ export default defineConfig({
     ],
   },
   plugins: [
+    rendererIsolationPlugin(),
     // ONNX Runtime's WASM, emitted from the onnxruntime-web Transformers.js itself depends
     // on, for both realms that run it: the embedding worker and the local-model host
     // (BST-2003).

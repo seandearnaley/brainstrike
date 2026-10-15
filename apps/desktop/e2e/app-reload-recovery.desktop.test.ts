@@ -2,8 +2,9 @@
  * Failed lazy chunk recovery on desktop (BST-1850), against the BUILT renderer.
  *
  * The Terminal app is a lazy chunk behind a `TabPanelBoundary`. The renderer is
- * loaded from `file://`, which Playwright's `page.route` cannot intercept, so the
- * chunk is failed where Electron can: the default session's `webRequest`. That
+ * loaded from the app's bundled origin, which Playwright's `page.route` cannot
+ * intercept, so the chunk is failed where Electron can: the default session's
+ * `webRequest`. That
  * leaves the build output untouched and needs no harness support. Terminal's
  * chunk is requested only when its tab opens (a startup-loaded chunk would
  * break the whole app here, loudly); a rename of the chunk would fail the first
@@ -17,20 +18,21 @@
  * Not `@smoke`: it runs in the nightly regression lane. Moving it to the PR
  * smoke lane is a measured change to that lane's file list (ci-quality.md).
  */
+import { APP_RENDERER_DOCUMENT_URL } from '../src/desktop-renderer-target';
 import { expect, test } from './fixtures/electron-fixture';
 
-const TERMINAL_CHUNK_URLS = 'file://*/*/assets/terminal-panel-*';
+const TERMINAL_CHUNK_PREFIX = new URL('assets/terminal-panel-', APP_RENDERER_DOCUMENT_URL).href;
 
 test('Reload app on a failed Terminal chunk reloads once at once, with no run dialog, and recovers', async ({
   electronApp,
   window: page,
 }) => {
   test.setTimeout(90_000);
-  await electronApp.app.evaluate(({ session }, urls) => {
-    session.defaultSession.webRequest.onBeforeRequest({ urls: [urls] }, (_details, callback) =>
-      callback({ cancel: true })
+  await electronApp.app.evaluate(({ session }, prefix) => {
+    session.defaultSession.webRequest.onBeforeRequest((details, callback) =>
+      callback({ cancel: details.url.startsWith(prefix) })
     );
-  }, TERMINAL_CHUNK_URLS);
+  }, TERMINAL_CHUNK_PREFIX);
 
   await page.getByTestId('workspace-add-tab').click();
   await page.getByRole('menuitem', { name: /Terminal/ }).click();

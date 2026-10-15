@@ -1,10 +1,11 @@
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   configureDesktopRendererTarget,
   createDesktopRendererTarget,
   type DesktopRendererTarget,
+  rendererDocumentUrl,
+  rendererIsolationHeaders,
   resolveDesktopRendererTarget,
 } from '../desktop-renderer-target';
 import {
@@ -27,7 +28,7 @@ const DEV_RENDERER_URL = 'http://localhost:38181';
 function loadedDocumentUrl(target: DesktopRendererTarget, role: DesktopWindowRole): string {
   const query = role === 'visible-ui' ? '' : `?mode=${role}&runtimeId=${role}%3A018f-0000`;
   if (target.kind === 'built-renderer') {
-    return `${pathToFileURL(target.rendererPath).href}${query}`;
+    return `${rendererDocumentUrl(target)}${query}`;
   }
   return `${target.url}${query}`;
 }
@@ -138,4 +139,33 @@ describe('desktop renderer target', () => {
       });
     }
   );
+});
+
+describe('rendererIsolationHeaders (BST-1999)', () => {
+  const DEV_DOCUMENTS = ['/', '/index.html'];
+  const isolated = {
+    'Cross-Origin-Embedder-Policy': 'require-corp',
+    'Cross-Origin-Opener-Policy': 'same-origin',
+  };
+
+  it.each([
+    ['http://localhost:38181/?mode=embedding-host&runtimeId=r1', isolated],
+    ['http://localhost:38181/index.html?mode=llm-host', isolated],
+    ['http://localhost:38181/?mode=chunking-host', {}],
+    ['http://localhost:38181/', {}],
+    ['http://localhost:38181/?mode=unknown-host', {}],
+  ])('decides the dev document %s by its host mode', (url, headers) => {
+    expect(rendererIsolationHeaders(new URL(url), DEV_DOCUMENTS)).toEqual(headers);
+  });
+
+  it('gives every other response the embedder policy a worker needs, never the opener policy', () => {
+    for (const url of [
+      'http://localhost:38181/@fs/worker.ts?worker_file&type=module',
+      'http://localhost:38181/assets/ort-wasm-simd-threaded.wasm?mode=embedding-host',
+    ]) {
+      expect(rendererIsolationHeaders(new URL(url), DEV_DOCUMENTS)).toEqual({
+        'Cross-Origin-Embedder-Policy': 'require-corp',
+      });
+    }
+  });
 });

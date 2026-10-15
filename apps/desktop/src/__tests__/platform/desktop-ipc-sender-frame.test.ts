@@ -14,7 +14,7 @@ import {
 const BUILT_RENDERER_PATH = resolve(
   '/Applications/Brainstrike.app/Contents/Resources/app.asar/dist/renderer/index.html'
 );
-const BUILT_RENDERER_URL = pathToFileURL(BUILT_RENDERER_PATH).href;
+const BUILT_RENDERER_URL = 'brainstrike-app://bundle/index.html';
 const DEV_RENDERER_URL = 'http://localhost:38181';
 
 function createTarget(
@@ -36,7 +36,7 @@ describe('desktop IPC sender-frame allowlist', () => {
   describe('built renderer (built + test-built launch modes)', () => {
     const allowlist = createDesktopIpcSenderFrameAllowlist(createTarget('built'));
 
-    it('accepts the visible renderer file URL and hidden-host URLs that only differ by query', () => {
+    it('accepts the visible renderer app URL and hidden-host URLs that only differ by query', () => {
       expect(isAllowedDesktopIpcSenderFrameUrl(allowlist, BUILT_RENDERER_URL)).toBe(true);
       expect(
         isAllowedDesktopIpcSenderFrameUrl(
@@ -65,6 +65,18 @@ describe('desktop IPC sender-frame allowlist', () => {
         isAllowedDesktopIpcSenderFrameUrl(allowlist, pathToFileURL('/tmp/renderer/index.html').href)
       ).toBe(false);
       expect(isAllowedDesktopIpcSenderFrameUrl(allowlist, `${DEV_RENDERER_URL}/`)).toBe(false);
+      expect(
+        isAllowedDesktopIpcSenderFrameUrl(allowlist, pathToFileURL(BUILT_RENDERER_PATH).href)
+      ).toBe(false);
+      expect(
+        isAllowedDesktopIpcSenderFrameUrl(allowlist, 'brainstrike-app://foreign/index.html')
+      ).toBe(false);
+      expect(
+        isAllowedDesktopIpcSenderFrameUrl(allowlist, 'brainstrike-app://bundle:4000/index.html')
+      ).toBe(false);
+      expect(
+        isAllowedDesktopIpcSenderFrameUrl(allowlist, 'brainstrike-app://user@bundle/index.html')
+      ).toBe(false);
       expect(isAllowedDesktopIpcSenderFrameUrl(allowlist, 'https://evil.example/index.html')).toBe(
         false
       );

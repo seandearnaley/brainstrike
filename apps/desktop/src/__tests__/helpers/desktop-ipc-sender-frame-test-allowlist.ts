@@ -1,5 +1,4 @@
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import {
   configureDesktopRendererTarget,
   createDesktopRendererTarget,
@@ -31,7 +30,7 @@ export const TEST_DESKTOP_RENDERER_TARGET = createDesktopRendererTarget({
 
 function allowlistedDocumentUrl(allowlist: DesktopIpcSenderFrameAllowlist): string {
   if (allowlist.kind === 'built-renderer') {
-    return pathToFileURL(allowlist.rendererPath).href;
+    return allowlist.documentUrl;
   }
   return `${allowlist.origin}${allowlist.pathname}`;
 }

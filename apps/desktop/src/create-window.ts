@@ -12,11 +12,15 @@ import {
 } from './desktop-crash-recovery';
 import {
   type DesktopRendererTarget,
+  rendererDocumentUrl,
   resolveDesktopRendererTarget,
 } from './desktop-renderer-target';
-import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import { resolveDistRoot } from './dist-root';
 import { shouldDenyMcpAppFrameNavigation } from './mcp/apps-frame-navigation';
+import {
+  createDesktopIpcSenderFrameAllowlist,
+  isAllowedDesktopIpcSenderFrameUrl,
+} from './platform/desktop-ipc-sender-frame';
 import type { DesktopWindowState } from './store-schema';
 import { publishWindowFocus } from './window-focus-ipc';
 import { assignWindowRole, getWindowRole } from './window-role';
@@ -24,27 +28,11 @@ import { ensureWindowBoundsVisible, resolveInitialWindowState } from './window-s
 
 const startupLogger = createLogger('CreateWindow');
 
-const DEV_RENDERER_ORIGIN = new URL(DESKTOP_DEV_RENDERER_URL).origin;
-
-function isAllowedRendererNavigation(win: BrowserWindow, targetUrl: string): boolean {
-  try {
-    const target = new URL(targetUrl);
-    const currentUrl = getCurrentWindowUrl(win);
-
-    if (currentUrl) {
-      const current = new URL(currentUrl);
-      if (target.protocol === 'file:' && current.protocol === 'file:') {
-        return target.href === current.href;
-      }
-      if (target.origin !== 'null' && target.origin === current.origin) {
-        return true;
-      }
-    }
-
-    return !app.isPackaged && target.origin === DEV_RENDERER_ORIGIN;
-  } catch {
-    return false;
-  }
+function isAllowedRendererNavigation(targetUrl: string): boolean {
+  return isAllowedDesktopIpcSenderFrameUrl(
+    createDesktopIpcSenderFrameAllowlist(resolveDesktopRendererTarget()),
+    targetUrl
+  );
 }
 
 /**
@@ -52,14 +40,14 @@ function isAllowedRendererNavigation(win: BrowserWindow, targetUrl: string): boo
  */
 function configureSecurity(win: BrowserWindow) {
   win.webContents.setWindowOpenHandler(({ url }: { url: string }) => {
-    if (isAllowedRendererNavigation(win, url)) {
+    if (isAllowedRendererNavigation(url)) {
       return { action: 'allow' };
     }
     return { action: 'deny' };
   });
 
   win.webContents.on('will-navigate', (event: Electron.Event, navigationUrl: string) => {
-    if (isAllowedRendererNavigation(win, navigationUrl)) {
+    if (isAllowedRendererNavigation(navigationUrl)) {
       return;
     }
     event.preventDefault();
@@ -96,8 +84,8 @@ function configureSecurity(win: BrowserWindow) {
 /**
  * Load built renderer files in production.
  */
-async function loadProductionRenderer(win: BrowserWindow, rendererPath: string): Promise<void> {
-  await win.loadFile(rendererPath);
+async function loadProductionRenderer(win: BrowserWindow, documentUrl: string): Promise<void> {
+  await win.loadURL(documentUrl);
 }
 
 /**
@@ -180,7 +168,7 @@ export function noteNextWindowReload(win: BrowserWindow, metadata: WindowReloadM
  * Loads the document named by the process-wide renderer target (BST-1641):
  * the same object `main.ts` configured, the hidden hosts load from, and the
  * IPC sender-frame allowlist is derived from. Resolving it here — before any
- * `loadFile`/`loadURL` — makes an unconfigured target a named load-time
+ * `loadURL` — makes an unconfigured target a named load-time
  * failure instead of every authorized IPC channel rejecting at first invoke.
  */
 async function loadRenderer(win: BrowserWindow, target: DesktopRendererTarget) {
@@ -196,8 +184,8 @@ async function loadRenderer(win: BrowserWindow, target: DesktopRendererTarget) {
       );
     }
 
-    startupLogger.debug('Loading built renderer file');
-    await loadProductionRenderer(win, target.rendererPath);
+    startupLogger.debug('Loading built renderer document');
+    await loadProductionRenderer(win, rendererDocumentUrl(target));
     return;
   }
 
