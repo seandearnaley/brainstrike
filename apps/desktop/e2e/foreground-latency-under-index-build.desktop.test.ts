@@ -239,18 +239,28 @@ async function configureNativeIndex(page: Page, device: BenchDevice): Promise<vo
  */
 async function waitForReadyIndex(page: Page): Promise<void> {
   let last = '';
+  let lastReadError: unknown;
   try {
     await expect
       .poll(
         async () => {
-          last = (await readIndexSummary(page)).status;
+          try {
+            last = (await readIndexSummary(page)).status;
+            lastReadError = undefined;
+          } catch (error) {
+            // A refused read (blocked coverage, say) is retried, and kept as the cause.
+            lastReadError = error;
+            last = `read failed: ${error instanceof Error ? error.message : String(error)}`;
+          }
           return last;
         },
         { intervals: [1000], timeout: READY_TIMEOUT_MS }
       )
       .toBe('ready');
-  } catch {
-    throw new Error(`The paused native index never became ready; last status: ${last}`);
+  } catch (error) {
+    throw new Error(`The paused native index never became ready; last status: ${last}`, {
+      cause: lastReadError ?? error,
+    });
   }
 }
 
