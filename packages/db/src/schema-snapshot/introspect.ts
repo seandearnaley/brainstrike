@@ -496,6 +496,62 @@ export async function dumpSeedData(db: IntrospectableDb): Promise<string> {
   ]);
 }
 
+/**
+ * Functions PUBLIC may NOT execute, and relations PUBLIC holds any privilege on.
+ *
+ * ACLs are compared as EFFECTIVE PRIVILEGE, never as raw `proacl`/`relacl` text.
+ * Raw text would be both too strict and too weak: a `GRANT` that is later
+ * revoked leaves `relacl` materialized as `{owner=arwdDxtm/owner}`, which is
+ * semantically identical to the `NULL` a never-granted table keeps, so a text
+ * comparison reports a difference where no privilege differs. What matters --
+ * and what a schema dump otherwise cannot see at all -- is who can actually do
+ * what.
+ *
+ * This section exists because it was MISSING: the pre-collapse equivalence
+ * proof compared relations, columns, constraints, indexes and rows, reported a
+ * zero diff, and could not have seen that the chain's
+ * `REVOKE EXECUTE ON FUNCTION pg_sleep(...) FROM PUBLIC` (migration 074, which
+ * migration 151 deliberately preserved) had stopped being reproduced. `pg_sleep`
+ * is a denial-of-service primitive and `set_config` reaches session GUCs; both
+ * were revoked as verified sandbox escapes. A clean diff over the wrong set
+ * proves nothing.
+ *
+ * Engine built-ins that Postgres itself ships PUBLIC-revoked (`lo_import`,
+ * `pg_backup_start`, ...) appear here too, and that is correct: both sides of
+ * any comparison start from the same initdb, so they cancel, and a future
+ * engine bump that changed them would be worth seeing.
+ */
+async function functionPrivileges(db: IntrospectableDb): Promise<string[]> {
+  const result = await db.query<{ signature: string }>(
+    `SELECT quote_ident(n.nspname) || '.' || quote_ident(p.proname) || '(' ||
+            pg_get_function_identity_arguments(p.oid) || ')' AS signature
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE NOT has_function_privilege('public', p.oid, 'EXECUTE')
+     ORDER BY 1`
+  );
+  return result.rows.map((row) => `no-public-execute ${row.signature}`);
+}
+
+/**
+ * Any privilege PUBLIC holds on a relation. Expected to be empty: nothing in
+ * this schema grants to PUBLIC, and a row appearing here is a table the world
+ * can touch.
+ */
+async function relationPublicPrivileges(db: IntrospectableDb): Promise<string[]> {
+  const result = await db.query<{ relname: string; privilege: string }>(
+    `SELECT quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS relname, priv AS privilege
+     FROM pg_class c
+     JOIN pg_namespace n ON n.oid = c.relnamespace
+     CROSS JOIN unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) AS priv
+     WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+       AND c.relkind IN ('r', 'v', 'm', 'p', 'f')
+       AND has_table_privilege('public', c.oid, priv)
+     ORDER BY 1, 2`
+  );
+  return result.rows.map((row) => `public-can ${row.privilege} ${row.relname}`);
+}
+
 /** The canonical schema document for a database. */
 export async function dumpSchema(db: IntrospectableDb): Promise<string> {
   // Sequential: PGlite is a single connection, so concurrent reads only queue
@@ -513,6 +569,8 @@ export async function dumpSchema(db: IntrospectableDb): Promise<string> {
     { lines: await triggers(db), title: 'TRIGGERS' },
     { lines: await routines(db), title: 'ROUTINES' },
     { lines: await comments(db), title: 'COMMENTS' },
+    { lines: await functionPrivileges(db), title: 'FUNCTION PRIVILEGES' },
+    { lines: await relationPublicPrivileges(db), title: 'RELATION PUBLIC PRIVILEGES' },
   ];
 
   return renderSections(sections);

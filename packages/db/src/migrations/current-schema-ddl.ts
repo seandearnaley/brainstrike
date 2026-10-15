@@ -20,12 +20,18 @@
 // on one line would make a freshly generated file fail `biome check` until a
 // `--fix` pass rewrote it. Regeneration has to be clean on its own.
 export const CURRENT_SCHEMA_LEDGER_KEY =
-  'custom-current-schema-f3f8ebe87847d7ce3e1ba7bb552a08046bbf958a9250c5f07009627af16dc55e';
+  'custom-current-schema-b201d5d71414b77e72b6477925497a84f23a31b9709c002d6da25109247aa73b';
 
 export const CURRENT_SCHEMA_DDL = `-- EXTENSIONS (3)
 CREATE EXTENSION IF NOT EXISTS "vector";
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 CREATE EXTENSION IF NOT EXISTS "pg_textsearch";
+
+-- FUNCTION PRIVILEGES (4)
+REVOKE EXECUTE ON FUNCTION pg_catalog.pg_sleep(double precision) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION pg_catalog.pg_sleep_for(interval) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION pg_catalog.pg_sleep_until(timestamp with time zone) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION pg_catalog.set_config(text, text, boolean) FROM PUBLIC;
 
 -- SEQUENCES (1)
 CREATE SEQUENCE "brainstrike_mind_ops_seq_seq" AS bigint START WITH 1 INCREMENT BY 1 MINVALUE 1 MAXVALUE 9223372036854775807 NO CYCLE;

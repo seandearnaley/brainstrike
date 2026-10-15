@@ -35,6 +35,20 @@ import { TEST_ENGINE_EXTENSIONS } from './helpers/migrated-test-db.js';
  * diff is the review surface for what moved.
  */
 
+/**
+ * Revoked by migration 074 and deliberately preserved by migration 151. Named
+ * here rather than derived, on purpose: this is the SECOND instrument. The
+ * generator derives the revoke list from a catalog diff against a pristine
+ * database, so if that derivation ever silently produced an empty list, a
+ * derived expectation would agree with it and prove nothing.
+ */
+const SANDBOX_ESCAPE_FUNCTIONS = [
+  'pg_sleep(double precision)',
+  'pg_sleep_for(interval)',
+  'pg_sleep_until(timestamp with time zone)',
+  'set_config(text, text, boolean)',
+] as const;
+
 const SNAPSHOT_FIXTURE = fileURLToPath(
   new URL('./fixtures/schema-catalog.snapshot.txt', import.meta.url)
 );
@@ -87,6 +101,37 @@ describe('current-schema catalog', () => {
     // Seeded provider/model catalog.
     expect(dump).toMatch(/rows models = \d+/);
     expect(dump).toMatch(/rows providers = \d+/);
+  }, 120_000);
+
+  it('keeps PUBLIC EXECUTE revoked on the sandbox-escape functions', async () => {
+    // The chain revoked these in migration 074, and migration 151 deliberately
+    // left the revokes in place when it dropped the read-only role. They are
+    // not hardening theatre: `pg_sleep*` plans at cost 0.01, so the EXPLAIN cost
+    // gate admits `SELECT pg_sleep(86400)` as a denial-of-service primitive, and
+    // `set_config(..., is_local => false)` reaches session GUCs.
+    //
+    // The fixture comparison above already catches a dropped revoke, because
+    // FUNCTION PRIVILEGES is one of its sections. This case is named separately
+    // so a failure says WHY it matters instead of printing a one-line diff, and
+    // so the property survives any future reshaping of the dump format.
+    //
+    // An earlier version of this collapse DID drop them: the generator emitted
+    // only `public`-schema objects, these live in `pg_catalog`, and the
+    // then-current equivalence test compared no ACLs at all -- so it reported a
+    // zero diff while restoring public EXECUTE to every role.
+    const db = new PGlite({ extensions: TEST_ENGINE_EXTENSIONS });
+    try {
+      await migrate(db);
+      for (const signature of SANDBOX_ESCAPE_FUNCTIONS) {
+        const granted = await db.query<{ can: boolean }>(
+          'SELECT has_function_privilege($1, $2, $3) AS can',
+          ['public', signature, 'EXECUTE']
+        );
+        expect(granted.rows[0]?.can, `PUBLIC must not execute ${signature}`).toBe(false);
+      }
+    } finally {
+      await db.close();
+    }
   }, 120_000);
 
   it('derives the ledger key from the DDL, so a schema change cannot keep it', () => {

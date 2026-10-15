@@ -365,6 +365,56 @@ async function emitSeedData(db: PGlite, tables: readonly string[]): Promise<stri
   return statements;
 }
 
+/** Signatures of every function PUBLIC may NOT execute in `db`. */
+async function publicRevokedFunctions(db: PGlite): Promise<Set<string>> {
+  const result = await db.query<{ signature: string }>(
+    `SELECT quote_ident(n.nspname) || '.' || quote_ident(p.proname) || '(' ||
+            pg_get_function_identity_arguments(p.oid) || ')' AS signature
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE NOT has_function_privilege('public', p.oid, 'EXECUTE')`
+  );
+  return new Set(result.rows.map((row) => row.signature));
+}
+
+/**
+ * The `REVOKE EXECUTE ... FROM PUBLIC` statements THIS schema is responsible
+ * for, derived by diffing the built database against a pristine one.
+ *
+ * Postgres ships a number of its own functions PUBLIC-revoked (`lo_import`,
+ * `pg_backup_start`, ...), so "PUBLIC cannot execute it" alone does not mean
+ * the schema revoked it. The baseline is built here, with the SAME extensions,
+ * so the difference is exactly what this repository took away and the list
+ * re-derives itself if the engine's own defaults ever change. Deliberately not
+ * a hand-written list of function names: that is the kind of shortcut this
+ * whole file exists to avoid.
+ *
+ * The chain revoked `pg_sleep`, `pg_sleep_for`, `pg_sleep_until` and
+ * `set_config` in migration 074 and migration 151 deliberately kept them; they
+ * are verified sandbox escapes, not hardening theatre, and a schema that stops
+ * reproducing them silently restores a denial-of-service primitive to every
+ * role.
+ */
+async function emitFunctionPrivileges(
+  db: PGlite,
+  extensionStatements: readonly string[]
+): Promise<string[]> {
+  const baseline = await createEnginePglite();
+  try {
+    for (const statement of extensionStatements) {
+      await baseline.query(statement);
+    }
+    const pristine = await publicRevokedFunctions(baseline);
+    const built = await publicRevokedFunctions(db);
+    return [...built]
+      .filter((signature) => !pristine.has(signature))
+      .sort()
+      .map((signature) => `REVOKE EXECUTE ON FUNCTION ${signature} FROM PUBLIC;`);
+  } finally {
+    await baseline.close();
+  }
+}
+
 function section(title: string, statements: readonly string[]): string {
   if (statements.length === 0) {
     return `-- ${title}: none\n`;
@@ -442,9 +492,13 @@ async function main(): Promise<void> {
 
     const tables = await listTables(db);
     const sequences = await emitOwnedSequences(db, tables);
+    const extensionStatements = await emitExtensions(db);
 
     const ddl = [
-      section('EXTENSIONS', await emitExtensions(db)),
+      section('EXTENSIONS', extensionStatements),
+      // After EXTENSIONS, because a revoke may target a function an extension
+      // created; before everything else, because nothing below depends on it.
+      section('FUNCTION PRIVILEGES', await emitFunctionPrivileges(db, extensionStatements)),
       section('SEQUENCES', sequences.create),
       section('TABLES', await emitTables(db, tables)),
       section('SEQUENCE OWNERSHIP', sequences.own),
