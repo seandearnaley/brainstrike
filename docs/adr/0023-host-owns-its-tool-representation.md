@@ -1,6 +1,6 @@
 # ADR-0023: The host owns its tool representation
 
-- **Status:** Proposed
+- **Status:** Accepted by Sean
 - **Date:** 2026-10-15
 - **Ticket:** none yet
 - **Follows:** [ADR-0022](0022-web-assistant-stateless-ai-sdk-proxy.md)

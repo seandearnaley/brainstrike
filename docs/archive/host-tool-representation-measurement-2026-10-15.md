@@ -356,6 +356,37 @@ filter counts it. Whether it is re-pointed or deleted alongside the nine desktop
 tests step 3 already re-points is a decision, not a measurement — and the rule
 below has to say which, or two readers will compute two answers.
 
+### Independent convergence, and two further files
+
+`delete-the-orphaned-mastra-agent-loop` re-ran its own walk after the e2e-helper
+clause and reported **34 survivors / 10,873 lines, 66 retirable / 22,074 lines**
+— within one file of the 65 above, from a differently-seeded walk (union of
+`closure(surviving public entries)` and `closure(the 21 production-consumed
+files)`). Two independent counts agreeing to one file is stronger evidence than
+either alone, and it is also the best argument for carrying the rule rather than
+the number: the residual one-file gap is a seed difference, not a fact.
+
+Its re-scan found its own filter had excluded `__tests__` and `*.spec.*` but not
+`e2e`, `qualification` or fixtures, which is why two test-only consumers had been
+reported as production. With e2e counted as test, three files are test-adjacent
+only: `runtime-assembly/tool-pipeline.ts` and `mcp-app-tool-call.ts` via
+`apps/desktop/e2e/helpers/mcp-apps-ordinary-admission.ts` (which carries four
+`@boundaries-ignore` comments stating it deliberately composes the production
+pipeline), and `agent-runtime.ts` via
+`apps/desktop/src/__tests__/assistant-server/native-tool-prompt-budget.test.ts`.
+
+It also reported a refinement that touches this document's §5 directly:
+`tool-event-mapper.ts` (348 lines) is in the survivor closure **only** because
+`shell-output-stream.ts` imports `readMastraStreamPartString` for
+`mapShellOutputStreamPart`, whose sole caller is `agent-streaming.ts:748` — the
+engine. Nothing outside `src/mastra/` imports `tool-event-mapper` at all. So
+`shell-output-stream.ts` splits: `writeShellOutputChunk` (what
+`host-capabilities` imports, with its locally declared `ShellOutputWriter`) stays
+and `mapShellOutputStreamPart` goes with the engine, dropping a further module
+to 33 survivors / 67 retirable and keeping a Mastra stream-part reader out of
+`src/tool-projection/`. That split is consistent with §5's finding that the host
+side of the writer path carries no vendor type.
+
 ### The rule
 
 > Delete every `src/mastra/` module that no surviving `package.json` export
