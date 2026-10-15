@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * BST-1592 — pure composer text projection for MCP prompts: role labelling,
  * visible reporting of parts that cannot be staged, and trigger splicing that

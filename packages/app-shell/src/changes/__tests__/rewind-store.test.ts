@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useChangesStore } from '../changes-store';
 import type { RewindPort } from '../rewind-port';

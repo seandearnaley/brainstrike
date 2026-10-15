@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import { describe, expect, it } from 'vitest';

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { EmbeddingSetModelInfo } from '@brainstrike/vector-management';
 import { describe, expect, it, vi } from 'vitest';
 import {

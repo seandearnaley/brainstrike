@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { RunLedgerRow } from '@brainstrike/assistant-data';
 import { describe, expect, it } from 'vitest';
 import { hostRunsModelComparison, hostRunsTrend } from '../run-ledger-analytics';

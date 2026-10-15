@@ -1,3 +1,4 @@
+// @vitest-environment node
 import {
   draggable as canonicalDraggable,
   dropTargetForElements as canonicalDropTargetForElements,

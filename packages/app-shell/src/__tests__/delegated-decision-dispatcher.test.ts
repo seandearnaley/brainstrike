@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
 import { TOOL_SUSPEND_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-suspend';
 import type { DelegatedConversationRuntimeOptions } from '@brainstrike/assistant-ui';

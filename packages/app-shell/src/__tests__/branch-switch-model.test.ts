@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { GitBranchSummary, GitStatusFile } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
 import { buildBranchSwitchModel, deriveBranchSwitchDirty } from '../git-panel/branch-switch-model';

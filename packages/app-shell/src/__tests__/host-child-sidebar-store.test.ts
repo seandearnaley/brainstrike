@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { afterEach, expect, it, vi } from 'vitest';
 import type { AssistantThreadHostChild } from '../assistant-thread-host-context';
 import { HostChildSidebarStore } from '../host-child-sidebar-store';
