@@ -1,9 +1,11 @@
 import type { ExplorerActiveTab } from '@brainstrike/app-state/stores/context-explorer-layout-store';
 import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
+import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
 import { FileExplorerPanel } from '@brainstrike/file-explorer-ui/shell';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
 import { lazy, type ReactElement, Suspense, useCallback, useMemo } from 'react';
+import { ExplorerAttachAction } from './explorer-attach-action';
 import { ExplorerImportActionLazy } from './explorer-import-action-lazy';
 import { useWorkspaceSearchController } from './use-workspace-search-controller';
 import { useWorkspaceRootActions } from './workspace-root-context-actions';
@@ -80,8 +82,15 @@ export function ExplorerSearchTabs({
 
   // FileExplorerPanelInner is memoized; a fresh element identity here would
   // re-render the whole tree panel on every tab switch.
-  const importAction = useMemo(
-    () => <ExplorerImportActionLazy loadEmbeddingQueue={loadEmbeddingQueue} />,
+  // "Attach to thread" needs the desktop assistant host to read the mentions
+  // it writes (the same capability gate as the composer's "@" picker).
+  const selectionActions = useMemo(
+    () => (
+      <>
+        {hasDurableAssistantUsageCapability() ? <ExplorerAttachAction /> : null}
+        <ExplorerImportActionLazy loadEmbeddingQueue={loadEmbeddingQueue} />
+      </>
+    ),
     [loadEmbeddingQueue]
   );
   const rootActions = useWorkspaceRootActions();
@@ -112,7 +121,7 @@ export function ExplorerSearchTabs({
         forceMount
         value="explorer"
       >
-        <FileExplorerPanel rootActions={rootActions} selectionActions={importAction} />
+        <FileExplorerPanel rootActions={rootActions} selectionActions={selectionActions} />
       </TabsContent>
 
       <TabsContent

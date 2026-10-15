@@ -19,7 +19,10 @@ import type { WorkspaceFileReader } from '@brainstrike/assistant-service/ports';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
-import { readReferencedFilesContext } from '../assistant-server/referenced-files-context';
+import {
+  type AttachedMentionFolders,
+  readReferencedFilesContext,
+} from '../assistant-server/referenced-files-context';
 import { injectActivatedSkillsContext } from '../assistant-server/skills-activation-context';
 import { injectWorkspaceInstructionsContext } from '../assistant-server/workspace-instructions-context';
 
@@ -53,6 +56,8 @@ function joinedSections(sections: readonly (string | null | undefined)[]): strin
 
 /** Existing readers and public vendor formatting; this creates no transcript or loop. */
 export async function readDesktopHostSystemContext(options: {
+  /** BST-2018: mentioned files in live folders outside the thread, attached for this run. */
+  readonly attachedMentions?: AttachedMentionFolders;
   readonly inputTokenLimit: number;
   /** BST-1932: the personas the run may delegate to, named in the supervisor instructions. */
   readonly personas?: readonly DelegationPersonaSummary[];
@@ -136,7 +141,8 @@ export async function readDesktopHostSystemContext(options: {
   const referenced = await readReferencedFilesContext(
     options.request.prompt ?? '',
     options.runtime,
-    readFile
+    readFile,
+    options.attachedMentions
   );
   if (referenced.message) {
     messages = [referenced.message, ...messages];
