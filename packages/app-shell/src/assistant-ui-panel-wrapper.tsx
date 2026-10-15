@@ -642,6 +642,7 @@ export function AssistantUiPanelWrapper({
       selectedMemoryThreadId,
     });
   const composerDraft = useComposerDraftChannel(selectedMemoryThreadId);
+  // `available` gates the request's memory block; `notice` tells the user.
   const { available: hostedMemoryBackendAvailable, notice: hostedMemoryNotice } =
     resolveHostedMemoryBackend({ desktopAssistantBackendAvailable, selectedProvider });
   // Resolve 'auto' once for request data, memory validation and the OM meter.
@@ -987,9 +988,7 @@ export function AssistantUiPanelWrapper({
     providerDisabledReason ??
     openRouterDisabledReason;
   const disabledReason = runtimeDisabledReason ?? providerDraft.reason;
-  // `hostedMemoryNotice` never reaches `disabled` (a turn without durable memory
-  // still runs) and ranks last: a real block describes the turn better.
-  const panelNotice = disabledReason ?? providerDiscoveryReason ?? hostedMemoryNotice;
+  const panelNotice = disabledReason ?? providerDiscoveryReason;
   // Conversation Rewind wiring (BST-1115), extracted whole into
   // `changes/use-wrapper-rewind-wiring.ts`: the re-hydration generation and standing "Last Turn"
   // identity, and the live mid-run refresh. The wrapper only forwards seams.
@@ -1225,6 +1224,7 @@ export function AssistantUiPanelWrapper({
                 onEnableModel={handleEnableModel}
                 onModelChange={handleModelChange}
                 {...(panelNotice ? { disabledReason: panelNotice } : {})}
+                {...(hostedMemoryNotice ? { capabilityNotice: hostedMemoryNotice } : {})}
                 {...(planModeAvailable
                   ? {
                       onExitPlanMode: exitPlanMode,

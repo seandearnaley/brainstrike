@@ -18,9 +18,12 @@ test('keeps hosted web chat sendable without a workspace, and says memory is off
   await renderAssistantPanel(['openai'], () =>
     waitFor(() => {
       expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
-      expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
+      // The capability channel, not `disabledReason`: the latter renders inside
+      // the scrolling transcript, where a long thread hides it.
+      expect(screen.getByTestId('capability-notice')).toHaveTextContent(
         'Assistant memory is unavailable here; this turn runs without durable memory.'
       );
+      expect(screen.queryByTestId('disabled-reason')).toBeNull();
     })
   );
 });

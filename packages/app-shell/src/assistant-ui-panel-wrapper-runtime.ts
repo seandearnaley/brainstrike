@@ -350,15 +350,6 @@ function resolveObservationalMemoryDisabledReason(args: {
   if (!observationalMemory.enabled) {
     return;
   }
-  // An absent backend is the same condition `resolveHostedMemoryUnavailableNotice`
-  // reports, and observational memory is ON by default (BST-940), so blocking
-  // here would keep web's composer disabled no matter what the chat provider
-  // gate says. The turn runs without the observer and the notice says so.
-  // The checks below stay blocking: they are user-configured targets that are
-  // actually wrong, not a capability this shell lacks.
-  if (!args.desktopAssistantBackendAvailable) {
-    return;
-  }
 
   const modelTarget = observationalMemory.modelTarget;
   const separatorIndex = modelTarget.indexOf('/');
@@ -425,6 +416,16 @@ export function resolveAssistantMemoryDisabledReason(args: {
     return 'Assistant memory has no selected thread for this workspace.';
   }
   if (!args.workspaceRootPath) {
+    return;
+  }
+  // With no durable backend, `buildAssistantMemoryRequest` omits the memory
+  // block entirely, so NOTHING below this line can reach a request: validating
+  // an observer target or a semantic-recall embedder that will never run would
+  // block the composer over inert configuration. One gate for both validators —
+  // reviewer catch: gating only the observational branch left a persisted
+  // semantic-recall misconfiguration still blocking hosted-web chat.
+  // `resolveHostedMemoryUnavailableNotice` reports the loss.
+  if (!args.desktopAssistantBackendAvailable) {
     return;
   }
   const observationalMemoryDisabledReason = resolveObservationalMemoryDisabledReason({

@@ -805,6 +805,7 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
     requestBodyLimitBytes,
     requestData,
     disabled,
+    capabilityNotice,
     disabledReason,
     toolMenu,
     onComposerDraftCommandApplied,
@@ -853,6 +854,7 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
     requestBodyLimitBytes?: number;
     requestData?: Record<string, unknown>;
     disabled?: boolean;
+    capabilityNotice?: string;
     disabledReason?: string;
     toolMenu?: {
       items: Array<{ id: string; enabled: boolean }>;
@@ -954,6 +956,7 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
         <div data-testid="request-data">{JSON.stringify(requestData ?? {})}</div>
         <div data-testid="context-menu">{JSON.stringify(contextMenu ?? {})}</div>
         {disabledReason && <div data-testid="disabled-reason">{disabledReason}</div>}
+        {capabilityNotice && <div data-testid="capability-notice">{capabilityNotice}</div>}
         <div data-testid="tool-menu-count">{toolMenu?.items.length ?? 0}</div>
         <div data-testid="tool-menu-loading">{String(toolMenu?.isLoading ?? false)}</div>
         <button

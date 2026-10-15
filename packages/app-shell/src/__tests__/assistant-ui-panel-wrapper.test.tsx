@@ -1553,7 +1553,7 @@ describe('AssistantUiPanelWrapper', () => {
         const requestData = readPanelRequestData();
         expect(requestData['memory']).toBeUndefined();
         expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
-        expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
+        expect(screen.getByTestId('capability-notice')).toHaveTextContent(
           'Assistant memory is unavailable here; this turn runs without durable memory.'
         );
       })

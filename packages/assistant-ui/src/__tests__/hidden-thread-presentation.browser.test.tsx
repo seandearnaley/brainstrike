@@ -55,6 +55,7 @@ function Panel({
     <div data-testid={id} hidden={!visible} style={{ height: 600, width: 700 }}>
       <AssistantRuntimeProvider runtime={runtime}>
         <ChatThreadUI
+          capabilityNotice={undefined}
           disabledReason={undefined}
           fileMentions={[]}
           hasGroupedProviders={false}

@@ -355,6 +355,27 @@ describe('assistant runtime helpers', () => {
     );
   });
 
+  // Reviewer catch on #3625: gating only the observational branch left this
+  // case blocking hosted-web chat. With no backend the memory block never
+  // reaches a request, so an unsupported embedder here is inert configuration
+  // and must not disable the composer.
+  it('does not block an unsupported embedder that can never run', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        desktopAssistantBackendAvailable: false,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          semanticRecall: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
+            embeddingModelTarget: 'cohere/embed-english-v3.0',
+            enabled: true,
+          },
+        },
+      })
+    ).toBeUndefined();
+  });
+
   it('blocks an enabled hosted observer whose provider has no configured key', () => {
     expect(
       resolveAssistantMemoryDisabledReason({
