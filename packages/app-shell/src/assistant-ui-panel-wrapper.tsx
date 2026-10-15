@@ -27,35 +27,16 @@ import {
   RunVerdictProvider,
 } from '@brainstrike/assistant-ui';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db/react';
-import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
-import {
-  useFileExplorerStoreSelector,
-  useFileSystem,
-  useSelectionManager,
-} from '@brainstrike/file-explorer-ui/shell';
-import type {
-  AssistantSelectionUpdatePayload,
-  AssistantWorkspaceContextSelectionUpdatePayload,
-  AssistantWorkspaceTapestryUpdatePayload,
-} from '@brainstrike/types';
-import { mergeAssistantProviderSettings, normalizeWorkspaceLookupPath } from '@brainstrike/types';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFileExplorerStoreSelector, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
+import { mergeAssistantProviderSettings } from '@brainstrike/types';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AssistantDecisionProviders } from './assistant-decision-providers';
 import { type OmMeterState, resolveOmMeterState } from './assistant-om-segment';
-import { subscribeAssistantToolUpdates } from './assistant-panel/tool-update-subscriptions';
 import { useAssistantExecutionControls } from './assistant-panel/use-assistant-execution-controls';
 import { useAssistantUsageLedger } from './assistant-panel/use-assistant-usage-ledger';
 import { useModelSelectionReconcile } from './assistant-panel/use-model-selection-reconcile';
 import { useTerminalRunHandlers } from './assistant-panel/use-terminal-run-handlers';
 import { webBodyLimitProps } from './assistant-request-body-limit';
-import {
-  buildTapestryRangesForUpdate,
-  computeReplacedSelection,
-  normalizeRootPathForLookup,
-  normalizeWriteBackFilePaths,
-  resolveWriteBackFolderId,
-} from './assistant-selection-write-back';
 import {
   buildAssistantMemoryOptions,
   buildDraftRuntimeForProvider,
@@ -75,7 +56,6 @@ import {
   resolveModelNameFromComposite,
   resolveProviderFromComposite,
   toRuntimeProviderModels,
-  toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
 import { useChangeset } from './changes/use-changeset';
 import { useWrapperRewindWiring } from './changes/use-wrapper-rewind-wiring';
@@ -384,172 +364,12 @@ export function AssistantUiPanelWrapper({
   // MAIN = request-start operating root; FOCUSED = currentFolderId.
   const mainRootId = useFileExplorerStoreSelector((s) => s.activeRootIds?.[0]);
   const mainRootPath = mainRootId ? rootDescriptors?.[mainRootId]?.path : undefined;
-  // Multi-root write-back maps each open path to its client RootId so assistant
-  // updates route correctly; the two id spaces share only the path.
-  const pathToClientRootId = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const descriptor of Object.values(rootDescriptors ?? {})) {
-      if (descriptor.path) {
-        map.set(normalizeRootPathForLookup(descriptor.path), descriptor.rootId);
-      }
-    }
-    return map;
-  }, [rootDescriptors]);
   // Focused root handle — reducer-sourced via the FileSystemProvider context.
   const { rootDirectoryHandle } = useFileSystem();
-  const setSelectedFiles = useFileExplorerStoreSelector((s) => s.setSelectedFiles);
-  const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);
-  const removeMultipleSelectedFiles = useFileExplorerStoreSelector(
-    (s) => s.removeMultipleSelectedFiles
-  );
-  const resetSelectionToExplicit = useFileExplorerStoreSelector((s) => s.resetSelectionToExplicit);
-  const { effectiveSelection } = useSelectionManager();
-  const effectiveSelectionRef = useRef(effectiveSelection);
-  const workspaceContextSnapshot = useWorkspaceContextCurationStore(
-    (state) => state.contextSnapshot
-  );
-  const runtimeWorkspaceContext = useMemo(
-    () => toRuntimeWorkspaceContext(workspaceContextSnapshot),
-    [workspaceContextSnapshot]
-  );
-  const setTapestryRangesForKey = useWorkspaceContextCurationStore(
-    (state) => state.setTapestryRangesForKey
-  );
-
-  useEffect(() => {
-    effectiveSelectionRef.current = effectiveSelection;
-  }, [effectiveSelection]);
-
-  const selectionData = useMemo(() => {
-    // MULTI-ROOT PARTITION — two distinct root concepts ride each request:
-    // - MAIN root (mainRootId/mainRootPath above, activeRootIds[0]): the
-    //   assistant's OPERATING root — hooks cwd + model-facing "main root
-    //   path". Stable; only "Set as main" or disconnecting the main root
-    //   changes it.
-    // - FOCUSED root (currentFolderId → workspaceRootPath): SELECTION scope.
-    //   Flips on incidental clicks, so it must never drive hooks/model cwd.
-    // The selection legs stay focused-root-scoped: every path resolves
-    // against ONE workspaceRootPath (the focused root). Mixing other roots'
-    // paths into the list misattributes same-relative paths to the wrong
-    // root (or dangles). Only the FOCUSED root's selections are addressable;
-    // the rest are COUNTED so the assistant can say "N selected files are
-    // outside this workspace" instead of silently ignoring them.
-    const filePaths = new Set<string>();
-    const folderIds = new Set<string>();
-    let otherRootsCount = 0;
-    for (const compositeKey of effectiveSelection) {
-      try {
-        const decoded = decodeFileSelection(compositeKey);
-        if (currentFolderId !== null && decoded.folderId !== currentFolderId) {
-          otherRootsCount += 1;
-          continue;
-        }
-        filePaths.add(decoded.path);
-        folderIds.add(decoded.folderId);
-      } catch {
-        // Ignore invalid selection keys
-      }
-    }
-
-    const resolvedFolderId =
-      folderIds.size === 1
-        ? Array.from(folderIds)[0]
-        : folderIds.size === 0
-          ? (currentFolderId ?? undefined)
-          : undefined;
-
-    return {
-      filePaths: Array.from(filePaths),
-      folderId: resolvedFolderId,
-      otherRootsCount,
-    };
-  }, [effectiveSelection, currentFolderId]);
-
-  const handleSelectionUpdate = useCallback(
-    (
-      payload: AssistantSelectionUpdatePayload | AssistantWorkspaceContextSelectionUpdatePayload
-    ) => {
-      if (!(payload.folderId && Array.isArray(payload.filePaths) && payload.filePaths.length > 0)) {
-        return;
-      }
-      // Multi-root: route to the folder the assistant targeted (payload.rootPath
-      // → client RootId). Null = the root is not open here; skip, never misroute.
-      const targetFolderId = resolveWriteBackFolderId(payload, pathToClientRootId);
-      if (!targetFolderId) {
-        return;
-      }
-      const mode = payload.mode ?? 'add';
-      const normalizedPaths = normalizeWriteBackFilePaths(payload.filePaths);
-      if (normalizedPaths.length === 0) {
-        return;
-      }
-
-      if (mode === 'add') {
-        addMultipleSelectedFiles(targetFolderId, normalizedPaths);
-        return;
-      }
-      if (mode === 'remove') {
-        removeMultipleSelectedFiles(targetFolderId, normalizedPaths);
-        return;
-      }
-
-      resetSelectionToExplicit();
-      setSelectedFiles(
-        computeReplacedSelection(effectiveSelectionRef.current, targetFolderId, normalizedPaths)
-      );
-    },
-    [
-      addMultipleSelectedFiles,
-      pathToClientRootId,
-      removeMultipleSelectedFiles,
-      resetSelectionToExplicit,
-      setSelectedFiles,
-    ]
-  );
-
-  const handleTapestryUpdate = useCallback(
-    (payload: AssistantWorkspaceTapestryUpdatePayload) => {
-      if (!(payload.folderId && Array.isArray(payload.updates) && payload.updates.length > 0)) {
-        return;
-      }
-      const targetFolderId = resolveWriteBackFolderId(payload, pathToClientRootId);
-      if (!targetFolderId) {
-        return;
-      }
-      const mode = payload.mode ?? 'replace';
-      for (const update of payload.updates) {
-        const normalizedPath = normalizeWorkspaceLookupPath(String(update.path));
-        if (normalizedPath.length === 0) {
-          continue;
-        }
-        const path = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
-        const compositeKey = encodeFileSelection(targetFolderId, path);
-        const nextRanges = buildTapestryRangesForUpdate(
-          update.ranges,
-          compositeKey,
-          mode === 'clear'
-        );
-        const existingRanges =
-          useWorkspaceContextCurationStore.getState().tapestryRangesByKey[compositeKey] ?? [];
-        setTapestryRangesForKey(
-          compositeKey,
-          mode === 'add' ? [...existingRanges, ...nextRanges] : nextRanges
-        );
-      }
-    },
-    [pathToClientRootId, setTapestryRangesForKey]
-  );
-
-  // Selection write-back bridge (BST-1652): one subscription over every
-  // available channel instead of four copy-pasted effects. See
-  // `assistant-panel/tool-update-subscriptions.ts`.
-  useEffect(
-    () =>
-      subscribeAssistantToolUpdates({
-        onSelectionUpdate: handleSelectionUpdate,
-        onTapestryUpdate: handleTapestryUpdate,
-      }),
-    [handleSelectionUpdate, handleTapestryUpdate]
+  // The explorer's focused folder; the host places it by the thread's binding.
+  const selectionData = useMemo(
+    () => ({ folderId: currentFolderId ?? undefined }),
+    [currentFolderId]
   );
 
   // Legacy threads no longer run MCP tools (BST-1930); the menu lists them disabled.
@@ -790,7 +610,6 @@ export function AssistantUiPanelWrapper({
     planMode,
     providerOptions,
     requestedReasoningEffort: selectedProviderSettings?.reasoningEffort,
-    runtimeWorkspaceContext,
     selectedMemoryThreadId,
     selectionData,
     semanticRecallSettings,

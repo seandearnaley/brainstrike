@@ -3,7 +3,6 @@ import { ConcurrentLoadingError, FileContentError, PartialRefreshError } from '.
 
 export * from './agent-color.js';
 export * from './assistant-provider-settings.js';
-export * from './assistant-selection.js';
 export * from './changeset.js';
 export * from './database.js';
 export * from './embedding-constants.js';

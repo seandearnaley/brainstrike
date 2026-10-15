@@ -1,9 +1,9 @@
 import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
-import { normalizeRootPathForLookup } from './assistant-selection-write-back';
 import type {
   ThreadBranchByRootPathState,
   ThreadBranchInfo,
 } from './hooks/use-thread-branch-by-root-path';
+import { normalizeRootPathForLookup } from './root-path-lookup';
 
 export type ThreadBranchLookup = Pick<
   ThreadBranchByRootPathState,

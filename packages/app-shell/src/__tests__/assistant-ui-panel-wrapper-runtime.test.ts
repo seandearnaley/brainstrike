@@ -13,7 +13,6 @@ import {
   buildAgentLoopSettings,
   buildAssistantMemoryOptions,
   buildAssistantRequestData,
-  buildAssistantTapestryRange,
   buildDraftRuntimeForProvider,
   buildEffectiveModelSettings,
   buildEnabledModelIdSet,
@@ -111,26 +110,6 @@ const baseWorkspaceIndex = {
   queueProgress: null,
   statusState: 'idle' as const,
 };
-
-describe('buildAssistantTapestryRange color', () => {
-  const base = {
-    compositeKey: 'folder::/a.ts',
-    endLine: 3,
-    index: 0,
-    isActive: true,
-    startLine: 1,
-  };
-
-  it('uses the resolved hex when a named color is provided', () => {
-    const range = buildAssistantTapestryRange({ ...base, color: 'blue' });
-    expect(range.color).toBe('#3b82f6');
-  });
-
-  it('falls back to the deterministic color when color is omitted', () => {
-    const range = buildAssistantTapestryRange(base);
-    expect(range.color).toMatch(/^#[0-9a-f]{6}$/);
-  });
-});
 
 describe('assistant runtime helpers', () => {
   it('advertises only runtime-available eager-core tools for local desktop chat', () => {
@@ -600,16 +579,8 @@ describe('assistant runtime helpers', () => {
       modelSettings: { maxOutputTokens: 512 },
       providerOptions: { openai: { reasoningEffort: 'medium' } },
       selectedMemoryThreadId: 'thread-1',
-      selectionData: { filePaths: ['src/a.ts'], folderId: 'folder-a' },
+      selectionData: { folderId: 'folder-a' },
       subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-      workspaceContext: {
-        files: [],
-        includeProjectTree: false,
-        projectTreeApproxTokens: 0,
-        projectTreeTokenCountLoading: false,
-        selectedOutputApproxTokens: 0,
-        selectedSourceApproxTokens: 0,
-      },
       workspaceIndex: {
         ...baseWorkspaceIndex,
         blockedReason: 'paused',
@@ -629,7 +600,6 @@ describe('assistant runtime helpers', () => {
       },
       modelSettings: { maxOutputTokens: 512 },
       providerOptions: { openai: { reasoningEffort: 'medium' } },
-      selectionFilePaths: ['src/a.ts'],
       selectionFolderId: 'folder-a',
       workspaceIndexBlockedReason: 'paused',
       workspaceIndexEmbeddingSetId: 'embeddings-a',
@@ -638,6 +608,9 @@ describe('assistant runtime helpers', () => {
     });
     // OPT-IN: no permission snapshot was passed → none is attached (passthrough).
     expect(data).not.toHaveProperty('permissionPolicyRequest');
+    // Checked files are not context (BST-2019): no selected paths or snapshot ride the request.
+    expect(data).not.toHaveProperty('selectionFilePaths');
+    expect(data).not.toHaveProperty('workspaceContext');
   });
 
   // BST-1652: the render-time builder must never produce a permission snapshot.
@@ -658,9 +631,8 @@ describe('assistant runtime helpers', () => {
       modelSettings: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
-      selectionData: { filePaths: [] as string[], folderId: undefined },
+      selectionData: { folderId: undefined },
       subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-      workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
     });
@@ -680,9 +652,8 @@ describe('assistant runtime helpers', () => {
       modelSettings: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
-      selectionData: { filePaths: [] as string[], folderId: undefined },
+      selectionData: { folderId: undefined },
       subagentSettings,
-      workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
     });
@@ -699,9 +670,8 @@ describe('assistant runtime helpers', () => {
         modelSettings: undefined,
         providerOptions: undefined,
         selectedMemoryThreadId: undefined,
-        selectionData: { filePaths: [] as string[], folderId: undefined },
+        selectionData: { folderId: undefined },
         subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-        workspaceContext: null,
         workspaceIndex: baseWorkspaceIndex,
         workspaceRootPath: null,
       })['subagentSettings']
@@ -719,9 +689,8 @@ describe('assistant runtime helpers', () => {
       modelSettings: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
-      selectionData: { filePaths: [] as string[], folderId: undefined },
+      selectionData: { folderId: undefined },
       subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-      workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
     };
@@ -744,9 +713,8 @@ describe('assistant runtime helpers', () => {
       modelSettings: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
-      selectionData: { filePaths: [] as string[], folderId: undefined },
+      selectionData: { folderId: undefined },
       subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-      workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
     };
@@ -786,9 +754,8 @@ describe('assistant runtime helpers', () => {
       modelSettings: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
-      selectionData: { filePaths: [] as string[], folderId: undefined },
+      selectionData: { folderId: undefined },
       subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-      workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
     };
@@ -825,9 +792,8 @@ describe('assistant runtime helpers', () => {
       modelSettings: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
-      selectionData: { filePaths: [] as string[], folderId: undefined },
+      selectionData: { folderId: undefined },
       subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-      workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
     };
@@ -889,9 +855,8 @@ describe('assistant runtime helpers', () => {
       modelSettings: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
-      selectionData: { filePaths: [] as string[], folderId: undefined },
+      selectionData: { folderId: undefined },
       subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-      workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
     };
@@ -905,45 +870,6 @@ describe('assistant runtime helpers', () => {
         'subagentPersonasRequest'
       ]
     ).toEqual(request);
-  });
-
-  it('surfaces the count of selected files from OTHER roots (multi-root, never silently dropped)', () => {
-    const data = buildAssistantRequestData({
-      agentLoopSettings: { maxSteps: 6 },
-      enabledNativeToolIds: [],
-      hostedMemoryBackendAvailable: false,
-      memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
-      memoryResourceId: 'workspace-a',
-      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-      modelSettings: undefined,
-      providerOptions: undefined,
-      selectedMemoryThreadId: undefined,
-      selectionData: { filePaths: ['src/a.ts'], folderId: 'root-a', otherRootsCount: 3 },
-      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-      workspaceContext: null,
-      workspaceIndex: baseWorkspaceIndex,
-      workspaceRootPath: '/workspace',
-    });
-
-    expect(data['selectionFilePathsFromOtherRoots']).toBe(3);
-
-    const dataWithoutOthers = buildAssistantRequestData({
-      agentLoopSettings: { maxSteps: 6 },
-      enabledNativeToolIds: [],
-      hostedMemoryBackendAvailable: false,
-      memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
-      memoryResourceId: 'workspace-a',
-      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-      modelSettings: undefined,
-      providerOptions: undefined,
-      selectedMemoryThreadId: undefined,
-      selectionData: { filePaths: ['src/a.ts'], folderId: 'root-a', otherRootsCount: 0 },
-      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-      workspaceContext: null,
-      workspaceIndex: baseWorkspaceIndex,
-      workspaceRootPath: '/workspace',
-    });
-    expect(dataWithoutOthers).not.toHaveProperty('selectionFilePathsFromOtherRoots');
   });
 
   it('resolves provider model selections', () => {

@@ -181,8 +181,14 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 // rather than a tool silently falling out: the authored surface measured 9825.
 // Both bounds move down to centre that measurement (10,396 → 9,975 and
 // 10,096 → 9,675), width 300 unchanged.
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9975;
-const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9675;
+//
+// BST-2019 retired `updateWorkspaceContextSelection` and
+// `updateWorkspaceTapestrySelections` with their curation instructions, and
+// slimmed the `listWorkspaceContext`/`readWorkspaceContext` schemas: a
+// deliberate drop. The authored surface measured 9126; both bounds move down
+// to centre it (9,975 → 9,276 and 9,675 → 8,976), width 300 unchanged.
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9276;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 8976;
 // BST-1667 TRIM (ceiling UNCHANGED at 5000 — the number is a live contract in
 // docs/agents/assistant-providers.md, assistant-runtime.md, and
 // workspace-context.md). Tool discovery moved to Mastra's manual loading, so
@@ -636,12 +642,15 @@ describe('desktop native tool provider prompt budget', () => {
     // 9490 measurement at the band's MIDPOINT.
     // BST-1995: `querySelf` removed; the eager aggregate measured 8952, so both
     // bounds move to centre it (9340 → 8802, 9640 → 9102), width 300 unchanged.
+    // BST-2019: the two selection tools retired and the context reads slimmed;
+    // measured 8223, so both bounds move to centre it (8802 → 8073,
+    // 9102 → 8373), width 300 unchanged.
     expect(
       eagerDefinitionTokens,
       'eager aggregate outside its recorded band'
-    ).toBeGreaterThanOrEqual(8802);
+    ).toBeGreaterThanOrEqual(8073);
     expect(eagerDefinitionTokens, 'eager aggregate outside its recorded band').toBeLessThanOrEqual(
-      9102
+      8373
     );
     expect(
       criticalDefinitionTokens,
@@ -695,7 +704,8 @@ describe('desktop native tool provider prompt budget', () => {
       // 2166 (the banded assertions above; move the recorded figures WITH any
       // deliberate raise, per the trade-record practice).
       // −1 for the removed `querySelf` (BST-1995), with its +358/+44/+105 above.
-      eagerToolCount: 38,
+      // −2 for the retired context selection tools (BST-2019).
+      eagerToolCount: 36,
       // 210 → 234 after the PR #2294 review round: 8 MB `.max()` DoS caps on
       // html/oldString/newString (+500-char titles) serialize into the
       // provider schema, and the description now states that `list` returns
@@ -732,7 +742,7 @@ describe('desktop native tool provider prompt budget', () => {
     });
   });
 
-  it('keeps the authored full hosted registry and instructions within the 9,675-9,975 o200k band', async () => {
+  it('keeps the authored full hosted registry and instructions within the 8,976-9,276 o200k band', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
     const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);

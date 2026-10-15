@@ -57,9 +57,6 @@ export type ToolProjectionRewriteEntry =
 export type {
   RuntimeAgentLoopSettings,
   RuntimeModelSettings,
-  RuntimeWorkspaceContextFileMetadata,
-  RuntimeWorkspaceContextMetadata,
-  RuntimeWorkspaceContextRangeMetadata,
   RuntimeWorkspaceIndexQueueProgress,
   RuntimeWorkspaceIndexStatusState,
   RuntimeWorkspaceRoot,

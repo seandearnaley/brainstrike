@@ -73,11 +73,6 @@ const MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKT
 import type { WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
 import type {
-  AssistantSelectionUpdatePayload,
-  AssistantWorkspaceContextSelectionUpdatePayload,
-  AssistantWorkspaceTapestryUpdatePayload,
-} from '@brainstrike/types';
-import type {
   ChunkingHostChunkBatchRequest,
   ChunkingHostChunkFileByIdRequest,
   ChunkingHostChunkFileRequest,
@@ -388,58 +383,6 @@ const mcpAppsBridge = createIpcBridge(ipcRenderer, mcpAppsContract);
 contextBridge.exposeInMainWorld('mcp', {
   ...mcpPathSelectionBridge,
   apps: mcpAppsBridge satisfies McpAppShellBridge,
-});
-
-// Assistant selection events. Tool execution deliberately stays behind the
-// server-owned assistant permission engine and is not exposed to renderers.
-contextBridge.exposeInMainWorld('tools', {
-  onPreviewContextSelectionUpdate: (
-    callback: (payload: AssistantSelectionUpdatePayload) => void
-  ) => {
-    const listener = (_event: unknown, payload: AssistantSelectionUpdatePayload) =>
-      callback(payload);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.agent.previewContextSelectionUpdate, listener);
-    return () => {
-      ipcRenderer.removeListener(
-        DESKTOP_IPC_CHANNELS.agent.previewContextSelectionUpdate,
-        listener
-      );
-    };
-  },
-  onRootTreeSelectionUpdate: (callback: (payload: AssistantSelectionUpdatePayload) => void) => {
-    const listener = (_event: unknown, payload: AssistantSelectionUpdatePayload) =>
-      callback(payload);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.agent.rootTreeSelectionUpdate, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.agent.rootTreeSelectionUpdate, listener);
-    };
-  },
-  onWorkspaceContextSelectionUpdate: (
-    callback: (payload: AssistantWorkspaceContextSelectionUpdatePayload) => void
-  ) => {
-    const listener = (_event: unknown, payload: AssistantWorkspaceContextSelectionUpdatePayload) =>
-      callback(payload);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.agent.workspaceContextSelectionUpdate, listener);
-    return () => {
-      ipcRenderer.removeListener(
-        DESKTOP_IPC_CHANNELS.agent.workspaceContextSelectionUpdate,
-        listener
-      );
-    };
-  },
-  onWorkspaceContextTapestryUpdate: (
-    callback: (payload: AssistantWorkspaceTapestryUpdatePayload) => void
-  ) => {
-    const listener = (_event: unknown, payload: AssistantWorkspaceTapestryUpdatePayload) =>
-      callback(payload);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.agent.workspaceContextTapestryUpdate, listener);
-    return () => {
-      ipcRenderer.removeListener(
-        DESKTOP_IPC_CHANNELS.agent.workspaceContextTapestryUpdate,
-        listener
-      );
-    };
-  },
 });
 
 // Main-process bridge for local-runtime probes. See ipc-runtime.ts for the

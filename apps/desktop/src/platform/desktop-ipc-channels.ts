@@ -3,10 +3,6 @@ export const DESKTOP_IPC_CHANNELS = {
     hostConnect: 'agent:host-connect',
     hostConnected: 'agent:host-connected',
     hostDisconnected: 'agent:host-disconnected',
-    previewContextSelectionUpdate: 'assistant:preview-context-selection-update',
-    rootTreeSelectionUpdate: 'assistant:root-tree-selection-update',
-    workspaceContextSelectionUpdate: 'assistant:workspace-context-selection-update',
-    workspaceContextTapestryUpdate: 'assistant:workspace-context-tapestry-update',
   },
   // Embedded browser pane (BST-1174). Invoke channels drive the main-process
   // BrowserViewManager; `tabsChanged` is a one-way main→renderer push (like

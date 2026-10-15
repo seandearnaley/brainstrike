@@ -248,7 +248,10 @@ describe('NATIVE_TOOL_SCHEMAS', () => {
       expect(display.toolId).toBe(tool.id);
       expect(display.description).toBe(tool.description);
       expect(display.returns).toBe(tool.returns);
-      expect(display.parameters.length).toBeGreaterThan(0);
+      // listWorkspaceContext takes no input; every other tool's display names its parameters.
+      if (tool.id !== 'brainstrike.listWorkspaceContext') {
+        expect(display.parameters.length).toBeGreaterThan(0);
+      }
       for (const parameter of display.parameters) {
         expect(parameter.description, `${tool.id}.${parameter.name} has no prose`).not.toBe('');
       }

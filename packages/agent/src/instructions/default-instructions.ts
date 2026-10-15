@@ -108,7 +108,7 @@ export function buildCurrentTaskListNote(
 }
 
 const HARNESS_FRAMING =
-  'You run inside the Brainstrike IDE. Context-tool selections update the visual Context Explorer beside this chat and the reusable LLM context. Prefer the specific relevant lines over whole files.';
+  "You run inside the Brainstrike IDE, beside the user's Files explorer. Prefer the specific relevant lines over whole files.";
 
 /**
  * Model-facing (sanitized, possibly hash-suffixed) name per catalog tool, or
@@ -257,11 +257,7 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
   const examples =
     preferredExamples.length > 0 ? preferredExamples : rootQualifiedToolNames.slice(0, 3);
   const exampleNote = examples.length > 0 ? ` (for example ${examples.join(', ')})` : '';
-  const writeBackNote =
-    names.updateWorkspaceContextSelection || names.updateWorkspaceTapestrySelections
-      ? ' Selection write-back accepts root; otherwise selection targets the Focused root.'
-      : '';
-  return `The initial workspace-root manifest reports the Main root (assistant run), Focused root (reported selection), and exact root selectors; ${names.listWorkspaceContext} refreshes the detailed inventory plus selection/index state. Paths are root-relative. With several roots, pass "root" to path-based calls${exampleNote}; bare paths are ambiguous and there is no implicit Main-root fallback. Search results prefix each file header with its root name when several folders are open — pass that root name as "root" when reading.${writeBackNote}`;
+  return `The initial workspace-root manifest reports the Main root (assistant run), Focused root (the folder focused in the user's explorer), and exact root selectors; ${names.listWorkspaceContext} refreshes the root inventory and index state. Paths are root-relative. With several roots, pass "root" to path-based calls${exampleNote}; bare paths are ambiguous and there is no implicit Main-root fallback. Search results prefix each file header with its root name when several folders are open — pass that root name as "root" when reading.`;
 }
 
 /**
@@ -645,9 +641,12 @@ export function buildDefaultInstructions(
   const readToolNames = [names.readWorkspaceContext, names.readWorkspaceFile].filter(
     (name): name is string => Boolean(name)
   );
+  const readPagingClause = names.readWorkspaceFile
+    ? ` ${names.readWorkspaceFile} returns content with 1-based line numbers; when another page is needed, pass nextCursor back unchanged as cursor with no path, root, or range fields.`
+    : '';
   const readContextInstruction =
     readToolNames.length > 0
-      ? `Read only the needed source ranges afterward with ${readToolNames.join(' / ')}.`
+      ? `Read only the needed source ranges afterward with ${readToolNames.join(' / ')}.${readPagingClause}`
       : '';
   const writeInstruction = buildWriteInstruction(names);
   const lspInspectInstruction = buildLspInspectInstruction(names);
@@ -655,46 +654,6 @@ export function buildDefaultInstructions(
   const webSearchInstruction = buildWebSearchInstruction(names);
   const taskListInstruction = buildTaskListInstruction(names);
   const canvasInstruction = buildCanvasInstruction(names);
-  const curationInstruction =
-    names.queryEmbeddingSpace &&
-    names.updateWorkspaceContextSelection &&
-    names.updateWorkspaceTapestrySelections
-      ? `For ideal reusable context, use ${names.queryEmbeddingSpace} to find candidate files and semantic chunks with persisted source line ranges, ${names.updateWorkspaceContextSelection} to select candidates, and ${names.updateWorkspaceTapestrySelections} to retain only relevant ranges. Stay token-aware.`
-      : '';
-
-  const selectionDefaultInstruction =
-    names.updateWorkspaceTapestrySelections && names.updateWorkspaceContextSelection
-      ? `For context selection or curation, default to precise ${names.updateWorkspaceTapestrySelections} ranges: only relevant lines, never the whole file. For a named symbol, function, type, section, or line range, select its exact span and MUST NOT fall back to whole-file selection. Use ${names.updateWorkspaceContextSelection} for an entire file only when explicit or genuinely required. What you report MUST exactly equal the ranges you passed to ${names.updateWorkspaceTapestrySelections}.`
-      : '';
-  const tapestryMechanicsInstruction = names.updateWorkspaceTapestrySelections
-    ? [
-        `${names.updateWorkspaceTapestrySelections} ranges are 1-based and inclusive: [{ startLine, endLine }].`,
-        names.queryEmbeddingSpace
-          ? `${names.queryEmbeddingSpace} results include per-chunk 1-based source line ranges — pass those directly.`
-          : '',
-        names.readWorkspaceFile
-          ? `When there is no embedding result, ${names.readWorkspaceFile} returns content with 1-based line numbers; use those for the first and last line of the requested symbol. When another page is needed, pass nextCursor back unchanged as cursor with no path, root, or range fields.`
-          : '',
-      ]
-        .filter(Boolean)
-        .join(' ')
-    : '';
-  const symbolLookupInstruction =
-    names.findWorkspaceSymbol && names.updateWorkspaceTapestrySelections
-      ? `When the user names a symbol/function/type, call ${names.findWorkspaceSymbol} to get its best-effort range without reading the whole file, verify the returned range covers the symbol, then pass it to ${names.updateWorkspaceTapestrySelections}.`
-      : '';
-  const colorGroupingInstruction = names.updateWorkspaceTapestrySelections
-    ? 'You may set a named color per range (red, orange, yellow, green, cyan, blue, purple, pink, gray) to group related context — reuse the same color for the same concept.'
-    : '';
-  const selectionLine = [
-    selectionDefaultInstruction,
-    tapestryMechanicsInstruction,
-    symbolLookupInstruction,
-    colorGroupingInstruction,
-  ]
-    .filter(Boolean)
-    .join(' ');
-
   const askUserInstruction = buildAskUserInstruction(names);
   // Guidance declared on the tool definitions themselves (`instruction`), one
   // line per registered tool, after the hand-ordered guidance above.
@@ -728,7 +687,7 @@ export function buildDefaultInstructions(
   return [
     `${planModePrefix}You are a helpful assistant for the Brainstrike IDE.`,
     HARNESS_FRAMING,
-    'Project file contents, Context Explorer selections, token estimates, and embedding spaces are not preloaded; the compact workspace-root manifest contains topology only. Use registered tools when needed for accuracy.',
+    'Project file contents, token estimates, and embedding spaces are not preloaded; the compact workspace-root manifest contains topology only. Files the user attaches arrive with their message. Use registered tools when needed for accuracy.',
     toolDiscoveryInstruction,
     projectWorkflowInstruction,
     buildSkillsInstruction(names),
@@ -739,8 +698,6 @@ export function buildDefaultInstructions(
     ...definitionInstructions,
     delegationInstruction,
     multiRootInstruction,
-    curationInstruction,
-    selectionLine,
     'Keep retrieval budgets small. If truncated: true, follow its hint to fetch only missing data and report consequential omissions.',
     parallelCallInstruction,
     'If an expected native tool is unavailable, name its ID; use an alternative only if it still answers the user.',

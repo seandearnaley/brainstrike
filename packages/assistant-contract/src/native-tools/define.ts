@@ -87,7 +87,7 @@ export type DeferredCapabilityFamilyPhrase =
   | 'git worktrees'
   | 'file delete/rename'
   | 'directory listings'
-  | 'workspace context and tapestry'
+  | 'workspace context'
   | 'symbol and LSP inspection'
   | 'embedding search'
   | 'diagnostics'

@@ -8,11 +8,6 @@ function serializedChars(value: unknown): number {
 
 function baseResult() {
   return {
-    offset: 0,
-    selectedFileCount: 2,
-    selectedFiles: ['/src/main.ts', '/README.md'],
-    selectionFolderId: 'root-a',
-    truncated: false,
     workspaceIndex: {
       embeddingSetId: 'workspace-index',
       enabled: true,
@@ -28,19 +23,9 @@ function baseResult() {
 }
 
 describe('workspace context model projection', () => {
-  it('projects an authoritative zero-root result without inventing a main or focused root', () => {
+  it('projects an authoritative zero-root result without inventing a main root', () => {
     const projected = projectListWorkspaceContextModelOutput({
-      offset: 0,
-      selectedFileCount: 0,
-      selectedFiles: [],
-      selectionFolderId: null,
-      truncated: false,
-      workspaceIndex: {
-        embeddingSetId: null,
-        enabled: false,
-        mode: null,
-        paused: false,
-      },
+      workspaceIndex: { embeddingSetId: null, enabled: false, mode: null, paused: false },
       workspaceRootPath: null,
       workspaceRoots: [],
     });
@@ -48,243 +33,84 @@ describe('workspace context model projection', () => {
     expect(projected).toEqual({
       type: 'text',
       value: [
-        'workspace context | roots=0 | main=none | focused_root_id=none | selected=0 | outside=0 | page=empty/0 | truncated=false',
+        'workspace context | roots=0 | main=none',
         'index | enabled=false | paused=false | mode=unavailable | embedding_set=unavailable',
       ].join('\n'),
     });
-    expect(serializedChars(projected)).toBeLessThanOrEqual(
-      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
-    );
   });
 
-  it('projects a concise multi-root selection with index and curated-token state', () => {
-    const raw = {
-      ...baseResult(),
-      curatedContextSummary: {
-        fileCount: 2,
-        includeProjectTree: false,
-        projectTreeApproxTokens: 1800,
-        rangeCount: 1,
-        selectedOutputApproxTokens: 140,
-        selectedSourceApproxTokens: 240,
-        tokenBudget: 8192,
-      },
-      selectedFilesOutsideWorkspace: 4,
-      tokenEstimates: [
-        { approxTokens: 200, path: '/src/main.ts' },
-        { approxTokens: null, path: '/README.md' },
-      ],
-    };
-
-    expect(projectListWorkspaceContextModelOutput(raw)).toEqual({
+  it('projects the main root first, then the other roots, with the index state', () => {
+    expect(projectListWorkspaceContextModelOutput(baseResult())).toEqual({
       type: 'text',
       value: [
-        'workspace context | main=/work/brainstrike | selected=2 | outside=4 | page=1-2/2 | truncated=false | focused_root_id=root-a',
+        'workspace context | roots=2 | main=/work/brainstrike',
         'index | enabled=true | paused=false | mode=root-folder-cache | embedding_set=workspace-index',
         'root main | name=brainstrike | id=root-a | path=/work/brainstrike',
         'root | name=docs | id=root-b | path=/work/docs',
-        'selected /src/main.ts | approx_tokens=200',
-        'selected /README.md | approx_tokens=unavailable',
-        'curated | files=2 | ranges=1 | budget=8192 | selected_source_tokens=240 | selected_output_tokens=140 | project_tree=false | project_tree_tokens=1800',
       ].join('\n'),
     });
   });
 
-  it('self-fits a large selected-file page with an exact earlier advancing offset', () => {
-    const selectedFiles = Array.from(
-      { length: 90 },
-      (_, index) => `/packages/domain-${index}/${'nested/'.repeat(25)}file-${index}.ts`
-    );
+  it('keeps the main root and says how many other roots did not fit the budget', () => {
+    const workspaceRoots = Array.from({ length: 120 }, (_, index) => ({
+      displayName: `root-${index}`,
+      path: `/work/${'nested/'.repeat(20)}root-${index}`,
+      rootId: `root-${index}`,
+    }));
     const raw = {
       ...baseResult(),
-      hint: 'Showing selected files 41-130 of 500. Continue with offset: 130.',
-      offset: 40,
-      selectedFileCount: 500,
-      selectedFiles,
-      tokenEstimates: selectedFiles.map((path, index) => ({
-        approxTokens: index % 3 === 0 ? null : index * 10,
-        path,
-      })),
-      truncated: true,
-    };
-
-    const projected = projectListWorkspaceContextModelOutput(raw);
-    const match = projected.value.match(/continue: reuse the prior .* offset=(\d+)/);
-
-    expect(serializedChars(raw)).toBeGreaterThan(MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET);
-    expect(serializedChars(projected)).toBeLessThanOrEqual(
-      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
-    );
-    expect(serializedChars(projected)).toBeLessThan(serializedChars(raw) * 0.7);
-    expect(projected.value).toContain('projection_omitted:');
-    expect(match).not.toBeNull();
-    expect(Number(match?.[1])).toBeGreaterThan(40);
-    expect(Number(match?.[1])).toBeLessThan(130);
-  });
-
-  it('reserves multi-root identities before filling the selected-file page', () => {
-    const selectedFiles = Array.from(
-      { length: 80 },
-      (_, index) => `/packages/domain-${index}/${'nested/'.repeat(25)}file-${index}.ts`
-    );
-    const primaryRoot = baseResult().workspaceRoots[0];
-    if (!primaryRoot) {
-      throw new Error('expected a primary workspace root');
-    }
-    const workspaceRoots = [
-      primaryRoot,
-      ...Array.from({ length: 4 }, (_, index) => ({
-        displayName: `support-${index}`,
-        path: `/work/${'qualified/'.repeat(18)}support-${index}`,
-        rootId: `root-${index + 1}`,
-      })),
-    ];
-    const raw = {
-      ...baseResult(),
-      selectedFileCount: selectedFiles.length,
-      selectedFiles,
+      workspaceRootPath: workspaceRoots[0]?.path ?? null,
       workspaceRoots,
     };
 
     const projected = projectListWorkspaceContextModelOutput(raw);
 
-    for (const root of workspaceRoots) {
-      expect(projected.value).toContain(`id=${root.rootId}`);
-    }
-    expect(projected.value).toContain('projection_omitted: roots=0');
-    expect(projected.value).toMatch(
-      /continue: reuse the prior brainstrike\.listWorkspaceContext input with offset=[1-9]\d*/
+    expect(serializedChars(raw)).toBeGreaterThan(MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET);
+    expect(serializedChars(projected)).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
     );
-  });
-
-  it('preserves repeated path whitespace used by follow-up file tools', () => {
-    const repeatedWhitespacePath = '/src/foo  bar.ts';
-    const projected = projectListWorkspaceContextModelOutput({
-      ...baseResult(),
-      selectedFileCount: 1,
-      selectedFiles: [repeatedWhitespacePath],
-      tokenEstimates: [{ approxTokens: 42, path: repeatedWhitespacePath }],
-      workspaceRootPath: '/work/brain  strike',
-      workspaceRoots: [
-        {
-          displayName: 'brainstrike',
-          path: '/work/brain  strike',
-          rootId: 'root-a',
-        },
-      ],
-    });
-
-    expect(projected.value).toContain('main=/work/brain  strike');
-    expect(projected.value).toContain('path=/work/brain  strike');
-    expect(projected.value).toContain('selected /src/foo  bar.ts');
-    expect(projected.value).not.toContain('/src/foo bar.ts');
+    expect(projected.value).toContain('root main | name=root-0');
+    const kept = projected.value.split('\n').filter((line) => line.startsWith('root |')).length;
+    expect(projected.value).toContain(`projection_omitted: roots=${119 - kept}`);
   });
 
   it('escapes path line breaks without collapsing other path whitespace', () => {
-    const path = '/src/foo  bar\r\nline\u2028separator\u2029file.ts';
+    const path = '/work/foo  bar\r\nline separator root';
     const projected = projectListWorkspaceContextModelOutput({
       ...baseResult(),
-      selectedFileCount: 1,
-      selectedFiles: [path],
-      tokenEstimates: [{ approxTokens: 42, path }],
+      workspaceRootPath: path,
+      workspaceRoots: [{ displayName: 'odd', path, rootId: 'root-odd' }],
     });
 
     expect(projected.value).toContain(
-      String.raw`selected /src/foo  bar\r\nline\u2028separator\u2029file.ts`
+      String.raw`root main | name=odd | id=root-odd | path=/work/foo  bar\r\nline\u2028separator\u2029root`
     );
   });
 
-  it('derives continuation structurally instead of coupling to hint prose', () => {
+  it('makes disabled or paused indexing explicit', () => {
     const projected = projectListWorkspaceContextModelOutput({
       ...baseResult(),
-      hint: 'Resume the selected-file listing at offset 2.',
-      selectedFileCount: 3,
-      truncated: true,
+      workspaceIndex: { embeddingSetId: null, enabled: true, mode: null, paused: true },
     });
-
     expect(projected.value).toContain(
-      'continue: reuse the prior brainstrike.listWorkspaceContext input with offset=2'
+      'index | enabled=true | paused=true | mode=unavailable | embedding_set=unavailable'
     );
   });
 
-  it('compacts detailed curated files and their Tapestry ranges', () => {
-    const raw = {
-      ...baseResult(),
-      curatedContext: {
-        files: [
-          {
-            approxTokens: 200,
-            outputApproxTokens: 100,
-            path: '/src/main.ts',
-            ranges: [
-              { approxTokens: 20, endLine: 3, isActive: true, startLine: 2 },
-              { approxTokens: null, endLine: 18, isActive: false, startLine: 10 },
-            ],
-            rootDisplayName: 'brainstrike',
-            rootId: 'root-a',
-          },
-        ],
-        includeProjectTree: true,
-        projectTreeApproxTokens: null,
-        projectTreeTokenCountLoading: true,
-        selectedOutputApproxTokens: 100,
-        selectedSourceApproxTokens: 200,
-        tokenBudget: 4096,
-      },
-    };
-
-    const projected = projectListWorkspaceContextModelOutput(raw);
-
-    expect(projected.value).toContain(
-      'curated detail | files=1 | ranges=2 | budget=4096 | selected_source_tokens=200 | selected_output_tokens=100 | project_tree=true | project_tree_tokens=unavailable | project_tree_loading=true'
+  it('throws visibly for malformed producer results', () => {
+    expect(() => projectListWorkspaceContextModelOutput({ workspaceRoots: [] })).toThrow(
+      'listWorkspaceContext model projection received a malformed result'
     );
-    expect(projected.value).toContain(
-      'context_file 1 | root=brainstrike|root-a | path=/src/main.ts | source_tokens=200 | output_tokens=100 | ranges=2'
-    );
-    expect(projected.value).toContain('range 1.1 | lines=2-3 | active=true | approx_tokens=20');
-    expect(projected.value).toContain(
-      'range 1.2 | lines=10-18 | active=false | approx_tokens=unavailable'
-    );
-  });
-
-  it('makes zero selection and disabled or paused indexing explicit', () => {
-    const raw = {
-      ...baseResult(),
-      selectedFileCount: 0,
-      selectedFiles: [],
-      selectionFolderId: undefined,
-      workspaceIndex: {
-        embeddingSetId: null,
-        enabled: false,
-        mode: null,
-        paused: true,
-      },
-    };
-
-    const projected = projectListWorkspaceContextModelOutput(raw);
-
-    expect(projected.value).toContain('selected=0 | outside=0 | page=empty/0');
-    expect(projected.value).toContain(
-      'index | enabled=false | paused=true | mode=unavailable | embedding_set=unavailable'
-    );
-  });
-
-  it('throws visibly for malformed or non-advancing producer results', () => {
+    // The main path is the first root's, never a focused or invented one.
     expect(() =>
-      projectListWorkspaceContextModelOutput({
-        ...baseResult(),
-        selectedFileCount: -1,
-      })
+      projectListWorkspaceContextModelOutput({ ...baseResult(), workspaceRootPath: '/work/docs' })
     ).toThrow('listWorkspaceContext model projection received a malformed result');
-
     expect(() =>
       projectListWorkspaceContextModelOutput({
         ...baseResult(),
-        hint: 'Continue with offset: 0.',
-        selectedFileCount: 3,
-        selectedFiles: [],
-        truncated: true,
+        workspaceRootPath: null,
+        workspaceRoots: [],
       })
-    ).toThrow('listWorkspaceContext truncated without an advancing selected-file page');
+    ).not.toThrow();
   });
 });

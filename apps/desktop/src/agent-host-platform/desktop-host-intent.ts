@@ -32,7 +32,6 @@ export interface DesktopHostIntentCapture {
   readonly threadDraft?:
     | Pick<AssistantThreadDraftRuntime, 'modelSettings' | 'providerOptions'>
     | undefined;
-  readonly workspaceContext: RuntimeData['workspaceContext'] | null;
   readonly workspaceInstructionsPreference: DesktopHostIntent['workspaceInstructionsPreference'];
 }
 
@@ -54,7 +53,6 @@ export function captureDesktopHostIntent(input: DesktopHostIntentCapture): Deskt
       ...(projection?.providerOptions ? { providerOptions: projection.providerOptions } : {}),
     },
     permissionPolicy: { ...policy, yolo: policy.yolo || !enforce },
-    ...(input.workspaceContext ? { workspaceContext: input.workspaceContext } : {}),
     ...(input.selectionFolderId ? { selectionFolderId: input.selectionFolderId } : {}),
     skillsPreference: input.skillsPreference,
     ...(input.subagents ? { subagents: input.subagents } : {}),

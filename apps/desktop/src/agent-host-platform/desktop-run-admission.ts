@@ -28,7 +28,6 @@ import {
   prepareAdmittedSkills,
 } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
-import { placeCheckedFiles } from './desktop-checked-files';
 import {
   type DesktopHostSystemContext,
   desktopPlanModeTools,
@@ -53,7 +52,6 @@ import {
   type PlatformMemoryReadinessSchema,
   PlatformModelConfigurationSchema,
   type PlatformSelection,
-  PlatformWorkspaceContextSchema,
   platformPermissionPolicy,
 } from './platform-wire';
 
@@ -212,8 +210,6 @@ async function readDesktopNativeAdmission(
 ): Promise<{
   /** The enabled skills of the run's one scan, admitted to the host. */
   readonly admittedSkills: readonly import('@brainstrike/agent').ScannedSkill[] | undefined;
-  /** BST-1990: live folders outside the thread whose checked files this run may read. */
-  readonly attachedRootIds: readonly string[];
   /** BST-2018: live folders outside the thread whose mentioned files this run's prompt attaches. */
   readonly attachedMentions?: AttachedMentionFolders;
   /** The admission's tools, described from the catalog; the host executes every one. */
@@ -254,19 +250,8 @@ async function readDesktopNativeAdmission(
   const retrievalRootsOnly = selection !== undefined || workspace !== undefined;
   const readWorkspaceFile = desktopContextReader(request, freshRoots, retrievalRootsOnly);
   // The thread's binding owns the roots a run executes in; the explorer's focus
-  // only scopes the user's selection, so a focus outside the thread selects nothing.
+  // names a folder only when it is one of the thread's.
   const focused = roots.find((root) => root.rootId === intent.selectionFolderId);
-  // BST-1990: checked files reach the model from every thread folder, and from a
-  // live workspace folder outside the thread as this run's attached content.
-  const checked = placeCheckedFiles(
-    intent.workspaceContext
-      ? (JSON.parse(JSON.stringify(intent.workspaceContext)) as NonNullable<
-          RuntimeData['workspaceContext']
-        >)
-      : undefined,
-    roots,
-    liveRoots
-  );
   // BST-2018: a mention in a live folder outside the thread is attached for
   // this run only; the reader reads exactly the mentioned files, while live.
   // A CLI selection is the run's whole inventory: its prompt cannot widen it.
@@ -298,21 +283,12 @@ async function readDesktopNativeAdmission(
     ...(configuration.modelSettings ? { modelSettings: configuration.modelSettings } : {}),
     ...(configuration.providerOptions ? { providerOptions: configuration.providerOptions } : {}),
     enabledNativeToolIds: intent.enabledNativeToolIds,
-    ...(checked.workspaceContext ? { workspaceContext: checked.workspaceContext } : {}),
     workspaceInstructionsPreference: intent.workspaceInstructionsPreference,
     workspaceRoots: roots,
     ...(request.workspaceBinding?.operatingRootId
       ? { boundWorkspaceRootId: request.workspaceBinding.operatingRootId }
       : {}),
-    ...(focused
-      ? {
-          selectionFilePaths: (checked.workspaceContext?.files ?? [])
-            .filter((file) => file.rootId === focused.rootId)
-            .map((file) => file.path),
-          selectionFolderId: focused.rootId,
-          workspaceRootPath: focused.path,
-        }
-      : {}),
+    ...(focused ? { selectionFolderId: focused.rootId, workspaceRootPath: focused.path } : {}),
     ...(intent.skillsPreference ? { skillsPreference: intent.skillsPreference } : {}),
   };
   const { skills: admittedSkills, workspaceSkills } = desktopRunSkills(
@@ -330,7 +306,6 @@ async function readDesktopNativeAdmission(
   return {
     admittedSkills,
     ...(attachedMentions ? { attachedMentions } : {}),
-    attachedRootIds: checked.attachedRootIds,
     descriptors,
     freshRoots,
     readWorkspaceFile,
@@ -407,23 +382,17 @@ function desktopDelegationFields(
 function desktopNativeRuntime(
   runtime: RuntimeData,
   retrievalRootsOnly: boolean,
-  skills: readonly import('@brainstrike/agent').ScannedSkill[] | undefined,
-  attachedRootIds: readonly string[]
+  skills: readonly import('@brainstrike/agent').ScannedSkill[] | undefined
 ): DesktopRunSelection['nativeRuntime'] {
   if (typeof runtime.provider !== 'string' || !runtime.workspaceRoots) {
     throw new Error('Desktop admission has no native tool runtime');
   }
   return {
-    ...(attachedRootIds.length > 0 ? { attachedRootIds: [...attachedRootIds] } : {}),
     ...(runtime.boundWorkspaceRootId ? { boundWorkspaceRootId: runtime.boundWorkspaceRootId } : {}),
     provider: runtime.provider,
     ...(retrievalRootsOnly ? { retrievalRootsOnly: true as const } : {}),
-    ...(runtime.selectionFilePaths ? { selectionFilePaths: [...runtime.selectionFilePaths] } : {}),
     ...(runtime.selectionFolderId ? { selectionFolderId: runtime.selectionFolderId } : {}),
     ...(skills ? { skills: z.array(PlatformAdmittedSkillSchema).parse(skills) } : {}),
-    ...(runtime.workspaceContext
-      ? { workspaceContext: PlatformWorkspaceContextSchema.parse(runtime.workspaceContext) }
-      : {}),
     ...(runtime.workspaceRootPath ? { workspaceRootPath: runtime.workspaceRootPath } : {}),
     workspaceRoots: runtime.workspaceRoots.map(({ displayName, path, rootId }) => ({
       displayName,
@@ -575,8 +544,7 @@ export function createDesktopRunAdmission(
         nativeRuntime: desktopNativeRuntime(
           native.runtime,
           native.retrievalRootsOnly,
-          native.admittedSkills,
-          native.attachedRootIds
+          native.admittedSkills
         ),
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         ...desktopSystemFields(system),

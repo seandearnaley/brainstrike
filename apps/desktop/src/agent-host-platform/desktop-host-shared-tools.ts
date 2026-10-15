@@ -14,25 +14,6 @@ import {
 } from './host-executed-tools';
 import type { PlatformSelection } from './platform-wire';
 
-type AdmittedWorkspaceContext = NonNullable<PlatformSelection['nativeRuntime']['workspaceContext']>;
-
-/** The admitted selection in RuntimeData's shape: a range of unknown size counts as `null`. */
-function runtimeWorkspaceContext({
-  tokenBudget,
-  ...context
-}: AdmittedWorkspaceContext): NonNullable<RuntimeData['workspaceContext']> {
-  return {
-    ...context,
-    ...(tokenBudget === undefined ? {} : { tokenBudget }),
-    files: context.files.map(({ rootDisplayName, rootId, ...file }) => ({
-      ...file,
-      ranges: file.ranges.map((range) => ({ ...range, approxTokens: range.approxTokens ?? null })),
-      ...(rootDisplayName === undefined ? {} : { rootDisplayName }),
-      ...(rootId === undefined ? {} : { rootId }),
-    })),
-  };
-}
-
 /**
  * The admitted shared native tools, executed in this host process with Core's
  * edit tracker and thread state. Their descriptors must match these
@@ -63,11 +44,7 @@ export function desktopHostSharedTools(options: {
     provider: native.provider,
     workspaceRoots: native.workspaceRoots,
     ...(native.boundWorkspaceRootId ? { boundWorkspaceRootId: native.boundWorkspaceRootId } : {}),
-    ...(native.selectionFilePaths ? { selectionFilePaths: native.selectionFilePaths } : {}),
     ...(native.selectionFolderId ? { selectionFolderId: native.selectionFolderId } : {}),
-    ...(native.workspaceContext
-      ? { workspaceContext: runtimeWorkspaceContext(native.workspaceContext) }
-      : {}),
     ...(native.workspaceRootPath ? { workspaceRootPath: native.workspaceRootPath } : {}),
   };
   const local = createSharedNativeHostTools({

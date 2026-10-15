@@ -122,16 +122,6 @@ export const TOOL_VERBS: Readonly<Record<NativeToolId, ActivityVerb>> = Object.f
   [NATIVE_TOOL_ID.skillSearch]: verb('Searching skills', 'Searched skills', 'skill'),
   [NATIVE_TOOL_ID.stringReplaceWorkspaceFile]: fileVerb('Editing', 'Edited', 'edit', 'always'),
   [NATIVE_TOOL_ID.submitPlan]: verb('Proposing plan', 'Proposed plan', 'ask'),
-  [NATIVE_TOOL_ID.updateWorkspaceContextSelection]: verb(
-    'Updating context',
-    'Updated context',
-    'read'
-  ),
-  [NATIVE_TOOL_ID.updateWorkspaceTapestrySelections]: verb(
-    'Updating selections',
-    'Updated selections',
-    'read'
-  ),
   [NATIVE_TOOL_ID.webExtract]: verb('Fetching', 'Fetched', 'web'),
   [NATIVE_TOOL_ID.webSearch]: verb('Searching the web', 'Searched the web', 'web'),
   [NATIVE_TOOL_ID.writeWorkspaceFile]: fileVerb('Editing', 'Edited', 'edit', 'always'),

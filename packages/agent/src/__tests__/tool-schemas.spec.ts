@@ -5,7 +5,6 @@ import {
   GrepSearchInputSchema,
   HybridSearchInputSchema,
   QueryEmbeddingSpaceInputSchema,
-  UpdateWorkspaceTapestrySelectionsInputSchema,
   validateToolInput,
 } from '../tools/schemas';
 
@@ -24,48 +23,21 @@ describe('tool schemas', () => {
     expect(getToolSchemaDisplay('filesystem.list')).toBeUndefined();
   });
 
-  it('validates workspace context read input', () => {
+  it('validates workspace context read input, which names its files', () => {
     const ok = validateToolInput('brainstrike.readWorkspaceContext', {
       filePaths: ['/src/main.ts', '/src/utils.ts'],
       maxFiles: 2,
       tokenBudget: 4000,
-      useTapestrySelections: true,
     });
     expect(ok.ok).toBe(true);
-  });
-
-  it('validates workspace context selection updates', () => {
-    const ok = validateToolInput('brainstrike.updateWorkspaceContextSelection', {
-      filePaths: ['/src/main.ts', '/src/utils.ts'],
-      mode: 'replace',
-    });
-    expect(ok.ok).toBe(true);
-  });
-
-  it('validates workspace tapestry selection updates', () => {
-    const ok = validateToolInput('brainstrike.updateWorkspaceTapestrySelections', {
-      mode: 'replace',
-      selectFiles: true,
-      updates: [
-        {
-          path: '/src/main.ts',
-          ranges: [{ endLine: 12, isActive: true, startLine: 4 }],
-        },
-      ],
-    });
-    expect(ok.ok).toBe(true);
-  });
-
-  it('rejects inverted workspace tapestry ranges', () => {
-    const ok = validateToolInput('brainstrike.updateWorkspaceTapestrySelections', {
-      updates: [
-        {
-          path: '/src/main.ts',
-          ranges: [{ endLine: 4, startLine: 12 }],
-        },
-      ],
-    });
-    expect(ok.ok).toBe(false);
+    // No selected-context default and no Tapestry ranges are left to read (BST-2019).
+    expect(validateToolInput('brainstrike.readWorkspaceContext', { maxFiles: 2 }).ok).toBe(false);
+    expect(
+      validateToolInput('brainstrike.readWorkspaceContext', {
+        filePaths: ['/src/main.ts'],
+        useTapestrySelections: true,
+      }).ok
+    ).toBe(false);
   });
 
   it('allows embedding-space queries to omit an explicit id for workspace-index defaulting', () => {
@@ -206,9 +178,9 @@ describe('tool schemas', () => {
     expect(display?.description).toContain('EXTERNAL WEB-SEARCH SERVICE');
   });
 
-  it('documents context curation tools in schema display metadata', () => {
-    expect(getToolSchemaDisplay('brainstrike.updateWorkspaceContextSelection')).toBeDefined();
-    expect(getToolSchemaDisplay('brainstrike.updateWorkspaceTapestrySelections')).toBeDefined();
+  it('retires the context curation tools (BST-2019)', () => {
+    expect(getToolSchemaDisplay('brainstrike.updateWorkspaceContextSelection')).toBeUndefined();
+    expect(getToolSchemaDisplay('brainstrike.updateWorkspaceTapestrySelections')).toBeUndefined();
   });
 
   it('validates manageTaskList input and rejects malformed lists (strict)', () => {
@@ -317,29 +289,5 @@ describe('tool schemas', () => {
     const askUser = getToolSchemaDisplay('brainstrike.askUser');
     expect(askUser).toBeDefined();
     expect(askUser?.parameters.find((param) => param.name === 'question')?.required).toBe(true);
-  });
-});
-
-describe('UpdateWorkspaceTapestrySelectionsInputSchema color', () => {
-  const base = {
-    updates: [{ path: '/a.ts', ranges: [{ endLine: 3, startLine: 1 }] }],
-  };
-
-  it('accepts an omitted color', () => {
-    expect(UpdateWorkspaceTapestrySelectionsInputSchema.safeParse(base).success).toBe(true);
-  });
-
-  it('accepts a valid named color', () => {
-    const input = {
-      updates: [{ path: '/a.ts', ranges: [{ color: 'blue', endLine: 3, startLine: 1 }] }],
-    };
-    expect(UpdateWorkspaceTapestrySelectionsInputSchema.safeParse(input).success).toBe(true);
-  });
-
-  it('rejects an unknown color name (no silent fallback)', () => {
-    const input = {
-      updates: [{ path: '/a.ts', ranges: [{ color: 'chartreuse', endLine: 3, startLine: 1 }] }],
-    };
-    expect(UpdateWorkspaceTapestrySelectionsInputSchema.safeParse(input).success).toBe(false);
   });
 });

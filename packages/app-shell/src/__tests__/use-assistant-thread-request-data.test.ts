@@ -36,10 +36,8 @@ const baseArgs = {
   observationalMemorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
   providerOptions: { openai: { reasoningEffort: 'medium' } },
   requestedReasoningEffort: 'medium' as const,
-  runtimeWorkspaceContext: null,
   selectedMemoryThreadId: 'thread-a',
   selectionData: {
-    filePaths: ['/workspace-a/src/app.ts'],
     folderId: null,
   },
   semanticRecallSettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
@@ -87,7 +85,6 @@ describe('useAssistantThreadRequestData', () => {
       },
       providerOptions: { openai: { reasoningEffort: 'medium' } },
       requestedReasoningEffort: 'medium',
-      selectionFilePaths: ['/workspace-a/src/app.ts'],
       subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceIndexEmbeddingSetId: 'embedding-set-a',
       workspaceIndexingEnabled: true,

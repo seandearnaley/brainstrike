@@ -522,7 +522,7 @@ describe('BrainstrikeToolSearchProcessor', () => {
     const step = await processor.processInputStep(createStepArgs());
 
     const description = String(step.tools.search_tools.description);
-    expect(description).toContain('workspace context and tapestry');
+    expect(description).toContain('workspace context');
     expect(description).toContain('directory listings');
     expect(description).not.toContain('canvas documents');
     expect(description).toContain('load_tool');

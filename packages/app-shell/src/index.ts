@@ -17,7 +17,6 @@ export {
   type LlmProviderModelDefinition,
   resolveComposerAttachmentsAvailability,
   toRuntimeProviderModels,
-  toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
 export * from './connected-prompt-manager';
 export * from './connected-prompt-manager-lazy';

@@ -32,14 +32,10 @@ import type {
   IndexerGrepResult,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
-import type { BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { refusalOutcome } from '../../agent-host-platform/host-tool-services';
-import {
-  ContextSelectionDeliveryRequestSchema,
-  GrepIndexRequestSchema,
-} from '../../agent-host-platform/host-tool-wire';
+import { GrepIndexRequestSchema } from '../../agent-host-platform/host-tool-wire';
 import { nativeGrepIndex } from '../../agent-host-platform/native-grep-index';
 import { threadScoped } from '../../agent-host-platform/retrieval-wire';
 import type { CommandSessionManager } from '../../assistant-server/command-session-manager';
@@ -50,12 +46,6 @@ import {
 import type { GrepIndexSearch } from '../../assistant-server/grep-search-core';
 import { commandSessionExecutors } from '../../assistant-server/native-tool-executors-sessions';
 import { pgliteRetrievalStore } from '../../assistant-server/retrieval-store-pglite';
-import { mainWorkspaceContextBroadcaster } from '../../assistant-server/workspace-context-broadcast';
-import {
-  assignWindowRole,
-  clearWindowRoleByWebContentsId,
-  type DesktopWindowRole,
-} from '../../window-role';
 import { hit, storeId } from '../native-scoped-search-fixture';
 import {
   buildHostNativeTools,
@@ -197,10 +187,6 @@ function mainRequest(
           await refusalOutcome(() => pgliteRetrievalStore().embeddingSpaces(request))
         );
       }
-      case 'platform/workspace-context/selection': {
-        const { payload } = ContextSelectionDeliveryRequestSchema.parse(input);
-        return { notifiedWindowCount: await mainWorkspaceContextBroadcaster.selection(payload) };
-      }
       default:
         throw new Error(`Unexpected Main request ${method}`);
     }
@@ -303,38 +289,11 @@ function needleIndex(): Pick<IndexSearchCapability, 'grep' | 'status'> {
 // one suite per service seam, sharing the fixture module and repeating the
 // vi.mock preamble per file (hoisting is per-importing-module).
 describe('assistant-tools read tools', () => {
-  const trackedWindowIds: number[] = [];
-
-  function createMockWindow({
-    destroyed = false,
-    id,
-    role,
-    send,
-  }: {
-    destroyed?: boolean;
-    id: number;
-    role: DesktopWindowRole;
-    send: ReturnType<typeof vi.fn>;
-  }): BrowserWindow {
-    const browserWindow = {
-      isDestroyed: () => destroyed,
-      once: vi.fn(),
-      webContents: { id, send },
-    } as unknown as BrowserWindow;
-    assignWindowRole(browserWindow, role);
-    trackedWindowIds.push(id);
-    return browserWindow;
-  }
-
   beforeEach(() => {
     vi.clearAllMocks();
     resetFileReadState();
     resetToolCallLoopGuards();
     hostCursorRegistry = new ReadWorkspaceFileCursorRegistry();
-    for (const id of trackedWindowIds) {
-      clearWindowRoleByWebContentsId(id);
-    }
-    trackedWindowIds.length = 0;
   });
 
   it('fits read pages at floor, byte-identical anchor, and ceiling tiers', async () => {
@@ -1912,7 +1871,7 @@ describe('assistant-tools read tools', () => {
     await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
-  it('exposes tool-only context tools and omits legacy context mutation tools from chat runtime', () => {
+  it('exposes the context reads and no context selection tools (BST-2019)', () => {
     const tools = hostTools(singleRootRuntime('/tmp/workspace'));
 
     expect(tools['brainstrike.listWorkspaceContext']).toBeDefined();
@@ -1920,8 +1879,8 @@ describe('assistant-tools read tools', () => {
     expect(tools['brainstrike.listEmbeddingSpaces']).toBeDefined();
     expect(tools['brainstrike.queryEmbeddingSpace']).toBeDefined();
     expect(tools['brainstrike.hybridSearch']).toBeDefined();
-    expect(tools['brainstrike.updateWorkspaceContextSelection']).toBeDefined();
-    expect(tools['brainstrike.updateWorkspaceTapestrySelections']).toBeDefined();
+    expect(tools['brainstrike.updateWorkspaceContextSelection']).toBeUndefined();
+    expect(tools['brainstrike.updateWorkspaceTapestrySelections']).toBeUndefined();
     expect(tools['brainstrike.selectRootTreeFiles']).toBeUndefined();
     expect(tools['brainstrike.updatePreviewContextFiles']).toBeUndefined();
   });
@@ -2101,10 +2060,6 @@ describe('assistant-tools read tools', () => {
       'brainstrike.listWorkspaceContext'
     );
     const raw = {
-      offset: 0,
-      selectedFileCount: 1,
-      selectedFiles: ['/src/target.ts'],
-      truncated: false,
       workspaceIndex: {
         embeddingSetId: 'workspace-index',
         enabled: true,
@@ -2125,10 +2080,9 @@ describe('assistant-tools read tools', () => {
     expect(toModelOutput(raw)).toEqual({
       type: 'text',
       value: [
-        'workspace context | main=/tmp/workspace | selected=1 | outside=0 | page=1-1/1 | truncated=false',
+        'workspace context | roots=1 | main=/tmp/workspace',
         'index | enabled=true | paused=false | mode=root-folder-cache | embedding_set=workspace-index',
         'root main | name=workspace | id=root-a | path=/tmp/workspace',
-        'selected /src/target.ts',
       ].join('\n'),
     });
     expect(raw).toEqual(before);
@@ -2739,11 +2693,10 @@ describe('assistant-tools read tools', () => {
     expect(toModelOutput(finalPage).value.complete).toBe(true);
   });
 
-  it('lists selected workspace context without returning file contents', async () => {
+  it('lists the open roots and the main root without file contents or a selection', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = contextTools({
       ...singleRootRuntime(workspaceRootPath),
-      selectionFilePaths: ['/src/main.ts', '/README.md'],
       selectionFolderId: 'root-1',
     } as RuntimeData);
     const executeTool = requireToolExecute(tools, 'brainstrike.listWorkspaceContext');
@@ -2751,13 +2704,12 @@ describe('assistant-tools read tools', () => {
     const result = await executeTool({ context: {} });
 
     expect(result.workspaceRootPath).toBe(workspaceRootPath);
-    expect(result.selectionFolderId).toBe('root-1');
-    expect(result.selectedFileCount).toBe(2);
-    expect(result.selectedFiles).toEqual(['/src/main.ts', '/README.md']);
+    expect(result.workspaceRoots).toHaveLength(1);
+    // Checked files are not context (BST-2019): there is no selection to list.
+    expect(result).not.toHaveProperty('selectedFiles');
+    expect(result).not.toHaveProperty('selectionFolderId');
     expect(JSON.stringify(result)).not.toContain('line 1');
     expect(JSON.stringify(result)).not.toContain('# Test Workspace');
-    // Single-root: no other-roots count key at all.
-    expect(result).not.toHaveProperty('selectedFilesOutsideWorkspace');
     await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
@@ -2819,11 +2771,6 @@ describe('assistant-tools read tools', () => {
     const executeTool = requireToolExecute(tools, 'brainstrike.listWorkspaceContext');
 
     await expect(executeTool({ context: {} })).resolves.toEqual({
-      offset: 0,
-      selectedFileCount: 0,
-      selectedFiles: [],
-      selectionFolderId: null,
-      truncated: false,
       workspaceIndex: {
         embeddingSetId: null,
         enabled: false,
@@ -2854,41 +2801,10 @@ describe('assistant-tools read tools', () => {
     await expect(executeTool({ context: {} })).rejects.toThrow(/root metadata is malformed/i);
   });
 
-  it('fails when zero roots retain a selection count from other roots', async () => {
-    const tools = contextTools({
-      provider: 'openai',
-      selectionFilePathsFromOtherRoots: 1,
-      workspaceRoots: [],
-    } as RuntimeData);
-    const executeTool = requireToolExecute(tools, 'brainstrike.listWorkspaceContext');
-
-    await expect(executeTool({ context: {} })).rejects.toThrow(/root metadata is inconsistent/i);
-  });
-
-  it('reports selected files living in OTHER workspace roots (multi-root forest)', async () => {
-    const workspaceRootPath = await createWorkspaceFixture();
-    const tools = contextTools({
-      ...singleRootRuntime(workspaceRootPath),
-      selectionFilePaths: ['/src/main.ts'],
-      // Multi-root: 4 selected files belong to roots the single-root toolset
-      // cannot address — the count must be SURFACED, never silently dropped.
-      selectionFilePathsFromOtherRoots: 4,
-      selectionFolderId: 'root-1',
-    } as RuntimeData);
-    const executeTool = requireToolExecute(tools, 'brainstrike.listWorkspaceContext');
-
-    const result = await executeTool({ context: {} });
-
-    expect(result.selectedFileCount).toBe(1);
-    expect(result.selectedFilesOutsideWorkspace).toBe(4);
-    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-  });
-
   it('lists every open workspace root so the model can qualify the other tools', async () => {
     const rootAPath = path.join(os.tmpdir(), 'ProjectA');
     const rootBPath = path.join(os.tmpdir(), 'ProjectB');
     const tools = contextTools({
-      selectionFilePaths: [],
       workspaceRoots: [
         { displayName: 'ProjectA', path: rootAPath, rootId: 'id-a' },
         { displayName: 'ProjectB', path: rootBPath, rootId: 'id-b' },
@@ -2906,10 +2822,7 @@ describe('assistant-tools read tools', () => {
 
   it('rejects a workspace context list when only a renderer focus path is present', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = contextTools({
-      selectionFilePaths: [],
-      workspaceRootPath,
-    } as RuntimeData);
+    const tools = contextTools({ workspaceRootPath } as RuntimeData);
     const executeTool = requireToolExecute(tools, 'brainstrike.listWorkspaceContext');
     await expect(executeTool({ context: {} })).rejects.toThrow(
       /authoritative workspace root inventory is unavailable/i
@@ -2917,131 +2830,14 @@ describe('assistant-tools read tools', () => {
     await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
-  it('lists token-aware curated workspace context metadata without file contents', async () => {
+  it('reads named workspace context files under file and token limits with explicit skips', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = contextTools({
-      ...singleRootRuntime(workspaceRootPath),
-      selectionFilePaths: ['/src/main.ts', '/README.md'],
-      selectionFolderId: 'root-1',
-      workspaceContext: {
-        files: [
-          {
-            approxTokens: 200,
-            outputApproxTokens: 100,
-            path: '/src/main.ts',
-            ranges: [{ approxTokens: 20, endLine: 3, isActive: true, startLine: 2 }],
-            rootId: workspaceRootPath,
-          },
-          {
-            approxTokens: 40,
-            outputApproxTokens: 40,
-            path: '/README.md',
-            ranges: [],
-            rootId: workspaceRootPath,
-          },
-        ],
-        includeProjectTree: false,
-        projectTreeApproxTokens: 1800,
-        projectTreeTokenCountLoading: false,
-        selectedOutputApproxTokens: 140,
-        selectedSourceApproxTokens: 240,
-        tokenBudget: 8192,
-      },
-    } as RuntimeData);
-    const executeTool = requireToolExecute(tools, 'brainstrike.listWorkspaceContext');
-
-    const conciseResult = await executeTool({
-      context: { includeTokenEstimates: true },
-    });
-
-    // Concise default: counts and token budgets only, no per-file range metadata.
-    expect(conciseResult.curatedContext).toBeUndefined();
-    expect(conciseResult.curatedContextSummary).toEqual({
-      fileCount: 2,
-      includeProjectTree: false,
-      projectTreeApproxTokens: 1800,
-      rangeCount: 1,
-      selectedOutputApproxTokens: 140,
-      selectedSourceApproxTokens: 240,
-      tokenBudget: 8192,
-    });
-    expect(conciseResult.curatedContextSummary).not.toHaveProperty('useTapestryRanges');
-    expect(conciseResult.truncated).toBe(false);
-
-    const result = await executeTool({
-      context: { detail: true, includeTokenEstimates: true },
-    });
-
-    expect(result.curatedContext).toEqual({
-      files: [
-        {
-          approxTokens: 200,
-          outputApproxTokens: 100,
-          path: '/src/main.ts',
-          ranges: [{ approxTokens: 20, endLine: 3, isActive: true, startLine: 2 }],
-          rootId: workspaceRootPath,
-        },
-        {
-          approxTokens: 40,
-          outputApproxTokens: 40,
-          path: '/README.md',
-          ranges: [],
-          rootId: workspaceRootPath,
-        },
-      ],
-      includeProjectTree: false,
-      projectTreeApproxTokens: 1800,
-      projectTreeTokenCountLoading: false,
-      selectedOutputApproxTokens: 140,
-      selectedSourceApproxTokens: 240,
-      tokenBudget: 8192,
-    });
-    expect(result.tokenEstimates).toEqual([
-      { approxTokens: 200, path: '/src/main.ts' },
-      { approxTokens: 40, path: '/README.md' },
-    ]);
-    expect(JSON.stringify(result)).not.toContain('line 1');
-    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-  });
-
-  it('bounds huge selected-file listings with offset paging and a hint', async () => {
-    const workspaceRootPath = await createWorkspaceFixture();
-    const selectionFilePaths = Array.from(
-      { length: 2000 },
-      (_, i) => `/packages/some-package/src/deeply/nested/dir-${i}/file-with-a-long-name-${i}.ts`
-    );
-    const tools = contextTools({
-      ...singleRootRuntime(workspaceRootPath),
-      selectionFilePaths,
-    } as RuntimeData);
-    const executeTool = requireToolExecute(tools, 'brainstrike.listWorkspaceContext');
-
-    const firstPage = await executeTool({ context: {} });
-    expect(firstPage.selectedFileCount).toBe(2000);
-    expect(firstPage.selectedFiles.length).toBeLessThan(2000);
-    expect(firstPage.truncated).toBe(true);
-    expect(firstPage.hint).toContain('offset:');
-    expect(JSON.stringify(firstPage).length).toBeLessThanOrEqual(11_000);
-
-    const secondPage = await executeTool({
-      context: { offset: firstPage.selectedFiles.length },
-    });
-    expect(secondPage.offset).toBe(firstPage.selectedFiles.length);
-    expect(secondPage.selectedFiles[0]).not.toBe(firstPage.selectedFiles[0]);
-
-    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-  });
-
-  it('reads selected workspace context under file and token limits with explicit skips', async () => {
-    const workspaceRootPath = await createWorkspaceFixture();
-    const tools = hostTools({
-      ...singleRootRuntime(workspaceRootPath),
-      selectionFilePaths: ['/src/main.ts', '/README.md'],
-    } as RuntimeData);
+    const tools = hostTools(singleRootRuntime(workspaceRootPath));
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceContext');
 
     const result = await executeTool({
       context: {
+        filePaths: ['/src/main.ts', '/README.md'],
         maxCharsPerFile: 20,
         maxFiles: 1,
         tokenBudget: 100,
@@ -3062,15 +2858,14 @@ describe('assistant-tools read tools', () => {
 
   it('does not expose raw filesystem errors for skipped workspace context files', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = hostTools({
-      ...singleRootRuntime(workspaceRootPath),
-      // The skip reason is decided by the refusal's type, never by its text: a
-      // missing file whose name reads like the size-limit message is missing.
-      selectionFilePaths: ['/missing.ts', '/exceeds-limit-name.txt'],
-    } as RuntimeData);
+    const tools = hostTools(singleRootRuntime(workspaceRootPath));
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceContext');
 
-    const result = await executeTool({ context: {} });
+    // The skip reason is decided by the refusal's type, never by its text: a
+    // missing file whose name reads like the size-limit message is missing.
+    const result = await executeTool({
+      context: { filePaths: ['/missing.ts', '/exceeds-limit-name.txt'] },
+    });
 
     expect(result.skippedFiles).toEqual([
       { path: '/missing.ts', reason: 'missing' },
@@ -3087,14 +2882,11 @@ describe('assistant-tools read tools', () => {
       { code: 'EACCES' }
     );
     const openSpy = vi.spyOn(fsPromises, 'open').mockRejectedValueOnce(readError);
-    const tools = hostTools({
-      ...singleRootRuntime(workspaceRootPath),
-      selectionFilePaths: ['/src/main.ts'],
-    } as RuntimeData);
+    const tools = hostTools(singleRootRuntime(workspaceRootPath));
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceContext');
 
     try {
-      const result = await executeTool({ context: {} });
+      const result = await executeTool({ context: { filePaths: ['/src/main.ts'] } });
 
       expect(result.skippedFiles).toEqual([{ path: '/src/main.ts', reason: 'readError' }]);
       expect(JSON.stringify(result.skippedFiles)).not.toContain(workspaceRootPath);
@@ -3113,183 +2905,6 @@ describe('assistant-tools read tools', () => {
       openSpy.mockRestore();
       await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }
-  });
-
-  it('reads a rangeless (empty ranges) context file as a bare whole-file read', async () => {
-    const workspaceRootPath = await createWorkspaceFixture();
-    const tools = hostTools({
-      ...singleRootRuntime(workspaceRootPath),
-      selectionFilePaths: ['/src/main.ts'],
-      workspaceContext: {
-        files: [
-          {
-            path: '/src/main.ts',
-            ranges: [],
-            rootId: workspaceRootPath,
-          },
-        ],
-      },
-    } as RuntimeData);
-    const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceContext');
-
-    const result = await executeTool({
-      context: {
-        maxCharsPerFile: 200,
-        tokenBudget: 100,
-        useTapestrySelections: true,
-      },
-    });
-
-    expect(result.includedCount).toBe(1);
-    expect(result.files[0]).not.toHaveProperty('tapestryRangeCount');
-    expect(result.files[0]?.content).toContain('line 1');
-    expect(result.files[0]?.content).toContain('line 2');
-    expect(result.files[0]?.content).toContain('line 3');
-    expect(result.files[0]?.content).toContain('line 4');
-    expect(result.files[0]?.content).not.toContain('<selection');
-    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-  });
-
-  it('reads selected workspace context through curated tapestry line ranges', async () => {
-    const workspaceRootPath = await createWorkspaceFixture();
-    const tools = hostTools({
-      ...singleRootRuntime(workspaceRootPath),
-      selectionFilePaths: ['/src/main.ts'],
-      workspaceContext: {
-        files: [
-          {
-            path: '/src/main.ts',
-            ranges: [{ endLine: 3, isActive: true, startLine: 2 }],
-            rootId: workspaceRootPath,
-          },
-        ],
-      },
-    } as RuntimeData);
-    const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceContext');
-
-    const result = await executeTool({
-      context: {
-        maxCharsPerFile: 200,
-        tokenBudget: 100,
-        useTapestrySelections: true,
-      },
-    });
-
-    expect(result.includedCount).toBe(1);
-    expect(result.files[0]).toMatchObject({
-      endLine: 3,
-      path: '/src/main.ts',
-      startLine: 2,
-      tapestryRangeCount: 1,
-    });
-    expect(result.files[0]?.content).toContain('line 2');
-    expect(result.files[0]?.content).toContain('line 3');
-    expect(result.files[0]?.content).not.toContain('line 1');
-    expect(result.files[0]?.content).not.toContain('line 4');
-    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-  });
-
-  it('reads whole checked files when tapestry selections are turned off', async () => {
-    const workspaceRootPath = await createWorkspaceFixture();
-    const tools = hostTools({
-      ...singleRootRuntime(workspaceRootPath),
-      selectionFilePaths: ['/src/main.ts'],
-      workspaceContext: {
-        files: [
-          {
-            path: '/src/main.ts',
-            ranges: [{ endLine: 3, isActive: true, startLine: 2 }],
-            rootId: workspaceRootPath,
-          },
-        ],
-      },
-    } as RuntimeData);
-    const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceContext');
-
-    const result = await executeTool({
-      context: { maxCharsPerFile: 200, tokenBudget: 100, useTapestrySelections: false },
-    });
-
-    expect(result.includedCount).toBe(1);
-    expect(result.files[0]).not.toHaveProperty('tapestryRangeCount');
-    expect(result.files[0]?.content).toContain('line 1');
-    expect(result.files[0]?.content).toContain('line 4');
-    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-  });
-
-  it('stops tapestry range output when range budget is exhausted', async () => {
-    const workspaceRootPath = await createWorkspaceFixture();
-    const tools = hostTools({
-      ...singleRootRuntime(workspaceRootPath),
-      selectionFilePaths: ['/src/main.ts'],
-      workspaceContext: {
-        files: [
-          {
-            path: '/src/main.ts',
-            ranges: [
-              { endLine: 2, isActive: true, startLine: 2 },
-              { endLine: 3, isActive: true, startLine: 3 },
-            ],
-            rootId: workspaceRootPath,
-          },
-        ],
-      },
-    } as RuntimeData);
-    const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceContext');
-
-    const result = await executeTool({
-      context: {
-        maxCharsPerFile: 6,
-        tokenBudget: 100,
-        useTapestrySelections: true,
-      },
-    });
-
-    expect(result.files[0]?.content).toContain('<selection index="1"');
-    expect(result.files[0]?.content).not.toContain('<selection index="2"');
-    expect(result.files[0]?.truncated).toBe(true);
-    expect(result.files[0]?.omittedChars).toBeGreaterThan(0);
-    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-  });
-
-  it('escapes selection boundary tags inside tapestry range content', async () => {
-    const workspaceRootPath = await createWorkspaceFixture();
-    await fsPromises.writeFile(
-      path.join(workspaceRootPath, 'src', 'main.ts'),
-      'line 1\nliteral <selection index="1"> and <selection/> and </selection> tags with <selectionMode>\nline 3',
-      'utf8'
-    );
-    const tools = hostTools({
-      ...singleRootRuntime(workspaceRootPath),
-      selectionFilePaths: ['/src/main.ts'],
-      workspaceContext: {
-        files: [
-          {
-            path: '/src/main.ts',
-            ranges: [{ endLine: 2, isActive: true, startLine: 2 }],
-            rootId: workspaceRootPath,
-          },
-        ],
-      },
-    } as RuntimeData);
-    const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceContext');
-
-    const result = await executeTool({
-      context: {
-        maxCharsPerFile: 200,
-        tokenBudget: 100,
-        useTapestrySelections: true,
-      },
-    });
-
-    expect(result.files[0]?.content).toContain(
-      'literal &lt;selection index="1"> and &lt;selection/> and &lt;/selection&gt; tags'
-    );
-    expect(result.files[0]?.content).toContain('<selectionMode>');
-    expect(result.files[0]?.content).not.toContain('literal <selection index="1">');
-    expect(result.files[0]?.content).not.toContain('literal <selection/>');
-    expect(result.files[0]?.content).not.toContain('literal </selection> tag');
-    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('preserves nullable embedding space names in tool output', async () => {
@@ -3619,7 +3234,7 @@ describe('assistant-tools read tools', () => {
       }
     });
 
-    it('requires explicit filePaths when `root` is provided (selection defaults are focused-root only)', async () => {
+    it('requires filePaths: there is no selected-context default (BST-2019)', async () => {
       const { rootA, rootB, cleanup } = await createTwoRootContext();
       try {
         const tools = hostTools(twoRootRuntime(rootA, rootB));
@@ -3630,15 +3245,12 @@ describe('assistant-tools read tools', () => {
       }
     });
 
-    it('still reads the focused-root selection default (single root) and labels the result', async () => {
+    it('reads named files in the single root and labels the result', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = hostTools({
-          ...singleRootRuntime(workspaceRootPath),
-          selectionFilePaths: ['/src/main.ts'],
-        } as RuntimeData);
+        const tools = hostTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceContext');
-        const result = await executeTool({ context: {} });
+        const result = await executeTool({ context: { filePaths: ['/src/main.ts'] } });
         expect(result.includedCount).toBe(1);
         expect(result.files[0]?.path).toBe('/src/main.ts');
         expect(typeof result.rootName).toBe('string');
@@ -3648,21 +3260,15 @@ describe('assistant-tools read tools', () => {
       }
     });
 
-    it('keeps selected-context defaults in the focused root when the thread is bound elsewhere', async () => {
+    it("reads from the thread's bound folder, not the explorer's focused one", async () => {
       const { rootA, rootB, cleanup } = await createTwoRootContext();
       try {
         const tools = hostTools({
           ...twoRootRuntime(rootA, rootB),
           boundWorkspaceRootId: 'id-a',
-          selectionFilePaths: ['/notes.md'],
           workspaceRootPath: rootB,
         } as RuntimeData);
         const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceContext');
-        const result = await executeTool({ context: {} });
-
-        expect(result.rootId).toBe('id-b');
-        expect(result.rootName).toBe('ProjectB');
-        expect(result.files[0]?.content).toContain('beta root');
 
         const explicitPaths = await executeTool({
           context: { filePaths: ['/notes.md'] },
@@ -3673,48 +3279,5 @@ describe('assistant-tools read tools', () => {
         await cleanup();
       }
     });
-  });
-
-  it('broadcasts bulk workspace context selection updates with explicit skip metadata', async () => {
-    const workspaceRootPath = await createWorkspaceFixture();
-    const send = vi.fn();
-    const hiddenSend = vi.fn();
-    getAllWindowsMock.mockReturnValue([
-      createMockWindow({ id: 1001, role: 'visible-ui', send }),
-      createMockWindow({ id: 1002, role: 'embedding-host', send: hiddenSend }),
-      createMockWindow({ destroyed: true, id: 1003, role: 'visible-ui', send: vi.fn() }),
-    ]);
-    const tools = hostTools({
-      selectionFolderId: 'root-1',
-      workspaceRootPath,
-    } as RuntimeData);
-    const executeTool = requireToolExecute(tools, 'brainstrike.updateWorkspaceContextSelection');
-
-    const result = await executeTool({
-      context: {
-        filePaths: ['/src/main.ts', '/missing.ts'],
-        mode: 'replace',
-      },
-    });
-
-    expect(result).toMatchObject({
-      appliedCount: 1,
-      folderId: 'root-1',
-      mode: 'replace',
-      notifiedWindowCount: 1,
-      requestedCount: 2,
-      selectedFiles: ['/src/main.ts'],
-      skippedCount: 1,
-      skippedFiles: [{ path: '/missing.ts', reason: 'missing' }],
-    });
-    expect(result.skippedFiles[0]).not.toHaveProperty('message');
-    expect(JSON.stringify(result.skippedFiles)).not.toContain(workspaceRootPath);
-    expect(send).toHaveBeenCalledWith('assistant:workspace-context-selection-update', {
-      filePaths: ['/src/main.ts'],
-      folderId: 'root-1',
-      mode: 'replace',
-    });
-    expect(hiddenSend).not.toHaveBeenCalled();
-    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 });

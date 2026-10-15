@@ -158,7 +158,7 @@ describe('default assistant instructions', () => {
     expect(withDiscovery).toContain('not the complete catalog');
     // This run's map registers NO workspace-context tools, so the derived
     // family list must not advertise them (see the capability-coverage suite).
-    expect(withDiscovery).not.toContain('workspace context and tapestry');
+    expect(withDiscovery).not.toContain('workspace context');
     expect(withDiscovery).not.toContain('open workspace roots and focused context');
     expect(withDiscovery).not.toContain('web, skills, or embeddings');
     expect(withDiscovery).toContain(
@@ -177,14 +177,6 @@ describe('default assistant instructions', () => {
       ['brainstrike_queryEmbeddingSpace', 'brainstrike.queryEmbeddingSpace'],
       ['brainstrike_readWorkspaceContext', 'brainstrike.readWorkspaceContext'],
       ['brainstrike_readWorkspaceFile', 'brainstrike.readWorkspaceFile'],
-      [
-        'brainstrike_updateWorkspaceContextSelection',
-        'brainstrike.updateWorkspaceContextSelection',
-      ],
-      [
-        'brainstrike_updateWorkspaceTapestrySelections',
-        'brainstrike.updateWorkspaceTapestrySelections',
-      ],
     ]);
 
     const instructions = buildDefaultInstructions(toolNameMap);
@@ -194,7 +186,6 @@ describe('default assistant instructions', () => {
     expect(instructions).toContain('brainstrike_listEmbeddingSpaces');
     expect(instructions).toContain('brainstrike_queryEmbeddingSpace');
     expect(instructions).toContain('without embeddingSetId for purely conceptual Workspace Index');
-    expect(instructions).toContain('semantic chunks with persisted source line ranges');
     expect(instructions).toContain('Only run state-changing tools after the user confirms.');
     expect(instructions).not.toContain('brainstrike.listWorkspaceContext');
   });
@@ -289,8 +280,6 @@ const FULL_TOOL_MAP = new Map<string, string>([
   ['readWorkspaceFile', 'brainstrike.readWorkspaceFile'],
   ['listEmbeddingSpaces', 'brainstrike.listEmbeddingSpaces'],
   ['queryEmbeddingSpace', 'brainstrike.queryEmbeddingSpace'],
-  ['updateWorkspaceContextSelection', 'brainstrike.updateWorkspaceContextSelection'],
-  ['updateWorkspaceTapestrySelections', 'brainstrike.updateWorkspaceTapestrySelections'],
   ['findWorkspaceSymbol', 'brainstrike.findWorkspaceSymbol'],
   ['grepSearch', 'brainstrike.grepSearch'],
 ]);
@@ -299,39 +288,14 @@ describe('buildDefaultInstructions', () => {
   it('includes harness framing without duplicating the provider tool inventory', () => {
     const prompt = buildDefaultInstructions(new Map());
     expect(prompt.length).toBeGreaterThan(0);
-    expect(prompt).toMatch(/Context Explorer/);
+    expect(prompt).toMatch(/Files explorer/);
     expect(prompt).not.toContain('Registered native tools');
   });
 
-  it('makes precise Tapestry selection the default when selection tools are registered', () => {
+  it('explains read paging: 1-based line numbers and an unchanged nextCursor', () => {
     const prompt = buildDefaultInstructions(FULL_TOOL_MAP);
-    expect(prompt).toMatch(/Context Explorer/);
-    expect(prompt).toMatch(/never the whole file/i);
-    expect(prompt).toContain('updateWorkspaceTapestrySelections');
-    expect(prompt).toContain('updateWorkspaceContextSelection');
-    expect(prompt).toMatch(/1-based/);
-    expect(prompt).toContain('startLine');
-    expect(prompt).toContain('endLine');
-  });
-
-  it('forbids whole-file fallback for a named symbol and requires the reported range to match the tool call', () => {
-    const prompt = buildDefaultInstructions(FULL_TOOL_MAP);
-    // When the user names a specific symbol/function/section, the model must
-    // select only that span and must not silently select the whole file.
-    expect(prompt).toMatch(/MUST NOT fall back to whole-file/i);
-    expect(prompt).toMatch(/symbol, function, type, section, or line range/i);
-    // The model previously claimed a precise range in prose while selecting the
-    // whole file; the reported range must equal what it passed to the tool.
-    expect(prompt).toMatch(/MUST exactly equal the ranges you passed/i);
-  });
-
-  it('explains how to derive line ranges from a direct file read (no embedding result)', () => {
-    const prompt = buildDefaultInstructions(FULL_TOOL_MAP);
-    // Without an embedding index, the model reads line-numbered file pages and
-    // can directly reuse their exact source coordinates.
-    expect(prompt).toMatch(/when there is no embedding result/i);
+    // The model reads line-numbered file pages and continues with the cursor as given.
     expect(prompt).toContain('readWorkspaceFile');
-    expect(prompt).toMatch(/first and last line of the requested symbol/i);
     expect(prompt).toMatch(/content with 1-based line numbers/i);
     expect(prompt).toMatch(/nextCursor/i);
     expect(prompt).not.toMatch(/no inline line numbers/i);
@@ -347,25 +311,9 @@ describe('buildDefaultInstructions', () => {
     expect(prompt).not.toContain('brainstrike.updateWorkspaceTapestrySelections');
   });
 
-  it('steers symbol lookup and color grouping when the tools are registered', () => {
-    const prompt = buildDefaultInstructions(FULL_TOOL_MAP);
-    expect(prompt).toContain('findWorkspaceSymbol');
-    // findWorkspaceSymbol is a substring/brace heuristic (best-effort), not exact;
-    // the prompt must not call it "exact" (which would tell the model to report a
-    // possibly-wrong range as exact) and must steer it to verify the result.
-    expect(prompt).toMatch(/best-effort range[^.]*without reading the whole file/i);
-    expect(prompt).toMatch(/verify the returned range/i);
-    expect(prompt).not.toMatch(/exact range without reading/i);
-    expect(prompt).toMatch(/color/i);
-    expect(prompt).toMatch(/group related/i);
-  });
-
   it('omits symbol-lookup guidance when findWorkspaceSymbol is not registered', () => {
     const prompt = buildDefaultInstructions(
-      new Map([
-        ['updateWorkspaceTapestrySelections', 'brainstrike.updateWorkspaceTapestrySelections'],
-        ['updateWorkspaceContextSelection', 'brainstrike.updateWorkspaceContextSelection'],
-      ])
+      new Map([['readWorkspaceFile', 'brainstrike.readWorkspaceFile']])
     );
     expect(prompt).not.toContain('findWorkspaceSymbol');
   });
@@ -378,8 +326,6 @@ describe('grep-first search orientation', () => {
     ['readWorkspaceFile', 'brainstrike.readWorkspaceFile'],
     ['listEmbeddingSpaces', 'brainstrike.listEmbeddingSpaces'],
     ['queryEmbeddingSpace', 'brainstrike.queryEmbeddingSpace'],
-    ['updateWorkspaceContextSelection', 'brainstrike.updateWorkspaceContextSelection'],
-    ['updateWorkspaceTapestrySelections', 'brainstrike.updateWorkspaceTapestrySelections'],
     ['findWorkspaceSymbol', 'brainstrike.findWorkspaceSymbol'],
     ['grepSearch', 'brainstrike.grepSearch'],
   ]);
@@ -527,7 +473,7 @@ describe('multi-root guidance', () => {
     const instructions = buildDefaultInstructions(FULL_TOOL_MAP);
     expect(instructions).toMatch(/several roots/i);
     expect(instructions).toContain('workspace-root manifest');
-    expect(instructions).toContain('refreshes the detailed inventory');
+    expect(instructions).toContain('refreshes the root inventory and index state');
     expect(instructions).toMatch(/pass "root"/i);
     // Search handoffs teach the compact root-prefix convention (BST-1185):
     // results carry `rootName:path` file headers, and the root name is a valid
@@ -542,7 +488,6 @@ describe('multi-root guidance', () => {
     expect(instructions).toContain('Main root');
     expect(instructions).toContain('Focused root');
     expect(instructions).toContain('no implicit Main-root fallback');
-    expect(instructions).toContain('selection targets the Focused root');
   });
 
   it('omits multi-root guidance when listWorkspaceContext is not registered', () => {
@@ -806,7 +751,7 @@ describe('tool-discovery capability coverage', () => {
     }
     // The families web DOES have stay advertised.
     expect(discoveryLine).toContain('embedding search');
-    expect(discoveryLine).toContain('workspace context and tapestry');
+    expect(discoveryLine).toContain('workspace context');
   });
 
   it('tells the model that a tool NAMED but not loaded is reachable via search_tools', () => {

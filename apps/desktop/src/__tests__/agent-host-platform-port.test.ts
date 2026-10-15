@@ -475,23 +475,6 @@ it('drives the browser pane, re-parsing the tool input', async () => {
   }
 });
 
-it('delivers a validated context write-back to the windows', async () => {
-  const contextDelivery = { selection: vi.fn(async () => 2), tapestry: vi.fn() };
-  const h = harness(mainReads(), undefined, { contextDelivery });
-  const delivery = {
-    payload: { filePaths: ['notes.txt'], folderId: 'folder-a', mode: 'add' },
-    threadId: 'thread',
-  };
-  try {
-    await expect(
-      h.client.sendRequest('platform/workspace-context/selection', delivery)
-    ).resolves.toEqual({ notifiedWindowCount: 2 });
-    expect(contextDelivery.selection).toHaveBeenCalledWith(delivery.payload);
-  } finally {
-    h.destroy();
-  }
-});
-
 it('serves the diagnostics store to the host', async () => {
   const diagnostics = { events: vi.fn(async () => []), fingerprints: vi.fn() };
   const h = harness(mainReads(), undefined, { diagnostics });

@@ -240,7 +240,7 @@ const ownerIntent = {
   },
 };
 
-test('per-run materialization reduces owner context while preserving model and denial policy', () => {
+test('per-run materialization reduces owner context while preserving model and denial policy, and drops retired checked files', () => {
   const materialized = materializeCliWorkspaceIntent(ownerIntent, selected);
   expect(materialized).toMatchObject({
     cliWorkspace: selected,
@@ -248,17 +248,15 @@ test('per-run materialization reduces owner context while preserving model and d
     modelConfiguration: ownerIntent.modelConfiguration,
     permissionPolicy: ownerIntent.permissionPolicy,
     skillsPreference: ownerIntent.skillsPreference,
-    workspaceContext: { files: [{ path: 'notes.txt', rootId: 'owned-root' }] },
     workspaceInstructionsPreference: {
       masterEnabled: false,
       oversizedOptInByRootId: { 'owned-root': true },
     },
   });
   expect(materialized).not.toHaveProperty('selectionFolderId');
+  // Checked files are not context (BST-2019): an older owner intent's never reaches a CLI run.
+  expect(materialized).not.toHaveProperty('workspaceContext');
   expect(ownerIntent.selectionFolderId).toBe('other-owned-root');
-  expect(
-    materializeCliWorkspaceIntent(ownerIntent, { ...selected, rootIds: [] }).workspaceContext?.files
-  ).toEqual([]);
   expect(
     materializeCliWorkspaceIntent(ownerIntent, { ...selected, skills: 'inherit' }).skillsPreference
       ?.masterEnabled
@@ -269,11 +267,9 @@ test('per-run materialization reduces owner context while preserving model and d
       cliWorkspace: undefined,
       selectionFolderId: undefined,
       skillsPreference: undefined,
-      workspaceContext: { files: [{ path: 'unqualified.txt', rootId: undefined }] },
     },
     selected
   );
-  expect(optionalOwner.workspaceContext?.files).toEqual([]);
   expect(optionalOwner).not.toHaveProperty('selectionFolderId');
   expect(optionalOwner.skillsPreference?.masterEnabled).toBe(false);
 });

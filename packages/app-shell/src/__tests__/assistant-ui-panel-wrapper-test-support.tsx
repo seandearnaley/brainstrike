@@ -11,7 +11,6 @@ import type {
   LocalRuntimeAvailabilityState,
   LocalRuntimeModelCatalogState,
 } from '@brainstrike/local-runtime';
-import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, vi } from 'vitest';
@@ -1362,12 +1361,6 @@ export const readPanelRequestData = (): Record<string, unknown> =>
 
 export const readPanelContextMenu = (): Record<string, unknown> =>
   JSON.parse(screen.getByTestId('context-menu').textContent ?? '{}') as Record<string, unknown>;
-
-export type SelectionUpdateHandler = (
-  payload: Omit<AssistantSelectionUpdatePayload, 'mode'> & {
-    mode?: AssistantSelectionUpdatePayload['mode'];
-  }
-) => void;
 
 export {
   changesetRefreshMock,

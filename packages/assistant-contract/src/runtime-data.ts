@@ -165,24 +165,6 @@ export type RuntimeProviderOptions = RuntimeJsonObject & {
   openrouter?: OpenRouterProviderOptions;
 };
 
-export interface RuntimeWorkspaceContextRangeMetadata {
-  approxTokens?: number | null;
-  endLine: number;
-  isActive?: boolean;
-  startLine: number;
-}
-
-export interface RuntimeWorkspaceContextFileMetadata {
-  approxTokens?: number | null;
-  outputApproxTokens?: number | null;
-  path: string;
-  ranges?: readonly RuntimeWorkspaceContextRangeMetadata[];
-  /** Display name of the root, for disambiguating the same relative path across roots. */
-  rootDisplayName?: string;
-  /** Durable RootId of the file's root (multi-root); absent for legacy snapshots. */
-  rootId?: string;
-}
-
 /**
  * One active workspace root (multi-root). Resolved server-side from the DB
  * `roots` table so the root identity here matches `file_records.root_id` — the
@@ -196,16 +178,6 @@ export interface RuntimeWorkspaceRoot {
   path: string;
   /** Durable root id (DB `roots.id`; matches `file_records.root_id`). */
   rootId: string;
-}
-
-export interface RuntimeWorkspaceContextMetadata {
-  files?: readonly RuntimeWorkspaceContextFileMetadata[];
-  includeProjectTree?: boolean;
-  projectTreeApproxTokens?: number | null;
-  projectTreeTokenCountLoading?: boolean;
-  selectedOutputApproxTokens?: number | null;
-  selectedSourceApproxTokens?: number | null;
-  tokenBudget?: number;
 }
 
 /**
@@ -361,15 +333,6 @@ export interface RuntimeData {
    * wire effort after catalog defaults/auto profiles are applied.
    */
   requestedReasoningEffort?: OpenAiReasoningEffort;
-  selectionFilePaths?: readonly string[];
-  /**
-   * Multi-root: selected files belonging to ACTIVE roots OTHER than the
-   * assistant's workspace root. The assistant's file tools are single-root
-   * (anchored at workspaceRootPath), so these files are not addressable —
-   * the count is surfaced (never silently dropped) so the model can tell
-   * the user part of their selection is outside the current workspace.
-   */
-  selectionFilePathsFromOtherRoots?: number;
   selectionFolderId?: string;
   selectionSnapshotId?: string;
   signal?: AbortSignal;
@@ -415,9 +378,7 @@ export interface RuntimeData {
    * only — the client never sends it.
    */
   taskList?: readonly AssistantTaskItem[];
-  tokenBudget?: number | null;
   transportImageElision?: RuntimeTransportImageElision;
-  workspaceContext?: RuntimeWorkspaceContextMetadata;
   workspaceIndexBlockedReason?: string | null;
   workspaceIndexEmbeddingSetId?: string;
   workspaceIndexingEnabled?: boolean;

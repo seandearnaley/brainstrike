@@ -3,14 +3,7 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
-import type { BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  assignWindowRole,
-  clearWindowRoleByWebContentsId,
-  type DesktopWindowRole,
-} from '../../window-role';
-import { mainContextDeliveryRequest } from './_c1-c-helpers';
 import { buildHostNativeTools } from './_host-native-tools';
 import { requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 import { createWorkspaceFixture } from './_workspace-fixture';
@@ -22,16 +15,9 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   };
 });
 
-const { getAllWindowsMock, loggerErrorMock, loggerWarnMock } = vi.hoisted(() => ({
-  getAllWindowsMock: vi.fn(),
+const { loggerErrorMock, loggerWarnMock } = vi.hoisted(() => ({
   loggerErrorMock: vi.fn(),
   loggerWarnMock: vi.fn(),
-}));
-
-vi.mock('electron', () => ({
-  BrowserWindow: {
-    getAllWindows: getAllWindowsMock,
-  },
 }));
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
@@ -51,210 +37,8 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 // one suite per service seam, sharing the fixture module and repeating the
 // vi.mock preamble per file (hoisting is per-importing-module).
 describe('assistant-tools edit lifecycle', () => {
-  const trackedWindowIds: number[] = [];
-
-  function createMockWindow({
-    destroyed = false,
-    id,
-    role,
-    send,
-  }: {
-    destroyed?: boolean;
-    id: number;
-    role: DesktopWindowRole;
-    send: ReturnType<typeof vi.fn>;
-  }): BrowserWindow {
-    const browserWindow = {
-      isDestroyed: () => destroyed,
-      once: vi.fn(),
-      webContents: { id, send },
-    } as unknown as BrowserWindow;
-    assignWindowRole(browserWindow, role);
-    trackedWindowIds.push(id);
-    return browserWindow;
-  }
-
   beforeEach(() => {
     vi.clearAllMocks();
-    for (const id of trackedWindowIds) {
-      clearWindowRoleByWebContentsId(id);
-    }
-    trackedWindowIds.length = 0;
-  });
-
-  describe('selection write-back multi-root routing', () => {
-    function routingRuntime(rootA: string, rootB: string): RuntimeData {
-      return {
-        selectionFolderId: 'client-a',
-        workspaceRootPath: rootA,
-        workspaceRoots: [
-          { displayName: 'ProjectA', path: rootA, rootId: 'id-a' },
-          { displayName: 'ProjectB', path: rootB, rootId: 'id-b' },
-        ],
-      } as unknown as RuntimeData;
-    }
-
-    it('routes a selection update to a NON-focused root, broadcasting its rootPath', async () => {
-      const rootA = await createWorkspaceFixture();
-      const rootB = await createWorkspaceFixture();
-      const send = vi.fn();
-      getAllWindowsMock.mockReturnValue([createMockWindow({ id: 2001, role: 'visible-ui', send })]);
-      try {
-        // ProjectA is focused; the model targets ProjectB. The file is validated
-        // against ProjectB's real path and the broadcast carries rootPath so the
-        // renderer can route to the matching client folder.
-        const executeTool = requireToolExecute(
-          buildHostNativeTools(routingRuntime(rootA, rootB), {
-            request: mainContextDeliveryRequest,
-          }),
-          'brainstrike.updateWorkspaceContextSelection'
-        );
-        const result = await executeTool({
-          context: { filePaths: ['/src/main.ts'], mode: 'replace', root: 'ProjectB' },
-        });
-        expect(result.appliedCount).toBe(1);
-        expect(send).toHaveBeenCalledWith(
-          'assistant:workspace-context-selection-update',
-          expect.objectContaining({ mode: 'replace', rootId: 'id-b', rootPath: rootB })
-        );
-      } finally {
-        await fsPromises.rm(rootA, { force: true, recursive: true });
-        await fsPromises.rm(rootB, { force: true, recursive: true });
-      }
-    });
-
-    it('omits rootPath for the legacy single/focused-root path (renderer routes by folderId)', async () => {
-      const rootA = await createWorkspaceFixture();
-      const send = vi.fn();
-      getAllWindowsMock.mockReturnValue([createMockWindow({ id: 2002, role: 'visible-ui', send })]);
-      try {
-        const executeTool = requireToolExecute(
-          buildHostNativeTools(
-            {
-              selectionFolderId: 'client-a',
-              workspaceRootPath: rootA,
-            } as RuntimeData,
-            { request: mainContextDeliveryRequest }
-          ),
-          'brainstrike.updateWorkspaceContextSelection'
-        );
-        await executeTool({
-          context: { filePaths: ['/src/main.ts'], mode: 'replace' },
-        });
-        const payload = send.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
-        expect(payload).toMatchObject({ folderId: 'client-a' });
-        expect(payload).not.toHaveProperty('rootPath');
-      } finally {
-        await fsPromises.rm(rootA, { force: true, recursive: true });
-      }
-    });
-
-    it('still throws on an unknown root qualifier (no broadcast)', async () => {
-      const rootA = await createWorkspaceFixture();
-      const rootB = await createWorkspaceFixture();
-      const send = vi.fn();
-      getAllWindowsMock.mockReturnValue([createMockWindow({ id: 2003, role: 'visible-ui', send })]);
-      try {
-        const executeTool = requireToolExecute(
-          buildHostNativeTools(routingRuntime(rootA, rootB), {
-            request: mainContextDeliveryRequest,
-          }),
-          'brainstrike.updateWorkspaceContextSelection'
-        );
-        await expect(
-          executeTool({ context: { filePaths: ['/src/main.ts'], root: 'Nope' } })
-        ).rejects.toThrow(/no folder "Nope"/i);
-        expect(send).not.toHaveBeenCalled();
-      } finally {
-        await fsPromises.rm(rootA, { force: true, recursive: true });
-        await fsPromises.rm(rootB, { force: true, recursive: true });
-      }
-    });
-
-    it('routes a tapestry update to a non-focused root, broadcasting its rootPath', async () => {
-      const rootA = await createWorkspaceFixture();
-      const rootB = await createWorkspaceFixture();
-      const send = vi.fn();
-      getAllWindowsMock.mockReturnValue([createMockWindow({ id: 2004, role: 'visible-ui', send })]);
-      try {
-        const executeTool = requireToolExecute(
-          buildHostNativeTools(routingRuntime(rootA, rootB), {
-            request: mainContextDeliveryRequest,
-          }),
-          'brainstrike.updateWorkspaceTapestrySelections'
-        );
-        await executeTool({
-          context: {
-            root: 'ProjectB',
-            updates: [{ path: '/src/main.ts', ranges: [{ endLine: 2, startLine: 1 }] }],
-          },
-        });
-        expect(send).toHaveBeenCalledWith(
-          expect.anything(),
-          expect.objectContaining({ rootId: 'id-b', rootPath: rootB })
-        );
-      } finally {
-        await fsPromises.rm(rootA, { force: true, recursive: true });
-        await fsPromises.rm(rootB, { force: true, recursive: true });
-      }
-    });
-  });
-
-  it('broadcasts workspace tapestry range updates and can select the affected files first', async () => {
-    const workspaceRootPath = await createWorkspaceFixture();
-    const send = vi.fn();
-    const hiddenSend = vi.fn();
-    getAllWindowsMock.mockReturnValue([
-      createMockWindow({ id: 1101, role: 'visible-ui', send }),
-      createMockWindow({ id: 1102, role: 'llm-host', send: hiddenSend }),
-    ]);
-    const tools = buildHostNativeTools(
-      {
-        selectionFolderId: 'root-1',
-        workspaceRootPath,
-      } as RuntimeData,
-      { request: mainContextDeliveryRequest }
-    );
-    const executeTool = requireToolExecute(tools, 'brainstrike.updateWorkspaceTapestrySelections');
-
-    const result = await executeTool({
-      context: {
-        mode: 'replace',
-        selectFiles: true,
-        updates: [
-          {
-            path: '/src/main.ts',
-            ranges: [{ endLine: 3, isActive: true, startLine: 2 }],
-          },
-        ],
-      },
-    });
-
-    expect(result).toMatchObject({
-      appliedFileCount: 1,
-      folderId: 'root-1',
-      mode: 'replace',
-      notifiedWindowCount: 1,
-      requestedFileCount: 1,
-      skippedFileCount: 0,
-    });
-    expect(send).toHaveBeenNthCalledWith(1, 'assistant:workspace-context-selection-update', {
-      filePaths: ['/src/main.ts'],
-      folderId: 'root-1',
-      mode: 'add',
-    });
-    expect(send).toHaveBeenNthCalledWith(2, 'assistant:workspace-context-tapestry-update', {
-      folderId: 'root-1',
-      mode: 'replace',
-      updates: [
-        {
-          path: '/src/main.ts',
-          ranges: [{ endLine: 3, isActive: true, startLine: 2 }],
-        },
-      ],
-    });
-    expect(hiddenSend).not.toHaveBeenCalled();
-    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   describe('deleteWorkspaceFile', () => {
@@ -804,61 +588,5 @@ describe('assistant-tools edit lifecycle', () => {
         executeTool({ context: { fromPath: '/a.ts', toPath: '/b.ts' } })
       ).rejects.toThrow(/No folder is open/i);
     });
-  });
-
-  it('forwards tapestry range color to the broadcast payload', async () => {
-    const workspaceRootPath = await createWorkspaceFixture();
-    const send = vi.fn();
-    const hiddenSend = vi.fn();
-    getAllWindowsMock.mockReturnValue([
-      createMockWindow({ id: 1201, role: 'visible-ui', send }),
-      createMockWindow({ id: 1202, role: 'llm-host', send: hiddenSend }),
-    ]);
-    const tools = buildHostNativeTools(
-      {
-        selectionFolderId: 'root-1',
-        workspaceRootPath,
-      } as RuntimeData,
-      { request: mainContextDeliveryRequest }
-    );
-    const executeTool = requireToolExecute(tools, 'brainstrike.updateWorkspaceTapestrySelections');
-
-    await executeTool({
-      context: {
-        mode: 'replace',
-        updates: [
-          {
-            path: '/src/main.ts',
-            ranges: [{ color: 'blue', endLine: 2, startLine: 1 }],
-          },
-        ],
-      },
-    });
-
-    const tapestryCall = send.mock.calls.find(
-      (call) => call[0] === 'assistant:workspace-context-tapestry-update'
-    );
-    expect(tapestryCall).toBeDefined();
-    if (!tapestryCall) {
-      throw new Error('expected a workspace tapestry update broadcast');
-    }
-    const capturedTapestryPayload = tapestryCall[1] as {
-      updates: { ranges: { startLine: number; endLine: number; color?: string }[] }[];
-    };
-    const firstUpdate = capturedTapestryPayload.updates[0];
-    if (!firstUpdate) {
-      throw new Error('expected a workspace tapestry update');
-    }
-    const firstRange = firstUpdate.ranges[0];
-    if (!firstRange) {
-      throw new Error('expected a workspace tapestry range');
-    }
-    expect(firstRange).toMatchObject({
-      color: 'blue',
-      endLine: 2,
-      startLine: 1,
-    });
-    expect(hiddenSend).not.toHaveBeenCalled();
-    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 });

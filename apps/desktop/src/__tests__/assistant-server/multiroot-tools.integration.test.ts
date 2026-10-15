@@ -30,7 +30,6 @@ import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { resetToolCallLoopGuards } from '@brainstrike/host-capabilities/native-tools';
 import { grepSearchExecutor } from '../../assistant-server/native-tool-executors-grep';
 import { nativeGrepFixture } from './_c1-a-helpers';
-import { mainContextDeliveryRequest } from './_c1-c-helpers';
 import { buildHostNativeTools } from './_host-native-tools';
 import { requireToolExecute } from './_tool-test-helpers';
 
@@ -349,24 +348,5 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
     await expect(executeTool({ context: { filePaths: ['/README.md'] } })).rejects.toThrow(
       /multiple folders.*ProjectA.*ProjectB/is
     );
-  });
-
-  it('Task: selection write-back routes to a non-focused root (validated against that root)', async () => {
-    // ProjectA is focused; the model curates ProjectB. The server validates the
-    // file against ProjectB's real path and broadcasts its rootPath (the renderer
-    // maps that to the matching client folder — verified live on desktop).
-    const focusedRuntime = {
-      ...twoRootRuntime(),
-      selectionFolderId: 'client-folder-uuid',
-      workspaceRootPath: rootAPath,
-    } as unknown as RuntimeData;
-    const executeTool = requireToolExecute(
-      buildHostNativeTools(focusedRuntime, { request: mainContextDeliveryRequest }),
-      'brainstrike.updateWorkspaceContextSelection'
-    );
-    const result = await executeTool({
-      context: { filePaths: ['/README.md'], root: 'ProjectB' },
-    });
-    expect(result.appliedCount).toBe(1);
   });
 });
