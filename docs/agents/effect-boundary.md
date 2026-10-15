@@ -7,6 +7,18 @@ Effect supports typed boundaries and structured resource ownership. Follow
 composition, not a repository-wide rewrite. Keep the qualified family pinned
 through the package catalog; adopt new or unstable APIs deliberately.
 
+Production code imports `effect` and `effect/testing` and nothing else — an
+allowlist, enforced by `scripts/__tests__/effect-boundary-contract.test.mjs`.
+Stability is a separate axis the specifier cannot show: every Effect 4 API
+carries a `@stability` tag, and an unstable API may break in a MINOR release,
+an experimental one in a PATCH. So "deliberately" means checked, not guessed —
+the language service carries `unstableApiUsage` and `experimentalApiUsage`,
+takes `allowedUnstableApis`/`allowedExperimentalApis` for a reviewed exception,
+and reports a stable signature that exposes a less stable type as
+`apiStabilityLeak`. Everything imported today (`Effect`, `Layer`, `Scope`,
+`Schema`, `Schedule`, `Semaphore`, `ManagedRuntime`, `Stream`) is tagged stable,
+and the three rules pass at `error` severity on the current tree.
+
 Effect stays out of preloads and their value-import graph. Shared IPC contracts
 remain pure; main/worker-side validation may use Schema. Do not move a stream,
 watchdog, persistence drain or ordering-sensitive queue to fibers merely because
@@ -40,5 +52,12 @@ Type-only brands do not add a runtime producer or identity alias.
 Use the existing effect-kit helpers and package diagnostics. Do not patch the
 shared TypeScript compiler as part of a library adoption. Versions, import paths
 and diagnostic commands are owned by installed packages and configuration.
+
+Each Effect package therefore type-checks twice: `tsc --noEmit`, then
+`effect-tsgo diagnostics --strict`. Folding the second pass into the first needs
+`effect-tsgo patch`, which rewrites the shared compiler — and the catalog's
+`typescript` is TypeScript 6, which the language service does not support, so
+the fold is unavailable until that compiler moves. The duplicate is a known,
+measured cost (~35s CPU across the 14 checked projects), not an oversight.
 
 Implementation: `packages/effect-kit` and the owning boundary modules.

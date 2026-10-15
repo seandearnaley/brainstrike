@@ -42,14 +42,25 @@ export async function runAtPromiseBoundary<A, E>(
 }
 
 /**
- * True when the cause is only interruptions and one of them came from outside
- * any fiber, which is how the runner records an abort of `signal`. A fiber
- * that interrupts itself (or is interrupted by another fiber) records that
- * fiber's id instead.
+ * True when the cause is only interruptions and the one that actually
+ * interrupted the fiber came from outside any fiber, which is how the runner
+ * records an abort of `signal`. A fiber that interrupts itself (or is
+ * interrupted by another fiber) records that fiber's id instead.
+ *
+ * Only the FIRST recorded interrupt attributes the interruption; later ones are
+ * incidental. Effect 4.0.1 began appending a second, fiberId-less reason for an
+ * abort that lands while the fiber's finalizers already run (4.0.0 and the rc
+ * line added none), so asking whether ANY reason is external would now report a
+ * self-interruption as a caller abort and lose its error identity.
  */
 function interruptedFromOutside(cause: Cause.Cause<unknown>): boolean {
-  return (
-    Cause.hasInterruptsOnly(cause) &&
-    cause.reasons.some((reason) => Cause.isInterruptReason(reason) && reason.fiberId === undefined)
-  );
+  if (!Cause.hasInterruptsOnly(cause)) {
+    return false;
+  }
+  for (const reason of cause.reasons) {
+    if (Cause.isInterruptReason(reason)) {
+      return reason.fiberId === undefined;
+    }
+  }
+  return false;
 }

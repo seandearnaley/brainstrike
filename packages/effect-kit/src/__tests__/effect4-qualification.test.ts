@@ -4,7 +4,7 @@ import { runAtPromiseBoundary } from '../promise-boundary.js';
 
 class PrimaryFailure extends Data.TaggedError('PrimaryFailure') {}
 
-describe('Effect resource qualification', () => {
+describe('Effect 4 resource qualification', () => {
   it('joins an interrupted explicit Scope close and runs every finalizer', async () => {
     const scope = Scope.makeUnsafe();
     const controller = new AbortController();
@@ -61,6 +61,45 @@ describe('Effect resource qualification', () => {
     }
     await closing;
     expect(events).toEqual(['first started', 'first completed', 'last release']);
+  });
+
+  it('records a late caller abort as a trailing fiberId-less interrupt, after the self-interrupt', async () => {
+    // The ordering `runAtPromiseBoundary` attributes interruptions by. Effect
+    // 4.0.0 and the rc line recorded NO reason for an abort that lands while
+    // finalizers already run; 4.0.1 appends one with no fiberId. Position, not
+    // presence, is what separates a caller abort from a self-interruption.
+    const controller = new AbortController();
+    const finalizing = Promise.withResolvers<void>();
+    const gate = Promise.withResolvers<void>();
+
+    // Effect's own runner, not `runAtPromiseBoundary`: this pins the Cause the
+    // helper reads, and interruption propagates through `Effect.exit`.
+    const exiting = Effect.runPromiseExit(
+      Effect.interrupt.pipe(
+        Effect.ensuring(
+          Effect.sync(() => finalizing.resolve()).pipe(
+            Effect.andThen(Effect.promise(() => gate.promise))
+          )
+        )
+      ),
+      { signal: controller.signal }
+    );
+    await finalizing.promise;
+    controller.abort(new DOMException('late abort', 'AbortError'));
+    gate.resolve();
+    const exit = await exiting;
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (!Exit.isFailure(exit)) {
+      throw new Error('Expected the interrupted exit');
+    }
+    const interrupts = exit.cause.reasons.filter((reason) => Cause.isInterruptReason(reason));
+    expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+    // The self-interrupt is first and owns the attribution; the caller's late
+    // abort is present but trailing.
+    expect(interrupts.length).toBeGreaterThanOrEqual(1);
+    expect(interrupts[0]?.fiberId).toBeDefined();
+    expect(interrupts.some((reason) => reason.fiberId === undefined)).toBe(true);
   });
 
   it('preserves the primary failure when its onExit callback throws synchronously', async () => {
