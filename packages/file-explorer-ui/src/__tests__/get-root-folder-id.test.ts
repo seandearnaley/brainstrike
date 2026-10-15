@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { describe, expect, it } from 'vitest';
 import { getRootFolderId } from '../utils/get-root-folder-id';

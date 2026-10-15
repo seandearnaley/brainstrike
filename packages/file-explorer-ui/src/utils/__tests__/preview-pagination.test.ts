@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import type { GroupedData, TableRowData } from '../grouping-configs';
 import { buildGroupedPageSections, getVisibleFilesOnPage } from '../preview-pagination';

@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * Breadcrumb segment derivation (BST-1269): labels are path segments relative
  * to the workspace root; each segment's `path` is the TREE NODE path

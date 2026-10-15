@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { StorageAdapter } from '@brainstrike/storage';
 import type { SerializedState } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';

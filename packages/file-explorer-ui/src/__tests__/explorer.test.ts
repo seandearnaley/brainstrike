@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { fileExplorer } from '@brainstrike/file-explorer/file-tree';
 import {
   createDirectoryNode,

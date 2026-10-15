@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import type { TableRowData } from '../../utils/grouping-configs';
 import { buildTapestryFileBase } from '../tapestry-adapter';

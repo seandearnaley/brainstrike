@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { DirectoryReadCapability } from '@brainstrike/file-system/directory-tree';
 import type { IFileNode } from '@brainstrike/types';

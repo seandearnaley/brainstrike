@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { PREVIEW_SUMMARY_MODES } from '../preview/preview-summary-mode';
 

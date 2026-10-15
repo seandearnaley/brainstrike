@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { DirectoryHandle, FileSystemAdapter, IFileNode } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
 import { querySelectableFiles } from '../recursive-selection-query';

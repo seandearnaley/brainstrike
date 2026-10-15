@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { DirectoryHandle, FileSystemAdapter, IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { describe, expect, it, vi } from 'vitest';

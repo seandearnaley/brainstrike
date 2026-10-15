@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * The visible-file token-indexing trigger honours the SHARED background-indexing
  * path exclusions.

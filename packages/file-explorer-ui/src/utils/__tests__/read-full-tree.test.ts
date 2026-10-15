@@ -1,3 +1,4 @@
+// @vitest-environment node
 import {
   readFullTree as sharedReadFullTree,
   readFullTreeWithOptions as sharedReadFullTreeWithOptions,

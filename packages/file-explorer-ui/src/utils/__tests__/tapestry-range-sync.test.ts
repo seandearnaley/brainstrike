@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import type { TapestryFileBase } from '../../tapestry/tapestry-adapter';
 import type { FileTapestry, TapestryRange } from '../../tapestry/types';

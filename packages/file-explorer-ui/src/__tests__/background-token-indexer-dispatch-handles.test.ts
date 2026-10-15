@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { resolvePlannedTokenIndexingHandles } from '../indexing/background-token-indexer-dispatch-handles';
 import type { TokenIndexingDispatchPlan } from '../indexing/background-token-indexer-dispatch-planner';

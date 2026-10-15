@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { describe, expect, it } from 'vitest';
 import { fileTabToTarget, fileViewerToTarget } from '../file-surface-target';

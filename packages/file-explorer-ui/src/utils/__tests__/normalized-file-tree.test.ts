@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { IFileNode } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
 import * as normalizedFileTreeModule from '../normalized-file-tree';

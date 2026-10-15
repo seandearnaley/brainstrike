@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { resolveDirectReadPath, supportsDirectPathRead } from '../file-content-direct-read-path';
 
