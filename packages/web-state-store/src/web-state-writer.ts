@@ -591,6 +591,16 @@ async function lead(store: WebStateStoreConfig, sqlite3: Promise<Sqlite3Static>)
 
 function start(store: WebStateStoreConfig): void {
   config = store;
+  for (const extension of extensions) {
+    try {
+      extension.validate?.(store);
+    } catch (error) {
+      const failure = error instanceof Error ? error.message : String(error);
+      refusal = { error: `The state store is unavailable: ${failure}`, errorKind: 'unavailable' };
+      toTab({ error: failure, kind: 'failed' });
+      return;
+    }
+  }
   const names = webStateNames(store.name);
   channel = new BroadcastChannel(names.channel);
   channel.onmessage = (event: MessageEvent<ChannelMessage>) => onChannel(event.data);

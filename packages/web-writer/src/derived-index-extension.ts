@@ -10,6 +10,7 @@ import { sha256Hex } from '@brainstrike/utils/crypto';
 import {
   type SqliteWasmDatabase,
   type WebStateExtension,
+  type WebStateStoreConfig,
   type WebStateWriterContext,
   webStateNames,
 } from '@brainstrike/web-state-store';
@@ -40,16 +41,20 @@ function indexDatabase(context: WebStateWriterContext): SqliteWasmDatabase {
  * blobs a row names.
  */
 /**
- * The projection's identity: its producer and the app build that runs it. The
- * build stands for the producer's code, as desktop's identity hashes the
- * producer's sources, so an index cannot be held to a build it does not know.
+ * The app build the projection is held to. The build stands for the
+ * producer's code, as desktop's identity hashes the producer's sources, so an
+ * index cannot be held to a build it does not know.
  */
-function projectionIdentity(context: WebStateWriterContext): string {
-  const build = context.config.build;
-  if (!build) {
+function buildOf(config: WebStateStoreConfig): string {
+  if (!config.build) {
     throw new Error('The derived index needs the app build to hold its projection to');
   }
-  return sha256Hex(JSON.stringify([PRODUCER, 'prod', build]));
+  return config.build;
+}
+
+/** The projection's identity: its producer and the app build that runs it. */
+function projectionIdentity(context: WebStateWriterContext): string {
+  return sha256Hex(JSON.stringify([PRODUCER, 'prod', buildOf(context.config)]));
 }
 
 function openIndexWriter(context: WebStateWriterContext): IndexWriter {
@@ -148,5 +153,8 @@ export const derivedIndexExtension: WebStateExtension = {
         }),
       },
     };
+  },
+  validate(config) {
+    buildOf(config);
   },
 };

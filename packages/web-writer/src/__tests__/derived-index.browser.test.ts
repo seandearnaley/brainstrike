@@ -135,10 +135,18 @@ describe('the derived index in the browser writer', () => {
     expect(hits.map((hit) => hit.role)).toContain('user');
   });
 
-  it('refuses to open without the app build its projection is held to', async () => {
-    const { name } = storeConfig();
-    const opening = (async () => new WebDerivedIndex(await openTab({ name })).status())();
-    await expect(opening).rejects.toThrow('The derived index needs the app build');
+  it('refuses a tab without the app build its projection is held to, as writer or follower', async () => {
+    const config = storeConfig();
+    await expect(openTab({ name: config.name })).rejects.toThrow(
+      'The derived index needs the app build'
+    );
+
+    // Beside a writer that has a build, the tab is refused before it would follow that writer.
+    const writer = await openTab(config);
+    await expect(openTab({ name: config.name })).rejects.toThrow(
+      'The derived index needs the app build'
+    );
+    expect(await new WebDerivedIndex(writer).status()).toMatchObject({ rebuilt: null });
   });
 
   it('announces its extension in the wire protocol, and retires with the store', async () => {

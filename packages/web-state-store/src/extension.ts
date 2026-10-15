@@ -44,6 +44,13 @@ export interface WebStateExtensionInstance {
 export interface WebStateExtension {
   readonly id: string;
   open(context: WebStateWriterContext): WebStateExtensionInstance;
+  /**
+   * Refuses, by throwing, a config the extension could not serve. Every
+   * worker runs it when its tab opens, before it waits for the lock or
+   * accepts another tab's writer, so a tab is refused whether it would lead
+   * or follow.
+   */
+  validate?(config: WebStateStoreConfig): void;
 }
 
 /**
