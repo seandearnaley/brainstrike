@@ -12,6 +12,13 @@
  * applied, and its caller decides what to read back.
  */
 
+import {
+  executeCollectionRequest,
+  executeModelChoiceRequest,
+  executePromptCatalogRequest,
+  executeThreadGroups,
+  executeViewFilterPresetRequest,
+} from '@brainstrike/state-store/catalog-domains';
 import { RunLog, ThreadDamage, ThreadReadOnlyRefusal } from '@brainstrike/state-store/run-log';
 import { blobsOf } from '@brainstrike/state-store/run-log-format';
 import { CheckpointBlockedError } from '@brainstrike/state-store/sqlite-checkpoint';
@@ -20,10 +27,12 @@ import sqlite3InitModule, {
   type SAHPoolUtil,
   type Sqlite3Static,
 } from '@sqlite.org/sqlite-wasm';
+import { OpfsBlobStore } from './blob-store';
 import {
   type ChannelMessage,
   type TabMessage,
   WEB_STATE_PROTOCOL,
+  type WebStateAppendRow,
   type WebStateErrorReply,
   type WebStateLease,
   type WebStateReply,
@@ -54,6 +63,7 @@ const RETIRED = 'The state store was retired for factory reset; reload the tab t
 type AppendRows = Parameters<RunLog['append']>[0];
 
 interface Writer {
+  readonly blobs: OpfsBlobStore;
   readonly db: SqliteWasmDatabase;
   readonly log: RunLog;
   readonly pool: SAHPoolUtil;
@@ -187,6 +197,7 @@ async function openWriter(
   }
   const pool = await sqlite3.installOpfsSAHPoolVfs({ directory: names.pool, name: names.vfs });
   const epoch = recordWriter(sqlite3, pool);
+  const blobs = await OpfsBlobStore.open(names.pool);
   // The pool's constructor takes oo1's (filename, flags); its declaration names only the filename.
   const PoolDb = pool.OpfsSAHPoolDb as unknown as new (filename: string, flags: string) => Database;
   const { damage, db } = openStateDb(
@@ -199,7 +210,12 @@ async function openWriter(
   );
   return {
     lease: { epoch, instanceId },
-    writer: { db, log: new RunLog(asBetterSqlite3(db), damage), pool },
+    writer: {
+      blobs,
+      db,
+      log: new RunLog(asBetterSqlite3(db), damage),
+      pool,
+    },
   };
 }
 
@@ -209,6 +225,7 @@ function settings(db: SqliteWasmDatabase): WebStateRequests['settings']['result'
     foreignKeys: Number(value('foreign_keys')),
     journalMode: String(value('journal_mode')),
     lockingMode: String(value('locking_mode')),
+    pageSize: Number(value('page_size')),
     queryOnly: Number(value('query_only')),
     secureDelete: Number(value('secure_delete')),
     sqliteVersion: String(db.prepare('SELECT sqlite_version()').pluck().get()),
@@ -231,19 +248,23 @@ function retire(active: Writer): void {
   active.pool.pauseVfs();
 }
 
+/** The desktop writer's `verifyBlobReferences`: every blob an event names exists and is intact. */
+async function verifyBlobReferences(blobs: OpfsBlobStore, rows: readonly WebStateAppendRow[]) {
+  for (const row of rows) {
+    for (const hash of blobsOf(row[3])) {
+      await blobs.verify(hash);
+    }
+  }
+}
+
 /** One request on the writer, as the desktop writer worker handles the same op. */
-function handle(active: Writer, request: WebStateRequest): unknown {
-  const { db, log } = active;
+async function handle(active: Writer, request: WebStateRequest): Promise<unknown> {
+  const { blobs, db, log } = active;
+  const params = request.params;
   switch (request.op) {
     case 'append': {
-      const { boundary = false, rows } = request.params as WebStateRequests['append']['params'];
-      for (const row of rows) {
-        if (blobsOf(row[3]).length > 0) {
-          throw new Error(
-            'The browser state store has no blob storage; this event references a blob.'
-          );
-        }
-      }
+      const { boundary = false, rows } = params as WebStateRequests['append']['params'];
+      await verifyBlobReferences(blobs, rows);
       if (boundary) {
         db.pragma('synchronous = FULL');
       }
@@ -258,15 +279,41 @@ function handle(active: Writer, request: WebStateRequest): unknown {
       }
     }
     case 'boundary': {
-      const { threadId } = request.params as WebStateRequests['boundary']['params'];
+      const { threadId } = params as WebStateRequests['boundary']['params'];
       return { checkpoint: log.boundary(threadId, 'boundary', CHECKPOINT_PAGES) };
     }
     case 'check':
       return log.check();
+    case 'collections':
+      return executeCollectionRequest(
+        asBetterSqlite3(db),
+        params as WebStateRequests['collections']['params']
+      );
+    case 'damagedBlobRefs':
+      return { hashes: log.damagedBlobRefs() };
+    case 'modelChoices':
+      return executeModelChoiceRequest(
+        asBetterSqlite3(db),
+        params as WebStateRequests['modelChoices']['params']
+      );
+    case 'promptCatalog':
+      return executePromptCatalogRequest(
+        asBetterSqlite3(db),
+        params as WebStateRequests['promptCatalog']['params']
+      );
+    case 'putBlob': {
+      const { content, hash } = params as WebStateRequests['putBlob']['params'];
+      await blobs.put(hash, content);
+      return {};
+    }
     case 'read': {
-      const { fromSeq, limit, threadId } = request.params as WebStateRequests['read']['params'];
+      const { fromSeq, limit, threadId } = params as WebStateRequests['read']['params'];
       const read = log.readFrom(threadId, fromSeq, limit);
       return { damage: read.damage ? errorReply(read.damage) : null, rows: read.rows };
+    }
+    case 'readBlob': {
+      const { hash, maxBytes } = params as WebStateRequests['readBlob']['params'];
+      return { content: await blobs.read(hash, maxBytes) };
     }
     case 'readHydration':
       return {
@@ -280,32 +327,69 @@ function handle(active: Writer, request: WebStateRequest): unknown {
       return {};
     case 'settings':
       return settings(db);
-    case 'stall':
-      if (!config?.testHooks?.allowStall) {
-        throw new Error('stall is a test hook');
-      }
-      return new Promise<never>(() => {});
     case 'status': {
-      const { threadId } = request.params as WebStateRequests['status']['params'];
+      const { threadId } = params as WebStateRequests['status']['params'];
       return { status: log.status(threadId) };
     }
+    case 'storedBlobRefs': {
+      const { threadId } = params as WebStateRequests['storedBlobRefs']['params'];
+      return { hashes: log.storedBlobRefs(threadId) };
+    }
+    case 'threadGroups':
+      return executeThreadGroups(
+        asBetterSqlite3(db),
+        params as WebStateRequests['threadGroups']['params']
+      );
     case 'threads':
       return { threads: log.threads() };
+    case 'unlinkBlobs': {
+      const { hashes } = params as WebStateRequests['unlinkBlobs']['params'];
+      return { deleted: await blobs.unlink(hashes) };
+    }
+    case 'viewFilterPresets':
+      return executeViewFilterPresetRequest(
+        asBetterSqlite3(db),
+        params as WebStateRequests['viewFilterPresets']['params']
+      );
     default:
-      throw new Error(`unknown op ${String((request as { op: unknown }).op)}`);
+      throw new Error(`unknown op ${String(request.op)}`);
   }
 }
 
-async function answer(id: number, request: WebStateRequest): Promise<WebStateReply> {
-  const active = writer;
-  if (!active) {
-    return { error: refusal ?? leaderLost(), id, ok: false };
+/**
+ * The writer's requests run one at a time, in arrival order, as the desktop
+ * writer handles its messages: a blob write finishes before the append that
+ * names it, and nothing runs on a store that a retirement already closed.
+ */
+let queue: Promise<unknown> = Promise.resolve();
+
+function serialized<T>(work: () => Promise<T>): Promise<T> {
+  const run = queue.then(work);
+  queue = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
+function answer(id: number, request: WebStateRequest): Promise<WebStateReply> {
+  if (request.op === 'stall') {
+    // The test hook never answers, and must not hold the queue while it waits.
+    return config?.testHooks?.allowStall
+      ? new Promise<never>(() => {})
+      : Promise.resolve({ error: errorReply(new Error('stall is a test hook')), id, ok: false });
   }
-  try {
-    return { id, ok: true, result: await handle(active, request) };
-  } catch (error) {
-    return { error: errorReply(error), id, ok: false };
-  }
+  return serialized(async (): Promise<WebStateReply> => {
+    const active = writer;
+    if (!active) {
+      return { error: refusal ?? leaderLost(), id, ok: false };
+    }
+    try {
+      return { id, ok: true, result: await handle(active, request) };
+    } catch (error) {
+      return { error: errorReply(error), id, ok: false };
+    }
+  });
 }
 
 /**

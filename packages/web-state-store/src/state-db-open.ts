@@ -16,6 +16,9 @@ export interface OpenedStateDb {
  * boundaries. Returns the integrity failure text, or null.
  */
 function configure(db: SqliteWasmDatabase): string | null {
+  // The desktop driver's default page size (the official wasm build's is 8192), so the 1,000-page checkpoint threshold
+  // means the same WAL size on both. It takes effect only on a new, empty database.
+  db.pragma('page_size = 4096');
   db.pragma('locking_mode = EXCLUSIVE');
   const journal = db.pragma('journal_mode = WAL', { simple: true });
   if (journal !== 'wal') {

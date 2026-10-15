@@ -1,4 +1,11 @@
 import type {
+  CollectionPort,
+  ModelChoicePort,
+  PromptCatalogPort,
+  ThreadGroupsPort,
+  ViewFilterPresetPort,
+} from '@brainstrike/state-store';
+import type {
   TabMessage,
   WebStateErrorKind,
   WebStateErrorReply,
@@ -40,7 +47,14 @@ interface Pending {
  * either writes the store or forwards to the tab whose worker does. `open`
  * settles once a writer is known.
  */
-export class WebStateStore {
+export class WebStateStore
+  implements
+    CollectionPort,
+    ModelChoicePort,
+    PromptCatalogPort,
+    ThreadGroupsPort,
+    ViewFilterPresetPort
+{
   readonly #listeners = new Set<(view: WebStateLeaseView) => void>();
   readonly #pending = new Map<number, Pending>();
   readonly #worker: Worker;
@@ -98,6 +112,57 @@ export class WebStateStore {
    */
   retire(): Promise<WebStateRequests['retire']['result']> {
     return this.request('retire', {});
+  }
+
+  collections(
+    request: WebStateRequests['collections']['params']
+  ): Promise<WebStateRequests['collections']['result']> {
+    return this.request('collections', request);
+  }
+
+  modelChoices(
+    request: WebStateRequests['modelChoices']['params']
+  ): Promise<WebStateRequests['modelChoices']['result']> {
+    return this.request('modelChoices', request);
+  }
+
+  promptCatalog(
+    request: WebStateRequests['promptCatalog']['params']
+  ): Promise<WebStateRequests['promptCatalog']['result']> {
+    return this.request('promptCatalog', request);
+  }
+
+  threadGroups(
+    request: WebStateRequests['threadGroups']['params']
+  ): Promise<WebStateRequests['threadGroups']['result']> {
+    return this.request('threadGroups', request);
+  }
+
+  viewFilterPresets(
+    request: WebStateRequests['viewFilterPresets']['params']
+  ): Promise<WebStateRequests['viewFilterPresets']['result']> {
+    return this.request('viewFilterPresets', request);
+  }
+
+  /** Stores `content` under its SHA-256 `hash`, before any event names it. */
+  putBlob(hash: string, content: string): Promise<WebStateRequests['putBlob']['result']> {
+    return this.request('putBlob', { content, hash });
+  }
+
+  readBlob(hash: string, maxBytes: number): Promise<WebStateRequests['readBlob']['result']> {
+    return this.request('readBlob', { hash, maxBytes });
+  }
+
+  storedBlobRefs(threadId: string): Promise<WebStateRequests['storedBlobRefs']['result']> {
+    return this.request('storedBlobRefs', { threadId });
+  }
+
+  damagedBlobRefs(): Promise<WebStateRequests['damagedBlobRefs']['result']> {
+    return this.request('damagedBlobRefs', {});
+  }
+
+  unlinkBlobs(hashes: readonly string[]): Promise<WebStateRequests['unlinkBlobs']['result']> {
+    return this.request('unlinkBlobs', { hashes });
   }
 
   check(): Promise<WebStateRequests['check']['result']> {

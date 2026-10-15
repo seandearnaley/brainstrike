@@ -1,88 +1,11 @@
 import { verified } from '@brainstrike/state-store/run-log-format';
 import { SCHEMA_VERSION } from '@brainstrike/state-store/schema';
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  WEB_STATE_PROTOCOL,
-  type WebStateAppendRow,
-  type WebStateStoreConfig,
-  type WebStateTestHooks,
-  webStateNames,
-} from '../protocol';
-import { type WebStateLeaseView, WebStateStore, WebStateStoreError } from '../web-state-client';
+import { WEB_STATE_PROTOCOL, webStateNames } from '../protocol';
+import type { WebStateStoreError } from '../web-state-client';
+import { closeTabs, event, nextLease, openTab, rejection, removePool, storeConfig } from './tabs';
 
-const opened: WebStateStore[] = [];
-const pools: string[] = [];
-
-/** A store of its own: its own lock, channel and OPFS pool. */
-function storeConfig(testHooks?: WebStateTestHooks): WebStateStoreConfig {
-  const name = `test-${crypto.randomUUID()}`;
-  pools.push(webStateNames(name).pool);
-  return { name, testHooks };
-}
-
-/** One tab's handle: its own worker on the shared store. */
-async function openTab(config: WebStateStoreConfig): Promise<WebStateStore> {
-  const worker = new Worker(new URL('../web-state-worker.ts', import.meta.url), { type: 'module' });
-  const store = await WebStateStore.open(worker, config);
-  opened.push(store);
-  return store;
-}
-
-function nextLease(store: WebStateStore): Promise<WebStateLeaseView> {
-  return new Promise((resolve) => {
-    const unsubscribe = store.subscribeLease((view) => {
-      unsubscribe();
-      resolve(view);
-    });
-  });
-}
-
-function event(threadId: string, n: number): WebStateAppendRow {
-  return [
-    threadId,
-    'text.delta',
-    'run-1',
-    JSON.stringify({ n, text: `delta ${n} ✓`, type: 'text.delta' }),
-    null,
-    1,
-  ];
-}
-
-async function removePool(name: string): Promise<void> {
-  const root = await navigator.storage.getDirectory();
-  await root.removeEntry(webStateNames(name).pool, { recursive: true });
-}
-
-async function rejection(promise: Promise<unknown>): Promise<WebStateStoreError> {
-  try {
-    await promise;
-  } catch (error) {
-    expect(error).toBeInstanceOf(WebStateStoreError);
-    return error as WebStateStoreError;
-  }
-  throw new Error('expected the request to fail');
-}
-
-afterEach(async () => {
-  for (const store of opened.splice(0)) {
-    store.close();
-  }
-  const root = await navigator.storage.getDirectory();
-  for (const pool of pools.splice(0)) {
-    // A terminated worker releases its access handles shortly after; retry until it has.
-    for (let attempt = 0; attempt < 50; attempt++) {
-      try {
-        await root.removeEntry(pool, { recursive: true });
-        break;
-      } catch (error) {
-        if ((error as DOMException).name === 'NotFoundError') {
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      }
-    }
-  }
-});
+afterEach(closeTabs);
 
 describe('the browser state writer', () => {
   it('opens the shared state schema with the web PRAGMAs, as the first writer', async () => {
@@ -93,6 +16,7 @@ describe('the browser state writer', () => {
       foreignKeys: 1,
       journalMode: 'wal',
       lockingMode: 'exclusive',
+      pageSize: 4096,
       secureDelete: 1,
       synchronous: 1,
       userVersion: SCHEMA_VERSION,
@@ -214,7 +138,7 @@ describe('the browser state writer', () => {
     expect((await rejection(tab.threads())).kind).toBe('closed');
   });
 
-  it('refuses an event that references a blob, since the browser store keeps none', async () => {
+  it('refuses an event that names a blob the store does not have', async () => {
     const tab = await openTab(storeConfig());
     const blob = 'a'.repeat(64);
     const error = await rejection(
@@ -223,7 +147,7 @@ describe('the browser state writer', () => {
       ])
     );
     expect(error.kind).toBe('failed');
-    expect(error.message).toContain('no blob storage');
+    expect(error.message).toContain(`missing blob ${blob}`);
     expect(await tab.threads()).toEqual({ threads: [] });
   });
 
