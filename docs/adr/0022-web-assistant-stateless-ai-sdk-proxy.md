@@ -6,7 +6,7 @@
 - **Completes:** [ADR-0012](0012-ai-sdk-loop-mastra-memory-library.md)
 - **Evidence:** `docs/archive/web-assistant-engine-scoping-2026-10-15.md`,
   `docs/archive/host-tool-representation-measurement-2026-10-15.md`
-- **Amended:** 2026-10-15 — the retirement step's file count; see Amendment below
+- **Amended:** 2026-10-15 — the retirement step's file count; web data moves to the shared log (BST-1940); see the Amendments below
 
 ## Context
 
@@ -150,6 +150,25 @@ relocation set in the first step is likewise computed, not fixed at 16.
 
 Nothing else in this ADR changes. Web still stops calling the loop, and the
 deletion is still the largest subtraction available.
+
+## Amendment (2026-10-15): web's data moves to the browser state DB (BST-1940)
+
+Consequences said "web users keep their data in browser PGlite, as now". That
+described this change, not a lasting decision. Owner decision on BST-1940:
+
+- **Web chat goes on the shared log.** The browser state writer
+  (`@brainstrike/web-state-store`, ADR-0011's 2026-10-15 amendment) records each
+  run of this ADR's proxy as the host events desktop commits. It also serves the
+  thread and log reads, so the web UI uses desktop's committed-conversation binding.
+- **This ADR's boundary holds.** The host's Core, run loop, tools, permissions,
+  MCP and memory stay out of the browser. The proxy remains web's single-step
+  loop; the browser writer only persists what it returns.
+- **The web index ports the indexer.** `packages/indexer` is refactored so its
+  derived store runs on the same wasm adapter, with the ticket's web vector
+  variant. No second web indexer.
+- **Order of work.** First the catalogs and blobs, then the index with blob
+  collection and thread deletion, then chat. Web runs on PGlite until sqlite-wasm
+  ships the pool-init fix; then the app is wired and PGlite retires from web.
 
 ## Alternatives considered
 

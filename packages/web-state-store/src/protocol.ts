@@ -1,3 +1,15 @@
+import type {
+  CollectionReply,
+  CollectionRequest,
+  ModelChoiceRequest,
+  ModelChoiceResult,
+  PromptCatalogReply,
+  PromptCatalogRequest,
+  ThreadGroupsReply,
+  ThreadGroupsRequest,
+} from '@brainstrike/state-store';
+import type { ViewFilterPresetReply, ViewFilterPresetRequest } from '@brainstrike/types';
+
 /**
  * The browser state writer's wire: a tab and its own worker exchange
  * `TabMessage`/`WorkerMessage`; the workers of one origin's tabs exchange
@@ -93,6 +105,7 @@ export interface WebStateSettings {
   readonly foreignKeys: number;
   readonly journalMode: string;
   readonly lockingMode: string;
+  readonly pageSize: number;
   /** 1 when the state DB was found damaged and opened read-only. */
   readonly queryOnly: number;
   readonly secureDelete: number;
@@ -120,6 +133,20 @@ export interface WebStateRequests {
     readonly params: Record<string, never>;
     readonly result: { readonly gaps: number; readonly integrity: string };
   };
+  /** The desktop writer's catalog operations, on the same domain modules (`@brainstrike/state-store/catalog-domains`). */
+  collections: { readonly params: CollectionRequest; readonly result: CollectionReply };
+  /** Blob hashes named by the rows of threads whose rows fail verification. */
+  damagedBlobRefs: {
+    readonly params: Record<string, never>;
+    readonly result: { readonly hashes: readonly string[] };
+  };
+  modelChoices: { readonly params: ModelChoiceRequest; readonly result: ModelChoiceResult };
+  promptCatalog: { readonly params: PromptCatalogRequest; readonly result: PromptCatalogReply };
+  /** Content-addressed: `hash` is the SHA-256 of `content`'s UTF-8 bytes. */
+  putBlob: {
+    readonly params: { readonly content: string; readonly hash: string };
+    readonly result: Record<string, never>;
+  };
   read: {
     readonly params: {
       readonly fromSeq: number;
@@ -130,6 +157,11 @@ export interface WebStateRequests {
       readonly damage: WebStateErrorReply | null;
       readonly rows: readonly WebStateStoredRow[];
     };
+  };
+  /** A verified blob's content, or null when it is larger than `maxBytes`. */
+  readBlob: {
+    readonly params: { readonly hash: string; readonly maxBytes: number };
+    readonly result: { readonly content: string | null };
   };
   readHydration: {
     readonly params: Record<string, never>;
@@ -156,9 +188,24 @@ export interface WebStateRequests {
     readonly params: { readonly threadId: string };
     readonly result: { readonly status: WebStateThreadStatus };
   };
+  /** The blob hashes a thread's stored rows may reference, verified or not. */
+  storedBlobRefs: {
+    readonly params: { readonly threadId: string };
+    readonly result: { readonly hashes: readonly string[] };
+  };
+  threadGroups: { readonly params: ThreadGroupsRequest; readonly result: ThreadGroupsReply };
   threads: {
     readonly params: Record<string, never>;
     readonly result: { readonly threads: readonly string[] };
+  };
+  /** Removes blobs a collection found unreferenced; returns the hashes actually removed. */
+  unlinkBlobs: {
+    readonly params: { readonly hashes: readonly string[] };
+    readonly result: { readonly deleted: readonly string[] };
+  };
+  viewFilterPresets: {
+    readonly params: ViewFilterPresetRequest;
+    readonly result: ViewFilterPresetReply;
   };
 }
 

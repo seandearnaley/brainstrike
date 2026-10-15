@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/state-store": "workspace:*",
+    "@brainstrike/types": "workspace:*",
     "@sqlite.org/sqlite-wasm": "catalog:"
   },
   "devDependencies": {

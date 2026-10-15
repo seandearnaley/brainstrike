@@ -8,5 +8,5 @@
     "types": ["node", "vitest/globals"]
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["dist", "node_modules", "src/web-state-worker.ts"]
+  "exclude": ["dist", "node_modules", "src/blob-store.ts", "src/web-state-worker.ts"]
 }

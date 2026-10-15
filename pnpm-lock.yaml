@@ -4249,6 +4249,9 @@ importers:
       '@brainstrike/state-store':
         specifier: workspace:*
         version: link:../state-store
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
       '@sqlite.org/sqlite-wasm':
         specifier: 'catalog:'
         version: 3.53.4-build2

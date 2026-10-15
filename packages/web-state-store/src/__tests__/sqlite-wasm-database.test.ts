@@ -1,45 +1,24 @@
 import { RunLog } from '@brainstrike/state-store/run-log';
 import { crc32Bytes, verified } from '@brainstrike/state-store/run-log-format';
 import { migrate, SCHEMA_VERSION } from '@brainstrike/state-store/schema';
-import sqlite3InitModule, { type Sqlite3Static } from '@sqlite.org/sqlite-wasm';
-import BetterSqlite3 from 'better-sqlite3';
+import type { Sqlite3Static } from '@sqlite.org/sqlite-wasm';
+import type BetterSqlite3 from 'better-sqlite3';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { SqliteWasmDatabase } from '../sqlite-wasm-database';
+import { bothDrivers, caught, loadSqliteWasm } from './drivers';
 
 let sqlite3: Sqlite3Static;
 
 beforeAll(async () => {
-  sqlite3 = await sqlite3InitModule();
+  sqlite3 = await loadSqliteWasm();
 });
 
 function wasm(): SqliteWasmDatabase {
   return new SqliteWasmDatabase(sqlite3, new sqlite3.oo1.DB(':memory:'), ':memory:');
 }
 
-/** The adapter where the shared modules expect a better-sqlite3 connection. */
-function asDesktopDriver(db: SqliteWasmDatabase): BetterSqlite3.Database {
-  return db as unknown as BetterSqlite3.Database;
-}
-
-/** The same work on both drivers. */
 function both<T>(work: (db: BetterSqlite3.Database) => T): { desktop: T; web: T } {
-  const desktop = new BetterSqlite3(':memory:');
-  const web = wasm();
-  try {
-    return { desktop: work(desktop), web: work(asDesktopDriver(web)) };
-  } finally {
-    desktop.close();
-    web.close();
-  }
-}
-
-function caught(fn: () => unknown): { code?: unknown; name: string } {
-  try {
-    fn();
-  } catch (error) {
-    return { code: (error as { code?: unknown }).code, name: (error as Error).name };
-  }
-  throw new Error('expected a throw');
+  return bothDrivers(sqlite3, work);
 }
 
 describe('the state DB schema on sqlite-wasm', () => {
