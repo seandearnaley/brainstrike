@@ -24,10 +24,13 @@ import {
   estimateConversationTokens,
   resolveDisplayedContextUsage,
 } from './context-estimate';
+import { useContextMapLink } from './context-map-link-context';
 import { ContextRing, type ContextRingState } from './context-ring';
 import { ContextUsagePopoverContent } from './context-usage-popover';
 import { useContextUsageStore } from './context-usage-store';
 import { formatCompact } from './format-compact-token-count';
+import { fileWindowTokens, threadContextAt } from './thread-context-fold';
+import { useThreadContextStore } from './thread-context-store';
 
 /** One source's share of the thread total (BST-953). OM figures are local estimates. */
 export interface CumulativeSourceUsage {
@@ -218,6 +221,17 @@ export const ContextUsageMeter = ({
   // Run-start prompt breakdown (or the explicit invalid marker) recorded by the
   // app-shell writer with the SAME thread key contract as recordUsage.
   const breakdownState = useContextUsageStore((s) => s.breakdownByThread[key]);
+  // The thread context fold's latest window (ADR-0021): the same figure the
+  // Context tab's header shows. Absent where no committed fold exists.
+  const contextRecord = useThreadContextStore((s) => s.byThread[key]);
+  const workspaceFileTokens = useMemo(
+    () =>
+      contextRecord
+        ? fileWindowTokens(threadContextAt(contextRecord.snapshot, contextRecord.branchRunIds))
+        : undefined,
+    [contextRecord]
+  );
+  const contextMapLink = useContextMapLink();
   // In-flight run's billed step usage (BST-953 live tick) — added to the
   // durable cumulative figure until the run's own row lands and the settle
   // path clears it (see context-usage-store.ts).
@@ -236,6 +250,32 @@ export const ContextUsageMeter = ({
     },
     []
   );
+
+  // Server breakdown baseline (system instructions + task list + tool
+  // definitions) — the categories the conversation walk cannot see. Only a
+  // VALID breakdown contributes; the invalid marker stays display-only.
+  const breakdown =
+    breakdownState && !breakdownState.invalid ? breakdownState.breakdown : undefined;
+  const breakdownBaselineTokens = breakdown
+    ? breakdown.systemInstructionsTokens +
+      (breakdown.taskListTokens ?? 0) +
+      (breakdown.toolDefinitionsTokens ?? 0)
+    : 0;
+  const { isEstimated, usedTokens } = resolveDisplayedContextUsage({
+    breakdownBaselineTokens,
+    conversationEstimateTokens: conversationEstimate?.totalTokens ?? estimatedTokens ?? 0,
+    exact: usage,
+    isRunning: isRunning === true,
+  });
+  // Publish the ring's figure for the Context tab's header (one writer), only
+  // while the ring itself renders.
+  const recordRing = useThreadContextStore((s) => s.recordRing);
+  // biome-ignore lint/plugin: publishes a figure only this meter can compute to the shared store
+  useEffect(() => {
+    if (contextWindow && effectiveInputBudget) {
+      recordRing(key, { budgetTokens: effectiveInputBudget, isEstimated, usedTokens });
+    }
+  }, [contextWindow, effectiveInputBudget, isEstimated, key, recordRing, usedTokens]);
 
   // Render nothing when we have no denominator.
   if (!(contextWindow && effectiveInputBudget)) {
@@ -256,23 +296,6 @@ export const ContextUsageMeter = ({
     cancelScheduledClose();
     closeTimerRef.current = setTimeout(() => setOpen(false), HOVER_CLOSE_DELAY_MS);
   };
-
-  // Server breakdown baseline (system instructions + task list + tool
-  // definitions) — the categories the conversation walk cannot see. Only a
-  // VALID breakdown contributes; the invalid marker stays display-only.
-  const breakdown =
-    breakdownState && !breakdownState.invalid ? breakdownState.breakdown : undefined;
-  const breakdownBaselineTokens = breakdown
-    ? breakdown.systemInstructionsTokens +
-      (breakdown.taskListTokens ?? 0) +
-      (breakdown.toolDefinitionsTokens ?? 0)
-    : 0;
-  const { isEstimated, usedTokens } = resolveDisplayedContextUsage({
-    breakdownBaselineTokens,
-    conversationEstimateTokens: conversationEstimate?.totalTokens ?? estimatedTokens ?? 0,
-    exact: usage,
-    isRunning: isRunning === true,
-  });
 
   const state = resolveUsageState(usedTokens, effectiveInputBudget);
   const percentage = Math.min(100, (usedTokens / effectiveInputBudget) * 100);
@@ -380,9 +403,11 @@ export const ContextUsageMeter = ({
             isEstimated={isEstimated}
             liveRunUsage={liveRunUsage}
             omSegment={omSegment}
+            onOpenContextMap={contextMapLink?.openContextMap}
             percentage={percentage}
             usage={usage}
             usedTokens={usedTokens}
+            workspaceFileTokens={workspaceFileTokens}
           />
         </PopoverContent>
       </Popover>

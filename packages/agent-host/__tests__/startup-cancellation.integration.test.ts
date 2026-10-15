@@ -96,6 +96,9 @@ test('cancellation before acquisition constructs no platform and leaves no root 
   }
 });
 
+/** Stands in for the starter's 10 s production readiness deadline (pinned in host-lease). */
+const MISSING_REPORT_READY_DEADLINE_MS = 6000;
+
 const startupModes = [
   'initializer rejection',
   'launcher cancellation',
@@ -232,6 +235,12 @@ export async function createHostPlatform(options, context) {
         entryArgs: [modulePath],
         entrypoint: fileURLToPath(new URL('../dist/process-entry.js', import.meta.url)),
         output: 'ignore',
+        // The swallowed report reaches the starter's readiness deadline. A narrowed
+        // deadline still expires only after the fixture's own readiness handshake
+        // (about 2 s on a loaded host); expiring earlier fails `observer.ready`.
+        ...(mode === 'missing startup report'
+          ? { readyTimeoutMs: MISSING_REPORT_READY_DEADLINE_MS }
+          : {}),
       });
       starting = spawnHost({ lifetime: 'persistent', root }, signal);
       void starting.then(

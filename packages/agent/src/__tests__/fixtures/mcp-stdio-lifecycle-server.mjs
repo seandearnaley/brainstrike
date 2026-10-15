@@ -1,4 +1,6 @@
+import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
+import { PassThrough } from 'node:stream';
 import { Server } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 
@@ -15,6 +17,7 @@ if (!pidFile) {
   throw new Error('BRAINSTRIKE_STDIO_TEST_PID_FILE is required');
 }
 const rawConnectDelayMs = process.env['BRAINSTRIKE_STDIO_TEST_CONNECT_DELAY_MS'];
+const connectGateFile = process.env['BRAINSTRIKE_STDIO_TEST_CONNECT_GATE_FILE'];
 const startupDiagnostic = process.env['BRAINSTRIKE_STDIO_TEST_STDERR'];
 const connectDelayMs = rawConnectDelayMs === undefined ? 0 : Number(rawConnectDelayMs);
 const paginateTools = process.env['BRAINSTRIKE_STDIO_TEST_PAGINATE_TOOLS'] === '1';
@@ -25,6 +28,40 @@ if (!Number.isSafeInteger(connectDelayMs) || connectDelayMs < 0) {
 }
 if (startupDiagnostic) {
   console.error(startupDiagnostic);
+}
+
+/**
+ * Holds every client byte until the gate file exists. The client SDK arms its
+ * request deadline before it writes, so the stderr marker (sent when the first
+ * bytes arrive) proves the initialize request is pending; it stays unanswered
+ * until the test opens the gate. Ending stdin first drops the held bytes.
+ */
+function gatedInput(gateFile) {
+  const input = new PassThrough();
+  const held = [];
+  let open = false;
+  const gate = setInterval(() => {
+    if (!existsSync(gateFile)) {
+      return;
+    }
+    clearInterval(gate);
+    open = true;
+    for (const chunk of held.splice(0)) {
+      input.write(chunk);
+    }
+  }, 10);
+  process.stdin.on('data', (chunk) => {
+    if (open) {
+      input.write(chunk);
+    } else if (held.push(chunk) === 1) {
+      console.error('brainstrike-stdio-test: connect held');
+    }
+  });
+  process.stdin.once('end', () => {
+    clearInterval(gate);
+    input.end();
+  });
+  return input;
 }
 
 async function readState() {
@@ -192,4 +229,6 @@ server.setRequestHandler('tools/call', async (request) => {
 if (connectDelayMs > 0) {
   await new Promise((resolve) => setTimeout(resolve, connectDelayMs));
 }
-await server.connect(new StdioServerTransport());
+await server.connect(
+  new StdioServerTransport(connectGateFile ? gatedInput(connectGateFile) : undefined)
+);

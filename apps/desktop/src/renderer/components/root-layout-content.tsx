@@ -58,6 +58,7 @@ import GitPageContent from './git-page-content';
 import { NativeSearchProvider } from './native-search-provider';
 import SettingsPageContent from './settings/page-content';
 import TerminalPageContent from './terminal-page-content';
+import { ThreadContextPageContent } from './thread-context-page-content';
 import { WorktreeMapPageContent } from './worktree-map-page-content';
 
 const BROWSER_NAVIGATION_ITEM: NavigationItem = { icon: Globe, name: 'Browser', path: '/browser' };
@@ -165,6 +166,9 @@ export default function RootLayoutContent() {
     nativeIndexSearch: nativeSearch,
     navigationItems: navigationConfig,
     settingsPageContent: <SettingsPageContent />,
+    // Every desktop thread is a committed host conversation, so the context map
+    // always has a fold; without the index bridge it draws files by line bands.
+    threadContextPageContent: <ThreadContextPageContent chunkBounds={nativeSearch} />,
     ...(browserAvailable ? { browserPageContent: <BrowserPaneContent /> } : {}),
     ...(changesAvailable ? { changesPageContent: <ChangesPageContent /> } : {}),
     ...(gitAvailable ? { gitPageContent: <GitPageContent /> } : {}),

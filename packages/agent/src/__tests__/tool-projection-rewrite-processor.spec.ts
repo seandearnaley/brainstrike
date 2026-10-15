@@ -81,7 +81,7 @@ describe('rewriteToolProjectionPrompt', () => {
     ]);
     const pruneMarker =
       '[pruned old tool result — tool=brainstrike.readWorkspaceFile args=0123456789ab; re-run the tool to obtain it again]';
-    const { prompt: rewritten } = rewriteToolProjectionPrompt(
+    const { prompt: rewritten, rewrittenToolCallIds } = rewriteToolProjectionPrompt(
       original,
       new Map([
         [
@@ -106,6 +106,8 @@ describe('rewriteToolProjectionPrompt', () => {
     expect(JSON.stringify(rewritten)).toContain(pruneMarker);
     expect(JSON.stringify(rewritten)).toContain('old superseded evidence');
     expect(JSON.stringify(rewritten)).not.toContain('old prunable evidence');
+    // Only the results that actually went out as markers are reported.
+    expect(rewrittenToolCallIds).toEqual(new Set(['call-pruned']));
   });
 
   it('keeps repeated growing-file rereads from bloating the next provider request', () => {

@@ -19,7 +19,7 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createTerminalIpcHandlers,
   disposeAllTerminals,
@@ -40,6 +40,25 @@ async function makeDir(prefix = 'brainstrike-terminal-ipc-'): Promise<string> {
   const real = await fsPromises.realpath(dir);
   createdDirs.push(real);
   return real;
+}
+
+/**
+ * The real-pty tests start the developer's interactive `$SHELL`, which inherits
+ * `process.env` at spawn: it sources rc files from HOME and, on a clean `exit`,
+ * writes its history there. Give every test a disposable home (and the
+ * explicit history/config overrides a shell honours before HOME) so a test run
+ * never reads or writes the developer's own profile.
+ */
+async function isolateShellHome(): Promise<void> {
+  const home = await makeDir('brainstrike-terminal-home-');
+  vi.stubEnv('HOME', home);
+  vi.stubEnv('USERPROFILE', home);
+  vi.stubEnv('ZDOTDIR', home);
+  vi.stubEnv('HISTFILE', path.join(home, '.shell_history'));
+  vi.stubEnv('XDG_CONFIG_HOME', path.join(home, '.config'));
+  vi.stubEnv('XDG_DATA_HOME', path.join(home, '.local', 'share'));
+  vi.stubEnv('XDG_STATE_HOME', path.join(home, '.local', 'state'));
+  vi.stubEnv('XDG_CACHE_HOME', path.join(home, '.cache'));
 }
 
 function fakeResolver(
@@ -152,9 +171,12 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
+beforeEach(isolateShellHome);
+
 afterEach(async () => {
   // Reap anything a test left running so pids never leak across tests.
   await disposeAllTerminals();
+  vi.unstubAllEnvs();
   while (createdDirs.length > 0) {
     const dir = createdDirs.pop();
     if (dir) {

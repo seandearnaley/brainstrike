@@ -237,6 +237,7 @@ const CATEGORY_COLORS = {
   conversation: 'bg-emerald-500/80',
   system: 'bg-violet-500/80',
   taskList: 'bg-amber-500/80',
+  toolCalls: 'bg-lime-500/80',
   toolDefinitions: 'bg-sky-500/80',
   unattributed: 'bg-rose-400/70',
 } as const;
@@ -283,6 +284,16 @@ function conversationFigure(
 }
 
 /**
+ * The server-measured tool calls and results, shown as their own category only
+ * beside the server-measured conversation (text only). The client walk already
+ * counts tool activity inside its conversation estimate, so pairing it with
+ * this figure would count tools twice.
+ */
+function toolCallsCategoryTokens(breakdown: AssistantContextBreakdown): number | undefined {
+  return breakdown.historyMessagesTokens === undefined ? undefined : breakdown.toolCallsTokens;
+}
+
+/**
  * "Unattributed" = exact last-turn input tokens minus every token category the
  * list displays. Shown ONLY once exact usage exists — before that there is no
  * exact total to attribute against. Display math, not policy: a heuristic
@@ -300,6 +311,7 @@ function unattributedTokens(
     breakdown.systemInstructionsTokens +
     (breakdown.taskListTokens ?? 0) +
     (breakdown.toolDefinitionsTokens ?? 0) +
+    (toolCallsCategoryTokens(breakdown) ?? 0) +
     conversationTokens;
   const remainder = usage.inputTokens - attributed;
   if (remainder < 0) {
@@ -396,6 +408,29 @@ function composeServerCategories(
       );
     }
   }
+  const toolCallsTokens = toolCallsCategoryTokens(breakdown);
+  if (toolCallsTokens !== undefined) {
+    pushCategory(
+      composer,
+      'toolCalls',
+      {
+        label: 'Tool calls and results',
+        testId: 'context-usage-breakdown-tool-calls',
+        value: `~${formatCompact(toolCallsTokens)}`,
+      },
+      toolCallsTokens
+    );
+    if (breakdown.toolCallsByTool && breakdown.toolCallsByTool.length > 0) {
+      composer.subRowsByTestId['context-usage-breakdown-tool-calls'] = toTopEntrySubRows(
+        breakdown.toolCallsByTool.map(({ tokens, toolName }) => ({ name: toolName, tokens })),
+        {
+          labelPrefix: '',
+          restTestId: 'context-usage-toolcall-rest',
+          testIdPrefix: 'context-usage-toolcall-',
+        }
+      );
+    }
+  }
   if (breakdown.taskListTokens !== undefined) {
     pushCategory(
       composer,
@@ -410,34 +445,45 @@ function composeServerCategories(
   }
 }
 
-/** Conversation split sub-rows (you/assistant/reasoning/tools + per-tool). */
-function toConversationSubRows(conversationEstimate: ConversationTokenEstimate): BreakdownRow[] {
+/**
+ * Conversation split sub-rows (you/assistant/reasoning/tools + per-tool). Tool
+ * rows are left out when tool calls have their own category.
+ */
+function toConversationSubRows(
+  conversationEstimate: ConversationTokenEstimate,
+  toolsHaveOwnCategory: boolean
+): BreakdownRow[] {
   const splitRows: BreakdownRow[] = [];
   const split: [string, string, number][] = [
     ['You', 'context-usage-conv-user', conversationEstimate.userTextTokens],
     ['Assistant', 'context-usage-conv-assistant', conversationEstimate.assistantTextTokens],
     ['Reasoning', 'context-usage-conv-reasoning', conversationEstimate.reasoningTokens],
-    ['Tool activity', 'context-usage-conv-tools', conversationEstimate.toolTokens],
   ];
+  if (!toolsHaveOwnCategory) {
+    split.push(['Tool activity', 'context-usage-conv-tools', conversationEstimate.toolTokens]);
+  }
   for (const [label, testId, tokens] of split) {
     if (tokens > 0) {
       splitRows.push({ label, testId, value: `~${formatCompact(tokens)}` });
     }
   }
-  splitRows.push(
-    ...toTopEntrySubRows(conversationEstimate.byTool, {
-      labelPrefix: '· ',
-      restTestId: 'context-usage-conv-tool-rest',
-      testIdPrefix: 'context-usage-conv-tool-',
-    })
-  );
+  if (!toolsHaveOwnCategory) {
+    splitRows.push(
+      ...toTopEntrySubRows(conversationEstimate.byTool, {
+        labelPrefix: '· ',
+        restTestId: 'context-usage-conv-tool-rest',
+        testIdPrefix: 'context-usage-conv-tool-',
+      })
+    );
+  }
   return splitRows;
 }
 
 function composeConversationCategory(
   composer: BreakdownComposer,
   conversation: { estimated: boolean; tokens: number },
-  conversationEstimate: ConversationTokenEstimate | undefined
+  conversationEstimate: ConversationTokenEstimate | undefined,
+  toolsHaveOwnCategory: boolean
 ): void {
   pushCategory(
     composer,
@@ -450,7 +496,7 @@ function composeConversationCategory(
     conversation.tokens
   );
   if (conversationEstimate && conversationEstimate.totalTokens > 0) {
-    const splitRows = toConversationSubRows(conversationEstimate);
+    const splitRows = toConversationSubRows(conversationEstimate, toolsHaveOwnCategory);
     if (splitRows.length > 0) {
       composer.subRowsByTestId['context-usage-breakdown-conversation'] = splitRows;
     }
@@ -475,7 +521,12 @@ function composeBreakdown(params: {
     composeServerCategories(composer, breakdown);
   }
   if (conversation) {
-    composeConversationCategory(composer, conversation, conversationEstimate);
+    composeConversationCategory(
+      composer,
+      conversation,
+      conversationEstimate,
+      breakdown !== undefined && toolCallsCategoryTokens(breakdown) !== undefined
+    );
   }
 
   // Same authority split as the Conversation row: when the wire IS the
@@ -598,10 +649,49 @@ export interface ContextUsagePopoverContentProps {
   /** In-flight run's billed step usage (BST-953 live tick). */
   liveRunUsage?: ThreadTokenUsage | undefined;
   omSegment?: OmMeterState | undefined;
+  /** Opens the Context tab; present only where that tab exists. */
+  onOpenContextMap?: (() => void) | undefined;
   percentage: number;
   usage?: ThreadTokenUsage | undefined;
   usedTokens: number;
+  /**
+   * Tokens the latest window holds for tool calls that delivered file lines,
+   * from the thread context fold (null: the window was not recorded). Absent
+   * where no fold exists (web, before the first committed run).
+   */
+  workspaceFileTokens?: number | null | undefined;
 }
+
+/** The same figure the Context tab's header shows, with the way there. */
+const WorkspaceFilesRow = ({
+  onOpenContextMap,
+  tokens,
+}: {
+  readonly onOpenContextMap?: (() => void) | undefined;
+  readonly tokens: number | null;
+}) => (
+  <p
+    className="mt-1 flex items-center justify-between gap-2 text-muted-foreground"
+    data-testid="context-usage-workspace-files"
+  >
+    <span className="flex items-center gap-1.5">
+      Workspace files in the window
+      {onOpenContextMap && (
+        <button
+          className="text-[11px] text-foreground underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          data-testid="context-usage-open-context-map"
+          onClick={onOpenContextMap}
+          type="button"
+        >
+          Open context map
+        </button>
+      )}
+    </span>
+    <span className="tabular-nums">
+      {tokens === null ? 'not recorded' : `~${formatCompact(tokens)}`}
+    </span>
+  </p>
+);
 
 export const ContextUsagePopoverContent = ({
   breakdownState,
@@ -613,9 +703,11 @@ export const ContextUsagePopoverContent = ({
   isEstimated,
   liveRunUsage,
   omSegment,
+  onOpenContextMap,
   percentage,
   usage,
   usedTokens,
+  workspaceFileTokens,
 }: ContextUsagePopoverContentProps) => {
   const breakdownInvalid = breakdownState?.invalid === true;
   const { rows, segments, subRowsByTestId } = composeBreakdown({
@@ -700,6 +792,10 @@ export const ContextUsagePopoverContent = ({
             </li>
           ))}
         </ul>
+      )}
+
+      {workspaceFileTokens !== undefined && (
+        <WorkspaceFilesRow onOpenContextMap={onOpenContextMap} tokens={workspaceFileTokens} />
       )}
 
       {/* OM informational stats (observed tokens + compaction saved), or an

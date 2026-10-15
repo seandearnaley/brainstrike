@@ -19,6 +19,8 @@ import {
   OpenAIStoredItemExpiredError,
   ProviderRequestBoundaryError,
   ProviderRequestContextOverflowError,
+  preparedPromptBreakdown,
+  preparedPromptToolCalls,
   prepareProviderRequest,
   prepareProviderToolInputSchema,
   SubscriptionQuotaExhaustedError,
@@ -362,6 +364,121 @@ describe('canonical provider request preparation', () => {
     expect(serialized).not.toContain('large raw body');
     expect(prepared.accounting.promptTokens).toBe(Math.ceil(serialized.length / 4));
     expect(prepared.projectedPrompt).toEqual(prepared.params.prompt);
+    expect(prepared.rewrittenToolCallIds).toEqual(new Set(['call_recent']));
+  });
+
+  it('measures each tool call as sent, marking a committed rewrite and naming the native tool', async () => {
+    const pair = (
+      id: string,
+      toolName: string,
+      input: unknown,
+      output: Extract<
+        Exclude<LanguageModelV4Prompt[number]['content'], string>[number],
+        { type: 'tool-result' }
+      >['output']
+    ): LanguageModelV4Prompt => [
+      { content: [{ input, toolCallId: id, toolName, type: 'tool-call' }], role: 'assistant' },
+      { content: [{ output, toolCallId: id, toolName, type: 'tool-result' }], role: 'tool' },
+    ];
+    const prompt: LanguageModelV4Prompt = [
+      { content: 'system', role: 'system' },
+      user('go'),
+      ...pair(
+        'call_read',
+        'brainstrike_readWorkspaceFile',
+        { path: 'a.ts' },
+        {
+          type: 'text',
+          value: 'x'.repeat(400),
+        }
+      ),
+      ...pair(
+        'call_grep',
+        'brainstrike_grepSearch',
+        { pattern: 'needle' },
+        {
+          type: 'json',
+          value: { matches: ['a.ts:1'] },
+        }
+      ),
+      ...pair(
+        'call_denied',
+        'brainstrike_executeCommand',
+        { command: 'ls' },
+        {
+          reason: 'denied by user',
+          type: 'execution-denied',
+        }
+      ),
+      ...pair(
+        'call_shot',
+        'browser_screenshot',
+        {},
+        {
+          type: 'content',
+          value: [
+            { text: 'captured', type: 'text' },
+            { data: { data: 'aGVsbG8=', type: 'data' }, mediaType: 'image/png', type: 'file' },
+          ],
+        }
+      ),
+      user('again'),
+    ];
+    const prepared = await prepare(prompt, {
+      rewrites: new Map([
+        [
+          'call_grep',
+          {
+            kind: 'prune',
+            markerText: '[pruned]',
+            supersededByToolCallId: null,
+            toolCallId: 'call_grep',
+          },
+        ],
+      ]),
+    });
+    const calls = preparedPromptToolCalls(prepared);
+    expect(calls).toEqual([
+      {
+        inputTokens: Math.ceil(JSON.stringify({ path: 'a.ts' }).length / 4),
+        output: 'full',
+        outputTokens: 100,
+        toolCallId: 'call_read',
+        toolName: 'brainstrike.readWorkspaceFile',
+      },
+      {
+        inputTokens: Math.ceil(JSON.stringify({ pattern: 'needle' }).length / 4),
+        output: 'marker',
+        outputTokens: Math.ceil('[pruned]'.length / 4),
+        toolCallId: 'call_grep',
+        toolName: 'brainstrike.grepSearch',
+      },
+      expect.objectContaining({
+        output: 'full',
+        outputTokens: Math.ceil('denied by user'.length / 4),
+        toolCallId: 'call_denied',
+        toolName: 'brainstrike.executeCommand',
+      }),
+      // An inline file counts as its label, never its bytes.
+      expect.objectContaining({
+        outputTokens: Math.ceil('captured\n[attachment file]'.length / 4),
+        toolCallId: 'call_shot',
+        toolName: 'browser_screenshot',
+      }),
+    ]);
+    const breakdown = preparedPromptBreakdown(prepared, calls);
+    const total = calls.reduce((sum, c) => sum + c.inputTokens + c.outputTokens, 0);
+    expect(breakdown.toolCallsTokens).toBe(total);
+    expect(breakdown.toolCallsByTool?.reduce((sum, row) => sum + row.tokens, 0)).toBe(total);
+    expect(breakdown.toolCallsByTool?.[0]).toEqual({
+      calls: 1,
+      tokens: (calls[0]?.inputTokens ?? 0) + 100,
+      toolName: 'brainstrike.readWorkspaceFile',
+    });
+    // Text parts stay the conversation's: tool calls are a separate category.
+    expect(breakdown.historyMessagesTokens).toBe(
+      Math.ceil('go'.length / 4) + Math.ceil('again'.length / 4)
+    );
   });
 
   it('limits contiguous final context including system observations and tool definitions', async () => {

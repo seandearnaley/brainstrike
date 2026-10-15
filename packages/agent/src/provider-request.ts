@@ -9,8 +9,13 @@ import type {
   LanguageModelV4Middleware,
   LanguageModelV4Prompt,
 } from '@ai-sdk/provider';
-import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
+import type {
+  AssistantContextBreakdown,
+  AssistantToolCallUsage,
+  PromptToolCall,
+} from '@brainstrike/assistant-contract/context-breakdown';
 import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
+import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
 import { type MastraDBMessage, TripWire } from '@mastra/core/agent';
 import { type ProcessLLMRequestArgs, type Processor, TokenLimiter } from '@mastra/core/processors';
@@ -92,6 +97,98 @@ export interface PreparedProviderRequest {
   readonly params: LanguageModelV4CallOptions;
   /** After projection/filter/compatibility, before contiguous token limiting. */
   readonly projectedPrompt: LanguageModelV4Prompt;
+  /** Tool calls whose result this request replaced with a committed rewrite marker. */
+  readonly rewrittenToolCallIds: ReadonlySet<string>;
+}
+
+type PromptPart = Exclude<LanguageModelV4Prompt[number]['content'], string>[number];
+type ToolResultOutput = Extract<PromptPart, { type: 'tool-result' }>['output'];
+
+/** The text a provider receives for one tool result, for the chars/4 heuristic. */
+function toolResultOutputText(output: ToolResultOutput): string {
+  switch (output.type) {
+    case 'text':
+    case 'error-text':
+      return output.value;
+    case 'json':
+    case 'error-json':
+      return JSON.stringify(output.value) ?? '';
+    case 'execution-denied':
+      return output.reason ?? '';
+    case 'content':
+      // An inline file counts as its label, never its bytes (as attachments do).
+      return output.value
+        .map((item) => (item.type === 'text' ? item.text : `[attachment ${item.type}]`))
+        .join('\n');
+    default:
+      return '';
+  }
+}
+
+function toolCallInputText(input: unknown): string {
+  return typeof input === 'string' ? input : (JSON.stringify(input) ?? '');
+}
+
+/**
+ * Every tool call the prepared request carries, in prompt order: its input,
+ * its result as sent (a committed rewrite counts as its marker), measured with
+ * the shared chars/4 heuristic on the exact prompt after limiting.
+ */
+export function preparedPromptToolCalls(
+  prepared: Pick<PreparedProviderRequest, 'params' | 'rewrittenToolCallIds'>
+): PromptToolCall[] {
+  const calls = new Map<
+    string,
+    {
+      inputTokens: number;
+      output: PromptToolCall['output'];
+      outputTokens: number;
+      toolName: string;
+    }
+  >();
+  const entry = (toolCallId: string, toolName: string) => {
+    let call = calls.get(toolCallId);
+    if (!call) {
+      call = {
+        inputTokens: 0,
+        output: 'absent',
+        outputTokens: 0,
+        toolName: denormalizeNativeToolName(toolName),
+      };
+      calls.set(toolCallId, call);
+    }
+    return call;
+  };
+  for (const message of prepared.params.prompt) {
+    if (message.role !== 'assistant' && message.role !== 'tool') {
+      continue;
+    }
+    for (const part of message.content) {
+      if (part.type === 'tool-call') {
+        entry(part.toolCallId, part.toolName).inputTokens += countTokensHeuristic(
+          toolCallInputText(part.input)
+        );
+      } else if (part.type === 'tool-result') {
+        const call = entry(part.toolCallId, part.toolName);
+        call.outputTokens += countTokensHeuristic(toolResultOutputText(part.output));
+        call.output = prepared.rewrittenToolCallIds.has(part.toolCallId) ? 'marker' : 'full';
+      }
+    }
+  }
+  return [...calls].map(([toolCallId, call]) => ({ ...call, toolCallId }));
+}
+
+function toolCallUsageByTool(calls: readonly PromptToolCall[]): AssistantToolCallUsage[] {
+  const byTool = new Map<string, { calls: number; tokens: number }>();
+  for (const call of calls) {
+    const usage = byTool.get(call.toolName) ?? { calls: 0, tokens: 0 };
+    usage.calls += 1;
+    usage.tokens += call.inputTokens + call.outputTokens;
+    byTool.set(call.toolName, usage);
+  }
+  return [...byTool]
+    .map(([toolName, usage]) => ({ ...usage, toolName }))
+    .sort((a, b) => b.tokens - a.tokens || a.toolName.localeCompare(b.toolName));
 }
 
 /**
@@ -103,7 +200,8 @@ export interface PreparedProviderRequest {
  * composed system prompt here, so it has no separate row.
  */
 export function preparedPromptBreakdown(
-  prepared: Pick<PreparedProviderRequest, 'accounting' | 'params'>
+  prepared: Pick<PreparedProviderRequest, 'accounting' | 'params' | 'rewrittenToolCallIds'>,
+  toolCalls: readonly PromptToolCall[] = preparedPromptToolCalls(prepared)
 ): AssistantContextBreakdown {
   let systemInstructionsTokens = 0;
   let historyMessagesTokens = 0;
@@ -127,6 +225,11 @@ export function preparedPromptBreakdown(
     historyMessagesTokens,
     provenance: 'heuristic',
     systemInstructionsTokens,
+    toolCallsByTool: toolCallUsageByTool(toolCalls),
+    toolCallsTokens: toolCalls.reduce(
+      (total, call) => total + call.inputTokens + call.outputTokens,
+      0
+    ),
     toolDefinitionsProvenance:
       accounting.measurement.mode === 'exact-selected-model' && !accounting.usedBackstop
         ? 'measured'
@@ -318,9 +421,14 @@ export async function prepareProviderRequest(
       context.history
     ) as unknown as LanguageModelV4Prompt;
   }
+  let rewrittenToolCallIds: ReadonlySet<string> = new Set();
   if (context.rewrites) {
-    prompt = rewriteToolProjectionPrompt(prompt as unknown as LegacyPrompt, context.rewrites)
-      .prompt as unknown as LanguageModelV4Prompt;
+    const rewritten = rewriteToolProjectionPrompt(
+      prompt as unknown as LegacyPrompt,
+      context.rewrites
+    );
+    prompt = rewritten.prompt as unknown as LanguageModelV4Prompt;
+    rewrittenToolCallIds = rewritten.rewrittenToolCallIds;
   }
   prompt = await compatiblePrompt(prompt, model, context.provider, context.history, provenance);
   assertProviderRequestBoundaries(prompt);
@@ -361,7 +469,7 @@ export async function prepareProviderRequest(
     }
   }
   params.abortSignal?.throwIfAborted();
-  return { accounting, params: prepared, projectedPrompt };
+  return { accounting, params: prepared, projectedPrompt, rewrittenToolCallIds };
 }
 
 /** Use with installed ai@7.0.126 wrapLanguageModel; the host retains its one streamText loop. */

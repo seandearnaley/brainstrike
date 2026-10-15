@@ -3,7 +3,10 @@ import { Schema } from 'effect';
 import {
   decoder,
   IndexerError,
+  type ScopedFileChunkBounds,
   type ScopedFilePage,
+  scopedFileChunkBoundsRequestSchema,
+  scopedFileChunkBoundsSchema,
   scopedFilePageRequestSchema,
   scopedFilePageSchema,
   scopedManifestChunkSchema,
@@ -98,6 +101,60 @@ export function readScopedFilePage(
       nextOffset: next < total ? next : null,
       profileHash,
       total,
+    });
+  })();
+}
+
+const boundsRowSchema = Schema.Struct({
+  chunkId: Schema.String,
+  contentHash: Schema.String,
+  endLine: Schema.Int,
+  startLine: Schema.Int,
+  tokenCount: Schema.NullOr(Schema.Int),
+});
+
+/**
+ * Each file's chunk line bounds under the existing scoped read owner, with the
+ * same scope and binding authorization as a Library page. A bound file with no
+ * current chunks is `not-indexed`, never an empty chunk list.
+ */
+export function readScopedFileChunkBounds(
+  db: Database.Database,
+  authority: ScopeAuthority,
+  input: unknown
+): ScopedFileChunkBounds {
+  const request = decoder(scopedFileChunkBoundsRequestSchema)(input);
+  authority.authorize([request.scope]);
+  const bindings = request.fileIds.map((fileId) => authority.file(fileId, request.scope));
+  return db.transaction(() => {
+    authority.validateStoredBindings(db, bindings);
+    const fileRow = db.prepare(
+      'SELECT content_hash AS contentHash,snapshot_hash AS snapshotHash FROM file_records WHERE id=? AND scoped=1'
+    );
+    const chunkRows = db.prepare(
+      'SELECT id AS chunkId,content_hash AS contentHash,start_line AS startLine,end_line AS endLine,token_count AS tokenCount FROM file_chunks WHERE file_record_id=? ORDER BY chunk_index,pk'
+    );
+    const files = bindings.map((binding) => {
+      const raw = fileRow.get(binding.fileId);
+      if (!raw) {
+        return { fileId: binding.fileId, kind: 'not-indexed' as const };
+      }
+      const chunks = decoder(Schema.Array(boundsRowSchema))(chunkRows.all(binding.fileId));
+      if (chunks.length === 0) {
+        return { fileId: binding.fileId, kind: 'not-indexed' as const };
+      }
+      return {
+        ...decoder(fileSchema)(raw),
+        chunks,
+        fileId: binding.fileId,
+        kind: 'indexed' as const,
+      };
+    });
+    return decoder(scopedFileChunkBoundsSchema)({
+      authorityEpoch: readScopeEpoch(db),
+      authorityRevision: authority.revision,
+      files,
+      storeId: readIndexIdentity(db).storeId,
     });
   })();
 }

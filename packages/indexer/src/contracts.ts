@@ -730,3 +730,34 @@ export const scopedFilePageSchema = Schema.Struct({
 });
 export type ScopedFilePageRequest = typeof scopedFilePageRequestSchema.Type;
 export type ScopedFilePage = typeof scopedFilePageSchema.Type;
+
+/** Chunk line bounds for files under one scope: no content and no vectors (BST-2015). */
+export const scopedFileChunkBoundsRequestSchema = Schema.Struct({
+  fileIds: Schema.Array(nonblank).check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+  scope: scopeSchema,
+});
+export const scopedFileChunkBoundsSchema = Schema.Struct({
+  ...scopedProofIdentitySchema.fields,
+  files: Schema.Array(
+    Schema.Union([
+      Schema.Struct({
+        chunks: Schema.Array(
+          Schema.Struct({
+            chunkId: nonblank,
+            contentHash: hash,
+            endLine: positive,
+            startLine: positive,
+            tokenCount: Schema.NullOr(nonnegative),
+          })
+        ),
+        contentHash: hash,
+        fileId: nonblank,
+        kind: Schema.Literal('indexed'),
+        snapshotHash: hash,
+      }),
+      Schema.Struct({ fileId: nonblank, kind: Schema.Literal('not-indexed') }),
+    ])
+  ),
+});
+export type ScopedFileChunkBoundsRequest = typeof scopedFileChunkBoundsRequestSchema.Type;
+export type ScopedFileChunkBounds = typeof scopedFileChunkBoundsSchema.Type;

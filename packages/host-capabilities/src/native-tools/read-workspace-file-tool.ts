@@ -10,6 +10,7 @@
  * cursor-registry, and staleness leaves — never on `assistant-tools.ts`, so no
  * import cycle is possible.
  */
+
 import fsPromises from 'node:fs/promises';
 import {
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
@@ -19,6 +20,7 @@ import {
   recordKnownFileMtime,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
+import type { ReadDelivery } from '@brainstrike/assistant-contract/context-provenance';
 import {
   describeOpenRootTopology,
   resolveWorkspaceRoot,
@@ -587,6 +589,15 @@ export interface ReadWorkspaceFileResult {
   readonly totalLines: number;
   readonly truncated: boolean;
 }
+
+/** The named fields of a loose delivery schema, without its pass-through index signature. */
+type DeliveryFields<T> = { [K in keyof T as string extends K ? never : K]: T[K] };
+// The thread context map reads this page as delivered (ADR-0021): dropping or
+// retyping a field it reads fails here, not in the renderer.
+const readDeliveryHolds: ReadWorkspaceFileResult extends DeliveryFields<ReadDelivery>
+  ? true
+  : never = true;
+void readDeliveryHolds;
 
 export interface ReadWorkspaceFileLoopGuardOptions {
   readonly domainModelResultCharBudget?: number;

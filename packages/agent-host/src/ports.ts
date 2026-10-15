@@ -18,7 +18,10 @@ import type {
   ReferencedFileFailure,
   ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
-import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
+import type {
+  AssistantContextBreakdown,
+  PromptToolCallWindow,
+} from '@brainstrike/assistant-contract/context-breakdown';
 import type { McpTaskHandle } from '@brainstrike/assistant-contract/mcp-task-presentation';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
@@ -173,6 +176,7 @@ export interface HostRunContext {
     readonly breakdown: AssistantContextBreakdown;
     readonly modelId: string;
     readonly provider: string;
+    readonly toolCallWindow: PromptToolCallWindow;
   }): Promise<void>;
   readonly runId: string;
   readonly signal: AbortSignal;

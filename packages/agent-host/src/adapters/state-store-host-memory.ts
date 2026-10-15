@@ -3,7 +3,13 @@ import {
   healInterruptedModelMessages,
   type ProviderRequestContext,
   preparedPromptBreakdown,
+  preparedPromptToolCalls,
 } from '@brainstrike/agent/provider-request';
+import {
+  applyPromptToolCallWindow,
+  diffPromptToolCallWindow,
+  type PromptToolCall,
+} from '@brainstrike/assistant-contract/context-breakdown';
 import { createLogger } from '@brainstrike/logging';
 import type { StateStore } from '@brainstrike/state-store';
 import type { MastraDBMessage } from '@mastra/core/agent';
@@ -118,6 +124,8 @@ export class StateStoreHostMemory implements HostRunOwner {
   private preparedProviderHistory: readonly MastraDBMessage[] | undefined;
   /** Committed tool-output rewrites as of this step's history read. */
   private preparedRewrites: ReadonlyMap<string, HostProjectionRewrite> = new Map();
+  /** The tool calls this run's previous provider request carried; none before its first. */
+  private previousRequestToolCalls: ReadonlyMap<string, PromptToolCall> | undefined;
 
   private constructor(
     readonly memory: HostMemory,
@@ -303,12 +311,20 @@ export class StateStoreHostMemory implements HostRunOwner {
         if (!this.identity.recordProviderRequest) {
           throw new Error('Provider preparation requires the host-owned receipt writer');
         }
+        const toolCalls = preparedPromptToolCalls(prepared);
+        const toolCallWindow = diffPromptToolCallWindow(this.previousRequestToolCalls, toolCalls);
         await this.identity.recordProviderRequest({
           accounting: prepared.accounting,
-          breakdown: preparedPromptBreakdown(prepared),
+          breakdown: preparedPromptBreakdown(prepared, toolCalls),
           modelId: model.modelId,
           provider: selected.provider,
+          toolCallWindow,
         });
+        // Only a committed receipt becomes the next window's base.
+        this.previousRequestToolCalls = applyPromptToolCallWindow(
+          this.previousRequestToolCalls,
+          toolCallWindow
+        );
         await this.memory.recordPrompt(prepared.params);
       },
     });

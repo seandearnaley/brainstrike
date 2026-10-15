@@ -234,7 +234,9 @@ if (probeReceipt === undefined) {
           embedding: { indexMode: 'text-only' },
           rootIds: ['root'],
         },
-        deadlines,
+        // Disconnect and the first kill are refused, so neither exit join can succeed;
+        // a short exit deadline reaches the same retained failure without 2 x 5 s waits.
+        { ...deadlines, exitMs: 500 },
         {
           kill: () => {
             killAttempts += 1;

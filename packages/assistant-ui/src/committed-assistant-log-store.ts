@@ -10,6 +10,8 @@ import type {
 } from './committed-assistant-store';
 import { type ThreadTokenUsage, useContextUsageStore } from './context-usage-store';
 import type { LiveShellOutputs } from './live-shell-outputs';
+import { displayedBranchRunIds, ThreadContextFold } from './thread-context-fold';
+import { type ThreadContextRecord, useThreadContextStore } from './thread-context-store';
 
 /** Owner view fields pass through; this source has already applied committed gap ordering. */
 export interface CommittedAssistantLogSourceSnapshot {
@@ -44,6 +46,8 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
   readonly liveShellOutputs: LiveShellOutputs | undefined;
   private readonly projection: CommittedAssistantLogProjection;
   private readonly listeners = new Set<() => void>();
+  /** This store's last record in the thread context store, if any. */
+  private recordedContext: ThreadContextRecord | undefined;
   private readonly release: () => void;
   private snapshot: CommittedAssistantSnapshot;
 
@@ -51,11 +55,23 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
     this.threadId = options.threadId;
     this.liveShellOutputs = options.liveShellOutputs;
     this.projection = new CommittedAssistantLogProjection(options);
+    const contextFold = new ThreadContextFold();
     let displayedContext: ThreadTokenUsage | undefined;
     let displayedBreakdown: CommittedAssistantLogView['contextBreakdown'];
     const read = (): CommittedAssistantSnapshot => {
       const source = options.source.getSnapshot();
       const view = this.projection.acceptCommitted(source.rows);
+      // The thread context map's fold reads the same rows (ADR-0021).
+      const snapshot = contextFold.accept(source.rows);
+      const branchRunIds = displayedBranchRunIds(view.repository, snapshot.runs);
+      const recorded = this.recordedContext;
+      if (
+        snapshot !== recorded?.snapshot ||
+        branchRunIds.join('\n') !== recorded.branchRunIds.join('\n')
+      ) {
+        this.recordedContext = { branchRunIds, snapshot };
+        useThreadContextStore.getState().record(this.threadId, this.recordedContext);
+      }
       if (view.contextUsage && view.contextUsage !== displayedContext) {
         displayedContext = view.contextUsage;
         useContextUsageStore.getState().recordUsage(this.threadId, displayedContext);
@@ -131,5 +147,10 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
   dispose(): void {
     this.release();
     this.listeners.clear();
+    // Delivered file text leaves with its view; another live view's record stays.
+    const context = useThreadContextStore.getState();
+    if (this.recordedContext && context.byThread[this.threadId] === this.recordedContext) {
+      context.clearThread(this.threadId);
+    }
   }
 }

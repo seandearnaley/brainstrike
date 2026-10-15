@@ -1,15 +1,8 @@
-export function formatGrepProjectionPageRange(args: {
-  readonly kept: number;
-  readonly lowerBound: boolean;
-  readonly offset: number;
-  readonly total: number;
-}): string {
-  const totalLabel = `${args.total}${args.lowerBound ? '+' : ''}`;
-  if (args.kept === 0) {
-    return `empty@offset=${args.offset}/${totalLabel}`;
-  }
-  return `${args.offset + 1}-${args.offset + args.kept}/${totalLabel}`;
-}
+import { formatGrepProjectionPageRange } from '@brainstrike/assistant-contract/context-provenance';
+
+// The page range has one owner beside its parser: the thread context map reads
+// a delivered grep page back from this header (ADR-0021).
+export { formatGrepProjectionPageRange };
 
 export function formatGrepContentHeader(args: {
   readonly kept: number;

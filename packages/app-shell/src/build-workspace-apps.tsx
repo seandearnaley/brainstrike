@@ -3,15 +3,16 @@ import {
   CHANGES_APP_ID,
   CONTEXT_EXPLORER_APP_ID,
   TERMINAL_APP_ID,
+  THREAD_CONTEXT_APP_ID,
   WORKTREE_MAP_APP_ID,
   type WorkspaceApp,
 } from '@brainstrike/file-explorer-ui/shell';
-import { Files, GitCompare, PanelsTopLeft, SquareTerminal, Trees } from 'lucide-react';
+import { Files, GitCompare, PanelsTopLeft, ScanSearch, SquareTerminal, Trees } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 /**
  * The workspace app registry (BST-1258, Terminal added in BST-1270).
- * Canonical display order: Files, Changes, Worktrees, Canvas, Terminal. Optional
+ * Canonical display order: Files, Changes, Context, Worktrees, Canvas, Terminal. Optional
  * surfaces register only when their content exists — capability gating by
  * omission, never a stub (web passes none of the optional contents).
  */
@@ -20,6 +21,7 @@ export function buildWorkspaceApps(args: {
   readonly changesPageContent?: ReactNode;
   readonly filesContent: ReactNode;
   readonly terminalPageContent?: ReactNode;
+  readonly threadContextPageContent?: ReactNode;
   readonly worktreeMapPageContent?: ReactNode;
 }): readonly WorkspaceApp[] {
   const {
@@ -27,6 +29,7 @@ export function buildWorkspaceApps(args: {
     changesPageContent,
     filesContent,
     terminalPageContent,
+    threadContextPageContent,
     worktreeMapPageContent,
   } = args;
   const apps: WorkspaceApp[] = [
@@ -45,6 +48,16 @@ export function buildWorkspaceApps(args: {
       label: 'Changes',
       placement: 'pinned',
       render: () => changesPageContent,
+    });
+  }
+  if (threadContextPageContent) {
+    // Reads beside writes: what the thread's model received (ADR-0021).
+    apps.push({
+      icon: ScanSearch,
+      id: THREAD_CONTEXT_APP_ID,
+      label: 'Context',
+      placement: 'pinned',
+      render: () => threadContextPageContent,
     });
   }
   if (worktreeMapPageContent) {

@@ -94,6 +94,7 @@ function fixture(initial: Authority) {
     info: unused,
     prepareFile: unused,
     prepareScopedFile: unused,
+    readScopedFileChunkBounds: unused,
     readScopedFilePage: unused,
     removeFile: unused,
     removeScopedFile,

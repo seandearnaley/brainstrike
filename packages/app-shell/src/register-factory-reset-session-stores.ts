@@ -6,6 +6,7 @@ import {
 import { resetContextUsageStore } from '@brainstrike/assistant-ui/context-usage-store';
 import { resetFollowUpQueueStore } from '@brainstrike/assistant-ui/follow-up-queue-store';
 import { useRewindComposerStore } from '@brainstrike/assistant-ui/rewind-composer-store';
+import { resetThreadContextStore } from '@brainstrike/assistant-ui/thread-context-store';
 import { resetDatabaseDemoStoreToDefault } from '@brainstrike/db-explorer/database-demo-store';
 import { useTabManagerStore } from '@brainstrike/file-explorer-ui/tab-manager-store';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/workspace-context-curation-store';
@@ -51,6 +52,11 @@ registerFactoryResetSessionStore(() => {
 
 registerFactoryResetSessionStore(() => {
   resetContextUsageStore();
+});
+
+registerFactoryResetSessionStore(() => {
+  // Derived per-thread context map snapshots (ADR-0021); refolded from the log.
+  resetThreadContextStore();
 });
 
 registerFactoryResetSessionStore(() => {

@@ -1,7 +1,12 @@
 import type { PromptVectorReply, PromptVectorRequest } from '@brainstrike/state-store';
-import type { ScopedFilePage } from './contracts.js';
+import type { ScopedFileChunkBounds, ScopedFilePage } from './contracts.js';
 
-export type { ScopedFilePage, ScopedFilePageRequest } from './contracts.js';
+export type {
+  ScopedFileChunkBounds,
+  ScopedFileChunkBoundsRequest,
+  ScopedFilePage,
+  ScopedFilePageRequest,
+} from './contracts.js';
 
 import { fork } from 'node:child_process';
 import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
@@ -147,6 +152,7 @@ export interface ScopedIndexerPort {
   coverageBatch(requests: unknown): Promise<readonly ScopedCoverage[]>;
   coverageScope(request: unknown): Promise<ScopedCoverage>;
   prepareScopedFile(request: unknown): Promise<ScopedFilePlan>;
+  readScopedFileChunkBounds(request: unknown): Promise<ScopedFileChunkBounds>;
   readScopedFilePage(request: unknown): Promise<ScopedFilePage>;
   removeScopedFile(identity: unknown): Promise<boolean>;
   replaceFileBindings(bindings: unknown): Promise<void>;
