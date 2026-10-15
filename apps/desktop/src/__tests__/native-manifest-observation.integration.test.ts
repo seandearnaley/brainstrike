@@ -3,7 +3,7 @@ import { expect, it, vi } from 'vitest';
 import { fixture, records } from './native-index-catalog-refresh-fixture';
 
 it.each(['discovery', 'newer', 'reverted'] as const)(
-  'joins initial workspace publication before observing its %s catalog',
+  'answers reads during initial workspace publication, then observes its %s catalog (BST-2012)',
   async (change) => {
     const test = await fixture(true, true);
     test.state.holdWorkspaceProof = true;
@@ -21,40 +21,25 @@ it.each(['discovery', 'newer', 'reverted'] as const)(
         missing: [],
         unexpected: [],
       });
-      let readSettled = false;
-      const reading = test.activation.acquireRead().then(
-        (port) => {
-          readSettled = true;
-          return port;
-        },
-        (error: unknown) => {
-          readSettled = true;
-          return error;
-        }
-      );
+      // A read answers from the committed catalog while the real SQLite verification
+      // is held, and readiness reports the publication as incomplete.
+      expect(await test.activation.acquireRead()).not.toBeInstanceOf(Error);
       await test.sawSingleInventory.promise;
-      // Drain Main's catalog read continuation while the real SQLite verification is held.
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      expect(readSettled).toBe(false);
       expect(
         (await test.activation.getSearchAuthority()).readiness.every((row) => row.scanComplete)
       ).toBe(false);
       const discovered = test.state.files;
-      let later: Promise<unknown> | undefined;
       if (change !== 'discovery') {
         test.state.files = [...discovered, ...records(1)];
-        later = test.activation.acquireRead().catch((error: unknown) => error);
+        expect(await test.activation.acquireRead()).not.toBeInstanceOf(Error);
         await test.sawNewInventory.promise;
-        await new Promise<void>((resolve) => setImmediate(resolve));
         if (change === 'reverted') {
           test.state.files = discovered;
         }
       }
       test.state.holdWorkspaceProof = false;
       test.workspaceGate.resolve();
-      expect(await reading).not.toBeInstanceOf(Error);
       expect(await opening).not.toBeInstanceOf(Error);
-      expect(await later).not.toBeInstanceOf(Error);
       expect
         .soft(test.workspaceReceipts[0])
         .toMatchObject({ reason: 'complete', scanComplete: true });
