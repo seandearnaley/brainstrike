@@ -1,4 +1,5 @@
-import { type IDatabase, migrate, wasmLoader } from '@brainstrike/db';
+import type { IDatabase } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startEmbeddingWorker } from '../index.js';
@@ -155,8 +156,7 @@ describe('embedding-worker error logging', () => {
     loggerCalls.debug.length = 0;
     loggerCalls.trace.length = 0;
     clearModelConfigCache();
-    db = await wasmLoader.createPGlite('memory://embedding-worker-error-logging');
-    await migrate(db);
+    db = await createMigratedTestDb();
   }, PGLITE_SETUP_TIMEOUT_MS);
 
   afterEach(async () => {

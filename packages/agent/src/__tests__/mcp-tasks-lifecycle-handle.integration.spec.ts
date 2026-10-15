@@ -1,4 +1,5 @@
-import { McpTaskRepository, MigrationRunner, migrations, wasmLoader } from '@brainstrike/db';
+import { McpTaskRepository } from '@brainstrike/db';
+import { createNumberedChainTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -19,10 +20,7 @@ const AUTHORITY_INPUT = {
 let db: PGlite | undefined;
 
 async function openDb(): Promise<PGlite> {
-  db = await wasmLoader.createPGlite('memory://');
-  const runner = new MigrationRunner(db);
-  await runner.initialize();
-  await runner.up(migrations);
+  db = await createNumberedChainTestDb();
   return db;
 }
 

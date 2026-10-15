@@ -1,5 +1,4 @@
 import { setImmediate as nextTurn } from 'node:timers/promises';
-import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import { Mastra } from '@mastra/core/mastra';
 import { expect, it } from 'vitest';
 import {
@@ -7,9 +6,10 @@ import {
   MASTRA_WORKFLOW_TABLE,
   type PgliteDatabase,
 } from '../pglite-mastra-memory';
+import { createPristineEngineTestDb } from './helpers/migrated-agent-test-db';
 
 it('joins native workflow deletion before shutdown acknowledges completion', async () => {
-  const database = await createEnginePglite();
+  const database = await createPristineEngineTestDb();
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const finished = Promise.withResolvers<void>();
@@ -82,7 +82,7 @@ it('joins native workflow deletion before shutdown acknowledges completion', asy
 });
 
 it('returns direct deletion errors and leaves the borrowed database usable', async () => {
-  const database = await createEnginePglite();
+  const database = await createPristineEngineTestDb();
   const failure = new Error('Injected cleanup failure');
   const adapter: PgliteDatabase = {
     exec: (query) => database.exec(query),
@@ -108,7 +108,7 @@ it('returns direct deletion errors and leaves the borrowed database usable', asy
 });
 
 it('reports native cleanup failure to the shutdown owner without an orphan rejection', async () => {
-  const database = await createEnginePglite();
+  const database = await createPristineEngineTestDb();
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const failure = new Error('Native workflow cleanup failure');

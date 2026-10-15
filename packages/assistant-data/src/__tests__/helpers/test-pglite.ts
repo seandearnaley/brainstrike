@@ -1,10 +1,10 @@
-import { migrate, wasmLoader } from '@brainstrike/db';
+import { wasmLoader } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import { onTestFinished } from 'vitest';
 
 type TestPGlite = Awaited<ReturnType<typeof wasmLoader.createPGlite>>;
 
-export async function createTestPGlite(dataDir: string): Promise<TestPGlite> {
-  const db = await wasmLoader.createPGlite(dataDir);
+function closeWhenTestFinishes(db: TestPGlite): TestPGlite {
   onTestFinished(async () => {
     // memory:// instances are not cached. The test owns the returned handle.
     if (db.closed) {
@@ -13,6 +13,10 @@ export async function createTestPGlite(dataDir: string): Promise<TestPGlite> {
     await db.close();
   });
   return db;
+}
+
+export async function createTestPGlite(dataDir: string): Promise<TestPGlite> {
+  return closeWhenTestFinishes(await wasmLoader.createPGlite(dataDir));
 }
 
 /**
@@ -26,13 +30,19 @@ export async function createTestPGlite(dataDir: string): Promise<TestPGlite> {
  * that wants working persistence has to migrate first — the same thing
  * `db-provider` does before any handle is handed out.
  *
- * `migrate()` on an in-memory PGlite measures ~185ms (the ~800ms figure in
- * docs/agents/database.md is dominated by `initdb`, which these suites already
- * pay), so the snapshot machinery `packages/db` uses is not worth its
- * complexity here.
+ * Each call restores an isolated copy of a migrated snapshot instead of paying
+ * `initdb` plus the whole migration chain again (`createMigratedTestDb`: once
+ * per integration-lane run via its globalSetup, else once per test file). The
+ * result is the database `wasmLoader.createPGlite('memory://…')` followed by
+ * `migrate(db)` produces. `dataDir` must be an in-memory label; suites whose
+ * subject is the migration or probe path build a bare `createTestPGlite` and
+ * migrate it themselves.
  */
 export async function createMigratedTestPGlite(dataDir: string): Promise<TestPGlite> {
-  const db = await createTestPGlite(dataDir);
-  await migrate(db);
-  return db;
+  if (!dataDir.startsWith('memory://')) {
+    throw new Error(
+      `createMigratedTestPGlite restores in memory; got ${dataDir}. Use createTestPGlite and migrate() for an on-disk database.`
+    );
+  }
+  return closeWhenTestFinishes(await createMigratedTestDb());
 }

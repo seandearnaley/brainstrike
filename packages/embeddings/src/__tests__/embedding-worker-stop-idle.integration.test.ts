@@ -1,4 +1,5 @@
-import { JobQueue, migrate, wasmLoader } from '@brainstrike/db';
+import { JobQueue } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import { buildEmbeddingInputHash } from '@brainstrike/indexing-contract';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -104,8 +105,7 @@ describe('embedding-worker: stop while idle', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite('memory://embedding-worker-stop-idle');
-    await migrate(db);
+    db = await createMigratedTestDb();
   });
 
   afterEach(async () => {

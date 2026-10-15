@@ -1,6 +1,7 @@
 import { DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES } from '@brainstrike/assistant-contract/memory-settings';
-import { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createPristineBareTestDb } from '../../__tests__/helpers/migrated-agent-test-db';
 import { createPgliteMastraMemory, type PgliteMastraMemoryOptions } from '../memory-factory';
 import type { PgliteDatabase } from '../types';
 
@@ -23,8 +24,8 @@ describe('createPgliteMastraMemory', () => {
   let db: PGlite;
   let database: PgliteDatabase;
 
-  beforeEach(() => {
-    db = new PGlite();
+  beforeEach(async () => {
+    db = await createPristineBareTestDb();
     database = db as unknown as PgliteDatabase;
     memoryConstructorCalls.length = 0;
   });

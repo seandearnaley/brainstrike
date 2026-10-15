@@ -4,6 +4,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import type { BackgroundTask } from '@mastra/core/background-tasks';
 import { Mastra } from '@mastra/core/mastra';
 import { afterEach, beforeEach, expect, it } from 'vitest';
+import { createPristineEngineTestDb } from '../../__tests__/helpers/migrated-agent-test-db';
 import { createPgliteMastraMemory } from '../memory-factory';
 import type { PgliteDatabase } from '../types';
 
@@ -43,7 +44,7 @@ function task(id: string): BackgroundTask {
   };
 }
 beforeEach(async () => {
-  database = await createEnginePglite();
+  database = await createPristineEngineTestDb();
 });
 afterEach(async () => {
   await database.close();

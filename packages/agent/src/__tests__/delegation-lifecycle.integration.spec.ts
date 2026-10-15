@@ -22,6 +22,7 @@ import {
   toolCallParts,
   toolThenAnswer,
 } from '../test-fixtures/scripted-agent-model';
+import { createPristineEngineTestDb } from './helpers/migrated-agent-test-db';
 
 async function collect(stream: AsyncIterable<ChunkType>): Promise<ChunkType[]> {
   const chunks: ChunkType[] = [];
@@ -117,7 +118,7 @@ describe('native public delegation lifecycle', () => {
   beforeEach(async () => {
     workspace = await mkdtemp(join(tmpdir(), 'brainstrike-native-slice-'));
     await writeFile(join(workspace, 'input.txt'), 'NATIVE_INPUT');
-    database = await createEnginePglite();
+    database = await createPristineEngineTestDb();
     backing = await createPgliteMastraMemory({
       database: memoryDatabase(),
       memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },

@@ -13,7 +13,7 @@
  * no provider/model and succeeds.
  */
 import type { LanguageModelV2, LanguageModelV2StreamPart } from '@ai-sdk/provider';
-import { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from '@electric-sql/pglite';
 import { createTool } from '@mastra/core/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -21,6 +21,7 @@ import { streamMastraAgent } from '../mastra/agent-streaming';
 import { listSuspendedMastraRuns } from '../mastra/suspended-run-discovery';
 import { createPgliteMastraMemory, type PgliteDatabase } from '../pglite-mastra-memory';
 import type { StreamChunk } from '../types';
+import { createPristineBareTestDb } from './helpers/migrated-agent-test-db';
 
 /**
  * A one-turn scripted model that calls `toolName` (the REGISTERED — i.e.
@@ -84,8 +85,8 @@ async function drainYielding(iterator: AsyncIterable<StreamChunk>): Promise<Stre
 describe('listSuspendedMastraRuns (real provider-factory, zero provider config)', () => {
   let database: PGlite;
 
-  beforeEach(() => {
-    database = new PGlite();
+  beforeEach(async () => {
+    database = await createPristineBareTestDb();
   });
 
   afterEach(async () => {

@@ -1,5 +1,5 @@
 import type { IDatabase } from '@brainstrike/db';
-import { migrate, wasmLoader } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startEmbeddingWorker } from '../index.js';
@@ -156,8 +156,7 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
     mockState.streamFailureModelId = null;
     mockState.streamAttempts.length = 0;
     clearModelConfigCache();
-    db = await wasmLoader.createPGlite('memory://embedding-worker-model-resolution');
-    await migrate(db);
+    db = await createMigratedTestDb();
   });
 
   afterEach(async () => {

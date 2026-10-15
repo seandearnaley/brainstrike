@@ -1,5 +1,4 @@
 import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
-import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import { createLogger } from '@brainstrike/logging';
 import type { PGlite } from '@electric-sql/pglite';
 import {
@@ -38,6 +37,7 @@ import {
   toolThenAnswer,
 } from '../test-fixtures/scripted-agent-model';
 import { assertStaleDelegatedDecision } from './fixtures/delegated-decision-contract';
+import { createPristineEngineTestDb } from './helpers/migrated-agent-test-db';
 
 async function collect(stream: AsyncIterable<ChunkType>): Promise<ChunkType[]> {
   const chunks: ChunkType[] = [];
@@ -101,7 +101,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
   }
 
   beforeEach(async () => {
-    database = await createEnginePglite();
+    database = await createPristineEngineTestDb();
     backing = await createPgliteMastraMemory({
       database: memoryDatabase(),
       memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },

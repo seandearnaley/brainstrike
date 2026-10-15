@@ -9,6 +9,7 @@ import {
   migrations,
   wasmLoader,
 } from '@brainstrike/db';
+import { createNumberedChainTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -84,9 +85,10 @@ function completedTask(taskId: string, lastUpdatedAt: string): GetTaskResult {
 }
 
 async function openDatabase(): Promise<PGlite> {
-  return await openDatabaseAt('memory://');
+  return await createNumberedChainTestDb();
 }
 
+/** The restart case reopens a real on-disk directory, so it migrates cold. */
 async function openDatabaseAt(dataDir: string): Promise<PGlite> {
   const db = await wasmLoader.createPGlite(dataDir);
   const runner = new MigrationRunner(db);

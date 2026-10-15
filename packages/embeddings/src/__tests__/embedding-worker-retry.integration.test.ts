@@ -1,5 +1,5 @@
 import type { IDatabase } from '@brainstrike/db';
-import { migrate, wasmLoader } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EmbeddingProviderFactory, startEmbeddingWorker } from '../index.js';
@@ -180,8 +180,7 @@ describe('embedding-worker retries and backoff', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite('memory://embedding-worker-retry');
-    await migrate(db);
+    db = await createMigratedTestDb();
   });
 
   it('latches a transient local execution failure and fails fast on retry', async () => {
@@ -356,8 +355,7 @@ describe('embedding-worker hosted-provider retries', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite('memory://embedding-worker-hosted-retry');
-    await migrate(db);
+    db = await createMigratedTestDb();
   });
 
   afterEach(() => {

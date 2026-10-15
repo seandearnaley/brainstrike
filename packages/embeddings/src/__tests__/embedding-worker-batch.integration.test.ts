@@ -1,5 +1,5 @@
 import type { IDatabase } from '@brainstrike/db';
-import { migrate, wasmLoader } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { startEmbeddingWorker } from '../index.js';
@@ -87,8 +87,7 @@ describe('embedding-worker-batch', () => {
   let queryCount = 0;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite('memory://embedding-worker-batch');
-    await migrate(db);
+    db = await createMigratedTestDb();
 
     // Wrap query to count
     const originalQuery = db.query.bind(db);

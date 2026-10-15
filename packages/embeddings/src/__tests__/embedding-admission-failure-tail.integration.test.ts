@@ -1,4 +1,5 @@
-import { JobQueue, migrate, wasmLoader } from '@brainstrike/db';
+import { JobQueue } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { startEmbeddingWorker } from '../index.js';
@@ -37,8 +38,7 @@ vi.mock('../worker/embedding-admission-budget.js', async (importOriginal) => {
 
 let db: PGlite;
 beforeEach(async (): Promise<void> => {
-  db = await wasmLoader.createPGlite('memory://embedding-admission-failure-tail');
-  await migrate(db);
+  db = await createMigratedTestDb();
 });
 afterEach(async (): Promise<void> => {
   admissionProbe.budget = undefined;

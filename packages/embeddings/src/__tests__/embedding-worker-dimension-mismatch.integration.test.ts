@@ -1,5 +1,5 @@
 import type { IDatabase } from '@brainstrike/db';
-import { migrate, wasmLoader } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { startEmbeddingWorker } from '../index.js';
@@ -124,8 +124,7 @@ describe('embedding-worker: dimension mismatch handling', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite('memory://embedding-worker-dim-mismatch');
-    await migrate(db);
+    db = await createMigratedTestDb();
   });
 
   it('initializes worker with non-default embedding dimensions', async () => {

@@ -26,13 +26,14 @@ import type {
   LanguageModelV2Prompt,
   LanguageModelV2StreamPart,
 } from '@ai-sdk/provider';
-import { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from '@electric-sql/pglite';
 import type { MastraDBMessage } from '@mastra/core/memory';
 import { createTool } from '@mastra/core/tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { PgliteDatabase, PgliteMastraMemoryOptions } from '../pglite-mastra-memory';
 import type { StreamChunk } from '../types';
+import { createPristineBareTestDb } from './helpers/migrated-agent-test-db';
 
 const { modelHolder } = vi.hoisted(() => ({
   modelHolder: { current: undefined as LanguageModelV2 | undefined },
@@ -523,7 +524,7 @@ describe('double-persisted assistant history (BST-1095, real agent loop + real P
    * "Duplicate item found with id rs_…".
    */
   it('sends each OpenAI item reference at most once even when history holds a re-keyed duplicate', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const threadId = 'thread-dup-history';
     const resourceId = 'resource-dup-history';
@@ -657,7 +658,7 @@ describe('OpenAI reasoning-item replay across approval resume (real agent loop +
   });
 
   it('never replays one reasoning itemId in more than one assistant message of a prompt', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const thread = {
       resourceId: 'resource-reasoning-replay-1',
@@ -673,7 +674,7 @@ describe('OpenAI reasoning-item replay across approval resume (real agent loop +
   }, 120_000);
 
   it('holds when the first approved execution fails and the tool is re-approved', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const thread = {
       resourceId: 'resource-reasoning-replay-retry',
@@ -694,7 +695,7 @@ describe('OpenAI reasoning-item replay across approval resume (real agent loop +
   }, 120_000);
 
   it('holds with Observational Memory active mid-run (tiny observation threshold)', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeObservationalMemory(database);
     const thread = {
       resourceId: 'brainstrike:workspace',

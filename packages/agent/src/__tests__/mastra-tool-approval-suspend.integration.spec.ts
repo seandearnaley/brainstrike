@@ -21,7 +21,7 @@ import type {
   LanguageModelV2StreamPart,
 } from '@ai-sdk/provider';
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract';
-import { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from '@electric-sql/pglite';
 import { createTool } from '@mastra/core/tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -30,6 +30,7 @@ import { readProviderRunError } from '../provider-error-metadata';
 import { LOCAL_TOOL_CALL_ARGUMENTS_INVALID } from '../providers/local/local-tool-call-validation';
 import { AssistantDataStreamSession } from '../stream/data-stream';
 import type { StreamChunk } from '../types';
+import { createPristineBareTestDb } from './helpers/migrated-agent-test-db';
 
 // vi.mock factories are hoisted above imports, so the model the fake provider
 // returns must live in a hoisted holder the factory can close over.
@@ -507,7 +508,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
    *    that hook's integration lane for the projection outcome.
    */
   it('PAUSES ONE CALL AT A TIME: two gated calls, approving one pauses the other', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const askExecute = vi.fn((inputData: { command: string }) =>
       Promise.resolve({ ran: inputData.command })
@@ -592,7 +593,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
   });
 
   it('rejects malformed local arguments before Mastra creates an approval snapshot', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const askExecute = vi.fn((inputData: { command: string }) =>
       Promise.resolve({ ran: inputData.command })
@@ -677,7 +678,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
   });
 
   it('preserves a valid local pwd call through approval and execution', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const askExecute = vi.fn((inputData: { command: string }) =>
       Promise.resolve({ ran: inputData.command })
@@ -772,7 +773,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
   });
 
   it('suspends (execute NOT called), then APPROVE executes the tool and the run continues', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const askExecute = vi.fn((inputData: { command: string }) =>
       Promise.resolve({ ran: inputData.command })
@@ -939,7 +940,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
 
   it('persists completed tool work when a user cancels an approval-resume stream', async () => {
     const abortController = new AbortController();
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const askExecute = vi.fn((inputData: { command: string }) =>
       Promise.resolve({ ran: inputData.command })
@@ -1029,7 +1030,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
   });
 
   it('preserves approved arguments in the wire and transcript when execution fails', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const askExecute = vi.fn(async (_inputData: { command: string }): Promise<never> => {
       throw new Error('expected test failure');
@@ -1114,7 +1115,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
   });
 
   it('rehydrates a discovered deferred tool before approval resume executes it', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const execute = vi.fn(() => Promise.resolve({ roots: ['brainstrike'] }));
     const deferredTool = createTool({
@@ -1207,7 +1208,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
   });
 
   it('keeps the suspended Tavily webSearch implementation when a session grant allows the resumed leg', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const execute = vi.fn((inputData: { query: string }) =>
       Promise.resolve({ query: inputData.query, results: [] })
@@ -1301,7 +1302,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
   });
 
   it('keeps provider-native web search when resuming a different approved tool', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const shellExecute = vi.fn((inputData: { command: string }) =>
       Promise.resolve({ ran: inputData.command })
@@ -1407,7 +1408,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     // the client sees must carry the ORIGINAL dotted name PLUS the policy risk
     // metadata (askTools is keyed by the sanitized id — the metadata lookup must
     // bridge the two forms).
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const askExecute = vi.fn((inputData: { command: string }) =>
       Promise.resolve({ ran: inputData.command })
@@ -1491,7 +1492,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
   });
 
   it('keeps an OpenRouter approval resumable and reports both model-step costs after resume', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const askExecute = vi.fn((inputData: { command: string }) =>
       Promise.resolve({ ran: inputData.command })
@@ -1564,7 +1565,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
   });
 
   it('suspends, then DECLINE skips the tool (execute NOT called) and the run continues', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const askExecute = vi.fn((inputData: { command: string }) =>
       Promise.resolve({ ran: inputData.command })
@@ -1663,7 +1664,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     // would suspend EVERY tool call. With the PER-TOOL requireApproval gate, a
     // run that only calls an allowed read tool must NOT suspend — even though an
     // ask-gated execute tool is also present in the map.
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const readExecute = vi.fn((inputData: { path: string }) =>
       Promise.resolve({ contents: `body of ${inputData.path}` })
@@ -1740,7 +1741,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     // (no in-memory stream handle survives a restart). Phase 3 feeds the discovered
     // runId+toolCallId into a fresh `streamMastraToolApprovalAction` and the tool
     // finally executes.
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const askExecute = vi.fn((inputData: { command: string }) =>
       Promise.resolve({ ran: inputData.command })
     );
@@ -1858,7 +1859,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     // memory tool (`updateWorkingMemory`) and the approved write tool could not
     // execute. The other tests in this file pass tools via `options.tools` on the
     // resume, which masked the gap. This one mirrors production exactly.
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const writeExecute = vi.fn((inputData: { path: string; content: string }) =>
       Promise.resolve({ ok: true, path: inputData.path })
@@ -1944,7 +1945,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
   });
 
   it('lets an allowed read tool run free after an ask tool is approved', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const askExecute = vi.fn((inputData: { command: string }) =>
       Promise.resolve({ ran: inputData.command })
@@ -2031,7 +2032,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
   });
 
   it('keeps an allowed read free after two consecutive ask approvals', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const askExecute = vi.fn((inputData: { command: string }) =>
       Promise.resolve({ ran: inputData.command })
@@ -2126,7 +2127,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     // must contain NO user row with approval action text. If this ever finds
     // one, the exclusion needs a persistence-side seam at that writer (and
     // docs/agents/assistant-persistence.md must be updated).
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const askExecute = vi.fn((inputData: { command: string }) =>
       Promise.resolve({ ran: inputData.command })
@@ -2205,7 +2206,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     // the resumed run — including Mastra's internal `updateWorkingMemory` — so
     // memory bookkeeping surfaces a spurious approval prompt. The fix substitutes
     // the function form of the gate, exempting internal tools.
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const askExecute = vi.fn((inputData: { command: string }) =>
       Promise.resolve({ ran: inputData.command })
@@ -2292,7 +2293,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     // prompt again — the opposite of "allow all this session". The fix
     // DISAMBIGUATES empty-because-all-allowed (a policy WAS enforced → allow-all)
     // from empty-because-genuine-global (no policy → gate-all).
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const askExecute = vi.fn((inputData: { command: string }) =>
       Promise.resolve({ ran: inputData.command })

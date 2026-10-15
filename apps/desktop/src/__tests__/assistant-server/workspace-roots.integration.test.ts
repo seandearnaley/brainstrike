@@ -10,7 +10,7 @@
  */
 
 import { type RootsQueryFn, reconcileRoots } from '@brainstrike/app-shell/roots/root-registry';
-import { migrate, wasmLoader } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { RootDescriptor } from '@brainstrike/types';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -44,8 +44,7 @@ function pathRoot(rootId: string, rootPath: string): RootDescriptor {
 }
 
 beforeEach(async () => {
-  db = await wasmLoader.createPGlite('memory://workspace-roots-lifecycle');
-  await migrate(db);
+  db = await createMigratedTestDb();
 });
 
 afterEach(async () => {

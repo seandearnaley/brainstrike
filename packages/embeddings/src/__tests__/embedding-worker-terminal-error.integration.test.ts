@@ -1,4 +1,5 @@
-import { type IDatabase, type Job, JobQueue, migrate, wasmLoader } from '@brainstrike/db';
+import { type IDatabase, type Job, JobQueue } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   EmbeddingConfig,
@@ -80,8 +81,7 @@ describe('Embedding Worker - Terminal Errors', () => {
   let worker: { stop: () => Promise<void> };
 
   beforeEach(async () => {
-    const pglite = await wasmLoader.createPGlite('memory://terminal-error-test');
-    await migrate(pglite as unknown as Parameters<typeof migrate>[0]);
+    const pglite = await createMigratedTestDb();
     db = pglite as unknown as IDatabase;
     jq = new JobQueue(db);
     // Clean up

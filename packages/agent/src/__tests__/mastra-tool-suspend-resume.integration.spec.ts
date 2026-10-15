@@ -17,12 +17,13 @@
  * tests there — see the header of mastra-tool-approval-suspend.spec.ts.
  */
 import type { LanguageModelV2, LanguageModelV2StreamPart } from '@ai-sdk/provider';
-import { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from '@electric-sql/pglite';
 import { createTool } from '@mastra/core/tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { PgliteDatabase, PgliteMastraMemoryOptions } from '../pglite-mastra-memory';
 import type { StreamChunk } from '../types';
+import { createPristineBareTestDb } from './helpers/migrated-agent-test-db';
 
 const { modelHolder, delegationConfigSpy } = vi.hoisted(() => ({
   delegationConfigSpy: vi.fn(),
@@ -345,7 +346,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
   // suspend/approve/resume roundtrip): observed 45s+ under CI parallel load
   // (PR #1682 run 29515911801), breaching the suite-wide 30s timeout.
   it('submitPlan SUSPENDS with the plan payload, then APPROVE re-runs it and the run continues', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const thread = { resourceId: 'resource-plan-1', threadId: 'thread-plan-1' } as const;
 
@@ -417,7 +418,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
 
   it('persists completed tool work when a user cancels a suspended-tool resume stream', async () => {
     const abortController = new AbortController();
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const thread = {
       resourceId: 'resource-tool-resume-cancel',
@@ -499,7 +500,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
   }, 120_000);
 
   it('REJECT-with-feedback re-runs submitPlan and the feedback reaches the tool result', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const thread = { resourceId: 'resource-plan-2', threadId: 'thread-plan-2' } as const;
 
@@ -555,7 +556,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
   it('askUser SUSPENDS then resumes with a free-text {answer} envelope, and again with a LEGACY multi-select array', async () => {
     // Free-text, via the canonical {answer} envelope (what the notice sends):
     // proves REAL Mastra resumeSchema validation admits the envelope arm.
-    const dbA = new PGlite();
+    const dbA = await createPristineBareTestDb();
     const memA = await makeMemory(dbA);
     const threadA = { resourceId: 'resource-ask-1', threadId: 'thread-ask-1' } as const;
     modelHolder.current = createTurnCountedToolCallModel({
@@ -608,7 +609,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     // Multi-select array → comma-joined — resumed with the LEGACY bare
     // string[] shape on purpose: proves real Mastra validation still admits
     // the pre-envelope arm, so runs suspended before the migration resume.
-    const dbB = new PGlite();
+    const dbB = await createPristineBareTestDb();
     const memB = await makeMemory(dbB);
     const threadB = { resourceId: 'resource-ask-2', threadId: 'thread-ask-2' } as const;
     modelHolder.current = createTurnCountedToolCallModel({
@@ -674,7 +675,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     // final text: the scripted model emits its text whether the tool saw the
     // answer, a denial, or a re-raised suspension, which is exactly how a
     // vacuous green ships.
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const thread = { resourceId: 'resource-ask-gated', threadId: 'thread-ask-gated' } as const;
     const policy = {
@@ -761,7 +762,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     // render the real question instead of a placeholder. Phase 3 feeds the
     // discovered runId+toolCallId into a fresh streamMastraToolResumeAction
     // and the answer reaches the tool.
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const thread = { resourceId: 'resource-susp-rst-1', threadId: 'thread-susp-rst-1' } as const;
     modelHolder.current = createTurnCountedToolCallModel({
       finalText: 'Thanks after restart.',
@@ -905,7 +906,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
       }) as never;
 
     // ── DENY leg ──
-    const dbDeny = new PGlite();
+    const dbDeny = await createPristineBareTestDb();
     const memDeny = await makeMemory(dbDeny);
     const threadDeny = { resourceId: 'resource-gateb-1', threadId: 'thread-gateb-1' } as const;
     modelHolder.current = createDiscoveryThenSuspendModel({
@@ -963,7 +964,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     await dbDeny.close();
 
     // ── ALLOW leg ──
-    const dbAllow = new PGlite();
+    const dbAllow = await createPristineBareTestDb();
     const memAllow = await makeMemory(dbAllow);
     const threadAllow = { resourceId: 'resource-gateb-2', threadId: 'thread-gateb-2' } as const;
     modelHolder.current = createDiscoveryThenSuspendModel({
@@ -1069,7 +1070,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
         resolveHost: async () => stubHost as never,
       }) as never;
 
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const thread = { resourceId: 'resource-bst1097', threadId: 'thread-bst1097' } as const;
     const runtime = {
@@ -1190,7 +1191,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
         resolveHost: async () => stubHost as never,
       }) as never;
 
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const thread = { resourceId: 'resource-bst1097-d', threadId: 'thread-bst1097-d' } as const;
     const runtime = {
@@ -1254,7 +1255,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
   }, 120_000);
 
   it('FAIL-SAFE: without storage submitPlan is omitted from the Agent and resume throws', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const submitExecute = vi.fn();
     // A suspend tool whose execute we can spy: prove it is NEVER invoked when the
     // model tries to call it without storage (the tool was omitted from the map).
@@ -1300,7 +1301,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
   });
 
   it('PLAN MODE keeps submitPlan callable but OMITS the edit tool from the live Agent', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const writeExecute = vi.fn(() => Promise.resolve({ ok: true }));
     const writeTool = createTool({
@@ -1373,7 +1374,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
   });
 
   it('O4: an ENFORCED permission policy does NOT double-gate submitPlan (it suspends, never asks approval)', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const thread = { resourceId: 'resource-o4', threadId: 'thread-o4' } as const;
 
@@ -1416,7 +1417,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
   });
 
   it('BOTH FLAGS: a read:ask policy clones submitPlan with requireApproval AND it keeps suspendSchema — the two transports compose serially (approval → suspend → resume) without deadlock or lost suspension', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const thread = { resourceId: 'resource-both', threadId: 'thread-both' } as const;
 
@@ -1525,7 +1526,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
   });
 
   it('STALE resume: a nonexistent runId with real storage surfaces a typed error / visible error finish and never hangs', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     // The scripted model MUST be configured (mirrors the sibling tests above):
     // without it, `createProvider` throws the harness sentinel
@@ -1607,7 +1608,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
   });
 
   it('RESUME keeps the delegation safety rails: the resumed leg builds the per-run delegation config when personas are registered', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
     const thread = {
       resourceId: 'resource-resume-deleg',
@@ -1683,7 +1684,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
    * an unproven claim.
    */
   it('an UNREGISTERED suspending tool records tool.resume.unsupported and NEVER tool.failed', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
 
     modelHolder.current = createTurnCountedToolCallModel({
@@ -1731,7 +1732,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
   }, 120_000);
 
   it('CONTROL: a REGISTERED suspending tool records no rejection and no tool.failed', async () => {
-    const database = new PGlite();
+    const database = await createPristineBareTestDb();
     const { memory, storage } = await makeMemory(database);
 
     modelHolder.current = createTurnCountedToolCallModel({

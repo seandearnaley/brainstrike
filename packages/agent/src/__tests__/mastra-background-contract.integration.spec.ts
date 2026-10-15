@@ -19,6 +19,7 @@ import {
   toolCallParts,
   toolThenAnswer,
 } from '../test-fixtures/scripted-agent-model';
+import { createPristineEngineTestDb } from './helpers/migrated-agent-test-db';
 
 async function collect(stream: AsyncIterable<ChunkType>): Promise<ChunkType[]> {
   const chunks: ChunkType[] = [];
@@ -71,7 +72,7 @@ describe('native background delegation (BST-1723)', () => {
   }
 
   beforeEach(async () => {
-    database = await createEnginePglite();
+    database = await createPristineEngineTestDb();
     backing = await createPgliteMastraMemory({
       database: memoryDatabase(),
       memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },

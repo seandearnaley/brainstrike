@@ -1,7 +1,8 @@
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
-import { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from '@electric-sql/pglite';
 import type { StepResult, WorkflowRunState } from '@mastra/core/workflows';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createPristineBareTestDb } from '../../__tests__/helpers/migrated-agent-test-db';
 import { MASTRA_WORKFLOW_TABLE } from '../sql';
 import type { PgliteDatabase } from '../types';
 import { PgliteWorkflowsStore } from '../workflows-store';
@@ -61,7 +62,7 @@ describe('PgliteWorkflowsStore', () => {
   let store: PgliteWorkflowsStore;
 
   beforeEach(async () => {
-    db = new PGlite();
+    db = await createPristineBareTestDb();
     database = db as unknown as PgliteDatabase;
     store = new PgliteWorkflowsStore({ database });
     await store.initialize();
@@ -98,7 +99,7 @@ describe('PgliteWorkflowsStore', () => {
   });
 
   it('clears workflow snapshots before explicit schema initialization', async () => {
-    const freshDb = new PGlite();
+    const freshDb = await createPristineBareTestDb();
     const freshStore = new PgliteWorkflowsStore({
       database: freshDb as unknown as PgliteDatabase,
     });

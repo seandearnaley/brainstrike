@@ -1,5 +1,6 @@
 import type { IDatabase } from '@brainstrike/db';
-import { JobQueue, migrate, wasmLoader } from '@brainstrike/db';
+import { JobQueue } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { startEmbeddingWorker } from '../index.js';
@@ -73,8 +74,7 @@ describe('already embedded job completion ownership', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite('memory://embedding-worker-already-completed-lease');
-    await migrate(db);
+    db = await createMigratedTestDb();
   });
 
   afterEach(async () => {

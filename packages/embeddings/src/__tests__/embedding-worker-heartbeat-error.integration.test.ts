@@ -1,5 +1,5 @@
 import type { IDatabase } from '@brainstrike/db';
-import { migrate, wasmLoader } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { startEmbeddingWorker } from '../index.js';
@@ -73,8 +73,7 @@ describe('embedding-worker: heartbeat error logging', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite('memory://embedding-worker-hb');
-    await migrate(db);
+    db = await createMigratedTestDb();
   });
 
   it('logs heartbeat errors without crashing the worker', async () => {

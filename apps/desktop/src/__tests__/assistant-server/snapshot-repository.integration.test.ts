@@ -5,7 +5,7 @@
  * 081 creates — CHECK constraint, indexes, and all.
  */
 
-import { migrate, wasmLoader } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -25,8 +25,7 @@ let db: PGlite;
 let repository: SnapshotRepository;
 
 beforeEach(async () => {
-  db = await wasmLoader.createPGlite(`memory://snapshot-repository-${Date.now()}-${Math.random()}`);
-  await migrate(db);
+  db = await createMigratedTestDb();
   repository = createSnapshotRepository(db);
 });
 

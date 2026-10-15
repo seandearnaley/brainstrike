@@ -1,6 +1,6 @@
-import { PGlite } from '@electric-sql/pglite';
-import { vector } from '@electric-sql/pglite-pgvector';
+import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createPristineVectorTestDb } from '../../__tests__/helpers/migrated-agent-test-db';
 import type { PgliteDatabase } from '../types';
 import { PgliteVectorStore } from '../vector-store';
 
@@ -21,7 +21,7 @@ describe('PgliteVectorStore', () => {
   let store: PgliteVectorStore;
 
   beforeEach(async () => {
-    db = await PGlite.create({ extensions: { vector } });
+    db = await createPristineVectorTestDb();
     database = db as unknown as PgliteDatabase;
     store = new PgliteVectorStore({ database });
   });

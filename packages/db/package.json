@@ -70,7 +70,8 @@
       "types": "./dist/pglite-verification-factory.d.ts",
       "import": "./dist/pglite-verification-factory.js",
       "require": "./dist/pglite-verification-factory.js"
-    }
+    },
+    "./test-support/migrated-test-db": "./__tests__/helpers/cross-package-migrated-test-db.ts"
   },
   "files": [
     "dist"

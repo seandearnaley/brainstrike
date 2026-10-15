@@ -1,5 +1,6 @@
 import type { IDatabase } from '@brainstrike/db';
-import { JobQueue, migrate, wasmLoader } from '@brainstrike/db';
+import { JobQueue } from '@brainstrike/db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import { buildEmbeddingInputHash } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { PGlite } from '@electric-sql/pglite';
@@ -281,8 +282,7 @@ describe('Embedding Worker Batch Optimization', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite('memory://embedding-worker-batch');
-    await migrate(db);
+    db = await createMigratedTestDb();
   }, PGLITE_SETUP_TIMEOUT_MS);
 
   afterEach(async () => {
