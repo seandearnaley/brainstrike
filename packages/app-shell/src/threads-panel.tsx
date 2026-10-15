@@ -514,7 +514,7 @@ interface ThreadGroupSectionHandlers {
 
 function buildThreadPanelTreeNodes(
   rows: readonly ThreadPanelVisibleRow[],
-  delegatedEnabled = false
+  hasChildren: (row: ThreadPanelVisibleRow) => boolean
 ): TreeNode<ThreadPanelVisibleRow>[] {
   return rows.map((row) => ({
     data: row,
@@ -529,9 +529,7 @@ function buildThreadPanelTreeNodes(
     // Disclosure is already applied by buildThreadPanelVisibleRows, but every
     // section header remains an expandable treegrid parent so aria-expanded
     // and the shared Left/Right keyboard contract expose a symmetric tree.
-    hasChildren:
-      row.kind === 'group' ||
-      (delegatedEnabled && (row.kind === 'thread' || row.kind === 'host-child')),
+    hasChildren: row.kind === 'group' || hasChildren(row),
     id: row.id,
     parentId: row.kind === 'group' ? null : row.parentId,
     type: `thread-panel-${row.kind}`,
@@ -1159,14 +1157,11 @@ function ThreadPanelTree({
     visibleRows,
   } = selection;
   // BST-1932: a host thread's children come from the host.
-  const hostChildren = useHostChildSidebar();
-  const panelRows = useMemo(
-    () => hostChildren.project(visibleRows.rows),
-    [hostChildren, visibleRows.rows]
-  );
+  const hostChildren = useHostChildSidebar(visibleRows.rows);
+  const panelRows = hostChildren.rows;
   const nodes = useMemo(
-    () => buildThreadPanelTreeNodes(panelRows, hostChildren.enabled),
-    [panelRows, hostChildren.enabled]
+    () => buildThreadPanelTreeNodes(panelRows, hostChildren.hasChildren),
+    [panelRows, hostChildren.hasChildren]
   );
   const colorByGroupId = useMemo(
     () =>
@@ -1258,9 +1253,10 @@ function ThreadPanelTree({
         ),
         className: 'p-0',
         id: 'thread',
-        indentWidth: 24,
+        indentWidth: 16,
         reserveCheckboxSpace: true,
-        reserveToggleSpace: false,
+        reserveToggleSpace: true,
+        treeControlLineHeight: (node) => getThreadPanelRowHeightPx(node.data.kind),
         treeControlsPosition: 'top',
       },
     ],
@@ -1569,7 +1565,10 @@ function ThreadsPanelToolbar({
   // the box edge left the heading looking 8px adrift of everything visible
   // under it, so the heading ink lines up with the icon instead.
   return (
-    <div className="flex items-center gap-2 py-2 pr-3 pl-5" data-testid="threads-panel-toolbar">
+    <div
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 py-2 pr-3 pl-5"
+      data-testid="threads-panel-toolbar"
+    >
       <h2 className="min-w-0 shrink-0 truncate font-medium text-sm leading-none">Threads</h2>
       {treeOnScreen ? (
         <span

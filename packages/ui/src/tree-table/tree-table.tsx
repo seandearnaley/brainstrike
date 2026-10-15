@@ -1070,6 +1070,18 @@ export function TreeTable<T>({
     parentRef
   );
 
+  // Measured sizes belong to nodes, not positions: expansion and sorting move rows.
+  const getItemKey = React.useCallback(
+    (index: number) => {
+      const row = rows[index];
+      if (!row) {
+        throw new Error(`Virtual tree row ${index} is outside the current row set`);
+      }
+      return row.node.id;
+    },
+    [rows]
+  );
+
   // Setup virtualizer
   const rowVirtualizer = useVirtualizer({
     count: isVirtualWindowing ? rows.length : 0,
@@ -1077,6 +1089,7 @@ export function TreeTable<T>({
       const row = rows[index];
       return row ? getRowHeight(row.node) : 40;
     },
+    getItemKey,
     getScrollElement: () =>
       resolveVirtualScrollElement(isExternalScroll, scrollParentRef, parentRef),
     observeElementRect: heightOnlyObserveRect,

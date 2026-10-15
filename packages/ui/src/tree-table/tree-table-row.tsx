@@ -303,23 +303,24 @@ interface TreeExpandControlProps {
   isExpanded: boolean;
   isLoading: boolean | undefined;
   onExpandClick: (event: React.MouseEvent) => void;
-  pinnedToTop: boolean;
+  topLineHeight: number | undefined;
 }
 
 function TreeExpandControl({
   isExpanded,
   isLoading,
   onExpandClick,
-  pinnedToTop,
+  topLineHeight,
 }: TreeExpandControlProps): React.ReactElement {
   return (
     <Button
       aria-expanded={isExpanded}
       aria-label={isExpanded ? 'Collapse' : 'Expand'}
-      className={cn('size-6 flex-shrink-0', pinnedToTop ? 'mt-2 mb-0.5' : 'my-0.5')}
+      className={cn('size-6 flex-shrink-0', topLineHeight === undefined ? 'my-0.5' : 'mb-0.5')}
       disabled={isLoading}
       onClick={onExpandClick}
       size="icon-xs"
+      style={topLineHeight === undefined ? undefined : { marginTop: (topLineHeight - 24) / 2 }}
       variant="ghost"
     >
       {isLoading ? (
@@ -337,20 +338,21 @@ interface TreeCheckboxControlProps {
   ariaLabel: string;
   checkboxState: 'checked' | 'unchecked' | 'indeterminate';
   onCheckboxChange: (() => void) | undefined;
-  pinnedToTop: boolean;
   reserveSpace: boolean;
   showCheckbox: boolean;
+  topLineHeight: number | undefined;
 }
 
 function TreeCheckboxControl({
   ariaLabel,
   checkboxState,
   onCheckboxChange,
-  pinnedToTop,
+  topLineHeight,
   reserveSpace,
   showCheckbox,
 }: TreeCheckboxControlProps): React.ReactElement | null {
-  const className = cn('ml-1.5 h-4 w-4 flex-shrink-0', pinnedToTop && 'mt-3');
+  const className = 'ml-1.5 size-4 flex-shrink-0';
+  const style = topLineHeight === undefined ? undefined : { marginTop: (topLineHeight - 16) / 2 };
   if (showCheckbox) {
     return (
       <Checkbox
@@ -360,13 +362,26 @@ function TreeCheckboxControl({
         data-state={checkboxState}
         onCheckedChange={() => onCheckboxChange?.()}
         onClick={(event) => event.stopPropagation()}
+        style={style}
       />
     );
   }
   if (!reserveSpace) {
     return null;
   }
-  return <span aria-hidden="true" className={className} data-testid="tree-checkbox-spacer" />;
+  return (
+    <span
+      aria-hidden="true"
+      className={className}
+      data-testid="tree-checkbox-spacer"
+      style={style}
+    />
+  );
+}
+
+function resolveControlLineHeight<T>(column: TreeTableColumn<T>, node: TreeNode<T>): number {
+  const height = column.treeControlLineHeight ?? 40;
+  return typeof height === 'number' ? height : height(node);
 }
 
 function TreeTableCellComponent<T>({
@@ -401,6 +416,7 @@ function TreeTableCellComponent<T>({
     const shouldReserveToggleSpace = column.reserveToggleSpace !== false;
     const indentWidth = column.indentWidth ?? INDENT_WIDTH;
     const controlsPinnedToTop = column.treeControlsPosition === 'top';
+    const topLineHeight = controlsPinnedToTop ? resolveControlLineHeight(column, node) : undefined;
 
     return (
       <TableCell className={cn('p-0', column.className)} colSpan={colSpan} role="gridcell">
@@ -421,7 +437,7 @@ function TreeTableCellComponent<T>({
               isExpanded={isExpanded}
               isLoading={node.isLoading}
               onExpandClick={onExpandClick}
-              pinnedToTop={controlsPinnedToTop}
+              topLineHeight={topLineHeight}
             />
           ) : shouldReserveToggleSpace ? (
             <span
@@ -435,9 +451,9 @@ function TreeTableCellComponent<T>({
             ariaLabel={checkboxAriaLabel ?? `Select ${node.id}`}
             checkboxState={checkboxState}
             onCheckboxChange={onCheckboxChange}
-            pinnedToTop={controlsPinnedToTop}
             reserveSpace={column.reserveCheckboxSpace === true}
             showCheckbox={showCheckbox}
+            topLineHeight={topLineHeight}
           />
 
           {/* Context indicator dot */}

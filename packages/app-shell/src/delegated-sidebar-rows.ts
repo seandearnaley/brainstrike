@@ -12,6 +12,7 @@ export type DelegatedSidebarRow = {
       readonly kind: 'delegated-state';
       readonly label: string;
       readonly isError: boolean;
+      readonly onRetry?: (() => void) | undefined;
     }
   | {
       /** BST-1932: an agent host child, read from the host, never from history. */

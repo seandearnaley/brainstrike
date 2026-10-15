@@ -2,6 +2,9 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { AssistantThreadHostChild } from '../assistant-thread-host-context';
 import { HostChildSidebarStore } from '../host-child-sidebar-store';
 
+const diagnostics = vi.hoisted(() => ({ error: vi.fn() }));
+vi.mock('@brainstrike/logging', () => ({ createLogger: () => diagnostics }));
+
 function child(
   threadId: string,
   status: AssistantThreadHostChild['status']
@@ -65,6 +68,7 @@ function selection(initial?: string) {
 
 const stores: HostChildSidebarStore[] = [];
 afterEach(() => {
+  diagnostics.error.mockClear();
   for (const store of stores.splice(0)) {
     store.close();
   }
@@ -112,8 +116,32 @@ it('a collapsed parent stops being listed, and a refused listing shows why', asy
   stores.push(store);
   store.expand('missing');
   await vi.waitFor(() =>
-    expect(store.getSnapshot().children.get('missing')).toEqual(new Error('Unknown thread'))
+    expect(store.getSnapshot().children.get('missing')).toEqual(
+      new Error('Child conversations could not be loaded. Try again.')
+    )
   );
+  expect(diagnostics.error).toHaveBeenCalledWith('Host child threads could not be listed', {
+    threadId: 'missing',
+  });
   store.collapse('missing');
   expect(store.getSnapshot().children.has('missing')).toBe(false);
+});
+
+it('discovers children on visible collapsed parents and follows new children without polling', async () => {
+  const listed = new Map<string, readonly AssistantThreadHostChild[]>([['root-1', []]]);
+  const fake = host(listed);
+  const store = new HostChildSidebarStore(fake.capability, selection());
+  stores.push(store);
+  store.observe(['root-1']);
+  await vi.waitFor(() => expect(store.getSnapshot().children.get('root-1')).toEqual([]));
+  store.observe(['root-1']);
+  store.collapse('root-1');
+  expect(fake.childThreads).toHaveBeenCalledTimes(1);
+  listed.set('root-1', [child('a', 'working')]);
+  fake.notify('root-1');
+  await vi.waitFor(() => expect(store.getSnapshot().children.get('root-1')).toHaveLength(1));
+  store.observe([]);
+  fake.notify('root-1');
+  expect(fake.childThreads).toHaveBeenCalledTimes(2);
+  expect(store.getSnapshot().children.has('root-1')).toBe(false);
 });
