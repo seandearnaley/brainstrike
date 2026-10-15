@@ -25,6 +25,7 @@ import {
   startModelProviderShim,
 } from '../../e2e/utils/model-provider-shim';
 import { createDisposableAppProfile } from './helpers/disposable-app-profile';
+import { electronExecutablePath } from './helpers/electron-executable';
 import {
   committedShellSlices,
   liveStdoutSlices,
@@ -197,9 +198,7 @@ setInterval(() => {}, 1000);
         '--brainstrike-desktop-launch-mode=test-built',
       ],
       env,
-      executablePath:
-        process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ??
-        join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
+      executablePath: electronExecutablePath(),
     };
     let application: Awaited<ReturnType<typeof _electron.launch>> | undefined;
     let client: Awaited<ReturnType<typeof attachAgentHost>> | undefined;

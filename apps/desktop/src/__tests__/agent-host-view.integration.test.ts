@@ -17,6 +17,7 @@ import { _electron, type ElectronApplication, type Page } from 'playwright';
 import { build as buildStyles } from 'vite';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
+import { electronExecutablePath } from './helpers/electron-executable';
 
 const execute = promisify(execFile);
 const repository = resolve(import.meta.dirname, '../../../..');
@@ -213,9 +214,7 @@ test('CLI and Electron share an authenticated Node host, approved file action, r
   };
   const { threadId } = z.object({ threadId: z.string() }).parse(await cli(['thread', 'start']));
   checkpoint('cli-thread');
-  const executablePath =
-    process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ??
-    join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron');
+  const executablePath = electronExecutablePath();
   await access(executablePath);
   const electronEnvironment: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {

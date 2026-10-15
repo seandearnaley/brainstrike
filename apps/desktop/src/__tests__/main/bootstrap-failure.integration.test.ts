@@ -15,6 +15,7 @@ import {
 } from '../../../scripts/build-main-config.mjs';
 
 import { createDisposableAppProfile } from '../helpers/disposable-app-profile';
+import { electronSessionEnvironment } from '../helpers/electron-executable';
 
 const ReportSchema = z.object({ detail: z.unknown(), event: z.string() });
 
@@ -66,6 +67,7 @@ it('forks before full Main evaluation and physically joins the utility if Main b
         {
           cwd: desktop,
           env: {
+            ...electronSessionEnvironment(),
             BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
             BRAINSTRIKE_E2E_USER_DATA_DIR: userData,
             ELECTRON_IS_E2E_TEST: 'true',
@@ -114,6 +116,7 @@ it('joins quit during the initial window load without opening a startup-failure 
   const application = await _electron.launch({
     args: [join(desktop, 'dist/main.js'), '--test-mode', `--user-data-dir=${root}`],
     env: {
+      ...electronSessionEnvironment(),
       BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
       BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES: '1',
       BRAINSTRIKE_E2E_USER_DATA_DIR: root,

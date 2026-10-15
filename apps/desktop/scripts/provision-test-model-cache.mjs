@@ -19,7 +19,6 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { createRequire } from 'node:module';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -36,7 +35,11 @@ const electron = createRequire(import.meta.url)('electron');
 if (typeof electron !== 'string') {
   throw new TypeError('Provisioning the model cache requires an Electron executable path.');
 }
-const work = mkdtempSync(join(tmpdir(), 'brainstrike-model-cache-'));
+// The work profile sits beside the destination rather than in tmpdir(): under a
+// tmpfs /tmp (Linux), Chromium's Cache Storage refused the 34 MB model
+// ("Cache.put() encountered a network error").
+mkdirSync(join(desktop, 'test-cache'), { recursive: true });
+const work = mkdtempSync(join(desktop, 'test-cache', '.provision-'));
 try {
   const page = join(work, 'provision.html');
   writeFileSync(page, '<!doctype html><title>Model cache provisioning</title>');

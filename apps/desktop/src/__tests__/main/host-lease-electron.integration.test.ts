@@ -2,7 +2,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost, readHostRow } from '@brainstrike/agent-host';
 import { makeThrowingDecoder, runWithTimeout } from '@brainstrike/effect-kit';
@@ -18,6 +17,7 @@ import { processStartTime, RootLock, StateStore } from '@brainstrike/state-store
 import { Schema } from 'effect';
 import { build } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { electronExecutablePath } from '../helpers/electron-executable';
 
 const decodeReport = makeThrowingDecoder(
   Schema.Struct({
@@ -47,17 +47,6 @@ let agentPlatform: string;
 const activeApps = new Set<AppChild>();
 const attachments = new Set<HostAttachment>();
 const cliPids = new Map<number, string>();
-function electronPath(): string {
-  const explicit = process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'];
-  if (explicit) {
-    return explicit;
-  }
-  const value: unknown = createRequire(import.meta.url)('electron');
-  if (typeof value !== 'string') {
-    throw new TypeError('Electron package did not expose its executable path');
-  }
-  return value;
-}
 
 beforeAll(async () => {
   await mkdir(resolve('dist'), { recursive: true });
@@ -154,7 +143,7 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
     // Chromium refuses root in this isolated test container without this flag.
     args.push('--no-sandbox');
   }
-  const child = spawn(electronPath(), args, {
+  const child = spawn(electronExecutablePath(), args, {
     env,
     stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
   }) as ChildProcessWithoutNullStreams;

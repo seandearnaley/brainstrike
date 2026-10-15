@@ -1,6 +1,6 @@
 // ADR-0017: Main supervises the native processes its agent host reports. A lost host's
-// process groups get SIGTERM at once; the lease close SIGKILLs what remains, joins it, and
-// fails while anything still holds the Root's flock.
+// process groups get SIGTERM at once; its lease close waits out their grace, SIGKILLs what
+// remains, joins it, and fails while anything still holds the Root's flock.
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter, once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -13,6 +13,7 @@ import { type NativeChild, spawnNativeChild } from '@brainstrike/state-store/nat
 import type { MessagePortMain } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HostNativeChildren } from '../../agent-host-platform/host-native-children';
+import { KILL_GRACE_MS } from '../../assistant-server/kill-grace';
 
 const launch = vi.hoisted(() => vi.fn());
 vi.mock('@brainstrike/host-lease', async (original) => ({
@@ -91,7 +92,7 @@ afterEach(async () => {
 describe.skipIf(process.platform === 'win32')(
   'Main supervises a lost host’s native processes',
   () => {
-    it('SIGTERMs them when the host is lost, then the close SIGKILLs and joins the rest', async () => {
+    const supervisedLease = async () => {
       const { createDesktopHostLease } = await import('../../host-lease-manager');
       const utility = new Utility();
       let supervisor: HostNativeChildren | undefined;
@@ -107,20 +108,39 @@ describe.skipIf(process.platform === 'win32')(
         root,
       });
       await owner.acquire();
+      const supervise = (child: ChildProcess): void => supervisor?.started(identity(child));
+      return { owner, supervise, utility };
+    };
+
+    it('SIGTERMs them when the host is lost; its close SIGKILLs the rest only after their grace', async () => {
+      const { owner, supervise, utility } = await supervisedLease();
       const polite = await sleeper('exit');
       const stubborn = await sleeper('ignore');
-      supervisor?.started(identity(polite));
-      supervisor?.started(identity(stubborn));
+      supervise(polite);
+      supervise(stubborn);
+      const killed = once(stubborn, 'exit').then(() => Date.now());
 
+      const lostAt = Date.now();
       utility.exit(9);
       await once(polite, 'exit');
       expect(stubborn.exitCode).toBeNull();
 
-      await expect(owner.close()).rejects.toThrow('exited with code 9');
-      if (stubborn.exitCode === null && stubborn.signalCode === null) {
-        await once(stubborn, 'exit');
-      }
+      // The loss was reported when it happened, so it is not a failed close. The
+      // next client's admission closes this owner at once (BST-2004); the
+      // survivor still gets its grace.
+      await owner.close();
       expect(stubborn.signalCode).toBe('SIGKILL');
+      expect((await killed) - lostAt).toBeGreaterThanOrEqual(KILL_GRACE_MS);
+    });
+
+    it('closes a lost host without the full grace once its processes exit on SIGTERM', async () => {
+      const { owner, supervise, utility } = await supervisedLease();
+      supervise(await sleeper('exit'));
+
+      const lostAt = Date.now();
+      utility.exit(9);
+      await owner.close();
+      expect(Date.now() - lostAt).toBeLessThan(KILL_GRACE_MS);
     });
 
     it('fails the close while an unreported process still holds the Root’s flock', async () => {

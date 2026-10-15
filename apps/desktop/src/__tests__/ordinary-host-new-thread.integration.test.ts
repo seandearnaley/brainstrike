@@ -32,6 +32,7 @@ import { expect, test } from 'vitest';
 import { z } from 'zod';
 import { ensureAssistantShellVisible } from '../../e2e/utils/layout-helpers';
 import { createDisposableAppProfile } from './helpers/disposable-app-profile';
+import { electronExecutablePath } from './helpers/electron-executable';
 
 const execute = promisify(execFile);
 const repository = resolve(import.meta.dirname, '../../../..');
@@ -299,9 +300,7 @@ test(
           '--brainstrike-desktop-launch-mode=test-built',
         ],
         env,
-        executablePath:
-          process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ??
-          join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
+        executablePath: electronExecutablePath(),
       };
       application = await _electron.launch(launchOptions);
       const pid = application.process().pid;

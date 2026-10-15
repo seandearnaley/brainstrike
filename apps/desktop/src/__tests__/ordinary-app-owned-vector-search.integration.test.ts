@@ -25,6 +25,7 @@ import {
   startModelProviderShim,
 } from '../../e2e/utils/model-provider-shim';
 import { createDisposableAppProfile } from './helpers/disposable-app-profile';
+import { electronExecutablePath } from './helpers/electron-executable';
 
 const desktop = resolve(import.meta.dirname, '../..');
 // Reuse the recorded public metadata fixture; no provider grant or inference.
@@ -205,9 +206,7 @@ async function qualifyVectorSearch(): Promise<void> {
         '--brainstrike-desktop-launch-mode=test-built',
       ],
       env,
-      executablePath:
-        process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ??
-        join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
+      executablePath: electronExecutablePath(),
     });
     const appProcess = application.process();
     const appStart = appProcess.pid && processStartTime(appProcess.pid);
