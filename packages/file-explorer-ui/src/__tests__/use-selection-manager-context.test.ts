@@ -134,6 +134,55 @@ describe('useSelectionManager', () => {
     );
   });
 
+  it("adds the other roots' selections to the forest selection in query mode", () => {
+    const { store } = createMockStore({
+      activeRootIds: ['my-folder', 'other'],
+      currentFolderId: 'my-folder',
+      folderStates: { other: { selectedFilePaths: new Set(['other|@|/b.ts']) } },
+      querySelectionManifest: {
+        directoryCounts: new Map([['/src', 1]]),
+        errorMessage: null,
+        filePaths: ['/src/index.ts'],
+        fingerprint: 'query-fingerprint',
+        pathSet: new Set(['/src/index.ts']),
+        snapshotId: 'snapshot-1',
+        status: 'ready' as const,
+      },
+      selectedFilePaths: new Set(),
+      selectionModel: {
+        explicitPaths: new Set<string>(),
+        materializedAt: new Date().toISOString(),
+        materializedPaths: new Set(['/src/index.ts']),
+        mode: 'query' as const,
+        queryDescriptor: {
+          coveredDirectoryPaths: ['/src'],
+          excludedPaths: [],
+          excludeFilters: [],
+          folderId: 'my-folder',
+          includedPaths: [],
+          includeFilters: ['**/*.ts'],
+          kind: 'recursive-select-all' as const,
+          manifestFingerprint: 'query-fingerprint',
+          manifestSnapshotId: 'snapshot-1',
+          rootPath: null,
+          totalSelectedCount: 1,
+          useRegex: false,
+        },
+      },
+    });
+    vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+
+    const { result } = renderHook(() => useSelectionManager());
+
+    // The count and the forest selection describe the same files.
+    expect(result.current.selectedCount).toBe(2);
+    expect(result.current.forestSelection).toEqual(
+      new Set(['my-folder|@|/src/index.ts', 'other|@|/b.ts'])
+    );
+    // The focused root's own selection is unchanged.
+    expect(result.current.effectiveSelection).toEqual(new Set(['my-folder|@|/src/index.ts']));
+  });
+
   it('uses the stored materialized paths while a query manifest snapshot is still loading', () => {
     const { store } = createMockStore({
       currentFolderId: 'my-folder',
@@ -197,6 +246,7 @@ describe('useSelectionManager', () => {
       const { result } = renderHook(() => useSelectionManager());
 
       expect(result.current.effectiveSelection).toEqual(new Set([KEY_A, KEY_B]));
+      expect(result.current.forestSelection).toBe(result.current.effectiveSelection);
       expect(result.current.selectedCount).toBe(2);
       expect(result.current.selectedFilesList).toEqual(expect.arrayContaining([KEY_A, KEY_B]));
       // The focused root's stale folderState snapshot must NOT leak in.

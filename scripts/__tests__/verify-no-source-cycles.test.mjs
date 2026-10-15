@@ -113,13 +113,16 @@ test('collects dynamic import() as a traversal root', () => {
   // Without this the entire subgraph behind a lazy boundary was never analyzed —
   // a silent coverage hole, not a wrong answer. Controlled end-to-end by the
   // planted lazy-only cycle described in the guard header.
-  assert.deepEqual(deferredImportSpecifiers("const m = await import('./lazy');"), ['./lazy']);
-  assert.deepEqual(deferredImportSpecifiers("void (() => import('./lazy'));"), ['./lazy']);
+  const lazy = [{ kind: 'import', specifier: './lazy' }];
+  assert.deepEqual(deferredImportSpecifiers("const m = await import('./lazy');"), lazy);
+  assert.deepEqual(deferredImportSpecifiers("void (() => import('./lazy'));"), lazy);
 });
 
 test('collects Vite query-suffixed imports as traversal roots', () => {
+  // Kind `import`: Vite fails the build when the file is missing, so these
+  // must resolve like any import — only `new URL(...)` may name a non-module.
   assert.deepEqual(deferredImportSpecifiers("import u from './x.worker.ts?worker&url';"), [
-    './x.worker.ts?worker&url',
+    { kind: 'import', specifier: './x.worker.ts?worker&url' },
   ]);
 });
 
@@ -135,7 +138,7 @@ test('collects `new Worker(new URL(...))` targets as roots', () => {
     deferredImportSpecifiers(
       "const w = new Worker(new URL('./pglite-worker-entry.ts', import.meta.url), { type: 'module' });"
     ),
-    ['./pglite-worker-entry.ts']
+    [{ kind: 'url', specifier: './pglite-worker-entry.ts' }]
   );
 });
 
@@ -146,7 +149,7 @@ test('collects a `new URL(...)` bound to a variable, not just inline in `new Wor
     deferredImportSpecifiers(
       "const url = new URL('./bootstrap-worker-entry.ts', import.meta.url);"
     ),
-    ['./bootstrap-worker-entry.ts']
+    [{ kind: 'url', specifier: './bootstrap-worker-entry.ts' }]
   );
 });
 
@@ -155,10 +158,12 @@ test('the real wasm-loader has BOTH PGlite worker entries collected', () => {
   // quietly drop the workers back out of the graph.
   const wasmLoader = readFileSync(path.join(REPO_ROOT, 'packages/db/src/wasm-loader.ts'), 'utf8');
   const roots = deferredImportSpecifiers(wasmLoader, 'wasm-loader.ts');
+  const hasUrlRoot = (specifier) =>
+    roots.some((root) => root.kind === 'url' && root.specifier === specifier);
 
-  assert.ok(roots.includes('./pglite-worker-entry.ts'), 'PGlite worker entry must be a root.');
+  assert.ok(hasUrlRoot('./pglite-worker-entry.ts'), 'PGlite worker entry must be a root.');
   assert.ok(
-    roots.includes('./browser-first-run-bootstrap-worker-entry.ts'),
+    hasUrlRoot('./browser-first-run-bootstrap-worker-entry.ts'),
     'First-run bootstrap worker entry must be a root.'
   );
 });
@@ -227,6 +232,22 @@ test('resolves an ESM `.js` specifier to the `.ts` file it names', () => {
 
 const WEB_APP = RENDERER_APPS.find((app) => app.name === 'web');
 
+/**
+ * Walk a one-file fixture app beside the real web app. The web graph clears the
+ * module floor, so any refusal comes from the fixture, never from the floor.
+ */
+function findSourceCyclesWithFixture(fileName, sourceText) {
+  const fixtureEntry = path.join(mkdtempSync(path.join(os.tmpdir(), 'bst890-fixture-')), fileName);
+  writeFileSync(fixtureEntry, sourceText);
+  return findSourceCycles({
+    apps: [
+      WEB_APP,
+      { entrypoint: path.relative(REPO_ROOT, fixtureEntry), name: 'fixture', overrides: [] },
+    ],
+    root: REPO_ROOT,
+  });
+}
+
 test('an unmapped @brainstrike/* specifier is UNRESOLVED, not out of scope', () => {
   // The scope hole. `@brainstrike/hooks` exports only its root, so no alias
   // claims this subpath; the guard used to classify it as a third-party package
@@ -254,28 +275,13 @@ test('the planted-cycle repro: an unmapped @brainstrike/* edge refuses instead o
   // and exit 0. Its closing edge lives in package source this test may not
   // edit, and the guard by definition cannot see where an unmapped specifier
   // lands — so the contract pinned here is the one that matters: the walk
-  // REFUSES and names the edge. The web app rides along to clear the module
-  // floor, so the refusal cannot be the floor's.
-  const fixtureDir = mkdtempSync(path.join(os.tmpdir(), 'bst890-unmapped-'));
-  const fixtureEntry = path.join(fixtureDir, 'planted.ts');
-  writeFileSync(
-    fixtureEntry,
-    "import { useAppActive } from '@brainstrike/hooks/use-app-active';\nexport const planted = useAppActive;\n"
-  );
-
+  // REFUSES and names the edge.
   await assert.rejects(
     () =>
-      findSourceCycles({
-        apps: [
-          WEB_APP,
-          {
-            entrypoint: path.relative(REPO_ROOT, fixtureEntry),
-            name: 'planted',
-            overrides: [],
-          },
-        ],
-        root: REPO_ROOT,
-      }),
+      findSourceCyclesWithFixture(
+        'planted.ts',
+        "import { useAppActive } from '@brainstrike/hooks/use-app-active';\nexport const planted = useAppActive;\n"
+      ),
     /@brainstrike\/hooks\/use-app-active {2}\(in [^)]*planted\.ts\)/
   );
 });
@@ -322,6 +328,38 @@ test('a dist-pointing workspace export stays UNRESOLVED unless an app decides it
     }),
     { file: path.join(REPO_ROOT, 'packages/embedding-worker/src/embedding.worker.ts') }
   );
+});
+
+// --- deferred roots: only `new URL(...)` may name a non-module ---------------
+
+test('a missing dynamic import() or ?worker target is reported, not exempted as an asset', async () => {
+  // A dropped ROOT loses everything behind that lazy boundary. These used to
+  // share the `new URL` asset exemption, so a dynamic import of a file that is
+  // not there was silently out of scope and its whole subgraph unanalyzed.
+  await assert.rejects(
+    () =>
+      findSourceCyclesWithFixture(
+        'lazy.ts',
+        "import u from './missing.worker.ts?worker&url';\nexport const lazy = () => import('./missing-lazy');\nexport { u };\n"
+      ),
+    (error) => {
+      assert.match(error.message, /\.\/missing-lazy {2}\(in [^)]*lazy\.ts\)/);
+      assert.match(error.message, /\.\/missing\.worker\.ts\?worker&url {2}\(in [^)]*lazy\.ts\)/);
+      return true;
+    }
+  );
+});
+
+test('an unresolvable `new URL(...)` asset stays out of scope', async () => {
+  // The control. `new URL('./x', import.meta.url)` legitimately names non-module
+  // assets (.wasm, images, fonts), some of which only exist after a build, so
+  // the exemption must survive for exactly this form.
+  const { cycles } = await findSourceCyclesWithFixture(
+    'asset.ts',
+    "export const wasm = new URL('./emitted-at-build-time.wasm', import.meta.url);\n"
+  );
+
+  assert.deepEqual(cycles, []);
 });
 
 // --- the real verdict --------------------------------------------------------

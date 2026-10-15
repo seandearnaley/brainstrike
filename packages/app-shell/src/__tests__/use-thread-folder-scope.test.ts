@@ -31,7 +31,7 @@ function args(overrides: Partial<UseThreadFolderScopeArgs> = {}): UseThreadFolde
   };
 }
 
-const BRAVO = { displayName: 'bravo', path: '/ws/bravo', rootId: 'root-b' };
+const BRAVO = { displayName: 'bravo', path: '/ws/bravo', rootId: 'root-b', threadId: 'thread-1' };
 
 describe('useThreadFolderScope', () => {
   beforeEach(() => {
@@ -73,6 +73,20 @@ describe('useThreadFolderScope', () => {
     expect(useThreadFolderScopeStore.getState().pendingAdd).toBeNull();
     rerender(args({ recordAddedAsSecondary }));
     expect(recordAddedAsSecondary).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a request made for another thread, and never applies it', () => {
+    const recordAddedAsSecondary = vi.fn(async () => undefined);
+    renderHook(() => useThreadFolderScope(args({ recordAddedAsSecondary })));
+    let accepted = true;
+    act(() => {
+      accepted = useThreadFolderScopeStore
+        .getState()
+        .requestAdd({ ...BRAVO, threadId: 'thread-2' });
+    });
+    expect(accepted).toBe(false);
+    expect(useThreadFolderScopeStore.getState().pendingAdd).toBeNull();
+    expect(recordAddedAsSecondary).not.toHaveBeenCalled();
   });
 
   it("waits for the thread's folders before applying a request", async () => {

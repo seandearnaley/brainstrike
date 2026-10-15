@@ -11,10 +11,13 @@ import { useEffect } from 'react';
  */
 const APP_DESCRIPTION = 'Multi-app dashboard';
 
-interface DocumentMeta {
+export interface DocumentMeta {
   readonly description: string;
   readonly title: string;
 }
+
+/** A surface's title and description for every shell route. */
+export type DocumentMetaByRoute = Readonly<Record<PanelTab, DocumentMeta>>;
 
 /**
  * Document metadata keyed by the shell route it belongs to. The `explorer` and
@@ -22,7 +25,7 @@ interface DocumentMeta {
  * previously inherited whichever tab had written last, which is why switching
  * to Git or Terminal used to leave the title reading "Home".
  */
-const DOCUMENT_META: Readonly<Record<PanelTab, DocumentMeta>> = {
+const DOCUMENT_META: DocumentMetaByRoute = {
   browser: { description: APP_DESCRIPTION, title: 'Browser - BrainStrike.ai' },
   explorer: { description: 'BrainStrike.ai Home Dashboard', title: 'BrainStrike.ai - Home' },
   git: { description: APP_DESCRIPTION, title: 'Git - BrainStrike.ai' },
@@ -71,10 +74,13 @@ function resolveDescriptionMeta(): HTMLMetaElement {
  * alone names the surface on screen — the same value `RootLayoutContent`
  * shows and hides the routes from, so the title cannot describe a surface
  * other than the one the user is looking at.
+ *
+ * @param metaByRoute - The app's strings; the desktop app names itself
+ *   "BrainStrike Desktop". Defaults to the web app's.
  */
-export function useDocumentTitle(): void {
+export function useDocumentTitle(metaByRoute: DocumentMetaByRoute = DOCUMENT_META): void {
   const activeTab = usePanelLayoutStore((state) => state.activeTab);
-  const { description, title } = DOCUMENT_META[activeTab];
+  const { description, title } = metaByRoute[activeTab];
 
   useEffect(() => {
     document.title = title;

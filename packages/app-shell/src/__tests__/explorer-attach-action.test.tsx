@@ -5,10 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const explorer = vi.hoisted(() => ({
   active: 'thread-1' as string | null,
+  /** The focused root's own selection; in query mode it leaves out the other roots. */
+  focused: new Set<string>(),
   rootDescriptors: {
     'adapter-a': { displayName: 'alpha', path: '/work/alpha', rootId: 'adapter-a' },
     'adapter-b': { displayName: 'bravo', path: '/work/bravo', rootId: 'adapter-b' },
   } as Record<string, unknown>,
+  /** The whole forest's selection: what the selection bar counts. */
   selected: new Set<string>(),
 }));
 const toast = vi.hoisted(() => vi.fn());
@@ -20,8 +23,9 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileExplorerStoreSelector: <T,>(selector: (state: typeof explorer) => T): T =>
     selector(explorer),
   useSelectionManager: () => ({
+    forestSelection: explorer.selected,
     selectedCount: explorer.selected.size,
-    selectedFilePaths: explorer.selected,
+    selectedFilePaths: explorer.focused,
   }),
 }));
 vi.mock('@brainstrike/ui', async (importOriginal) => ({
@@ -49,6 +53,7 @@ function Action(): ReactElement {
 
 beforeEach(() => {
   explorer.active = 'thread-1';
+  explorer.focused = new Set();
   explorer.selected = new Set();
   toast.mockClear();
   useAssistantComposerCommandStore.getState().reset();
@@ -126,6 +131,18 @@ describe('ExplorerAttachAction', () => {
     expect(toast).not.toHaveBeenCalled();
   });
 
+  it("attaches every root's selected files, not only the focused root's query", () => {
+    explorer.focused = new Set(['adapter-a|@|/work/alpha/a.ts']);
+    explorer.selected = new Set(['adapter-a|@|/work/alpha/a.ts', 'adapter-b|@|/work/bravo/b.ts']);
+    render(<Action />);
+    fireEvent.click(screen.getByTestId('explorer-attach-to-thread'));
+    expect(useAssistantComposerCommandStore.getState().commandsByThreadId['thread-1']).toEqual([
+      expect.objectContaining({
+        text: ':file[a.ts]{name=root-a::a.ts} :file[b.ts]{name=root-b::b.ts}',
+      }),
+    ]);
+  });
+
   it('says a folder is outside the thread, and its action asks the bar to add it', () => {
     useThreadFolderScopeStore
       .getState()
@@ -145,6 +162,26 @@ describe('ExplorerAttachAction', () => {
       rootId: 'root-b',
       threadId: 'thread-1',
     });
+  });
+
+  it("adds the folder only to the notice's own thread", () => {
+    useThreadFolderScopeStore
+      .getState()
+      .publishScope({ rootIds: ['root-a'], threadId: 'thread-1' });
+    explorer.selected = new Set(['adapter-b|@|/work/bravo/b.ts']);
+    render(<Action />);
+    fireEvent.click(screen.getByTestId('explorer-attach-to-thread'));
+    const [notice] = toast.mock.calls[0] ?? [];
+    // The user moves to another thread before acting on the notice.
+    useThreadFolderScopeStore
+      .getState()
+      .publishScope({ rootIds: ['root-c'], threadId: 'thread-2' });
+    render((notice as { action: ReactElement }).action);
+    fireEvent.click(screen.getByText('Add to this thread'));
+    expect(useThreadFolderScopeStore.getState().pendingAdd).toBeNull();
+    expect(toast).toHaveBeenLastCalledWith(
+      expect.objectContaining({ title: 'bravo was not added', variant: 'destructive' })
+    );
   });
 
   it('refuses without an active thread, and above the attach limit', () => {

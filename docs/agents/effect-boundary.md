@@ -17,8 +17,13 @@ takes `allowedUnstableApis`/`allowedExperimentalApis` for a reviewed exception,
 and reports a stable signature that exposes a less stable type as
 `apiStabilityLeak`. Everything imported today (`Effect`, `Layer`, `Scope`,
 `Schema`, `SchemaIssue`, `JsonSchema`, `Schedule`, `Semaphore`, `ManagedRuntime`,
-`Stream`) is tagged stable, and the three rules pass at `error` severity on the
-current tree.
+`Stream`) is tagged stable.
+
+Each project names those three rules as `error` in its `diagnosticSeverity`, and
+the contract test asserts it. Enabling the plugin is not enough:
+`apiStabilityLeak` ships `off`, and `--strict` only promotes diagnostics that
+already run, so a bare plugin entry lets a stable export expose an unstable
+Effect type and still type-check.
 
 Effect stays out of preloads and their value-import graph. Shared IPC contracts
 remain pure; main/worker-side validation may use Schema. Do not move a stream,

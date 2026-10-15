@@ -374,6 +374,12 @@ export function staticImportSpecifiers(sourceText, fileName = 'fixture.ts') {
  * Without this, everything reachable only behind a lazy boundary (the whole
  * `@brainstrike/app-shell/git-panel` subtree, every worker entry) was never
  * analyzed at all — a large silent coverage hole rather than a wrong answer.
+ *
+ * Each root carries its `kind`, because only one form may name a non-module:
+ *   `import`  dynamic `import()` and query-suffixed imports. Vite fails the
+ *             build when the file is missing, so these must resolve.
+ *   `url`     `new URL('./x', import.meta.url)`, which legitimately names
+ *             assets (.wasm, images, fonts), some only emitted by a build.
  */
 export function deferredImportSpecifiers(sourceText, fileName = 'fixture.ts') {
   const sourceFile = ts.createSourceFile(
@@ -392,7 +398,7 @@ export function deferredImportSpecifiers(sourceText, fileName = 'fixture.ts') {
       node.arguments.length > 0 &&
       ts.isStringLiteral(node.arguments[0])
     ) {
-      specifiers.push(node.arguments[0].text);
+      specifiers.push({ kind: 'import', specifier: node.arguments[0].text });
     }
     // `new URL('./entry.ts', import.meta.url)` — the standard Worker/asset
     // idiom, and the form `packages/db/src/wasm-loader.ts` uses for both PGlite
@@ -409,7 +415,7 @@ export function deferredImportSpecifiers(sourceText, fileName = 'fixture.ts') {
       node.arguments.length > 0 &&
       ts.isStringLiteral(node.arguments[0])
     ) {
-      specifiers.push(node.arguments[0].text);
+      specifiers.push({ kind: 'url', specifier: node.arguments[0].text });
     }
     ts.forEachChild(node, visit);
   };
@@ -421,7 +427,7 @@ export function deferredImportSpecifiers(sourceText, fileName = 'fixture.ts') {
       ts.isStringLiteral(statement.moduleSpecifier) &&
       VITE_QUERY_SUFFIX.test(statement.moduleSpecifier.text)
     ) {
-      specifiers.push(statement.moduleSpecifier.text);
+      specifiers.push({ kind: 'import', specifier: statement.moduleSpecifier.text });
     }
   }
 
@@ -602,12 +608,14 @@ function walkAppGraph({ aliases, entryFile, root }) {
       enqueue(outcome.file);
     }
 
-    for (const specifier of deferredImportSpecifiers(sourceText, file)) {
+    for (const { kind, specifier } of deferredImportSpecifiers(sourceText, file)) {
       const outcome = classifySpecifier({
         aliases,
         fromFile: file,
-        // A `new URL(...)` target may legitimately be a non-module asset.
-        isAssetReference: true,
+        // Only a `new URL(...)` target may legitimately be a non-module asset.
+        // A dynamic or `?worker` import that fails to resolve is a dropped
+        // ROOT: everything behind that lazy boundary would go unanalyzed.
+        isAssetReference: kind === 'url',
         specifier,
       });
       if (outcome.unresolved) {

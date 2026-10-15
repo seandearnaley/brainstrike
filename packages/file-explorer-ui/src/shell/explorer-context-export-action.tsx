@@ -34,8 +34,9 @@ export function ExplorerContextExportAction(): ReactElement {
   const { fileContents, loadMultipleFileContents, rootDirectoryHandle } = useFileExplorer();
   const store = useFileExplorerStoreContext();
   const { storageAdapter } = useAdapters();
-  const { selectedCount, selectedFilePaths } = useSelectionManager();
-  const tokenTotal = useSelectedTokenTotal(selectedFilePaths);
+  // The whole forest: in query mode `selectedFilePaths` is the focused root alone.
+  const { forestSelection, selectedCount } = useSelectionManager();
+  const tokenTotal = useSelectedTokenTotal(forestSelection);
   const [
     includeProjectTree,
     setIncludeProjectTree,
@@ -78,7 +79,7 @@ export function ExplorerContextExportAction(): ReactElement {
     loadMultipleFileContents: loadBackgroundFileContents,
     projectTreeUsesViewFilters: treeUsesViewFilters,
     rootDirectoryHandle,
-    selectedFiles: selectedFilePaths,
+    selectedFiles: forestSelection,
     store,
     useRegex,
   });

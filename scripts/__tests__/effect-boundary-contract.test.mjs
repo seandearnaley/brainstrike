@@ -26,6 +26,17 @@ const DEPENDENCY_FIELDS = [
 const DIAGNOSTICS_COMMAND =
   /effect-tsgo diagnostics --project (tsconfig\.test\.json|tsconfig\.json) --strict$/u;
 const LANGUAGE_SERVICE_PLUGIN = '@effect/language-service';
+// The stability rules, pinned per project rather than left to defaults.
+// `apiStabilityLeak` ships "off" and the other two ship "warning", and
+// `--strict` only promotes diagnostics that already run — it cannot turn on a
+// rule that is off. Naming all three keeps the stability contract in
+// docs/agents/effect-boundary.md enforced, and keeps an upstream default
+// change from quietly weakening it.
+const STABILITY_SEVERITIES = {
+  apiStabilityLeak: 'error',
+  experimentalApiUsage: 'error',
+  unstableApiUsage: 'error',
+};
 // The one package allowed to run effects: it IS the Promise boundary.
 const RUNNER_OWNER_PREFIX = 'packages/effect-kit/src/';
 // Every v4 runner, `...With` variants included: runPromise, runSyncExitWith, ...
@@ -308,10 +319,20 @@ test('every package that depends on effect runs the Effect diagnostics in type-c
     // The EFFECTIVE options of that project must carry the plugin, whether
     // declared there or inherited through `extends`.
     const plugins = effectiveCompilerOptions(`${directory}/${project}`).plugins ?? [];
+    const plugin = plugins.find((entry) => entry?.name === LANGUAGE_SERVICE_PLUGIN);
     assert.ok(
-      plugins.some((plugin) => plugin?.name === LANGUAGE_SERVICE_PLUGIN),
+      plugin,
       `${directory}/${project} must resolve the ${LANGUAGE_SERVICE_PLUGIN} plugin; ` +
         'without it effect-tsgo diagnostics checks 0 files and passes'
+    );
+    // Resolving the plugin is not enough: with no severities, a stable export
+    // that exposes an unstable Effect type still type-checks clean.
+    assert.deepEqual(
+      plugin.diagnosticSeverity,
+      STABILITY_SEVERITIES,
+      `${directory}/${project} must set diagnosticSeverity to ` +
+        `${JSON.stringify(STABILITY_SEVERITIES)}; apiStabilityLeak is off by default ` +
+        'and --strict cannot enable it'
     );
   }
 });

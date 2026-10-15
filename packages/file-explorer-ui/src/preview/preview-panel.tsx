@@ -672,15 +672,20 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     (file: FileTapestry) => {
       const path = resolveRootPath?.(file.rootFolderId);
       const displayName = file.rootDisplayName;
-      if (!(path && displayName)) {
+      if (!(path && displayName && threadScope)) {
         logger.error('Add to this thread asked for a folder that is not in the workspace', {
           rootId: file.rootFolderId,
         });
         return;
       }
-      requestAddToThread({ displayName, path, rootId: file.rootFolderId });
+      requestAddToThread({
+        displayName,
+        path,
+        rootId: file.rootFolderId,
+        threadId: threadScope.threadId,
+      });
     },
-    [requestAddToThread, resolveRootPath]
+    [requestAddToThread, resolveRootPath, threadScope]
   );
 
   const buildTapestryFile = useCallback(

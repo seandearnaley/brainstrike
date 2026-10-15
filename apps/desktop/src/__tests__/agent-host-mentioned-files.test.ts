@@ -61,6 +61,8 @@ function mention(root: Root, path: string): string {
 
 async function admit(options: {
   readonly bound: readonly Root[];
+  /** A CLI run's selected folders: the run's whole inventory. */
+  readonly cliRootIds?: readonly string[];
   readonly live: readonly Root[];
   readonly prompt: string;
 }) {
@@ -76,7 +78,12 @@ async function admit(options: {
     async () => undefined
   );
   const request: HostRunAdmissionRequest = {
-    configuration: capturedIntent({ model: 'gpt-6-sol', provider: 'openai' }),
+    configuration: {
+      ...capturedIntent({ model: 'gpt-6-sol', provider: 'openai' }),
+      ...(options.cliRootIds
+        ? { cliWorkspace: { instructions: 'off', rootIds: [...options.cliRootIds], skills: 'off' } }
+        : {}),
+    },
     modelId: 'openai::gpt-6-sol',
     prompt: options.prompt,
     runId: 'host-run',
@@ -114,6 +121,24 @@ test('a mention in a folder that is not live is refused visibly, not read', asyn
     prompt: `Read ${mention(bravo, 'src/mentioned.txt')}`,
   });
   try {
+    expect(selected.system).not.toContain(MENTIONED);
+    expect(selected.referencedFileFailures).toEqual([
+      expect.objectContaining({ path: 'src/mentioned.txt', rootId: bravo.rootId }),
+    ]);
+  } finally {
+    await selected.close();
+  }
+});
+
+test('a CLI run cannot attach a mention from a live folder it did not select', async () => {
+  const selected = await admit({
+    bound: [alpha],
+    cliRootIds: [alpha.rootId],
+    live: [alpha, bravo],
+    prompt: `Read ${mention(alpha, 'alpha.txt')} and ${mention(bravo, 'src/mentioned.txt')}`,
+  });
+  try {
+    expect(selected.system).toContain(ALPHA);
     expect(selected.system).not.toContain(MENTIONED);
     expect(selected.referencedFileFailures).toEqual([
       expect.objectContaining({ path: 'src/mentioned.txt', rootId: bravo.rootId }),

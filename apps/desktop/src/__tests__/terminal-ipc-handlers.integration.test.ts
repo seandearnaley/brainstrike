@@ -47,10 +47,13 @@ async function makeDir(prefix = 'brainstrike-terminal-ipc-'): Promise<string> {
  * `process.env` at spawn: it sources rc files from HOME and, on a clean `exit`,
  * writes its history there. Give every test a disposable home (and the
  * explicit history/config overrides a shell honours before HOME) so a test run
- * never reads or writes the developer's own profile.
+ * never reads or writes the developer's own profile. The empty `.zshrc` keeps
+ * zsh from opening its interactive new-user menu (zsh-newuser-install), which
+ * it shows when ZDOTDIR has no startup files and which swallows typed commands.
  */
 async function isolateShellHome(): Promise<void> {
   const home = await makeDir('brainstrike-terminal-home-');
+  await fsPromises.writeFile(path.join(home, '.zshrc'), '');
   vi.stubEnv('HOME', home);
   vi.stubEnv('USERPROFILE', home);
   vi.stubEnv('ZDOTDIR', home);
