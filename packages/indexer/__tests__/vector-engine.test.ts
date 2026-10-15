@@ -181,7 +181,7 @@ describe('coarse code tables', () => {
       .sort((a, b) => a - b);
   }
 
-  it('choose the same nearest codes as sqlite-vec, preferring the newest among equal distances', () => {
+  it('choose the same nearest codes as sqlite-vec for rows stored in id order', () => {
     const { desktop, web, rows } = populated();
     for (const [index, queryVector] of vectors(24, 384, 99).entries()) {
       const query = {
@@ -193,10 +193,60 @@ describe('coarse code tables', () => {
       const expected = candidateIds(desktop, sqliteVecEngine, query);
       const actual = candidateIds(web, binaryVectorEngine, query);
       expect(new Set(actual.map((id) => rows[id - 1]?.root))).toEqual(new Set([query.partition]));
-      // Codes often tie at the 100th distance; sqlite-vec keeps the most recently stored, and so
-      // does the binary engine, by id, since these rows were stored in id order.
+      // Codes often tie at the 100th distance. sqlite-vec then takes the higher storage slot, and
+      // these rows were stored in id order within one storage chunk, so the highest ids agree.
       expect(actual).toEqual(expected);
     }
+  });
+
+  it('differ from sqlite-vec only among codes tied at the k-th distance, whatever the storage order', () => {
+    const { desktop, web } = engines();
+    const all = vectors(3000, 64, 21).map((emb, index) => ({ emb, id: index + 1 }));
+    for (const [db, engine] of [
+      [desktop, sqliteVecEngine],
+      [web, binaryVectorEngine],
+    ] as const) {
+      db.exec(engine.tableDefinition('codes', { bits: 64, partition: 'root_id' }));
+      const insert = db.prepare(
+        'INSERT INTO codes(id,root_id,bin) VALUES(?,?,vec_quantize_binary(?))'
+      );
+      for (const row of all) {
+        insert.run(BigInt(row.id), 'root', row.emb);
+      }
+      // Re-embedded chunks are deleted and stored again under their ids; more than one storage chunk.
+      for (const row of all.filter((candidate) => candidate.id % 97 === 0)) {
+        db.prepare('DELETE FROM codes WHERE id=?').run(BigInt(row.id));
+        insert.run(BigInt(row.id), 'root', row.emb);
+      }
+    }
+    const code = (db: Database.Database, vector: Uint8Array) =>
+      db.prepare('SELECT vec_quantize_binary(?)').pluck().get(vector) as Uint8Array;
+    const distance = (left: Uint8Array, right: Uint8Array) =>
+      left.reduce((bits, byte, index) => {
+        let rest = byte ^ (right[index] as number);
+        let count = 0;
+        while (rest !== 0) {
+          count += rest & 1;
+          rest >>= 1;
+        }
+        return bits + count;
+      }, 0);
+    const codes = new Map(all.map((row) => [row.id, code(web, row.emb)]));
+    let differing = 0;
+    for (const queryVector of vectors(12, 64, 77)) {
+      const query = { k: 100, partition: 'root', partitionColumn: 'root_id', vector: queryVector };
+      const target = code(web, queryVector);
+      const distances = (ids: readonly number[]) =>
+        ids.map((id) => distance(codes.get(id) as Uint8Array, target)).sort((a, b) => a - b);
+      const expected = candidateIds(desktop, sqliteVecEngine, query);
+      const actual = candidateIds(web, binaryVectorEngine, query);
+      expect(actual).toHaveLength(expected.length);
+      // The same distances: any differing id is one equally distant code chosen in place of another.
+      expect(distances(actual)).toEqual(distances(expected));
+      differing += actual.join() === expected.join() ? 0 : 1;
+    }
+    // This layout does make the engines choose differently among ties, so the bound above is exercised.
+    expect(differing).toBeGreaterThan(0);
   });
 
   it('rescore candidates to the same ranking as sqlite-vec', () => {

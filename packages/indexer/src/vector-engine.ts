@@ -43,7 +43,8 @@ export interface CoarseVectorEngine {
   /**
    * A subquery yielding `columns` of the code table's rows whose codes are
    * the `k` nearest the query's by Hamming distance (in no particular order),
-   * with its parameters. The caller rescores them exactly in SQL.
+   * with its parameters. The caller rescores them exactly in SQL. Which of
+   * several codes tied at the k-th distance are included is engine-specific.
    */
   candidates(
     db: Database.Database,

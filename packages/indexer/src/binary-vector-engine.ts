@@ -124,7 +124,9 @@ export const binaryVectorEngine: CoarseVectorEngine = {
         .all(query.partition, ...(query.among?.params ?? []))
     )
       .map((row) => ({ distance: hamming(row.bin, code), id: row.id }))
-      // sqlite-vec keeps the most recently stored code among equals; ids grow as rows are stored.
+      // Among codes tied at the k-th distance the choice is engine-specific: sqlite-vec's follows its storage
+      // layout (earlier chunks first, then the higher slot). The highest id agrees with it for rows stored in id
+      // order within one storage chunk; elsewhere the engines may admit different, equally distant codes.
       .sort((a, b) => a.distance - b.distance || b.id - a.id)
       .slice(0, k)
       .map((row) => row.id);

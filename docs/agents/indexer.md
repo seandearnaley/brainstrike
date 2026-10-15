@@ -38,6 +38,9 @@ uses sqlite-vec's `vec0`; the browser index (BST-1940) uses ordinary tables and
 a JavaScript Hamming scan. Other vector SQL may use only `vec_quantize_binary`,
 `vec_distance_cosine`, `vec_distance_l2` and `vec_length`, which the binary
 engine implements bit for bit; `vector-engine.test.ts` holds that parity.
+Which of several codes tied at the k-th Hamming distance become candidates is
+engine-specific (sqlite-vec's follows its storage layout), so the engines can
+rescore different but equally distant candidates.
 
 Canonical grep and coverage use dedicated read-only process modes. Accept no
 caller SQL, attachments or unregistered scope. Preserve sandbox limits and the
