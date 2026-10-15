@@ -1,13 +1,11 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import {
   TOOL_OUTPUT_ARTIFACT_RETENTION_MS,
   ToolOutputArtifactRepository,
   ToolOutputArtifactStorageError,
 } from '../src/repositories/tool-output-artifact-repository.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion, LATEST_MIGRATION_VERSION } from './helpers/migrated-test-db.js';
 
 describe('ToolOutputArtifactRepository', () => {
   let db: PGlite;
@@ -15,11 +13,7 @@ describe('ToolOutputArtifactRepository', () => {
   let repository: ToolOutputArtifactRepository;
 
   beforeEach(async () => {
-    const dataDir = createPGliteTestDataDir('pglite-test-tool-output-artifact-repository');
-    db = await wasmLoader.createPGlite(dataDir);
-    const runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations);
+    db = await createDbAtVersion(LATEST_MIGRATION_VERSION);
     now = new Date('2026-07-19T12:00:00.000Z');
     repository = new ToolOutputArtifactRepository(db, { now: () => new Date(now) });
   });

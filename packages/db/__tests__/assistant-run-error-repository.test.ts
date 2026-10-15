@@ -1,24 +1,17 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import {
   AssistantRunErrorRepository,
   AssistantRunErrorStorageError,
 } from '../src/repositories/assistant-run-error-repository.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion, LATEST_MIGRATION_VERSION } from './helpers/migrated-test-db.js';
 
 describe('AssistantRunErrorRepository', () => {
   let db: PGlite;
   let repository: AssistantRunErrorRepository;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(
-      createPGliteTestDataDir('pglite-test-assistant-run-error-repository')
-    );
-    const runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations);
+    db = await createDbAtVersion(LATEST_MIGRATION_VERSION);
     // The parent run row, seeded into the REAL relations. This used to create a
     // three-column stand-in because no migration created `thread_runs`;
     // migration 118 does (BST-1651), so the repository's ownership derivation

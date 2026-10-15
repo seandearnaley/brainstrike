@@ -1,11 +1,9 @@
 import { MASTRA_MEMORY_SCHEMA_SQL } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import { readAssistantHistoryMessages } from '../src/repositories/assistant-history-repository.js';
 import { ThreadSearchRepository } from '../src/repositories/thread-search-repository.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir.js';
+import { createDbAtVersion, LATEST_MIGRATION_VERSION } from './helpers/migrated-test-db.js';
 
 const RESOURCE_ID = 'workspace-memory';
 const PROFILE_DIMENSIONS = 384;
@@ -31,11 +29,7 @@ describe('ThreadSearchRepository', () => {
   let repository: ThreadSearchRepository;
 
   beforeEach(async () => {
-    const dataDir = createPGliteTestDataDir('pglite-test-thread-search-repo');
-    db = await wasmLoader.createPGlite(dataDir);
-    const runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations);
+    db = await createDbAtVersion(LATEST_MIGRATION_VERSION);
     await db.exec(MASTRA_MEMORY_SCHEMA_SQL);
     repository = new ThreadSearchRepository(db);
   });

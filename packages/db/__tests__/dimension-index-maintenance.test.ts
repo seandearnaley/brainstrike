@@ -1,6 +1,5 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { migrate } from '../src/migrations/bootstrap.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobQueue } from '../src/queue/job-queue.js';
 import {
   listDimensionIndexMaintenance,
@@ -11,6 +10,7 @@ import {
   runNextDimensionIndexMaintenance,
 } from '../src/services/dimension-index-maintenance.js';
 import { wasmLoader } from '../src/wasm-loader.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 import { createPGliteTestDataDir } from './test-data-dir.js';
 
 const NOW_ISO = '2026-06-18T14:00:00.000Z';
@@ -20,10 +20,11 @@ describe('dimension index maintenance migration', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(
-      `memory://dimension-index-maintenance-${crypto.randomUUID()}`
-    );
-    await migrate(db);
+    db = await createMigratedTestDb();
+  });
+
+  afterEach(async () => {
+    await db.close();
   });
 
   it('creates durable dimension index maintenance rows keyed by dimension', async () => {
@@ -133,17 +134,18 @@ describe('dimension index maintenance service', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(
-      `memory://dimension-index-maintenance-service-${crypto.randomUUID()}`
-    );
-    await migrate(db);
+    db = await createMigratedTestDb();
+  });
+
+  afterEach(async () => {
+    await db.close();
   });
 
   it('reclaims a persisted interrupted build only at startup and preserves its retry history', async () => {
     const dataDir = createPGliteTestDataDir('interrupted-dimension-index');
-    const firstBoot = await wasmLoader.createPGlite(dataDir);
+    // On-disk on purpose: the second boot below reopens this data directory.
+    const firstBoot = await createMigratedTestDb({ dataDir });
     try {
-      await migrate(firstBoot);
       await firstBoot.query(
         `INSERT INTO embedding_dimension_index_suspensions (dimension, reason, suspended_at)
          VALUES (384, 'embedding-backfill:set-a', $1)`,

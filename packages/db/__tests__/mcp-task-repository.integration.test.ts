@@ -1,13 +1,17 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
-import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import {
   type McpTaskAuthorityLease,
   McpTaskMetadataTooLargeError,
   McpTaskRepository,
 } from '../src/repositories/mcp-task-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
+import {
+  createDbAtVersion,
+  LATEST_MIGRATION_VERSION,
+  prebuildDbAtVersion,
+} from './helpers/migrated-test-db.js';
 import { createPGliteTestDataDir } from './test-data-dir';
 
 const authorityInput = {
@@ -31,13 +35,15 @@ function identity(authority: McpTaskAuthorityLease, taskId = 'task-1') {
 describe('McpTaskRepository', () => {
   let db: PGlite | undefined;
 
-  async function openNumbered(dataDir = 'memory://'): Promise<PGlite> {
-    db = await wasmLoader.createPGlite(dataDir);
-    const runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations);
+  /** The numbered chain, in memory unless a restart test needs a real data dir. */
+  async function openNumbered(dataDir?: string): Promise<PGlite> {
+    db = await createDbAtVersion(LATEST_MIGRATION_VERSION, { dataDir });
     return db;
   }
+
+  beforeAll(async () => {
+    await prebuildDbAtVersion(LATEST_MIGRATION_VERSION);
+  });
 
   afterEach(async () => {
     await db?.close();

@@ -8,11 +8,10 @@
 
 import type { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { migrate } from '../src/migrations/bootstrap.js';
 import type { FileChunkInsert } from '../src/models/file-chunk.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
 import { GrepSearchService } from '../src/search/grep-search-service.js';
-import { wasmLoader } from '../src/wasm-loader.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 describe('grep search (integration)', () => {
   let db: PGlite;
@@ -20,8 +19,7 @@ describe('grep search (integration)', () => {
   let service: GrepSearchService;
 
   beforeAll(async () => {
-    db = await wasmLoader.createPGlite('memory://grep-search-integration');
-    await migrate(db);
+    db = await createMigratedTestDb();
 
     const now = new Date().toISOString();
     await db.query(
@@ -150,8 +148,7 @@ describe('grep search multi-root (integration)', () => {
   let service: GrepSearchService;
 
   beforeAll(async () => {
-    db = await wasmLoader.createPGlite('memory://grep-search-multiroot');
-    await migrate(db);
+    db = await createMigratedTestDb();
 
     const now = new Date().toISOString();
     await db.query(

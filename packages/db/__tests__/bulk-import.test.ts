@@ -1,19 +1,17 @@
 import { addLogListener, LogLevel } from '@brainstrike/logging';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { migrate } from '../src/migrations/bootstrap';
 import type { FileImportRequest } from '../src/models/file-record';
 import type { IFileRecordRepository } from '../src/repositories/interfaces';
 import { createFileRecordRepository } from '../src/repositories/repository-factory';
-import { wasmLoader } from '../src/wasm-loader';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 describe('Bulk Import with Batching', () => {
   let db: PGlite;
   let repository: IFileRecordRepository;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite();
-    await migrate(db);
+    db = await createMigratedTestDb();
     repository = createFileRecordRepository(db);
   });
 

@@ -1,13 +1,11 @@
 import type { DiagnosticEvent } from '@brainstrike/utils/diagnostics';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import {
   DIAGNOSTIC_RETENTION_MAX_ROWS,
   DiagnosticEventsRepository,
 } from '../src/repositories/diagnostic-events-repository.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion, LATEST_MIGRATION_VERSION } from './helpers/migrated-test-db.js';
 
 const NUL = String.fromCharCode(0);
 // U+2400 SYMBOL FOR NULL: the visible stand-in stored in place of a NUL.
@@ -46,11 +44,7 @@ describe('DiagnosticEventsRepository', () => {
   let repo: DiagnosticEventsRepository;
 
   beforeEach(async () => {
-    const dataDir = createPGliteTestDataDir('pglite-test-diagnostic-repo');
-    db = await wasmLoader.createPGlite(dataDir);
-    const runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations);
+    db = await createDbAtVersion(LATEST_MIGRATION_VERSION);
     repo = new DiagnosticEventsRepository(db);
   });
 

@@ -11,8 +11,7 @@
 
 import type { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
-import { migrate } from '../src/migrations/bootstrap.js';
-import { wasmLoader } from '../src/wasm-loader.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 /** The UUID version nibble is the first hex digit of the 3rd group. */
 function uuidVersion(uuid: string): number {
@@ -21,8 +20,7 @@ function uuidVersion(uuid: string): number {
 
 describe('uuidv7 primary keys (integration)', () => {
   it('generates time-sortable UUIDv7 ids from the table default', async () => {
-    const db: PGlite = await wasmLoader.createPGlite('memory://uuidv7-pk');
-    await migrate(db);
+    const db: PGlite = await createMigratedTestDb();
 
     // Insert two rows WITHOUT an id, relying on the column default. A real >1ms gap
     // between them guarantees the uuidv7() TIMESTAMP component differs, so the
@@ -48,8 +46,7 @@ describe('uuidv7 primary keys (integration)', () => {
   });
 
   it('defaults every DB-default UUID-PK table to uuidv7()', async () => {
-    const db: PGlite = await wasmLoader.createPGlite('memory://uuidv7-defaults');
-    await migrate(db);
+    const db: PGlite = await createMigratedTestDb();
 
     const res = await db.query(
       `SELECT table_name, column_default
