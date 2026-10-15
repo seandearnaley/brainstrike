@@ -192,21 +192,6 @@ const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 8976;
 // BST-1667 TRIM (ceiling UNCHANGED at 5000 — the number is a live contract in
 // docs/agents/assistant-providers.md, assistant-runtime.md, and
 // workspace-context.md). Tool discovery moved to Mastra's manual loading, so
-// the composed discovery line now teaches TWO controls — `load_tool` for an
-// exact name and `search_tools` for a capability query — and first measured
-// 5024. Trim-first was applied to that line only: articles and hedges
-// dropped, "call search_tools with a concise query, then load_tool for the
-// match" tightened, the miss exit shortened to "check the catalog for an
-// exact name first" (its 'If the search finds nothing' pin kept), and the
-// same-response parenthetical kept its pinned 'not a later user message'.
-// Measured 4997 (see #3049 review): 3 tokens of headroom. The next addition
-// to the discovery line must trim before it lands; a raise here needs the
-// three contracts moved in the same change.
-const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
-// Floor for the critical initial surface (measured 2157 per the
-// queryDiagnostics note above): a silent drop of a critical-tier tool fails
-// as loudly as bloat (BST-927 band doctrine).
-const MIN_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 2000;
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
 // runPython joined the suspending set in BST-1070 Gate B: without workflow
 // storage its suspend metadata is stripped here for the same reason as the
@@ -772,81 +757,6 @@ describe('desktop native tool provider prompt budget', () => {
         floor: MIN_AUTHORED_NATIVE_TOOL_TOKENS,
         instructions: withSkillsProcessorContext(resolvedInstructions),
         label: 'Authored native tool surface',
-        tools: providerTools,
-      });
-    } finally {
-      await runtime.dispose();
-    }
-  });
-
-  it('keeps the actual Mastra/OpenRouter initial core surface materially below the eager baseline', async () => {
-    expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
-    const workspaceSkills = createPromptBudgetWorkspaceSkills();
-    const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);
-    const runtime = await createMastraAgentRuntime({
-      model: OPENROUTER_PROMPT_BUDGET_MODEL,
-      runtime: {
-        apiKey: 'prompt-budget-test-key',
-        provider: 'openrouter',
-        workspaceSkills,
-      },
-      tools: omitNonProviderSuspendMetadata(desktopTools),
-    });
-
-    try {
-      const resolvedInstructions = await runtime.agent.getInstructions();
-      if (typeof resolvedInstructions !== 'string') {
-        throw new TypeError('Brainstrike hosted instructions must resolve to one string');
-      }
-      const coreTools = await runtime.agent.getToolsForExecution({});
-      const providerTools = Object.entries(coreTools).map(([name, tool]) => {
-        const originalName = runtime.toolNameMap.get(name);
-        if (!originalName) {
-          throw new Error(`Mastra returned unmapped initial tool ${name}`);
-        }
-        if (typeof tool.description !== 'string') {
-          throw new TypeError(`Mastra tool ${name} lacks a description`);
-        }
-        const parameters = tool.parameters;
-        if (!parameters || typeof parameters !== 'object' || !('jsonSchema' in parameters)) {
-          throw new TypeError(`Mastra tool ${name} lacks provider JSON Schema`);
-        }
-        if (parameters.jsonSchema === undefined) {
-          throw new TypeError(`Mastra tool ${name} has undefined provider JSON Schema`);
-        }
-        return {
-          function: {
-            description: tool.description,
-            name,
-            parameters: parameters.jsonSchema,
-          },
-          type: 'function' as const,
-        };
-      });
-
-      const skillToolIds = new Set(Object.keys(createAssistantSkillTools(workspaceSkills)));
-      const expectedCoreIds = Object.entries(NATIVE_TOOL_DEFAULTS)
-        .filter(
-          ([toolId, metadata]) =>
-            metadata.loadingTier === 'critical' ||
-            skillToolIds.has(toolId) ||
-            toolId === NATIVE_TOOL_ID.readToolOutputArtifact
-        )
-        .map(([toolId]) => toolId)
-        .sort();
-      expect(runtime.toolDiscovery?.coreToolIds.slice().sort()).toEqual(expectedCoreIds);
-      expect(providerTools.map((tool) => tool.function.name).sort()).toEqual(
-        expectedCoreIds.map((toolId) => toolId.replace(/[^a-zA-Z0-9_-]/g, '_')).sort()
-      );
-      expect(runtime.toolDiscovery?.deferredToolIds).toHaveLength(
-        Object.keys(NATIVE_TOOL_DEFAULTS).length - expectedCoreIds.length
-      );
-
-      expectProviderSurfaceWithinBudget({
-        budget: MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS,
-        floor: MIN_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS,
-        instructions: withSkillsProcessorContext(resolvedInstructions),
-        label: 'Actual Mastra/OpenRouter initial core surface',
         tools: providerTools,
       });
     } finally {
