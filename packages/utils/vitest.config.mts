@@ -21,7 +21,7 @@ export default defineConfig({
     hookTimeout: 15_000,
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
     reporters: ['default', new LostTestFileReporter()],
-    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+    setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
     testTimeout: 30_000,
   },
 });

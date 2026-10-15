@@ -6,6 +6,6 @@ export default defineConfig({
     exclude: ['node_modules', 'dist'],
     globals: true,
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
-    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+    setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
   },
 });
