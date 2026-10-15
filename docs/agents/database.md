@@ -23,6 +23,19 @@ ledger keys; the Drizzle ledger is derived. Do not invent legacy-data conversion
 or populated old-schema gates: [ADR-0020](../adr/0020-greenfield-data-lifecycle.md)
 governs greenfield scope.
 
+`packages/db/src/migrations/current-schema.sql` is the whole schema in one step,
+GENERATED from a database the real chain built (`pnpm --filter @brainstrike/db
+db:schema:ddl`) and never transcribed from migration sources. It is not applied
+at boot yet; production still replays the chain. Its equivalence is enforced by
+`current-schema-ddl-equivalence.integration.test.ts`, which boots both from
+initdb and compares catalog readback: relations, columns, constraints, indexes
+and their access methods and parameters, sequences, extensions, generated
+columns, and the seeded catalog rows. Adding a migration therefore requires
+regenerating that file. The only values exempted from the row comparison are
+columns whose DEFAULT is non-IMMUTABLE per `pg_proc` (the clock, `uuidv7()`);
+the seed leaves those to fire at install time, exactly as the chain's own seeds
+do.
+
 ## Remaining PGlite consumers
 
 Web and explicit test/conformance paths retain PGlite. Each construction loads the
