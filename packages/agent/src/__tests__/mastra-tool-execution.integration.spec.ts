@@ -12,7 +12,7 @@
  * `execute` path, substituting only the language model with a scripted fake
  * (so no network/provider key is needed). The fake emits a tool call on the
  * first turn and a final answer on the second, mirroring the stream-part shape
- * produced by the in-repo `LocalLanguageModel`.
+ * produced by the in-repo `LlmHostChatModel`.
  */
 import { spawn } from 'node:child_process';
 import { createServer, type IncomingMessage, type Server } from 'node:http';

@@ -3,11 +3,11 @@
  * remote host (desktop: the hidden llm-host renderer, driven from Electron
  * main via `LocalLlmHostClient`).
  *
- * Unlike the in-process `LocalLanguageModel` (which generates fully and then
- * replays parts), this model converts the host's cumulative text/reasoning
- * progress snapshots into REAL incremental `text-delta`/`reasoning-delta`
- * stream parts, so the Mastra loop streams while Gemma is still generating —
- * and those deltas keep the stream inactivity watchdog fed.
+ * This is the ONLY engine for the built-in local provider. It converts the
+ * host's cumulative text/reasoning progress snapshots into REAL incremental
+ * `text-delta`/`reasoning-delta` stream parts, so the Mastra loop streams
+ * while Gemma is still generating — and those deltas keep the stream
+ * inactivity watchdog fed.
  */
 import type {
   LanguageModelV2,

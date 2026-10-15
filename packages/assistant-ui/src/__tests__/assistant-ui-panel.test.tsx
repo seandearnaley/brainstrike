@@ -26,9 +26,6 @@ const useBrainstrikeDataStreamRuntimeMock = vi.fn((_options?: unknown) => ({
   runtime: 'test-runtime',
 }));
 const useAssistantDataUIMock = vi.fn((_dataUI: unknown) => undefined);
-const useLocalRuntimeMock = vi.fn((_adapter?: unknown) => ({ runtime: 'local-runtime' }));
-const releaseLocalBackendMock = vi.fn();
-const acquireLocalBackendMock = vi.fn(() => releaseLocalBackendMock);
 interface MockAuiState {
   composer: {
     attachments: readonly Attachment[];
@@ -58,20 +55,6 @@ const createMockAuiState = (parts: unknown[]): MockAuiState => ({
 });
 
 let mockAuiState = createMockAuiState([completedReasoningPart]);
-let capturedLocalAdapterOptions: {
-  completeRuntimeData?: (
-    runtimeData: Record<string, unknown> | undefined,
-    status: 'cancelled' | 'completed' | 'failed',
-    error?: string
-  ) => Promise<void> | void;
-  onLoadingProgress?: (progress: {
-    stage: 'downloading' | 'generating' | 'loading' | 'ready';
-    progress: number;
-    message: string;
-    file?: string;
-  }) => void;
-  prepareRuntimeData?: () => Promise<Record<string, unknown> | undefined>;
-} | null = null;
 
 // @assistant-ui/styles v0.3.x consolidated all styles into index.css
 // cmdk (composer model picker) scrolls the active option into view; happy-dom
@@ -117,14 +100,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
     </button>
   ),
   useTheme: () => ({ setTheme: vi.fn(), theme: 'light' }),
-}));
-
-vi.mock('../local-runtime-adapter', () => ({
-  acquireLocalBackend: () => acquireLocalBackendMock(),
-  createLocalModelAdapter: (options: unknown) => {
-    capturedLocalAdapterOptions = options as typeof capturedLocalAdapterOptions;
-    return { run: vi.fn() };
-  },
 }));
 
 vi.mock('@assistant-ui/react', () => {
@@ -335,7 +310,6 @@ vi.mock('@assistant-ui/react', () => {
     }),
     useAuiEvent: () => undefined,
     useAuiState: <T,>(selector: (state: MockAuiState) => T) => selector(mockAuiState),
-    useLocalRuntime: (adapter: unknown) => useLocalRuntimeMock(adapter),
     useMessagePartReasoning: () => ({
       status: { type: 'complete' as const },
       text: 'Reasoning text',
@@ -452,7 +426,6 @@ const baseProps = {
 
 describe('AssistantUiPanel model picker', () => {
   beforeEach(() => {
-    capturedLocalAdapterOptions = null;
     mockAuiState = createMockAuiState([completedReasoningPart]);
   });
 
@@ -1039,155 +1012,18 @@ describe('AssistantUiPanel model picker', () => {
     );
   });
 
-  it('forwards per-run request preparation and completion to local runtime runs', async () => {
-    const prepareRequestData = vi.fn(async () => ({
-      memory: {
-        resourceId: 'workspace-local',
-        runId: 'run-local',
-        threadId: 'thread-local',
-      },
-    }));
-    const completePreparedRequest = vi.fn();
-    const localGroups: ProviderGroupConfig[] = [
-      {
-        label: 'Local',
-        providers: [
-          {
-            capabilities: {
-              embeddings: false,
-              llm: true,
-              streaming: false,
-              supportsStandardEmbeddingDimension: false,
-            },
-            id: 'local',
-            models: [
-              {
-                default: true,
-                enabled: true,
-                id: 'onnx-community/gemma-4-E2B-it-ONNX',
-                label: 'Gemma 4 E2B',
-                type: 'llm',
-              },
-            ],
-            name: 'Local',
-            runtime: 'local',
-          },
-        ],
-        runtime: 'local',
-      },
-    ];
-
-    render(
-      <AssistantUiPanel
-        completePreparedRequest={completePreparedRequest}
-        onModelChange={() => {}}
-        pickerModels={[
-          {
-            capabilities: { streaming: false, type: 'llm' },
-            description: null,
-            id: 'onnx-community/gemma-4-E2B-it-ONNX',
-            name: 'Gemma 4 E2B',
-            providerId: 'local',
-          },
-        ]}
-        pickerProviders={[{ icon: null, id: 'local', name: 'Local' }]}
-        prepareRequestData={prepareRequestData}
-        providerGroups={localGroups}
-        requestData={{ tokenBudget: 456 }}
-        selectedModel="local::onnx-community/gemma-4-E2B-it-ONNX"
-        selectedProvider="local"
-      />
-    );
-
-    await expect(capturedLocalAdapterOptions?.prepareRuntimeData?.()).resolves.toEqual({
-      memory: {
-        resourceId: 'workspace-local',
-        runId: 'run-local',
-        threadId: 'thread-local',
-      },
-      tokenBudget: 456,
-    });
-    await capturedLocalAdapterOptions?.completeRuntimeData?.(
-      { memory: { runId: 'run-local' } },
-      'completed'
-    );
-    expect(prepareRequestData).toHaveBeenCalledTimes(1);
-    expect(completePreparedRequest).toHaveBeenCalledWith(
-      { memory: { runId: 'run-local' } },
-      'completed'
-    );
-  });
-
-  describe('shared local backend lease', () => {
-    const localGroups: ProviderGroupConfig[] = [
-      {
-        label: 'Local',
-        providers: [
-          {
-            capabilities: {
-              embeddings: false,
-              llm: true,
-              streaming: false,
-              supportsStandardEmbeddingDimension: false,
-            },
-            id: 'local',
-            models: [
-              {
-                default: true,
-                enabled: true,
-                id: 'onnx-community/gemma-4-E2B-it-ONNX',
-                label: 'Gemma 4 E2B',
-                type: 'llm',
-              },
-            ],
-            name: 'Local',
-            runtime: 'local',
-          },
-        ],
-        runtime: 'local',
-      },
-    ];
-    const renderLocalPanel = (localChatTransport: 'data-stream' | 'local-runtime') =>
-      render(
-        <AssistantUiPanel
-          localChatTransport={localChatTransport}
-          onModelChange={() => {}}
-          pickerModels={[
-            {
-              capabilities: { streaming: false, type: 'llm' },
-              description: null,
-              id: 'onnx-community/gemma-4-E2B-it-ONNX',
-              name: 'Gemma 4 E2B',
-              providerId: 'local',
-            },
-          ]}
-          pickerProviders={[{ icon: null, id: 'local', name: 'Local' }]}
-          providerGroups={localGroups}
-          selectedModel="local::onnx-community/gemma-4-E2B-it-ONNX"
-          selectedProvider="local"
-        />
-      );
-
-    it('holds one lease for as long as an in-renderer local panel is mounted', () => {
-      const { unmount } = renderLocalPanel('local-runtime');
-
-      expect(acquireLocalBackendMock).toHaveBeenCalledTimes(1);
-      expect(releaseLocalBackendMock).not.toHaveBeenCalled();
-
-      unmount();
-
-      expect(releaseLocalBackendMock).toHaveBeenCalledTimes(1);
-    });
-
-    it('takes no lease when local chat runs through the data-stream transport', () => {
-      renderLocalPanel('data-stream');
-
-      expect(acquireLocalBackendMock).not.toHaveBeenCalled();
-    });
-  });
-
+  // The hidden llm-host broadcasts load progress; the panel badge is the only
+  // place a user sees it, whoever started the load (a turn, or a cold memory
+  // model warmed by main).
   it('renders compact local model status and auto-hides ready state', () => {
     vi.useFakeTimers();
+    let emitHostProgress: ((report: unknown) => void) | undefined;
+    (window as Window & { llmHost?: unknown }).llmHost = {
+      onProgress: (listener: (report: unknown) => void) => {
+        emitHostProgress = listener;
+        return () => undefined;
+      },
+    };
 
     const localGroups: ProviderGroupConfig[] = [
       {
@@ -1238,10 +1074,10 @@ describe('AssistantUiPanel model picker', () => {
     );
 
     act(() => {
-      capturedLocalAdapterOptions?.onLoadingProgress?.({
-        message: 'Warming up local model host...',
-        progress: 42,
-        stage: 'loading',
+      emitHostProgress?.({
+        payload: { kind: 'loading', message: 'Warming up local model host...', progress: 42 },
+        requestId: 'main:warmup',
+        type: 'progress',
       });
     });
 
@@ -1254,10 +1090,10 @@ describe('AssistantUiPanel model picker', () => {
     expect(screen.getByText('42%')).toBeInTheDocument();
 
     act(() => {
-      capturedLocalAdapterOptions?.onLoadingProgress?.({
-        message: 'Local model ready.',
-        progress: 100,
-        stage: 'ready',
+      emitHostProgress?.({
+        payload: { kind: 'loading', message: 'Local model ready.', progress: 100 },
+        requestId: 'main:warmup',
+        type: 'progress',
       });
     });
 
@@ -1267,73 +1103,7 @@ describe('AssistantUiPanel model picker', () => {
 
     expect(screen.queryByTestId('local-model-status')).not.toBeInTheDocument();
     vi.useRealTimers();
-  });
-
-  it('shows the labelled downloading progress bar during local model download', () => {
-    const localGroups: ProviderGroupConfig[] = [
-      {
-        label: 'Local',
-        providers: [
-          {
-            capabilities: {
-              embeddings: false,
-              llm: true,
-              streaming: false,
-              supportsStandardEmbeddingDimension: false,
-            },
-            id: 'local',
-            models: [
-              {
-                default: true,
-                enabled: true,
-                id: 'onnx-community/gemma-4-E2B-it-ONNX',
-                label: 'Gemma 4 E2B',
-                type: 'llm',
-              },
-            ],
-            name: 'Local',
-            runtime: 'local',
-          },
-        ],
-        runtime: 'local',
-      },
-    ];
-
-    render(
-      <AssistantUiPanel
-        onModelChange={() => {}}
-        pickerModels={[
-          {
-            capabilities: { streaming: false, type: 'llm' },
-            description: null,
-            id: 'onnx-community/gemma-4-E2B-it-ONNX',
-            name: 'Gemma 4 E2B',
-            providerId: 'local',
-          },
-        ]}
-        pickerProviders={[{ icon: null, id: 'local', name: 'Local' }]}
-        providerGroups={localGroups}
-        selectedModel="local::onnx-community/gemma-4-E2B-it-ONNX"
-        selectedProvider="local"
-      />
-    );
-
-    act(() => {
-      capturedLocalAdapterOptions?.onLoadingProgress?.({
-        file: 'model.onnx',
-        message: 'Downloading model weights...',
-        progress: 33,
-        stage: 'downloading',
-      });
-    });
-
-    const status = screen.getByTestId('local-model-status');
-    expect(status).toBeInTheDocument();
-    // Percent only renders for the downloading stage
-    expect(within(status).getByText('33%')).toBeInTheDocument();
-    // The labelled progress bar covers the new aria-label branch
-    const labelled = within(status).getByLabelText('Model downloading progress');
-    expect(labelled).toBeInTheDocument();
+    (window as Window & { llmHost?: unknown }).llmHost = undefined;
   });
 
   it('renders the model menu in the composer controls dock', async () => {

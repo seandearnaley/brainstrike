@@ -99,7 +99,6 @@ function getNewThreadAction(retryCatalog: boolean): { label: string; text: strin
 
 export interface AssistantThreadTabsWorkspaceProps {
   readonly fixedProviderModels?: AssistantUiPanelWrapperProps['fixedProviderModels'];
-  readonly loadLocalLlmBackend?: AssistantUiPanelWrapperProps['loadLocalLlmBackend'];
   readonly providerKeySources?: AssistantUiPanelWrapperProps['providerKeySources'];
   readonly providerReadErrors?: AssistantUiPanelWrapperProps['providerReadErrors'];
 }
@@ -121,7 +120,6 @@ export interface AssistantThreadTabsCoreProps extends AssistantThreadTabsWorkspa
 
 export function AssistantThreadTabsCore({
   fixedProviderModels,
-  loadLocalLlmBackend,
   providerKeySources,
   providerReadErrors,
   repository,
@@ -458,7 +456,6 @@ export function AssistantThreadTabsCore({
           <ThreadPanels
             activeThreadId={activeThreadId}
             fixedProviderModels={fixedProviderModels}
-            loadLocalLlmBackend={loadLocalLlmBackend}
             mountedThreadIds={mountedThreadIds}
             onRunningChange={onRunningChange}
             openThreadIds={openThreadIds}
@@ -486,7 +483,6 @@ type OptionalWrapperProp<K extends keyof AssistantThreadTabsWorkspaceProps> =
 function ThreadPanels({
   activeThreadId,
   fixedProviderModels,
-  loadLocalLlmBackend,
   mountedThreadIds,
   onRunningChange,
   openThreadIds,
@@ -498,7 +494,6 @@ function ThreadPanels({
 }: {
   readonly activeThreadId: string | null;
   readonly fixedProviderModels: OptionalWrapperProp<'fixedProviderModels'>;
-  readonly loadLocalLlmBackend: OptionalWrapperProp<'loadLocalLlmBackend'>;
   readonly mountedThreadIds: readonly string[];
   readonly onRunningChange: (threadId: string, running: boolean) => void;
   readonly openThreadIds: readonly string[];
@@ -536,7 +531,6 @@ function ThreadPanels({
               {renderThread({
                 isVisible: isOpen && threadId === activeThreadId,
                 ...(fixedProviderModels ? { fixedProviderModels } : {}),
-                ...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {}),
                 ...(providerKeySources ? { providerKeySources } : {}),
                 ...(providerReadErrors ? { providerReadErrors } : {}),
                 memoryResourceId: resourceId,

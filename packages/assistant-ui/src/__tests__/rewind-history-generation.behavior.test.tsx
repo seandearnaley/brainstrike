@@ -48,11 +48,6 @@ vi.mock('../assistant-message-text', () => ({
   UserMessageText: () => <div data-testid="markdown-text" />,
 }));
 vi.mock('@assistant-ui/styles/index.css', () => ({}));
-vi.mock('../local-runtime-adapter', () => ({
-  acquireLocalBackend: vi.fn(() => () => {}),
-  createLocalModelAdapter: vi.fn(() => ({ run: vi.fn() })),
-  hasDesktopLlmHost: vi.fn(() => false),
-}));
 
 import { AssistantUiPanel } from '../assistant-ui-panel';
 import { useRewindComposerStore } from '../rewind-composer-store';
@@ -121,7 +116,6 @@ describe('AssistantUiPanel — historyGeneration re-hydration', () => {
       <AssistantUiPanel
         historyAdapter={history.adapter}
         historyGeneration={0}
-        localChatTransport="data-stream"
         pickerModels={[]}
         pickerProviders={[]}
         threadKey={THREAD_KEY}
@@ -140,7 +134,6 @@ describe('AssistantUiPanel — historyGeneration re-hydration', () => {
       <AssistantUiPanel
         historyAdapter={history.adapter}
         historyGeneration={1}
-        localChatTransport="data-stream"
         pickerModels={[]}
         pickerProviders={[]}
         threadKey={THREAD_KEY}
@@ -157,7 +150,6 @@ describe('AssistantUiPanel — historyGeneration re-hydration', () => {
       <AssistantUiPanel
         historyAdapter={history.adapter}
         historyGeneration={2}
-        localChatTransport="data-stream"
         pickerModels={[]}
         pickerProviders={[]}
         threadKey={THREAD_KEY}
@@ -180,7 +172,6 @@ describe('AssistantUiPanel — historyGeneration re-hydration', () => {
       <AssistantUiPanel
         historyAdapter={history.adapter}
         historyGeneration={0}
-        localChatTransport="data-stream"
         pickerModels={[]}
         pickerProviders={[]}
         threadKey={THREAD_KEY}
@@ -196,7 +187,6 @@ describe('AssistantUiPanel — historyGeneration re-hydration', () => {
         disabledReason="anything unrelated"
         historyAdapter={history.adapter}
         historyGeneration={0}
-        localChatTransport="data-stream"
         pickerModels={[]}
         pickerProviders={[]}
         threadKey={THREAD_KEY}
@@ -220,7 +210,6 @@ describe('AssistantUiPanel — historyGeneration re-hydration', () => {
       <AssistantUiPanel
         historyAdapter={history.adapter}
         historyGeneration={0}
-        localChatTransport="data-stream"
         pickerModels={[]}
         pickerProviders={[]}
         threadKey={THREAD_KEY}
@@ -235,7 +224,6 @@ describe('AssistantUiPanel — historyGeneration re-hydration', () => {
       <AssistantUiPanel
         historyAdapter={history.adapter}
         historyGeneration={1}
-        localChatTransport="data-stream"
         pickerModels={[]}
         pickerProviders={[]}
         threadKey={THREAD_KEY}

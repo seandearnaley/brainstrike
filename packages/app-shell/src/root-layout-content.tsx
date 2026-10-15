@@ -3,7 +3,6 @@ import {
   type PanelTab,
   usePanelLayoutStore,
 } from '@brainstrike/app-state/stores/panel-layout-store';
-import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import {
   type ChangesReviewContextValue,
   ChangesReviewProvider,
@@ -166,7 +165,6 @@ export interface RootLayoutContentProps {
    */
   readonly gitPageContent?: ReactNode;
   readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
-  readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly nativeIndexSearch?: IndexSearchCapability | null;
   readonly navigationItems: NavigationItem[];
   /**
@@ -463,7 +461,6 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   contextExplorerPanelContent,
   contextExplorerPageContent,
   loadEmbeddingQueue,
-  loadLocalLlmBackend,
   preloadDatabaseTabOnMount,
   terminalPageContent,
   worktreeMapPageContent,
@@ -475,7 +472,6 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   readonly contextExplorerPanelContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
   readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
-  readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly preloadDatabaseTabOnMount: boolean;
   readonly terminalPageContent?: ReactNode;
   readonly worktreeMapPageContent?: ReactNode;
@@ -543,9 +539,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
                 per read; BST-1723, 2026-09-14). */}
               <ToolApprovalGrantProvider handlers={toolApprovalGrants}>
                 <AgentWorkspaceLayout
-                  assistantContent={
-                    <AssistantChatPanel {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})} />
-                  }
+                  assistantContent={<AssistantChatPanel />}
                   sidebarContent={
                     <AgentSidebarPanel
                       databaseContent={<DatabasePanel loadEmbeddingQueue={loadEmbeddingQueue} />}
@@ -613,7 +607,6 @@ export function RootLayoutContent({
   navigationItems,
   loadEmbeddingQueue = null,
   createLocalSearchEmbedder,
-  loadLocalLlmBackend,
   diagnosticFeatureFlags,
   databaseTabChunkingMode = 'local',
   preloadDatabaseTabOnMount = false,
@@ -750,7 +743,6 @@ export function RootLayoutContent({
                           contextExplorerPanelContent={contextExplorerPanelContent}
                           loadEmbeddingQueue={loadEmbeddingQueue}
                           nativeIndexSearch={nativeIndexSearch ?? null}
-                          {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
                           preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
                           terminalPageContent={terminalPageContent}
                           visible={shellTab === 'explorer'}

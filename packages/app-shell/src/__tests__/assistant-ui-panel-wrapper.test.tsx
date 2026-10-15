@@ -104,7 +104,7 @@ describe('AssistantUiPanelWrapper', () => {
     );
   });
 
-  test('routes local chat through the data-stream transport when the desktop bridges exist', async () => {
+  test('offers the built-in local provider where the desktop llm-host exists', async () => {
     Object.defineProperty(window, 'agentHost', {
       configurable: true,
       value: { connect: async () => undefined },
@@ -115,9 +115,11 @@ describe('AssistantUiPanelWrapper', () => {
     });
     hasDesktopLlmHostMock.mockReturnValue(true);
     try {
-      await renderAssistantPanel(['openai'], () =>
+      await renderAssistantPanel(['openai', 'local'], () =>
         waitFor(() => {
-          expect(screen.getByTestId('local-chat-transport')).toHaveTextContent('data-stream');
+          expect(
+            screen.getByTestId('provider-select').querySelector('option[value="local"]')
+          ).not.toBeNull();
           expect(screen.getByTestId('request-body-limit')).toBeEmptyDOMElement();
         })
       );
@@ -128,10 +130,10 @@ describe('AssistantUiPanelWrapper', () => {
     }
   });
 
-  test('enables composer attachments for hosted providers on the in-renderer transport (web gate)', async () => {
-    // localChatTransport describes the LOCAL provider's transport and must
-    // not gate hosted providers on web — the /api/assistant route shares the
-    // desktop server's image-aware conversion (#1685 review fix).
+  test('enables composer attachments for hosted providers on web', async () => {
+    // Hosted providers must not be gated on desktop-only capabilities — the
+    // /api/assistant route shares the desktop server's image-aware
+    // conversion (#1685 review fix).
     Reflect.deleteProperty(window, 'agentHost');
     await renderAssistantPanel(['openai'], () =>
       waitFor(() => {
@@ -173,23 +175,15 @@ describe('AssistantUiPanelWrapper', () => {
     }
   });
 
-  test('keeps the in-renderer local transport for web llm-host test doubles', async () => {
-    hasDesktopLlmHostMock.mockReturnValue(true);
-    try {
-      await renderAssistantPanel(['openai'], () =>
-        waitFor(() => {
-          expect(screen.getByTestId('local-chat-transport')).toHaveTextContent('local-runtime');
-        })
-      );
-    } finally {
-      hasDesktopLlmHostMock.mockReturnValue(false);
-    }
-  });
-
-  test('keeps the in-renderer local transport without the desktop llm-host bridge', async () => {
-    await renderAssistantPanel(['openai'], () =>
+  // Built-in local inference has exactly one engine: the desktop hidden
+  // llm-host. Without it there is nothing to fall back to, so the provider is
+  // not offered at all rather than failing on the first turn.
+  test('withholds the built-in local provider without the desktop llm-host bridge', async () => {
+    await renderAssistantPanel(['openai', 'local'], () =>
       waitFor(() => {
-        expect(screen.getByTestId('local-chat-transport')).toHaveTextContent('local-runtime');
+        const select = screen.getByTestId('provider-select');
+        expect(select.querySelector('option[value="openai"]')).not.toBeNull();
+        expect(select.querySelector('option[value="local"]')).toBeNull();
       })
     );
   });

@@ -19,7 +19,6 @@ export {
   type LocalEmbeddingHostClient,
   type LocalEmbeddingHostQuery,
 } from './local-host-embedding-model';
-export { createLocalLanguageModel, LocalLanguageModel } from './local-language-model';
 export {
   addAllowedModels,
   getAllowedModels,
@@ -36,7 +35,6 @@ export {
   generateStreamPartId,
   mapFinishReason,
   parseToolResultMessage,
-  segmentTextForStream,
 } from './local-message-conversion';
 export type {
   LocalLlmConfig,

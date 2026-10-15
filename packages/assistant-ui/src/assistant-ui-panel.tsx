@@ -5,7 +5,6 @@ import {
   MessagePrimitive,
   ThreadPrimitive,
   useAuiState,
-  useLocalRuntime,
   // Aliased to a `use`-prefixed name so React Fast Refresh (Vite dev) recognizes
   // it as a hook. Its detection keys on the `use` prefix; an `unstable_use…` call
   // site is missed, so React's real hook count (this hook calls useMemo) exceeds the
@@ -17,7 +16,6 @@ import type {
   AssistantRunEvent,
   AssistantToolApprovalRequest,
   AssistantUiThreadHistoryAdapter,
-  LocalLlmBackendFactory,
   OpenRouterModelMetadataLookup,
 } from '@brainstrike/assistant-contract';
 import { Activity, type ReactNode, use, useEffect, useMemo } from 'react';
@@ -91,7 +89,6 @@ import {
 import { buildFileMentionAdapter, type FileMention } from './file-mentions';
 import { ComposerRunControls, FollowUpQueueBridge, FollowUpQueueChips } from './follow-up-queue';
 import { LocalModelStatus } from './local-model-status';
-import { createLocalModelAdapter } from './local-runtime-adapter';
 import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
 import { RunVerdictControl } from './run-verdict-control';
 import { RunningStateBridge } from './running-state-bridge';
@@ -101,7 +98,6 @@ import {
   toSlashCommandAdapterOptions,
 } from './slash-commands';
 import { ThreadScrollFollowProvider } from './thread-scroll-follow';
-import { useLocalBackendLease } from './use-local-backend-lease';
 import { type LocalModelLoadingState, useLocalModelLoading } from './use-local-model-loading';
 import { useWebAssistantRequestSession } from './use-web-assistant-request-session';
 import { WebAssistantRequestStatus } from './web-assistant-request-status';
@@ -258,15 +254,6 @@ export interface AssistantUiPanelProps
   historyGeneration?: number;
   /** Pauses presentation effects while the owning runtime remains mounted. */
   isVisible?: boolean;
-  loadLocalLlmBackend?: LocalLlmBackendFactory;
-  /**
-   * Transport for the built-in local provider. 'data-stream' routes local
-   * chat through the assistant server (real Mastra loop: memory, run events,
-   * tool guards) with inference proxied to the hidden llm-host — desktop
-   * only. 'local-runtime' (default) keeps the in-renderer assistant-ui local
-   * runtime (web, or desktop without the llm-host bridge).
-   */
-  localChatTransport?: 'data-stream' | 'local-runtime';
   omSegment?: OmMeterState | undefined;
 
   /** Enable a registry-backed model from the picker; resolves true once committed. */
@@ -405,7 +392,6 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps, AssistantStre
   effectiveInputBudget?: number | undefined;
   fileMentions: readonly FileMention[];
   isVisible: boolean;
-  loadLocalLlmBackend?: LocalLlmBackendFactory | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   omSegment?: OmMeterState | undefined;
   onEnableModel: ((providerId: string, modelId: string) => Promise<boolean>) | undefined;
@@ -449,154 +435,6 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps, AssistantStre
   /** Composer workspace bar (folder · branch) slot; absent → no bar. */
   workspaceBar?: ReactNode | undefined;
 }
-
-/**
- * Inner component for local runtime (browser-based inference).
- * Uses useLocalRuntime with LocalLlmBackend via transformers.js.
- */
-const LocalRuntimeChat = ({
-  isVisible,
-  onRuntimeReady,
-  composerDraftCommand,
-  contextWindow,
-  cumulativeUsage,
-  omSegment,
-  effectiveInputBudget,
-  providerGroups,
-  pickerModels,
-  providerSettings,
-  recentModels,
-  onProviderSettingsChange,
-  selectedProvider,
-  selectedModel,
-  onEnableModel,
-  onModelChange,
-  onRunEditActivity,
-  onRunFailed,
-  onRunFinished,
-  onRunningChange,
-  onStreamActivity,
-  onThreadRunStart,
-  onToolApprovalRequired,
-  onUsage,
-  disabled,
-  disabledReason,
-  localLoadingState,
-  loadLocalLlmBackend,
-  modelId,
-  onLoadingStateChange,
-  slashCommands,
-  fileMentions,
-  onFileMentionQueryChange,
-  onComposerDraftCommandApplied,
-  onComposerTextChange,
-  workspaceBar,
-  planMode,
-  toolMenu,
-  requestData,
-  prepareRequestData,
-  completePreparedRequest,
-  threadKey,
-}: ChatThreadProps & {
-  modelId: string;
-  onLoadingStateChange: (state: LocalModelLoadingState) => void;
-  threadKey?: string | undefined;
-}) => {
-  const hasGroupedProviders = providerGroups.length > 0;
-  const isComposerDisabled = Boolean(disabled);
-  const thinkingEnabled =
-    providerSettings?.[selectedProvider ?? 'local']?.localThinkingEnabled ?? true;
-
-  // Create adapter with memoization to avoid re-creating on every render
-  const adapter = useMemo(
-    () =>
-      createLocalModelAdapter({
-        ...(loadLocalLlmBackend ? { loadBackend: loadLocalLlmBackend } : {}),
-        modelId,
-        thinkingEnabled,
-        ...(requestData ? { runtimeData: requestData } : {}),
-        prepareRuntimeData: async () => ({
-          ...(requestData ?? {}),
-          ...((await prepareRequestData?.()) ?? {}),
-        }),
-        ...(completePreparedRequest ? { completeRuntimeData: completePreparedRequest } : {}),
-        ...(onStreamActivity ? { onActivity: onStreamActivity } : {}),
-        ...(onUsage ? { onUsage } : {}),
-        ...(toolMenu?.items ? { tools: toolMenu.items } : {}),
-        onError: (error: Error) => {
-          onLoadingStateChange({
-            message: error.message,
-            progress: 0,
-            stage: 'error',
-          });
-        },
-        onLoadingProgress: (progress: LocalModelLoadingState) => {
-          onLoadingStateChange(progress);
-        },
-      }),
-    [
-      completePreparedRequest,
-      loadLocalLlmBackend,
-      modelId,
-      onLoadingStateChange,
-      onStreamActivity,
-      onUsage,
-      prepareRequestData,
-      requestData,
-      thinkingEnabled,
-      toolMenu?.items,
-    ]
-  );
-
-  const runtime = useLocalRuntime(adapter);
-  useEffect(() => onRuntimeReady?.(runtime), [onRuntimeReady, runtime]);
-
-  // The backend is shared by every mounted local panel; the last one to leave disposes it.
-  useLocalBackendLease();
-
-  return (
-    <AssistantRuntimeProvider runtime={runtime}>
-      <AssistantPanelErrorBoundary>
-        <ChatThreadUI
-          composerDraftCommand={composerDraftCommand}
-          contextWindow={contextWindow}
-          cumulativeUsage={cumulativeUsage}
-          disabledReason={disabledReason}
-          effectiveInputBudget={effectiveInputBudget}
-          fileMentions={fileMentions}
-          hasGroupedProviders={hasGroupedProviders}
-          isComposerDisabled={isComposerDisabled}
-          isVisible={isVisible}
-          localLoadingState={localLoadingState}
-          omSegment={omSegment}
-          onComposerDraftCommandApplied={onComposerDraftCommandApplied}
-          onComposerTextChange={onComposerTextChange}
-          onEnableModel={onEnableModel}
-          onFileMentionQueryChange={onFileMentionQueryChange}
-          onModelChange={onModelChange}
-          onProviderSettingsChange={onProviderSettingsChange}
-          onRunEditActivity={onRunEditActivity}
-          onRunFailed={onRunFailed}
-          onRunFinished={onRunFinished}
-          onRunningChange={onRunningChange}
-          onThreadRunStart={onThreadRunStart}
-          onToolApprovalRequired={onToolApprovalRequired}
-          {...(workspaceBar ? { workspaceBar } : {})}
-          pickerModels={pickerModels}
-          {...(planMode ? { planMode } : {})}
-          providerGroups={providerGroups}
-          providerSettings={providerSettings}
-          recentModels={recentModels}
-          selectedModel={selectedModel}
-          selectedProvider={selectedProvider}
-          slashCommands={slashCommands}
-          threadKey={threadKey}
-          toolMenu={toolMenu}
-        />
-      </AssistantPanelErrorBoundary>
-    </AssistantRuntimeProvider>
-  );
-};
 
 /**
  * Inner component for data stream runtime (server-side hosted providers).
@@ -1138,8 +976,6 @@ export const AssistantUiPanel = ({
   disabledReason,
   historyAdapter,
   historyGeneration = 0,
-  loadLocalLlmBackend,
-  localChatTransport = 'local-runtime',
   threadKey,
 }: AssistantUiPanelProps) => {
   const api = '/api/assistant';
@@ -1158,9 +994,10 @@ export const AssistantUiPanel = ({
     return parts.length === 2 ? parts[1] : selectedModel;
   }, [selectedModel]);
 
-  // Check if using local provider
-  const isLocalProvider = selectedProvider === 'local';
-  const localViaDataStream = isLocalProvider && localChatTransport === 'data-stream';
+  // The built-in local provider always runs over the data-stream transport,
+  // with inference proxied to the desktop hidden llm-host; a host that cannot
+  // reach the llm-host does not offer the provider at all.
+  const localViaDataStream = selectedProvider === 'local';
   const planMode = onTogglePlanMode
     ? {
         enabled: Boolean(planModeEnabled),
@@ -1169,8 +1006,10 @@ export const AssistantUiPanel = ({
       }
     : undefined;
 
-  const { handleLocalLoadingStateChange, localLoadingState, prepareLocalModel } =
-    useLocalModelLoading({ localViaDataStream, modelName });
+  const { localLoadingState, prepareLocalModel } = useLocalModelLoading({
+    localViaDataStream,
+    modelName,
+  });
   return (
     <MetadataProviders onValidation={onSettingsValidation} value={openRouterModelMetadataLookup}>
       <section
@@ -1180,111 +1019,64 @@ export const AssistantUiPanel = ({
         data-testid="chat-panel"
         style={agentColorStyle(agentColor)}
       >
-        {isLocalProvider && modelName && !localViaDataStream ? (
-          <LocalRuntimeChat
-            completePreparedRequest={completePreparedRequest}
-            composerDraftCommand={composerDraftCommand}
-            contextWindow={contextWindow}
-            cumulativeUsage={cumulativeUsage}
-            disabled={disabled}
-            disabledReason={disabledReason}
-            effectiveInputBudget={effectiveInputBudget}
-            fileMentions={fileMentions}
-            isVisible={isVisible}
-            key={threadKey ? `local:${threadKey}` : 'local'}
-            loadLocalLlmBackend={loadLocalLlmBackend}
-            localLoadingState={localLoadingState}
-            modelId={modelName}
-            omSegment={omSegment}
-            onComposerDraftCommandApplied={onComposerDraftCommandApplied}
-            onComposerTextChange={onComposerTextChange}
-            onEnableModel={onEnableModel}
-            onFileMentionQueryChange={onFileMentionQueryChange}
-            onLoadingStateChange={handleLocalLoadingStateChange}
-            onModelChange={onModelChange}
-            onProviderSettingsChange={onProviderSettingsChange}
-            onRunEditActivity={onRunEditActivity}
-            onRunFailed={onRunFailed}
-            onRunFinished={onRunFinished}
-            onRunningChange={onRunningChange}
-            onRuntimeReady={onRuntimeReady}
-            onStreamActivity={onStreamActivity}
-            onThreadRunStart={onThreadRunStart}
-            onToolApprovalRequired={onToolApprovalRequired}
-            onUsage={onUsage}
-            pickerModels={pickerModels}
-            prepareRequestData={prepareRequestData}
-            providerGroups={groupedProviders}
-            providerSettings={providerSettings}
-            recentModels={recentModels}
-            requestData={requestData}
-            selectedModel={selectedModel}
-            selectedProvider={selectedProvider}
-            slashCommands={slashCommands}
-            threadKey={threadKey}
-            toolMenu={toolMenu}
-            workspaceBar={workspaceBar}
-          />
-        ) : (
-          <DataStreamRuntimeChat
-            api={api}
-            attachmentsAvailability={attachmentsAvailability}
-            completePreparedRequest={completePreparedRequest}
-            composerDraftCommand={composerDraftCommand}
-            contextWindow={contextWindow}
-            cumulativeUsage={cumulativeUsage}
-            disabled={disabled}
-            disabledReason={disabledReason}
-            effectiveInputBudget={effectiveInputBudget}
-            fileMentions={fileMentions}
-            historyAdapter={historyAdapter}
-            isVisible={isVisible}
-            // `historyGeneration` and `stopGeneration` are in the key because
-            // hydration runs once per MOUNT: an out-of-band change to this
-            // thread's durable history (Conversation Rewind) or its pauses (a
-            // root Stop cancelling paused work) has no other way to reach a
-            // mounted runtime.
-            key={threadKey ? `data-stream:${threadKey}:${historyGeneration}` : 'data-stream'}
-            localLoadingState={localLoadingState}
-            modelName={modelName}
-            omSegment={omSegment}
-            onChildRunUsage={onChildRunUsage}
-            onComposerDraftCommandApplied={onComposerDraftCommandApplied}
-            onComposerTextChange={onComposerTextChange}
-            onContextBreakdown={onContextBreakdown}
-            onDelegatedConversation={onDelegatedConversation}
-            onEnableModel={onEnableModel}
-            onFileMentionQueryChange={onFileMentionQueryChange}
-            onModelChange={onModelChange}
-            onProviderSettingsChange={onProviderSettingsChange}
-            onRunEditActivity={onRunEditActivity}
-            onRunFailed={onRunFailed}
-            onRunFinished={onRunFinished}
-            onRunningChange={onRunningChange}
-            onRuntimeReady={onRuntimeReady}
-            onSteerActiveRun={onSteerActiveRun}
-            onStepUsage={onStepUsage}
-            onStreamActivity={onStreamActivity}
-            onThreadRunStart={onThreadRunStart}
-            onToolApprovalRequired={onToolApprovalRequired}
-            onUsage={onUsage}
-            pickerModels={pickerModels}
-            planMode={planMode}
-            prepareLocalModel={prepareLocalModel}
-            prepareRequestData={prepareRequestData}
-            providerGroups={groupedProviders}
-            providerSettings={providerSettings}
-            recentModels={recentModels}
-            requestBodyLimitBytes={requestBodyLimitBytes}
-            requestData={requestData}
-            selectedModel={selectedModel}
-            selectedProvider={selectedProvider}
-            slashCommands={slashCommands}
-            threadKey={threadKey}
-            toolMenu={toolMenu}
-            workspaceBar={workspaceBar}
-          />
-        )}
+        <DataStreamRuntimeChat
+          api={api}
+          attachmentsAvailability={attachmentsAvailability}
+          completePreparedRequest={completePreparedRequest}
+          composerDraftCommand={composerDraftCommand}
+          contextWindow={contextWindow}
+          cumulativeUsage={cumulativeUsage}
+          disabled={disabled}
+          disabledReason={disabledReason}
+          effectiveInputBudget={effectiveInputBudget}
+          fileMentions={fileMentions}
+          historyAdapter={historyAdapter}
+          isVisible={isVisible}
+          // `historyGeneration` and `stopGeneration` are in the key because
+          // hydration runs once per MOUNT: an out-of-band change to this
+          // thread's durable history (Conversation Rewind) or its pauses (a
+          // root Stop cancelling paused work) has no other way to reach a
+          // mounted runtime.
+          key={threadKey ? `data-stream:${threadKey}:${historyGeneration}` : 'data-stream'}
+          localLoadingState={localLoadingState}
+          modelName={modelName}
+          omSegment={omSegment}
+          onChildRunUsage={onChildRunUsage}
+          onComposerDraftCommandApplied={onComposerDraftCommandApplied}
+          onComposerTextChange={onComposerTextChange}
+          onContextBreakdown={onContextBreakdown}
+          onDelegatedConversation={onDelegatedConversation}
+          onEnableModel={onEnableModel}
+          onFileMentionQueryChange={onFileMentionQueryChange}
+          onModelChange={onModelChange}
+          onProviderSettingsChange={onProviderSettingsChange}
+          onRunEditActivity={onRunEditActivity}
+          onRunFailed={onRunFailed}
+          onRunFinished={onRunFinished}
+          onRunningChange={onRunningChange}
+          onRuntimeReady={onRuntimeReady}
+          onSteerActiveRun={onSteerActiveRun}
+          onStepUsage={onStepUsage}
+          onStreamActivity={onStreamActivity}
+          onThreadRunStart={onThreadRunStart}
+          onToolApprovalRequired={onToolApprovalRequired}
+          onUsage={onUsage}
+          pickerModels={pickerModels}
+          planMode={planMode}
+          prepareLocalModel={prepareLocalModel}
+          prepareRequestData={prepareRequestData}
+          providerGroups={groupedProviders}
+          providerSettings={providerSettings}
+          recentModels={recentModels}
+          requestBodyLimitBytes={requestBodyLimitBytes}
+          requestData={requestData}
+          selectedModel={selectedModel}
+          selectedProvider={selectedProvider}
+          slashCommands={slashCommands}
+          threadKey={threadKey}
+          toolMenu={toolMenu}
+          workspaceBar={workspaceBar}
+        />
       </section>
     </MetadataProviders>
   );

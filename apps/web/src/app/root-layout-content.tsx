@@ -17,7 +17,6 @@ import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
 import { NotebookPen } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo } from 'react';
 import { getEmbeddingQueue, registerWebEmbeddingRuntimeConfig } from '../create-embedding-queue';
-import { loadLocalLlmBackend } from '../load-local-llm-backend';
 import ContextExplorerPageContent from './context-explorer-page-content';
 import SettingsPageContent from './settings/page-content';
 
@@ -99,7 +98,6 @@ export default function RootLayoutContent() {
     contextExplorerPageContent: <ContextExplorerPageContent />,
     databaseTabChunkingMode: 'local',
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring
-    loadLocalLlmBackend,
     navigationItems: navigationConfig,
     settingsPageContent: <SettingsPageContent />,
     ...(notesAvailable ? { notesPageContent: <NotesPageContent /> } : {}),

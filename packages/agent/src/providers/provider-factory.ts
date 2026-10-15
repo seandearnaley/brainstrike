@@ -21,7 +21,6 @@ import { resolveBedrockModelId } from './bedrock-model-id';
 import { resolveCodexModelId } from './codex-model-id';
 import { createLlmHostChatModel } from './local/llm-host-chat-model';
 import { createLocalHostEmbeddingModel } from './local/local-host-embedding-model';
-import type { LocalLanguageModelSettings } from './local/local-language-model';
 import { OpenRouterStrictContentGateway } from './openrouter-strict-content';
 import { wrapModelWithDeclaredPromptCaching } from './prompt-caching';
 import { wrapModelWithCallTransform } from './prompt-transform-proxy';
@@ -43,13 +42,6 @@ import {
   providerAuthType,
   type SupportedProvider,
 } from './types';
-
-export type LocalLanguageModelFactory = (
-  modelId: string,
-  settings?: LocalLanguageModelSettings
-) => LanguageModelV2;
-
-let localLanguageModelFactory: LocalLanguageModelFactory | undefined;
 
 /** The factory's actual public outputs; routers have a distinct stream-shaped generate API. */
 export type ProviderModelConfiguration =
@@ -85,17 +77,6 @@ const PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS = new Set<SupportedProvider>([
   'openrouter',
   'local',
 ]);
-
-/**
- * Register the browser-only Transformers model factory.
- *
- * The root `@brainstrike/agent` entrypoint performs this registration. Narrow
- * server entrypoints deliberately do not, so importing the hosted runtime can
- * never pull Hugging Face/ONNX packages into a Node function trace.
- */
-export function registerLocalLanguageModelFactory(factory: LocalLanguageModelFactory): void {
-  localLanguageModelFactory = factory;
-}
 
 function resolveLocalRuntimeBaseUrl(
   runtime: 'ollama' | 'lmstudio',
@@ -376,21 +357,20 @@ export function createProvider(
       // (and its result is discarded) so custom_fetch/aws still fail typed
       // instead of being silently ignored on this keyless case.
       bearerApiKeyOnly(auth, validatedProvider);
-      // Host-injected client (desktop main): proxy generation to the hidden
-      // llm-host renderer. Without a client (web/browser renderer), run the
-      // in-process backend — that path requires a browser environment.
+      // The hidden llm-host renderer is the ONLY engine for the built-in local
+      // provider (ADR-0007/0015: WebGPU inference belongs in a renderer, never
+      // in Electron main or a Node server). An absent client means this run
+      // cannot do local inference at all, so refuse visibly rather than
+      // substituting an in-process engine the host deliberately does not have.
       const hostClient = runtime?.localLlmHostClient;
-      if (hostClient) {
-        return createLlmHostChatModel(modelName, hostClient, runtime?.providerOptions?.local);
-      }
-      if (!localLanguageModelFactory) {
+      if (!hostClient) {
         throw createMastraAgentError('mastra_agent_runtime_init_failed', {
           context: { model: modelName, provider: validatedProvider },
           detail:
-            'The in-process local model factory is unavailable from this agent entrypoint. Import the root @brainstrike/agent entrypoint before selecting the local provider.',
+            'The built-in local provider requires the local LLM host client (renderer-only inference); none was injected into this run.',
         });
       }
-      return localLanguageModelFactory(modelName, runtime?.providerOptions?.local);
+      return createLlmHostChatModel(modelName, hostClient, runtime?.providerOptions?.local);
     }
 
     default:

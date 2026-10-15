@@ -1,4 +1,3 @@
-import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
   HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
@@ -23,10 +22,6 @@ import {
 import { useHostAssistantStatusFetcher } from './hooks/use-host-assistant-status-fetcher';
 import { useAssistantLinkCapabilitiesValue } from './use-assistant-link-capabilities';
 
-export interface AssistantChatPanelProps {
-  readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
-}
-
 /**
  * Reads the host's assistant availability once, for the root panel and the
  * child conversation surfaces beside it, so every composer under it gates on
@@ -41,7 +36,7 @@ export function AssistantProviderStatusProvider({
   return <AssistantProviderStatusContext value={status}>{children}</AssistantProviderStatusContext>;
 }
 
-export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelProps): ReactElement {
+export function AssistantChatPanel(): ReactElement {
   const status = useAssistantProviderStatus();
   const fixedProviderModelsResolution = useMemo<FixedProviderModelsResolution>(() => {
     if (!(status.state === 'enabled' && status.provider && status.model)) {
@@ -109,7 +104,6 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
             />
             <AssistantLinkCapabilitiesProvider capabilities={linkCapabilities}>
               <AssistantUiPanelWrapperLazy
-                {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
                 {...(providerReadErrors ? { providerReadErrors } : {})}
                 {...(status.providerKeySources
                   ? { providerKeySources: status.providerKeySources }

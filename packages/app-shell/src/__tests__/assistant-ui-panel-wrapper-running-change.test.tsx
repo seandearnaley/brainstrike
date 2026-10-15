@@ -10,10 +10,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, test, vi } from 'vitest';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
-import {
-  delegatedPanelCallbacks,
-  loadTestLocalLlmBackend,
-} from './assistant-ui-panel-wrapper-test-support';
+import { delegatedPanelCallbacks } from './assistant-ui-panel-wrapper-test-support';
 
 describe('AssistantUiPanelWrapper — run-state report', () => {
   test('forwards the owner callback to the panel unchanged', async () => {
@@ -21,7 +18,6 @@ describe('AssistantUiPanelWrapper — run-state report', () => {
     render(
       <AssistantProviderSourceProvider source={{ kind: 'authoritative', providers: ['openai'] }}>
         <AssistantUiPanelWrapper
-          loadLocalLlmBackend={loadTestLocalLlmBackend}
           memoryResourceId="/tmp/test-workspace"
           memoryThreadId="thread-running"
           onRunningChange={onRunningChange}

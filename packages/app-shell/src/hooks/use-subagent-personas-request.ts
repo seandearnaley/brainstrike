@@ -1,8 +1,8 @@
 /**
  * Subagent persona availability request for the assistant wire (desktop
- * data-stream only). Reads the subagent-personas preferences store and builds
- * the presence-means-non-default wire field: `undefined` at the defaults (the
- * field stays off the wire), on any other transport, or on web.
+ * assistant server only). Reads the subagent-personas preferences store and
+ * builds the presence-means-non-default wire field: `undefined` at the
+ * defaults (the field stays off the wire) or anywhere without that server.
  */
 
 import {
@@ -14,17 +14,17 @@ import type { SubagentPersonasAvailabilityRequest } from '@brainstrike/assistant
 import { useMemo } from 'react';
 
 export function useSubagentPersonasRequest(
-  localChatTransport: string
+  assistantServerAvailable: boolean
 ): SubagentPersonasAvailabilityRequest | undefined {
   const delegationEnabled = useSubagentPersonasStore(subagentPersonasSelectors.delegationEnabled);
   const disabledPersonaIds = useSubagentPersonasStore(subagentPersonasSelectors.disabledPersonaIds);
   return useMemo(() => {
-    if (localChatTransport !== 'data-stream') {
+    if (!assistantServerAvailable) {
       return;
     }
     return buildSubagentPersonasAvailabilityRequest({
       delegationEnabled,
       disabledPersonaIds,
     });
-  }, [localChatTransport, delegationEnabled, disabledPersonaIds]);
+  }, [assistantServerAvailable, delegationEnabled, disabledPersonaIds]);
 }

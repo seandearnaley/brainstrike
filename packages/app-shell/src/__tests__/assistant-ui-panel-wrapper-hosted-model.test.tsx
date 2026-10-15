@@ -4,11 +4,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { expect, test } from 'vitest';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
-import {
-  fileExplorerMocks,
-  loadTestLocalLlmBackend,
-  renderAssistantPanel,
-} from './assistant-ui-panel-wrapper-test-support';
+import { fileExplorerMocks, renderAssistantPanel } from './assistant-ui-panel-wrapper-test-support';
 
 test('disables hosted web chat without a workspace before request preparation', async () => {
   Reflect.deleteProperty(window, 'agentHost');
@@ -35,7 +31,6 @@ test('reconciles an active thread draft to the hosted fixed model', async () => 
     <AssistantProviderSourceProvider source={{ kind: 'authoritative', providers: ['openai'] }}>
       <AssistantUiPanelWrapper
         fixedProviderModels={{ openai: ['gpt-5.6-terra'] }}
-        loadLocalLlmBackend={loadTestLocalLlmBackend}
         memoryResourceId="/tmp/test-workspace"
         memoryThreadId="thread-existing"
       />
@@ -62,7 +57,6 @@ test('reconciles an unavailable thread draft provider to the hosted provider', a
     <AssistantProviderSourceProvider source={{ kind: 'authoritative', providers: ['openai'] }}>
       <AssistantUiPanelWrapper
         fixedProviderModels={{ openai: ['gpt-5.6-terra'] }}
-        loadLocalLlmBackend={loadTestLocalLlmBackend}
         memoryResourceId="/tmp/test-workspace"
         memoryThreadId="thread-existing"
       />
@@ -90,7 +84,6 @@ test('rebuilds stale draft options when the hosted fixed model already matches',
     <AssistantProviderSourceProvider source={{ kind: 'authoritative', providers: ['openai'] }}>
       <AssistantUiPanelWrapper
         fixedProviderModels={{ openai: ['gpt-5.6-terra'] }}
-        loadLocalLlmBackend={loadTestLocalLlmBackend}
         memoryResourceId="/tmp/test-workspace"
         memoryThreadId="thread-existing"
       />

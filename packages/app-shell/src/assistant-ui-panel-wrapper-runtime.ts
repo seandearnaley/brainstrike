@@ -34,7 +34,10 @@ import {
 } from '@brainstrike/assistant-contract';
 import { readChildFollowupRunConfigAction } from '@brainstrike/assistant-contract/child-followup';
 import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
-import { getBestBuiltInLocalLlmDevice } from '@brainstrike/assistant-contract/local-llm-device';
+import {
+  getBestBuiltInLocalLlmDevice,
+  hasDesktopLlmHost,
+} from '@brainstrike/assistant-contract/local-llm-device';
 import {
   DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
   DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
@@ -958,27 +961,6 @@ export function resolveComposerAttachmentsAvailability(args: {
   return { state: 'enabled' };
 }
 
-/**
- * True when the ACTIVE turn's transport can ever deliver a context-breakdown
- * data part (review fix, context-ring WS8). `AssistantUiPanel` routes a
- * turn through `LocalRuntimeChat` — the in-renderer local runtime, which
- * structurally has no breakdown channel — only when the provider is `'local'`
- * AND `localChatTransport !== 'data-stream'` (web's built-in local provider;
- * desktop's built-in local provider instead routes through the assistant
- * server's data-stream transport, which DOES forward `onContextBreakdown`).
- * Every other combination uses `DataStreamRuntimeChat`, which always forwards
- * it. Callers use this to clear a thread's stale breakdown when a
- * capability-absent local turn updates usage without ever refreshing it —
- * otherwise the popover keeps showing an earlier hosted turn's breakdown rows
- * next to the local turn's freshly updated totals.
- */
-export function hasContextBreakdownChannel(
-  selectedProvider: SupportedProvider | null,
-  localChatTransport: 'data-stream' | 'local-runtime'
-): boolean {
-  return !(selectedProvider === 'local' && localChatTransport !== 'data-stream');
-}
-
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
 }
@@ -1175,11 +1157,21 @@ function resolveLocalRuntimeProviderDisabledReason(
   return;
 }
 
+/**
+ * The built-in local provider runs ONLY in the desktop app's hidden llm-host
+ * renderer (ADR-0007/0015). Where that host is absent — the hosted web app, or
+ * a desktop build whose llm-host failed to start — there is no second engine
+ * to fall back to, so the composer refuses visibly with the reason instead of
+ * quietly chatting through something else.
+ */
 function resolveBuiltInLocalProviderDisabledReason(
   selectedProvider: SupportedProvider | null
 ): string | undefined {
   if (selectedProvider !== 'local') {
     return;
+  }
+  if (!hasDesktopLlmHost()) {
+    return 'The built-in local model runs in the desktop app’s local model host, which is unavailable here. Choose another provider.';
   }
   if (getBestBuiltInLocalLlmDevice() !== 'webgpu') {
     return 'Local Gemma requires WebGPU. This device cannot run the built-in local model.';

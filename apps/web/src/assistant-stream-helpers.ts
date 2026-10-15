@@ -3,28 +3,15 @@ import {
   AssistantRequestBodyTooLargeError,
   DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
   type StreamChunk,
-  sanitizeStreamChunk,
-  toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import { createStatelessAssistantDataStreamResponse } from '@brainstrike/agent/hosted-web';
 import { createLogger } from '@brainstrike/logging';
 import {
   resolveAssistantProviderConfig,
-  resolveAssistantProviderConfigs,
   resolveHostedWebAssistantStatus,
 } from './server/assistant-config';
 import { runWebAssistantPost, type WebAssistantPostOutcome } from './server/web-assistant-post';
-import {
-  describeWebAssistantInputError,
-  resolveWebAssistantChatTurn,
-  WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE,
-  WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE,
-} from './server/web-assistant-request';
-import {
-  InvalidWebAssistantRuntimeDataError,
-  resolveWebAssistantProviderConfig,
-  resolveWebAssistantRuntime,
-} from './server/web-assistant-runtime';
+import { WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE } from './server/web-assistant-request';
 
 export type { StreamChunk };
 
@@ -122,63 +109,6 @@ export async function readBody(
   });
 }
 
-export async function handleChatEndpoint(
-  bodyText: string,
-  res: http.ServerResponse
-): Promise<void> {
-  let turn: ReturnType<typeof resolveWebAssistantChatTurn>;
-  let stream: AsyncIterable<StreamChunk>;
-  try {
-    turn = resolveWebAssistantChatTurn(bodyText);
-  } catch (error) {
-    if (sendAssistantInputErrorResponse(res, error)) {
-      return;
-    }
-    throw error;
-  }
-
-  const configuredProviders = resolveAssistantProviderConfigs(resolveAssistantProviderConfig);
-  if (configuredProviders.length === 0) {
-    sendAssistantDisabledResponse(res);
-    return;
-  }
-
-  try {
-    const provider = resolveWebAssistantProviderConfig(turn.payload.data, configuredProviders);
-    stream = await toAiSdkStyleStream(
-      turn.agentMessages,
-      resolveWebAssistantRuntime(turn.payload.data, provider.apiKey, undefined, provider.provider)
-    );
-  } catch (error) {
-    if (sendAssistantInputErrorResponse(res, error)) {
-      return;
-    }
-    if (error instanceof InvalidWebAssistantRuntimeDataError) {
-      sendJsonResponse(res, 400, { error: 'invalid_runtime_data', message: error.message });
-      return;
-    }
-    logger.error('Failed to initialize chat stream', { error });
-    sendJsonResponse(
-      res,
-      WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.status,
-      WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.payload
-    );
-    return;
-  }
-
-  res.writeHead(200, {
-    'Cache-Control': 'no-store',
-    'Content-Type': 'application/json; charset=utf-8',
-  });
-
-  for await (const chunk of stream) {
-    const safeChunk = sanitizeStreamChunk(chunk);
-    res.write(`${JSON.stringify(safeChunk)}\n`);
-  }
-
-  res.end();
-}
-
 /**
  * Node transport shell over the converged decision core in
  * `server/web-assistant-post.ts` (BST-973-2). This function owns only what
@@ -229,22 +159,6 @@ export function sendAssistantStatusResponse(res: http.ServerResponse): void {
     'Content-Type': 'application/json; charset=utf-8',
   });
   res.end(JSON.stringify(resolveHostedWebAssistantStatus(resolveAssistantProviderConfig)));
-}
-
-function sendAssistantDisabledResponse(res: http.ServerResponse): void {
-  sendJsonResponse(res, 503, {
-    error: 'assistant_disabled',
-    reason: 'missing_api_key',
-  });
-}
-
-function sendAssistantInputErrorResponse(res: http.ServerResponse, error: unknown): boolean {
-  const inputError = describeWebAssistantInputError(error);
-  if (!inputError) {
-    return false;
-  }
-  sendJsonResponse(res, inputError.status, inputError.payload);
-  return true;
 }
 
 function sendJsonResponse(

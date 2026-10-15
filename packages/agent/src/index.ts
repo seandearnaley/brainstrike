@@ -1,15 +1,4 @@
 // Types — all inline type definitions live in types.ts
-export {
-  type CollectCombinedToolsOptions,
-  type CollectCombinedToolsResult,
-  collectCombinedTools,
-} from './mastra/mcp-tool-loader';
-
-// The broad entrypoint supports in-process browser inference. Server-safe
-// subpaths intentionally omit this registration and its Transformers graph.
-import { registerBrowserLocalLanguageModelFactory } from './providers/local-provider-registration';
-
-registerBrowserLocalLanguageModelFactory();
 
 export {
   ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES,
@@ -261,6 +250,11 @@ export {
   McpAppToolNotAdmittedError,
 } from './mastra/mcp-app-tool-call';
 export { readMcpCreatedTaskResult } from './mastra/mcp-task-tool-result';
+export {
+  type CollectCombinedToolsOptions,
+  type CollectCombinedToolsResult,
+  collectCombinedTools,
+} from './mastra/mcp-tool-loader';
 export {
   type AssistantPermissionPolicyRequest,
   isAssistantPermissionPolicyRequest,
