@@ -34,6 +34,7 @@ import {
   resolveAssistantProviderDisabledReason,
   resolveComposerAttachmentsAvailability,
   resolveHostedMemoryBackendAvailable,
+  resolveHostedMemoryUnavailableNotice,
   resolveModelNameFromComposite,
   resolveOpenRouterMetadataDisabledReason,
   resolveProviderModelSelection,
@@ -153,22 +154,79 @@ describe('assistant runtime helpers', () => {
         memoryLoadState: { error: 'bad schema', status: 'error' },
       })
     ).toBe('Assistant memory failed to load: bad schema');
+  });
+
+  // A missing durable memory backend costs the run its memory block (see
+  // `buildAssistantMemoryRequest`, which omits it), not its ability to send.
+  // It reports through `resolveHostedMemoryUnavailableNotice` instead, so the
+  // loss stays visible without disabling the composer. Before this split,
+  // `local` was the only provider that satisfied the predicate on web, so
+  // retiring the browser runtime left web with no sendable provider at all.
+  it('does not block a hosted provider that has no durable memory backend', () => {
     expect(
       resolveAssistantMemoryDisabledReason({
         ...baseMemoryReasonArgs,
         desktopAssistantBackendAvailable: false,
       })
-    ).toBe('Assistant memory for hosted providers requires the desktop assistant backend.');
-  });
-
-  it('blocks hosted providers without a memory backend when no workspace root is open', () => {
+    ).toBeUndefined();
     expect(
       resolveAssistantMemoryDisabledReason({
         ...baseMemoryReasonArgs,
         desktopAssistantBackendAvailable: false,
         workspaceRootPath: null,
       })
-    ).toBe('Assistant memory for hosted providers requires the desktop assistant backend.');
+    ).toBeUndefined();
+  });
+
+  it('still blocks on PGlite readiness when the memory backend is absent', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        dbError: new Error('open failed'),
+        desktopAssistantBackendAvailable: false,
+      })
+    ).toBe('Assistant memory database failed to initialize: open failed');
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        assistantThreadRepository: null,
+        desktopAssistantBackendAvailable: false,
+      })
+    ).toBe('Assistant memory is loading from PGlite.');
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        desktopAssistantBackendAvailable: false,
+        selectedMemoryThreadId: undefined,
+      })
+    ).toBe('Assistant memory has no selected thread for this workspace.');
+  });
+
+  it('reports the absent memory backend as a notice, not a block', () => {
+    expect(
+      resolveHostedMemoryUnavailableNotice({
+        desktopAssistantBackendAvailable: false,
+        selectedProvider: 'openai',
+      })
+    ).toBe('Assistant memory is unavailable here; this turn runs without durable memory.');
+    expect(
+      resolveHostedMemoryUnavailableNotice({
+        desktopAssistantBackendAvailable: true,
+        selectedProvider: 'openai',
+      })
+    ).toBeUndefined();
+    expect(
+      resolveHostedMemoryUnavailableNotice({
+        desktopAssistantBackendAvailable: false,
+        selectedProvider: 'local',
+      })
+    ).toBe('Assistant memory is unavailable here; this turn runs without durable memory.');
+    expect(
+      resolveHostedMemoryUnavailableNotice({
+        desktopAssistantBackendAvailable: false,
+        selectedProvider: null,
+      })
+    ).toBeUndefined();
   });
 
   it('shares one capability predicate between the composer gate and request data', () => {
@@ -276,6 +334,27 @@ describe('assistant runtime helpers', () => {
     );
   });
 
+  // Reviewer catch on #3625: gating only the observational branch left this
+  // case blocking hosted-web chat. With no backend the memory block never
+  // reaches a request, so an unsupported embedder here is inert configuration
+  // and must not disable the composer.
+  it('does not block an unsupported embedder that can never run', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        desktopAssistantBackendAvailable: false,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          semanticRecall: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
+            embeddingModelTarget: 'cohere/embed-english-v3.0',
+            enabled: true,
+          },
+        },
+      })
+    ).toBeUndefined();
+  });
+
   it('blocks an enabled hosted observer whose provider has no configured key', () => {
     expect(
       resolveAssistantMemoryDisabledReason({
@@ -315,21 +394,35 @@ describe('assistant runtime helpers', () => {
     ).toBe('The Anthropic API key could not be read from secure storage.');
   });
 
-  it('prefers the hosted-web backend reason when key provenance is unavailable', () => {
+  // Previously the hosted-backend reason outranked key provenance here and
+  // blocked the composer. It no longer blocks, and unknown provenance is still
+  // not a validated empty key set, so nothing blocks — the absent backend is
+  // reported on the notice channel so an explicitly enabled observational
+  // memory that cannot run is still visible rather than silently skipped.
+  const explicitObservationalMemoryWithoutBackend = {
+    ...baseMemoryReasonArgs,
+    desktopAssistantBackendAvailable: false,
+    memorySettings: {
+      ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      observationalMemory: {
+        ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+        enabled: true,
+      },
+    },
+    providerKeySources: undefined,
+  };
+
+  it('reports an un-runnable enabled observational memory without blocking the turn', () => {
     expect(
-      resolveAssistantMemoryDisabledReason({
-        ...baseMemoryReasonArgs,
-        desktopAssistantBackendAvailable: false,
-        memorySettings: {
-          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-          observationalMemory: {
-            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
-            enabled: true,
-          },
-        },
-        providerKeySources: undefined,
+      resolveAssistantMemoryDisabledReason(explicitObservationalMemoryWithoutBackend)
+    ).toBeUndefined();
+    expect(
+      resolveHostedMemoryUnavailableNotice({
+        desktopAssistantBackendAvailable:
+          explicitObservationalMemoryWithoutBackend.desktopAssistantBackendAvailable,
+        selectedProvider: explicitObservationalMemoryWithoutBackend.selectedProvider,
       })
-    ).toBe('Assistant memory for hosted providers requires the desktop assistant backend.');
+    ).toBe('Assistant memory is unavailable here; this turn runs without durable memory.');
   });
 
   it('does not treat unavailable key provenance as a validated empty key set', () => {
@@ -421,23 +514,32 @@ describe('assistant runtime helpers', () => {
     ).toBeUndefined();
   });
 
-  it('blocks an enabled local observer when the desktop memory backend is unavailable', () => {
-    expect(
-      resolveAssistantMemoryDisabledReason({
-        ...baseMemoryReasonArgs,
-        desktopAssistantBackendAvailable: false,
-        memorySettings: {
-          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-          observationalMemory: {
-            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
-            enabled: true,
-            modelTarget: 'local/onnx-community/gemma-4-E2B-it-ONNX',
-          },
+  // Observational memory is ON by default (BST-940), so blocking on an absent
+  // backend here kept web's composer disabled regardless of the chat-provider
+  // gate. The observer is skipped and the notice reports it. `local` is covered
+  // too: the notice keys on the backend alone, so no shell loses memory quietly.
+  it('reports rather than blocks an enabled observer with no memory backend', () => {
+    const enabledLocalObserver = {
+      ...baseMemoryReasonArgs,
+      desktopAssistantBackendAvailable: false,
+      memorySettings: {
+        ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+        observationalMemory: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+          enabled: true,
+          modelTarget: 'local/onnx-community/gemma-4-E2B-it-ONNX',
         },
-        providerKeySources: [],
+      },
+      providerKeySources: [],
+      selectedProvider: 'local' as const,
+    };
+    expect(resolveAssistantMemoryDisabledReason(enabledLocalObserver)).toBeUndefined();
+    expect(
+      resolveHostedMemoryUnavailableNotice({
+        desktopAssistantBackendAvailable: false,
         selectedProvider: 'local',
       })
-    ).toBe('Observational memory requires the desktop assistant backend.');
+    ).toBe('Assistant memory is unavailable here; this turn runs without durable memory.');
   });
 
   it('fails visibly when an enabled observer model target is malformed', () => {

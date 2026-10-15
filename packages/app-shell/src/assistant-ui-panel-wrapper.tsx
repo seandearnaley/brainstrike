@@ -52,7 +52,7 @@ import {
   resolveAssistantMemoryDisabledReason,
   resolveComposerAttachmentsAvailability,
   resolveEffectiveObservationalMemorySettings,
-  resolveHostedMemoryBackendAvailable,
+  resolveHostedMemoryBackend,
   resolveModelNameFromComposite,
   resolveProviderFromComposite,
   toRuntimeProviderModels,
@@ -462,10 +462,9 @@ export function AssistantUiPanelWrapper({
       selectedMemoryThreadId,
     });
   const composerDraft = useComposerDraftChannel(selectedMemoryThreadId);
-  const hostedMemoryBackendAvailable = resolveHostedMemoryBackendAvailable({
-    desktopAssistantBackendAvailable,
-    selectedProvider,
-  });
+  // `available` gates the request's memory block; `notice` tells the user.
+  const { available: hostedMemoryBackendAvailable, notice: hostedMemoryNotice } =
+    resolveHostedMemoryBackend({ desktopAssistantBackendAvailable, selectedProvider });
   // Resolve 'auto' once for request data, memory validation and the OM meter.
   // Concrete settings keep the sentinel out of provider/model validation
   // and prevent unresolved auto from disabling thread memory (BST-940).
@@ -1044,6 +1043,7 @@ export function AssistantUiPanelWrapper({
                 onEnableModel={handleEnableModel}
                 onModelChange={handleModelChange}
                 {...(panelNotice ? { disabledReason: panelNotice } : {})}
+                {...(hostedMemoryNotice ? { capabilityNotice: hostedMemoryNotice } : {})}
                 {...(planModeAvailable
                   ? {
                       onExitPlanMode: exitPlanMode,

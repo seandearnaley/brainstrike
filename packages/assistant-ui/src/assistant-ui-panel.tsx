@@ -211,6 +211,8 @@ export interface AssistantUiPanelProps
    * and the preview strip.
    */
   attachmentsAvailability?: ComposerAttachmentsAvailability;
+  /** A capability this turn runs WITHOUT; never a reason it cannot run. */
+  capabilityNotice?: string;
   className?: string;
   completePreparedRequest?: (
     requestData: Record<string, unknown> | undefined,
@@ -377,6 +379,7 @@ const EMPTY_FILE_MENTIONS: readonly FileMention[] = [];
 interface ChatThreadProps extends ComposerDraftCommandBridgeProps, AssistantStreamCallbacks {
   /** Composer image-attachment availability (attach button, paste, previews). */
   attachmentsAvailability?: ComposerAttachmentsAvailability | undefined;
+  capabilityNotice: string | undefined;
   completePreparedRequest?:
     | ((
         requestData: Record<string, unknown> | undefined,
@@ -437,6 +440,26 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps, AssistantStre
 }
 
 /**
+ * A capability this turn runs WITHOUT — never a reason it cannot run. Lives in
+ * the composer shell (a non-scrolling sibling of the viewport) so it stays
+ * beside the control it qualifies, instead of scrolling away up the transcript
+ * the way `disabledReason` would on a long thread.
+ *
+ * Its own component rather than an inline conditional: `ChatThreadUI` sits at
+ * the cognitive-complexity ceiling, and one more branch there trips the gate.
+ */
+const CapabilityNotice = ({ text }: { text: string | undefined }) =>
+  text ? (
+    <p
+      aria-live="polite"
+      className="px-1 pb-2 text-muted-foreground text-xs"
+      data-testid="assistant-capability-notice"
+    >
+      {text}
+    </p>
+  ) : null;
+
+/**
  * Inner component for data stream runtime (server-side hosted providers).
  * Uses useDataStreamRuntime for API-based inference.
  */
@@ -471,6 +494,7 @@ const DataStreamRuntimeChat = ({
   onUsage,
   disabled,
   disabledReason,
+  capabilityNotice,
   localLoadingState,
   api,
   authHeaders,
@@ -575,6 +599,7 @@ const DataStreamRuntimeChat = ({
         <AssistantPanelErrorBoundary>
           <WebAssistantRequestStatus session={serverRunSession} />
           <ChatThreadUI
+            capabilityNotice={capabilityNotice}
             composerDraftCommand={composerDraftCommand}
             contextWindow={contextWindow}
             cumulativeUsage={cumulativeUsage}
@@ -662,6 +687,7 @@ export const ChatThreadUI = ({
   isComposerDisabled,
   hideDefaultCancel,
   disabledReason,
+  capabilityNotice,
   localLoadingState,
   slashCommands,
   fileMentions,
@@ -712,6 +738,7 @@ export const ChatThreadUI = ({
   isReattaching?: boolean;
   hideDefaultCancel?: boolean | undefined;
   disabledReason: string | undefined;
+  capabilityNotice: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   slashCommands: readonly SlashCommand[];
   fileMentions: readonly FileMention[];
@@ -831,6 +858,19 @@ export const ChatThreadUI = ({
                  * This required aggressive CSS overrides (see overrides.css).
                  */}
                 <div className="bs-composer-shell" data-testid="assistant-composer-shell">
+                  {/* A capability the turn will run WITHOUT (e.g. no durable
+            memory), as opposed to `disabledReason`, which explains why there
+            is no turn at all. It is a SEPARATE prop on purpose: a caller can
+            set `disabledReason` without setting `disabled` and still mean
+            "blocked" (committed-assistant-conversation.tsx does exactly that
+            for host-unavailable, refusing at dispatch), so blocking-ness
+            cannot be inferred from `isComposerDisabled`.
+
+            It renders in the composer shell, a sibling of the viewport that
+            never scrolls, so it stays beside the control it qualifies.
+            `disabledReason` keeps its place above the transcript, where
+            native scroll anchoring holds a parked reader still. */}
+                  <CapabilityNotice text={capabilityNotice} />
                   {/* Composer workspace bar (folder · branch) — an app-shell-rendered
             SLOT, a SIBLING at the top of the composer stack (never nested
             inside ThreadContextMeter, which is being reworked separately).
@@ -974,6 +1014,7 @@ export const AssistantUiPanel = ({
   toolMenu,
   disabled = false,
   disabledReason,
+  capabilityNotice,
   historyAdapter,
   historyGeneration = 0,
   threadKey,
@@ -1022,6 +1063,7 @@ export const AssistantUiPanel = ({
         <DataStreamRuntimeChat
           api={api}
           attachmentsAvailability={attachmentsAvailability}
+          capabilityNotice={capabilityNotice}
           completePreparedRequest={completePreparedRequest}
           composerDraftCommand={composerDraftCommand}
           contextWindow={contextWindow}
