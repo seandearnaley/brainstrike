@@ -16,7 +16,6 @@ import {
   runMigrations,
   splitMigrationStatements,
 } from '../src/drizzle/migrate.js';
-import migrationsManifest from '../src/drizzle/migrations.json';
 
 const MIGRATION_RUN_TIMEOUT_MS = 30_000;
 const PREVIOUS_MAGICAL_SENTINEL_HASH =
@@ -181,13 +180,18 @@ describe('Drizzle Migration Runner', () => {
     );
 
     it(
-      'continues when collection indexing stats already exists from the custom migration path',
+      'refuses to open a ledger carrying hashes this build does not ship',
       async () => {
-        const catalogMigrationIndex = migrationsManifest.migrations.findIndex(
-          (migration) => migration.name === '0008_gifted_unus'
-        );
-        expect(catalogMigrationIndex).toBeGreaterThan(0);
-
+        // Was "continues when collection indexing stats already exists from the
+        // custom migration path", which staged a PARTIALLY-applied drizzle
+        // manifest. After the collapse to one current-schema DDL (ADR-0020)
+        // there is no partial state: the one hash is either recorded or not.
+        //
+        // What replaces it is the behaviour that collapse makes load-bearing. A
+        // profile built by a previous build carries per-migration hashes this
+        // build no longer ships, and it must FAIL VISIBLY rather than be
+        // migrated or silently accepted. This is the pre-existing-dev-profile
+        // case, asserted on the real boot path.
         await db.query(`
         CREATE TABLE "__drizzle_migrations" (
           id SERIAL PRIMARY KEY,
@@ -195,58 +199,57 @@ describe('Drizzle Migration Runner', () => {
           created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
         )
       `);
-        await db.query('CREATE EXTENSION IF NOT EXISTS vector');
-
-        for (const migration of migrationsManifest.migrations.slice(0, catalogMigrationIndex)) {
-          const statements = migration.sql
-            .split('--> statement-breakpoint')
-            .map((statement) => statement.trim())
-            .filter((statement) => statement.length > 0);
-
-          for (const statement of statements) {
-            await db.query(statement);
-          }
-
-          await db.query(`INSERT INTO "__drizzle_migrations" (hash) VALUES ($1)`, [migration.hash]);
+        for (const staleHash of [
+          '192587f67d91ef7010f21b9d2fecf03eea37f4f1b902e06281271389c56d6d8b',
+          'custom-030-collection-indexing-stats',
+          'custom-151-drop-agent-readonly-role',
+        ]) {
+          await db.query(`INSERT INTO "__drizzle_migrations" (hash) VALUES ($1)`, [staleHash]);
         }
-
-        await db.query(
-          `INSERT INTO "__drizzle_migrations" (hash) VALUES ('custom-030-collection-indexing-stats')`
-        );
-        await db.query(`
-        CREATE TABLE collection_indexing_stats (
-          embedding_set_id TEXT PRIMARY KEY,
-          file_count INTEGER NOT NULL DEFAULT 0,
-          chunk_count INTEGER NOT NULL DEFAULT 0,
-          embedded_chunk_count INTEGER NOT NULL DEFAULT 0,
-          pending_chunk_count INTEGER NOT NULL DEFAULT 0,
-          dirty BOOLEAN NOT NULL DEFAULT FALSE,
-          last_refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-      `);
-        await db.query(`
-        CREATE INDEX idx_collection_indexing_stats_dirty
-          ON collection_indexing_stats(dirty, last_refreshed_at)
-      `);
 
         const result = await runMigrations(db);
 
-        expect(result.success).toBe(true);
-        expect(result.error).toBeUndefined();
-        expect(result.appliedMigrations).toContain('0008_gifted_unus');
-        expect(result.appliedMigrations).toContain('0009_great_polaris');
+        expect(result.success).toBe(false);
+        // Named, counted and attributed -- not a bare failure.
+        expect(result.error).toContain('greenfield');
+        expect(result.error).toContain('must be reset instead of migrated');
+        expect(result.error).toContain('3 stale out of 3 applied');
+        expect(result.error).toContain('custom-030-collection-indexing-stats');
+        // And it did NOT half-apply the schema on the way to refusing.
+        const tables = await db.query<{ count: number }>(
+          `SELECT COUNT(*)::int AS count FROM information_schema.tables
+           WHERE table_schema = 'public' AND table_name = 'file_records'`
+        );
+        expect(tables.rows).toEqual([{ count: 0 }]);
       },
       MIGRATION_RUN_TIMEOUT_MS
     );
 
-    it('does not create provider catalog rows with string-literal timestamp defaults', () => {
-      const catalogMigration = migrationsManifest.migrations.find(
-        (migration) => migration.name === '0008_gifted_unus'
-      );
+    it(
+      'gives the provider catalog real timestamp defaults, not string literals',
+      async () => {
+        // Was a grep over drizzle/0008_gifted_unus.sql for
+        // "DEFAULT CURRENT_TIMESTAMP" vs "DEFAULT 'CURRENT_TIMESTAMP'". That
+        // file is gone with the chain; this asserts the same invariant against
+        // the schema the engine actually built, which is what the bug was about.
+        await runMigrations(db);
 
-      expect(catalogMigration?.sql).toContain('DEFAULT CURRENT_TIMESTAMP');
-      expect(catalogMigration?.sql).not.toContain("DEFAULT 'CURRENT_TIMESTAMP'");
-    });
+        const defaults = await db.query<{ column_default: string | null; table_name: string }>(
+          `SELECT table_name, column_default
+           FROM information_schema.columns
+           WHERE table_schema = 'public'
+             AND table_name IN ('providers', 'models')
+             AND column_name IN ('created_at', 'updated_at')
+           ORDER BY table_name, column_name`
+        );
+
+        expect(defaults.rows).toHaveLength(4);
+        for (const row of defaults.rows) {
+          expect(row.column_default, row.table_name).toBe('now()');
+        }
+      },
+      MIGRATION_RUN_TIMEOUT_MS
+    );
 
     it(
       'uses ISO UTC text defaults for text timestamp columns',

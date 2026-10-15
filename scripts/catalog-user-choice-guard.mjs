@@ -13,16 +13,20 @@ const MIGRATION_DIRECTORY = 'packages/db/src/migrations';
 // explicitly before this detector is narrowed.
 const FORBIDDEN_ASSIGNMENT = /\bis_enabled\s*=\s*EXCLUDED\.is_enabled\b/gi;
 
-// Shipped migrations cannot be edited safely after their checksums are recorded.
-// Entries here pin the exact amount of historical debt: fewer matches make the
+// Entries here pin an exact amount of historical debt: fewer matches make the
 // allowlist stale, while additional matches still fail the guard.
-export const HISTORICAL_CATALOG_USER_CHOICE_ALLOWLIST = Object.freeze({
-  // Shipped before the preservation invariant was documented. Editing these
-  // migrations would invalidate recorded checksums; BST-667 owns the reviewed,
-  // forward-only remediation. Any per-file count increase fails the guard.
-  'packages/db/src/migrations/026-update-provider-models-2026-v2.ts': 4,
-  'packages/db/src/migrations/028-gemma-local-llm.ts': 2,
-});
+//
+// EMPTY since the migration chain collapsed into one current-schema DDL
+// (ADR-0020). The two entries this held -- migrations 026 and 028, which shipped
+// catalog upserts written before the preservation invariant was documented --
+// were deleted with the chain, so the debt they pinned no longer exists and the
+// guard went stale on them (that is the guard working, and it is how this was
+// found). The GUARD itself is deliberately kept and still scans
+// packages/db/src/migrations, which now holds the generated current-schema DDL:
+// that DDL seeds the catalog with plain INSERTs and no ON CONFLICT, so a future
+// hand-edit introducing `is_enabled = EXCLUDED.is_enabled` would clobber the
+// user's toggle (database.md rule 3) and must still fail here.
+export const HISTORICAL_CATALOG_USER_CHOICE_ALLOWLIST = Object.freeze({});
 
 function lineNumberAt(source, index) {
   return source.slice(0, index).split('\n').length;

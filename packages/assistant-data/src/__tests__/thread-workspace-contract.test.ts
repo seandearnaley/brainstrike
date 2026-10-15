@@ -1,37 +1,31 @@
 import { THREAD_DELETE_SIDECAR_TABLES } from '@brainstrike/assistant-contract';
-import { getResetTables, migrations } from '@brainstrike/db';
+import { CURRENT_SCHEMA_DDL, getResetTables } from '@brainstrike/db';
 import { describe, expect, it } from 'vitest';
 import { requiredAssistantMemoryRelations } from '../assistant-memory-repository';
 
 /**
  * Living-contract pins for `brainstrike_assistant_thread_workspaces`
- * (BST-1268, migration 095; see docs/agents/database.md). A persistent
- * sidecar carries FOUR obligations beyond its own migration — this suite
- * fails if any of them drifts.
+ * (BST-1268; see docs/agents/database.md). A persistent sidecar carries FOUR
+ * obligations beyond the schema itself — this suite fails if any of them drifts.
  */
 
 const TABLE = 'brainstrike_assistant_thread_workspaces';
 
-function extractCreateTableBlock(sql: string, table: string): string {
-  const start = sql.indexOf(`CREATE TABLE IF NOT EXISTS ${table}`);
-  expect(start, `${table} CREATE TABLE block present`).toBeGreaterThanOrEqual(0);
-  const end = sql.indexOf(');', start);
-  expect(end).toBeGreaterThan(start);
-  // Normalize whitespace so formatting differences cannot mask (or fake)
-  // a column/type/constraint divergence.
-  return sql
-    .slice(start, end + 2)
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 describe('thread workspace persistence contract', () => {
-  it('migration 095 is the sole declaration of the table shape', () => {
-    const migration = migrations.find((candidate) => candidate.version === 95);
-    expect(migration, 'migration 095 registered in the migration manifest').toBeDefined();
-    expect(extractCreateTableBlock(String(migration?.up ?? ''), TABLE)).toBe(
-      `CREATE TABLE IF NOT EXISTS ${TABLE} ( thread_id text PRIMARY KEY, resource_id text NOT NULL, payload jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT NOW() );`
-    );
+  it('the current-schema DDL is the SOLE declaration of the table', () => {
+    // Was "migration 095 is the sole declaration of the table shape", which
+    // grepped that migration's SQL for a byte-exact CREATE TABLE block. The
+    // chain collapsed into one current-schema DDL (ADR-0020), so 095 is gone
+    // and the DDL is now the single declaration.
+    //
+    // The obligation this pins is SOLENESS, not shape: a sidecar the
+    // thread-delete cascade references unconditionally must be declared in
+    // exactly ONE place, never mirrored in a renderer bootstrap (BST-1651). The
+    // SHAPE is pinned far more strictly than a string compare could, by catalog
+    // readback in packages/db/__tests__/fixtures/schema-catalog.snapshot.txt --
+    // every column's type, nullability, default and ordinal.
+    const declarations = CURRENT_SCHEMA_DDL.match(new RegExp(`CREATE TABLE "${TABLE}"`, 'gu'));
+    expect(declarations, `${TABLE} declared in the current-schema DDL`).toHaveLength(1);
   });
 
   it('the repository PROBES for the table rather than creating it (BST-1651)', () => {

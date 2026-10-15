@@ -1,5 +1,5 @@
 import { McpTaskRepository } from '@brainstrike/db';
-import { createNumberedChainTestDb } from '@brainstrike/db/test-support/migrated-test-db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -20,7 +20,7 @@ const AUTHORITY_INPUT = {
 let db: PGlite | undefined;
 
 async function openDb(): Promise<PGlite> {
-  db = await createNumberedChainTestDb();
+  db = await createMigratedTestDb();
   return db;
 }
 

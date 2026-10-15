@@ -1,11 +1,20 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MigrationRunner, baseMigrations as migrations } from '../src/migrations/index.js';
+import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import type { FileRecord } from '../src/models/file-record.js';
 import { createFileRecordRepository } from '../src/repositories/repository-factory.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 import { createPGliteTestDataDir } from './test-data-dir';
 
+/**
+ * The MigrationRunner against the REAL registry on a real on-disk PGlite.
+ *
+ * Used `baseMigrations` (the 001-003 subset), which is gone: the chain collapsed
+ * into a single current-schema DDL (ADR-0020) and the registry now holds exactly
+ * that one step. These cases are unchanged in kind and get STRONGER for it --
+ * "works with repository after migrations" now runs against the whole shipped
+ * schema instead of the first three chain steps.
+ */
 describe('Migration System Integration', () => {
   let db: PGlite;
   let runner: MigrationRunner;
@@ -32,10 +41,10 @@ describe('Migration System Integration', () => {
       await runner.initialize();
       await runner.up(migrations);
 
-      // Verify all migrations were applied (may include migration 4 if available)
+      // The registry is one step since the collapse, and the runner must record
+      // exactly it.
       const applied = await runner.getAppliedMigrations();
-      expect(applied.length).toBeGreaterThanOrEqual(3);
-      expect(applied).toEqual(expect.arrayContaining([1, 2, 3]));
+      expect(applied).toEqual(migrations.map((migration) => migration.version));
 
       // Verify the final schema is correct
       const schema = await db.query(`
@@ -54,7 +63,11 @@ describe('Migration System Integration', () => {
       `);
       const columnNames = columns.rows.map((row) => (row as { column_name: string }).column_name);
       expect(columnNames).toContain('content');
-      expect(columnNames).toContain('embedding');
+      // NOT `embedding`: `file_records.embedding` existed only on the numbered
+      // chain, never in production -- the (now retired)
+      // drizzle-migration-parity test's allowlist froze it as the single
+      // `numberedOnly` divergence. The registry now builds the PRODUCTION
+      // schema, so the column is correctly absent.
 
       // Verify indexes were created
       const indexes = await db.query(`
@@ -97,51 +110,23 @@ describe('Migration System Integration', () => {
       expect(count).toBe(1);
     });
 
-    it('should handle migration rollback scenarios', { timeout: TEST_TIMEOUT }, async () => {
+    it('refuses to roll back a migration that ships no down script', async () => {
+      // ADR-0020 does not build migration rollback: a greenfield profile is
+      // reset, not reversed. The runner must REFUSE rather than silently
+      // report success, so a caller cannot believe a schema was reverted.
       await runner.initialize();
       await runner.up(migrations);
 
-      // Create some test data
-      const repository = createFileRecordRepository(db);
-      const testRecord: FileRecord = {
-        createdAt: new Date().toISOString(),
-        id: 'rollback-test',
-        name: 'rollback.txt',
-        path: '/test/rollback.txt',
-        size: 512,
-        tokenCount: 0,
-        updatedAt: new Date().toISOString(),
-      };
-      await repository.create(testRecord);
-
-      // Rollback to version 1 (should remove vector columns and indexes)
-      await runner.down(migrations, 1);
-
-      // Verify we're at version 1
-      expect(await runner.getCurrentVersion()).toBe(1);
-
-      // Verify vector columns were removed
-      const columns = await db.query(`
-        SELECT column_name FROM information_schema.columns 
-        WHERE table_name = 'file_records'
-        ORDER BY ordinal_position
-      `);
-      const columnNames = columns.rows.map((row) => (row as { column_name: string }).column_name);
-      expect(columnNames).not.toContain('content');
-      expect(columnNames).not.toContain('embedding');
-
-      // But basic data should still be there
-      const found = await repository.findById('rollback-test');
-      expect(found?.id).toBe('rollback-test');
-      expect(found?.name).toBe('rollback.txt');
-
-      // Re-run migrations to get back to full state
-      await runner.up(migrations);
-      expect(await runner.getCurrentVersion()).toBeGreaterThanOrEqual(3);
+      const [only] = migrations;
+      if (!only) {
+        throw new Error('The registry must hold the current-schema migration.');
+      }
+      expect(only.down).toBeUndefined();
+      await expect(runner.rollback(only)).rejects.toThrow(/does not support rollback/);
+      // The schema is untouched by the refusal.
+      expect(await runner.getCurrentVersion()).toBe(only.version);
     });
-  });
 
-  describe('error handling and recovery', () => {
     it('should handle database corruption gracefully', { timeout: TEST_TIMEOUT }, async () => {
       await runner.initialize();
       await runner.up(migrations);
@@ -213,7 +198,9 @@ describe('Migration System Integration', () => {
       expect(duration).toBeLessThan(20_000);
 
       // All migrations should be applied (may be more than 3 if migration 4 is available)
-      expect(await runner.getCurrentVersion()).toBeGreaterThanOrEqual(3);
+      expect(await runner.getCurrentVersion()).toBe(
+        Math.max(...migrations.map((migration) => migration.version))
+      );
     });
 
     it('should handle verification of many migrations efficiently', {

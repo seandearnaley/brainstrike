@@ -1,5 +1,5 @@
 import { type McpTaskAuthorityLease, McpTaskRepository } from '@brainstrike/db';
-import { createNumberedChainTestDb } from '@brainstrike/db/test-support/migrated-test-db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -67,7 +67,7 @@ function deferred<Value>(): {
 }
 
 async function openDatabase(): Promise<PGlite> {
-  return await createNumberedChainTestDb();
+  return await createMigratedTestDb();
 }
 
 function expectNoLifecycleLeaks(lifecycle: McpTaskLifecycle): void {

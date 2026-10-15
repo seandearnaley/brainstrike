@@ -1,21 +1,19 @@
 import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it, vi } from 'vitest';
-import { migration030CollectionIndexingStats } from '../src/migrations/030-collection-indexing-stats';
 import {
   getCollectionIndexingStats,
   markCollectionIndexingStatsDirty,
   refreshCollectionIndexingStats,
 } from '../src/services/collection-indexing-stats';
 
+/**
+ * Migration-030's "the migration SQL mentions these identifiers" assertion was
+ * dropped with the chain (ADR-0020): it grepped a migration's source text, and
+ * there is no such migration. The shipped table is pinned by catalog readback in
+ * __tests__/fixtures/schema-catalog.snapshot.txt; the service behaviour below is
+ * what remains worth asserting.
+ */
 describe('collection indexing stats', () => {
-  it('adds a migration that backfills deterministic collection stats', () => {
-    expect(migration030CollectionIndexingStats.version).toBe(30);
-    expect(migration030CollectionIndexingStats.up).toContain('collection_indexing_stats');
-    expect(migration030CollectionIndexingStats.up).toContain('FROM embedding_sets s');
-    expect(migration030CollectionIndexingStats.up).toContain('embedded_chunk_count');
-    expect(migration030CollectionIndexingStats.up).toContain('pending_chunk_count');
-  });
-
   it('returns null when stats are missing instead of inventing zeroes', async () => {
     const db = {
       query: vi.fn(async () => ({ rows: [] })),

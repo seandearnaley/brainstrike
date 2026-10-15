@@ -15,8 +15,8 @@ Pricing and model limits belong to the route that serves and bills the request;
 provider-reported cost is authoritative, and catalog rates are estimates.
 
 Catalog object keys are alphabetical at every depth, and that is enforced:
-`findCatalogKeyOrderFailures` in `scripts/model-catalog-migration-contract.mjs`
-enforces the order (`pnpm lint:model-catalog-migrations`), because Biome's
+`findCatalogKeyOrderFailures` in `scripts/provider-catalog-key-order-guard.mjs`
+enforces the order (`pnpm lint:catalog-key-order`), because Biome's
 `useSortedKeys` assist does not reach JSON object keys. A wrong order fails
 naming the entry; nothing is reordered for you. ROW order is deliberately
 unchecked — providers and models are curated.

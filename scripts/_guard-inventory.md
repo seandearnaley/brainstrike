@@ -8,7 +8,7 @@ check-e2e-readiness-contracts.mjs → wired/paired/armed → fast E2E shard DB-r
 enforce-coverage.mjs → wired/paired/armed → coverage artifacts and per-package thresholds
 forbid-no-memo.mjs → wired/paired/armed → React compiler escape directives
 mastra-stream-chunk-contract.mjs → wired/paired/armed → Mastra chunk union coverage and observable unknown chunks
-model-catalog-migration-contract.mjs → wired/paired/armed → dual migration registration and model remaps
+provider-catalog-key-order-guard.mjs → wired/paired/armed → provider-catalog.json object keys alphabetical at every depth
 openrouter-pricing-audit.mjs → on-demand/paired/armed → OpenRouter catalog rows carrying the STANDARD route's BASE rate (not a `pricing.overrides` surge band, not a `min_prompt_tokens` long-context tier, not a `:batch`/`:free` variant route). Deliberately NOT in `lint:ci`: the fact lives upstream and OpenRouter re-prices roughly weekly, so a network gate would fail PRs for reasons outside them. Run `pnpm run audit:openrouter-pricing` when adding or re-pricing an openrouter row; the time-independent derivation it depends on IS pinned in the required Static lane by scripts/__tests__/openrouter-pricing-audit.test.mjs (BST-1705)
 prune-stale-dist.mjs → wired/paired/armed → stale dist artifacts pruned before non-cleaning tsc builds (global-turbo-cache poisoning class); wired into 10 package `build` scripts; contract: scripts/__tests__/prune-stale-dist.test.mjs
 secret-scan.mjs → wired/paired/armed → committed credential patterns

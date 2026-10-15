@@ -5,24 +5,55 @@ import {
   customMigrations,
   getBundledLedgerHead,
 } from '../src/drizzle/migrate.js';
-import migrationsManifest from '../src/drizzle/migrations.json';
+import type { Migration } from '../src/migrations/migration-runner.js';
 import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
-/** The apply order `runMigrations` follows: the drizzle manifest, then the derived custom ones. */
-const APPLY_ORDER = [
-  ...migrationsManifest.migrations.map((migration) => migration.hash),
-  ...customMigrations.map((migration) => migration.hash),
-];
+/**
+ * `getBundledLedgerHead` / `computeLedgerHead` -- kept machinery.
+ *
+ * The real bundle is now a SINGLE migration (ADR-0020: one current-schema DDL),
+ * so it can no longer exercise apply-ORDER on its own: there are no adjacent
+ * pairs. The ordering cases therefore run against a mocked multi-entry
+ * registry, which is what they always actually needed. Previously they indexed
+ * into the shipped bundle (`APPLY_ORDER[5]`), which coupled the ordering logic's
+ * coverage to how many migrations happened to ship.
+ */
+
+/** Loads `migrate.js` fresh over a registry of exactly these migrations. */
+async function withRegistry(
+  registry: readonly Migration[],
+  assert: (module: typeof import('../src/drizzle/migrate.js')) => void | Promise<void>
+): Promise<void> {
+  vi.resetModules();
+  vi.doMock('../src/migrations/index.js', () => ({ migrations: [...registry] }));
+  try {
+    await assert(await import('../src/drizzle/migrate.js'));
+  } finally {
+    vi.doUnmock('../src/migrations/index.js');
+    vi.resetModules();
+  }
+}
+
+function sqlMigration(version: number): Migration {
+  return {
+    ledgerKey: `custom-${version.toString().padStart(3, '0')}-fixture`,
+    name: `fixture_${version}`,
+    up: `SELECT ${version};`,
+    version,
+  };
+}
+
+const THREE = [sqlMigration(1), sqlMigration(2), sqlMigration(3)] as const;
+const THREE_HASHES = THREE.map((migration) => migration.ledgerKey);
 
 describe('getBundledLedgerHead', () => {
-  it('is the last hash in apply order, which is the newest custom migration', () => {
-    expect(APPLY_ORDER.length).toBeGreaterThan(50);
-    expect(getBundledLedgerHead()).toBe(APPLY_ORDER.at(-1));
+  it('is the newest migration this build ships', () => {
     expect(getBundledLedgerHead()).toBe(customMigrations.at(-1)?.hash);
+    // The collapse means that is the one current-schema migration.
+    expect(customMigrations).toHaveLength(1);
+    expect(getBundledLedgerHead()).toMatch(/^custom-current-schema-[0-9a-f]{64}$/u);
   });
-});
 
-describe('the bundled ledger is fixed at load', () => {
   it('does not move when the exported customMigrations array is appended to afterwards', () => {
     const head = getBundledLedgerHead();
     customMigrations.push({
@@ -45,39 +76,40 @@ describe('the bundled ledger is fixed at load', () => {
 
 describe('a build that bundles no migrations', () => {
   it('has no ledger head and says so, and no applied hash is known to it', async () => {
-    vi.resetModules();
-    vi.doMock('../src/drizzle/migrations.json', () => ({
-      default: { generatedAt: '', migrations: [], version: 1 },
-    }));
-    vi.doMock('../src/migrations/index.js', () => ({ migrations: [] }));
-    try {
-      const empty = await import('../src/drizzle/migrate.js');
+    await withRegistry([], (empty) => {
       expect(() => empty.getBundledLedgerHead()).toThrow(/bundles no migrations/u);
       expect(empty.computeLedgerHead(new Set(['x']))).toEqual({ head: null, unknown: 1 });
-    } finally {
-      vi.doUnmock('../src/drizzle/migrations.json');
-      vi.doUnmock('../src/migrations/index.js');
-      vi.resetModules();
-    }
+    });
   });
 });
 
 describe('computeLedgerHead', () => {
-  it('reports the last applied hash in apply order, whatever order the set was built in', () => {
-    const applied = new Set([APPLY_ORDER[5], APPLY_ORDER[2], APPLY_ORDER[0]] as string[]);
-    expect(computeLedgerHead(applied)).toEqual({ head: APPLY_ORDER[5], unknown: 0 });
-  });
-
-  it('reports the bundled head and no unknowns for a fully migrated ledger', () => {
-    expect(computeLedgerHead(new Set(APPLY_ORDER))).toEqual({
-      head: getBundledLedgerHead(),
-      unknown: 0,
+  it('reports the last applied hash in APPLY order, whatever order the set was built in', async () => {
+    await withRegistry(THREE, (module) => {
+      const applied = new Set([THREE_HASHES[2], THREE_HASHES[0]] as string[]);
+      expect(module.computeLedgerHead(applied)).toEqual({ head: THREE_HASHES[2], unknown: 0 });
+      // A gap in the middle does not stop the later hash being the head.
+      expect(module.computeLedgerHead(new Set([THREE_HASHES[0] as string]))).toEqual({
+        head: THREE_HASHES[0],
+        unknown: 0,
+      });
     });
   });
 
-  it('counts applied hashes the bundle does not know, and never lets one become the head', () => {
-    const applied = new Set([APPLY_ORDER[1] as string, 'custom-999-from-a-newer-build', 'x']);
-    expect(computeLedgerHead(applied)).toEqual({ head: APPLY_ORDER[1], unknown: 2 });
+  it('reports the bundled head and no unknowns for a fully migrated ledger', async () => {
+    await withRegistry(THREE, (module) => {
+      expect(module.computeLedgerHead(new Set(THREE_HASHES))).toEqual({
+        head: module.getBundledLedgerHead(),
+        unknown: 0,
+      });
+    });
+  });
+
+  it('counts applied hashes the bundle does not know, and never lets one become the head', async () => {
+    await withRegistry(THREE, (module) => {
+      const applied = new Set([THREE_HASHES[0] as string, 'custom-999-from-a-newer-build', 'x']);
+      expect(module.computeLedgerHead(applied)).toEqual({ head: THREE_HASHES[0], unknown: 2 });
+    });
   });
 
   it('has no head for an empty ledger, and none when every entry is unknown', () => {

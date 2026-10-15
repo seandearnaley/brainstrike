@@ -3,7 +3,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAssistantHistoryMessages } from '../src/repositories/assistant-history-repository.js';
 import { ThreadSearchRepository } from '../src/repositories/thread-search-repository.js';
-import { createDbAtVersion, LATEST_MIGRATION_VERSION } from './helpers/migrated-test-db.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 const RESOURCE_ID = 'workspace-memory';
 const PROFILE_DIMENSIONS = 384;
@@ -29,7 +29,7 @@ describe('ThreadSearchRepository', () => {
   let repository: ThreadSearchRepository;
 
   beforeEach(async () => {
-    db = await createDbAtVersion(LATEST_MIGRATION_VERSION);
+    db = await createMigratedTestDb();
     await db.exec(MASTRA_MEMORY_SCHEMA_SQL);
     repository = new ThreadSearchRepository(db);
   });

@@ -1,1 +1,0 @@
-ALTER TABLE "file_chunks" ADD COLUMN "content_tsvector" "tsvector";

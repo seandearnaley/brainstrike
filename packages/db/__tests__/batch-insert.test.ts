@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileChunkInsert } from '../src/models/file-chunk';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository';
 import { FileRecordRepository } from '../src/repositories/file-record-repository';
-import { createDbAtVersion, LATEST_MIGRATION_VERSION } from './helpers/migrated-test-db.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 function makeVector(dim: number, entries: [number, number][]): number[] {
   const vector = new Array(dim).fill(0);
@@ -24,7 +24,7 @@ describe('Batched insertMany', () => {
 
   beforeEach(async () => {
     // A fresh in-memory database for each test, with every migration applied
-    db = await createDbAtVersion(LATEST_MIGRATION_VERSION);
+    db = await createMigratedTestDb();
 
     repository = new FileChunkRepository(db);
     _fileRecordRepository = new FileRecordRepository(db);

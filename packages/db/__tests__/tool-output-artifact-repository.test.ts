@@ -5,7 +5,7 @@ import {
   ToolOutputArtifactRepository,
   ToolOutputArtifactStorageError,
 } from '../src/repositories/tool-output-artifact-repository.js';
-import { createDbAtVersion, LATEST_MIGRATION_VERSION } from './helpers/migrated-test-db.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 describe('ToolOutputArtifactRepository', () => {
   let db: PGlite;
@@ -13,7 +13,7 @@ describe('ToolOutputArtifactRepository', () => {
   let repository: ToolOutputArtifactRepository;
 
   beforeEach(async () => {
-    db = await createDbAtVersion(LATEST_MIGRATION_VERSION);
+    db = await createMigratedTestDb();
     now = new Date('2026-07-19T12:00:00.000Z');
     repository = new ToolOutputArtifactRepository(db, { now: () => new Date(now) });
   });

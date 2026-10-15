@@ -1,5 +1,5 @@
 import { McpTaskRepository } from '@brainstrike/db';
-import { createNumberedChainTestDb } from '@brainstrike/db/test-support/migrated-test-db';
+import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { PGlite } from '@electric-sql/pglite';
 import type { ElicitResult, JSONObject } from '@modelcontextprotocol/client';
@@ -150,7 +150,7 @@ function createTaskServer(
 }
 
 async function openDatabase(): Promise<PGlite> {
-  return await createNumberedChainTestDb();
+  return await createMigratedTestDb();
 }
 
 async function startTaskSession(db: PGlite, server: FakeTaskServer) {

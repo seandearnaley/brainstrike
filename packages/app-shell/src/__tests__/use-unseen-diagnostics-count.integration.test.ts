@@ -7,13 +7,12 @@ describe('unseen diagnostics aggregate query', () => {
 
   beforeEach(async () => {
     database = await wasmLoader.createPGlite('memory://');
-    const migration = migrations.find((candidate) => candidate.version === 73);
-    if (!migration) {
-      throw new Error('Migration 073 is missing');
-    }
+    // Was "apply only migration 073" to get `brainstrike_diagnostic_events`.
+    // The chain collapsed into one current-schema DDL (ADR-0020), so the
+    // registry is applied whole; the query under test is unchanged.
     const runner = new MigrationRunner(database);
     await runner.initialize();
-    await runner.runMigration(migration);
+    await runner.up(migrations);
     await database.query(
       `INSERT INTO brainstrike_diagnostic_events
          (id, occurred_at, severity, source, message, fingerprint, session_id, app_version, platform)

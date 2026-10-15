@@ -1,1 +1,0 @@
-CREATE UNIQUE INDEX "idx_file_token_cache_folder_path_unique" ON "file_token_cache" USING btree ("folder_id","file_path");
