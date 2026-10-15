@@ -14,6 +14,7 @@ import type {
   ThreadWorkspaceRepository,
 } from '@brainstrike/assistant-data';
 import type { HostUsageRecord } from '@brainstrike/assistant-data/cost-tracking';
+import type { ThreadContextRecord } from '@brainstrike/assistant-ui/thread-context-store';
 import type { ThreadSearchExtraArms } from '@brainstrike/db';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { createContext, type ReactNode, useContext, useSyncExternalStore } from 'react';
@@ -100,6 +101,22 @@ export interface AssistantThreadHostChild {
   readonly toolCallId: string;
 }
 
+/** One read of a thread's context record, as `openThreadContext` reports it. */
+export interface AssistantThreadContextSnapshot {
+  /** Why the thread's log could not be read; a reader shows it, never an empty map. */
+  readonly error?: string;
+  readonly isLoading: boolean;
+  /** Absent until the log's replay has been read. */
+  readonly record?: ThreadContextRecord;
+}
+
+/** A thread's committed log, folded for the thread context map; it reads until closed. */
+export interface AssistantThreadContextSource {
+  close(): void;
+  readonly getSnapshot: () => AssistantThreadContextSnapshot;
+  readonly subscribe: (listener: () => void) => () => void;
+}
+
 /** A host app supplies committed thread identity and its connected presentation. */
 export interface AssistantThreadHostCapability {
   /**
@@ -122,6 +139,12 @@ export interface AssistantThreadHostCapability {
   /** Omitted by a host that reports no usage; cost views then count history only. */
   readonly ledger?: AssistantThreadHostLedger;
   listThreads(resourceId: string): Promise<readonly AssistantMemoryThread[]>;
+  /**
+   * BST-2021: a thread's committed log, folded as its own view folds it, for a
+   * subagent's lane in its parent's Context tab. A host without a committed
+   * run log omits this.
+   */
+  openThreadContext?(threadId: string): Promise<AssistantThreadContextSource>;
   /** True only for an identity this host owns; its metadata never reaches history. */
   ownsThread(threadId: string): Promise<boolean>;
   /** Omitted by a host that answers no provider reads (web uses its own server). */

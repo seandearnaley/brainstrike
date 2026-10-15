@@ -7,16 +7,23 @@
 import { useActiveAssistantThreadId } from '@brainstrike/assistant-data';
 import {
   type ContextRun,
+  fileWindowTokens,
   type ThreadContextAtTurn,
   threadContextAt,
 } from '@brainstrike/assistant-ui/thread-context-fold';
 import {
   type ContextRingFigure,
+  type ThreadContextRecord,
   useThreadContextStore,
 } from '@brainstrike/assistant-ui/thread-context-store';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
+import {
+  THREAD_CONTEXT_APP_ID,
+  useWorkspaceTabSelectionStore,
+} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import type { IndexChunkBoundsCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { formatTokenCount } from '@brainstrike/tokenization';
+import { isAgentColor } from '@brainstrike/types/agent-color';
 import {
   Button,
   CopyTextButton,
@@ -32,6 +39,9 @@ import {
 } from '@brainstrike/utils/browser-download';
 import { Download } from 'lucide-react';
 import { type ReactElement, useCallback, useMemo, useState } from 'react';
+import { getDelegatedColorPresentation } from '../agent-color-presentation';
+import type { AssistantThreadContextSnapshot } from '../assistant-thread-host-context';
+import { openHostChildTab } from '../open-host-child-tab';
 import { useOptionalRootIdentity } from '../roots/root-identity-context';
 import { ChunkStrip } from './chunk-strip';
 import { contextBundleMarkdown } from './context-bundle';
@@ -47,6 +57,7 @@ import {
   lineBands,
 } from './context-map-model';
 import { TurnScrubber } from './turn-scrubber';
+import { type ContextLane, useContextLanes } from './use-context-lanes';
 import { type FileChunksState, useFileChunks } from './use-file-chunks';
 import { useRowFreshness } from './use-row-freshness';
 
@@ -204,38 +215,121 @@ function Legend(): ReactElement {
   );
 }
 
-export function ThreadContextPage({ chunkBounds }: ThreadContextPageProps): ReactElement {
-  const threadId = useActiveAssistantThreadId();
-  const record = useThreadContextStore((state) =>
-    threadId ? state.byThread[threadId] : undefined
-  );
-  const ring = useThreadContextStore((state) =>
-    threadId ? state.ringByThread[threadId] : undefined
-  );
-  const [mode, setMode] = useState<ContextMapMode>('window');
-  const [pinnedTurn, setPinnedTurn] = useState<{
-    readonly threadId: string;
-    readonly turn: number;
-  }>();
-  const [selectedKey, setSelectedKey] = useState<string>();
+const NO_RUNS: readonly string[] = [];
+const THIS_THREAD = 'this-thread';
 
-  const branch = record?.branchRunIds ?? [];
-  // A chosen turn belongs to its thread; a new thread starts at its latest turn.
-  const turn =
-    pinnedTurn && pinnedTurn.threadId === threadId
-      ? Math.min(pinnedTurn.turn, branch.length)
-      : branch.length;
+const STATUS_LABEL = { idle: null, 'needs-input': 'needs input', working: 'working' } as const;
+
+/** A lane's figure on its chip: the in-window file tokens at its latest turn. */
+function laneFigure(lane: ContextLane): string {
+  if (lane.state.record) {
+    const { branchRunIds, snapshot } = lane.state.record;
+    return tokens(fileWindowTokens(threadContextAt(snapshot, branchRunIds)));
+  }
+  return lane.state.error === undefined ? 'reading…' : 'unavailable';
+}
+
+function LaneMark({ color }: { readonly color: string }): ReactElement {
+  if (!isAgentColor(color)) {
+    return <span aria-hidden="true" className="size-2 rounded-full bg-muted-foreground" />;
+  }
+  const presentation = getDelegatedColorPresentation(color);
+  return (
+    <span
+      aria-hidden="true"
+      className={cn('size-2 rounded-full', presentation.markClassName)}
+      style={presentation.style}
+    />
+  );
+}
+
+/** The thread and each subagent it started by the shown turn, one chip each. */
+function LaneChips({
+  lanes,
+  listError,
+  onSelect,
+  selected,
+}: {
+  readonly lanes: readonly ContextLane[];
+  readonly listError: string | undefined;
+  readonly onSelect: (lane: string | null) => void;
+  readonly selected: string | null;
+}): ReactElement {
+  return (
+    <div className="flex flex-col gap-1">
+      <Tabs
+        onValueChange={(value) => onSelect(value === THIS_THREAD ? null : value)}
+        value={selected ?? THIS_THREAD}
+      >
+        <TabsList aria-label="Lanes" className="h-auto flex-wrap justify-start" size="sm">
+          <TabsTrigger data-testid="context-map-lane" value={THIS_THREAD}>
+            This thread
+          </TabsTrigger>
+          {lanes.map((lane) => {
+            const status = STATUS_LABEL[lane.child.status];
+            return (
+              <TabsTrigger
+                className="gap-1.5"
+                data-testid="context-map-lane"
+                key={lane.child.threadId}
+                value={lane.child.threadId}
+              >
+                <LaneMark color={lane.child.color} />
+                <span>{lane.child.callSign}</span>
+                {status && <span className="text-muted-foreground">· {status}</span>}
+                <span className="text-muted-foreground tabular-nums">· {laneFigure(lane)}</span>
+              </TabsTrigger>
+            );
+          })}
+        </TabsList>
+      </Tabs>
+      {listError !== undefined && (
+        <p className="text-destructive text-xs" role="alert">
+          Subagents could not be listed: {listError}
+        </p>
+      )}
+    </div>
+  );
+}
+
+interface LaneViewProps {
+  readonly chunkBounds: IndexChunkBoundsCapability | null;
+  /** The lane chips, shown in the header when the thread has subagents. */
+  readonly lanes: ReactElement | undefined;
+  readonly mode: ContextMapMode;
+  /** Shown above the map: a subagent lane's conversation link, and why it stopped updating. */
+  readonly notice: ReactElement | undefined;
+  readonly onModeChange: (mode: ContextMapMode) => void;
+  readonly onSelectTurn: (turn: number) => void;
+  readonly record: ThreadContextRecord;
+  readonly ring: ContextRingFigure | undefined;
+  /** Whose model: "this thread's", or a subagent's call sign. */
+  readonly subject: string;
+  readonly turn: number;
+}
+
+/** One lane's map: the thread's own, or a subagent's from its own log. */
+function LaneView({
+  chunkBounds,
+  lanes,
+  mode,
+  notice,
+  onModeChange,
+  onSelectTurn,
+  record,
+  ring,
+  subject,
+  turn,
+}: LaneViewProps): ReactElement {
+  const [selectedKey, setSelectedKey] = useState<string>();
   const view = useMemo(
-    () => (record ? threadContextAt(record.snapshot, record.branchRunIds, turn) : undefined),
+    () => threadContextAt(record.snapshot, record.branchRunIds, turn),
     [record, turn]
   );
-  const rows = useMemo(() => (view ? contextFileRows(view.calls, mode) : []), [view, mode]);
-  const totals = useMemo(() => (view ? contextMapTotals(view, rows) : undefined), [view, rows]);
+  const rows = useMemo(() => contextFileRows(view.calls, mode), [view, mode]);
+  const totals = useMemo(() => contextMapTotals(view, rows), [view, rows]);
   // Chunk bounds are read again once the thread starts a turn or edits a file.
   const chunkRevision = useMemo(() => {
-    if (!record) {
-      return '';
-    }
     let edits = 0;
     for (const call of record.snapshot.calls.values()) {
       if (call.spans.some((span) => span.kind === 'edit')) {
@@ -247,9 +341,6 @@ export function ThreadContextPage({ chunkBounds }: ThreadContextPageProps): Reac
   const chunks = useFileChunks(chunkBounds, rows, chunkRevision);
   // The scrubber always describes the whole branch, whichever turn is shown.
   const scrubber = useMemo(() => {
-    if (!record) {
-      return;
-    }
     const runs = record.branchRunIds.flatMap((id) => {
       const run = record.snapshot.runs.get(id);
       return run ? [run] : [];
@@ -268,24 +359,29 @@ export function ThreadContextPage({ chunkBounds }: ThreadContextPageProps): Reac
     const displayName = adapterRootId ? rootDescriptors[adapterRootId]?.displayName : undefined;
     return row.rootName ?? displayName ?? 'A folder not open in the explorer';
   };
-  const bundle = useCallback(() => contextBundleMarkdown(rows, view?.turn ?? 0), [rows, view]);
+  const bundle = useCallback(() => contextBundleMarkdown(rows, view.turn), [rows, view]);
+  const title = `What ${subject} model received`;
 
-  if (!threadId) {
+  if (view.branch.length === 0) {
     return (
-      <EmptyState
-        className="h-full"
-        description="Open a thread to see the files its model received."
-        title="No active thread"
-      />
-    );
-  }
-  if (!(record && view && totals && scrubber) || view.branch.length === 0) {
-    return (
-      <EmptyState
-        className="h-full"
-        description="Once this thread runs, the files its model reads, searches and edits show here."
-        title="Nothing delivered yet"
-      />
+      <section
+        aria-label="Thread context"
+        className="flex h-full min-h-0 flex-col"
+        data-testid="thread-context-page"
+      >
+        <header className="flex flex-col gap-3 border-border border-b px-4 py-3">
+          <h2 className="font-semibold text-sm" data-testid="context-map-title">
+            {title}
+          </h2>
+          {lanes}
+          {notice}
+        </header>
+        <EmptyState
+          className="min-h-0 flex-1"
+          description="Once it runs, the files its model reads, searches and edits show here."
+          title="Nothing delivered yet"
+        />
+      </section>
     );
   }
   const windowUnknown = view.branch[view.turn - 1]?.measured === false;
@@ -301,13 +397,18 @@ export function ThreadContextPage({ chunkBounds }: ThreadContextPageProps): Reac
       <header className="flex flex-col gap-3 border-border border-b px-4 py-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-0.5">
-            <h2 className="font-semibold text-sm">What this thread's model received</h2>
+            <h2 className="font-semibold text-sm" data-testid="context-map-title">
+              {title}
+            </h2>
             <p className="text-muted-foreground text-xs">
               As of turn {view.turn} of {view.branch.length}
               {view.turn === view.branch.length ? ' (latest)' : ''}
             </p>
           </div>
-          <Tabs onValueChange={(value) => setMode(value === 'all' ? 'all' : 'window')} value={mode}>
+          <Tabs
+            onValueChange={(value) => onModeChange(value === 'all' ? 'all' : 'window')}
+            value={mode}
+          >
             <TabsList aria-label="Show" size="sm">
               <TabsTrigger data-testid="context-map-mode-window" value="window">
                 In window now
@@ -318,6 +419,8 @@ export function ThreadContextPage({ chunkBounds }: ThreadContextPageProps): Reac
             </TabsList>
           </Tabs>
         </div>
+        {lanes}
+        {notice}
         <dl className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
           <div className="flex gap-1.5">
             <dt className="text-muted-foreground">Workspace files in the window</dt>
@@ -337,7 +440,7 @@ export function ThreadContextPage({ chunkBounds }: ThreadContextPageProps): Reac
         {ring && <ContextRingBar filesTokens={totals.windowTokens} ring={ring} />}
         <TurnScrubber
           addedTokens={scrubber.addedTokens}
-          onSelect={(next) => setPinnedTurn({ threadId, turn: next })}
+          onSelect={onSelectTurn}
           runs={scrubber.runs}
           selected={view.turn}
         />
@@ -445,5 +548,197 @@ export function ThreadContextPage({ chunkBounds }: ThreadContextPageProps): Reac
         </span>
       </footer>
     </section>
+  );
+}
+
+/** A subagent's lane before its log has been read, or when it could not be. */
+function LaneStatus({
+  callSign,
+  lanes,
+  onRetry,
+  state,
+}: {
+  readonly callSign: string;
+  readonly lanes: ReactElement | undefined;
+  readonly onRetry: () => void;
+  readonly state: AssistantThreadContextSnapshot;
+}): ReactElement {
+  return (
+    <section
+      aria-label="Thread context"
+      className="flex h-full min-h-0 flex-col"
+      data-testid="thread-context-page"
+    >
+      <header className="flex flex-col gap-3 border-border border-b px-4 py-3">
+        <h2 className="font-semibold text-sm" data-testid="context-map-title">
+          What {callSign}'s model received
+        </h2>
+        {lanes}
+      </header>
+      {state.error === undefined ? (
+        <p className="p-4 text-muted-foreground text-xs" role="status">
+          Reading {callSign}'s log…
+        </p>
+      ) : (
+        <LaneError callSign={callSign} message={state.error} onRetry={onRetry} />
+      )}
+    </section>
+  );
+}
+
+function LaneError({
+  callSign,
+  message,
+  onRetry,
+}: {
+  readonly callSign: string;
+  readonly message: string;
+  readonly onRetry: () => void;
+}): ReactElement {
+  return (
+    <div
+      className="flex flex-wrap items-center gap-2 text-destructive text-xs"
+      data-testid="context-map-lane-error"
+      role="alert"
+    >
+      <span>
+        {callSign}'s log could not be read: {message}
+      </span>
+      <Button className="h-6 text-xs" onClick={onRetry} size="sm" variant="outline">
+        Retry
+      </Button>
+    </div>
+  );
+}
+
+export function ThreadContextPage({ chunkBounds }: ThreadContextPageProps): ReactElement {
+  const threadId = useActiveAssistantThreadId();
+  const record = useThreadContextStore((state) =>
+    threadId ? state.byThread[threadId] : undefined
+  );
+  const ring = useThreadContextStore((state) =>
+    threadId ? state.ringByThread[threadId] : undefined
+  );
+  const [mode, setMode] = useState<ContextMapMode>('window');
+  // A chosen turn and lane belong to their thread; a new thread starts on its
+  // own lane at its latest turn, and so does each subagent's lane.
+  const [pinned, setPinned] = useState<{
+    readonly threadId: string;
+    readonly turns: Readonly<Record<string, number>>;
+  }>();
+  const [chosenLane, setChosenLane] = useState<{
+    readonly lane: string;
+    readonly threadId: string;
+  }>();
+  // A hidden workspace tab stays mounted, so lanes read only while this one is shown.
+  const shown = useWorkspaceTabSelectionStore(
+    (state) => state.selection.kind === 'app' && state.selection.appId === THREAD_CONTEXT_APP_ID
+  );
+  const { lanes, listError, retry } = useContextLanes(
+    shown ? threadId : null,
+    record?.branchRunIds ?? NO_RUNS
+  );
+
+  if (!threadId) {
+    return (
+      <EmptyState
+        className="h-full"
+        description="Open a thread to see the files its model received."
+        title="No active thread"
+      />
+    );
+  }
+  if (!record || record.branchRunIds.length === 0) {
+    return (
+      <EmptyState
+        className="h-full"
+        description="Once this thread runs, the files its model reads, searches and edits show here."
+        title="Nothing delivered yet"
+      />
+    );
+  }
+  const turns = pinned?.threadId === threadId ? pinned.turns : {};
+  const turnOf = (laneId: string, latest: number): number =>
+    Math.min(turns[laneId] ?? latest, latest);
+  const pinTurn = (laneId: string) => (turn: number) =>
+    setPinned({ threadId, turns: { ...turns, [laneId]: turn } });
+  // A subagent's lane opens from the turn whose run started it.
+  const parentTurn = turnOf(threadId, record.branchRunIds.length);
+  const present = lanes.filter((lane) => lane.startedAtTurn <= parentTurn);
+  const lane =
+    chosenLane?.threadId === threadId
+      ? present.find((candidate) => candidate.child.threadId === chosenLane.lane)
+      : undefined;
+  const chips =
+    present.length > 0 || listError !== undefined ? (
+      <LaneChips
+        lanes={present}
+        listError={listError}
+        onSelect={(next) => setChosenLane(next === null ? undefined : { lane: next, threadId })}
+        selected={lane?.child.threadId ?? null}
+      />
+    ) : undefined;
+
+  if (lane) {
+    const { child, state } = lane;
+    if (!state.record) {
+      return (
+        <LaneStatus
+          callSign={child.callSign}
+          lanes={chips}
+          onRetry={() => retry(child.threadId)}
+          state={state}
+        />
+      );
+    }
+    return (
+      <LaneView
+        chunkBounds={chunkBounds}
+        key={child.threadId}
+        lanes={chips}
+        mode={mode}
+        notice={
+          <span className="flex flex-wrap items-center gap-2">
+            <Button
+              className="h-6 text-xs"
+              data-testid="context-map-open-lane-conversation"
+              onClick={() => openHostChildTab(child)}
+              size="sm"
+              variant="outline"
+            >
+              Open {child.callSign}'s conversation
+            </Button>
+            {state.error !== undefined && (
+              <LaneError
+                callSign={child.callSign}
+                message={state.error}
+                onRetry={() => retry(child.threadId)}
+              />
+            )}
+          </span>
+        }
+        onModeChange={setMode}
+        onSelectTurn={pinTurn(child.threadId)}
+        record={state.record}
+        ring={undefined}
+        subject={`${child.callSign}'s`}
+        turn={turnOf(child.threadId, state.record.branchRunIds.length)}
+      />
+    );
+  }
+  return (
+    <LaneView
+      chunkBounds={chunkBounds}
+      key={threadId}
+      lanes={chips}
+      mode={mode}
+      notice={undefined}
+      onModeChange={setMode}
+      onSelectTurn={pinTurn(threadId)}
+      record={record}
+      ring={ring}
+      subject="this thread's"
+      turn={parentTurn}
+    />
   );
 }

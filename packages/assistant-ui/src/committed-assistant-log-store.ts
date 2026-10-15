@@ -11,7 +11,11 @@ import type {
 import { type ThreadTokenUsage, useContextUsageStore } from './context-usage-store';
 import type { LiveShellOutputs } from './live-shell-outputs';
 import { displayedBranchRunIds, ThreadContextFold } from './thread-context-fold';
-import { type ThreadContextRecord, useThreadContextStore } from './thread-context-store';
+import {
+  nextThreadContextRecord,
+  type ThreadContextRecord,
+  useThreadContextStore,
+} from './thread-context-store';
 
 /** Owner view fields pass through; this source has already applied committed gap ordering. */
 export interface CommittedAssistantLogSourceSnapshot {
@@ -64,13 +68,10 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
       // The thread context map's fold reads the same rows (ADR-0021).
       const snapshot = contextFold.accept(source.rows);
       const branchRunIds = displayedBranchRunIds(view.repository, snapshot.runs);
-      const recorded = this.recordedContext;
-      if (
-        snapshot !== recorded?.snapshot ||
-        branchRunIds.join('\n') !== recorded.branchRunIds.join('\n')
-      ) {
-        this.recordedContext = { branchRunIds, snapshot };
-        useThreadContextStore.getState().record(this.threadId, this.recordedContext);
+      const recorded = nextThreadContextRecord(this.recordedContext, snapshot, branchRunIds);
+      if (recorded !== this.recordedContext) {
+        this.recordedContext = recorded;
+        useThreadContextStore.getState().record(this.threadId, recorded);
       }
       if (view.contextUsage && view.contextUsage !== displayedContext) {
         displayedContext = view.contextUsage;
