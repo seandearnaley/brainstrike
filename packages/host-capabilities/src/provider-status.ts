@@ -256,9 +256,14 @@ export async function readProviderStatus(options: ProviderStatusOptions): Promis
     };
   }
   const inspection = await inspectProviderKeys(options);
+  // Keyed providers only. The built-in on-device provider used to be added
+  // unconditionally here ("runs in the renderer with no key, so it is always
+  // available"), but it is EMBEDDINGS-ONLY now: advertising it as an available
+  // chat provider made the renderer's status validator refuse the whole
+  // payload ("provider local has no registry default model"), which reads as
+  // "Assistant unavailable". The local SERVERS (Ollama, LM Studio) are
+  // discovered by their own probe, not reported here.
   const providers = new Set<string>(inspection.configuredProviders.map(({ provider }) => provider));
-  // The local provider runs in the renderer with no key, so it is always available.
-  providers.add('local');
   const providerErrors = inspection.readFailures.map((failure) => ({
     ...failure,
     error: 'api_key_unreadable' as const,

@@ -37,10 +37,13 @@ describe('host provider services', () => {
       envFileFailures: [],
     });
 
+    // Keyed providers only: the built-in on-device provider is embeddings-only
+    // and must not be advertised as an available chat provider — the renderer's
+    // status validator refuses a provider with no registry default model.
     await expect(services.status()).resolves.toEqual({
       enabled: true,
       providerKeySources: [{ provider: 'openrouter', source: 'stored' }],
-      providers: ['openrouter', 'local'],
+      providers: ['openrouter'],
     });
   });
 
