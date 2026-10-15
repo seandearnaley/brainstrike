@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyPromptToolCallWindow,
   CONTEXT_BREAKDOWN_DATA_NAME,
+  diffPromptToolCallWindow,
   isAssistantContextBreakdown,
+  type PromptToolCall,
   parseAssistantContextBreakdown,
 } from '../context-breakdown.js';
 
@@ -134,5 +137,99 @@ describe('context-breakdown contract', () => {
     ['negative historyMessagesTokens', { ...validBreakdown, historyMessagesTokens: -5 }],
   ])('surfaces a malformed payload (%s) as { invalid: true }, never coerced', (_label, value) => {
     expect(parseAssistantContextBreakdown(value)).toEqual({ invalid: true });
+  });
+
+  it('accepts and forwards the tool-call total with its per-tool rows', () => {
+    const withToolCalls = {
+      ...validBreakdown,
+      historyMessagesTokens: 300,
+      toolCallsByTool: [
+        { calls: 2, tokens: 900, toolName: 'brainstrike.readWorkspaceFile' },
+        { calls: 1, tokens: 40, toolName: 'brainstrike.grepSearch' },
+      ],
+      toolCallsTokens: 940,
+    };
+    expect(parseAssistantContextBreakdown(withToolCalls)).toEqual({
+      breakdown: withToolCalls,
+      invalid: false,
+    });
+  });
+
+  it.each([
+    ['a total without its rows', { ...validBreakdown, toolCallsTokens: 10 }],
+    ['rows without their total', { ...validBreakdown, toolCallsByTool: [] }],
+    [
+      'a row with an empty tool name',
+      {
+        ...validBreakdown,
+        toolCallsByTool: [{ calls: 1, tokens: 3, toolName: '' }],
+        toolCallsTokens: 3,
+      },
+    ],
+    [
+      'a row without a call count',
+      { ...validBreakdown, toolCallsByTool: [{ tokens: 3, toolName: 'x' }], toolCallsTokens: 3 },
+    ],
+  ])('surfaces a malformed tool-call payload (%s) as { invalid: true }', (_label, value) => {
+    expect(parseAssistantContextBreakdown(value)).toEqual({ invalid: true });
+  });
+});
+
+const call = (
+  toolCallId: string,
+  output: PromptToolCall['output'] = 'full',
+  outputTokens = 100
+): PromptToolCall => ({
+  inputTokens: 5,
+  output,
+  outputTokens,
+  toolCallId,
+  toolName: 'brainstrike.readWorkspaceFile',
+});
+
+describe('prompt tool-call windows', () => {
+  it("lists every call on a run's first request", () => {
+    const first = [call('a'), call('b')];
+    expect(diffPromptToolCallWindow(undefined, first)).toEqual({
+      base: 'run-start',
+      removed: [],
+      upserted: first,
+    });
+  });
+
+  it('carries only entering, changed and leaving calls on later requests', () => {
+    const previous = new Map([call('a'), call('b'), call('c')].map((c) => [c.toolCallId, c]));
+    const next = [call('a'), call('b', 'marker', 12), call('d')];
+    expect(diffPromptToolCallWindow(previous, next)).toEqual({
+      base: 'previous',
+      removed: ['c'],
+      upserted: [call('b', 'marker', 12), call('d')],
+    });
+  });
+
+  it("rebuilds every request's complete set from a run's windows in commit order", () => {
+    const requests = [
+      [call('a')],
+      [call('a'), call('b')],
+      [call('a', 'marker', 9), call('b'), call('c')],
+      [call('c')],
+      [],
+    ];
+    let producer: ReadonlyMap<string, PromptToolCall> | undefined;
+    let consumer: ReadonlyMap<string, PromptToolCall> | undefined;
+    for (const request of requests) {
+      const window = diffPromptToolCallWindow(producer, request);
+      producer = applyPromptToolCallWindow(producer, window);
+      consumer = applyPromptToolCallWindow(consumer, JSON.parse(JSON.stringify(window)));
+      expect(
+        [...consumer.values()].sort((x, y) => x.toolCallId.localeCompare(y.toolCallId))
+      ).toEqual([...request].sort((x, y) => x.toolCallId.localeCompare(y.toolCallId)));
+    }
+  });
+
+  it('refuses a continuation whose run committed no earlier request', () => {
+    expect(() =>
+      applyPromptToolCallWindow(undefined, { base: 'previous', removed: [], upserted: [] })
+    ).toThrow('never committed');
   });
 });

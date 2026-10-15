@@ -69,7 +69,69 @@ describe('the committed host event schema', () => {
   });
 
   const runId = 'run-1';
+  const breakdown = {
+    attachmentsCount: 0,
+    historyMessagesTokens: 12,
+    provenance: 'heuristic',
+    systemInstructionsTokens: 300,
+    toolDefinitionsProvenance: 'heuristic',
+    toolDefinitionsTokens: 900,
+  };
+  const prepared = {
+    accounting: {},
+    breakdown,
+    modelId: 'openai::gpt-6-sol',
+    provider: 'openai',
+    runId,
+    type: 'provider.request.prepared',
+  };
+  const toolCalls = {
+    toolCallsByTool: [{ calls: 1, tokens: 40, toolName: 'brainstrike.grepSearch' }],
+    toolCallsTokens: 40,
+  };
+  const toolCallWindow = {
+    base: 'run-start',
+    removed: [],
+    upserted: [
+      {
+        inputTokens: 4,
+        output: 'full',
+        outputTokens: 36,
+        toolCallId: 'call-1',
+        toolName: 'brainstrike.grepSearch',
+      },
+    ],
+  };
+
   test.each([
+    ['a prepared request measured before tool calls were attributed', prepared],
+    [
+      'a prepared request with its tool calls and window',
+      { ...prepared, breakdown: { ...breakdown, ...toolCalls }, toolCallWindow },
+    ],
+  ])('%s parses to itself', (_, event) => {
+    expect(HostEventSchema.parse(event)).toEqual(event);
+  });
+
+  test.each([
+    [
+      'a tool-call total without its per-tool rows',
+      { ...prepared, breakdown: { ...breakdown, toolCallsTokens: 40 } },
+    ],
+    [
+      'a window entry with an unknown output',
+      {
+        ...prepared,
+        toolCallWindow: {
+          ...toolCallWindow,
+          upserted: [{ ...toolCallWindow.upserted[0], output: 'partial' }],
+        },
+      },
+    ],
+    [
+      'a window with an unknown base',
+      { ...prepared, toolCallWindow: { ...toolCallWindow, base: 'thread-start' } },
+    ],
     ['an unknown type', { runId, type: 'run.unknown' }],
     ['no type', { runId }],
     ['a key no member has', { commandId: 'c-1', extra: true, type: 'thread.started' }],

@@ -24,6 +24,17 @@ export interface AssistantToolDefinitionTokens {
   readonly tokens: number;
 }
 
+/**
+ * One tool's share of the prompt's tool calls and results: the calls' inputs
+ * plus their results as the provider receives them (a rewritten result counts
+ * as its marker).
+ */
+export interface AssistantToolCallUsage {
+  readonly calls: number;
+  readonly tokens: number;
+  readonly toolName: string;
+}
+
 export interface AssistantContextBreakdown {
   /**
    * Number of inline file (image) parts carried by the outgoing wire messages.
@@ -54,6 +65,17 @@ export interface AssistantContextBreakdown {
   readonly systemInstructionsTokens: number;
   /** Heuristic tokens of the per-thread task list note. ABSENT when no task list block was injected. */
   readonly taskListTokens?: number;
+  /**
+   * Per-tool totals behind `toolCallsTokens`, sorted descending by tokens.
+   * Present iff `toolCallsTokens` is.
+   */
+  readonly toolCallsByTool?: readonly AssistantToolCallUsage[];
+  /**
+   * Heuristic tokens of every tool call input and tool result in the prompt,
+   * as sent. ABSENT when the producer did not measure them (never zero-faked);
+   * those tokens then remain in Unattributed.
+   */
+  readonly toolCallsTokens?: number;
   /**
    * Per-tool definition token counts, sorted descending by tokens. ABSENT when
    * the run's tool-definition measurement failed (never zero-faked).
@@ -88,6 +110,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function isToolCallUsageEntry(value: unknown): value is AssistantToolCallUsage {
+  return (
+    isRecord(value) &&
+    typeof value['toolName'] === 'string' &&
+    value['toolName'].length > 0 &&
+    isCount(value['tokens']) &&
+    isCount(value['calls'])
+  );
 }
 
 function isToolDefinitionTokensEntry(value: unknown): value is AssistantToolDefinitionTokens {
@@ -137,7 +169,17 @@ export function isAssistantContextBreakdown(value: unknown): value is AssistantC
   ) {
     return false;
   }
-  return true;
+  return hasWellFormedToolCalls(value);
+}
+
+/** The tool-call total and its per-tool rows arrive together or not at all. */
+function hasWellFormedToolCalls(value: Record<string, unknown>): boolean {
+  const total = value['toolCallsTokens'];
+  const byTool = value['toolCallsByTool'];
+  if (total === undefined && byTool === undefined) {
+    return true;
+  }
+  return isCount(total) && Array.isArray(byTool) && byTool.every(isToolCallUsageEntry);
 }
 
 /**
@@ -159,6 +201,16 @@ export function parseAssistantContextBreakdown(value: unknown): AssistantContext
       provenance: value.provenance,
       systemInstructionsTokens: value.systemInstructionsTokens,
       ...(value.taskListTokens === undefined ? {} : { taskListTokens: value.taskListTokens }),
+      ...(value.toolCallsTokens === undefined || value.toolCallsByTool === undefined
+        ? {}
+        : {
+            toolCallsByTool: value.toolCallsByTool.map(({ calls, tokens, toolName }) => ({
+              calls,
+              tokens,
+              toolName,
+            })),
+            toolCallsTokens: value.toolCallsTokens,
+          }),
       ...(value.toolDefinitionsByTool === undefined
         ? {}
         : {
@@ -176,4 +228,85 @@ export function parseAssistantContextBreakdown(value: unknown): AssistantContext
     },
     invalid: false,
   };
+}
+
+/**
+ * One tool call as a provider request carried it: its input and its result,
+ * measured on the exact prompt with the chars/4 heuristic. `output` is
+ * `marker` when the result went out as a committed projection rewrite, and
+ * `absent` when the request carried the call without its result.
+ */
+export interface PromptToolCall {
+  readonly inputTokens: number;
+  readonly output: 'absent' | 'full' | 'marker';
+  readonly outputTokens: number;
+  readonly toolCallId: string;
+  readonly toolName: string;
+}
+
+/**
+ * The tool calls one provider request carried, as a change from the previous
+ * request of the same run. A run's first request is `run-start` and lists every
+ * call; later requests list only the calls that entered or changed, and the
+ * ids that left. A consumer folds a run's requests in commit order.
+ */
+export interface PromptToolCallWindow {
+  readonly base: 'previous' | 'run-start';
+  readonly removed: readonly string[];
+  readonly upserted: readonly PromptToolCall[];
+}
+
+function samePromptToolCall(a: PromptToolCall, b: PromptToolCall): boolean {
+  return (
+    a.inputTokens === b.inputTokens &&
+    a.output === b.output &&
+    a.outputTokens === b.outputTokens &&
+    a.toolName === b.toolName
+  );
+}
+
+/**
+ * The window that turns `previous` (the run's previous request, or none) into
+ * `next`. Producer side of {@link applyPromptToolCallWindow}.
+ */
+export function diffPromptToolCallWindow(
+  previous: ReadonlyMap<string, PromptToolCall> | undefined,
+  next: readonly PromptToolCall[]
+): PromptToolCallWindow {
+  if (!previous) {
+    return { base: 'run-start', removed: [], upserted: [...next] };
+  }
+  const present = new Set<string>();
+  const upserted: PromptToolCall[] = [];
+  for (const call of next) {
+    present.add(call.toolCallId);
+    const before = previous.get(call.toolCallId);
+    if (!(before && samePromptToolCall(before, call))) {
+      upserted.push(call);
+    }
+  }
+  const removed = [...previous.keys()].filter((id) => !present.has(id));
+  return { base: 'previous', removed, upserted };
+}
+
+/**
+ * The request's complete tool-call set from the run's previous set and this
+ * request's window. A `previous` window with no earlier request of its run is
+ * a producer fault and throws; it is never read as a fresh start.
+ */
+export function applyPromptToolCallWindow(
+  previous: ReadonlyMap<string, PromptToolCall> | undefined,
+  window: PromptToolCallWindow
+): Map<string, PromptToolCall> {
+  if (window.base === 'previous' && !previous) {
+    throw new Error('A tool-call window continues a request its run never committed.');
+  }
+  const next = new Map(window.base === 'run-start' ? [] : previous);
+  for (const id of window.removed) {
+    next.delete(id);
+  }
+  for (const call of window.upserted) {
+    next.set(call.toolCallId, call);
+  }
+  return next;
 }
