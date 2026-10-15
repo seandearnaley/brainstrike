@@ -59,7 +59,7 @@ import {
   buildDefaultInstructions,
   buildLocalDefaultInstructions,
   type DelegationPersonaSummary,
-} from './default-instructions';
+} from '../instructions/default-instructions';
 import type {
   DelegatedCancellationControl,
   DelegatedConversationBinding,
@@ -73,16 +73,16 @@ import {
   createDelegatedTurnPersistence,
   type DelegatedTurnPersistence,
 } from './delegated-turn-persistence';
-import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from './error-processors';
+import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from '../mastra-processors/error-processors';
 import { createLiveDecisionChannel, type LiveDecisionChannel } from './live-decision-channel';
-import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
+import { createMastraAgentError, isMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import type { McpAppToolAdmissionCapability } from './mcp-app-tool-call';
-import type { McpDiscoverySkip } from './mcp-discovery-diagnostics';
-import type { McpRuntimeClient } from './mcp-runtime-client';
+import type { McpDiscoverySkip } from '../mcp/mcp-discovery-diagnostics';
+import type { McpRuntimeClient } from '../mcp/mcp-runtime-client';
 import type { PermissionGateSummary } from './permission-gate-run-events';
-import type { PermissionAskToolMetadata, PermissionToolGateSnapshot } from './permission-tool-gate';
+import type { PermissionAskToolMetadata, PermissionToolGateSnapshot } from '../permissions/permission-tool-gate';
 import { createPersonaPinnedModelResolver } from './persona-pinned-model';
-import type { ProjectionSafeToolCallFilter } from './projection-safe-tool-call-filter';
+import type { ProjectionSafeToolCallFilter } from '../mastra-processors/projection-safe-tool-call-filter';
 import { computeInstructionBreakdown, type InstructionBreakdown } from './prompt-breakdown';
 import { createAssistantMessageIdGenerator } from './runtime-assembly/assistant-message-id';
 import { resolvePersonaRuntimeParts } from './runtime-assembly/persona-assembly';
@@ -94,11 +94,11 @@ import {
 import {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
-} from './runtime-configuration';
+} from '../runtime-configuration';
 import type { ChildPromptFacts } from './subagent-delegation';
-import type { RunTokenDiagnostics } from './token-measurement';
-import type { ToolOutputArtifactSettlementStore } from './tool-output-artifact-settlement';
-import type { BrainstrikeToolSearchProcessor, ToolDiscoveryMetadata } from './tool-search-runtime';
+import type { RunTokenDiagnostics } from '../token-measurement';
+import type { ToolOutputArtifactSettlementStore } from '../tool-projection/tool-output-artifact-settlement';
+import type { BrainstrikeToolSearchProcessor, ToolDiscoveryMetadata } from '../mastra-processors/tool-search-runtime';
 
 export interface MastraAgentRuntimeOptions {
   /**

@@ -6,7 +6,7 @@ import {
   readOpenRouterDiagnostics,
   readStreamPartUsage,
   type UsageMeteringState,
-} from '../mastra/runtime-assembly/usage-metering';
+} from '../usage-metering';
 
 describe('readStreamPartUsage', () => {
   it('reads the nested payload.output shape a real Mastra part emits', () => {

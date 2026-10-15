@@ -37,13 +37,13 @@ import {
   makeStepMetadata,
   type ResolvedTripwire,
   truncateStreamDetail,
-} from './mastra-chunk-decoding';
+} from '../mastra-boundary/mastra-chunk-decoding';
 import {
   makeErrorFinishChunk,
   makeRunEventChunk,
   makeRunFailedChunk,
   makeSyntheticFinishChunk,
-} from './stream-run-event-chunks';
+} from '../tool-projection/stream-run-event-chunks';
 import {
   makeCancelledDelegationRunEventChunks,
   makePendingToolOutputRunEventChunks,

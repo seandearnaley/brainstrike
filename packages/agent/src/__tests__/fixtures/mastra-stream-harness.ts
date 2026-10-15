@@ -32,7 +32,7 @@ import {
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { expect } from 'vitest';
-import { MastraAgentError, type MastraAgentErrorCode } from '../../mastra/mastra-agent-error';
+import { MastraAgentError, type MastraAgentErrorCode } from '../../mastra-boundary/mastra-agent-error';
 
 export interface MockMastraAgentInstance {
   approveToolCallCalls: unknown[];

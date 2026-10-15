@@ -10,7 +10,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import type { RuntimeData } from '../types';
 import type { MastraAgentRuntimeOptions } from './agent-runtime';
-import type { PermissionToolGateSnapshot } from './permission-tool-gate';
+import type { PermissionToolGateSnapshot } from '../permissions/permission-tool-gate';
 import {
   buildGenerationProviderOptionsOption,
   buildModelSettingsOption,

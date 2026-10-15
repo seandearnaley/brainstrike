@@ -11,7 +11,7 @@ import type { ChunkType } from '@mastra/core/stream';
 import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import type { StreamInactivityOptions, StreamPartRoute } from '../stream/with-inactivity-timeout';
 import type { StreamChunk } from '../types';
-import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
+import { readMastraStreamPartString, readMastraStreamPartValue } from '../tool-projection/tool-event-mapper';
 
 /**
  * Name a raw Mastra part for the stall diagnostic. Knowing WHAT the provider

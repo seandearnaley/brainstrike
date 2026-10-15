@@ -9,15 +9,15 @@ import { createLogger } from '@brainstrike/logging';
 import type { ToolsInput } from '@mastra/core/agent';
 import { type StandardSchemaWithJSON, toStandardSchema } from '@mastra/core/schema';
 import { createTool, type MCPToolProperties, type ToolExecutionContext } from '@mastra/core/tools';
-import { type McpConfigInput, parseMcpConfigValue } from '../mcp/config';
+import { type McpConfigInput, parseMcpConfigValue } from './config';
 import type {
   ExplicitHttpMcpCallToolParams,
   ExplicitHttpMcpCallToolResult,
   ExplicitHttpMcpListToolsResult,
   ExplicitHttpMcpRequestOptions,
   ExplicitHttpMcpTool,
-} from '../mcp/explicit-http-client';
-import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
+} from './explicit-http-client';
+import type { McpTaskTrackingCapability } from './task-tracking';
 import { normalizeProgressPayload } from '../tools/progress-adapter';
 import { readToolCallId } from '../tools/read-tool-call-id';
 import { resolveGuardedToolSignal } from '../tools/tool-guard-deadline';

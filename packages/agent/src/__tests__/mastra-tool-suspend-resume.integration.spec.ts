@@ -71,7 +71,7 @@ const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
 const { createSubmitPlanTool } = await import('../tools/submit-plan-tool');
 const { createAskUserTool } = await import('../tools/ask-user-tool');
 const { createRunPythonTool } = await import('../tools/run-python-tool');
-const { resolveSelfApprovalDecision } = await import('../mastra/permission-tool-gate');
+const { resolveSelfApprovalDecision } = await import('../permissions/permission-tool-gate');
 const { buildNativeToolRiskMap } = await import('@brainstrike/assistant-contract/tool-metadata');
 type AssistantPersonaDefinition =
   import('@brainstrike/assistant-contract/personas').AssistantPersonaDefinition;

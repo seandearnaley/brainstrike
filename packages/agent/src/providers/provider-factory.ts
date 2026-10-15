@@ -15,7 +15,7 @@ import {
   type OpenAICompatibleConfig,
 } from '@mastra/core/llm';
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
-import { createMastraAgentError } from '../mastra/mastra-agent-error';
+import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import type { RuntimeData } from '../types';
 import { resolveBedrockModelId } from './bedrock-model-id';
 import { resolveCodexModelId } from './codex-model-id';

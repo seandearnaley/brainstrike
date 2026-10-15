@@ -11,7 +11,7 @@ import type {
 } from '@ai-sdk/provider';
 import { MessageList } from '@mastra/core/agent';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createPreparedTokenMeasurement } from '../mastra/token-measurement';
+import { createPreparedTokenMeasurement } from '../token-measurement';
 import {
   createProviderRequestMiddleware,
   healInterruptedModelMessages,

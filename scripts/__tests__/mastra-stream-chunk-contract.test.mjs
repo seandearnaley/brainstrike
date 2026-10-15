@@ -8,7 +8,7 @@ import { findMastraStreamChunkContractViolations } from '../mastra-stream-chunk-
 
 const AGENT_STREAMING_FILE = 'packages/agent/src/mastra/agent-streaming.ts';
 const DATA_STREAM_MAPPER_FILE = 'packages/agent/src/stream/data-stream-mapper.ts';
-const TOOL_EVENT_MAPPER_FILE = 'packages/agent/src/mastra/tool-event-mapper.ts';
+const TOOL_EVENT_MAPPER_FILE = 'packages/agent/src/tool-projection/tool-event-mapper.ts';
 
 const COMPLIANT_FILES = {
   [AGENT_STREAMING_FILE]: `import type { ChunkType } from '@mastra/core/stream';

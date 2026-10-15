@@ -8,14 +8,14 @@ import {
   type CreateTaskResult,
   parseMcpCreateTaskResult,
 } from '@brainstrike/mcp-tasks-extension/task';
-import { readRegisteredExtensionResult } from '../mcp/client-extension-registry';
+import { readRegisteredExtensionResult } from './client-extension-registry';
 import {
   MCP_TASK_CONTEXT_MAX_BYTES,
   type McpTaskContextProjection,
   projectMcpTaskForContext,
-} from '../mcp/task-presentation';
-import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
-import { getActiveToolResultBudget } from './tool-model-output';
+} from './task-presentation';
+import type { McpTaskTrackingCapability } from './task-tracking';
+import { getActiveToolResultBudget } from '../tool-projection/tool-model-output';
 
 /**
  * How long a task-creating MCP tool call waits for a terminal status before

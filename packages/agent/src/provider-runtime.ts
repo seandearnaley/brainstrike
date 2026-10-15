@@ -12,15 +12,15 @@ export {
   type AssistantResilienceConfig,
   resolveAssistantResilienceConfig,
 } from './config/resilience-config';
-export { resolveProviderError } from './mastra/mastra-chunk-decoding';
+export { resolveProviderError } from './mastra-boundary/mastra-chunk-decoding';
 export {
   type BilledCostReading,
   readOpenRouterBilledCost,
-} from './mastra/runtime-assembly/usage-metering';
+} from './usage-metering';
 export {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
-} from './mastra/runtime-configuration';
+} from './runtime-configuration';
 export {
   extractProviderRunError,
   isContextOverflowProviderErrorCode,

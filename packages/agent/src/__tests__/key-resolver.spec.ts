@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { RuntimeData } from '../index';
+import type { RuntimeData } from '..';
 import { isSupportedProvider, resolveProviderApiKey } from '../providers/key-resolver';
 
 describe('key-resolver', () => {

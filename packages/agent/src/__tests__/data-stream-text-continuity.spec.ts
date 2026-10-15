@@ -10,7 +10,7 @@
  */
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { describe, expect, it } from 'vitest';
-import type { StreamChunk } from '../index';
+import type { StreamChunk } from '..';
 import { AssistantDataStreamSession } from '../stream/data-stream';
 import { DataStreamMapper } from '../stream/data-stream-mapper';
 

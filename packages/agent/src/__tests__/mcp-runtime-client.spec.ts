@@ -7,8 +7,8 @@ import {
   MCP_PROGRESS_STREAM_PART_TYPE,
   mapMcpProgressStreamPart,
   retainRawMcpCallToolResult,
-} from '../mastra/mcp-runtime-client';
-import { applyToolModelOutputProjections } from '../mastra/tool-model-output';
+} from '../mcp/mcp-runtime-client';
+import { applyToolModelOutputProjections } from '../tool-projection/tool-model-output';
 import { REGISTERED_EXTENSION_RESULT_KEY } from '../mcp/client-extension-registry';
 import type {
   ExplicitHttpMcpCallToolParams,

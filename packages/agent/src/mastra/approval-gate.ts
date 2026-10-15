@@ -28,7 +28,7 @@ import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
 import {
   type PermissionAskToolMetadata,
   resolveSelfApprovalDecision,
-} from './permission-tool-gate';
+} from '../permissions/permission-tool-gate';
 import type { ApprovalGate } from './runtime-assembly/stream-options';
 
 export interface ApprovalGateSource {

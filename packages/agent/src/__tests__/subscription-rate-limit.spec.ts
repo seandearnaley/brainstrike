@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildAssistantErrorProcessors,
   isSubscriptionRateLimitError,
-} from '../mastra/error-processors';
+} from '../mastra-processors/error-processors';
 
 /**
  * Legal gate BST-1351, constraint 6:

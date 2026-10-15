@@ -11,7 +11,7 @@ import { type MastraDBMessage, MessageList } from '@mastra/core/agent';
 import { ModelRouterLanguageModel } from '@mastra/core/llm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { createPreparedTokenMeasurement } from '../mastra/token-measurement';
+import { createPreparedTokenMeasurement } from '../token-measurement';
 import {
   type CanonicalProviderSchemaLayer,
   createProviderRequestMiddleware,

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import test from 'node:test';
-import { ProjectionSafeToolCallFilter } from '../../../../packages/agent/src/mastra/projection-safe-tool-call-filter.ts';
+import { ProjectionSafeToolCallFilter } from '../../../../packages/agent/src/mastra-processors/projection-safe-tool-call-filter.ts';
 import { createArtifactFlow } from './artifact-flow.ts';
 import { canonicalArtifactReplayTexts } from './artifact-replay.ts';
 import { startCapturingProvider } from './provider-capture.ts';

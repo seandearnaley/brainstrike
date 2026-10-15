@@ -1,8 +1,8 @@
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import type { ToolsInput } from '@mastra/core/agent';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { McpRuntimeClient } from '../mastra/mcp-runtime-client';
-import { collectCombinedTools } from '../mastra/mcp-tool-loader';
+import type { McpRuntimeClient } from '../mcp/mcp-runtime-client';
+import { collectCombinedTools } from '../mcp/mcp-tool-loader';
 import { toolRegistry as mcpToolRegistry } from '../mcp/tool-registry';
 import { MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits';
 

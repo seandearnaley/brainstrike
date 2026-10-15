@@ -26,7 +26,7 @@ import { z } from 'zod';
 import {
   type AssistantPermissionPolicyRequest,
   resolveRequestPermissionPolicy,
-} from '../mastra/permission-policy-request';
+} from '../permissions/permission-policy-request';
 import type { RuntimeData, StreamChunk } from '../types';
 
 const { modelHolder } = vi.hoisted(() => ({

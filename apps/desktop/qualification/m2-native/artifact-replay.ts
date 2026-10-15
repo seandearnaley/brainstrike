@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { ProjectionSafeToolCallFilter } from '../../../../packages/agent/src/mastra/projection-safe-tool-call-filter.ts';
+import { ProjectionSafeToolCallFilter } from '../../../../packages/agent/src/mastra-processors/projection-safe-tool-call-filter.ts';
 
 type Input = Parameters<ProjectionSafeToolCallFilter['processInputStep']>[0];
 type Request = Parameters<ProjectionSafeToolCallFilter['processLLMRequest']>[0];

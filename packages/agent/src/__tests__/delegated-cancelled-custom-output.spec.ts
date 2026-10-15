@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { processMastraStreamPart } from '../mastra/agent-streaming';
 import { createDelegatedStreamProjection } from '../mastra/delegated-stream-projection';
-import { MCP_PROGRESS_STREAM_PART_TYPE } from '../mastra/mcp-runtime-client';
+import { MCP_PROGRESS_STREAM_PART_TYPE } from '../mcp/mcp-runtime-client';
 import { makeDelegatedStreamTermination } from '../mastra/stream-termination';
 import { createTurnAttemptLifecycleState } from '../mastra/turn-attempts';
 

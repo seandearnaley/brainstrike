@@ -1,7 +1,7 @@
 import { type McpHostPort, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
-import { createMcpRuntimeClient } from '../mastra/mcp-runtime-client';
-import { collectCombinedTools } from '../mastra/mcp-tool-loader';
+import { createMcpRuntimeClient } from '../mcp/mcp-runtime-client';
+import { collectCombinedTools } from '../mcp/mcp-tool-loader';
 
 describe('MCP host runtime adapter core', () => {
   it('does not let an empty serialized config suppress host authority', async () => {

@@ -21,8 +21,8 @@ import {
   type TextStreamPart,
   type ToolSet,
 } from 'ai';
-import { buildCurrentDateNote, buildDefaultInstructions } from '../mastra/default-instructions';
-import { readOpenRouterBilledCost } from '../mastra/runtime-assembly/usage-metering';
+import { buildCurrentDateNote, buildDefaultInstructions } from '../instructions/default-instructions';
+import { readOpenRouterBilledCost } from '../usage-metering';
 import type { AgentMessage, StreamChunk, StreamFinishReason, StreamIterator } from '../types';
 
 export interface HostedWebTurnParams {

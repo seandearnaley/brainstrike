@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildOpenAIToolSearchHistoryCompatInputProcessor,
   OpenAIToolSearchHistoryCompat,
-} from '../mastra/openai-tool-search-history-compat';
+} from '../mastra-processors/openai-tool-search-history-compat';
 
 const TOOL_SEARCH_CALL_ITEM_ID = 'tsc_hosted_123';
 const TOOL_SEARCH_OUTPUT_ITEM_ID = 'tso_hosted_456';

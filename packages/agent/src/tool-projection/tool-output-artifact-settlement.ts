@@ -28,7 +28,7 @@ import { MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits';
 import { isGuardedToolError } from '../tools/guard-tool-execution';
 import { readHookResultEnvelope } from '../tools/hook-runner';
 import { readToolCallId, readToolExecutionThreadId } from '../tools/read-tool-call-id';
-import { readMcpMultimodalOutput } from './mcp-multimodal-output';
+import { readMcpMultimodalOutput } from '../mcp/mcp-multimodal-output';
 import { projectToolOutputArtifactPage } from './tool-output-artifact-reader';
 
 const APPROX_CHARS_PER_TOKEN = 4;

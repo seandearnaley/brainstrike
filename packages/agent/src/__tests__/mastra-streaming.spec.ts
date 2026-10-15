@@ -27,9 +27,9 @@ import {
   createToolResumeIteratorFromRuntime,
 } from '../mastra/attempt-legs';
 import { createDelegatedConversationBinding } from '../mastra/delegated-conversation-binding';
-import { MastraAgentError } from '../mastra/mastra-agent-error';
-import { resolveRuntimeConfiguration } from '../mastra/runtime-configuration';
-import { RunTokenDiagnostics } from '../mastra/token-measurement';
+import { MastraAgentError } from '../mastra-boundary/mastra-agent-error';
+import { resolveRuntimeConfiguration } from '../runtime-configuration';
+import { RunTokenDiagnostics } from '../token-measurement';
 import {
   agentInstances,
   expectLeadingContextBreakdown,

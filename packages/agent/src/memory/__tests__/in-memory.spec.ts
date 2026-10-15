@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentMessage } from '../../index';
+import type { AgentMessage } from '../..';
 import { InMemoryMemoryStore } from '../in-memory';
 
 const createMessage = (id: string, text: string): AgentMessage => ({

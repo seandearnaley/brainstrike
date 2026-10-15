@@ -43,8 +43,8 @@ import { z } from 'zod';
 import {
   projectToolOutputArtifactPage,
   readToolOutputArtifact,
-} from '../mastra/tool-output-artifact-reader';
-import type { StoreSettledToolOutputInput } from '../mastra/tool-output-artifact-settlement';
+} from '../tool-projection/tool-output-artifact-reader';
+import type { StoreSettledToolOutputInput } from '../tool-projection/tool-output-artifact-settlement';
 import { ExplicitHttpMcpClient } from '../mcp/explicit-http-client';
 import { ExplicitStdioMcpClient } from '../mcp/explicit-stdio-client';
 import {
@@ -1705,7 +1705,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
   // tool call id) BEFORE the terminal `tool.completed` run-event, and must NOT
   // leak a premature success tool-event (they are not `tool-output`).
   it('streams incremental shell-output chunks from a tool writer through the real loop', async () => {
-    const { writeShellOutputChunk } = await import('../mastra/shell-output-stream');
+    const { writeShellOutputChunk } = await import('../tool-projection/shell-output-stream');
     const streamingTool = createTool({
       description: 'Run a command and stream its output incrementally.',
       execute: async (

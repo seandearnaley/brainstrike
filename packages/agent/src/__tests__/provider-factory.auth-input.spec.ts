@@ -7,7 +7,7 @@
  * silent downgrade to env/default credentials.
  */
 import { describe, expect, it } from 'vitest';
-import { MastraAgentError } from '../mastra/mastra-agent-error';
+import { MastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import type { ProviderAuthInput } from '../providers/provider-auth-input';
 import { createProvider } from '../providers/provider-factory';
 

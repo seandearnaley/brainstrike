@@ -3,16 +3,16 @@ import {
   isSupportedProvider,
   resolveProviderApiKey,
   type SupportedProvider,
-} from '../providers/key-resolver';
+} from './providers/key-resolver';
 import {
   apiKeyAuthInput,
   assertNeverAuthInput,
   assertValidProviderAuthInput,
   type ProviderAuthInput,
-} from '../providers/provider-auth-input';
-import { providerAuthType } from '../providers/types';
-import type { RuntimeData } from '../types';
-import { createMastraAgentError } from './mastra-agent-error';
+} from './providers/provider-auth-input';
+import { providerAuthType } from './providers/types';
+import type { RuntimeData } from './types';
+import { createMastraAgentError } from './mastra-boundary/mastra-agent-error';
 
 const logger = createLogger('MastraAgentRuntimeConfig');
 

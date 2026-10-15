@@ -4,8 +4,8 @@ import type { ToolsInput } from '@mastra/core/agent';
 import { isGuardedToolError } from '../tools/guard-tool-execution';
 import { readHookResultEnvelope } from '../tools/hook-runner';
 import type { ToolLogger } from '../tools/types';
-import { retainRawMcpCallToolResult } from './mcp-runtime-client';
-import type { PermissionAskToolMetadata } from './permission-tool-gate';
+import { retainRawMcpCallToolResult } from '../mcp/mcp-runtime-client';
+import type { PermissionAskToolMetadata } from '../permissions/permission-tool-gate';
 
 export interface McpAppOrdinaryToolCallOptions {
   readonly admission: McpAppToolAdmissionCapability;

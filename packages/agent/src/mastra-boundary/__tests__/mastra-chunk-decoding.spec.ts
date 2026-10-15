@@ -747,7 +747,7 @@ describe('purity is structural, not just observed', () => {
   it('control: the clock, id-minting, and logging probes fire on agent-streaming.ts', () => {
     // agent-streaming.ts genuinely holds these three (and deliberately no
     // randomness) — that asymmetry is why the synthetic control exists too.
-    const impure = sourceWithoutComments('../agent-streaming.ts');
+    const impure = sourceWithoutComments('../../mastra/agent-streaming.ts');
     expect(impure).toMatch(/\bnew Date\s*\(|\bDate\.now\s*\(/u);
     expect(impure).toMatch(/\bgenerateUUID\s*\(|\brandomUUID\s*\(/u);
     expect(impure).toMatch(/\blogger\s*\.|\bconsole\s*\./u);

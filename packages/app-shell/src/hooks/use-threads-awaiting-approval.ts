@@ -39,7 +39,7 @@ import { useAssistantThreadHostRuns } from '../assistant-thread-host-context';
  * ...with EXACTLY ONE exception, and it is load-bearing. Mastra's approval gate
  * runs INSIDE `toolCallStep`, i.e. AFTER the model's `tool-call` part has
  * already streamed. That part maps to `status: 'start'`
- * (`packages/agent/src/mastra/tool-event-mapper.ts`) and so to a `tool.started`
+ * (`packages/agent/src/tool-projection/tool-event-mapper.ts`) and so to a `tool.started`
  * run event carrying the SAME `toolCallId`, on the PAUSING leg, BEFORE the
  * pause row. Observed order on the live loop, pinned in
  * `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`:
@@ -52,7 +52,7 @@ import { useAssistantThreadHostRuns } from '../assistant-thread-host-context';
  * meaningless across the two legs), but `occurred_at` IS comparable across
  * them, because every run-event stamp comes from ONE producer: the agent
  * stream's `makeRunEventChunk`
- * (`packages/agent/src/mastra/stream-run-event-chunks.ts`,
+ * (`packages/agent/src/tool-projection/stream-run-event-chunks.ts`,
  * `timestamp ?? new Date().toISOString()`). The repository only normalizes
  * what it is handed (`assistant-memory-repository.ts` `appendThreadRunEvent`)
  * and the column carries NO `DEFAULT NOW()`, so there is no second clock — the

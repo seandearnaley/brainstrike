@@ -1,6 +1,6 @@
 import { RequestContext } from '@mastra/core/request-context';
 import { describe, expect, it } from 'vitest';
-import { createMastraAgentError } from '../mastra/mastra-agent-error';
+import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import {
   providerFetchOptions,
   requireCustomFetchAuthInput,

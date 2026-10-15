@@ -19,17 +19,17 @@ import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-
 import { countTokensHeuristic } from '@brainstrike/tokenization';
 import { type MastraDBMessage, TripWire } from '@mastra/core/agent';
 import { type ProcessLLMRequestArgs, type Processor, TokenLimiter } from '@mastra/core/processors';
-import { buildBedrockMessageHygieneInputProcessor } from './mastra/bedrock-message-hygiene';
-import { buildProviderHistoryCompatInputProcessor } from './mastra/error-processors';
-import { buildOpenAIDuplicateItemCompatInputProcessor } from './mastra/openai-duplicate-item-compat';
-import { buildOpenAIToolSearchHistoryCompatInputProcessor } from './mastra/openai-tool-search-history-compat';
-import { ProjectionSafeToolCallFilter } from './mastra/projection-safe-tool-call-filter';
+import { buildBedrockMessageHygieneInputProcessor } from './mastra-processors/bedrock-message-hygiene';
+import { buildProviderHistoryCompatInputProcessor } from './mastra-processors/error-processors';
+import { buildOpenAIDuplicateItemCompatInputProcessor } from './mastra-processors/openai-duplicate-item-compat';
+import { buildOpenAIToolSearchHistoryCompatInputProcessor } from './mastra-processors/openai-tool-search-history-compat';
+import { ProjectionSafeToolCallFilter } from './mastra-processors/projection-safe-tool-call-filter';
 import {
   createPreparedTokenMeasurement,
   type PreparedTokenMeasurement,
   serializeModelOutputForTokenMeasurement,
-} from './mastra/token-measurement';
-import { rewriteToolProjectionPrompt } from './mastra/tool-projection-rewrite-processor';
+} from './token-measurement';
+import { rewriteToolProjectionPrompt } from './mastra-processors/tool-projection-rewrite-processor';
 import { createCanonicalLimiterView } from './providers/canonical-provider-limiter';
 import {
   collectProviderCallProvenance,

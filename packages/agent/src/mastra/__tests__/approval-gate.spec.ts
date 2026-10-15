@@ -6,7 +6,7 @@ import {
   createApprovalGate,
   resolveRequireToolApproval,
 } from '../approval-gate';
-import type { PermissionAskToolMetadata } from '../permission-tool-gate';
+import type { PermissionAskToolMetadata } from '../../permissions/permission-tool-gate';
 
 const NAME_MAP = new Map([
   ['brainstrike_grepSearch', 'brainstrike.grepSearch'],

@@ -16,7 +16,7 @@ import {
   MAX_RUN_EVENT_REASON_CHARS,
 } from '../run-events';
 import type { StreamChunk } from '../types';
-import { makeRunDetailEventChunk } from './stream-run-event-chunks';
+import { makeRunDetailEventChunk } from '../tool-projection/stream-run-event-chunks';
 
 /**
  * A discriminated union, not one shape with two optional name fields (PR #2938

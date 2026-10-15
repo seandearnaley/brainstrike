@@ -8,7 +8,7 @@
 import {
   isSubscriptionAuthProvider,
   isSubscriptionRateLimitError,
-} from '../mastra/error-processors';
+} from '../mastra-processors/error-processors';
 
 export class SubscriptionQuotaExhaustedError extends Error {
   readonly code = 'subscription_quota_exhausted';

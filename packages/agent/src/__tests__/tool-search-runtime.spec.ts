@@ -5,8 +5,8 @@ import { MASTRA_THREAD_ID_KEY, RequestContext } from '@mastra/core/request-conte
 import { createTool } from '@mastra/core/tools';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { MastraAgentError } from '../mastra/mastra-agent-error';
-import { BrainstrikeToolSearchProcessor } from '../mastra/tool-search-runtime';
+import { MastraAgentError } from '../mastra-boundary/mastra-agent-error';
+import { BrainstrikeToolSearchProcessor } from '../mastra-processors/tool-search-runtime';
 
 const DEFERRED_TOOL_ID = 'brainstrike_listWorkspaceContext';
 const LSP_DEFERRED_TOOL_ID = 'brainstrike_lspInspect';

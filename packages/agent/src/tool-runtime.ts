@@ -11,31 +11,31 @@ export {
   buildLocalDefaultInstructions,
   buildToolDiscoveryNote,
   type DelegationPersonaSummary,
-} from './mastra/default-instructions';
-export { LIST_AVAILABLE_TOOLS_ID } from './mastra/deferred-tool-catalog';
-export { filterToolsForPlanMode } from './mastra/plan-mode-tool-gate';
-export { applyToolModelOutputProjections } from './mastra/tool-model-output';
+} from './instructions/default-instructions';
+export { LIST_AVAILABLE_TOOLS_ID } from './deferred-tool-catalog';
+export { filterToolsForPlanMode } from './permissions/plan-mode-tool-gate';
+export { applyToolModelOutputProjections } from './tool-projection/tool-model-output';
 export {
   projectToolOutputArtifactPage,
   type ReadToolOutputArtifactInput,
   readToolOutputArtifact,
   type ScopedToolOutputArtifactRangeResult,
   type ScopedToolOutputArtifactReader,
-} from './mastra/tool-output-artifact-reader';
+} from './tool-projection/tool-output-artifact-reader';
 export {
   type SerializedToolOutput,
   TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES,
   type ToolOutputArtifactCandidate,
   toolOutputArtifactCandidate,
   toolOutputArtifactModelOutput,
-} from './mastra/tool-output-artifact-settlement';
-export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
+} from './tool-projection/tool-output-artifact-settlement';
+export { createSanitizedToolNameMap } from './tool-projection/tool-sanitizer';
 export {
   BrainstrikeToolSearchProcessor,
   createPersistedStepArgs,
   resolveHostedToolDiscoveryAdapter,
   resolveToolDiscoverySurface,
-} from './mastra/tool-search-runtime';
+} from './mastra-processors/tool-search-runtime';
 export { createListingOnlyModel } from './providers/listing-only-model';
 export {
   CEILING_SCALED_TOOL_RESULT_BUDGET,

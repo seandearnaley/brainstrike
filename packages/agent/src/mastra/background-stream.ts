@@ -1,9 +1,9 @@
 import { createLogger } from '@brainstrike/logging';
 import { DELEGATED_STEP_USAGE_PART } from './delegated-step-usage';
 import { DELEGATED_SYNTHESIS_PART } from './delegated-synthesis-outcomes';
-import { asMastraStreamPart, type MastraStreamPart } from './mastra-chunk-decoding';
-import { readStreamPartUsage, type UsageLike } from './runtime-assembly/usage-metering';
-import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
+import { asMastraStreamPart, type MastraStreamPart } from '../mastra-boundary/mastra-chunk-decoding';
+import { readStreamPartUsage, type UsageLike } from '../usage-metering';
+import { readMastraStreamPartString, readMastraStreamPartValue } from '../tool-projection/tool-event-mapper';
 
 const logger = createLogger('BackgroundStream');
 

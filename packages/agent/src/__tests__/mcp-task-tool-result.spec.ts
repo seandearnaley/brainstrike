@@ -8,8 +8,8 @@ import {
   readMcpCreatedTaskResult,
   resolveMcpTaskSettlementTimeoutMs,
   settleMcpTaskToolResult,
-} from '../mastra/mcp-task-tool-result';
-import { applyToolModelOutputProjections } from '../mastra/tool-model-output';
+} from '../mcp/mcp-task-tool-result';
+import { applyToolModelOutputProjections } from '../tool-projection/tool-model-output';
 import { REGISTERED_EXTENSION_RESULT_KEY } from '../mcp/client-extension-registry';
 import { MCP_TASK_CONTEXT_MAX_BYTES } from '../mcp/task-presentation';
 import type { McpTaskTrackingCapability } from '../mcp/task-tracking';

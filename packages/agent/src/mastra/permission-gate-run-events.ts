@@ -21,8 +21,8 @@ import type { StreamChunk } from '../types';
 import type {
   PermissionAskToolMetadata,
   PermissionDeniedToolMetadata,
-} from './permission-tool-gate';
-import { makeRunDetailEventChunk } from './stream-run-event-chunks';
+} from '../permissions/permission-tool-gate';
+import { makeRunDetailEventChunk } from '../tool-projection/stream-run-event-chunks';
 
 export interface PermissionGateToolEntry {
   readonly riskCategory: ToolRiskCategory;

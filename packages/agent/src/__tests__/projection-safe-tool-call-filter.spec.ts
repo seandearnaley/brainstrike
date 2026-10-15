@@ -1,7 +1,7 @@
 import { type MastraDBMessage, MessageList } from '@mastra/core/agent';
 import type { ProcessInputStepArgs, ProcessLLMRequestArgs } from '@mastra/core/processors';
 import { describe, expect, it, vi } from 'vitest';
-import { ProjectionSafeToolCallFilter } from '../mastra/projection-safe-tool-call-filter';
+import { ProjectionSafeToolCallFilter } from '../mastra-processors/projection-safe-tool-call-filter';
 
 const READ_TOOL = 'brainstrike_readWorkspaceFile';
 const TOOL_NAME_MAP = new Map([[READ_TOOL, 'brainstrike.readWorkspaceFile']]);

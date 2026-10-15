@@ -153,7 +153,7 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     'memory.working.updated',
     // BST-1602's MCP discovery skip. Emitted `status: 'failed'`
     // (`makeMcpDiscoverySkipChunks` in
-    // packages/agent/src/mastra/mcp-discovery-diagnostics.ts), never
+    // packages/agent/src/mcp/mcp-discovery-diagnostics.ts), never
     // `'running'`: the server contributed zero tools and nothing is in flight,
     // so there is no span to close out. A standalone breadcrumb that stays
     // VISIBLE rather than paired — pinned by 'forces a skipped MCP server to

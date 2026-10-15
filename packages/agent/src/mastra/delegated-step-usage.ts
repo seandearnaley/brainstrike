@@ -1,7 +1,7 @@
 import { parseMemoryRequestContext } from '@mastra/core/memory';
 import type { OutputProcessor } from '@mastra/core/processors';
 import { z } from 'zod';
-import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
+import { readMastraStreamPartString, readMastraStreamPartValue } from '../tool-projection/tool-event-mapper';
 
 export const DELEGATED_STEP_USAGE_PART = 'data-brainstrike-delegated-step-usage';
 const usageSchema = z.strictObject({

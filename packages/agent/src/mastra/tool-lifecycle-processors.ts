@@ -30,14 +30,14 @@ import {
   makeStepMetadata,
   makeToolEventMetadata,
   readFinishReason,
-} from './mastra-chunk-decoding';
+} from '../mastra-boundary/mastra-chunk-decoding';
 import {
   type ProviderMetadataStreamPart,
   readCacheTokenCount,
   readOpenRouterBilledCost,
   readStreamPartUsage,
-} from './runtime-assembly/usage-metering';
-import { makeRunEventChunk } from './stream-run-event-chunks';
+} from '../usage-metering';
+import { makeRunEventChunk } from '../tool-projection/stream-run-event-chunks';
 import type {
   DelegationLifecycleTracker,
   DelegationOutcomeCapture,
@@ -47,7 +47,7 @@ import {
   mapMastraToolEvent,
   readMastraStreamPartString,
   readNestedToolOutputChunk,
-} from './tool-event-mapper';
+} from '../tool-projection/tool-event-mapper';
 
 type TerminalToolCallState = 'completed' | 'failed';
 
