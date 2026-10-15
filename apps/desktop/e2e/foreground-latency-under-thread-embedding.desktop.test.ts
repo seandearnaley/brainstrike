@@ -16,8 +16,8 @@ import {
   rendererMetrics,
   round3,
   seedPausedWorkspace,
-  seedRunningChatRun,
   showAppWindow,
+  startProbeThread,
   WORKSPACE_RESOURCE_ID,
 } from './utils/foreground-latency-bench';
 import {
@@ -105,12 +105,6 @@ const STALL_WINDOW_MS = 120_000;
 const BENCH_ROOT_ID = 'thread-embedding-benchmark-root';
 const NEVER_INDEXED_GREP_PATH = 'packages/foreground-latency-probe/never-indexed.ts';
 const GREP_PATTERN = 'total +=';
-/**
- * The native index holds no PGlite Workspace Index set, so the tool read's
- * index half is the same chunk-table grep over a set that has no rows: a
- * foreground PGlite read whose work is identical idle and loaded.
- */
-const PROBE_EMBEDDING_SET_ID = 'thread-embedding-benchmark-no-set';
 /** Each check's search differs, so the debounced controller runs every one. */
 const SEARCH_QUERIES = ['vector latency', 'latency vector', 'search tokens', 'tokens search'];
 const INDEX_TABLE = 'brainstrike_thread_message_index';
@@ -394,7 +388,7 @@ test.describe('Foreground latency under thread message embedding', () => {
           device,
           'thread-embedding-benchmark-seeded'
         );
-        const chatRunId = await seedRunningChatRun(page);
+        const chatThreadId = await startProbeThread(electronApp.app);
         const seededMessages =
           owner === 'history'
             ? await seedHistoryCorpus(page, corpus)
@@ -421,8 +415,7 @@ test.describe('Foreground latency under thread message embedding', () => {
 
         await installRendererFrameProbe(view);
         await installMainProbes(app, {
-          chatRunId,
-          embeddingSetId: PROBE_EMBEDDING_SET_ID,
+          chatThreadId,
           grepFilePath: NEVER_INDEXED_GREP_PATH,
           grepPattern: GREP_PATTERN,
           periodMs: PROBE_PERIOD_MS,

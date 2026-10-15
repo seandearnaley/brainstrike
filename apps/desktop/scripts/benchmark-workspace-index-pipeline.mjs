@@ -9,15 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const DESKTOP_APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(DESKTOP_APP_ROOT, '../..');
 const INTEGRATED_BENCHMARK_LANE = 'test:e2e:lane:foreground-latency';
-const INTEGRATED_BENCHMARK_SCHEMA = 'brainstrike.foreground-latency-under-index-build.v1';
-const STAGE_BENCHMARK_MODES = new Set([
-  'chunking-ceiling',
-  'db-completion-ceiling',
-  'embedding-ceiling',
-  'import-ceiling',
-]);
-/** Stage modes run e2e/workspace-index-stage-benchmark; `integrated` runs the full-build lane. */
-const BENCHMARK_MODES = new Set([...STAGE_BENCHMARK_MODES, 'integrated']);
+const INTEGRATED_BENCHMARK_SCHEMA = 'brainstrike.foreground-latency-under-index-build.v3';
 
 const FATAL_LOG_PATTERN =
   /DB host request timed out|Local embedding execution failed|uncaught|unhandled/i;
@@ -126,16 +118,6 @@ function getHeapUsedMb(snapshot) {
   return bytes > 0 ? bytes / (1024 * 1024) : null;
 }
 
-function resolveBottleneck(stageCeilings) {
-  const values = [
-    stageCeilings?.embeddingCeilingChunksPerSecond,
-    stageCeilings?.dbCompletionCeilingChunksPerSecond,
-    stageCeilings?.chunkingCeilingChunksPerSecond,
-    stageCeilings?.importCeilingEquivalentChunksPerSecond,
-  ].filter((value) => typeof value === 'number' && Number.isFinite(value) && value > 0);
-  return values.length === 4 ? Math.min(...values) : null;
-}
-
 function roundMetric(value) {
   return typeof value === 'number' && Number.isFinite(value) ? Number(value.toFixed(3)) : null;
 }
@@ -219,35 +201,15 @@ export function analyzeWorkspaceIndexEvidence(evidence, options = {}) {
     finalCounts.embeddedChunkCount - firstCounts.embeddedChunkCount
   );
   const integratedChunksPerSecond = embeddedDelta / elapsedSeconds;
-  const bottleneckChunksPerSecond = resolveBottleneck(options.stageCeilings);
-  const integratedToBottleneckRatio =
-    bottleneckChunksPerSecond === null
-      ? null
-      : integratedChunksPerSecond / bottleneckChunksPerSecond;
-
-  if (
-    typeof options.minIntegratedToBottleneckRatio === 'number' &&
-    (integratedToBottleneckRatio === null ||
-      integratedToBottleneckRatio < options.minIntegratedToBottleneckRatio)
-  ) {
-    throw new Error(
-      `Workspace Index throughput ratio ${roundMetric(
-        integratedToBottleneckRatio
-      )} is below ${options.minIntegratedToBottleneckRatio}.`
-    );
-  }
 
   return {
     actualWorkerMetadata: actualMetadata,
-    bottleneckChunksPerSecond: roundMetric(bottleneckChunksPerSecond),
     durationMs: finalSample.elapsedMs - samples[0].elapsedMs,
     finalCounts,
     integratedChunksPerSecond: roundMetric(integratedChunksPerSecond),
-    integratedToBottleneckRatio: roundMetric(integratedToBottleneckRatio),
     maxHeapUsedMb: roundMetric(maxHeapUsedMb),
     requiredDevice: requiredDevice ?? null,
     sampleCount: samples.length,
-    stageCeilings: options.stageCeilings ?? null,
   };
 }
 
@@ -301,11 +263,8 @@ export function parseArgs(argv = process.argv.slice(2)) {
     evidencePath: null,
     files: null,
     maxRetainedHeapMb: null,
-    minIntegratedToBottleneckRatio: null,
-    modes: ['integrated'],
     profile: null,
     requireDevice: null,
-    stageCeilings: {},
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -328,26 +287,13 @@ export function parseArgs(argv = process.argv.slice(2)) {
       options.files = files;
     } else if (arg === '--max-retained-heap-mb') {
       options.maxRetainedHeapMb = Number(next());
-    } else if (arg === '--min-ratio') {
-      options.minIntegratedToBottleneckRatio = Number(next());
     } else if (arg === '--mode') {
+      // The stage benchmark measured retired PGlite stages (BST-2012); the
+      // loaded native build is the one mode, kept as a flag for existing callers.
       const mode = next();
-      if (!BENCHMARK_MODES.has(mode)) {
-        throw new Error(
-          `Unknown benchmark mode: ${mode}. Expected one of: ${[...BENCHMARK_MODES].join(', ')}`
-        );
+      if (mode !== 'integrated') {
+        throw new Error(`Unknown benchmark mode: ${mode}. Expected: integrated`);
       }
-      if (options.modes.length === 1 && options.modes[0] === 'integrated') {
-        options.modes = [];
-      }
-      options.modes.push(mode);
-    } else if (arg === '--stage-ceiling') {
-      const [key, rawValue] = next().split('=');
-      const value = Number(rawValue);
-      if (!(key && Number.isFinite(value)) || value <= 0) {
-        throw new Error('--stage-ceiling requires key=positive-number');
-      }
-      options.stageCeilings[key] = value;
     } else if (arg === '--profile') {
       options.profile = next();
     } else if (arg === '--help' || arg === '-h') {
@@ -357,10 +303,6 @@ export function parseArgs(argv = process.argv.slice(2)) {
     }
   }
   return options;
-}
-
-function getStageBenchmarkModes(options) {
-  return options.modes.filter((mode) => mode !== 'integrated');
 }
 
 function runCommand(command, args, options = {}) {
@@ -396,59 +338,6 @@ function runCommand(command, args, options = {}) {
   });
 }
 
-export async function runElectronStageBenchmarks(options) {
-  const stageModes = getStageBenchmarkModes(options);
-  const results = {};
-  for (const mode of stageModes) {
-    if (!STAGE_BENCHMARK_MODES.has(mode)) {
-      throw new Error(`Workspace Index benchmark mode '${mode}' is not runnable.`);
-    }
-    const outputDir = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-stage-benchmark-'));
-    const evidencePath = path.join(outputDir, `${mode}.json`);
-    await runCommand(
-      'pnpm',
-      [
-        '--dir',
-        DESKTOP_APP_ROOT,
-        'exec',
-        'xvfb-maybe',
-        'pnpm',
-        'exec',
-        'playwright',
-        'test',
-        'e2e/workspace-index-stage-benchmark.desktop.test.ts',
-        '--project=regression',
-        '--workers=1',
-        '--retries=0',
-        '--max-failures=1',
-        '--global-timeout=300000',
-      ],
-      {
-        cwd: REPO_ROOT,
-        env: {
-          ...process.env,
-          BRAINSTRIKE_WORKSPACE_INDEX_STAGE_BENCHMARK_CHUNKS: String(
-            options.stageBenchmarkChunkCount ?? 512
-          ),
-          BRAINSTRIKE_WORKSPACE_INDEX_STAGE_BENCHMARK_DIMENSIONS: String(
-            options.stageBenchmarkDimensions ?? 384
-          ),
-          BRAINSTRIKE_WORKSPACE_INDEX_STAGE_BENCHMARK_EVIDENCE_PATH: evidencePath,
-          BRAINSTRIKE_WORKSPACE_INDEX_STAGE_BENCHMARK_MODE: mode,
-          LOG_LEVEL: process.env.LOG_LEVEL ?? 'warn',
-          NO_COLOR: process.env.NO_COLOR ?? '',
-        },
-      }
-    );
-    const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
-    results[mode] = {
-      evidencePath,
-      ...evidence.result,
-    };
-  }
-  return results;
-}
-
 /**
  * Runs the integrated benchmark: a full Workspace Index build of the seeded
  * corpus with foreground latency probes, through the same lane script CI runs.
@@ -482,30 +371,25 @@ async function runCli(argv = process.argv.slice(2)) {
         '  --mode integrated (default)  Run the loaded foreground-latency benchmark: a full Workspace',
         '                               Index build of the seeded corpus (--require-device webgpu|wasm,',
         '                               --files <n>). With --evidence, analyze that file instead.',
-        '  --mode <stage>-ceiling       Run an Electron stage benchmark.',
         '  --evidence <path>            Analyze recorded evidence: integrated benchmark evidence, or a',
         '                               full-workspace-index-evidence.json from the full-run verifier.',
-        '  --stage-ceiling key=value    Stage ceilings for the full-run throughput ratio.',
       ].join('\n')
     );
     return;
   }
-  const stageBenchmarks = await runElectronStageBenchmarks(options);
-  let result = null;
-  if (options.modes.includes('integrated')) {
-    if (options.evidencePath) {
-      const evidence = JSON.parse(await readFile(options.evidencePath, 'utf8'));
-      result = {
-        evidencePath: options.evidencePath,
-        ...(evidence?.schema === INTEGRATED_BENCHMARK_SCHEMA
-          ? summarizeIntegratedBenchmarkEvidence(evidence, options)
-          : analyzeWorkspaceIndexEvidence(evidence, options)),
-      };
-    } else {
-      result = await runIntegratedBenchmark(options);
-    }
+  let result;
+  if (options.evidencePath) {
+    const evidence = JSON.parse(await readFile(options.evidencePath, 'utf8'));
+    result = {
+      evidencePath: options.evidencePath,
+      ...(evidence?.schema === INTEGRATED_BENCHMARK_SCHEMA
+        ? summarizeIntegratedBenchmarkEvidence(evidence, options)
+        : analyzeWorkspaceIndexEvidence(evidence, options)),
+    };
+  } else {
+    result = await runIntegratedBenchmark(options);
   }
-  console.log(JSON.stringify({ ...(result ?? {}), stageBenchmarks }, null, 2));
+  console.log(JSON.stringify(result, null, 2));
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

@@ -17,6 +17,16 @@ produce valid numbers (precedent: `embedding-queue-load.integration.test.ts`).
 - E2E-only main-process seam: `apps/desktop/src/e2e-foreground-latency-probes.ts`.
 - Shared setup and reporting: `apps/desktop/e2e/utils/foreground-latency-bench.ts`.
 
+Since 2026-10-15 (BST-2012, evidence schema v3) both foreground probes run
+through their current owners: the chat-path op is one committed agent-host
+command and the tool read's index half is the grep tool's native index query.
+Desktop PGlite is gone (#3595), so v2 and earlier chat-path and index-query
+numbers measure retired paths and do not compare with v3. The evidence also
+records when each stage's receipts completed and the hidden embedding host's
+isolation, CPU and memory. This benchmark replaces the retired desktop stage
+benchmark (`workspace-index-stage-benchmark`), whose PGlite stages the native
+index no longer runs.
+
 Since 2026-10-09 the spec builds the **native** Workspace Index (M3:
 `NativeWorkspaceIndexProvider` and the native indexer process). The legacy
 pipeline it was written against (the renderer's sync orchestration, the
@@ -34,8 +44,10 @@ pipeline that no longer exists; compare native runs with native runs (see
 3. Open it as the workspace root with the Workspace Index **paused**. In
    Settings → Search & Indexing, choose BGE Small, "Text and semantic search"
    and the device's execution plan (`WebGPU · FP16`, or `WASM · Q8`); the
-   index stays paused. Seed one assistant thread with a `running` run row,
-   which the chat-path write needs as its parent.
+   index stays paused. Start one agent-host thread through main's host client
+   for the chat-path probe, and wait until the paused index has activated
+   (its reads refuse while it transitions; activation embeds on the configured
+   device, so a device too slow for its request deadline fails here).
 4. Calibrate the renderer probe: block the renderer's main thread for 120 ms and
    require the long-task observer to record it and the frame gap to show it.
    A dead observer would otherwise report "zero long tasks".
@@ -89,49 +101,50 @@ finishes cannot be produced on demand in the real app.
 | Renderer frame gap p50, p95, max | Time between consecutive `requestAnimationFrame` callbacks in the visible window. 16.7 ms at 60 Hz. | Jank is felt in the visible renderer, which runs today's sync orchestration. A gap over 50 ms is a visible stall. |
 | Renderer long tasks: count, total ms | `PerformanceObserver` `longtask` entries (main-thread tasks over 50 ms) in the visible window. | Names the cause of a frame gap. The M2 exit criterion requires zero. |
 | Main event-loop lag p95, max | `perf_hooks.monitorEventLoopDelay` at 10 ms resolution, minus the resolution, so 0 means on time. | Main brokers every IPC call, every chat-path write and every tool call. Its lag adds to all of them. |
-| Chat-path op p95, max | One `run.step.finished` event written through `recordDesktopAssistantRunEvent`, timed in main. | See below. M3 swaps in the run-log append. |
-| Tool read p95, loaded ÷ idle | The shared tool file reader (`readWorkspaceTextFile`) on a fixed corpus file, then the grep tool's index query (`GrepSearchService` over `FileChunkRepository` on main's database handle), scoped to one path. Timed in main. On the native index the chunks live in the indexer's own SQLite, so the PGlite query runs against a set id with no rows (`foreground-latency-benchmark-no-set`): a foreground PGlite read, identical idle and loaded. | An agent's tools read while a build runs. The loaded÷idle ratio is the contention signal. |
-| Build throughput | Embedded chunks ÷ build wall time (Resume to the first check that finds the index terminal). The fields reuse the stage benchmark's names: `chunkCount`, `completedChunkCount`, `elapsedMs`, `chunksPerSecond`. | M2's second exit criterion, and the context for every other number: a faster build is a heavier load. |
+| Chat-path op p95, max | One agent-host `thread/update` command (a probe thread's title) through main's host client, timed in main until the host answers. | See below. |
+| Tool read p95, loaded ÷ idle | The shared tool file reader (`readWorkspaceTextFile`) on a fixed corpus file, then the grep tool's index half (`nativeGrepIndex` over the native index's query host), scoped to one never-indexed path. Timed in main. | An agent's tools read while a build runs. The loaded÷idle ratio is the contention signal. |
+| Build throughput | Embedded chunks ÷ build wall time (Resume to the first check that finds the index terminal). The fields keep the retired stage benchmark's names: `chunkCount`, `completedChunkCount`, `elapsedMs`, `chunksPerSecond`. | M2's second exit criterion, and the context for every other number: a faster build is a heavier load. |
 
 The evidence also keeps the tool read's two components (file read, index
 query), p50s, `n` everywhere, and the raw chat-path and tool-read samples, for
-diagnosis. They are not part of the metric set.
+diagnosis. They are not part of the metric set. Two further records give the
+build's context, read at each unmeasured check:
 
-#### Chat-path op: why `recordDesktopAssistantRunEvent`
+- `build.stageMilestonesMs`: when the first chunk, every file's chunks, the
+  first vector and every vector were committed, in ms after Resume, at the
+  check resolution. Chunking and embedding complete separately, so a change
+  can say which stage it moved.
+- `embeddingHost`: the hidden embedding host's `crossOriginIsolated` and
+  `navigator.hardwareConcurrency`, its process CPU and its peak working set,
+  from `app.getAppMetrics()`. Electron reports CPU as a percent of all cores
+  since the previous check, so on 16 cores one busy thread reads about 6% and
+  ONNX Runtime's four WASM threads about 25%.
 
-A streamed assistant run persists every run event through
-`observeDesktopAssistantRunEvents` → `recordDesktopAssistantRunEvent`
-(`apps/desktop/src/assistant-server/run-persistence.ts`): one
-`INSERT … SELECT … ON CONFLICT` into `brainstrike_assistant_run_events`, run by
-`runCriticalDatabaseOperation` on the **foreground** lane of the desktop
-`DatabaseWorkScheduler`, then on the PGlite DB host. Every finished step writes
-one (`run.step.finished`), and so does every tool start and finish.
+#### Chat-path op: why one host command
 
-- It is the one database operation every streamed step performs, so it is
-  what a chatting user waits on while a build runs.
-- It is a short, single-statement append, the same shape as the M3 run-log
-  append that replaces it, so the BEFORE/AFTER comparison is like for like.
-- It runs on the foreground scheduler lane, so it measures exactly what the
-  scheduler's 75 ms foreground quiet window and 250 ms background starvation
-  rule do to foreground work under load.
-- Mastra's per-step message save also runs on that lane, but it is a
-  transaction whose cost scales with message size; that would add variance
-  unrelated to contention.
+A streamed run's events, a thread's title and every other conversation fact are
+appended by the agent host through its single StateStore writer, and the
+visible window reaches the host over its client protocol. One `thread/update`
+command is the smallest request that takes that whole path: the client
+protocol, the host's command admission, one committed append and the answer.
 
-The probe writes the same event shape `agent-streaming.ts` mints (kind, status,
-label, step metadata plus `finishReason`) for a seeded `running` run, as during
-a real turn.
+- It waits on whatever the host's writer is doing, as each run event does.
+- It is short and does not grow with the conversation, so idle and loaded
+  samples do the same work; a full run would add provider and message-size
+  variance unrelated to contention.
+- It is timed in main through main's own host client, the same process that
+  times the tool read, so both probes share one clock and one event loop.
+
+The probe commits a new title to one probe thread every 200 ms.
 
 #### Tool read: why the index query targets a path that is never indexed
 
 The ratio only means contention if the work is identical idle and loaded. The
 file read reads the same corpus file every time. The index query is the grep
-tool's query scoped to `packages/foreground-latency-probe/never-indexed.ts`,
-which no build ever writes: it costs one `file_records.path` index probe and
-returns nothing, in both phases. Pointing it at a corpus file would return zero
-rows idle and real rows once that file is indexed, so the ratio would mix data
-growth into contention. Like the grep tool, this query runs on main's
-database handle without the scheduler.
+tool's native query scoped to `packages/foreground-latency-probe/never-indexed.ts`,
+which no build ever writes: it returns nothing, in both phases. Pointing it at a
+corpus file would return zero rows idle and real rows once that file is indexed,
+so the ratio would mix data growth into contention.
 
 ### Running it
 
@@ -197,6 +210,26 @@ against 7.7× and 5.6× on the legacy pipeline. Main's event loop stalled once
 for 543 ms during the build (its p95 did not move); that single stall is not
 yet attributed. One run is not a spread: repeat it three times before using
 it as a BEFORE.
+
+### Current-owner runs, WASM — 2026-10-15 (BST-2012, BST-1999)
+
+Schema v3, with the chat-path op on the agent host and the tool read on the native grep. Linux workstation: i9-9900K, 8 cores / 16 threads, no WebGPU. Electron 44.7.2, BGE Small q8 on `wasm`, 100 files (666 chunks), with `BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_FILES=100`. The machine was shared with other agents (load average 3–31), so the before and after builds ran interleaved.
+
+Both builds include #3655, which lets native reads answer while a scan runs. Before it, every grep, search and coverage read issued during a build waited for the whole build: one tool read took 500 s, so the run could not reach the sample floors. "Isolated" is BST-1999, where the hidden inference hosts are cross-origin isolated and ONNX Runtime runs its default 4 WASM threads.
+
+| Run | Build | Throughput | Host CPU p50 | Peak working set | Chat-path p95 idle / loaded | Tool read p95 idle / loaded |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Single thread a | 472 s | 1.41 chunks/s | 6.2% | 1,997 MB | 1.5 / 3.1 ms | 275 / 515 ms |
+| Single thread c | 423 s | 1.57 chunks/s | 6.2% | 2,007 MB | 1.5 / 1.4 ms | 268 / 279 ms |
+| Isolated a | 150 s | 4.43 chunks/s | 24.8% | 1,999 MB | 1.6 / 3.1 ms | 279 / 552 ms |
+| Isolated b | 154 s | 4.32 chunks/s | 24.7% | 1,990 MB | 2.5 / 4.1 ms | 362 / 523 ms |
+| Isolated c | 147 s | 4.54 chunks/s | 24.8% | 1,988 MB | 1.8 / 2.5 ms | 314 / 398 ms |
+| Main, after #3655 and #3659 | 163 s | 4.09 chunks/s | 24.5% | 1,995 MB | 1.6 / 4.7 ms | 293 / 545 ms |
+
+- **Validity.** Single-thread run b was invalid: its first 64-chunk batch, which includes the model download and ONNX startup, missed the embedding host's 60 s request deadline, so the build never started. Its probes still answered.
+- **Renderer.** No run has a renderer long task, and the loaded frame gap max is 16.8–66.7 ms. Main's event loop has one 0.8–0.9 s stall per run, both before and after.
+- **Stages.** The native index publishes whole files, so chunks and vectors arrive together: `firstChunk` equals `firstVector`, and `allFilesChunked` equals `allVectors`.
+- **Tool read cost.** The idle tool read is mostly the grep tool's utility-process spawn, about 260–300 ms per query.
 
 ### BEFORE numbers (legacy pipeline, superseded)
 

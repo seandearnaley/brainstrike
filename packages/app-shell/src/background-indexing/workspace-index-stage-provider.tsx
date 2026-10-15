@@ -16,13 +16,13 @@ interface StageWindow {
 }
 const WORK_OPTIONS = { label: 'workspace component benchmark', priority: 'background' } as const;
 
-/** Opt-in component verifier stays mounted on both native and browser indexing paths. */
-export function WorkspaceIndexStageProvider({
-  native = false,
-}: {
-  readonly native?: boolean;
-} = {}): null {
-  const db = usePGliteDatabase({ enabled: !native });
+/**
+ * Opt-in component verifier for the browser (PGlite) indexing path. The desktop
+ * native index has no PGlite stages to measure; its loaded build benchmark is
+ * the performance proof there (BST-2012).
+ */
+export function WorkspaceIndexStageProvider(): null {
+  const db = usePGliteDatabase();
   const backgroundDb = useMemo(() => (db ? createPriorityDbHandle(db, 'background') : null), [db]);
   useEffect(() => {
     if (
@@ -33,7 +33,7 @@ export function WorkspaceIndexStageProvider({
       return;
     }
     const api = createWorkspaceIndexStageApi(() => {
-      const bridge = native ? undefined : getDesktopDatabaseBridge();
+      const bridge = getDesktopDatabaseBridge();
       const applyBatch = bridge?.applyManagedCacheBatch;
       const hosts = window as Window & StageWindow;
       return {
@@ -55,6 +55,6 @@ export function WorkspaceIndexStageProvider({
         window.__BRAINSTRIKE_WORKSPACE_INDEX_STAGE__ = undefined;
       }
     };
-  }, [backgroundDb, native]);
+  }, [backgroundDb]);
   return null;
 }

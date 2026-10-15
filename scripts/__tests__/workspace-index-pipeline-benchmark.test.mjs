@@ -98,20 +98,10 @@ function createEvidence(overrides = {}) {
 }
 
 test('analyzeWorkspaceIndexEvidence accepts a completed WebGPU run and computes throughput', () => {
-  const result = analyzeWorkspaceIndexEvidence(createEvidence(), {
-    requireDevice: 'webgpu',
-    stageCeilings: {
-      chunkingCeilingChunksPerSecond: 20,
-      dbCompletionCeilingChunksPerSecond: 20,
-      embeddingCeilingChunksPerSecond: 20,
-      importCeilingEquivalentChunksPerSecond: 20,
-    },
-  });
+  const result = analyzeWorkspaceIndexEvidence(createEvidence(), { requireDevice: 'webgpu' });
 
   assert.equal(result.finalCounts.embeddedChunkCount, 100);
   assert.equal(result.integratedChunksPerSecond, 10);
-  assert.equal(result.bottleneckChunksPerSecond, 20);
-  assert.equal(result.integratedToBottleneckRatio, 0.5);
 });
 
 test('analyzeWorkspaceIndexEvidence rejects actual backend mismatch', () => {
@@ -211,6 +201,11 @@ test('parseArgs reads the integrated corpus size and rejects a non-positive one'
   assert.throws(() => parseArgs(['--files', '0']), /--files requires a positive integer/);
 });
 
+test('parseArgs refuses the retired stage benchmark modes', () => {
+  assert.throws(() => parseArgs(['--mode', 'embedding-ceiling']), /Expected: integrated/);
+  assert.throws(() => parseArgs(['--stage-ceiling', 'x=1']), /Unknown argument/);
+});
+
 test('integratedBenchmarkEnv hands the device, corpus size and evidence path to the spec', () => {
   const env = integratedBenchmarkEnv({ files: 120, requireDevice: 'wasm' }, '/tmp/evidence.json', {
     PATH: '/bin',
@@ -225,22 +220,31 @@ test('integratedBenchmarkEnv hands the device, corpus size and evidence path to 
   );
 });
 
+/** The recording's device and the other one. */
+function recordedDevices(recorded) {
+  const device = recorded.config.device;
+  assert.equal(recorded.build.actualDevice, device);
+  return { device, other: device === 'wasm' ? 'webgpu' : 'wasm' };
+}
+
 test('summarizeIntegratedBenchmarkEvidence enforces a required device on both the configured and actual device', () => {
   const recorded = readRecordedIntegratedEvidence();
-  assert.equal(recorded.config.device, 'webgpu');
+  const { device, other } = recordedDevices(recorded);
 
   assert.equal(
-    summarizeIntegratedBenchmarkEvidence(recorded, { requireDevice: 'webgpu' }).status,
+    summarizeIntegratedBenchmarkEvidence(recorded, { requireDevice: device }).status,
     'valid'
   );
   assert.throws(
-    () => summarizeIntegratedBenchmarkEvidence(recorded, { requireDevice: 'wasm' }),
-    /requires device wasm, but the run was configured for webgpu and embedded on webgpu/
+    () => summarizeIntegratedBenchmarkEvidence(recorded, { requireDevice: other }),
+    new RegExp(
+      `requires device ${other}, but the run was configured for ${device} and embedded on ${device}`
+    )
   );
-  const actualMismatch = { ...recorded, build: { ...recorded.build, actualDevice: 'wasm' } };
+  const actualMismatch = { ...recorded, build: { ...recorded.build, actualDevice: other } };
   assert.throws(
-    () => summarizeIntegratedBenchmarkEvidence(actualMismatch, { requireDevice: 'webgpu' }),
-    /configured for webgpu and embedded on wasm/
+    () => summarizeIntegratedBenchmarkEvidence(actualMismatch, { requireDevice: device }),
+    new RegExp(`configured for ${device} and embedded on ${other}`)
   );
 });
 
@@ -249,20 +253,21 @@ function runPipelineCli(args) {
 }
 
 test('the CLI exits non-zero when recorded integrated evidence ran on another device', () => {
+  const { device, other } = recordedDevices(readRecordedIntegratedEvidence());
   const mismatch = runPipelineCli([
     '--evidence',
     RECORDED_INTEGRATED_EVIDENCE,
     '--require-device',
-    'wasm',
+    other,
   ]);
   assert.notEqual(mismatch.status, 0);
-  assert.match(mismatch.stderr, /requires device wasm/);
+  assert.match(mismatch.stderr, new RegExp(`requires device ${other}`));
 
   const match = runPipelineCli([
     '--evidence',
     RECORDED_INTEGRATED_EVIDENCE,
     '--require-device',
-    'webgpu',
+    device,
   ]);
   assert.equal(match.status, 0, match.stderr);
   assert.equal(JSON.parse(match.stdout).status, 'valid');

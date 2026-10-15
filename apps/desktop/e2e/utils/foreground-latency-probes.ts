@@ -47,8 +47,8 @@ export interface RendererWindowSamples {
 }
 
 export interface MainProbeConfig {
-  readonly chatRunId: string;
-  readonly embeddingSetId: string;
+  /** The host thread whose title the chat-path probe commits. */
+  readonly chatThreadId: string;
   /** A root-relative path that is never indexed: the grep's work is the same in every phase. */
   readonly grepFilePath: string;
   readonly grepPattern: string;
@@ -262,17 +262,9 @@ export async function installMainProbes(
   await app.evaluate(
     (_electron, { eldResolutionMs, probeConfig }) => {
       interface Seam {
-        grepToolIndex: (input: {
-          embeddingSetId: string;
-          filePath: string;
-          pattern: string;
-        }) => Promise<number>;
+        commitThreadUpdate: (input: { threadId: string; title: string }) => Promise<void>;
+        grepToolIndex: (input: { filePath: string; pattern: string }) => Promise<number>;
         readToolFile: (input: { requestedPath: string; rootPath: string }) => Promise<number>;
-        writeRunStepEvent: (input: {
-          eventId: string;
-          runId: string;
-          sequence: number;
-        }) => Promise<void>;
       }
       const target = globalThis as typeof globalThis & {
         __brainstrikeForegroundLatencyBench__?: MainBenchController;
@@ -297,10 +289,9 @@ export async function installMainProbes(
       const chatOp = async (): Promise<number> => {
         sequence += 1;
         const startedAt = performance.now();
-        await seam.writeRunStepEvent({
-          eventId: `${probeConfig.chatRunId}-step-${sequence}`,
-          runId: probeConfig.chatRunId,
-          sequence,
+        await seam.commitThreadUpdate({
+          threadId: probeConfig.chatThreadId,
+          title: `Foreground latency probe ${sequence}`,
         });
         return performance.now() - startedAt;
       };
@@ -312,7 +303,6 @@ export async function installMainProbes(
         });
         const readAt = performance.now();
         await seam.grepToolIndex({
-          embeddingSetId: probeConfig.embeddingSetId,
           filePath: probeConfig.grepFilePath,
           pattern: probeConfig.grepPattern,
         });
