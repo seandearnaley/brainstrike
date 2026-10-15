@@ -360,7 +360,7 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
   const restingOverride = useAuiState((state) => readActivitySummaryOverride(state.message));
   // Clusters, filters, the live tail, the run strip, jumps and keys (activity
   // trace at scale): derived from the same step list, before any early return.
-  const layout = useActivityGroupLayout(steps, groupParts, renderers);
+  const { layout, rootRef } = useActivityGroupLayout(steps, groupParts, renderers);
 
   // A group can coalesce purely from group-transparent bookkeeping (e.g. a
   // run of `tool.started`/`tool.completed` events with no reasoning or
@@ -376,7 +376,7 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
     <div
       className="bs-chain-of-thought mb-2 block max-w-2xl"
       onKeyDown={layout.onKeyDown}
-      ref={layout.rootRef}
+      ref={rootRef}
     >
       {isFirstGroup && taskList ? <TodoProgress result={taskList} /> : null}
       <ToolDurationProvider durations={toolDurations}>
