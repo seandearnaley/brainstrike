@@ -54,10 +54,10 @@ export interface CatalogView {
 }
 
 const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
-  browser: 'On device',
   gateway: 'Gateway',
   hosted: 'Hosted',
   local: 'Local server',
+  'on-device': 'On device',
 };
 
 function resolveRuntimeLabel(providerId: string): string | null {

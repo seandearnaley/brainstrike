@@ -2,7 +2,6 @@ import type {
   AssistantRunEventJson,
   AssistantRunEventMetadata,
 } from '@brainstrike/assistant-contract/run-events';
-import { LOCAL_TOOL_CALL_ARGUMENTS_INVALID } from './providers/local/local-tool-call-validation';
 
 export const PROVIDER_RUN_ERROR_METADATA_KEY = 'runError';
 export const PROVIDER_RUN_ERROR_FALLBACK_CODE = 'mastra_agent_stream_provider_error';
@@ -16,13 +15,12 @@ export const PROVIDER_RUN_ERROR_FALLBACK_CODE = 'mastra_agent_stream_provider_er
 export const LOCAL_RUN_ERROR_FALLBACK_CODE = 'mastra_agent_stream_local_error';
 
 /**
- * True for run-error codes whose fault never crossed to a provider: the
- * evidence-free local fallback and the local model's malformed-tool-arguments
- * fault. Log fingerprints and breadcrumb messages branch on this so local
- * faults never wear the provider label.
+ * True for run-error codes whose fault never crossed to a provider: today the
+ * evidence-free local fallback. Log fingerprints and breadcrumb messages branch
+ * on this so local faults never wear the provider label.
  */
 export function isLocalRunErrorClassification(code: string): boolean {
-  return code === LOCAL_RUN_ERROR_FALLBACK_CODE || code === LOCAL_TOOL_CALL_ARGUMENTS_INVALID;
+  return code === LOCAL_RUN_ERROR_FALLBACK_CODE;
 }
 export const MAX_PROVIDER_RUN_ERROR_MESSAGE_CHARS = 600;
 export const MAX_PROVIDER_RUN_ERROR_CAUSES = 4;
@@ -35,7 +33,6 @@ const TRUNCATION_MARKER = '… [truncated]';
 const STABLE_PROVIDER_ERROR_CODES: ReadonlySet<string> = new Set([
   PROVIDER_RUN_ERROR_FALLBACK_CODE,
   LOCAL_RUN_ERROR_FALLBACK_CODE,
-  LOCAL_TOOL_CALL_ARGUMENTS_INVALID,
   'context_length_exceeded',
   'max_tokens_exceeded',
   'token_limit_exceeded',

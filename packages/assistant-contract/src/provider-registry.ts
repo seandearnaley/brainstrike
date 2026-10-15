@@ -4,7 +4,25 @@ import type { AnthropicEffort, OpenAiReasoningEffort } from './runtime-data.js';
 
 export const STANDARD_EMBEDDING_DIMENSION = 768;
 
-export type ProviderRuntime = 'hosted' | 'gateway' | 'local' | 'browser';
+/**
+ * Where a provider's inference runs.
+ *
+ * - `hosted` / `gateway`: a vendor API over the network.
+ * - `local`: a local SERVER the user runs (Ollama, LM Studio) — an HTTP
+ *   endpoint with a base URL to configure, and a dynamically discovered model
+ *   catalog.
+ * - `on-device`: in-process on this device, with downloaded weights and no
+ *   endpoint and no credential. Only the built-in `local` provider, and only
+ *   for EMBEDDINGS — the category was called `browser` while that provider
+ *   also offered a chat model, which was a misnomer even then (on desktop it
+ *   ran in a hidden Electron renderer, not a browser).
+ *
+ * `local` and `on-device` stay distinct because the difference is visible:
+ * the Model Catalog labels them "Local server" and "On device", and Settings →
+ * Providers lists the former (there is a connection to configure) and not the
+ * latter (there is nothing).
+ */
+export type ProviderRuntime = 'hosted' | 'gateway' | 'local' | 'on-device';
 
 export type ProviderModelType = 'llm' | 'embedding';
 

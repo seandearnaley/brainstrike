@@ -21,9 +21,10 @@ import type { RuntimeData } from '../types';
 
 /**
  * Providers whose pins never need a bearer token — derived from the registry
- * (`authType: 'none'`, BST-1349), never hand-listed. `local` is handled
- * separately (it needs the llm-host CLIENT, not a key); the local servers
- * are reached via `runtime.providerOptions` base URLs.
+ * (`authType: 'none'`, BST-1349), never hand-listed. The local servers are
+ * reached via `runtime.providerOptions` base URLs; the built-in on-device
+ * provider is in this set too, and a pin to it refuses in the factory (it has
+ * no chat model to instantiate).
  * Exported so the desktop server's key-resolution loop shares one source.
  */
 export const PERSONA_PIN_KEYLESS_PROVIDERS: ReadonlySet<string> = new Set(
@@ -99,21 +100,6 @@ export function createPersonaPinnedModelResolver(
         pin.modelId,
         params.runtime
       );
-    }
-
-    if (pin.provider === 'local') {
-      // Renderer-only inference is MANDATORY (docs/agents/local-inference.md).
-      // createProvider('local') also refuses without a host client; checking
-      // here turns a run-fatal error into a per-persona skip, so one
-      // unresolvable pin never takes down the whole delegation set. Throw →
-      // the factory skips this persona with subagent_persona_pin_unresolvable.
-      if (!params.runtime?.localLlmHostClient) {
-        throw new Error(
-          'local model pin requires the local LLM host client (renderer-only inference); ' +
-            `none is available on this run (persona '${persona.id}')`
-        );
-      }
-      return params.instantiate('local', undefined, pin.modelId, params.runtime);
     }
 
     if (PERSONA_PIN_KEYLESS_PROVIDERS.has(pin.provider)) {

@@ -101,7 +101,7 @@ function selection(modelId: string) {
     );
   }
   const source = findProviderDefinition(provider);
-  if (source?.runtime === 'browser' || source?.runtime === 'local') {
+  if (source?.runtime === 'on-device' || source?.runtime === 'local') {
     throw refusalError(
       'availability',
       'model.runtime-unavailable',

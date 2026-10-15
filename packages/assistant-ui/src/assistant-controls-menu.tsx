@@ -325,7 +325,7 @@ export const ControlsMenu = ({
         ? openRouterMetadataLookup.snapshot.metadata
         : undefined
     );
-    return availability.available && availability.family !== 'local';
+    return availability.available;
   }, [modelName, openRouterMetadataLookup, selectedProvider]);
 
   const hasOutputControls = Boolean(supportsOutputControls && onProviderSettingsChange);

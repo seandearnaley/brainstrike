@@ -46,6 +46,7 @@ import {
   isSupportedProvider,
   type ModelVisionSupport,
   type ProviderModelDefinition,
+  type ProviderRuntime,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
@@ -149,15 +150,25 @@ function createThreadRunId(): HostRunId {
   return `run-${crypto.randomUUID()}` as HostRunId;
 }
 
-function toAssistantThreadRuntimeKind(
-  runtime: AssistantThreadRuntimeKind
-): AssistantThreadRuntimeKind {
+/**
+ * Narrow the registry's `ProviderRuntime` to the kind a RUN is recorded under.
+ *
+ * The two unions are deliberately different sizes: `on-device` is a provider
+ * runtime (the built-in embeddings provider) but never a run's runtime, because
+ * that provider cannot serve a chat turn. Reaching here with it means a run was
+ * admitted for a provider with no LLM capability, so it throws rather than
+ * recording a kind that did not happen.
+ */
+function toAssistantThreadRuntimeKind(runtime: ProviderRuntime): AssistantThreadRuntimeKind {
   switch (runtime) {
-    case 'browser':
     case 'gateway':
     case 'hosted':
     case 'local':
       return runtime;
+    case 'on-device':
+      throw new Error(
+        'An assistant run cannot be recorded for an on-device provider: it serves embeddings only.'
+      );
   }
 }
 

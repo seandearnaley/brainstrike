@@ -218,8 +218,6 @@ export function buildEffortControlModel(
       return buildBedrockEffortControlModel(availability.efforts, settings);
     case 'google':
       return buildGoogleThinkingLevelControlModel(availability.levels, settings);
-    case 'local':
-      return;
     default: {
       const exhausted: never = availability;
       throw new Error(`Unhandled reasoning family: ${String(exhausted)}`);
@@ -354,14 +352,6 @@ export function buildThinkingToggleModel(
         Boolean(
           settings.anthropicEffort && availability.efforts.includes(settings.anthropicEffort)
         ),
-    };
-  }
-
-  if (availability.family === 'local') {
-    return {
-      // Parity with the old LocalThinkingSection switch.
-      buildUpdate: (checked) => ({ localThinkingEnabled: checked }),
-      checked: settings.localThinkingEnabled ?? true,
     };
   }
 

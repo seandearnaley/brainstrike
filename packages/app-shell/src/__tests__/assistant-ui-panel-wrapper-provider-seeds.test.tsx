@@ -5,21 +5,13 @@ import {
 } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import type { SupportedProvider } from '@brainstrike/assistant-contract';
 import { act, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
-import { hasDesktopLlmHostMock } from './assistant-ui-panel-wrapper-test-support';
 
 describe('AssistantUiPanelWrapper provider seeds', () => {
-  afterEach(() => {
-    hasDesktopLlmHostMock.mockReturnValue(false);
-  });
-
   test('merges desktop provider seeds with renderer-discovered local runtimes', async () => {
-    // A desktop host: the built-in local provider is offered here, so this
-    // case sees the full merge rather than the web filter.
-    hasDesktopLlmHostMock.mockReturnValue(true);
-    const getAvailableProviders = vi.fn().mockResolvedValue(['local', 'ollama']);
+    const getAvailableProviders = vi.fn().mockResolvedValue(['anthropic', 'ollama']);
     useAssistantPreferencesStore.setState((state) => ({
       ...state,
       getAvailableProviders,

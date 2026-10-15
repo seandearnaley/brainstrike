@@ -1,9 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import type { LocalLlmHostProgress } from '@brainstrike/agent/local-llm';
 import type {
   LocalEmbeddingHostClient,
-  LocalLlmHostClient,
   ProviderAuthInput,
   RuntimeData,
 } from '@brainstrike/agent/provider-runtime';
@@ -22,7 +20,6 @@ import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-work
 import type { SupportedProvider } from '@brainstrike/assistant-contract';
 import { refusalError } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
 import {
   getGlobalHooksPath,
@@ -53,8 +50,6 @@ import { desktopMemoryPreconditions } from './memory-readiness';
 import { parentPlatformPort } from './parent-platform-port';
 import {
   PlatformCatalogModelResultSchema,
-  PlatformLocalGenerationResultSchema,
-  PlatformLocalProgressSchema,
   PlatformMemoryVectorsResultSchema,
   PlatformObserverCandidatesResultSchema,
   PlatformRewindConflictsSchema,
@@ -102,62 +97,20 @@ export type PlatformRequest = (
   signal?: AbortSignal
 ) => Promise<unknown>;
 
-/** Each borrowed generation's progress listener, keyed by its request id. */
-export type LocalProgressListeners = Map<string, (progress: LocalLlmHostProgress) => void>;
-
-/** The local chat model and observer an admission may run on Main's llm-host. */
-function admittedLocalModels(selected: DesktopRunSelection): ReadonlySet<string> {
-  const models = new Set<string>();
-  if (selected.configuration.provider === 'local') {
-    models.add(selected.configuration.model);
-  }
-  const observation = selected.memory.settings.observationalMemory;
-  const observer = observation.enabled
-    ? parseObservationalMemoryModelTarget(observation.modelTarget)
-    : undefined;
-  if (observer?.provider === 'local') {
-    models.add(observer.model);
-  }
-  return models;
-}
-
 /**
- * ADR-0007: Node never runs local inference. A thread's admitted local chat
- * model, observer and recall embedder borrow Main's hidden hosts; JSON-RPC
- * cancellation carries the caller's signal, and progress notifications stream
- * the generation. Only what this admission admitted may borrow them.
+ * ADR-0007: Node never runs local inference. A thread's admitted recall
+ * embedder borrows Main's hidden embedding host; JSON-RPC cancellation carries
+ * the caller's signal.
+ *
+ * It used to lend local GENERATION too, from Main's hidden llm-host, under an
+ * admission gate (only this thread's admitted chat model or observer could
+ * borrow it). The built-in local provider is embeddings-only now, so there is
+ * no generation to lend.
  */
 export function borrowedLocalInference(
   request: PlatformRequest,
-  listeners: LocalProgressListeners,
   selected: DesktopRunSelection
-): { readonly embedding: LocalEmbeddingHostClient; readonly llm: LocalLlmHostClient } {
-  const models = admittedLocalModels(selected);
-  const admitted = (modelId: string): void => {
-    if (!models.has(modelId)) {
-      throw refusalError(
-        'authorization',
-        'model.not-admitted',
-        'Local generation is not part of this admitted thread selection',
-        'Select the model for this thread and retry.'
-      );
-    }
-  };
-  const borrow = async (
-    method: string,
-    input: Record<string, unknown>,
-    options: { onProgress?: (progress: LocalLlmHostProgress) => void; signal?: AbortSignal } = {}
-  ): Promise<unknown> => {
-    const requestId = randomUUID();
-    if (options.onProgress) {
-      listeners.set(requestId, options.onProgress);
-    }
-    try {
-      return await request(method, { ...input, requestId }, options.signal);
-    } finally {
-      listeners.delete(requestId);
-    }
-  };
+): { readonly embedding: LocalEmbeddingHostClient } {
   return {
     embedding: {
       queryEmbedding: async ({ query }, options) => {
@@ -182,18 +135,6 @@ export function borrowedLocalInference(
           },
           options?.signal
         );
-      },
-    },
-    llm: {
-      generate: async (generation, options) => {
-        admitted(generation.modelId);
-        return PlatformLocalGenerationResultSchema.parse(
-          await borrow('platform/llm/generate', { ...generation }, options)
-        );
-      },
-      warmup: async (modelId, options) => {
-        admitted(modelId);
-        await borrow('platform/llm/warmup', { modelId }, options);
       },
     },
   };
@@ -315,12 +256,6 @@ export async function createDesktopHostConfiguration(
     });
     await startup.register(async () => unobserve());
   }
-  // ADR-0007: a borrowed local generation streams through Main's progress notifications.
-  const localProgress: LocalProgressListeners = new Map();
-  connection.onNotification('platform/llm/progress', (input: unknown) => {
-    const { progress, requestId } = PlatformLocalProgressSchema.parse(input);
-    localProgress.get(requestId)?.(progress);
-  });
   connection.listen();
   connection.onClose(() => connection.dispose());
   await startup.register(async () => {
@@ -400,7 +335,7 @@ export async function createDesktopHostConfiguration(
           }
           await selected.close();
         })());
-      const local = borrowedLocalInference(request, localProgress, selected);
+      const local = borrowedLocalInference(request, selected);
       let memory: ProductionHostRunConfiguration['memory'];
       try {
         memory = await createDesktopHostMemoryConfiguration(selected, resolveAuth, {
@@ -458,8 +393,6 @@ export async function createDesktopHostConfiguration(
         configuration,
         delegation: selected.delegation,
         durableConfiguration: selected.durableConfiguration,
-        // An admitted local chat model generates in Main's hidden llm-host.
-        localLlmHostClient: local.llm,
         ...(hooks ? { hooks } : {}),
         // Core commits the hook files this run did not load (`hooks.skipped`).
         hookSkips: skipped,

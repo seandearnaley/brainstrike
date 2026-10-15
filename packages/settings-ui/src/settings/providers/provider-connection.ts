@@ -65,14 +65,14 @@ export const PROVIDER_RUNTIME_ORDER: readonly ProviderRuntime[] = [
   'hosted',
   'gateway',
   'local',
-  'browser',
+  'on-device',
 ];
 
 const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
-  browser: 'Browser',
   gateway: 'Gateway',
   hosted: 'Hosted',
   local: 'Local',
+  'on-device': 'On device',
 };
 
 /** How many providers the first-run panel suggests. */

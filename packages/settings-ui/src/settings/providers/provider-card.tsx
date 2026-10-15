@@ -59,16 +59,17 @@ const PRIMARY_ACTION_LABELS: Record<ProviderConnectionState, string> = {
 
 /**
  * Where a keyless provider is actually configured. Branches on RUNTIME, not
- * provider id: a browser-runtime model is a download, while a local-runtime
- * one is a server you point the app at, and sending either user to the other
- * place is a dead end.
+ * provider id: a local-runtime provider is a server you point the app at, so
+ * sending that user anywhere else is a dead end. `on-device` is listed for
+ * exhaustiveness only — that provider is withheld from this page, because it
+ * has neither a credential nor a connection (see `providers-settings.tsx`).
  */
 const KEYLESS_NOTES: Record<ProviderRuntime, string> = {
-  browser:
-    'This provider needs no credential. Its models run in-app and are downloaded from the Model Catalog.',
   gateway: 'This provider needs no credential.',
   hosted: 'This provider needs no credential.',
   local: 'This provider needs no credential. Point the app at its server under Local Runtimes.',
+  'on-device':
+    'This provider needs no credential. Its models are chosen under Settings → Embedding.',
 };
 
 export interface ProviderCardProps {

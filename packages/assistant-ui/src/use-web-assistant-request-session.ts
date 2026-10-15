@@ -16,7 +16,6 @@ interface UseWebAssistantRequestSessionOptions {
         hostOwnsRun?: boolean
       ) => Promise<void> | void)
     | undefined;
-  readonly prepareLocalModel?: ((abortSignal?: AbortSignal) => Promise<void>) | undefined;
   readonly prepareRequestData?:
     | ((
         abortSignal?: AbortSignal,
@@ -62,7 +61,6 @@ interface WebAssistantRequestSession {
     turnAnchorMessageId?: string | null,
     runConfig?: unknown
   ) => Promise<Record<string, unknown> | undefined>;
-  readonly prepareRequestWarmup?: (abortSignal?: AbortSignal) => Promise<void>;
   readonly recoveryError: Error | undefined;
   readonly retryRecovery: () => void;
 }
@@ -70,7 +68,6 @@ interface WebAssistantRequestSession {
 /** Own only web request preparation/completion. Desktop runs belong to the agent host. */
 export function useWebAssistantRequestSession({
   completePreparedRequest,
-  prepareLocalModel,
   prepareRequestData,
 }: UseWebAssistantRequestSessionOptions): WebAssistantRequestSession {
   const preparedRequestRef = useRef<PreparedRequest | null>(null);
@@ -182,6 +179,5 @@ export function useWebAssistantRequestSession({
     prepareRequest,
     recoveryError,
     retryRecovery: settleRejectedAdmission,
-    ...(prepareLocalModel ? { prepareRequestWarmup: prepareLocalModel } : {}),
   };
 }

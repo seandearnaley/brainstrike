@@ -1,4 +1,4 @@
-// Narrow Electron preload for renderer-only chunking, embedding, and local-LLM hosts.
+// Narrow Electron preload for the renderer-only chunking and embedding hosts.
 // Main selects the role with a BrowserWindow additionalArgument; an absent,
 // duplicated, or unknown role is a packaging error and fails closed.
 const { contextBridge, ipcRenderer } = require('electron');
@@ -36,11 +36,7 @@ type EmbeddingHostWebGpuAdapterRequest =
   import('./embedding-host-webgpu-adapter').EmbeddingHostWebGpuAdapterRequest;
 type EmbeddingHostWebGpuAdapterResponseReport =
   import('./embedding-host-webgpu-adapter').EmbeddingHostWebGpuAdapterResponseReport;
-type LlmHostRequest = import('./llm-host-shared').LlmHostRequest;
-type LlmHostResponseReport = import('./llm-host-shared').LlmHostResponseReport;
-type LlmHostStatus = import('./llm-host-shared').LlmHostStatus;
-
-type HiddenRendererRole = 'chunking-host' | 'embedding-host' | 'llm-host';
+type HiddenRendererRole = 'chunking-host' | 'embedding-host';
 
 const HIDDEN_RENDERER_ROLE_ARGUMENT = '--brainstrike-hidden-renderer-role=' as const;
 
@@ -54,7 +50,7 @@ function resolveHiddenRendererRole(argv: readonly string[]): HiddenRendererRole 
     );
   }
   const role = roleArguments[0]?.slice(HIDDEN_RENDERER_ROLE_ARGUMENT.length);
-  if (role === 'chunking-host' || role === 'embedding-host' || role === 'llm-host') {
+  if (role === 'chunking-host' || role === 'embedding-host') {
     return role;
   }
   throw new Error(`Hidden renderer preload received unsupported role: ${String(role)}`);
@@ -165,28 +161,10 @@ function exposeEmbeddingHostBridge(): void {
   });
 }
 
-function exposeLlmHostBridge(): void {
-  contextBridge.exposeInMainWorld('llmHost', {
-    onRequest: (callback: (request: LlmHostRequest) => void) =>
-      subscribe(DESKTOP_IPC_CHANNELS.llmHost.request, callback),
-    reportProgress: (progress: LlmHostResponseReport): void => {
-      ipcRenderer.send(DESKTOP_IPC_CHANNELS.llmHost.reportProgress, progress);
-    },
-    reportResponse: (response: LlmHostResponseReport): void => {
-      ipcRenderer.send(DESKTOP_IPC_CHANNELS.llmHost.reportResponse, response);
-    },
-    reportStatus: (status: LlmHostStatus): void => {
-      ipcRenderer.send(DESKTOP_IPC_CHANNELS.llmHost.reportStatus, status);
-    },
-  });
-}
-
 const hiddenRendererRole = resolveHiddenRendererRole(process.argv);
 exposeLoggingBridge();
 if (hiddenRendererRole === 'chunking-host') {
   exposeChunkingHostBridge();
-} else if (hiddenRendererRole === 'embedding-host') {
-  exposeEmbeddingHostBridge();
 } else {
-  exposeLlmHostBridge();
+  exposeEmbeddingHostBridge();
 }

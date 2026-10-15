@@ -301,20 +301,6 @@ export type {
   AwsCredentialIdentity,
   AwsCredentialIdentityProvider,
 } from './providers/aws-credential-identity';
-export type {
-  LocalLlmConfig,
-  LocalLlmGenerationOptions,
-  LocalLlmGenerationResult,
-  LocalLlmMessage,
-  LocalLlmModelCapabilities,
-  LocalLlmModelParameters,
-  LocalLlmProgressCallback,
-  LocalLlmProviderStatus,
-  LocalLlmToolCall,
-  LocalLlmToolDefinition,
-} from './providers/local';
-// Local LLM backend for browser-based inference with transformers.js
-export { LocalLlmBackend } from './providers/local';
 export {
   createLocalHostEmbeddingModel,
   type LocalEmbeddingHostClient,
@@ -736,7 +722,6 @@ export type {
   AssistantUiScalar,
   GoogleProviderOptions,
   GoogleThinkingLevel,
-  LocalProviderOptions,
   OpenAiProviderOptions,
   OpenAiReasoningEffort,
   OpenAiReasoningSummary,

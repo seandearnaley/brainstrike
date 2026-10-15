@@ -31,7 +31,6 @@ import type { userPersonasContract } from '../ipc-domains/user-personas.contract
 import type { viewFilterPresetsContract } from '../ipc-domains/view-filter-presets.contract';
 import type { windowFocusContract } from '../ipc-domains/window-focus.contract';
 import type { worktreesContract } from '../ipc-domains/worktrees.contract';
-import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
 import type { LoggingSettingsPayload } from '../logging-shared';
 import type { TransportBridge } from '../platform/ipc-contract';
 import type {
@@ -167,26 +166,6 @@ declare global {
     indexSearch?: TransportBridge<
       typeof import('../ipc-domains/index-search.contract').indexSearchContract
     >;
-    llmHost: {
-      ensureStarted: () => Promise<LlmHostStatus>;
-      stop: () => Promise<LlmHostStatus>;
-      reset: () => Promise<LlmHostStatus>;
-      getStatus: () => Promise<LlmHostStatus>;
-      cancel: (requestId: string) => Promise<void>;
-      warmup: (payload: { modelId: string; requestId?: string } | string) => Promise<void>;
-      generate: (payload: {
-        requestId?: string;
-        modelId: string;
-        messages: unknown[];
-        options?: unknown;
-      }) => Promise<unknown>;
-      reportStatus: (status: LlmHostStatus) => void;
-      reportProgress: (progress: LlmHostResponseReport) => void;
-      reportResponse: (response: LlmHostResponseReport) => void;
-      onStatus: (callback: (status: LlmHostStatus) => void) => () => void;
-      onRequest: (callback: (request: LlmHostRequest) => void) => () => void;
-      onProgress: (callback: (progress: LlmHostResponseReport) => void) => () => void;
-    };
     logging: {
       getPreferences: () => Promise<BoundaryResult<LoggingSettingsPayload>>;
       setPreferences: (

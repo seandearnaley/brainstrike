@@ -88,7 +88,6 @@ import {
 } from './data-stream-runtime';
 import { buildFileMentionAdapter, type FileMention } from './file-mentions';
 import { ComposerRunControls, FollowUpQueueBridge, FollowUpQueueChips } from './follow-up-queue';
-import { LocalModelStatus } from './local-model-status';
 import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
 import { RunVerdictControl } from './run-verdict-control';
 import { RunningStateBridge } from './running-state-bridge';
@@ -98,7 +97,6 @@ import {
   toSlashCommandAdapterOptions,
 } from './slash-commands';
 import { ThreadScrollFollowProvider } from './thread-scroll-follow';
-import { type LocalModelLoadingState, useLocalModelLoading } from './use-local-model-loading';
 import { useWebAssistantRequestSession } from './use-web-assistant-request-session';
 import { WebAssistantRequestStatus } from './web-assistant-request-status';
 
@@ -112,7 +110,7 @@ export interface ProviderConfig {
   name: string;
 }
 
-export type ProviderRuntimeCategory = 'hosted' | 'gateway' | 'local' | 'browser';
+export type ProviderRuntimeCategory = 'hosted' | 'gateway' | 'local' | 'on-device';
 
 export interface ProviderModelOptionConfig {
   default?: boolean;
@@ -395,7 +393,6 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps, AssistantStre
   effectiveInputBudget?: number | undefined;
   fileMentions: readonly FileMention[];
   isVisible: boolean;
-  localLoadingState?: LocalModelLoadingState | undefined;
   omSegment?: OmMeterState | undefined;
   onEnableModel: ((providerId: string, modelId: string) => Promise<boolean>) | undefined;
   onFileMentionQueryChange: ((query: string) => void) | undefined;
@@ -495,7 +492,6 @@ const DataStreamRuntimeChat = ({
   disabled,
   disabledReason,
   capabilityNotice,
-  localLoadingState,
   api,
   authHeaders,
   completePreparedRequest,
@@ -503,7 +499,6 @@ const DataStreamRuntimeChat = ({
   requestBodyLimitBytes,
   requestData,
   prepareRequestData,
-  prepareLocalModel,
   modelName,
   slashCommands,
   fileMentions,
@@ -536,8 +531,6 @@ const DataStreamRuntimeChat = ({
         runConfig?: unknown
       ) => Promise<Record<string, unknown> | undefined>)
     | undefined;
-  /** Pre-request hook: warms the built-in local model (with progress UI) before streaming. */
-  prepareLocalModel?: ((abortSignal?: AbortSignal) => Promise<void>) | undefined;
   modelName: string | undefined;
   threadKey?: string | undefined;
 }) => {
@@ -545,7 +538,6 @@ const DataStreamRuntimeChat = ({
   const isComposerDisabled = Boolean(disabled);
   const serverRunSession = useWebAssistantRequestSession({
     completePreparedRequest,
-    prepareLocalModel,
     prepareRequestData,
   });
   const recoveryBlocked = serverRunSession.isRecovering || Boolean(serverRunSession.recoveryError);
@@ -559,9 +551,6 @@ const DataStreamRuntimeChat = ({
     ...(authHeaders === undefined ? {} : { headers: authHeaders }),
     ...runtimeAdapters,
     ...(requestBodyLimitBytes === undefined ? {} : { requestBodyLimitBytes }),
-    ...(serverRunSession.prepareRequestWarmup
-      ? { prepareRequestWarmup: serverRunSession.prepareRequestWarmup }
-      : {}),
     body: async (abortSignal: AbortSignal, context?: PrepareRequestBodyContext) => {
       const preparedRequestData = await serverRunSession.prepareRequest(
         abortSignal,
@@ -610,7 +599,6 @@ const DataStreamRuntimeChat = ({
             isComposerDisabled={isComposerDisabled || recoveryBlocked}
             isReattaching={recoveryBlocked}
             isVisible={isVisible}
-            localLoadingState={localLoadingState}
             omSegment={omSegment}
             onComposerDraftCommandApplied={onComposerDraftCommandApplied}
             onComposerTextChange={onComposerTextChange}
@@ -688,7 +676,6 @@ export const ChatThreadUI = ({
   hideDefaultCancel,
   disabledReason,
   capabilityNotice,
-  localLoadingState,
   slashCommands,
   fileMentions,
   onFileMentionQueryChange,
@@ -739,7 +726,6 @@ export const ChatThreadUI = ({
   hideDefaultCancel?: boolean | undefined;
   disabledReason: string | undefined;
   capabilityNotice: string | undefined;
-  localLoadingState?: LocalModelLoadingState | undefined;
   slashCommands: readonly SlashCommand[];
   fileMentions: readonly FileMention[];
   onFileMentionQueryChange: ((query: string) => void) | undefined;
@@ -886,7 +872,6 @@ export const ChatThreadUI = ({
                   {/* Last-24h budget burn-down + over-cap send notice (owned module,
             budget-guardrail-control.tsx); renders nothing without a binding. */}
                   <BudgetGuardrailControl />
-                  {localLoadingState && <LocalModelStatus state={localLoadingState} />}
                   <FollowUpQueueChips threadKey={threadKey} />
                   <ApprovalQueueStrip key={threadKey} />
                   {approvalStrip ?? null}
@@ -1035,10 +1020,6 @@ export const AssistantUiPanel = ({
     return parts.length === 2 ? parts[1] : selectedModel;
   }, [selectedModel]);
 
-  // The built-in local provider always runs over the data-stream transport,
-  // with inference proxied to the desktop hidden llm-host; a host that cannot
-  // reach the llm-host does not offer the provider at all.
-  const localViaDataStream = selectedProvider === 'local';
   const planMode = onTogglePlanMode
     ? {
         enabled: Boolean(planModeEnabled),
@@ -1047,10 +1028,6 @@ export const AssistantUiPanel = ({
       }
     : undefined;
 
-  const { localLoadingState, prepareLocalModel } = useLocalModelLoading({
-    localViaDataStream,
-    modelName,
-  });
   return (
     <MetadataProviders onValidation={onSettingsValidation} value={openRouterModelMetadataLookup}>
       <section
@@ -1080,7 +1057,6 @@ export const AssistantUiPanel = ({
           // root Stop cancelling paused work) has no other way to reach a
           // mounted runtime.
           key={threadKey ? `data-stream:${threadKey}:${historyGeneration}` : 'data-stream'}
-          localLoadingState={localLoadingState}
           modelName={modelName}
           omSegment={omSegment}
           onChildRunUsage={onChildRunUsage}
@@ -1105,7 +1081,6 @@ export const AssistantUiPanel = ({
           onUsage={onUsage}
           pickerModels={pickerModels}
           planMode={planMode}
-          prepareLocalModel={prepareLocalModel}
           prepareRequestData={prepareRequestData}
           providerGroups={groupedProviders}
           providerSettings={providerSettings}

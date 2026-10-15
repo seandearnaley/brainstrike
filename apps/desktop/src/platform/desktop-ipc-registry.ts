@@ -30,7 +30,6 @@ export type DesktopIpcDomain =
   | 'forge'
   | 'git'
   | 'hooks'
-  | 'llm-host'
   | 'logging'
   | 'mcp'
   | 'collectionCatalog'

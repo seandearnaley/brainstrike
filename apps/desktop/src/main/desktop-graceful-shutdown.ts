@@ -27,7 +27,6 @@ export const DESKTOP_SHUTDOWN_STEP_ORDER = [
   'chunking-host',
   'parser-host',
   'embedding-host',
-  'llm-host',
   'git-inventory',
   'forge',
   'database-drain',

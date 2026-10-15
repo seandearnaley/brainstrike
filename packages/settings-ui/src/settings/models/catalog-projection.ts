@@ -81,8 +81,6 @@ function effortLadder(controls: ReasoningControlsAvailability): readonly string[
   switch (controls.family) {
     case 'google':
       return controls.levels;
-    case 'local':
-      return [];
     default:
       return controls.efforts;
   }

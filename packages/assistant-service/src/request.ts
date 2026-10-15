@@ -193,11 +193,9 @@ function reject(rejection: AssistantPostRejection): PrepareAssistantPostRequestR
  * resolveProviderApiKeyOrRespond): a classified secret-read failure becomes
  * the same 400 payload; anything else still propagates loudly. Keyless-ness
  * is registry-derived (`authType: 'none'`, PR #2513 review finding 3): the
- * in-browser runtime (registry `runtime: 'browser'`) has no credential
- * surface at all and skips the read; the local servers still read their
- * OPTIONAL bearer token, but a classified read failure proceeds keyless with
- * a visible warn instead of a 400 — the token is optional, so an unreadable
- * keychain entry must not block the run.
+ * local servers read their OPTIONAL bearer token, but a classified read
+ * failure proceeds keyless with a visible warn instead of a 400 — the token is
+ * optional, so an unreadable keychain entry must not block the run.
  *
  * BST-1352: consumes the TYPED reader. The credential-type narrow is the ONE
  * shared projection (`providerAuthInputFromCredential`, BST-1350): a
@@ -226,9 +224,6 @@ async function resolveCredentialOrReject(
     }
 > {
   const keyless = providerAuthType(provider) === 'none';
-  if (keyless && getProviderDefinition(provider).runtime === 'browser') {
-    return { apiKey: '' };
-  }
   try {
     const credential = await resolveProviderCredential(provider);
     if (credential === undefined) {

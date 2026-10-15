@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { GEMMA4_E2B_MODEL_ID } from '../local-llm.js';
 import {
   OPENAI_FAMILY_DEFAULT_EFFORTS,
   resolveModelReasoningSupport,
@@ -36,14 +35,9 @@ describe('resolveModelReasoningSupport', () => {
     expect(resolveModelReasoningSupport(provider, model)).toEqual(expected);
   });
 
-  it('resolves the built-in local model from its LocalLlmModelSpec.supportsThinking', () => {
-    expect(resolveModelReasoningSupport('local', GEMMA4_E2B_MODEL_ID)).toEqual({
-      source: 'local-spec',
-      state: 'supported',
-    });
-  });
-
-  it('reports unknown local model ids as unsupported', () => {
+  // The built-in `local` provider is embeddings-only: no model id resolves to
+  // a reasoning capability there.
+  it('reports every local model id as unsupported', () => {
     expect(resolveModelReasoningSupport('local', 'not-a-local-model')).toEqual({
       state: 'unsupported',
     });
@@ -292,13 +286,6 @@ describe('resolveReasoningControlsAvailability', () => {
       available: true,
       family: 'google',
       levels: ['low', 'high'],
-    });
-  });
-
-  it('exposes only the thinking toggle for the built-in local model', () => {
-    expect(resolveReasoningControlsAvailability('local', GEMMA4_E2B_MODEL_ID)).toEqual({
-      available: true,
-      family: 'local',
     });
   });
 

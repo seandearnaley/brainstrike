@@ -3932,10 +3932,10 @@
     "catalog": {
       "enabled": true,
       "icon": null,
-      "name": "Local (Browser)",
+      "name": "Local (On device)",
       "sortOrder": 4
     },
-    "displayName": "Local (Browser)",
+    "displayName": "Local (On device)",
     "id": "local",
     "models": [
       {
@@ -4121,7 +4121,7 @@
         "type": "embedding"
       }
     ],
-    "runtime": "browser"
+    "runtime": "on-device"
   },
   {
     "_note": "The optional local-server bearer token is a transport concern\n(providerOptions.apiToken), not an authType.\nRuntime models are discovered dynamically from localhost endpoints.",

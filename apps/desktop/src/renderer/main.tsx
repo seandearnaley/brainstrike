@@ -44,7 +44,6 @@ import './log-buffer';
 import './styles.css';
 import { ChunkingHostApp } from './components/chunking-host-app';
 import { EmbeddingHostApp } from './components/embedding-host-app';
-import { LlmHostApp } from './components/llm-host-app';
 
 // Local declaration of the parser-routing globals exposed by the chunking
 // worker (see packages/chunking-worker/src/parsers/environment.ts). Declared
@@ -88,9 +87,7 @@ const desktopRendererRole = resolveDesktopRendererRole(
 );
 const rendererRuntimeId = new URLSearchParams(window.location.search).get('runtimeId');
 const rendererRuntimeKind =
-  desktopRendererRole === 'embedding-host' ||
-  desktopRendererRole === 'chunking-host' ||
-  desktopRendererRole === 'llm-host'
+  desktopRendererRole === 'embedding-host' || desktopRendererRole === 'chunking-host'
     ? desktopRendererRole
     : null;
 
@@ -473,10 +470,6 @@ function isChunkingHostMode(): boolean {
   return new URLSearchParams(window.location.search).get('mode') === 'chunking-host';
 }
 
-function isLlmHostMode(): boolean {
-  return new URLSearchParams(window.location.search).get('mode') === 'llm-host';
-}
-
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error("Failed to find the root element with ID 'root'");
@@ -531,8 +524,6 @@ root.render(
       <EmbeddingHostApp />
     ) : isChunkingHostMode() ? (
       <ChunkingHostApp />
-    ) : isLlmHostMode() ? (
-      <LlmHostApp />
     ) : desktopRendererRole === 'mcp-task-harness' ? (
       McpTaskStatusE2eHarness === null ? (
         <div data-testid="mcp-task-harness-unavailable" role="alert">

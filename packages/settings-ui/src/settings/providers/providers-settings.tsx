@@ -98,7 +98,7 @@ export function ProvidersSettings({
   // on-device embedding runtime. Registry-derived (`runtime`), never a
   // provider-id branch (provider-branch-guard.test.ts).
   const availableDefinitions = useMemo(
-    () => listProviders().filter((definition) => definition.runtime !== 'browser'),
+    () => listProviders().filter((definition) => definition.runtime !== 'on-device'),
     []
   );
 

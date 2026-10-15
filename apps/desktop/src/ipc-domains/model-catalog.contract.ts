@@ -46,7 +46,7 @@ export const modelCatalogContract = {
   read: channel<[], Awaited<ReturnType<ModelCatalogCapability['read']>>>({
     channel: DESKTOP_IPC_CHANNELS.modelCatalog.read,
     parseArgs: parseNoArgs,
-    roles: ['visible-ui', 'embedding-host', 'llm-host'],
+    roles: ['visible-ui', 'embedding-host'],
   }),
   setModels: channel<
     Parameters<ModelCatalogCapability['setModels']>,

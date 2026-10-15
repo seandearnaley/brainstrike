@@ -130,7 +130,7 @@ export function isHostedProviderRuntime(provider: ProviderId): boolean {
   // an unknown id or a future runtime value keeps the pre-BST-1349 hosted
   // default. Guarded lookup: an out-of-registry id must not TypeError.
   const runtime = findProviderDefinition(provider)?.runtime;
-  return runtime !== 'local' && runtime !== 'browser';
+  return runtime !== 'local' && runtime !== 'on-device';
 }
 
 /**

@@ -151,12 +151,12 @@ describe('native tool discovery contract', () => {
       resolveToolDiscoveryAdapter({
         modelId: 'gpt-5.6-terra',
         provider: 'openai',
-        requestedAdapter: 'eager-core-only',
+        requestedAdapter: 'anthropic-native-search',
       })
     ).toEqual({
       adapter: 'unsupported',
-      reason: 'requested-adapter-not-supported',
-      requestedAdapter: 'eager-core-only',
+      reason: 'model-lacks-requested-native-search',
+      requestedAdapter: 'anthropic-native-search',
       status: 'unsupported',
     });
     expect(

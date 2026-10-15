@@ -65,12 +65,7 @@ export function collectBackgroundRuntimeMetrics(): BackgroundRuntimeProcessMetri
     metricsByPid.set(metric.pid, metric);
   }
 
-  const runtimeKinds: DesktopWindowRole[] = [
-    'visible-ui',
-    'embedding-host',
-    'chunking-host',
-    'llm-host',
-  ];
+  const runtimeKinds: DesktopWindowRole[] = ['visible-ui', 'embedding-host', 'chunking-host'];
   const runtimeMetrics: BackgroundRuntimeProcessMetric[] = [];
 
   for (const runtimeKind of runtimeKinds) {

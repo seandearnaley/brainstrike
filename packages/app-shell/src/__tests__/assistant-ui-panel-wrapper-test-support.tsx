@@ -34,10 +34,6 @@ export const delegatedPanelCallbacks: {
   onRuntimeReady: undefined,
 };
 
-const { hasDesktopLlmHostMock } = vi.hoisted(() => ({
-  hasDesktopLlmHostMock: vi.fn((): boolean => false),
-}));
-
 const { initializeProviderModelDefaultsMock } = vi.hoisted(() => ({
   initializeProviderModelDefaultsMock: vi.fn(async () => 'preserved' as const),
 }));
@@ -741,16 +737,6 @@ vi.mock('../use-assistant-slash-commands', () => ({
 }));
 
 // Mock the AssistantUiPanel component
-// Defaults to no desktop llm-host bridge, which is what web looks like: the
-// built-in local provider is withheld. Tests flip the mock to cover a desktop
-// host that can actually run it.
-vi.mock('@brainstrike/assistant-contract/local-llm-device', async () => {
-  const actual = await vi.importActual<
-    typeof import('@brainstrike/assistant-contract/local-llm-device')
-  >('@brainstrike/assistant-contract/local-llm-device');
-  return { ...actual, hasDesktopLlmHost: hasDesktopLlmHostMock };
-});
-
 vi.mock('@brainstrike/assistant-ui', async () => ({
   AssistantUiPanel: ({
     onDelegatedConversation,
@@ -1333,7 +1319,6 @@ export const readPanelContextMenu = (): Record<string, unknown> =>
 export {
   changesetRefreshMock,
   fileExplorerMocks,
-  hasDesktopLlmHostMock,
   mockDb,
   preparedRequestDataLog,
   testEnabledModels,

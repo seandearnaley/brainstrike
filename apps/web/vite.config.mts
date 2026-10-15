@@ -1,7 +1,6 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createLogger } from '@brainstrike/logging';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { codecovVitePlugin } from '@codecov/vite-plugin';
 import tailwindcss from '@tailwindcss/vite';
@@ -18,7 +17,6 @@ import { getDevCSP } from './src/csp-utils';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const pinoBrowserPath = require.resolve('pino/browser.js');
-const viteLogger = createLogger('WebViteConfig');
 
 // React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles.
 // BST-1659: run by `oxc-transform-react` (Rust) through @vitejs/plugin-react, not Babel.
@@ -247,7 +245,6 @@ export default defineConfig({
       : []), // If no token, don't include the plugin config
     // Dev/preview middleware for /api/chat to support E2E and local dev
     devChatApiPlugin(),
-    devHfProxyPlugin(),
   ],
   resolve: {
     // Array form: first match wins, so deliberate overrides/exceptions come
@@ -354,8 +351,6 @@ export default defineConfig({
     },
     host: true,
     port: 8080,
-    // HuggingFace proxy is handled by devHfProxyPlugin() below instead of
-    // Vite's built-in http-proxy (which cannot follow 307 redirects from HF CDN).
   },
   test: {
     coverage: {
@@ -429,37 +424,6 @@ function devChatApiPlugin() {
       server.middlewares.use(await createApiMiddleware('dev'));
     },
     name: 'dev-chat-api',
-  };
-}
-
-// Dev proxy for /api/hf/* – uses fetch() (which follows 307 redirects) instead
-// of Vite's built-in http-proxy (which passes redirects through to the browser,
-// causing SPA fallback to serve index.html instead of model files).
-function devHfProxyPlugin() {
-  return {
-    async configureServer(server: import('vite').ViteDevServer) {
-      const { handleHfProxyRequest } = await import('./src/hf-dev-proxy.ts');
-      server.middlewares.use(
-        (
-          req: import('http').IncomingMessage,
-          res: import('http').ServerResponse,
-          next: () => void
-        ) => {
-          if (req.url?.startsWith('/api/hf/')) {
-            handleHfProxyRequest(req, res).catch((error) => {
-              viteLogger.error('[dev-hf-proxy] handler error', { error });
-              if (!res.headersSent) {
-                res.writeHead(500, { 'content-type': 'text/plain' });
-              }
-              res.end('Internal proxy error');
-            });
-            return;
-          }
-          next();
-        }
-      );
-    },
-    name: 'dev-hf-proxy',
   };
 }
 

@@ -17,7 +17,6 @@
  * `contextWindow` on `LlmModelDefinition`.
  */
 import { getGoogleThinkingLevels } from '@brainstrike/types';
-import { getLocalLlmModelSpec } from './local-llm-model-specs.js';
 import type { OpenRouterModelMetadata } from './openrouter-model-metadata.js';
 import {
   getProviderDefinition,
@@ -34,7 +33,7 @@ import type {
 } from './runtime-data.js';
 
 export type ModelReasoningSupport =
-  | { state: 'supported'; source: 'model' | 'provider-default' | 'local-spec' }
+  | { state: 'supported'; source: 'model' | 'provider-default' }
   | { state: 'unsupported' }
   | { state: 'unknown'; reason: 'openrouter-undeclared' | 'discovered-model' };
 
@@ -67,7 +66,6 @@ export type ReasoningControlsAvailability =
       efforts: readonly BedrockReasoningEffort[];
     }
   | { available: true; family: 'google'; levels: readonly GoogleThinkingLevel[] }
-  | { available: true; family: 'local' }
   | { available: false; reason: 'no-reasoning-controls' };
 
 /**
@@ -149,16 +147,6 @@ export function resolveModelReasoningSupport(
   const provider = normalizeProviderId(providerId);
   if (!provider) {
     return { state: 'unsupported' };
-  }
-
-  if (provider === 'local') {
-    const spec = getLocalLlmModelSpec(modelId);
-    if (!spec) {
-      return { state: 'unsupported' };
-    }
-    return spec.supportsThinking
-      ? { source: 'local-spec', state: 'supported' }
-      : { state: 'unsupported' };
   }
 
   if (getProviderDefinition(provider).runtime === 'local') {
@@ -304,18 +292,13 @@ export function resolveReasoningControlsAvailability(
       return resolveAnthropicControls(modelId);
     case 'google':
       return { available: true, family: 'google', levels: getGoogleThinkingLevels(modelId) };
-    case 'local': {
-      const spec = modelId === undefined ? undefined : getLocalLlmModelSpec(modelId);
-      if (spec?.supportsThinking) {
-        return { available: true, family: 'local' };
-      }
-      return { available: false, reason: 'no-reasoning-controls' };
-    }
+    case 'local':
     case 'ollama':
     case 'lmstudio':
-      // Unreachable at runtime — the registry `runtime: 'local'` early return
-      // above owns this answer. Retained solely so the switch keeps its
-      // compile-time exhaustiveness pin over ProviderId.
+      // Unreachable at runtime: `ollama`/`lmstudio` are answered by the
+      // registry `runtime: 'local'` early return above, and the built-in
+      // `local` provider serves embeddings only. Retained solely so the switch
+      // keeps its compile-time exhaustiveness pin over ProviderId.
       return { available: false, reason: 'no-reasoning-controls' };
     case 'cohere':
     case 'voyage':
