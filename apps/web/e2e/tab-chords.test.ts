@@ -80,14 +80,24 @@ test.describe('Tab chords by focus scope @stateful @web-assistant-state', () => 
     // Focus inside the assistant panel: the assistant strip moves. (Switching
     // threads then hydrates that thread's saved workspace, BST-1268, so the
     // workspace strip is not asserted here; the unit suite pins exclusivity.)
+    //
+    // The anchor is the workspace bar's folder chip, not the composer: hosted
+    // web has no sendable provider in a keyless preview, so the composer is
+    // legitimately `disabled` (`configuredProviders.length === 0`) and cannot
+    // take focus. The chip sits in the same composer row, as deep inside the
+    // panel's content, and is enabled whatever the provider state — so it
+    // still proves the chord resolves scope by walking UP from the focused
+    // element to the registered panel. It is a dropdown trigger, hence
+    // `focus()` and not `click()`: an open menu is a modal surface the chord
+    // router deliberately leaves alone.
     await page
       .getByTestId('assistant-thread-tabs-workspace')
       .locator('[role="tabpanel"]:not([hidden])')
-      .getByRole('textbox', { name: 'Message input' })
-      .click();
+      .getByTestId('workspace-bar-folder-chip')
+      .focus();
     await page.keyboard.press('Control+PageDown');
     await expect.poll(() => selectedTabId(threads)).not.toBe(threadBefore);
-    // The switch hid the composer's panel; focus stays in the assistant strip,
+    // The switch hid the chip's panel; focus stays in the assistant strip,
     // so the next press cycles threads again (wrapping back) rather than the
     // workspace.
     await page.keyboard.press('Control+PageDown');
