@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import type { QueueAdapter, QueueResult } from '@brainstrike/queue';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -291,6 +292,18 @@ describe('RootLayoutContent', () => {
     render(<RootLayoutContent />);
     expect(screen.getByTestId('settings-page-content')).toBeInTheDocument();
     expect(sharedRootLayoutCapture.props).not.toHaveProperty('contextExplorerPageContent');
+  });
+
+  it('writes the window title for the route on screen, as its one writer', () => {
+    act(() => {
+      usePanelLayoutStore.setState({ activeTab: 'explorer' });
+    });
+    render(<RootLayoutContent />);
+    expect(document.title).toBe('BrainStrike Desktop - Home');
+    act(() => {
+      usePanelLayoutStore.getState().setActiveTab('settings');
+    });
+    expect(document.title).toBe('BrainStrike Desktop - Settings');
   });
 
   it('mounts without opening PGlite or a visible-renderer embedding queue', () => {

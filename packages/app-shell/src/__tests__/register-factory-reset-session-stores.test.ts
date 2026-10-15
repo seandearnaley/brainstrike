@@ -135,7 +135,7 @@ describe('register-factory-reset-session-stores', () => {
     useThreadFolderScopeStore.getState().publishScope({ rootIds: ['r-1'], threadId: 'thread-1' });
     useThreadFolderScopeStore
       .getState()
-      .requestAdd({ displayName: 'bravo', path: '/ws/bravo', rootId: 'r-2' });
+      .requestAdd({ displayName: 'bravo', path: '/ws/bravo', rootId: 'r-2', threadId: 'thread-1' });
     const browserTab: BrowserTab = {
       active: true,
       canGoBack: false,

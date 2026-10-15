@@ -27,8 +27,12 @@ export interface ThreadFolderScopeState {
   readonly pendingAdd: ThreadFolderAddRequest | null;
   /** Null while the thread has no binding: every workspace folder is then in its scope. */
   readonly publishScope: (scope: ThreadFolderScope | null) => void;
-  /** Asks the scope's thread to add a workspace folder; ignored with no scope. */
-  readonly requestAdd: (folder: Omit<ThreadFolderAddRequest, 'threadId'>) => void;
+  /**
+   * Asks `request.threadId` to add a workspace folder. Accepted only while
+   * that thread is the scope's: a request made for one thread never lands on
+   * another. Returns whether it was accepted.
+   */
+  readonly requestAdd: (request: ThreadFolderAddRequest) => boolean;
   readonly reset: () => void;
   readonly scope: ThreadFolderScope | null;
 }
@@ -47,11 +51,12 @@ export const useThreadFolderScopeStore = create<ThreadFolderScopeState>((set, ge
   publishScope: (scope) => {
     set({ scope });
   },
-  requestAdd: (folder) => {
-    const { scope } = get();
-    if (scope) {
-      set({ pendingAdd: { ...folder, threadId: scope.threadId } });
+  requestAdd: (request) => {
+    if (get().scope?.threadId !== request.threadId) {
+      return false;
     }
+    set({ pendingAdd: request });
+    return true;
   },
   reset: () => set({ pendingAdd: null, scope: null }),
   scope: null,

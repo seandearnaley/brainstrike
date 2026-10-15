@@ -146,6 +146,27 @@ export const useSelectionManager = () => {
     selectionModel.mode,
   ]);
 
+  /**
+   * Every selected file across the forest: the set `selectedCount` counts. In
+   * query mode the focused root's resolved query plus the other active roots'
+   * selections; in explicit mode the effective selection, already that union.
+   * Bulk actions that act on what the selection bar reports read this one.
+   */
+  const forestSelection = useMemo(
+    () =>
+      selectionModel.mode === 'query'
+        ? unionSelectionAcrossRoots(resolvedSelection, activeRootIds, currentFolderId, folderStates)
+        : effectiveSelection,
+    [
+      activeRootIds,
+      currentFolderId,
+      effectiveSelection,
+      folderStates,
+      resolvedSelection,
+      selectionModel.mode,
+    ]
+  );
+
   // Array façade for UI - uses effective selection
   const selectedFilesList = useMemo(
     () =>
@@ -206,6 +227,7 @@ export const useSelectionManager = () => {
     ...core,
     /** The effective selection set based on current mode */
     effectiveSelection,
+    forestSelection,
     /** Whether we're in query-backed large selection mode */
     isQueryMode: selectionModel.mode === 'query',
     isQuerySelectionReady,

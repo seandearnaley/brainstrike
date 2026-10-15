@@ -34,7 +34,8 @@ function plural(count: number, word: string): string {
 }
 
 export function ExplorerAttachAction(): ReactElement {
-  const { selectedCount, selectedFilePaths } = useSelectionManager();
+  // The whole forest: in query mode `selectedFilePaths` is the focused root alone.
+  const { forestSelection, selectedCount } = useSelectionManager();
   const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
   const identity = useOptionalRootIdentity();
   const threadId = useActiveAssistantThreadId();
@@ -64,7 +65,7 @@ export function ExplorerAttachAction(): ReactElement {
         roots[rootId] = { displayName: descriptor.displayName, path: descriptor.path };
       }
     }
-    const plan = planAttachment(selectedFilePaths, {
+    const plan = planAttachment(forestSelection, {
       resolveDbRootId: (adapterRootId) => identity?.resolveDbRootId(adapterRootId) ?? null,
       roots,
       threadRootIds: scope?.threadId === threadId ? scope.rootIds : null,
@@ -92,13 +93,22 @@ export function ExplorerAttachAction(): ReactElement {
         action: (
           <ToastAction
             altText={`Add ${folder.displayName} to this thread`}
-            onClick={() =>
-              requestAdd({
+            onClick={() => {
+              // The notice speaks for the thread it was raised in, never the one shown now.
+              const added = requestAdd({
                 displayName: folder.displayName,
                 path: folder.path,
                 rootId: folder.rootId,
-              })
-            }
+                threadId,
+              });
+              if (!added) {
+                toast({
+                  description: `This notice belongs to another thread. Open that thread to add ${folder.displayName} to it.`,
+                  title: `${folder.displayName} was not added`,
+                  variant: 'destructive',
+                });
+              }
+            }}
           >
             Add to this thread
           </ToastAction>
@@ -108,7 +118,7 @@ export function ExplorerAttachAction(): ReactElement {
         title: `${folder.displayName} is not in this thread`,
       });
     }
-  }, [identity, requestAdd, rootDescriptors, selectedCount, selectedFilePaths, threadId]);
+  }, [forestSelection, identity, requestAdd, rootDescriptors, selectedCount, threadId]);
 
   return (
     <Button

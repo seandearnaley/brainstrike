@@ -495,12 +495,6 @@ export default function SettingsPageContent() {
     worktreeSettings.status,
   ]);
 
-  return (
-    <>
-      <title>BrainStrike Desktop - Settings</title>
-      <meta content="BrainStrike Desktop Settings" name="description" />
-
-      <SettingsLayout categories={categories} defaultCategoryId="appearance" />
-    </>
-  );
+  // No document metadata here: the desktop root's `useDocumentTitle` writes the Settings title.
+  return <SettingsLayout categories={categories} defaultCategoryId="appearance" />;
 }
