@@ -54,10 +54,10 @@ provider paths follow without edits.
 | ~~`schemas-browser.ts`~~ | 3 | **done.** zod `.default()` is two facts — see below |
 | ~~`schemas-diagnostics.ts`~~ | 6 | **done.** First file with a string `min` above 1; see "String length bounds" |
 | ~~`schemas-tasks.ts`~~ | 3 of 5 | **inputs done.** The two resume schemas stay zod — see below |
-| `exec-policy-domain.ts` | 1 | **blocked on `schemas-execution.ts`** — see below |
+| ~~`exec-policy-domain.ts`~~ | 1 | **done**, with the file below and the seam's `execPolicySchema` |
 | `schemas-search.ts` | 9 | `.refine` only |
 | `schemas-artifacts.ts` | 4 | `.refine` + `.superRefine` → `Schema.makeFilter`; see `schemas-worktrees.ts` for forwarding a nested union's issues with their paths |
-| `schemas-execution.ts` | 5 | two `z.discriminatedUnion('action', …)` behind strict envelopes, same shape as the converted `manageWorktree` |
+| ~~`schemas-execution.ts`~~ | 5 | **done.** First converted action unions; see "A union's advertised keyword" and "Annotate before a custom filter" |
 | `schemas-workspace.ts` | 14 | **the risky one.** Largest file (459 lines), a discriminated union, `.refine` and `.superRefine`, and `readWorkspaceFile`'s cursor-vs-path exclusivity. Convert it last and alone. |
 
 Not wrapped by either producer today and needing a decision rather than a
@@ -68,7 +68,7 @@ schema deliberately — check why before changing it. `askUser` and `submitPlan`
 registered one too and now carry `effectToolInputSchema` at the declaration
 instead, so their definitions still register the constant unwrapped.
 
-### `exec-policy-domain.ts` cannot convert on its own
+### `exec-policy-domain.ts` could not convert on its own (done)
 
 `policyDomainSchema` is not a registered tool input schema, so
 `effectToolInputSchema` does not apply to it. It is a shared LEAF, composed by
@@ -85,6 +85,61 @@ the domain grammar — a second writer for a safety-critical invariant (an empty
 `allowedDomains` meaning "no network"). So it converts WITH
 `schemas-execution.ts`, and `execPolicySchema` moves in the same change or
 immediately after. Treat the table row as part of that file, not before it.
+
+### Annotate BEFORE a custom filter
+
+effect 4.0.4 DROPS a schema-level annotation applied after a custom
+`Schema.makeFilter`. `Schema.String.check(isMinCodePoints(1), isMaxLength(10))
+.annotate({ description })` emits the description; add any `makeFilter` to that
+`.check()` — or chain a second `.check(makeFilter(…))` before annotating — and
+the description never reaches the document. Built-in checks are unaffected,
+which is why `schemas-worktrees.ts` and the three files before this one never
+showed it.
+
+The order that works is `Schema.String.annotate({ description }).check(…)`.
+A consequence: a single shared constant carrying a custom filter cannot also
+carry a per-use-site description, so share the FILTER and let a small helper
+compose it with the description — `rootRelativePath` in `schemas-execution.ts`
+is the worked example, serving `runSkillScript`'s `cwd` and `scriptPath`.
+
+`Schema.makeFilterGroup` is NOT the way out: it emits `allOf`, which the
+catalog spec's provider-shape sweep rejects outright.
+
+### A union's advertised keyword, and its discriminant
+
+`z.discriminatedUnion` emits `oneOf`; `Schema.Union` defaults to `anyOf` and
+takes `{ mode: 'oneOf' }`. Pass the mode — it is what makes the DECODER require
+exactly one matching member, so a later overlapping branch fails rather than
+silently taking the first match.
+
+The advertised keyword still lowers to `anyOf` whenever any union member
+carries `Schema.isMaxLength`, which in practice means most of them. Bisected
+check by check on 4.0.4: `isMinLength`, `isMinCodePoints` and the numeric
+bounds all keep `oneOf`. Treat the lowering as expected, not as a conversion
+mistake, and do NOT reach for `isMaxCodePoints` to dodge it — that validates
+more loosely than the zod bound did, trading a real check for a keyword.
+
+The lowering is the safe direction: OpenAI's structured-output dialect accepts
+`anyOf` and rejects `oneOf`. `normalizeProviderNulls` reads either keyword, and
+either discriminant spelling — Effect emits a discriminant as a one-element
+`enum: ['start']` where zod emitted `const: 'start'`. Both deviations are why a
+union's zod twin in `effect-authored-zod-twins.ts` is written with `z.union`
+and `z.enum(['start'])` rather than the zod it replaced.
+
+Not covered by any guard today: the `mode` itself. Mutating `'oneOf'` to
+`'anyOf'` changes no advertised document and no current decode, because every
+branch is picked by a distinct literal. It is a declaration for the next
+branch, so keep it.
+
+### `Schema.isPattern` needs the Unicode flag to advertise
+
+zod's `.regex()` always emits `pattern`. `Schema.isPattern` emits it only when
+the RegExp carries `u` and its other flags are limited to `d`, `g` or `y`. So a
+faithful conversion of a `.regex()` bound adds `u` (`runSkillScript`'s
+`skillName`). A case-insensitive pattern cannot advertise at all, which is fine
+where the zod original was a `.refine()` — `exec-policy-domain.ts`'s
+`DOMAIN_PATTERN` is `makeFilter` for exactly that reason, and because each of
+its four rules keeps its own message.
 
 ### The two resume schemas stay zod
 

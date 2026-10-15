@@ -615,8 +615,16 @@ describe('desktop native tool provider prompt budget', () => {
     }
     for (const tool of sessionProviderTools) {
       const properties = asRecord(asRecord(tool.function.parameters)?.['properties']);
+      const operation = asRecord(properties?.['operation']);
+      // Either union keyword satisfies the point of this gate, which is that
+      // the action-specific fields stay in a NESTED union instead of being
+      // flattened into the root object (that is what the token figures below
+      // are measured against). The command-session tools are Effect-authored
+      // and effect 4.0.4 lowers a `mode: 'oneOf'` union to `anyOf` when a
+      // member carries `isMaxLength`; `manageCanvas` is still zod and emits
+      // `oneOf`. See docs/agents/effect-schema-migration.md.
       expect(
-        asRecord(properties?.['operation'])?.['oneOf'],
+        operation?.['oneOf'] ?? operation?.['anyOf'],
         `${tool.function.name} must keep its action-specific fields in a nested union`
       ).toEqual(expect.any(Array));
     }
@@ -732,12 +740,21 @@ describe('desktop native tool provider prompt budget', () => {
       // `docs/agents/assistant-providers.md` (2026-09-04) keeps the ceilings
       // pending BST-1633 and raises only when the ceiling fires, after a trim.
       manageCanvasDefinitionTokens: 290,
-      manageWorktreeDefinitionTokens: 278,
+      // 278 → 282 and 359 → 365 are PR #3666's, not this change's: those two
+      // tools became Effect-authored there and the serialized document grew
+      // (measured by reverting only this PR's schema files — the two figures
+      // still moved). Recorded here because this PR is stacked on that one;
+      // #3666 alone fails this gate.
+      manageWorktreeDefinitionTokens: 282,
       // The retained-log description explicitly discloses rotated-out history.
-      queryDiagnosticsDefinitionTokens: 359,
+      queryDiagnosticsDefinitionTokens: 365,
+      // +1 each for this PR: no authored text changed, and no bound moved. The
+      // action union's discriminant is now Effect's one-element
+      // `enum: ["start"]` where zod emitted `const: "start"`, which costs one
+      // token per tool. See docs/agents/effect-schema-migration.md.
       sessionDefinitionTokens: {
-        brainstrike_inspectCommandSessions: 327,
-        brainstrike_manageCommandSession: 482,
+        brainstrike_inspectCommandSessions: 328,
+        brainstrike_manageCommandSession: 483,
       },
     });
   });
