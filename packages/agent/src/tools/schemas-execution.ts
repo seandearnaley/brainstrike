@@ -7,6 +7,8 @@ export {
   InspectCommandSessionsInputSchema,
   type ManageCommandSessionInput,
   ManageCommandSessionInputSchema,
+  normalizeInspectCommandSessionsInput,
+  normalizeManageCommandSessionInput,
   type RunPythonInput,
   RunPythonInputSchema,
   type RunSkillScriptInput,

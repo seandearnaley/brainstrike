@@ -1,5 +1,6 @@
 import type { RuntimeData } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { validateToolInputValue } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { app } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -185,17 +186,18 @@ describe('run_python registration', () => {
     // Gate B makes domains EXPRESSIBLE, but unrestricted egress stays
     // inexpressible: the seam's policyDomainSchema (single source) rejects a
     // bare "*" and single-label wildcards before execute() ever runs.
+    // Read through the producer-neutral accessor: the grammar is Effect
+    // Schema (ADR-0004) and `safeParse` is zod-only, so naming it here would
+    // make this guard pass on which library authored the schema rather than on
+    // whether a bare "*" is rejected.
     const tool = requireRunPythonTool(toolsFor());
-    expect(tool.inputSchema?.safeParse({ allowedDomains: ['*'], code: 'print(1)' }).success).toBe(
-      false
-    );
-    expect(
-      tool.inputSchema?.safeParse({ allowedDomains: ['*.com'], code: 'print(1)' }).success
-    ).toBe(false);
+    const accepts = (allowedDomains: readonly string[]) =>
+      validateToolInputValue(tool.inputSchema, { allowedDomains, code: 'print(1)' }).success;
+
+    expect(accepts(['*'])).toBe(false);
+    expect(accepts(['*.com'])).toBe(false);
     // A concrete domain request parses — approval of it is Gate B's job.
-    expect(
-      tool.inputSchema?.safeParse({ allowedDomains: ['pypi.org'], code: 'print(1)' }).success
-    ).toBe(true);
+    expect(accepts(['pypi.org'])).toBe(true);
   });
 });
 

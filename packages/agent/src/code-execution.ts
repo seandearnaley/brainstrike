@@ -22,7 +22,7 @@ import {
   MAX_POLICY_ENTRIES,
   policyDomainSchema,
 } from '@brainstrike/assistant-contract/native-tool-schemas';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 // Host capability resolvers need typed refusals without importing the native
 // fence-executor bundle. This diagnostics module has no runtime dependencies.
@@ -86,6 +86,10 @@ export function parseExecutorKind(value: unknown): ExecutorKind {
 export const MAX_POLICY_PATH_LENGTH = 4096;
 export const MAX_EXEC_OUTPUT_BYTES = 16 * 1024 * 1024;
 
+/** A positive integer with an upper bound, as `z.number().int().positive().max()` was. */
+const positiveIntUpTo = (maximum: number) =>
+  Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(maximum));
+
 const POSIX_ABSOLUTE_PATH = /^\//;
 const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/;
 const WINDOWS_UNC_PATH = /^\\\\[^\\/]+[\\/][^\\/]+/;
@@ -133,19 +137,23 @@ function windowsVolumeSegmentCount(target: string, root: string): number {
  * is a deny rule that silently protects nothing. Backends build home-relative
  * deny lists from their own resolved home directory.
  */
-const policyPathSchema = z
-  .string()
-  .min(1)
-  .max(MAX_POLICY_PATH_LENGTH)
-  .refine((value) => value.trim().length > 0, { message: 'must not be blank' })
-  .refine(isAbsolutePath, {
-    message: 'must be an absolute path (a leading "~" is not expanded here)',
-  })
-  .refine((value) => !pathSegments(value).includes('..'), {
-    message: 'must not contain a ".." segment',
-  });
+const policyPathSchema = Schema.String.check(
+  Schema.isMinCodePoints(1),
+  Schema.isMaxLength(MAX_POLICY_PATH_LENGTH),
+  Schema.makeFilter((value) => (value.trim().length > 0 ? undefined : 'must not be blank')),
+  Schema.makeFilter((value) =>
+    isAbsolutePath(value)
+      ? undefined
+      : 'must be an absolute path (a leading "~" is not expanded here)'
+  ),
+  Schema.makeFilter((value) =>
+    pathSegments(value).includes('..') ? 'must not contain a ".." segment' : undefined
+  )
+);
 
-const policyPathListSchema = z.array(policyPathSchema).max(MAX_POLICY_ENTRIES);
+const policyPathListSchema = Schema.Array(policyPathSchema).check(
+  Schema.isMaxLength(MAX_POLICY_ENTRIES)
+);
 
 /**
  * Maps 1:1 onto sandbox-runtime's SandboxRuntimeConfig: allowWrite/allowRead/
@@ -153,16 +161,14 @@ const policyPathListSchema = z.array(policyPathSchema).max(MAX_POLICY_ENTRIES);
  * allowedDomains list means NO network — srt's proxy denies every connection
  * that matches no allowed domain.
  */
-export const execPolicySchema = z
-  .object({
-    allowedDomains: z.array(policyDomainSchema).max(MAX_POLICY_ENTRIES),
-    allowRead: policyPathListSchema.optional(),
-    allowWrite: policyPathListSchema,
-    denyRead: policyPathListSchema.optional(),
-  })
-  .strict();
+export const execPolicySchema = Schema.Struct({
+  allowedDomains: Schema.Array(policyDomainSchema).check(Schema.isMaxLength(MAX_POLICY_ENTRIES)),
+  allowRead: Schema.optionalKey(policyPathListSchema),
+  allowWrite: policyPathListSchema,
+  denyRead: Schema.optionalKey(policyPathListSchema),
+});
 
-export type ExecPolicy = z.infer<typeof execPolicySchema>;
+export type ExecPolicy = typeof execPolicySchema.Type;
 
 /**
  * True when `target` is one of `roots` or lies beneath one of them.
@@ -221,25 +227,47 @@ export function isPathCoveredBy(target: string, roots: readonly string[]): boole
  * `maxOutputBytes` is required so the capture bound is a property of the
  * request rather than a per-backend accident.
  */
-export const execInputSchema = z
-  .object({
-    code: z.string().max(MAX_EXEC_CODE_LENGTH),
-    language: z.enum(EXEC_LANGUAGES),
-    maxOutputBytes: z.number().int().positive().max(MAX_EXEC_OUTPUT_BYTES),
-    policy: execPolicySchema,
-    scratchDir: policyPathSchema,
-    signal: z.custom<AbortSignal>((value) => value instanceof AbortSignal, {
-      message: 'must be an AbortSignal',
-    }),
-    timeoutMs: z.number().int().positive().max(MAX_EXEC_TIMEOUT_MS),
-  })
-  .strict()
-  .refine((input) => isPathCoveredBy(input.scratchDir, input.policy.allowWrite), {
-    message: 'scratchDir must be covered by policy.allowWrite',
-    path: ['scratchDir'],
-  });
+export const execInputSchema = Schema.Struct({
+  code: Schema.String.check(Schema.isMaxLength(MAX_EXEC_CODE_LENGTH)),
+  language: Schema.Literals(EXEC_LANGUAGES),
+  maxOutputBytes: positiveIntUpTo(MAX_EXEC_OUTPUT_BYTES),
+  policy: execPolicySchema,
+  scratchDir: policyPathSchema,
+  signal: Schema.instanceOf(AbortSignal, { title: 'must be an AbortSignal' }),
+  timeoutMs: positiveIntUpTo(MAX_EXEC_TIMEOUT_MS),
+}).check(
+  Schema.makeFilter((input) =>
+    isPathCoveredBy(input.scratchDir, input.policy.allowWrite)
+      ? undefined
+      : { issue: 'scratchDir must be covered by policy.allowWrite', path: ['scratchDir'] }
+  )
+);
 
-export type ExecInput = z.infer<typeof execInputSchema>;
+export type ExecInput = typeof execInputSchema.Type;
+
+/**
+ * The seam's two decoders. The closed-object decision belongs HERE, once: a
+ * backend spelling `onExcessProperty` for itself could disagree with its
+ * sibling, which is the drift this module exists to prevent. `z.object().strict()`
+ * carried that decision in the declaration; Effect carries it in the parse
+ * options, so it is pinned in one place and every caller goes through these.
+ */
+const decodeExecPolicy = Schema.decodeUnknownSync(execPolicySchema, {
+  onExcessProperty: 'error',
+});
+const decodeExecInput = Schema.decodeUnknownSync(execInputSchema, {
+  onExcessProperty: 'error',
+});
+
+/** Parse a sandbox policy, throwing on any violation of the grammar above. */
+export function parseExecPolicy(value: unknown): ExecPolicy {
+  return decodeExecPolicy(value);
+}
+
+/** Parse a whole execution request, throwing on any violation. */
+export function parseExecInput(value: unknown): ExecInput {
+  return decodeExecInput(value);
+}
 
 /**
  * `exitCode` is null exactly when the process was terminated by a signal —

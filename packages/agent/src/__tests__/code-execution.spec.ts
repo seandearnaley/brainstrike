@@ -10,8 +10,6 @@ import {
   type ExecutorCapabilities,
   ExecutorKindUnavailableError,
   ExecutorTierMismatchError,
-  execInputSchema,
-  execPolicySchema,
   isExecAbortedError,
   isExecCapabilityMismatchError,
   isExecResultTruncated,
@@ -20,6 +18,8 @@ import {
   isPathCoveredBy,
   MAX_EXEC_TIMEOUT_MS,
   NoSandboxConfiguredError,
+  parseExecInput,
+  parseExecPolicy,
   parseExecutorKind,
   resolveCodeExecutor,
 } from '../code-execution';
@@ -81,9 +81,9 @@ describe('parseExecutorKind', () => {
   });
 });
 
-describe('execPolicySchema', () => {
+describe('parseExecPolicy', () => {
   it('parses a full policy', () => {
-    const policy = execPolicySchema.parse({
+    const policy = parseExecPolicy({
       allowedDomains: ['api.github.com', '*.github.com'],
       allowRead: ['/opt/data'],
       allowWrite: ['/tmp/scratch'],
@@ -94,7 +94,7 @@ describe('execPolicySchema', () => {
   });
 
   it('accepts an empty allowedDomains list (no network)', () => {
-    const policy = execPolicySchema.parse({
+    const policy = parseExecPolicy({
       allowedDomains: [],
       allowWrite: ['/tmp/scratch'],
     });
@@ -110,7 +110,7 @@ describe('execPolicySchema', () => {
     ['blank path', { allowedDomains: [], allowWrite: ['  '] }],
     ['blank domain', { allowedDomains: [''], allowWrite: ['/tmp/scratch'] }],
   ])('rejects %s', (_label, value) => {
-    expect(() => execPolicySchema.parse(value)).toThrowError();
+    expect(() => parseExecPolicy(value)).toThrowError();
   });
 
   it.each([
@@ -121,14 +121,12 @@ describe('execPolicySchema', () => {
     ['a bare traversal', '..'],
     ['an over-long path', `/${'a'.repeat(5000)}`],
   ])('rejects %s in allowWrite', (_label, entry) => {
-    expect(() =>
-      execPolicySchema.parse({ allowedDomains: [], allowWrite: [entry] })
-    ).toThrowError();
+    expect(() => parseExecPolicy({ allowedDomains: [], allowWrite: [entry] })).toThrowError();
   });
 
   it('rejects a bare "*" wildcard, which would invert the no-network invariant', () => {
     expect(() =>
-      execPolicySchema.parse({
+      parseExecPolicy({
         allowedDomains: ['*'],
         allowWrite: ['/tmp/scratch'],
       })
@@ -139,7 +137,7 @@ describe('execPolicySchema', () => {
     'rejects malformed or over-broad domain %j',
     (domain) => {
       expect(() =>
-        execPolicySchema.parse({
+        parseExecPolicy({
           allowedDomains: [domain],
           allowWrite: ['/tmp/scratch'],
         })
@@ -149,7 +147,7 @@ describe('execPolicySchema', () => {
 
   it('rejects an over-long entry list', () => {
     expect(() =>
-      execPolicySchema.parse({
+      parseExecPolicy({
         allowedDomains: [],
         allowWrite: Array.from({ length: 300 }, (_, i) => `/tmp/scratch/${i}`),
       })
@@ -157,37 +155,35 @@ describe('execPolicySchema', () => {
   });
 });
 
-describe('execInputSchema', () => {
+describe('parseExecInput', () => {
   it('parses a valid request', () => {
-    expect(() => execInputSchema.parse(validInput())).not.toThrow();
+    expect(() => parseExecInput(validInput())).not.toThrow();
   });
 
   it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, MAX_EXEC_TIMEOUT_MS + 1])(
     'rejects timeoutMs %j',
     (timeoutMs) => {
-      expect(() =>
-        execInputSchema.parse(validInput({ timeoutMs } as Partial<ExecInput>))
-      ).toThrowError();
+      expect(() => parseExecInput(validInput({ timeoutMs } as Partial<ExecInput>))).toThrowError();
     }
   );
 
   it.each([0, -1, Number.NaN])('rejects maxOutputBytes %j', (maxOutputBytes) => {
     expect(() =>
-      execInputSchema.parse(validInput({ maxOutputBytes } as Partial<ExecInput>))
+      parseExecInput(validInput({ maxOutputBytes } as Partial<ExecInput>))
     ).toThrowError();
   });
 
   it('rejects a blank scratchDir', () => {
-    expect(() => execInputSchema.parse(validInput({ scratchDir: '' }))).toThrowError();
+    expect(() => parseExecInput(validInput({ scratchDir: '' }))).toThrowError();
   });
 
   it('rejects a relative scratchDir', () => {
-    expect(() => execInputSchema.parse(validInput({ scratchDir: 'scratch' }))).toThrowError();
+    expect(() => parseExecInput(validInput({ scratchDir: 'scratch' }))).toThrowError();
   });
 
   it('rejects a scratchDir the policy cannot write', () => {
     expect(() =>
-      execInputSchema.parse(
+      parseExecInput(
         validInput({
           policy: { allowedDomains: [], allowWrite: ['/tmp/other'] },
           scratchDir: '/tmp/scratch',
@@ -198,7 +194,7 @@ describe('execInputSchema', () => {
 
   it('accepts a scratchDir nested under an allowed write root', () => {
     expect(() =>
-      execInputSchema.parse(
+      parseExecInput(
         validInput({
           policy: { allowedDomains: [], allowWrite: ['/tmp'] },
           scratchDir: '/tmp/scratch/run-1',
@@ -209,12 +205,12 @@ describe('execInputSchema', () => {
 
   it('requires an AbortSignal so user Stop can reach the process', () => {
     const { signal: _omitted, ...withoutSignal } = validInput();
-    expect(() => execInputSchema.parse(withoutSignal)).toThrowError();
-    expect(() => execInputSchema.parse({ ...withoutSignal, signal: 'nope' })).toThrowError();
+    expect(() => parseExecInput(withoutSignal)).toThrowError();
+    expect(() => parseExecInput({ ...withoutSignal, signal: 'nope' })).toThrowError();
   });
 
   it('rejects unknown keys', () => {
-    expect(() => execInputSchema.parse({ ...validInput(), extra: true })).toThrowError();
+    expect(() => parseExecInput({ ...validInput(), extra: true })).toThrowError();
   });
 });
 

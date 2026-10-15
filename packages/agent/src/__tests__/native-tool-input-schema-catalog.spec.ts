@@ -214,7 +214,7 @@ describe('native tool input schema catalog', () => {
         .success
     ).toBe(false);
     expect(
-      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.executeCommand'].safeParse({
+      validateToolInputValue(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.executeCommand'], {
         command: null,
       }).success
     ).toBe(false);
@@ -246,12 +246,16 @@ describe('native tool input schema catalog', () => {
       },
     });
 
+    // The nested `offset: null` inside the action union is the point here:
+    // normalization has to select the `action: 'list'` branch from the
+    // Effect producer's `anyOf` + one-element `enum` discriminant, where the
+    // zod version advertised `oneOf` + `const`.
     expect(
-      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.inspectCommandSessions'].parse({
-        operation: { action: 'list', offset: null },
-        root: null,
-      })
-    ).toEqual({ operation: { action: 'list' } });
+      validateToolInputValue(
+        toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.inspectCommandSessions'],
+        { operation: { action: 'list', offset: null }, root: null }
+      )
+    ).toEqual({ success: true, value: { operation: { action: 'list' } } });
     expect(
       validateToolInputValue(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.submitPlan'], {
         overview: 'Implement the contract.',
@@ -260,9 +264,10 @@ describe('native tool input schema catalog', () => {
       }).success
     ).toBe(false);
     expect(
-      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.inspectCommandSessions'].safeParse({
-        operation: { action: 'unknown', offset: null },
-      }).success
+      validateToolInputValue(
+        toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.inspectCommandSessions'],
+        { operation: { action: 'unknown', offset: null } }
+      ).success
     ).toBe(false);
   });
 
@@ -651,57 +656,52 @@ describe('native tool input schema catalog', () => {
   });
 
   it('keeps command-session inspection separate from execute-risk management', () => {
-    const inspect = toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.inspectCommandSessions'];
-    const manage = toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.manageCommandSession'];
+    // Both tools are Effect-authored, so the action union is exercised through
+    // the producer-neutral accessor. These cases are the guard that the
+    // conversion kept `z.discriminatedUnion`'s behaviour: a wrong `action`,
+    // an out-of-range bound, a root-level envelope, and a field belonging to
+    // another branch all still fail.
+    const inspects = (value: unknown) =>
+      validateToolInputValue(
+        toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.inspectCommandSessions'],
+        value
+      ).success;
+    const manages = (value: unknown) =>
+      validateToolInputValue(
+        toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.manageCommandSession'],
+        value
+      ).success;
 
-    expect(inspect.safeParse({ operation: { action: 'list' }, root: 'api' }).success).toBe(true);
+    expect(inspects({ operation: { action: 'list' }, root: 'api' })).toBe(true);
+    expect(inspects({ operation: { action: 'list', offset: 25 }, root: 'api' })).toBe(true);
+    expect(inspects({ operation: { action: 'list', offset: -1 } })).toBe(false);
     expect(
-      inspect.safeParse({ operation: { action: 'list', offset: 25 }, root: 'api' }).success
+      inspects({ operation: { action: 'read', cursor: -1, sessionId: 'session-1' }, root: 'api' })
     ).toBe(true);
-    expect(inspect.safeParse({ operation: { action: 'list', offset: -1 } }).success).toBe(false);
-    expect(
-      inspect.safeParse({
-        operation: { action: 'read', cursor: -1, sessionId: 'session-1' },
-        root: 'api',
-      }).success
-    ).toBe(true);
-    expect(
-      inspect.safeParse({ operation: { action: 'stop', sessionId: 'session-1' } }).success
-    ).toBe(false);
-    expect(inspect.safeParse({ action: 'list', cursor: 0 }).success).toBe(false);
-    expect(inspect.safeParse({ operation: { action: 'list', sessionId: 'ignored' } }).success).toBe(
+    expect(inspects({ operation: { action: 'stop', sessionId: 'session-1' } })).toBe(false);
+    expect(inspects({ action: 'list', cursor: 0 })).toBe(false);
+    expect(inspects({ operation: { action: 'list', sessionId: 'ignored' } })).toBe(false);
+
+    expect(manages({ operation: { action: 'start', command: 'pnpm dev' }, root: 'api' })).toBe(
+      true
+    );
+    expect(manages({ operation: { action: 'write', data: 'q\n', sessionId: 'session-1' } })).toBe(
+      true
+    );
+    expect(manages({ operation: { action: 'stop', sessionId: 'session-1' } })).toBe(true);
+    expect(manages({ operation: { action: 'remove', sessionId: 'session-1' } })).toBe(true);
+    expect(manages({ operation: { action: 'read', sessionId: 'session-1' } })).toBe(false);
+    expect(manages({ operation: { action: 'start', command: 'pnpm dev', data: 'ignored' } })).toBe(
       false
     );
-
     expect(
-      manage.safeParse({ operation: { action: 'start', command: 'pnpm dev' }, root: 'api' }).success
-    ).toBe(true);
-    expect(
-      manage.safeParse({ operation: { action: 'write', data: 'q\n', sessionId: 'session-1' } })
-        .success
-    ).toBe(true);
-    expect(
-      manage.safeParse({ operation: { action: 'stop', sessionId: 'session-1' } }).success
-    ).toBe(true);
-    expect(
-      manage.safeParse({ operation: { action: 'remove', sessionId: 'session-1' } }).success
-    ).toBe(true);
-    expect(
-      manage.safeParse({ operation: { action: 'read', sessionId: 'session-1' } }).success
-    ).toBe(false);
-    expect(
-      manage.safeParse({ operation: { action: 'start', command: 'pnpm dev', data: 'ignored' } })
-        .success
-    ).toBe(false);
-    expect(
-      manage.safeParse({
+      manages({
         operation: { action: 'write', command: 'ignored', data: 'q', sessionId: 'session-1' },
-      }).success
+      })
     ).toBe(false);
-    expect(
-      manage.safeParse({ operation: { action: 'stop', cwd: 'ignored', sessionId: 'session-1' } })
-        .success
-    ).toBe(false);
+    expect(manages({ operation: { action: 'stop', cwd: 'ignored', sessionId: 'session-1' } })).toBe(
+      false
+    );
   });
 
   it('requires an explicit diagnostics query mode and bounds its filters', () => {

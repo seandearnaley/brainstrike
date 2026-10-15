@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { RunSkillScriptInputSchema } from '../schemas/schemas-execution.js';
 
 export const runSkillScript = defineNativeTool({
@@ -19,7 +19,7 @@ export const runSkillScript = defineNativeTool({
   },
   executionBudget: { defaultMs: 120_000, maxMs: 600_000 },
   id: 'brainstrike.runSkillScript',
-  inputSchema: providerCompatibleInputSchema(RunSkillScriptInputSchema),
+  inputSchema: effectToolInputSchema(RunSkillScriptInputSchema),
   kind: 'desktop',
   returns:
     'Resolved skill identity/source tier, mounted root, exit status, bounded stdout/stderr tail, duration, timeout, and truncation state',
