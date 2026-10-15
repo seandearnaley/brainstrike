@@ -31,6 +31,11 @@ export interface WebStateLease {
 
 export interface WebStateStoreConfig {
   /**
+   * The app build this tab runs. Extensions may record it: the derived index
+   * rebuilds its state projection when the build that projected it changes.
+   */
+  readonly build?: string | undefined;
+  /**
    * The store's one identity: its Web Lock, its BroadcastChannel and its OPFS
    * pool directory all derive from it (`webStateNames`), so no two settings
    * can disagree. Tests give each case its own.
@@ -220,9 +225,15 @@ export type WebStateReply =
   | { readonly id: number; readonly ok: true; readonly result: unknown }
   | { readonly error: WebStateErrorReply; readonly id: number; readonly ok: false };
 
+/** A request as the wire carries it: a writer op, or an extension's namespaced op. */
+export interface WireRequest {
+  readonly op: string;
+  readonly params: unknown;
+}
+
 export type TabMessage =
   | { readonly config: WebStateStoreConfig; readonly kind: 'open' }
-  | { readonly id: number; readonly kind: 'request'; readonly request: WebStateRequest };
+  | { readonly id: number; readonly kind: 'request'; readonly request: WireRequest };
 
 export type WorkerMessage =
   /** The writer could not open the store, or this tab cannot use it; the worker can be dropped. */
@@ -235,15 +246,15 @@ export type WorkerMessage =
 export type ChannelMessage =
   /** A worker that just joined asks the writer to announce itself. */
   | { readonly kind: 'who' }
-  | { readonly kind: 'leader'; readonly lease: WebStateLease; readonly protocol: number }
+  | { readonly kind: 'leader'; readonly lease: WebStateLease; readonly protocol: string }
   /** The writer retired the store for factory reset: no worker may open it again. */
   | { readonly kind: 'retired' }
   | {
       readonly from: string;
       readonly id: number;
       readonly kind: 'request';
-      readonly protocol: number;
-      readonly request: WebStateRequest;
+      readonly protocol: string;
+      readonly request: WireRequest;
       /** The writer this request is for; any other worker ignores it. */
       readonly to: string;
     }
@@ -253,9 +264,15 @@ export type ChannelMessage =
  * This wire's version. Tabs of different builds can share an origin; a tab
  * whose writer speaks another version refuses it visibly instead of guessing.
  * Bump it whenever `WebStateRequests`, a request's params or result, or a
- * channel message changes: version 2 added the catalog and blob requests.
+ * channel message changes: version 2 added the catalog and blob requests,
+ * version 3 writer extensions.
  */
-export const WEB_STATE_PROTOCOL = 2;
+export const WEB_STATE_PROTOCOL = 3;
+
+/** The protocol a writer announces: this wire's version and the extensions it runs, by id. */
+export function webStateWireProtocol(extensionIds: readonly string[]): string {
+  return [String(WEB_STATE_PROTOCOL), ...[...extensionIds].sort()].join('+');
+}
 
 /** The app's store; tests and isolated E2E sessions name their own. */
 export const DEFAULT_WEB_STATE_STORE = 'default';

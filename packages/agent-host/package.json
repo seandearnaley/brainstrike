@@ -40,6 +40,10 @@
       "types": "./dist/host-state-producer.d.ts",
       "default": "./dist/host-state-producer.js"
     },
+    "./event-storage": {
+      "types": "./dist/event-storage.d.ts",
+      "default": "./dist/event-storage.js"
+    },
     "./run-verdicts": {
       "types": "./dist/run-verdicts.d.ts",
       "default": "./dist/run-verdicts.js"

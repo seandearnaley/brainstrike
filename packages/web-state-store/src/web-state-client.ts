@@ -197,15 +197,24 @@ export class WebStateStore
     op: Op,
     params: WebStateRequests[Op]['params']
   ): Promise<WebStateRequests[Op]['result']> {
+    return this.send(op, params) as Promise<WebStateRequests[Op]['result']>;
+  }
+
+  /**
+   * A request one of the writer's extensions serves (`index.search`); the
+   * extension's own client gives it a type.
+   */
+  extension(op: string, params: unknown): Promise<unknown> {
+    return this.send(op, params);
+  }
+
+  private send(op: string, params: unknown): Promise<unknown> {
     if (this.#closed) {
       return Promise.reject(this.#closed);
     }
     const id = this.#nextId++;
     return new Promise((resolve, reject) => {
-      this.#pending.set(id, {
-        reject,
-        resolve: resolve as (result: unknown) => void,
-      });
+      this.#pending.set(id, { reject, resolve });
       this.#post({ id, kind: 'request', request: { op, params } });
     });
   }

@@ -27,6 +27,10 @@
     "./sqlite-wasm-database": {
       "types": "./dist/sqlite-wasm-database.d.ts",
       "default": "./dist/sqlite-wasm-database.js"
+    },
+    "./writer": {
+      "types": "./dist/web-state-writer.d.ts",
+      "default": "./dist/web-state-writer.js"
     }
   },
   "files": [
