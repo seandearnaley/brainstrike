@@ -31,7 +31,14 @@
 // a root it cannot read. See scripts/__tests__/verify-script-entrypoints.test.mjs.
 
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ESLint } from 'eslint';
@@ -54,6 +61,11 @@ const BASELINE_FILENAME = 'eslint-warning-baseline.json';
 // a dependency or config change starts an empty cache instead of reusing
 // results the previous toolchain produced. The cache lives under node_modules,
 // so a fresh checkout starts cold.
+//
+// Sandboxed runs may symlink node_modules to a sibling checkout's (see
+// .gitignore), so the file name also carries the checkout's real path, and
+// cleanup removes only this checkout's superseded files. ESLint keys entries by
+// absolute file path, so checkouts could never reuse each other's results.
 const CACHE_DIRECTORY = path.join('node_modules', '.cache', 'eslint');
 const CACHE_FILE_PREFIX = 'warning-baseline-';
 const CACHE_KEY_INPUTS = ['pnpm-lock.yaml', 'eslint.config.js'];
@@ -119,24 +131,32 @@ export function parseCliArgs(argv) {
   return { repoRoot, writeBaseline };
 }
 
+/** `warning-baseline-<checkout>-`: the file-name prefix owned by one checkout. */
+function checkoutCachePrefix(repoRoot) {
+  const checkout = createHash('sha256').update(realpathSync(repoRoot)).digest('hex');
+  return `${CACHE_FILE_PREFIX}${checkout.slice(0, 12)}-`;
+}
+
 export function eslintCacheFile(repoRoot) {
   const key = createHash('sha256');
   for (const input of CACHE_KEY_INPUTS) {
     const bytes = readFileSync(path.join(repoRoot, input));
     key.update(createHash('sha256').update(bytes).digest());
   }
-  const name = `${CACHE_FILE_PREFIX}${key.digest('hex').slice(0, 16)}.json`;
+  const name = `${checkoutCachePrefix(repoRoot)}${key.digest('hex').slice(0, 16)}.json`;
   return path.join(repoRoot, CACHE_DIRECTORY, name);
 }
 
-// Each toolchain change leaves its predecessor's cache file behind.
-function removeSupersededCacheFiles(cacheFile) {
+// Each toolchain change leaves this checkout's previous cache file behind.
+// Sibling checkouts' files in a shared node_modules are theirs to manage.
+export function removeSupersededCacheFiles(repoRoot, cacheFile) {
   const directory = path.dirname(cacheFile);
   if (!existsSync(directory)) {
     return;
   }
+  const prefix = checkoutCachePrefix(repoRoot);
   for (const entry of readdirSync(directory)) {
-    if (entry.startsWith(CACHE_FILE_PREFIX) && entry !== path.basename(cacheFile)) {
+    if (entry.startsWith(prefix) && entry !== path.basename(cacheFile)) {
       rmSync(path.join(directory, entry), { force: true });
     }
   }
@@ -197,7 +217,7 @@ export async function main({ repoRoot = DEFAULT_REPO_ROOT, writeBaseline = false
   // proof that its explicit fixture root reached main().
   const baseline = writeBaseline ? undefined : JSON.parse(readFileSync(baselinePath, 'utf8'));
   const cacheLocation = eslintCacheFile(repoRoot);
-  removeSupersededCacheFiles(cacheLocation);
+  removeSupersededCacheFiles(repoRoot, cacheLocation);
   const eslint = new ESLint({
     cache: true,
     cacheLocation,

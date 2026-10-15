@@ -18,13 +18,25 @@
 //     eslint.config.js change, or a plugin upgrade is judged on stale results.
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { eslintCacheFile, parseCliArgs } from '../verify-eslint-warning-baselines.mjs';
+import {
+  eslintCacheFile,
+  parseCliArgs,
+  removeSupersededCacheFiles,
+} from '../verify-eslint-warning-baselines.mjs';
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 const read = (relative) => readFileSync(path.join(repoRoot, relative), 'utf8');
@@ -104,6 +116,43 @@ test('the ESLint cache file changes with the lockfile and eslint.config.js', () 
     assert.notEqual(eslintCacheFile(root), afterUpgrade, 'a config change must start a new cache');
   } finally {
     rmSync(root, { force: true, recursive: true });
+  }
+});
+
+// Sandboxed runs symlink node_modules to a sibling checkout's, so both
+// checkouts' cache files share one directory. Cleanup must only retire this
+// checkout's superseded files, or alternating runs keep deleting each other's.
+test('cache cleanup leaves a sibling checkout sharing node_modules untouched', () => {
+  const parent = mkdtempSync(path.join(tmpdir(), 'eslint-cache-siblings-'));
+  const owner = path.join(parent, 'owner');
+  const borrower = path.join(parent, 'borrower');
+  try {
+    for (const root of [owner, borrower]) {
+      mkdirSync(root);
+      writeFileSync(path.join(root, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n");
+      writeFileSync(path.join(root, 'eslint.config.js'), 'export default [];\n');
+    }
+    mkdirSync(path.join(owner, 'node_modules', '.cache', 'eslint'), { recursive: true });
+    symlinkSync(path.join(owner, 'node_modules'), path.join(borrower, 'node_modules'), 'dir');
+
+    const ownerCache = eslintCacheFile(owner);
+    const borrowerCache = eslintCacheFile(borrower);
+    assert.notEqual(
+      path.basename(ownerCache),
+      path.basename(borrowerCache),
+      'checkouts with identical inputs must still own distinct cache files'
+    );
+    writeFileSync(ownerCache, '{}');
+    writeFileSync(borrowerCache, '{}');
+
+    // The owner moves to a new toolchain: its old file goes, the sibling's stays.
+    writeFileSync(path.join(owner, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n# upgrade\n");
+    const ownerNext = eslintCacheFile(owner);
+    removeSupersededCacheFiles(owner, ownerNext);
+    assert.equal(existsSync(ownerCache), false, "the owner's superseded cache must be removed");
+    assert.equal(existsSync(borrowerCache), true, "a sibling checkout's cache must survive");
+  } finally {
+    rmSync(parent, { force: true, recursive: true });
   }
 });
 
