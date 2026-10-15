@@ -1,6 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import type { FileFilterOptions, IFileNode } from '@brainstrike/types';
-import { Minimatch } from 'minimatch';
+import { escape as escapeWildcard, Minimatch } from 'minimatch';
 
 /**
  * Common file patterns to ignore.
@@ -119,6 +119,17 @@ const matchWildcardPattern = (str: string, pattern: string): boolean => {
   const matcher = getOrCreateWildcardMatcher(pattern);
   return matcher.match(str);
 };
+
+/**
+ * A wildcard filter that matches the file at `path` and no other: its glob
+ * characters are escaped, so `a[1].ts` filters as itself, not as a class. The
+ * explorer's tree filter matches a path without its leading `/` and this
+ * module's `filterNode` matches it with one, so the literal follows a leading
+ * `**` segment, which both accept.
+ */
+export function literalFilterPattern(path: string): string {
+  return `**/${escapeWildcard(path.replace(/^\/+/u, ''))}`;
+}
 
 /**
  * Utilities for filtering files and directories

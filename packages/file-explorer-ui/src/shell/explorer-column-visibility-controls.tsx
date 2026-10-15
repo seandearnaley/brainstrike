@@ -30,16 +30,23 @@ import { Columns3 } from 'lucide-react';
 import { memo } from 'react';
 import { EXPLORER_METADATA_COLUMN_CONFIGS } from '../tree/file-tree-columns';
 import { useExplorerColumns } from './explorer-columns-context';
+import { useOptionalExplorerThreadStatus } from './explorer-thread-status';
 
 export const ExplorerColumnVisibilityControls = memo(
   function ExplorerColumnVisibilityControlsComponent({ show }: { show: boolean }) {
     const { areMetadataColumnsSuppressed } = useExplorerColumns();
     const size = useExplorerColumnVisibilityStore((state) => state.size);
+    const thread = useExplorerColumnVisibilityStore((state) => state.thread);
     const tokens = useExplorerColumnVisibilityStore((state) => state.tokens);
     const type = useExplorerColumnVisibilityStore((state) => state.type);
     const setColumnVisible = useExplorerColumnVisibilityStore((state) => state.setColumnVisible);
-    const visibility: Record<ExplorerMetadataColumnId, boolean> = { size, tokens, type };
-    const enabledCount = Object.values(visibility).filter(Boolean).length;
+    // "This thread" is offered only where it can render (ADR-0021).
+    const threadAvailable = useOptionalExplorerThreadStatus() !== null;
+    const visibility: Record<ExplorerMetadataColumnId, boolean> = { size, thread, tokens, type };
+    const configs = EXPLORER_METADATA_COLUMN_CONFIGS.filter(
+      (config) => config.id !== 'thread' || threadAvailable
+    );
+    const enabledCount = configs.filter((config) => visibility[config.id]).length;
 
     if (!show) {
       return null;
@@ -65,8 +72,8 @@ export const ExplorerColumnVisibilityControls = memo(
         </Tooltip>
         <PopoverContent align="end" className="w-52 p-2">
           <div className="space-y-1">
-            {EXPLORER_METADATA_COLUMN_CONFIGS.map((config) => {
-              const columnId = config.id as ExplorerMetadataColumnId;
+            {configs.map((config) => {
+              const columnId = config.id;
               return (
                 <div
                   className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent"
@@ -95,7 +102,7 @@ export const ExplorerColumnVisibilityControls = memo(
           >
             {areMetadataColumnsSuppressed
               ? 'The panel is too narrow to show these columns — widen it to see them.'
-              : `Name always shows. ${enabledCount} of ${EXPLORER_METADATA_COLUMN_CONFIGS.length} extra columns visible.`}
+              : `Name always shows. ${enabledCount} of ${configs.length} extra columns visible.`}
           </p>
         </PopoverContent>
       </Popover>

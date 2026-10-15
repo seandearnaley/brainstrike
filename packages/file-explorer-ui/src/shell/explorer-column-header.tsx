@@ -195,9 +195,11 @@ export function ExplorerColumnHeader({
             </th>
             {columns.map((config) => {
               const width = columnWidths[config.id];
+              // "This thread" has no order to sort by; it keeps a plain label.
+              const sortable = canSortByMetadata && isExplorerSortField(config.id);
               return (
                 <th
-                  {...(canSortByMetadata
+                  {...(sortable
                     ? { 'aria-sort': getTreeTableAriaSortValue(config.id, treeTableSortState) }
                     : {})}
                   className={cn(
@@ -208,7 +210,7 @@ export function ExplorerColumnHeader({
                   key={config.id}
                   style={{ width }}
                 >
-                  {canSortByMetadata ? (
+                  {sortable ? (
                     <button
                       aria-label={getTreeTableSortButtonLabel(
                         config.label,

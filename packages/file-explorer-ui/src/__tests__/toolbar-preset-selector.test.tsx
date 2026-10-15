@@ -1,5 +1,5 @@
 import type { ViewFilterPreset } from '@brainstrike/types';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -187,7 +187,27 @@ vi.mock('@brainstrike/logging', () => ({
 
 // Import after mocks are set up
 import { useViewFilterPresets } from '../hooks/use-view-filter-presets';
+import {
+  createExplorerThreadStatusStore,
+  ExplorerThreadStatusContext,
+  type ExplorerThreadStatusStore,
+} from '../shell/explorer-thread-status';
 import { ToolbarPresetSelector } from '../toolbar-preset-selector';
+
+function threadStore(touchedPaths: string[], files: string[]): ExplorerThreadStatusStore {
+  const store = createExplorerThreadStatusStore();
+  store.publish({
+    directories: new Map(),
+    files: new Map(
+      files.map((key) => [
+        key,
+        { editedWithoutRead: false, freshness: 'unknown', gone: false, kinds: ['read'] },
+      ])
+    ),
+    touchedPaths,
+  });
+  return store;
+}
 
 describe('ToolbarPresetSelector', () => {
   const mockOnFilterChange = vi.fn();
@@ -202,6 +222,49 @@ describe('ToolbarPresetSelector', () => {
 
   afterEach(() => {
     cleanup();
+  });
+
+  it("offers the thread's touched files as a preset, applying exactly those paths", async () => {
+    const user = userEvent.setup();
+    render(
+      <ExplorerThreadStatusContext.Provider
+        value={threadStore(
+          ['/w/src/a[1].ts', '/w/src/b.ts'],
+          ['root|@|/w/src/a[1].ts', 'root|@|/w/src/b.ts']
+        )}
+      >
+        <ToolbarPresetSelector onFilterChange={mockOnFilterChange} />
+      </ExplorerThreadStatusContext.Provider>
+    );
+    await user.click(screen.getByRole('button', { name: /Source Files/i }));
+    const entry = await screen.findByTestId('thread-touched-preset');
+    expect(entry).toHaveTextContent("2 files the thread's model received");
+
+    await user.click(within(entry).getByText('Touched in this thread'));
+    await waitFor(() => {
+      expect(mockSetViewFilterPresetId).toHaveBeenCalledWith('thread:touched');
+    });
+    // Glob characters in a path are escaped: the filter matches the file itself.
+    expect(mockSetFilters).toHaveBeenCalledWith(['**/w/src/a\\[1\\].ts', '**/w/src/b.ts'], []);
+    expect(mockSetUseRegex).toHaveBeenCalledWith(false);
+  });
+
+  it('offers no thread preset without a thread context, or before the thread touched a file', async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
+    await user.click(screen.getByRole('button', { name: /Source Files/i }));
+    await screen.findByText('Documentation');
+    expect(screen.queryByTestId('thread-touched-preset')).toBeNull();
+    unmount();
+
+    render(
+      <ExplorerThreadStatusContext.Provider value={threadStore([], [])}>
+        <ToolbarPresetSelector onFilterChange={mockOnFilterChange} />
+      </ExplorerThreadStatusContext.Provider>
+    );
+    await user.click(screen.getByRole('button', { name: /Source Files/i }));
+    await screen.findByText('Documentation');
+    expect(screen.queryByTestId('thread-touched-preset')).toBeNull();
   });
 
   it('renders the dropdown component', () => {

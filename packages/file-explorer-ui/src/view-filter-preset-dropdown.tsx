@@ -384,6 +384,11 @@ interface ViewFilterPresetDropdownProps {
   presets: ViewFilterPreset[];
   /** Currently selected preset */
   selectedPreset: ViewFilterPreset | null;
+  /**
+   * "Touched in this thread" (ADR-0021): built from the active thread, not
+   * stored, so it is listed apart and can be neither edited nor deleted.
+   */
+  threadPreset?: ViewFilterPreset | null;
 }
 
 /**
@@ -405,6 +410,7 @@ export function ViewFilterPresetDropdown({
   hasCustomFilters = false,
   loading = false,
   className,
+  threadPreset = null,
 }: ViewFilterPresetDropdownProps): React.ReactElement {
   const [isOpen, setIsOpen] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
@@ -431,6 +437,12 @@ export function ViewFilterPresetDropdown({
         p.includes.some((i) => i.toLowerCase().includes(lower))
     );
   }, [presets, searchFilter]);
+
+  const shownThreadPreset =
+    threadPreset &&
+    (!searchFilter.trim() || threadPreset.name.toLowerCase().includes(searchFilter.toLowerCase()))
+      ? threadPreset
+      : null;
 
   // Reset create form state
   const resetCreateForm = useCallback(() => {
@@ -637,6 +649,39 @@ export function ViewFilterPresetDropdown({
 
             {/* Preset List */}
             <div className="max-h-[300px] overflow-y-auto p-1">
+              {shownThreadPreset ? (
+                <div className="border-b pb-1" data-testid="thread-touched-preset">
+                  <div className="px-2 pt-1 pb-0.5 font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
+                    This thread
+                  </div>
+                  <div
+                    className={cn(
+                      'flex items-center justify-between rounded-sm px-2 py-1 hover:bg-accent hover:text-accent-foreground',
+                      selectedPreset?.id === shownThreadPreset.id &&
+                        'bg-accent/50 text-accent-foreground'
+                    )}
+                  >
+                    <button
+                      className="flex flex-1 items-center gap-2 overflow-hidden py-1 text-left"
+                      onClick={() => selectPreset(shownThreadPreset)}
+                      type="button"
+                    >
+                      <FileText className="size-4 shrink-0 opacity-70" />
+                      <div className="flex flex-col truncate">
+                        <span className="truncate font-medium text-sm">
+                          {shownThreadPreset.name}
+                        </span>
+                        <span className="truncate text-[10px] text-muted-foreground opacity-80">
+                          {shownThreadPreset.description}
+                        </span>
+                      </div>
+                    </button>
+                    {selectedPreset?.id === shownThreadPreset.id && (
+                      <Check className="ml-2 size-4 shrink-0 text-primary" />
+                    )}
+                  </div>
+                </div>
+              ) : null}
               {loading && filteredPresets.length === 0 && (
                 <div className="py-4 text-center text-muted-foreground text-sm">
                   Loading presets...
@@ -703,7 +748,7 @@ export function ViewFilterPresetDropdown({
                 );
               })}
 
-              {!loading && filteredPresets.length === 0 && (
+              {!loading && filteredPresets.length === 0 && !shownThreadPreset && (
                 <div className="py-4 text-center text-muted-foreground text-sm">
                   No presets found
                 </div>

@@ -26,6 +26,8 @@ import {
 
 export const EXPLORER_COLUMN_BOUNDS = {
   size: { defaultWidth: 76, maxWidth: 160, minWidth: 52 },
+  // The header fits on one line at 88px; 28px keeps all four columns inside the 300px step.
+  thread: { defaultWidth: 88, maxWidth: 160, minWidth: 28 },
   tokens: { defaultWidth: 76, maxWidth: 160, minWidth: 52 },
   type: { defaultWidth: 72, maxWidth: 160, minWidth: 48 },
 } as const;

@@ -38,6 +38,10 @@ import {
 } from '../shell/explorer-columns-context';
 import { ExplorerColumnsProvider } from '../shell/explorer-columns-provider';
 import { ExplorerSortProvider } from '../shell/explorer-sort-provider';
+import {
+  createExplorerThreadStatusStore,
+  ExplorerThreadStatusContext,
+} from '../shell/explorer-thread-status';
 import FileExplorerSidebar from '../shell/file-explorer-sidebar';
 import OptimizedFileTree from '../tree/optimized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
@@ -199,6 +203,16 @@ describe('forest column header', () => {
       (cell) => cell.textContent
     );
     expect(headers).toEqual(['Name', 'Tokens']);
+  });
+
+  it('labels This thread without a sort: its marks have no order', async () => {
+    const container = await renderForest(['thread', 'tokens']);
+    const header = container.querySelector('[data-testid="explorer-column-header"]');
+    const thread = header?.querySelector('[data-column-id="thread"]');
+    expect(thread?.textContent).toBe('This thread');
+    expect(thread?.querySelector('button')).toBeNull();
+    expect(thread).not.toHaveAttribute('aria-sort');
+    expect(header?.querySelector('[data-column-id="tokens"] button')).not.toBeNull();
   });
 
   it('keeps the sortable Name header when the grid is name-only', async () => {
@@ -460,7 +474,7 @@ describe('explorer column width clamping', () => {
 });
 
 describe('responsive column resolution', () => {
-  const ALL_ON = { size: true, tokens: true, type: true };
+  const ALL_ON = { size: true, thread: true, tokens: true, type: true };
 
   it('suppresses every metadata column below the width threshold', () => {
     expect(
@@ -472,9 +486,9 @@ describe('responsive column resolution', () => {
     expect(
       resolveVisibleMetadataColumnIds({
         isSuppressed: false,
-        visibility: { size: true, tokens: true, type: false },
+        visibility: { size: true, thread: true, tokens: true, type: false },
       })
-    ).toEqual(['tokens', 'size']);
+    ).toEqual(['thread', 'tokens', 'size']);
   });
 
   it('returns a STABLE identity for the empty result so the columns memo does not churn', () => {
@@ -484,7 +498,7 @@ describe('responsive column resolution', () => {
     });
     const second = resolveVisibleMetadataColumnIds({
       isSuppressed: false,
-      visibility: { size: false, tokens: false, type: false },
+      visibility: { size: false, thread: false, tokens: false, type: false },
     });
     expect(first).toBe(second);
   });
@@ -583,6 +597,23 @@ describe('column id identity stability', () => {
    * ResizeObserver callback took them away, and `table-fixed` re-laid the Name
    * column across the full width. The narrow guess only ever adds columns.
    */
+  it('shows This thread only where the active thread context is published', () => {
+    vi.spyOn(containerWidthModule, 'useContainerWidth').mockReturnValue(800);
+    const containerRef = { current: null } as RefObject<HTMLElement | null>;
+    const without = renderHook(() => useExplorerColumnsValue(containerRef));
+    expect(without.result.current.visibleMetadataColumnIds).toEqual(['tokens']);
+
+    const store = createExplorerThreadStatusStore();
+    const withStore = renderHook(() => useExplorerColumnsValue(containerRef), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <ExplorerThreadStatusContext.Provider value={store}>
+          {children}
+        </ExplorerThreadStatusContext.Provider>
+      ),
+    });
+    expect(withStore.result.current.visibleMetadataColumnIds).toEqual(['thread', 'tokens']);
+  });
+
   it('treats an unmeasured panel as narrow, so the grid never flashes columns it must drop', () => {
     const { result, rerender } = renderColumns(0);
 

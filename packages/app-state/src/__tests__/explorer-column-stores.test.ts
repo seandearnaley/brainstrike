@@ -24,7 +24,12 @@ import {
 
 describe('explorer column sizes store', () => {
   it('carries bounds for the metadata columns only — name is the pinned tree column', () => {
-    expect(Object.keys(EXPLORER_COLUMN_BOUNDS).sort()).toEqual(['size', 'tokens', 'type']);
+    expect(Object.keys(EXPLORER_COLUMN_BOUNDS).sort()).toEqual([
+      'size',
+      'thread',
+      'tokens',
+      'type',
+    ]);
   });
 
   it('declares every bound with default within [min, max]', () => {
@@ -37,6 +42,7 @@ describe('explorer column sizes store', () => {
   it('seeds every metadata column with its default width', () => {
     expect(useExplorerColumnSizesStore.getState().sizes).toEqual({
       size: EXPLORER_COLUMN_BOUNDS.size.defaultWidth,
+      thread: EXPLORER_COLUMN_BOUNDS.thread.defaultWidth,
       tokens: EXPLORER_COLUMN_BOUNDS.tokens.defaultWidth,
       type: EXPLORER_COLUMN_BOUNDS.type.defaultWidth,
     });
@@ -52,7 +58,7 @@ describe('explorer column sizes store', () => {
 });
 
 describe('explorer column visibility store', () => {
-  it('ships Tokens visible and Type/Size opt-in (decision D1)', () => {
+  it('ships Tokens and This thread visible, Type/Size opt-in (decision D1)', () => {
     // Projected through EXPLORER_METADATA_COLUMN_IDS and compared with toEqual,
     // not toMatchObject against live store state: a new metadata column must
     // fail this test rather than default itself in unnoticed.
@@ -63,6 +69,7 @@ describe('explorer column visibility store', () => {
 
     expect(shippedDefaults).toEqual({
       size: false,
+      thread: true,
       tokens: true,
       type: false,
     });
@@ -85,11 +92,13 @@ describe('explorer column visibility store', () => {
   it('falls back to defaults for malformed or unknown persisted keys', () => {
     expect(sanitizeExplorerColumnVisibility({ nope: true, tokens: 'yes', type: true })).toEqual({
       size: false,
+      thread: true,
       tokens: true,
       type: true,
     });
     expect(sanitizeExplorerColumnVisibility(null)).toEqual({
       size: false,
+      thread: true,
       tokens: true,
       type: false,
     });

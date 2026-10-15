@@ -1,7 +1,7 @@
 /**
  * Column definitions for the Explorer tree grid (BST-1208).
  *
- * ONE source of truth for the four columns, shared by three renderers: the
+ * ONE source of truth for the columns, shared by three renderers: the
  * per-tree `TreeTable` (which owns the single-root sticky header), the
  * panel-level forest header, and the toolbar's visibility control. Splitting
  * that would let the forest header drift out of alignment with the section
@@ -17,9 +17,11 @@
 
 import { EXPLORER_COLUMN_BOUNDS } from '@brainstrike/app-state/stores/explorer-column-sizes-store';
 import type { ExplorerMetadataColumnId } from '@brainstrike/app-state/stores/explorer-column-visibility-store';
+import { isExplorerSortField } from '@brainstrike/app-state/stores/explorer-sort-state-store';
 import type { ColumnBounds, TreeTableColumn } from '@brainstrike/ui';
 import { FileTreeSizeCell, FileTreeTokensCell, FileTreeTypeCell } from './file-tree-metadata-cells';
 import { FileTreeNameCell } from './file-tree-name-cell';
+import { FileTreeThreadCell } from './file-tree-thread-cell';
 import type { FileTreeRowData } from './optimized-file-tree-model';
 
 /**
@@ -48,6 +50,8 @@ interface ExplorerColumnConfig extends Omit<ExplorerMetadataColumnConfig, 'id'> 
 /** Every column, name first. Only the metadata slice below is exported. */
 const EXPLORER_COLUMN_CONFIGS: readonly ExplorerColumnConfig[] = [
   { align: 'left', id: 'name', label: 'Name' },
+  // ADR-0021: rendered only where the active thread's context is published.
+  { align: 'left', id: 'thread', label: 'This thread' },
   { align: 'left', id: 'type', label: 'Type' },
   { align: 'right', id: 'tokens', label: 'Tokens' },
   { align: 'right', id: 'size', label: 'Size' },
@@ -103,12 +107,12 @@ function buildMetadataColumn(
   config: ExplorerMetadataColumnConfig
 ): TreeTableColumn<FileTreeRowData> {
   const bounds = EXPLORER_COLUMN_BOUNDS[config.id];
-  const Cell =
-    config.id === 'type'
-      ? FileTreeTypeCell
-      : config.id === 'tokens'
-        ? FileTreeTokensCell
-        : FileTreeSizeCell;
+  const Cell = {
+    size: FileTreeSizeCell,
+    thread: FileTreeThreadCell,
+    tokens: FileTreeTokensCell,
+    type: FileTreeTypeCell,
+  }[config.id];
   return {
     cell: ({ node }) => <Cell rowData={node.data} />,
     className: metadataCellClassName(config.align),
@@ -120,7 +124,8 @@ function buildMetadataColumn(
     isTreeColumn: false,
     maxWidth: bounds.maxWidth,
     minWidth: bounds.minWidth,
-    sortable: true,
+    // "This thread" has no order the tree could sort by.
+    sortable: isExplorerSortField(config.id),
   };
 }
 
