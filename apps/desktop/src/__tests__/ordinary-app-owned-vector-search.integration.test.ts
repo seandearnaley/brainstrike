@@ -24,7 +24,7 @@ import {
   type ModelProviderRequest,
   startModelProviderShim,
 } from '../../e2e/utils/model-provider-shim';
-import { APP_RENDERER_DOCUMENT_URL } from '../desktop-renderer-target';
+import { APP_RENDERER_ORIGIN } from '../desktop-renderer-target';
 import { createDisposableAppProfile } from './helpers/disposable-app-profile';
 import { electronExecutablePath } from './helpers/electron-executable';
 
@@ -845,12 +845,7 @@ async function copyExistingModelCache(disposable: string): Promise<CachedModelAs
     );
   }
   const index = await readFile(join(source, 'index.txt'));
-  if (
-    !(
-      index.includes(new URL(APP_RENDERER_DOCUMENT_URL).origin) &&
-      index.includes('transformers-cache')
-    )
-  ) {
+  if (!(index.includes(APP_RENDERER_ORIGIN) && index.includes('transformers-cache'))) {
     throw new Error('Installed model cache has the wrong origin or cache name');
   }
   const origin = source.split('/').at(-1);

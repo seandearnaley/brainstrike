@@ -3,7 +3,9 @@ import type { DesktopRendererLaunchMode } from './desktop-launch-mode';
 
 /** Built renderers load one document on this origin, served by `renderer-protocol.ts`. */
 export const APP_RENDERER_SCHEME = 'brainstrike-app';
-export const APP_RENDERER_DOCUMENT_URL = `${APP_RENDERER_SCHEME}://bundle/index.html`;
+/** Spelled out: Node's URL gives a non-special scheme the opaque origin "null". */
+export const APP_RENDERER_ORIGIN = `${APP_RENDERER_SCHEME}://bundle`;
+export const APP_RENDERER_DOCUMENT_URL = `${APP_RENDERER_ORIGIN}/index.html`;
 
 /** The hidden hosts that run local inference on ONNX Runtime's WASM threads. */
 const CROSS_ORIGIN_ISOLATED_HOST_MODES: ReadonlySet<string> = new Set([

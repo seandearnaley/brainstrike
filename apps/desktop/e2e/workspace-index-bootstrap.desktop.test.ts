@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { ElectronApplication, Page } from 'playwright';
-import { APP_RENDERER_DOCUMENT_URL } from '../src/desktop-renderer-target';
+import { APP_RENDERER_ORIGIN } from '../src/desktop-renderer-target';
 import type { VisibleEmbeddingHostBridge } from '../src/types/desktop-electron-api';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
@@ -50,13 +50,13 @@ async function recordOrtWasmRequests(app: ElectronApplication): Promise<void> {
       Reflect.set(globalThis, key, seen);
       session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
         const url = new URL(details.url);
-        if (url.origin !== appOrigin && /ort-wasm/u.test(url.pathname)) {
+        if (!details.url.startsWith(`${appOrigin}/`) && /ort-wasm/u.test(url.pathname)) {
           seen.push(details.url);
         }
         callback({});
       });
     },
-    { appOrigin: new URL(APP_RENDERER_DOCUMENT_URL).origin, key: ORT_WASM_REQUESTS_KEY }
+    { appOrigin: APP_RENDERER_ORIGIN, key: ORT_WASM_REQUESTS_KEY }
   );
 }
 

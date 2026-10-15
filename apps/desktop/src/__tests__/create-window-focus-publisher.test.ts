@@ -85,7 +85,7 @@ describe('createWindow native focus publisher', () => {
 
   it('publishes a native blur that lands while the renderer is still loading', async () => {
     let resolveLoad: (() => void) | undefined;
-    fake.loadFile.mockImplementation(
+    fake.loadURL.mockImplementation(
       () =>
         new Promise<void>((resolve) => {
           resolveLoad = resolve;
@@ -95,7 +95,7 @@ describe('createWindow native focus publisher', () => {
     const pending = createWindow();
     // The load is in flight: the renderer may already have subscribed and asked
     // `isFocused()`, so a transition now must reach it as a push.
-    expect(fake.loadFile).toHaveBeenCalled();
+    expect(fake.loadURL).toHaveBeenCalled();
     emitWindowEvent('blur');
 
     expect(fake.webContents.send).toHaveBeenCalledWith(FOCUS_CHANGED, false);
