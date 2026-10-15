@@ -113,6 +113,11 @@
       "import": "./dist/context-breakdown.js",
       "require": "./dist/context-breakdown.js"
     },
+    "./context-provenance": {
+      "types": "./dist/context-provenance.d.ts",
+      "import": "./dist/context-provenance.js",
+      "require": "./dist/context-provenance.js"
+    },
     "./context-budget": {
       "types": "./dist/context-budget.d.ts",
       "import": "./dist/context-budget.js",

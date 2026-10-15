@@ -42,6 +42,10 @@ describe('@brainstrike/assistant-ui package contract', () => {
         './mcp-task-bridge-context',
         './mcp-task-status-card',
         './rewind-composer-store',
+        // The thread context map's fold and its per-thread store (ADR-0021):
+        // leaf modules, so the Context tab and factory reset skip the barrel.
+        './thread-context-fold',
+        './thread-context-store',
         './tool-fallback',
         './tool-result-renderer-context',
         './tool-result-renderers',

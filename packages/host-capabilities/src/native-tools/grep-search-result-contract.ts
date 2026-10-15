@@ -1,5 +1,6 @@
 import { ToolProjectionInputRejectedError } from '@brainstrike/agent';
 import type { GrepMatch } from '@brainstrike/assistant-contract';
+import type { GrepContentDelivery } from '@brainstrike/assistant-contract/context-provenance';
 
 export type GrepMatchSource = 'index' | 'live' | 'both';
 
@@ -75,6 +76,17 @@ export interface GrepContentToolResult extends GrepToolResultBase {
 }
 
 export type GrepToolResult = GrepFilesToolResult | GrepContentToolResult;
+
+type DeliveryFields<T> = { [K in keyof T as string extends K ? never : K]: T[K] };
+type MatchDelivery = DeliveryFields<GrepContentDelivery['matches'][number]>;
+// The thread context map reads each kept match's lines (ADR-0021): dropping or
+// retyping a field it reads fails here, not in the renderer.
+const grepDeliveryHolds: ModelFacingGrepMatch extends MatchDelivery
+  ? GrepContentToolResult['offset'] extends GrepContentDelivery['offset']
+    ? true
+    : never
+  : never = true;
+void grepDeliveryHolds;
 
 /**
  * Replay-detection prefix for stored grep model projections. Deliberately the

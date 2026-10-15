@@ -68,6 +68,14 @@
       "types": "./dist/context-usage-store.d.ts",
       "import": "./dist/context-usage-store.js"
     },
+    "./thread-context-store": {
+      "types": "./dist/thread-context-store.d.ts",
+      "import": "./dist/thread-context-store.js"
+    },
+    "./thread-context-fold": {
+      "types": "./dist/thread-context-fold.d.ts",
+      "import": "./dist/thread-context-fold.js"
+    },
     "./data-stream-runtime": {
       "types": "./dist/data-stream-runtime.d.ts",
       "import": "./dist/data-stream-runtime.js"

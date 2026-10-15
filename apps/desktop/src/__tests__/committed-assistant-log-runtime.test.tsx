@@ -21,6 +21,7 @@ import {
   useCommittedAssistantSelector,
   useContextUsageStore,
 } from '@brainstrike/assistant-ui';
+import { useThreadContextStore } from '@brainstrike/assistant-ui/thread-context-store';
 import { ToolFallback } from '@brainstrike/assistant-ui/tool-fallback';
 import { ToolResultRendererProvider } from '@brainstrike/assistant-ui/tool-result-renderer-context';
 import type { ToolResultRenderer } from '@brainstrike/assistant-ui/tool-result-renderers';
@@ -115,6 +116,20 @@ afterEach(() => {
 });
 
 describe('real committed owner fold to production ExternalStore bridge', () => {
+  it('records the thread context fold for the displayed branch and clears it with its view', () => {
+    const source = new OwnerSource();
+    source.fold.accept(rows);
+    const bridge = new CommittedAssistantLogStore({ identifyRun, source, threadId });
+    const recorded = useThreadContextStore.getState().byThread[threadId];
+    // Every recorded run lies on one branch, root first, in commit order.
+    expect(recorded?.branchRunIds).toEqual(
+      starts.flatMap(({ event }) => (event.type === 'run.started' ? [event.runId] : []))
+    );
+    expect(recorded?.snapshot.runs.size).toBe(starts.length);
+    bridge.dispose();
+    expect(useThreadContextStore.getState().byThread[threadId]).toBeUndefined();
+  });
+
   it('displays only the latest committed provider step as context through replay and reopen', async () => {
     const firstStep = rows.findIndex(({ event }) => event.type === 'model.step');
     const source = new OwnerSource();
