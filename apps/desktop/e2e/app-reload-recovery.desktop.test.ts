@@ -18,7 +18,7 @@
  * Not `@smoke`: it runs in the nightly regression lane. Moving it to the PR
  * smoke lane is a measured change to that lane's file list (ci-quality.md).
  */
-import { APP_RENDERER_DOCUMENT_URL } from '../src/desktop-renderer-target';
+import { APP_RENDERER_DOCUMENT_URL } from '../src/desktop-renderer-origin';
 import { expect, test } from './fixtures/electron-fixture';
 
 const TERMINAL_CHUNK_PREFIX = new URL('assets/terminal-panel-', APP_RENDERER_DOCUMENT_URL).href;

@@ -1,11 +1,15 @@
 import path from 'node:path';
 import type { DesktopRendererLaunchMode } from './desktop-launch-mode';
+import { APP_RENDERER_DOCUMENT_URL } from './desktop-renderer-origin';
 
-/** Built renderers load one document on this origin, served by `renderer-protocol.ts`. */
-export const APP_RENDERER_SCHEME = 'brainstrike-app';
-/** Spelled out: Node's URL gives a non-special scheme the opaque origin "null". */
-export const APP_RENDERER_ORIGIN = `${APP_RENDERER_SCHEME}://bundle`;
-export const APP_RENDERER_DOCUMENT_URL = `${APP_RENDERER_ORIGIN}/index.html`;
+// Defined in `desktop-renderer-origin.ts` (a module with no runtime imports)
+// so the ESM e2e specs can reach them without escaping into this graph; this
+// stays the import site every main-process consumer already uses.
+export {
+  APP_RENDERER_DOCUMENT_URL,
+  APP_RENDERER_ORIGIN,
+  APP_RENDERER_SCHEME,
+} from './desktop-renderer-origin';
 
 /** The hidden hosts that run local inference on ONNX Runtime's WASM threads. */
 const CROSS_ORIGIN_ISOLATED_HOST_MODES: ReadonlySet<string> = new Set([
