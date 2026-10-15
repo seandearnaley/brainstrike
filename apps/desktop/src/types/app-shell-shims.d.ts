@@ -34,8 +34,6 @@ declare module '@brainstrike/app-shell/root-layout-content' {
   export const RootLayoutContent: React.ComponentType;
   export interface RootLayoutContentProps {
     changesPageContent?: React.ReactNode;
-    contextExplorerPageContent: React.ReactNode;
-    contextExplorerPanelContent?: React.ReactNode;
     databaseTabChunkingMode?: 'host-proxy' | 'local';
     gitPageContent?: React.ReactNode;
     loadEmbeddingQueue?: (() => Promise<unknown>) | null;

@@ -476,7 +476,8 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     await restoreAccessIfNeeded(page, explorer);
 
     await expect(explorer.fileTree).toBeVisible({ timeout: 15_000 });
-    await expect(explorer.fileTree.getByText('folder')).toBeVisible();
+    // The Files page is wide enough for the Type column, whose cell also reads "folder".
+    await expect(explorer.fileTree.getByText('folder', { exact: true }).first()).toBeVisible();
     await expect(explorer.fileTree.getByText('beta.ts')).toBeVisible();
 
     const restoredCheckbox = explorer.fileTree.getByRole('checkbox', { name: 'Select beta.ts' });
@@ -882,8 +883,12 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     await expect(selectAllButton).toBeEnabled();
     await selectAllButton.click();
 
-    const seededTokenSummary = page.getByText(/[1-9]\d*(?:,\d{3})* output/);
-    await expect(seededTokenSummary).toBeVisible({ timeout: 15_000 });
+    // The Export popover totals the selection from the token cache (BST-2018).
+    const exportTrigger = page.getByTestId('explorer-export-trigger');
+    const selectionTokens = page.getByTestId('explorer-export-tokens');
+    await exportTrigger.click();
+    await expect(selectionTokens).toHaveText(/^~[1-9]\d*(?:,\d{3})* tokens$/, { timeout: 15_000 });
+    await page.keyboard.press('Escape');
 
     const deselectAllButton = page.getByRole('button', { name: 'Deselect All' });
     await expect(deselectAllButton).toBeEnabled();
@@ -903,8 +908,8 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
 
     await selectAllButton.click();
 
-    const restoredTokenSummary = page.getByText(/[1-9]\d*(?:,\d{3})* output/);
-    await expect(restoredTokenSummary).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText(/estimating…/)).not.toBeVisible();
+    // Restored from the cache without re-expanding: no file is left pending.
+    await exportTrigger.click();
+    await expect(selectionTokens).toHaveText(/^~[1-9]\d*(?:,\d{3})* tokens$/, { timeout: 15_000 });
   });
 });

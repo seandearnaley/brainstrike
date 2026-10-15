@@ -8,7 +8,7 @@ import {
   AGENT_WORKSPACE_PANEL_SELECTOR,
   CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR,
   CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR,
-  CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR,
+  CONTEXT_EXPLORER_PANEL_SELECTOR,
   corruptLayoutStorage,
   ensureRightPanelVisible,
   getPanelElements,
@@ -245,22 +245,20 @@ test.describe('Application Layout', () => {
       await elements.hideRightPanelButton.click();
       await elements.showRightPanelShim.click();
 
-      // Verify all main layout containers exist
-      // The app now uses an outer agent workspace shell plus a nested context explorer layout.
+      // Verify all main layout containers exist: the outer agent workspace
+      // shell, with the explorer as the whole Files page (BST-2018).
       await expect(page.locator(AGENT_SIDEBAR_PANEL_SELECTOR)).toBeAttached();
       await expect(page.locator(AGENT_MIDDLE_PANEL_SELECTOR)).toBeAttached();
       await expect(page.locator(AGENT_WORKSPACE_PANEL_SELECTOR)).toBeAttached();
       await expect(page.locator(AGENT_MAIN_PANEL_SELECTOR)).toBeAttached();
-      await expect(page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR)).toBeAttached();
+      await expect(page.locator(CONTEXT_EXPLORER_PANEL_SELECTOR)).toBeAttached();
       await expect(page.locator(CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR)).toBeAttached();
       await expect(page.locator(CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR)).toBeAttached();
       await expect(page.getByTestId('workspace-app-tab-context-explorer')).toBeAttached();
 
-      // Verify the shell still exposes the expected nested resizable groups.
-      // The exact count can vary with wrapper groups created by the panel library,
-      // but the promoted shell must still include the outer workspace plus the
-      // inner horizontal and vertical explorer groups.
-      expect(await page.locator('[data-group]').count()).toBeGreaterThanOrEqual(3);
+      // The outer workspace's resizable group remains; the explorer has no
+      // nested groups of its own any more.
+      expect(await page.locator('[data-group]').count()).toBeGreaterThanOrEqual(1);
     });
 
     test('should handle rapid panel visibility changes', async ({ page }) => {

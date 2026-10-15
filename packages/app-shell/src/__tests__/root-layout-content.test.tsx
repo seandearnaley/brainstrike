@@ -1,4 +1,3 @@
-import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
@@ -43,6 +42,7 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   CHANGES_APP_ID: 'changes',
   CONTEXT_EXPLORER_APP_ID: 'context-explorer',
   ContextExplorerAppBody: () => <div data-testid="context-explorer-app-body" />,
+  ExplorerContextExportAction: () => null,
   FileExplorerPanel: () => <div data-testid="file-explorer-panel" />,
   FileSystemProvider: ({ children }: { children: React.ReactNode }) => children,
   RootDataDeletionProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -288,12 +288,6 @@ describe('RootLayoutContent', () => {
       showRightPanel: false,
       sizes: [25, 20, 20],
     });
-    useContextExplorerLayoutStore.setState({
-      showConsole: false,
-      showLeftPanel: true,
-      showRightPanel: false,
-      sizes: [25, 20, 20],
-    });
   });
 
   afterEach(() => {
@@ -312,7 +306,6 @@ describe('RootLayoutContent', () => {
   ) =>
     render(
       <RootLayoutContent
-        contextExplorerPageContent={<div data-testid="context-explorer-page">Context Explorer</div>}
         navigationItems={navigationItems}
         settingsPageContent={<div data-testid="settings-page">Settings</div>}
         {...overrides}
@@ -320,7 +313,8 @@ describe('RootLayoutContent', () => {
     );
 
   const getRootPanelLayoutChange = () => {
-    expect(mockHandlers.panelLayoutChanges).toHaveLength(2);
+    // One layout: the Files app is the explorer itself, with no nested layout (BST-2018).
+    expect(mockHandlers.panelLayoutChanges).toHaveLength(1);
     const panelLayoutChange = mockHandlers.panelLayoutChanges[0];
     expect(panelLayoutChange).toBeDefined();
     return panelLayoutChange as (state: PanelLayoutState) => void;
@@ -347,14 +341,12 @@ describe('RootLayoutContent', () => {
     );
     expect(screen.getByTestId('indexing-activity-coordinator')).toBeInTheDocument();
     expect(screen.getByTestId('explorer-section')).not.toHaveClass('hidden');
-    expect(screen.getByTestId('context-explorer-page')).toBeInTheDocument();
+    // The Files app body is the explorer itself, with no nested layout (BST-2018).
     expect(screen.getByTestId('file-explorer-panel')).toBeInTheDocument();
     expect(
-      mockHandlers.ideLayoutProps.find(({ panelIdPrefix }) => panelIdPrefix === 'context-explorer')
-        ?.panelConstraints
-    ).toEqual({ mainContentMinSize: '20%', rightPanelMinSize: '180px' });
-    // The south/console panel is gone — file tabs now live inside the editor area
-    // (the workspace tab host is rendered via contextExplorerPageContent in real apps).
+      mockHandlers.ideLayoutProps.some(({ panelIdPrefix }) => panelIdPrefix === 'context-explorer')
+    ).toBe(false);
+    // The south/console panel is gone — file tabs now live inside the editor area.
     expect(screen.queryByTestId('ide-console-content')).not.toBeInTheDocument();
   });
 
@@ -384,7 +376,6 @@ describe('RootLayoutContent', () => {
     });
     view.rerender(
       <RootLayoutContent
-        contextExplorerPageContent={<div data-testid="context-explorer-page">Context Explorer</div>}
         diagnosticFeatureFlags={['diagnostics-v2']}
         gitPageContent={<div data-testid="git-page">Git</div>}
         navigationItems={navigationItems}
@@ -795,9 +786,8 @@ describe('RootLayoutContent', () => {
     ]);
     expect(capturedWorkspaceApps.map((app) => app.label)).toEqual(['Files', 'Changes', 'Canvas']);
     expect(screen.getByTestId('canvas-page')).toBeInTheDocument();
-    // The Files app body is the nested explorer surface (still hosting the
-    // contextExplorerPageContent the app wrappers pass in).
-    expect(screen.getByTestId('context-explorer-page')).toBeInTheDocument();
+    // The Files app body is the explorer itself.
+    expect(screen.getByTestId('file-explorer-panel')).toBeInTheDocument();
     // The strip renders in the panel header slot (workspaceHeaderContent).
     expect(screen.getByTestId('workspace-tab-strip-stub')).toBeInTheDocument();
   });
@@ -807,6 +797,6 @@ describe('RootLayoutContent', () => {
 
     expect(capturedWorkspaceApps.map((app) => app.id)).toEqual(['context-explorer']);
     expect(capturedWorkspaceApps[0]?.label).toBe('Files');
-    expect(screen.getByTestId('context-explorer-page')).toBeInTheDocument();
+    expect(screen.getByTestId('file-explorer-panel')).toBeInTheDocument();
   });
 });

@@ -11,13 +11,13 @@ import { useTokenCounting } from '../indexing/use-token-counting';
 import { usePreviewContentFailure } from '../preview/preview-content-failure';
 import { PreviewContentFailureAlert } from '../preview/preview-content-failure-alert';
 import { PreviewPanel } from '../preview/preview-panel';
-import { usePreviewPanelReportActions } from '../preview/use-preview-panel-report-actions';
 import { buildFileNodeCache } from '../utils/file-node-cache';
 import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
+import { useContextExportActions } from './use-context-export-actions';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
 
@@ -133,7 +133,7 @@ export const FileExplorerMiddlePanelBase = () => {
     return sizes;
   }, [fileNodeCache, selectedFilePaths]);
 
-  const reportActions = usePreviewPanelReportActions({
+  const reportActions = useContextExportActions({
     excludeFilters,
     fileContents,
     folderSummaryThreshold,

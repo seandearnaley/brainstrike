@@ -1,8 +1,5 @@
 import { expect, type Locator, type Page } from '@playwright/test';
-import {
-  CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR,
-  getContextExplorerRightResizeHandle,
-} from './layout-helpers';
+import { CONTEXT_EXPLORER_PANEL_SELECTOR } from './layout-helpers';
 
 /**
  * Retrieves the file explorer tree.
@@ -139,32 +136,16 @@ export function explorerTreeActionButton(page: Page, action: ExplorerTreeAction)
 }
 
 /**
- * Widen the Explorer panel by dragging its separator.
- *
- * Promoted from `performance/tree-rendering.test.ts`, which had the only copy;
- * `widenExplorerForDirectTreeActions` needs the same drag, and two copies of a
- * layout-sensitive helper is how they drift.
+ * The Explorer is the whole Files page (BST-2018), as wide as the workspace
+ * panel, so there is no separator to drag: this checks it is past the
+ * toolbar's 388px step, where every control renders directly.
  */
 export async function widenExplorerPanel(page: Page): Promise<void> {
-  const panel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
-  const resizeHandle = getContextExplorerRightResizeHandle(page);
-  const initialWidth = await panel.evaluate((element) => element.clientWidth);
-  const handleBox = await resizeHandle.boundingBox();
-  if (!handleBox) {
-    throw new Error('Explorer resize handle was unavailable.');
-  }
-
-  const startX = handleBox.x + handleBox.width / 2;
-  const startY = handleBox.y + handleBox.height / 2;
-  await page.mouse.move(startX, startY);
-  await page.mouse.down();
-  // Left, because the Explorer is the RIGHT-hand panel: moving its separator
-  // left grows it.
-  await page.mouse.move(startX - 320, startY, { steps: 20 });
-  await page.mouse.up();
   await expect
-    .poll(() => panel.evaluate((element) => element.clientWidth))
-    .toBeGreaterThan(initialWidth + 1);
+    .poll(() =>
+      page.locator(CONTEXT_EXPLORER_PANEL_SELECTOR).evaluate((element) => element.clientWidth)
+    )
+    .toBeGreaterThan(388);
 }
 
 /**

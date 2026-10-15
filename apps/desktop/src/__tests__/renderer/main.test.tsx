@@ -41,10 +41,6 @@ vi.mock('react-dom/client', () => ({
 }));
 
 // Mock page components used in main.tsx
-vi.mock('../../renderer/components/context-explorer-page-content', () => ({
-  default: () => <div>HomePage</div>,
-}));
-
 vi.mock('../../renderer/components/settings/page-content', () => ({
   default: () => <div>SettingsPage</div>,
 }));

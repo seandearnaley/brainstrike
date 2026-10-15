@@ -52,8 +52,10 @@ test.describe('Report Folder Summary Threshold', () => {
     await expect(testCheckbox).toBeChecked();
     await expect(page.getByText('1/10')).toBeVisible();
 
-    // Download context with default threshold (5)
-    const downloadButton = page.getByRole('button', { name: 'Download Context' });
+    // Download context with default threshold (5), from the selection bar's Export (BST-2018)
+    const exportTrigger = page.getByTestId('explorer-export-trigger');
+    const downloadButton = page.getByTestId('explorer-export-download');
+    await exportTrigger.click();
     await expect(downloadButton).toBeEnabled();
     const download1Promise = page.waitForEvent('download');
     await downloadButton.click();
@@ -74,7 +76,8 @@ test.describe('Report Folder Summary Threshold', () => {
     expect(content1).not.toContain('file6.ts');
 
     // Include Project Tree is enabled by default, so the threshold input should be visible
-    // Change threshold to 2 via the preview summary input
+    // Change threshold to 2 in the Export popover, reopened after the download closed it
+    await exportTrigger.click();
     const thresholdInput = page.getByLabel('Tree detail:', { exact: true });
     await expect(thresholdInput).toBeVisible();
     await thresholdInput.scrollIntoViewIfNeeded();

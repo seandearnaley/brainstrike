@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
+  ExplorerContextExportAction: () => null,
   FileExplorerPanel: () => <div data-testid="file-explorer-panel-mock" />,
 }));
 

@@ -62,7 +62,7 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
 
     await expect(explorer.selectRootButton).toBeVisible({ timeout: 10_000 });
     await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15_000 });
-    await expect(explorer.noFilesText).toBeVisible({ timeout: 15_000 });
+    await expect(explorer.selectionBar).toHaveCount(0);
 
     // 1. Tree Load Performance
     await page.evaluate(() => performance.mark('tree-load-start'));
@@ -177,7 +177,7 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
 
     await expect(explorer.selectRootButton).toBeVisible({ timeout: 10_000 });
     await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15_000 });
-    await expect(explorer.noFilesText).toBeVisible({ timeout: 15_000 });
+    await expect(explorer.selectionBar).toHaveCount(0);
 
     // Use the selectRoot helper which properly waits for the file tree
     await explorer.selectRoot();
@@ -239,7 +239,7 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
 
     await expect(explorer.selectRootButton).toBeVisible({ timeout: 10_000 });
     await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15_000 });
-    await expect(explorer.noFilesText).toBeVisible({ timeout: 15_000 });
+    await expect(explorer.selectionBar).toHaveCount(0);
 
     // Use the selectRoot helper which properly waits for the file tree
     await explorer.selectRoot();

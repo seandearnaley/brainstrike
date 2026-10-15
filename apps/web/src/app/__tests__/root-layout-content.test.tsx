@@ -144,13 +144,12 @@ vi.mock('@brainstrike/app-shell/navigation', () => ({
 
 vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
   RootLayoutContent(props: {
-    contextExplorerPageContent: React.ReactNode;
     navigationItems: unknown[];
     promptsPageContent?: React.ReactNode;
     settingsPageContent: React.ReactNode;
   }) {
     sharedRootLayoutCapture.props = props as Record<string, unknown>;
-    const { contextExplorerPageContent, navigationItems, settingsPageContent } = props;
+    const { navigationItems, settingsPageContent } = props;
     const [activeTab, setActiveTab] = React.useState<'explorer' | 'settings'>('explorer');
 
     const handleNavigationClick = (path: string) => {
@@ -171,42 +170,36 @@ vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
         >
           <div data-testid="app-config-title">BrainStrike.ai</div>
           <div data-testid="navigation-items-count">{navigationItems.length}</div>
-          <main>{activeTab === 'explorer' ? contextExplorerPageContent : settingsPageContent}</main>
+          {/* The Files surface belongs to the shared layout (BST-2018); the app
+              passes only its own pages, kept mounted as the shell keeps them. */}
+          <main>{activeTab === 'explorer' ? <div data-testid="files-surface" /> : null}</main>
+          <aside hidden={activeTab !== 'settings'}>{settingsPageContent}</aside>
         </div>
       </div>
     );
   },
 }));
 
-// Mock the page components
-let homeMountCount = 0;
+// The app's page content, counting its mounts.
+let settingsMountCount = 0;
 
-function MockHomePageContent() {
+function MockSettingsPageContent() {
   const [mountIndex, setMountIndex] = React.useState(0);
 
   React.useEffect(() => {
-    homeMountCount += 1;
-    setMountIndex(homeMountCount);
+    settingsMountCount += 1;
+    setMountIndex(settingsMountCount);
   }, []);
 
   return (
-    <div data-mount-index={mountIndex} data-testid="home-page-content">
-      Home Page Content
+    <div data-mount-index={mountIndex} data-testid="settings-page-content">
+      Settings Page Content
     </div>
   );
 }
 
-function MockWebFileExplorerLeftPanel() {
-  return <div data-testid="web-file-explorer-left-panel">Left Panel</div>;
-}
-
-vi.mock('../context-explorer-page-content', () => ({
-  default: MockHomePageContent,
-  WebFileExplorerLeftPanel: MockWebFileExplorerLeftPanel,
-}));
-
 vi.mock('../settings/page-content', () => ({
-  default: () => <div data-testid="settings-page-content">Settings Page Content</div>,
+  default: MockSettingsPageContent,
 }));
 
 describe('RootLayoutContent', () => {
@@ -217,7 +210,7 @@ describe('RootLayoutContent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sharedRootLayoutCapture.props = null;
-    homeMountCount = 0;
+    settingsMountCount = 0;
     currentDb = null;
   });
 
@@ -232,10 +225,10 @@ describe('RootLayoutContent', () => {
     expect(appLayout).toHaveAttribute('data-current-path', '/');
   });
 
-  it('renders home page content by default', () => {
+  it('shows the shared Files surface by default', () => {
     render(<RootLayoutContent />);
-    expect(screen.getByTestId('home-page-content')).toBeInTheDocument();
-    expect(screen.getByText('Home Page Content')).toBeInTheDocument();
+    expect(screen.getByTestId('files-surface')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-page-content')).not.toBeVisible();
   });
 
   it('hydrates web indexing preferences and registers the embedding runtime on startup', async () => {
@@ -265,7 +258,7 @@ describe('RootLayoutContent', () => {
       capturedOnNavigationClick?.('/settings');
     });
 
-    expect(await screen.findByTestId('settings-page-content')).toBeInTheDocument();
+    expect(await screen.findByTestId('settings-page-content')).toBeVisible();
     expect(screen.getByTestId('app-layout')).toHaveAttribute('data-current-path', '/settings');
   });
 
@@ -278,15 +271,15 @@ describe('RootLayoutContent', () => {
       capturedOnNavigationClick?.('/');
     });
 
-    expect(screen.getByTestId('home-page-content')).toBeInTheDocument();
+    expect(screen.getByTestId('files-surface')).toBeInTheDocument();
     expect(screen.getByTestId('app-layout')).toHaveAttribute('data-current-path', '/');
   });
 
-  it('keeps home content mounted while the database becomes available', async () => {
+  it('keeps its page content mounted while the database becomes available', async () => {
     const { rerender } = render(<RootLayoutContent />);
 
     await waitFor(() =>
-      expect(screen.getByTestId('home-page-content')).toHaveAttribute('data-mount-index', '1')
+      expect(screen.getByTestId('settings-page-content')).toHaveAttribute('data-mount-index', '1')
     );
 
     currentDb = {
@@ -296,7 +289,7 @@ describe('RootLayoutContent', () => {
     rerender(<RootLayoutContent />);
 
     await waitFor(() =>
-      expect(screen.getByTestId('home-page-content')).toHaveAttribute('data-mount-index', '1')
+      expect(screen.getByTestId('settings-page-content')).toHaveAttribute('data-mount-index', '1')
     );
   });
 
@@ -314,7 +307,7 @@ describe('RootLayoutContent', () => {
 
     rerender(<RootLayoutContent />);
 
-    await waitFor(() => expect(screen.getByTestId('home-page-content')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('settings-page-content')).toBeInTheDocument());
     expect(screen.queryByTestId('embedding-job-queue-tracker')).not.toBeInTheDocument();
   });
 });

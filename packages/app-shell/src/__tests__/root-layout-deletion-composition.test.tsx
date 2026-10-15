@@ -1,4 +1,3 @@
-import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell/file-system-provider';
@@ -41,6 +40,7 @@ vi.mock('@brainstrike/file-explorer-ui/shell', async () => {
     CHANGES_APP_ID: 'changes',
     CONTEXT_EXPLORER_APP_ID: 'context-explorer',
     ContextExplorerAppBody: () => <div data-testid="context-explorer-app-body" />,
+    ExplorerContextExportAction: () => null,
     FileExplorerPanel: () => <div data-testid="file-explorer-panel" />,
     FileExplorerProvider,
     FileSystemProvider,
@@ -291,12 +291,6 @@ beforeEach(() => {
     showRightPanel: false,
     sizes: [25, 20, 20],
   });
-  useContextExplorerLayoutStore.setState({
-    showConsole: false,
-    showLeftPanel: true,
-    showRightPanel: false,
-    sizes: [25, 20, 20],
-  });
 });
 afterEach(() => {
   rendererLongTaskTelemetry.reset();
@@ -322,7 +316,8 @@ async function mountRoot(deleteRootData: (rootId: string) => Promise<void>) {
   render(
     <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
       <RootLayoutContent
-        contextExplorerPageContent={
+        // Any workspace app body sits inside the root layout's deletion context.
+        changesPageContent={
           <>
             <RootConsumer name="first" />
             <RootConsumer name="second" />

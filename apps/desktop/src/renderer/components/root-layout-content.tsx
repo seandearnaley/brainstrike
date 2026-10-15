@@ -53,7 +53,6 @@ import { useMcpAppsEnablement } from '../use-mcp-apps-enablement';
 // Task A's changes-page-content.tsx exports this by name (not default,
 // unlike its git/context-explorer/terminal siblings) — imported as written.
 import { ChangesPageContent } from './changes-page-content';
-import ContextExplorerPageContent from './context-explorer-page-content';
 import GitPageContent from './git-page-content';
 import { NativeSearchProvider } from './native-search-provider';
 import SettingsPageContent from './settings/page-content';
@@ -153,7 +152,6 @@ export default function RootLayoutContent() {
     // and the brainstrike-canvas: shell protocol, both unconditionally present
     // on desktop — no bridge gate.
     canvasPanelContent: <CanvasPanel shellSrc="brainstrike-canvas://shell/" />,
-    contextExplorerPageContent: <ContextExplorerPageContent />,
     createLocalSearchEmbedder: createDesktopLocalSearchEmbedder,
     databaseTabChunkingMode: 'host-proxy',
     deleteRootData: (rootId) => {

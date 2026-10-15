@@ -13,16 +13,13 @@ import { expect, test } from './fixtures/electron-fixture';
 
 export { expect, test };
 
-import {
-  getContextExplorerFileExplorerPanel,
-  getContextExplorerMiddlePanel,
-} from './utils/context-explorer-locators';
+import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
 
 // NOTE: deliberately no `loadElectronHelpers` re-export. This module documents
 // that a harness-owned app must only be closed via `closeForStateSeeding()`, so
 // it should not also hand callers `closeElectronApp`. Specs that genuinely need
 // the helpers import './utils/load-electron-helpers' directly.
-export { getContextExplorerFileExplorerPanel, getContextExplorerMiddlePanel };
+export { getContextExplorerFileExplorerPanel };
 
 /**
  * Harness surface the seeding helpers need.
@@ -452,37 +449,55 @@ export async function toggleFileTreeCheckboxAndWaitForSelection(args: {
   });
 }
 
-export async function expectContextExplorerFileVisibility(args: {
+/**
+ * Whether a file is in the explorer's selection, across every root, read from
+ * the explorer's own store. The Files app has no preview of the selection
+ * (ADR-0021, BST-2018), so the selection itself is the observable state.
+ */
+export async function expectFileSelected(args: {
   fileName: string;
   page: Page;
-  visible: boolean;
+  selected: boolean;
 }): Promise<void> {
-  const { fileName, page, visible } = args;
-  await expect(getContextExplorerMiddlePanel(page)).toBeVisible({ timeout: 15_000 });
+  const { fileName, page, selected } = args;
   await expect
     .poll(
       async () =>
         page.evaluate((targetFileName) => {
-          const hooks = (
+          const state = (
             window as Window & {
-              __brainstrikeContextExplorerPreviewTestHooks__?: {
-                getSnapshot?: () => { renderedFilePaths?: string[] };
+              // biome-ignore lint/style/useNamingConvention: Renderer test hook global intentionally uses the app-owned key.
+              __brainstrike_file_explorer_provider_store__?: {
+                getState?: () => {
+                  folderStates?: Record<string, { selectedFilePaths?: Iterable<string> }>;
+                  selectedFilePaths?: Iterable<string>;
+                  // A Select All is a query: its files are the materialized paths.
+                  selectionModel?: {
+                    materializedPaths?: Iterable<string> | null;
+                    mode?: string;
+                  };
+                };
               };
             }
-          ).__brainstrikeContextExplorerPreviewTestHooks__;
-
-          const renderedFilePaths = hooks?.getSnapshot?.().renderedFilePaths ?? [];
-          return renderedFilePaths.some((filePath) => {
-            const normalizedPath = filePath.replaceAll('\\', '/');
-            const segments = normalizedPath.split('/');
-            return segments.at(-1) === targetFileName;
+          ).__brainstrike_file_explorer_provider_store__?.getState?.();
+          const keys = [
+            ...(state?.selectedFilePaths ?? []),
+            // The materialized cache outlives a query, so it counts only while one is active.
+            ...(state?.selectionModel?.mode === 'query'
+              ? (state.selectionModel.materializedPaths ?? [])
+              : []),
+            ...Object.values(state?.folderStates ?? {}).flatMap((folder) => [
+              ...(folder.selectedFilePaths ?? []),
+            ]),
+          ];
+          return keys.some((key) => {
+            const filePath = key.split('|@|').at(-1) ?? key;
+            return filePath.replaceAll('\\', '/').split('/').at(-1) === targetFileName;
           });
         }, fileName),
-      {
-        timeout: 10_000,
-      }
+      { timeout: 10_000 }
     )
-    .toBe(visible);
+    .toBe(selected);
 }
 
 export async function getExpandedDirectoryCount(page: Page): Promise<number> {

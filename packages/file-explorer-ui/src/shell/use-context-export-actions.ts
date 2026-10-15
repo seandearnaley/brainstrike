@@ -9,9 +9,9 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import { type ContextExportOutcome, useReportManager } from '@brainstrike/hooks';
 import { useCallback } from 'react';
 import type { ContextExportOptions } from '../context-export-options';
-import type { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
+import type { useFileExplorerStoreContext } from './file-explorer-provider';
 
-interface UsePreviewPanelReportActionsInput {
+interface UseContextExportActionsInput {
   excludeFilters: string[];
   fileContents: Record<string, string>;
   folderSummaryThreshold: number;
@@ -48,7 +48,7 @@ const toContextGenerationOverrides = (
   };
 };
 
-export function usePreviewPanelReportActions(input: UsePreviewPanelReportActionsInput): {
+export function useContextExportActions(input: UseContextExportActionsInput): {
   handleDownloadContext: (options?: ContextExportOptions) => Promise<ContextExportOutcome>;
   handleCopyContext: (options?: ContextExportOptions) => Promise<ContextExportOutcome>;
 } {

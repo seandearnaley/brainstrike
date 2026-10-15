@@ -3,7 +3,6 @@ import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-
 import { act, render } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import ContextExplorerPageContent from '../context-explorer-page-content';
 import SettingsPageContent from '../settings/page-content';
 
 /**
@@ -27,7 +26,6 @@ import SettingsPageContent from '../settings/page-content';
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   __esModule: true,
-  ContextExplorerAppBody: () => <div data-testid="context-explorer-app-body" />,
   FileExplorerProvider: ({ children }: { children: ReactNode }) => children,
   useFileExplorerStoreSelector: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({ devInlineFixtureEnabled: false, setDevInlineFixtureEnabled: vi.fn() }),
@@ -85,9 +83,8 @@ function TwoMountedTabs() {
   useDocumentTitle();
   return (
     <>
-      <div data-testid="explorer-tab">
-        <ContextExplorerPageContent />
-      </div>
+      {/* The Files surface is app-shell's explorer, which writes no metadata. */}
+      <div data-testid="explorer-tab" />
       <div data-testid="settings-tab">
         <SettingsPageContent />
       </div>
@@ -130,13 +127,8 @@ describe('web document title (single writer)', () => {
     expect(document.title).toBe('Settings - BrainStrike.ai');
   });
 
-  test('neither page component writes document metadata on its own', () => {
-    render(
-      <>
-        <ContextExplorerPageContent />
-        <SettingsPageContent />
-      </>
-    );
+  test('the settings page component writes no document metadata on its own', () => {
+    render(<SettingsPageContent />);
 
     expect(document.head.querySelectorAll('title')).toHaveLength(0);
     expect(document.head.querySelectorAll('meta[name="description"]')).toHaveLength(0);

@@ -184,11 +184,6 @@ vi.mock('../app/root-layout-content', () => ({
   default: () => <div data-testid="root-layout">Root Layout</div>,
 }));
 
-vi.mock('../app/context-explorer-page-content', () => ({
-  __esModule: true,
-  default: () => <div data-testid="home-page">Home Page</div>,
-}));
-
 vi.mock('../app/settings/page-content', () => ({
   __esModule: true,
   default: () => <div data-testid="settings-page">Settings Page</div>,

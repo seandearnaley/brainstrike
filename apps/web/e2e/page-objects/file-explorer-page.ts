@@ -25,38 +25,37 @@ export class FileExplorerPage {
     return this.page.getByText('No folders in your workspace');
   }
 
-  get noFilesText(): Locator {
-    return this.page.getByText('No files selected');
+  /** The selection bar; it shows only with a selection (the Files app has no preview, BST-2018). */
+  get selectionBar(): Locator {
+    return this.page.getByTestId('explorer-selection-actions');
   }
 
   get filterInput(): Locator {
     return this.page.getByTestId('file-filter-input');
   }
 
-  get downloadContextButton(): Locator {
-    return this.page.getByTestId('download-context-button');
+  /** The selection bar's Export action (BST-2018); it shows only with a selection. */
+  get exportTrigger(): Locator {
+    return this.page.getByTestId('explorer-export-trigger');
   }
 
-  get copyContextButton(): Locator {
-    return this.page.getByTestId('copy-context-button');
+  /** Inside the open Export popover. */
+  get exportDownloadButton(): Locator {
+    return this.page.getByTestId('explorer-export-download');
   }
 
-  /** @deprecated Use `downloadContextButton` instead. */
-  get downloadReportButton(): Locator {
-    return this.downloadContextButton;
-  }
-
-  /** @deprecated Use `copyContextButton` instead. */
-  get copyReportButton(): Locator {
-    return this.copyContextButton;
+  /** Inside the open Export popover. */
+  get exportCopyButton(): Locator {
+    return this.page.getByTestId('explorer-export-copy');
   }
 
   get selectAllButton(): Locator {
     return this.page.getByRole('button', { name: 'Select All' });
   }
 
+  /** Inside the open Export popover. */
   get includeProjectTreeToggle(): Locator {
-    return this.page.getByRole('switch', { name: 'Include Project Tree' });
+    return this.page.getByTestId('explorer-export-include-tree');
   }
 
   async selectRoot(): Promise<void> {
