@@ -5,6 +5,8 @@
 - **Ticket:** none yet
 - **Completes:** [ADR-0012](0012-ai-sdk-loop-mastra-memory-library.md)
 - **Evidence:** `docs/archive/web-assistant-engine-scoping-2026-10-15.md`
+- **Amended:** 2026-10-15 — the retirement step's file count was wrong; see
+  [Amendment 2026-10-15](#amendment-2026-10-15)
 
 ## Context
 
@@ -60,18 +62,26 @@ on a host no later request can reach.
   hosted data-stream transport (#3618), so stream parity is demonstrated rather
   than asserted.
 - **Retirement, separately.** Once web no longer calls the loop, the engine is
-  removed in three mechanical steps: move the 16 tool-projection files the *new*
+  removed in three mechanical steps: move the tool-projection modules the *new*
   loop consumes out of `src/mastra/` into `src/tool-projection/`; drop the root
   re-exports of engine symbols from `packages/agent/src/index.ts` and re-point
-  the nine desktop tests that use them; delete the remaining 82 files. Each is
-  its own change.
+  the nine desktop tests that use them; then delete every `src/mastra/` module
+  that no surviving `package.json` export entry reaches and no non-test consumer
+  outside `packages/agent` imports — where e2e helpers count as tests and are
+  re-pointed, not preserved — recomputed immediately before the deletion lands.
+  The deletion is governed by that rule, never by a file count fixed in advance;
+  see [ADR-0023](0023-host-owns-its-tool-representation.md) and
+  [Amendment 2026-10-15](#amendment-2026-10-15). Each is its own change.
 
 ## Consequences
 
-- The last production caller of the Mastra agent loop goes away, making **82
-  files / ~27,808 lines** retirable. The directory total is 100 files / 32,847
-  lines; 16 files / 4,983 lines are tool-projection modules the new loop uses
-  and are relocated, not deleted.
+- The last production caller of the Mastra agent loop goes away. The retirable
+  set follows the rule in the retirement step above rather than a count fixed
+  here: measured 2026-10-15 at `8bad6d91c` it is **66 files / ~22,074 lines**
+  retirable and 34 files / 10,873 lines surviving, out of a directory total of
+  100 files / 32,847 lines. The surviving set is the tool-projection modules the
+  new loop consumes plus everything the published entries still reach; those are
+  relocated, not deleted.
 - `apps/web` stops tracing `@mastra/core` and `@mastra/memory` into its Vercel
   functions.
 - `docs/agents/mastra-boundary.md` becomes true. It already says the agent loop
@@ -109,3 +119,45 @@ on a host no later request can reach.
   and a pinned `@mastra/core`/`@mastra/memory` pair alive to serve a single-step
   no-tools call, keeps a second loop in the tree against ADR-0012, and leaves
   `mastra-boundary.md` stating something false.
+
+## Amendment 2026-10-15
+
+The retirement step originally read "delete the remaining 82 files", and
+Consequences gave "82 files / ~27,808 lines" retirable. **Both were wrong, and
+executing the step as written would have deleted live code.** They are replaced
+above by the rule that now governs the deletion.
+
+The 82 came from seeding the import walk with a hand-listed set of
+tool-projection file names. That seed omitted two published entries in
+`packages/agent/package.json` — `./provider-request` and `./provider-runtime` —
+which between them reach 13 `src/mastra/` modules through **runtime** (value)
+imports, not type imports: `projection-safe-tool-call-filter`,
+`openai-duplicate-item-compat`, `openai-tool-search-history-compat` and
+`bedrock-message-hygiene` (the four Mastra `Processor` implementations),
+`token-measurement`, `error-processors`, `mastra-chunk-decoding`,
+`runtime-configuration`, `runtime-assembly/usage-metering`,
+`tool-projection-rewrite-processor`, `tool-call-telemetry` and
+`mastra-agent-error`. Deleting those breaks both entries.
+
+The count was computed five times on 2026-10-15 and came out 83, 79, 75, 69 and
+66. Every revision had the same cause — an incomplete seed set, never faulty
+arithmetic:
+
+- file names instead of the package's export entries (83);
+- two entries, `./tool-runtime` and `./mcp-client`, instead of all five that
+  reach `src/mastra/` (79, 75);
+- a consumer scan whose test filter excluded `__tests__` and `*.spec.ts` but not
+  `e2e/`, so `apps/desktop/e2e/helpers/mcp-apps-ordinary-admission.ts` — which
+  carries four `@boundaries-ignore` comments stating it deliberately composes the
+  production Agent pipeline — was counted as a production consumer (69).
+
+Reading that helper as production rather than as a test yields **27** retirable
+instead of 66, from the same sentence. That is why the rule names e2e helpers
+explicitly: without the clause two readers legitimately disagree by 39 files.
+
+This ADR therefore no longer carries a retirable count. The set is not a fact
+about the tree; it is a function of how many published entries and outside
+consumers have been detangled at the moment the step runs, so any number written
+here is wrong by the time it is read. Derivation, the per-entry closures and the
+full ladder are in
+`docs/archive/host-tool-representation-measurement-2026-10-15.md`.
