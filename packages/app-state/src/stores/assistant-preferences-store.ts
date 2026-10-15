@@ -1,6 +1,7 @@
 import { parseProviderKeySources } from '@brainstrike/assistant-contract';
 import {
   getProviderDefaultModel,
+  getProviderDefinition,
   listProviders,
   PROVIDER_DEFAULT_MODELS,
   PROVIDER_MODELS,
@@ -196,16 +197,23 @@ const LOCAL_RUNTIME_PROVIDERS = new Set<SupportedProvider>(
   Object.values(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME)
 );
 /**
- * Providers that are available with NO credential at all.
+ * Providers that can serve a CHAT turn with NO credential at all.
  *
  * Keyless-ness DERIVES from `authType === 'none'` (BST-1349) — it is never
  * inferred from "declares no env keys". Those differ: BST-1356's
  * `openai-codex` declares no env keys precisely BECAUSE it is interactive
  * OAuth only, and treating that as keyless would advertise it as ready to use
  * before the user has connected an account.
+ *
+ * `capabilities.llm` is part of the derivation, not an afterthought: the
+ * built-in on-device provider is keyless but EMBEDDINGS-ONLY, and seeding it
+ * into chat discovery would offer a provider the picker has no model for.
  */
 const STATIC_NO_KEY_PROVIDERS = SUPPORTED_PROVIDERS.filter(
-  (provider) => providerAuthType(provider) === 'none' && !LOCAL_RUNTIME_PROVIDERS.has(provider)
+  (provider) =>
+    providerAuthType(provider) === 'none' &&
+    getProviderDefinition(provider).capabilities.llm &&
+    !LOCAL_RUNTIME_PROVIDERS.has(provider)
 );
 const MODEL_KEY_DELIMITER = '::' as const;
 const RECENT_MODELS_MAX = 5;

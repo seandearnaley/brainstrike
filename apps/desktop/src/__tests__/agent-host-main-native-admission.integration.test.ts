@@ -232,7 +232,7 @@ test('Main reconciles a host command’s worktrees under the host run’s identi
   expect(service.repositoryContextForRoot).toHaveBeenCalledWith('root-a');
 });
 
-test('Main admits one scan’s enabled skills to a host run, and none to the built-in local provider', async () => {
+test('Main admits one scan’s enabled skills to a host run', async () => {
   const skill = join(directory, 'a', '.brainstrike', 'skills', 'demo-skill');
   await fs.mkdir(skill, { recursive: true });
   await fs.writeFile(
@@ -255,11 +255,6 @@ test('Main admits one scan’s enabled skills to a host run, and none to the bui
   const hosted = await admit({ model: 'gpt-6-sol', provider: 'openai' });
   expect(hosted.admitted).toEqual(['demo-skill']);
   expect(hosted.tools).toEqual(expect.arrayContaining(['skill', 'skill_read', 'skill_search']));
-
-  const local = await admit({ model: 'onnx-community/gemma-4-E2B-it-ONNX', provider: 'local' });
-  expect(local.admitted).toBeUndefined();
-  expect(local.tools).not.toEqual(expect.arrayContaining(['skill']));
-  expect(local.tools.filter((id) => id?.startsWith('skill'))).toEqual([]);
 });
 
 // Recorded 2026-10-08 from a local Ollama 0.32.14 (`GET /api/tags`) and LM Studio (`GET /v1/models`).

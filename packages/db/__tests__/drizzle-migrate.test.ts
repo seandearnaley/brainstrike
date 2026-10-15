@@ -125,17 +125,17 @@ describe('Drizzle Migration Runner', () => {
         const localEmbeddingModel = await db.query<{ id: string; provider_id: string }>(
           "SELECT id, provider_id FROM models WHERE id = 'Xenova/all-MiniLM-L6-v2'"
         );
-        const localLlmModel = await db.query<{ id: string; provider_id: string }>(
-          "SELECT id, provider_id FROM models WHERE id = 'onnx-community/gemma-4-E2B-it-ONNX'"
+        // The `local` provider is embeddings-only: its chat model was retired,
+        // so a fresh database must carry the embedders and no local chat row.
+        const localLlmModels = await db.query<{ id: string }>(
+          "SELECT id FROM models WHERE provider_id = 'local' AND capabilities->>'type' = 'llm'"
         );
 
         expect(localProvider.rows).toEqual([{ id: 'local', is_enabled: true }]);
         expect(localEmbeddingModel.rows).toEqual([
           { id: 'Xenova/all-MiniLM-L6-v2', provider_id: 'local' },
         ]);
-        expect(localLlmModel.rows).toEqual([
-          { id: 'onnx-community/gemma-4-E2B-it-ONNX', provider_id: 'local' },
-        ]);
+        expect(localLlmModels.rows).toEqual([]);
       },
       MIGRATION_RUN_TIMEOUT_MS
     );

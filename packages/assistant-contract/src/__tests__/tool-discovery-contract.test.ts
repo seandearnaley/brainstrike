@@ -192,16 +192,14 @@ describe('native tool discovery contract', () => {
     ]);
   });
 
-  it('records unchanged local behavior as explicit eager/unsupported outcomes', () => {
-    expect(
-      resolveToolDiscoveryAdapter({
-        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-        provider: 'local',
-      })
-    ).toEqual({
-      adapter: 'eager-core-only',
-      reason: 'local-discovery-not-enabled',
-      status: 'supported',
+  it('refuses an embeddings-only provider rather than resolving a chat adapter', () => {
+    // The built-in on-device provider declares `capabilities.llm: false`, so
+    // discovery names that as the reason instead of handing back an adapter
+    // nothing can run.
+    expect(resolveToolDiscoveryAdapter({ modelId: 'any-model', provider: 'local' })).toEqual({
+      adapter: 'unsupported',
+      reason: 'provider-has-no-llm',
+      status: 'unsupported',
     });
     expect(resolveToolDiscoveryAdapter({ modelId: 'dynamic-model', provider: 'ollama' })).toEqual({
       adapter: 'unsupported',

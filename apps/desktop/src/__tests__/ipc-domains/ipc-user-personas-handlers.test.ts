@@ -262,7 +262,10 @@ describe('host availability through the Settings list entry point', () => {
     expect(JSON.stringify(invalid)).toContain('unknown model pin provider');
   });
 
-  it('reports an unavailable local worker using the same provider capability rule as runtime', async () => {
+  // The rule is DERIVED from `capabilities.llm`, not from the provider's name:
+  // the built-in on-device provider is embeddings-only, so a pin to it cannot
+  // run an assistant at all — worker mode or otherwise.
+  it('blocks a pin to an embeddings-only provider by the same capability rule as runtime', async () => {
     const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
     if (!worker) {
       throw new Error('Missing worker');
@@ -277,10 +280,8 @@ describe('host availability through the Settings list entry point', () => {
         },
       }
     );
-    expect(result).toMatchObject({
-      issues: [{ code: 'worker-model-unsupported' }],
-      status: 'blocked',
-    });
+    expect(result.status).toBe('blocked');
+    expect(result.issues.map((issue) => issue.code)).toContain('model-unsupported');
   });
 
   it('distinguishes disabled and missing tools without treating declared tools as effective access', async () => {

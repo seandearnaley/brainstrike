@@ -157,23 +157,24 @@ describe('ProvidersSettings — first run', () => {
 describe('ProvidersSettings — card state', () => {
   it('groups providers by runtime in picker order', async () => {
     installSecretsBridge(() => Promise.resolve([]));
-    // A desktop host: the hidden llm-host is reachable, so the browser-runtime
-    // group is offered alongside the rest.
-    (window as Window & { llmHost?: unknown }).llmHost = { warmup: async () => undefined };
 
     render(<ProvidersSettings verifyProvider={idleVerifier} />);
 
     await screen.findByTestId('provider-group-hosted');
     expect(screen.getByTestId('provider-group-gateway')).toBeInTheDocument();
     expect(screen.getByTestId('provider-group-local')).toBeInTheDocument();
-    expect(screen.getByTestId('provider-group-browser')).toBeInTheDocument();
   });
 
-  // No second engine exists for a browser-runtime provider, so a host that
-  // cannot reach the llm-host must not advertise models it can never run.
-  it('withholds the browser-runtime group without a desktop llm-host', async () => {
+  // The built-in on-device provider is keyless and embeddings-only: there is no
+  // credential and no connection to configure here, and its models are chosen
+  // in Settings → Embedding. A desktop host that CAN reach a renderer host does
+  // not change that, so the group is withheld either way.
+  it.each([
+    ['with a renderer host present', { warmup: async () => undefined }],
+    ['without a renderer host', undefined],
+  ])('never offers an on-device provider group %s', async (_label, host) => {
     installSecretsBridge(() => Promise.resolve([]));
-    (window as Window & { llmHost?: unknown }).llmHost = undefined;
+    (window as Window & { llmHost?: unknown }).llmHost = host;
 
     render(<ProvidersSettings verifyProvider={idleVerifier} />);
 

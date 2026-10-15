@@ -80,7 +80,7 @@ function seedRegistry(): void {
         icon: null,
         id: 'onnx-community/gemma-4-E2B-it-ONNX',
         isEnabled: true,
-        name: 'Gemma 4 Local Observer',
+        name: 'Retired Local Chat Model',
         parameters: null,
         providerId: 'local',
         sortOrder: 1,
@@ -180,22 +180,19 @@ describe('AssistantMemorySettingsSection', () => {
     const select = screen.getByRole('combobox', { name: /observational memory model/i });
     expect(within(select).getByRole('option', { name: /GPT-5.4 Mini/i })).toBeInTheDocument();
     expect(within(select).getByRole('option', { name: /Claude Haiku 4.5/i })).toBeInTheDocument();
-    expect(
-      within(select).getByRole('option', { name: /Gemma 4 Local Observer/i })
-    ).toBeInTheDocument();
-    expect(within(select).queryByRole('option', { name: /Gemma 4 Built-in/i })).toBeNull();
+    // A leftover on-device chat row in the DB registry is not an observer:
+    // that provider is embeddings-only now, so there is nothing to run it with.
+    expect(within(select).queryByRole('option', { name: /Retired Local Chat Model/i })).toBeNull();
     expect(within(select).queryByRole('option', { name: /OpenRouter/i })).toBeNull();
   });
 
-  it('filters hosted observer models by key presence while retaining keyless local options', () => {
+  it('filters observer models by key presence, with no keyless option left', () => {
     renderMemorySettings([{ provider: 'openai', source: 'stored' }]);
 
     const select = screen.getByRole('combobox', { name: /observational memory model/i });
     expect(within(select).getByRole('option', { name: /GPT-5.4 Mini/i })).toBeInTheDocument();
     expect(within(select).queryByRole('option', { name: /Claude Haiku 4.5/i })).toBeNull();
-    expect(
-      within(select).getByRole('option', { name: /Gemma 4 Local Observer/i })
-    ).toBeInTheDocument();
+    expect(within(select).queryByRole('option', { name: /Retired Local Chat Model/i })).toBeNull();
   });
 
   it('does not filter hosted memory models when credential provenance is unavailable', () => {
@@ -215,12 +212,19 @@ describe('AssistantMemorySettingsSection', () => {
     ).toBeInTheDocument();
   });
 
-  it('omits the local observer when the desktop memory backend is unavailable', () => {
+  // Observational memory needs the durable backend to record anything, so with
+  // no backend there is no eligible observer AT ALL — the requirement used to
+  // be applied only to the keyless on-device option.
+  it('offers no observer model when the memory backend is unavailable', () => {
     renderMemorySettings(hostedProviderKeySources, false);
 
     const select = screen.getByRole('combobox', { name: /observational memory model/i });
-    expect(within(select).getByRole('option', { name: /GPT-5.4 Mini/i })).toBeInTheDocument();
-    expect(within(select).queryByRole('option', { name: /Gemma 4 Local Observer/i })).toBeNull();
+    expect(within(select).queryByRole('option', { name: /GPT-5.4 Mini/i })).toBeNull();
+    expect(within(select).queryByRole('option', { name: /Claude Haiku 4.5/i })).toBeNull();
+    expect(within(select).queryByRole('option', { name: /Retired Local Chat Model/i })).toBeNull();
+    // The 'auto' sentinel still renders, and the section's own unresolved
+    // notice explains the wait: OM is never silently off.
+    expect(within(select).getByRole('option', { name: /Auto —/i })).toBeInTheDocument();
   });
 
   it('does not claim credentials are missing before the model registry loads', () => {

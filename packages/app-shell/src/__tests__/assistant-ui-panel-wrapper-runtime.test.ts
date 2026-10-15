@@ -7,6 +7,10 @@ import {
 } from '@brainstrike/assistant-contract';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
+import {
+  DESKTOP_NATIVE_TOOL_IDS,
+  WEB_NATIVE_TOOL_IDS,
+} from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -22,7 +26,6 @@ import {
   createAssistantThreadRunPromise,
   extractPreparedRunId,
   formatToolLabel,
-  getEnabledBuiltInLocalRegistryModelIds,
   hasValidProviderModelSelection,
   isLocalRuntimeProvider,
   type LocalRuntimeModelCatalogMap,
@@ -113,19 +116,17 @@ const baseWorkspaceIndex = {
 };
 
 describe('assistant runtime helpers', () => {
-  it('advertises only runtime-available eager-core tools for local desktop chat', () => {
-    const localToolIds = resolveAdvertisedNativeToolIds({
-      desktopBridgeAvailable: true,
-      selectedProvider: 'local',
-    });
-
-    expect(localToolIds).toEqual([
-      'brainstrike.executeCommand',
-      'brainstrike.globWorkspace',
-      'brainstrike.grepSearch',
-      'brainstrike.readWorkspaceFile',
-      'brainstrike.stringReplaceWorkspaceFile',
-    ]);
+  // The advertised set is now a function of the HOST alone. It used to also
+  // branch on the selected provider, to hand the built-in local chat model a
+  // smaller eager-core subset; that model is gone, so every provider on a
+  // desktop host sees the same tools.
+  it('advertises the full desktop tool set once a desktop bridge is present', () => {
+    expect(resolveAdvertisedNativeToolIds({ desktopBridgeAvailable: true })).toEqual(
+      DESKTOP_NATIVE_TOOL_IDS
+    );
+    expect(resolveAdvertisedNativeToolIds({ desktopBridgeAvailable: false })).toEqual(
+      WEB_NATIVE_TOOL_IDS
+    );
   });
 
   it('resolves model names from provider composites and formats tool labels', () => {
@@ -230,24 +231,14 @@ describe('assistant runtime helpers', () => {
   });
 
   it('shares one capability predicate between the composer gate and request data', () => {
-    expect(
-      resolveHostedMemoryBackendAvailable({
-        desktopAssistantBackendAvailable: false,
-        selectedProvider: 'local',
-      })
-    ).toBe(true);
-    expect(
-      resolveHostedMemoryBackendAvailable({
-        desktopAssistantBackendAvailable: false,
-        selectedProvider: 'openai',
-      })
-    ).toBe(false);
-    expect(
-      resolveHostedMemoryBackendAvailable({
-        desktopAssistantBackendAvailable: true,
-        selectedProvider: 'openai',
-      })
-    ).toBe(true);
+    // No provider exempts itself from the durable backend any more: the
+    // built-in local chat model, which used to carry its own memory, is gone.
+    expect(resolveHostedMemoryBackendAvailable({ desktopAssistantBackendAvailable: false })).toBe(
+      false
+    );
+    expect(resolveHostedMemoryBackendAvailable({ desktopAssistantBackendAvailable: true })).toBe(
+      true
+    );
   });
 
   it('surfaces thread-memory failures even when no workspace root is open', () => {
@@ -497,7 +488,10 @@ describe('assistant runtime helpers', () => {
     ).toBeUndefined();
   });
 
-  it('allows an enabled keyless local observer without a provider key source', () => {
+  // There is no keyless observer any more: the built-in local provider is
+  // embeddings-only, so a stored `local/...` observer target refuses VISIBLY
+  // rather than being silently skipped or silently allowed.
+  it('refuses a stored local observer target with a visible reason', () => {
     expect(
       resolveAssistantMemoryDisabledReason({
         ...baseMemoryReasonArgs,
@@ -511,15 +505,18 @@ describe('assistant runtime helpers', () => {
         },
         providerKeySources: [],
       })
-    ).toBeUndefined();
+    ).toBe(
+      'Observational memory model target local/onnx-community/gemma-4-E2B-it-ONNX uses an unsupported provider. Reconfigure Assistant Memory settings.'
+    );
   });
 
   // Observational memory is ON by default (BST-940), so blocking on an absent
   // backend here kept web's composer disabled regardless of the chat-provider
-  // gate. The observer is skipped and the notice reports it. `local` is covered
-  // too: the notice keys on the backend alone, so no shell loses memory quietly.
+  // gate. The observer is skipped and the notice reports it. The notice keys on
+  // the backend ALONE — no provider exempts itself — so no shell loses memory
+  // quietly.
   it('reports rather than blocks an enabled observer with no memory backend', () => {
-    const enabledLocalObserver = {
+    const enabledObserver = {
       ...baseMemoryReasonArgs,
       desktopAssistantBackendAvailable: false,
       memorySettings: {
@@ -527,17 +524,17 @@ describe('assistant runtime helpers', () => {
         observationalMemory: {
           ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
           enabled: true,
-          modelTarget: 'local/onnx-community/gemma-4-E2B-it-ONNX',
+          modelTarget: 'anthropic/claude-haiku-4-5',
         },
       },
-      providerKeySources: [],
-      selectedProvider: 'local' as const,
+      providerKeySources: [{ provider: 'anthropic' as const, source: 'stored' as const }],
+      selectedProvider: 'anthropic' as const,
     };
-    expect(resolveAssistantMemoryDisabledReason(enabledLocalObserver)).toBeUndefined();
+    expect(resolveAssistantMemoryDisabledReason(enabledObserver)).toBeUndefined();
     expect(
       resolveHostedMemoryUnavailableNotice({
         desktopAssistantBackendAvailable: false,
-        selectedProvider: 'local',
+        selectedProvider: 'anthropic',
       })
     ).toBe('Assistant memory is unavailable here; this turn runs without durable memory.');
   });
@@ -1081,27 +1078,13 @@ describe('assistant runtime helpers', () => {
         registryEnabledModelIds: new Set(['registry-model']),
         shouldFallbackToPreferences: false,
       })
-    ).toEqual(new Set(['registry-model', 'local-gemma', 'llama']));
+      // The stale `local` preference entry is NOT folded back in: the built-in
+      // local provider no longer offers a chat model to enable.
+    ).toEqual(new Set(['registry-model', 'llama']));
   });
 
-  it('filters built-in local registry model ids and extracts prepared run ids', () => {
+  it('identifies local runtime providers and extracts prepared run ids', () => {
     expect(isLocalRuntimeProvider('lmstudio')).toBe(true);
-    expect(
-      getEnabledBuiltInLocalRegistryModelIds({ 'local-a': true, 'local-b': false }, [
-        {
-          capabilities: { type: 'llm' },
-          id: 'local-a',
-          isEnabled: true,
-          providerId: 'local',
-        },
-        {
-          capabilities: { type: 'llm' },
-          id: 'local-b',
-          isEnabled: true,
-          providerId: 'local',
-        },
-      ])
-    ).toEqual(['local-a']);
     expect(extractPreparedRunId({ memory: { runId: ' run-1 ' } })).toBe(' run-1 ');
     expect(extractPreparedRunId({ memory: { runId: ' ' } })).toBeNull();
   });
@@ -1898,19 +1881,9 @@ describe('resolveOpenRouterMetadataDisabledReason', () => {
 });
 
 describe('resolveComposerAttachmentsAvailability', () => {
-  it('hides the affordance entirely when the provider gate fails (built-in local provider)', () => {
-    expect(
-      resolveComposerAttachmentsAvailability({
-        providerGateAvailable: false,
-        selectedModel: { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', vision: 'supported' },
-      })
-    ).toBeUndefined();
-  });
-
   it('enables attachments for a vision-capable model', () => {
     expect(
       resolveComposerAttachmentsAvailability({
-        providerGateAvailable: true,
         selectedModel: { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', vision: 'supported' },
       })
     ).toEqual({ state: 'enabled' });
@@ -1918,7 +1891,6 @@ describe('resolveComposerAttachmentsAvailability', () => {
 
   it('disables with a visible reason naming the model when vision is unsupported', () => {
     const availability = resolveComposerAttachmentsAvailability({
-      providerGateAvailable: true,
       selectedModel: {
         id: 'qwen/qwen3-coder-next',
         label: 'Qwen3 Coder Next (OpenRouter)',
@@ -1935,7 +1907,6 @@ describe('resolveComposerAttachmentsAvailability', () => {
 
   it('falls back to the model id in the reason when no label exists', () => {
     const availability = resolveComposerAttachmentsAvailability({
-      providerGateAvailable: true,
       selectedModel: { id: 'mystery-text-model', vision: 'unsupported' },
     });
     if (availability?.state !== 'disabled') {
@@ -1951,13 +1922,11 @@ describe('resolveComposerAttachmentsAvailability', () => {
     // silently blocked composer.
     expect(
       resolveComposerAttachmentsAvailability({
-        providerGateAvailable: true,
         selectedModel: { id: 'mystery-7b', label: 'Mystery 7B', vision: 'unknown' },
       })
     ).toEqual({ state: 'enabled' });
     expect(
       resolveComposerAttachmentsAvailability({
-        providerGateAvailable: true,
         selectedModel: undefined,
       })
     ).toEqual({ state: 'enabled' });

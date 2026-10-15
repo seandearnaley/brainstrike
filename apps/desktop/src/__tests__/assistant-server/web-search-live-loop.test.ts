@@ -6,24 +6,22 @@
  * — its real `execute`, the real token-budgeting and result normalization — but
  * with the Tavily fetch and the host's key owner STUBBED via injected
  * dependencies. No real network, no real
- * keychain. Only the language model is scripted (provider 'local' with an
- * injected LocalLlmHostClient, mirroring glob-workspace-live-loop.test.ts — no
- * API key, no network).
+ * keychain. Only the language model is scripted, through `modelOverride`
+ * (`_scripted-chat-model.ts`) — no API key, no network.
  *
  * It proves a real Agent can call webSearch, that the stubbed Tavily results
  * flow back through the loop token-budgeted, and that the secret key never
  * leaks into anything the model sees.
  */
 import type { RuntimeData } from '@brainstrike/agent';
-import type {
-  LocalLlmGenerationResult,
-  LocalLlmHostClient,
-  LocalLlmHostGenerateRequest,
-  LocalLlmHostRequestOptions,
-} from '@brainstrike/agent/local-llm';
 import type { WebSearchToolDependencies } from '@brainstrike/host-capabilities/native-tools';
 import { describe, expect, it, vi } from 'vitest';
 import { buildHostNativeTools } from './_host-native-tools';
+import {
+  createScriptedChatModel,
+  type ScriptedChatModel,
+  scriptedLoopOptions,
+} from './_scripted-chat-model';
 import { requireTool } from './_tool-test-helpers';
 
 // Restore the REAL streamMastraAgent (the global setup.ts mock replaces it with
@@ -35,55 +33,23 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 
 const { streamMastraAgent } = await import('@brainstrike/agent');
 
-const USAGE = { completionTokens: 4, promptTokens: 8, totalTokens: 12 } as const;
 const SECRET_TAVILY_KEY = 'tvly-SECRET-live-loop';
 
 /**
- * Scripted host client: the first generation requests the webSearch tool; once
- * the prompt carries the tool response, it streams a short confirmation and
- * returns the final answer. Mirrors the desktop llm-host contract.
+ * Scripted model: the first turn requests the webSearch tool; once the tool has
+ * run, it streams a short confirmation.
  */
-function createScriptedHostClient(
-  query: string
-): LocalLlmHostClient & { requests: LocalLlmHostGenerateRequest[] } {
-  const requests: LocalLlmHostGenerateRequest[] = [];
-  return {
-    generate: (
-      request: LocalLlmHostGenerateRequest,
-      options: LocalLlmHostRequestOptions = {}
-    ): Promise<LocalLlmGenerationResult> => {
-      requests.push(request);
-      const hasToolResponse = request.messages.some(
-        (message) => message.role === 'tool' && message.toolResponses !== undefined
-      );
-      if (hasToolResponse) {
-        options.onProgress?.({ kind: 'text', text: 'Found ' });
-        options.onProgress?.({ kind: 'text', text: 'Found the docs.' });
-        return Promise.resolve({
-          finishReason: 'stop',
-          text: 'Found the docs.',
-          usage: USAGE,
-        });
-      }
-      return Promise.resolve({
-        finishReason: 'tool_calls',
-        text: '',
-        toolCalls: [
-          {
-            function: {
-              arguments: JSON.stringify({ query }),
-              name: 'brainstrike_webSearch',
-            },
-            id: 'call-web-1',
-            type: 'function',
-          },
-        ],
-        usage: USAGE,
-      });
-    },
-    requests,
-    warmup: vi.fn().mockResolvedValue(undefined),
-  };
+function createScriptedWebSearchModel(query: string): ScriptedChatModel {
+  return createScriptedChatModel((completed) =>
+    completed.includes('brainstrike_webSearch')
+      ? { chunks: ['Found ', 'the docs.'], kind: 'text' }
+      : {
+          calls: [
+            { input: { query }, toolCallId: 'call-web-1', toolName: 'brainstrike_webSearch' },
+          ],
+          kind: 'tool-call',
+        }
+  );
 }
 
 describe('webSearch live Mastra loop (real agent, real tool execute, stubbed Tavily)', () => {
@@ -118,7 +84,7 @@ describe('webSearch live Mastra loop (real agent, real tool execute, stubbed Tav
     const tools = buildHostNativeTools({} as RuntimeData, { webSearch: webSearchDeps });
     const webSearchTool = requireTool(tools, 'brainstrike.webSearch');
 
-    const hostClient = createScriptedHostClient('how to cancel fetch');
+    const model = createScriptedWebSearchModel('how to cancel fetch');
 
     const iterator = await streamMastraAgent(
       [
@@ -129,12 +95,7 @@ describe('webSearch live Mastra loop (real agent, real tool execute, stubbed Tav
         },
       ],
       {
-        runtime: {
-          localLlmHostClient: hostClient,
-          model: 'onnx-community/gemma-4-E2B-it-ONNX',
-          provider: 'local',
-          providerOptions: { local: { thinking: { enabled: false } } },
-        } as RuntimeData,
+        ...scriptedLoopOptions(model),
         tools: { 'brainstrike.webSearch': webSearchTool },
       }
     );
@@ -164,7 +125,7 @@ describe('webSearch live Mastra loop (real agent, real tool execute, stubbed Tav
     const serialized = JSON.stringify(toolEventResults);
     expect(serialized).toContain('https://mdn.example/AbortController');
     expect(serialized).toContain('https://mdn.example/fetch');
-    const modelRequests = JSON.stringify(hostClient.requests);
+    const modelRequests = JSON.stringify(model.prompts);
     expect(modelRequests).toContain('web-search | status=available | shown=2/2');
     expect(modelRequests).toContain('url: \\"https://mdn.example/AbortController\\"');
     expect(modelRequests).not.toContain('\\"available\\":true');
@@ -183,17 +144,12 @@ describe('webSearch live Mastra loop (real agent, real tool execute, stubbed Tav
     const tools = buildHostNativeTools({} as RuntimeData, { webSearch: webSearchDeps });
     const webSearchTool = requireTool(tools, 'brainstrike.webSearch');
 
-    const hostClient = createScriptedHostClient('anything');
+    const model = createScriptedWebSearchModel('anything');
 
     const iterator = await streamMastraAgent(
       [{ id: 'u-web-2', parts: [{ text: 'search please', type: 'text' }], role: 'user' }],
       {
-        runtime: {
-          localLlmHostClient: hostClient,
-          model: 'onnx-community/gemma-4-E2B-it-ONNX',
-          provider: 'local',
-          providerOptions: { local: { thinking: { enabled: false } } },
-        } as RuntimeData,
+        ...scriptedLoopOptions(model),
         tools: { 'brainstrike.webSearch': webSearchTool },
       }
     );

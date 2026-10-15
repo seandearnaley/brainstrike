@@ -10,7 +10,7 @@ import {
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { FunctionComponent, PropsWithChildren } from 'react';
-import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
 import {
   type AssistantProviderSource,
   AssistantProviderSourceProvider,
@@ -63,18 +63,7 @@ function providerSourceWrapper(
   };
 }
 
-/**
- * Most of this suite is about the discovery plumbing and uses `local` as a
- * sample keyless provider. The built-in local provider is only OFFERED where
- * the desktop hidden llm-host exists, so stand that bridge up by default and
- * let the dedicated cases below take it away.
- */
-beforeEach(() => {
-  (window as Window & { llmHost?: unknown }).llmHost = { warmup: async () => undefined };
-});
-
 afterEach(() => {
-  (window as Window & { llmHost?: unknown }).llmHost = undefined;
   __resetConfiguredAssistantProvidersForTests();
   __resetAssistantPreferencesStoreForTests();
   useAssistantPreferencesStore.setState({
@@ -91,19 +80,19 @@ describe('useConfiguredAssistantProviders', () => {
   });
 
   it('merges Desktop seeds with one shared renderer discovery snapshot', async () => {
-    const getAvailableProviders = setProviderDiscovery(async () => ['local', 'ollama']);
+    const getAvailableProviders = setProviderDiscovery(async () => ['anthropic', 'ollama']);
     const source: AssistantProviderSource = {
       kind: 'discovery',
-      seeds: ['openai', 'local'],
+      seeds: ['openai', 'anthropic'],
     };
 
     const { result } = renderHook(() => useConfiguredAssistantProviders(), {
       wrapper: providerSourceWrapper(source),
     });
 
-    expect(result.current.providers).toEqual(['openai', 'local']);
+    expect(result.current.providers).toEqual(['openai', 'anthropic']);
     await waitFor(() => {
-      expect(result.current.providers).toEqual(['openai', 'local', 'ollama']);
+      expect(result.current.providers).toEqual(['openai', 'anthropic', 'ollama']);
     });
     expect(getAvailableProviders).toHaveBeenCalledTimes(1);
   });
@@ -148,20 +137,20 @@ describe('useConfiguredAssistantProviders', () => {
     const getAvailableProviders = setProviderDiscovery(
       vi
         .fn<() => Promise<SupportedProvider[]>>()
-        .mockResolvedValueOnce(['local'])
-        .mockResolvedValueOnce(['local', 'openai'])
+        .mockResolvedValueOnce(['anthropic'])
+        .mockResolvedValueOnce(['anthropic', 'openai'])
     );
 
     const { result } = renderHook(() => useConfiguredAssistantProviders(), {
       wrapper: providerSourceWrapper({ kind: 'discovery' }),
     });
-    await waitFor(() => expect(result.current.providers).toEqual(['local']));
+    await waitFor(() => expect(result.current.providers).toEqual(['anthropic']));
 
     act(() => {
       useSecretsStore.getState().notifySecretsChanged();
     });
 
-    await waitFor(() => expect(result.current.providers).toEqual(['local', 'openai']));
+    await waitFor(() => expect(result.current.providers).toEqual(['anthropic', 'openai']));
     expect(getAvailableProviders).toHaveBeenCalledTimes(2);
   });
 
@@ -169,14 +158,14 @@ describe('useConfiguredAssistantProviders', () => {
     const getAvailableProviders = setProviderDiscovery(
       vi
         .fn<() => Promise<SupportedProvider[]>>()
-        .mockResolvedValueOnce(['local'])
-        .mockResolvedValueOnce(['local', 'ollama'])
+        .mockResolvedValueOnce(['anthropic'])
+        .mockResolvedValueOnce(['anthropic', 'ollama'])
     );
 
     const { result } = renderHook(() => useConfiguredAssistantProviders(), {
       wrapper: providerSourceWrapper({ kind: 'discovery' }),
     });
-    await waitFor(() => expect(result.current.providers).toEqual(['local']));
+    await waitFor(() => expect(result.current.providers).toEqual(['anthropic']));
 
     await act(async () => {
       useAssistantPreferencesStore
@@ -192,7 +181,7 @@ describe('useConfiguredAssistantProviders', () => {
         .setProviderSettings('ollama', { localRuntimeEnabled: 'on' });
     });
 
-    await waitFor(() => expect(result.current.providers).toEqual(['local', 'ollama']));
+    await waitFor(() => expect(result.current.providers).toEqual(['anthropic', 'ollama']));
     expect(getAvailableProviders).toHaveBeenCalledTimes(2);
   });
 
@@ -236,7 +225,7 @@ describe('useConfiguredAssistantProviders', () => {
   });
 
   it('shares one discovery probe across multiple mounted consumers', async () => {
-    const getAvailableProviders = setProviderDiscovery(async () => ['local']);
+    const getAvailableProviders = setProviderDiscovery(async () => ['anthropic']);
 
     const { result } = renderHook(
       () => [useConfiguredAssistantProviders(), useConfiguredAssistantProviders()] as const,
@@ -246,8 +235,8 @@ describe('useConfiguredAssistantProviders', () => {
     );
 
     await waitFor(() => {
-      expect(result.current[0].providers).toEqual(['local']);
-      expect(result.current[1].providers).toEqual(['local']);
+      expect(result.current[0].providers).toEqual(['anthropic']);
+      expect(result.current[1].providers).toEqual(['anthropic']);
     });
     expect(getAvailableProviders).toHaveBeenCalledTimes(1);
   });
@@ -263,7 +252,7 @@ describe('useConfiguredAssistantProviders', () => {
     );
 
     const { result } = renderHook(() => useConfiguredAssistantProviders(), {
-      wrapper: providerSourceWrapper({ kind: 'discovery', seeds: ['local'] }),
+      wrapper: providerSourceWrapper({ kind: 'discovery', seeds: ['anthropic'] }),
     });
     await waitFor(() => expect(getAvailableProviders).toHaveBeenCalledTimes(1));
     act(() => {
@@ -272,10 +261,10 @@ describe('useConfiguredAssistantProviders', () => {
     await waitFor(() => expect(getAvailableProviders).toHaveBeenCalledTimes(2));
 
     await act(async () => second.resolve(['ollama']));
-    await waitFor(() => expect(result.current.providers).toEqual(['local', 'ollama']));
+    await waitFor(() => expect(result.current.providers).toEqual(['anthropic', 'ollama']));
 
     await act(async () => first.resolve(['openai']));
-    expect(result.current.providers).toEqual(['local', 'ollama']);
+    expect(result.current.providers).toEqual(['anthropic', 'ollama']);
   });
 
   it('keeps a prior test request invalid after the external resource is reset', async () => {
@@ -318,7 +307,7 @@ describe('useConfiguredAssistantProviders', () => {
     const getAvailableProviders = setProviderDiscovery(() => pending.promise);
     const desktopSource: AssistantProviderSource = {
       kind: 'discovery',
-      seeds: ['local'],
+      seeds: ['anthropic'],
     };
     const hostedSource: AssistantProviderSource = {
       kind: 'authoritative',
@@ -349,14 +338,14 @@ describe('useConfiguredAssistantProviders', () => {
     });
 
     const { result } = renderHook(() => useConfiguredAssistantProviders(), {
-      wrapper: providerSourceWrapper({ kind: 'discovery', seeds: ['local'] }),
+      wrapper: providerSourceWrapper({ kind: 'discovery', seeds: ['anthropic'] }),
     });
 
     await waitFor(() => {
       expect(result.current).toEqual({
         discoveryError: 'OS keychain is locked',
         discoveryState: 'error',
-        providers: ['local'],
+        providers: ['anthropic'],
       });
     });
   });
@@ -365,7 +354,7 @@ describe('useConfiguredAssistantProviders', () => {
     setProviderDiscovery(async () => {
       throw new AvailableProviderDiscoveryError(
         [new Error('lmstudio discovery failed: probe crashed')],
-        ['local', 'ollama']
+        ['anthropic', 'ollama']
       );
     });
 
@@ -377,37 +366,8 @@ describe('useConfiguredAssistantProviders', () => {
       expect(result.current).toEqual({
         discoveryError: 'Provider discovery failed: lmstudio discovery failed: probe crashed',
         discoveryState: 'error',
-        providers: ['openai', 'local', 'ollama'],
+        providers: ['openai', 'anthropic', 'ollama'],
       });
     });
-  });
-
-  // One engine only: the built-in local provider cannot run without the
-  // desktop hidden llm-host, so a host that lacks it must not list a provider
-  // whose first turn would fail (hosted web, and desktop without the host).
-  it('withholds the built-in local provider where no desktop llm-host exists', async () => {
-    (window as Window & { llmHost?: unknown }).llmHost = undefined;
-    setProviderDiscovery(async () => ['local', 'ollama']);
-
-    const { result } = renderHook(() => useConfiguredAssistantProviders(), {
-      wrapper: providerSourceWrapper({ kind: 'discovery' }),
-    });
-
-    await waitFor(() => {
-      expect(result.current.providers).toEqual(['ollama']);
-    });
-  });
-
-  it('withholds the built-in local provider from an authoritative list too', () => {
-    (window as Window & { llmHost?: unknown }).llmHost = undefined;
-
-    const { result } = renderHook(() => useConfiguredAssistantProviders(), {
-      wrapper: providerSourceWrapper({
-        kind: 'authoritative',
-        providers: ['openai', 'local'],
-      }),
-    });
-
-    expect(result.current.providers).toEqual(['openai']);
   });
 });

@@ -2,8 +2,8 @@
  * LIVE-loop coverage for durable per-thread token usage (Phase 5.1).
  *
  * This is the load-bearing proof for the usage SINK: it drives the REAL Mastra
- * agent loop (`streamMastraAgent`) with a scripted local host client that emits
- * REAL provider usage on its `finish` parts, taps the resulting `message-finish`
+ * agent loop (`streamMastraAgent`) with a scripted model that emits REAL
+ * provider usage on its `finish` parts, taps the resulting `message-finish`
  * chunk exactly the way the production usage tap does (`buildUsageTap` reads the
  * same chunk), and forwards that usage to the REAL desktop thread repository's
  * `recordRunUsage` against a REAL PGlite database. It then asserts the durable
@@ -12,18 +12,11 @@
  *
  * Mocked-only stream tests have previously stayed green while the real loop
  * broke (see CLAUDE.md ASSISTANT RESILIENCE), so this exercises the actual
- * agent loop end to end: only the language model (a scripted local host client,
- * no API key, no network) and the Electron/db surfaces the desktop setup stubs
- * are scripted. The repository, its schema bootstrap, and the SQL aggregate are
+ * agent loop end to end: only the language model (scripted through
+ * `modelOverride` — no API key, no network) and the Electron/db surfaces the
+ * desktop setup stubs are scripted. The repository, its schema bootstrap, and the SQL aggregate are
  * all real.
  */
-import type { RuntimeData } from '@brainstrike/agent';
-import type {
-  LocalLlmGenerationResult,
-  LocalLlmHostClient,
-  LocalLlmHostGenerateRequest,
-  LocalLlmHostRequestOptions,
-} from '@brainstrike/agent/local-llm';
 // The repository is exposed via the assistant-data package
 // subpath (not its root barrel); the live-loop proof needs the REAL
 // implementation. Interim placement — R04 (BST-984) moves this module into the
@@ -32,6 +25,7 @@ import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-da
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it, vi } from 'vitest';
+import { createScriptedChatModel, scriptedLoopOptions } from './_scripted-chat-model';
 
 // Restore the REAL streamMastraAgent (the global setup.ts mock replaces it with
 // an empty generator). Everything else from the package keeps its real impl.
@@ -43,30 +37,6 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 const { streamMastraAgent } = await import('@brainstrike/agent');
 
 /**
- * A trivial scripted host client that streams a short answer and returns the
- * supplied usage. No tool calls — this turn measures usage, not tool execution.
- */
-function createUsageHostClient(usage: {
-  promptTokens: number;
-  completionTokens: number;
-}): LocalLlmHostClient {
-  return {
-    generate: (
-      _request: LocalLlmHostGenerateRequest,
-      options: LocalLlmHostRequestOptions = {}
-    ): Promise<LocalLlmGenerationResult> => {
-      options.onProgress?.({ kind: 'text', text: 'Hi.' });
-      return Promise.resolve({
-        finishReason: 'stop',
-        text: 'Hi.',
-        usage: { ...usage, totalTokens: usage.promptTokens + usage.completionTokens },
-      });
-    },
-    warmup: vi.fn().mockResolvedValue(undefined),
-  };
-}
-
-/**
  * Run one real turn through the Mastra loop and return the provider usage as the
  * production tap surfaces it: from the `message-finish` chunk, mapped from
  * {promptTokens, completionTokens} → {inputTokens, outputTokens}.
@@ -75,21 +45,16 @@ async function runTurnAndCaptureUsage(args: {
   promptTokens: number;
   completionTokens: number;
 }): Promise<{ inputTokens: number; outputTokens: number }> {
-  const hostClient = createUsageHostClient({
-    completionTokens: args.completionTokens,
-    promptTokens: args.promptTokens,
-  });
+  // No tool calls — this turn measures usage, not tool execution.
+  const model = createScriptedChatModel(() => ({
+    chunks: ['Hi.'],
+    kind: 'text',
+    usage: { inputTokens: args.promptTokens, outputTokens: args.completionTokens },
+  }));
 
   const iterator = await streamMastraAgent(
     [{ id: 'u-usage', parts: [{ text: 'say hi', type: 'text' }], role: 'user' }],
-    {
-      runtime: {
-        localLlmHostClient: hostClient,
-        model: 'onnx-community/gemma-4-E2B-it-ONNX',
-        provider: 'local',
-        providerOptions: { local: { thinking: { enabled: false } } },
-      } as RuntimeData,
-    }
+    scriptedLoopOptions(model)
   );
 
   let captured: { inputTokens: number; outputTokens: number } | null = null;

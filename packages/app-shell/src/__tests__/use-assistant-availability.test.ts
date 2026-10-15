@@ -185,7 +185,7 @@ describe('fetchAssistantStatusState', () => {
           },
           { provider: 'anthropic', source: 'stored' },
         ],
-        providers: ['openai', 'anthropic', 'local'],
+        providers: ['openai', 'anthropic', 'openai-codex'],
       }),
       ok: true,
     } as unknown as Response);
@@ -204,7 +204,7 @@ describe('fetchAssistantStatusState', () => {
         },
         { provider: 'anthropic', source: 'stored' },
       ],
-      providers: ['openai', 'anthropic', 'local'],
+      providers: ['openai', 'anthropic', 'openai-codex'],
       state: 'enabled',
     });
   });
@@ -217,7 +217,7 @@ describe('fetchAssistantStatusState', () => {
         ],
         enabled: true,
         providerKeySources: [],
-        providers: ['local'],
+        providers: ['openai-codex'],
       }),
       ok: true,
     } as unknown as Response);
@@ -232,7 +232,7 @@ describe('fetchAssistantStatusState', () => {
         { envVar: 'OPENAI_API_KEY_V2', provider: 'openai', replacement: 'OPENAI_API_KEY' },
       ],
       providerKeySources: [],
-      providers: ['local'],
+      providers: ['openai-codex'],
       state: 'enabled',
     });
   });
@@ -352,7 +352,7 @@ describe('fetchAssistantStatusState', () => {
       json: async () => ({
         enabled: true,
         providerKeySources: [],
-        providers: ['local'],
+        providers: ['openai-codex'],
         ...extraPayload,
       }),
       ok: true,
@@ -403,7 +403,7 @@ describe('fetchAssistantStatusState', () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
       json: async () => ({
         enabled: true,
-        providers: ['openai', 'local'],
+        providers: ['openai', 'openai-codex'],
         ...extraPayload,
       }),
       ok: true,
@@ -472,7 +472,7 @@ describe('fetchAssistantStatusState', () => {
       json: async () => ({
         enabled: true,
         providerKeySources: [],
-        providers: ['openai', 'local'],
+        providers: ['openai', 'openai-codex'],
       }),
       ok: true,
     } as unknown as Response);
@@ -490,7 +490,7 @@ describe('fetchAssistantStatusState', () => {
       json: async () => ({
         enabled: true,
         providerKeySources: [{ provider: 'openai', source: 'stored' }],
-        providers: ['local'],
+        providers: ['openai-codex'],
       }),
       ok: true,
     } as unknown as Response);
@@ -516,7 +516,7 @@ describe('fetchAssistantStatusState', () => {
           },
         ],
         providerKeySources: [],
-        providers: ['openai', 'local'],
+        providers: ['openai', 'openai-codex'],
       }),
       ok: true,
     } as unknown as Response);
@@ -531,7 +531,7 @@ describe('fetchAssistantStatusState', () => {
 
   it('rejects unknown root status fields', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
-      json: async () => ({ enabled: true, providers: ['local'], unexpected: true }),
+      json: async () => ({ enabled: true, providers: ['openai-codex'], unexpected: true }),
       ok: true,
     } as unknown as Response);
 

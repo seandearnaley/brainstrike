@@ -52,11 +52,11 @@ describe('hosted Web agent entrypoint', () => {
     expect(localInferenceImport).not.toHaveBeenCalled();
   });
 
-  it('fails loudly instead of running the local provider without an llm-host client', async () => {
+  it('fails loudly instead of running the retired built-in local chat provider', async () => {
     const hostedWebModule = await import('../hosted-web');
 
     expect(() => hostedWebModule.createProvider('local', undefined, undefined, {})).toThrow(
-      'requires the local LLM host client (renderer-only inference)'
+      'No default model configured for provider: local'
     );
     expect(localInferenceImport).not.toHaveBeenCalled();
   });

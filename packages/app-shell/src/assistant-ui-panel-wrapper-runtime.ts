@@ -11,8 +11,6 @@ import {
   findLlmModelDefinition,
   type GoogleProviderOptions,
   getLlmModelDefinition,
-  LOCAL_DESKTOP_NATIVE_TOOL_IDS,
-  type LocalProviderOptions,
   listProviderLlmModels,
   memoryCredentialRequiredReason,
   mergeOpenRouterAutoProfileModel,
@@ -34,10 +32,6 @@ import {
 } from '@brainstrike/assistant-contract';
 import { readChildFollowupRunConfigAction } from '@brainstrike/assistant-contract/child-followup';
 import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
-import {
-  getBestBuiltInLocalLlmDevice,
-  hasDesktopLlmHost,
-} from '@brainstrike/assistant-contract/local-llm-device';
 import {
   DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
   DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
@@ -86,7 +80,6 @@ const SUPPORTED_OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set([
   'anthropic',
   'google',
   'openrouter',
-  'local',
 ]);
 
 export interface AssistantOperatingRootBinding {
@@ -123,13 +116,9 @@ export function resolveAssistantOperatingRootBinding(args: {
 
 export function resolveAdvertisedNativeToolIds(args: {
   desktopBridgeAvailable: boolean;
-  selectedProvider: SupportedProvider | null;
 }): readonly DesktopNativeToolId[] {
   if (!args.desktopBridgeAvailable) {
     return WEB_NATIVE_TOOL_IDS;
-  }
-  if (args.selectedProvider === 'local') {
-    return LOCAL_DESKTOP_NATIVE_TOOL_IDS;
   }
   return DESKTOP_NATIVE_TOOL_IDS;
 }
@@ -360,9 +349,6 @@ function resolveObservationalMemoryDisabledReason(args: {
   if (providerReadError) {
     return providerReadError;
   }
-  if (providerId === 'local') {
-    return;
-  }
   if (args.providerKeySources === undefined) {
     return;
   }
@@ -442,9 +428,8 @@ export function resolveAssistantMemoryDisabledReason(args: {
 
 export function resolveHostedMemoryBackendAvailable(args: {
   desktopAssistantBackendAvailable: boolean;
-  selectedProvider: SupportedProvider | null;
 }): boolean {
-  return args.selectedProvider === 'local' || args.desktopAssistantBackendAvailable;
+  return args.desktopAssistantBackendAvailable;
 }
 
 /**
@@ -769,11 +754,6 @@ export function resolveAssistantProviderDisabledNotice(args: {
     return { kind: 'provider', message: localRuntimeProviderReason };
   }
 
-  const builtInLocalReason = resolveBuiltInLocalProviderDisabledReason(args.selectedProvider);
-  if (builtInLocalReason) {
-    return { kind: 'provider', message: builtInLocalReason };
-  }
-
   if (args.configuredProviders.length === 0) {
     const baseReason = 'Connect an AI provider in Settings → Providers to enable the assistant.';
     return {
@@ -899,20 +879,18 @@ export function toRuntimeProviderModels(
 }
 
 /**
- * Composer image-attachment gate. Layered on top of the provider predicate
- * (every hosted provider is eligible — the desktop assistant server and the
- * web /api/assistant route share the same image-aware conversion; only the
- * text-only built-in local provider is excluded): when that gate fails the
- * affordance is hidden entirely (undefined); when it passes, the SELECTED
- * MODEL's vision capability decides between 'enabled' and a visibly
- * 'disabled' button carrying the reason — never a silent hide. 'unknown'
- * vision (runtime-discovered model without a capability signal) and an
- * unresolved definition (e.g. runtime catalog still loading) stay
- * optimistic: a wrong guess surfaces as a visible provider error downstream,
- * whereas guessing 'unsupported' would silently block a capable model.
+ * Composer image-attachment gate. Every provider is eligible — the desktop
+ * assistant server and the web /api/assistant route share the same image-aware
+ * conversion — so the SELECTED MODEL's vision capability is the whole decision:
+ * 'enabled', or a visibly 'disabled' button carrying the reason, never a silent
+ * hide. (A provider-level gate used to sit in front of this, excluding the
+ * text-only built-in local chat model; that model is gone.) 'unknown' vision
+ * (runtime-discovered model without a capability signal) and an unresolved
+ * definition (e.g. runtime catalog still loading) stay optimistic: a wrong
+ * guess surfaces as a visible provider error downstream, whereas guessing
+ * 'unsupported' would silently block a capable model.
  */
 export function resolveComposerAttachmentsAvailability(args: {
-  readonly providerGateAvailable: boolean;
   readonly selectedModel:
     | {
         readonly id: string;
@@ -920,10 +898,7 @@ export function resolveComposerAttachmentsAvailability(args: {
         readonly vision: ModelVisionSupport;
       }
     | undefined;
-}): ComposerAttachmentsAvailability | undefined {
-  if (!args.providerGateAvailable) {
-    return;
-  }
+}): ComposerAttachmentsAvailability {
   if (args.selectedModel?.vision === 'unsupported') {
     const modelName = args.selectedModel.label ?? args.selectedModel.id;
     return {
@@ -946,58 +921,6 @@ export function addValuesToSet(target: Set<string>, values: Iterable<string>): v
   }
 }
 
-/** Merge downloaded preference and registry ids in their existing selection order. */
-export function getEnabledBuiltInLocalModelIds(
-  downloadedModels: Parameters<typeof getEnabledBuiltInLocalRegistryModelIds>[0],
-  enabledModelsByProvider: Parameters<typeof getBuiltInLocalPreferenceModelIds>[0],
-  registryModels: Parameters<typeof getEnabledBuiltInLocalRegistryModelIds>[1]
-): string[] {
-  const modelIds = new Set<string>();
-  addValuesToSet(
-    modelIds,
-    getBuiltInLocalPreferenceModelIds(enabledModelsByProvider).filter(
-      (modelId) => downloadedModels[modelId] === true
-    )
-  );
-  addValuesToSet(
-    modelIds,
-    getEnabledBuiltInLocalRegistryModelIds(downloadedModels, registryModels)
-  );
-  return [...modelIds];
-}
-
-export function getBuiltInLocalPreferenceModelIds(
-  enabledModelsByProvider: Record<SupportedProvider, string[]>
-): string[] {
-  return (enabledModelsByProvider.local ?? []).filter(isNonEmptyString);
-}
-
-// Browser-local models are DB-backed in the split assistant chunk; the registry id is the
-// authoritative runtime id when static provider metadata has not produced a usable id yet.
-export function getEnabledBuiltInLocalRegistryModelIds(
-  downloadedModels: Readonly<Record<string, boolean>>,
-  registryModels: readonly {
-    capabilities: { type?: unknown };
-    id: unknown;
-    isEnabled: unknown;
-    providerId: unknown;
-  }[]
-): string[] {
-  const modelIds: string[] = [];
-  for (const model of registryModels) {
-    if (
-      model.providerId === 'local' &&
-      model.isEnabled === true &&
-      model.capabilities.type === 'llm' &&
-      isNonEmptyString(model.id) &&
-      downloadedModels[model.id] === true
-    ) {
-      modelIds.push(model.id);
-    }
-  }
-  return modelIds;
-}
-
 function addPreferenceEnabledModelIds(
   target: Set<string>,
   configuredProviders: readonly SupportedProvider[],
@@ -1007,17 +930,6 @@ function addPreferenceEnabledModelIds(
     const enabledModels = enabledModelsByProvider[providerId] ?? [];
     addValuesToSet(target, enabledModels);
   }
-}
-
-function addBuiltInLocalPreferenceModelIds(
-  target: Set<string>,
-  configuredProviders: readonly SupportedProvider[],
-  enabledModelsByProvider: Record<SupportedProvider, string[]>
-): void {
-  if (!configuredProviders.includes('local')) {
-    return;
-  }
-  addValuesToSet(target, getBuiltInLocalPreferenceModelIds(enabledModelsByProvider));
 }
 
 function addRuntimeCatalogEnabledLlmModelIds(
@@ -1057,13 +969,6 @@ export function buildEnabledModelIdSet(options: {
     addValuesToSet(enabledIds, options.registryEnabledModelIds);
   }
 
-  if (!options.shouldFallbackToPreferences) {
-    addBuiltInLocalPreferenceModelIds(
-      enabledIds,
-      options.configuredProviders,
-      options.enabledModelsByProvider
-    );
-  }
   addRuntimeCatalogEnabledLlmModelIds(enabledIds, options.localRuntimeModels);
   for (const modelIds of Object.values(options.fixedProviderModels ?? {})) {
     addValuesToSet(enabledIds, modelIds ?? []);
@@ -1126,28 +1031,6 @@ function resolveLocalRuntimeProviderDisabledReason(
     (configuredProviders.length === 0 || !configuredProviders.includes(selectedProvider))
   ) {
     return 'The selected local runtime is currently unavailable.';
-  }
-  return;
-}
-
-/**
- * The built-in local provider runs ONLY in the desktop app's hidden llm-host
- * renderer (ADR-0007/0015). Where that host is absent — the hosted web app, or
- * a desktop build whose llm-host failed to start — there is no second engine
- * to fall back to, so the composer refuses visibly with the reason instead of
- * quietly chatting through something else.
- */
-function resolveBuiltInLocalProviderDisabledReason(
-  selectedProvider: SupportedProvider | null
-): string | undefined {
-  if (selectedProvider !== 'local') {
-    return;
-  }
-  if (!hasDesktopLlmHost()) {
-    return 'The built-in local model runs in the desktop app’s local model host, which is unavailable here. Choose another provider.';
-  }
-  if (getBestBuiltInLocalLlmDevice() !== 'webgpu') {
-    return 'Local Gemma requires WebGPU. This device cannot run the built-in local model.';
   }
   return;
 }
@@ -1772,17 +1655,6 @@ function buildGoogleOptions(
   return thinkingConfig ? { thinkingConfig } : undefined;
 }
 
-function buildLocalOptions(settings: AssistantProviderSettings): LocalProviderOptions | undefined {
-  if (typeof settings.localThinkingEnabled !== 'boolean') {
-    return;
-  }
-  return {
-    thinking: {
-      enabled: settings.localThinkingEnabled,
-    },
-  };
-}
-
 function buildLocalRuntimeOptions(
   settings: AssistantProviderSettings | undefined
 ): { baseUrl?: string } | undefined {
@@ -1827,10 +1699,6 @@ export function buildProviderOptions(
     case 'google': {
       const google = buildGoogleOptions(modelName, settings);
       return google ? { google } : undefined;
-    }
-    case 'local': {
-      const local = buildLocalOptions(settings);
-      return local ? { local } : undefined;
     }
     case 'ollama': {
       // Forward the user's configured origin to the main-process factory. The

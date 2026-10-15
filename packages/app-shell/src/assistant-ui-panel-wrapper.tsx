@@ -45,7 +45,6 @@ import {
   buildProviderOptionsWhenReady,
   copyProviderSettingsMap,
   type FixedProviderModels,
-  getEnabledBuiltInLocalModelIds,
   getRuntimeProviderLlmModels,
   type LlmProviderModelDefinition,
   type LocalRuntimeProviderId,
@@ -160,7 +159,6 @@ export function AssistantUiPanelWrapper({
   const registryModels = useModelRegistryStore((state) => state.models);
   const registryProviders = useModelRegistryStore((state) => state.providers);
   const registryHasLoaded = useModelRegistryStore((state) => state.hasLoaded);
-  const downloadedModels = useModelRegistryStore((state) => state.downloadedModels);
   const registryError = useModelRegistryStore((state) => state.error);
   const db = usePGliteDatabase();
   const dbInitializing = useDbInitializing();
@@ -206,11 +204,6 @@ export function AssistantUiPanelWrapper({
       shouldFallbackToPreferences,
     ]
   );
-  const enabledBuiltInLocalModelIds = useMemo(
-    () => getEnabledBuiltInLocalModelIds(downloadedModels, enabledModelsByProvider, registryModels),
-    [downloadedModels, enabledModelsByProvider, registryModels]
-  );
-
   const runtimeLlmModelsByProvider = useMemo<
     Partial<Record<LocalRuntimeProviderId, readonly LlmProviderModelDefinition[]>>
   >(
@@ -373,10 +366,7 @@ export function AssistantUiPanelWrapper({
   );
 
   // Legacy threads no longer run MCP tools (BST-1930); the menu lists them disabled.
-  const { enabledNativeToolIds, toolMenu } = useAssistantToolMenu({
-    runsMcpTools: false,
-    selectedProvider,
-  });
+  const { enabledNativeToolIds, toolMenu } = useAssistantToolMenu({ runsMcpTools: false });
 
   const workspaceRootPath = rootDirectoryHandle?.path ?? null;
   const workspaceIndexEmbeddingSetId = useBackgroundIndexingPreferencesStore(
@@ -521,17 +511,12 @@ export function AssistantUiPanelWrapper({
 
   // Image attachments: every provider streams through a server that shares the
   // same image-aware conversion (the desktop assistant server and the web
-  // /api/assistant route), so only the text-only built-in local provider is
-  // excluded. The SELECTED MODEL's vision capability then layers on top: a
-  // vision-less model renders a visibly disabled attach button with the
-  // reason (never a silent hide).
+  // /api/assistant route), so the SELECTED MODEL's vision capability is the
+  // whole decision — a vision-less model renders a visibly disabled attach
+  // button with the reason (never a silent hide).
   const attachmentsAvailability = useMemo(
-    () =>
-      resolveComposerAttachmentsAvailability({
-        providerGateAvailable: selectedProvider !== 'local',
-        selectedModel: selectedLlmModelDef,
-      }),
-    [selectedProvider, selectedLlmModelDef]
+    () => resolveComposerAttachmentsAvailability({ selectedModel: selectedLlmModelDef }),
+    [selectedLlmModelDef]
   );
   const exitPlanMode = useCallback(() => setPlanModeEnabled(false), [setPlanModeEnabled]);
 
@@ -657,15 +642,12 @@ export function AssistantUiPanelWrapper({
 
   const providerHasEnabledModels = useCallback(
     (provider: SupportedProvider) => {
-      if (provider === 'local' && enabledBuiltInLocalModelIds.length > 0) {
-        return true;
-      }
       const modelDefinitions = getProviderLlmModels(provider);
       return modelDefinitions.some((model: LlmProviderModelDefinition) =>
         enabledModelIds.has(model.id)
       );
     },
-    [enabledBuiltInLocalModelIds, enabledModelIds, getProviderLlmModels]
+    [enabledModelIds, getProviderLlmModels]
   );
 
   // Model reconcile (BST-1652). The DECISION is a pure function in
@@ -677,12 +659,10 @@ export function AssistantUiPanelWrapper({
     clearModel,
     configuredProviders,
     discoveryState: providerDiscoveryState,
-    enabledBuiltInLocalModelIds,
     enabledModelIds,
     getProviderLlmModels,
     getSelectedModel,
     getSelectedProvider,
-    renderedSelectedModel: selectedModel,
     setModel,
   });
 

@@ -5,9 +5,8 @@ import './_windows-command-fixture';
  * Drives the REAL Mastra agent loop (`streamMastraAgent`) against the REAL
  * desktop shell tool from the agent host's live executor fold — its real `execute`,
  * which spawns the native shell and runs a fixture command, against a real temp-dir
- * workspace. Only the language model is scripted (provider 'local' with an
- * injected `LocalLlmHostClient`, mirroring glob-workspace-live-loop.test.ts —
- * no API key, no network).
+ * workspace. Only the language model is scripted, through `modelOverride`
+ * (`_scripted-chat-model.ts`) — no API key, no network.
  *
  * Also proves the REGISTRATION GATE: the tool is exposed ONLY when permission
  * enforcement is enabled (otherwise arbitrary shell execution would be available
@@ -16,16 +15,14 @@ import './_windows-command-fixture';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { RuntimeData } from '@brainstrike/agent';
-import type {
-  LocalLlmGenerationResult,
-  LocalLlmHostClient,
-  LocalLlmHostGenerateRequest,
-  LocalLlmHostRequestOptions,
-} from '@brainstrike/agent/local-llm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { disposeLiveChildProcesses } from '../../assistant-server/execute-command-tool';
 import { buildHostNativeTools } from './_host-native-tools';
+import {
+  createScriptedChatModel,
+  type ScriptedChatModel,
+  scriptedLoopOptions,
+} from './_scripted-chat-model';
 import { requireTool, singleRootRuntime } from './_tool-test-helpers';
 
 // Restore the REAL streamMastraAgent (the global setup.ts mock replaces it with
@@ -37,49 +34,25 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 
 const { streamMastraAgent } = await import('@brainstrike/agent');
 
-const USAGE = { completionTokens: 4, promptTokens: 8, totalTokens: 12 } as const;
-
 /**
- * Scripted host client: the first generation requests the shell tool; once the
- * prompt carries the tool response, it streams a short confirmation and returns
- * the final answer. Mirrors the desktop llm-host contract.
+ * Scripted model: the first turn requests the shell tool; once the tool has
+ * run, it streams a short confirmation.
  */
-function createScriptedHostClient(command: string): LocalLlmHostClient {
-  return {
-    generate: (
-      request: LocalLlmHostGenerateRequest,
-      options: LocalLlmHostRequestOptions = {}
-    ): Promise<LocalLlmGenerationResult> => {
-      const hasToolResponse = request.messages.some(
-        (message) => message.role === 'tool' && message.toolResponses !== undefined
-      );
-      if (hasToolResponse) {
-        options.onProgress?.({ kind: 'text', text: 'Ran ' });
-        options.onProgress?.({ kind: 'text', text: 'Ran the command.' });
-        return Promise.resolve({
-          finishReason: 'stop',
-          text: 'Ran the command.',
-          usage: USAGE,
-        });
-      }
-      return Promise.resolve({
-        finishReason: 'tool_calls',
-        text: '',
-        toolCalls: [
-          {
-            function: {
-              arguments: JSON.stringify({ command }),
-              name: 'brainstrike_executeCommand',
+function createScriptedExecuteModel(command: string): ScriptedChatModel {
+  return createScriptedChatModel((completed) =>
+    completed.includes('brainstrike_executeCommand')
+      ? { chunks: ['Ran ', 'the command.'], kind: 'text' }
+      : {
+          calls: [
+            {
+              input: { command },
+              toolCallId: 'call-exec-1',
+              toolName: 'brainstrike_executeCommand',
             },
-            id: 'call-exec-1',
-            type: 'function',
-          },
-        ],
-        usage: USAGE,
-      });
-    },
-    warmup: vi.fn().mockResolvedValue(undefined),
-  };
+          ],
+          kind: 'tool-call',
+        }
+  );
 }
 
 const createdRoots: string[] = [];
@@ -133,7 +106,7 @@ describe('executeCommand live Mastra loop (real agent, real shell execute)', () 
     });
     const executeTool = requireTool(tools, 'brainstrike.executeCommand');
 
-    const hostClient = createScriptedHostClient(
+    const model = createScriptedExecuteModel(
       await writeCommandFixture(
         root,
         [
@@ -154,12 +127,7 @@ describe('executeCommand live Mastra loop (real agent, real shell execute)', () 
         },
       ],
       {
-        runtime: {
-          localLlmHostClient: hostClient,
-          model: 'onnx-community/gemma-4-E2B-it-ONNX',
-          provider: 'local',
-          providerOptions: { local: { thinking: { enabled: false } } },
-        } as RuntimeData,
+        ...scriptedLoopOptions(model),
         tools: { 'brainstrike.executeCommand': executeTool },
       }
     );
@@ -199,7 +167,7 @@ describe('executeCommand live Mastra loop (real agent, real shell execute)', () 
 
     // A command that emits a distinctive marker to stdout the tool must stream
     // live (via the Mastra writer) BEFORE the final result is captured.
-    const hostClient = createScriptedHostClient(
+    const model = createScriptedExecuteModel(
       await writeCommandFixture(
         root,
         "process.stdout.write('LIVE_STREAM_MARKER\\n');",
@@ -210,12 +178,7 @@ describe('executeCommand live Mastra loop (real agent, real shell execute)', () 
     const iterator = await streamMastraAgent(
       [{ id: 'u-exec-stream', parts: [{ text: 'run it', type: 'text' }], role: 'user' }],
       {
-        runtime: {
-          localLlmHostClient: hostClient,
-          model: 'onnx-community/gemma-4-E2B-it-ONNX',
-          provider: 'local',
-          providerOptions: { local: { thinking: { enabled: false } } },
-        } as RuntimeData,
+        ...scriptedLoopOptions(model),
         tools: { 'brainstrike.executeCommand': executeTool },
       }
     );

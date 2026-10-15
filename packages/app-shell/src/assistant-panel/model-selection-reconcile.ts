@@ -34,28 +34,11 @@ export interface ModelSelectionReconcileInputs {
   /** Providers discovery says are usable right now. */
   readonly configuredProviders: readonly SupportedProvider[];
   readonly discoveryState: AssistantProviderDiscoveryState;
-  /**
-   * Built-in local models that are DOWNLOADED (and preference- or
-   * registry-enabled). The built-in local provider advertises no catalog
-   * entries, so this list — not `getProviderLlmModels('local')` — is what makes
-   * it selectable.
-   */
-  readonly enabledBuiltInLocalModelIds: readonly string[];
   /** Registry-enabled model ids (DB is the source of truth). */
   readonly enabledModelIds: ReadonlySet<string>;
   readonly getProviderLlmModels: (
     provider: SupportedProvider
   ) => readonly LlmProviderModelDefinition[];
-  /**
-   * The selection as captured by the RENDER that scheduled this reconcile.
-   * Deliberately distinct from `selectedModel` below: the pre-extraction effect
-   * gated built-in-local seeding on the subscribed render value while every
-   * other branch read the live store through `getSelectedModel()`. The two can
-   * differ for one pass if a write lands between commit and effect flush. The
-   * divergence is PRESERVED here rather than quietly collapsed; collapsing it
-   * is a separate, deliberate change.
-   */
-  readonly renderedSelectedModel: string | null;
   /** Live `getSelectedModel()` — the composite `provider::model` key, or null. */
   readonly selectedModel: string | null;
   /** Live `getSelectedProvider()`. Parsed by the store, not re-derived here. */
@@ -82,9 +65,7 @@ export type ModelSelectionSelectReason =
   /** The selected local-runtime model vanished; another one from the same runtime took its place. */
   | 'local-runtime-model-reselected'
   /** First configured provider with an enabled model, per the registry. */
-  | 'reconciled-from-registry'
-  /** First run with a downloaded built-in local model and no selection at all. */
-  | 'seeded-built-in-local-default';
+  | 'reconciled-from-registry';
 
 /** Why the reconcile dropped the selection. */
 export type ModelSelectionClearReason =
@@ -110,9 +91,6 @@ function providerHasEnabledModels(
   inputs: ModelSelectionReconcileInputs,
   provider: SupportedProvider
 ): boolean {
-  if (provider === 'local' && inputs.enabledBuiltInLocalModelIds.length > 0) {
-    return true;
-  }
   return inputs
     .getProviderLlmModels(provider)
     .some((definition) => inputs.enabledModelIds.has(definition.id));
@@ -128,27 +106,7 @@ function resolveModelForProvider(
     isModelEnabled: (_providerId, modelId) => isModelEnabled(inputs, modelId),
     provider,
   });
-  if (fromCatalog) {
-    return fromCatalog;
-  }
-  return provider === 'local' ? inputs.enabledBuiltInLocalModelIds[0] : undefined;
-}
-
-function resolveSeedDecision(
-  inputs: ModelSelectionReconcileInputs
-): ModelSelectionDecision | undefined {
-  if (inputs.renderedSelectedModel !== null || !inputs.configuredProviders.includes('local')) {
-    return;
-  }
-  const localModel = inputs.enabledBuiltInLocalModelIds[0];
-  if (!(localModel && inputs.enabledModelIds.has(localModel))) {
-    return;
-  }
-  return {
-    compositeKey: `local::${localModel}`,
-    kind: 'select',
-    reason: 'seeded-built-in-local-default',
-  };
+  return fromCatalog;
 }
 
 function shouldSkipReconcile(inputs: ModelSelectionReconcileInputs): boolean {
@@ -220,11 +178,6 @@ function resolveRegistryDecision(inputs: ModelSelectionReconcileInputs): ModelSe
 export function reconcileModelSelection(
   inputs: ModelSelectionReconcileInputs
 ): ModelSelectionDecision {
-  const seeded = resolveSeedDecision(inputs);
-  if (seeded) {
-    return seeded;
-  }
-
   if (shouldSkipReconcile(inputs)) {
     return { kind: 'keep', reason: 'discovery-pending' };
   }

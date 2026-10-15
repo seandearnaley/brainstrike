@@ -174,19 +174,6 @@ describe('AssistantUiPanelWrapper', () => {
     }
   });
 
-  // Built-in local inference has exactly one engine: the desktop hidden
-  // llm-host. Without it there is nothing to fall back to, so the provider is
-  // not offered at all rather than failing on the first turn.
-  test('withholds the built-in local provider without the desktop llm-host bridge', async () => {
-    await renderAssistantPanel(['openai', 'local'], () =>
-      waitFor(() => {
-        const select = screen.getByTestId('provider-select');
-        expect(select.querySelector('option[value="openai"]')).not.toBeNull();
-        expect(select.querySelector('option[value="local"]')).toBeNull();
-      })
-    );
-  });
-
   test('auto-selects first provider and default model when none selected', async () => {
     await renderAssistantPanel(['openai', 'anthropic'], () =>
       waitFor(

@@ -3,11 +3,7 @@ import {
   useAssistantPreferencesStore,
 } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
-import { hasDesktopLlmHost } from '@brainstrike/assistant-contract/local-llm-device';
-import {
-  getProviderDefinition,
-  type SupportedProvider,
-} from '@brainstrike/assistant-contract/provider-metadata';
+import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { useMemo, useSyncExternalStore } from 'react';
 import { useAssistantProviderSource } from './assistant-provider-source';
 
@@ -60,20 +56,10 @@ export function useConfiguredAssistantProviders(): ConfiguredAssistantProviders 
   );
   const authoritativeProviders = source.kind === 'authoritative' ? source.providers : undefined;
   const providerSeeds = source.kind === 'discovery' ? source.seeds : undefined;
-  // A `browser`-runtime provider (registry metadata, never a provider-id
-  // branch) runs its inference in a renderer — for the built-in local model,
-  // the desktop hidden llm-host. It is keyless, so discovery always reports
-  // it; drop it where that host does not exist (hosted web, and any desktop
-  // build without it) rather than offering a provider whose first turn would
-  // fail. A host bridge is fixed for the lifetime of the renderer.
-  const browserRuntimeAvailable = hasDesktopLlmHost();
-  const providers = useMemo(() => {
-    const resolved = authoritativeProviders ?? mergeProviders(providerSeeds, snapshot.providers);
-    if (browserRuntimeAvailable) {
-      return resolved;
-    }
-    return resolved.filter((provider) => getProviderDefinition(provider).runtime !== 'browser');
-  }, [authoritativeProviders, browserRuntimeAvailable, providerSeeds, snapshot.providers]);
+  const providers = useMemo(
+    () => authoritativeProviders ?? mergeProviders(providerSeeds, snapshot.providers),
+    [authoritativeProviders, providerSeeds, snapshot.providers]
+  );
 
   if (source.kind === 'authoritative') {
     return { discoveryState: 'inactive', providers };

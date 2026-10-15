@@ -61,8 +61,8 @@ describe('app-shell assistant contract boundary', () => {
    *    lines back while still passing — which is precisely the banked headroom
    *    this test exists to prevent.
    */
-  const WRAPPER_LINE_BUDGET = 1064;
-  const WRAPPER_TEST_LINE_BUDGET = 1707;
+  const WRAPPER_LINE_BUDGET = 1044;
+  const WRAPPER_TEST_LINE_BUDGET = 1694;
 
   function expectShrinkOnly(source: string, budget: number, label: string): void {
     const lineCount = source.split('\n').length;
@@ -93,15 +93,6 @@ describe('app-shell assistant contract boundary', () => {
       readSource('__tests__/assistant-ui-panel-wrapper.test.tsx'),
       WRAPPER_TEST_LINE_BUDGET,
       'assistant-ui-panel-wrapper.test.tsx'
-    );
-  });
-
-  it('reads built-in local LLM availability from assistant-contract instead of agent runtime packages', () => {
-    expect(readSource('hooks/use-assistant-availability-with-local.ts')).not.toMatch(
-      /@brainstrike\/agent\/local-llm/
-    );
-    expect(readSource('__tests__/use-assistant-availability-with-local.test.ts')).not.toMatch(
-      /@brainstrike\/agent\/local-llm/
     );
   });
 

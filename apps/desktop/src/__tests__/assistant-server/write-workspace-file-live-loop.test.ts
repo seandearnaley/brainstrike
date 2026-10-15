@@ -4,10 +4,9 @@
  * This drives the REAL Mastra agent loop (`streamMastraAgent`) against the REAL
  * host write tool (the agent host's live executor fold, `_host-native-tools`) — its real `execute`,
  * real path containment, and a real temp-dir workspace. Only two seams are
- * scripted: the language model (provider 'local' with an injected
- * `LocalLlmHostClient`, mirroring `mastra-local-host-execution.spec.ts` — no API
- * key, no network) and the Electron/db surfaces the desktop test setup already
- * stubs.
+ * scripted: the language model (through `modelOverride`, see
+ * `_scripted-chat-model.ts` — no API key, no network) and the Electron/db
+ * surfaces the desktop test setup already stubs.
  *
  * It proves a real Agent can call writeWorkspaceFile, a real file lands on disk
  * with the right bytes, and the tool result flows back through the loop. The
@@ -17,15 +16,13 @@
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { RuntimeData } from '@brainstrike/agent';
-import type {
-  LocalLlmGenerationResult,
-  LocalLlmHostClient,
-  LocalLlmHostGenerateRequest,
-  LocalLlmHostRequestOptions,
-} from '@brainstrike/agent/local-llm';
 import { describe, expect, it, vi } from 'vitest';
 import { buildHostNativeTools } from './_host-native-tools';
+import {
+  createScriptedChatModel,
+  type ScriptedChatModel,
+  scriptedLoopOptions,
+} from './_scripted-chat-model';
 import { requireTool, singleRootRuntime } from './_tool-test-helpers';
 
 // Restore the REAL streamMastraAgent (the global setup.ts mock replaces it with
@@ -37,55 +34,25 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 
 const { streamMastraAgent } = await import('@brainstrike/agent');
 
-const USAGE = { completionTokens: 4, promptTokens: 8, totalTokens: 12 } as const;
-
 /**
- * Scripted host client: the first generation requests the write tool; once the
- * prompt carries the tool response, it streams a short confirmation and returns
- * the final answer. Mirrors the desktop llm-host contract.
+ * Scripted model: the first turn requests the write tool; once the tool has
+ * run, it streams a short confirmation.
  */
-function createScriptedHostClient(args: {
-  path: string;
-  content: string;
-}): LocalLlmHostClient & { requests: LocalLlmHostGenerateRequest[] } {
-  const requests: LocalLlmHostGenerateRequest[] = [];
-  return {
-    generate: (
-      request: LocalLlmHostGenerateRequest,
-      options: LocalLlmHostRequestOptions = {}
-    ): Promise<LocalLlmGenerationResult> => {
-      requests.push(request);
-      const hasToolResponse = request.messages.some(
-        (message) => message.role === 'tool' && message.toolResponses !== undefined
-      );
-      if (hasToolResponse) {
-        options.onProgress?.({ kind: 'text', text: 'Wrote ' });
-        options.onProgress?.({ kind: 'text', text: 'Wrote the file.' });
-        return Promise.resolve({
-          finishReason: 'stop',
-          text: 'Wrote the file.',
-          usage: USAGE,
-        });
-      }
-      return Promise.resolve({
-        finishReason: 'tool_calls',
-        text: '',
-        toolCalls: [
-          {
-            function: {
-              arguments: JSON.stringify({ content: args.content, path: args.path }),
-              name: 'brainstrike_writeWorkspaceFile',
+function createScriptedWriteModel(args: { path: string; content: string }): ScriptedChatModel {
+  return createScriptedChatModel((completed) =>
+    completed.includes('brainstrike_writeWorkspaceFile')
+      ? { chunks: ['Wrote ', 'the file.'], kind: 'text' }
+      : {
+          calls: [
+            {
+              input: { content: args.content, path: args.path },
+              toolCallId: 'call-write-1',
+              toolName: 'brainstrike_writeWorkspaceFile',
             },
-            id: 'call-write-1',
-            type: 'function',
-          },
-        ],
-        usage: USAGE,
-      });
-    },
-    requests,
-    warmup: vi.fn().mockResolvedValue(undefined),
-  };
+          ],
+          kind: 'tool-call',
+        }
+  );
 }
 
 describe('writeWorkspaceFile live Mastra loop (real agent, real tool execute)', () => {
@@ -100,7 +67,7 @@ describe('writeWorkspaceFile live Mastra loop (real agent, real tool execute)', 
       const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
       const writeTool = requireTool(tools, 'brainstrike.writeWorkspaceFile');
 
-      const hostClient = createScriptedHostClient({
+      const model = createScriptedWriteModel({
         content: targetContent,
         path: targetPath,
       });
@@ -114,12 +81,7 @@ describe('writeWorkspaceFile live Mastra loop (real agent, real tool execute)', 
           },
         ],
         {
-          runtime: {
-            localLlmHostClient: hostClient,
-            model: 'onnx-community/gemma-4-E2B-it-ONNX',
-            provider: 'local',
-            providerOptions: { local: { thinking: { enabled: false } } },
-          } as RuntimeData,
+          ...scriptedLoopOptions(model),
           // The REAL desktop write tool, sanitized name matches the model call.
           tools: { 'brainstrike.writeWorkspaceFile': writeTool },
         }
