@@ -252,8 +252,10 @@ export type ChannelMessage =
 /**
  * This wire's version. Tabs of different builds can share an origin; a tab
  * whose writer speaks another version refuses it visibly instead of guessing.
+ * Bump it whenever `WebStateRequests`, a request's params or result, or a
+ * channel message changes: version 2 added the catalog and blob requests.
  */
-export const WEB_STATE_PROTOCOL = 1;
+export const WEB_STATE_PROTOCOL = 2;
 
 /** The app's store; tests and isolated E2E sessions name their own. */
 export const DEFAULT_WEB_STATE_STORE = 'default';
