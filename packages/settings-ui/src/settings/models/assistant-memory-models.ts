@@ -11,15 +11,10 @@ export interface AssistantMemoryModelOption {
   target: string;
 }
 
-// 'local' resolves to the built-in Gemma model proxied through the desktop
-// llm-host (no API key); the assistant server allows the same provider set.
-const OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set([
-  'openai',
-  'anthropic',
-  'google',
-  'openrouter',
-  'local',
-]);
+// The assistant server allows the same provider set. All four need a key:
+// the built-in on-device provider is embeddings-only, so there is no longer a
+// keyless observer.
+const OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set(['openai', 'anthropic', 'google', 'openrouter']);
 // 'local' embedders run in the hidden embedding-host renderer, proxied for
 // Mastra semantic recall by the assistant server (no API key).
 const SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google', 'local']);
@@ -59,6 +54,13 @@ function toOption(provider: DbProvider, model: DbModel): AssistantMemoryModelOpt
   };
 }
 
+/**
+ * Observational memory needs the durable memory backend to record anything, so
+ * `assistantMemoryBackendAvailable` gates every candidate rather than only the
+ * keyless one it used to gate (the built-in on-device chat model, now retired).
+ * That matches `resolveEffectiveObservationalMemorySettings`, where a missing
+ * backend is the 'no-backend' unresolved reason for all providers.
+ */
 export function listObservationalMemoryModelOptions(args: {
   assistantMemoryBackendAvailable: boolean;
   models: readonly DbModel[];
@@ -73,11 +75,9 @@ export function listObservationalMemoryModelOptions(args: {
     .filter((model) => {
       const provider = providers.get(model.providerId);
       return (
+        args.assistantMemoryBackendAvailable &&
         OBSERVATIONAL_MEMORY_PROVIDER_IDS.has(model.providerId) &&
-        (model.providerId !== 'local' || args.assistantMemoryBackendAvailable) &&
-        (args.providerKeySources === undefined ||
-          model.providerId === 'local' ||
-          providersWithKeys.has(model.providerId)) &&
+        (args.providerKeySources === undefined || providersWithKeys.has(model.providerId)) &&
         isEnabledProvider(provider) &&
         model.isEnabled &&
         model.capabilities.type === 'llm'

@@ -34,8 +34,9 @@ vi.mock('../assistant-provider-model-defaults', () => ({
   AssistantProviderModelDefaults: assistantProviderModelDefaultsMock,
 }));
 
-vi.mock('../hooks/use-assistant-availability-with-local', () => ({
-  useAssistantAvailabilityWithLocal: vi.fn(),
+vi.mock('../hooks/use-assistant-availability', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../hooks/use-assistant-availability')>()),
+  useAssistantAvailability: vi.fn(),
 }));
 
 vi.mock('../assistant-ui-panel-wrapper-lazy', () => ({
@@ -44,20 +45,20 @@ vi.mock('../assistant-ui-panel-wrapper-lazy', () => ({
 }));
 
 // Import after mock to get the mocked version
-import { useAssistantAvailabilityWithLocal } from '../hooks/use-assistant-availability-with-local';
+import { useAssistantAvailability } from '../hooks/use-assistant-availability';
 
-const useAssistantAvailabilityWithLocalMock = vi.mocked(useAssistantAvailabilityWithLocal);
+const useAssistantAvailabilityMock = vi.mocked(useAssistantAvailability);
 
 describe('AssistantChatPanel', () => {
   beforeEach(() => {
     assistantProviderModelDefaultsMock.mockClear();
     assistantProviderSourceProviderMock.mockClear();
     assistantUiPanelWrapperLazyMock.mockClear();
-    useAssistantAvailabilityWithLocalMock.mockReset();
+    useAssistantAvailabilityMock.mockReset();
   });
 
   it('shows loading indicator while fetching status', () => {
-    useAssistantAvailabilityWithLocalMock.mockReturnValue({ state: 'loading' });
+    useAssistantAvailabilityMock.mockReturnValue({ state: 'loading' });
 
     render(<AssistantChatPanel />, { wrapper: AssistantProviderStatusProvider });
 
@@ -67,7 +68,7 @@ describe('AssistantChatPanel', () => {
   });
 
   it('directs a missing API key to the current provider-key settings', () => {
-    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+    useAssistantAvailabilityMock.mockReturnValue({
       reason: 'missing_api_key',
       state: 'disabled',
     });
@@ -82,7 +83,7 @@ describe('AssistantChatPanel', () => {
   });
 
   it('explains the protected Preview or public auth and quota requirement', () => {
-    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+    useAssistantAvailabilityMock.mockReturnValue({
       reason: 'production_auth_required',
       state: 'disabled',
     });
@@ -98,7 +99,7 @@ describe('AssistantChatPanel', () => {
   });
 
   it('explains how to repair an invalid Hosted Web body-limit configuration', () => {
-    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+    useAssistantAvailabilityMock.mockReturnValue({
       reason: 'invalid_request_body_limit_config',
       state: 'disabled',
     });
@@ -114,7 +115,7 @@ describe('AssistantChatPanel', () => {
   });
 
   it('keeps an unknown disabled reason visible without guessing at remediation', () => {
-    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+    useAssistantAvailabilityMock.mockReturnValue({
       reason: 'future_server_reason',
       state: 'disabled',
     });
@@ -128,7 +129,7 @@ describe('AssistantChatPanel', () => {
   });
 
   it('renders error callout when status fetch fails', () => {
-    useAssistantAvailabilityWithLocalMock.mockReturnValue({ message: 'boom', state: 'error' });
+    useAssistantAvailabilityMock.mockReturnValue({ message: 'boom', state: 'error' });
 
     render(<AssistantChatPanel />, { wrapper: AssistantProviderStatusProvider });
 
@@ -137,7 +138,7 @@ describe('AssistantChatPanel', () => {
   });
 
   it('shows assistant UI when enabled', async () => {
-    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+    useAssistantAvailabilityMock.mockReturnValue({
       providers: ['openai', 'local'],
       state: 'enabled',
     });
@@ -157,7 +158,7 @@ describe('AssistantChatPanel', () => {
   });
 
   it('passes provider read failures to the enabled assistant UI', async () => {
-    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+    useAssistantAvailabilityMock.mockReturnValue({
       providerErrors: [
         {
           code: 'decrypt_failed',
@@ -183,7 +184,7 @@ describe('AssistantChatPanel', () => {
   });
 
   it('mounts one model-defaults owner inside the provider source, for every thread kind', async () => {
-    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+    useAssistantAvailabilityMock.mockReturnValue({
       providerErrors: [
         {
           code: 'decrypt_failed',
@@ -213,7 +214,7 @@ describe('AssistantChatPanel', () => {
   });
 
   it('passes validated provider key sources to assistant memory gating', async () => {
-    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+    useAssistantAvailabilityMock.mockReturnValue({
       providerKeySources: [
         { envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' },
         { provider: 'anthropic', source: 'stored' },
@@ -237,7 +238,7 @@ describe('AssistantChatPanel', () => {
   });
 
   it('seeds the model picker with the provider advertised by Hosted Web', async () => {
-    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+    useAssistantAvailabilityMock.mockReturnValue({
       model: 'gpt-5.6-terra',
       provider: 'openai',
       state: 'enabled',
@@ -259,7 +260,7 @@ describe('AssistantChatPanel', () => {
   });
 
   it('fixes every Hosted Web provider to its registry default model', async () => {
-    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+    useAssistantAvailabilityMock.mockReturnValue({
       model: 'gpt-5.6-terra',
       provider: 'openai',
       providers: ['openai', 'anthropic', 'google', 'openrouter'],
@@ -293,7 +294,7 @@ describe('AssistantChatPanel', () => {
       providers: ['openai', 'anthropic'] as const,
       state: 'enabled' as const,
     };
-    useAssistantAvailabilityWithLocalMock.mockReturnValue(status);
+    useAssistantAvailabilityMock.mockReturnValue(status);
 
     const { rerender } = render(<AssistantChatPanel />, {
       wrapper: AssistantProviderStatusProvider,
@@ -309,7 +310,7 @@ describe('AssistantChatPanel', () => {
   });
 
   it('surfaces an advertised provider without a registry default instead of crashing render', () => {
-    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+    useAssistantAvailabilityMock.mockReturnValue({
       model: 'gpt-5.6-terra',
       provider: 'openai',
       providers: ['openai', 'cohere'],

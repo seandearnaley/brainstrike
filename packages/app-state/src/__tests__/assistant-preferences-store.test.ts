@@ -237,8 +237,9 @@ describe('assistant-preferences-store', () => {
     };
 
     const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
-    // 'local' is always included because it doesn't require API keys
-    const expected: SupportedProvider[] = ['openai', 'google', 'local'];
+    // Keyed providers only: the built-in on-device provider is keyless but
+    // EMBEDDINGS-ONLY, so chat discovery must not seed it.
+    const expected: SupportedProvider[] = ['openai', 'google'];
     expect(providers).toEqual(expected);
   });
 
@@ -372,7 +373,7 @@ describe('assistant-preferences-store', () => {
 
     const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
 
-    expect(providers).toContain('local');
+    expect(providers).not.toContain('local');
     expect(providers).toContain('ollama');
     expect(providers).toContain('lmstudio');
   });
@@ -434,7 +435,7 @@ describe('assistant-preferences-store', () => {
 
       expect(thrown).toBeInstanceOf(AggregateError);
       expect(thrown).toMatchObject({
-        providers: expect.arrayContaining(['local', 'ollama']),
+        providers: expect.arrayContaining(['ollama']),
       });
       expect((thrown as Error).message).toMatch(/lmstudio.*unexpected probe result shape/i);
     } finally {
@@ -840,7 +841,6 @@ describe('assistant-preferences-store', () => {
 
     const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
 
-    expect(providers).toContain('local');
     expect(providers).not.toContain('ollama');
     expect(providers).not.toContain('lmstudio');
   });
@@ -1011,15 +1011,10 @@ describe('assistant-preferences-store', () => {
     expect(store.modelsByProvider['anthropic']).toBe('claude-sonnet-4-6');
     expect(store.modelsByProvider['google']).toBe('gemini-2.5-pro');
     expect(store.modelsByProvider['openrouter']).toBe('openai/gpt-5.4');
-    expect(store.modelsByProvider['local']).toBe('onnx-community/gemma-4-E2B-it-ONNX');
     expect(store.selectedModel).toBe('openai::gpt-5.4');
     expect(store.enabledModelsByProvider['openai']).toContain('gpt-5.4');
     expect(store.enabledModelsByProvider['openai']).toContain('gpt-5.4-mini');
     expect(store.enabledModelsByProvider['openai']).not.toContain('gpt-4o');
-    expect(store.enabledModelsByProvider['local']).toContain('onnx-community/gemma-4-E2B-it-ONNX');
-    expect(store.enabledModelsByProvider['local']).not.toContain(
-      'LiquidAI/LFM2.5-1.2B-Instruct-ONNX'
-    );
   });
 
   describe('model migration notices (BST-565)', () => {

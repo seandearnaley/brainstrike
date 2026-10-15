@@ -125,8 +125,4 @@ describe('subscription rate limits are never auto-retried (gate constraint 6)', 
     });
     expect(Date.now() - start).toBeLessThan(1000);
   });
-
-  it('keeps the local provider free of error processors', () => {
-    expect(buildAssistantErrorProcessors('local')).toBeUndefined();
-  });
 });

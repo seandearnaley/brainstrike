@@ -4,9 +4,8 @@
  * Drives the REAL Mastra agent loop (`streamMastraAgent`) against the REAL
  * host glob tool (the agent host's live executor fold, `_host-native-tools`) —
  * its real `execute`, the real FS walk + ignore policy + path containment, against a real temp-dir
- * workspace. Only the language model is scripted (provider 'local' with an
- * injected `LocalLlmHostClient`, mirroring write-workspace-file-live-loop.test.ts
- * — no API key, no network).
+ * workspace. Only the language model is scripted, through `modelOverride`
+ * (`_scripted-chat-model.ts`) — no API key, no network.
  *
  * It proves a real Agent can call globWorkspace, that the right files are
  * enumerated, that ignored dirs (node_modules, .git, dist) are excluded, and
@@ -15,16 +14,15 @@
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { RuntimeData } from '@brainstrike/agent';
-import type {
-  LocalLlmGenerationResult,
-  LocalLlmHostClient,
-  LocalLlmHostGenerateRequest,
-  LocalLlmHostRequestOptions,
-} from '@brainstrike/agent/local-llm';
 import { resetToolCallLoopGuards } from '@brainstrike/host-capabilities/native-tools';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { buildHostNativeTools } from './_host-native-tools';
+import {
+  completedToolNames,
+  createScriptedChatModel,
+  type ScriptedChatModel,
+  scriptedLoopOptions,
+} from './_scripted-chat-model';
 import { requireTool, singleRootRuntime } from './_tool-test-helpers';
 
 // Restore the REAL streamMastraAgent (the global setup.ts mock replaces it with
@@ -36,118 +34,59 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 
 const { streamMastraAgent } = await import('@brainstrike/agent');
 
-const USAGE = { completionTokens: 4, promptTokens: 8, totalTokens: 12 } as const;
-
 beforeEach(() => {
   resetToolCallLoopGuards();
 });
 
 /**
- * Scripted host client: the first generation requests the glob tool; once the
- * prompt carries the tool response, it streams a short confirmation and returns
- * the final answer. Mirrors the desktop llm-host contract.
+ * Scripted model: the first turn requests the glob tool; once the prompt
+ * carries the tool result, it streams a short confirmation.
  */
-function createScriptedHostClient(
-  pattern: string
-): LocalLlmHostClient & { requests: LocalLlmHostGenerateRequest[] } {
-  const requests: LocalLlmHostGenerateRequest[] = [];
-  return {
-    generate: (
-      request: LocalLlmHostGenerateRequest,
-      options: LocalLlmHostRequestOptions = {}
-    ): Promise<LocalLlmGenerationResult> => {
-      requests.push(request);
-      const hasToolResponse = request.messages.some(
-        (message) => message.role === 'tool' && message.toolResponses !== undefined
-      );
-      if (hasToolResponse) {
-        options.onProgress?.({ kind: 'text', text: 'Found ' });
-        options.onProgress?.({ kind: 'text', text: 'Found the files.' });
-        return Promise.resolve({
-          finishReason: 'stop',
-          text: 'Found the files.',
-          usage: USAGE,
-        });
-      }
-      return Promise.resolve({
-        finishReason: 'tool_calls',
-        text: '',
-        toolCalls: [
-          {
-            function: {
-              arguments: JSON.stringify({ pattern }),
-              name: 'brainstrike_globWorkspace',
+function createScriptedGlobModel(pattern: string): ScriptedChatModel {
+  return createScriptedChatModel((completed) =>
+    completed.includes('brainstrike_globWorkspace')
+      ? { chunks: ['Found ', 'the files.'], kind: 'text' }
+      : {
+          calls: [
+            {
+              input: { pattern },
+              toolCallId: 'call-glob-1',
+              toolName: 'brainstrike_globWorkspace',
             },
-            id: 'call-glob-1',
-            type: 'function',
-          },
-        ],
-        usage: USAGE,
-      });
-    },
-    requests,
-    warmup: vi.fn().mockResolvedValue(undefined),
-  };
+          ],
+          kind: 'tool-call',
+        }
+  );
 }
 
-function createGlobThenReadHostClient(): LocalLlmHostClient & {
-  requests: LocalLlmHostGenerateRequest[];
-} {
-  const requests: LocalLlmHostGenerateRequest[] = [];
-  return {
-    generate: (
-      request: LocalLlmHostGenerateRequest,
-      options: LocalLlmHostRequestOptions = {}
-    ): Promise<LocalLlmGenerationResult> => {
-      requests.push(request);
-      const completedToolNames = request.messages.flatMap(
-        (message) => message.toolResponses?.map((response) => response.name) ?? []
-      );
-      if (!completedToolNames.includes('brainstrike_globWorkspace')) {
-        return Promise.resolve({
-          finishReason: 'tool_calls',
-          text: '',
-          toolCalls: [
-            {
-              function: {
-                arguments: JSON.stringify({ pattern: '**/README.md' }),
-                name: 'brainstrike_globWorkspace',
-              },
-              id: 'call-glob-readme',
-              type: 'function',
-            },
-          ],
-          usage: USAGE,
-        });
-      }
-      if (!completedToolNames.includes('brainstrike_readWorkspaceFile')) {
-        return Promise.resolve({
-          finishReason: 'tool_calls',
-          text: '',
-          toolCalls: [
-            {
-              function: {
-                arguments: JSON.stringify({ path: 'README.md' }),
-                name: 'brainstrike_readWorkspaceFile',
-              },
-              id: 'call-read-readme',
-              type: 'function',
-            },
-          ],
-          usage: USAGE,
-        });
-      }
-      options.onProgress?.({ kind: 'text', text: 'Marker: ' });
-      options.onProgress?.({ kind: 'text', text: 'Marker: NORTHWIND-LIVE-LOOP' });
-      return Promise.resolve({
-        finishReason: 'stop',
-        text: 'Marker: NORTHWIND-LIVE-LOOP',
-        usage: USAGE,
-      });
-    },
-    requests,
-    warmup: vi.fn().mockResolvedValue(undefined),
-  };
+function createGlobThenReadModel(): ScriptedChatModel {
+  return createScriptedChatModel((completed) => {
+    if (!completed.includes('brainstrike_globWorkspace')) {
+      return {
+        calls: [
+          {
+            input: { pattern: '**/README.md' },
+            toolCallId: 'call-glob-readme',
+            toolName: 'brainstrike_globWorkspace',
+          },
+        ],
+        kind: 'tool-call',
+      };
+    }
+    if (!completed.includes('brainstrike_readWorkspaceFile')) {
+      return {
+        calls: [
+          {
+            input: { path: 'README.md' },
+            toolCallId: 'call-read-readme',
+            toolName: 'brainstrike_readWorkspaceFile',
+          },
+        ],
+        kind: 'tool-call',
+      };
+    }
+    return { chunks: ['Marker: ', 'NORTHWIND-LIVE-LOOP'], kind: 'text' };
+  });
 }
 
 async function createWorkspaceFixture(): Promise<string> {
@@ -193,7 +132,7 @@ describe('globWorkspace live Mastra loop (real agent, real tool execute)', () =>
       const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
       const globTool = requireTool(tools, 'brainstrike.globWorkspace');
 
-      const hostClient = createScriptedHostClient('**/*.test.ts');
+      const model = createScriptedGlobModel('**/*.test.ts');
 
       const iterator = await streamMastraAgent(
         [
@@ -204,12 +143,7 @@ describe('globWorkspace live Mastra loop (real agent, real tool execute)', () =>
           },
         ],
         {
-          runtime: {
-            localLlmHostClient: hostClient,
-            model: 'onnx-community/gemma-4-E2B-it-ONNX',
-            provider: 'local',
-            providerOptions: { local: { thinking: { enabled: false } } },
-          } as RuntimeData,
+          ...scriptedLoopOptions(model),
           tools: { 'brainstrike.globWorkspace': globTool },
         }
       );
@@ -252,7 +186,7 @@ describe('globWorkspace live Mastra loop (real agent, real tool execute)', () =>
       const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
       const globTool = requireTool(tools, 'brainstrike.globWorkspace');
       const readTool = requireTool(tools, 'brainstrike.readWorkspaceFile');
-      const hostClient = createGlobThenReadHostClient();
+      const model = createGlobThenReadModel();
       const iterator = await streamMastraAgent(
         [
           {
@@ -262,12 +196,7 @@ describe('globWorkspace live Mastra loop (real agent, real tool execute)', () =>
           },
         ],
         {
-          runtime: {
-            localLlmHostClient: hostClient,
-            model: 'onnx-community/gemma-4-E2B-it-ONNX',
-            provider: 'local',
-            providerOptions: { local: { thinking: { enabled: false } } },
-          } as RuntimeData,
+          ...scriptedLoopOptions(model),
           tools: {
             'brainstrike.globWorkspace': globTool,
             'brainstrike.readWorkspaceFile': readTool,
@@ -288,14 +217,9 @@ describe('globWorkspace live Mastra loop (real agent, real tool execute)', () =>
         }
       }
 
-      expect(hostClient.requests).toHaveLength(3);
+      expect(model.prompts).toHaveLength(3);
       expect(completedToolCount).toBe(2);
-      const completedToolNames = hostClient.requests.flatMap((request) =>
-        request.messages.flatMap(
-          (message) => message.toolResponses?.map((response) => response.name) ?? []
-        )
-      );
-      expect(new Set(completedToolNames)).toEqual(
+      expect(new Set(model.prompts.flatMap((prompt) => completedToolNames(prompt)))).toEqual(
         new Set(['brainstrike_globWorkspace', 'brainstrike_readWorkspaceFile'])
       );
       expect(JSON.stringify(toolEvents)).toContain('NORTHWIND-LIVE-LOOP');

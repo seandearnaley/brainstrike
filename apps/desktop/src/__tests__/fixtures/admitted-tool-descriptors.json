@@ -8,17 +8,17 @@
         "type": "object",
         "properties": {
           "options": {
-            "description": "Optional choices. Omit for a free-text question.",
+            "type": "array",
             "minItems": 1,
             "maxItems": 10,
-            "type": "array",
+            "description": "Optional choices. Omit for a free-text question.",
             "items": {
               "type": "object",
               "properties": {
                 "description": {
-                  "description": "Optional context for the option (does not change the answer value).",
                   "type": "string",
-                  "maxLength": 1000
+                  "maxLength": 1000,
+                  "description": "Optional context for the option (does not change the answer value)."
                 },
                 "label": {
                   "type": "string",
@@ -40,12 +40,12 @@
             "description": "The clear, specific question to ask the user."
           },
           "selectionMode": {
-            "description": "How many options the user may pick. Requires options; defaults to single_select.",
             "type": "string",
             "enum": [
               "single_select",
               "multi_select"
-            ]
+            ],
+            "description": "How many options the user may pick. Requires options; defaults to single_select."
           }
         },
         "required": [
@@ -111,11 +111,11 @@
         "type": "object",
         "properties": {
           "maxChars": {
-            "default": 6000,
-            "description": "Maximum characters to return",
             "type": "integer",
             "minimum": 100,
-            "maximum": 30000
+            "maximum": 30000,
+            "description": "Maximum characters to return",
+            "default": 6000
           }
         },
         "additionalProperties": false
@@ -153,20 +153,20 @@
         "type": "object",
         "properties": {
           "filter": {
-            "default": "interactive",
-            "description": "'interactive' returns only actionable elements; 'all' the full tree",
             "type": "string",
             "enum": [
               "interactive",
               "all"
-            ]
+            ],
+            "description": "'interactive' returns only actionable elements; 'all' the full tree",
+            "default": "interactive"
           },
           "maxChars": {
-            "default": 6000,
-            "description": "Maximum characters of tree text to return",
             "type": "integer",
             "minimum": 500,
-            "maximum": 30000
+            "maximum": 30000,
+            "description": "Maximum characters of tree text to return",
+            "default": 6000
           }
         },
         "additionalProperties": false
@@ -213,18 +213,18 @@
             "description": "Shell command passed verbatim to `-c`; NO sandbox"
           },
           "cwd": {
-            "description": "Start directory, absolute or root-relative; must resolve inside an open folder",
-            "type": "string"
+            "type": "string",
+            "description": "Start directory, absolute or root-relative; must resolve inside an open folder"
           },
           "root": {
-            "description": "Open-folder name/id; required only with multiple folders",
-            "type": "string"
+            "type": "string",
+            "description": "Open-folder name/id; required only with multiple folders"
           },
           "timeoutMs": {
-            "description": "Process-tree timeout ms (default 120000, max 600000)",
             "type": "integer",
+            "maximum": 600000,
             "exclusiveMinimum": 0,
-            "maximum": 600000
+            "description": "Process-tree timeout ms (default 120000, max 600000)"
           }
         },
         "required": [
@@ -472,19 +472,22 @@
         "type": "object",
         "properties": {
           "operation": {
-            "oneOf": [
+            "description": "Exactly one inspection operation and only its valid fields",
+            "anyOf": [
               {
                 "type": "object",
                 "properties": {
                   "action": {
                     "type": "string",
-                    "const": "list"
+                    "enum": [
+                      "list"
+                    ]
                   },
                   "offset": {
-                    "description": "Session offset from a previous truncated list page",
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 10000
+                    "maximum": 10000,
+                    "description": "Session offset from a previous truncated list page"
                   }
                 },
                 "required": [
@@ -497,13 +500,15 @@
                 "properties": {
                   "action": {
                     "type": "string",
-                    "const": "read"
+                    "enum": [
+                      "read"
+                    ]
                   },
                   "cursor": {
-                    "description": "Absolute read cursor; omit for retained output or use -1 for the live tail",
                     "type": "integer",
                     "minimum": -1,
-                    "maximum": 9007199254740991
+                    "maximum": 9007199254740991,
+                    "description": "Absolute read cursor; omit for retained output or use -1 for the live tail"
                   },
                   "sessionId": {
                     "type": "string",
@@ -518,14 +523,13 @@
                 ],
                 "additionalProperties": false
               }
-            ],
-            "description": "Exactly one inspection operation and only its valid fields"
+            ]
           },
           "root": {
-            "description": "Open folder name or durable id; omit when only one folder is open",
             "type": "string",
             "minLength": 1,
-            "maxLength": 500
+            "maxLength": 500,
+            "description": "Open folder name or durable id; omit when only one folder is open"
           }
         },
         "required": [
@@ -544,12 +548,12 @@
         "type": "object",
         "properties": {
           "includeStats": {
-            "description": "Include coverage statistics",
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Include coverage statistics"
           },
           "workspaceIndexOnly": {
-            "description": "Only return the embedding space configured as the current workspace index",
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Only return the embedding space configured as the current workspace index"
           }
         },
         "additionalProperties": false
@@ -688,13 +692,16 @@
         "type": "object",
         "properties": {
           "operation": {
-            "oneOf": [
+            "description": "Exactly one process-control operation and only its valid fields",
+            "anyOf": [
               {
                 "type": "object",
                 "properties": {
                   "action": {
                     "type": "string",
-                    "const": "start"
+                    "enum": [
+                      "start"
+                    ]
                   },
                   "cols": {
                     "type": "integer",
@@ -708,9 +715,9 @@
                     "description": "Shell command to start"
                   },
                   "cwd": {
-                    "description": "Absolute or workspace-relative directory inside the selected root",
                     "type": "string",
-                    "maxLength": 4096
+                    "maxLength": 4096,
+                    "description": "Absolute or workspace-relative directory inside the selected root"
                   },
                   "rows": {
                     "type": "integer",
@@ -729,7 +736,9 @@
                 "properties": {
                   "action": {
                     "type": "string",
-                    "const": "write"
+                    "enum": [
+                      "write"
+                    ]
                   },
                   "data": {
                     "type": "string",
@@ -756,7 +765,9 @@
                 "properties": {
                   "action": {
                     "type": "string",
-                    "const": "stop"
+                    "enum": [
+                      "stop"
+                    ]
                   },
                   "sessionId": {
                     "type": "string",
@@ -776,7 +787,9 @@
                 "properties": {
                   "action": {
                     "type": "string",
-                    "const": "remove"
+                    "enum": [
+                      "remove"
+                    ]
                   },
                   "sessionId": {
                     "type": "string",
@@ -791,14 +804,13 @@
                 ],
                 "additionalProperties": false
               }
-            ],
-            "description": "Exactly one process-control operation and only its valid fields"
+            ]
           },
           "root": {
-            "description": "Open folder name or durable id; omit when only one folder is open",
             "type": "string",
             "minLength": 1,
-            "maxLength": 500
+            "maxLength": 500,
+            "description": "Open folder name or durable id; omit when only one folder is open"
           }
         },
         "required": [
@@ -817,8 +829,9 @@
         "type": "object",
         "properties": {
           "tasks": {
-            "maxItems": 50,
             "type": "array",
+            "maxItems": 50,
+            "description": "The full task list to store (whole-list replace — pass the entire desired list every call). Maximum 50 tasks.",
             "items": {
               "type": "object",
               "properties": {
@@ -850,8 +863,7 @@
                 "status"
               ],
               "additionalProperties": false
-            },
-            "description": "The full task list to store (whole-list replace — pass the entire desired list every call). Maximum 50 tasks."
+            }
           }
         },
         "required": [
@@ -927,16 +939,16 @@
         "type": "object",
         "properties": {
           "fingerprint": {
-            "description": "Exact diagnostic fingerprint",
             "type": "string",
             "minLength": 1,
-            "maxLength": 256
+            "maxLength": 256,
+            "description": "Exact diagnostic fingerprint"
           },
           "limit": {
-            "description": "Maximum events or groups to inspect (default 50, hard max 200)",
             "type": "integer",
             "minimum": 1,
-            "maximum": 200
+            "maximum": 200,
+            "description": "Maximum events or groups to inspect (default 50, hard max 200)"
           },
           "mode": {
             "type": "string",
@@ -947,37 +959,37 @@
             "description": "events returns newest rows; fingerprints groups recurring failures"
           },
           "runId": {
-            "description": "Exact assistant run id",
             "type": "string",
             "minLength": 1,
-            "maxLength": 256
+            "maxLength": 256,
+            "description": "Exact assistant run id"
           },
           "severity": {
-            "description": "Exact severity",
             "type": "string",
             "enum": [
               "warn",
               "error",
               "fatal"
-            ]
+            ],
+            "description": "Exact severity"
           },
           "since": {
-            "description": "Inclusive ISO-8601 lower bound, e.g. 2026-07-20T00:00:00Z",
             "type": "string",
             "minLength": 20,
-            "maxLength": 35
+            "maxLength": 35,
+            "description": "Inclusive ISO-8601 lower bound, e.g. 2026-07-20T00:00:00Z"
           },
           "threadId": {
-            "description": "Exact assistant thread id",
             "type": "string",
             "minLength": 1,
-            "maxLength": 256
+            "maxLength": 256,
+            "description": "Exact assistant thread id"
           },
           "until": {
-            "description": "Inclusive ISO-8601 upper bound, e.g. 2026-07-28T00:00:00Z",
             "type": "string",
             "minLength": 20,
-            "maxLength": 35
+            "maxLength": 35,
+            "description": "Inclusive ISO-8601 upper bound, e.g. 2026-07-28T00:00:00Z"
           }
         },
         "required": [
@@ -1312,9 +1324,9 @@
         "type": "object",
         "properties": {
           "allowedDomains": {
-            "description": "Public domains the script may reach, by name (e.g. \"pypi.org\", \"*.example.com\"); [] or omitted for no network. IP literals, localhost, and .local are not allowed. Each domain requires explicit user approval per call.",
-            "maxItems": 256,
             "type": "array",
+            "maxItems": 256,
+            "description": "Public domains the script may reach, by name (e.g. \"pypi.org\", \"*.example.com\"); [] or omitted for no network. IP literals, localhost, and .local are not allowed. Each domain requires explicit user approval per call.",
             "items": {
               "type": "string",
               "minLength": 1,
@@ -1328,10 +1340,10 @@
             "description": "Python source to run as a script; print() to return values"
           },
           "timeoutMs": {
-            "description": "Wall-clock limit ms (default 30000, max 600000)",
             "type": "integer",
+            "maximum": 600000,
             "exclusiveMinimum": 0,
-            "maximum": 600000
+            "description": "Wall-clock limit ms (default 30000, max 600000)"
           }
         },
         "required": [
@@ -1350,9 +1362,9 @@
         "type": "object",
         "properties": {
           "args": {
-            "description": "Literal argv",
-            "maxItems": 64,
             "type": "array",
+            "maxItems": 64,
+            "description": "Literal argv",
             "items": {
               "type": "string",
               "maxLength": 2000
@@ -1360,9 +1372,9 @@
           },
           "cwd": {
             "type": "string",
+            "description": "Root-relative working directory",
             "minLength": 1,
-            "maxLength": 1000,
-            "description": "Root-relative working directory"
+            "maxLength": 1000
           },
           "root": {
             "type": "string",
@@ -1381,9 +1393,9 @@
           },
           "scriptPath": {
             "type": "string",
+            "description": "Listed scripts/... path",
             "minLength": 1,
-            "maxLength": 1000,
-            "description": "Listed scripts/... path"
+            "maxLength": 1000
           },
           "skillName": {
             "type": "string",
@@ -1392,8 +1404,8 @@
           },
           "timeoutMs": {
             "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 600000
+            "maximum": 600000,
+            "exclusiveMinimum": 0
           }
         },
         "required": [
@@ -1460,21 +1472,22 @@
             "description": "One or two paragraphs summarizing the plan and its goal."
           },
           "risks": {
-            "description": "Optional risks, tradeoffs, or things that could go wrong.",
             "type": "string",
-            "maxLength": 4000
+            "maxLength": 4000,
+            "description": "Optional risks, tradeoffs, or things that could go wrong."
           },
           "steps": {
+            "type": "array",
             "minItems": 1,
             "maxItems": 30,
-            "type": "array",
+            "description": "Ordered implementation steps.",
             "items": {
               "type": "object",
               "properties": {
                 "detail": {
-                  "description": "Optional elaboration of the step (what/why/how).",
                   "type": "string",
-                  "maxLength": 2000
+                  "maxLength": 2000,
+                  "description": "Optional elaboration of the step (what/why/how)."
                 },
                 "title": {
                   "type": "string",
@@ -1487,8 +1500,7 @@
                 "title"
               ],
               "additionalProperties": false
-            },
-            "description": "Ordered implementation steps."
+            }
           },
           "title": {
             "type": "string",
@@ -1497,9 +1509,9 @@
             "description": "Short title for the plan."
           },
           "verification": {
-            "description": "Optional how-to-verify: tests, checks, or acceptance criteria.",
             "type": "string",
-            "maxLength": 4000
+            "maxLength": 4000,
+            "description": "Optional how-to-verify: tests, checks, or acceptance criteria."
           }
         },
         "required": [
@@ -1699,880 +1711,6 @@
       "risk": "read"
     }
   },
-  "local": {
-    "brainstrike_deleteWorkspaceFile": {
-      "description": "Permanently delete a single file in a chosen open workspace root and invalidate its index rows. DESTRUCTIVE and NOT recoverable through the tool; refuses directories (use executeCommand) and acts on a symlink itself (removes the link, never its target). Workspace-scoped; requires approval",
-      "identity": "brainstrike.deleteWorkspaceFile",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-          "path": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Workspace-relative file path; directories are refused"
-          },
-          "root": {
-            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "path"
-        ],
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.deleteWorkspaceFile",
-      "risk": "edit"
-    },
-    "brainstrike_executeCommand": {
-      "description": "Run a shell command for tests, builds, git, and other tools. NO sandbox: it can read or change anything the user can. Never run destructive commands unless explicitly requested. Requires per-call approval by default. Starts in a chosen open root; kills the process tree on timeout. Returns exitCode, bounded stdout/stderr tail, and durationMs",
-      "identity": "brainstrike.executeCommand",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-          "command": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 10000,
-            "description": "Shell command passed verbatim to `-c`; NO sandbox"
-          },
-          "cwd": {
-            "description": "Start directory, absolute or root-relative; must resolve inside an open folder",
-            "type": "string"
-          },
-          "root": {
-            "description": "Open-folder name/id; required only with multiple folders",
-            "type": "string"
-          },
-          "timeoutMs": {
-            "description": "Process-tree timeout ms (default 120000, max 600000)",
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 600000
-          }
-        },
-        "required": [
-          "command"
-        ],
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.executeCommand",
-      "risk": "execute"
-    },
-    "brainstrike_findWorkspaceSymbol": {
-      "description": "Locate a symbol's best-effort enclosing line range in a workspace file without returning whole-file content",
-      "identity": "brainstrike.findWorkspaceSymbol",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-          "contextLines": {
-            "description": "Preview lines before/after each match (default 2)",
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 10
-          },
-          "maxMatches": {
-            "description": "Max matches (default 5)",
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 20
-          },
-          "path": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Workspace-relative file path"
-          },
-          "query": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Symbol name or substring to find"
-          },
-          "root": {
-            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "path",
-          "query"
-        ],
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.findWorkspaceSymbol",
-      "risk": "read"
-    },
-    "brainstrike_globWorkspace": {
-      "description": "Enumerate workspace files whose path matches a glob (e.g. **/*.test.ts, src/**/*.tsx). One path per result line, prefixed with its root name when several folders are open. Excludes .git, build output, and gitignored paths by default; pass includeIgnored to see them; read-only",
-      "identity": "brainstrike.globWorkspace",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-          "includeIgnored": {
-            "description": "Include excluded paths: build output, generated artifacts, and gitignored files such as coverage/ or .env* (default false)",
-            "type": "boolean"
-          },
-          "limit": {
-            "description": "Match cap (default 200)",
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 1000
-          },
-          "offset": {
-            "description": "Pagination offset",
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 100000
-          },
-          "pattern": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 500,
-            "description": "Workspace-relative glob; bare patterns match at any depth"
-          },
-          "root": {
-            "description": "Open-folder name/id. Omit to search all of this thread's folders. Results include their root.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "pattern"
-        ],
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.globWorkspace",
-      "risk": "read"
-    },
-    "brainstrike_grepSearch": {
-      "description": "Grep indexed and live on-disk file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns matches grouped under one file header per file — 'root:path' when several folders are open — with 'line: text' rows ('-' marks opt-in context rows). Reuse that root and path (and the row's line number as startLine) in readWorkspaceFile calls",
-      "identity": "brainstrike.grepSearch",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-          "caseSensitive": {
-            "description": "Case-sensitive (default false)",
-            "type": "boolean"
-          },
-          "contextLines": {
-            "description": "Context lines around each 'content' match (default 0; opt in when needed)",
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 5
-          },
-          "filePaths": {
-            "description": "Restrict to these files: workspace-relative, or absolute inside an open folder",
-            "maxItems": 1000,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          "isRegex": {
-            "description": "Use JavaScript regex (default false)",
-            "type": "boolean"
-          },
-          "maxResults": {
-            "description": "'content' match cap (default 50)",
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 200
-          },
-          "offset": {
-            "description": "Pagination offset",
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 2000
-          },
-          "outputMode": {
-            "description": "'files' (default): paths + match counts. 'content': matching lines; narrow with filePaths.",
-            "type": "string",
-            "enum": [
-              "files",
-              "content"
-            ]
-          },
-          "pattern": {
-            "type": "string",
-            "minLength": 2,
-            "maxLength": 500,
-            "description": "Exact text (default) or JavaScript regex"
-          },
-          "root": {
-            "description": "Open-folder name/id. Omit to search all of this thread's folders. Results include their root.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "pattern"
-        ],
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.grepSearch",
-      "risk": "read"
-    },
-    "brainstrike_hybridSearch": {
-      "description": "Hybrid workspace search fusing semantic (vector) and exact-term (BM25 keyword) rankings with reciprocal rank fusion; best default for code/doc retrieval mixing concepts with distinctive terms. Omit embeddingSetId to use the Workspace Index; fails visibly (never degrades) if the keyword index is unavailable",
-      "identity": "brainstrike.hybridSearch",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-          "chunkType": {
-            "description": "Filter by chunk type",
-            "type": "string",
-            "enum": [
-              "text",
-              "code",
-              "sentence",
-              "recursive"
-            ]
-          },
-          "embeddingSetId": {
-            "description": "Embedding set ID for vector search; omit to use the Workspace Index",
-            "type": "string",
-            "minLength": 1
-          },
-          "filePaths": {
-            "description": "Filter to specific file paths (max 500)",
-            "maxItems": 500,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          "ftsWeight": {
-            "description": "Weight for full-text search (default 1.0)",
-            "type": "number",
-            "minimum": 0,
-            "maximum": 2
-          },
-          "limit": {
-            "description": "Maximum results to return",
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 100
-          },
-          "query": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2000,
-            "description": "Search query text"
-          },
-          "root": {
-            "description": "Open-folder name/id. Omit for the thread-bound folder; an unbound request searches all open folders. To cover every folder in a bound thread, call once per root id. Results include their root.",
-            "type": "string",
-            "minLength": 1
-          },
-          "vectorThreshold": {
-            "description": "Minimum similarity threshold",
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1
-          },
-          "vectorWeight": {
-            "description": "Weight for vector search (default 1.0)",
-            "type": "number",
-            "minimum": 0,
-            "maximum": 2
-          }
-        },
-        "required": [
-          "query"
-        ],
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.hybridSearch",
-      "risk": "read"
-    },
-    "brainstrike_listEmbeddingSpaces": {
-      "description": "List available embedding spaces, workspace-index status, and optional coverage statistics",
-      "identity": "brainstrike.listEmbeddingSpaces",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-          "includeStats": {
-            "description": "Include coverage statistics",
-            "type": "boolean"
-          },
-          "workspaceIndexOnly": {
-            "description": "Only return the embedding space configured as the current workspace index",
-            "type": "boolean"
-          }
-        },
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.listEmbeddingSpaces",
-      "risk": "read"
-    },
-    "brainstrike_listWorkspaceContext": {
-      "description": "Inspect open workspace roots, the Main operating-root path, and the workspace index hint without reading file contents",
-      "identity": "brainstrike.listWorkspaceContext",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {},
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.listWorkspaceContext",
-      "risk": "read"
-    },
-    "brainstrike_lspInspect": {
-      "description": "LSP (Language Server Protocol) semantic code inspection for TypeScript/JavaScript: the inferred TYPE (hover), line diagnostics, the symbol's DEFINITION location, and its IMPLEMENTATIONS. Give the file path, 1-based line, and `match`: prefer the unique identifier itself (for example `computeTotal`); when it repeats on that line, pass a unique line fragment with exactly one `<<<` immediately before the intended occurrence. Wrong-line identifiers return bounded candidate lines for an explicit retry; ambiguous targets never guess. Read-only; returns a clear 'unavailable' note (not an error) for unsupported file types or when no server is available",
-      "identity": "brainstrike.lspInspect",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-          "line": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991,
-            "description": "1-based line number of the symbol to inspect"
-          },
-          "match": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2000,
-            "description": "Prefer one unique JS/TS identifier (cursor is its first character). If it repeats on the line, pass a unique fragment with exactly one `<<<` before the intended occurrence"
-          },
-          "path": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Workspace-relative file path to inspect"
-          },
-          "root": {
-            "description": "Which open folder the path is in (required only when multiple are open)",
-            "type": "string"
-          }
-        },
-        "required": [
-          "line",
-          "match",
-          "path"
-        ],
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.lspInspect",
-      "risk": "read"
-    },
-    "brainstrike_queryDiagnostics": {
-      "description": "Query Brainstrike retained desktop diagnostic logs without re-running the app. Older rotated-out events are unavailable. Use mode=events for newest matching rows or mode=fingerprints to group recurring failures. Filters are exact severity/fingerprint/run/thread plus an inclusive ISO time window; results are hard-capped and output-budget truncation is explicit. Read-only",
-      "identity": "brainstrike.queryDiagnostics",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-          "fingerprint": {
-            "description": "Exact diagnostic fingerprint",
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
-          "limit": {
-            "description": "Maximum events or groups to inspect (default 50, hard max 200)",
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 200
-          },
-          "mode": {
-            "type": "string",
-            "enum": [
-              "events",
-              "fingerprints"
-            ],
-            "description": "events returns newest rows; fingerprints groups recurring failures"
-          },
-          "runId": {
-            "description": "Exact assistant run id",
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
-          "severity": {
-            "description": "Exact severity",
-            "type": "string",
-            "enum": [
-              "warn",
-              "error",
-              "fatal"
-            ]
-          },
-          "since": {
-            "description": "Inclusive ISO-8601 lower bound, e.g. 2026-07-20T00:00:00Z",
-            "type": "string",
-            "minLength": 20,
-            "maxLength": 35
-          },
-          "threadId": {
-            "description": "Exact assistant thread id",
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
-          "until": {
-            "description": "Inclusive ISO-8601 upper bound, e.g. 2026-07-28T00:00:00Z",
-            "type": "string",
-            "minLength": 20,
-            "maxLength": 35
-          }
-        },
-        "required": [
-          "mode"
-        ],
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.queryDiagnostics",
-      "risk": "read"
-    },
-    "brainstrike_queryEmbeddingSpace": {
-      "description": "Query semantic workspace context; omit embeddingSetId to use the Workspace Index by default",
-      "identity": "brainstrike.queryEmbeddingSpace",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-          "embeddingSetId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "filePaths": {
-            "maxItems": 5000,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          "limit": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 100
-          },
-          "maxChunks": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 100
-          },
-          "query": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2000
-          },
-          "root": {
-            "description": "Open-folder name/id. Omit for the thread-bound folder; an unbound request searches all open folders. To cover every folder in a bound thread, call once per root id. Results include their root.",
-            "type": "string"
-          },
-          "selectionSnapshotId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "threshold": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1
-          },
-          "tokenBudget": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 200000
-          }
-        },
-        "required": [
-          "query"
-        ],
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.queryEmbeddingSpace",
-      "risk": "read"
-    },
-    "brainstrike_readToolOutputArtifact": {
-      "description": "Page/grep; never alter or recreate the cursor.",
-      "identity": "brainstrike.readToolOutputArtifact",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-          "caseSensitive": {
-            "type": "boolean"
-          },
-          "cursor": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2048,
-            "description": "Prior cursor; copy byte-for-byte, never edit or recreate it."
-          },
-          "isRegex": {
-            "type": "boolean"
-          },
-          "maxBytes": {
-            "type": "integer",
-            "minimum": 4,
-            "maximum": 8000
-          },
-          "pattern": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2000
-          }
-        },
-        "required": [
-          "cursor"
-        ],
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.readToolOutputArtifact",
-      "risk": "read"
-    },
-    "brainstrike_readWorkspaceContext": {
-      "description": "Read explicit workspace files under strict file and token budgets after semantic search needs exact source",
-      "identity": "brainstrike.readWorkspaceContext",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-          "filePaths": {
-            "minItems": 1,
-            "maxItems": 5000,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "Workspace-relative file paths to read"
-          },
-          "maxCharsPerFile": {
-            "description": "Per-file character cap",
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 50000
-          },
-          "maxFiles": {
-            "description": "File count cap",
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 500
-          },
-          "root": {
-            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
-            "type": "string"
-          },
-          "tokenBudget": {
-            "description": "Total output token cap",
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 200000
-          }
-        },
-        "required": [
-          "filePaths"
-        ],
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.readWorkspaceContext",
-      "risk": "read"
-    },
-    "brainstrike_readWorkspaceDirectory": {
-      "description": "List a workspace directory in a compact, token-efficient format",
-      "identity": "brainstrike.readWorkspaceDirectory",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-          "depth": {
-            "description": "Traversal depth (max 5)",
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 5
-          },
-          "detail": {
-            "description": "Include entry size/depth (default false)",
-            "type": "boolean"
-          },
-          "includeDirectories": {
-            "description": "Include directories",
-            "type": "boolean"
-          },
-          "includeFiles": {
-            "description": "Include files",
-            "type": "boolean"
-          },
-          "includeHidden": {
-            "description": "Include hidden entries",
-            "type": "boolean"
-          },
-          "maxEntries": {
-            "description": "Entry cap",
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 500
-          },
-          "offset": {
-            "description": "Pagination offset",
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 5000
-          },
-          "path": {
-            "description": "Directory path (default root)",
-            "type": "string"
-          },
-          "root": {
-            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.readWorkspaceDirectory",
-      "risk": "read"
-    },
-    "brainstrike_readWorkspaceFile": {
-      "description": "Read a file from a chosen open workspace root as bounded, line-numbered pages with a short thread-scoped continuation handle. For later pages pass only cursor (and optional maxChars); omit path/root/startLine/endLine",
-      "identity": "brainstrike.readWorkspaceFile",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-          "cursor": {
-            "description": "Short nextCursor handle from the previous page. Pass it unchanged with optional maxChars and omit every other field",
-            "anyOf": [
-              {
-                "type": "string",
-                "pattern": "^rfh_[A-Za-z0-9_-]{22}$"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "endLine": {
-            "description": "Last 1-based line; omit with cursor unless replaying the original value unchanged",
-            "anyOf": [
-              {
-                "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 9007199254740991
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "maxChars": {
-            "description": "Output character cap",
-            "anyOf": [
-              {
-                "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 50000
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "path": {
-            "description": "Workspace-relative file path; required only when starting a new read",
-            "anyOf": [
-              {
-                "type": "string",
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "root": {
-            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "startLine": {
-            "description": "First 1-based line; omit with cursor unless replaying the original value unchanged",
-            "anyOf": [
-              {
-                "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 9007199254740991
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.readWorkspaceFile",
-      "risk": "read"
-    },
-    "brainstrike_renameWorkspaceFile": {
-      "description": "Rename or move a single file within a chosen open workspace root, creating missing destination parents and invalidating the source index rows. Refuses overwriting an existing destination and refuses directories; refuses if the source changed on disk since you last read it — re-read and retry; acts on a symlink itself (moves the link, never its target). Workspace-scoped; requires approval",
-      "identity": "brainstrike.renameWorkspaceFile",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-          "fromPath": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Existing workspace-relative source file"
-          },
-          "root": {
-            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
-            "type": "string"
-          },
-          "toPath": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Destination path in the same root; no overwrite; creates missing parents"
-          }
-        },
-        "required": [
-          "fromPath",
-          "toPath"
-        ],
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.renameWorkspaceFile",
-      "risk": "edit"
-    },
-    "brainstrike_stringReplaceWorkspaceFile": {
-      "description": "Surgically edit a file in a chosen open workspace root by replacing one oldStr block with newStr (fuzzy-matched; refuses ambiguous matches; refuses if the file changed on disk since you last read it — re-read and retry; workspace-scoped, requires approval). matchType \"exact\" confirms verbatim placement; other matchTypes are fuzzy — re-read for precision",
-      "identity": "brainstrike.stringReplaceWorkspaceFile",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-          "newStr": {
-            "type": "string",
-            "maxLength": 8000000,
-            "description": "Replacement text; empty deletes the matched block"
-          },
-          "oldStr": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 8000000,
-            "description": "Existing text block. Use whole lines and enough context to identify one location; ambiguous matches are refused."
-          },
-          "path": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Existing workspace-relative file path"
-          },
-          "root": {
-            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "newStr",
-          "oldStr",
-          "path"
-        ],
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.stringReplaceWorkspaceFile",
-      "risk": "edit"
-    },
-    "brainstrike_webExtract": {
-      "description": "Fetch the readable content of up to 5 public web pages as markdown (the natural follow-up to webSearch results, or for a user-pasted URL). SENDS THE URLS TO AN EXTERNAL EXTRACTION SERVICE (Tavily); refuses non-http(s), credentialed, and private/internal URLs before anything is sent. Preserves complete source content; larger results provide an exact brainstrike.readToolOutputArtifact continuation cursor. Returns a clear \"unavailable\" message (not an error) when no Tavily key is configured",
-      "identity": "brainstrike.webExtract",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-          "urls": {
-            "minItems": 1,
-            "maxItems": 5,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 10,
-              "maxLength": 2000,
-              "description": "Absolute http(s) URL of a PUBLIC page — never internal/private hosts"
-            },
-            "description": "Public web pages to extract as markdown (1-5). Sent to an external extraction service (Tavily) — never include URLs carrying secrets or pointing at private/internal hosts."
-          }
-        },
-        "required": [
-          "urls"
-        ],
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.webExtract",
-      "risk": "read"
-    },
-    "brainstrike_webSearch": {
-      "description": "Search the web for current docs, APIs, error messages, and library usage. SENDS YOUR QUERY TO AN EXTERNAL WEB-SEARCH SERVICE (the model provider's built-in search when available, otherwise Tavily). Returns a clear \"unavailable\" message (not an error) when no provider-native search and no Tavily key are configured",
-      "identity": "brainstrike.webSearch",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-          "maxResults": {
-            "description": "Maximum number of results to return (default 5, max 10)",
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 10
-          },
-          "query": {
-            "type": "string",
-            "minLength": 2,
-            "maxLength": 400,
-            "description": "The web search query. Sent to an external search service (Tavily) — never include secrets or private workspace contents."
-          }
-        },
-        "required": [
-          "query"
-        ],
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.webSearch",
-      "risk": "read"
-    },
-    "brainstrike_writeWorkspaceFile": {
-      "description": "Write or create a UTF-8 file in a chosen open workspace root (overwrites existing content; refuses if the file changed on disk since you last read it — re-read and retry; workspace-scoped, requires approval). bytesWritten confirms it landed; skip re-reading",
-      "identity": "brainstrike.writeWorkspaceFile",
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {
-          "content": {
-            "type": "string",
-            "maxLength": 8000000,
-            "description": "Full UTF-8 content (up to ~2 MB); overwrites an existing file"
-          },
-          "path": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Workspace-relative path; creates missing parent directories"
-          },
-          "root": {
-            "description": "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "content",
-          "path"
-        ],
-        "additionalProperties": false
-      },
-      "permissionToolId": "brainstrike.writeWorkspaceFile",
-      "risk": "edit"
-    }
-  },
   "no-worktree-service": {
     "brainstrike_askUser": {
       "description": "Ask the user a clarifying question and WAIT for their answer (the run pauses). Provide options for a structured choice (selectionMode multi_select allows several), or omit options for a free-text question",
@@ -2582,17 +1720,17 @@
         "type": "object",
         "properties": {
           "options": {
-            "description": "Optional choices. Omit for a free-text question.",
+            "type": "array",
             "minItems": 1,
             "maxItems": 10,
-            "type": "array",
+            "description": "Optional choices. Omit for a free-text question.",
             "items": {
               "type": "object",
               "properties": {
                 "description": {
-                  "description": "Optional context for the option (does not change the answer value).",
                   "type": "string",
-                  "maxLength": 1000
+                  "maxLength": 1000,
+                  "description": "Optional context for the option (does not change the answer value)."
                 },
                 "label": {
                   "type": "string",
@@ -2614,12 +1752,12 @@
             "description": "The clear, specific question to ask the user."
           },
           "selectionMode": {
-            "description": "How many options the user may pick. Requires options; defaults to single_select.",
             "type": "string",
             "enum": [
               "single_select",
               "multi_select"
-            ]
+            ],
+            "description": "How many options the user may pick. Requires options; defaults to single_select."
           }
         },
         "required": [
@@ -2685,11 +1823,11 @@
         "type": "object",
         "properties": {
           "maxChars": {
-            "default": 6000,
-            "description": "Maximum characters to return",
             "type": "integer",
             "minimum": 100,
-            "maximum": 30000
+            "maximum": 30000,
+            "description": "Maximum characters to return",
+            "default": 6000
           }
         },
         "additionalProperties": false
@@ -2727,20 +1865,20 @@
         "type": "object",
         "properties": {
           "filter": {
-            "default": "interactive",
-            "description": "'interactive' returns only actionable elements; 'all' the full tree",
             "type": "string",
             "enum": [
               "interactive",
               "all"
-            ]
+            ],
+            "description": "'interactive' returns only actionable elements; 'all' the full tree",
+            "default": "interactive"
           },
           "maxChars": {
-            "default": 6000,
-            "description": "Maximum characters of tree text to return",
             "type": "integer",
             "minimum": 500,
-            "maximum": 30000
+            "maximum": 30000,
+            "description": "Maximum characters of tree text to return",
+            "default": 6000
           }
         },
         "additionalProperties": false
@@ -2787,18 +1925,18 @@
             "description": "Shell command passed verbatim to `-c`; NO sandbox"
           },
           "cwd": {
-            "description": "Start directory, absolute or root-relative; must resolve inside an open folder",
-            "type": "string"
+            "type": "string",
+            "description": "Start directory, absolute or root-relative; must resolve inside an open folder"
           },
           "root": {
-            "description": "Open-folder name/id; required only with multiple folders",
-            "type": "string"
+            "type": "string",
+            "description": "Open-folder name/id; required only with multiple folders"
           },
           "timeoutMs": {
-            "description": "Process-tree timeout ms (default 120000, max 600000)",
             "type": "integer",
+            "maximum": 600000,
             "exclusiveMinimum": 0,
-            "maximum": 600000
+            "description": "Process-tree timeout ms (default 120000, max 600000)"
           }
         },
         "required": [
@@ -3046,19 +2184,22 @@
         "type": "object",
         "properties": {
           "operation": {
-            "oneOf": [
+            "description": "Exactly one inspection operation and only its valid fields",
+            "anyOf": [
               {
                 "type": "object",
                 "properties": {
                   "action": {
                     "type": "string",
-                    "const": "list"
+                    "enum": [
+                      "list"
+                    ]
                   },
                   "offset": {
-                    "description": "Session offset from a previous truncated list page",
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 10000
+                    "maximum": 10000,
+                    "description": "Session offset from a previous truncated list page"
                   }
                 },
                 "required": [
@@ -3071,13 +2212,15 @@
                 "properties": {
                   "action": {
                     "type": "string",
-                    "const": "read"
+                    "enum": [
+                      "read"
+                    ]
                   },
                   "cursor": {
-                    "description": "Absolute read cursor; omit for retained output or use -1 for the live tail",
                     "type": "integer",
                     "minimum": -1,
-                    "maximum": 9007199254740991
+                    "maximum": 9007199254740991,
+                    "description": "Absolute read cursor; omit for retained output or use -1 for the live tail"
                   },
                   "sessionId": {
                     "type": "string",
@@ -3092,14 +2235,13 @@
                 ],
                 "additionalProperties": false
               }
-            ],
-            "description": "Exactly one inspection operation and only its valid fields"
+            ]
           },
           "root": {
-            "description": "Open folder name or durable id; omit when only one folder is open",
             "type": "string",
             "minLength": 1,
-            "maxLength": 500
+            "maxLength": 500,
+            "description": "Open folder name or durable id; omit when only one folder is open"
           }
         },
         "required": [
@@ -3118,12 +2260,12 @@
         "type": "object",
         "properties": {
           "includeStats": {
-            "description": "Include coverage statistics",
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Include coverage statistics"
           },
           "workspaceIndexOnly": {
-            "description": "Only return the embedding space configured as the current workspace index",
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Only return the embedding space configured as the current workspace index"
           }
         },
         "additionalProperties": false
@@ -3243,13 +2385,16 @@
         "type": "object",
         "properties": {
           "operation": {
-            "oneOf": [
+            "description": "Exactly one process-control operation and only its valid fields",
+            "anyOf": [
               {
                 "type": "object",
                 "properties": {
                   "action": {
                     "type": "string",
-                    "const": "start"
+                    "enum": [
+                      "start"
+                    ]
                   },
                   "cols": {
                     "type": "integer",
@@ -3263,9 +2408,9 @@
                     "description": "Shell command to start"
                   },
                   "cwd": {
-                    "description": "Absolute or workspace-relative directory inside the selected root",
                     "type": "string",
-                    "maxLength": 4096
+                    "maxLength": 4096,
+                    "description": "Absolute or workspace-relative directory inside the selected root"
                   },
                   "rows": {
                     "type": "integer",
@@ -3284,7 +2429,9 @@
                 "properties": {
                   "action": {
                     "type": "string",
-                    "const": "write"
+                    "enum": [
+                      "write"
+                    ]
                   },
                   "data": {
                     "type": "string",
@@ -3311,7 +2458,9 @@
                 "properties": {
                   "action": {
                     "type": "string",
-                    "const": "stop"
+                    "enum": [
+                      "stop"
+                    ]
                   },
                   "sessionId": {
                     "type": "string",
@@ -3331,7 +2480,9 @@
                 "properties": {
                   "action": {
                     "type": "string",
-                    "const": "remove"
+                    "enum": [
+                      "remove"
+                    ]
                   },
                   "sessionId": {
                     "type": "string",
@@ -3346,14 +2497,13 @@
                 ],
                 "additionalProperties": false
               }
-            ],
-            "description": "Exactly one process-control operation and only its valid fields"
+            ]
           },
           "root": {
-            "description": "Open folder name or durable id; omit when only one folder is open",
             "type": "string",
             "minLength": 1,
-            "maxLength": 500
+            "maxLength": 500,
+            "description": "Open folder name or durable id; omit when only one folder is open"
           }
         },
         "required": [
@@ -3372,8 +2522,9 @@
         "type": "object",
         "properties": {
           "tasks": {
-            "maxItems": 50,
             "type": "array",
+            "maxItems": 50,
+            "description": "The full task list to store (whole-list replace — pass the entire desired list every call). Maximum 50 tasks.",
             "items": {
               "type": "object",
               "properties": {
@@ -3405,8 +2556,7 @@
                 "status"
               ],
               "additionalProperties": false
-            },
-            "description": "The full task list to store (whole-list replace — pass the entire desired list every call). Maximum 50 tasks."
+            }
           }
         },
         "required": [
@@ -3425,16 +2575,16 @@
         "type": "object",
         "properties": {
           "fingerprint": {
-            "description": "Exact diagnostic fingerprint",
             "type": "string",
             "minLength": 1,
-            "maxLength": 256
+            "maxLength": 256,
+            "description": "Exact diagnostic fingerprint"
           },
           "limit": {
-            "description": "Maximum events or groups to inspect (default 50, hard max 200)",
             "type": "integer",
             "minimum": 1,
-            "maximum": 200
+            "maximum": 200,
+            "description": "Maximum events or groups to inspect (default 50, hard max 200)"
           },
           "mode": {
             "type": "string",
@@ -3445,37 +2595,37 @@
             "description": "events returns newest rows; fingerprints groups recurring failures"
           },
           "runId": {
-            "description": "Exact assistant run id",
             "type": "string",
             "minLength": 1,
-            "maxLength": 256
+            "maxLength": 256,
+            "description": "Exact assistant run id"
           },
           "severity": {
-            "description": "Exact severity",
             "type": "string",
             "enum": [
               "warn",
               "error",
               "fatal"
-            ]
+            ],
+            "description": "Exact severity"
           },
           "since": {
-            "description": "Inclusive ISO-8601 lower bound, e.g. 2026-07-20T00:00:00Z",
             "type": "string",
             "minLength": 20,
-            "maxLength": 35
+            "maxLength": 35,
+            "description": "Inclusive ISO-8601 lower bound, e.g. 2026-07-20T00:00:00Z"
           },
           "threadId": {
-            "description": "Exact assistant thread id",
             "type": "string",
             "minLength": 1,
-            "maxLength": 256
+            "maxLength": 256,
+            "description": "Exact assistant thread id"
           },
           "until": {
-            "description": "Inclusive ISO-8601 upper bound, e.g. 2026-07-28T00:00:00Z",
             "type": "string",
             "minLength": 20,
-            "maxLength": 35
+            "maxLength": 35,
+            "description": "Inclusive ISO-8601 upper bound, e.g. 2026-07-28T00:00:00Z"
           }
         },
         "required": [
@@ -3810,9 +2960,9 @@
         "type": "object",
         "properties": {
           "allowedDomains": {
-            "description": "Public domains the script may reach, by name (e.g. \"pypi.org\", \"*.example.com\"); [] or omitted for no network. IP literals, localhost, and .local are not allowed. Each domain requires explicit user approval per call.",
-            "maxItems": 256,
             "type": "array",
+            "maxItems": 256,
+            "description": "Public domains the script may reach, by name (e.g. \"pypi.org\", \"*.example.com\"); [] or omitted for no network. IP literals, localhost, and .local are not allowed. Each domain requires explicit user approval per call.",
             "items": {
               "type": "string",
               "minLength": 1,
@@ -3826,10 +2976,10 @@
             "description": "Python source to run as a script; print() to return values"
           },
           "timeoutMs": {
-            "description": "Wall-clock limit ms (default 30000, max 600000)",
             "type": "integer",
+            "maximum": 600000,
             "exclusiveMinimum": 0,
-            "maximum": 600000
+            "description": "Wall-clock limit ms (default 30000, max 600000)"
           }
         },
         "required": [
@@ -3892,21 +3042,22 @@
             "description": "One or two paragraphs summarizing the plan and its goal."
           },
           "risks": {
-            "description": "Optional risks, tradeoffs, or things that could go wrong.",
             "type": "string",
-            "maxLength": 4000
+            "maxLength": 4000,
+            "description": "Optional risks, tradeoffs, or things that could go wrong."
           },
           "steps": {
+            "type": "array",
             "minItems": 1,
             "maxItems": 30,
-            "type": "array",
+            "description": "Ordered implementation steps.",
             "items": {
               "type": "object",
               "properties": {
                 "detail": {
-                  "description": "Optional elaboration of the step (what/why/how).",
                   "type": "string",
-                  "maxLength": 2000
+                  "maxLength": 2000,
+                  "description": "Optional elaboration of the step (what/why/how)."
                 },
                 "title": {
                   "type": "string",
@@ -3919,8 +3070,7 @@
                 "title"
               ],
               "additionalProperties": false
-            },
-            "description": "Ordered implementation steps."
+            }
           },
           "title": {
             "type": "string",
@@ -3929,9 +3079,9 @@
             "description": "Short title for the plan."
           },
           "verification": {
-            "description": "Optional how-to-verify: tests, checks, or acceptance criteria.",
             "type": "string",
-            "maxLength": 4000
+            "maxLength": 4000,
+            "description": "Optional how-to-verify: tests, checks, or acceptance criteria."
           }
         },
         "required": [
@@ -4064,17 +3214,17 @@
         "type": "object",
         "properties": {
           "options": {
-            "description": "Optional choices. Omit for a free-text question.",
+            "type": "array",
             "minItems": 1,
             "maxItems": 10,
-            "type": "array",
+            "description": "Optional choices. Omit for a free-text question.",
             "items": {
               "type": "object",
               "properties": {
                 "description": {
-                  "description": "Optional context for the option (does not change the answer value).",
                   "type": "string",
-                  "maxLength": 1000
+                  "maxLength": 1000,
+                  "description": "Optional context for the option (does not change the answer value)."
                 },
                 "label": {
                   "type": "string",
@@ -4096,12 +3246,12 @@
             "description": "The clear, specific question to ask the user."
           },
           "selectionMode": {
-            "description": "How many options the user may pick. Requires options; defaults to single_select.",
             "type": "string",
             "enum": [
               "single_select",
               "multi_select"
-            ]
+            ],
+            "description": "How many options the user may pick. Requires options; defaults to single_select."
           }
         },
         "required": [
@@ -4167,11 +3317,11 @@
         "type": "object",
         "properties": {
           "maxChars": {
-            "default": 6000,
-            "description": "Maximum characters to return",
             "type": "integer",
             "minimum": 100,
-            "maximum": 30000
+            "maximum": 30000,
+            "description": "Maximum characters to return",
+            "default": 6000
           }
         },
         "additionalProperties": false
@@ -4209,20 +3359,20 @@
         "type": "object",
         "properties": {
           "filter": {
-            "default": "interactive",
-            "description": "'interactive' returns only actionable elements; 'all' the full tree",
             "type": "string",
             "enum": [
               "interactive",
               "all"
-            ]
+            ],
+            "description": "'interactive' returns only actionable elements; 'all' the full tree",
+            "default": "interactive"
           },
           "maxChars": {
-            "default": 6000,
-            "description": "Maximum characters of tree text to return",
             "type": "integer",
             "minimum": 500,
-            "maximum": 30000
+            "maximum": 30000,
+            "description": "Maximum characters of tree text to return",
+            "default": 6000
           }
         },
         "additionalProperties": false
@@ -4467,19 +3617,22 @@
         "type": "object",
         "properties": {
           "operation": {
-            "oneOf": [
+            "description": "Exactly one inspection operation and only its valid fields",
+            "anyOf": [
               {
                 "type": "object",
                 "properties": {
                   "action": {
                     "type": "string",
-                    "const": "list"
+                    "enum": [
+                      "list"
+                    ]
                   },
                   "offset": {
-                    "description": "Session offset from a previous truncated list page",
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 10000
+                    "maximum": 10000,
+                    "description": "Session offset from a previous truncated list page"
                   }
                 },
                 "required": [
@@ -4492,13 +3645,15 @@
                 "properties": {
                   "action": {
                     "type": "string",
-                    "const": "read"
+                    "enum": [
+                      "read"
+                    ]
                   },
                   "cursor": {
-                    "description": "Absolute read cursor; omit for retained output or use -1 for the live tail",
                     "type": "integer",
                     "minimum": -1,
-                    "maximum": 9007199254740991
+                    "maximum": 9007199254740991,
+                    "description": "Absolute read cursor; omit for retained output or use -1 for the live tail"
                   },
                   "sessionId": {
                     "type": "string",
@@ -4513,14 +3668,13 @@
                 ],
                 "additionalProperties": false
               }
-            ],
-            "description": "Exactly one inspection operation and only its valid fields"
+            ]
           },
           "root": {
-            "description": "Open folder name or durable id; omit when only one folder is open",
             "type": "string",
             "minLength": 1,
-            "maxLength": 500
+            "maxLength": 500,
+            "description": "Open folder name or durable id; omit when only one folder is open"
           }
         },
         "required": [
@@ -4539,12 +3693,12 @@
         "type": "object",
         "properties": {
           "includeStats": {
-            "description": "Include coverage statistics",
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Include coverage statistics"
           },
           "workspaceIndexOnly": {
-            "description": "Only return the embedding space configured as the current workspace index",
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Only return the embedding space configured as the current workspace index"
           }
         },
         "additionalProperties": false
@@ -4630,8 +3784,9 @@
         "type": "object",
         "properties": {
           "tasks": {
-            "maxItems": 50,
             "type": "array",
+            "maxItems": 50,
+            "description": "The full task list to store (whole-list replace — pass the entire desired list every call). Maximum 50 tasks.",
             "items": {
               "type": "object",
               "properties": {
@@ -4663,8 +3818,7 @@
                 "status"
               ],
               "additionalProperties": false
-            },
-            "description": "The full task list to store (whole-list replace — pass the entire desired list every call). Maximum 50 tasks."
+            }
           }
         },
         "required": [
@@ -4683,16 +3837,16 @@
         "type": "object",
         "properties": {
           "fingerprint": {
-            "description": "Exact diagnostic fingerprint",
             "type": "string",
             "minLength": 1,
-            "maxLength": 256
+            "maxLength": 256,
+            "description": "Exact diagnostic fingerprint"
           },
           "limit": {
-            "description": "Maximum events or groups to inspect (default 50, hard max 200)",
             "type": "integer",
             "minimum": 1,
-            "maximum": 200
+            "maximum": 200,
+            "description": "Maximum events or groups to inspect (default 50, hard max 200)"
           },
           "mode": {
             "type": "string",
@@ -4703,37 +3857,37 @@
             "description": "events returns newest rows; fingerprints groups recurring failures"
           },
           "runId": {
-            "description": "Exact assistant run id",
             "type": "string",
             "minLength": 1,
-            "maxLength": 256
+            "maxLength": 256,
+            "description": "Exact assistant run id"
           },
           "severity": {
-            "description": "Exact severity",
             "type": "string",
             "enum": [
               "warn",
               "error",
               "fatal"
-            ]
+            ],
+            "description": "Exact severity"
           },
           "since": {
-            "description": "Inclusive ISO-8601 lower bound, e.g. 2026-07-20T00:00:00Z",
             "type": "string",
             "minLength": 20,
-            "maxLength": 35
+            "maxLength": 35,
+            "description": "Inclusive ISO-8601 lower bound, e.g. 2026-07-20T00:00:00Z"
           },
           "threadId": {
-            "description": "Exact assistant thread id",
             "type": "string",
             "minLength": 1,
-            "maxLength": 256
+            "maxLength": 256,
+            "description": "Exact assistant thread id"
           },
           "until": {
-            "description": "Inclusive ISO-8601 upper bound, e.g. 2026-07-28T00:00:00Z",
             "type": "string",
             "minLength": 20,
-            "maxLength": 35
+            "maxLength": 35,
+            "description": "Inclusive ISO-8601 upper bound, e.g. 2026-07-28T00:00:00Z"
           }
         },
         "required": [
@@ -5043,21 +4197,22 @@
             "description": "One or two paragraphs summarizing the plan and its goal."
           },
           "risks": {
-            "description": "Optional risks, tradeoffs, or things that could go wrong.",
             "type": "string",
-            "maxLength": 4000
+            "maxLength": 4000,
+            "description": "Optional risks, tradeoffs, or things that could go wrong."
           },
           "steps": {
+            "type": "array",
             "minItems": 1,
             "maxItems": 30,
-            "type": "array",
+            "description": "Ordered implementation steps.",
             "items": {
               "type": "object",
               "properties": {
                 "detail": {
-                  "description": "Optional elaboration of the step (what/why/how).",
                   "type": "string",
-                  "maxLength": 2000
+                  "maxLength": 2000,
+                  "description": "Optional elaboration of the step (what/why/how)."
                 },
                 "title": {
                   "type": "string",
@@ -5070,8 +4225,7 @@
                 "title"
               ],
               "additionalProperties": false
-            },
-            "description": "Ordered implementation steps."
+            }
           },
           "title": {
             "type": "string",
@@ -5080,9 +4234,9 @@
             "description": "Short title for the plan."
           },
           "verification": {
-            "description": "Optional how-to-verify: tests, checks, or acceptance criteria.",
             "type": "string",
-            "maxLength": 4000
+            "maxLength": 4000,
+            "description": "Optional how-to-verify: tests, checks, or acceptance criteria."
           }
         },
         "required": [

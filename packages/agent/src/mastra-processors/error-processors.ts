@@ -42,14 +42,6 @@ function normalizeProvider(provider: string): string {
   return provider.trim().toLowerCase();
 }
 
-/** The built-in local provider proxies inference to the hidden llm-host, which
- * owns its own engine-fault recovery (LOCAL LLM ARCHITECTURE) and has none of
- * the hosted-provider wire quirks (Anthropic prefill, OpenAI stream errors,
- * cross-provider `mastra_messages` reuse) these processors recover from. */
-function isLocalProvider(provider: string): boolean {
-  return normalizeProvider(provider) === 'local';
-}
-
 /**
  * Matches ECONNRESET-class transient stream errors so StreamErrorRetry waits
  * (rather than immediately re-failing) before retrying. Deliberately narrow —
@@ -184,15 +176,8 @@ export function isSubscriptionAuthProvider(provider: string): boolean {
  *    deterministic non-auth errors (e.g. a 400 context-length rejection) eat
  *    the bounded ~3s retry budget before surfacing — accepted for the
  *    transient-error recovery the option buys.
- *
- * Returns `undefined` for the built-in local provider (excluded — see
- * {@link isLocalProvider}), so the bare-Agent path keeps zero error processors
- * there and the default `maxProcessorRetries` is never engaged.
  */
 export function buildAssistantErrorProcessors(provider: string): ErrorProcessor[] | undefined {
-  if (isLocalProvider(provider)) {
-    return;
-  }
   const retryProcessor = new StreamErrorRetryProcessor({
     delayMs: ({ retryCount }) => Math.min(1000 * 2 ** retryCount, STREAM_ERROR_BACKOFF_CAP_MS),
     matchers: [isEconnResetStreamError],
@@ -224,16 +209,10 @@ export function buildAssistantErrorProcessors(provider: string): ErrorProcessor[
  * `inputProcessors` array (buildToolLoopOptions) — NOT the Agent config, which
  * a per-call array would clobber. The two hooks are disjoint stages, so the
  * TokenLimiter's input trimming is unaffected.
- *
- * Returns `undefined` for the local provider (its built-in rules would no-op
- * anyway; excluded for parity with the error stack).
  */
 export function buildProviderHistoryCompatInputProcessor(
   provider: string,
   provenance?: ProviderCallProvenance
 ): Processor | undefined {
-  if (isLocalProvider(provider)) {
-    return;
-  }
   return new CanonicalProviderHistoryCompat(provider, provenance);
 }

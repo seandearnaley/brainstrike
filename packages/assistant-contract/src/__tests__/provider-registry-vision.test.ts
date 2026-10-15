@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { GEMMA4_E2B_MODEL_ID } from '../local-llm.js';
 import { getLlmModelDefinition, listProviders } from '../provider-registry.js';
 
 describe('vision (image input) metadata', () => {
@@ -28,10 +27,6 @@ describe('vision (image input) metadata', () => {
   });
 
   it('marks text-only models as vision-unsupported', () => {
-    // The built-in browser runtime is text-only regardless of the Gemma
-    // architecture's multimodal variants — the transformers.js pipeline
-    // accepts no image parts.
-    expect(getLlmModelDefinition('local', GEMMA4_E2B_MODEL_ID).vision).toBe('unsupported');
     expect(getLlmModelDefinition('openrouter', 'qwen/qwen3-coder-next').vision).toBe('unsupported');
     expect(getLlmModelDefinition('openrouter', 'moonshotai/kimi-k2.6').vision).toBe('unsupported');
     expect(getLlmModelDefinition('openrouter', 'z-ai/glm-5.2').vision).toBe('unsupported');

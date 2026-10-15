@@ -341,7 +341,6 @@ export function useDesktopHostPresentation(
   // React Compiler treats a plain call's arguments as possibly mutated, and a
   // later call made it skip compiling this hook (preserve-manual-memoization).
   const attachmentsAvailability = resolveComposerAttachmentsAvailability({
-    providerGateAvailable: selectedProvider !== 'local',
     selectedModel: selectedDefinition,
   });
   const metadata = useOpenRouterModelMetadata({
@@ -486,10 +485,7 @@ export function useDesktopHostPresentation(
   );
   const onEnableModel = useEnableModel();
   // Toggles write the native and MCP tool preferences the next send captures.
-  const { toolMenu } = useAssistantToolMenu({
-    runsMcpTools: true,
-    selectedProvider: selectedProvider ?? null,
-  });
+  const { toolMenu } = useAssistantToolMenu({ runsMcpTools: true });
   const contextWindow = metadata.modelDef?.contextWindow;
   // The built-in local model's load progress: Main broadcasts the llm-host's
   // loading reports for loads it starts itself, which a host thread's are.

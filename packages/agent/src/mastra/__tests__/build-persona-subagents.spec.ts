@@ -1,5 +1,4 @@
 import { deriveEffectiveInputBudget } from '@brainstrike/assistant-contract';
-import { GEMMA4_E2B_MODEL_ID } from '@brainstrike/assistant-contract/local-llm';
 import {
   type AssistantPersonaDefinition,
   PersonaToolRiskViolationError,
@@ -861,7 +860,7 @@ describe('buildPersonaSubAgents', () => {
         languageModel: fakeModel,
         logger: noopLogger,
         permissionSnapshot: readAllowSnapshot,
-        personas: [makeDomainPersona({ modelId: GEMMA4_E2B_MODEL_ID, provider: 'local' })],
+        personas: [makeDomainPersona({ modelId: 'llama3.2', provider: 'ollama' })],
         provider: 'openai',
         resolvedToolResultBudget: largeParentBudget,
         resolvePinnedModel: () => fakeModel,

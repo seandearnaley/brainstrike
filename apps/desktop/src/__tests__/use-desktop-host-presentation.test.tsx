@@ -72,9 +72,8 @@ const present = (
   host: HostThreadSelectionBinding = NO_SELECTION
 ) => useDesktopHostPresentation(THREAD, host, () => null, providerReadErrors);
 const openAiModel = getProviderModelDefinitions('openai').find((model) => model.type === 'llm');
-const localModel = getProviderModelDefinitions('local').find((model) => model.type === 'llm');
-if (!(openAiModel && localModel)) {
-  throw new Error('The provider catalog lists no OpenAI or built-in local chat model');
+if (!openAiModel) {
+  throw new Error('The provider catalog lists no OpenAI chat model');
 }
 /** A renderer registry row: the Settings cache, not what admission reads. */
 const registryRow = (isEnabled: boolean) => ({
@@ -285,20 +284,6 @@ describe('the host composer gates a send on the provider notice', () => {
     expect(
       result.current.pickerModels?.map(({ id, providerId }) => `${providerId}::${id}`)
     ).toEqual([`openai::${openAiModel.id}`]);
-  });
-
-  test('the built-in local model is enabled by its catalog row, as admission reads it', () => {
-    Object.defineProperty(navigator, 'gpu', { configurable: true, value: {} });
-    configured.current = { discoveryState: 'ready', providers: ['local'] };
-    useAssistantPreferencesStore.setState({ selectedModel: `local::${localModel.id}` });
-    catalog.current = {
-      error: null,
-      loading: false,
-      rows: [{ id: localModel.id, providerId: 'local' }],
-    };
-    const { result } = renderHook(() => present());
-    expect(result.current.disabledReason).toBeUndefined();
-    expect(result.current.isComposerDisabled).toBeUndefined();
   });
 
   test('a dynamically discovered Ollama model sends without any catalog row', async () => {

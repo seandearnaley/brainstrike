@@ -27,11 +27,7 @@ export const MODEL_ID_MIGRATIONS: Readonly<
     'gemini-3-pro-preview': 'gemini-3.1-pro-preview',
   },
   lmstudio: {},
-  local: {
-    'LiquidAI/LFM2.5-1.2B-Instruct-ONNX': 'onnx-community/gemma-4-E2B-it-ONNX',
-    'onnx-community/functiongemma-270m-it-ONNX': 'onnx-community/gemma-4-E2B-it-ONNX',
-    'onnx-community/Qwen3-0.6B-ONNX': 'onnx-community/gemma-4-E2B-it-ONNX',
-  },
+  local: {},
   ollama: {},
   openai: {
     'gpt-3.5-turbo': 'gpt-5.4-mini',

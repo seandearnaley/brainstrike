@@ -40,24 +40,11 @@ describe('error-processor builders', () => {
     ]);
   });
 
-  it('excludes the error stack for the built-in local provider', () => {
-    expect(buildAssistantErrorProcessors('local')).toBeUndefined();
-  });
-
-  it('normalizes the provider before the local check', () => {
-    expect(buildAssistantErrorProcessors('  LOCAL  ')).toBeUndefined();
-  });
-
   it('exposes a ProviderHistoryCompat preemptive instance for hosted providers', () => {
     const processor = buildProviderHistoryCompatInputProcessor('openai');
     expect(processor?.id).toBe('provider-history-compat');
     // The preemptive rules run in processLLMRequest; the instance must implement it.
     expect(typeof processor?.processLLMRequest).toBe('function');
-  });
-
-  it('excludes the preemptive ProviderHistoryCompat for the local provider', () => {
-    expect(buildProviderHistoryCompatInputProcessor('local')).toBeUndefined();
-    expect(buildProviderHistoryCompatInputProcessor('Local')).toBeUndefined();
   });
 
   it('matches ECONNRESET-class transient stream errors, and only those', () => {

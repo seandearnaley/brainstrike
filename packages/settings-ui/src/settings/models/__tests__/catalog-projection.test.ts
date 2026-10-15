@@ -56,13 +56,19 @@ describe('projectCatalogRow', () => {
   });
 
   it('keeps an unpriced model null, never 0', () => {
+    // An on-device model costs nothing to run, which must project as "no
+    // pricing" rather than a zero price the cost panels would then sum.
     const row = projectCatalogRow(
-      makeDbModel({ id: 'onnx-community/gemma-4-E2B-it-ONNX', providerId: 'local' }),
-      'Local'
+      makeDbModel({
+        capabilities: { defaultDimension: 384, type: 'embedding' },
+        id: 'Xenova/bge-small-en-v1.5',
+        providerId: 'local',
+      }),
+      'Local (Browser)'
     );
     expect(row.pricing).toBeNull();
-    expect(row.contextWindow).toBe(8192);
     expect(row.isLocal).toBe(true);
+    expect(row.registered).toBe(true);
   });
 
   it('gives a DB-only row no registry facts at all', () => {

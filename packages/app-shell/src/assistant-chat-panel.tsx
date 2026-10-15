@@ -12,8 +12,10 @@ import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { AssistantProviderModelDefaults } from './assistant-provider-model-defaults';
 import { AssistantUiPanelWrapperLazy } from './assistant-ui-panel-wrapper-lazy';
 import { AssistantProviderSourceProvider } from './hooks/assistant-provider-source';
-import type { AssistantProviderReadError } from './hooks/use-assistant-availability';
-import { useAssistantAvailabilityWithLocal } from './hooks/use-assistant-availability-with-local';
+import {
+  type AssistantProviderReadError,
+  useAssistantAvailability,
+} from './hooks/use-assistant-availability';
 import {
   AssistantProviderStatusContext,
   useAssistantProviderStatus,
@@ -32,7 +34,7 @@ export function AssistantProviderStatusProvider({
 }: {
   readonly children: ReactNode;
 }): ReactElement {
-  const status = useAssistantAvailabilityWithLocal(useHostAssistantStatusFetcher());
+  const status = useAssistantAvailability(useHostAssistantStatusFetcher());
   return <AssistantProviderStatusContext value={status}>{children}</AssistantProviderStatusContext>;
 }
 

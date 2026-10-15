@@ -32,7 +32,6 @@ const MODELS_BY_PROVIDER: Partial<
 > = {
   anthropic: [model('claude-x')],
   lmstudio: [model('lmstudio-a')],
-  local: [],
   ollama: [model('ollama-a')],
   openai: [model('gpt-x'), model('gpt-y')],
 };
@@ -43,10 +42,8 @@ function inputs(
   return {
     configuredProviders: ['openai'],
     discoveryState: 'ready',
-    enabledBuiltInLocalModelIds: [],
     enabledModelIds: new Set<string>(['gpt-x', 'gpt-y', 'claude-x']),
     getProviderLlmModels: (provider) => MODELS_BY_PROVIDER[provider] ?? [],
-    renderedSelectedModel: null,
     selectedModel: null,
     selectedProvider: null,
     ...overrides,
@@ -54,63 +51,6 @@ function inputs(
 }
 
 describe('reconcileModelSelection', () => {
-  describe('built-in local seeding', () => {
-    it('seeds the first downloaded built-in local model when nothing is selected', () => {
-      expect(
-        reconcileModelSelection(
-          inputs({
-            configuredProviders: ['local', 'openai'],
-            enabledBuiltInLocalModelIds: ['gemma-3'],
-            enabledModelIds: new Set(['gemma-3']),
-          })
-        )
-      ).toEqual({
-        compositeKey: 'local::gemma-3',
-        kind: 'select',
-        reason: 'seeded-built-in-local-default',
-      });
-    });
-
-    it('does not seed when a model is already selected', () => {
-      const decision = reconcileModelSelection(
-        inputs({
-          configuredProviders: ['local', 'openai'],
-          enabledBuiltInLocalModelIds: ['gemma-3'],
-          enabledModelIds: new Set(['gemma-3', 'gpt-x']),
-          renderedSelectedModel: 'openai::gpt-x',
-          selectedModel: 'openai::gpt-x',
-          selectedProvider: 'openai',
-        })
-      );
-
-      expect(decision.reason).not.toBe('seeded-built-in-local-default');
-    });
-
-    it('does not seed when the built-in local provider is not configured', () => {
-      expect(
-        reconcileModelSelection(
-          inputs({
-            configuredProviders: ['openai'],
-            enabledBuiltInLocalModelIds: ['gemma-3'],
-            enabledModelIds: new Set(['gemma-3']),
-          })
-        ).reason
-      ).not.toBe('seeded-built-in-local-default');
-    });
-
-    it('does not seed a downloaded model the registry has not enabled', () => {
-      expect(
-        reconcileModelSelection(
-          inputs({
-            configuredProviders: ['local'],
-            enabledBuiltInLocalModelIds: ['gemma-3'],
-            enabledModelIds: new Set<string>(),
-          })
-        ).reason
-      ).not.toBe('seeded-built-in-local-default');
-    });
-  });
-
   describe('discovery gating', () => {
     it.each(['idle', 'loading'] as const)(
       'keeps the current selection while discovery is %s',
@@ -119,7 +59,6 @@ describe('reconcileModelSelection', () => {
           reconcileModelSelection(
             inputs({
               discoveryState,
-              renderedSelectedModel: 'openai::gpt-x',
               selectedModel: 'openai::gpt-x',
               selectedProvider: 'openai',
             })
@@ -133,7 +72,6 @@ describe('reconcileModelSelection', () => {
         reconcileModelSelection(
           inputs({
             configuredProviders: [],
-            renderedSelectedModel: 'openai::gpt-x',
             selectedModel: 'openai::gpt-x',
             selectedProvider: 'openai',
           })
@@ -147,7 +85,6 @@ describe('reconcileModelSelection', () => {
           inputs({
             configuredProviders: [],
             enabledModelIds: new Set(['ollama-a']),
-            renderedSelectedModel: 'ollama::ollama-a',
             selectedModel: 'ollama::ollama-a',
             selectedProvider: 'ollama',
           })
@@ -162,7 +99,6 @@ describe('reconcileModelSelection', () => {
         reconcileModelSelection(
           inputs({
             configuredProviders: ['openai'],
-            renderedSelectedModel: 'anthropic::claude-x',
             selectedModel: 'anthropic::claude-x',
             selectedProvider: 'anthropic',
           })
@@ -176,7 +112,6 @@ describe('reconcileModelSelection', () => {
           inputs({
             configuredProviders: ['openai'],
             enabledModelIds: new Set(['gpt-x', 'lmstudio-a']),
-            renderedSelectedModel: 'lmstudio::lmstudio-a',
             selectedModel: 'lmstudio::lmstudio-a',
             selectedProvider: 'lmstudio',
           })
@@ -192,7 +127,6 @@ describe('reconcileModelSelection', () => {
           inputs({
             configuredProviders: ['ollama'],
             enabledModelIds: new Set(['ollama-a']),
-            renderedSelectedModel: 'ollama::ollama-a',
             selectedModel: 'ollama::ollama-a',
             selectedProvider: 'ollama',
           })
@@ -206,7 +140,6 @@ describe('reconcileModelSelection', () => {
           inputs({
             configuredProviders: ['ollama'],
             enabledModelIds: new Set(['ollama-a']),
-            renderedSelectedModel: 'ollama::retired',
             selectedModel: 'ollama::retired',
             selectedProvider: 'ollama',
           })
@@ -224,7 +157,6 @@ describe('reconcileModelSelection', () => {
           inputs({
             configuredProviders: ['ollama', 'openai'],
             enabledModelIds: new Set(['gpt-x']),
-            renderedSelectedModel: 'ollama::retired',
             selectedModel: 'ollama::retired',
             selectedProvider: 'ollama',
           })
@@ -242,7 +174,6 @@ describe('reconcileModelSelection', () => {
       expect(
         reconcileModelSelection(
           inputs({
-            renderedSelectedModel: 'openai::gpt-x',
             selectedModel: 'openai::gpt-x',
             selectedProvider: 'openai',
           })
@@ -256,7 +187,6 @@ describe('reconcileModelSelection', () => {
           inputs({
             configuredProviders: ['openai'],
             enabledModelIds: new Set(['gpt-y']),
-            renderedSelectedModel: 'openai::gpt-x',
             selectedModel: 'openai::gpt-x',
             selectedProvider: 'openai',
           })
@@ -289,7 +219,6 @@ describe('reconcileModelSelection', () => {
           inputs({
             configuredProviders: ['openai'],
             enabledModelIds: new Set<string>(),
-            renderedSelectedModel: 'openai::gpt-x',
             selectedModel: 'openai::gpt-x',
             selectedProvider: 'openai',
           })
@@ -306,59 +235,6 @@ describe('reconcileModelSelection', () => {
           })
         )
       ).toEqual({ kind: 'keep', reason: 'nothing-selected-and-nothing-available' });
-    });
-
-    /**
-     * The built-in local provider advertises no catalog entries, so
-     * `providerHasEnabledModels` accepts it on the strength of a DOWNLOADED
-     * model id while `resolveProviderModelSelection` (catalog-only) returns
-     * nothing. This is the one place the two predicates could disagree, and the
-     * `?? enabledBuiltInLocalModelIds[0]` fallback is what keeps them in step —
-     * which is also why `candidate-provider-has-no-selectable-model` stays
-     * unreachable. Pin the fallback so the guard never becomes live silently.
-     */
-    it('falls back to a downloaded built-in local model when its catalog is empty', () => {
-      expect(
-        reconcileModelSelection(
-          inputs({
-            configuredProviders: ['local'],
-            enabledBuiltInLocalModelIds: ['gemma-3'],
-            enabledModelIds: new Set<string>(),
-            renderedSelectedModel: 'local::retired',
-            selectedModel: 'local::retired',
-            selectedProvider: 'local',
-          })
-        )
-      ).toEqual({
-        compositeKey: 'local::gemma-3',
-        kind: 'select',
-        reason: 'reconciled-from-registry',
-      });
-    });
-  });
-
-  describe('render-vs-live selection snapshots', () => {
-    // The seed branch reads the RENDER-captured `selectedModel` while the rest
-    // of the reconcile reads the live store; the extraction preserves that
-    // divergence rather than quietly changing it. Pinned so a future
-    // simplification is a deliberate choice, not an accident.
-    it('gates seeding on the rendered snapshot, not the live one', () => {
-      expect(
-        reconcileModelSelection(
-          inputs({
-            configuredProviders: ['local'],
-            enabledBuiltInLocalModelIds: ['gemma-3'],
-            enabledModelIds: new Set(['gemma-3']),
-            renderedSelectedModel: null,
-            selectedModel: 'local::gemma-3',
-            selectedProvider: 'local',
-          })
-        )
-      ).toEqual({
-        compositeKey: 'local::gemma-3',
-        kind: 'select',
-        reason: 'seeded-built-in-local-default',
-      });
     });
   });
 });

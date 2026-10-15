@@ -13,8 +13,9 @@ import type { PlatformBridge } from '../platform-bridge';
  * links — it would just log instead of navigating.
  */
 
-vi.mock('../hooks/use-assistant-availability-with-local', () => ({
-  useAssistantAvailabilityWithLocal: () => ({
+vi.mock('../hooks/use-assistant-availability', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../hooks/use-assistant-availability')>()),
+  useAssistantAvailability: () => ({
     model: 'claude-opus-5',
     provider: 'anthropic',
     providers: ['anthropic'],

@@ -3923,11 +3923,10 @@
     "runtime": "hosted"
   },
   {
-    "_note": "transformers.js generate() is not streaming",
     "authType": "none",
     "capabilities": {
       "embeddings": true,
-      "llm": true,
+      "llm": false,
       "streaming": false
     },
     "catalog": {
@@ -3939,42 +3938,6 @@
     "displayName": "Local (Browser)",
     "id": "local",
     "models": [
-      {
-        "_note": "These are the RUNTIME budgets, not Gemma 4 E2B's architectural limits\n(the model spec lists ~128K context). The local provider runs q4f16\nweights through transformers.js on WebGPU, where prefilling a large\nprompt allocates an O(seq^2) attention buffer that exhausts GPU memory\nand aborts ONNX Runtime (SafeInt overflow / std::bad_alloc) well below\nthe architectural window — empirically in the low thousands of tokens\non a typical device. Declaring 131_072/8192 told the context-budget\nmachinery (deriveEffectiveInputBudget -> agentLoop.inputTokenLimit ->\nMastra TokenLimiter) and the meter that ~128K was usable, so multi-turn\nand tool-calling contexts ballooned straight into an OOM crash. These\nconservative values keep the assembled prompt bounded and cap local\ngeneration; a prompt that still exceeds a given device's GPU is caught\nby the engine-fault reset in llm-host-runtime (recovers + reports\ninstead of poisoning the session). NOTE: this is RUNTIME-only metadata\n(no DB model-catalog migration). The DB catalog row (migration\n028-gemma-local-llm.ts) still carries the DESCRIPTIVE\ncapabilities.contextWindow: 131072, which is intentionally NOT\nconsulted for budgeting — this static registry value is the sole\nbudget source for the built-in 'local' provider — so the two\ndiverging is harmless, not a bug. The deeper fix for reliable local\ntool-calling is a leaner local system-prompt/tool-schema footprint.",
-        "catalog": {
-          "bestFor": [
-            "General tasks",
-            "Coding",
-            "Tool calling",
-            "Local reasoning"
-          ],
-          "capabilities": {
-            "contextWindow": 131072,
-            "toolCalling": true
-          },
-          "description": null,
-          "enabled": true,
-          "icon": null,
-          "name": "Gemma 4 E2B",
-          "parameters": {
-            "architecture": "Gemma 4 E2B",
-            "device": "webgpu",
-            "quantization": "q4f16",
-            "size": "~3.9GB (text-only q4f16)"
-          },
-          "sortOrder": 7,
-          "tagline": "Desktop and browser local reasoning model with WebGPU acceleration"
-        },
-        "contextWindow": 8192,
-        "default": true,
-        "id": "onnx-community/gemma-4-E2B-it-ONNX",
-        "label": "Gemma 4 E2B",
-        "maxOutputTokens": 2048,
-        "supportsStreaming": false,
-        "tagline": "Runs privately on this device",
-        "type": "llm",
-        "vision": "unsupported"
-      },
       {
         "_note": "BST-1993: Settings recommends granite only with WebGPU, by the embedding\nhost's own detection. On the BST-1922 eval its WASM q8 took 33 s per\n64-chunk batch with a 4.2 GB hidden-host peak, against 26.5 s and 2.2 GB\nfor BGE Small q8, which is recommended without WebGPU instead. Its CLS\npooling, pinned revision and per-device execution dtype live here; web seed migration 149 projects this same profile.",
         "catalog": {

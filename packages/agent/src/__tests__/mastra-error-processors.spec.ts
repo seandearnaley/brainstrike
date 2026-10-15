@@ -23,7 +23,6 @@ import type {
   LanguageModelV2CallOptions,
   LanguageModelV2StreamPart,
 } from '@ai-sdk/provider';
-import { GEMMA4_E2B_MODEL_ID } from '@brainstrike/assistant-contract';
 import type {
   AgentConfig,
   AgentExecutionOptionsBase,
@@ -52,7 +51,6 @@ vi.mock('../providers/provider-factory', async (importActual) => {
       ({
         anthropic: 'claude-sonnet-5',
         google: 'gemini-3.5-flash',
-        local: 'onnx-community/gemma-4-E2B-it-ONNX',
         openrouter: 'openai/gpt-5.6-terra',
       })[provider] ?? 'gpt-5.6-terra',
   };
@@ -401,23 +399,6 @@ describe('mastra error processors (real @mastra/core/agent loop)', () => {
       'provider-history-compat',
       'stream-error-retry-processor',
     ]);
-  });
-
-  it('omits the error stack for the built-in local provider', async () => {
-    modelHolder.current = createScriptedModel({ attempts: [{ kind: 'success' }], finalText: 'ok' });
-
-    const iterator = await streamMastraAgent(
-      [{ id: 'u1', parts: [{ text: 'hi', type: 'text' }], role: 'user' }],
-      { runtime: { model: GEMMA4_E2B_MODEL_ID, provider: 'local' } }
-    );
-    await drain(iterator);
-
-    const config = agentConfigs[0] as {
-      maxProcessorRetries?: number;
-      errorProcessors?: unknown;
-    };
-    expect(config.errorProcessors).toBeUndefined();
-    expect(config.maxProcessorRetries).toBeUndefined();
   });
 
   it('clamps a provider Retry-After wait to the backoff ceiling (direct processor)', async () => {

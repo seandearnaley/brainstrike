@@ -1,6 +1,5 @@
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
-import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolMenuConfig, AssistantToolMenuItem } from '@brainstrike/assistant-ui';
 import { useCallback, useMemo } from 'react';
@@ -16,7 +15,6 @@ import { useAssistantMcpMenuState } from './use-assistant-mcp-menu-state';
 interface UseAssistantToolMenuArgs {
   /** The thread's runs bind MCP tools (host threads); a legacy thread lists them disabled. */
   readonly runsMcpTools: boolean;
-  readonly selectedProvider: SupportedProvider | null;
 }
 
 interface AssistantToolMenu {
@@ -32,14 +30,12 @@ interface AssistantToolMenu {
  */
 export function useAssistantToolMenu({
   runsMcpTools,
-  selectedProvider,
 }: UseAssistantToolMenuArgs): AssistantToolMenu {
   const nativeToolStates = useNativeToolPreferencesStore((state) => state.toolStates);
   const setNativeToolEnabled = useNativeToolPreferencesStore((state) => state.setToolEnabled);
   const openSettings = usePanelLayoutStore((state) => state.openSettings);
   const nativeToolIds = resolveAdvertisedNativeToolIds({
     desktopBridgeAvailable: hasDesktopRuntimeBridge(),
-    selectedProvider,
   });
   const nativeToolItems = useMemo<AssistantToolMenuItem[]>(
     () =>

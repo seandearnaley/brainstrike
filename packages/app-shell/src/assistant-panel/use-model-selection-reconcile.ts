@@ -22,7 +22,6 @@ interface UseModelSelectionReconcileArgs {
   readonly clearModel: () => void;
   readonly configuredProviders: readonly SupportedProvider[];
   readonly discoveryState: AssistantProviderDiscoveryState;
-  readonly enabledBuiltInLocalModelIds: readonly string[];
   readonly enabledModelIds: ReadonlySet<string>;
   readonly getProviderLlmModels: (
     provider: SupportedProvider
@@ -30,8 +29,6 @@ interface UseModelSelectionReconcileArgs {
   /** Live store read — the reconcile runs after commit, so it must not use a render snapshot. */
   readonly getSelectedModel: () => string | null;
   readonly getSelectedProvider: () => SupportedProvider | null;
-  /** Render-captured selection; gates built-in-local seeding (see the inputs doc). */
-  readonly renderedSelectedModel: string | null;
   readonly setModel: (compositeKey: string) => void;
 }
 
@@ -39,22 +36,18 @@ export function useModelSelectionReconcile({
   clearModel,
   configuredProviders,
   discoveryState,
-  enabledBuiltInLocalModelIds,
   enabledModelIds,
   getProviderLlmModels,
   getSelectedModel,
   getSelectedProvider,
-  renderedSelectedModel,
   setModel,
 }: UseModelSelectionReconcileArgs): void {
   useEffect(() => {
     const decision = reconcileModelSelection({
       configuredProviders,
       discoveryState,
-      enabledBuiltInLocalModelIds,
       enabledModelIds,
       getProviderLlmModels,
-      renderedSelectedModel,
       selectedModel: getSelectedModel(),
       selectedProvider: getSelectedProvider(),
     });
@@ -81,12 +74,10 @@ export function useModelSelectionReconcile({
     clearModel,
     configuredProviders,
     discoveryState,
-    enabledBuiltInLocalModelIds,
     enabledModelIds,
     getProviderLlmModels,
     getSelectedModel,
     getSelectedProvider,
-    renderedSelectedModel,
     setModel,
   ]);
 }

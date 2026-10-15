@@ -5,9 +5,8 @@
  * Drives the REAL Mastra agent loop (`streamMastraAgent`) against the REAL
  * host string-replace tool (the agent host's live executor fold, `_host-native-tools`) — its real
  * `execute`, the real fuzzy-match cascade, real path containment, and a real
- * temp-dir workspace. Only the language model is scripted (provider 'local' with
- * an injected `LocalLlmHostClient`, mirroring write-workspace-file-live-loop.test.ts
- * — no API key, no network).
+ * temp-dir workspace. Only the language model is scripted, through
+ * `modelOverride` (`_scripted-chat-model.ts`) — no API key, no network.
  *
  * Proves a real Agent can call stringReplace, the matched block on a REAL file is
  * surgically replaced while the rest of the file is left intact, and the tool
@@ -18,18 +17,17 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
-import type {
-  LocalLlmGenerationResult,
-  LocalLlmHostClient,
-  LocalLlmHostGenerateRequest,
-  LocalLlmHostRequestOptions,
-} from '@brainstrike/agent/local-llm';
 import {
   EDIT_FAILURE_HINT_MESSAGE,
   resetToolCallLoopGuards,
 } from '@brainstrike/host-capabilities/native-tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildHostNativeTools } from './_host-native-tools';
+import {
+  createScriptedChatModel,
+  type ScriptedChatModel,
+  scriptedLoopOptions,
+} from './_scripted-chat-model';
 import { requireTool, requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
@@ -39,59 +37,29 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 
 const { streamMastraAgent } = await import('@brainstrike/agent');
 
-const USAGE = { completionTokens: 4, promptTokens: 8, totalTokens: 12 } as const;
-
 beforeEach(() => {
   resetToolCallLoopGuards();
 });
 
-function createScriptedHostClient(args: {
+function createScriptedStringReplaceModel(args: {
   path: string;
   oldStr: string;
   newStr: string;
-}): LocalLlmHostClient & { requests: LocalLlmHostGenerateRequest[] } {
-  const requests: LocalLlmHostGenerateRequest[] = [];
-  return {
-    generate: (
-      request: LocalLlmHostGenerateRequest,
-      options: LocalLlmHostRequestOptions = {}
-    ): Promise<LocalLlmGenerationResult> => {
-      requests.push(request);
-      const hasToolResponse = request.messages.some(
-        (message) => message.role === 'tool' && message.toolResponses !== undefined
-      );
-      if (hasToolResponse) {
-        options.onProgress?.({ kind: 'text', text: 'Edited ' });
-        options.onProgress?.({ kind: 'text', text: 'Edited the file.' });
-        return Promise.resolve({
-          finishReason: 'stop',
-          text: 'Edited the file.',
-          usage: USAGE,
-        });
-      }
-      return Promise.resolve({
-        finishReason: 'tool_calls',
-        text: '',
-        toolCalls: [
-          {
-            function: {
-              arguments: JSON.stringify({
-                newStr: args.newStr,
-                oldStr: args.oldStr,
-                path: args.path,
-              }),
-              name: 'brainstrike_stringReplaceWorkspaceFile',
+}): ScriptedChatModel {
+  return createScriptedChatModel((completed) =>
+    completed.includes('brainstrike_stringReplaceWorkspaceFile')
+      ? { chunks: ['Edited ', 'the file.'], kind: 'text' }
+      : {
+          calls: [
+            {
+              input: { newStr: args.newStr, oldStr: args.oldStr, path: args.path },
+              toolCallId: 'call-sr-1',
+              toolName: 'brainstrike_stringReplaceWorkspaceFile',
             },
-            id: 'call-sr-1',
-            type: 'function',
-          },
-        ],
-        usage: USAGE,
-      });
-    },
-    requests,
-    warmup: vi.fn().mockResolvedValue(undefined),
-  };
+          ],
+          kind: 'tool-call',
+        }
+  );
 }
 
 describe('stringReplaceWorkspaceFile live Mastra loop (real agent, real tool execute)', () => {
@@ -120,7 +88,7 @@ describe('stringReplaceWorkspaceFile live Mastra loop (real agent, real tool exe
       const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
       const editTool = requireTool(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
-      const hostClient = createScriptedHostClient({
+      const model = createScriptedStringReplaceModel({
         newStr: '  retries: 5,',
         oldStr: '  retries: 3,',
         path: targetPath,
@@ -135,12 +103,7 @@ describe('stringReplaceWorkspaceFile live Mastra loop (real agent, real tool exe
           },
         ],
         {
-          runtime: {
-            localLlmHostClient: hostClient,
-            model: 'onnx-community/gemma-4-E2B-it-ONNX',
-            provider: 'local',
-            providerOptions: { local: { thinking: { enabled: false } } },
-          } as RuntimeData,
+          ...scriptedLoopOptions(model),
           tools: { 'brainstrike.stringReplaceWorkspaceFile': editTool },
         }
       );

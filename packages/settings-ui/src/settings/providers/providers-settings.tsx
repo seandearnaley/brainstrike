@@ -2,7 +2,6 @@ import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-r
 import type { DbModel } from '@brainstrike/app-state/stores/model-registry-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import type { DeprecatedEnvVarReport, ProviderKeySource } from '@brainstrike/assistant-contract';
-import { hasDesktopLlmHost } from '@brainstrike/assistant-contract/local-llm-device';
 import {
   listProviders,
   PROVIDER_DEFAULT_ENABLED_MODELS,
@@ -93,18 +92,15 @@ export function ProvidersSettings({
   const [expandedProviderId, setExpandedProviderId] = useState<string | null>(null);
   const [highlight, setHighlight] = useState<HighlightTarget | null>(null);
 
-  // Registry-derived, never a provider-id branch: a `browser`-runtime provider
-  // does its inference in a renderer, which for the built-in local model means
-  // the desktop hidden llm-host (ADR-0007/0015). Listing one on a surface that
-  // cannot reach that host — hosted web, or a desktop whose llm-host never
-  // started — would advertise models the user can enable but never run, so
-  // withhold the card entirely.
-  const availableDefinitions = useMemo(() => {
-    const definitions = listProviders();
-    return hasDesktopLlmHost()
-      ? definitions
-      : definitions.filter((definition) => definition.runtime !== 'browser');
-  }, []);
+  // Every card on this page is a credential or a connection to configure. The
+  // built-in on-device provider is keyless and embeddings-only, so it has
+  // neither: its models are chosen in Settings → Embedding, which owns the
+  // on-device embedding runtime. Registry-derived (`runtime`), never a
+  // provider-id branch (provider-branch-guard.test.ts).
+  const availableDefinitions = useMemo(
+    () => listProviders().filter((definition) => definition.runtime !== 'browser'),
+    []
+  );
 
   const groups = useMemo(
     () =>

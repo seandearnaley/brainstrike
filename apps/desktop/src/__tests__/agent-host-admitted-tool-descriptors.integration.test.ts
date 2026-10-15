@@ -128,7 +128,6 @@ afterEach(async () => {
 });
 
 const HOSTED = { model: 'gpt-6-sol', provider: 'openai' } as const;
-const LOCAL = { model: 'onnx-community/gemma-4-E2B-it-ONNX', provider: 'local' } as const;
 
 /** Every catalog tool enabled, so each admission shows exactly what its own rules keep. */
 function request(
@@ -180,7 +179,6 @@ const worktreeService = {
 
 const ADMISSIONS = {
   hosted: { request: request(HOSTED, { skills: true }), worktrees: true },
-  local: { request: request(LOCAL), worktrees: true },
   'no-worktree-service': { request: request(HOSTED), worktrees: false },
   'plan-mode': { request: request(HOSTED, { planMode: true, skills: true }), worktrees: true },
 } as const;
