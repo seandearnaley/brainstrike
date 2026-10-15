@@ -3,7 +3,7 @@
 ## Scope and authority
 
 Work on a focused branch from current `main`; merge back to `main`. Keep at most
-three open PRs. The owner's current request defines the outcome and scope.
+five open PRs. The owner's current request defines the outcome and scope.
 
 Use code, tests and tool configuration for implementation details. Architectural
 decisions live in `docs/adr/`; newer owner decisions supersede older ones.
