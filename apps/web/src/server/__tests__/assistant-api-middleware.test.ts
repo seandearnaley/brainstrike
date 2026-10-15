@@ -2,17 +2,42 @@ import { EventEmitter } from 'node:events';
 import type http from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+/**
+ * The assistant handler itself is covered in `assistant-stream-helpers.test.ts`.
+ * This suite owns the middleware around it, so one case needs the handler to
+ * fail AFTER it has written headers; everything else runs the real handler.
+ */
+let handleAssistantEndpointOverride:
+  | ((req: http.IncomingMessage, res: http.ServerResponse, bodyText: string) => Promise<void>)
+  | null = null;
+
+vi.mock('../../assistant-stream-helpers', async () => {
+  const actual = await vi.importActual<typeof import('../../assistant-stream-helpers')>(
+    '../../assistant-stream-helpers'
+  );
+  return {
+    ...actual,
+    handleAssistantEndpoint: async (
+      req: http.IncomingMessage,
+      res: http.ServerResponse,
+      bodyText: string
+    ): Promise<void> =>
+      handleAssistantEndpointOverride
+        ? await handleAssistantEndpointOverride(req, res, bodyText)
+        : await actual.handleAssistantEndpoint(req, res, bodyText),
+  };
+});
+
 vi.mock('@brainstrike/agent', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/agent')>('@brainstrike/agent');
   return {
     ...actual,
     resolveDataStreamSession: vi.fn(),
-    toAiSdkStyleStream: vi.fn(),
   };
 });
 
-import type { AssistantDataStreamSession, StreamChunk } from '@brainstrike/agent';
-import { resolveDataStreamSession, toAiSdkStyleStream } from '@brainstrike/agent';
+import type { AssistantDataStreamSession } from '@brainstrike/agent';
+import { resolveDataStreamSession } from '@brainstrike/agent';
 import { createAssistantApiMiddleware } from '../assistant-api-middleware';
 
 class ResponseSink extends EventEmitter {
@@ -82,7 +107,7 @@ function createRequest(
         options.remoteAddress === null ? undefined : (options.remoteAddress ?? '127.0.0.1'),
     },
   });
-  req.url = options.url ?? '/api/chat';
+  req.url = options.url ?? '/api/assistant';
   return req;
 }
 
@@ -193,6 +218,7 @@ describe('assistant API middleware local request boundary', () => {
     ['IPv6 loopback', '::1', '[::1]:8080', 'http://[::1]:8080'],
     ['IPv4-mapped loopback', '::ffff:127.0.0.1', 'localhost:8080', 'http://localhost:8080'],
   ])('admits a same-origin %s request', async (_case, remoteAddress, host, origin) => {
+    vi.stubEnv('OPENAI_API_KEY', 'test-key');
     const middleware = createAssistantApiMiddleware('dev');
     const req = createRequest({ host, origin }, { remoteAddress });
     const res = new ResponseSink();
@@ -210,6 +236,7 @@ describe('assistant API middleware local request boundary', () => {
   });
 
   it('admits a no-Origin local CLI request', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'test-key');
     const middleware = createAssistantApiMiddleware('preview');
     const req = createRequest({});
     const res = new ResponseSink();
@@ -250,6 +277,7 @@ describe('assistant API middleware local request boundary', () => {
   );
 
   it('admits application/json with a charset parameter', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'test-key');
     const middleware = createAssistantApiMiddleware('dev');
     const req = createRequest({ 'content-type': 'Application/JSON; charset=UTF-8' });
     const res = new ResponseSink();
@@ -288,6 +316,10 @@ describe('assistant API middleware local request boundary', () => {
 });
 
 describe('assistant API middleware request body limit', () => {
+  afterEach(() => {
+    handleAssistantEndpointOverride = null;
+  });
+
   beforeEach(() => {
     vi.mocked(resolveDataStreamSession).mockReset();
   });
@@ -357,6 +389,7 @@ describe('assistant API middleware request body limit', () => {
   });
 
   it('returns canonical typed 400 for malformed JSON', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'test-key');
     const middleware = createAssistantApiMiddleware('dev');
     const req = createRequest({});
     const res = new ResponseSink();
@@ -378,7 +411,7 @@ describe('assistant API middleware request body limit', () => {
   it.each([
     [
       'dev',
-      '/api/chat',
+      '/api/assistant',
       '',
       {
         error: 'invalid_json',
@@ -405,7 +438,7 @@ describe('assistant API middleware request body limit', () => {
     ],
     [
       'preview',
-      '/api/chat',
+      '/api/assistant',
       '{}',
       {
         error: 'invalid_request_payload',
@@ -414,7 +447,7 @@ describe('assistant API middleware request body limit', () => {
     ],
     [
       'dev',
-      '/api/chat',
+      '/api/assistant',
       JSON.stringify({ messages: [], system: 'must stay server-owned' }),
       {
         error: 'invalid_request_payload',
@@ -506,14 +539,16 @@ describe('assistant API middleware request body limit', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('destroys a partially written Vite chat response when its stream fails', async () => {
+  it('destroys a partially written Vite assistant response when its stream fails', async () => {
     vi.stubEnv('OPENAI_API_KEY', 'test-key');
-    vi.mocked(toAiSdkStyleStream).mockResolvedValue({
-      async *[Symbol.asyncIterator]() {
-        yield { type: 'text-delta', value: 'partial' } as StreamChunk;
-        throw new Error('provider stream failed');
-      },
-    });
+    // Headers are already out, so the error cannot become a status code; the
+    // middleware must tear the socket down instead of ending a truncated
+    // response that reads as a complete one.
+    handleAssistantEndpointOverride = async (_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.write('partial');
+      throw new Error('provider stream failed');
+    };
     const middleware = createAssistantApiMiddleware('dev');
     const req = createRequest({});
     const res = new ResponseSink();
@@ -524,6 +559,7 @@ describe('assistant API middleware request body limit', () => {
       'data',
       Buffer.from(
         JSON.stringify({
+          data: { provider: 'openai' },
           messages: [{ id: 'u1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
         })
       )

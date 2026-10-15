@@ -6,7 +6,6 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import {
   handleAssistantEndpoint,
-  handleChatEndpoint,
   readBody,
   sendAssistantStatusResponse,
 } from '../assistant-stream-helpers';
@@ -28,7 +27,7 @@ type AssistantApiMiddleware = (
   next: () => void
 ) => Promise<void>;
 
-type AssistantApiRoute = 'assistant' | 'chat' | 'status';
+type AssistantApiRoute = 'assistant' | 'status';
 
 function resolveAssistantApiRoute(req: http.IncomingMessage): AssistantApiRoute | null {
   if (req.method === 'GET' && req.url?.startsWith('/api/assistant/status')) {
@@ -36,9 +35,6 @@ function resolveAssistantApiRoute(req: http.IncomingMessage): AssistantApiRoute 
   }
   if (req.method !== 'POST') {
     return null;
-  }
-  if (req.url?.startsWith('/api/chat')) {
-    return 'chat';
   }
   return req.url?.startsWith('/api/assistant') ? 'assistant' : null;
 }
@@ -95,12 +91,6 @@ export function createAssistantApiMiddleware(mode: 'dev' | 'preview'): Assistant
 
     try {
       const bodyText = await readBody(req, bodyLimitBytes);
-
-      if (route === 'chat') {
-        await handleChatEndpoint(bodyText, res);
-        return;
-      }
-
       await handleAssistantEndpoint(req, res, bodyText);
     } catch (error) {
       if (res.headersSent) {
@@ -120,7 +110,7 @@ export function createAssistantApiMiddleware(mode: 'dev' | 'preview'): Assistant
 
       logger.error(`${mode} assistant API handler failed`, { error });
       res.writeHead(500, JSON_ERROR_HEADERS);
-      res.end(JSON.stringify({ error: `${mode} chat route failed` }));
+      res.end(JSON.stringify({ error: `${mode} assistant route failed` }));
     }
   };
 }

@@ -10,7 +10,7 @@ import {
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { FunctionComponent, PropsWithChildren } from 'react';
-import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import {
   type AssistantProviderSource,
   AssistantProviderSourceProvider,
@@ -63,7 +63,18 @@ function providerSourceWrapper(
   };
 }
 
+/**
+ * Most of this suite is about the discovery plumbing and uses `local` as a
+ * sample keyless provider. The built-in local provider is only OFFERED where
+ * the desktop hidden llm-host exists, so stand that bridge up by default and
+ * let the dedicated cases below take it away.
+ */
+beforeEach(() => {
+  (window as Window & { llmHost?: unknown }).llmHost = { warmup: async () => undefined };
+});
+
 afterEach(() => {
+  (window as Window & { llmHost?: unknown }).llmHost = undefined;
   __resetConfiguredAssistantProvidersForTests();
   __resetAssistantPreferencesStoreForTests();
   useAssistantPreferencesStore.setState({
@@ -369,5 +380,34 @@ describe('useConfiguredAssistantProviders', () => {
         providers: ['openai', 'local', 'ollama'],
       });
     });
+  });
+
+  // One engine only: the built-in local provider cannot run without the
+  // desktop hidden llm-host, so a host that lacks it must not list a provider
+  // whose first turn would fail (hosted web, and desktop without the host).
+  it('withholds the built-in local provider where no desktop llm-host exists', async () => {
+    (window as Window & { llmHost?: unknown }).llmHost = undefined;
+    setProviderDiscovery(async () => ['local', 'ollama']);
+
+    const { result } = renderHook(() => useConfiguredAssistantProviders(), {
+      wrapper: providerSourceWrapper({ kind: 'discovery' }),
+    });
+
+    await waitFor(() => {
+      expect(result.current.providers).toEqual(['ollama']);
+    });
+  });
+
+  it('withholds the built-in local provider from an authoritative list too', () => {
+    (window as Window & { llmHost?: unknown }).llmHost = undefined;
+
+    const { result } = renderHook(() => useConfiguredAssistantProviders(), {
+      wrapper: providerSourceWrapper({
+        kind: 'authoritative',
+        providers: ['openai', 'local'],
+      }),
+    });
+
+    expect(result.current.providers).toEqual(['openai']);
   });
 });

@@ -28,11 +28,6 @@ vi.mock('../assistant-message-text', () => ({
   UserMessageText: () => <div data-testid="markdown-text" />,
 }));
 vi.mock('@assistant-ui/styles/index.css', () => ({}));
-vi.mock('../local-runtime-adapter', () => ({
-  acquireLocalBackend: vi.fn(() => () => {}),
-  createLocalModelAdapter: vi.fn(() => ({ run: vi.fn() })),
-  hasDesktopLlmHost: vi.fn(() => false),
-}));
 
 import { AssistantUiPanel } from '../assistant-ui-panel';
 

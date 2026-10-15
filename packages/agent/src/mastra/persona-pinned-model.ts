@@ -103,9 +103,10 @@ export function createPersonaPinnedModelResolver(
 
     if (pin.provider === 'local') {
       // Renderer-only inference is MANDATORY (docs/agents/local-inference.md).
-      // Without a host client, createProvider('local') falls through to the
-      // in-process backend in Electron main — never allowed. Throw → the
-      // factory skips this persona with subagent_persona_pin_unresolvable.
+      // createProvider('local') also refuses without a host client; checking
+      // here turns a run-fatal error into a per-persona skip, so one
+      // unresolvable pin never takes down the whole delegation set. Throw →
+      // the factory skips this persona with subagent_persona_pin_unresolvable.
       if (!params.runtime?.localLlmHostClient) {
         throw new Error(
           'local model pin requires the local LLM host client (renderer-only inference); ' +

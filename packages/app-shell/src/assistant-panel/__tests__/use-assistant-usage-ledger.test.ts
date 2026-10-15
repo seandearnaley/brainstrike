@@ -78,12 +78,10 @@ function createInput(
       runId: 'run-1',
     }),
     getProviderLlmModels: () => [],
-    localChatTransport: 'data-stream',
     memoryResourceId: 'resource-1',
     prepareRequestData: async () => ({ memory: {} }),
     refreshThreadsAfterRun: () => {},
     selectedMemoryThreadId: THREAD_ID,
-    selectedProvider: 'openai',
     ...overrides,
   };
 }

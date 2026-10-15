@@ -45,7 +45,6 @@ import { createLogger } from '@brainstrike/logging';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   type AssistantRunUsagePayload,
-  hasContextBreakdownChannel,
   type LlmProviderModelDefinition,
   pickCacheTokenFields,
   pickContextMeterUsage,
@@ -85,14 +84,12 @@ export interface UseAssistantUsageLedgerInput {
   readonly getProviderLlmModels: (
     provider: SupportedProvider
   ) => readonly LlmProviderModelDefinition[];
-  readonly localChatTransport: 'data-stream' | 'local-runtime';
   readonly memoryResourceId: string;
   /** Request composition — the run-start event; the ledger wraps it to reset the live sum. */
   readonly prepareRequestData: PrepareRequestData;
   /** Thread recency/ordering refresh fired after each turn's usage lands. */
   readonly refreshThreadsAfterRun: () => void;
   readonly selectedMemoryThreadId: string | undefined;
-  readonly selectedProvider: SupportedProvider | null;
 }
 
 export interface AssistantUsageLedger {
@@ -113,12 +110,10 @@ export function useAssistantUsageLedger({
   completePreparedRequest,
   getActiveRunUsageContext,
   getProviderLlmModels,
-  localChatTransport,
   memoryResourceId,
   prepareRequestData,
   refreshThreadsAfterRun,
   selectedMemoryThreadId,
-  selectedProvider,
 }: UseAssistantUsageLedgerInput): AssistantUsageLedger {
   // Durable CUMULATIVE usage for the active thread, hydrated from the DB
   // (honest, not a heuristic). Desktop-only: when the repo is absent (web) the
@@ -282,14 +277,6 @@ export function useAssistantUsageLedger({
   const handleUsage = useCallback(
     (usage: AssistantRunUsagePayload) => {
       const threadId = selectedMemoryThreadId ?? 'active';
-      // A turn on a capability-absent transport (the in-renderer local
-      // runtime) can never have refreshed the breakdown — drop a stale one
-      // left over from an earlier hosted turn on the SAME thread so the
-      // popover never mixes one turn's category rows with another turn's
-      // exact totals (review fix).
-      if (!hasContextBreakdownChannel(selectedProvider, localChatTransport)) {
-        useContextUsageStore.getState().clearBreakdown(threadId);
-      }
       useContextUsageStore.getState().recordUsage(threadId, pickContextMeterUsage(usage));
       // Keep recency, latest-run details, and ordering fresh after each turn.
       // Live title sync handles the later async write and logs subscription failures.
@@ -361,12 +348,10 @@ export function useAssistantUsageLedger({
     [
       assistantThreadRepository,
       getActiveRunUsageContext,
-      localChatTransport,
       memoryResourceId,
       refreshCumulativeUsage,
       refreshThreadsAfterRun,
       selectedMemoryThreadId,
-      selectedProvider,
     ]
   );
 

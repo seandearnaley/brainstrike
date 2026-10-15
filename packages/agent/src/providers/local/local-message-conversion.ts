@@ -1,9 +1,9 @@
 /**
  * Shared AI SDK v2 ↔ local-LLM message/tool conversion.
  *
- * Used by both the in-process LocalLanguageModel (browser/renderer) and the
- * desktop main-process llm-host proxy model, so the Mastra agent loop sees an
- * identical prompt dialect regardless of where Gemma inference executes.
+ * Used by the llm-host proxy model (Electron main → hidden llm-host renderer)
+ * and by the llm-host renderer itself, so the Mastra agent loop sees the same
+ * prompt dialect on both sides of that bridge.
  */
 import type {
   LanguageModelV2CallOptions,
@@ -383,35 +383,4 @@ export function buildV2UsageFromResult(result: LocalLlmGenerationResult): Langua
 export function generateStreamPartId(): string {
   // Preserve compact 9-char IDs for stream consumers; this intentionally narrows to hex ([0-9a-f], ~36-bit space) and accepts minor UUID-generation overhead for low-volume stream-part IDs.
   return generateUUID().replace(/-/g, '').slice(0, 9);
-}
-
-export function segmentTextForStream(text: string): string[] {
-  const normalized = text.trim();
-  if (!normalized) {
-    return [];
-  }
-
-  const chunks: string[] = [];
-  let current = '';
-  const segments = normalized.split(/(\s+)/);
-  for (const segment of segments) {
-    const next = `${current}${segment}`;
-    if (current.length >= 48 && /\s/.test(segment)) {
-      chunks.push(current);
-      current = segment;
-      continue;
-    }
-    if (next.length >= 72 && current.length > 0) {
-      chunks.push(current);
-      current = segment;
-      continue;
-    }
-    current = next;
-  }
-
-  if (current) {
-    chunks.push(current);
-  }
-
-  return chunks.length > 0 ? chunks : [normalized];
 }

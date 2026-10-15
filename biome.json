@@ -515,7 +515,6 @@
         "packages/assistant-ui/src/__tests__/assistant-ui-panel.test.tsx",
         "packages/assistant-ui/src/__tests__/data-stream-runtime.test.ts",
         "packages/ui/src/__tests__/ide-layout.test.tsx",
-        "packages/assistant-ui/src/__tests__/local-runtime-adapter.test.ts",
         "packages/ui/src/__tests__/tree-table.test.tsx",
         "packages/assistant-ui/src/assistant-ui-panel.tsx",
         "packages/assistant-ui/src/data-stream-runtime.ts",

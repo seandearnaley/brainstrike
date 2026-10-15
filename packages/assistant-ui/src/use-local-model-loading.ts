@@ -1,15 +1,14 @@
 /**
- * Local model loading-state management shared by both local chat transports:
- * the in-renderer local runtime (progress callbacks from the adapter) and the
- * data-stream transport (renderer-side warmup before the assistant server
- * streams the Mastra turn).
+ * Local model loading-state management for the built-in local provider, which
+ * always runs over the data-stream transport: the renderer warms the hidden
+ * llm-host before the assistant server streams the Mastra turn.
  *
  * Also subscribes to the desktop llm-host's broadcast loading progress so
  * MAIN-initiated model loads (e.g. the assistant server warming a cold local
  * memory model) surface in the same badge instead of a silent spinner.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { warmDesktopLocalModel } from './local-runtime-adapter';
+import { warmDesktopLocalModel } from './local-runtime-desktop-host';
 
 // Local model loading state for progress display
 export interface LocalModelLoadingState {
@@ -92,7 +91,6 @@ export function useLocalModelLoading(args: {
   localViaDataStream: boolean;
   modelName: string | undefined;
 }): {
-  handleLocalLoadingStateChange: (state: LocalModelLoadingState) => void;
   localLoadingState: LocalModelLoadingState | undefined;
   prepareLocalModel: ((abortSignal?: AbortSignal) => Promise<void>) | undefined;
 } {
@@ -246,5 +244,5 @@ export function useLocalModelLoading(args: {
     };
   }, [handleLocalLoadingStateChange, localViaDataStream, modelName]);
 
-  return { handleLocalLoadingStateChange, localLoadingState, prepareLocalModel };
+  return { localLoadingState, prepareLocalModel };
 }

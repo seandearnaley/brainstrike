@@ -108,6 +108,7 @@ beforeEach(() => {
 
 afterEach(() => {
   (window as unknown as Record<string, unknown>)['secrets'] = undefined;
+  (window as Window & { llmHost?: unknown }).llmHost = undefined;
   vi.restoreAllMocks();
 });
 
@@ -156,6 +157,9 @@ describe('ProvidersSettings — first run', () => {
 describe('ProvidersSettings — card state', () => {
   it('groups providers by runtime in picker order', async () => {
     installSecretsBridge(() => Promise.resolve([]));
+    // A desktop host: the hidden llm-host is reachable, so the browser-runtime
+    // group is offered alongside the rest.
+    (window as Window & { llmHost?: unknown }).llmHost = { warmup: async () => undefined };
 
     render(<ProvidersSettings verifyProvider={idleVerifier} />);
 
@@ -163,6 +167,19 @@ describe('ProvidersSettings — card state', () => {
     expect(screen.getByTestId('provider-group-gateway')).toBeInTheDocument();
     expect(screen.getByTestId('provider-group-local')).toBeInTheDocument();
     expect(screen.getByTestId('provider-group-browser')).toBeInTheDocument();
+  });
+
+  // No second engine exists for a browser-runtime provider, so a host that
+  // cannot reach the llm-host must not advertise models it can never run.
+  it('withholds the browser-runtime group without a desktop llm-host', async () => {
+    installSecretsBridge(() => Promise.resolve([]));
+    (window as Window & { llmHost?: unknown }).llmHost = undefined;
+
+    render(<ProvidersSettings verifyProvider={idleVerifier} />);
+
+    await screen.findByTestId('provider-group-hosted');
+    expect(screen.queryByTestId('provider-group-browser')).not.toBeInTheDocument();
+    expect(screen.getByTestId('provider-group-local')).toBeInTheDocument();
   });
 
   it('names the credential store on the card and reports keyless runtimes distinctly', async () => {

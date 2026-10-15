@@ -8,7 +8,6 @@ vi.mock('../providers/local', () => {
   localInferenceImport();
   return {
     createLlmHostChatModel: vi.fn(),
-    createLocalLanguageModel: vi.fn(),
   };
 });
 
@@ -43,12 +42,11 @@ describe('hosted Web agent entrypoint', () => {
 
     expect('assistantDataStreamSessions' in hostedWebModule).toBe(false);
     expect('LocalLlmBackend' in hostedWebModule).toBe(false);
-    expect('createLocalLanguageModel' in hostedWebModule).toBe(false);
     expect('createLocalHostEmbeddingModel' in hostedWebModule).toBe(false);
     expect(localInferenceImport).not.toHaveBeenCalled();
   });
 
-  it('fails loudly instead of selecting an unregistered in-process local model', async () => {
+  it('fails loudly instead of running the local provider without an llm-host client', async () => {
     const hostedWebModule = await import('../hosted-web');
 
     await expect(
@@ -56,9 +54,7 @@ describe('hosted Web agent entrypoint', () => {
         [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
         { provider: 'local' }
       )
-    ).rejects.toThrow(
-      'The in-process local model factory is unavailable from this agent entrypoint'
-    );
+    ).rejects.toThrow('requires the local LLM host client (renderer-only inference)');
     expect(localInferenceImport).not.toHaveBeenCalled();
   });
 });

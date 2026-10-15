@@ -1,7 +1,6 @@
 import { __resetAssistantPreferencesStoreForTests } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { __resetWorkspaceCollectionSyncStatusStoreForTests } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import {
-  type LocalLlmBackendFactory,
   type ProviderId,
   type SupportedProvider,
   WEB_NATIVE_TOOL_IDS,
@@ -773,6 +772,16 @@ vi.mock('../use-assistant-slash-commands', () => ({
 }));
 
 // Mock the AssistantUiPanel component
+// Defaults to no desktop llm-host bridge, which is what web looks like: the
+// built-in local provider is withheld. Tests flip the mock to cover a desktop
+// host that can actually run it.
+vi.mock('@brainstrike/assistant-contract/local-llm-device', async () => {
+  const actual = await vi.importActual<
+    typeof import('@brainstrike/assistant-contract/local-llm-device')
+  >('@brainstrike/assistant-contract/local-llm-device');
+  return { ...actual, hasDesktopLlmHost: hasDesktopLlmHostMock };
+});
+
 vi.mock('@brainstrike/assistant-ui', async () => ({
   AssistantUiPanel: ({
     onDelegatedConversation,
@@ -793,7 +802,6 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
     completePreparedRequest,
     prepareRequestData,
     contextMenu,
-    localChatTransport,
     requestBodyLimitBytes,
     requestData,
     disabled,
@@ -842,7 +850,6 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
     // mock's root so the wrapper's wiring is assertable: the real panel folds
     // it into the runtime `key`, which a mock cannot demonstrate.
     historyGeneration?: number;
-    localChatTransport?: string;
     requestBodyLimitBytes?: number;
     requestData?: Record<string, unknown>;
     disabled?: boolean;
@@ -940,7 +947,6 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
           Trigger run failed
         </button>
         <div data-testid="panel-disabled">{String(disabled)}</div>
-        <div data-testid="local-chat-transport">{localChatTransport ?? ''}</div>
         <div data-testid="request-body-limit">{requestBodyLimitBytes ?? ''}</div>
         <div data-testid="attachments-availability">
           {JSON.stringify(attachmentsAvailability ?? null)}
@@ -1128,9 +1134,6 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
   // copy-debug-bundle button, so the debug-bundle context is never read.
   DebugBundleProvider: ({ children }: { children: ReactNode }) => children,
   DelegatedApprovalOwnerContext: (await import('react')).createContext(null),
-  // Defaults to no desktop llm-host bridge, so local chat resolves to the
-  // in-renderer transport; tests flip the mock to cover the data-stream route.
-  hasDesktopLlmHost: hasDesktopLlmHostMock,
   // Same passthrough rationale as BudgetGuardrailProvider: the mocked panel
   // never renders a verdict control, so the verdict context is never read.
   RunVerdictProvider: ({ children }: { children: ReactNode }) => children,
@@ -1250,21 +1253,6 @@ afterEach(() => {
   Reflect.deleteProperty(window, '__brainstrikeAssistantRuntimeTestHooks__');
 });
 
-export const loadTestLocalLlmBackend: LocalLlmBackendFactory = async () => ({
-  dispose: async () => undefined,
-  generate: async () => ({
-    finishReason: 'stop',
-    text: '',
-    usage: {
-      completionTokens: 0,
-      promptTokens: 0,
-      totalTokens: 0,
-    },
-  }),
-  initialize: async () => undefined,
-  isReady: () => true,
-});
-
 export const renderAssistantPanel = async (
   providers: string[],
   afterRender?: () => Promise<void>
@@ -1274,10 +1262,7 @@ export const renderAssistantPanel = async (
       <AssistantProviderSourceProvider
         source={{ kind: 'authoritative', providers: providers as SupportedProvider[] }}
       >
-        <AssistantUiPanelWrapper
-          loadLocalLlmBackend={loadTestLocalLlmBackend}
-          providerKeySources={[{ provider: 'openai', source: 'stored' }]}
-        />
+        <AssistantUiPanelWrapper providerKeySources={[{ provider: 'openai', source: 'stored' }]} />
       </AssistantProviderSourceProvider>
     </McpToolsCapabilityProvider>
   );
@@ -1300,7 +1285,6 @@ export const renderAssistantThreadPanel = async (
         source={{ kind: 'authoritative', providers: providers as SupportedProvider[] }}
       >
         <AssistantUiPanelWrapper
-          loadLocalLlmBackend={loadTestLocalLlmBackend}
           memoryResourceId="/tmp/test-workspace"
           memoryThreadId={threadId}
           providerKeySources={[{ provider: 'openai', source: 'stored' }]}
@@ -1341,7 +1325,7 @@ export function TestWrapperTree({ providers }: { readonly providers: readonly Pr
       <AssistantProviderSourceProvider
         source={{ kind: 'authoritative', providers: [...providers] }}
       >
-        <AssistantUiPanelWrapper loadLocalLlmBackend={loadTestLocalLlmBackend} />
+        <AssistantUiPanelWrapper />
       </AssistantProviderSourceProvider>
     </TestMcpToolsProvider>
   );

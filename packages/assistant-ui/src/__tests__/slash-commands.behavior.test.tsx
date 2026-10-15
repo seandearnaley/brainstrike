@@ -31,17 +31,6 @@ vi.mock('../assistant-message-text', () => ({
 
 vi.mock('@assistant-ui/styles/index.css', () => ({}));
 
-// The panel statically imports `local-runtime-adapter` at module load, which
-// transitively pulls `@brainstrike/utils` → `@brainstrike/types` (a value
-// import with no test alias). The data-stream path never constructs the local
-// adapter, so stub the module to cut that chain while keeping the real panel +
-// real @assistant-ui/react runtime.
-vi.mock('../local-runtime-adapter', () => ({
-  acquireLocalBackend: vi.fn(() => () => {}),
-  createLocalModelAdapter: vi.fn(() => ({ run: vi.fn() })),
-  hasDesktopLlmHost: vi.fn(() => false),
-}));
-
 import { expandUserCommandTemplate } from '@brainstrike/assistant-contract';
 import { useState } from 'react';
 import { AssistantUiPanel } from '../assistant-ui-panel';

@@ -10,7 +10,6 @@ import { Profiler } from 'react';
 import { afterEach, describe, expect, test } from 'vitest';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
-import { loadTestLocalLlmBackend } from './assistant-ui-panel-wrapper-test-support';
 
 /**
  * BST-1645.
@@ -46,7 +45,6 @@ describe('AssistantUiPanelWrapper store subscription', () => {
           source={{ kind: 'authoritative', providers: ['openai'] as SupportedProvider[] }}
         >
           <AssistantUiPanelWrapper
-            loadLocalLlmBackend={loadTestLocalLlmBackend}
             providerKeySources={[{ provider: 'openai', source: 'stored' }]}
           />
         </AssistantProviderSourceProvider>

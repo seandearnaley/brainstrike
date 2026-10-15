@@ -1,19 +1,59 @@
 // @vitest-environment jsdom
-import { act, renderHook } from '@testing-library/react';
+import { act, type RenderHookResult, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LocalRuntimeLoadingProgress } from '../local-runtime-desktop-host';
 import { useLocalModelLoading } from '../use-local-model-loading';
 
 const { warmDesktopLocalModelMock } = vi.hoisted(() => ({
   warmDesktopLocalModelMock: vi.fn(
-    async (_options?: { modelId?: string; signal?: AbortSignal }): Promise<void> => undefined
+    async (_options?: {
+      modelId?: string;
+      onLoadingProgress?: (progress: LocalRuntimeLoadingProgress) => void;
+      signal?: AbortSignal;
+    }): Promise<void> => undefined
   ),
 }));
 
-vi.mock('../local-runtime-adapter', () => ({
+vi.mock('../local-runtime-desktop-host', () => ({
   warmDesktopLocalModel: warmDesktopLocalModelMock,
 }));
 
 type ProgressListener = (report: unknown) => void;
+type LoadingHook = ReturnType<typeof useLocalModelLoading>;
+
+/**
+ * Drive the hook the way production does: start a warmup that stays in flight
+ * and push host progress through the `onLoadingProgress` callback the hook
+ * hands to `warmDesktopLocalModel`. Keeping the warmup pending means the
+ * badge reflects mid-load reports instead of jumping straight to "ready".
+ */
+function renderWarmingHook(): {
+  emit: (progress: LocalRuntimeLoadingProgress) => void;
+  result: RenderHookResult<LoadingHook, unknown>['result'];
+} {
+  let onLoadingProgress: ((progress: LocalRuntimeLoadingProgress) => void) | undefined;
+  warmDesktopLocalModelMock.mockImplementation((options) => {
+    onLoadingProgress = options?.onLoadingProgress;
+    return new Promise<void>(() => undefined);
+  });
+
+  const { result } = renderHook(() =>
+    useLocalModelLoading({ localViaDataStream: true, modelName: 'gemma' })
+  );
+
+  act(() => {
+    void result.current.prepareLocalModel?.()?.catch(() => undefined);
+  });
+
+  return {
+    emit: (progress: LocalRuntimeLoadingProgress) => {
+      act(() => {
+        onLoadingProgress?.(progress);
+      });
+    },
+    result,
+  };
+}
 
 describe('useLocalModelLoading', () => {
   let progressListener: ProgressListener | null = null;
@@ -22,7 +62,8 @@ describe('useLocalModelLoading', () => {
   beforeEach(() => {
     progressListener = null;
     unsubscribeMock.mockReset();
-    warmDesktopLocalModelMock.mockClear();
+    warmDesktopLocalModelMock.mockReset();
+    warmDesktopLocalModelMock.mockResolvedValue(undefined);
     (window as Window & { llmHost?: unknown }).llmHost = {
       onProgress: (listener: ProgressListener) => {
         progressListener = listener;
@@ -38,32 +79,20 @@ describe('useLocalModelLoading', () => {
   it('keeps loading progress monotonic within a session (no backwards jumps)', () => {
     vi.useFakeTimers();
     try {
-      const { result } = renderHook(() =>
-        useLocalModelLoading({ localViaDataStream: false, modelName: 'gemma' })
-      );
+      const { emit, result } = renderWarmingHook();
 
+      emit({ message: 'Loading model.onnx', progress: 60, stage: 'loading' });
       act(() => {
-        result.current.handleLocalLoadingStateChange({
-          message: 'Downloading model.onnx',
-          progress: 60,
-          stage: 'downloading',
-        });
-      });
-      act(() => {
-        // Per-file progress resets to 0 for each artifact; the badge must not
-        // jump backwards (the "fast layout shift" jank).
-        result.current.handleLocalLoadingStateChange({
-          message: 'Downloading tokenizer.json',
-          progress: 5,
-          stage: 'downloading',
-        });
+        // Each unkeyed artifact report runs 0→100 of its own; the badge must
+        // not jump backwards (the "fast layout shift" jank).
+        emit({ message: 'Loading tokenizer.json', progress: 5, stage: 'loading' });
         vi.advanceTimersByTime(300);
       });
 
       expect(result.current.localLoadingState).toMatchObject({
-        message: 'Downloading tokenizer.json',
+        message: 'Loading tokenizer.json',
         progress: 60,
-        stage: 'downloading',
+        stage: 'loading',
       });
     } finally {
       vi.useRealTimers();
@@ -76,24 +105,22 @@ describe('useLocalModelLoading', () => {
     // at 100 as soon as ANY small file completed.
     vi.useFakeTimers();
     try {
-      const { result } = renderHook(() =>
-        useLocalModelLoading({ localViaDataStream: false, modelName: 'gemma' })
-      );
+      const { emit, result } = renderWarmingHook();
 
       act(() => {
-        result.current.handleLocalLoadingStateChange({
+        emit({
           file: 'config.json',
           message: 'Loading config.json',
           progress: 100,
           stage: 'loading',
         });
-        result.current.handleLocalLoadingStateChange({
+        emit({
           file: 'onnx/decoder_model_merged_q4f16.onnx_data',
           message: 'Loading onnx/decoder_model_merged_q4f16.onnx_data',
           progress: 20,
           stage: 'loading',
         });
-        result.current.handleLocalLoadingStateChange({
+        emit({
           file: 'onnx/embed_tokens_q4f16.onnx',
           message: 'Loading onnx/embed_tokens_q4f16.onnx',
           progress: 100,
@@ -119,34 +146,15 @@ describe('useLocalModelLoading', () => {
   it('throttles same-stage report bursts to the latest aggregate', () => {
     vi.useFakeTimers();
     try {
-      const { result } = renderHook(() =>
-        useLocalModelLoading({ localViaDataStream: false, modelName: 'gemma' })
-      );
+      const { emit, result } = renderWarmingHook();
 
-      act(() => {
-        result.current.handleLocalLoadingStateChange({
-          file: 'a.onnx',
-          message: 'Loading a.onnx',
-          progress: 10,
-          stage: 'loading',
-        });
-      });
+      emit({ file: 'a.onnx', message: 'Loading a.onnx', progress: 10, stage: 'loading' });
       // First report of the stage applies immediately.
       expect(result.current.localLoadingState).toMatchObject({ progress: 10 });
 
       act(() => {
-        result.current.handleLocalLoadingStateChange({
-          file: 'a.onnx',
-          message: 'Loading a.onnx',
-          progress: 50,
-          stage: 'loading',
-        });
-        result.current.handleLocalLoadingStateChange({
-          file: 'a.onnx',
-          message: 'Loading a.onnx',
-          progress: 90,
-          stage: 'loading',
-        });
+        emit({ file: 'a.onnx', message: 'Loading a.onnx', progress: 50, stage: 'loading' });
+        emit({ file: 'a.onnx', message: 'Loading a.onnx', progress: 90, stage: 'loading' });
       });
       // Burst inside the throttle window: the badge has not flashed through
       // the intermediate values.
@@ -162,31 +170,11 @@ describe('useLocalModelLoading', () => {
   });
 
   it('resets the monotonic floor when a session completes', () => {
-    const { result } = renderHook(() =>
-      useLocalModelLoading({ localViaDataStream: false, modelName: 'gemma' })
-    );
+    const { emit, result } = renderWarmingHook();
 
-    act(() => {
-      result.current.handleLocalLoadingStateChange({
-        message: 'Loading model',
-        progress: 90,
-        stage: 'loading',
-      });
-    });
-    act(() => {
-      result.current.handleLocalLoadingStateChange({
-        message: 'Model ready',
-        progress: 100,
-        stage: 'ready',
-      });
-    });
-    act(() => {
-      result.current.handleLocalLoadingStateChange({
-        message: 'Loading model',
-        progress: 10,
-        stage: 'loading',
-      });
-    });
+    emit({ message: 'Loading model', progress: 90, stage: 'loading' });
+    emit({ message: 'Model ready', progress: 100, stage: 'ready' });
+    emit({ message: 'Loading model', progress: 10, stage: 'loading' });
 
     expect(result.current.localLoadingState).toMatchObject({ progress: 10, stage: 'loading' });
   });
@@ -256,6 +244,16 @@ describe('useLocalModelLoading', () => {
     expect(unsubscribeMock).toHaveBeenCalledTimes(1);
   });
 
+  // The built-in local provider has exactly one transport now, but a panel on
+  // a hosted provider must not warm the local model on every request.
+  it('offers no warmup when the local provider is not selected', () => {
+    const { result } = renderHook(() =>
+      useLocalModelLoading({ localViaDataStream: false, modelName: 'gemma' })
+    );
+
+    expect(result.current.prepareLocalModel).toBeUndefined();
+  });
+
   it('forwards the request-preparation signal to the local-model warmup', async () => {
     const abortController = new AbortController();
     const { result } = renderHook(() =>
@@ -272,6 +270,26 @@ describe('useLocalModelLoading', () => {
         signal: abortController.signal,
       })
     );
+  });
+
+  it('renders a failed warmup as a visible model-load error', async () => {
+    warmDesktopLocalModelMock.mockRejectedValueOnce(
+      new Error('Desktop llm host bridge is unavailable; cannot warm the local model.')
+    );
+    const { result } = renderHook(() =>
+      useLocalModelLoading({ localViaDataStream: true, modelName: 'gemma' })
+    );
+
+    await act(async () => {
+      await expect(result.current.prepareLocalModel?.()).rejects.toThrow(
+        'Desktop llm host bridge is unavailable'
+      );
+    });
+
+    expect(result.current.localLoadingState).toMatchObject({
+      message: 'Desktop llm host bridge is unavailable; cannot warm the local model.',
+      stage: 'error',
+    });
   });
 
   it('does not render Stop-detached local warmup as a model-load error', async () => {

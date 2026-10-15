@@ -14,6 +14,11 @@ capability behavior from registry metadata rather than provider-name heuristics.
 Pricing and model limits belong to the route that serves and bills the request;
 provider-reported cost is authoritative, and catalog rates are estimates.
 
+The built-in `local` provider is desktop-only and has one engine. It resolves
+solely through an injected `runtime.localLlmHostClient` and refuses visibly
+without one; surfaces that cannot reach the desktop hidden llm-host do not
+offer it. See [local inference](local-inference.md).
+
 Prepare provider history through
 [the shared request boundary](../../packages/agent/src/provider-request.ts).
 Keep executed tool provenance and OpenAI call/output identities distinct. Drop

@@ -14,7 +14,6 @@ import {
 } from '../assistant-thread-host-context';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
-import { loadTestLocalLlmBackend } from './assistant-ui-panel-wrapper-test-support';
 
 const { forge } = vi.hoisted(() => ({
   forge: { repository: undefined as AssistantThreadRepository | null | undefined },
@@ -47,7 +46,6 @@ describe('AssistantUiPanelWrapper — forge writer routing', () => {
       <AssistantThreadHostContext.Provider value={host}>
         <AssistantProviderSourceProvider source={{ kind: 'authoritative', providers: ['openai'] }}>
           <AssistantUiPanelWrapper
-            loadLocalLlmBackend={loadTestLocalLlmBackend}
             memoryResourceId="/tmp/test-workspace"
             memoryThreadId="legacy-thread"
             providerKeySources={[{ provider: 'openai', source: 'stored' }]}

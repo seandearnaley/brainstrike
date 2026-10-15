@@ -10,7 +10,7 @@ import {
 } from '@brainstrike/app-state/stores/skills-preferences-store';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/app-state/stores/workspace-instructions-preferences-store';
-import type { LocalLlmBackendFactory, ProviderKeySource } from '@brainstrike/assistant-contract';
+import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import {
   isSupportedProvider,
   type SupportedProvider,
@@ -112,7 +112,6 @@ export interface AssistantUiPanelWrapperProps {
   className?: string;
   fixedProviderModels?: FixedProviderModels;
   isVisible?: boolean;
-  loadLocalLlmBackend?: LocalLlmBackendFactory;
   memoryResourceId?: string;
   memoryThreadId?: string;
   onRunningChange?: (threadId: string, running: boolean) => void;
@@ -134,7 +133,6 @@ declare global {
 export function AssistantUiPanelWrapper({
   isVisible = true,
   fixedProviderModels,
-  loadLocalLlmBackend,
   memoryResourceId: memoryResourceIdOverride,
   memoryThreadId,
   onRunningChange,
@@ -603,8 +601,8 @@ export function AssistantUiPanelWrapper({
   );
   const { assistantThreadRepository, forgeThreadRepository } = useAssistantThreadRepositories(db);
   const {
+    assistantServerAvailable,
     desktopAssistantBackendAvailable,
-    localChatTransport,
     planMode,
     planModeAvailable,
     planModeEnabledPref,
@@ -702,12 +700,10 @@ export function AssistantUiPanelWrapper({
   // run. See `assistant-ui-panel-wrapper-store-subscription.test.tsx` and the
   // "permission-policy freshness at the request-composition seam" suite.
 
-  // Image attachments: every HOSTED provider routes through the data-stream
-  // server path (desktop assistant server AND the web /api/assistant route
-  // share the same image-aware conversion), so only the text-only built-in
-  // local provider is excluded — localChatTransport describes the LOCAL
-  // provider's transport and must not gate hosted providers on web (review
-  // fix). The SELECTED MODEL's vision capability then layers on top: a
+  // Image attachments: every provider streams through a server that shares the
+  // same image-aware conversion (the desktop assistant server and the web
+  // /api/assistant route), so only the text-only built-in local provider is
+  // excluded. The SELECTED MODEL's vision capability then layers on top: a
   // vision-less model renders a visibly disabled attach button with the
   // reason (never a silent hide).
   const attachmentsAvailability = useMemo(
@@ -732,10 +728,10 @@ export function AssistantUiPanelWrapper({
     (state) => state.oversizedOptInByRootId
   );
   // Subagent persona availability (desktop data-stream only; undefined at defaults).
-  const subagentPersonasRequest = useSubagentPersonasRequest(localChatTransport);
+  const subagentPersonasRequest = useSubagentPersonasRequest(assistantServerAvailable);
 
   const workspaceInstructionsPreference = useMemo(() => {
-    if (localChatTransport !== 'data-stream') {
+    if (!assistantServerAvailable) {
       return;
     }
     return {
@@ -743,7 +739,7 @@ export function AssistantUiPanelWrapper({
       oversizedOptInByRootId: workspaceInstructionsOversizedOptIns,
     };
   }, [
-    localChatTransport,
+    assistantServerAvailable,
     workspaceInstructionsMasterEnabled,
     workspaceInstructionsOversizedOptIns,
   ]);
@@ -754,14 +750,14 @@ export function AssistantUiPanelWrapper({
   const skillsMasterEnabled = useSkillsPreferencesStore((state) => state.masterEnabled);
   const skillsDisabledKeys = useSkillsPreferencesStore((state) => state.disabledSkillKeys);
   const skillsPreference = useMemo(() => {
-    if (localChatTransport !== 'data-stream') {
+    if (!assistantServerAvailable) {
       return;
     }
     return buildSkillsContextRequest({
       disabledSkillKeys: skillsDisabledKeys,
       masterEnabled: skillsMasterEnabled,
     });
-  }, [localChatTransport, skillsDisabledKeys, skillsMasterEnabled]);
+  }, [assistantServerAvailable, skillsDisabledKeys, skillsMasterEnabled]);
 
   useEffect(() => {
     if (!assistantThreadRepository || hasFactoryResetPreparationStarted()) {
@@ -780,7 +776,7 @@ export function AssistantUiPanelWrapper({
 
   const { requestData, runtimeMemorySettings } = useAssistantThreadRequestData({
     agentLoopSettings,
-    ...(localChatTransport === 'data-stream' && threadRootBinding
+    ...(assistantServerAvailable && threadRootBinding
       ? { boundWorkspaceRootId: threadRootBinding.rootId }
       : {}),
     enabledNativeToolIds,
@@ -819,8 +815,8 @@ export function AssistantUiPanelWrapper({
     modelSettings: effectiveModelSettings,
     // Only the desktop data-stream server runs the runtime permission gate;
     // mirrors the `permissionPolicyRequest` useMemo transport gate above.
-    permissionEnforceable: localChatTransport === 'data-stream',
-    ...(localChatTransport === 'data-stream'
+    permissionEnforceable: assistantServerAvailable,
+    ...(assistantServerAvailable
       ? {
           persistThreadRootBinding,
           resolveThreadRootBinding,
@@ -1017,12 +1013,10 @@ export function AssistantUiPanelWrapper({
     completePreparedRequest,
     getActiveRunUsageContext,
     getProviderLlmModels,
-    localChatTransport,
     memoryResourceId,
     prepareRequestData,
     refreshThreadsAfterRun,
     selectedMemoryThreadId,
-    selectedProvider,
   });
 
   // OM informational stats (observed tokens + compaction saved). Desktop-only:
@@ -1224,8 +1218,6 @@ export function AssistantUiPanelWrapper({
                 toolMenu={toolMenu}
                 {...(historyAdapter ? { historyAdapter } : {})}
                 historyGeneration={rewindGeneration}
-                {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-                localChatTransport={localChatTransport}
                 {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
                 {...(selectedProvider ? { selectedProvider } : {})}
                 {...(currentModel ? { selectedModel: currentModel } : {})}

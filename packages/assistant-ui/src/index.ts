@@ -121,7 +121,6 @@ export {
   useFollowUpQueueStore,
 } from './follow-up-queue-store';
 export { LiveShellOutputs } from './live-shell-outputs';
-export { hasDesktopLlmHost } from './local-runtime-adapter';
 export {
   McpTaskBridgeProvider,
   type McpTaskBridgeProviderProps,
