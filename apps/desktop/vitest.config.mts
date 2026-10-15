@@ -78,7 +78,7 @@ export const NATIVE_PROCESS_ALIASES = [
 ];
 export const UNDER_ELECTRON = process.versions.electron !== undefined;
 
-const MAIN_IMPORT_TESTS = [
+export const MAIN_IMPORT_TESTS = [
   'src/__tests__/main/boot-order.test.ts',
   'src/__tests__/main/workspace-open-lifecycle.test.ts',
 ];
