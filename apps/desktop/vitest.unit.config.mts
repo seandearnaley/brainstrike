@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 import baseConfig from './vitest.config.mts';
 
@@ -14,6 +15,10 @@ export default defineConfig({
   test: {
     ...baseConfig.test,
     fileParallelism: parallelUnits,
+    // BST-546: fail the run when a test leaves new files in this package.
+    globalSetup: [
+      path.join(import.meta.dirname, 'src/__tests__/helpers/unit-lane-package-write-guard.ts'),
+    ],
     maxWorkers: parallelUnits ? 2 : 1,
   },
 });
