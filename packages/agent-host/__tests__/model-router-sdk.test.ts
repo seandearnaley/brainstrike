@@ -1,11 +1,12 @@
-import { apiKeyAuthInput, createProvider } from '@brainstrike/agent/provider-runtime';
+import {
+  apiKeyAuthInput,
+  collectRouterGenerateResult,
+  createProvider,
+  materializeHostProviderModel,
+} from '@brainstrike/agent/provider-runtime';
 import { modelSupportsTemperature } from '@mastra/core/llm';
 import { generateText, streamText } from 'ai';
 import { afterEach, expect, test, vi } from 'vitest';
-import {
-  collectRouterGenerateResult,
-  materializeHostProviderModel,
-} from '../src/model-router-sdk.js';
 
 // Recorded chat-completion shapes used by the shipped strict-content/provider fixtures.
 const completion = {

@@ -5,8 +5,6 @@ import {
   validateImageAttachmentPart,
 } from '@brainstrike/assistant-contract';
 import { assertAssistantMessageGraphWithinLimits } from './assistant-message-boundary';
-import type { MastraAgentRuntimeOptions } from './mastra/agent-runtime';
-import { streamMastraAgent } from './mastra/agent-streaming';
 import { createRandomId } from './stream/data-stream';
 import type {
   AgentMessage,
@@ -17,10 +15,7 @@ import type {
   AssistantUiNode,
   AssistantUiNodeObject,
   AssistantUiScalar,
-  RuntimeData,
-  StreamIterator,
 } from './types';
-import { injectWorkspaceRootManifestContext } from './workspace-root-manifest';
 
 type NormalizedRole = 'user' | 'assistant' | 'system';
 
@@ -258,57 +253,4 @@ export function convertAssistantUiMessagesWithFinalInput(
     }
   }
   return { finalInputMessage, messages: converted };
-}
-
-// Adapter to Vercel AI SDK v5 style data stream if needed by routes
-export async function toAiSdkStyleStream(
-  messages: AgentMessage[],
-  runtime?: RuntimeData,
-  optionsOverride: Pick<
-    MastraAgentRuntimeOptions,
-    // authInput rides the OPTIONS (a direct parameter), never RuntimeData —
-    // see the BST-1352 threading rule on MastraAgentRuntimeOptions.authInput.
-    | 'authInput'
-    | 'mcpHost'
-    | 'mcpTaskTracking'
-    | 'memory'
-    | 'storage'
-    | 'toolOutputArtifactInlineMaxSerializedCharsByToolName'
-    | 'toolOutputArtifactStore'
-  > = {}
-): Promise<StreamIterator> {
-  const options: MastraAgentRuntimeOptions = { ...optionsOverride };
-  if (runtime) {
-    options.runtime = runtime;
-  }
-  if (runtime?.model) {
-    options.model = runtime.model;
-  }
-  if (runtime?.mcpConfig) {
-    options.mcpConfig = runtime.mcpConfig;
-  }
-  if (runtime?.mastraTools) {
-    options.tools = runtime.mastraTools;
-  }
-  if (runtime?.personas) {
-    options.personas = runtime.personas;
-  }
-
-  const messagesWithRootManifest = injectWorkspaceRootManifestContext(messages, runtime);
-  const streamMessages = runtime?.memory
-    ? selectCurrentTurnMessages(messagesWithRootManifest)
-    : messagesWithRootManifest;
-  return streamMastraAgent(streamMessages, options);
-}
-
-function selectCurrentTurnMessages(messages: AgentMessage[]): AgentMessage[] {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index]?.role === 'user') {
-      const systemMessages = messages
-        .slice(0, index)
-        .filter((message) => message.role === 'system');
-      return [...systemMessages, ...messages.slice(index)];
-    }
-  }
-  throw new Error('Mastra memory requires a current user message');
 }

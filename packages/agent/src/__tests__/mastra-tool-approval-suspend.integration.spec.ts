@@ -69,7 +69,7 @@ const { LlmHostChatModel } = await import('../providers/local/llm-host-chat-mode
 const { GEMMA4_E2B_MODEL_ID } = await import('../providers/local/local-model-specs');
 // The DESKTOP initial-turn path: maps runtime.mastraTools -> options.tools. The
 // regression test below uses it so the wiring matches production exactly.
-const { toAiSdkStyleStream } = await import('../message-utils');
+const { toAiSdkStyleStream } = await import('../mastra/to-ai-sdk-style-stream');
 
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
 

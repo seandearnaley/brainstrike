@@ -1,6 +1,6 @@
-import type { ProviderModelConfiguration } from '@brainstrike/agent/provider-runtime';
 import { ModelRouterLanguageModel } from '@mastra/core/llm';
 import { type LanguageModel, wrapLanguageModel } from 'ai';
+import type { ProviderModelConfiguration } from './provider-factory';
 
 type SdkV3 = Extract<LanguageModel, { specificationVersion: 'v3' }>;
 type StreamResult = Awaited<ReturnType<SdkV3['doStream']>>;

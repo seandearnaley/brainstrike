@@ -28,6 +28,7 @@
     "@modelcontextprotocol/client": "catalog:",
     "@modelcontextprotocol/core": "catalog:",
     "@openrouter/ai-sdk-provider": "catalog:",
+    "ai": "catalog:",
     "fastest-levenshtein": "^1.0.16",
     "minimatch": "catalog:",
     "pino": "catalog:",

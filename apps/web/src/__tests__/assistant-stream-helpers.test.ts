@@ -26,7 +26,6 @@ vi.mock('@brainstrike/agent', async () => {
       return actual.isAssistantToolApprovalAction(action) ? { action } : { invalid: true };
     },
     resolveDataStreamSession: vi.fn(),
-    toAiSdkStyleStream: vi.fn(),
   };
 });
 
@@ -37,6 +36,7 @@ vi.mock('@brainstrike/agent/hosted-web', async () => {
   return {
     ...actual,
     createStatelessAssistantDataStreamResponse: vi.fn(),
+    streamHostedWebTurn: vi.fn(),
   };
 });
 
@@ -63,9 +63,11 @@ import {
   resolveDataStreamSession,
   TOOL_APPROVAL_RUN_CONFIG_KEY,
   TOOL_SUSPEND_RUN_CONFIG_KEY,
-  toAiSdkStyleStream,
 } from '@brainstrike/agent';
-import { createStatelessAssistantDataStreamResponse } from '@brainstrike/agent/hosted-web';
+import {
+  createStatelessAssistantDataStreamResponse,
+  streamHostedWebTurn,
+} from '@brainstrike/agent/hosted-web';
 import {
   handleAssistantEndpoint,
   readBody,
@@ -521,7 +523,7 @@ describe('assistant-stream-helpers', () => {
     expect(JSON.parse(res.body)).toMatchObject({
       error: 'invalid_tool_approval_action',
     });
-    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+    expect(streamHostedWebTurn).not.toHaveBeenCalled();
   });
 
   it('rejects malformed tool suspend resume actions on the web assistant helper route', async () => {

@@ -85,7 +85,7 @@ vi.mock('../providers/provider-factory', async (importActual) => {
 });
 
 const { streamMastraAgent } = await import('../mastra/agent-streaming');
-const { toAiSdkStyleStream } = await import('../message-utils');
+const { toAiSdkStyleStream } = await import('../mastra/to-ai-sdk-style-stream');
 
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
 const MCP_AUDIO_DATA = 'YXVkaW8tYnl0ZXM=';

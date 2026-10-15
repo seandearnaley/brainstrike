@@ -1,3 +1,4 @@
+export { materializeHostProviderModel } from '@brainstrike/agent/provider-runtime';
 export {
   canonicalToolInputJsonSchema,
   canonicalToolInputSchema,
@@ -65,7 +66,6 @@ export {
   assertMcpAuthorityReconstruction,
   McpAuthorityReconstructionError,
 } from './mcp-authority.js';
-export { materializeHostProviderModel } from './model-router-sdk.js';
 export {
   type HostPermissionPolicyStore,
   hostPermissionGate,

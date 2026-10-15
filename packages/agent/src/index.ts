@@ -280,6 +280,7 @@ export {
   listSuspendedChildContinuation,
   listSuspendedMastraRuns,
 } from './mastra/suspended-run-discovery';
+export { toAiSdkStyleStream } from './mastra/to-ai-sdk-style-stream';
 export type { ToolCallTelemetryMetadata } from './mastra/tool-call-telemetry';
 export {
   attachToolCallTelemetryMetadata,
@@ -373,7 +374,6 @@ export {
   type AssistantUiMessageConversionResult,
   convertAssistantUiMessages,
   convertAssistantUiMessagesWithFinalInput,
-  toAiSdkStyleStream,
 } from './message-utils';
 export {
   extractProviderRunError,
