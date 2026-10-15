@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import type { HostClient } from '@brainstrike/agent-host/browser';
+import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopHostConnection } from '../../renderer/desktop-host-connection';
 
@@ -27,6 +29,33 @@ afterEach(() => {
 });
 
 describe('desktop host connection (BST-2004)', () => {
+  it('keeps a refused connect typed and logs it as unavailability, not a failure', async () => {
+    const records: LogRecord[] = [];
+    const remove = addLogListener((record) => {
+      if (record.scope === 'DesktopHostConnection') {
+        records.push(record);
+      }
+    });
+    // Main refuses while the profile is closed, as when the app quits during a reset.
+    const refused = new BoundaryFailureError(
+      refusal({
+        category: 'availability',
+        code: 'native-index-closed',
+        message: 'The search index is closed.',
+      })
+    );
+    try {
+      const connection = createDesktopHostConnection(() => Promise.reject(refused));
+      await expect(connection.current()).rejects.toBe(refused);
+      expect(connection.getSnapshot()).toMatchObject({ kind: 'failed' });
+      // A later caller gets the same typed refusal, not a plain error.
+      await expect(connection.current()).rejects.toBe(refused);
+      expect(records.map((record) => record.level)).toEqual([LogLevel.WARN]);
+    } finally {
+      remove();
+    }
+  });
+
   it('makes one automatic attempt when its client closes, and the next generation replaces it', async () => {
     const first = liveClient();
     const second = liveClient();

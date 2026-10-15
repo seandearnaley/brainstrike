@@ -157,6 +157,14 @@ export class BoundaryFailureError extends Error {
   }
 }
 
+/**
+ * A typed refusal: the owner declined the work (closed, preparing, invalid
+ * input), which callers report as unavailability rather than a fault.
+ */
+export function isBoundaryRefusal(cause: unknown): cause is BoundaryFailureError {
+  return cause instanceof BoundaryFailureError && cause.failure.kind === 'refusal';
+}
+
 /** A typed refusal ready to throw: `throw refusalError('conflict', 'run.already-active', '…')`. */
 export function refusalError(
   category: BoundaryFailureCategory,

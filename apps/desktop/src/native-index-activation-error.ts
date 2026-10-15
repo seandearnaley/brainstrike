@@ -1,3 +1,4 @@
+import { isRetirementRefusal } from './desktop-shutdown-state';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
 import { NativeIndexSetupRequiredError } from './native-index-setup-required';
 
@@ -38,8 +39,13 @@ export function reportNativeIndexActivationError(
   shuttingDown: boolean,
   logger: ActivationLogger
 ): void {
-  if (shuttingDown && error instanceof NativeAuthorityTransitionError) {
-    logger.info('Native index activation retired during shutdown', { reason: error.message });
+  if (
+    shuttingDown &&
+    (error instanceof NativeAuthorityTransitionError || isRetirementRefusal(error))
+  ) {
+    logger.info('Native index activation retired during shutdown', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
     return;
   }
   if (error instanceof NativeIndexSetupRequiredError) {

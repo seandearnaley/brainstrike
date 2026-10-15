@@ -24,6 +24,7 @@ import type { IFileNode, RootDescriptor } from '@brainstrike/types';
 import { ipcMain } from 'electron';
 import { disposeDesktopAndHostCommandSessionsForRoot } from '../agent-host-platform/host-command-session-client';
 import { evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
+import { isExpectedShutdownRefusal } from '../desktop-shutdown-state';
 import {
   createFileReadErrorPayload,
   FILE_READ_ERROR_CODE_NOT_FOUND,
@@ -493,6 +494,8 @@ export function createFileSystemIpcDomain({
     disposeCommandSessionsForRoot,
     evictLspServersForRoot: evictLspServerForRoot,
     getRootsCatalog,
+    // ADR-0015: the catalog refuses once the app quits during a reset; that is expected.
+    isExpectedCatalogRefusal: isExpectedShutdownRefusal,
     onRootGranted: notifyRootGranted,
     pathExists: (rootPath) => ipcPathExists(fileSystem, rootPath),
     resolveCanonicalRoot: async (rootPath) => {

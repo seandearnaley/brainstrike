@@ -471,11 +471,17 @@ describe('MCP settings authority shutdown and snapshot', () => {
 
     expect(watcher?.close).toHaveBeenCalled();
     expect(enabledById()).toEqual({});
-    await expect(h.authority.configStatus()).rejects.toThrow(
-      'MCP settings lifecycle is closed for cleanup'
-    );
+    // A typed refusal: a retired lifecycle refuses work, which is not a fault.
+    const closed = {
+      failure: {
+        code: 'mcp.settings-closed',
+        kind: 'refusal',
+        message: 'MCP settings lifecycle is closed for cleanup',
+      },
+    };
+    await expect(h.authority.configStatus()).rejects.toMatchObject(closed);
     await expect(
       h.authority.setToolsEnabled({ enabled: false, toolIds: ['fs.read'] })
-    ).rejects.toThrow('MCP settings lifecycle is closed for cleanup');
+    ).rejects.toMatchObject(closed);
   });
 });

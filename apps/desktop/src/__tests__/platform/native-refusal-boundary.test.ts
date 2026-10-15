@@ -5,12 +5,20 @@ import {
 } from '@brainstrike/indexing-contract/indexer-client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { canonicalError, canonicalFault } from '../../canonical-utility-protocol';
+import {
+  markDesktopShuttingDown,
+  resetDesktopShutdownStateForTests,
+} from '../../desktop-shutdown-state';
 import { HostedEmbeddingError } from '../../hosted-embedding-error';
 import { settleIpcResult } from '../../platform/desktop-ipc-registry';
 
 const log = vi.hoisted(() => vi.fn());
-vi.mock('@brainstrike/logging', () => ({ createLogger: () => ({ error: log }) }));
-afterEach(() => vi.clearAllMocks());
+const info = vi.hoisted(() => vi.fn());
+vi.mock('@brainstrike/logging', () => ({ createLogger: () => ({ error: log, info }) }));
+afterEach(() => {
+  resetDesktopShutdownStateForTests();
+  vi.clearAllMocks();
+});
 
 const cases: readonly NativeIndexRefusalCause[] = [
   { kind: 'transitioning' },
@@ -98,4 +106,30 @@ it.each([
     expect.objectContaining({ code: `embedding.${kind}` })
   );
   expect(log).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ cause: error }));
+});
+
+it('keeps a closed refusal during quit, with its cause logged at info (ADR-0015)', async () => {
+  markDesktopShuttingDown();
+  const inner = new Error('Factory reset reopen cancelled by terminal quit');
+  const error = new NativeIndexRefusalError(
+    { kind: 'closed', reason: 'root-data-deletion' },
+    'Native index activation is closed for terminal retirement.',
+    { cause: inner }
+  );
+  const wire = await settleIpcResult(
+    { category: 'native-index', code: 'native-index-failed' },
+    () => {
+      throw error;
+    }
+  );
+  expect(wire).toMatchObject({
+    error: { code: 'native-index-closed', kind: 'refusal' },
+    ok: false,
+  });
+  expect(log).not.toHaveBeenCalled();
+  expect(info).toHaveBeenCalledExactlyOnceWith(expect.any(String), {
+    cause: inner,
+    code: error.code,
+    correlationId: expect.any(String),
+  });
 });

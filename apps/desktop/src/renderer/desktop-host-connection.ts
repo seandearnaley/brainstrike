@@ -1,4 +1,9 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
+import {
+  BoundaryFailureError,
+  isBoundaryRefusal,
+  refusal,
+} from '@brainstrike/assistant-contract/boundary-failure';
 import { createLogger } from '@brainstrike/logging';
 import { connectDesktopAgentHost } from './agent-host-client';
 
@@ -27,7 +32,12 @@ export interface DesktopHostConnection {
   readonly subscribe: (listener: () => void) => () => void;
 }
 
-const CLOSING = 'The desktop host view is closing';
+/** The frame is unloading: its views stop asking, so this refusal is not a fault. */
+const CLOSING = refusal({
+  category: 'availability',
+  code: 'host.view-closing',
+  message: 'The desktop host view is closing',
+});
 const messageOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
@@ -44,6 +54,8 @@ export function createDesktopHostConnection(
   let generation = 0;
   let attempt: Promise<HostClient> | undefined;
   let automaticSpent = false;
+  /** The typed cause behind `failed`, so later callers see the same refusal. */
+  let failure: unknown;
   let closing: Promise<void> | undefined;
   const listeners = new Set<() => void>();
   const waiters = new Set<{
@@ -59,7 +71,7 @@ export function createDesktopHostConnection(
         waiter.resolve(next.client);
       } else if (next.kind === 'closed') {
         waiters.delete(waiter);
-        waiter.reject(new Error(CLOSING));
+        waiter.reject(new BoundaryFailureError(CLOSING));
       }
     }
     for (const listener of [...listeners]) {
@@ -70,7 +82,7 @@ export function createDesktopHostConnection(
     const current = connect().then(async (client) => {
       if (closing) {
         await client.close();
-        throw new Error(CLOSING);
+        throw new BoundaryFailureError(CLOSING);
       }
       generation += 1;
       publish({ client, generation, kind: 'connected' });
@@ -90,7 +102,13 @@ export function createDesktopHostConnection(
           attempt = undefined;
         }
         if (!closing) {
-          logger.error('The agent host connection failed', { error: cause });
+          // Main refused (its profile is closed or preparing): unavailability, not a fault.
+          if (isBoundaryRefusal(cause)) {
+            logger.warn('The agent host connection was refused', { error: cause });
+          } else {
+            logger.error('The agent host connection failed', { error: cause });
+          }
+          failure = cause;
           publish({ error: messageOf(cause), kind: 'failed' });
         }
       }
@@ -103,7 +121,8 @@ export function createDesktopHostConnection(
     }
     if (automaticSpent) {
       logger.warn('The agent host connection closed again; waiting for the user to reconnect');
-      publish({ error: 'The agent host stopped again after reconnecting.', kind: 'failed' });
+      failure = new Error('The agent host stopped again after reconnecting.');
+      publish({ error: messageOf(failure), kind: 'failed' });
       return;
     }
     automaticSpent = true;
@@ -139,9 +158,9 @@ export function createDesktopHostConnection(
           window.addEventListener('beforeunload', () => void close(), { once: true });
           return start(false);
         case 'failed':
-          return Promise.reject(new Error(state.error));
+          return Promise.reject(failure ?? new Error(state.error));
         default:
-          return Promise.reject(new Error(CLOSING));
+          return Promise.reject(new BoundaryFailureError(CLOSING));
       }
     },
     getSnapshot: () => state,
@@ -157,7 +176,7 @@ export function createDesktopHostConnection(
         return Promise.resolve(state.client);
       }
       if (closing) {
-        return Promise.reject(new Error(CLOSING));
+        return Promise.reject(new BoundaryFailureError(CLOSING));
       }
       const waiting = Promise.withResolvers<HostClient>();
       waiters.add({ lost: lostClient, reject: waiting.reject, resolve: waiting.resolve });

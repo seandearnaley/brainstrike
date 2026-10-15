@@ -5,6 +5,7 @@ import { listThreadSnapshotChain } from '../assistant-server/snapshot-chains';
 import { execFileSnapshotGitRunner } from '../assistant-server/snapshot-git';
 import type { SnapshotService } from '../assistant-server/snapshot-service';
 import { runSnapshotStartupGc } from '../assistant-server/snapshot-startup-gc';
+import { isExpectedShutdownRefusal } from '../desktop-shutdown-state';
 
 export interface SnapshotStartupMaintenanceDeps {
   readonly logger: Pick<ReturnType<typeof createLogger>, 'error' | 'info' | 'warn'>;
@@ -78,6 +79,12 @@ export function startSnapshotStartupMaintenance({
         skippedInaccessibleRoots: gcReport.skippedInaccessibleRoots.length,
       });
     } catch (error) {
+      if (isExpectedShutdownRefusal(error)) {
+        logger.info('Workspace snapshot orphan sweep stopped: the app is quitting', {
+          reason: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
       logger.error('Workspace snapshot orphan sweep failed', { error, snapshotsBaseDir });
     }
   })();

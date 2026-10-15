@@ -4,6 +4,7 @@ import { mcpToolRegistry } from '@brainstrike/agent/mcp-client';
 import type { HostMcpSettingsService, HostParams, HostResults } from '@brainstrike/agent-host';
 import type { McpSettingsEvent, McpToolsByServer } from '@brainstrike/agent-host/protocol';
 import {
+  BoundaryFailureError,
   MCP_EXTENSIONS_ENABLED,
   type McpExtensionEnablement,
   type McpHostControlRequest,
@@ -13,6 +14,7 @@ import {
   type McpToolPreferencesFault,
   type McpToolPreferencesFaultKind,
   parseMcpExtensionEnablement,
+  refusal,
 } from '@brainstrike/assistant-contract';
 import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
@@ -38,6 +40,12 @@ import type { McpDiscoveredTool } from './types.js';
 
 const logger = createLogger('McpSettingsAuthority');
 const MAX_MCP_CONFIG_TEXT_BYTES = 1_000_000;
+/** A reset or shutdown retired the settings lifecycle: requests are refused, not failed. */
+const MCP_SETTINGS_CLOSED = refusal({
+  category: 'availability',
+  code: 'mcp.settings-closed',
+  message: 'MCP settings lifecycle is closed for cleanup',
+});
 
 /** The in-process MCP runtime the settings commit to. */
 export interface McpSettingsRuntime {
@@ -648,14 +656,14 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
 
   #trackChange<T>(operation: (lifecycleEpoch: number) => Promise<T>): Promise<T> {
     if (!this.#lifecycleOpen) {
-      return Promise.reject(new Error('MCP settings lifecycle is closed for cleanup'));
+      return Promise.reject(new BoundaryFailureError(MCP_SETTINGS_CLOSED));
     }
     return this.#registerChange(operation(this.#lifecycleEpoch));
   }
 
   #trackOperation<T>(operation: (lifecycleEpoch: number) => Promise<T>): Promise<T> {
     if (!this.#lifecycleOpen) {
-      return Promise.reject(new Error('MCP settings lifecycle is closed for cleanup'));
+      return Promise.reject(new BoundaryFailureError(MCP_SETTINGS_CLOSED));
     }
     // Non-reentrant by construction: code already inside a tracked operation
     // must call the *ForLifecycle helpers with its captured epoch. Re-entering

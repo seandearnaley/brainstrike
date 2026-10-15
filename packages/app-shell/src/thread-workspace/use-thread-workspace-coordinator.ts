@@ -2,6 +2,7 @@ import {
   hasFactoryResetPreparationStarted,
   registerFactoryResetPreparation,
 } from '@brainstrike/app-state/factory-reset';
+import { isBoundaryRefusal } from '@brainstrike/assistant-contract/boundary-failure';
 import type {
   ThreadWorkspaceRepository,
   WorkspaceSnapshotEditor,
@@ -23,6 +24,19 @@ const emptySubscribe = () => () => undefined;
 const emptySnapshot = () => 0;
 
 const logger = createLogger('ThreadWorkspaceCoordinator');
+
+/**
+ * A refusal (the profile closed for a reset or quit, or this view closing) is
+ * unavailability, kept at warn; anything else is a failure.
+ */
+function logFailure(message: string, error: unknown, fields: Record<string, unknown> = {}): void {
+  const details = { error: error instanceof Error ? error.message : String(error), ...fields };
+  if (isBoundaryRefusal(error)) {
+    logger.warn(message, details);
+  } else {
+    logger.error(message, details);
+  }
+}
 
 export const THREAD_WORKSPACE_SAVE_DEBOUNCE_MS = 500;
 
@@ -423,10 +437,7 @@ export function useThreadWorkspaceCoordinator({
       }
       navigation?.failed(resourceId, threadId, error);
     }
-    logger.error(message, {
-      error: error instanceof Error ? error.message : String(error),
-      threadId,
-    });
+    logFailure(message, error, { threadId });
   });
   // Before workspace effects: later effects in this hook read facadeRef, and
   // same-commit effect order is declaration order.
@@ -518,9 +529,7 @@ export function useThreadWorkspaceCoordinator({
         }
       })
       .catch((error) => {
-        logger.error('Failed to preload thread workspace snapshots', {
-          error: error instanceof Error ? error.message : String(error),
-        });
+        logFailure('Failed to preload thread workspace snapshots', error);
       });
     return () => {
       cancelled = true;
@@ -720,10 +729,7 @@ export function useThreadWorkspaceCoordinator({
               });
           }
         }
-        logger.error('Failed to load thread workspace snapshot', {
-          error: error instanceof Error ? error.message : String(error),
-          threadId: activeThreadId,
-        });
+        logFailure('Failed to load thread workspace snapshot', error, { threadId: activeThreadId });
       });
   }, [activeThreadId, navigation, navigationRevision, repository, resourceId]);
 }

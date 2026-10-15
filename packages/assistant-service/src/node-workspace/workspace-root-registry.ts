@@ -91,6 +91,7 @@ export class WorkspaceRootRegistry {
   private readonly disposeCommandSessionsForRoot: (rootId: string) => Promise<number>;
   private readonly evictLspServersForRoot: (rootId: string) => Promise<void>;
   private readonly getRootsCatalog: () => Promise<WorkspaceRootPort>;
+  private readonly isExpectedCatalogRefusal: ((error: unknown) => boolean) | undefined;
   private managedWorktreeAuthorizer: ManagedWorktreeAuthorizer | null = null;
   private readonly mounts = new WorkspaceRootMountTable();
   private readonly availability = new WorkspaceRootAvailability();
@@ -115,6 +116,7 @@ export class WorkspaceRootRegistry {
     this.disposeCommandSessionsForRoot = options.disposeCommandSessionsForRoot;
     this.evictLspServersForRoot = options.evictLspServersForRoot;
     this.getRootsCatalog = options.getRootsCatalog;
+    this.isExpectedCatalogRefusal = options.isExpectedCatalogRefusal;
     this.onRootGranted = options.onRootGranted;
     this.pathExists = options.pathExists;
     this.resolveCanonicalRoot = options.resolveCanonicalRoot ?? resolveCanonicalRootPath;
@@ -787,6 +789,10 @@ export class WorkspaceRootRegistry {
       const disconnected = await markRootsDisconnectedExcept(db, mountedPaths);
       await this.cleanupRootResources(disconnected.map((row) => row.id));
     } catch (error) {
+      if (this.isExpectedCatalogRefusal?.(error)) {
+        logger.info('Workspace root database convergence stopped', { error });
+        return;
+      }
       logger.error('Workspace root database convergence failed', { error });
     }
   }

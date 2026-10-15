@@ -5,7 +5,10 @@ import type {
   ModelCatalogSnapshot,
   ProviderModelDefaultPolicy,
 } from '@brainstrike/assistant-contract';
-import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
+import {
+  describeBoundaryError,
+  isBoundaryRefusal,
+} from '@brainstrike/assistant-contract/boundary-failure';
 import {
   type BoundaryTransport,
   callBoundary,
@@ -435,7 +438,12 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
 
           set({ downloadedModels, hasLoaded: true, isLoading: false, models, providers });
         } catch (error) {
-          logger.error('Failed to fetch model registry', error);
+          // A refusal (the profile is closed for a reset or quit) is unavailability.
+          if (isBoundaryRefusal(error)) {
+            logger.warn('Model registry is unavailable', error);
+          } else {
+            logger.error('Failed to fetch model registry', error);
+          }
           set({ error: describeBoundaryError(error), isLoading: false });
         }
       },

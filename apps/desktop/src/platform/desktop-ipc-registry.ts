@@ -1,6 +1,7 @@
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import type { ipcMain as ElectronIpcMain, IpcMainEvent, IpcMainInvokeEvent } from 'electron';
+import { isExpectedShutdownRefusal } from '../desktop-shutdown-state';
 import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import { type DesktopWindowRole, getWindowRoleByWebContentsId } from '../window-role';
 import {
@@ -397,13 +398,18 @@ export async function settleIpcResult<T>(
   try {
     return ipcOk(await run());
   } catch (error) {
+    const quitting = isExpectedShutdownRefusal(error);
     return ipcFailure(
-      nativeIndexBoundaryFailure(error, (message, fields) =>
-        logger.error(
-          message,
-          error instanceof NativeIndexRefusalError ? fields : { ...fields, operation: failure }
-        )
-      )
+      nativeIndexBoundaryFailure(error, (message, fields) => {
+        const details =
+          error instanceof NativeIndexRefusalError ? fields : { ...fields, operation: failure };
+        // ADR-0015: work refused because the app is quitting is the expected outcome.
+        if (quitting) {
+          logger.info(message, details);
+        } else {
+          logger.error(message, details);
+        }
+      })
     );
   }
 }
