@@ -30,13 +30,45 @@
 // process.exit so it can be driven in-process, and refuses to report success on
 // a root it cannot read. See scripts/__tests__/verify-script-entrypoints.test.mjs.
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ESLint } from 'eslint';
 
 const DEFAULT_REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const BASELINE_FILENAME = 'eslint-warning-baseline.json';
+
+// ESLint's result cache, using the content strategy so a checkout, rebase or
+// worktree switch that rewrites mtimes does not discard it. ESLint reuses a
+// file's stored result only when the file's bytes, the ESLint and Node versions
+// and the file's computed config all match. Every enabled rule reads only the
+// file it lints (no type information, no cross-file analysis), so per-file
+// reuse cannot hide a finding another file caused.
+//
+// The computed config names a plugin by its meta.name@meta.version, and that
+// does not track the installed version of either plugin this ratchet counts:
+// eslint-plugin-react-hooks 7.1.1 reports 7.0.0, and eslint-plugin-react-refresh
+// has no meta at all, nor do the stub plugins defined in eslint.config.js. So
+// the cache file is also named for the bytes of the inputs that pin them:
+// a dependency or config change starts an empty cache instead of reusing
+// results the previous toolchain produced. The cache lives under node_modules,
+// so a fresh checkout starts cold.
+//
+// Sandboxed runs may symlink node_modules to a sibling checkout's (see
+// .gitignore), so the file name also carries the checkout's real path, and
+// cleanup removes only this checkout's superseded files. ESLint keys entries by
+// absolute file path, so checkouts could never reuse each other's results.
+const CACHE_DIRECTORY = path.join('node_modules', '.cache', 'eslint');
+const CACHE_FILE_PREFIX = 'warning-baseline-';
+const CACHE_KEY_INPUTS = ['pnpm-lock.yaml', 'eslint.config.js'];
 
 // The lint surface. Kept here rather than in package.json so the target list and
 // the baseline that describes it cannot drift apart; a contract test asserts
@@ -99,6 +131,37 @@ export function parseCliArgs(argv) {
   return { repoRoot, writeBaseline };
 }
 
+/** `warning-baseline-<checkout>-`: the file-name prefix owned by one checkout. */
+function checkoutCachePrefix(repoRoot) {
+  const checkout = createHash('sha256').update(realpathSync(repoRoot)).digest('hex');
+  return `${CACHE_FILE_PREFIX}${checkout.slice(0, 12)}-`;
+}
+
+export function eslintCacheFile(repoRoot) {
+  const key = createHash('sha256');
+  for (const input of CACHE_KEY_INPUTS) {
+    const bytes = readFileSync(path.join(repoRoot, input));
+    key.update(createHash('sha256').update(bytes).digest());
+  }
+  const name = `${checkoutCachePrefix(repoRoot)}${key.digest('hex').slice(0, 16)}.json`;
+  return path.join(repoRoot, CACHE_DIRECTORY, name);
+}
+
+// Each toolchain change leaves this checkout's previous cache file behind.
+// Sibling checkouts' files in a shared node_modules are theirs to manage.
+export function removeSupersededCacheFiles(repoRoot, cacheFile) {
+  const directory = path.dirname(cacheFile);
+  if (!existsSync(directory)) {
+    return;
+  }
+  const prefix = checkoutCachePrefix(repoRoot);
+  for (const entry of readdirSync(directory)) {
+    if (entry.startsWith(prefix) && entry !== path.basename(cacheFile)) {
+      rmSync(path.join(directory, entry), { force: true });
+    }
+  }
+}
+
 function countWarningsByRule(results) {
   const counts = new Map();
   for (const result of results) {
@@ -153,7 +216,14 @@ export async function main({ repoRoot = DEFAULT_REPO_ROOT, writeBaseline = false
   // malformed root, this gives the executable entrypoint test a deterministic
   // proof that its explicit fixture root reached main().
   const baseline = writeBaseline ? undefined : JSON.parse(readFileSync(baselinePath, 'utf8'));
-  const eslint = new ESLint({ cwd: repoRoot });
+  const cacheLocation = eslintCacheFile(repoRoot);
+  removeSupersededCacheFiles(repoRoot, cacheLocation);
+  const eslint = new ESLint({
+    cache: true,
+    cacheLocation,
+    cacheStrategy: 'content',
+    cwd: repoRoot,
+  });
   const results = await eslint.lintFiles(TARGETS);
 
   if (results.length < MIN_LINTED_FILES) {
