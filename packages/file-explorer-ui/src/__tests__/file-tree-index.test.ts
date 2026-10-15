@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { FileHandle, IFileNode } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
 import { FileTreeIndex } from '../tree/file-tree-index';

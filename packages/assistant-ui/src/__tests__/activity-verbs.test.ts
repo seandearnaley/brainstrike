@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { NATIVE_TOOL_ID, NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import { TOOL_VERBS, verbForTool } from '../activity-verbs';

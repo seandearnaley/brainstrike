@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { ComposerPrimitive, unstable_useSlashCommandAdapter } from '@assistant-ui/react';
 import { describe, expect, it } from 'vitest';
 

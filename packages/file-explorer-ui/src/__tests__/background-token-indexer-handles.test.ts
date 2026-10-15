@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { FileHandle, IFileNode } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';

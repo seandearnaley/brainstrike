@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract/tool-approval';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';

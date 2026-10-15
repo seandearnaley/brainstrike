@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { SourceChunkPage, SourceFilesCapability } from '@brainstrike/assistant-contract';
 import { expect, test, vi } from 'vitest';
 import { readNativeFileChunks } from '../native-library-data';

@@ -1,5 +1,5 @@
 // Import shared test utilities setup
-import '@brainstrike/test-utils/vitest.setup';
+import '@brainstrike/test-utils/vitest.dom-aware.setup';
 import { beforeEach } from 'vitest';
 import { resetAppShellSessionStores } from './src/reset-app-shell-session-stores';
 

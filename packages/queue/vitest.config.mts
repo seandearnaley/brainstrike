@@ -21,6 +21,6 @@ export default defineConfig({
     include: ['test/**/*.spec.ts', 'src/**/*.test.ts'],
     reporters: ['default', new LostTestFileReporter()],
     restoreMocks: true,
-    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+    setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
   },
 });

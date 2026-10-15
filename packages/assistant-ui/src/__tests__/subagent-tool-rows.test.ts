@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import {

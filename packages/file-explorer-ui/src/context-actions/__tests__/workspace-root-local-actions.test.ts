@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { ContextTarget, TargetOf } from '@brainstrike/context-actions';
 import { describe, expect, it, vi } from 'vitest';
 import { buildWorkspaceRootLocalActions } from '../workspace-root-local-actions';

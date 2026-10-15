@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * Per-root source dispatch for the metadata seam (BST-1208).
  *

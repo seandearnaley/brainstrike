@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * A decision during a run queues behind the running turn, and appends at once
  * when nothing runs. Never a cancel.

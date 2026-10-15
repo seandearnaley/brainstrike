@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';

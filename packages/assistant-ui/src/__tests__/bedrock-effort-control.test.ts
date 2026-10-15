@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { ReasoningControlsAvailability } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import { buildEffortControlModel } from '../reasoning-effort-controls';

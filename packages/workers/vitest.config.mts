@@ -39,6 +39,6 @@ export default defineConfig({
     // only guard.
     include: ['*.test.ts', '*.test.tsx', '__tests__/**/*.test.{ts,tsx}'],
     reporters: ['default', new LostTestFileReporter()],
-    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+    setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
   },
 });

@@ -109,7 +109,10 @@ export default defineConfig({
     environment: 'happy-dom',
     globals: true,
     reporters: ['default', new LostTestFileReporter()],
-    setupFiles: ['@brainstrike/test-utils/vitest.setup', './src/__tests__/setup-mock-queue.tsx'],
+    setupFiles: [
+      '@brainstrike/test-utils/vitest.dom-aware.setup',
+      './src/__tests__/setup-mock-queue.tsx',
+    ],
     unstubGlobals: true,
     ...poolConfig,
     coverage: {

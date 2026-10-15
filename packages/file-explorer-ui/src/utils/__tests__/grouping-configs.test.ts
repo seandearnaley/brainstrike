@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { GROUPING_CONFIGS, groupData, type TableRowData } from '../grouping-configs';
 

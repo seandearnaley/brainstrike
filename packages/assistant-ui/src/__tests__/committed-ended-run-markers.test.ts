@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Actual HostCore + native StateStore capture (record-ended-log.mjs) of runs
 // that end early (BST-1982): a Stop while text streams and while a tool runs,
 // a host close (the app quitting) in both places, and a crash the next host

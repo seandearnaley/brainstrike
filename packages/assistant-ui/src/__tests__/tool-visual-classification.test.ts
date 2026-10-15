@@ -1,3 +1,4 @@
+// @vitest-environment node
 // packages/assistant-ui/src/__tests__/tool-visual-classification.test.ts
 import { describe, expect, it } from 'vitest';
 import {

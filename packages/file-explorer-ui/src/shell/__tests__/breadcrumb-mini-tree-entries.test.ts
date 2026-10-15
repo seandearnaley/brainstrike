@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * Pure helpers behind the breadcrumb popover mini-tree (BST-1319): which
  * directory a clicked segment lists (its PARENT — the segment's siblings),

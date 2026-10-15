@@ -15,6 +15,6 @@ export default defineConfig({
     globals: true,
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
     reporters: ['default', new LostTestFileReporter()],
-    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+    setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
   },
 });

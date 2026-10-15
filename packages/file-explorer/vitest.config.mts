@@ -62,6 +62,6 @@ export default defineConfig({
     // Vitest 4: use maxWorkers: 1 instead of poolOptions.threads.singleThread
     maxWorkers: 1,
     reporters: ['default', new LostTestFileReporter()],
-    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+    setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
   },
 });

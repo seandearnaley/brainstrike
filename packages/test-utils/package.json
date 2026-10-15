@@ -27,6 +27,8 @@
     },
     "./vitest-matchers": "./vitest-matchers.d.ts",
     "./vitest.setup": "./src/vitest.setup.ts",
+    "./vitest.dom-aware.setup": "./src/vitest.dom-aware.setup.ts",
+    "./vitest.dom-aware-timeouts.setup": "./src/vitest.dom-aware-timeouts.setup.ts",
     "./vitest.event-loop-watchdog.setup": "./vitest.event-loop-watchdog.setup.mjs",
     "./vitest.browser.setup": "./src/vitest.browser.setup.ts",
     "./vitest.timeouts.setup": "./src/vitest.timeouts.setup.ts",

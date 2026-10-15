@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { findLlmModelDefinition } from '@brainstrike/assistant-contract/provider-registry';
 import { describe, expect, it } from 'vitest';
 import { createCatalogProjector, projectCatalogRow } from '../catalog-projection';

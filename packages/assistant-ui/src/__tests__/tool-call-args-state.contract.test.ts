@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { AssistantMessageAccumulator, type AssistantStreamChunk } from 'assistant-stream';
 import { describe, expect, it } from 'vitest';
 import { readToolCallArgsState } from '../tool-call-progress';

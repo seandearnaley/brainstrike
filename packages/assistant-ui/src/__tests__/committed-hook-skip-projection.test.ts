@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Actual standalone host recording (real bin, record-hooks-skipped-log.mjs): a
 // launch root's project hooks file has no trust, so the run commits
 // `hooks.skipped` and the question it would have blocked is asked.

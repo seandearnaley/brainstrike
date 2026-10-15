@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * Per-file explorer pane state (BST-1269). Session-only zustand store keyed by
  * compositeKey; durability comes from the per-thread workspace snapshot

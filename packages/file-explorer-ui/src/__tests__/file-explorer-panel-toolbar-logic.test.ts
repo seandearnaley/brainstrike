@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * The compact (narrow-width) toolbar menu's availability contract.
  *

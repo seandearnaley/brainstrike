@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import type { AssistantMemoryThread } from '../assistant-memory-repository';
 import type {

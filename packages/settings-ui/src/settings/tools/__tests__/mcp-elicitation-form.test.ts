@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { McpElicitationRequestedSchemaWire } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import {

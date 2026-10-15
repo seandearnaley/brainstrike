@@ -5,8 +5,10 @@ import { afterAll, beforeAll, vi } from 'vitest';
 // (BST-1299). This package keeps its own setup rather than the shared one, but
 // its React db-provider/factory-reset suites use waitFor and would otherwise sit
 // on the library's unscalable 1s default. Side-effect import; registers no
-// hooks and touches no globals.
-import '@brainstrike/test-utils/vitest.timeouts.setup';
+// hooks and touches no globals. The dom-aware variant applies the budget only
+// in files whose environment has a DOM (the `@vitest-environment jsdom`
+// suites), so the node-environment majority skips importing the library.
+import '@brainstrike/test-utils/vitest.dom-aware-timeouts.setup';
 
 // Increase global hook timeout to tolerate WASM warmup under parallel runs
 vi.setConfig({ hookTimeout: 30_000 });

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { ManageTaskListResult } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import { deriveTaskListFromParts } from '../derive-task-list';

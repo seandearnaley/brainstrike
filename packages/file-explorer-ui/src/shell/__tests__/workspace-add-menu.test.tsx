@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * "+" add-tab menu (BST-1270). `workspaceAddMenuItems` derives the menu from
  * the REGISTERED app list — registration is the capability gate (web shows

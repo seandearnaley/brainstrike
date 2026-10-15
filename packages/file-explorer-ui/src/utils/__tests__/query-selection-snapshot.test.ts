@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { DbHandle } from '@brainstrike/db/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 

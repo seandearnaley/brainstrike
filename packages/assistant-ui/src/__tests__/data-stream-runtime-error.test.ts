@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { ChatModelRunOptions, ChatModelRunResult } from '@assistant-ui/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {

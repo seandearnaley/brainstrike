@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { ImportProgress } from '@brainstrike/db';
 import { describe, expect, it, vi } from 'vitest';
 import { ImportProgressTracker } from '../progress-tracker';

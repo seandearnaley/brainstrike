@@ -1,3 +1,4 @@
+// @vitest-environment node
 import recording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json';
 import { expect, it } from 'vitest';
 import {

@@ -78,7 +78,7 @@ export default defineConfig({
           include: ['test/**/*.spec.ts'],
           name: 'unit',
           restoreMocks: true,
-          setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+          setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
         },
       },
       browserProject,

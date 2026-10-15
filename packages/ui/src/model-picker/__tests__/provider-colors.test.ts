@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { getProviderColor, PROVIDER_COLOR_MAP } from '../utils/provider-colors';
 

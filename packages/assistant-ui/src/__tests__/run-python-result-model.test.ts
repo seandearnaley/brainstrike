@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { narrowRunPythonDisplayResult } from '../run-python-result-model';
 

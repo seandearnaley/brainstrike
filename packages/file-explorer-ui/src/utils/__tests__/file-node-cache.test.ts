@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';

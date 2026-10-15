@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import {
   COMMAND_PALETTE_CONTENT_CLASS,
