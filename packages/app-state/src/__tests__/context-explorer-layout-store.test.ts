@@ -20,21 +20,25 @@ function getPersistApi(store: unknown): {
   return { clearStorage: persistApi.clearStorage, rehydrate: persistApi.rehydrate };
 }
 
+async function rehydratedFrom(raw: string) {
+  const storage = createMemoryStorageAdapter();
+  await storage.setItem(STORE_NAME, raw);
+  const persistedStore = createContextExplorerLayoutStore(storage);
+  await getPersistApi(persistedStore).rehydrate();
+  return persistedStore;
+}
+
 describe('context-explorer-layout-store', () => {
-  const DEFAULT_SIZES = [25, 20, 20] as const;
   let store: ReturnType<typeof createContextExplorerLayoutStore>;
 
   beforeEach(() => {
     store = createContextExplorerLayoutStore(createMemoryStorageAdapter());
   });
 
-  it('initializes with default state', () => {
+  it('starts on the file tree and holds only the tab choice', () => {
     const state = store.getState();
-    expect(state.sizes).toEqual(DEFAULT_SIZES);
-    expect(state.showLeftPanel).toBe(false);
-    expect(state.showRightPanel).toBe(true);
-    expect(state.showConsole).toBe(false);
     expect(state.explorerActiveTab).toBe('explorer');
+    expect(Object.keys(state).sort()).toEqual(['explorerActiveTab', 'setExplorerActiveTab']);
   });
 
   it('sets the explorer active tab', () => {
@@ -45,51 +49,25 @@ describe('context-explorer-layout-store', () => {
     expect(store.getState().explorerActiveTab).toBe('explorer');
   });
 
-  it('persists the explorer active tab through partialize', async () => {
+  it('persists only the explorer active tab', async () => {
     const storage = createMemoryStorageAdapter();
     const persistedStore = createContextExplorerLayoutStore(storage);
 
     persistedStore.getState().setExplorerActiveTab('search');
 
     const raw = await storage.getItem(STORE_NAME);
-    expect(raw).not.toBeNull();
-    const parsed = JSON.parse(raw as string) as {
-      state: { explorerActiveTab?: string };
-      version: number;
-    };
-    expect(parsed.state.explorerActiveTab).toBe('search');
-    expect(parsed.version).toBe(3);
+    expect(JSON.parse(raw as string)).toEqual({
+      state: { explorerActiveTab: 'search' },
+      version: 3,
+    });
   });
 
-  it('migrates a v2 payload to v3 defaulting explorerActiveTab to explorer', async () => {
-    const storage = createMemoryStorageAdapter();
-    await storage.setItem(
-      STORE_NAME,
-      JSON.stringify({
-        state: {
-          showConsole: false,
-          showLeftPanel: false,
-          showRightPanel: true,
-          sizes: [25, 20, 20],
-        },
-        version: 2,
-      })
-    );
-
-    const persistedStore = createContextExplorerLayoutStore(storage);
-    await getPersistApi(persistedStore).rehydrate();
-
-    expect(persistedStore.getState().explorerActiveTab).toBe('explorer');
-  });
-
-  it('preserves a persisted v3 explorerActiveTab during rehydration', async () => {
-    const storage = createMemoryStorageAdapter();
-    await storage.setItem(
-      STORE_NAME,
+  it('restores a persisted tab and ignores the panel fields an older snapshot carries', async () => {
+    const persistedStore = await rehydratedFrom(
       JSON.stringify({
         state: {
           explorerActiveTab: 'search',
-          showConsole: false,
+          showConsole: true,
           showLeftPanel: false,
           showRightPanel: true,
           sizes: [25, 20, 20],
@@ -98,212 +76,37 @@ describe('context-explorer-layout-store', () => {
       })
     );
 
-    const persistedStore = createContextExplorerLayoutStore(storage);
-    await getPersistApi(persistedStore).rehydrate();
-
     expect(persistedStore.getState().explorerActiveTab).toBe('search');
+    expect(persistedStore.getState()).not.toHaveProperty('sizes');
+    expect(persistedStore.getState()).not.toHaveProperty('showConsole');
   });
 
-  it('toggles panel visibility and accepts direct partial state updates', () => {
-    store.getState().toggleLeft();
-    store.getState().toggleRight();
-    store.getState().toggleConsole();
-
-    expect(store.getState()).toMatchObject({
-      showConsole: true,
-      showLeftPanel: true,
-      showRightPanel: false,
-    });
-
-    store.getState().setState({ showConsole: false, sizes: [30, 30, 40] });
-
-    expect(store.getState()).toMatchObject({
-      showConsole: false,
-      sizes: [30, 30, 40],
-    });
+  it.each([
+    { label: 'a snapshot written before the tab existed', state: { sizes: [25, 20, 20] } },
+    { label: 'an unknown tab', state: { explorerActiveTab: 'preview' } },
+  ])('reads $label as the file tree', async ({ state }) => {
+    const persistedStore = await rehydratedFrom(JSON.stringify({ state, version: 2 }));
+    expect(persistedStore.getState().explorerActiveTab).toBe('explorer');
   });
 
-  it('normalizes direct size updates without corrupting omitted panel sizes', () => {
-    store.getState().setSizes([80, 80, 0]);
-    expect(store.getState().sizes).toEqual([50, 50, 0]);
-
-    store.getState().setSizes([0, 0, 0]);
-    expect(store.getState().sizes).toEqual([100 / 3, 100 / 3, 100 / 3]);
-
-    store.getState().setSizes([42]);
-    expect(store.getState().sizes).toEqual([42, 100 / 3, 100 / 3]);
-
-    store.getState().setSizes([]);
-    expect(store.getState().sizes).toEqual([42, 100 / 3, 100 / 3]);
-  });
-
-  it('repairs corrupted direct size updates', () => {
-    store.getState().setSizes([4, 30, 20]);
-
-    expect(store.getState().sizes).toEqual(DEFAULT_SIZES);
-  });
-
-  it('ignores persisted payloads without state', async () => {
-    const storage = createMemoryStorageAdapter();
-    await storage.setItem(STORE_NAME, JSON.stringify({ version: 2 }));
-
-    const persistedStore = createContextExplorerLayoutStore(storage);
-    await getPersistApi(persistedStore).rehydrate();
-
-    expect(persistedStore.getState().sizes).toEqual(DEFAULT_SIZES);
-    expect(persistedStore.getState().showLeftPanel).toBe(false);
-    expect(persistedStore.getState().showRightPanel).toBe(true);
-    expect(persistedStore.getState().showConsole).toBe(false);
+  it.each([
+    { label: 'a payload without state', raw: JSON.stringify({ version: 3 }) },
+    { label: 'malformed JSON', raw: '{not-json' },
+  ])('ignores $label during rehydration', async ({ raw }) => {
+    const persistedStore = await rehydratedFrom(raw);
+    expect(persistedStore.getState().explorerActiveTab).toBe('explorer');
   });
 
   it('removes adapter-backed persisted state through the persist API', async () => {
     const storage = createMemoryStorageAdapter();
     const persistedStore = createContextExplorerLayoutStore(storage);
 
-    persistedStore.getState().setState({
-      showConsole: true,
-      sizes: [30, 30, 40],
-    });
+    persistedStore.getState().setExplorerActiveTab('search');
     expect(await storage.getItem(STORE_NAME)).not.toBeNull();
 
     await getPersistApi(persistedStore).clearStorage();
 
     expect(await storage.getItem(STORE_NAME)).toBeNull();
-  });
-
-  it('migrates from v1 to v2 by swapping panel visibility and sizes', async () => {
-    const storage = createMemoryStorageAdapter();
-    await storage.setItem(
-      STORE_NAME,
-      JSON.stringify({
-        state: {
-          showConsole: true,
-          showLeftPanel: true,
-          showRightPanel: false,
-          sizes: [30, 15, 10],
-        },
-        version: 1,
-      })
-    );
-
-    const persistedStore = createContextExplorerLayoutStore(storage);
-    await getPersistApi(persistedStore).rehydrate();
-
-    expect(persistedStore.getState().sizes).toEqual([15, 30, 10]);
-    expect(persistedStore.getState().showLeftPanel).toBe(false);
-    expect(persistedStore.getState().showRightPanel).toBe(true);
-    expect(persistedStore.getState().showConsole).toBe(true);
-  });
-
-  it('migrates incomplete v1 panel visibility to the v2 default layout', async () => {
-    const storage = createMemoryStorageAdapter();
-    await storage.setItem(
-      STORE_NAME,
-      JSON.stringify({
-        state: {
-          showConsole: true,
-          sizes: [30, 15, 10],
-        },
-        version: 1,
-      })
-    );
-
-    const persistedStore = createContextExplorerLayoutStore(storage);
-    await getPersistApi(persistedStore).rehydrate();
-
-    expect(persistedStore.getState().sizes).toEqual([15, 30, 10]);
-    expect(persistedStore.getState().showLeftPanel).toBe(false);
-    expect(persistedStore.getState().showRightPanel).toBe(true);
-    expect(persistedStore.getState().showConsole).toBe(true);
-  });
-
-  it('preserves the persisted version during rehydration', async () => {
-    const storage = createMemoryStorageAdapter();
-    await storage.setItem(
-      STORE_NAME,
-      JSON.stringify({
-        state: {
-          showConsole: true,
-          showLeftPanel: false,
-          showRightPanel: true,
-          sizes: [30, 25, 15],
-        },
-        version: 7,
-      })
-    );
-
-    const persistedStore = createContextExplorerLayoutStore(storage);
-    await getPersistApi(persistedStore).rehydrate();
-
-    expect(persistedStore.getState().sizes).toEqual([30, 25, 15]);
-    expect(persistedStore.getState().showLeftPanel).toBe(false);
-    expect(persistedStore.getState().showRightPanel).toBe(true);
-    expect(persistedStore.getState().showConsole).toBe(true);
-  });
-
-  it('repairs corrupted persisted sizes during rehydration', async () => {
-    const storage = createMemoryStorageAdapter();
-    await storage.setItem(
-      STORE_NAME,
-      JSON.stringify({
-        state: {
-          showConsole: true,
-          showLeftPanel: false,
-          showRightPanel: true,
-          sizes: [4.488, 5.386, 0],
-        },
-        version: 2,
-      })
-    );
-
-    const persistedStore = createContextExplorerLayoutStore(storage);
-    await getPersistApi(persistedStore).rehydrate();
-
-    expect(persistedStore.getState().sizes).toEqual(DEFAULT_SIZES);
-    expect(persistedStore.getState().showLeftPanel).toBe(false);
-    expect(persistedStore.getState().showRightPanel).toBe(true);
-    expect(persistedStore.getState().showConsole).toBe(true);
-  });
-
-  it('ignores malformed persisted layout JSON during rehydration', async () => {
-    const storage = createMemoryStorageAdapter();
-    await storage.setItem(STORE_NAME, '{not-json');
-
-    const persistedStore = createContextExplorerLayoutStore(storage);
-    await getPersistApi(persistedStore).rehydrate();
-
-    expect(persistedStore.getState().sizes).toEqual(DEFAULT_SIZES);
-    expect(persistedStore.getState().showLeftPanel).toBe(false);
-    expect(persistedStore.getState().showRightPanel).toBe(true);
-    expect(persistedStore.getState().showConsole).toBe(false);
-  });
-
-  it.each([
-    { label: 'negative sizes', sizes: [-5, 25, 20] },
-    { label: 'non-numeric sizes', sizes: ['25', 20, 20] },
-    { label: 'wrong-length sizes', sizes: [25, 20] },
-  ])('repairs $label during rehydration', async ({ sizes }) => {
-    const storage = createMemoryStorageAdapter();
-    await storage.setItem(
-      STORE_NAME,
-      JSON.stringify({
-        state: {
-          showConsole: true,
-          showLeftPanel: false,
-          showRightPanel: true,
-          sizes,
-        },
-        version: 2,
-      })
-    );
-
-    const persistedStore = createContextExplorerLayoutStore(storage);
-    await getPersistApi(persistedStore).rehydrate();
-
-    expect(persistedStore.getState().sizes).toEqual(DEFAULT_SIZES);
-    expect(persistedStore.getState().showLeftPanel).toBe(false);
-    expect(persistedStore.getState().showRightPanel).toBe(true);
-    expect(persistedStore.getState().showConsole).toBe(true);
   });
 
   it('creates the module singleton with fallback storage when browser storage is unavailable', async () => {
@@ -331,9 +134,10 @@ describe('context-explorer-layout-store', () => {
       const module = await import('../stores/context-explorer-layout-store');
       const singleton = module.useContextExplorerLayoutStore;
 
-      singleton.getState().setSizes([30, 30, 40]);
-      expect(singleton.getState().sizes).toEqual([30, 30, 40]);
+      singleton.getState().setExplorerActiveTab('search');
+      expect(singleton.getState().explorerActiveTab).toBe('search');
       await getPersistApi(singleton).rehydrate();
+      expect(singleton.getState().explorerActiveTab).toBe('search');
       await getPersistApi(singleton).clearStorage();
     } finally {
       vi.doUnmock('@brainstrike/storage');

@@ -84,7 +84,6 @@ describe('useFileExplorerStore Actions Integration', () => {
     setQuickFilter: vi.fn(),
     setSelectedFiles: vi.fn(),
     setSelectionMode: vi.fn(),
-    setTokenBudget: vi.fn(),
     setUseRegex: vi.fn(),
     setViewFilterPresetId: vi.fn(),
     toggleDirectoryExpansion: vi.fn(),
@@ -489,10 +488,9 @@ describe('useFileExplorerStore Actions Integration', () => {
 
     // Hardening B: the LAST per-folder hydrated settings join the
     // WORKSPACE-GLOBAL doctrine. Forest mode focus-switches on every section
-    // click — hydrating these from folder snapshots flips the user's token
-    // budget / project-tree toggle / summary threshold / ACTIVE TAB per
-    // clicked root.
-    it('focus switch does NOT hydrate tokenBudget/includeProjectTree/folderSummaryThreshold/lastActiveTab', () => {
+    // click — hydrating these from folder snapshots flips the user's
+    // project-tree toggle / summary threshold / ACTIVE TAB per clicked root.
+    it('focus switch does NOT hydrate includeProjectTree/folderSummaryThreshold/lastActiveTab', () => {
       store.setState({
         folderStates: {
           ...store.getState().folderStates,
@@ -501,19 +499,16 @@ describe('useFileExplorerStore Actions Integration', () => {
             folderSummaryThreshold: 7,
             includeProjectTree: true,
             lastActiveTab: 'files',
-            tokenBudget: 1000,
           },
         },
         folderSummaryThreshold: 42,
         includeProjectTree: false,
         lastActiveTab: 'curated',
-        tokenBudget: 150_000,
       });
 
       store.setCurrentFolderId(ROOT_B);
 
       const s = store.getState();
-      expect(s.tokenBudget).toBe(150_000);
       expect(s.includeProjectTree).toBe(false);
       expect(s.folderSummaryThreshold).toBe(42);
       expect(s.lastActiveTab).toBe('curated');
@@ -528,19 +523,16 @@ describe('useFileExplorerStore Actions Integration', () => {
             folderSummaryThreshold: 7,
             includeProjectTree: true,
             lastActiveTab: 'files',
-            tokenBudget: 1000,
           },
         },
         folderSummaryThreshold: 42,
         includeProjectTree: false,
         lastActiveTab: 'curated',
-        tokenBudget: 150_000,
       });
 
       store.hydrateFolderState(ROOT_A);
 
       const s = store.getState();
-      expect(s.tokenBudget).toBe(150_000);
       expect(s.includeProjectTree).toBe(false);
       expect(s.folderSummaryThreshold).toBe(42);
       expect(s.lastActiveTab).toBe('curated');

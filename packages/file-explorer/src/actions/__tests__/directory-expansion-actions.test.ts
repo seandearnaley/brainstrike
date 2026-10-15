@@ -1,5 +1,5 @@
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
-import { createEmptySelectionModel, DEFAULT_TOKEN_BUDGET } from '@brainstrike/types';
+import { createEmptySelectionModel } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDirectoryExpansionActions } from '../directory-expansion-actions';
 
@@ -75,13 +75,11 @@ const createMockState = (overrides: Partial<FileExplorerState> = {}): FileExplor
   setQuickFilter: vi.fn(),
   setSelectedFiles: vi.fn(),
   setSelectionMode: vi.fn(),
-  setTokenBudget: vi.fn(),
   setUseRegex: vi.fn(),
   setViewFilterPresetId: vi.fn(),
   toggleDirectoryExpansion: vi.fn(),
   toggleFilterEnabled: vi.fn(),
   toggleSelectedFile: vi.fn(),
-  tokenBudget: DEFAULT_TOKEN_BUDGET,
   useRegex: false,
   viewFilterPresetId: null,
   ...overrides,
@@ -213,7 +211,6 @@ describe('directory-expansion-actions', () => {
           maxSelectionCount: 100,
           selectedFilePaths: new Set(),
           selectionModel: createEmptySelectionModel(),
-          tokenBudget: 100,
           useRegex: false,
           viewFilterPresetId: null,
         },
@@ -258,7 +255,6 @@ describe('directory-expansion-actions', () => {
           maxSelectionCount: 100,
           selectedFilePaths: new Set(),
           selectionModel: createEmptySelectionModel(),
-          tokenBudget: 100,
           useRegex: false,
           viewFilterPresetId: null,
         },
@@ -295,7 +291,6 @@ describe('directory-expansion-actions', () => {
           maxSelectionCount: 100,
           selectedFilePaths: new Set(),
           selectionModel: createEmptySelectionModel(),
-          tokenBudget: 100,
           useRegex: false,
           viewFilterPresetId: null,
         },

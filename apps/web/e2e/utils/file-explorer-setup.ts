@@ -68,7 +68,6 @@ export async function bootstrapFileExplorer(
   if (resetSettings) {
     keysToClear.add('file-explorer-storage-v5');
     keysToClear.add('fileExplorerSettings');
-    keysToClear.add('previewPanelPreferences.v1');
   }
 
   if (keysToClear.size > 0) {

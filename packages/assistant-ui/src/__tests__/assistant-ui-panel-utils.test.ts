@@ -5,7 +5,6 @@ import {
   clampProgress,
   getLocalModelStatusLabel,
   parseNumber,
-  resolveBudgetStatus,
   truncateMiddle,
 } from '../assistant-ui-panel-utils';
 
@@ -28,14 +27,6 @@ describe('assistant-ui-panel utils', () => {
   it('truncates long middle values and preserves short ones', () => {
     expect(truncateMiddle('short-value', 4, 4)).toBe('short-value');
     expect(truncateMiddle('abcdefghijklmnopqrstuvwxyz', 5, 4)).toBe('abcde…wxyz');
-  });
-
-  it('classifies budget status correctly', () => {
-    expect(resolveBudgetStatus(undefined)).toBeUndefined();
-    expect(resolveBudgetStatus({ contextTokenCount: 200, tokenBudget: 100 })).toBe('over');
-    expect(resolveBudgetStatus({ contextTokenCount: 85, tokenBudget: 100 })).toBe('near');
-    expect(resolveBudgetStatus({ contextTokenCount: 84, tokenBudget: 100 })).toBe('within');
-    expect(resolveBudgetStatus({ contextTokenCount: 40, tokenBudget: 100 })).toBe('within');
   });
 
   it('clamps numeric settings values', () => {

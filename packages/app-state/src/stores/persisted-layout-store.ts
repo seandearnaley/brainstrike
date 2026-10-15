@@ -1,9 +1,9 @@
 /**
  * Shared persistence plumbing for the panel layout stores (BST-516).
  *
- * `panel-layout-store.ts` and `context-explorer-layout-store.ts` persist the
- * same `sizes/showLeftPanel/showRightPanel/showConsole` subset and used to
- * carry private, drifting copies of everything below. This module is the ONE
+ * `panel-layout-store.ts` persists the `sizes/showLeftPanel/showRightPanel/
+ * showConsole` subset; `context-explorer-layout-store.ts` reuses the storage
+ * plumbing for its one field. This module is the ONE
  * owner of: corrupted-size detection, JSON parse + recovery, the adapter-backed
  * `PersistStorage` wrapper, the localStorage/memory fallback storage, the
  * browser-adapter-or-fallback resolution, size normalization, and the HMR-safe
@@ -31,7 +31,7 @@ export interface PersistedLayoutState {
  * `state` is honestly partial — only `sizes` is validated (and repaired);
  * zustand's merge lays the rest over the store defaults, as it always has.
  */
-export interface PersistedLayoutStorageValue<P extends PersistedLayoutState> {
+export interface PersistedLayoutStorageValue<P extends object> {
   state: Partial<P>;
   version: number;
 }
@@ -80,7 +80,7 @@ export interface PersistedLayoutParserOptions<P extends PersistedLayoutState> {
   readonly persistedKeys: readonly (keyof P & string)[];
 }
 
-export type PersistedLayoutParser<P extends PersistedLayoutState> = (
+export type PersistedLayoutParser<P extends object> = (
   raw: string | null
 ) => PersistedLayoutStorageValue<P> | null;
 
@@ -155,7 +155,7 @@ export function createPersistedLayoutParser<P extends PersistedLayoutState>(
  * later microtask; the fallback storage below is synchronous for direct
  * localStorage environments.
  */
-export function createAdapterPersistStorage<P extends PersistedLayoutState>(
+export function createAdapterPersistStorage<P extends object>(
   storage: StorageAdapter,
   parse: PersistedLayoutParser<P>
 ): PersistStorage<Partial<P>> {
@@ -171,7 +171,7 @@ export function createAdapterPersistStorage<P extends PersistedLayoutState>(
 }
 
 /** `window.localStorage` when reachable, otherwise a per-instance memory map. */
-export function createFallbackPersistStorage<P extends PersistedLayoutState>(
+export function createFallbackPersistStorage<P extends object>(
   parse: PersistedLayoutParser<P>
 ): PersistStorage<Partial<P>> {
   const memoryStorage = new Map<string, string>();
@@ -219,7 +219,7 @@ export function createFallbackPersistStorage<P extends PersistedLayoutState>(
  * constructed, otherwise the fallback. The throw→fallback path is what the
  * singleton tests exercise by making `createBrowserStorageAdapter` throw.
  */
-export function resolveDefaultPersistStorage<P extends PersistedLayoutState>(
+export function resolveDefaultPersistStorage<P extends object>(
   parse: PersistedLayoutParser<P>
 ): PersistStorage<Partial<P>> {
   try {

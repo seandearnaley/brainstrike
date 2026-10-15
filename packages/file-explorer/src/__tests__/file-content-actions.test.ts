@@ -59,7 +59,6 @@ function createTestStore() {
     setQuickFilter: vi.fn(),
     setSelectedFiles: vi.fn(),
     setSelectionMode: vi.fn(),
-    setTokenBudget: vi.fn(),
     setUseRegex: vi.fn(),
     setViewFilterPresetId: vi.fn(),
     toggleDirectoryExpansion: vi.fn(),

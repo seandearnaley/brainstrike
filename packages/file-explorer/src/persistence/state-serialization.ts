@@ -276,7 +276,6 @@ export function serializeState(state: FileExplorerState): SerializedState {
       maxSelectionCount: state.maxSelectionCount,
       selectedFilePaths: state.selectedFilePaths,
       selectionModel: state.selectionModel,
-      tokenBudget: state.tokenBudget,
       useRegex: state.useRegex,
       viewFilterPresetId: state.viewFilterPresetId,
     };
@@ -293,7 +292,6 @@ export function serializeState(state: FileExplorerState): SerializedState {
       maxSelectionCount: state.maxSelectionCount,
       selectedFilePaths: state.selectedFilePaths,
       selectionModel: state.selectionModel,
-      tokenBudget: state.tokenBudget,
       useRegex: state.useRegex,
       viewFilterPresetId: state.viewFilterPresetId,
     };
@@ -332,7 +330,6 @@ export function serializeState(state: FileExplorerState): SerializedState {
     rootDescriptors: state.rootDescriptors,
     selectedFilePaths: cachedSetToArray(state.selectedFilePaths),
     selectionModel: serializeSelectionModel(state.selectionModel),
-    tokenBudget: state.tokenBudget,
     useRegex: state.useRegex,
     viewFilterPresetId: state.viewFilterPresetId,
   };
@@ -391,8 +388,6 @@ export function mergeState(
     folderStates: Object.fromEntries(
       Object.entries(persistedSerialized.folderStates ?? {}).map(([key, psFolderState]) => {
         const currentFolderState = current.folderStates[key];
-        const fallbackTokenBudget = currentFolderState?.tokenBudget ?? current.tokenBudget;
-
         // CRITICAL: For the current folder, if the folderState has empty selections but
         // the top-level state has selections, prefer the top-level state. This handles
         // the case where the app was closed without switching folders - the top-level
@@ -428,7 +423,6 @@ export function mergeState(
               shouldUseTopLevelSelections && persistedSerialized.selectionModel
                 ? topLevelSelectionModel
                 : deserializeSelectionModel(psFolderState.selectionModel),
-            tokenBudget: coerceNumber(psFolderState.tokenBudget, fallbackTokenBudget),
           },
         ];
       })
@@ -447,7 +441,6 @@ export function mergeState(
     quickFilter: coerceString(persistedSerialized.quickFilter, current.quickFilter),
     selectedFilePaths: topLevelSelectedFilePaths,
     selectionModel: topLevelSelectionModel,
-    tokenBudget: coerceNumber(persistedSerialized.tokenBudget, current.tokenBudget),
     // Multi-root (Phase 4) fields — coerced safely from persisted data
     ...mergeActiveRoots(persistedSerialized, current),
   };

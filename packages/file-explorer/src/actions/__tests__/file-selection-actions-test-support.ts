@@ -1,5 +1,5 @@
 import type { FileExplorerState } from '@brainstrike/types';
-import { createEmptySelectionModel, DEFAULT_TOKEN_BUDGET } from '@brainstrike/types';
+import { createEmptySelectionModel } from '@brainstrike/types';
 import { type Mock, vi } from 'vitest';
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
@@ -93,13 +93,11 @@ export const createMockState = (overrides: Partial<FileExplorerState> = {}): Fil
   setQuickFilter: vi.fn(),
   setSelectedFiles: vi.fn(),
   setSelectionMode: vi.fn(),
-  setTokenBudget: vi.fn(),
   setUseRegex: vi.fn(),
   setViewFilterPresetId: vi.fn(),
   toggleDirectoryExpansion: vi.fn(),
   toggleFilterEnabled: vi.fn(),
   toggleSelectedFile: vi.fn(),
-  tokenBudget: DEFAULT_TOKEN_BUDGET,
   useRegex: false,
   viewFilterPresetId: null,
   ...overrides,

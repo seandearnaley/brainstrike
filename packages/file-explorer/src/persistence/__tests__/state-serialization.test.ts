@@ -99,7 +99,6 @@ describe('state-serialization', () => {
       lastActiveTab: 'preview',
       maxSelectionCount: 999,
       selectedFilePaths: new Set(['folder-1|@|src/index.ts']),
-      tokenBudget: 250,
       useRegex: true,
       viewFilterPresetId: 'ts-js',
     });
@@ -116,7 +115,6 @@ describe('state-serialization', () => {
         lastActiveTab: 'preview',
         maxSelectionCount: 999,
         selectedFilePaths: ['folder-1|@|src/index.ts'],
-        tokenBudget: 250,
         useRegex: true,
         viewFilterPresetId: 'ts-js',
       })
@@ -173,7 +171,6 @@ describe('state-serialization', () => {
             maxSelectionCount: 100,
             selectedFilePaths: new Set(),
             selectionModel: createEmptySelectionModel(),
-            tokenBudget: 100,
             useRegex: false,
             viewFilterPresetId: null,
           },
@@ -305,26 +302,6 @@ describe('state-serialization', () => {
         },
       });
     });
-
-    it('should coerce non-finite numbers to fallbacks during merge', () => {
-      const current = buildState({
-        tokenBudget: 1234,
-      });
-      const persisted = {
-        folderStates: {
-          root: {
-            tokenBudget: Number.POSITIVE_INFINITY,
-          },
-        },
-        selectedFilePaths: [],
-        tokenBudget: Number.NaN,
-      } as unknown as SerializedState;
-
-      const result = mergeState(persisted, current, false);
-
-      expect(result.tokenBudget).toBe(1234);
-      expect(result.folderStates['root']?.tokenBudget).toBe(1234);
-    });
   });
 
   describe('mergeState – shouldLog=false paths', () => {
@@ -354,7 +331,6 @@ describe('state-serialization', () => {
         maxSelectionCount: 50,
         quickFilter: 'test',
         selectedFilePaths: ['f1|@|sel'],
-        tokenBudget: 200,
         useRegex: false,
       };
 
@@ -402,7 +378,6 @@ describe('state-serialization', () => {
         maxSelectionCount: 50,
         quickFilter: '',
         selectedFilePaths: [],
-        tokenBudget: 100,
         useRegex: false,
       };
 
@@ -413,31 +388,6 @@ describe('state-serialization', () => {
   });
 
   describe('mergeState – coercion edge cases', () => {
-    it('should coerce non-number tokenBudget to current default', () => {
-      const current = buildState({ tokenBudget: 999 });
-      const persisted = {
-        currentFolderId: null,
-        devInlineFixtureEnabled: false,
-        excludeFilters: [],
-        expandedDirectoryPaths: [],
-        folderAccessOrder: [],
-        folderStates: {},
-        folderSummaryThreshold: 10,
-        includeFilters: [],
-        includeProjectTree: false,
-        lastActiveTab: 'files',
-        maxSelectionCount: 50,
-        quickFilter: '',
-        selectedFilePaths: [],
-        tokenBudget: 'not-a-number' as unknown as number,
-        useRegex: false,
-      } as SerializedState;
-
-      const result = mergeState(persisted, current, false);
-
-      expect(result.tokenBudget).toBe(999);
-    });
-
     it('should coerce non-string quickFilter to current default', () => {
       const current = buildState({ quickFilter: 'default-filter' });
       const persisted = {
@@ -454,7 +404,6 @@ describe('state-serialization', () => {
         maxSelectionCount: 50,
         quickFilter: 42 as unknown as string,
         selectedFilePaths: [],
-        tokenBudget: 100,
         useRegex: false,
       } as SerializedState;
 
@@ -479,7 +428,6 @@ describe('state-serialization', () => {
         maxSelectionCount: 50,
         quickFilter: '',
         selectedFilePaths: [],
-        tokenBudget: 100,
         useRegex: false,
       } as SerializedState;
 
@@ -505,7 +453,6 @@ describe('state-serialization', () => {
         maxSelectionCount: 50,
         quickFilter: '',
         selectedFilePaths: [],
-        tokenBudget: 100,
         useRegex: false,
       } as SerializedState;
 
@@ -531,7 +478,6 @@ describe('state-serialization', () => {
         maxSelectionCount: 50,
         quickFilter: '',
         selectedFilePaths: [],
-        tokenBudget: 100,
         useRegex: false,
       } as SerializedState;
 
@@ -556,7 +502,6 @@ describe('state-serialization', () => {
         maxSelectionCount: 50,
         quickFilter: '',
         selectedFilePaths: 'not-array' as unknown as string[],
-        tokenBudget: 100,
         useRegex: false,
       } as SerializedState;
 
@@ -581,7 +526,6 @@ describe('state-serialization', () => {
         maxSelectionCount: 50,
         quickFilter: '',
         selectedFilePaths: ['root|@|file1', 'root|@|file2'],
-        tokenBudget: 100,
         useRegex: false,
       } as SerializedState;
 
@@ -598,45 +542,6 @@ describe('state-serialization', () => {
       expect(() => mergeState(persisted, buildState(), false)).toThrow(
         'Invalid composite key format'
       );
-    });
-
-    it('should coerce non-number tokenBudget in folderState to fallback', () => {
-      const current = buildState({ tokenBudget: 500 });
-      const persisted: SerializedState = {
-        currentFolderId: null,
-        devInlineFixtureEnabled: false,
-        excludeFilters: [],
-        expandedDirectoryPaths: [],
-        folderAccessOrder: [],
-        folderStates: {
-          'folder-1': {
-            excludeFilters: [],
-            expandedDirectoryPaths: [],
-            folderSummaryThreshold: 10,
-            includeFilters: [],
-            includeProjectTree: false,
-            lastAccessed: 0,
-            lastActiveTab: 'files',
-            maxSelectionCount: 50,
-            selectedFilePaths: [],
-            tokenBudget: 'bad' as unknown as number,
-            useRegex: false,
-          },
-        },
-        folderSummaryThreshold: 10,
-        includeFilters: [],
-        includeProjectTree: false,
-        lastActiveTab: 'files',
-        maxSelectionCount: 50,
-        quickFilter: '',
-        selectedFilePaths: [],
-        tokenBudget: 500,
-        useRegex: false,
-      };
-
-      const result = mergeState(persisted, current, false);
-
-      expect(result.folderStates['folder-1']?.tokenBudget).toBe(500);
     });
   });
 
@@ -657,7 +562,6 @@ describe('state-serialization', () => {
         maxSelectionCount: 50,
         quickFilter: '',
         selectedFilePaths: [],
-        tokenBudget: 100,
         useRegex: false,
         // selectionModel is intentionally omitted
       };
@@ -694,7 +598,6 @@ describe('state-serialization', () => {
           queryDescriptor: null,
           ruleSetJson: '{"rules":[]}',
         } as unknown as SerializedSelectionModel,
-        tokenBudget: 100,
         useRegex: false,
       };
 
@@ -744,7 +647,6 @@ describe('state-serialization', () => {
             useRegex: false,
           },
         },
-        tokenBudget: 100,
         useRegex: false,
       };
 
@@ -805,7 +707,6 @@ describe('state-serialization', () => {
             useRegex: 'yes',
           },
         },
-        tokenBudget: 100,
         useRegex: false,
       } as unknown as SerializedState;
 
@@ -849,7 +750,6 @@ describe('state-serialization', () => {
         maxSelectionCount: 50,
         quickFilter: '',
         selectedFilePaths: oversizedPaths,
-        tokenBudget: 100,
         useRegex: false,
       } as unknown as SerializedState;
 
@@ -886,7 +786,6 @@ describe('state-serialization', () => {
             totalSelectedCount: 'bad-count',
           },
         },
-        tokenBudget: 100,
         useRegex: false,
       } as unknown as SerializedState;
 
@@ -923,7 +822,6 @@ describe('state-serialization', () => {
           mode: 'explicit',
           queryDescriptor: null,
         },
-        tokenBudget: 100,
         useRegex: false,
       };
 
@@ -956,7 +854,6 @@ describe('state-serialization', () => {
           mode: 'explicit',
           queryDescriptor: null,
         },
-        tokenBudget: 100,
         useRegex: false,
       };
 
@@ -986,7 +883,6 @@ describe('state-serialization', () => {
             lastActiveTab: 'files',
             maxSelectionCount: 50,
             selectedFilePaths: [], // Empty in folder state
-            tokenBudget: 100,
             useRegex: false,
           },
         },
@@ -997,7 +893,6 @@ describe('state-serialization', () => {
         maxSelectionCount: 50,
         quickFilter: '',
         selectedFilePaths: ['folder-1|@|top-level-sel'], // Has selections
-        tokenBudget: 100,
         useRegex: false,
       };
 
@@ -1031,7 +926,6 @@ describe('state-serialization', () => {
             lastActiveTab: 'files',
             maxSelectionCount: 50,
             selectedFilePaths: ['folder-1|@|folder-sel'], // Has its own selections
-            tokenBudget: 100,
             useRegex: false,
           },
         },
@@ -1042,7 +936,6 @@ describe('state-serialization', () => {
         maxSelectionCount: 50,
         quickFilter: '',
         selectedFilePaths: ['folder-1|@|top-level-sel'],
-        tokenBudget: 100,
         useRegex: false,
       };
 
@@ -1073,7 +966,6 @@ describe('state-serialization', () => {
             lastActiveTab: 'files',
             maxSelectionCount: 50,
             selectedFilePaths: ['folder-1|@|f1-sel'],
-            tokenBudget: 100,
             useRegex: false,
           },
           'folder-2': {
@@ -1086,7 +978,6 @@ describe('state-serialization', () => {
             lastActiveTab: 'files',
             maxSelectionCount: 50,
             selectedFilePaths: [], // Empty but NOT the current folder
-            tokenBudget: 100,
             useRegex: false,
           },
         },
@@ -1097,7 +988,6 @@ describe('state-serialization', () => {
         maxSelectionCount: 50,
         quickFilter: '',
         selectedFilePaths: ['folder-1|@|top-level-sel'],
-        tokenBudget: 100,
         useRegex: false,
       };
 
@@ -1133,7 +1023,6 @@ describe('state-serialization', () => {
               mode: 'explicit',
               queryDescriptor: null,
             },
-            tokenBudget: 100,
             useRegex: false,
           },
         },
@@ -1164,7 +1053,6 @@ describe('state-serialization', () => {
             useRegex: false,
           },
         },
-        tokenBudget: 100,
         useRegex: false,
       };
 

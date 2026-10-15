@@ -282,11 +282,8 @@ export interface RuntimeData {
     params?: Record<string, unknown>,
     opts?: { onProgress?: (payload: unknown) => void }
   ) => Promise<unknown>;
-  contextTokenCount?: number;
   embeddingSetId?: string;
   enabledNativeToolIds?: readonly string[];
-  includeFileReport?: boolean;
-  includeProjectTree?: boolean;
   /**
    * The client's declared MAIN root (activeRootIds[0] in the file-explorer
    * store) — the assistant's operating root. An ORDERING HINT for the

@@ -36,7 +36,6 @@ function createEmptySerializedState(): SerializedState {
       mode: DEFAULT_STATE.selectionModel.mode,
       queryDescriptor: null,
     },
-    tokenBudget: DEFAULT_STATE.tokenBudget,
     useRegex: DEFAULT_STATE.useRegex,
     viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
   };

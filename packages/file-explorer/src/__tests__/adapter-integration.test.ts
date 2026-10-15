@@ -97,24 +97,6 @@ describe('Adapter Integration', () => {
       expect(newState.expandedDirectoryPaths.has('test-directory')).toBe(true);
     });
 
-    it('should not lose tokenBudget after rehydration when hydrating the current folder', async () => {
-      const store = createFileExplorerStore(memoryStorage);
-
-      store.getState().setCurrentFolderId('test-folder');
-      store.getState().setTokenBudget(42);
-
-      await waitForPersist(memoryStorage);
-
-      const newStore = createFileExplorerStore(memoryStorage);
-      await waitForHydration(newStore);
-
-      expect(newStore.getState().tokenBudget).toBe(42);
-
-      // Simulate UI re-applying folder state post-hydration.
-      newStore.getState().hydrateFolderState('test-folder');
-      expect(newStore.getState().tokenBudget).toBe(42);
-    });
-
     it('should handle storage errors gracefully', async () => {
       // Create a storage adapter that throws errors
       const errorStorage = new MemoryStorageAdapter();

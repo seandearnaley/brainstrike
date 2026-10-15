@@ -53,7 +53,6 @@ function createPersistedFileExplorerState(): PersistedEnvelope<SerializedState> 
           lastActiveTab: DEFAULT_STATE.lastActiveTab,
           maxSelectionCount: DEFAULT_STATE.maxSelectionCount,
           selectedFilePaths: [],
-          tokenBudget: DEFAULT_STATE.tokenBudget,
           useRegex: DEFAULT_STATE.useRegex,
           viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
         },
@@ -80,7 +79,6 @@ function createPersistedFileExplorerState(): PersistedEnvelope<SerializedState> 
         mode: DEFAULT_STATE.selectionModel.mode,
         queryDescriptor: DEFAULT_STATE.selectionModel.queryDescriptor,
       },
-      tokenBudget: DEFAULT_STATE.tokenBudget,
       useRegex: DEFAULT_STATE.useRegex,
       viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
     },
@@ -155,7 +153,6 @@ async function seedRestoredStartupState(page: Page): Promise<void> {
         lastActiveTab: nextFileExplorerState.state.lastActiveTab,
         maxSelectionCount: nextFileExplorerState.state.maxSelectionCount,
         selectedFilePaths: new Set<string>(),
-        tokenBudget: nextFileExplorerState.state.tokenBudget,
         useRegex: nextFileExplorerState.state.useRegex,
         viewFilterPresetId: nextFileExplorerState.state.viewFilterPresetId ?? null,
       };
@@ -189,7 +186,6 @@ async function seedRestoredStartupState(page: Page): Promise<void> {
           materializedPaths: null,
           mode: nextFileExplorerState.state.selectionModel?.mode ?? 'explicit',
         },
-        tokenBudget: nextFileExplorerState.state.tokenBudget,
         useRegex: nextFileExplorerState.state.useRegex,
         viewFilterPresetId: nextFileExplorerState.state.viewFilterPresetId ?? null,
       });
