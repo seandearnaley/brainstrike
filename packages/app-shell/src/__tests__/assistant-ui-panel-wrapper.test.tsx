@@ -1545,16 +1545,16 @@ describe('AssistantUiPanelWrapper', () => {
     );
   });
 
-  test('disables hosted memory requests when the runtime has no Mastra memory backend', async () => {
+  test('omits the memory request, but still sends, without a Mastra memory backend', async () => {
     Reflect.deleteProperty(window, 'agentHost');
 
     await renderAssistantPanel(['openai'], () =>
       waitFor(() => {
         const requestData = readPanelRequestData();
         expect(requestData['memory']).toBeUndefined();
-        expect(screen.getByTestId('panel-disabled')).toHaveTextContent('true');
+        expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
         expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
-          'Assistant memory for hosted providers requires the desktop assistant backend.'
+          'Assistant memory is unavailable here; this turn runs without durable memory.'
         );
       })
     );

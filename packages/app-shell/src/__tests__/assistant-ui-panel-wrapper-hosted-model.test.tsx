@@ -6,15 +6,20 @@ import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
 import { fileExplorerMocks, renderAssistantPanel } from './assistant-ui-panel-wrapper-test-support';
 
-test('disables hosted web chat without a workspace before request preparation', async () => {
+// Web has no `window.agentHost`, so it has no durable memory backend. That
+// costs the turn its memory block, not its composer: before the browser-local
+// provider was retired it was the only provider that satisfied
+// `resolveHostedMemoryBackendAvailable` on web, so treating the absence as a
+// block left web unable to send with any provider at all.
+test('keeps hosted web chat sendable without a workspace, and says memory is off', async () => {
   Reflect.deleteProperty(window, 'agentHost');
   fileExplorerMocks.rootDirectoryHandle = null;
 
   await renderAssistantPanel(['openai'], () =>
     waitFor(() => {
-      expect(screen.getByTestId('panel-disabled')).toHaveTextContent('true');
+      expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
       expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
-        'Assistant memory for hosted providers requires the desktop assistant backend.'
+        'Assistant memory is unavailable here; this turn runs without durable memory.'
       );
     })
   );

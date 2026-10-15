@@ -65,10 +65,11 @@ test.describe('Hosted Web multi-provider picker @stateful @web-assistant-state',
     await modelDialog.getByRole('option', { name: /^Claude Sonnet 5/ }).click();
 
     await expect(trigger).toHaveAccessibleName(/Claude Sonnet 5/);
+    // Web has no durable memory backend, which costs the turn its memory block
+    // and says so — it no longer disables the composer.
     await expect(
-      page.getByText(
-        'Assistant memory for hosted providers requires the desktop assistant backend.'
-      )
+      page.getByText('Assistant memory is unavailable here; this turn runs without durable memory.')
     ).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Message input' })).toBeEnabled();
   });
 });

@@ -350,8 +350,14 @@ function resolveObservationalMemoryDisabledReason(args: {
   if (!observationalMemory.enabled) {
     return;
   }
+  // An absent backend is the same condition `resolveHostedMemoryUnavailableNotice`
+  // reports, and observational memory is ON by default (BST-940), so blocking
+  // here would keep web's composer disabled no matter what the chat provider
+  // gate says. The turn runs without the observer and the notice says so.
+  // The checks below stay blocking: they are user-configured targets that are
+  // actually wrong, not a capability this shell lacks.
   if (!args.desktopAssistantBackendAvailable) {
-    return 'Observational memory requires the desktop assistant backend.';
+    return;
   }
 
   const modelTarget = observationalMemory.modelTarget;
@@ -409,15 +415,6 @@ export function resolveAssistantMemoryDisabledReason(args: {
   if (args.memoryLoadState?.status === 'idle' || args.memoryLoadState?.status === 'loading') {
     return 'Assistant memory is loading from PGlite.';
   }
-  if (
-    args.selectedProvider !== null &&
-    !resolveHostedMemoryBackendAvailable({
-      desktopAssistantBackendAvailable: args.desktopAssistantBackendAvailable,
-      selectedProvider: args.selectedProvider,
-    })
-  ) {
-    return 'Assistant memory for hosted providers requires the desktop assistant backend.';
-  }
   if (args.dbInitializing || !args.assistantThreadRepository) {
     return 'Assistant memory is loading from PGlite.';
   }
@@ -456,6 +453,58 @@ export function resolveHostedMemoryBackendAvailable(args: {
   selectedProvider: SupportedProvider | null;
 }): boolean {
   return args.selectedProvider === 'local' || args.desktopAssistantBackendAvailable;
+}
+
+/**
+ * The absent durable memory backend, as a NOTICE rather than a block.
+ *
+ * `resolveHostedMemoryBackendAvailable` stays the single owner of the
+ * capability: it still decides whether a request carries a memory block
+ * (`buildAssistantMemoryRequest` omits it when false). What changed is the
+ * channel it reports through. It used to return a
+ * `resolveAssistantMemoryDisabledReason` string, which reaches the panel's
+ * `disabled` prop — and since the predicate is
+ * `selectedProvider === 'local' || desktopAssistantBackendAvailable`, and web's
+ * `desktopAssistantBackendAvailable` is `hasDurableAssistantUsageCapability()`
+ * (false without `window.agentHost`), the retired browser-local provider had
+ * been the only thing keeping web's composer sendable. Losing memory is not a
+ * reason to refuse the turn, so it rides `panelNotice` and says so out loud.
+ *
+ * The PGlite-readiness reasons above it still block: without the thread
+ * repository there is nowhere to record the run at all.
+ */
+export function resolveHostedMemoryUnavailableNotice(args: {
+  desktopAssistantBackendAvailable: boolean;
+  selectedProvider: SupportedProvider | null;
+}): string | undefined {
+  if (args.selectedProvider === null) {
+    return;
+  }
+  // Keyed on the backend alone, NOT on `resolveHostedMemoryBackendAvailable`,
+  // whose `selectedProvider === 'local'` disjunct dates from the in-renderer
+  // browser runtime that carried its own memory. That runtime is gone, so a
+  // `local` selection with no backend would otherwise lose memory with nothing
+  // said. Every shell that cannot record memory now says the same thing.
+  if (args.desktopAssistantBackendAvailable) {
+    return;
+  }
+  return 'Assistant memory is unavailable here; this turn runs without durable memory.';
+}
+
+/**
+ * Both faces of the durable-memory capability from one owner: whether a request
+ * may carry a memory block, and the notice shown when it may not. The wrapper
+ * is under a shrink-only line pin (`assistant-contract-boundary.test.ts`), so
+ * this assembly lives here rather than inline there.
+ */
+export function resolveHostedMemoryBackend(args: {
+  desktopAssistantBackendAvailable: boolean;
+  selectedProvider: SupportedProvider | null;
+}): { available: boolean; notice: string | undefined } {
+  return {
+    available: resolveHostedMemoryBackendAvailable(args),
+    notice: resolveHostedMemoryUnavailableNotice(args),
+  };
 }
 
 function requireWebThreadControl(input: unknown): void {

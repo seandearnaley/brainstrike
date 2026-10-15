@@ -71,7 +71,7 @@ import {
   resolveAssistantMemoryDisabledReason,
   resolveComposerAttachmentsAvailability,
   resolveEffectiveObservationalMemorySettings,
-  resolveHostedMemoryBackendAvailable,
+  resolveHostedMemoryBackend,
   resolveModelNameFromComposite,
   resolveProviderFromComposite,
   toRuntimeProviderModels,
@@ -642,10 +642,8 @@ export function AssistantUiPanelWrapper({
       selectedMemoryThreadId,
     });
   const composerDraft = useComposerDraftChannel(selectedMemoryThreadId);
-  const hostedMemoryBackendAvailable = resolveHostedMemoryBackendAvailable({
-    desktopAssistantBackendAvailable,
-    selectedProvider,
-  });
+  const { available: hostedMemoryBackendAvailable, notice: hostedMemoryNotice } =
+    resolveHostedMemoryBackend({ desktopAssistantBackendAvailable, selectedProvider });
   // Resolve 'auto' once for request data, memory validation and the OM meter.
   // Concrete settings keep the sentinel out of provider/model validation
   // and prevent unresolved auto from disabling thread memory (BST-940).
@@ -989,7 +987,9 @@ export function AssistantUiPanelWrapper({
     providerDisabledReason ??
     openRouterDisabledReason;
   const disabledReason = runtimeDisabledReason ?? providerDraft.reason;
-  const panelNotice = disabledReason ?? providerDiscoveryReason;
+  // `hostedMemoryNotice` never reaches `disabled` (a turn without durable memory
+  // still runs) and ranks last: a real block describes the turn better.
+  const panelNotice = disabledReason ?? providerDiscoveryReason ?? hostedMemoryNotice;
   // Conversation Rewind wiring (BST-1115), extracted whole into
   // `changes/use-wrapper-rewind-wiring.ts`: the re-hydration generation and standing "Last Turn"
   // identity, and the live mid-run refresh. The wrapper only forwards seams.
