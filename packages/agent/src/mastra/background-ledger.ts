@@ -23,7 +23,7 @@ import type {
   BackgroundGeneration,
   DelegatedConversationBinding,
 } from './delegated-conversation-binding';
-import { makeRunDetailEventChunk } from './stream-run-event-chunks';
+import { makeRunDetailEventChunk } from '../tool-projection/stream-run-event-chunks';
 import type { DelegationOutcomeCapture } from './subagent-delegation';
 
 const logger = createLogger('BackgroundLedger');

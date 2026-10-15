@@ -15,7 +15,7 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 
 const AGENT_STREAMING_FILE = 'packages/agent/src/mastra/agent-streaming.ts';
 const DATA_STREAM_MAPPER_FILE = 'packages/agent/src/stream/data-stream-mapper.ts';
-const TOOL_EVENT_MAPPER_FILE = 'packages/agent/src/mastra/tool-event-mapper.ts';
+const TOOL_EVENT_MAPPER_FILE = 'packages/agent/src/tool-projection/tool-event-mapper.ts';
 
 const REQUIRED_SOURCE_PATTERNS = [
   {

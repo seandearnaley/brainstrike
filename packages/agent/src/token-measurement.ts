@@ -6,10 +6,10 @@ import {
 } from '@brainstrike/tokenization/token-utils-accurate-lite';
 import type { ToolsInput } from '@mastra/core/agent';
 import { standardSchemaToJSONSchema, toStandardSchema } from '@mastra/core/schema';
-import type { ScaledToolResultBudget } from '../stream/tool-output-limits';
-import { TOOL_RESULT_TRUNCATED_CODE } from '../stream/tool-output-limits';
-import type { ToolCallTelemetrySample } from '../types';
-import { readToolCallTelemetryMetadata } from './tool-call-telemetry';
+import type { ScaledToolResultBudget } from './stream/tool-output-limits';
+import { TOOL_RESULT_TRUNCATED_CODE } from './stream/tool-output-limits';
+import type { ToolCallTelemetrySample } from './types';
+import { readToolCallTelemetryMetadata } from './tool-projection/tool-call-telemetry';
 
 const MAX_FAILURE_MESSAGE_CHARACTERS = 240;
 const INLINE_MEDIA_TYPES = new Set(['file-data', 'image-data', 'media']);

@@ -43,7 +43,7 @@ import {
   readOpenRouterDiagnostics,
   readStreamPartUsage,
   type UsageLike,
-} from './runtime-assembly/usage-metering';
+} from '../usage-metering';
 
 /** Shape of a Mastra stream part with potential usage/text/tool payload fields. */
 export interface MastraStreamPart {

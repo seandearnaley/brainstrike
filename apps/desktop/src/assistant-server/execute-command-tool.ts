@@ -831,7 +831,7 @@ function buildResult(args: {
   // though the raw estimate looked safe. Binary-search the content budget
   // against the REAL serialized size instead of guessing a fixed reserve —
   // same bisection-on-measured-size shape as fitContentTextToModelBudget in
-  // packages/agent/src/mastra/tool-model-output.ts. Monotonic: a larger
+  // packages/agent/src/tool-projection/tool-model-output.ts. Monotonic: a larger
   // content budget can only retain equal-or-more characters, so serialized
   // length is non-decreasing in contentBudget, which is what makes the
   // bisection valid. contentBudget=0 is the guaranteed-fits floor (envelope

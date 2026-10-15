@@ -31,7 +31,7 @@ import {
   isMcpMediaPart,
   type McpContentPart,
   readMcpMultimodalOutput,
-} from './mcp-multimodal-output';
+} from '../mcp/mcp-multimodal-output';
 import {
   readToolCallTelemetryMetadata,
   transferToolCallTelemetryMetadata,

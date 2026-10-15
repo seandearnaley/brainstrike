@@ -26,7 +26,7 @@ import { createDelegatedStreamProjection } from '../mastra/delegated-stream-proj
 import { createDelegatedTurnPersistence } from '../mastra/delegated-turn-persistence';
 import { makeDelegatedStreamTermination } from '../mastra/stream-termination';
 import { createDelegationConfig } from '../mastra/subagent-delegation';
-import { readMastraStreamPartString, readMastraStreamPartValue } from '../mastra/tool-event-mapper';
+import { readMastraStreamPartString, readMastraStreamPartValue } from '../tool-projection/tool-event-mapper';
 import { createTurnAttemptLifecycleState } from '../mastra/turn-attempts';
 import { createPgliteMastraMemory, type PgliteDatabase } from '../pglite-mastra-memory';
 import {

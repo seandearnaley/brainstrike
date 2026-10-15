@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readOpenRouterDiagnostics } from '../usage-metering';
+import { readOpenRouterDiagnostics } from '../../../usage-metering';
 
 /**
  * Display metadata must never be able to kill a turn.

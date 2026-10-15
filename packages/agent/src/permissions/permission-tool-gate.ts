@@ -48,7 +48,7 @@ import {
   resolvePermissionDecision,
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract/tool-metadata';
-import { sanitizeToolName } from './tool-sanitizer';
+import { sanitizeToolName } from '../tool-projection/tool-sanitizer';
 
 export type { PermissionToolGateSnapshot };
 

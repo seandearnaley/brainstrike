@@ -17,7 +17,7 @@ import {
   readToolOutputArtifact,
   type ScopedToolOutputArtifactReader,
   type ToolOutputArtifactSearchResult,
-} from '../mastra/tool-output-artifact-reader';
+} from '../tool-projection/tool-output-artifact-reader';
 
 const NOW = new Date('2026-07-20T12:00:00.000Z');
 const RESOURCE_ID = 'resource-artifact-search';

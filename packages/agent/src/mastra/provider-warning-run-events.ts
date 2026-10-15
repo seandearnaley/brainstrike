@@ -24,7 +24,7 @@ import type {
   ProviderCallWarningSink,
 } from '../providers/provider-call-warnings';
 import type { StreamChunk } from '../types';
-import { makeRunDetailEventChunk } from './stream-run-event-chunks';
+import { makeRunDetailEventChunk } from '../tool-projection/stream-run-event-chunks';
 
 // The wording is shared with the host path (assistant-contract).
 export {

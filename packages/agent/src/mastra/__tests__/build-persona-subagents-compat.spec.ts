@@ -10,7 +10,7 @@ import { z } from 'zod';
 import { resolveScaledToolResultBudget } from '../../stream/tool-output-limits';
 import { buildPersonaSubAgents, type DelegatedExecutionOptions } from '../build-persona-subagents';
 import { createDelegatedConversationBinding } from '../delegated-conversation-binding';
-import type { PermissionToolGateLogger } from '../permission-tool-gate';
+import type { PermissionToolGateLogger } from '../../permissions/permission-tool-gate';
 
 /**
  * Provider compat on a CHILD agent. Run 6 of the live-app verifier

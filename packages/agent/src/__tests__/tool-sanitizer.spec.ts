@@ -3,7 +3,7 @@ import {
   createSanitizedToolNameMap,
   sanitizeTools,
   type ToolsInput,
-} from '../mastra/tool-sanitizer';
+} from '../tool-projection/tool-sanitizer';
 
 describe('tool-sanitizer', () => {
   describe('sanitizeTools', () => {

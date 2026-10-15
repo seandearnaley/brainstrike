@@ -7,13 +7,13 @@ import {
   MAX_ASSISTANT_MESSAGE_STRING_CHARS,
   MAX_ASSISTANT_MESSAGES,
 } from '../assistant-message-boundary';
-import type { AgentMessage, RuntimeData } from '../index';
+import type { AgentMessage, RuntimeData } from '..';
 import {
   AssistantAttachmentValidationError,
   convertAssistantUiMessages,
   convertAssistantUiMessagesWithFinalInput,
   toAiSdkStyleStream,
-} from '../index';
+} from '..';
 import { buildWorkspaceRootManifestContextMessage } from '../workspace-root-manifest';
 
 const { streamMastraAgentMock } = vi.hoisted(() => ({

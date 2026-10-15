@@ -18,7 +18,7 @@ vi.mock('@ai-sdk/openai', () => ({
   createOpenAI: createOpenAIMock,
 }));
 
-import { MastraAgentError } from '../mastra/mastra-agent-error';
+import { MastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import { createProviderNativeWebSearchTool } from '../providers/native-web-search';
 import type { ProviderAuthInput } from '../providers/provider-auth-input';
 

@@ -100,7 +100,7 @@ import { DELEGATED_STEP_USAGE_PART } from './delegated-step-usage';
 import { createDelegatedStreamProjection } from './delegated-stream-projection';
 import { DELEGATED_SYNTHESIS_PART } from './delegated-synthesis-outcomes';
 import { captureDelegatedSystemContext } from './delegated-system-context';
-import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
+import { createMastraAgentError, isMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import {
   asMastraStreamPart,
   getDeltaText,
@@ -113,14 +113,14 @@ import {
   resolveProviderError,
   resolveTripwire,
   truncateStreamDetail,
-} from './mastra-chunk-decoding';
+} from '../mastra-boundary/mastra-chunk-decoding';
 import {
   createMastraStreamPartRouter,
   hasExecutionGuardBehindToolCall,
   resolveMastraProducerOptions,
 } from './mastra-watchdog-options';
-import { MCP_PROGRESS_STREAM_PART_TYPE, mapMcpProgressStreamPart } from './mcp-runtime-client';
-import type { PermissionAskToolMetadata } from './permission-tool-gate';
+import { MCP_PROGRESS_STREAM_PART_TYPE, mapMcpProgressStreamPart } from '../mcp/mcp-runtime-client';
+import type { PermissionAskToolMetadata } from '../permissions/permission-tool-gate';
 import { buildRootLegPromptManifest } from './prompt-manifest-root-leg';
 import { drainProviderCallWarningChunks } from './provider-warning-run-events';
 import { withRootPauseNotices } from './root-pause-notices';
@@ -129,13 +129,13 @@ import {
   accumulateSteppedUsage,
   readOpenRouterBilledCost,
   readStreamPartUsage,
-} from './runtime-assembly/usage-metering';
+} from '../usage-metering';
 import {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
-} from './runtime-configuration';
-import { mapShellOutputStreamPart, SHELL_OUTPUT_STREAM_PART_TYPE } from './shell-output-stream';
-import { makeRunEventChunk, makeToolCallsFinishChunk } from './stream-run-event-chunks';
+} from '../runtime-configuration';
+import { mapShellOutputStreamPart, SHELL_OUTPUT_STREAM_PART_TYPE } from '../tool-projection/shell-output-stream';
+import { makeRunEventChunk, makeToolCallsFinishChunk } from '../tool-projection/stream-run-event-chunks';
 import {
   drainDelegationUsageChunks,
   drainTokenEstimateCalibrationChunk,
@@ -153,7 +153,7 @@ import {
 } from './stream-termination';
 import { ensureMastraThreadTitleGeneration } from './thread-title-generation';
 import { makeApprovalRequiredChunks, makeToolSuspendRequiredChunks } from './tool-approval-chunks';
-import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
+import { readMastraStreamPartString, readMastraStreamPartValue } from '../tool-projection/tool-event-mapper';
 import {
   COMPLETED_FINISH_REASONS,
   type DelegationUsageCapture,

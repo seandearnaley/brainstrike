@@ -16,14 +16,14 @@ import { resolveEligibleArtifactReaderName } from '../mastra/runtime-assembly/to
 import {
   applyToolModelOutputProjections,
   wouldTruncateMcpModelOutput,
-} from '../mastra/tool-model-output';
+} from '../tool-projection/tool-model-output';
 import {
   applyToolOutputArtifactSettlement,
   TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES,
   TOOL_OUTPUT_ARTIFACT_SETTLEMENT_MAX_BYTES,
   type ToolOutputArtifactSettlementError,
   type ToolOutputArtifactSettlementStore,
-} from '../mastra/tool-output-artifact-settlement';
+} from '../tool-projection/tool-output-artifact-settlement';
 import { resolveScaledToolResultBudget } from '../stream/tool-output-limits';
 import { applyToolHooks } from '../tools/hook-tool-wrap';
 

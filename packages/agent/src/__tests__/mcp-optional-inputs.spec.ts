@@ -2,7 +2,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { Agent } from '@mastra/core/agent';
 import { type StandardSchemaWithJSON, standardSchemaToJSONSchema } from '@mastra/core/schema';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
-import { createMcpRuntimeClient } from '../mastra/mcp-runtime-client';
+import { createMcpRuntimeClient } from '../mcp/mcp-runtime-client';
 import { createTestHost, requireExecutableTool } from './fixtures/mcp-runtime';
 
 describe('MCP optional input semantics', () => {

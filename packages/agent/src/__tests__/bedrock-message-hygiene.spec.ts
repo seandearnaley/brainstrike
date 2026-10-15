@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BedrockMessageHygiene,
   buildBedrockMessageHygieneInputProcessor,
-} from '../mastra/bedrock-message-hygiene';
+} from '../mastra-processors/bedrock-message-hygiene';
 
 type Prompt = ProcessLLMRequestArgs['prompt'];
 

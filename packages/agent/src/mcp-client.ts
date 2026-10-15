@@ -7,18 +7,18 @@ export {
   ElicitRequestFormParamsSchema,
   ElicitRequestURLParamsSchema,
 } from '@modelcontextprotocol/core';
-export type { McpDiscoverySkip } from './mastra/mcp-discovery-diagnostics';
+export type { McpDiscoverySkip } from './mcp/mcp-discovery-diagnostics';
 export {
   type CreateMcpRuntimeClientOptions,
   createMcpRuntimeClient,
   type McpRuntimeClient,
   type McpToolsetsWithErrors,
-} from './mastra/mcp-runtime-client';
+} from './mcp/mcp-runtime-client';
 export {
   type CollectCombinedToolsOptions,
   type CollectCombinedToolsResult,
   collectCombinedTools,
-} from './mastra/mcp-tool-loader';
+} from './mcp/mcp-tool-loader';
 export {
   MCP_APPS_CLIENT_EXTENSION_CONTRACT,
   registerMcpAppsClientCapability,

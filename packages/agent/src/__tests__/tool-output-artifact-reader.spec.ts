@@ -12,7 +12,7 @@ import {
   readToolOutputArtifact,
   readToolOutputArtifactPage,
   type ScopedToolOutputArtifactReader,
-} from '../mastra/tool-output-artifact-reader';
+} from '../tool-projection/tool-output-artifact-reader';
 import {
   decodedTextModelOutputChars,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,

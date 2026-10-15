@@ -45,38 +45,38 @@ import {
   createApprovalGate,
   type RuntimeApprovalGate,
 } from '../approval-gate';
-import { createMastraAgentError } from '../mastra-agent-error';
+import { createMastraAgentError } from '../../mastra-boundary/mastra-agent-error';
 import {
   createMcpAppToolAdmissionCapability,
   type McpAppToolAdmissionCapability,
 } from '../mcp-app-tool-call';
-import type { McpDiscoverySkip } from '../mcp-discovery-diagnostics';
-import { createMcpRuntimeClient, type McpRuntimeClient } from '../mcp-runtime-client';
-import { collectCombinedTools } from '../mcp-tool-loader';
+import type { McpDiscoverySkip } from '../../mcp/mcp-discovery-diagnostics';
+import { createMcpRuntimeClient, type McpRuntimeClient } from '../../mcp/mcp-runtime-client';
+import { collectCombinedTools } from '../../mcp/mcp-tool-loader';
 import { type PermissionGateSummary, summarizePermissionGate } from '../permission-gate-run-events';
 import {
   filterToolsByPermissionWithMetadata,
   type PermissionAskToolMetadata,
   type PermissionToolGateSnapshot,
-} from '../permission-tool-gate';
-import { filterToolsForPlanMode, resolveSuspendToolsForRun } from '../plan-mode-tool-gate';
-import { ProjectionSafeToolCallFilter } from '../projection-safe-tool-call-filter';
-import type { ResolvedRuntimeConfiguration } from '../runtime-configuration';
-import { createRunTokenDiagnostics, type RunTokenDiagnostics } from '../token-measurement';
-import type { ModelOutputProjectionObserver } from '../tool-model-output';
-import { applyToolModelOutputProjections, wouldTruncateMcpModelOutput } from '../tool-model-output';
+} from '../../permissions/permission-tool-gate';
+import { filterToolsForPlanMode, resolveSuspendToolsForRun } from '../../permissions/plan-mode-tool-gate';
+import { ProjectionSafeToolCallFilter } from '../../mastra-processors/projection-safe-tool-call-filter';
+import type { ResolvedRuntimeConfiguration } from '../../runtime-configuration';
+import { createRunTokenDiagnostics, type RunTokenDiagnostics } from '../../token-measurement';
+import type { ModelOutputProjectionObserver } from '../../tool-projection/tool-model-output';
+import { applyToolModelOutputProjections, wouldTruncateMcpModelOutput } from '../../tool-projection/tool-model-output';
 import {
   applyToolOutputArtifactSettlement,
   type ToolOutputArtifactSettlementStore,
-} from '../tool-output-artifact-settlement';
-import { sanitizeToolName, sanitizeTools } from '../tool-sanitizer';
+} from '../../tool-projection/tool-output-artifact-settlement';
+import { sanitizeToolName, sanitizeTools } from '../../tool-projection/tool-sanitizer';
 import {
   BrainstrikeToolSearchProcessor,
   isHostedProviderRuntime,
   resolveHostedToolDiscoveryAdapter,
   resolveToolDiscoverySurface,
   type ToolDiscoverySurface,
-} from '../tool-search-runtime';
+} from '../../mastra-processors/tool-search-runtime';
 
 const logger = createLogger('MastraAgent');
 

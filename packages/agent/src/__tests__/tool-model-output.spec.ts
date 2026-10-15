@@ -28,14 +28,14 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 import {
   attachToolCallTelemetryMetadata,
   readToolCallTelemetryMetadata,
-} from '../mastra/tool-call-telemetry';
+} from '../tool-projection/tool-call-telemetry';
 import {
   applyToolModelOutputProjections as applyToolModelOutputProjectionsWithBudget,
   assertDomainProjectionWithinBudget,
   buildDefaultModelProjectionBudget,
   getActiveToolResultBudget,
-} from '../mastra/tool-model-output';
-import { ToolProjectionInputRejectedError } from '../mastra/tool-projection-input-rejected';
+} from '../tool-projection/tool-model-output';
+import { ToolProjectionInputRejectedError } from '../tool-projection/tool-projection-input-rejected';
 import {
   CEILING_SCALED_TOOL_RESULT_BUDGET,
   decodedTextModelOutputChars,

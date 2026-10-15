@@ -4,7 +4,7 @@ import {
   DataStreamDecoder,
 } from 'assistant-stream';
 import { describe, expect, it, vi } from 'vitest';
-import type { StreamChunk } from '../index';
+import type { StreamChunk } from '..';
 import {
   AssistantDataStreamSession,
   AssistantDataStreamSessionManager,

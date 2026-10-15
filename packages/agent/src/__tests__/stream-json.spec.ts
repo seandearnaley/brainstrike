@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { StreamChunk } from '../index';
+import type { StreamChunk } from '..';
 import { sanitizeStreamChunk, toJsonSafe } from '../stream/json';
 
 describe('toJsonSafe', () => {

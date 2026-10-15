@@ -16,7 +16,7 @@ import {
   buildAssistantErrorProcessors,
   buildProviderHistoryCompatInputProcessor,
   isEconnResetStreamError,
-} from '../mastra/error-processors';
+} from '../mastra-processors/error-processors';
 
 describe('error-processor builders', () => {
   it('pins the retry budget to a small explicit value (not Mastra default 10)', () => {

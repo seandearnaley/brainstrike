@@ -53,8 +53,8 @@ import {
   withLateBackgroundResults,
 } from './late-background-results-processor';
 import { armLiveDecisions } from './live-decisions';
-import { createMastraAgentError, isMastraAgentError, MastraAgentError } from './mastra-agent-error';
-import { makeMcpDiscoverySkipChunks } from './mcp-discovery-diagnostics';
+import { createMastraAgentError, isMastraAgentError, MastraAgentError } from '../mastra-boundary/mastra-agent-error';
+import { makeMcpDiscoverySkipChunks } from '../mcp/mcp-discovery-diagnostics';
 import { makePermissionGateResolvedChunks } from './permission-gate-run-events';
 import { computePromptBreakdown } from './prompt-breakdown';
 import { assertResumedCallIsSuspendPause } from './resumed-tool-snapshot';

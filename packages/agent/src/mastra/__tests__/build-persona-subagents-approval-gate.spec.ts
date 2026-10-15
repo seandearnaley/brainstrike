@@ -27,7 +27,7 @@ import {
 import { buildPersonaSubAgents } from '../build-persona-subagents';
 import { createDelegatedConversationBinding } from '../delegated-conversation-binding';
 import { createLiveDecisionChannel } from '../live-decision-channel';
-import type { PermissionToolGateLogger } from '../permission-tool-gate';
+import type { PermissionToolGateLogger } from '../../permissions/permission-tool-gate';
 
 type LanguageModelV2 = Extract<MastraModelConfig, { specificationVersion: 'v2' }>;
 

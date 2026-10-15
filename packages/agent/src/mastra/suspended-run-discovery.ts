@@ -25,9 +25,9 @@ import {
   type DelegatedSuspensionResolver,
   discoverDelegatedToolPause,
 } from './delegated-suspension-discovery';
-import { createMastraAgentError } from './mastra-agent-error';
+import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import { assertNoUnsupportedDirectStreamOptions } from './runtime-assembly/stream-options';
-import { resolveRuntimeConfiguration } from './runtime-configuration';
+import { resolveRuntimeConfiguration } from '../runtime-configuration';
 
 const logger = createLogger('MastraAgent');
 

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentMessage, StreamChunk } from '../index';
-import { isMastraAgentError } from '../mastra/mastra-agent-error';
+import type { AgentMessage, StreamChunk } from '..';
+import { isMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import { mcpHost, setMcpToolsets } from './fixtures/mastra-stream-harness';
 
 const AGENT_RUNTIME_MCP_TOOLSETS = Object.fromEntries(
@@ -135,7 +135,7 @@ describe('agent-runtime edge cases', () => {
   describe('resolved/authInput overlap guard (BST-1352 review finding 7)', () => {
     it('throws typed when resolved and a DIFFERENT authInput are both supplied', async () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
-      const { resolveRuntimeConfiguration } = await import('../mastra/runtime-configuration');
+      const { resolveRuntimeConfiguration } = await import('../runtime-configuration');
 
       const resolved = resolveRuntimeConfiguration(
         { provider: 'openai' },
@@ -159,7 +159,7 @@ describe('agent-runtime edge cases', () => {
 
     it('accepts resolved carrying the SAME authInput reference (pre-resolved path)', async () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
-      const { resolveRuntimeConfiguration } = await import('../mastra/runtime-configuration');
+      const { resolveRuntimeConfiguration } = await import('../runtime-configuration');
 
       const authInput = { apiKey: 'resolved-key', kind: 'api_key' as const };
       const resolved = resolveRuntimeConfiguration({ provider: 'openai' }, authInput);

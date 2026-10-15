@@ -8,7 +8,7 @@ import {
   type McpAppToolAdmissionCapability,
   McpAppToolNotAdmittedError,
 } from '../mastra/mcp-app-tool-call';
-import type { PermissionToolGateSnapshot } from '../mastra/permission-tool-gate';
+import type { PermissionToolGateSnapshot } from '../permissions/permission-tool-gate';
 import { composeRuntimeToolMap } from '../mastra/runtime-assembly/tool-pipeline';
 import { resolveScaledToolResultBudget } from '../stream/tool-output-limits';
 import type { AgentHookRunner } from '../tools/hook-runner';

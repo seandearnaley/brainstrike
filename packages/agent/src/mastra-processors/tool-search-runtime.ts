@@ -18,9 +18,9 @@ import { type MastraDBMessage, MessageList, type ToolsInput } from '@mastra/core
 import { ToolSearchProcessor } from '@mastra/core/processors';
 import { MASTRA_THREAD_ID_KEY, type RequestContext } from '@mastra/core/request-context';
 import type { Tool } from '@mastra/core/tools';
-import { describeAvailableDeferredCapabilityFamilies } from './deferred-capability-families';
-import { createDeferredToolCatalog, LIST_AVAILABLE_TOOLS_ID } from './deferred-tool-catalog';
-import { createMastraAgentError } from './mastra-agent-error';
+import { describeAvailableDeferredCapabilityFamilies } from '../instructions/deferred-capability-families';
+import { createDeferredToolCatalog, LIST_AVAILABLE_TOOLS_ID } from '../deferred-tool-catalog';
+import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 
 const logger = createLogger('MastraToolDiscovery');
 

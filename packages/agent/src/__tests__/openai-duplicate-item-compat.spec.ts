@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildOpenAIDuplicateItemCompatInputProcessor,
   OpenAIDuplicateItemCompat,
-} from '../mastra/openai-duplicate-item-compat';
+} from '../mastra-processors/openai-duplicate-item-compat';
 
 const REASONING_EMPTY_ID = 'rs_dup_empty';
 const REASONING_SUMMARY_ID = 'rs_dup_summary';

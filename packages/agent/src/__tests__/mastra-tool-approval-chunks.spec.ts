@@ -23,7 +23,7 @@ import {
   streamMastraToolResumeAction,
 } from '../mastra/agent-streaming';
 import { listSuspendedMastraRuns } from '../mastra/suspended-run-discovery';
-import { TOOL_CALL_DECLINED_MESSAGE } from '../mastra/tool-event-mapper';
+import { TOOL_CALL_DECLINED_MESSAGE } from '../tool-projection/tool-event-mapper';
 import { DataStreamCode } from '../stream/data-stream-codes';
 import { DataStreamMapper } from '../stream/data-stream-mapper';
 import type { StreamChunk } from '../types';

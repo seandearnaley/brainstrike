@@ -26,7 +26,7 @@ export function isPositiveInteger(value: unknown): value is number {
 
 // Delegates to `@brainstrike/agent`'s grep-model-format so this desktop-side
 // line normalization/clipping and the durable artifact-search projector
-// (packages/agent/src/mastra/tool-output-artifact-reader.ts) share one
+// (packages/agent/src/tool-projection/tool-output-artifact-reader.ts) share one
 // implementation instead of independent copies that could silently drift.
 export const projectionSingleLine = normalizeGrepProjectionLine;
 
@@ -64,7 +64,7 @@ export function makeWorkspaceTextModelOutput(lines: readonly string[]): Workspac
  * `@brainstrike/agent`'s `decodedTextModelOutputChars` so this desktop-side
  * math and the runtime's own domain-projection guards
  * (`assertDomainProjectionWithinBudget` /`composeHookContextWithProjection`
- * in `packages/agent/src/mastra/tool-model-output.ts`) can never diverge
+ * in `packages/agent/src/tool-projection/tool-model-output.ts`) can never diverge
  * again — PR #2334 review caught exactly that divergence when the two sides
  * held independent copies of this formula. Tokens come from the DECODED
  * string the model actually reads, where a literal newline is ONE character

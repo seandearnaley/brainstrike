@@ -20,7 +20,7 @@ import {
   filterToolsByPermissionWithMetadata,
   type PermissionToolGateLogger,
   resolveSelfApprovalDecision,
-} from '../mastra/permission-tool-gate';
+} from '../permissions/permission-tool-gate';
 
 function noopLogger(): PermissionToolGateLogger {
   return { info: () => {}, warn: () => {} };

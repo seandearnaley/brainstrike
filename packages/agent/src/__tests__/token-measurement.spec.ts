@@ -6,7 +6,7 @@ import {
   createPreparedTokenMeasurement,
   createRunTokenDiagnostics as createRunTokenDiagnosticsWithBudget,
   serializeModelOutputForTokenMeasurement,
-} from '../mastra/token-measurement';
+} from '../token-measurement';
 import { createProviderNativeWebSearchTool } from '../providers/native-web-search';
 import { resolveScaledToolResultBudget } from '../stream/tool-output-limits';
 import { TOKEN_MEASUREMENT_FIXTURES } from './fixtures/token-measurement-fixtures';

@@ -1,6 +1,6 @@
 import { ModelRouterLanguageModel } from '@mastra/core/llm';
 import { describe, expect, it } from 'vitest';
-import { isMastraAgentError } from '../mastra/mastra-agent-error';
+import { isMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import {
   createEmbeddingProvider,
   createLanguageModelProvider,

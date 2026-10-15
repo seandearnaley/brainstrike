@@ -4,7 +4,7 @@ import {
   MAX_MCP_DISCOVERY_REASON_CHARS,
   type McpDiscoverySkip,
   makeMcpDiscoverySkipChunks,
-} from '../mastra/mcp-discovery-diagnostics';
+} from '../mcp/mcp-discovery-diagnostics';
 
 describe('makeMcpDiscoverySkipChunks', () => {
   it('mints nothing when discovery was healthy', () => {

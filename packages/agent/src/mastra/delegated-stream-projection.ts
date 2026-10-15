@@ -18,10 +18,10 @@ import {
   type DelegatedSynthesisPart,
   readDelegatedSynthesisPart,
 } from './delegated-synthesis-outcomes';
-import { MCP_PROGRESS_STREAM_PART_TYPE } from './mcp-runtime-client';
-import { SHELL_OUTPUT_STREAM_PART_TYPE } from './shell-output-stream';
+import { MCP_PROGRESS_STREAM_PART_TYPE } from '../mcp/mcp-runtime-client';
+import { SHELL_OUTPUT_STREAM_PART_TYPE } from '../tool-projection/shell-output-stream';
 import type { SubagentChildUsageReport } from './subagent-delegation';
-import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
+import { readMastraStreamPartString, readMastraStreamPartValue } from '../tool-projection/tool-event-mapper';
 import { resolveDelegationPersona } from './tool-lifecycle-processors';
 
 type DelegatedPause = Extract<

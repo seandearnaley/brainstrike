@@ -6,7 +6,7 @@ import type {
 } from '@mastra/core/agent/message-list';
 import type { MastraMemory } from '@mastra/core/memory';
 import type { RuntimeData } from '../types';
-import { createMastraAgentError } from './mastra-agent-error';
+import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 
 const ABORTED_TURN_MEMORY_MARKER = '[Assistant turn aborted before completion.]';
 

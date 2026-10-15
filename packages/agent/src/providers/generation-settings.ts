@@ -6,7 +6,7 @@ import {
   resolveOpenRouterOutputWindow,
   resolveOpenRouterReasoningActive,
 } from '@brainstrike/assistant-contract';
-import { createMastraAgentError } from '../mastra/mastra-agent-error';
+import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import type { RuntimeData } from '../types';
 import { getDefaultModel } from './provider-factory';
 

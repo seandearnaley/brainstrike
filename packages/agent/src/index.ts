@@ -229,7 +229,7 @@ export {
   formatGrepProjectionPageRange,
   GREP_MATCH_LINE_MAX_CHARS,
   normalizeGrepProjectionLine,
-} from './mastra/grep-model-format';
+} from './tool-projection/grep-model-format';
 export {
   isLiveDecisionUnavailableError,
   LiveDecisionUnavailableError,
@@ -239,7 +239,7 @@ export {
   isMastraAgentError,
   MastraAgentError,
   type MastraAgentErrorCode,
-} from './mastra/mastra-agent-error';
+} from './mastra-boundary/mastra-agent-error';
 export type {
   McpAppOrdinaryToolCallOptions,
   McpAppToolAdmissionCapability,
@@ -249,18 +249,18 @@ export {
   createMcpAppOrdinaryToolCallPreparer,
   McpAppToolNotAdmittedError,
 } from './mastra/mcp-app-tool-call';
-export { readMcpCreatedTaskResult } from './mastra/mcp-task-tool-result';
+export { readMcpCreatedTaskResult } from './mcp/mcp-task-tool-result';
 export {
   type CollectCombinedToolsOptions,
   type CollectCombinedToolsResult,
   collectCombinedTools,
-} from './mastra/mcp-tool-loader';
+} from './mcp/mcp-tool-loader';
 export {
   type AssistantPermissionPolicyRequest,
   isAssistantPermissionPolicyRequest,
   resolveRequestPermissionPolicy,
-} from './mastra/permission-policy-request';
-export { resolveSelfApprovalDecision } from './mastra/permission-tool-gate';
+} from './permissions/permission-policy-request';
+export { resolveSelfApprovalDecision } from './permissions/permission-tool-gate';
 export { PERSONA_PIN_KEYLESS_PROVIDERS } from './mastra/persona-pinned-model';
 export { buildModelSettingsOption } from './mastra/runtime-assembly/stream-options';
 export { composeRuntimeToolMap } from './mastra/runtime-assembly/tool-pipeline';
@@ -268,7 +268,7 @@ export {
   SHELL_OUTPUT_STREAM_PART_TYPE,
   type ShellOutputWriter,
   writeShellOutputChunk,
-} from './mastra/shell-output-stream';
+} from './tool-projection/shell-output-stream';
 export {
   createDelegationConfig,
   shouldEnablePersonas,
@@ -281,15 +281,15 @@ export {
   listSuspendedMastraRuns,
 } from './mastra/suspended-run-discovery';
 export { toAiSdkStyleStream } from './mastra/to-ai-sdk-style-stream';
-export type { ToolCallTelemetryMetadata } from './mastra/tool-call-telemetry';
+export type { ToolCallTelemetryMetadata } from './tool-projection/tool-call-telemetry';
 export {
   attachToolCallTelemetryMetadata,
   readToolCallTelemetryMetadata,
-} from './mastra/tool-call-telemetry';
+} from './tool-projection/tool-call-telemetry';
 export {
   applyToolModelOutputProjections,
   getActiveToolResultBudget,
-} from './mastra/tool-model-output';
+} from './tool-projection/tool-model-output';
 export {
   projectToolOutputArtifactPage,
   type ReadToolOutputArtifactCursorInput,
@@ -306,19 +306,19 @@ export {
   type ToolOutputArtifactReadFailureReason,
   type ToolOutputArtifactSearchProjection,
   type ToolOutputArtifactSearchResult,
-} from './mastra/tool-output-artifact-reader';
+} from './tool-projection/tool-output-artifact-reader';
 export {
   TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES,
   TOOL_OUTPUT_ARTIFACT_SETTLEMENT_MAX_BYTES,
   ToolOutputArtifactSettlementError,
   type ToolOutputArtifactSettlementFailureReason,
   type ToolOutputArtifactSettlementStore,
-} from './mastra/tool-output-artifact-settlement';
+} from './tool-projection/tool-output-artifact-settlement';
 export {
   isToolProjectionInputRejected,
   ToolProjectionInputRejectedError,
-} from './mastra/tool-projection-input-rejected';
-export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
+} from './tool-projection/tool-projection-input-rejected';
+export { createSanitizedToolNameMap } from './tool-projection/tool-sanitizer';
 // MCP config types and parser (desktop-only usage typically)
 export type {
   McpConfig,

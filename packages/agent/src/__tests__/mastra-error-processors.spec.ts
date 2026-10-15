@@ -88,7 +88,7 @@ vi.mock('@mastra/core/agent', async (importActual) => {
 
 const { streamMastraAgent } = await import('../mastra/agent-streaming');
 const { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } = await import(
-  '../mastra/error-processors'
+  '../mastra-processors/error-processors'
 );
 
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;

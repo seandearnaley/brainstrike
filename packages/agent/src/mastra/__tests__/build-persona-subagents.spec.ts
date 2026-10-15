@@ -24,10 +24,10 @@ import { createAskUserTool } from '../../tools/ask-user-tool';
 import { createSubmitPlanTool } from '../../tools/submit-plan-tool';
 import { buildPersonaSubAgents, resolveChildToolCallConcurrency } from '../build-persona-subagents';
 import { createDelegatedConversationBinding } from '../delegated-conversation-binding';
-import type { PermissionToolGateLogger } from '../permission-tool-gate';
+import type { PermissionToolGateLogger } from '../../permissions/permission-tool-gate';
 import { ProjectionAwareTokenLimiter } from '../projection-aware-token-limiter';
-import { applyToolModelOutputProjections, getActiveToolResultBudget } from '../tool-model-output';
-import { BrainstrikeToolSearchProcessor } from '../tool-search-runtime';
+import { applyToolModelOutputProjections, getActiveToolResultBudget } from '../../tool-projection/tool-model-output';
+import { BrainstrikeToolSearchProcessor } from '../../mastra-processors/tool-search-runtime';
 
 // Mastra vendors its own AI SDK v5 provider types (the workspace
 // `@ai-sdk/provider` is a different major and is NOT assignable), so extract

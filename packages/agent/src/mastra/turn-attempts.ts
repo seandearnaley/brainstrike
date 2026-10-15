@@ -41,12 +41,12 @@ import {
   createAbortedTurnPersistence,
 } from './aborted-turn-persistence';
 import type { MastraAgentRuntime } from './agent-runtime';
-import { createMastraAgentError } from './mastra-agent-error';
+import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import {
   makeErrorFinishChunk,
   makeRunDetailEventChunk,
   makeRunFailedChunk,
-} from './stream-run-event-chunks';
+} from '../tool-projection/stream-run-event-chunks';
 import {
   EmptyModelResponseError,
   isStreamWatchdogError,

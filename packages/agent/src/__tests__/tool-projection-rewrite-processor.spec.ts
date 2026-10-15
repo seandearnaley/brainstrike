@@ -1,6 +1,6 @@
 import type { ProcessLLMRequestArgs } from '@mastra/core/processors';
 import { describe, expect, it } from 'vitest';
-import { rewriteToolProjectionPrompt } from '../mastra/tool-projection-rewrite-processor';
+import { rewriteToolProjectionPrompt } from '../mastra-processors/tool-projection-rewrite-processor';
 import type { ToolProjectionRewriteEntry } from '../types';
 
 function promptWithCalls(

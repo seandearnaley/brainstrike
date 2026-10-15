@@ -3,7 +3,7 @@ import { runEvals } from '@mastra/core/evals';
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { createMastraAgentRuntime } from '../mastra/agent-runtime';
-import type { ToolDiscoverySearchObservation } from '../mastra/tool-search-runtime';
+import type { ToolDiscoverySearchObservation } from '../mastra-processors/tool-search-runtime';
 import { resolveProviderApiKey } from '../providers/key-resolver';
 import {
   calledToolGate,

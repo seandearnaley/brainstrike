@@ -8,7 +8,7 @@ import { MessageList, type ToolsInput } from '@mastra/core/agent';
 import type { ProcessInputStepArgs } from '@mastra/core/processors';
 import { MASTRA_THREAD_ID_KEY, RequestContext } from '@mastra/core/request-context';
 import { describe, expect, it, vi } from 'vitest';
-import { filterToolsByPermissionWithMetadata } from '../mastra/permission-tool-gate';
+import { filterToolsByPermissionWithMetadata } from '../permissions/permission-tool-gate';
 import {
   applyProviderNativeWebSearch,
   createProviderNativeWebSearchTool,

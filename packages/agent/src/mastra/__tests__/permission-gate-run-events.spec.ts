@@ -7,7 +7,7 @@ import {
   type PermissionGateSummary,
   summarizePermissionGate,
 } from '../permission-gate-run-events';
-import type { PermissionAskToolMetadata } from '../permission-tool-gate';
+import type { PermissionAskToolMetadata } from '../../permissions/permission-tool-gate';
 
 const POLICIES: PermissionPolicies = { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'ask' };
 

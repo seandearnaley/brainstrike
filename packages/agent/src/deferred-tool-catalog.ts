@@ -1,7 +1,7 @@
 import type { ToolsInput } from '@mastra/core/agent';
 import { createTool, type Tool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { createMastraAgentError } from './mastra-agent-error';
+import { createMastraAgentError } from './mastra-boundary/mastra-agent-error';
 
 export const LIST_AVAILABLE_TOOLS_ID = 'list_available_tools';
 const PAGE_SIZE = 50;

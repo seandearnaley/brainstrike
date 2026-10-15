@@ -4,7 +4,7 @@ import {
   DataStreamDecoder,
 } from 'assistant-stream';
 import { describe, expect, it } from 'vitest';
-import { mapMastraToolEvent } from '../mastra/tool-event-mapper';
+import { mapMastraToolEvent } from '../tool-projection/tool-event-mapper';
 import { createStatelessAssistantDataStreamResponse } from '../stream/data-stream';
 import { DataStreamMapper } from '../stream/data-stream-mapper';
 import type { StreamChunk } from '../types';

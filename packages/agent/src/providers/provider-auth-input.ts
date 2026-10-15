@@ -25,7 +25,7 @@
  */
 import { isValidAwsRegion } from '@brainstrike/assistant-contract';
 import { findProviderDefinition } from '@brainstrike/assistant-contract/provider-registry';
-import { createMastraAgentError } from '../mastra/mastra-agent-error';
+import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import type { AwsCredentialIdentityProvider } from './aws-credential-identity';
 
 /**

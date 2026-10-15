@@ -5,7 +5,7 @@ import type {
   StreamChunkToolApprovalRequired,
   StreamChunkToolSuspendRequired,
 } from '../types';
-import { makeRunEventChunk } from './stream-run-event-chunks';
+import { makeRunEventChunk } from '../tool-projection/stream-run-event-chunks';
 
 type PauseNotice = StreamChunkToolApprovalRequired | StreamChunkToolSuspendRequired;
 

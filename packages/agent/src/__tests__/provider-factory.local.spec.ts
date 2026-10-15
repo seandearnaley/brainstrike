@@ -79,7 +79,7 @@ describe('provider-factory local provider', () => {
   });
 
   it('refuses the local provider from the broad package entrypoint too', async () => {
-    const { createProvider } = await import('../index');
+    const { createProvider } = await import('..');
 
     expect(() => createProvider('local', undefined, 'onnx-community/gemma-4-E2B-it-ONNX')).toThrow(
       /requires the local LLM host client \(renderer-only inference\)/

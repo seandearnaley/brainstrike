@@ -25,13 +25,13 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import { resolveRunPythonExecutionContext } from '../tools/run-python-approval-context';
 import type { StreamChunk } from '../types';
-import { type PermissionAskToolMetadata, resolveAskToolMetadata } from './permission-tool-gate';
+import { type PermissionAskToolMetadata, resolveAskToolMetadata } from '../permissions/permission-tool-gate';
 import {
   makeErrorFinishChunk,
   makeRunEventChunk,
   makeToolCallsFinishChunk,
-} from './stream-run-event-chunks';
-import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
+} from '../tool-projection/stream-run-event-chunks';
+import { readMastraStreamPartString, readMastraStreamPartValue } from '../tool-projection/tool-event-mapper';
 
 const logger = createLogger('MastraAgent');
 

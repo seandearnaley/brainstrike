@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type McpHostPort, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
-import { createMcpRuntimeClient } from '../mastra/mcp-runtime-client';
+import { createMcpRuntimeClient } from '../mcp/mcp-runtime-client';
 import { ExplicitStdioMcpClient } from '../mcp/explicit-stdio-client';
 import {
   applyToolGuards,

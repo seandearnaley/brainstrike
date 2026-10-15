@@ -29,7 +29,7 @@ import {
 } from '@brainstrike/types';
 import type { AgentMemoryOption, ToolsInput } from '@mastra/core/agent';
 import type { WorkspaceSkills } from '@mastra/core/skills';
-import type { AssistantPermissionPolicyRequest } from './mastra/permission-policy-request';
+import type { AssistantPermissionPolicyRequest } from './permissions/permission-policy-request';
 import type { McpConfig } from './mcp/config';
 import type { RuntimeAssistantMemorySettings } from './memory-settings';
 import type { LocalLlmHostClient } from './providers/local/llm-host-client';

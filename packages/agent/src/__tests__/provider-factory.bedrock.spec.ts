@@ -15,7 +15,7 @@ import {
   createMastraAgentError,
   isMastraAgentError,
   MastraAgentError,
-} from '../mastra/mastra-agent-error';
+} from '../mastra-boundary/mastra-agent-error';
 import { resolveAwsCredentialChain } from '../providers/aws-credential-chain';
 import {
   CONFLICTING_AWS_CREDENTIALS_DETAIL,

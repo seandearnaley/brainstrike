@@ -62,15 +62,15 @@ import {
   queueDelegatedTools,
   resolveDelegatedWorkBudget,
 } from './delegated-work-budget';
-import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from './error-processors';
+import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from '../mastra-processors/error-processors';
 import type { LiveDecisionChannel } from './live-decision-channel';
-import { buildOpenAIDuplicateItemCompatInputProcessor } from './openai-duplicate-item-compat';
+import { buildOpenAIDuplicateItemCompatInputProcessor } from '../mastra-processors/openai-duplicate-item-compat';
 import {
   filterToolsByPermissionWithMetadata,
   type PermissionToolGateLogger,
   type PermissionToolGateSnapshot,
-} from './permission-tool-gate';
-import { resolveSuspendToolsForRun } from './plan-mode-tool-gate';
+} from '../permissions/permission-tool-gate';
+import { resolveSuspendToolsForRun } from '../permissions/plan-mode-tool-gate';
 import { createResponseBoundaryProcessor } from './response-boundary-processor';
 import { buildToolLoopOptions } from './runtime-assembly/stream-options';
 import {
@@ -81,7 +81,7 @@ import type { ChildPromptFacts } from './subagent-delegation';
 import {
   applyToolModelOutputProjections,
   type ModelOutputProjectionObserver,
-} from './tool-model-output';
+} from '../tool-projection/tool-model-output';
 
 export interface PersonaSubAgentBuildResult {
   readonly artifactReaderDelegationTools: readonly string[];
