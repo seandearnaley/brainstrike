@@ -44,7 +44,8 @@ function fixture() {
       throw new Error('This thread fixture does not borrow the host catalog');
     },
     close: vi.fn(async () => undefined),
-    closed: Promise.resolve(),
+    // A live client: its transport stays open until the test or the frame closes it.
+    closed: new Promise<void>(() => undefined),
     onChildrenChanged: vi.fn(() => () => undefined),
     onEvent: vi.fn(() => () => undefined),
     onMcpPresentation: vi.fn(() => () => undefined),
@@ -66,7 +67,9 @@ function fixture() {
   };
   connect.mockResolvedValue(client);
   return {
-    capability: createWindowThreadCapability(({ host, threadId }) => (host ? threadId : undefined)),
+    capability: createWindowThreadCapability(({ owned, threadId }) =>
+      owned ? threadId : undefined
+    ),
     request,
   };
 }

@@ -14,9 +14,15 @@ export interface DesktopProfileRuntime<Attachment> {
   retireFailed(): Promise<boolean>;
 }
 
-/** One Main-owned profile lease, shared by bootstrap, clients and native indexing. */
+/**
+ * One Main-owned profile lease, shared by bootstrap, clients and native indexing.
+ * `createOwner` receives `lost`, which the owner calls when its ready host exits
+ * without Main asking (BST-2004). That owner then fails like a failed start:
+ * `retireFailed` joins its release before admission starts the next host. An
+ * intended retirement closes its own owner and never takes that path.
+ */
 export function createDesktopProfileRuntime<Attachment>(
-  createOwner: () => ProfileOwner<Attachment>
+  createOwner: (lost: () => void) => ProfileOwner<Attachment>
 ): DesktopProfileRuntime<Attachment> {
   let owner: ProfileOwner<Attachment> | undefined;
   let acquisition: Promise<Attachment> | undefined;
@@ -35,11 +41,22 @@ export function createDesktopProfileRuntime<Attachment>(
     }
     return true;
   };
+  const create = (): ProfileOwner<Attachment> => {
+    const created: ProfileOwner<Attachment> = createOwner(() => {
+      if (retirement || owner !== created) {
+        return;
+      }
+      failedOwner = created;
+      owner = undefined;
+      acquisition = undefined;
+    });
+    return created;
+  };
   return {
     acquire: async (signal) => {
       await retirement;
       signal?.throwIfAborted();
-      owner ??= createOwner();
+      owner ??= create();
       const retained = owner;
       acquisition ??= retained.acquire();
       const acquiring = acquisition;
@@ -61,7 +78,7 @@ export function createDesktopProfileRuntime<Attachment>(
       retirementPending = true;
       const clearing = (async (): Promise<ClearContentResult> => {
         await retireFailed();
-        owner ??= createOwner();
+        owner ??= create();
         const retained = owner;
         acquisition ??= retained.acquire();
         await acquisition;

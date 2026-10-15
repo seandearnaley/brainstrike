@@ -23,6 +23,11 @@ export type CommittedAssistantConversationProps = Omit<
 > &
   Omit<CommittedAssistantRuntimeOptions, 'onCommandError'> & {
     readonly onCommandError?: (cause: unknown) => void;
+    /**
+     * The owner's reconnection (BST-2004): `'automatic'` while its one automatic
+     * attempt runs, or the user's Reconnect once that attempt failed.
+     */
+    readonly reconnect?: 'automatic' | (() => void);
   };
 
 const UNAVAILABLE = 'The agent host is unavailable.';
@@ -36,6 +41,21 @@ const selectWithheld = (snapshot: CommittedAssistantSnapshot) => snapshot.observ
  */
 function commandErrorText(cause: unknown): string {
   return isMessageNotSentError(cause) ? cause.message : describeBoundaryError(cause);
+}
+
+function connectionNotice(
+  connection: CommittedAssistantSnapshot['connection'],
+  reconnect: CommittedAssistantConversationProps['reconnect']
+): string {
+  if (connection === 'connecting') {
+    return 'Connecting to the agent host…';
+  }
+  if (reconnect === 'automatic') {
+    return 'Reconnecting to the agent host…';
+  }
+  return connection === 'failed'
+    ? 'The agent host connection failed. Reconnect to continue.'
+    : 'Agent host disconnected. Reconnect to continue.';
 }
 
 /** The shipped desktop conversation surface; connection changes never key/remount its transcript. */
@@ -52,6 +72,7 @@ function BoundCommittedAssistantConversation({
   commands,
   adapters,
   onCommandError,
+  reconnect,
   ...presentation
 }: CommittedAssistantConversationProps): ReactElement {
   // Owner status only: a committed token publication never re-renders this shell.
@@ -81,12 +102,13 @@ function BoundCommittedAssistantConversation({
       <div className="flex h-full min-h-0 flex-col" ref={rootRef}>
         {error === undefined ? (
           connection === 'connected' ? null : (
-            <div aria-live="polite" role="status">
-              {connection === 'connecting'
-                ? 'Connecting to the agent host…'
-                : connection === 'failed'
-                  ? 'The agent host connection failed. Reconnect to continue.'
-                  : 'Agent host disconnected. Reconnect to continue.'}
+            <div aria-live="polite" className="flex items-center gap-3" role="status">
+              {connectionNotice(connection, reconnect)}
+              {typeof reconnect === 'function' ? (
+                <Button onClick={reconnect} size="sm" type="button" variant="outline">
+                  Reconnect
+                </Button>
+              ) : null}
             </div>
           )
         ) : (

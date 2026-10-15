@@ -56,6 +56,11 @@ Conversation panels display an existing public runtime. Opening, closing or
 switching a panel neither starts inference nor owns cancellation. Interaction
 cards remain actionable through their host IDs, including after replay.
 
+A desktop frame has one host connection. When its host is lost, it reconnects
+once on its own, then waits for the user's Reconnect; views rebind from the
+replacement's committed log. A send the lost host never answered is settled from
+that log (interrupted, or returned to the composer as not sent), never resent.
+
 Stop, deletion and host close fence admission and join provider, tool and memory
 work before releasing storage or Root. A terminal outcome does not prove physical
 retirement; failed joins remain visible and retain ownership. Live/replay details

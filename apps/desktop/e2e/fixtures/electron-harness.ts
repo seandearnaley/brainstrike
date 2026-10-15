@@ -70,7 +70,7 @@ export class ElectronHarness {
     return page;
   }
 
-  async restart(): Promise<ElectronAppContext> {
+  async restart(onAppAcquired?: (app: ElectronApplication) => void): Promise<ElectronAppContext> {
     if (this.app) {
       await this.dispose();
       await new Promise((resolve) => {
@@ -78,7 +78,7 @@ export class ElectronHarness {
       });
     }
 
-    this.context = await this.launchContext();
+    this.context = await this.launchContext(onAppAcquired);
     this.hasProvidedWindow = false;
     return this.context;
   }
@@ -211,13 +211,16 @@ export class ElectronHarness {
     }
   }
 
-  private async launchContext(): Promise<ElectronAppContext> {
+  private async launchContext(
+    onAppAcquired?: (app: ElectronApplication) => void
+  ): Promise<ElectronAppContext> {
     const { launchElectronApp } = await loadElectronHelpers();
     const context = await launchElectronApp(this.debugPort, this.userDataDir, {
       disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
       onAppAcquired: (app) => {
         this.app = app;
         this.exitGuard.observe(app.process());
+        onAppAcquired?.(app);
       },
       ...(this.electronEnv ? { env: this.electronEnv } : {}),
       ...(this.modelProvider ? { modelProvider: this.modelProvider } : {}),

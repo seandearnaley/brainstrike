@@ -4,9 +4,10 @@ import {
   decodeBoundaryFailure,
   fault,
   INTERNAL_FAULT,
+  refusal,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
-import { ErrorCodes, ResponseError } from 'vscode-jsonrpc';
+import { ConnectionError, ConnectionErrors, ErrorCodes, ResponseError } from 'vscode-jsonrpc';
 
 /** The JSON-RPC error code of a refusal; a fault keeps `InternalError`. */
 export const BOUNDARY_REFUSAL_RPC_CODE = -32_001;
@@ -19,6 +20,33 @@ const CONNECTION_LOST = fault({
   code: 'host.connection-lost',
   message: 'The connection closed before the request was answered.',
 });
+
+/**
+ * The request never left this process: its connection had already closed or
+ * been disposed (a retired or lost host). Nothing ran, so the caller may ask the
+ * connection's owner again.
+ */
+const CONNECTION_CLOSED = refusal({
+  category: 'availability',
+  code: 'host.connection-closed',
+  message: 'The agent host connection had closed, so the request was not sent.',
+});
+
+/** A request refused before it was sent, because its connection had closed. */
+export function isUnsentRequest(cause: unknown): boolean {
+  return cause instanceof BoundaryFailureError && cause.failure.code === CONNECTION_CLOSED.code;
+}
+
+/**
+ * The request's connection is gone: it was never sent, or it was sent and never
+ * answered. Only the peer's own record says whether a sent one ran.
+ */
+export function isConnectionLoss(cause: unknown): boolean {
+  return (
+    cause instanceof BoundaryFailureError &&
+    (cause.failure.code === CONNECTION_CLOSED.code || cause.failure.code === CONNECTION_LOST.code)
+  );
+}
 
 function typedFailure(cause: unknown): BoundaryFailure | undefined {
   if (cause instanceof BoundaryFailureError) {
@@ -95,6 +123,12 @@ export function toBoundaryResponseError(
  * The original response error stays the cause.
  */
 export function fromBoundaryResponseError(cause: unknown, log: BoundaryLog): unknown {
+  if (
+    cause instanceof ConnectionError &&
+    (cause.code === ConnectionErrors.Closed || cause.code === ConnectionErrors.Disposed)
+  ) {
+    return new BoundaryFailureError(CONNECTION_CLOSED, { cause });
+  }
   if (!(cause instanceof ResponseError)) {
     return cause;
   }

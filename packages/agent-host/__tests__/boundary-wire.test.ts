@@ -1,3 +1,4 @@
+import { PassThrough } from 'node:stream';
 import {
   BoundaryFailureError,
   fault,
@@ -7,7 +8,16 @@ import {
 } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
 import { ErrorCodes, ResponseError } from 'vscode-jsonrpc';
-import { fromBoundaryResponseError, toBoundaryResponseError } from '../src/boundary-wire.js';
+import {
+  createMessageConnection,
+  StreamMessageReader,
+  StreamMessageWriter,
+} from 'vscode-jsonrpc/node';
+import {
+  fromBoundaryResponseError,
+  isUnsentRequest,
+  toBoundaryResponseError,
+} from '../src/boundary-wire.js';
 
 const RAW = 'ENOENT: no such file or directory, lstat /Users/someone/project/missing.ts';
 
@@ -119,5 +129,40 @@ describe('boundary failures on a JSON-RPC connection', () => {
       kind: 'fault',
       message: 'The connection closed before the request was answered.',
     });
+  });
+
+  it('reads a request a disposed connection refused to send as unsent, a refusal nothing logs', async () => {
+    const connection = createMessageConnection(
+      new StreamMessageReader(new PassThrough()),
+      new StreamMessageWriter(new PassThrough())
+    );
+    connection.listen();
+    connection.dispose();
+    // vscode-jsonrpc throws synchronously, before writing anything.
+    const refused = await Promise.resolve()
+      .then(() => connection.sendRequest('catalog/read', {}))
+      .catch((cause: unknown) => cause);
+    const log = vi.fn();
+    const read = fromBoundaryResponseError(refused, log);
+    expect(isUnsentRequest(read)).toBe(true);
+    expect((read as BoundaryFailureError).failure).toEqual({
+      category: 'availability',
+      code: 'host.connection-closed',
+      kind: 'refusal',
+      message: 'The agent host connection had closed, so the request was not sent.',
+    });
+    expect((read as Error).cause).toBe(refused);
+    // Across the next boundary it stays a refusal, with nothing logged as a fault.
+    expect(toBoundaryResponseError(read, log).data).toEqual((read as BoundaryFailureError).failure);
+    expect(log).not.toHaveBeenCalled();
+    // A request that was sent and then lost is not unsent: it may have run.
+    expect(
+      isUnsentRequest(
+        fromBoundaryResponseError(
+          new ResponseError(ErrorCodes.PendingResponseRejected, 'Pending response rejected'),
+          vi.fn()
+        )
+      )
+    ).toBe(false);
   });
 });
