@@ -17,10 +17,17 @@ let receipt:
     }
   | undefined;
 
-test.fails('the existing test watchdog retires a held run and joins physical fixture cleanup', async ({
-  signal,
-  onTestFinished,
-}) => {
+/**
+ * The Vitest test timeout is the watchdog under test. Only its value is
+ * narrowed for this case: it must fire while the run is held, after setup
+ * (about 3 s on a loaded host). A watchdog that fires before the hold fails
+ * the receipt assertions below instead of passing.
+ */
+const HELD_RUN_WATCHDOG_MS = 15_000;
+
+test.fails('the existing test watchdog retires a held run and joins physical fixture cleanup', {
+  timeout: HELD_RUN_WATCHDOG_MS,
+}, async ({ signal, onTestFinished }) => {
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   let retired = false;
