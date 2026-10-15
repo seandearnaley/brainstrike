@@ -8,7 +8,7 @@ import { createInterface } from 'node:readline';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { type Browser, chromium, type Page } from 'playwright';
-import { APP_RENDERER_DOCUMENT_URL } from '../src/desktop-renderer-target';
+import { APP_RENDERER_DOCUMENT_URL } from '../src/desktop-renderer-origin';
 import {
   createLoopbackToolServer,
   type LoopbackToolServer,

@@ -134,7 +134,12 @@ describe('desktop vite config alias contract', () => {
     for (const [specifier, sourcePath] of systemEntrypoints) {
       const resolved = resolveThroughAliases(specifier, registryEntries);
       expect(resolved).toBe(path.resolve(PACKAGES_DIR, sourcePath));
-      expect(resolved).not.toMatch(/dist/);
+      // Anchored on path separators. A bare /dist/ against the absolute
+      // result also matched any ancestor directory of the checkout — this
+      // app generates worktrees named like `distracted-wilson-24fa2d` — so
+      // the lane failed on the machine path rather than on the resolution
+      // this line exists to guard.
+      expect(resolved).not.toMatch(/[/\\]dist[/\\]/);
     }
     // Both configs spread the shared registry and neither shadows these two
     // with a stale literal override.
