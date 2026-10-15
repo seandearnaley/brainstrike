@@ -29,6 +29,10 @@ export { createAwsCredentialChain } from './providers/aws-credential-chain';
 export type { LocalLlmHostClient } from './providers/local/llm-host-client';
 export type { LocalEmbeddingHostClient } from './providers/local/local-host-embedding-model';
 export {
+  collectRouterGenerateResult,
+  materializeHostProviderModel,
+} from './providers/model-router-sdk';
+export {
   createProviderNativeWebSearchTool,
   providerSupportsNativeWebSearch,
 } from './providers/native-web-search';
