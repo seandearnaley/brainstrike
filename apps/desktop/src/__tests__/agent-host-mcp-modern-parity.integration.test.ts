@@ -654,9 +654,15 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     expect(requested(second.inputs.items)).toBeUndefined();
   });
 
-  // By design only the unchanged test watchdog ends this case (#3543 6052105986).
+  // By design only the Vitest test watchdog ends this case (#3543 6052105986); no fixture
+  // deadline is added. Only its value is narrowed: the lab replies twice in well under a
+  // second, so the watchdog still fires while join waits on the retained handle, and an
+  // earlier firing fails the "2 replies" assertion below.
+  const RETAINED_HANDLE_WATCHDOG_MS = 5000;
   const retained: { closed?: unknown; lab?: LabProcess } = {};
-  it.fails('kills and joins a lab child that reports closed but keeps its IPC handle', async (context) => {
+  it.fails('kills and joins a lab child that reports closed but keeps its IPC handle', {
+    timeout: RETAINED_HANDLE_WATCHDOG_MS,
+  }, async (context) => {
     retained.lab = await startLab('tasks-reference', context.signal, true);
     retained.closed = await retained.lab.close().catch((closed: unknown) => closed);
   });
