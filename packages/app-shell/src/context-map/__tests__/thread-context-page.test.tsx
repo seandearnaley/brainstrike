@@ -12,6 +12,10 @@ import {
   WorkspaceTabsContext,
   type WorkspaceTabsValue,
 } from '@brainstrike/file-explorer-ui/shell';
+import {
+  THREAD_CONTEXT_APP_ID,
+  useWorkspaceTabSelectionStore,
+} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import type { IndexChunkBoundsCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
@@ -161,8 +165,13 @@ beforeEach(() => {
   active.threadId = 'thread-1';
   resetThreadContextStore();
   vi.mocked(chunkBounds.fileChunks).mockClear();
+  // The page is the Context workspace tab, shown.
+  useWorkspaceTabSelectionStore.getState().openApp(THREAD_CONTEXT_APP_ID);
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  useWorkspaceTabSelectionStore.getState().reset();
+});
 
 describe('ThreadContextPage', () => {
   it('asks for an active thread, then for a first run', () => {
@@ -532,6 +541,26 @@ describe('ThreadContextPage subagent lanes', () => {
     expect(screen.getByRole('status').textContent).toBe("Reading Cedar-1a2b3c's log…");
     unmount();
     expect(source.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads lanes only while the Context tab is the one shown', async () => {
+    seed();
+    const source = laneSource({ isLoading: false, record: childRecord() });
+    const { host } = laneHost(
+      () => [child('child-1', 'r2')],
+      async () => source
+    );
+    render(<Page chunkBounds={null} host={host} />);
+    await screen.findByRole('tab', { name: /Cedar-1a2b3c/u });
+    expect(host.openThreadContext).toHaveBeenCalledTimes(1);
+    // Another workspace tab keeps this one mounted, hidden.
+    act(() => useWorkspaceTabSelectionStore.getState().openApp('changes'));
+    expect(source.close).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('tab', { name: /Cedar-1a2b3c/u })).toBeNull();
+    act(() => useWorkspaceTabSelectionStore.getState().openApp(THREAD_CONTEXT_APP_ID));
+    await screen.findByRole('tab', { name: /Cedar-1a2b3c/u });
+    expect(host.openThreadContext).toHaveBeenCalledTimes(2);
+    expect(host.childThreads).toHaveBeenCalledTimes(2);
   });
 
   it('names a failed listing instead of showing no subagents', async () => {

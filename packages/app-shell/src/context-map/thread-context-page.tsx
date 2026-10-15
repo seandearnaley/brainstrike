@@ -17,6 +17,10 @@ import {
   useThreadContextStore,
 } from '@brainstrike/assistant-ui/thread-context-store';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
+import {
+  THREAD_CONTEXT_APP_ID,
+  useWorkspaceTabSelectionStore,
+} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import type { IndexChunkBoundsCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { formatTokenCount } from '@brainstrike/tokenization';
 import { isAgentColor } from '@brainstrike/types/agent-color';
@@ -626,7 +630,14 @@ export function ThreadContextPage({ chunkBounds }: ThreadContextPageProps): Reac
     readonly lane: string;
     readonly threadId: string;
   }>();
-  const { lanes, listError, retry } = useContextLanes(threadId, record?.branchRunIds ?? NO_RUNS);
+  // A hidden workspace tab stays mounted, so lanes read only while this one is shown.
+  const shown = useWorkspaceTabSelectionStore(
+    (state) => state.selection.kind === 'app' && state.selection.appId === THREAD_CONTEXT_APP_ID
+  );
+  const { lanes, listError, retry } = useContextLanes(
+    shown ? threadId : null,
+    record?.branchRunIds ?? NO_RUNS
+  );
 
   if (!threadId) {
     return (
