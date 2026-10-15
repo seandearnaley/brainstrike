@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import {
   listProviders,

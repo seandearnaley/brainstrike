@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { LogLevel, type LogRecord } from '@brainstrike/logging';
 import { describe, expect, it } from 'vitest';
 import {

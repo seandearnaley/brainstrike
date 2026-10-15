@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { buildSectionNodes, createCatalogNodeCache } from '../catalog-nodes';
 import { makeCatalogRow } from './catalog-test-harness';

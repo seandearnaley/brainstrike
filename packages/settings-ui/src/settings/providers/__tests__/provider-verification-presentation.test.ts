@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { PROVIDER_VERIFICATION_STATUSES } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import {
