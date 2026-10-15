@@ -108,6 +108,13 @@ export const WINDOWS_DESKTOP_TEST_PROJECTS: TestProjectConfiguration[] = [
   },
 ];
 
+/** The projects this config runs on a platform; none outside Windows. */
+export function resolveDesktopTestProjects(
+  platform: NodeJS.Platform = process.platform
+): TestProjectConfiguration[] | undefined {
+  return platform === 'win32' ? WINDOWS_DESKTOP_TEST_PROJECTS : undefined;
+}
+
 const coverageEnabled =
   process.env['COVERAGE'] !== 'false' &&
   (process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true');
@@ -343,7 +350,7 @@ export default defineConfig({
     // those globals cannot bleed across files under load.
     maxWorkers: 1,
     pool: 'forks',
-    projects: process.platform === 'win32' ? WINDOWS_DESKTOP_TEST_PROJECTS : undefined,
+    projects: resolveDesktopTestProjects(),
     reporters: ['default', new LostTestFileReporter()],
     server: {
       deps: {
