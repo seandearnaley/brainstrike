@@ -301,14 +301,23 @@ method.
 The seed is what was incomplete, and it has been incomplete four times. Each row
 below was measured with the same walk, widening only the seed:
 
-| Seed | Survivors | Retirable |
-| --- | ---: | ---: |
-| Tool-projection names (the scoping doc) | 16 | 83 |
-| `closure(tool-runtime ∪ mcp-client)` | 21 | 79 |
-| + direct-consumer accounting (this document's first revision) | 25 | 75 |
-| + every other surviving `package.json` export | 31 | 69 |
-| + `shell-output-stream`, `permission-tool-gate`, `mcp-app-tool-call` | 35 | 65 |
-| + `runtime-assembly/tool-pipeline` | **73** | **27** |
+| # | Seed | What it counted | Survivors | Retirable |
+| ---: | --- | --- | ---: | ---: |
+| 1 | Tool-projection module names (the scoping doc) | ten hand-listed filenames + closure | 16 | 83 |
+| 2 | `closure(tool-runtime ∪ mcp-client)` | two published entries | 21 | 79 |
+| 3 | + direct-consumer accounting | entries + outside importers | 25 | 75 |
+| 4 | + every other surviving `package.json` export | **all** published entries | 31 | 69 |
+| 5 | + outside consumers, e2e counted as test | the agreed set | **34** | **66** |
+| — | the same, read literally (e2e counted as production) | what the rule's clause exists to prevent | 73 | 27 |
+| 6 | row 5 with `shell-output-stream` split | engine half of the module dropped | 33 | 67 |
+
+**Every revision from 1 to 5 had one cause: an incomplete seed.** First a list of
+filenames rather than entries (1→2); then two published entries still missing,
+`./provider-request` and `./provider-runtime` (3→4); then a consumer filter that
+excluded `__tests__` and `*.spec.*` but not `e2e/` (4→5). None of the revisions
+came from the tree changing. The unnumbered row is not a step in the sequence —
+it is the outcome of reading "non-test consumer" literally, and the reason the
+rule names e2e helpers.
 
 ### What the entry-only closure adds over the seeded cluster
 
@@ -348,7 +357,7 @@ consumer outside `packages/agent` of both `composeRuntimeToolMap`
 (`index.ts:266` → `mastra/runtime-assembly/tool-pipeline.ts:503`) and
 `createMcpAppOrdinaryToolCallPreparer` (`index.ts:249` →
 `mastra/mcp-app-tool-call.ts:291`). Counting it as a consumer pulls in 38
-further modules and takes the deletion from 65 files to 27.
+further modules and takes the deletion from 66 files to 27.
 
 It is an e2e **helper**: test support that lives outside `__tests__` and is not
 named `*.spec.ts`, so a literal "non-test consumer outside `packages/agent`"
@@ -359,12 +368,20 @@ below has to say which, or two readers will compute two answers.
 ### Independent convergence, and two further files
 
 `delete-the-orphaned-mastra-agent-loop` re-ran its own walk after the e2e-helper
-clause and reported **34 survivors / 10,873 lines, 66 retirable / 22,074 lines**
-— within one file of the 65 above, from a differently-seeded walk (union of
-`closure(surviving public entries)` and `closure(the 21 production-consumed
-files)`). Two independent counts agreeing to one file is stronger evidence than
-either alone, and it is also the best argument for carrying the rule rather than
-the number: the residual one-file gap is a seed difference, not a fact.
+clause and reported **34 survivors / 10,873 lines, 66 retirable / 22,074 lines**,
+from a differently-seeded walk (union of `closure(surviving public entries)` and
+`closure(the 21 production-consumed files)`).
+
+Re-running the walk here with `mcp-app-tool-call.ts` excluded — its only
+consumer outside `packages/agent` being that same e2e helper — gives **34
+survivors / 10,839 lines, 66 retirable / 22,008 lines**. The file counts agree
+exactly; the ~34-line difference is a trailing-newline counting convention. The
+**65** this document reported in an earlier revision was one file high for
+exactly that reason, and 66 is the figure to quote.
+
+Two independently seeded walks landing on the same file count is stronger
+evidence than either alone — and it is still a dated measurement, not a
+commitment.
 
 Its re-scan found its own filter had excluded `__tests__` and `*.spec.*` but not
 `e2e`, `qualification` or fixtures, which is why two test-only consumers had been
@@ -394,8 +411,9 @@ side of the writer path carries no vendor type.
 > where e2e helpers count as tests and are re-pointed, not preserved —
 > recomputed immediately before the deletion lands.
 
-Current sizing, **as sizing and not as an ADR commitment**: 65 retirable / 35
-surviving with that helper re-pointed; 27 / 73 without.
+Current sizing, **as sizing and not as an ADR commitment**: 66 retirable / 34
+surviving with that helper re-pointed; 27 / 73 without; 67 / 33 if
+`shell-output-stream.ts` is also split.
 
 None of this changes ADR-0022's decision. It changes what step 4 must establish
 before it deletes anything.

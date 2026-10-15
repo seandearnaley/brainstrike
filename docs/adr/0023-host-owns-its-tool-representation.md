@@ -102,7 +102,18 @@ not on `ai` itself.
   advertised Apps capability but never mounted one still cannot call, and a tool
   that did mount one is admitted whatever it advertised. So the host needs no
   per-run registration gate and nothing is lost by dropping the field. This is a
-  decision, not an open item.
+  decision, not an open item. Confirmed by grep: `appCapable` and `mcpMetadata`
+  do not occur anywhere in `packages/agent-host`, `packages/host-capabilities`
+  or `apps/desktop`.
+
+  **One loose end, stated rather than glossed.** `appCapable`'s readers
+  (`mcp-app-tool-call.ts`, `agent-runtime.ts:599`) retire with the engine, but
+  its *writer* does not: `mcp-runtime-client.ts:366` survives ADR-0022, because
+  `host-capabilities` imports it through the `@brainstrike/agent/mcp-client`
+  entry. Between ADR-0022's deletion and this ADR's step (iii) it therefore
+  writes a marker nobody reads. Step (iii) rewrites that file and removes the
+  write, so the orphan is transient — but if this ADR's implementation were
+  deferred, ADR-0022 would have to drop the write itself rather than leave it.
 - `ToolExecutionContext` slice — **`HostToolContext`** (`ports.ts:137`), which is
   already richer and already what `createCanonicalToolContext` converts *from*.
   The `requestContext`/`parseMemoryRequestContext` branch in
@@ -267,8 +278,11 @@ explicitly: re-pointing it alongside the nine desktop tests step 3 already
 re-points is a decision, and without the clause two readers compute 27 and 65
 from the same sentence.
 
-For sizing only, and deliberately not a commitment: **65 retirable / 35
+For sizing only, and deliberately not a commitment: **66 retirable / 34
 surviving** once that helper is dealt with, against **27 / 73** if it is not.
+Two independently seeded walks agree on 34/66; an earlier count here said 35/65
+because it kept `mcp-app-tool-call.ts`, whose only outside consumer is that same
+e2e helper.
 
 None of this changes ADR-0022's decision — web still stops calling the loop, and
 the deletion is still the largest subtraction available. It changes what step 4
