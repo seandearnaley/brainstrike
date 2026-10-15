@@ -1,10 +1,9 @@
-import { setTimeout as sleep } from 'node:timers/promises';
 import {
   type AssistantResilienceConfig,
   StreamStalledError,
 } from '@brainstrike/agent/provider-runtime';
 import type { TextStreamPart, ToolSet } from 'ai';
-import { expect, test } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { HostRunState } from '../src/core-state.js';
 import {
   type HostStreamWatchdogError,
@@ -15,7 +14,8 @@ import {
 type Part = TextStreamPart<ToolSet>;
 
 // The tool backstop is derived in production (minutes); a unit window keeps
-// the phase choice observable. Healthy gaps keep wide slack for a loaded host.
+// the phase choice observable. Every window is distinct, and the fake clock
+// pins which one expires: the stream is still open one millisecond before it.
 const config: AssistantResilienceConfig = {
   streamFirstOutputMs: 2000,
   streamInactivityMs: 300,
@@ -26,15 +26,17 @@ const config: AssistantResilienceConfig = {
   toolTimeoutMs: 1000,
 };
 
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 /** AI SDK 7 `fullStream` parts, then silence until the consumer stops reading. */
-async function* source(parts: readonly (Part | number)[]): AsyncGenerator<Part> {
-  for (const part of parts) {
-    if (typeof part === 'number') {
-      await sleep(part);
-    } else {
-      yield part;
-    }
-  }
+async function* source(parts: readonly Part[]): AsyncGenerator<Part> {
+  yield* parts;
   await new Promise<never>(() => undefined);
 }
 
@@ -48,7 +50,7 @@ const toolCall = (providerExecuted: boolean): Part =>
   }) as Part;
 
 async function drain(
-  parts: readonly (Part | number)[]
+  parts: readonly Part[]
 ): Promise<{ readonly error: unknown; readonly expired: HostStreamWatchdogError[] }> {
   const expired: HostStreamWatchdogError[] = [];
   try {
@@ -66,26 +68,40 @@ async function drain(
   throw new Error('A silent stream must not end without a watchdog expiry');
 }
 
+/** Drains on the fake clock: the stream survives `windowMs - 1` of silence and expires at `windowMs`. */
+async function drainUntilExpiry(
+  windowMs: number,
+  parts: readonly Part[]
+): ReturnType<typeof drain> {
+  let settled = false;
+  const drained = drain(parts).finally(() => {
+    settled = true;
+  });
+  await vi.advanceTimersByTimeAsync(windowMs - 1);
+  expect(settled).toBe(false);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(settled).toBe(true);
+  return drained;
+}
+
 test('a running host tool is measured against the tool backstop, not the answer window', async () => {
-  const started = Date.now();
-  const { error, expired } = await drain([{ type: 'start' }, toolCall(false)]);
+  const { error, expired } = await drainUntilExpiry(2000, [{ type: 'start' }, toolCall(false)]);
   expect(error).toBeInstanceOf(StreamStalledError);
   expect(error).toMatchObject({
     inactivityMs: 2000,
     lastPartType: 'tool-call',
     phase: 'tool-executing',
   });
-  expect(Date.now() - started).toBeGreaterThanOrEqual(1900);
   expect(expired).toEqual([error]);
 });
 
 test('a provider-executed tool call stays on the provider answer window', async () => {
-  const { error } = await drain([{ type: 'start' }, toolCall(true)]);
+  const { error } = await drainUntilExpiry(300, [{ type: 'start' }, toolCall(true)]);
   expect(error).toMatchObject({ inactivityMs: 300, phase: 'streaming' });
 });
 
 test('an approval request settles the call: the wait is on a human, not the tool', async () => {
-  const { error } = await drain([
+  const { error } = await drainUntilExpiry(300, [
     { type: 'start' },
     toolCall(false),
     {
@@ -100,7 +116,7 @@ test('an approval request settles the call: the wait is on a human, not the tool
 test('a call the host approves in-stream runs on the tool backstop again', async () => {
   // The recorded host shape for an allowed tool: request and approved response
   // arrive together, then the SDK executes the call.
-  const { error } = await drain([
+  const { error } = await drainUntilExpiry(2000, [
     { type: 'start' },
     toolCall(false),
     { approvalId: 'approval-1', toolCall: toolCall(false), type: 'tool-approval-request' } as Part,

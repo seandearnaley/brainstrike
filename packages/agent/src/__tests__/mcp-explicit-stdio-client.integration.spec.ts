@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SdkErrorCode } from '@modelcontextprotocol/client';
+import { DEFAULT_REQUEST_TIMEOUT_MSEC, SdkErrorCode } from '@modelcontextprotocol/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { McpClientExtensionRegistry } from '../mcp/client-extension-registry';
 import type { McpProtocol } from '../mcp/config';
@@ -103,6 +103,49 @@ async function createFixture(
 
 async function readStateFile(stateFile: string): Promise<FixtureState> {
   return JSON.parse(await readFile(stateFile, 'utf8')) as FixtureState;
+}
+
+/** The fixture's stderr line once it holds the client's first request unanswered. */
+const CONNECT_HELD_MARKER = 'brainstrike-stdio-test: connect held';
+
+/**
+ * A real child that holds the initialize request until `gateFile` exists. The
+ * SDK arms that request's deadline before writing it, so once the child reports
+ * the hold, only the test's clock decides whether the deadline expires.
+ */
+async function createHeldHandshakeFixture(userPacedAuth: boolean) {
+  const directory = await mkdtemp(join(tmpdir(), 'brainstrike-mcp-stdio-gate-'));
+  cleanupTasks.push(() => rm(directory, { force: true, recursive: true }));
+  const gateFile = join(directory, 'open');
+  const held = Promise.withResolvers<void>();
+  let diagnostics = '';
+  const { client } = await createFixture(
+    'legacy',
+    undefined,
+    FIXTURE_PATH,
+    undefined,
+    { BRAINSTRIKE_STDIO_TEST_CONNECT_GATE_FILE: gateFile },
+    (chunk) => {
+      diagnostics += chunk;
+      if (diagnostics.includes(CONNECT_HELD_MARKER)) {
+        held.resolve();
+      }
+    },
+    userPacedAuth
+  );
+  return { client, gateFile, held: held.promise };
+}
+
+/** A connect that settles before the child holds its handshake proves nothing. */
+async function expectHandshakeHeld(held: Promise<void>, connecting: Promise<void>): Promise<void> {
+  const first = await Promise.race([
+    held.then(() => 'held' as const),
+    connecting.then(
+      () => 'connected' as const,
+      () => 'failed' as const
+    ),
+  ]);
+  expect(first).toBe('held');
 }
 
 describe('ExplicitStdioMcpClient integration', () => {
@@ -209,22 +252,42 @@ describe('ExplicitStdioMcpClient integration', () => {
     await vi.waitFor(() => expect(diagnostics.join('')).toContain('early child diagnostic'));
   });
 
+  // The SDK request deadline is a test-process timer, so a fake clock crosses
+  // it while a real child holds the handshake. The control below proves that
+  // same clock expires the SDK default for a handshake that is not user-paced.
   it('keeps user-paced authorization alive past the SDK default timeout', async () => {
-    const startedAt = performance.now();
-    const { client } = await createFixture(
-      'legacy',
-      undefined,
-      FIXTURE_PATH,
-      undefined,
-      { BRAINSTRIKE_STDIO_TEST_CONNECT_DELAY_MS: '60100' },
-      undefined,
-      true
-    );
+    const { client, gateFile, held } = await createHeldHandshakeFixture(true);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const connecting = client.connect();
+      await expectHandshakeHeld(held, connecting);
+      vi.advanceTimersByTime(DEFAULT_REQUEST_TIMEOUT_MSEC + 100);
+      await writeFile(gateFile, '');
+      await connecting;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+  });
 
-    await client.connect();
-
-    expect(performance.now() - startedAt).toBeGreaterThanOrEqual(60_000);
-  }, 75_000);
+  it('lets the SDK default timeout end the same held handshake when it is not user-paced', async () => {
+    const { client, held } = await createHeldHandshakeFixture(false);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const connecting = client.connect();
+      const timedOut = expect(connecting).rejects.toMatchObject({
+        code: SdkErrorCode.RequestTimeout,
+        data: { timeout: DEFAULT_REQUEST_TIMEOUT_MSEC },
+      });
+      await expectHandshakeHeld(held, connecting);
+      vi.advanceTimersByTime(DEFAULT_REQUEST_TIMEOUT_MSEC + 100);
+      // The failed connect joins its child on the real clock.
+      vi.useRealTimers();
+      await timedOut;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('does not repeat parameterized first-page discovery before a tool call', async () => {
     const { client, stateFile } = await createFixture();

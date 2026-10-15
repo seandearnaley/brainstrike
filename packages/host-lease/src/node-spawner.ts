@@ -18,7 +18,14 @@ export interface NodeSpawnerOptions {
   readonly execArgv?: readonly string[];
   /** Detached clients must not keep a short-lived CLI's output pipes open. */
   readonly output?: 'inherit' | 'ignore';
+  /**
+   * Narrows the startup-report deadline for lifecycle tests; production keeps
+   * `HOST_STARTER_READY_TIMEOUT_MS`.
+   */
+  readonly readyTimeoutMs?: number;
 }
+/** How long a starter has to report ready (or a failure) before it is cancelled. */
+export const HOST_STARTER_READY_TIMEOUT_MS = 10_000;
 async function disconnect(child: ChildProcess): Promise<void> {
   if (child.connected) {
     await new Promise<void>((resolve) => {
@@ -44,6 +51,10 @@ function startupFailure(
 export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpawner {
   const entrypoint =
     options.entrypoint ?? fileURLToPath(new URL('./process-entry.js', import.meta.url));
+  const readyTimeoutMs = options.readyTimeoutMs ?? HOST_STARTER_READY_TIMEOUT_MS;
+  if (!(Number.isSafeInteger(readyTimeoutMs) && readyTimeoutMs > 0)) {
+    throw new RangeError('Host starter readiness deadline must be a positive safe integer');
+  }
   return async (input, signal): Promise<void> => {
     signal.throwIfAborted();
     const startOptions = decodeStartOptions(input);
@@ -161,7 +172,7 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
         {
           onTimeout: () => new Error(`Host starter pid ${child.pid} did not become ready`),
           signal,
-          timeoutMs: 10_000,
+          timeoutMs: readyTimeoutMs,
         }
       );
     } finally {
