@@ -111,8 +111,9 @@ export const PlatformClientConfigurationSchema = z.strictObject({
   subagents: PlatformSubagentsIntentSchema.optional(),
   /**
    * Checked files as context, retired (BST-2019). A run committed before then
-   * carries it in its captured intent; it is accepted so that run can still be
-   * recovered, and read as nothing.
+   * carries it in its captured intent. It is accepted and read as nothing, so
+   * that intent still parses. A run whose tools have since changed still cannot
+   * resume: a reopen refuses a changed tool catalog.
    */
   workspaceContext: z.json().optional(),
   workspaceInstructionsPreference: z.strictObject({
