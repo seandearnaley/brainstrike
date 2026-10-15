@@ -1,7 +1,10 @@
 import type { ExplorerActiveTab } from '@brainstrike/app-state/stores/context-explorer-layout-store';
 import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
 import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
-import { FileExplorerPanel } from '@brainstrike/file-explorer-ui/shell';
+import {
+  ExplorerContextExportAction,
+  FileExplorerPanel,
+} from '@brainstrike/file-explorer-ui/shell';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
 import { lazy, type ReactElement, Suspense, useCallback, useMemo } from 'react';
@@ -88,6 +91,7 @@ export function ExplorerSearchTabs({
     () => (
       <>
         {hasDurableAssistantUsageCapability() ? <ExplorerAttachAction /> : null}
+        <ExplorerContextExportAction />
         <ExplorerImportActionLazy loadEmbeddingQueue={loadEmbeddingQueue} />
       </>
     ),

@@ -2,13 +2,13 @@ import {
   clickExplorerTreeAction,
   clickFileTreeCheckboxAndWaitForSelection,
   ensureFileExplorerPanelVisible,
+  expandDirectoryIfNeeded,
   expandNextDirectoryIfNeeded,
   expect,
-  expectContextExplorerFileVisibility,
   expectExplorerTreeActionsReachable,
+  expectFileSelected,
   FILE_EXPLORER_CLICK_TIMEOUT_MS,
   FILE_TREE_MULTI_STEP_SELECTION_TEST_TIMEOUT_MS,
-  getContextExplorerMiddlePanel,
   getExpandedDirectoryCount,
   installIncrementalFolderSelectionFixture,
   installMixedHookSelectionFixture,
@@ -117,7 +117,7 @@ test.describe('Desktop file explorer selection', () => {
     );
   });
 
-  test('unchecking a selected folder removes its files from the context explorer on desktop', async ({
+  test('unchecking a selected folder removes its files from the selection on desktop', async ({
     electronApp,
     window,
   }) => {
@@ -137,23 +137,23 @@ test.describe('Desktop file explorer selection', () => {
     await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
     await selectAllButton.click({ noWaitAfter: true, timeout: 5000 });
 
-    const contextExplorerSurface = getContextExplorerMiddlePanel(window);
-    await expect(contextExplorerSurface).toBeVisible({ timeout: 15_000 });
-    await expect(window.getByText('3 files', { exact: true })).toBeVisible({ timeout: 15_000 });
-    await expectContextExplorerFileVisibility({
+    await expect(window.getByText('3 files selected', { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expectFileSelected({
       fileName: 'index.ts',
       page: window,
-      visible: true,
+      selected: true,
     });
-    await expectContextExplorerFileVisibility({
+    await expectFileSelected({
       fileName: 'extra.ts',
       page: window,
-      visible: true,
+      selected: true,
     });
-    await expectContextExplorerFileVisibility({
+    await expectFileSelected({
       fileName: 'mock-file1.ts',
       page: window,
-      visible: true,
+      selected: true,
     });
 
     const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
@@ -161,22 +161,24 @@ test.describe('Desktop file explorer selection', () => {
     await srcCheckbox.click({ noWaitAfter: true, timeout: 5000 });
 
     await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
-    await expect(window.getByText('1 files', { exact: true })).toBeVisible({ timeout: 15_000 });
-    await expectContextExplorerFileVisibility({
+    await expect(window.getByText('1 file selected', { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expectFileSelected({
       fileName: 'mock-file1.ts',
       page: window,
-      visible: true,
+      selected: true,
     });
-    await expectContextExplorerFileVisibility({
-      fileName: 'index.ts',
+    // The store keeps the query with `src` excluded rather than a resolved list,
+    // so the excluded files are read from their own tree checkboxes.
+    await expandDirectoryIfNeeded({
+      directoryName: 'src',
+      expectedChildText: 'index.ts',
+      fileTree,
       page: window,
-      visible: false,
     });
-    await expectContextExplorerFileVisibility({
-      fileName: 'extra.ts',
-      page: window,
-      visible: false,
-    });
+    await expect(fileTree.getByRole('checkbox', { name: 'Select index.ts' })).not.toBeChecked();
+    await expect(fileTree.getByRole('checkbox', { name: 'Select extra.ts' })).not.toBeChecked();
   });
 
   test('root capped Select All marks visible folders indeterminate when only some descendants are selected', async ({

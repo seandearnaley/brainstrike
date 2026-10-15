@@ -1,17 +1,9 @@
 import type { Locator, Page } from '@playwright/test';
 
-export const contextExplorerFileExplorerPanelSelector = [
-  '#context-explorer-tools-panel',
-  '[data-panel-id="context-explorer-tools-panel"]',
-  '#tools-panel',
-  '[data-panel-id="tools-panel"]',
-].join(', ');
-export const contextExplorerMiddlePanelSelector = '#context-explorer-middle-panel, #middle-panel';
+/** The Files app's explorer tab (ADR-0021: the explorer is the whole Files page). */
+export const contextExplorerFileExplorerPanelSelector =
+  '[data-testid="explorer-search-panel-explorer"]';
 
 export function getContextExplorerFileExplorerPanel(page: Page): Locator {
   return page.locator(contextExplorerFileExplorerPanelSelector);
-}
-
-export function getContextExplorerMiddlePanel(page: Page): Locator {
-  return page.locator(contextExplorerMiddlePanelSelector);
 }

@@ -42,32 +42,14 @@ export const AGENT_WORKSPACE_PANEL_SELECTOR = [
   '[data-panel-id="tools-panel"]',
 ].join(', ');
 
-export const CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR = [
-  '#context-explorer-tools-panel',
-  '[data-panel-id="context-explorer-tools-panel"]',
-  '#tools-panel',
-  '[data-panel-id="tools-panel"]',
-].join(', ');
+/** The Files app's explorer tab: the explorer is the whole Files page (ADR-0021, BST-2018). */
+export const CONTEXT_EXPLORER_PANEL_SELECTOR = '[data-testid="explorer-search-panel-explorer"]';
 
-export function getContextExplorerRightResizeHandle(page: Page) {
-  return page
-    .locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR)
-    .locator('xpath=preceding-sibling::*[@data-separator][1]');
-}
+/** The nested explorer layout is gone (BST-2018): its middle pane is the Files page. */
+export const CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR = CONTEXT_EXPLORER_PANEL_SELECTOR;
 
-export const CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR = [
-  '#context-explorer-middle-panel',
-  '[data-panel-id="context-explorer-middle-panel"]',
-  '#middle-panel',
-  '[data-panel-id="middle-panel"]',
-].join(', ');
-
-export const CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR = [
-  '#context-explorer-main-content-panel',
-  '[data-panel-id="context-explorer-main-content-panel"]',
-  '#main-content-panel',
-  '[data-panel-id="main-content-panel"]',
-].join(', ');
+/** The nested explorer layout is gone (BST-2018): its main pane is the Files page. */
+export const CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR = CONTEXT_EXPLORER_PANEL_SELECTOR;
 
 export const CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR = [
   '#context-explorer-console-panel',

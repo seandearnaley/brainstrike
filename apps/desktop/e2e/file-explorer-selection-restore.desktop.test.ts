@@ -6,7 +6,7 @@ import {
   ensureFileExplorerPanelVisible,
   expandDirectoryIfNeeded,
   expect,
-  expectContextExplorerFileVisibility,
+  expectFileSelected,
   seedLive3dmolRestoreState,
   seedRestoredExplicitSelectionState,
   seedRestoredQuerySelectionState,
@@ -224,15 +224,15 @@ test.describe('Desktop file explorer selection restore', () => {
       await expect(mainCheckbox).toHaveAttribute('data-state', 'checked');
       await expect(viteCheckbox).toHaveAttribute('data-state', 'checked');
       await expect(appCheckbox).toHaveAttribute('data-state', 'unchecked');
-      await expectContextExplorerFileVisibility({
+      await expectFileSelected({
         fileName: 'main.tsx',
         page: restartedWindow,
-        visible: true,
+        selected: true,
       });
-      await expectContextExplorerFileVisibility({
+      await expectFileSelected({
         fileName: 'vite-env.d.ts',
         page: restartedWindow,
-        visible: true,
+        selected: true,
       });
 
       await toggleFileTreeCheckboxAndWaitForSelection({
@@ -245,15 +245,15 @@ test.describe('Desktop file explorer selection restore', () => {
         page: restartedWindow,
       });
       await expect(srcCheckbox).toHaveAttribute('data-state', 'indeterminate');
-      await expectContextExplorerFileVisibility({
+      await expectFileSelected({
         fileName: 'vite-env.d.ts',
         page: restartedWindow,
-        visible: true,
+        selected: true,
       });
-      await expectContextExplorerFileVisibility({
+      await expectFileSelected({
         fileName: 'main.tsx',
         page: restartedWindow,
-        visible: false,
+        selected: false,
       });
 
       await toggleFileTreeCheckboxAndWaitForSelection({
@@ -266,10 +266,10 @@ test.describe('Desktop file explorer selection restore', () => {
         page: restartedWindow,
       });
       await expect(srcCheckbox).toHaveAttribute('data-state', 'indeterminate');
-      await expectContextExplorerFileVisibility({
+      await expectFileSelected({
         fileName: 'App.tsx',
         page: restartedWindow,
-        visible: true,
+        selected: true,
       });
 
       // Decision D1 (#1588): clicking an indeterminate folder COMPLETES the
@@ -292,20 +292,20 @@ test.describe('Desktop file explorer selection restore', () => {
         fileTree,
         page: restartedWindow,
       });
-      await expectContextExplorerFileVisibility({
+      await expectFileSelected({
         fileName: 'main.tsx',
         page: restartedWindow,
-        visible: false,
+        selected: false,
       });
-      await expectContextExplorerFileVisibility({
+      await expectFileSelected({
         fileName: 'vite-env.d.ts',
         page: restartedWindow,
-        visible: false,
+        selected: false,
       });
-      await expectContextExplorerFileVisibility({
+      await expectFileSelected({
         fileName: 'App.tsx',
         page: restartedWindow,
-        visible: false,
+        selected: false,
       });
 
       await toggleFileTreeCheckboxAndWaitForSelection({
@@ -317,20 +317,20 @@ test.describe('Desktop file explorer selection restore', () => {
         fileTree,
         page: restartedWindow,
       });
-      await expectContextExplorerFileVisibility({
+      await expectFileSelected({
         fileName: 'main.tsx',
         page: restartedWindow,
-        visible: true,
+        selected: true,
       });
-      await expectContextExplorerFileVisibility({
+      await expectFileSelected({
         fileName: 'vite-env.d.ts',
         page: restartedWindow,
-        visible: true,
+        selected: true,
       });
-      await expectContextExplorerFileVisibility({
+      await expectFileSelected({
         fileName: 'App.tsx',
         page: restartedWindow,
-        visible: true,
+        selected: true,
       });
 
       await toggleFileTreeCheckboxAndWaitForSelection({
@@ -569,9 +569,13 @@ test.describe('Desktop file explorer selection restore', () => {
       await expect(fileTree.getByText('src')).toBeVisible({ timeout: 15_000 });
       await expect(fileTree.getByText('molecule-viewer.tsx')).toBeVisible({ timeout: 15_000 });
 
-      const tokenSummary = restartedWindow.getByText(/[1-9]\d*(?:,\d{3})* output/);
-      await expect(tokenSummary).toBeVisible({ timeout: 20_000 });
-      await expect(restartedWindow.getByText(/estimating…/)).not.toBeVisible({ timeout: 20_000 });
+      // The Export popover totals the selection from the token cache (BST-2018);
+      // it counts uncounted files as pending, so a settled total has none left.
+      await restartedWindow.getByTestId('explorer-export-trigger').click();
+      await expect(restartedWindow.getByTestId('explorer-export-tokens')).toHaveText(
+        /^~[1-9]\d*(?:,\d{3})* tokens$/,
+        { timeout: 20_000 }
+      );
     } finally {
       await rm(rootPath, { force: true, recursive: true });
     }

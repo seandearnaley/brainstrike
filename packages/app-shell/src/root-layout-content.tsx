@@ -1,4 +1,3 @@
-import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
 import {
   type PanelTab,
   usePanelLayoutStore,
@@ -33,7 +32,6 @@ import type { QueueAdapter } from '@brainstrike/queue';
 import { McpElicitationHost } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-host';
 import {
   ActionRegistryProvider,
-  IdeLayout,
   PanelLayoutProvider,
   type PanelLayoutState,
 } from '@brainstrike/ui';
@@ -148,8 +146,6 @@ export interface RootLayoutContentProps {
    * hidden (its provider binds to this same presence check).
    */
   readonly changesPageContent?: ReactNode;
-  readonly contextExplorerPageContent: ReactNode;
-  readonly contextExplorerPanelContent?: ReactNode;
   readonly createLocalSearchEmbedder?: LocalSearchEmbedderFactory;
   readonly databaseTabChunkingMode?: 'host-proxy' | 'local';
   readonly deleteRootData?: (rootId: string) => Promise<void>;
@@ -427,73 +423,22 @@ function useDebouncedPanelLayoutChange(options: {
   }, []);
 }
 
-const EXPLORER_RIGHT_PANEL_CHROME = {
-  hideButtonLabel: 'Hide explorer panel',
-  hideButtonTestId: 'hide-explorer-panel',
-  showButtonLabel: 'Show explorer panel',
-  showButtonTestId: 'show-explorer-panel',
-  title: 'Explorer',
-} as const;
-
-const CONTEXT_EXPLORER_PANEL_CONSTRAINTS = {
-  mainContentMinSize: '20%',
-  rightPanelMinSize: '180px',
-} as const;
-
-function ContextExplorerSurface({
-  contextExplorerPanelContent,
-  contextExplorerPageContent,
+/**
+ * The Files workspace app (ADR-0021, BST-2018): the explorer and search are the
+ * whole page. The file tree's `openFileInTab` reaches the outer workspace tabs
+ * through the outer layout's `IdeFileEditorContext`, which this subtree sits in.
+ */
+function FilesAppSurface({
   loadEmbeddingQueue,
 }: {
-  readonly contextExplorerPanelContent?: ReactNode;
-  readonly contextExplorerPageContent: ReactNode;
   readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
 }): ReactElement {
-  const setState = useContextExplorerLayoutStore((state) => state.setState);
-  const panelState = useContextExplorerLayoutStore(
-    (state) => ({
-      showConsole: state.showConsole,
-      showLeftPanel: state.showLeftPanel,
-      showRightPanel: state.showRightPanel,
-      sizes: state.sizes,
-    }),
-    shallow
-  );
-  const handlePanelLayoutChange = useDebouncedPanelLayoutChange({
-    panelState,
-    setState,
-  });
-  const resolvedPanelContent = useMemo(
-    () =>
-      contextExplorerPanelContent ?? <ExplorerSearchTabs loadEmbeddingQueue={loadEmbeddingQueue} />,
-    [contextExplorerPanelContent, loadEmbeddingQueue]
-  );
-
-  return (
-    // The outer shell owns workspace-vs-assistant geometry; this nested provider owns
-    // the route-local context explorer panes inside the Files workspace app (BST-1258).
-    // File tabs no longer render here — they are siblings of this app in the outer
-    // workspace tab panel, so the nested layout INHERITS the outer file-open seam
-    // (a fresh IdeFileEditorContext here would strand the tree's openFileInTab calls).
-    <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
-      <IdeLayout
-        inheritFileEditorContext
-        panelConstraints={CONTEXT_EXPLORER_PANEL_CONSTRAINTS}
-        panelIdPrefix="context-explorer"
-        rightPanelChrome={EXPLORER_RIGHT_PANEL_CHROME}
-        rightPanelContent={resolvedPanelContent}
-      >
-        {contextExplorerPageContent}
-      </IdeLayout>
-    </PanelLayoutProvider>
-  );
+  return <ExplorerSearchTabs loadEmbeddingQueue={loadEmbeddingQueue} />;
 }
 
 const ExplorerAppSurface = memo(function ExplorerAppSurface({
   canvasPanelContent,
   changesPageContent,
-  contextExplorerPanelContent,
-  contextExplorerPageContent,
   loadEmbeddingQueue,
   preloadDatabaseTabOnMount,
   terminalPageContent,
@@ -504,8 +449,6 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
 }: {
   readonly canvasPanelContent?: ReactNode;
   readonly changesPageContent?: ReactNode;
-  readonly contextExplorerPanelContent?: ReactNode;
-  readonly contextExplorerPageContent: ReactNode;
   readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
   readonly preloadDatabaseTabOnMount: boolean;
   readonly terminalPageContent?: ReactNode;
@@ -530,20 +473,12 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
       buildWorkspaceApps({
         ...(canvasPanelContent ? { canvasPanelContent } : {}),
         ...(changesPageContent ? { changesPageContent } : {}),
-        filesContent: (
-          <ContextExplorerSurface
-            contextExplorerPageContent={contextExplorerPageContent}
-            contextExplorerPanelContent={contextExplorerPanelContent}
-            loadEmbeddingQueue={loadEmbeddingQueue}
-          />
-        ),
+        filesContent: <FilesAppSurface loadEmbeddingQueue={loadEmbeddingQueue} />,
         ...(terminalPageContent ? { terminalPageContent } : {}),
         ...(threadContextPageContent ? { threadContextPageContent } : {}),
         ...(worktreeMapPageContent ? { worktreeMapPageContent } : {}),
       }),
     [
-      contextExplorerPageContent,
-      contextExplorerPanelContent,
       loadEmbeddingQueue,
       changesPageContent,
       canvasPanelContent,
@@ -635,8 +570,6 @@ export function RootLayoutContent({
   browserPageContent,
   canvasPanelContent,
   changesPageContent,
-  contextExplorerPageContent,
-  contextExplorerPanelContent,
   settingsPageContent,
   gitPageContent,
   notesPageContent,
@@ -780,8 +713,6 @@ export function RootLayoutContent({
                           <ExplorerAppSurface
                             canvasPanelContent={canvasPanelContent}
                             changesPageContent={changesPageContent}
-                            contextExplorerPageContent={contextExplorerPageContent}
-                            contextExplorerPanelContent={contextExplorerPanelContent}
                             loadEmbeddingQueue={loadEmbeddingQueue}
                             nativeIndexSearch={nativeIndexSearch ?? null}
                             preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}

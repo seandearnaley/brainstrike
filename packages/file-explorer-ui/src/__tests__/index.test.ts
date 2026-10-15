@@ -144,7 +144,6 @@ describe('file-explorer-ui index exports', () => {
     const sourceRoot = path.resolve(process.cwd(), 'src');
     const previewImplementationMoves = [
       ['hooks/use-preview-panel-preferences.ts', 'preview/use-preview-panel-preferences.ts'],
-      ['hooks/use-preview-panel-report-actions.ts', 'preview/use-preview-panel-report-actions.ts'],
       ['preview-footer-layout.ts', 'preview/preview-summary-mode.ts'],
       ['preview-panel-footer.tsx', 'preview/preview-panel-summary.tsx'],
       ['preview-panel.tsx', 'preview/preview-panel.tsx'],

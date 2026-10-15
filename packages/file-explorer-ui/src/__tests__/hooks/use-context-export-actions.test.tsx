@@ -2,8 +2,8 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import { renderHook } from '@testing-library/react';
 import type React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { usePreviewPanelReportActions } from '../../preview/use-preview-panel-report-actions';
 import type { useFileExplorerStoreContext } from '../../shell/file-explorer-provider';
+import { useContextExportActions } from '../../shell/use-context-export-actions';
 
 type Store = ReturnType<typeof useFileExplorerStoreContext>;
 
@@ -46,7 +46,7 @@ const createMockStore = (initialContents: Record<string, string>) => {
   };
 };
 
-describe('usePreviewPanelReportActions', () => {
+describe('useContextExportActions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     const generateContextWithContent = vi.fn();
@@ -76,7 +76,7 @@ describe('usePreviewPanelReportActions', () => {
 
     const { result } = renderHook(
       () =>
-        usePreviewPanelReportActions({
+        useContextExportActions({
           excludeFilters: [],
           fileContents: {},
           folderSummaryThreshold: 0,
@@ -112,7 +112,7 @@ describe('usePreviewPanelReportActions', () => {
     const { store } = createMockStore({});
     const { result } = renderHook(
       () =>
-        usePreviewPanelReportActions({
+        useContextExportActions({
           excludeFilters: [],
           fileContents: {},
           folderSummaryThreshold: 0,
@@ -154,7 +154,7 @@ describe('usePreviewPanelReportActions', () => {
 
     renderHook(
       () =>
-        usePreviewPanelReportActions({
+        useContextExportActions({
           excludeFilters: ['exclude'],
           fileContents: { fileA: 'content' },
           folderSummaryThreshold: 42,
@@ -221,7 +221,7 @@ describe('usePreviewPanelReportActions', () => {
         rootDirectoryHandle: DirectoryHandle | null;
         includeProjectTree: boolean;
       }) =>
-        usePreviewPanelReportActions({
+        useContextExportActions({
           excludeFilters: [],
           fileContents: props.fileContents,
           folderSummaryThreshold: 0,

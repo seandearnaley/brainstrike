@@ -66,8 +66,8 @@ vi.mock('../indexing/use-text-token-count', () => ({
   useTextTokenCount: () => ({ loading: false, tokenCount: 12 }),
 }));
 
-vi.mock('../preview/use-preview-panel-report-actions', () => ({
-  usePreviewPanelReportActions: (input: {
+vi.mock('../shell/use-context-export-actions', () => ({
+  useContextExportActions: (input: {
     loadMultipleFileContents: (compositeKeys: string[]) => Promise<void>;
   }) => {
     mocks.reportActionsInput.current = input;

@@ -150,16 +150,15 @@ vi.mock('../../../renderer/components/worktree-map-page-content', () => ({
 
 vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
   RootLayoutContent: (props: {
-    contextExplorerPageContent: React.ReactNode;
     gitPageContent?: React.ReactNode;
     navigationItems?: Array<{ name: string; path: string }>;
     promptsPageContent?: React.ReactNode;
+    settingsPageContent?: React.ReactNode;
     terminalPageContent?: React.ReactNode;
     worktreeMapPageContent?: React.ReactNode;
   }) => {
     sharedRootLayoutCapture.props = props as Record<string, unknown>;
-    const { contextExplorerPageContent, gitPageContent, navigationItems, terminalPageContent } =
-      props;
+    const { gitPageContent, navigationItems, settingsPageContent, terminalPageContent } = props;
     return (
       <div data-testid="file-explorer-provider">
         <div data-testid="app-layout">
@@ -172,7 +171,9 @@ vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
               </span>
             ))}
           </nav>
-          <main>{contextExplorerPageContent}</main>
+          {/* The Files surface belongs to the shared layout (BST-2018); the app
+              passes only its own pages, kept mounted as the shell keeps them. */}
+          <main>{settingsPageContent}</main>
           {gitPageContent ? <aside data-testid="git-page-slot">{gitPageContent}</aside> : null}
           {terminalPageContent ? (
             <aside data-testid="terminal-page-slot">{terminalPageContent}</aside>
@@ -183,28 +184,25 @@ vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
   },
 }));
 
-// Mock the page components to avoid adapter dependencies
-let homeMountCount = 0;
-function MockHomePage() {
+// The app's page content, counting its mounts.
+let settingsMountCount = 0;
+function MockSettingsPage() {
   const [mountIndex, setMountIndex] = React.useState(0);
 
   React.useEffect(() => {
-    homeMountCount += 1;
-    setMountIndex(homeMountCount);
+    settingsMountCount += 1;
+    setMountIndex(settingsMountCount);
   }, []);
 
   return (
-    <div data-mount-index={mountIndex} data-testid="home-page-content">
-      Home Page Content
+    <div data-mount-index={mountIndex} data-testid="settings-page-content">
+      Settings Page Content
     </div>
   );
 }
-vi.mock('../../../renderer/components/context-explorer-page-content', () => ({
-  default: MockHomePage,
-}));
 
 vi.mock('../../../renderer/components/settings/page-content', () => ({
-  default: () => <div data-testid="settings-page-content">Settings Page Content</div>,
+  default: MockSettingsPage,
 }));
 
 // Mock vector-management to avoid transitive dependencies
@@ -257,7 +255,7 @@ describe('RootLayoutContent', () => {
 
   beforeEach(() => {
     currentDb = null;
-    homeMountCount = 0;
+    settingsMountCount = 0;
     vi.clearAllMocks();
     sharedRootLayoutCapture.props = null;
     // Default: Git + Terminal + Worktrees bridges unavailable (web-safe).
@@ -289,9 +287,10 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('app-layout')).toBeInTheDocument();
   });
 
-  it('should render home page content by default', () => {
+  it('passes its own page content to the shared layout', () => {
     render(<RootLayoutContent />);
-    expect(screen.getByTestId('home-page-content')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-page-content')).toBeInTheDocument();
+    expect(sharedRootLayoutCapture.props).not.toHaveProperty('contextExplorerPageContent');
   });
 
   it('mounts without opening PGlite or a visible-renderer embedding queue', () => {
@@ -357,11 +356,11 @@ describe('RootLayoutContent', () => {
     expect(sharedRootLayoutCapture.props?.['worktreeMapPageContent']).toBeDefined();
   });
 
-  it('keeps home content mounted while the database becomes available', async () => {
+  it('keeps its page content mounted while the database becomes available', async () => {
     const { rerender } = render(<RootLayoutContent />);
 
     await waitFor(() =>
-      expect(screen.getByTestId('home-page-content')).toHaveAttribute('data-mount-index', '1')
+      expect(screen.getByTestId('settings-page-content')).toHaveAttribute('data-mount-index', '1')
     );
 
     currentDb = {
@@ -371,7 +370,7 @@ describe('RootLayoutContent', () => {
     rerender(<RootLayoutContent />);
 
     await waitFor(() =>
-      expect(screen.getByTestId('home-page-content')).toHaveAttribute('data-mount-index', '1')
+      expect(screen.getByTestId('settings-page-content')).toHaveAttribute('data-mount-index', '1')
     );
   });
 
@@ -389,7 +388,7 @@ describe('RootLayoutContent', () => {
 
     rerender(<RootLayoutContent />);
 
-    await waitFor(() => expect(screen.getByTestId('home-page-content')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('settings-page-content')).toBeInTheDocument());
     expect(screen.queryByTestId('embedding-job-queue-tracker')).not.toBeInTheDocument();
   });
 

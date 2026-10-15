@@ -54,11 +54,11 @@ test.describe('Complete File Explorer Workflow', () => {
   test('should complete the full file selection and context generation workflow', async ({
     page,
   }) => {
-    // Step 1: Verify initial state
-    await expect(page.getByText('0 files').first()).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Download Context' })).toBeDisabled();
-    const copyButton = page.getByTestId('copy-context-button');
-    await expect(copyButton).toBeDisabled();
+    // Step 1: Verify initial state: nothing selected, so no selection bar
+    await expect(page.getByTestId('explorer-selection-actions')).toHaveCount(0);
+    // Export lives in the selection bar (BST-2018), which shows only with a selection.
+    const exportTrigger = page.getByTestId('explorer-export-trigger');
+    await expect(exportTrigger).toHaveCount(0);
     await expect(page.getByTestId('select-root-button')).toBeEnabled();
 
     // Step 2: Select root directory
@@ -87,9 +87,8 @@ test.describe('Complete File Explorer Workflow', () => {
     await test2Checkbox.click({ force: true });
     await expect(test2Checkbox).toBeChecked();
 
-    // Step 6: Verify action buttons are now enabled
-    await expect(page.getByRole('button', { name: 'Download Context' })).toBeEnabled();
-    await expect(copyButton).toBeEnabled();
+    // Step 6: Verify the export action is now enabled
+    await expect(exportTrigger).toBeEnabled();
     // Look for the file tree's Deselect All button (which shows when files are selected)
     await expect(page.getByRole('button', { name: 'Deselect All' })).toBeEnabled();
 
@@ -122,7 +121,8 @@ test.describe('Complete File Explorer Workflow', () => {
     await expect(nestedCheckbox).toBeChecked();
 
     // Step 9: Test context download
-    const downloadButton = page.getByRole('button', { name: 'Download Context' });
+    await exportTrigger.click();
+    const downloadButton = page.getByTestId('explorer-export-download');
     await expect(downloadButton).toBeEnabled();
 
     const [download] = await Promise.all([page.waitForEvent('download'), downloadButton.click()]);
@@ -131,11 +131,15 @@ test.describe('Complete File Explorer Workflow', () => {
     expect(download.suggestedFilename()).toMatch(/context/i);
 
     // Step 10: Test copy to clipboard functionality
-    await expect(copyButton).toBeEnabled();
+    const copyButton = page.getByTestId('explorer-export-copy');
     const copyToast = page.getByText('The context has been copied to your clipboard.').first();
     await clickUntilVisible(
       async () => {
-        await copyButton.click({ force: true, timeout: 10_000 });
+        // A completed export closes its popover; reopen it for each attempt.
+        if (!(await copyButton.isVisible())) {
+          await exportTrigger.click();
+        }
+        await copyButton.click({ timeout: 10_000 });
       },
       async () => {
         await expect(copyToast).toBeVisible({ timeout: 5000 });
@@ -171,8 +175,8 @@ test.describe('Complete File Explorer Workflow', () => {
     const fileTree = getFileTree(page);
     await expect(fileTree).toBeVisible();
 
-    // Verify initial state
-    await expect(page.getByText('0 files').first()).toBeVisible();
+    // Verify initial state: nothing selected, so no selection bar
+    await expect(page.getByTestId('explorer-selection-actions')).toHaveCount(0);
 
     // Ensure Select All button is enabled
     const selectAllButton = page.getByRole('button', { name: 'Select All' });
@@ -197,7 +201,7 @@ test.describe('Complete File Explorer Workflow', () => {
     await expect(fileCheckbox1).not.toBeChecked();
     await expect(fileCheckbox2).not.toBeChecked();
     await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
-    await expect(page.getByText('0 files').first()).toBeVisible();
+    await expect(page.getByTestId('explorer-selection-actions')).toHaveCount(0);
   });
 
   test('should recursively select an unloaded folder without throwing and reveal checked descendants', async ({
@@ -297,39 +301,7 @@ test.describe('Complete File Explorer Workflow', () => {
     await expect(fileTree.getByRole('checkbox', { name: 'Select test2.ts' })).toBeChecked();
   });
 
-  test('unchecking a selected folder removes its files from the context explorer', async ({
-    page,
-  }) => {
-    await page.getByTestId('select-root-button').click();
-
-    const fileTree = getFileTree(page);
-    await expect(fileTree).toBeVisible();
-
-    const selectAllButton = page.getByRole('button', { name: 'Select All' });
-    await expect(selectAllButton).toBeEnabled();
-    await selectAllButton.click();
-    await page.getByTestId('hide-threads-panel').click();
-    await expect(page.getByTestId('show-threads-panel')).toBeVisible();
-
-    await expect(page.getByText('7 files', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'README.md' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'test.ts' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'test2.ts' })).toBeVisible();
-
-    const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
-    await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
-    await srcCheckbox.click({ force: true });
-
-    await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
-    await expect(page.getByText('3 files', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'README.md' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'test.ts' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'test2.ts' })).toBeVisible();
-  });
-
-  test('unchecking a selected folder removes its files from the grouped context explorer', async ({
-    page,
-  }) => {
+  test('unchecking a selected folder removes its files from the selection', async ({ page }) => {
     await page.getByTestId('select-root-button').click();
 
     const fileTree = getFileTree(page);
@@ -339,23 +311,16 @@ test.describe('Complete File Explorer Workflow', () => {
     await expect(selectAllButton).toBeEnabled();
     await selectAllButton.click();
 
-    const tapestryDock = page.getByTestId('tapestry-command-dock');
-    await expect(tapestryDock).toBeVisible();
-    await tapestryDock.getByRole('button', { name: 'View options' }).click();
-    await page.getByRole('menuitemradio', { name: 'By Directory' }).click();
-
-    // Selection controls are enabled on mount (BST-1211), so every group in the
-    // Tapestry gallery carries its heading checkbox straight away.
-    const groupedSelectionCheckboxes = page.getByRole('checkbox', {
-      name: /^Select all items in group /i,
-    });
-    await expect(groupedSelectionCheckboxes).toHaveCount(4);
+    // The selection bar counts the selection (the Files app has no preview, BST-2018).
+    await expect(page.getByText('7 files selected', { exact: true })).toBeVisible();
 
     const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
     await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
     await srcCheckbox.click({ force: true });
 
     await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
-    await expect(groupedSelectionCheckboxes).toHaveCount(1);
+    await expect(page.getByText('3 files selected', { exact: true })).toBeVisible();
+    await expect(fileTree.getByRole('checkbox', { name: 'Select test.ts' })).toBeChecked();
+    await expect(fileTree.getByRole('checkbox', { name: 'Select test2.ts' })).toBeChecked();
   });
 });

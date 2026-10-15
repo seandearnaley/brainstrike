@@ -7,10 +7,7 @@ import {
   reloadExplorer,
 } from './utils/file-explorer-setup';
 import { openExplorerCompactMenu } from './utils/file-tree-locators';
-import {
-  CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR,
-  getContextExplorerRightResizeHandle,
-} from './utils/layout-helpers';
+import { CONTEXT_EXPLORER_PANEL_SELECTOR } from './utils/layout-helpers';
 import type { FileTree } from './utils/mock-fs';
 
 /**
@@ -79,18 +76,14 @@ test.describe('File Explorer', () => {
     test('should show initial empty state', { tag: '@web-smoke' }, async ({ page }) => {
       await expect(explorer.noDirectoryText).toBeVisible();
       await expect(explorer.selectRootButton).toBeVisible();
-      await expect(explorer.noFilesText).toBeVisible();
+      await expect(explorer.selectionBar).toHaveCount(0);
       await expect(explorer.filterInput).not.toBeVisible();
       await expect(page.getByText('No folders in your workspace')).toBeVisible();
-      await expect(page.getByText('No files selected')).toBeVisible();
     });
 
-    test('should show action buttons in disabled state initially', async () => {
-      await expect(explorer.downloadContextButton).toBeVisible({ timeout: 10_000 });
-      await expect(explorer.downloadContextButton).toBeDisabled();
-      await expect(explorer.copyContextButton).toBeVisible();
-      await expect(explorer.copyContextButton).toBeDisabled();
-      await expect(explorer.includeProjectTreeToggle).toBeVisible();
+    test('offers no export until files are selected', async () => {
+      // Export lives in the selection bar (BST-2018), which shows only with a selection.
+      await expect(explorer.exportTrigger).toHaveCount(0);
     });
 
     test('should show selection counter with initial state', async ({ page }) => {
@@ -102,38 +95,16 @@ test.describe('File Explorer', () => {
       await page.getByTestId('hide-threads-panel').click();
       await expect(page.getByTestId('show-threads-panel')).toBeVisible();
 
-      const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
-      const initialWidth = await rightPanel.evaluate(
+      // The Files page is as wide as the workspace panel (BST-2018). Pin the
+      // explorer to 180px, the narrowest it could be made, so the toolbar's
+      // container queries are checked at that width.
+      const explorerTab = page.getByTestId('explorer-search-panel-explorer');
+      await explorerTab.evaluate((element) => {
+        (element as HTMLElement).style.width = '180px';
+      });
+      const narrowedWidth = await explorerTab.evaluate(
         (element) => element.getBoundingClientRect().width
       );
-
-      const resizeHandle = getContextExplorerRightResizeHandle(page);
-      const handleBox = await resizeHandle.boundingBox();
-      if (!handleBox) {
-        throw new Error('Resize handle not found');
-      }
-      const panelGroupRight = await rightPanel.evaluate((element) => {
-        const group = element.closest('[data-group]');
-        if (!group) {
-          throw new Error('Explorer panel group is missing');
-        }
-        return group.getBoundingClientRect().right;
-      });
-
-      await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
-      await page.mouse.down();
-      // Moving the right-panel's handle to the right makes the right panel narrower
-      await page.mouse.move(panelGroupRight - 180, handleBox.y + handleBox.height / 2, {
-        steps: 20,
-      });
-      await page.mouse.up();
-
-      await page.waitForTimeout(300);
-
-      const narrowedWidth = await rightPanel.evaluate(
-        (element) => element.getBoundingClientRect().width
-      );
-      expect(narrowedWidth).toBeLessThanOrEqual(initialWidth);
       expect(narrowedWidth).toBeGreaterThanOrEqual(179);
       expect(narrowedWidth).toBeLessThanOrEqual(181);
 
@@ -502,13 +473,13 @@ test.describe('File Explorer', () => {
       await expect(page.getByText(/current directory/i)).toHaveCount(0);
     });
 
-    // BST-1211: the Table View and its `preview-view-toolbar` are gone. The
-    // compact spatial dock is the preview's ONLY chrome, and it carries the
-    // group-by and multi-select controls the retired toolbar used to own.
-    test('presents the tapestry dock as the only preview chrome', {
+    // ADR-0021 (BST-2018): the Files app is the explorer, with no preview of
+    // the selection; selected files are exported from the selection bar.
+    test('presents the explorer as the whole Files page, exporting from the selection bar', {
       tag: '@web-smoke',
     }, async ({ page }) => {
       await explorer.selectRoot();
+      await expect(page.getByTestId('explorer-search-tab-strip')).toBeVisible();
 
       await explorer.fileTree.getByRole('checkbox', { name: 'Select test.ts' }).click({
         force: true,
@@ -517,134 +488,11 @@ test.describe('File Explorer', () => {
         force: true,
       });
 
-      await expect(page.getByTestId('preview-view-toolbar')).toHaveCount(0);
-      await expect(page.getByRole('tab', { name: 'Table View' })).toHaveCount(0);
-      await expect(page.getByRole('tab', { name: 'Tapestry View' })).toHaveCount(0);
-
-      const tapestryDock = page.getByTestId('tapestry-command-dock');
-      await expect(tapestryDock).toBeVisible();
-      await expect(tapestryDock.getByRole('slider', { name: 'Gallery scale' })).toBeVisible();
-      await expect(tapestryDock.getByRole('button', { name: 'Toggle code lens' })).toBeVisible();
-
-      // Selection controls are enabled on mount, so the page select-all is live.
-      const pageSelectAll = page.getByLabel('Select all files on current page');
-      await expect(pageSelectAll).toBeVisible();
-
-      await tapestryDock.getByRole('button', { name: 'View options' }).click();
-      const selectionControlsItem = page.getByRole('menuitemcheckbox', {
-        name: 'File selection controls',
-      });
-      await expect(selectionControlsItem).toBeVisible();
-      await expect(page.getByRole('menuitemradio', { name: 'By Directory' })).toBeVisible();
-
-      await selectionControlsItem.click();
-      await expect(pageSelectAll).toHaveCount(0);
-    });
-
-    test('reflects a grouped per-group select-all on the group heading checkbox', async ({
-      page,
-    }) => {
-      await explorer.selectRoot();
-
-      // Two root-level files in context so the grouped preview has a group with
-      // multiple selectable items.
-      await explorer.fileTree
-        .getByRole('checkbox', { name: 'Select test.ts' })
-        .click({ force: true });
-      await explorer.fileTree
-        .getByRole('checkbox', { name: 'Select test2.ts' })
-        .click({ force: true });
-
-      // Selection controls are enabled on mount, so the group heading checkbox
-      // this test covers renders as soon as grouping is on.
-      const tapestryDock = page.getByTestId('tapestry-command-dock');
-      await expect(tapestryDock).toBeVisible();
-      await expect(page.getByLabel('Select all files on current page')).toBeVisible();
-      await tapestryDock.getByRole('button', { name: 'View options' }).click();
-      await page.getByRole('menuitemradio', { name: 'By Directory' }).click();
-
-      // Regression (multi-root): clicking a group's heading checkbox selected the
-      // files but the heading checkbox stayed unchecked because the memoized
-      // rows never re-rendered. It must now reflect checked.
-      const groupHeadingCheckbox = page
-        .getByRole('checkbox', { name: /^Select all items in group / })
-        .first();
-      await expect(groupHeadingCheckbox).not.toBeChecked();
-
-      await groupHeadingCheckbox.click();
-
-      await expect(groupHeadingCheckbox).toBeChecked();
-    });
-
-    test('renders the summary mode controls above the preview surface without footer resize chrome', async ({
-      page,
-    }) => {
-      await explorer.selectRoot();
-
-      await explorer.fileTree.getByRole('checkbox', { name: 'Select test.ts' }).click({
-        force: true,
-      });
-
-      const compactModeButton = page.getByRole('button', { name: 'Compact summary mode' });
-      // BST-1211: the tab strip is gone, so the dock is now the first thing
-      // below the preview summary. The invariant is unchanged — summary chrome on top.
-      const tapestryDock = page.getByTestId('tapestry-command-dock');
-
-      await expect(compactModeButton).toBeVisible();
-      await expect(tapestryDock).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Balanced summary mode' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Insights summary mode' })).toBeVisible();
-      await expect(
-        page.getByRole('separator', { name: /resize context explorer footer/i })
-      ).toHaveCount(0);
-      await expect(page.getByRole('button', { name: /collapse footer/i })).toHaveCount(0);
-      await expect(page.getByRole('button', { name: /expand footer/i })).toHaveCount(0);
-
-      const compactBox = await compactModeButton.boundingBox();
-      const dockBox = await tapestryDock.boundingBox();
-      expect(compactBox).not.toBeNull();
-      expect(dockBox).not.toBeNull();
-      expect((compactBox?.y ?? Number.POSITIVE_INFINITY) + (compactBox?.height ?? 0)).toBeLessThan(
-        dockBox?.y ?? Number.NEGATIVE_INFINITY
-      );
-    });
-
-    test('hides grouped selection checkboxes when selection controls are toggled off', async ({
-      page,
-    }) => {
-      await explorer.selectRoot();
-
-      await explorer.fileTree.getByRole('checkbox', { name: 'Select test.ts' }).click({
-        force: true,
-      });
-      await explorer.fileTree.getByRole('checkbox', { name: 'Select test2.ts' }).click({
-        force: true,
-      });
-
-      const tapestryDock = page.getByTestId('tapestry-command-dock');
-      const openViewOptions = async () => {
-        await tapestryDock.getByRole('button', { name: 'View options' }).click();
-      };
-      const toggleSelectionControls = async () => {
-        await openViewOptions();
-        await page.getByRole('menuitemcheckbox', { name: 'File selection controls' }).click();
-      };
-
-      await expect(tapestryDock).toBeVisible();
-      await openViewOptions();
-      await page.getByRole('menuitemradio', { name: 'By Directory' }).click();
-
-      const groupedSelectionCheckboxes = page.getByRole('checkbox', {
-        name: /^Select all items in group /i,
-      });
-      await expect(groupedSelectionCheckboxes).toHaveCount(1);
-
-      await toggleSelectionControls();
-      await expect(groupedSelectionCheckboxes).toHaveCount(0);
-      await expect(page.getByLabel('Select all files on current page')).toHaveCount(0);
-
-      await toggleSelectionControls();
-      await expect(groupedSelectionCheckboxes).toHaveCount(1);
+      await expect(page.getByTestId('tapestry-command-dock')).toHaveCount(0);
+      await expect(page.getByTestId('show-explorer-panel')).toHaveCount(0);
+      await expect(page.getByTestId('hide-explorer-panel')).toHaveCount(0);
+      await expect(page.getByText('2 files selected', { exact: true })).toBeVisible();
+      await expect(explorer.exportTrigger).toBeEnabled();
     });
 
     test('should allow downloading context with multiple file selections', async ({ page }) => {
@@ -666,11 +514,13 @@ test.describe('File Explorer', () => {
 
       await expect(page.getByText('2/10')).toBeVisible();
 
-      await expect(explorer.downloadContextButton).toBeEnabled();
+      await explorer.exportTrigger.click();
+      await expect(explorer.includeProjectTreeToggle).toBeVisible();
+      await expect(explorer.exportDownloadButton).toBeEnabled();
 
       const [download] = await Promise.all([
         page.waitForEvent('download'),
-        explorer.downloadContextButton.click(),
+        explorer.exportDownloadButton.click(),
       ]);
 
       expect(download.suggestedFilename()).toMatch(/context/i);
@@ -699,27 +549,14 @@ test.describe('File Explorer', () => {
 
       await page.getByTestId('hide-threads-panel').click();
       await expect(page.getByTestId('show-threads-panel')).toBeVisible();
-      const resizeHandle = getContextExplorerRightResizeHandle(page);
-      const handleBox = await resizeHandle.boundingBox();
-      const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
-      const panelGroupRight = await rightPanel.evaluate((element) => {
-        const group = element.closest('[data-group]');
-        if (!group) {
-          throw new Error('Explorer panel group is missing');
-        }
-        return group.getBoundingClientRect().right;
+      // The Files page is as wide as the workspace panel (BST-2018). Pin the
+      // explorer to 180px, the narrowest it could be made, so the toolbar's
+      // container queries are checked at that width.
+      const explorerTab = page.getByTestId('explorer-search-panel-explorer');
+      await explorerTab.evaluate((element) => {
+        (element as HTMLElement).style.width = '180px';
       });
-      if (!handleBox) {
-        throw new Error('Explorer resize geometry is unavailable');
-      }
-      await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(panelGroupRight - 180, handleBox.y + handleBox.height / 2, {
-        steps: 20,
-      });
-      await page.mouse.up();
-
-      await expect(rightPanel).toBeVisible();
+      await expect(explorerTab).toBeVisible();
 
       const geometry = await page.getByTestId('file-explorer-toolbar').evaluate((element) => {
         const toolbarRect = element.getBoundingClientRect();
@@ -787,7 +624,7 @@ test.describe('File Explorer', () => {
 
     async function getPresetTrigger(page: Page) {
       const presetTrigger = page
-        .locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR)
+        .locator(CONTEXT_EXPLORER_PANEL_SELECTOR)
         .locator('button')
         .filter({
           hasText:
@@ -844,7 +681,7 @@ test.describe('File Explorer', () => {
         await expect(page.getByText('No folders in your workspace')).toBeVisible({
           timeout: 15_000,
         });
-        await expect(page.getByText('No files selected')).toBeVisible({ timeout: 15_000 });
+        await expect(explorer.selectionBar).toHaveCount(0);
 
         await explorer.selectRoot();
 
@@ -871,7 +708,7 @@ test.describe('File Explorer', () => {
         await documentationOption.click();
 
         await expect(
-          page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR).getByRole('button', {
+          page.locator(CONTEXT_EXPLORER_PANEL_SELECTOR).getByRole('button', {
             name: /documentation/i,
           })
         ).toBeVisible({ timeout: 10_000 });
@@ -986,7 +823,7 @@ test.describe('File Explorer', () => {
       await tsPresetOption.click();
 
       await expect(
-        page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR).getByRole('button', {
+        page.locator(CONTEXT_EXPLORER_PANEL_SELECTOR).getByRole('button', {
           name: /typescript\/javascript/i,
         })
       ).toBeVisible({ timeout: 10_000 });
@@ -1107,13 +944,23 @@ test.describe('File Explorer', () => {
       // Persistence of filter presets is tested in view-filter-preset tests
       {
         execute: async ({ page, explorer }) => {
-          await expect(explorer.includeProjectTreeToggle).toBeVisible();
+          // The toggle lives in the selection bar's Export popover (BST-2018).
+          const openExport = async () => {
+            await explorer.selectRoot();
+            const src = explorer.fileTree.getByRole('checkbox', { name: 'Select src' });
+            if ((await src.getAttribute('data-state')) !== 'checked') {
+              await src.click({ force: true });
+            }
+            await explorer.exportTrigger.click();
+            await expect(explorer.includeProjectTreeToggle).toBeVisible();
+          };
+          await openExport();
           await explorer.includeProjectTreeToggle.click();
           await expect(explorer.includeProjectTreeToggle).toHaveAttribute('aria-checked', 'false');
 
           await reloadExplorer(page);
 
-          await expect(explorer.includeProjectTreeToggle).toBeVisible();
+          await openExport();
           await expect(explorer.includeProjectTreeToggle).toHaveAttribute('aria-checked', 'false');
         },
         name: 'persists Include Project Tree toggle',
@@ -1211,12 +1058,16 @@ test.describe('File Explorer', () => {
       // control assertion: if it fails, the bug is no longer the indexer path.
       await expect(page.getByTestId('selection-count')).toHaveText(String(expectedSelectedFiles));
 
-      // Wait on a real signal from the indexer rather than a wall-clock sleep:
-      // the TokenSummaryBar renders "<n>+ estimating…" only while
-      // selectedTokensPendingCount > 0, and switches to "<n> selected" once
-      // every selected file has been resolved by the background worker.
+      // The Export popover totals the selection from the token cache (BST-2018);
+      // it reports uncounted files as pending, never as zero. Without the
+      // indexer fix the files inside the unexpanded `src/` and `src/inner/`
+      // subfolders would never be counted, so this would stay pending.
+      await explorer.exportTrigger.click();
       try {
-        await expect(page.getByText(/estimating…/)).toHaveCount(0, { timeout: 30_000 });
+        await expect(page.getByTestId('explorer-export-tokens')).toHaveText(
+          `~${expectedTokens.toLocaleString()} tokens`,
+          { timeout: 30_000 }
+        );
       } catch (err) {
         // Re-emit captured browser logs so failures surface their root cause.
         console.log('--- captured browser logs ---');
@@ -1225,22 +1076,6 @@ test.describe('File Explorer', () => {
         }
         throw err;
       }
-
-      // Expect the converged total to match the fixture's heuristic math.
-      // We assert against the "<n> source" badge specifically because
-      // `sourceSelectedTokens` is the always-rendered, mode-independent total
-      // (it represents tokens across complete selected files BEFORE any
-      // tapestry-range filtering, which is what we want to validate here).
-      // The "<n> output" badge is locked to the single per-file Output
-      // presentation (there is no useTapestryRanges toggle anymore) and, with
-      // no ranges applied in this fixture, would read identically to source —
-      // asserting on source keeps this test independent of that presentation
-      // detail. Without the indexer fix, this value would stall at 0 because
-      // no handle is ever resolved for files inside the unexpanded `src/` and
-      // `src/inner/` subfolders.
-      await expect(page.getByText(`${expectedTokens.toLocaleString()} source`)).toBeVisible({
-        timeout: 30_000,
-      });
     });
   });
 });

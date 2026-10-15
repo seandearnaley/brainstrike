@@ -17,7 +17,6 @@ import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
 import { NotebookPen } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo } from 'react';
 import { getEmbeddingQueue, registerWebEmbeddingRuntimeConfig } from '../create-embedding-queue';
-import ContextExplorerPageContent from './context-explorer-page-content';
 import SettingsPageContent from './settings/page-content';
 
 const NOTES_NAVIGATION_ITEM: NavigationItem = { icon: NotebookPen, name: 'Notes', path: '/notes' };
@@ -46,8 +45,8 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
  *
  * TOKEN CACHE: The TokenCacheWrapper provides a shared token cache context that
  * enables background token indexing. It wraps the entire layout so both:
- * - FileExplorerPanel (indexes selected files via background worker)
- * - PreviewPanel in ContextExplorerPageContent (displays token counts from the shared cache)
+ * - FileExplorerPanel (indexes visible files via background worker)
+ * - the explorer's Tokens cells (display token counts from the shared cache)
  * can share the same context and see each other's updates.
  *
  * DOCUMENT TITLE: this is the web app's single mount point, so it is where the
@@ -95,7 +94,6 @@ export default function RootLayoutContent() {
     // capability convention (omit, don't stub). The render tier stays web-capable
     // (CanvasFrame + /canvas-frame.html serving are live), so wiring
     // `canvasPanelContent` back is one line once web gains a write path.
-    contextExplorerPageContent: <ContextExplorerPageContent />,
     databaseTabChunkingMode: 'local',
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring
     navigationItems: navigationConfig,
