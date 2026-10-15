@@ -193,12 +193,34 @@ converter is load-bearing only on the MCP raw-JSON-Schema path.
 | `resumeSchema` | `canonicalInteraction` (`canonical-tool-bindings.ts:87`) | declared directly on the producer object; `canonicalToolInputSchema` already normalises it. |
 | `outputSchema` (documentation-only) | **nobody.** It exists only to defeat `Tool.execute`'s `validateToolOutput`. | deleted. |
 | `mcp` (`MCPToolProperties`: `_meta`, annotations) | **nobody.** `readStrictMeta(_meta)` and `stampServerIdInMeta` run at build time; the `mcp` property itself has no reader in `agent-host` or `host-capabilities`. | deleted; the `_meta` reads stay inline where the tool is built. |
-| `mcpMetadata` (`{serverName, appCapable}`) | only `agent/src/mastra/mcp-app-tool-call.ts`, whose sole callers are `agent-runtime.ts:79` and `runtime-assembly/tool-pipeline.ts:52` — both engine. | server identity is already `HostTool.mcpBinding {configuredServerId, generation}` + `mcpAuthority`. `appCapable` has **no host reader today**; it needs a home only when a host-side MCP Apps admission exists. Open item, stated rather than resolved. |
+| `mcpMetadata` (`{serverName, appCapable}`) | only `agent/src/mastra/mcp-app-tool-call.ts`, whose sole callers are `agent-runtime.ts:79` and `runtime-assembly/tool-pipeline.ts:52` — both engine. | server identity is already `HostTool.mcpBinding {configuredServerId, generation}` + `mcpAuthority`. `appCapable` is **deleted** — see §5a: the host's own Apps admission gates on mount evidence, not on capability metadata. |
 | `writer` (progress streaming) | `host-capabilities/src/native-tools/tool-execute-support.ts:171` | the host already supplies the sink. See below. |
 | `ToolExecutionContext` slice (`agent`/`writer`/`abortSignal`) | `mcp-runtime-client.ts:403` | `HostToolContext` (`ports.ts:137`), which is already richer and already the thing `createCanonicalToolContext` converts *from*. |
 | `requestContext` / `parseMemoryRequestContext` | `agent/src/tools/read-tool-call-id.ts:46` | unreachable on the host path: `readExecutionIdentity` finds the top-level `threadId` that `createCanonicalToolContext` sets, and returns before the `RequestContext` branch. The host constructs `new RequestContext()` empty, purely to satisfy Mastra's type. Deleted. |
 | `ValidationError` carrier / `isValidationError` | `tool-model-output.ts:204,216` | no producer once `createTool` is gone. Must be replaced by validating **once**, in the host, not simply dropped. |
 | `ToolPayloadTransform*` types | **nobody on the host path.** Written by `hook-tool-wrap.ts:242` and `tool-output-artifact-settlement.ts:100`; read only by Mastra's loop. | local type declarations, or deleted with their writers. |
+
+### 5a. The host already has an MCP Apps admission — a different one
+
+Flagged in review on PR #3646, and correct: `packages/agent-host/src/mcp-app-calls.ts`
+implements host-owned `mcp/app/admit` and `mcp/app/call`. So "when a host-side
+MCP Apps admission exists" was the wrong framing. The two admissions differ in
+what they gate on:
+
+| | Engine (`mastra/mcp-app-tool-call.ts`) | Host (`agent-host/src/mcp-app-calls.ts`) |
+| --- | --- | --- |
+| Granularity | per run | per call |
+| Evidence | `mcpMetadata.appCapable` tallied across registered tools; `agent-runtime.ts:599` skips the Apps machinery when `appCapableToolCount === 0` | a committed `effect.finished` row of that thread mounted this exact app — `serverId`/`toolName`/`resourceUri`/`mimeType` all matching (`decideHostMcpAppCall`, `sameApp`) |
+| Then | registers the Apps run | root thread's live policy + grants (`hostPolicyDecision(…, 'mcp', …)`), then `mcp.callAppTool` |
+| Reads capability metadata | yes | **no** |
+
+Mount evidence is strictly stronger than a capability declaration: a tool that
+advertised Apps capability but never mounted an app still cannot call, and a
+tool that did mount one is admitted whatever it advertised. The host therefore
+needs no per-run registration gate, and `appCapable` can be deleted outright
+rather than held as an open item. Confirmed by grep: no occurrence of
+`appCapable` or `mcpMetadata` anywhere in `packages/agent-host` or
+`packages/host-capabilities`.
 
 ### The writer is the easy part, not the hard part
 

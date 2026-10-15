@@ -4,7 +4,7 @@
 - **Date:** 2026-10-15
 - **Ticket:** none yet
 - **Follows:** [ADR-0022](0022-web-assistant-stateless-ai-sdk-proxy.md)
-- **Amends:** [ADR-0012](0012-ai-sdk-loop-mastra-memory-library.md) (one clause; see Decision)
+- **Amends:** [ADR-0012](0012-ai-sdk-loop-mastra-memory-library.md) (the `@mastra/core` peer-dependency clause) and [ADR-0022](0022-web-assistant-stateless-ai-sdk-proxy.md) (step 4's file count) — both in Decision
 - **Evidence:** `docs/archive/host-tool-representation-measurement-2026-10-15.md`
 
 ## Context
@@ -84,10 +84,25 @@ not on `ai` itself.
   `agent-host` or `host-capabilities`. The `_meta` reads (`readStrictMeta`,
   `stampServerIdInMeta`) stay inline where the tool is built.
 - `mcpMetadata` — server identity is already `HostTool.mcpBinding` +
-  `mcpAuthority`. `appCapable` has **no host reader today**: its only consumer,
-  `mastra/mcp-app-tool-call.ts`, is called from the engine alone. It gets a home
-  on `HostTool.mcpBinding` when a host-side MCP Apps admission exists, and not
-  before. Stated as an open item rather than resolved by guesswork.
+  `mcpAuthority`. **`appCapable` is deleted**, and the host already has the
+  admission that makes it unnecessary. There are two different MCP Apps
+  admissions and they gate on different evidence:
+  - The engine's (`mastra/mcp-app-tool-call.ts`) is **per run** and
+    **declaration-counted**: it tallies `mcpMetadata.appCapable` across the
+    registered tools, and `agent-runtime.ts:599` skips registering the Apps
+    machinery when `appCapableToolCount === 0`.
+  - The host's (`agent-host/src/mcp-app-calls.ts`, `mcp/app/admit` and
+    `mcp/app/call`) is **per call** and **mount-evidenced**: `decideHostMcpAppCall`
+    requires a committed `effect.finished` row of that thread to have mounted
+    this exact app (`serverId`/`toolName`/`resourceUri`/`mimeType`), then applies
+    the root thread's live policy and grants, then dispatches through the
+    platform's MCP authority. It reads no capability metadata at all.
+
+  Mount evidence is strictly stronger than a capability declaration — a tool that
+  advertised Apps capability but never mounted one still cannot call, and a tool
+  that did mount one is admitted whatever it advertised. So the host needs no
+  per-run registration gate and nothing is lost by dropping the field. This is a
+  decision, not an open item.
 - `ToolExecutionContext` slice — **`HostToolContext`** (`ports.ts:137`), which is
   already richer and already what `createCanonicalToolContext` converts *from*.
   The `requestContext`/`parseMemoryRequestContext` branch in
@@ -146,6 +161,26 @@ background tasks; and the memory adapters ADR-0012 keeps. **ADR-0012's clause
 state the actual boundary**, and `docs/agents/mastra-boundary.md` is updated to
 match. Making a false statement true by deleting the thing that contradicts it is
 the wrong order of operations; the statement was always wrong.
+
+**7. ADR-0022's step 4 stops naming a file count; this ADR supersedes that
+clause.** As accepted, step 4 says "delete the remaining 82 files". That
+instruction is live and wrong: nine of those modules are reached by surviving
+`package.json` exports, and widening the seed further moves the number again
+(the ladder is in Consequences). On acceptance of this ADR, step 4's count is
+replaced by:
+
+> Delete every `src/mastra/` module that no surviving `package.json` export
+> entry reaches and no non-test consumer outside `packages/agent` imports —
+> where e2e helpers count as tests and are re-pointed, not preserved —
+> recomputed immediately before the deletion lands.
+
+**This clause is severable and stands on its own.** It is a correction to an
+accepted plan, not a consequence of the tool-representation decision, so if the
+rest of this ADR is rejected the correction still has to land — in ADR-0022
+itself, by whoever executes the retirement. The one outcome that must not happen
+is step 4 running against the count as written. `docs/adr/0022-…` is not edited
+here because the retirement is actively owned by another workstream; editing an
+accepted ADR from two branches at once is how a correction gets lost.
 
 ## Consequences
 
@@ -218,26 +253,22 @@ outside consumers get detangled first, and it moves by tens:
 `openai-tool-search-history-compat`, `runtime-configuration`,
 `runtime-assembly/usage-metering`). Deleting them breaks two published entries.
 
-**So state the rule and compute it at execution:**
+**Decision 7 replaces the count with the rule.** Two notes on why the rule reads
+as it does.
 
-> Delete every `src/mastra/` module that no surviving `package.json` export entry
-> reaches and no non-test consumer outside `packages/agent` imports, recomputed
-> immediately before the deletion lands.
-
-**The rule needs one more clause than that, or it yields 27 or 65 depending on
-who reads it.** The last row of the table is a single file:
+The last row of the table is a single file.
 `apps/desktop/e2e/helpers/mcp-apps-ordinary-admission.ts` is the only consumer
 outside `packages/agent` of *both* `composeRuntimeToolMap` and
 `createMcpAppOrdinaryToolCallPreparer`, and it drags in 38 further modules on
 its own. It is an e2e **helper** — test support that lives outside `__tests__`
-and is not named `*.spec.ts`, so a literal "non-test consumer" filter counts it
-and cancels most of the deletion. It should be re-pointed or deleted alongside
-the nine desktop tests step 3 already re-points, which is a decision, not a
-measurement. The rule must say so.
+and is not named `*.spec.ts` — so a literal "non-test consumer" filter counts it
+and cancels most of the deletion. That is why the rule names e2e helpers
+explicitly: re-pointing it alongside the nine desktop tests step 3 already
+re-points is a decision, and without the clause two readers compute 27 and 65
+from the same sentence.
 
-For sizing only, labelled as sizing and not to be written into the ADR:
-**65 retirable / 35 surviving** once that helper is dealt with, against
-**27 / 73** if it is not.
+For sizing only, and deliberately not a commitment: **65 retirable / 35
+surviving** once that helper is dealt with, against **27 / 73** if it is not.
 
 None of this changes ADR-0022's decision — web still stops calling the loop, and
 the deletion is still the largest subtraction available. It changes what step 4
