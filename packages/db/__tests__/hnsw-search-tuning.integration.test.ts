@@ -11,11 +11,11 @@
 
 import type { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
-import { migrate } from '../src/migrations/bootstrap.js';
 import type { FileChunkInsert } from '../src/models/file-chunk.js';
 import { hnswSearchTuningStatements } from '../src/repositories/_shared.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 function makeVector(dim: number, entries: [number, number][]): number[] {
   const v = new Array(dim).fill(0);
@@ -57,8 +57,7 @@ describe('HNSW search tuning (pgvector integration)', () => {
   });
 
   it('returns every match of a restrictive filter through the tuned transaction path', async () => {
-    const db: PGlite = await wasmLoader.createPGlite('memory://hnsw-tuning-filter');
-    await migrate(db);
+    const db: PGlite = await createMigratedTestDb();
     await db.query('CREATE EXTENSION IF NOT EXISTS vector');
 
     const dim = 768;

@@ -1,18 +1,16 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it, vi } from 'vitest';
-import { migrate } from '../src/migrations/bootstrap.js';
 import {
   EXACT_FILTERED_SCAN_MAX_RATIO,
   EXACT_FILTERED_SCAN_MAX_ROWS,
   resolveFilteredVectorSearchRoute,
 } from '../src/repositories/_shared.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
-import { wasmLoader } from '../src/wasm-loader.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 describe('searchSimilar SQL path guards', () => {
   it('requires embeddingSetId when vectorEnabled', async () => {
-    const db: PGlite = await wasmLoader.createPGlite('memory://sql-guard');
-    await migrate(db);
+    const db: PGlite = await createMigratedTestDb();
     const repo = new FileChunkRepository(db);
     await expect(repo.searchSimilar([0.1, 0.2, 0.3], { limit: 5 })).rejects.toThrowError(
       /requires embeddingSetId/

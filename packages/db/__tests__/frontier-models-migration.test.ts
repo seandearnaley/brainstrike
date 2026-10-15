@@ -1,9 +1,8 @@
 import { listProviders } from '@brainstrike/assistant-contract';
 import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion, LATEST_MIGRATION_VERSION } from './helpers/migrated-test-db.js';
 
 async function modelIds(db: PGlite): Promise<string[]> {
   const res = await db.query('SELECT id FROM models ORDER BY id');
@@ -14,21 +13,23 @@ describe('frontier models migrations', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
-  beforeEach(async () => {
-    const dataDir = createPGliteTestDataDir('pglite-test-frontier');
-    db = await wasmLoader.createPGlite(dataDir);
+  /** A fresh copy of the numbered chain through `version` (see createDbAtVersion). */
+  async function openAtVersion(version: number): Promise<void> {
+    db = await createDbAtVersion(version);
     runner = new MigrationRunner(db);
-  });
+  }
 
   afterEach(async () => {
-    await db.close();
+    // A test that failed before opening its database left the previous one closed.
+    if (db && !db.closed) {
+      await db.close();
+    }
   });
 
   it('seeds the new frontier model IDs and removes superseded ones', {
     timeout: 60_000,
   }, async () => {
-    await runner.initialize();
-    await runner.up(migrations);
+    await openAtVersion(LATEST_MIGRATION_VERSION);
 
     const ids = await modelIds(db);
 
@@ -124,9 +125,8 @@ describe('frontier models migrations', () => {
   it('rolls back faithfully: removes new rows, restores dropped ones, keeps gpt-5.2-pro', {
     timeout: 60_000,
   }, async () => {
-    await runner.initialize();
     // The catalog rollback spans 033 through the Ling Flash addition in 072.
-    await runner.up(migrations.filter((entry) => entry.version <= 72));
+    await openAtVersion(72);
     await runner.down(migrations, 32);
 
     const ids = await modelIds(db);
@@ -165,8 +165,7 @@ describe('frontier models migrations', () => {
   it('preserves a user is_enabled choice across the July catalog migration', {
     timeout: 60_000,
   }, async () => {
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version <= 56));
+    await openAtVersion(56);
 
     await db.query("UPDATE models SET is_enabled = false WHERE id = 'gpt-5.4'");
 
@@ -190,9 +189,8 @@ describe('frontier models migrations', () => {
   it('patches vision into every LLM catalog row and rolls back cleanly', {
     timeout: 60_000,
   }, async () => {
-    await runner.initialize();
     // Include the 070 MiniMax correction alongside the 061 vision patch.
-    await runner.up(migrations.filter((entry) => entry.version <= 70));
+    await openAtVersion(70);
 
     const vision = async (id: string): Promise<string | null | undefined> => {
       const res = await db.query(
@@ -238,8 +236,7 @@ describe('frontier models migrations', () => {
     // not a FLIPPED value: without this test, moving one model between the
     // true/false lists (or flipping its registry declaration) ships green
     // while the DB mirror silently disagrees with the gate's source of truth.
-    await runner.initialize();
-    await runner.up(migrations);
+    await openAtVersion(LATEST_MIGRATION_VERSION);
 
     const registryVisionById = new Map<string, string>();
     for (const provider of listProviders()) {
@@ -267,8 +264,7 @@ describe('frontier models migrations', () => {
   it('corrects MiniMax M3 vision for existing catalogs and rolls back to the prior value', {
     timeout: 60_000,
   }, async () => {
-    await runner.initialize();
-    await runner.up(migrations.filter(({ version }) => version <= 69));
+    await openAtVersion(69);
 
     const vision = async (): Promise<string | null | undefined> => {
       const result = await db.query(
@@ -286,8 +282,7 @@ describe('frontier models migrations', () => {
   });
 
   it('adds and rolls back the provider billed-cost column', { timeout: 60_000 }, async () => {
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version <= 57));
+    await openAtVersion(57);
     await expect(
       db.query('SELECT billed_cost_usd FROM brainstrike_assistant_run_usage LIMIT 0')
     ).rejects.toThrow();
@@ -306,8 +301,7 @@ describe('frontier models migrations', () => {
   it('adds the July 16 OpenRouter models disabled without changing existing toggles', {
     timeout: 60_000,
   }, async () => {
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version <= 59));
+    await openAtVersion(59);
     await db.query("UPDATE models SET is_enabled = true WHERE id = 'moonshotai/kimi-k2.6'");
 
     await runner.up(migrations.filter((migration) => migration.version <= 70));
@@ -329,8 +323,7 @@ describe('frontier models migrations', () => {
   it("adds Curator's July coding models disabled without changing existing toggles", {
     timeout: 60_000,
   }, async () => {
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version <= 70));
+    await openAtVersion(70);
     await db.query("UPDATE models SET is_enabled = true WHERE id = 'meta/muse-spark-1.1'");
 
     await runner.up(migrations.filter((migration) => migration.version <= 71));
@@ -425,8 +418,7 @@ describe('frontier models migrations', () => {
   it('adds Ling 3.0 Flash disabled without changing existing toggles', {
     timeout: 60_000,
   }, async () => {
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version <= 71));
+    await openAtVersion(71);
     await db.query("UPDATE models SET is_enabled = true WHERE id = 'meta/muse-spark-1.1'");
 
     await runner.up(migrations.filter((migration) => migration.version <= 72));
@@ -462,8 +454,7 @@ describe('frontier models migrations', () => {
   it('adds Gemini 3.7 Flash disabled, preserves its toggle, and rolls back faithfully', {
     timeout: 60_000,
   }, async () => {
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version <= 94));
+    await openAtVersion(94);
 
     const readGemini = async (): Promise<
       | {
@@ -526,8 +517,7 @@ describe('frontier models migrations', () => {
   it('adds Qwen3.8 27B disabled, preserves its toggle, and rolls back faithfully', {
     timeout: 60_000,
   }, async () => {
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version <= 96));
+    await openAtVersion(96);
 
     const readQwen = async (): Promise<
       | {
@@ -602,8 +592,7 @@ describe('frontier models migrations', () => {
   it('adds Qwen3.8 2.4T disabled, preserves its toggle, and rolls back faithfully', {
     timeout: 60_000,
   }, async () => {
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version <= 97));
+    await openAtVersion(97);
 
     const readRows = async (): Promise<
       Array<{
@@ -700,8 +689,7 @@ describe('frontier models migrations', () => {
   it('adds Qwen3.8 Max disabled, preserves its toggle, and rolls back migration 098', {
     timeout: 60_000,
   }, async () => {
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version <= 98));
+    await openAtVersion(98);
 
     const readRows = async (): Promise<
       Array<{
@@ -829,8 +817,7 @@ describe('frontier models migrations', () => {
   it('adds Nemotron 3.5 Lightning disabled, preserves its toggle, and rolls back migration 099', {
     timeout: 60_000,
   }, async () => {
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version <= 98));
+    await openAtVersion(98);
 
     const migration099 = migrations.find((migration) => migration.version === 99);
     if (!migration099) {
@@ -932,8 +919,7 @@ describe('frontier models migrations', () => {
   it('adds Grok 4.6 disabled, preserves its toggle, and rolls back migration 100', {
     timeout: 60_000,
   }, async () => {
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version <= 99));
+    await openAtVersion(99);
 
     const migration100 = migrations.find((migration) => migration.version === 100);
     if (!migration100) {
@@ -1034,8 +1020,7 @@ describe('frontier models migrations', () => {
   it('adds direct Gemini 3.7 Flash disabled, preserves its toggle, and rolls back migration 104', {
     timeout: 60_000,
   }, async () => {
-    await runner.initialize();
-    await runner.up(migrations.filter((entry) => entry.version <= 104));
+    await openAtVersion(104);
 
     const readRows = async (): Promise<
       Array<{

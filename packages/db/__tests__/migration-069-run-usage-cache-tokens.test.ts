@@ -1,8 +1,7 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 interface ColumnRow {
   column_name: string;
@@ -15,11 +14,8 @@ describe('migration 069: run-usage cache token columns', () => {
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    const dataDir = createPGliteTestDataDir('pglite-test-run-usage-cache-tokens');
-    db = await wasmLoader.createPGlite(dataDir);
+    db = await createDbAtVersion(68);
     runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 69));
   });
 
   afterEach(async () => {

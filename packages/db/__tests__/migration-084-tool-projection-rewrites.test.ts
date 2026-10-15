@@ -1,8 +1,7 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 const TABLE = 'brainstrike_assistant_tool_projection_rewrites';
 const THREAD_INDEX = 'brainstrike_assistant_tool_projection_rewrites_thread_idx';
@@ -20,10 +19,8 @@ describe('migration 084: assistant tool projection rewrites (BST-1192)', () => {
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(createPGliteTestDataDir('pglite-test-tool-rewrites'));
+    db = await createDbAtVersion(83);
     runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 84));
   });
 
   afterEach(async () => db.close());

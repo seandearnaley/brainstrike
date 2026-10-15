@@ -1,11 +1,9 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { migrations } from '../src/migrations';
-import { MigrationRunner } from '../src/migrations/migration-runner';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileChunkInsert } from '../src/models/file-chunk';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository';
 import { FileRecordRepository } from '../src/repositories/file-record-repository';
-import { wasmLoader } from '../src/wasm-loader';
+import { createDbAtVersion, LATEST_MIGRATION_VERSION } from './helpers/migrated-test-db.js';
 
 function makeVector(dim: number, entries: [number, number][]): number[] {
   const vector = new Array(dim).fill(0);
@@ -20,14 +18,13 @@ describe('Batched insertMany', () => {
   let repository: FileChunkRepository;
   let _fileRecordRepository: FileRecordRepository;
 
-  beforeEach(async () => {
-    // Create a fresh in-memory database for each test
-    db = await wasmLoader.createPGlite('memory://batch-insert');
+  afterEach(async () => {
+    await db.close();
+  });
 
-    // Run all migrations to set up the schema
-    const migrationRunner = new MigrationRunner(db);
-    await migrationRunner.initialize();
-    await migrationRunner.up(migrations);
+  beforeEach(async () => {
+    // A fresh in-memory database for each test, with every migration applied
+    db = await createDbAtVersion(LATEST_MIGRATION_VERSION);
 
     repository = new FileChunkRepository(db);
     _fileRecordRepository = new FileRecordRepository(db);

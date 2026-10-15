@@ -1,9 +1,8 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { migration122AnthropicBedrockCatalogModels as migration } from '../src/migrations/122-anthropic-bedrock-catalog-models.js';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir.js';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 interface OrderRow {
   id: string;
@@ -15,8 +14,6 @@ const ADDED_IDS = {
   bedrock: 'anthropic.claude-fable-5-1',
 } as const;
 
-const earlierMigrations = migrations.filter((entry) => entry.version < migration.version);
-
 // BST-1691: additive Claude Fable 5.1 rows on the direct Anthropic and Bedrock
 // catalogs. The expectations are DERIVED from the pre-122 catalog rather than
 // hardcoded, so this file pins what migration 122 does and never re-pins the
@@ -25,14 +22,17 @@ describe('anthropic + bedrock claude fable 5.1 migration', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
-  beforeEach(async () => {
-    const dataDir = createPGliteTestDataDir('pglite-test-claude-fable-5-1');
-    db = await wasmLoader.createPGlite(dataDir);
+  /** A fresh copy of the numbered chain through `version` (see createDbAtVersion). */
+  async function openAtVersion(version: number): Promise<void> {
+    db = await createDbAtVersion(version);
     runner = new MigrationRunner(db);
-  });
+  }
 
   afterEach(async () => {
-    await db.close();
+    // A test that failed before opening its database left the previous one closed.
+    if (db && !db.closed) {
+      await db.close();
+    }
   });
 
   function order(providerId: string): Promise<{ rows: OrderRow[] }> {
@@ -43,8 +43,7 @@ describe('anthropic + bedrock claude fable 5.1 migration', () => {
   }
 
   async function baselineOrders(): Promise<Record<'anthropic' | 'bedrock', OrderRow[]>> {
-    await runner.initialize();
-    await runner.up(earlierMigrations);
+    await openAtVersion(migration.version - 1);
     const anthropic = (await order('anthropic')).rows;
     const bedrock = (await order('bedrock')).rows;
     expect(anthropic.map((row) => row.id)).not.toContain(ADDED_IDS.anthropic);

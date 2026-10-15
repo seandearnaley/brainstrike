@@ -1,9 +1,7 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import { PromptItemRepository } from '../src/repositories/prompt-item-repository.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion, LATEST_MIGRATION_VERSION } from './helpers/migrated-test-db.js';
 
 const vector = (hotIndex: number): number[] =>
   Array.from({ length: 384 }, (_, index) => (index === hotIndex ? 1 : 0));
@@ -13,10 +11,7 @@ describe('PromptItemRepository', () => {
   let repository: PromptItemRepository;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(createPGliteTestDataDir('pglite-test-prompt-items'));
-    const runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations);
+    db = await createDbAtVersion(LATEST_MIGRATION_VERSION);
     repository = new PromptItemRepository(db);
   });
 

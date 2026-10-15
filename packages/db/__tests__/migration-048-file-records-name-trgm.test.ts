@@ -1,8 +1,7 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 interface IndexRow {
   indexname: string;
@@ -13,12 +12,9 @@ describe('migration 048: file_records.name trigram index', () => {
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    const dataDir = createPGliteTestDataDir('pglite-test-file-records-name-trgm');
-    db = await wasmLoader.createPGlite(dataDir);
-    runner = new MigrationRunner(db);
-    await runner.initialize();
     // Bring the schema up through migration 047 (file_records + pg_trgm 038 exist).
-    await runner.up(migrations.filter((migration) => migration.version < 48));
+    db = await createDbAtVersion(47);
+    runner = new MigrationRunner(db);
   });
 
   afterEach(async () => {

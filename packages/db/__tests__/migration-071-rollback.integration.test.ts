@@ -1,9 +1,8 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migration071OpenRouterJulyCodingModels } from '../src/migrations/071-openrouter-july-coding-models.js';
-import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir.js';
+import { MigrationRunner } from '../src/migrations/index.js';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 const targetIds = [
   'poolside/laguna-s-2.1',
@@ -29,10 +28,8 @@ describe('migration 071 catalog rollback semantics', () => {
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(createPGliteTestDataDir('rollback-071'));
+    db = await createDbAtVersion(70);
     runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations.filter((candidate) => candidate.version < 71));
     await db.query(
       `INSERT INTO models
       (id, provider_id, name, capabilities, sort_order, is_enabled, created_at, updated_at)

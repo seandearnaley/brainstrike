@@ -15,15 +15,13 @@ import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearc
 import { vector } from '@electric-sql/pglite-pgvector';
 import { describe, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
-import { migrate } from '../src/migrations/bootstrap.js';
 import type { FileChunkInsert } from '../src/models/file-chunk.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
-import { wasmLoader } from '../src/wasm-loader.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 describe('content_tsvector generated column (integration)', () => {
   it('defines content_tsvector as a STORED generated column', async () => {
-    const db: PGlite = await wasmLoader.createPGlite('memory://tsvector-generated');
-    await migrate(db);
+    const db: PGlite = await createMigratedTestDb();
 
     const res = await db.query(
       `SELECT attgenerated
@@ -39,8 +37,7 @@ describe('content_tsvector generated column (integration)', () => {
   });
 
   it('auto-populates content_tsvector on insert without the repo setting it', async () => {
-    const db: PGlite = await wasmLoader.createPGlite('memory://tsvector-generated-fts');
-    await migrate(db);
+    const db: PGlite = await createMigratedTestDb();
 
     const now = new Date().toISOString();
     await db.query(

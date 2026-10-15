@@ -1,7 +1,6 @@
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import type { PGlite } from '@electric-sql/pglite';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { migrate } from '../src/migrations/bootstrap.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobQueue, type JobState } from '../src/queue/job-queue.js';
 import {
   DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
@@ -9,7 +8,7 @@ import {
   DEFAULT_DATABASE_MAINTENANCE_TOOL_CALL_TELEMETRY_RETENTION_MS,
   runScheduledDatabaseMaintenance,
 } from '../src/services/scheduled-database-maintenance.js';
-import { wasmLoader } from '../src/wasm-loader.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 const NOW_ISO = '2026-05-01T12:00:00.000Z';
 const OLD_ISO = '2026-04-29T12:00:00.000Z';
@@ -97,10 +96,11 @@ describe('scheduled database maintenance', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(
-      `memory://scheduled-database-maintenance-${crypto.randomUUID()}`
-    );
-    await migrate(db);
+    db = await createMigratedTestDb();
+  });
+
+  afterEach(async () => {
+    await db.close();
   });
 
   it('prunes finished jobs without vacuum while job queue work is active', async () => {

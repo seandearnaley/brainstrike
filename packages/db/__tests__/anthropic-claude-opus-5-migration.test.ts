@@ -1,9 +1,8 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { migration116AnthropicClaudeOpus5 as migration } from '../src/migrations/116-anthropic-claude-opus-5.js';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir.js';
+import { createDbAtVersion, LATEST_MIGRATION_VERSION } from './helpers/migrated-test-db.js';
 
 // Migrations 122 (BST-1691) and 142 (BST-1804) append Claude Fable 5.1 and
 // Claude Opus 5.5 after the existing rows, so the post-migration order below
@@ -24,21 +23,23 @@ describe('anthropic claude opus 5 migration', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
-  beforeEach(async () => {
-    const dataDir = createPGliteTestDataDir('pglite-test-claude-opus-5');
-    db = await wasmLoader.createPGlite(dataDir);
+  /** A fresh copy of the numbered chain through `version` (see createDbAtVersion). */
+  async function openAtVersion(version: number): Promise<void> {
+    db = await createDbAtVersion(version);
     runner = new MigrationRunner(db);
-  });
+  }
 
   afterEach(async () => {
-    await db.close();
+    // A test that failed before opening its database left the previous one closed.
+    if (db && !db.closed) {
+      await db.close();
+    }
   });
 
   it('seeds Claude Opus 5 second among the direct Anthropic models', {
     timeout: 60_000,
   }, async () => {
-    await runner.initialize();
-    await runner.up(migrations);
+    await openAtVersion(LATEST_MIGRATION_VERSION);
 
     const ordered = await db.query<{
       id: string;
@@ -75,10 +76,9 @@ describe('anthropic claude opus 5 migration', () => {
       timeout: 60_000,
     },
     async (enabled) => {
-      await runner.initialize();
       // Catalog state before migration 116 ships: a pre-existing row (e.g. a
       // build that already knew the model) with an explicit user toggle.
-      await runner.up(migrations.filter((entry) => entry.version < migration.version));
+      await openAtVersion(migration.version - 1);
       await db.query(
         `INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled)
        VALUES ('claude-opus-5', 'anthropic', 'Claude Opus 5', NULL, '[]', '{"type":"llm","streaming":true}', 2, $1)`,
@@ -110,8 +110,7 @@ describe('anthropic claude opus 5 migration', () => {
   it('rolls back cleanly: removes Claude Opus 5 and restores Anthropic ordering', {
     timeout: 60_000,
   }, async () => {
-    await runner.initialize();
-    await runner.up(migrations.filter((entry) => entry.version <= migration.version));
+    await openAtVersion(migration.version);
     await runner.down(migrations, migration.version - 1);
 
     const res = await db.query<{ id: string; sort_order: number }>(

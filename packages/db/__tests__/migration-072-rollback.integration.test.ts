@@ -1,9 +1,8 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migration072OpenRouterLing3Flash } from '../src/migrations/072-openrouter-ling-3-flash.js';
-import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir.js';
+import { MigrationRunner } from '../src/migrations/index.js';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 const targetIds = ['inclusionai/ling-3.0-flash:free'];
 const migration = migration072OpenRouterLing3Flash;
@@ -19,10 +18,8 @@ describe('migration 072 catalog rollback semantics', () => {
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(createPGliteTestDataDir('rollback-072'));
+    db = await createDbAtVersion(71);
     runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations.filter((candidate) => candidate.version < 72));
     await db.query(
       `INSERT INTO models
       (id, provider_id, name, capabilities, sort_order, is_enabled, created_at, updated_at)

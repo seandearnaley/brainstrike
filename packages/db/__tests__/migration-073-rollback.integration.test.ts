@@ -2,18 +2,15 @@ import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migration073DiagnosticEvents as migration } from '../src/migrations/073-diagnostic-events.js';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir.js';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 describe('migration 073 diagnostic rollback semantics', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(createPGliteTestDataDir('rollback-073'));
+    db = await createDbAtVersion(73);
     runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations.filter((candidate) => candidate.version <= 73));
     await db.exec(`
       INSERT INTO file_records (id, name, path, size, content, created_at, updated_at)
         VALUES ('rollback-file', 'a.txt', '/rollback/a.txt', 18, 'Retained user file', NOW()::text, NOW()::text);

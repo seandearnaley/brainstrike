@@ -5,8 +5,7 @@ import { vector } from '@electric-sql/pglite-pgvector';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 const MIGRATION_RUN_TIMEOUT_MS = 60_000;
 
@@ -39,9 +38,9 @@ describe('migration 063: index consolidation (numbered runner)', () => {
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(createPGliteTestDataDir('pglite-test-index-consolidation'));
+    // The chain just before migration 063; each test runs 063 onward itself.
+    db = await createDbAtVersion(62);
     runner = new MigrationRunner(db);
-    await runner.initialize();
   });
 
   afterEach(async () => {

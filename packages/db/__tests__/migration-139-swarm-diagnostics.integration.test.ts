@@ -2,9 +2,7 @@ import { MASTRA_MEMORY_SCHEMA_SQL } from '@brainstrike/assistant-contract/mastra
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migration139SwarmDiagnostics } from '../src/migrations/139-swarm-diagnostics.js';
-import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir.js';
+import { createDbAtVersion } from './helpers/migrated-test-db.js';
 
 const TABLES = [
   'brainstrike_assistant_prompt_manifests',
@@ -23,10 +21,7 @@ async function columns(db: PGlite, table: string): Promise<string[]> {
 describe('migration 139 swarm diagnostics', () => {
   let db: PGlite;
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(createPGliteTestDataDir('migration-139'));
-    const runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version <= 139));
+    db = await createDbAtVersion(139);
     await db.exec(MASTRA_MEMORY_SCHEMA_SQL);
   });
   afterEach(async () => {

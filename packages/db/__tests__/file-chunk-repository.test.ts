@@ -1,12 +1,10 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { migrate } from '../src/migrations/bootstrap.js';
 import type { FileChunkInsert, FileChunkUpdate } from '../src/models/file-chunk.js';
 import { clearEmbeddingDimensionCache } from '../src/repositories/_shared.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
 import { FileRecordRepository } from '../src/repositories/file-record-repository.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 function makeVector(dim: number, entries: [number, number][]): number[] {
   const vector = new Array(dim).fill(0);
@@ -41,9 +39,7 @@ describe('FileChunkRepository', () => {
   // October 2025: Fresh database per test - WASM pre-loaded in vitest.setup.ts
   beforeEach(async () => {
     clearEmbeddingDimensionCache();
-    const dataDir = createPGliteTestDataDir('pglite-test-file-chunk');
-    db = await wasmLoader.createPGlite(dataDir);
-    await migrate(db);
+    db = await createMigratedTestDb();
     repository = new FileChunkRepository(db);
     fileRepository = new FileRecordRepository(db);
 

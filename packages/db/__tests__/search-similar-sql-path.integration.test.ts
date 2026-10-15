@@ -1,13 +1,12 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
-import { migrate } from '../src/migrations/bootstrap.js';
 import type { FileChunkInsert } from '../src/models/file-chunk.js';
 import type {
   FileChunkDatabase,
   FileChunkQueryTx,
 } from '../src/repositories/file-chunk-repository.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
-import { wasmLoader } from '../src/wasm-loader.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 // Utility to build a dense vector of a given dimension with provided entries
 function makeVector(dim: number, entries: [number, number][]): number[] {
@@ -20,8 +19,7 @@ function makeVector(dim: number, entries: [number, number][]): number[] {
 
 describe('searchSimilar SQL path (pgvector integration)', () => {
   it('returns ranked results and does not regress parameter indexing', async () => {
-    const db: PGlite = await wasmLoader.createPGlite('memory://sql-ok');
-    await migrate(db);
+    const db: PGlite = await createMigratedTestDb();
 
     // Sanity: ensure vector extension is available
     await db.query('CREATE EXTENSION IF NOT EXISTS vector');
@@ -162,8 +160,7 @@ describe('searchSimilar SQL path (pgvector integration)', () => {
   });
 
   it('scopes results to a single workspace root via the rootId option', async () => {
-    const db: PGlite = await wasmLoader.createPGlite('memory://sql-rootid');
-    await migrate(db);
+    const db: PGlite = await createMigratedTestDb();
     await db.query('CREATE EXTENSION IF NOT EXISTS vector');
 
     const setId = 'set_root';
@@ -361,8 +358,7 @@ describe('searchSimilar adaptive routing (selective filters)', () => {
   }
 
   it('routes a selective root scope to an exact full-precision scan (no ANN tuning)', async () => {
-    const pg: PGlite = await wasmLoader.createPGlite('memory://route-exact');
-    await migrate(pg);
+    const pg: PGlite = await createMigratedTestDb();
     const { dim, setId } = await seedCorpus(pg);
     const logging = createLoggingDb(pg);
     const repo = new FileChunkRepository(logging.db);
@@ -399,8 +395,7 @@ describe('searchSimilar adaptive routing (selective filters)', () => {
   });
 
   it('keeps a broad root scope on the tuned ANN path', async () => {
-    const pg: PGlite = await wasmLoader.createPGlite('memory://route-ann');
-    await migrate(pg);
+    const pg: PGlite = await createMigratedTestDb();
     const { dim, setId } = await seedCorpus(pg);
     const logging = createLoggingDb(pg);
     const repo = new FileChunkRepository(logging.db);
@@ -432,8 +427,7 @@ describe('searchSimilar adaptive routing (selective filters)', () => {
   });
 
   it('short-circuits an empty narrowed match to [] without running the search', async () => {
-    const pg: PGlite = await wasmLoader.createPGlite('memory://route-empty');
-    await migrate(pg);
+    const pg: PGlite = await createMigratedTestDb();
     const { dim, setId } = await seedCorpus(pg);
     const logging = createLoggingDb(pg);
     const repo = new FileChunkRepository(logging.db);
@@ -453,8 +447,7 @@ describe('searchSimilar adaptive routing (selective filters)', () => {
   });
 
   it('never runs selectivity counts for un-narrowed whole-set searches', async () => {
-    const pg: PGlite = await wasmLoader.createPGlite('memory://route-wholeset');
-    await migrate(pg);
+    const pg: PGlite = await createMigratedTestDb();
     const { dim, setId } = await seedCorpus(pg);
     const logging = createLoggingDb(pg);
     const repo = new FileChunkRepository(logging.db);

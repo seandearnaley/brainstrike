@@ -1,10 +1,9 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migration075FileSymbols } from '../src/migrations/075-file-symbols.js';
-import { MigrationRunner, migrations } from '../src/migrations/index.js';
+import { MigrationRunner } from '../src/migrations/index.js';
 import { FileSymbolRepository } from '../src/repositories/file-symbol-repository.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir.js';
+import { createDbAtVersion, LATEST_MIGRATION_VERSION } from './helpers/migrated-test-db.js';
 
 describe('migration 075 rollback semantics', () => {
   let db: PGlite;
@@ -12,10 +11,8 @@ describe('migration 075 rollback semantics', () => {
   let repository: FileSymbolRepository;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(createPGliteTestDataDir('rollback-075'));
+    db = await createDbAtVersion(LATEST_MIGRATION_VERSION);
     runner = new MigrationRunner(db);
-    await runner.initialize();
-    await runner.up(migrations);
     repository = new FileSymbolRepository(db);
     await db.exec(`
       INSERT INTO roots (id, kind, display_name, path)
