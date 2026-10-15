@@ -61,7 +61,7 @@ it.each([false, true])(
   }
 );
 
-it('queues a newer inventory until the actual host and private channel join the old verified scan, gating every readiness projection', async () => {
+it('answers reads during the old verified scan, gates every readiness projection on the queued inventory, then applies it (BST-2012)', async () => {
   const test = await fixture();
   try {
     await test.activation.acquire();
@@ -77,47 +77,36 @@ it('queues a newer inventory until the actual host and private channel join the 
       unexpected: [],
     });
     test.state.files = records(2);
-    let updated = false;
-    const updating = test.activation
-      .acquireRead()
-      .then(() => {
-        updated = true;
-      })
-      .catch((error: unknown) => error);
+    // A read never waits for the running scan: it answers from the committed
+    // catalog, and readiness reports the queued inventory as incomplete.
+    expect(await test.activation.acquireRead()).toHaveProperty('info');
     await test.sawNewInventory.promise;
-    let statusSettled = false;
-    const status = test.capability
-      .status()
-      .then((value) => {
-        statusSettled = true;
-        return value;
-      })
-      .catch((error: unknown) => error);
+    expect(await test.capability.status()).toMatchObject({
+      collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: false }],
+      kind: 'ready',
+    });
     test.expectReadiness((await test.activation.getSearchAuthority()).readiness, [
       { generation: 2, mutationRevision: 2, scanComplete: false, scope },
     ]);
     expect(test.bindings.at(-1)).toEqual(['retained-0']);
-    expect(updated).toBe(false);
-    expect(statusSettled).toBe(false);
     test.gate.resolve();
     expect(await test.finished.promise).toMatchObject({ reason: 'complete', scanComplete: true });
+    // The old scan settled, so the queued inventory is applied and scanned.
     await test.nextEntered.promise;
     test.expectReadiness(test.activation.getReadiness(), [
       { generation: 3, mutationRevision: 5, scanComplete: false, scope },
     ]);
+    expect(await test.activation.acquireRead()).toHaveProperty('info');
     test.expectReadiness((await test.activation.getSearchAuthority()).readiness, [
       { generation: 3, mutationRevision: 5, scanComplete: false, scope },
     ]);
     expect(test.bindings.at(-1)).toEqual(['retained-0', 'retained-1']);
-    expect(updated).toBe(false);
-    expect(statusSettled).toBe(false);
     test.nextGate.resolve();
-    expect(await updating).toBeUndefined();
-    expect(await status).toMatchObject({
+    await test.activation.acquire();
+    expect(await test.capability.status()).toMatchObject({
       collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: true }],
       kind: 'ready',
     });
-    await test.activation.acquire();
     expect(test.receipts).toHaveLength(3);
     expect(test.receipts.every((receipt) => receipt.scanComplete)).toBe(true);
     expect(test.manifests).toEqual([[], [], ['retained-0'], ['retained-0', 'retained-1']]);
@@ -252,7 +241,7 @@ it.each([false, true])(
   }
 );
 
-it('joins a queued inventory that reverts before the old verified scan settles without leaving readiness gated', async () => {
+it('clears a queued inventory that reverts before the old verified scan settles without leaving readiness gated', async () => {
   const test = await fixture();
   try {
     await test.activation.acquire();
@@ -261,23 +250,23 @@ it('joins a queued inventory that reverts before the old verified scan settles w
     await test.activation.acquireRead();
     await test.entered.promise;
     test.state.files = records(2);
-    const updating = test.activation.acquireRead().catch((error: unknown) => error);
+    expect(await test.activation.acquireRead()).toHaveProperty('info');
     await test.sawNewInventory.promise;
     await test.activation.getSearchAuthority();
     test.state.files = records(1);
-    const reverted = test.activation.acquireRead().catch((error: unknown) => error);
+    expect(await test.activation.acquireRead()).toHaveProperty('info');
     test.expectReadiness(test.activation.getReadiness(), [
       { generation: 2, mutationRevision: 2, scanComplete: false, scope },
     ]);
     test.gate.resolve();
     expect(await test.finished.promise).toMatchObject({ reason: 'complete', scanComplete: true });
-    expect(await updating).toHaveProperty('info');
-    expect(await reverted).toHaveProperty('info');
+    await vi.waitFor(() =>
+      test.expectReadiness(test.activation.getReadiness(), [
+        { generation: 2, mutationRevision: 2, scanComplete: true, scope },
+      ])
+    );
     expect(test.manifests).toEqual([[], [], ['retained-0']]);
     expect(test.bindings.at(-1)).toEqual(['retained-0']);
-    test.expectReadiness(test.activation.getReadiness(), [
-      { generation: 2, mutationRevision: 2, scanComplete: true, scope },
-    ]);
     expect(test.onError).not.toHaveBeenCalled();
   } finally {
     await test.close();

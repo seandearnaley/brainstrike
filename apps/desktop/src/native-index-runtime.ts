@@ -42,6 +42,11 @@ export interface NativeSourceIdentity {
   readonly rootId: string | null;
 }
 export interface NativeIndexRuntime<Attachment = unknown> {
+  /**
+   * The acknowledged writer once any acquisition in flight settles, without
+   * changing its authority; it acquires only while nothing is acknowledged yet.
+   */
+  acknowledged(): Promise<NativePort>;
   acquire(): Promise<NativePort>;
   /** Borrows the retained attachment; retirement remains owned by this runtime. */
   acquireProfile(options?: { readonly indexIndependent: true }): Promise<Attachment>;
@@ -548,6 +553,10 @@ export function createNativeIndexRuntime<Attachment>(
     };
   };
   return {
+    acknowledged: async (): Promise<NativePort> => {
+      await acquisition?.catch(() => undefined);
+      return indexOwner && acknowledgedPort ? acknowledgedPort : acquireCurrent();
+    },
     acquire: acquireCurrent,
     acquireProfile,
     captureAcknowledgedAuthority,

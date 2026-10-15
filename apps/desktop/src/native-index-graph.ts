@@ -19,7 +19,12 @@ import {
   decodeNativeCanonicalCatalogRecords,
   type NativeCanonicalCatalogRecord,
 } from './native-canonical-catalog';
+import {
+  type NativeCanonicalProfileDependencies,
+  NativeCanonicalProfileResolver,
+} from './native-canonical-profile';
 import type { createNativeCanonicalPublication } from './native-canonical-publication';
+import { vectorCollectionId } from './native-index-partition';
 import type { NativeIndexSettings } from './native-index-settings';
 import type { NativeIndexSources } from './native-index-source-retirement';
 
@@ -31,6 +36,8 @@ export interface NativeIndexActivationGraph {
   observedCatalogRecords?: readonly NativeCanonicalCatalogRecord[];
   publication?: ReturnType<typeof createNativeCanonicalPublication>;
   queuedCatalogRecords?: readonly NativeCanonicalCatalogRecord[] | undefined;
+  /** Applies the queued catalog once the scan that deferred it settles (BST-2012). */
+  queuedCatalogRefresh?: Promise<void> | undefined;
   settings: NativeIndexSettings;
   sources?: NativeIndexSources | undefined;
   readonly watchFailures: Map<string, string>;
@@ -42,6 +49,32 @@ export const nativeGraphContext = (
   requestId: randomUUID(),
   signal: current.controller.signal,
 });
+
+/** One graph's canonical profile resolver: its saved selection and authorized scopes. */
+export function createNativeGraphProfileResolver(
+  current: NativeIndexActivationGraph,
+  assertCurrent: (current: NativeIndexActivationGraph) => void,
+  ports: Pick<NativeCanonicalProfileDependencies, 'collections' | 'modelCatalog'>
+): NativeCanonicalProfileResolver {
+  return new NativeCanonicalProfileResolver({
+    ...ports,
+    readLocalSelection: async () => {
+      assertCurrent(current);
+      return current.settings.selection ?? undefined;
+    },
+    resolveEmbeddingSetId: async (scope) => {
+      assertCurrent(current);
+      const collectionId = vectorCollectionId(current.settings);
+      if (
+        (scope.kind === 'workspace' && !current.leases.has(scope.rootId)) ||
+        (scope.kind === 'collection' && scope.embeddingSetId !== collectionId)
+      ) {
+        throw new Error('Canonical profile scope is not authorized by current desktop settings.');
+      }
+      return collectionId;
+    },
+  });
+}
 
 export async function loadNativeGraphRecords(
   current: NativeIndexActivationGraph,

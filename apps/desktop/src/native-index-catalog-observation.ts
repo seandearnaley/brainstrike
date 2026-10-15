@@ -49,6 +49,35 @@ export function deferNativeIndexCatalog(
   return Promise.all(Array.isArray(scan) ? scan : [scan]).then(() => {});
 }
 
+/**
+ * Settles a catalog change a running scan deferred. Writer acquisition joins the
+ * scan, then refreshes. A read answers from the committed catalog instead, and
+ * one refresh per graph applies the queued change once the scan settles; until
+ * then readiness reports it as incomplete (BST-2012).
+ */
+export async function settleDeferredNativeIndexCatalog(
+  current: { queuedCatalogRefresh?: Promise<void> | undefined },
+  settled: Promise<void>,
+  join: boolean,
+  refresh: () => Promise<void>,
+  onRefreshFailure: (error: unknown) => void
+): Promise<void> {
+  if (join) {
+    await settled;
+    // A read's queued refresh applies the change first; this writer then refreshes after it.
+    await current.queuedCatalogRefresh;
+    await refresh();
+    return;
+  }
+  current.queuedCatalogRefresh ??= settled
+    // The scan's own owner reports its failure; the queue stays visibly incomplete.
+    .then(refresh, () => undefined)
+    .catch(onRefreshFailure)
+    .finally(() => {
+      current.queuedCatalogRefresh = undefined;
+    });
+}
+
 export function catalogReadiness(current: CatalogObservation): readonly NativeScopeReadiness[] {
   const queued = current.queuedCatalogRecords;
   const observed = current.observedCatalogRecords ?? [];
