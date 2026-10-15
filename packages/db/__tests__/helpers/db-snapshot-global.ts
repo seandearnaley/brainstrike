@@ -21,32 +21,38 @@ const MIGRATION_SOURCES = ['src/migrations', 'src/drizzle'].map((dir) => path.jo
  *
  * Watch mode keeps this process, and the migration modules it evaluated, alive
  * across reruns, so the snapshot cannot follow a migration edit. Rather than
- * test against the stale schema, a rerun after such an edit fails and asks for
- * a restart.
+ * test against the stale schema, a run after such an edit (including one made
+ * while the snapshot was still building) fails and asks for a restart.
  */
 export default async function setup(project: TestProject): Promise<() => Promise<void>> {
-  const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-db-snapshot-'));
-  const snapshotPath = path.join(dir, 'migrated.tar');
-  await writeFile(snapshotPath, await buildMigratedSnapshot());
-  project.provide('dbSnapshotPath', snapshotPath);
-
   let changedMigration: string | undefined;
   project.vite.watcher.on('all', (_event, file) => {
     if (MIGRATION_SOURCES.some((source) => file.startsWith(source + path.sep))) {
       changedMigration ??= path.relative(DB_ROOT, file);
     }
   });
-  project.onTestsRerun(() => {
+  const assertSnapshotCurrent = (): void => {
     if (changedMigration) {
       throw new Error(
-        `${changedMigration} changed after the migrated test snapshot was built. Restart Vitest to rebuild it.`
+        `${changedMigration} changed after Vitest loaded the migrations, so the migrated test snapshot is stale. Restart Vitest to rebuild it.`
       );
     }
-  });
-
-  return async () => {
-    await rm(dir, { force: true, recursive: true });
   };
+
+  const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-db-snapshot-'));
+  const removeSnapshot = () => rm(dir, { force: true, recursive: true });
+  const snapshotPath = path.join(dir, 'migrated.tar');
+  try {
+    await writeFile(snapshotPath, await buildMigratedSnapshot());
+    assertSnapshotCurrent();
+  } catch (error) {
+    await removeSnapshot();
+    throw error;
+  }
+  project.provide('dbSnapshotPath', snapshotPath);
+  project.onTestsRerun(assertSnapshotCurrent);
+
+  return removeSnapshot;
 }
 
 declare module 'vitest' {
