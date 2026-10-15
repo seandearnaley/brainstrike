@@ -22,8 +22,9 @@
 import { createHash } from 'node:crypto';
 import os from 'node:os';
 import { NATIVE_TOOL_ID, requireNativeToolExecutionBudget } from '@brainstrike/assistant-contract';
+import { validateToolInputValue } from '@brainstrike/assistant-contract/native-tool-schemas';
 import type { CodeExecutionApprovalContext } from '@brainstrike/assistant-contract/tool-approval';
-import { RunPythonInputSchema } from './schemas';
+import { type RunPythonInput, RunPythonInputSchema } from './schemas';
 
 /** Matches the display schema's documented default; the seam caps at MAX_EXEC_TIMEOUT_MS. */
 export const RUN_PYTHON_DEFAULT_TIMEOUT_MS = requireNativeToolExecutionBudget(
@@ -74,15 +75,16 @@ export function computeExecutionContextFingerprint(
 export function resolveRunPythonExecutionContext(
   args: unknown
 ): CodeExecutionApprovalContext | undefined {
-  const parsed = RunPythonInputSchema.safeParse(args);
+  const parsed = validateToolInputValue(RunPythonInputSchema, args);
   if (!parsed.success) {
     return;
   }
+  const input = parsed.value as RunPythonInput;
   const fields: Omit<CodeExecutionApprovalContext, 'policyFingerprint'> = {
     // Gate B (BST-1070): the domains the model requested — the approval card
     // shows "Wants to reach N domains" plus the forewarning that a separate
     // escalation follows; the escalation itself rides the suspension channel.
-    allowedDomains: parsed.data.allowedDomains ?? [],
+    allowedDomains: [...(input.allowedDomains ?? [])],
     allowRead: [],
     // Entries BEYOND the per-call scratch folder (today: none). The scratch
     // folder itself cannot be listed — mkdtemp mints it after approval — so
@@ -92,7 +94,7 @@ export function resolveRunPythonExecutionContext(
     executorKind: 'fence',
     language: 'python',
     scratchParentDir: os.tmpdir(),
-    timeoutMs: parsed.data.timeoutMs ?? RUN_PYTHON_DEFAULT_TIMEOUT_MS,
+    timeoutMs: input.timeoutMs ?? RUN_PYTHON_DEFAULT_TIMEOUT_MS,
   };
   return { ...fields, policyFingerprint: computeExecutionContextFingerprint(fields) };
 }

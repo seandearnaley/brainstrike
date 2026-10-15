@@ -19,8 +19,9 @@ export * from './schemas-worktrees';
  * The exact registered input schema per desktop native tool, DERIVED from the
  * `inputSchema` each `defineNativeTool` declaration carries (BST-1646). The
  * desktop registry hands these very objects to Mastra and `validateToolInput`
- * parses with them; every one is wrapped once in `providerCompatibleInputSchema`
- * at its declaration.
+ * parses with them. Each carries exactly ONE producer's output — the Effect
+ * `effectToolInputSchema` or, for the tools not yet converted, the zod
+ * `providerCompatibleInputSchema` (ADR-0004, amended 2026-10-15).
  */
 export const NATIVE_TOOL_INPUT_SCHEMAS = Object.freeze(
   Object.fromEntries(DESKTOP_NATIVE_TOOLS.map((tool) => [tool.id, tool.inputSchema]))

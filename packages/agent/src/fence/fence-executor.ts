@@ -40,7 +40,7 @@ import {
   type ExecPlatform,
   type ExecResult,
   type ExecutorCapabilities,
-  execInputSchema,
+  parseExecInput,
 } from '../code-execution';
 import { buildSandboxRuntimeConfig } from './fence-policy';
 import {
@@ -911,7 +911,7 @@ export async function createFenceExecutor(
     // The seam owns request shape (timeout/output bounds, path rules,
     // scratchDir ⊆ allowWrite, a real AbortSignal). Re-parsing here means a
     // caller that bypassed it still cannot reach a spawn.
-    execInputSchema.parse(input);
+    parseExecInput(input);
     // The seam owns capability reconciliation too, so `fence` and `vm` cannot
     // answer it differently. Running a network-requesting script with the
     // network quietly off would be a stronger sandbox but a WRONG result.

@@ -2,6 +2,7 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { validateToolInputValue } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract/tool-metadata';
 import type { RunPythonNetworkSuspendPayload } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger } from '@brainstrike/logging';
@@ -24,10 +25,32 @@ import { NATIVE_TOOL_RESULT_CHAR_BUDGET } from '../stream/tool-output-limits';
 // the card displays and the timeout this tool enforces must be the same
 // constant, or the approval card would state terms the run does not honour.
 import { RUN_PYTHON_DEFAULT_TIMEOUT_MS } from './run-python-approval-context';
-import { RunPythonInputSchema } from './schemas';
+import { type RunPythonInput, RunPythonInputSchema } from './schemas';
 import { resolveGuardedToolSignal } from './tool-guard-deadline';
 
 const logger = createLogger('RunPythonTool');
+
+/**
+ * Re-parse the model's input through the registered schema, throwing on a
+ * violation as the previous `.parse` did. Read through the producer-neutral
+ * accessor so the input schema's authoring library stays this module's
+ * business: it is Effect-authored (ADR-0004), and the accessor keeps the
+ * provider-`null` normalization that reaches the wire.
+ */
+function parseRunPythonInput(input: unknown): RunPythonInput {
+  const result = validateToolInputValue(RunPythonInputSchema, input);
+  if (!result.success) {
+    throw new Error(
+      `invalid run_python input — ${result.issues
+        .map(
+          (issue) =>
+            `${issue.path.length > 0 ? issue.path.map(String).join('.') : 'input'}: ${issue.message}`
+        )
+        .join('; ')}`
+    );
+  }
+  return result.value as RunPythonInput;
+}
 
 export const RUN_PYTHON_TOOL_ID = NATIVE_TOOL_ID.runPython;
 
@@ -635,7 +658,7 @@ export function createRunPythonTool(options: RunPythonToolOptions) {
   return createTool({
     description: TOOL_DESCRIPTIONS[RUN_PYTHON_TOOL_ID],
     execute: async (input, context): Promise<RunPythonResult | undefined> => {
-      const parsed = RunPythonInputSchema.parse(input);
+      const parsed = parseRunPythonInput(input);
       // Deduplicated at the SOURCE so the suspend payload, the escalation
       // card's checkbox list (keyed by domain), and ExecPolicy.allowedDomains
       // all agree — a repeated host is harmless intent, not a reason to fail.

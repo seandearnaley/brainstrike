@@ -4,8 +4,8 @@ import type {
   RuntimeData,
 } from '@brainstrike/agent';
 import {
-  InspectCommandSessionsInputSchema,
-  ManageCommandSessionInputSchema,
+  normalizeInspectCommandSessionsInput,
+  normalizeManageCommandSessionInput,
 } from '@brainstrike/agent';
 import {
   type GuardedToolError,
@@ -234,7 +234,7 @@ function transcriptSessionInfo(info: CommandSessionInfo): CommandSessionTranscri
 }
 
 function projectInspectInputForTranscript(input: unknown): InspectCommandSessionsInput | undefined {
-  return input === undefined ? undefined : InspectCommandSessionsInputSchema.parse(input);
+  return input === undefined ? undefined : normalizeInspectCommandSessionsInput(input);
 }
 
 function projectGuardedErrorForTranscript(output: GuardedToolError): GuardedToolError {
@@ -252,7 +252,7 @@ function projectManageInputForTranscript(input: unknown): unknown {
   if (input === undefined) {
     return;
   }
-  const parsed = ManageCommandSessionInputSchema.parse(input);
+  const parsed = normalizeManageCommandSessionInput(input);
   const operation = parsed.operation;
   if (operation.action === 'start') {
     return {

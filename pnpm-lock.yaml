@@ -1221,7 +1221,7 @@ importers:
         version: 4.3.0(patch_hash=a572be510cf95f8a4974ce5aeffe247c5faa0a595e23015ad5f9012cfaab0155)(@types/node@24.13.3)
       '@mastra/core':
         specifier: 1.71.0
-        version: 1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@7.0.126(zod@4.6.5))(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
+        version: 1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@7.0.126(zod@4.6.5))(effect@4.0.4)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
       '@mastra/memory':
         specifier: 1.32.1
         version: 1.32.1(patch_hash=f7befcfb44f11beb53a614da33214230578faf7791902115cf7087a666b52532)(@mastra/core@1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@7.0.126(zod@4.6.5))(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5))(supports-color@10.2.2)
@@ -1237,6 +1237,9 @@ importers:
       ai:
         specifier: 'catalog:'
         version: 7.0.126(zod@4.6.5)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.4
       fastest-levenshtein:
         specifier: ^1.0.16
         version: 1.0.16
@@ -1345,7 +1348,7 @@ importers:
         version: link:../windows-job-native
       '@mastra/core':
         specifier: 1.71.0
-        version: 1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@7.0.126(zod@4.6.5))(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
+        version: 1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@7.0.126(zod@4.6.5))(effect@4.0.4)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
       '@mastra/memory':
         specifier: 1.32.1
         version: 1.32.1(patch_hash=f7befcfb44f11beb53a614da33214230578faf7791902115cf7087a666b52532)(@mastra/core@1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@7.0.126(zod@4.6.5))(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5))(supports-color@10.2.2)
@@ -3729,7 +3732,7 @@ importers:
     devDependencies:
       '@mastra/core':
         specifier: 1.71.0
-        version: 1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@7.0.126(zod@4.6.5))(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
+        version: 1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@7.0.126(zod@4.6.5))(effect@4.0.4)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
       '@mastra/memory':
         specifier: 1.32.1
         version: 1.32.1(patch_hash=f7befcfb44f11beb53a614da33214230578faf7791902115cf7087a666b52532)(@mastra/core@1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@7.0.126(zod@4.6.5))(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5))(supports-color@10.2.2)
@@ -17861,7 +17864,7 @@ snapshots:
 
   '@marijn/find-cluster-break@1.0.3': {}
 
-  '@mastra/core@1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@7.0.126(zod@4.6.5))(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)':
+  '@mastra/core@1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@7.0.126(zod@4.6.5))(effect@4.0.4)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)':
     dependencies:
       '@a2a-js/sdk-v0_3': '@a2a-js/sdk@0.3.14(express@5.2.1(supports-color@10.2.2))'
       '@a2a-js/sdk-v1': '@a2a-js/sdk@1.0.1(express@5.2.1(supports-color@10.2.2))'
@@ -17881,7 +17884,7 @@ snapshots:
       fastq: 1.20.1
       gray-matter: 4.0.3
       hono: 4.13.7
-      hono-openapi: 1.3.3(hono@4.13.7)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
+      hono-openapi: 1.3.3(effect@4.0.4)(hono@4.13.7)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
       ignore: 7.0.8
       jpeg-js: 0.4.4
       json-schema: 0.4.0
@@ -17915,7 +17918,7 @@ snapshots:
 
   '@mastra/memory@1.32.1(patch_hash=f7befcfb44f11beb53a614da33214230578faf7791902115cf7087a666b52532)(@mastra/core@1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@7.0.126(zod@4.6.5))(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5))(supports-color@10.2.2)':
     dependencies:
-      '@mastra/core': 1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@7.0.126(zod@4.6.5))(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
+      '@mastra/core': 1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@7.0.126(zod@4.6.5))(effect@4.0.4)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
       '@mastra/schema-compat': 1.3.11(zod@4.6.5)
       async-mutex: 0.5.0
       diff: 8.0.4
@@ -20041,21 +20044,23 @@ snapshots:
       '@smithy/core': 3.33.3
       tslib: 2.8.1
 
-  '@standard-community/standard-json@0.3.6(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)':
+  '@standard-community/standard-json@0.3.6(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(effect@4.0.4)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)':
     dependencies:
       '@standard-schema/spec': 1.1.0
       '@types/json-schema': 7.0.15
       quansync: 0.2.11
     optionalDependencies:
+      effect: 4.0.4
       zod: 4.6.5
       zod-to-json-schema: 3.25.2(zod@4.6.5)
 
-  '@standard-community/standard-openapi@0.2.10(@standard-community/standard-json@0.3.6(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod@4.6.5)':
+  '@standard-community/standard-openapi@0.2.10(@standard-community/standard-json@0.3.6(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(effect@4.0.4)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5))(@standard-schema/spec@1.1.0)(effect@4.0.4)(openapi-types@12.1.3)(zod@4.6.5)':
     dependencies:
-      '@standard-community/standard-json': 0.3.6(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
+      '@standard-community/standard-json': 0.3.6(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(effect@4.0.4)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
       '@standard-schema/spec': 1.1.0
       openapi-types: 12.1.3
     optionalDependencies:
+      effect: 4.0.4
       zod: 4.6.5
 
   '@standard-schema/spec@1.1.0': {}
@@ -23376,11 +23381,11 @@ snapshots:
 
   highlight.js@11.11.1: {}
 
-  hono-openapi@1.3.3(hono@4.13.7)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5):
+  hono-openapi@1.3.3(effect@4.0.4)(hono@4.13.7)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5):
     dependencies:
       '@hono/standard-validator': 0.4.0(@standard-schema/spec@1.1.0)(hono@4.13.7)
-      '@standard-community/standard-json': 0.3.6(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
-      '@standard-community/standard-openapi': 0.2.10(@standard-community/standard-json@0.3.6(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod@4.6.5)
+      '@standard-community/standard-json': 0.3.6(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(effect@4.0.4)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
+      '@standard-community/standard-openapi': 0.2.10(@standard-community/standard-json@0.3.6(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(effect@4.0.4)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5))(@standard-schema/spec@1.1.0)(effect@4.0.4)(openapi-types@12.1.3)(zod@4.6.5)
       '@standard-schema/spec': 1.1.0
       '@types/json-schema': 7.0.15
       hono: 4.13.7

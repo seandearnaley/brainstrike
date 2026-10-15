@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { ExecuteCommandInputSchema } from '../schemas/schemas-execution.js';
 
 // Arbitrary shell execution — THE highest-risk native tool. There is NO
@@ -21,7 +21,7 @@ export const executeCommand = defineNativeTool({
     'Run a shell command for tests, builds, git, and other tools. NO sandbox: it can read or change anything the user can. Never run destructive commands unless explicitly requested. Requires per-call approval by default. Starts in a chosen open root; kills the process tree on timeout. Returns exitCode, bounded stdout/stderr tail, and durationMs',
   executionBudget: { defaultMs: 120_000, maxMs: 600_000 },
   id: 'brainstrike.executeCommand',
-  inputSchema: providerCompatibleInputSchema(ExecuteCommandInputSchema),
+  inputSchema: effectToolInputSchema(ExecuteCommandInputSchema),
   kind: 'desktop',
   localProvider: 'offered',
   returns:

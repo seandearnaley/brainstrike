@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { InspectCommandSessionsInputSchema } from '../schemas/schemas-execution.js';
 
 export const inspectCommandSessions = defineNativeTool({
@@ -20,7 +20,7 @@ export const inspectCommandSessions = defineNativeTool({
   },
   history: { recencyPrunable: true },
   id: 'brainstrike.inspectCommandSessions',
-  inputSchema: providerCompatibleInputSchema(InspectCommandSessionsInputSchema),
+  inputSchema: effectToolInputSchema(InspectCommandSessionsInputSchema),
   kind: 'desktop',
   localProvider: 'unregistered',
   // Command text, stdin, cwd, and PTY output are redacted from durable history.

@@ -12,7 +12,7 @@ import { isAbsolute, join, normalize, parse, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type { SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 
-import { type ExecPolicy, execPolicySchema } from '../code-execution';
+import { type ExecPolicy, parseExecPolicy } from '../code-execution';
 
 /**
  * `realpath.NATIVE`, not `fs/promises`' `realpath` (BST-1074).
@@ -215,7 +215,7 @@ export async function buildSandboxRuntimeConfig(
   scratchDir: string,
   resolvePath: FencePathResolver = realpathNative
 ): Promise<SandboxRuntimeConfig> {
-  const parsed = execPolicySchema.parse(policy);
+  const parsed = parseExecPolicy(policy);
 
   const resolvedScratchDir = await resolveExisting(
     'scratchDir',

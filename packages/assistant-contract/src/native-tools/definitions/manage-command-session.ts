@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { ManageCommandSessionInputSchema } from '../schemas/schemas-execution.js';
 
 export const manageCommandSession = defineNativeTool({
@@ -19,7 +19,7 @@ export const manageCommandSession = defineNativeTool({
       'Exactly one operation: {action:"start", command, cwd?, cols?, rows?}, {action:"write", sessionId, data}, {action:"stop", sessionId}, or {action:"remove", sessionId}.',
   },
   id: 'brainstrike.manageCommandSession',
-  inputSchema: providerCompatibleInputSchema(ManageCommandSessionInputSchema),
+  inputSchema: effectToolInputSchema(ManageCommandSessionInputSchema),
   kind: 'desktop',
   localProvider: 'unregistered',
   nonDurableOutput: true,
