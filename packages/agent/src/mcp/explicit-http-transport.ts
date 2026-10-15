@@ -10,6 +10,15 @@
  * both combinations for `sse` (via `createInteractiveOAuthCompletion` and
  * `normalizeOAuthStepUpOptions`), so `interactiveOAuth`, `maxStepUpRetries` and
  * `onInsufficientScope` are provably undefined by the time the SSE branch runs.
+ *
+ * Redirects are left on the SDK's `redirectPolicy` default of `'same-origin'`
+ * (new in client 2.3.0): a redirect is followed only while it stays on the
+ * request's origin and keeps its method, and any other redirect fails the
+ * request instead of silently moving the session — OAuth requests included.
+ * That is the same rule as the rest of this module, so the default is
+ * deliberately NOT widened to `'follow'`; a server that genuinely answers on
+ * another origin is configured with that URL rather than discovered by
+ * following it.
  */
 import {
   type Client,

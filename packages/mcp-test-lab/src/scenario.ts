@@ -2,7 +2,7 @@ import { APPS_PROFILE_SHA256 } from './apps-profile.js';
 import { OFFICIAL_EVERYTHING_PROFILE_SHA256 } from './official-everything-profile.js';
 import { TASKS_PROFILE_SHA256 } from './tasks-profile.js';
 
-export const MCP_LAB_SDK_VERSION = '2.1.0' as const;
+export const MCP_LAB_SDK_VERSION = '2.3.1' as const;
 export const MCP_LAB_CONFORMANCE_VERSION = '0.2.0-alpha.10' as const;
 
 export const MCP_LAB_CONFORMANCE_SOURCE = Object.freeze({
