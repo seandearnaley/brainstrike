@@ -3,7 +3,7 @@ import type { ModelPricingResolver } from '../assistant-cross-root-cost';
 
 /**
  * Rolling last-24h spend aggregation for the budget guardrail (see
- * docs/agents/assistant-persistence.md § "Memory and accounting" → Budget guardrails).
+ * docs/archive/agent-contract-history/assistant-persistence/task-ledger.md).
  *
  * `$1` = resourceId. The window is `created_at >= NOW() - INTERVAL '24 hours'`
  * — a rolling, deliberately timezone-free window (UI copy must say "last

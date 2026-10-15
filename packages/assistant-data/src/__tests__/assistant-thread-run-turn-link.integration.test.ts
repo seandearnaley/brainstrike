@@ -8,8 +8,8 @@
  * `ALTER TABLE … ADD COLUMN IF NOT EXISTS` upgrade path for installs whose
  * runs table predates the column (renderer-bootstrapped schema — there is
  * deliberately NO numbered migration for this table; see
- * docs/agents/assistant-persistence.md § "Canonical history and live
- * output").
+ * docs/archive/agent-contract-history/assistant-persistence/
+ * run-event-schema-ownership.md).
  */
 import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import { migrate } from '@brainstrike/db';

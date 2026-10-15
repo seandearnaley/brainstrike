@@ -261,7 +261,8 @@ describe('formatThreadDebugBundle', () => {
     // content is the real persisted Mastra V2 dialect
     // `{ format: 2, parts: [...] }` (see
     // packages/agent/src/pglite-mastra-memory/memory-store.ts and
-    // docs/agents/assistant-persistence.md § "Canonical history and live output") instead of a bare array.
+    // docs/archive/agent-contract-history/assistant-persistence/persisted-dialect-and-hydration.md)
+    // instead of a bare array.
     const fixture: ThreadDebugBundleData = {
       diagnosticEvents: [],
       environment: {
@@ -333,7 +334,8 @@ describe('formatThreadDebugBundle', () => {
     // `{ type: 'tool-invocation', toolInvocation: { toolCallId, toolName,
     // args, state, result } }` (see
     // packages/agent/src/pglite-mastra-memory/memory-store.ts and
-    // docs/agents/assistant-persistence.md § "Canonical history and live output") — the result is NESTED under
+    // docs/archive/agent-contract-history/assistant-persistence/persisted-dialect-and-hydration.md)
+    // — the result is NESTED under
     // `toolInvocation`, not at the part's top level like the flat
     // `tool-result` fixtures above. This must elide the same way.
     const bigResult = 'N'.repeat(30_000);

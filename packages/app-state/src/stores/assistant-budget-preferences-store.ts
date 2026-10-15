@@ -1,6 +1,6 @@
 /**
  * Assistant budget guardrail preferences (Task Ledger phase 1 — see
- * docs/agents/assistant-persistence.md § "Memory and accounting" → Budget guardrails).
+ * docs/archive/agent-contract-history/assistant-persistence/task-ledger.md).
  *
  * - `dailyCapUsd` — rolling LAST-24H spend cap in USD. `null` = off (default).
  *   When the derived last-24h spend reaches the cap, the composer blocks new

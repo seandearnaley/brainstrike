@@ -110,8 +110,7 @@ function CapInput({
  * Budget guardrail cap inputs for the Cost Tracking settings category. State
  * lives in the persisted assistant-budget preferences store; blank = off.
  * Invalid input shows a visible validation message and never writes a coerced
- * value (see docs/agents/assistant-persistence.md § "Memory and accounting" → Budget
- * guardrails).
+ * value (see docs/archive/agent-contract-history/assistant-persistence/task-ledger.md).
  */
 export function BudgetGuardrailSettingsPanel() {
   const dailyCapUsd = useAssistantBudgetPreferencesStore((state) => state.dailyCapUsd);
