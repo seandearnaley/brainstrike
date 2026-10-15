@@ -27,6 +27,12 @@ export interface RootIdentity {
    */
   resolveAdapterRootId: (dbRootId: string) => string | null;
   /**
+   * The DB `roots.id` for a mounted adapter rootId, or `null` when the root is
+   * not reconciled. The direction an explorer selection needs to address a
+   * file as the host does (an `@file` mention's identity).
+   */
+  resolveDbRootId: (adapterRootId: string) => string | null;
+  /**
    * DB `roots.id` values for the currently-mounted, reconciled workspace roots
    * (the VALUES of the reconciliation map). This is the authoritative query
    * scope for workspace search — the single source of truth alongside
@@ -69,6 +75,8 @@ export function RootIdentityProvider({
         }
         return adapterRootId;
       },
+      resolveDbRootId: (adapterRootId: string): string | null =>
+        dbRootIdByAdapterRootId.get(adapterRootId) ?? null,
       workspaceDbRootIds: [...dbRootIdByAdapterRootId.values()],
     };
   }, [dbRootIdByAdapterRootId]);

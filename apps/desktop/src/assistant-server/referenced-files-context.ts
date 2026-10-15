@@ -40,6 +40,22 @@ export const MAX_REFERENCED_FILES_TOTAL_CHARS = 48_000;
 // re-exported so this module's existing consumers keep their import site.
 export type { WorkspaceFileReader };
 
+type RuntimeWorkspaceRoot = ReturnType<typeof getWorkspaceRoots>[number];
+
+/**
+ * BST-2018: mentioned files in live workspace folders outside the thread,
+ * attached for this run only, and the reader admitted to read exactly those.
+ */
+export interface AttachedMentionFolders {
+  readonly read: WorkspaceFileReader;
+  readonly roots: readonly RuntimeWorkspaceRoot[];
+}
+
+/** Where an attached file comes from, as the model reads it. */
+function outsideThreadNote(rootName: string): string {
+  return `(from ${rootName}, not one of this thread's folders; attached for this run only)`;
+}
+
 function extractText(message: AgentMessage): string {
   return message.parts
     .map((part) => (part.type === 'text' ? part.text : ''))
@@ -79,6 +95,70 @@ function fenceContent(body: string): string {
   return `${fence}\n${body}\n${fence}`;
 }
 
+type ParsedMention = ReturnType<typeof parseFileMentionDirectives>[number];
+
+type MentionRead =
+  | { readonly chars: number; readonly section: string }
+  | { readonly failure: ReferencedFileFailure; readonly section: string };
+
+function unreadable(
+  mention: ParsedMention,
+  failure: ReferencedFileFailure['failure']
+): MentionRead {
+  return {
+    failure: { failure, path: mention.path, rootId: mention.rootId },
+    section: `### ${mention.path}\n[Could not read: ${describeBoundaryFailure(failure)}]`,
+  };
+}
+
+function unavailableRoot(mention: ParsedMention): MentionRead {
+  logger.warn('Referenced file root is not an open workspace root', {
+    path: mention.path,
+    rootId: mention.rootId,
+  });
+  return unreadable(
+    mention,
+    refusal({
+      category: 'availability',
+      code: 'workspace.root-unavailable',
+      message: "The file's workspace folder is no longer open.",
+      remedy: 'Re-add the folder and send the message again.',
+    })
+  );
+}
+
+async function readMention(
+  mention: ParsedMention,
+  root: RuntimeWorkspaceRoot,
+  read: WorkspaceFileReader,
+  options: { readonly outsideThread: boolean }
+): Promise<MentionRead> {
+  try {
+    const file = await read({ requestedPath: mention.path, rootPath: root.path });
+    const { text: body, truncated } = truncateForContext(file.content);
+    const suffix = truncated
+      ? `\n[Truncated to the first ${MAX_REFERENCED_FILE_CHARS} characters.]`
+      : '';
+    // Qualify the heading with the root so two roots that share a relative path
+    // (e.g. both have `src/index.ts`) produce DISTINCT headings, not ambiguous
+    // identical ones.
+    const heading = options.outsideThread
+      ? `${root.displayName}/${file.path} ${outsideThreadNote(root.displayName)}`
+      : `${root.displayName}/${file.path}`;
+    return { chars: body.length, section: `### ${heading}\n${fenceContent(body)}${suffix}` };
+  } catch (error) {
+    logger.warn('Referenced file could not be read', {
+      error,
+      path: mention.path,
+      rootId: mention.rootId,
+    });
+    return unreadable(
+      mention,
+      toBoundaryFailure(error, (message, fields) => logger.warn(message, fields))
+    );
+  }
+}
+
 /**
  * Build a single `system`-role context message carrying the content of every
  * file referenced (via `:file[…]{name=…}` directives) in the current turn's
@@ -108,7 +188,8 @@ function fenceContent(body: string): string {
 export async function readReferencedFilesContext(
   text: string,
   runtimeData: RuntimeData | undefined,
-  readFile: WorkspaceFileReader
+  readFile: WorkspaceFileReader,
+  attached?: AttachedMentionFolders
 ): Promise<{ message: AgentMessage | null; failures: ReferencedFileFailure[] }> {
   const mentions = parseFileMentionDirectives(text);
   if (mentions.length === 0) {
@@ -126,48 +207,26 @@ export async function readReferencedFilesContext(
   let injectedChars = 0;
   let omittedForBudget = 0;
   for (const mention of mentions) {
-    const root = rootById.get(mention.rootId);
-    if (!root) {
-      logger.warn('Referenced file root is not an open workspace root', {
-        path: mention.path,
-        rootId: mention.rootId,
-      });
-      const failure = refusal({
-        category: 'availability',
-        code: 'workspace.root-unavailable',
-        message: "The file's workspace folder is no longer open.",
-        remedy: 'Re-add the folder and send the message again.',
-      });
-      failures.push({ failure, path: mention.path, rootId: mention.rootId });
-      sections.push(`### ${mention.path}\n[Could not read: ${describeBoundaryFailure(failure)}]`);
-      continue;
-    }
+    const attachedRoot = rootById.has(mention.rootId)
+      ? undefined
+      : attached?.roots.find((candidate) => candidate.rootId === mention.rootId);
+    const root = rootById.get(mention.rootId) ?? attachedRoot;
     // Stop reading once the aggregate budget is spent — count the rest as omitted
     // rather than reading (and discarding) files we can't inject.
-    if (injectedChars >= MAX_REFERENCED_FILES_TOTAL_CHARS) {
+    if (root && injectedChars >= MAX_REFERENCED_FILES_TOTAL_CHARS) {
       omittedForBudget += 1;
       continue;
     }
-    try {
-      const file = await readFile({ requestedPath: mention.path, rootPath: root.path });
-      const { text: body, truncated } = truncateForContext(file.content);
-      const suffix = truncated
-        ? `\n[Truncated to the first ${MAX_REFERENCED_FILE_CHARS} characters.]`
-        : '';
-      injectedChars += body.length;
-      // Qualify the heading with the root so two roots that share a relative path
-      // (e.g. both have `src/index.ts`) produce DISTINCT headings, not ambiguous
-      // identical ones.
-      sections.push(`### ${root.displayName}/${file.path}\n${fenceContent(body)}${suffix}`);
-    } catch (error) {
-      logger.warn('Referenced file could not be read', {
-        error,
-        path: mention.path,
-        rootId: mention.rootId,
-      });
-      const failure = toBoundaryFailure(error, (message, fields) => logger.warn(message, fields));
-      failures.push({ failure, path: mention.path, rootId: mention.rootId });
-      sections.push(`### ${mention.path}\n[Could not read: ${describeBoundaryFailure(failure)}]`);
+    const result = root
+      ? await readMention(mention, root, attachedRoot && attached ? attached.read : readFile, {
+          outsideThread: attachedRoot !== undefined,
+        })
+      : unavailableRoot(mention);
+    sections.push(result.section);
+    if ('failure' in result) {
+      failures.push(result.failure);
+    } else {
+      injectedChars += result.chars;
     }
   }
 

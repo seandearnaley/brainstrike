@@ -22,6 +22,7 @@ import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assist
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/ports';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
 import { z } from 'zod';
+import type { AttachedMentionFolders } from '../assistant-server/referenced-files-context';
 import {
   type PreparedAdmittedSkills,
   prepareAdmittedSkills,
@@ -34,6 +35,7 @@ import {
   readDesktopHostSystemContext,
 } from './desktop-host-context';
 import { resolveDesktopHostDelegation } from './desktop-host-delegation';
+import { attachedMentionReader, placeMentionedFiles } from './desktop-mentioned-files';
 import {
   desktopInputTokenLimit,
   desktopMemorySelection,
@@ -212,6 +214,8 @@ async function readDesktopNativeAdmission(
   readonly admittedSkills: readonly import('@brainstrike/agent').ScannedSkill[] | undefined;
   /** BST-1990: live folders outside the thread whose checked files this run may read. */
   readonly attachedRootIds: readonly string[];
+  /** BST-2018: live folders outside the thread whose mentioned files this run's prompt attaches. */
+  readonly attachedMentions?: AttachedMentionFolders;
   /** The admission's tools, described from the catalog; the host executes every one. */
   readonly descriptors: Record<string, DesktopToolDescriptor>;
   readonly freshRoots: () => Promise<NonNullable<RuntimeData['workspaceRoots']>>;
@@ -263,6 +267,20 @@ async function readDesktopNativeAdmission(
     roots,
     liveRoots
   );
+  // BST-2018: a mention in a live folder outside the thread is attached for
+  // this run only; the reader reads exactly the mentioned files, while live.
+  const mentioned = placeMentionedFiles(request.prompt ?? '', roots, liveRoots);
+  const attachedMentions: AttachedMentionFolders | undefined =
+    mentioned.attachedRoots.length > 0
+      ? {
+          read: attachedMentionReader(
+            mentioned,
+            () => reads.liveWorkspaceRoots(request.signal),
+            request.signal
+          ),
+          roots: mentioned.attachedRoots,
+        }
+      : undefined;
   if (
     intent.selectionFolderId &&
     !liveRoots.some((root) => root.rootId === intent.selectionFolderId)
@@ -310,6 +328,7 @@ async function readDesktopNativeAdmission(
   });
   return {
     admittedSkills,
+    ...(attachedMentions ? { attachedMentions } : {}),
     attachedRootIds: checked.attachedRootIds,
     descriptors,
     freshRoots,
@@ -516,6 +535,7 @@ export function createDesktopRunAdmission(
       // The host never offers what the saved policy denies; the instructions never name it.
       const policy = await readHostPermissionPolicy(request.threadId);
       const { childSystem, system, referencedFileFailures } = await readDesktopHostSystemContext({
+        ...(native.attachedMentions ? { attachedMentions: native.attachedMentions } : {}),
         inputTokenLimit,
         ...desktopPersonaFields(delegation),
         ...desktopContextReaderFields(
