@@ -91,6 +91,15 @@ export class WebStateStore {
     return this.request('boundary', { threadId });
   }
 
+  /**
+   * Factory reset's first step, from any tab: the writer closes the store and
+   * releases the pool's handles while keeping the lock, and every tab's store
+   * then refuses requests. Delete the pool directory next, then reload.
+   */
+  retire(): Promise<WebStateRequests['retire']['result']> {
+    return this.request('retire', {});
+  }
+
   check(): Promise<WebStateRequests['check']['result']> {
     return this.request('check', {});
   }
@@ -141,15 +150,16 @@ export class WebStateStore {
    * another tab's worker; this handle's unanswered requests fail as closed.
    */
   close(): void {
-    if (this.#closed) {
-      return;
-    }
+    // Always end the worker, even after a retirement already refused requests:
+    // a retired writer holds the lock until its worker ends.
     this.#worker.terminate();
     this.#opening?.reject(new Error('The state store was closed before it opened.'));
     this.#opening = undefined;
-    this.#settleAll(
-      new WebStateStoreError({ error: 'The state store was closed.', errorKind: 'closed' })
-    );
+    if (!this.#closed) {
+      this.#settleAll(
+        new WebStateStoreError({ error: 'The state store was closed.', errorKind: 'closed' })
+      );
+    }
   }
 
   #post(message: TabMessage): void {
@@ -177,6 +187,17 @@ export class WebStateStore {
       case 'failed':
         this.#fail(message.error);
         return;
+      case 'retired': {
+        // The worker stays: if it is the writer, it holds the lock until the tab reloads.
+        const retired = new WebStateStoreError({
+          error: 'The state store was retired for factory reset; reload the tab to open it again.',
+          errorKind: 'unavailable',
+        });
+        this.#opening?.reject(retired);
+        this.#opening = undefined;
+        this.#settleAll(retired);
+        return;
+      }
       case 'lease':
         this.#view = { leader: message.leader, lease: message.lease };
         this.#opening?.resolve();

@@ -19,12 +19,11 @@ export interface WebStateLease {
 
 export interface WebStateStoreConfig {
   /**
-   * Names the Web Lock and the BroadcastChannel: one writer per name per
-   * origin. Tests give each case its own.
+   * The store's one identity: its Web Lock, its BroadcastChannel and its OPFS
+   * pool directory all derive from it (`webStateNames`), so no two settings
+   * can disagree. Tests give each case its own.
    */
   readonly name: string;
-  /** The OPFS directory of the store's `opfs-sahpool` VFS. */
-  readonly poolDirectory: string;
   readonly testHooks?: WebStateTestHooks | undefined;
 }
 
@@ -94,6 +93,8 @@ export interface WebStateSettings {
   readonly foreignKeys: number;
   readonly journalMode: string;
   readonly lockingMode: string;
+  /** 1 when the state DB was found damaged and opened read-only. */
+  readonly queryOnly: number;
   readonly secureDelete: number;
   readonly sqliteVersion: string;
   readonly synchronous: number;
@@ -134,6 +135,15 @@ export interface WebStateRequests {
     readonly params: Record<string, never>;
     readonly result: { readonly threads: readonly WebStateHydrationThread[] };
   };
+  /**
+   * Factory reset: the writer closes the store and releases the pool's OPFS
+   * handles but keeps the lock, so no tab reopens the pool before the reset
+   * deletes it; every tab's store then refuses requests until it reloads.
+   */
+  retire: {
+    readonly params: Record<string, never>;
+    readonly result: Record<string, never>;
+  };
   settings: {
     readonly params: Record<string, never>;
     readonly result: WebStateSettings;
@@ -168,26 +178,54 @@ export type TabMessage =
   | { readonly id: number; readonly kind: 'request'; readonly request: WebStateRequest };
 
 export type WorkerMessage =
-  /** The writer could not open the store; this worker has released the lock. */
+  /** The writer could not open the store, or this tab cannot use it; the worker can be dropped. */
   | { readonly error: string; readonly kind: 'failed' }
+  /** The store was retired for factory reset; the worker must live until the tab reloads. */
+  | { readonly kind: 'retired' }
   | { readonly kind: 'lease'; readonly lease: WebStateLease; readonly leader: boolean }
   | ({ readonly kind: 'reply' } & WebStateReply);
 
 export type ChannelMessage =
   /** A worker that just joined asks the writer to announce itself. */
   | { readonly kind: 'who' }
-  | { readonly kind: 'leader'; readonly lease: WebStateLease }
+  | { readonly kind: 'leader'; readonly lease: WebStateLease; readonly protocol: number }
+  /** The writer retired the store for factory reset: no worker may open it again. */
+  | { readonly kind: 'retired' }
   | {
       readonly from: string;
       readonly id: number;
       readonly kind: 'request';
+      readonly protocol: number;
       readonly request: WebStateRequest;
       /** The writer this request is for; any other worker ignores it. */
       readonly to: string;
     }
   | ({ readonly kind: 'reply'; readonly to: string } & WebStateReply);
 
-/** The Web Lock and BroadcastChannel names for a store. */
-export function webStateNames(name: string): { readonly channel: string; readonly lock: string } {
-  return { channel: `brainstrike-web-state:${name}`, lock: `brainstrike-web-state:${name}` };
+/**
+ * This wire's version. Tabs of different builds can share an origin; a tab
+ * whose writer speaks another version refuses it visibly instead of guessing.
+ */
+export const WEB_STATE_PROTOCOL = 1;
+
+/** The app's store; tests and isolated E2E sessions name their own. */
+export const DEFAULT_WEB_STATE_STORE = 'default';
+
+/** Every store's OPFS pool directory starts with this; factory reset removes them all. */
+export const WEB_STATE_POOL_PREFIX = 'brainstrike-web-state-';
+
+const STORE_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+/** A store's lock, channel, pool directory and VFS, all from its one name. */
+export function webStateNames(name: string): {
+  readonly channel: string;
+  readonly lock: string;
+  readonly pool: string;
+  readonly vfs: string;
+} {
+  if (!STORE_NAME.test(name)) {
+    throw new RangeError(`Invalid state store name ${JSON.stringify(name)}`);
+  }
+  const pool = `${WEB_STATE_POOL_PREFIX}${name}`;
+  return { channel: pool, lock: pool, pool, vfs: pool };
 }

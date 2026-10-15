@@ -12,24 +12,18 @@
  * applied, and its caller decides what to read back.
  */
 
-import {
-  isCorrupt,
-  RunLog,
-  ThreadDamage,
-  ThreadReadOnlyRefusal,
-} from '@brainstrike/state-store/run-log';
+import { RunLog, ThreadDamage, ThreadReadOnlyRefusal } from '@brainstrike/state-store/run-log';
 import { blobsOf } from '@brainstrike/state-store/run-log-format';
-import { migrate } from '@brainstrike/state-store/schema';
 import { CheckpointBlockedError } from '@brainstrike/state-store/sqlite-checkpoint';
 import sqlite3InitModule, {
   type Database,
   type SAHPoolUtil,
   type Sqlite3Static,
 } from '@sqlite.org/sqlite-wasm';
-import type BetterSqlite3 from 'better-sqlite3';
 import {
   type ChannelMessage,
   type TabMessage,
+  WEB_STATE_PROTOCOL,
   type WebStateErrorReply,
   type WebStateLease,
   type WebStateReply,
@@ -39,7 +33,8 @@ import {
   type WorkerMessage,
   webStateNames,
 } from './protocol';
-import { SqliteWasmDatabase } from './sqlite-wasm-database';
+import { asBetterSqlite3, SqliteWasmDatabase } from './sqlite-wasm-database';
+import { openStateDb } from './state-db-open';
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -54,21 +49,27 @@ const WRITER_SCHEMA = `CREATE TABLE IF NOT EXISTS writer (
   instance_id TEXT NOT NULL,
   acquired_at REAL NOT NULL
 ) STRICT`;
+const RETIRED = 'The state store was retired for factory reset; reload the tab to open it again.';
 
 type AppendRows = Parameters<RunLog['append']>[0];
 
 interface Writer {
   readonly db: SqliteWasmDatabase;
   readonly log: RunLog;
+  readonly pool: SAHPoolUtil;
 }
 
 const instanceId = crypto.randomUUID();
+/** Withdraws this worker's wait for the lock once it may never write. */
+const lockWait = new AbortController();
 let config: WebStateStoreConfig | undefined;
 let channel: BroadcastChannel | undefined;
 /** The newest writer this worker knows of; its own lease while it writes. */
 let lease: WebStateLease | undefined;
 let writer: Writer | undefined;
-let failure: string | undefined;
+/** Set once this worker can no longer serve its tab: why, as every later request hears it. */
+let refusal: WebStateErrorReply | undefined;
+let retired = false;
 /** This tab's requests forwarded to a writer, by request id: the writer each went to. */
 const forwarded = new Map<number, string>();
 /** This tab's requests waiting for a writer to be known. */
@@ -110,13 +111,15 @@ function leaderLost(): WebStateErrorReply {
   };
 }
 
-function unavailable(): WebStateErrorReply {
-  return { error: `The state store is unavailable: ${failure}`, errorKind: 'unavailable' };
-}
-
-/** better-sqlite3's API, as the shared modules type their connection. */
-function asBetterSqlite3(db: SqliteWasmDatabase): BetterSqlite3.Database {
-  return db as unknown as BetterSqlite3.Database;
+/** Fails everything this tab still waits on with `reply`. */
+function failOutstanding(reply: WebStateErrorReply): void {
+  for (const held of waiting.splice(0)) {
+    toTab({ error: reply, id: held.id, kind: 'reply', ok: false });
+  }
+  for (const id of forwarded.keys()) {
+    toTab({ error: reply, id, kind: 'reply', ok: false });
+  }
+  forwarded.clear();
 }
 
 /**
@@ -143,36 +146,6 @@ function failNextAccessHandle(): void {
       )
     );
   };
-}
-
-/**
- * ADR-0011's web PRAGMAs. EXCLUSIVE comes before WAL, so SQLite keeps the
- * WAL index in heap memory; the VFS has no shared memory. The rest match the
- * desktop writer: NORMAL sync with FULL at step boundaries, zeroed deletes,
- * foreign keys and checkpoints only at boundaries.
- */
-function configure(db: SqliteWasmDatabase): string | null {
-  db.pragma('locking_mode = EXCLUSIVE');
-  const journal = db.pragma('journal_mode = WAL', { simple: true });
-  if (journal !== 'wal') {
-    throw new Error(`state DB journal mode is ${String(journal)}, not wal`);
-  }
-  db.pragma('synchronous = NORMAL');
-  db.pragma('secure_delete = ON');
-  db.pragma('foreign_keys = ON');
-  db.pragma('wal_autocheckpoint = 0');
-  try {
-    // One row per problem, in a column SQLite names after the pragma.
-    const rows = (db.pragma('integrity_check') as Record<string, unknown>[]).map((row) =>
-      String(row['integrity_check'])
-    );
-    return rows.length === 1 && rows[0] === 'ok' ? null : rows.join('; ');
-  } catch (error) {
-    if (!isCorrupt(error)) {
-      throw error;
-    }
-    return String((error as Error).message);
-  }
 }
 
 /**
@@ -208,31 +181,26 @@ async function openWriter(
   sqlite3: Sqlite3Static,
   store: WebStateStoreConfig
 ): Promise<{ readonly lease: WebStateLease; readonly writer: Writer }> {
+  const names = webStateNames(store.name);
   if (store.testHooks?.failPoolInitOnce) {
     failNextAccessHandle();
   }
-  const pool: SAHPoolUtil = await sqlite3.installOpfsSAHPoolVfs({
-    directory: store.poolDirectory,
-    name: `brainstrike-${store.name}`,
-  });
+  const pool = await sqlite3.installOpfsSAHPoolVfs({ directory: names.pool, name: names.vfs });
   const epoch = recordWriter(sqlite3, pool);
-  const connection: Database = new pool.OpfsSAHPoolDb(STATE_DB_FILE);
-  const db = new SqliteWasmDatabase(sqlite3, connection, STATE_DB_FILE);
-  try {
-    const damage = configure(db);
-    if (damage) {
-      db.pragma('query_only = ON');
-    } else {
-      migrate(asBetterSqlite3(db));
-    }
-    return {
-      lease: { epoch, instanceId },
-      writer: { db, log: new RunLog(asBetterSqlite3(db), damage) },
-    };
-  } catch (error) {
-    db.close();
-    throw error;
-  }
+  // The pool's constructor takes oo1's (filename, flags); its declaration names only the filename.
+  const PoolDb = pool.OpfsSAHPoolDb as unknown as new (filename: string, flags: string) => Database;
+  const { damage, db } = openStateDb(
+    (readOnly) =>
+      new SqliteWasmDatabase(
+        sqlite3,
+        new PoolDb(STATE_DB_FILE, readOnly ? 'r' : 'c'),
+        STATE_DB_FILE
+      )
+  );
+  return {
+    lease: { epoch, instanceId },
+    writer: { db, log: new RunLog(asBetterSqlite3(db), damage), pool },
+  };
 }
 
 function settings(db: SqliteWasmDatabase): WebStateRequests['settings']['result'] {
@@ -241,6 +209,7 @@ function settings(db: SqliteWasmDatabase): WebStateRequests['settings']['result'
     foreignKeys: Number(value('foreign_keys')),
     journalMode: String(value('journal_mode')),
     lockingMode: String(value('locking_mode')),
+    queryOnly: Number(value('query_only')),
     secureDelete: Number(value('secure_delete')),
     sqliteVersion: String(db.prepare('SELECT sqlite_version()').pluck().get()),
     synchronous: Number(value('synchronous')),
@@ -249,8 +218,22 @@ function settings(db: SqliteWasmDatabase): WebStateRequests['settings']['result'
   };
 }
 
+/**
+ * Factory reset's first step: close the store and release every OPFS handle
+ * of the pool, so the reset can delete its directory. The lock stays held
+ * until this tab reloads, so no other tab reopens the pool first.
+ */
+function retire(active: Writer): void {
+  writer = undefined;
+  retired = true;
+  refusal = { error: RETIRED, errorKind: 'unavailable' };
+  active.db.close();
+  active.pool.pauseVfs();
+}
+
 /** One request on the writer, as the desktop writer worker handles the same op. */
-function handle({ db, log }: Writer, request: WebStateRequest): unknown {
+function handle(active: Writer, request: WebStateRequest): unknown {
+  const { db, log } = active;
   switch (request.op) {
     case 'append': {
       const { boundary = false, rows } = request.params as WebStateRequests['append']['params'];
@@ -292,6 +275,9 @@ function handle({ db, log }: Writer, request: WebStateRequest): unknown {
           damage: damage ? errorReply(damage) : null,
         })),
       };
+    case 'retire':
+      retire(active);
+      return {};
     case 'settings':
       return settings(db);
     case 'stall':
@@ -310,11 +296,11 @@ function handle({ db, log }: Writer, request: WebStateRequest): unknown {
   }
 }
 
-async function answer(
-  active: Writer,
-  id: number,
-  request: WebStateRequest
-): Promise<WebStateReply> {
+async function answer(id: number, request: WebStateRequest): Promise<WebStateReply> {
+  const active = writer;
+  if (!active) {
+    return { error: refusal ?? leaderLost(), id, ok: false };
+  }
   try {
     return { id, ok: true, result: await handle(active, request) };
   } catch (error) {
@@ -322,15 +308,29 @@ async function answer(
   }
 }
 
+/**
+ * After the reply that retired the store: tell every tab, so none reopens it.
+ * Sent after that reply on the same channel, so the requester hears its own
+ * answer first.
+ */
+function announceRetirement(): void {
+  broadcast({ kind: 'retired' });
+  toTab({ kind: 'retired' });
+}
+
 /** Sends this tab's request to the writer, or holds it until one is known. */
 function dispatch(id: number, request: WebStateRequest): void {
-  if (failure !== undefined) {
-    toTab({ error: unavailable(), id, kind: 'reply', ok: false });
+  if (refusal) {
+    toTab({ error: refusal, id, kind: 'reply', ok: false });
     return;
   }
   if (writer) {
-    const active = writer;
-    void answer(active, id, request).then((reply) => toTab({ kind: 'reply', ...reply }));
+    void answer(id, request).then((reply) => {
+      toTab({ kind: 'reply', ...reply });
+      if (retired && request.op === 'retire' && reply.ok) {
+        announceRetirement();
+      }
+    });
     return;
   }
   if (!lease) {
@@ -338,7 +338,14 @@ function dispatch(id: number, request: WebStateRequest): void {
     return;
   }
   forwarded.set(id, lease.instanceId);
-  broadcast({ from: instanceId, id, kind: 'request', request, to: lease.instanceId });
+  broadcast({
+    from: instanceId,
+    id,
+    kind: 'request',
+    protocol: WEB_STATE_PROTOCOL,
+    request,
+    to: lease.instanceId,
+  });
 }
 
 /** A newer writer: requests the old one never answered fail; held ones go to the new one. */
@@ -356,28 +363,76 @@ function adopt(next: WebStateLease, leader: boolean): void {
   }
 }
 
+/** This worker will never write or forward again: stop waiting for the lock and tell the tab. */
+function withdraw(reason: WebStateErrorReply, message: WorkerMessage): void {
+  refusal = reason;
+  lockWait.abort();
+  failOutstanding(reason);
+  toTab(message);
+}
+
+type ChannelOf<Kind extends ChannelMessage['kind']> = Extract<ChannelMessage, { kind: Kind }>;
+
+function onLeader(message: ChannelOf<'leader'>): void {
+  if (message.protocol !== WEB_STATE_PROTOCOL) {
+    const error = `Another tab's state writer speaks protocol ${message.protocol}, this tab ${WEB_STATE_PROTOCOL}; reload every Brainstrike tab.`;
+    withdraw({ error, errorKind: 'unavailable' }, { error, kind: 'failed' });
+    return;
+  }
+  // Announcements from different workers can arrive out of order; only a newer epoch counts.
+  if (!writer && (lease === undefined || message.lease.epoch > lease.epoch)) {
+    adopt(message.lease, false);
+  }
+}
+
+function onRequest(message: ChannelOf<'request'>): void {
+  if (message.to !== instanceId) {
+    return;
+  }
+  if (message.protocol !== WEB_STATE_PROTOCOL) {
+    broadcast({
+      error: {
+        error: `This writer speaks protocol ${WEB_STATE_PROTOCOL}, not ${message.protocol}`,
+        errorKind: 'unavailable',
+      },
+      id: message.id,
+      kind: 'reply',
+      ok: false,
+      to: message.from,
+    });
+    return;
+  }
+  void answer(message.id, message.request).then((reply) => {
+    broadcast({ kind: 'reply', to: message.from, ...reply });
+    if (retired && message.request.op === 'retire' && reply.ok) {
+      announceRetirement();
+    }
+  });
+}
+
 function onChannel(message: ChannelMessage): void {
+  // A withdrawn worker only collects replies. A retired writer still answers,
+  // so late tabs and late requests hear that the store is retired.
+  if (refusal && !retired && message.kind !== 'reply') {
+    return;
+  }
   switch (message.kind) {
     case 'who':
       if (writer && lease) {
-        broadcast({ kind: 'leader', lease });
+        broadcast({ kind: 'leader', lease, protocol: WEB_STATE_PROTOCOL });
+      } else if (retired) {
+        broadcast({ kind: 'retired' });
       }
       return;
     case 'leader':
-      // Announcements from different workers can arrive out of order; only a newer epoch counts.
-      if (!writer && (lease === undefined || message.lease.epoch > lease.epoch)) {
-        adopt(message.lease, false);
-      }
+      onLeader(message);
       return;
-    case 'request': {
-      const active = writer;
-      if (active && message.to === instanceId) {
-        void answer(active, message.id, message.request).then((reply) =>
-          broadcast({ kind: 'reply', to: message.from, ...reply })
-        );
-      }
+    case 'retired':
+      withdraw({ error: RETIRED, errorKind: 'unavailable' }, { kind: 'retired' });
       return;
-    }
+    case 'request':
+      onRequest(message);
+      return;
     case 'reply':
       if (message.to === instanceId && forwarded.delete(message.id)) {
         const { kind: _channelKind, to: _to, ...reply } = message;
@@ -390,7 +445,7 @@ function onChannel(message: ChannelMessage): void {
 async function lead(store: WebStateStoreConfig, sqlite3: Promise<Sqlite3Static>): Promise<void> {
   const opened = await openWriter(await sqlite3, store);
   writer = opened.writer;
-  broadcast({ kind: 'leader', lease: opened.lease });
+  broadcast({ kind: 'leader', lease: opened.lease, protocol: WEB_STATE_PROTOCOL });
   adopt(opened.lease, true);
 }
 
@@ -403,20 +458,28 @@ function start(store: WebStateStoreConfig): void {
   // Load the engine while waiting for the lock, so a takeover only opens the store.
   const sqlite3 = sqlite3InitModule();
   void navigator.locks
-    .request(names.lock, { mode: 'exclusive' }, async () => {
+    .request(names.lock, { mode: 'exclusive', signal: lockWait.signal }, async () => {
       await lead(store, sqlite3);
       // Hold the lock for this worker's lifetime: it is released when the tab closes the worker.
       return new Promise<never>(() => {});
     })
     .catch((error: unknown) => {
-      failure = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      if (refusal) {
+        // This worker withdrew from the lock (retired store or other version) and has said why.
+        return;
+      }
+      const failure = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      refusal = {
+        error: `The state store is unavailable: ${failure}`,
+        errorKind: 'unavailable',
+      };
       channel?.close();
       channel = undefined;
       toTab({ error: failure, kind: 'failed' });
+      // The lock came here, so the writer any forwarded request went to is gone.
       for (const held of waiting.splice(0)) {
-        toTab({ error: unavailable(), id: held.id, kind: 'reply', ok: false });
+        toTab({ error: refusal, id: held.id, kind: 'reply', ok: false });
       }
-      // The lock came here, so the writer those went to is gone.
       for (const id of forwarded.keys()) {
         toTab({ error: leaderLost(), id, kind: 'reply', ok: false });
       }

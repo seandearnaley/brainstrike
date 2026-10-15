@@ -1,4 +1,5 @@
 import type { Database, PreparedStatement, Sqlite3Static, SqlValue } from '@sqlite.org/sqlite-wasm';
+import type BetterSqlite3 from 'better-sqlite3';
 
 /**
  * The state DB's shared modules (`@brainstrike/state-store`'s schema, run log
@@ -263,4 +264,9 @@ export class SqliteWasmDatabase {
       throw withCode(this.sqlite3, error);
     }
   }
+}
+
+/** The adapter where the shared modules type their connection as better-sqlite3's. */
+export function asBetterSqlite3(db: SqliteWasmDatabase): BetterSqlite3.Database {
+  return db as unknown as BetterSqlite3.Database;
 }

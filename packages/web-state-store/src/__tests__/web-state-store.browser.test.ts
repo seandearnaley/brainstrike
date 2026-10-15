@@ -1,7 +1,13 @@
 import { verified } from '@brainstrike/state-store/run-log-format';
 import { SCHEMA_VERSION } from '@brainstrike/state-store/schema';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { WebStateAppendRow, WebStateStoreConfig, WebStateTestHooks } from '../protocol';
+import {
+  WEB_STATE_PROTOCOL,
+  type WebStateAppendRow,
+  type WebStateStoreConfig,
+  type WebStateTestHooks,
+  webStateNames,
+} from '../protocol';
 import { type WebStateLeaseView, WebStateStore, WebStateStoreError } from '../web-state-client';
 
 const opened: WebStateStore[] = [];
@@ -9,9 +15,9 @@ const pools: string[] = [];
 
 /** A store of its own: its own lock, channel and OPFS pool. */
 function storeConfig(testHooks?: WebStateTestHooks): WebStateStoreConfig {
-  const id = crypto.randomUUID();
-  pools.push(`.web-state-test-${id}`);
-  return { name: `test-${id}`, poolDirectory: `.web-state-test-${id}`, testHooks };
+  const name = `test-${crypto.randomUUID()}`;
+  pools.push(webStateNames(name).pool);
+  return { name, testHooks };
 }
 
 /** One tab's handle: its own worker on the shared store. */
@@ -40,6 +46,11 @@ function event(threadId: string, n: number): WebStateAppendRow {
     null,
     1,
   ];
+}
+
+async function removePool(name: string): Promise<void> {
+  const root = await navigator.storage.getDirectory();
+  await root.removeEntry(webStateNames(name).pool, { recursive: true });
 }
 
 async function rejection(promise: Promise<unknown>): Promise<WebStateStoreError> {
@@ -214,6 +225,63 @@ describe('the browser state writer', () => {
     expect(error.kind).toBe('failed');
     expect(error.message).toContain('no blob storage');
     expect(await tab.threads()).toEqual({ threads: [] });
+  });
+
+  it('retires for factory reset: the pool can be deleted, no tab reopens it, and the next open is fresh', async () => {
+    const config = storeConfig();
+    const writerTab = await openTab(config);
+    const otherTab = await openTab(config);
+    await writerTab.append([event('before-reset', 1)], { boundary: true });
+
+    // Any tab may start the reset; this one forwards it to the writer.
+    expect(await otherTab.retire()).toEqual({});
+    // Every OPFS handle is released, so the reset can delete the pool now.
+    await removePool(config.name);
+    expect((await rejection(writerTab.threads())).kind).toBe('unavailable');
+    expect((await rejection(otherTab.threads())).kind).toBe('unavailable');
+    // A tab opened mid-reset hears that the store is retired instead of reopening it.
+    expect((await rejection(openTab(config).then(() => undefined))).kind).toBe('unavailable');
+
+    // The reset reloads every tab; the next writer opens an empty store at the first epoch.
+    writerTab.close();
+    otherTab.close();
+    const afterReset = await openTab(config);
+    expect(afterReset.lease).toMatchObject({ leader: true, lease: { epoch: 1 } });
+    expect(await afterReset.threads()).toEqual({ threads: [] });
+  });
+
+  it("refuses a writer that speaks another version's protocol, instead of forwarding to it", async () => {
+    const config = storeConfig();
+    const names = webStateNames(config.name);
+    // This page plays a writer from another build: it holds the lock and answers `who`.
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      void navigator.locks.request(names.lock, () => {
+        resolve();
+        return new Promise<void>((done) => {
+          release = done;
+        });
+      });
+    });
+    await held;
+    const otherBuild = new BroadcastChannel(names.channel);
+    otherBuild.onmessage = (message: MessageEvent<{ kind: string }>) => {
+      if (message.data.kind === 'who') {
+        otherBuild.postMessage({
+          kind: 'leader',
+          lease: { epoch: 7, instanceId: 'other-build' },
+          protocol: WEB_STATE_PROTOCOL + 1,
+        });
+      }
+    };
+    try {
+      const refused = await rejection(openTab(config).then(() => undefined));
+      expect(refused.kind).toBe('unavailable');
+      expect(refused.message).toContain(`protocol ${WEB_STATE_PROTOCOL + 1}`);
+    } finally {
+      otherBuild.close();
+      release();
+    }
   });
 
   // The ship gate (BST-1940, owner decision 15 Oct): through 3.53.x a failed

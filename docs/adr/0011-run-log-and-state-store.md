@@ -158,6 +158,16 @@ A browser worker has none of these. Owner decisions on BST-1940:
   waiting worker. A forwarded request is never sent twice: one the old writer
   did not answer fails as `leader-lost`, because it may or may not have been
   applied.
+- **One identity per store.** The lock, the channel and the OPFS pool
+  directory (`brainstrike-web-state-<name>`) all derive from the store's name,
+  so they cannot disagree. Announcements carry a protocol version. A tab whose
+  writer speaks another version refuses that writer visibly instead of
+  forwarding to it.
+- **Factory reset retires the store first.** The writer closes the store and
+  releases the pool's OPFS handles but keeps the lock, and every tab's store
+  refuses further requests. Factory Reset then deletes every
+  `brainstrike-web-state-*` directory, and the next writer starts a fresh
+  store at epoch 1.
 
 `@brainstrike/web-state-store` implements this lease. It runs the shared schema
 and run log unchanged, through a better-sqlite3-shaped adapter over the
