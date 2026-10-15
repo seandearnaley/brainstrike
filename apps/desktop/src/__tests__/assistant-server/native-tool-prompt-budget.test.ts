@@ -189,9 +189,6 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 // to centre it (9,975 → 9,276 and 9,675 → 8,976), width 300 unchanged.
 const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9276;
 const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 8976;
-// BST-1667 TRIM (ceiling UNCHANGED at 5000 — the number is a live contract in
-// docs/agents/assistant-providers.md, assistant-runtime.md, and
-// workspace-context.md). Tool discovery moved to Mastra's manual loading, so
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
 // runPython joined the suspending set in BST-1070 Gate B: without workflow
 // storage its suspend metadata is stripped here for the same reason as the
