@@ -9,7 +9,6 @@ export {
   buildCurrentDateNote,
   buildCurrentTaskListNote,
   buildDefaultInstructions,
-  buildLocalDefaultInstructions,
   buildToolDiscoveryNote,
   type DelegationPersonaSummary,
 } from './instructions/default-instructions';

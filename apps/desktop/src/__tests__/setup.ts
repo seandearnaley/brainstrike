@@ -330,51 +330,5 @@ vi.mock('@brainstrike/agent/client', async (importOriginal) => {
   };
 });
 
-vi.mock('@brainstrike/agent/local-llm', () => ({
-  LocalLlmBackend: class MockLocalLlmBackend {
-    static getBestDevice(): 'webgpu' {
-      return 'webgpu';
-    }
-
-    static async hasDownloadedModel(): Promise<boolean> {
-      return false;
-    }
-
-    static async downloadModel(): Promise<void> {}
-
-    async dispose(): Promise<void> {}
-
-    async generate(): Promise<Record<string, unknown>> {
-      return {
-        finishReason: 'stop',
-        promptText: '',
-        rawText: '',
-        text: '',
-        toolCalls: [],
-        usage: {
-          completionTokens: 0,
-          promptTokens: 0,
-          totalTokens: 0,
-        },
-      };
-    }
-
-    async initialize(): Promise<void> {}
-  },
-}));
-
-// Mock react-router-dom for components that use it
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual('react-router-dom');
-  return {
-    ...actual,
-    BrowserRouter: ({ children }: { children: React.ReactNode }) => children,
-    Route: ({ children }: { children: React.ReactNode }) => children,
-    Routes: ({ children }: { children: React.ReactNode }) => children,
-    useLocation: () => ({ pathname: '/' }),
-    useNavigate: () => vi.fn(),
-  };
-});
-
 // Export mocks for use in tests
 export { mockElectronAPI };

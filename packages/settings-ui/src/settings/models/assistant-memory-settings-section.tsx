@@ -215,8 +215,8 @@ export function AssistantMemorySettingsSection({
             <Badge variant="outline">Mastra</Badge>
           </div>
           <p className="text-muted-foreground text-sm">
-            Choose the explicit models Mastra uses for observations and semantic memory. Built-in
-            Gemma remains on-device through the desktop renderer host.
+            Choose the explicit models Mastra uses for observations and semantic memory. Semantic
+            memory can embed on-device; observations need a configured chat provider.
           </p>
         </div>
         <div className="flex items-center gap-2">

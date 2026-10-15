@@ -424,8 +424,8 @@ export async function prepareAssistantPostRequest(
   }
 
   // Providers that never require a bearer token — the registry's
-  // `authType: 'none'` set (in-browser Gemma plus the local servers,
-  // BST-1349), never a hand list. Local servers accept an optional token when
+  // `authType: 'none'` set (the local servers, BST-1349), never a hand list.
+  // Local servers accept an optional token when
   // the user has stored one via the secrets bridge, but the absence of a
   // token is not an error — most setups don't have auth.
   const keylessProvider = providerAuthType(provider) === 'none';

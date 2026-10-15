@@ -20,7 +20,6 @@ import {
   buildCurrentDateNote,
   buildCurrentTaskListNote,
   buildDefaultInstructions,
-  buildLocalDefaultInstructions,
   type DelegationPersonaSummary,
 } from '../instructions/default-instructions';
 import { createMastraAgentError, isMastraAgentError } from '../mastra-boundary/mastra-agent-error';
@@ -499,14 +498,12 @@ function composeRuntimeInstructions(params: {
 }): { agentInstructions: CacheAwareInstructions; combinedText: string } {
   const resolvedInstructions =
     params.instructionsOverride ??
-    (params.provider === 'local'
-      ? buildLocalDefaultInstructions(params.toolNameMap)
-      : buildDefaultInstructions(params.toolNameMap, {
-          backgroundDelegation: Boolean(params.backgroundTaskScope) && params.hasSubAgents,
-          planMode: params.planModeActive,
-          toolDiscoveryEnabled: params.toolDiscoveryEnabled,
-          ...(params.personaSummaries ? { personas: params.personaSummaries } : {}),
-        }));
+    buildDefaultInstructions(params.toolNameMap, {
+      backgroundDelegation: Boolean(params.backgroundTaskScope) && params.hasSubAgents,
+      planMode: params.planModeActive,
+      toolDiscoveryEnabled: params.toolDiscoveryEnabled,
+      ...(params.personaSummaries ? { personas: params.personaSummaries } : {}),
+    });
   // Composed OUTSIDE the branch, deliberately. Threading the clock into
   // `buildDefaultInstructions` left the two other supported paths — the
   // built-in local model and a caller-supplied `instructionsOverride` —

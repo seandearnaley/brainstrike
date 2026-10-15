@@ -78,17 +78,6 @@ describe('desktop diagnostics IPC', () => {
         })),
       },
       indexing: { getBackfillsInFlight: vi.fn(() => []) },
-      llmHost: {
-        getPlatformStatus: vi.fn(() => ({
-          active: false,
-          lastError: null,
-          pendingRequestCount: 0,
-          runtimeId: 'llm-host:stopped',
-          runtimeKind: 'llm-host',
-          sourceState: 'stopped',
-          state: 'stopped',
-        })),
-      },
       logging: {
         getState: vi.fn(() => ({
           capabilities: { fileDestination: false },

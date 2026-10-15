@@ -60,7 +60,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const resetLocalDatabase = vi.fn(async () => undefined);
     const embeddingHostStop = vi.fn(async () => undefined);
     const chunkingHostStop = vi.fn(async () => undefined);
-    const llmHostStop = vi.fn(async () => undefined);
+    const parserHostStop = vi.fn(async () => undefined);
 
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
@@ -73,7 +73,7 @@ describe('createDesktopFactoryResetHandler', () => {
       runtimes: [
         { name: 'embedding-host', stop: embeddingHostStop },
         { name: 'chunking-host', stop: chunkingHostStop },
-        { name: 'llm-host', stop: llmHostStop },
+        { name: 'parser-host', stop: parserHostStop },
       ],
 
       sessionDataPath: '/mock/userData/session-data',
@@ -105,7 +105,7 @@ describe('createDesktopFactoryResetHandler', () => {
     await resetOptions.stopBackgroundRuntimes();
     expect(embeddingHostStop).toHaveBeenCalledTimes(1);
     expect(chunkingHostStop).toHaveBeenCalledTimes(1);
-    expect(llmHostStop).toHaveBeenCalledTimes(1);
+    expect(parserHostStop).toHaveBeenCalledTimes(1);
 
     await resetOptions.resetDatabaseProfile();
     expect(prepareDatabaseProfileReset).toHaveBeenCalledTimes(1);

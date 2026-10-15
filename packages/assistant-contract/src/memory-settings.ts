@@ -96,10 +96,11 @@ export const OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET = 'auto';
  * observational-memory docs: `google/gemini-2.5-flash` is Mastra's default OM
  * model; Haiku, the fast OpenAI mini, Gemini Flash variants, and DeepSeek V4
  * Flash are on their tested list. OpenRouter needs FALLBACKS because its
- * catalog seeds the preferred Gemini targets disabled by default. The built-in
- * local Gemma is intentionally NOT a candidate: its 8K runtime budget cannot
- * observe the 30K message threshold, so auto-resolving to it would configure a
- * structurally broken observer.
+ * catalog seeds the preferred Gemini targets disabled by default. Every
+ * candidate needs a credential: the built-in on-device provider is
+ * embeddings-only, so there is no keyless observer to auto-resolve to and a
+ * user with no chat key gets a VISIBLY unresolved observer rather than a
+ * silently broken one.
  */
 const AUTO_OBSERVATIONAL_MEMORY_CANDIDATES_BY_CHAT_PROVIDER: Readonly<
   Record<string, readonly string[]>

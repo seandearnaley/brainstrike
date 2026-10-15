@@ -108,7 +108,6 @@ beforeEach(() => {
 
 afterEach(() => {
   (window as unknown as Record<string, unknown>)['secrets'] = undefined;
-  (window as Window & { llmHost?: unknown }).llmHost = undefined;
   vi.restoreAllMocks();
 });
 
@@ -167,19 +166,17 @@ describe('ProvidersSettings — card state', () => {
 
   // The built-in on-device provider is keyless and embeddings-only: there is no
   // credential and no connection to configure here, and its models are chosen
-  // in Settings → Embedding. A desktop host that CAN reach a renderer host does
-  // not change that, so the group is withheld either way.
-  it.each([
-    ['with a renderer host present', { warmup: async () => undefined }],
-    ['without a renderer host', undefined],
-  ])('never offers an on-device provider group %s', async (_label, host) => {
+  // in Settings → Embedding. The group id is the registry runtime verbatim
+  // (`provider-group-${runtime}`), so this names `on-device` — the category the
+  // provider actually carries. Asserting the retired `browser` spelling would
+  // pass against a rendered group.
+  it('never offers an on-device provider group', async () => {
     installSecretsBridge(() => Promise.resolve([]));
-    (window as Window & { llmHost?: unknown }).llmHost = host;
 
     render(<ProvidersSettings verifyProvider={idleVerifier} />);
 
     await screen.findByTestId('provider-group-hosted');
-    expect(screen.queryByTestId('provider-group-browser')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('provider-group-on-device')).not.toBeInTheDocument();
     expect(screen.getByTestId('provider-group-local')).toBeInTheDocument();
   });
 

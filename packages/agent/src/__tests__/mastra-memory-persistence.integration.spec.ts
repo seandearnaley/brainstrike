@@ -52,11 +52,6 @@ import type {
   PgliteMastraMemoryOptions,
   PgliteWorkflowsStore,
 } from '../pglite-mastra-memory';
-import { LlmHostChatModel } from '../providers/local/llm-host-chat-model';
-import type {
-  LocalLlmHostClient,
-  LocalLlmHostGenerateRequest,
-} from '../providers/local/llm-host-client';
 import type { AgentHookRunner } from '../tools/hook-runner';
 import type { StreamChunk } from '../types';
 import { createAgentMemoryTestDb } from './helpers/migrated-agent-test-db';
@@ -1749,56 +1744,6 @@ describe('mastra memory persistence through the live stream path', () => {
     // ...and the base64 body never leaks INTO the persisted text.
     expect(textJoined).not.toContain('base64');
   });
-
-  it('drives observational memory through the REAL llm-host proxy model (local memory model)', async () => {
-    // Mirrors the desktop "memory model = built-in local" configuration: the
-    // observational-memory Observer runs on LlmHostChatModel, whose generations
-    // are proxied to a host client (the seam desktop main implements over the
-    // hidden llm-host). Proves OM works against the proxy with plain text
-    // prompting — no JSON mode, no API key.
-    const hostRequests: LocalLlmHostGenerateRequest[] = [];
-    const hostClient: LocalLlmHostClient = {
-      generate: (request) => {
-        hostRequests.push(request);
-        return Promise.resolve({
-          finishReason: 'stop' as const,
-          text: 'Observed: the user asked about Paris weather.',
-          usage: { completionTokens: 5, promptTokens: 5, totalTokens: 10 },
-        });
-      },
-      warmup: () => Promise.resolve(),
-    };
-
-    const threadId = 'thread-local-om-proxy';
-    const { finalText } = await runTurnWithMemory({
-      database,
-      memorySettings: OM_TINY_THRESHOLD_SETTINGS,
-      observationalMemoryModel: new LlmHostChatModel(
-        'onnx-community/gemma-4-E2B-it-ONNX',
-        hostClient
-      ),
-      threadId,
-    });
-
-    expect(finalText).toContain('21C in Paris');
-
-    // OM observation generation ran through the host client (it may fire from
-    // background buffering shortly after the turn completes).
-    await vi.waitFor(
-      () => {
-        expect(hostRequests.length).toBeGreaterThan(0);
-      },
-      { timeout: 10_000 }
-    );
-    expect(hostRequests[0]?.modelId).toBe('onnx-community/gemma-4-E2B-it-ONNX');
-
-    const rows = await listThreadMessages(database, threadId);
-    const assistantParts = rows.filter((row) => row.role === 'assistant').flatMap(parseParts);
-    const persistedTexts = assistantParts
-      .filter((part) => part.type === 'text')
-      .map((part) => part.text ?? '');
-    expect(persistedTexts.join('\n')).toContain('21C in Paris');
-  }, 30_000);
 
   it('executes the OpenRouter auto-observer against the real provider wire (BST-940 field failure)', async () => {
     // Field failure (debug bundle 2026-07-27, z-ai/glm-5.2 chat): the

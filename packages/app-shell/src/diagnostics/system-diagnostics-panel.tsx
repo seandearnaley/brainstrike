@@ -123,7 +123,6 @@ interface DesktopPlatformDiagnosticsSnapshot {
       readonly suspensions: readonly DimensionIndexSuspensionRow[];
     };
   };
-  readonly llmHost: RuntimeHostPlatformStatus;
   readonly migration?: {
     readonly attemptCount: number | null;
     readonly inFlight: boolean | null;
@@ -736,14 +735,9 @@ function DesktopPlatformStatusSection({
 }: {
   readonly snapshot: DesktopPlatformDiagnosticsSnapshot;
 }): ReactElement {
-  const embeddingVariant = getHostStatusVariant(snapshot.embeddingHost.state);
-  const llmVariant = getHostStatusVariant(snapshot.llmHost.state);
-  const status: StatusVariant =
-    embeddingVariant === 'error' || llmVariant === 'error'
-      ? 'error'
-      : embeddingVariant === 'warning' || llmVariant === 'warning'
-        ? 'warning'
-        : 'success';
+  // The embedding host is the only hidden runtime host left: the local chat
+  // engine and its llm-host renderer role were retired.
+  const status: StatusVariant = getHostStatusVariant(snapshot.embeddingHost.state);
 
   return (
     <DiagnosticCard
@@ -759,13 +753,9 @@ function DesktopPlatformStatusSection({
           <span className="font-medium">{snapshot.embeddingHost.state}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">LLM Host</span>
-          <span className="font-medium">{snapshot.llmHost.state}</span>
-        </div>
-        <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Pending Requests</span>
           <span className="font-mono text-[10px]">
-            {snapshot.embeddingHost.pendingRequestCount + snapshot.llmHost.pendingRequestCount}
+            {snapshot.embeddingHost.pendingRequestCount}
           </span>
         </div>
         <div className="flex items-center justify-between">
