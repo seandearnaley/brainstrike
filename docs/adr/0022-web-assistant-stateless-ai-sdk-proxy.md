@@ -4,7 +4,9 @@
 - **Date:** 2026-10-15
 - **Ticket:** none yet
 - **Completes:** [ADR-0012](0012-ai-sdk-loop-mastra-memory-library.md)
-- **Evidence:** `docs/archive/web-assistant-engine-scoping-2026-10-15.md`
+- **Evidence:** `docs/archive/web-assistant-engine-scoping-2026-10-15.md`,
+  `docs/archive/host-tool-representation-measurement-2026-10-15.md`
+- **Amended:** 2026-10-15 — the retirement step's file count; see Amendment below
 
 ## Context
 
@@ -60,18 +62,24 @@ on a host no later request can reach.
   hosted data-stream transport (#3618), so stream parity is demonstrated rather
   than asserted.
 - **Retirement, separately.** Once web no longer calls the loop, the engine is
-  removed in three mechanical steps: move the 16 tool-projection files the *new*
+  removed in three mechanical steps: move the tool-projection modules the *new*
   loop consumes out of `src/mastra/` into `src/tool-projection/`; drop the root
   re-exports of engine symbols from `packages/agent/src/index.ts` and re-point
-  the nine desktop tests that use them; delete the remaining 82 files. Each is
-  its own change.
+  the nine desktop tests that use them; then delete every `src/mastra/` module
+  that no surviving `package.json` export entry reaches and no non-test consumer
+  outside `packages/agent` imports — where e2e helpers count as tests and are
+  re-pointed, not preserved — recomputed immediately before the deletion lands.
+  See [ADR-0023](0023-host-owns-its-tool-representation.md). Each is its own
+  change.
 
 ## Consequences
 
-- The last production caller of the Mastra agent loop goes away, making **82
-  files / ~27,808 lines** retirable. The directory total is 100 files / 32,847
-  lines; 16 files / 4,983 lines are tool-projection modules the new loop uses
-  and are relocated, not deleted.
+- The last production caller of the Mastra agent loop goes away. The retirable
+  set is computed by the rule in [ADR-0023](0023-host-owns-its-tool-representation.md)
+  rather than fixed here; measured 2026-10-15 it is **66 files / 22,008 lines**,
+  with 34 files / 10,839 lines surviving and relocated rather than deleted
+  (10,839 + 22,008 = the directory total of 100 files / 32,847 lines, which is
+  the check any recomputation should satisfy). Line counts are `wc -l`.
 - `apps/web` stops tracing `@mastra/core` and `@mastra/memory` into its Vercel
   functions.
 - `docs/agents/mastra-boundary.md` becomes true. It already says the agent loop
@@ -86,6 +94,40 @@ on a host no later request can reach.
 - Known limit: stream-shape parity between the direct adapter and the engine's
   emission is the single real risk, and it is why this follows #3618 rather than
   leading it.
+
+## Amendment (2026-10-15): the retirement step states a rule, not a count
+
+As accepted, the retirement step said "delete the remaining 82 files" and
+Consequences said 82 files / ~27,808 lines. Both were wrong in the same
+direction, and acting on them would have deleted live code.
+
+The 82 came from subtracting a tool-projection cluster that was seeded from a
+hand-listed set of module names. That seed omitted published entries of
+`packages/agent`. Most consequentially `./provider-request` and
+`./provider-runtime`, which reach 13 `src/mastra/` modules through **runtime**
+imports — four of them Mastra `Processor` implementations (`error-processors`,
+`projection-safe-tool-call-filter`, `token-measurement`,
+`tool-projection-rewrite-processor`). `./tool-runtime` and `./mcp-client` reach
+nine more. Deleting any of them breaks a published entry.
+
+Recomputing by seeding from the public entries instead moved the figure four
+times — 83, 79, 75, 69 — each revision caused by the same thing, an incomplete
+seed, and each one lower. A fifth correction came from the opposite direction:
+the consumer filter excluded `__tests__` and `*.spec.*` but not `e2e/`, so
+`apps/desktop/e2e/helpers/mcp-apps-ordinary-admission.ts` was counted as a
+production consumer. It is the only consumer outside `packages/agent` of both
+`composeRuntimeToolMap` and `createMcpAppOrdinaryToolCallPreparer` and carries
+four `@boundaries-ignore` comments saying it deliberately composes the
+production pipeline; read literally as a "non-test consumer" it preserves 38
+further modules and cancels most of the deletion.
+
+Hence the rule, and its e2e clause. Two independently seeded walks then agreed
+on **34 survivors / 66 retirable**, which is why that figure appears as a dated
+measurement rather than as the instruction. The relocation set in the first step
+is likewise computed, not fixed at 16.
+
+Nothing else in this ADR changes. Web still stops calling the loop, and the
+deletion is still the largest subtraction available.
 
 ## Alternatives considered
 
