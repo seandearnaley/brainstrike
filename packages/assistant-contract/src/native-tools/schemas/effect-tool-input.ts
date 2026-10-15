@@ -35,7 +35,20 @@ export interface EffectToolInputSchema<Output> {
       readonly input: (options: { readonly target: string }) => Record<string, unknown>;
       readonly output: (options: { readonly target: string }) => Record<string, unknown>;
     };
-    readonly types?: { readonly input: unknown; readonly output: Output } | undefined;
+    /**
+     * Standard Schema's inference phantom: declared so consumers can read the
+     * decoded type off the value, NEVER constructed. zod does the same — its
+     * runtime `standardProps()` emits only `validate`/`vendor`/`version` and
+     * leaves `types` to the type system.
+     *
+     * The spec declares it optional and its own helpers read it through
+     * `NonNullable<…>`, but `@mastra/schema-compat`'s `InferPublicSchema`
+     * matches on a REQUIRED `types` (zod reaches an earlier branch via its
+     * private `_output`, so it never needed this one). Declaring it optional
+     * here made `createTool`'s `execute` see `unknown` for every
+     * Effect-authored tool, so it is required.
+     */
+    readonly types: { readonly input: unknown; readonly output: Output };
     readonly validate: (
       value: unknown
     ) => EffectToolInputResult<Output> | Promise<EffectToolInputResult<Output>>;
@@ -134,18 +147,19 @@ export function effectToolInputSchema<S extends Schema.ConstraintDecoder<unknown
     structuredClone(cached(options.target));
   const validate = Schema.toStandardSchemaV1(schema, { parseOptions: EXCESS_PROPERTY })['~standard']
     .validate;
-  return {
-    '~standard': {
-      jsonSchema: { input: view, output: view },
-      // The authored schema decides which properties a provider `null` may be
-      // dropped from, so normalization reads the dialect the wire uses. It only
-      // reads the document, so it takes the cached one rather than a clone per
-      // tool call.
-      validate: (value) => validate(normalizeProviderNulls(value, cached('draft-07'))),
-      vendor: 'brainstrike',
-      version: 1,
-    },
-  };
+  const standard = {
+    jsonSchema: { input: view, output: view },
+    // The authored schema decides which properties a provider `null` may be
+    // dropped from, so normalization reads the dialect the wire uses. It only
+    // reads the document, so it takes the cached one rather than a clone per
+    // tool call.
+    validate: (value: unknown) => validate(normalizeProviderNulls(value, cached('draft-07'))),
+    vendor: 'brainstrike',
+    version: 1,
+  } as const satisfies Omit<EffectToolInputSchema<S['Type']>['~standard'], 'types'>;
+  // `types` is the inference phantom documented on the interface: asserted
+  // here rather than built, so the real props above stay fully checked.
+  return { '~standard': standard as EffectToolInputSchema<S['Type']>['~standard'] };
 }
 
 /** Narrow a native tool input schema to the Effect-authored producer's output. */

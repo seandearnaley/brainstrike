@@ -16,6 +16,30 @@ registered schema through `toToolInputJsonSchema` / `validateToolInputValue`.
 One producer per schema — never a second writer for the same durable fact. A
 converted boundary keeps the acceptance check its zod version had.
 
+## String length bounds
+
+`Schema.isMinLength(n)` emits `minLength: Math.ceil(n / 2)`, not `n`:
+JavaScript counts UTF-16 code units and JSON Schema counts code points, so
+Effect advertises the tightest bound that cannot reject a string the check
+accepts. Sound, but it advertises half the real minimum, and a provider
+enforcing the advertised schema then accepts a value the host rejects — the
+error surfaces one hop later than it should.
+
+So a converted string bound is `Schema.isMinCodePoints(min)` plus
+`Schema.isMaxLength(max)`:
+
+- `isMinCodePoints(n)` emits `minLength: n` exactly.
+- `isMaxLength(n)` emits `maxLength: n` exactly AND keeps zod's code-unit
+  counting; `isMaxCodePoints` would accept a long run of surrogate pairs that
+  the zod version rejected.
+
+Arrays are unaffected — `isMinLength` emits `minItems` exactly for them, and
+`isMinCodePoints` does not typecheck on an array.
+
+`isMinLength(1)` emits `1`, so this is invisible until a bound exceeds 1.
+`schemas-worktrees.ts` is all `min(1)` and needs no change; the gap first
+appeared on `queryDiagnostics`'s `since` / `until` (`min(20)`).
+
 ## Order
 
 ### 1. The remaining native tool schemas — 30 tools, 9 files, 48 constants
@@ -27,10 +51,10 @@ provider paths follow without edits.
 
 | file | constants | what makes it work or not |
 | --- | --- | --- |
-| `schemas-browser.ts` | 3 | mechanical |
-| `schemas-diagnostics.ts` | 6 | mechanical |
-| `schemas-tasks.ts` | 5 | mechanical; `submitPlan` / `askUser` also carry resume schemas and `askUser`'s is a union with a legacy arm |
-| `exec-policy-domain.ts` | 1 | one `.refine` |
+| ~~`schemas-browser.ts`~~ | 3 | **done.** zod `.default()` is two facts — see below |
+| ~~`schemas-diagnostics.ts`~~ | 6 | **done.** First file with a string `min` above 1; see "String length bounds" |
+| ~~`schemas-tasks.ts`~~ | 3 of 5 | **inputs done.** The two resume schemas stay zod — see below |
+| `exec-policy-domain.ts` | 1 | **blocked on `schemas-execution.ts`** — see below |
 | `schemas-search.ts` | 9 | `.refine` only |
 | `schemas-artifacts.ts` | 4 | `.refine` + `.superRefine` → `Schema.makeFilter`; see `schemas-worktrees.ts` for forwarding a nested union's issues with their paths |
 | `schemas-execution.ts` | 5 | two `z.discriminatedUnion('action', …)` behind strict envelopes, same shape as the converted `manageWorktree` |
@@ -39,14 +63,97 @@ provider paths follow without edits.
 Not wrapped by either producer today and needing a decision rather than a
 conversion: `skill`, `skill_read`, `skill_search` declare `z.object` inline and
 Mastra owns their execution (`defineNativeTool`'s `SkillNativeToolDefinition`
-arm still accepts a bare `z.ZodType`); `askUser`, `submitPlan` and `runPython`
-register an unwrapped schema deliberately — check why before changing them.
+arm still accepts a bare `z.ZodType`); `runPython` registers an unwrapped
+schema deliberately — check why before changing it. `askUser` and `submitPlan`
+registered one too and now carry `effectToolInputSchema` at the declaration
+instead, so their definitions still register the constant unwrapped.
+
+### `exec-policy-domain.ts` cannot convert on its own
+
+`policyDomainSchema` is not a registered tool input schema, so
+`effectToolInputSchema` does not apply to it. It is a shared LEAF, composed by
+two zod owners:
+
+- `schemas-execution.ts` builds `runPythonDomainSchema` as
+  `policyDomainSchema.refine(…).refine(…)`, and
+- `packages/agent/src/code-execution.ts` puts it in
+  `z.array(policyDomainSchema)` inside `execPolicySchema`, the authoritative
+  sandbox policy parser.
+
+Converting the leaf while either composition site is zod needs a zod twin of
+the domain grammar — a second writer for a safety-critical invariant (an empty
+`allowedDomains` meaning "no network"). So it converts WITH
+`schemas-execution.ts`, and `execPolicySchema` moves in the same change or
+immediately after. Treat the table row as part of that file, not before it.
+
+### The two resume schemas stay zod
+
+`SubmitPlanResumeSchema` and `AskUserResumeSchema` are not tool input schemas
+and are deliberately unconverted:
+
+- `effectToolInputSchema` fixes `onExcessProperty: 'error'`, so admitting a
+  resume envelope through it would CLOSE an object zod leaves open to strip. An
+  unknown rider on a person's answer would then strand a suspended run rather
+  than being dropped.
+- A resume envelope is never advertised to a provider — it travels host↔Core as
+  the platform selection's `interaction.resumeSchema` — so the producer's
+  pairing of a provider JSON Schema with a validator buys nothing.
+- The catalog's one-producer guard sweeps `NATIVE_TOOL_INPUT_SCHEMAS`, which
+  they are not in.
+
+Converting them means either a second Effect producer with open-object
+semantics or a ruling that the resume envelope should close. Both are owner
+decisions. `apps/desktop/src/agent-host-platform/desktop-tool-descriptors.ts`
+types `INTERACTIONS[].resumeSchema` as `z.ZodType` and would widen to
+`unknown`, as its `inputSchema` already did.
+
+### zod `.default()` is two facts, not one
+
+zod's `.default(v)` both advertises `default: v` in the emitted JSON Schema and
+fills an absent key on parse. Effect spells those separately, and the browser
+tools need both — `runBrowserReadPage` hands `maxChars` straight to
+`accessibility-snapshot`, where an unfilled value makes its
+`used + cost > options.maxChars` budget check compare against `undefined` and
+the output cap silently stop applying. The pair is
+`schema.annotate({ default: v }).pipe(Schema.withDecodingDefaultKey(Effect.succeed(v)))`,
+taking the literal once (`withDefault` in `schemas-browser.ts`). Three traps:
+
+- `withDecodingDefaultKey`, not `withDecodingDefault`. Only the key-level
+  variant fills on an absent key alone, as zod did; the value-level twin also
+  treats an explicit `undefined` as absent and emits an `anyOf: [T, null]`
+  property, changing the advertised schema.
+- It takes an `Effect`, not a thunk. A bare `() => v` compiles and fails at
+  runtime with `Fiber.runLoop: Not a valid effect`.
+- `.annotate()` must come BEFORE the `.pipe(…)`, or the emitter never sees the
+  `default`.
+
+Dropping the fill while keeping the annotation is invisible to a JSON Schema
+equivalence test — the advertised document is identical. The catalog's
+`accepts provider null for optional fields` case is what catches it.
 
 Carry-over work once the last tool converts: delete
 `providerCompatibleInputSchema`, drop the zod arm from
 `toToolInputJsonSchema` / `validateToolInputValue`, collapse
 `NativeToolInputSchema` to the Effect producer, and delete the
 `registers every schema through exactly one producer` guard's zod branch.
+
+Two downstream shapes change with each file and are worth expecting rather
+than discovering:
+
+- **`Schema.Array` decodes to a `readonly` array**, where `z.array` did not. A
+  consumer typed `string[]` stops compiling; the fix is to accept
+  `readonly string[]` where it only reads (as `shouldCheck` in
+  `packages/agent/src/tools/diagnostics-tool.ts` now does).
+- **A Mastra `createTool` infers its `execute` input through
+  `InferPublicSchema`**, which tries `_output`, then `_type`, then a REQUIRED
+  `'~standard'.types`. zod reaches the first branch via its private `_output`;
+  the Effect producer has neither, so `EffectToolInputSchema` declares the
+  Standard Schema `types` phantom as required (declared, never constructed —
+  zod's own `standardProps()` does the same). Without it every
+  Effect-authored tool's `execute` sees `unknown`. Only `askUser` and
+  `submitPlan` go through `createTool` today; the hand-rolled "Mastra tool"
+  interfaces elsewhere in `packages/agent/src/tools` are structural
+  (`inputSchema: typeof XSchema`) and need nothing.
 
 ### 2. `packages/host-capabilities` — 4 constants, 5 files
 

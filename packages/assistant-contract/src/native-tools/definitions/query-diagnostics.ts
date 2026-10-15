@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { QueryDiagnosticsInputSchema } from '../schemas/schemas-diagnostics.js';
 
 // Read-only, bounded access to the local diagnostic event store. Explicitly
@@ -19,7 +19,7 @@ export const queryDiagnostics = defineNativeTool({
   discovery: { family: 'diagnostics', namespace: 'database' },
   history: { recencyPrunable: true },
   id: 'brainstrike.queryDiagnostics',
-  inputSchema: providerCompatibleInputSchema(QueryDiagnosticsInputSchema),
+  inputSchema: effectToolInputSchema(QueryDiagnosticsInputSchema),
   kind: 'desktop',
   returns:
     'Bounded newest diagnostic rows or recurring fingerprint groups with explicit cap/output truncation metadata',

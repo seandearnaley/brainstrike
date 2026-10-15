@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { ManageTaskListInputSchema } from '../schemas/schemas-tasks.js';
 
 // Whole-list replace of the assistant's own per-thread plan. `category:'action'`
@@ -26,7 +26,7 @@ export const manageTaskList = defineNativeTool({
       'The full task list to store (whole-list replace). Each item is { content (imperative label), activeForm (present-tense in-progress label), status: pending | in_progress | completed }. Maximum 50 tasks.',
   },
   id: 'brainstrike.manageTaskList',
-  inputSchema: providerCompatibleInputSchema(ManageTaskListInputSchema),
+  inputSchema: effectToolInputSchema(ManageTaskListInputSchema),
   kind: 'desktop',
   localProvider: 'unregistered',
   returns:

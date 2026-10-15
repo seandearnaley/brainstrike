@@ -278,6 +278,210 @@ const effectAuthoredSlice = [
       })
       .strict(),
   ],
+  [
+    NATIVE_TOOL_ID.browserNavigate,
+    z.object({ url: z.string().min(1).max(4096).describe('URL to open') }).strict(),
+  ],
+  // The two defaulted properties are the reason this pair is here: zod's
+  // `.default()` both advertises `default:` and fills an absent key, and Effect
+  // spells those as two separate declarations. If the conversion had kept only
+  // the advertised half, `maxChars` would reach the driver as `undefined` and
+  // its output cap would silently stop applying.
+  [
+    NATIVE_TOOL_ID.browserReadPage,
+    z
+      .object({
+        filter: z
+          .enum(['interactive', 'all'])
+          .default('interactive')
+          .describe("'interactive' returns only actionable elements; 'all' the full tree"),
+        maxChars: z
+          .number()
+          .int()
+          .min(500)
+          .max(30_000)
+          .default(6000)
+          .describe('Maximum characters of tree text to return'),
+      })
+      .strict(),
+  ],
+  [
+    NATIVE_TOOL_ID.browserGetPageText,
+    z
+      .object({
+        maxChars: z
+          .number()
+          .int()
+          .min(100)
+          .max(30_000)
+          .default(6000)
+          .describe('Maximum characters to return'),
+      })
+      .strict(),
+  ],
+  // `since` / `until` carry the only string minimum above 1 in the converted
+  // set. `Schema.isMinLength(20)` emits `minLength: 10` (UTF-16 code units
+  // halved to a sound code-point bound), so this pair is what pins the
+  // conversion to `isMinCodePoints` and keeps the advertised bound the real
+  // one.
+  [
+    NATIVE_TOOL_ID.queryDiagnostics,
+    z
+      .object({
+        fingerprint: z.string().min(1).max(256).optional().describe('Exact diagnostic fingerprint'),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe('Maximum events or groups to inspect (default 50, hard max 200)'),
+        mode: z
+          .enum(['events', 'fingerprints'])
+          .describe('events returns newest rows; fingerprints groups recurring failures'),
+        runId: z.string().min(1).max(256).optional().describe('Exact assistant run id'),
+        severity: z.enum(['warn', 'error', 'fatal']).optional().describe('Exact severity'),
+        since: z
+          .string()
+          .min(20)
+          .max(35)
+          .optional()
+          .describe('Inclusive ISO-8601 lower bound, e.g. 2026-07-20T00:00:00Z'),
+        threadId: z.string().min(1).max(256).optional().describe('Exact assistant thread id'),
+        until: z
+          .string()
+          .min(20)
+          .max(35)
+          .optional()
+          .describe('Inclusive ISO-8601 upper bound, e.g. 2026-07-28T00:00:00Z'),
+      })
+      .strict(),
+  ],
+  [
+    NATIVE_TOOL_ID.listEmbeddingSpaces,
+    z
+      .object({
+        includeStats: z.boolean().optional().describe('Include coverage statistics'),
+        workspaceIndexOnly: z
+          .boolean()
+          .optional()
+          .describe('Only return the embedding space configured as the current workspace index'),
+      })
+      .strict(),
+  ],
+  // The three below carry nested closed objects inside a bounded array. The
+  // producer fixes `onExcessProperty: 'error'` once for the whole document, so
+  // these prove the item objects close as each `.strict()` did rather than only
+  // the root.
+  [
+    NATIVE_TOOL_ID.manageTaskList,
+    z
+      .object({
+        tasks: z
+          .array(
+            z
+              .object({
+                activeForm: z
+                  .string()
+                  .min(1)
+                  .max(500)
+                  .describe('Present-tense in-progress label, e.g. "Implementing the parser"'),
+                content: z
+                  .string()
+                  .min(1)
+                  .max(500)
+                  .describe('Imperative task label, e.g. "Implement the parser"'),
+                status: z
+                  .enum(['pending', 'in_progress', 'completed'])
+                  .describe('Task status; keep exactly one task in_progress'),
+              })
+              .strict()
+          )
+          .max(50)
+          .describe(
+            'The full task list to store (whole-list replace — pass the entire desired list every call). Maximum 50 tasks.'
+          ),
+      })
+      .strict(),
+  ],
+  [
+    NATIVE_TOOL_ID.submitPlan,
+    z
+      .object({
+        overview: z
+          .string()
+          .min(1)
+          .max(4000)
+          .describe('One or two paragraphs summarizing the plan and its goal.'),
+        risks: z
+          .string()
+          .max(4000)
+          .optional()
+          .describe('Optional risks, tradeoffs, or things that could go wrong.'),
+        steps: z
+          .array(
+            z
+              .object({
+                detail: z
+                  .string()
+                  .max(2000)
+                  .optional()
+                  .describe('Optional elaboration of the step (what/why/how).'),
+                title: z.string().min(1).max(500).describe('Short imperative step title.'),
+              })
+              .strict()
+          )
+          .min(1)
+          .max(30)
+          .describe('Ordered implementation steps.'),
+        title: z.string().min(1).max(300).describe('Short title for the plan.'),
+        verification: z
+          .string()
+          .max(4000)
+          .optional()
+          .describe('Optional how-to-verify: tests, checks, or acceptance criteria.'),
+      })
+      .strict(),
+  ],
+  [
+    NATIVE_TOOL_ID.askUser,
+    z
+      .object({
+        options: z
+          .array(
+            z
+              .object({
+                description: z
+                  .string()
+                  .max(1000)
+                  .optional()
+                  .describe('Optional context for the option (does not change the answer value).'),
+                label: z
+                  .string()
+                  .min(1)
+                  .max(500)
+                  .describe('Option label; the value returned when chosen.'),
+              })
+              .strict()
+          )
+          .min(1)
+          .max(10)
+          .optional()
+          .describe('Optional choices. Omit for a free-text question.'),
+        question: z
+          .string()
+          .min(1)
+          .max(2000)
+          .describe('The clear, specific question to ask the user.'),
+        selectionMode: z
+          .enum(['single_select', 'multi_select'])
+          .optional()
+          .describe(
+            'How many options the user may pick. Requires options; defaults to single_select.'
+          ),
+      })
+      .strict(),
+  ],
 ] as const;
 
 test('the converted slice really is Effect-authored', () => {
