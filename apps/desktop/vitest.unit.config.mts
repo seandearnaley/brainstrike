@@ -1,7 +1,8 @@
+import { globSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { defineConfig, type TestProjectConfiguration } from 'vitest/config';
-import baseConfig, { MAIN_IMPORT_TESTS } from './vitest.config.mts';
+import baseConfig from './vitest.config.mts';
 
 // The unit lane runs test files in parallel forks on Linux and macOS (BST-546).
 // Fork isolation stays on: every file gets its own process, so module state,
@@ -24,19 +25,32 @@ export function resolveDesktopUnitWorkers(
   return Math.min(4, Math.max(2, Math.floor(cores / 4)));
 }
 
-const workers = resolveDesktopUnitWorkers();
-
-// The first test in each Main import file imports main.ts, whose module graph
-// the Vitest server transforms inside that test's deadline. Beside the parallel
-// files under load that took the full 30s, so these files run alone afterwards,
-// one at a time, when most of those transforms are already cached. Vitest does
-// not pass the CLI `--exclude` to projects, so they exclude integration files.
 const UNIT_EXCLUDE = '**/*.integration.test.*';
+const MAIN_IMPORT = /\bimport\(\s*['"](?:\.\.\/)+main['"]\s*\)|\bfrom\s+['"](?:\.\.\/)+main['"]/u;
+
+/** Unit test files that import main.ts, relative to the desktop package. */
+export function findMainImportUnitTests(desktopRoot: string): string[] {
+  return globSync('src/**/*.test.{ts,tsx}', { cwd: desktopRoot })
+    .map((file) => file.split(path.sep).join('/'))
+    .filter((file) => !file.includes('.integration.test.'))
+    .filter((file) => MAIN_IMPORT.test(readFileSync(path.join(desktopRoot, file), 'utf8')))
+    .sort();
+}
+
+const workers = resolveDesktopUnitWorkers();
+const mainImportTests = findMainImportUnitTests(import.meta.dirname);
+
+// A file's first import of main.ts loads Main's whole module graph inside that
+// test's 30s deadline. Early in a parallel run, while the Vitest server is still
+// transforming everything for every worker, that took up to the full 30s under
+// load; once the transforms are cached it took at most 17s. These files run as a
+// second group, after the rest. Vitest does not pass the CLI `--exclude` to
+// projects, so the projects exclude integration files themselves.
 const PARALLEL_UNIT_PROJECTS: TestProjectConfiguration[] = [
   {
     extends: true,
     test: {
-      exclude: [...MAIN_IMPORT_TESTS, UNIT_EXCLUDE],
+      exclude: [...mainImportTests, UNIT_EXCLUDE],
       maxWorkers: workers,
       name: 'desktop',
       sequence: { groupOrder: 0 },
@@ -45,9 +59,9 @@ const PARALLEL_UNIT_PROJECTS: TestProjectConfiguration[] = [
   {
     extends: true,
     test: {
-      include: MAIN_IMPORT_TESTS,
-      maxWorkers: 1,
-      name: 'main-boot',
+      include: mainImportTests,
+      maxWorkers: workers,
+      name: 'main-import',
       sequence: { groupOrder: 1 },
     },
   },
