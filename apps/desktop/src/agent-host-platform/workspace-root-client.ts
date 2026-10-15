@@ -22,10 +22,10 @@ export function createDesktopWorkspaceRootCatalog(
     void attachment.closed.then(detach, detach);
     return client;
   };
-  const borrow = async <T>(use: (client: HostCatalog) => Promise<T>): Promise<T> => {
+  const borrow = async <T>(operation: (client: HostCatalog) => Promise<T>): Promise<T> => {
     const client = current ?? (await acquire());
     try {
-      return await use(client);
+      return await operation(client);
     } catch (cause) {
       if (!isUnsentRequest(cause)) {
         throw cause;
@@ -37,7 +37,7 @@ export function createDesktopWorkspaceRootCatalog(
       if (current === client) {
         current = undefined;
       }
-      return await use(await acquire());
+      return await operation(await acquire());
     }
   };
   return {
