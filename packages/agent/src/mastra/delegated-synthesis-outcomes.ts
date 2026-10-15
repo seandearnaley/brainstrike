@@ -1,6 +1,9 @@
 import type { DelegationBudgetCap } from '@brainstrike/assistant-contract';
 import { z } from 'zod';
-import { readMastraStreamPartString, readMastraStreamPartValue } from '../tool-projection/tool-event-mapper';
+import {
+  readMastraStreamPartString,
+  readMastraStreamPartValue,
+} from '../tool-projection/tool-event-mapper';
 
 /**
  * What happened on a child's RESERVED SYNTHESIS step. Written by the budget

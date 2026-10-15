@@ -8,6 +8,11 @@ import { createLogger } from '@brainstrike/logging';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import type { ToolsInput } from '@mastra/core/agent';
 import { isValidationError } from '@mastra/core/tools';
+import {
+  isMcpMediaPart,
+  type McpContentPart,
+  readMcpMultimodalOutput,
+} from '../mcp/mcp-multimodal-output';
 import { toJsonSafe } from '../stream/json';
 import {
   boundToolOutputForModel,
@@ -27,11 +32,6 @@ import {
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
 } from '../stream/tool-output-limits';
 import { HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET, readHookResultEnvelope } from '../tools/hook-runner';
-import {
-  isMcpMediaPart,
-  type McpContentPart,
-  readMcpMultimodalOutput,
-} from '../mcp/mcp-multimodal-output';
 import {
   readToolCallTelemetryMetadata,
   transferToolCallTelemetryMetadata,

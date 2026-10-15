@@ -1,9 +1,15 @@
 import { createLogger } from '@brainstrike/logging';
+import {
+  asMastraStreamPart,
+  type MastraStreamPart,
+} from '../mastra-boundary/mastra-chunk-decoding';
+import {
+  readMastraStreamPartString,
+  readMastraStreamPartValue,
+} from '../tool-projection/tool-event-mapper';
+import { readStreamPartUsage, type UsageLike } from '../usage-metering';
 import { DELEGATED_STEP_USAGE_PART } from './delegated-step-usage';
 import { DELEGATED_SYNTHESIS_PART } from './delegated-synthesis-outcomes';
-import { asMastraStreamPart, type MastraStreamPart } from '../mastra-boundary/mastra-chunk-decoding';
-import { readStreamPartUsage, type UsageLike } from '../usage-metering';
-import { readMastraStreamPartString, readMastraStreamPartValue } from '../tool-projection/tool-event-mapper';
 
 const logger = createLogger('BackgroundStream');
 

@@ -32,8 +32,14 @@ import { createLogger } from '@brainstrike/logging';
 import { generateUUID } from '@brainstrike/utils';
 import type { Agent, AgentMemoryOption, AgentSignal, MastraDBMessage } from '@mastra/core/agent';
 import type { MastraMemory } from '@mastra/core/memory';
+import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import { StreamStalledError } from '../stream/with-inactivity-timeout';
 import { ToolCallInputStreamingTimeoutError } from '../stream/with-tool-call-input-timeout';
+import {
+  makeErrorFinishChunk,
+  makeRunDetailEventChunk,
+  makeRunFailedChunk,
+} from '../tool-projection/stream-run-event-chunks';
 import type { ToolExecutionDurations } from '../tools/tool-execution-durations';
 import type { AgentMessage, RuntimeData, StreamChunk } from '../types';
 import {
@@ -41,12 +47,6 @@ import {
   createAbortedTurnPersistence,
 } from './aborted-turn-persistence';
 import type { MastraAgentRuntime } from './agent-runtime';
-import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
-import {
-  makeErrorFinishChunk,
-  makeRunDetailEventChunk,
-  makeRunFailedChunk,
-} from '../tool-projection/stream-run-event-chunks';
 import {
   EmptyModelResponseError,
   isStreamWatchdogError,

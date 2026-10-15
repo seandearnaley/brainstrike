@@ -24,11 +24,11 @@
  * clone (`applyLiveApprovalGate`) only forwards to it.
  */
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
-import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
 import {
   type PermissionAskToolMetadata,
   resolveSelfApprovalDecision,
 } from '../permissions/permission-tool-gate';
+import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
 import type { ApprovalGate } from './runtime-assembly/stream-options';
 
 export interface ApprovalGateSource {

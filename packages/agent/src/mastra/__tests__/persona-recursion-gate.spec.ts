@@ -7,9 +7,9 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { createListingOnlyModel } from '../../providers/listing-only-model';
 import { resolveToolResultBudgetForModel } from '../../stream/tool-output-limits';
+import { sanitizeToolName } from '../../tool-projection/tool-sanitizer';
 import { buildPersonaSubAgents } from '../build-persona-subagents';
 import { createDelegatedConversationBinding } from '../delegated-conversation-binding';
-import { sanitizeToolName } from '../../tool-projection/tool-sanitizer';
 
 const TOOL_IDS = [
   'brainstrike.globWorkspace',

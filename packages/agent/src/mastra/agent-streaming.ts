@@ -47,12 +47,32 @@ import { createLogger } from '@brainstrike/logging';
 import { generateUUID } from '@brainstrike/utils';
 import type { MastraMemory } from '@mastra/core/memory';
 import type { ChunkType } from '@mastra/core/stream';
+import { createMastraAgentError, isMastraAgentError } from '../mastra-boundary/mastra-agent-error';
+import {
+  asMastraStreamPart,
+  getDeltaText,
+  isObservationalMemoryDataChunkType,
+  type MastraStreamPart,
+  makeStepMetadata,
+  OM_FAILURE_DETAIL_MAX_CHARS,
+  readFinishReason,
+  readOmTokenCount,
+  resolveProviderError,
+  resolveTripwire,
+  truncateStreamDetail,
+} from '../mastra-boundary/mastra-chunk-decoding';
+import { MCP_PROGRESS_STREAM_PART_TYPE, mapMcpProgressStreamPart } from '../mcp/mcp-runtime-client';
+import type { PermissionAskToolMetadata } from '../permissions/permission-tool-gate';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import {
   providerSupportsNativeWebSearch,
   WEB_SEARCH_TOOL_ID,
 } from '../providers/native-web-search';
 import { getDefaultModel } from '../providers/provider-factory';
+import {
+  type ResolvedRuntimeConfiguration,
+  resolveRuntimeConfiguration,
+} from '../runtime-configuration';
 import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
 import {
@@ -62,6 +82,18 @@ import {
   withInactivityTimeout,
 } from '../stream/with-inactivity-timeout';
 import { withToolCallInputTimeout } from '../stream/with-tool-call-input-timeout';
+import {
+  mapShellOutputStreamPart,
+  SHELL_OUTPUT_STREAM_PART_TYPE,
+} from '../tool-projection/shell-output-stream';
+import {
+  makeRunEventChunk,
+  makeToolCallsFinishChunk,
+} from '../tool-projection/stream-run-event-chunks';
+import {
+  readMastraStreamPartString,
+  readMastraStreamPartValue,
+} from '../tool-projection/tool-event-mapper';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type {
   AgentMessage,
@@ -72,6 +104,11 @@ import type {
   StreamChunkToolApprovalAnswered,
   StreamIterator,
 } from '../types';
+import {
+  accumulateSteppedUsage,
+  readOpenRouterBilledCost,
+  readStreamPartUsage,
+} from '../usage-metering';
 import type { AbortedTurnPersistence } from './aborted-turn-persistence';
 import {
   createMastraAgentRuntime,
@@ -100,42 +137,15 @@ import { DELEGATED_STEP_USAGE_PART } from './delegated-step-usage';
 import { createDelegatedStreamProjection } from './delegated-stream-projection';
 import { DELEGATED_SYNTHESIS_PART } from './delegated-synthesis-outcomes';
 import { captureDelegatedSystemContext } from './delegated-system-context';
-import { createMastraAgentError, isMastraAgentError } from '../mastra-boundary/mastra-agent-error';
-import {
-  asMastraStreamPart,
-  getDeltaText,
-  isObservationalMemoryDataChunkType,
-  type MastraStreamPart,
-  makeStepMetadata,
-  OM_FAILURE_DETAIL_MAX_CHARS,
-  readFinishReason,
-  readOmTokenCount,
-  resolveProviderError,
-  resolveTripwire,
-  truncateStreamDetail,
-} from '../mastra-boundary/mastra-chunk-decoding';
 import {
   createMastraStreamPartRouter,
   hasExecutionGuardBehindToolCall,
   resolveMastraProducerOptions,
 } from './mastra-watchdog-options';
-import { MCP_PROGRESS_STREAM_PART_TYPE, mapMcpProgressStreamPart } from '../mcp/mcp-runtime-client';
-import type { PermissionAskToolMetadata } from '../permissions/permission-tool-gate';
 import { buildRootLegPromptManifest } from './prompt-manifest-root-leg';
 import { drainProviderCallWarningChunks } from './provider-warning-run-events';
 import { withRootPauseNotices } from './root-pause-notices';
 import { assertNoUnsupportedDirectStreamOptions } from './runtime-assembly/stream-options';
-import {
-  accumulateSteppedUsage,
-  readOpenRouterBilledCost,
-  readStreamPartUsage,
-} from '../usage-metering';
-import {
-  type ResolvedRuntimeConfiguration,
-  resolveRuntimeConfiguration,
-} from '../runtime-configuration';
-import { mapShellOutputStreamPart, SHELL_OUTPUT_STREAM_PART_TYPE } from '../tool-projection/shell-output-stream';
-import { makeRunEventChunk, makeToolCallsFinishChunk } from '../tool-projection/stream-run-event-chunks';
 import {
   drainDelegationUsageChunks,
   drainTokenEstimateCalibrationChunk,
@@ -153,7 +163,6 @@ import {
 } from './stream-termination';
 import { ensureMastraThreadTitleGeneration } from './thread-title-generation';
 import { makeApprovalRequiredChunks, makeToolSuspendRequiredChunks } from './tool-approval-chunks';
-import { readMastraStreamPartString, readMastraStreamPartValue } from '../tool-projection/tool-event-mapper';
 import {
   COMPLETED_FINISH_REASONS,
   type DelegationUsageCapture,

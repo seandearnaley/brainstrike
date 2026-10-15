@@ -33,7 +33,6 @@ import type { DelegatedRunIdentity } from '../../mastra/delegated-run-publicatio
 import type { DelegatedSuspensionResolver } from '../../mastra/delegated-suspension-discovery';
 import { LiveDecisionUnavailableError } from '../../mastra/live-decision-channel';
 import { MCP_PROGRESS_STREAM_PART_TYPE } from '../../mcp/mcp-runtime-client';
-import { writeShellOutputChunk } from '../../tool-projection/shell-output-stream';
 import { createPgliteMastraMemory } from '../../pglite-mastra-memory';
 import {
   hasToolResult,
@@ -43,6 +42,7 @@ import {
   textParts,
   toolCallParts,
 } from '../../test-fixtures/scripted-agent-model';
+import { writeShellOutputChunk } from '../../tool-projection/shell-output-stream';
 import { createAskUserTool } from '../../tools/ask-user-tool';
 import { createSubmitPlanTool } from '../../tools/submit-plan-tool';
 import type { RuntimeData } from '../../types';

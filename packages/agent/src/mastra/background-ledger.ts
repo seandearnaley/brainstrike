@@ -17,13 +17,13 @@ import { createLogger } from '@brainstrike/logging';
 import type { BackgroundTask, BackgroundTaskManager } from '@mastra/core/background-tasks';
 import { projectBackgroundOutcomeForModel } from '../background-result-projection';
 import type { AssistantRunEventMetadata } from '../run-events';
+import { makeRunDetailEventChunk } from '../tool-projection/stream-run-event-chunks';
 import type { StreamChunk } from '../types';
 import { completedBackgroundOutcome } from './background-result-delivery';
 import type {
   BackgroundGeneration,
   DelegatedConversationBinding,
 } from './delegated-conversation-binding';
-import { makeRunDetailEventChunk } from '../tool-projection/stream-run-event-chunks';
 import type { DelegationOutcomeCapture } from './subagent-delegation';
 
 const logger = createLogger('BackgroundLedger');

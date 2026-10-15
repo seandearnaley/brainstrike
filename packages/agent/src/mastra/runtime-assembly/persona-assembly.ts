@@ -14,18 +14,18 @@ import type { Agent, ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import type { MastraMemory } from '@mastra/core/memory';
 import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
+import type { DelegationPersonaSummary } from '../../instructions/default-instructions';
+import type { PermissionToolGateSnapshot } from '../../permissions/permission-tool-gate';
 import type { ScaledToolResultBudget } from '../../stream/tool-output-limits';
+import type { ModelOutputProjectionObserver } from '../../tool-projection/tool-model-output';
 import type { RuntimeData } from '../../types';
 import { buildPersonaSubAgents, type DelegatedExecutionOptions } from '../build-persona-subagents';
 import type { ChildContinuationRuntimeScope } from '../child-continuation-usage';
-import type { DelegationPersonaSummary } from '../../instructions/default-instructions';
 import type { DelegatedConversationBinding } from '../delegated-conversation-binding';
 import { personasAtDelegationDepth } from '../delegated-persona-snapshots';
 import type { DelegatedSystemContextSource } from '../delegated-system-context';
 import type { LiveDecisionChannel } from '../live-decision-channel';
-import type { PermissionToolGateSnapshot } from '../../permissions/permission-tool-gate';
 import { type ChildPromptFacts, shouldEnablePersonas } from '../subagent-delegation';
-import type { ModelOutputProjectionObserver } from '../../tool-projection/tool-model-output';
 
 const logger = createLogger('MastraAgent');
 

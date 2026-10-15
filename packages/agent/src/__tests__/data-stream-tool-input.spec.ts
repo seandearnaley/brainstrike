@@ -4,9 +4,9 @@ import {
   DataStreamDecoder,
 } from 'assistant-stream';
 import { describe, expect, it } from 'vitest';
-import { mapMastraToolEvent } from '../tool-projection/tool-event-mapper';
 import { createStatelessAssistantDataStreamResponse } from '../stream/data-stream';
 import { DataStreamMapper } from '../stream/data-stream-mapper';
+import { mapMastraToolEvent } from '../tool-projection/tool-event-mapper';
 import type { StreamChunk } from '../types';
 
 async function decodeMessage(chunks: StreamChunk[]) {

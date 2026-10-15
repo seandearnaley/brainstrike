@@ -3,21 +3,21 @@ import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import type { CreateTaskResult } from '@brainstrike/mcp-tasks-extension';
 import { type StandardSchemaWithJSON, standardSchemaToJSONSchema } from '@mastra/core/schema';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
-import {
-  MCP_PROGRESS_STREAM_PART_TYPE,
-  mapMcpProgressStreamPart,
-  retainRawMcpCallToolResult,
-} from '../mcp/mcp-runtime-client';
-import { applyToolModelOutputProjections } from '../tool-projection/tool-model-output';
 import { REGISTERED_EXTENSION_RESULT_KEY } from '../mcp/client-extension-registry';
 import type {
   ExplicitHttpMcpCallToolParams,
   ExplicitHttpMcpCallToolResult,
   ExplicitHttpMcpRequestOptions,
 } from '../mcp/explicit-http-client';
+import {
+  MCP_PROGRESS_STREAM_PART_TYPE,
+  mapMcpProgressStreamPart,
+  retainRawMcpCallToolResult,
+} from '../mcp/mcp-runtime-client';
 import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
 import { createMcpRuntimeClient } from '../mcp-client';
 import { resolveScaledToolResultBudget } from '../stream/tool-output-limits';
+import { applyToolModelOutputProjections } from '../tool-projection/tool-model-output';
 import {
   readToolGuardDeadlineSignal,
   registerToolGuardDeadlineSignal,

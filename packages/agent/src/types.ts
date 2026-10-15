@@ -29,9 +29,9 @@ import {
 } from '@brainstrike/types';
 import type { AgentMemoryOption, ToolsInput } from '@mastra/core/agent';
 import type { WorkspaceSkills } from '@mastra/core/skills';
-import type { AssistantPermissionPolicyRequest } from './permissions/permission-policy-request';
 import type { McpConfig } from './mcp/config';
 import type { RuntimeAssistantMemorySettings } from './memory-settings';
+import type { AssistantPermissionPolicyRequest } from './permissions/permission-policy-request';
 import type { LocalLlmHostClient } from './providers/local/llm-host-client';
 import type { AssistantRunEvent } from './run-events';
 import type { AgentHookRunner } from './tools/hook-runner';
