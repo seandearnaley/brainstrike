@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
 import {
   defineNativeTool,
   InvalidNativeToolDefinitionError,
@@ -10,6 +9,11 @@ import {
   requireNativeToolExecutionBudget,
 } from '../index.js';
 import { executeCommand } from '../native-tools/definitions/execute-command.js';
+import {
+  type ToolInputValidation,
+  toToolInputJsonSchema,
+  validateToolInputValue,
+} from '../native-tools/schemas/tool-input-schema.js';
 
 describe('native tool execution budgets', () => {
   it('declares the three tools whose input carries timeoutMs', () => {
@@ -37,11 +41,11 @@ describe('native tool execution budgets', () => {
       }
       const schema = definition.inputSchema;
       const base = toolId === NATIVE_TOOL_ID.executeCommand ? { command: 'true' } : {};
-      const atMax = schema.safeParse({ ...base, timeoutMs: budget.maxMs });
-      const overMax = schema.safeParse({ ...base, timeoutMs: budget.maxMs + 1 });
+      const atMax = validateToolInputValue(schema, { ...base, timeoutMs: budget.maxMs });
+      const overMax = validateToolInputValue(schema, { ...base, timeoutMs: budget.maxMs + 1 });
       // Only the timeoutMs verdict is asserted: other required fields differ per tool.
-      const timeoutIssue = (result: typeof atMax): boolean =>
-        !result.success && result.error.issues.some((issue) => issue.path[0] === 'timeoutMs');
+      const timeoutIssue = (result: ToolInputValidation): boolean =>
+        !result.success && result.issues.some((issue) => issue.path[0] === 'timeoutMs');
       expect(timeoutIssue(atMax)).toBe(false);
       expect(timeoutIssue(overMax)).toBe(true);
     }
@@ -61,10 +65,9 @@ describe('native tool execution budgets', () => {
       if (!definition) {
         throw new Error(`No native tool definition for ${toolId}`);
       }
-      const json = z.toJSONSchema(definition.inputSchema as z.ZodType, {
-        io: 'input',
-        unrepresentable: 'any',
-      }) as { properties?: Record<string, { description?: unknown }> };
+      const json = toToolInputJsonSchema(definition.inputSchema) as {
+        properties?: Record<string, { description?: unknown }>;
+      };
       const described = json.properties?.['timeoutMs']?.description;
       const displayed = (definition as { display?: Record<string, unknown> }).display?.[
         'timeoutMs'

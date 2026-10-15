@@ -1,4 +1,8 @@
 import { DESKTOP_NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract';
+import {
+  isEffectToolInputSchema,
+  toToolInputJsonSchema,
+} from '@brainstrike/assistant-contract/native-tool-schemas';
 import { standardSchemaToJSONSchema, toStandardSchema } from '@mastra/core/schema';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -248,9 +252,39 @@ describe('native tool input schema catalog', () => {
     ).toBe(false);
   });
 
-  it('wraps every registered schema without widening its provider JSON Schema', () => {
+  it('registers every schema through exactly one producer', () => {
+    // ADR-0004 (amended 2026-10-15): Effect Schema is the boundary owner and
+    // the remaining zod tool schemas are being converted behind it. A tool must
+    // belong to exactly ONE producer — a schema neither of them made would
+    // reach the provider as an unvalidated shape, so this is the guard that
+    // nothing is registered raw.
     for (const [toolId, schema] of Object.entries(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS)) {
-      expect(schema, toolId).toBeInstanceOf(z.ZodPipe);
+      const effect = isEffectToolInputSchema(schema);
+      const zod = schema instanceof z.ZodPipe;
+      expect([effect, zod].filter(Boolean), toolId).toHaveLength(1);
+      expect(toToolInputJsonSchema(schema), toolId).toMatchObject({ type: 'object' });
+    }
+  });
+
+  it('hands every caller its own copy of an Effect-derived provider schema', () => {
+    // The derived document is computed once and handed out by value. A caller
+    // that mutated a shared object would silently change what later providers
+    // are sent — the per-provider compat layers DO rewrite what they are given.
+    const effectSchemas = Object.entries(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS).filter(
+      ([, schema]) => isEffectToolInputSchema(schema)
+    );
+    expect(effectSchemas.length, 'the converted slice must be registered').toBeGreaterThan(0);
+    for (const [toolId, schema] of effectSchemas) {
+      const first = toToolInputJsonSchema(schema);
+      first['additionalProperties'] = 'mutated';
+      expect(toToolInputJsonSchema(schema), toolId).toMatchObject({
+        additionalProperties: false,
+      });
+    }
+  });
+
+  it('wraps every registered zod schema without widening its provider JSON Schema', () => {
+    for (const [toolId, schema] of Object.entries(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS)) {
       if (!(schema instanceof z.ZodPipe)) {
         continue;
       }
@@ -354,12 +388,11 @@ describe('native tool input schema catalog', () => {
       'example-0 at $.properties.files.additionalProperties: structured additionalProperties is unsupported',
     ]);
 
+    // Read each tool's model-facing schema through the producer-neutral
+    // accessor, so a converted tool is swept on the same terms as a zod one.
     const unsupportedCatalogShapes = Object.entries(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS).flatMap(
       ([toolId, schema]) =>
-        collectUnsupportedProviderSchemaShapes(
-          z.toJSONSchema(schema.out, PROVIDER_JSON_SCHEMA_OPTIONS),
-          toolId
-        )
+        collectUnsupportedProviderSchemaShapes(toToolInputJsonSchema(schema), toolId)
     );
 
     expect(

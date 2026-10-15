@@ -1,13 +1,13 @@
 /**
  * `toToolSchemaDisplay()` — the browser-safe inspector view of a native tool,
- * DERIVED from its registered Zod input schema (BST-1646 step c).
+ * DERIVED from its registered input schema (BST-1646 step c).
  *
  * The four hand-mirrored `tool-schemas-display-*.ts` tables this replaces
  * carried their own prose for every tool and drifted from the wire schema
  * (a tool gained a mode and a field the mirror never learned about). Here the
- * wire schema IS the source: Zod 4's
- * `z.toJSONSchema` is run with the same `io: 'input'` options the provider
- * wrapper uses, so what the inspector shows is what the model is sent.
+ * wire schema IS the source: `toToolInputJsonSchema` returns the same
+ * model-facing JSON Schema the provider is sent, from whichever library
+ * authored the tool, so what the inspector shows is what the model is sent.
  *
  * Prose: a parameter's description is its `.describe()` text — the ONE prose
  * source. A definition's `display` map may add inspector-only prose for a
@@ -15,8 +15,8 @@
  * it never reaches the model, and a key that names no parameter throws at
  * derivation time.
  */
-import { z } from 'zod';
 import { InvalidNativeToolDefinitionError, type NativeToolDefinition } from './define.js';
+import { toToolInputJsonSchema } from './schemas/tool-input-schema.js';
 
 /** Parameter type for display purposes. */
 export type ParameterType = 'string' | 'number' | 'boolean' | 'array' | 'object' | 'enum';
@@ -278,13 +278,6 @@ function mergeVariant(left: JsonSchema, right: JsonSchema): JsonSchema {
   };
 }
 
-const JSON_SCHEMA_OPTIONS = {
-  cycles: 'throw',
-  io: 'input',
-  reused: 'inline',
-  unrepresentable: 'any',
-} as const;
-
 /**
  * Derive the inspector display for one definition from its registered input
  * schema. Throws {@link InvalidNativeToolDefinitionError} for an input schema
@@ -292,7 +285,7 @@ const JSON_SCHEMA_OPTIONS = {
  * displayable type, or a `display` key that names no parameter.
  */
 export function toToolSchemaDisplay(definition: NativeToolDefinition): ToolSchemaDisplay {
-  const root = z.toJSONSchema(definition.inputSchema, JSON_SCHEMA_OPTIONS) as JsonSchema;
+  const root = toToolInputJsonSchema(definition.inputSchema) as JsonSchema;
   const sources = collectParameters(root, definition.id);
   const display = definition.display ?? {};
   for (const key of Object.keys(display)) {

@@ -4,7 +4,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apiKeyAuthInput, type RuntimeData } from '@brainstrike/agent/provider-runtime';
 import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
-import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
+import {
+  DEFAULT_PERMISSION_POLICIES,
+  NATIVE_TOOL_ID,
+  NATIVE_TOOLS,
+} from '@brainstrike/assistant-contract';
+import {
+  isEffectToolInputSchema,
+  providerCompatibleInputSchema,
+} from '@brainstrike/assistant-contract/native-tool-schemas';
 import { RootLock, StateStore } from '@brainstrike/state-store';
 import { asSchema, jsonSchema } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
@@ -204,6 +212,187 @@ test.each([
     expect(execute).not.toHaveBeenCalled();
   }
 );
+
+/**
+ * ADR-0004 (amended 2026-10-15): Effect Schema is the boundary owner and LLM
+ * tool definitions get a derivation step instead of being authored in zod.
+ * `listWorktrees` and `manageWorktree` are the converted slice.
+ *
+ * The evidence here is equivalence on the REAL host path: the Effect-authored
+ * production schema and a zod schema of the same logical shape are both run
+ * through `prepareHostProviderTools` for each provider and must come out
+ * identical. The zod arm of that path is pinned to the recorded real-provider
+ * request payloads by the tests above, so acceptance carries across.
+ *
+ * No branch was added to `prepareHostProviderTools` for this: the Effect
+ * producer emits a Standard Schema carrying its own JSON Schema converter,
+ * which the existing non-zod path already accepts by spec.
+ */
+/** The registered input schema of one native tool, from its own definition. */
+function registeredInputSchema(toolId: string): unknown {
+  const definition = NATIVE_TOOLS.find((tool) => tool.id === toolId);
+  if (!definition) {
+    throw new Error(`No native tool definition for ${toolId}`);
+  }
+  return definition.inputSchema;
+}
+
+const effectAuthoredSlice = [
+  [
+    NATIVE_TOOL_ID.listWorktrees,
+    z
+      .object({
+        root: z
+          .string()
+          .min(1)
+          .max(512)
+          .optional()
+          .describe('Workspace root id or display name; omit to list every open root'),
+      })
+      .strict(),
+  ],
+  [
+    NATIVE_TOOL_ID.manageWorktree,
+    z
+      .object({
+        action: z.enum(['create', 'archive']).describe('Worktree operation'),
+        baseRef: z
+          .string()
+          .min(1)
+          .max(255)
+          .optional()
+          .describe('Base ref for create; defaults to HEAD'),
+        branch: z.string().min(1).max(255).optional().describe('Required for create'),
+        force: z
+          .boolean()
+          .optional()
+          .describe('Archive a dirty or unpushed worktree anyway; never overrides an active run'),
+        name: z
+          .string()
+          .min(1)
+          .max(128)
+          .optional()
+          .describe('Directory name; defaults to the branch name'),
+        root: z.string().min(1).max(512).optional().describe('Workspace root id or display name'),
+        worktreeId: z.string().min(1).optional().describe('Required for archive'),
+      })
+      .strict(),
+  ],
+] as const;
+
+test('the converted slice really is Effect-authored', () => {
+  // Without this the equivalence tests below would pass trivially if the slice
+  // were reverted to zod.
+  for (const [toolId] of effectAuthoredSlice) {
+    expect(isEffectToolInputSchema(registeredInputSchema(toolId)), toolId).toBe(true);
+  }
+});
+
+test.each([
+  ['openai.responses', 'gpt-6-sol'],
+  ['anthropic.messages', 'claude-sonnet-5'],
+  ['google.generative-ai', 'gemini-3.1-pro-preview'],
+] as const)(
+  'an Effect-authored tool reaches %s as the same schema its zod equivalent would',
+  async (resolvedProvider, modelId) => {
+    for (const [toolId, zodEquivalent] of effectAuthoredSlice) {
+      const execute = vi.fn(async () => ({}));
+      const base = {
+        description: 'Worktree tool',
+        execute,
+        identity: toolId,
+        risk: 'read',
+      } as const;
+      const prepared = await prepareHostProviderTools(
+        { modelId, provider: resolvedProvider },
+        {
+          effect: {
+            ...base,
+            inputSchema: registeredInputSchema(toolId) as HostTool['inputSchema'],
+          },
+          zod: { ...base, inputSchema: providerCompatibleInputSchema(zodEquivalent) },
+        }
+      );
+      const effect = prepared['effect'];
+      const zodPrepared = prepared['zod'];
+      if (!(effect && zodPrepared)) {
+        throw new Error('Missing prepared worktree tool');
+      }
+      expect(await asSchema(effect.inputSchema).jsonSchema, toolId).toEqual(
+        await asSchema(zodPrepared.inputSchema).jsonSchema
+      );
+      expect(execute).not.toHaveBeenCalled();
+    }
+  }
+);
+
+test('the strict-mode OpenAI schema the converted slice produces is the one providers enforce', async () => {
+  // OpenAI structured outputs require every property in `required` and
+  // `additionalProperties: false`; optionals become `anyOf: [T, null]` and are
+  // recorded in `x-optional`. Asserting the shape here keeps the derivation
+  // honest about the provider contract rather than only about zod parity.
+  const prepared = await prepareHostProviderTools(
+    { modelId: 'gpt-6-sol', provider: 'openai.responses', supportsStructuredOutputs: true },
+    {
+      manageWorktree: {
+        description: 'Worktree tool',
+        execute: async () => ({}),
+        identity: NATIVE_TOOL_ID.manageWorktree,
+        inputSchema: registeredInputSchema(
+          NATIVE_TOOL_ID.manageWorktree
+        ) as HostTool['inputSchema'],
+        risk: 'read',
+      },
+    }
+  );
+  const schema = prepared['manageWorktree'];
+  if (!schema) {
+    throw new Error('Missing prepared manageWorktree');
+  }
+  const json = z
+    .object({
+      additionalProperties: z.literal(false),
+      properties: z.record(z.string(), z.json()),
+      required: z.array(z.string()),
+      'x-optional': z.array(z.string()),
+    })
+    .parse(await asSchema(schema.inputSchema).jsonSchema);
+  expect(json.required).toEqual([
+    'action',
+    'baseRef',
+    'branch',
+    'force',
+    'name',
+    'root',
+    'worktreeId',
+  ]);
+  expect(json['x-optional']).toEqual(['baseRef', 'branch', 'force', 'name', 'root', 'worktreeId']);
+  expect(json.properties['branch']).toEqual({
+    anyOf: [
+      {
+        description: 'Required for create\nconstraints: minimum length 1, maximum length 255',
+        type: 'string',
+      },
+      { type: 'null' },
+    ],
+    description: 'Required for create\nconstraints: minimum length 1, maximum length 255',
+  });
+  // The model sends null for the optionals it is not using; that must arrive at
+  // the executor as omission, with the action union still enforced.
+  const validate = asSchema(schema.inputSchema).validate;
+  expect(
+    await validate?.({
+      action: 'archive',
+      baseRef: null,
+      branch: null,
+      force: null,
+      name: null,
+      root: null,
+      worktreeId: 'wt-9',
+    })
+  ).toEqual({ success: true, value: { action: 'archive', worktreeId: 'wt-9' } });
+  expect((await validate?.({ action: 'create', branch: null }))?.success).toBe(false);
+});
 
 test('production schema selection preserves authored validation and one executor effect after SQLite approval reopen', async () => {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-prepared-approval-'));

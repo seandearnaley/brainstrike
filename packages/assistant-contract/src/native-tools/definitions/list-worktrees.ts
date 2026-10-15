@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { ListWorktreesInputSchema } from '../schemas/schemas-worktrees.js';
 
 // Read-only orientation. Deliberately NOT execute-risk even though its
@@ -20,7 +20,7 @@ export const listWorktrees = defineNativeTool({
     'List every git worktree the workspace knows about: path, branch, whether BrainStrike manages it, whether it is usable, and if not, why. Read-only.',
   discovery: { family: 'git worktrees', namespace: 'workspace' },
   id: 'brainstrike.listWorktrees',
-  inputSchema: providerCompatibleInputSchema(ListWorktreesInputSchema),
+  inputSchema: effectToolInputSchema(ListWorktreesInputSchema),
   kind: 'desktop',
   localProvider: 'unregistered',
   returns:

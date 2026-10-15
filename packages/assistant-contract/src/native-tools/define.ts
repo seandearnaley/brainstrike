@@ -9,14 +9,27 @@
  * file plus one executor entry; a facet that is not declared cannot drift,
  * because nothing else lists tools.
  *
- * Browser-safe by construction: this module imports only `zod` types, the
- * risk resolver, and the schema wrapper. Execution stays in the desktop
+ * Browser-safe by construction: this module imports only schema types, the
+ * risk resolver, and the schema wrappers. Execution stays in the desktop
  * executor map and Mastra.
  */
 import type { z } from 'zod';
 import { resolveToolRiskCategory } from '../tool-risk.js';
+import type { EffectToolInputSchema } from './schemas/effect-tool-input.js';
 import type { ProviderCompatibleInputSchema } from './schemas/provider-compatible-input.js';
 import type { NativeToolDefaultMetadata } from './taxonomy.js';
+
+/**
+ * A tool's registered input schema, from either authoring library.
+ *
+ * ADR-0004 (amended 2026-10-15) makes Effect Schema the single boundary owner;
+ * `ProviderCompatibleInputSchema` is the zod producer the remaining tools are
+ * still declared with. Each tool has exactly ONE producer — this union is the
+ * staging seam, not a choice a consumer makes at runtime. Read a definition's
+ * model-facing JSON Schema through `toDefinitionJsonSchema` so neither
+ * producer is special-cased at a call site.
+ */
+export type NativeToolInputSchema = EffectToolInputSchema<unknown> | ProviderCompatibleInputSchema;
 
 /** Where a desktop native tool is advertised and registered. */
 export type NativeToolSurface =
@@ -132,7 +145,10 @@ export interface NativeToolExecutionBudget {
   readonly maxMs: number;
 }
 
-interface NativeToolDefinitionBase<Id extends string, In extends z.ZodType> {
+interface NativeToolDefinitionBase<
+  Id extends string,
+  In extends NativeToolInputSchema | z.ZodType,
+> {
   /** Load-ordering/UI taxonomy, prompt-budget estimate, approval flag, and explicit risk bucket. */
   readonly defaults: NativeToolDefaultMetadata;
   /** ONE prose source: the model-facing tool description AND the settings inspector text. */
@@ -181,7 +197,7 @@ interface NativeToolDefinitionBase<Id extends string, In extends z.ZodType> {
  */
 export interface DesktopNativeToolDefinition<
   Id extends `brainstrike.${string}` = `brainstrike.${string}`,
-  In extends ProviderCompatibleInputSchema = ProviderCompatibleInputSchema,
+  In extends NativeToolInputSchema = NativeToolInputSchema,
 > extends NativeToolDefinitionBase<Id, In> {
   readonly kind: 'desktop';
   /** The tool under the built-in on-device model; see {@link NativeToolLocalProvider}. */

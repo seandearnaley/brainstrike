@@ -522,6 +522,38 @@ describe('assistant-tools multi-root read tools', () => {
       expect(offered).not.toContain('brainstrike.readWorkspaceFile');
     });
 
+    it('serializes an Effect-authored tool onto the descriptor wire as a closed object', async () => {
+      // ADR-0004 (amended 2026-10-15): the worktree tools are authored in
+      // Effect Schema. This is the desktop wire the host actually reads, so it
+      // is where a derivation that only worked in unit tests would show up.
+      const descriptors = await desktopToolDescriptors({
+        ...admission,
+        enabledNativeToolIds: ['brainstrike.listWorktrees', 'brainstrike.manageWorktree'],
+      });
+      // Descriptors are keyed by sanitized provider name; find them by identity.
+      const byToolId = new Map(
+        Object.values(descriptors).map((descriptor) => [descriptor.permissionToolId, descriptor])
+      );
+      const manageWorktree = byToolId.get('brainstrike.manageWorktree');
+      const listWorktrees = byToolId.get('brainstrike.listWorktrees');
+      if (!(manageWorktree && listWorktrees)) {
+        throw new Error(`Missing worktree descriptors among ${[...byToolId.keys()].join(', ')}`);
+      }
+      for (const descriptor of [manageWorktree, listWorktrees]) {
+        expect(descriptor.inputSchema).toMatchObject({
+          additionalProperties: false,
+          type: 'object',
+        });
+      }
+      expect(manageWorktree.inputSchema).toMatchObject({
+        properties: {
+          action: { enum: ['create', 'archive'], type: 'string' },
+          branch: { description: 'Required for create', type: 'string' },
+        },
+        required: ['action'],
+      });
+    });
+
     it('rejects unknown enabled tool ids instead of silently filtering them', async () => {
       await expect(
         desktopToolDescriptors({

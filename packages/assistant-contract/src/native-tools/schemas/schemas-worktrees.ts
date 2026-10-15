@@ -1,93 +1,103 @@
 /**
  * Execution schemas for the two worktree agent tools (BST-1392, spec §6.4).
  *
- * `manageWorktree` follows the settled `manageCanvas` shape: a STRICT root
+ * `manageWorktree` follows the settled `manageCanvas` shape: a CLOSED root
  * object (provider schemas must be root JSON objects — a raw discriminated
  * union serializes as a root `oneOf` and is rejected by the native-tool prompt
  * contract) whose conditional validation delegates to a canonical action union.
+ *
+ * Authored in Effect Schema: ADR-0004 (amended 2026-10-15) makes Effect the
+ * single boundary owner, and `effectToolInputSchema` derives the provider JSON
+ * Schema from these declarations.
  */
-import { z } from 'zod';
+import { Schema, SchemaIssue } from 'effect';
 
 const BRANCH_MAX = 255;
 const NAME_MAX = 128;
 const REF_MAX = 255;
 const ROOT_MAX = 512;
 
-export const ListWorktreesInputSchema = z
-  .object({
-    root: z
-      .string()
-      .min(1)
-      .max(ROOT_MAX)
-      .optional()
-      .describe('Workspace root id or display name; omit to list every open root'),
-  })
-  .strict();
+const bounded = (minimum: number, maximum: number) =>
+  Schema.String.check(Schema.isMinLength(minimum), Schema.isMaxLength(maximum));
 
-export type ListWorktreesInput = z.infer<typeof ListWorktreesInputSchema>;
+export const ListWorktreesInputSchema = Schema.Struct({
+  root: Schema.optionalKey(
+    bounded(1, ROOT_MAX).annotate({
+      description: 'Workspace root id or display name; omit to list every open root',
+    })
+  ),
+});
 
-// Branches deliberately STRIP (zod default) rather than `.strict()`: `action`
-// fully determines semantics, and models bundle fields from the other action.
-// Genuinely unknown keys are still rejected by the strict envelope below.
-const ManageWorktreeActionInputSchema = z.discriminatedUnion('action', [
-  z.object({
-    action: z.literal('create'),
-    baseRef: z.string().min(1).max(REF_MAX).optional().describe('Base ref; defaults to HEAD'),
-    branch: z.string().min(1).max(BRANCH_MAX).describe('Branch to create in the new worktree'),
-    name: z
-      .string()
-      .min(1)
-      .max(NAME_MAX)
-      .optional()
-      .describe('Directory name; defaults to the branch name'),
-    root: z.string().min(1).max(ROOT_MAX).optional().describe('Workspace root id or display name'),
+export type ListWorktreesInput = typeof ListWorktreesInputSchema.Type;
+
+// Branches deliberately STRIP (Effect's default excess-property handling)
+// rather than closing: `action` fully determines semantics, and models bundle
+// fields from the other action. Genuinely unknown keys are still rejected by
+// the closed envelope below, which decodes with `onExcessProperty: 'error'`.
+const ManageWorktreeActionInputSchema = Schema.Union([
+  Schema.Struct({
+    action: Schema.Literal('create'),
+    baseRef: Schema.optionalKey(bounded(1, REF_MAX)),
+    branch: bounded(1, BRANCH_MAX),
+    name: Schema.optionalKey(bounded(1, NAME_MAX)),
+    root: Schema.optionalKey(bounded(1, ROOT_MAX)),
   }),
-  z.object({
-    action: z.literal('archive'),
-    force: z
-      .boolean()
-      .optional()
-      .describe('Archive a dirty or unpushed worktree anyway; never overrides an active run'),
-    worktreeId: z.string().min(1).describe('Worktree id from listWorktrees'),
+  Schema.Struct({
+    action: Schema.Literal('archive'),
+    force: Schema.optionalKey(Schema.Boolean),
+    worktreeId: Schema.String.check(Schema.isMinLength(1)),
   }),
 ]);
 
-export type ManageWorktreeInput = z.infer<typeof ManageWorktreeActionInputSchema>;
+export type ManageWorktreeInput = typeof ManageWorktreeActionInputSchema.Type;
 
+const decodeManageWorktreeAction = Schema.decodeUnknownResult(ManageWorktreeActionInputSchema);
+const decodeManageWorktreeActionOrThrow = Schema.decodeUnknownSync(ManageWorktreeActionInputSchema);
+const formatIssues = SchemaIssue.makeFormatterStandardSchemaV1();
+
+/** Narrow a validated envelope to its action branch, dropping tolerated extras. */
 export function normalizeManageWorktreeInput(input: unknown): ManageWorktreeInput {
-  return ManageWorktreeActionInputSchema.parse(input);
+  return decodeManageWorktreeActionOrThrow(input);
 }
 
-export const ManageWorktreeInputSchema = z
-  .object({
-    action: z.enum(['create', 'archive']).describe('Worktree operation'),
-    baseRef: z
-      .string()
-      .min(1)
-      .max(REF_MAX)
-      .optional()
-      .describe('Base ref for create; defaults to HEAD'),
-    branch: z.string().min(1).max(BRANCH_MAX).optional().describe('Required for create'),
-    force: z
-      .boolean()
-      .optional()
-      .describe('Archive a dirty or unpushed worktree anyway; never overrides an active run'),
-    name: z
-      .string()
-      .min(1)
-      .max(NAME_MAX)
-      .optional()
-      .describe('Directory name; defaults to the branch name'),
-    root: z.string().min(1).max(ROOT_MAX).optional().describe('Workspace root id or display name'),
-    worktreeId: z.string().min(1).optional().describe('Required for archive'),
-  })
-  .strict()
-  .superRefine((input, context) => {
-    const parsed = ManageWorktreeActionInputSchema.safeParse(input);
-    if (parsed.success) {
+/**
+ * The model-facing envelope. The action union above is the authority on which
+ * field combinations are legal; this check forwards its issues with their
+ * paths so a bad call names the field, not just the action.
+ */
+export const ManageWorktreeInputSchema = Schema.Struct({
+  action: Schema.Literals(['create', 'archive']).annotate({ description: 'Worktree operation' }),
+  baseRef: Schema.optionalKey(
+    bounded(1, REF_MAX).annotate({ description: 'Base ref for create; defaults to HEAD' })
+  ),
+  branch: Schema.optionalKey(
+    bounded(1, BRANCH_MAX).annotate({ description: 'Required for create' })
+  ),
+  force: Schema.optionalKey(
+    Schema.Boolean.annotate({
+      description: 'Archive a dirty or unpushed worktree anyway; never overrides an active run',
+    })
+  ),
+  name: Schema.optionalKey(
+    bounded(1, NAME_MAX).annotate({ description: 'Directory name; defaults to the branch name' })
+  ),
+  root: Schema.optionalKey(
+    bounded(1, ROOT_MAX).annotate({ description: 'Workspace root id or display name' })
+  ),
+  worktreeId: Schema.optionalKey(
+    Schema.String.check(Schema.isMinLength(1)).annotate({ description: 'Required for archive' })
+  ),
+}).check(
+  Schema.makeFilter((input) => {
+    const parsed = decodeManageWorktreeAction(input);
+    if (parsed._tag === 'Success') {
       return;
     }
-    for (const issue of parsed.error.issues) {
-      context.addIssue({ code: 'custom', message: issue.message, path: issue.path });
-    }
-  });
+    return formatIssues(parsed.failure.issue).issues.map((issue) => ({
+      issue: issue.message,
+      path: (issue.path ?? []).map((segment) =>
+        typeof segment === 'object' ? segment.key : segment
+      ),
+    }));
+  })
+);

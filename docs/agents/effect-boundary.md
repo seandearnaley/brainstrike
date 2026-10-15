@@ -16,8 +16,9 @@ the language service carries `unstableApiUsage` and `experimentalApiUsage`,
 takes `allowedUnstableApis`/`allowedExperimentalApis` for a reviewed exception,
 and reports a stable signature that exposes a less stable type as
 `apiStabilityLeak`. Everything imported today (`Effect`, `Layer`, `Scope`,
-`Schema`, `Schedule`, `Semaphore`, `ManagedRuntime`, `Stream`) is tagged stable,
-and the three rules pass at `error` severity on the current tree.
+`Schema`, `SchemaIssue`, `JsonSchema`, `Schedule`, `Semaphore`, `ManagedRuntime`,
+`Stream`) is tagged stable, and the three rules pass at `error` severity on the
+current tree.
 
 Effect stays out of preloads and their value-import graph. Shared IPC contracts
 remain pure; main/worker-side validation may use Schema. Do not move a stream,
@@ -41,6 +42,22 @@ where order matters. Partial acquisition rolls back its resources; stale
 callbacks cannot settle a replacement. Keep independent errors and failed owners
 observable until cleanup settles. Retry transactions through the existing bounded
 schedule without losing rollback or original failure identity.
+
+## Schema at the LLM tool boundary
+
+Effect Schema owns tool definitions (ADR-0004, amended 2026-10-15). Declare a
+tool's input as an Effect Schema and register it with `effectToolInputSchema`;
+that one call owns both the provider JSON Schema and the validator, so their
+strictness cannot drift. Read a registered schema through
+`toToolInputJsonSchema` / `validateToolInputValue` rather than narrowing to a
+library at the call site.
+
+Do not use `Schema.toStandardJSONSchemaV1` here: it takes no options and so
+always emits `additionalProperties: true`. Derivation and decoding take
+`onExcessProperty: 'error'` together. A provider will not reliably catch that
+mistake — OpenAI's strict layer closes the object itself and Google's strips the
+key, so an open derivation reaches Anthropic open. The remaining zod schemas and
+their order are in [the migration plan](effect-schema-migration.md).
 
 ## Decoding and tooling
 
