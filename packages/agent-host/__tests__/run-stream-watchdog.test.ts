@@ -17,11 +17,11 @@ type Part = TextStreamPart<ToolSet>;
 // the phase choice observable. Every window is distinct, and the fake clock
 // pins which one expires: the stream is still open one millisecond before it.
 const config: AssistantResilienceConfig = {
-  streamFirstOutputMs: 2000,
+  streamFirstOutputMs: 2600,
   streamInactivityMs: 300,
-  streamReasoningGapMs: 2000,
+  streamReasoningGapMs: 2400,
   streamStallAttempts: 2,
-  toolCallInputMs: 2000,
+  toolCallInputMs: 2200,
   toolExecutingMs: 2000,
   toolTimeoutMs: 1000,
 };

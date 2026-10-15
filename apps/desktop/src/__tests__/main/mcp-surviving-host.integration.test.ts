@@ -234,7 +234,9 @@ describe('surviving Desktop MCP host integration', () => {
           },
         ],
       });
-      expect(performance.now() - startedAt).toBeLessThan(2000);
+      // Below the connect deadline, so a startup that waited on the
+      // handshake (or timed out on it) cannot pass.
+      expect(performance.now() - startedAt).toBeLessThan(NARROWED_UNATTENDED_CONNECT_MS);
       expect(runtime.host.snapshot().servers[0]).toMatchObject({
         configuredServerId,
         state: 'authentication-required',
