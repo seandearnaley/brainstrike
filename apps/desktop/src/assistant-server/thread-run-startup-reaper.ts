@@ -43,8 +43,8 @@
  *   status this module does not understand stays refused, never silently
  *   "recovered".
  * - It never creates the table. MIGRATION 118 owns the runs schema (revised
- *   ruling, docs/agents/assistant-persistence.md § RUN-EVENT / THREAD-RUN
- *   SCHEMA OWNERSHIP, 2026-09-05); main may only UPDATE. It no longer probes
+ *   ruling, docs/archive/agent-contract-history/assistant-persistence/
+ *   run-event-schema-ownership.md, 2026-09-05); main may only UPDATE. It no longer probes
  *   for the relation either: `getDatabase()` cannot resolve a handle until
  *   `migrate()` has run (`db-main.ts`), so the only database that lacks it
  *   was never migrated, and that raises 42P01 into the caller's `catch`

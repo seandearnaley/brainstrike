@@ -1,6 +1,6 @@
 /**
  * Effect Schema field rules for the MCP task tables
- * (docs/agents/effect-boundary.md § "Schema at boundaries").
+ * (docs/agents/effect-boundary.md § "Decoding and tooling").
  *
  * Every rule is declared once and serves both directions the repository
  * checks: rows read back from PGlite and inputs a caller hands in. Each schema

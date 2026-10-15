@@ -11,7 +11,7 @@ export interface PromiseBoundaryOptions {
 /**
  * Runs an Effect for a Promise-based caller: the one sanctioned way Effect code
  * hands a result back to code that is not itself Effect
- * (docs/agents/effect-boundary.md § "Promise boundaries").
+ * (docs/agents/effect-boundary.md § "Promise and resource contracts").
  *
  * - Success resolves with the value.
  * - An expected failure rejects with the failure value itself, so a tagged

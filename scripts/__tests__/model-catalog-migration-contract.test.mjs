@@ -642,8 +642,8 @@ export const migrations = [
           message:
             'packages/db/src/migrations/099-fake-touch.ts writes models.updated_at or ' +
             'models.created_at, which only migrations 20, 24, 28 may do ' +
-            '(docs/agents/assistant-providers.md ' +
-            '§ "`is_enabled` is not evidence of user intent": catalog upserts must never write ' +
+            '(docs/archive/agent-contract-history/assistant-providers/' +
+            'model-enablement-defaults.md: catalog upserts must never write ' +
             'models.updated_at or models.created_at).',
         },
       ]);

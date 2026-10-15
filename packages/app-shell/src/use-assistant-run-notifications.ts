@@ -1,6 +1,6 @@
 /**
  * Composes the assistant run-lifecycle OS notification pipeline (see
- * docs/agents/assistant-persistence.md "ASSISTANT RUN NOTIFICATIONS"). This is the ONLY layer that
+ * docs/agents/assistant-persistence.md § "Thread state and clients"). This is the ONLY layer that
  * reads live browser state (`Notification.permission`) and the notification
  * preferences store — the UI package (`@brainstrike/assistant-ui`) only reports
  * raw run events/approval requests up via callback props, mirroring the existing

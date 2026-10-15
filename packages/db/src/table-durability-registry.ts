@@ -361,7 +361,7 @@ export function getTableDurability(table: string): TableDurabilityClass {
   const durability = DURABILITY_BY_TABLE.get(table);
   if (!durability) {
     throw new Error(
-      `Table "${table}" has no durability class. Classify it in packages/db/src/table-durability-registry.ts (docs/agents/database.md § "TABLE DURABILITY CLASSES").`
+      `Table "${table}" has no durability class. Classify it in packages/db/src/table-durability-registry.ts (docs/agents/database.md § "Data loss boundaries").`
     );
   }
   return durability;

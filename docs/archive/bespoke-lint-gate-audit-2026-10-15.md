@@ -5,9 +5,24 @@ against the canonical tooling already installed (Biome 2.5.14, ESLint 10.10.0,
 knip 6.34.0, Turborepo 2.11.2, pnpm `catalogMode: strict` + `minimumReleaseAge`,
 tsup 8.5.1, TypeScript).
 
-**Result: 0 of 18 are provably covered by an installed canonical tool. Nothing
-was retired.** Three of the four retirement hypotheses that prompted this audit
-were disproven by measurement; the fourth had no target among the 18.
+**Result: nothing was retired.** Three of the four retirement hypotheses that
+prompted this audit were disproven by measurement; the fourth had no target
+among the 18.
+
+**AMENDED 2026-10-15 — the original "0 of 18 are provably covered" was wrong,
+and the corrected figure is more interesting than either number.** One gate,
+`lint:no-no-memo`, DOES have a canonical equivalent that this audit failed to
+test: ESLint core's `no-restricted-syntax`. A Codex review on PR #3629 caught
+the omission. So the honest result is:
+
+> **1 of 18 has a canonical equivalent. We are keeping the bespoke one anyway,
+> because it is ~25× cheaper on the path we actually use and the canonical
+> rule's extra strictness is either a false positive or already closed by the
+> formatter.**
+
+See [§ `lint:no-no-memo`](#amendment-lintno-no-memo-has-a-canonical-equivalent-not-taken).
+The failure mode worth naming is the original one: surveying the candidates you
+happened to think of and reading the result as "no candidate exists".
 
 This document exists so the same four proposals are not re-opened from the names
 of the scripts. Each verdict below is backed by an executed experiment, not by
@@ -121,12 +136,29 @@ rules is **warn** severity by deliberate design (compiler diagnostics as
 warnings, `eslint-warning-baseline.json`). Canonical suppressions would track
 **0 of 355**.
 
-It is also strictly less strict in a second way: the bespoke gate fails when a
-rule falls **below** its baseline, which is what banks a burn-down instead of
-letting freed headroom become budget for the next regression. Suppressions have
-`--pass-on-unpruned-suppressions` but no equivalent hard failure.
+**CORRECTED 2026-10-15 (#3629 review).** This section originally claimed a
+second distinction: that only the bespoke gate hard-fails when a rule falls
+**below** its baseline. That was backwards, and it is removed rather than kept
+as historical evidence. Measured against the installed ESLint 10.10.0, an
+unused suppression fails by DEFAULT:
 
-**Verdict: KEEP.**
+```
+$ eslint <file> --suppressions-location s.json   # baseline says 2, real count is 1
+There are suppressions left that do not occur anymore. To resolve this, re-run the
+command with `--prune-suppressions` to remove unused suppressions. To ignore unused
+suppressions, use `--pass-on-unpruned-suppressions`.
+$ echo $?
+2
+$ eslint <file> --suppressions-location s.json --pass-on-unpruned-suppressions; echo $?
+0
+```
+
+So suppressions DO have a burn-down hard failure, and
+`--pass-on-unpruned-suppressions` is the opt-out from it, not the mechanism that
+creates it. The error-only limit above is the whole reason suppressions cannot be
+adopted here; it did not need a second argument propping it up.
+
+**Verdict: KEEP** — on the error-only limit alone.
 
 ## Evidence table — all 18
 
@@ -138,7 +170,7 @@ in this lane.
 
 | gate | what it actually checks (from the source) | time | canonical coverage | verdict |
 | --- | --- | --- | --- | --- |
-| `lint:no-no-memo` | Forbids the `"use no memo"` React Compiler escape directive across `apps/**`, `packages/**`, `scripts/**`, root configs — `.js/.jsx/.cjs/.mjs/.ts/.tsx/.cts/.mts`. | 1.35s | **No** rule in Biome 2.5 or ESLint 10. A GritQL plugin *does* work (verified: severity `error`, category `plugin`, fails `biome check`) but covers a narrower surface — `biome.json` `files.includes` is `src`-only and omits `.mjs/.cjs/.cts/.mts` and `scripts/**`. | **KEEP** — replacement is narrower, and a Grit pattern that stops matching after a Biome upgrade reports zero, which is the BST-1220 false-green class. |
+| `lint:no-no-memo` | Forbids the `"use no memo"` React Compiler escape directive across `apps/**`, `packages/**`, `scripts/**`, root configs — `.js/.jsx/.cjs/.mjs/.ts/.tsx/.cts/.mts`. | 3.2s | **YES, and not taken** — ESLint core `no-restricted-syntax` with an AST selector covers it. Measured against the real compiler, its two extra catches are one false positive and one hole the formatter already closes, and matching the script's surface costs +76s per cold run. See the amendment. | **KEEP** — a canonical equivalent exists; it is ~25× more expensive for no reachable enforcement gain. |
 | `lint:assistant-run-id-producer` | Pins runId *provenance*: `createThreadRunId` declared once, one call site, not exported, and the `HostRunId` brand asserted exactly once. Stops a second producer minting an id without the parent `brainstrike_assistant_thread_runs` row. | 1.52s | **No** — an identity/reach assertion over one symbol plus a branded type. | **KEEP** |
 | `lint:mastra-stream-chunk-contract` | Asserts the source text of 3 files still *contains* the type-level chunk-disposition machinery (`StaticMastraChunkType` exclusion, the string-widening assertion, the `Record<StaticMastraChunkType, …>` inventory). | 0.26s | **No.** `tsc` enforces the exhaustiveness; this gate enforces that the enforcement still exists. Delete the `Record<…>` and tsc goes quiet — a false green. A liveness instrument for a type-level check. | **KEEP** |
 | `lint:browser-events-literals` | Forbids the 3 `brainstrike:*` embedding-queue CustomEvent name literals outside `packages/utils/src/browser-events.ts` and its test. Prevents the pre-BST-580 drift where 3 packages dispatched `queue-drained` with divergent detail shapes. | 3.10s | **No** canonical forbidden-string-literal-with-path-allowlist rule. Same GritQL caveat as `no-no-memo`. | **KEEP** |
@@ -163,6 +195,119 @@ recorded that the loop is **not** orphaned — `streamMastraAgent` is live behin
 the Hosted Web `POST /api/assistant` route via
 `packages/agent/src/message-utils.ts:301`. Both gates guard live production
 code.
+
+## Amendment: `lint:no-no-memo` has a canonical equivalent, not taken
+
+Raised by a Codex review on PR #3629 and verified here. The original verdict
+rested on two candidates — a Biome GritQL plugin (works, but `biome.json`
+`files.includes` is `src`-only) and ESLint bulk suppressions (error-only).
+Neither is ESLint core's `no-restricted-syntax`, which was never measured. It
+should have been; the rule's documented AST selectors cover this exactly.
+
+### The selector works, and catches more
+
+`ExpressionStatement > Literal[value='use no memo']`, measured on 10 planted
+variants. It caught everything the regex caught, plus two it missed: the
+directive sharing a line with other code (the regex is line-anchored), and an
+escaped spelling such as `"use\u0020no memo"` (the regex compares source TEXT,
+the selector the PARSED value). A full-surface replacement was built and proven:
+6 planted violations across `.mjs`, `scripts/**`, a package outside the react
+block, and both regex blind spots all failed the real gate.
+
+### But "catches more" is not "enforces more"
+
+The question the first pass skipped: **does the React Compiler honour the two
+extra catches?** Parity was established for template literals and then assumed
+for the rest. It should not have been. Read from `babel-plugin-react-compiler@1.0.0`:
+
+```js
+var OPT_OUT_DIRECTIVES = new Set(["use no forget", "use no memo"]);
+function findDirectiveDisablingMemoization(directives, { customOptOutDirectives }) {
+  return directives.find((d) => OPT_OUT_DIRECTIVES.has(d.value.value)) ?? null;
+}
+```
+
+It reads `.directives` — the **directive prologue only** — and compares
+`d.value.value`. That value is not what the parser cooked. From Babel's own
+`stmtToDirective`:
+
+```js
+const raw = this.input.slice(/* start */, /* end */);
+const val = directiveLiteral.value = raw.slice(1, -1);   // RAW source text
+this.addExtra(directiveLiteral, "expressionValue", expressionValue);  // cooked, set aside
+```
+
+A `DirectiveLiteral`'s `value` is the **raw text between the quotes**; the parsed
+value is stashed in `extra.expressionValue` and never consulted. This mirrors
+ECMA-262, where a Use Strict Directive "may not contain an EscapeSequence".
+
+Confirmed by running each variant through the real plugin
+(`compilationMode: 'infer'`) and checking whether the output was memoized:
+
+| case | compiler |
+| --- | --- |
+| A baseline, no directive | **COMPILED** (control — the probe can tell the difference) |
+| B module-scope `"use no memo"` | skipped — opt-out honoured |
+| C **one-line prologue** `function C() { "use no memo"; … }` | **skipped — opt-out HONOURED** |
+| D **escaped** `"use\u0020no memo"` | **COMPILED — opt-out NOT honoured** |
+| E mid-body, after a statement (not a prologue directive) | COMPILED — not honoured |
+| F template literal `` `use no memo` `` | COMPILED — not honoured |
+
+So of the selector's two extra catches:
+
+- **D is a FALSE POSITIVE.** The compiler ignores an escaped spelling, so
+  flagging it reports a string with no effect. By comparing source text rather
+  than the parsed value, the regex accidentally models the real directive
+  semantics *better* than the AST selector does.
+- **C is a REAL hole in the regex** — the compiler does honour it.
+
+### And C is already closed, by the formatter
+
+Biome rewrites the one-liner:
+
+```
+before:  export function C({ items }: { items: number[] }) { "use no memo"; return items.length; }
+after:   export function C({ items }: { items: number[] }) {
+           'use no memo';
+           return items.length;
+         }
+```
+
+after which the line-anchored regex catches it. Formatting is enforced at
+pre-commit (`lefthook.yml` runs `ultracite fix` on staged `*.js`/`*.mjs`/… ) and
+by `biome check .` in `lint:ci`, which fails on unformatted source. A one-line
+directive cannot reach `main` unformatted.
+
+**Net enforcement gain of the canonical rule, on code that can actually land:
+zero.** (Note E: both instruments flag a mid-body occurrence the compiler
+ignores once the formatter puts it on its own line, so the false-positive class
+is shared, not unique to the selector.)
+
+### The cost, which settles it
+
+Matching the script's surface takes the verifier from 2129 to 8067 files:
+
+| | cold (no ESLint cache) | warm |
+| --- | --- | --- |
+| before | 24.2s | — |
+| after | 100.1s | 3.8s |
+
+**+76s per cold run to retire a 3.2s script — ~25×.** Cold is the dominant mode
+here: every parallel session works in a fresh worktree and pays it on first
+lint, and the cache key includes the lockfile and `eslint.config.js`, so routine
+changes re-cold it. Paying that to delete 149 lines was already marginal; paying
+it for one false positive and one formatter-closed hole is not.
+
+**Decision: keep `scripts/forbid-no-memo.mjs`.** The replacement was built,
+proven, measured and reverted. Scoping the rule to the react block's 17 source
+roots would be free but IS a narrowing — the compiler runs
+`compilationMode: 'infer'` over each renderer's whole bundle graph, which spans
+far more packages than those 17.
+
+What survived from the attempt, because it is an improvement either way: the
+TARGETS/config correspondence test is now a **two-way coverage check** rather
+than set equality, so it can express config blocks with deliberately different
+surfaces. Mutation-tested both directions.
 
 ## Follow-ups this audit surfaced (not done here)
 

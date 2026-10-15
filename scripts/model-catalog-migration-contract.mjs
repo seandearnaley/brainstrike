@@ -145,7 +145,7 @@ export function findModelsUpdatedAtWriteFailures(migrationFiles) {
       message:
         `${file.file} writes models.updated_at or models.created_at, which only migrations ` +
         `${[...MODELS_UPDATED_AT_WRITE_ALLOWLIST].sort((a, b) => a - b).join(', ')} may do ` +
-        '(docs/agents/assistant-providers.md § "`is_enabled` is not evidence of user intent": ' +
+        '(docs/archive/agent-contract-history/assistant-providers/model-enablement-defaults.md: ' +
         'catalog upserts must never write models.updated_at or models.created_at).',
     });
   }

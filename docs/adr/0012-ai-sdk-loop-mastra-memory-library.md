@@ -4,6 +4,7 @@
 - **Date:** 2026-10-02
 - **Ticket:** BST-1914
 - **Builds on:** ADR-0001
+- **Amended by:** [ADR-0023](0023-host-owns-its-tool-representation.md) (2026-10-15) — the `@mastra/core` peer-dependency clause; see Amendment below
 
 ## Context
 
@@ -50,6 +51,35 @@ Brainstrike state lives in Brainstrike tables.
   tools.
 - The first engine PR pins `ai` exactly and makes the real-account provider replay a
   required check. OpenCode and Kilo Code run their loops directly on `streamText`.
+
+## Amendment (2026-10-15, ADR-0023)
+
+The Decision's clause "`@mastra/core` stays installed only as its peer" was never
+true and is not made true by retiring the agent loop. Measured on `6a0d027b6`
+(`docs/archive/host-tool-representation-measurement-2026-10-15.md`),
+`@mastra/core` is a direct dependency of `packages/agent`, `packages/agent-host`
+and `packages/test-utils`, and after ADR-0022's retirement and ADR-0023's
+tool-representation change it is still reached at runtime by:
+
+- **hosted tool discovery** — `mastra/tool-search-runtime.ts` constructs a real
+  `ToolSearchProcessor`, and `agent-host/src/adapters/host-tool-discovery.ts`
+  calls `createTool` to feed it;
+- **skills** — `createSkillTools`, `formatSkillActivation`,
+  `formatSkillsCatalog`, `WorkspaceSkills`;
+- **provider-request shaping** — `TripWire`, `TokenLimiter`, `Processor`,
+  `ProviderHistoryCompat`, `ModelRouterLanguageModel`;
+- **background tasks** — `background-result-projection.ts`;
+- **the memory adapters** this ADR keeps.
+
+The clause is replaced by: *`@mastra/memory` is used only as a library behind a
+host adapter; `@mastra/core` additionally remains a direct dependency of
+`packages/agent` and `packages/agent-host` for tool discovery, skills,
+provider-request shaping and background tasks, and each of those is a separate
+decision to make or decline on its own evidence.* `@mastra/core` stays Node-only
+and externalized from browser bundles, unchanged.
+
+Nothing else in this ADR changes: the host still owns one AI SDK 7 `streamText`
+loop per run, with `ai` pinned exactly.
 
 ## Sources
 
