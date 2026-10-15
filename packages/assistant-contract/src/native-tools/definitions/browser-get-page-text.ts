@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { BrowserGetPageTextInputSchema } from '../schemas/schemas-browser.js';
 
 // Browser pane read tools (BST-1176 PR2): riskCategory 'read' like
@@ -19,7 +19,7 @@ export const browserGetPageText = defineNativeTool({
     "Read the visible text of the browser pane's current page (active tab), truncated to maxChars",
   discovery: { family: 'browser pages', namespace: 'web' },
   id: 'brainstrike.browserGetPageText',
-  inputSchema: providerCompatibleInputSchema(BrowserGetPageTextInputSchema),
+  inputSchema: effectToolInputSchema(BrowserGetPageTextInputSchema),
   kind: 'desktop',
   localProvider: 'unregistered',
   returns: 'The page body text with a truncated flag',

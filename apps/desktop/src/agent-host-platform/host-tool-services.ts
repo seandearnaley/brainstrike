@@ -22,13 +22,13 @@ import {
 import { isActionableHostedEmbeddingError } from '../hosted-embedding-error';
 import { attachHostCommandSessions } from './host-command-session-client';
 import {
-  BrowserNavigateRequestSchema,
-  BrowserPageTextRequestSchema,
-  BrowserReadPageRequestSchema,
   DiagnosticsReadRequestSchema,
   GrepIndexRequestSchema,
   PlatformShellCompletedResultSchema,
   PlatformShellCompletedSchema,
+  parseBrowserNavigateRequest,
+  parseBrowserPageTextRequest,
+  parseBrowserReadPageRequest,
   WorktreeArchiveRequestSchema,
   WorktreeCreateRequestSchema,
   WorktreePathsResultSchema,
@@ -197,19 +197,19 @@ function serveBrowserCalls(
 ): void {
   connection.onRequest('platform/browser/navigate', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const request = BrowserNavigateRequestSchema.parse(input);
+      const request = parseBrowserNavigateRequest(input);
       return await required(services?.browser, 'browser pane').navigate(request.input);
     })
   );
   connection.onRequest('platform/browser/read-page', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const request = BrowserReadPageRequestSchema.parse(input);
+      const request = parseBrowserReadPageRequest(input);
       return await required(services?.browser, 'browser pane').readPage(request.input);
     })
   );
   connection.onRequest('platform/browser/page-text', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const request = BrowserPageTextRequestSchema.parse(input);
+      const request = parseBrowserPageTextRequest(input);
       return await required(services?.browser, 'browser pane').getPageText(request.input);
     })
   );

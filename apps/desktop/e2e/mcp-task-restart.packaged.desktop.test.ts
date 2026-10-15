@@ -5,7 +5,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
-import { APP_RENDERER_DOCUMENT_URL } from '../src/desktop-renderer-target';
+import { APP_RENDERER_DOCUMENT_URL } from '../src/desktop-renderer-origin';
 import { closeElectronApp } from './utils/electron-helpers.mts';
 
 type HarnessScenario =

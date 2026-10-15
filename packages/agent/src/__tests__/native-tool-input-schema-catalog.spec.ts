@@ -2,6 +2,7 @@ import { DESKTOP_NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract';
 import {
   isEffectToolInputSchema,
   toToolInputJsonSchema,
+  validateToolInputValue,
 } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { standardSchemaToJSONSchema, toStandardSchema } from '@mastra/core/schema';
 import { describe, expect, it, vi } from 'vitest';
@@ -180,19 +181,26 @@ describe('native tool input schema catalog', () => {
       },
     ];
 
+    // Read through the producer-neutral accessor: the cases span both
+    // producers (`browserReadPage` is Effect-authored, the rest still zod) and
+    // `safeParse` is a zod-only API, so naming it here would make this guard
+    // pass or fail on which library authored the tool rather than on whether
+    // provider `null` normalized to omission.
     for (const testCase of cases) {
       const schema = toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS[testCase.toolId];
-      const parsed = schema.safeParse(testCase.providerInput);
+      const parsed = validateToolInputValue(schema, testCase.providerInput);
 
       expect(
         parsed.success,
-        parsed.success ? testCase.toolId : `${testCase.toolId}: ${parsed.error.message}`
+        parsed.success ? testCase.toolId : `${testCase.toolId}: ${JSON.stringify(parsed.issues)}`
       ).toBe(true);
       if (!parsed.success) {
         continue;
       }
-      expect(parsed.data, testCase.toolId).toEqual(testCase.expected);
-      expect(schema.safeParse(testCase.invalidInput).success, testCase.toolId).toBe(false);
+      expect(parsed.value, testCase.toolId).toEqual(testCase.expected);
+      expect(validateToolInputValue(schema, testCase.invalidInput).success, testCase.toolId).toBe(
+        false
+      );
     }
 
     expect(
@@ -218,8 +226,11 @@ describe('native tool input schema catalog', () => {
       }).success
     ).toBe(false);
 
+    // submitPlan is Effect-authored, so it is read through the neutral
+    // accessor. The nested `detail: null` inside an array item is the point:
+    // normalization has to walk into `steps[]` for the Effect producer too.
     expect(
-      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.submitPlan'].parse({
+      validateToolInputValue(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.submitPlan'], {
         overview: 'Implement the contract.',
         risks: null,
         steps: [{ detail: null, title: 'Implement' }],
@@ -227,9 +238,12 @@ describe('native tool input schema catalog', () => {
         verification: null,
       })
     ).toEqual({
-      overview: 'Implement the contract.',
-      steps: [{ title: 'Implement' }],
-      title: 'Provider compatibility',
+      success: true,
+      value: {
+        overview: 'Implement the contract.',
+        steps: [{ title: 'Implement' }],
+        title: 'Provider compatibility',
+      },
     });
 
     expect(
@@ -239,7 +253,7 @@ describe('native tool input schema catalog', () => {
       })
     ).toEqual({ operation: { action: 'list' } });
     expect(
-      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.submitPlan'].safeParse({
+      validateToolInputValue(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.submitPlan'], {
         overview: 'Implement the contract.',
         steps: [{ detail: null, title: null }],
         title: 'Provider compatibility',
@@ -692,10 +706,11 @@ describe('native tool input schema catalog', () => {
 
   it('requires an explicit diagnostics query mode and bounds its filters', () => {
     const schema = toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.queryDiagnostics'];
+    const parse = (value: unknown) => validateToolInputValue(schema, value).success;
 
-    expect(schema.safeParse({ mode: 'events' }).success).toBe(true);
+    expect(parse({ mode: 'events' })).toBe(true);
     expect(
-      schema.safeParse({
+      parse({
         fingerprint: 'fp-provider',
         limit: 100,
         mode: 'fingerprints',
@@ -703,11 +718,13 @@ describe('native tool input schema catalog', () => {
         since: '2026-07-20T00:00:00.000Z',
         threadId: 'thread-1',
         until: '2026-07-28T00:00:00.000Z',
-      }).success
+      })
     ).toBe(true);
-    expect(schema.safeParse({ limit: 201, mode: 'events' }).success).toBe(false);
-    expect(schema.safeParse({ mode: 'unknown' }).success).toBe(false);
-    expect(schema.safeParse({}).success).toBe(false);
-    expect(JSON.stringify(z.toJSONSchema(schema))).not.toContain('"pattern"');
+    expect(parse({ limit: 201, mode: 'events' })).toBe(false);
+    expect(parse({ mode: 'unknown' })).toBe(false);
+    expect(parse({})).toBe(false);
+    // The ISO bounds are length-bounded, never regex-bounded: a `pattern` would
+    // cost prompt tokens and Google's compat layer strips it anyway.
+    expect(JSON.stringify(toToolInputJsonSchema(schema))).not.toContain('"pattern"');
   });
 });

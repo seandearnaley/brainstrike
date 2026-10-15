@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { BrowserNavigateInputSchema } from '../schemas/schemas-browser.js';
 
 export const browserNavigate = defineNativeTool({
@@ -14,7 +14,7 @@ export const browserNavigate = defineNativeTool({
     "Open a URL in the app's embedded browser pane (creates a tab when none is open) and wait for the load. Bare hosts get https://; non-URL text becomes a web search. Returns the final url and title",
   discovery: { family: 'browser pages', namespace: 'web' },
   id: 'brainstrike.browserNavigate',
-  inputSchema: providerCompatibleInputSchema(BrowserNavigateInputSchema),
+  inputSchema: effectToolInputSchema(BrowserNavigateInputSchema),
   kind: 'desktop',
   localProvider: 'unregistered',
   returns: 'The final url and page title after the load settles',

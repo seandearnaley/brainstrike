@@ -4,7 +4,6 @@ import {
   AssistantAttachmentValidationError,
   convertAssistantUiMessages,
   convertAssistantUiMessagesWithFinalInput,
-  toAiSdkStyleStream,
 } from '..';
 import {
   AssistantMessageValidationError,
@@ -14,6 +13,11 @@ import {
   MAX_ASSISTANT_MESSAGE_STRING_CHARS,
   MAX_ASSISTANT_MESSAGES,
 } from '../assistant-message-boundary';
+// Deep import: `toAiSdkStyleStream` is no longer on the package's public
+// surface (ADR-0022 step 3 dropped the engine re-exports, and #3652 removed
+// web's use of it). It retires with the engine in step 4, along with the
+// `toAiSdkStyleStream` cases below.
+import { toAiSdkStyleStream } from '../mastra/to-ai-sdk-style-stream';
 import { buildWorkspaceRootManifestContextMessage } from '../workspace-root-manifest';
 
 const { streamMastraAgentMock } = vi.hoisted(() => ({

@@ -332,7 +332,10 @@ const FALLBACK_STORAGE: StorageDiagnostics = {
 };
 
 /** Check if a category should be checked */
-function shouldCheck(category: string, categories: string[], checkAll: boolean): boolean {
+// `readonly`: the Effect-authored `SystemDiagnosticsInputSchema` decodes
+// `categories` to a `readonly` array (ADR-0004, amended 2026-10-15), and this
+// predicate only reads it.
+function shouldCheck(category: string, categories: readonly string[], checkAll: boolean): boolean {
   return checkAll || categories.includes(category);
 }
 
