@@ -51,17 +51,7 @@ const compilerDiagnosticsAsWarnings = Object.fromEntries(
 const noopRule = { create: () => ({}) };
 const externalDirectiveStubs = {
   '@typescript-eslint': {
-    rules: {
-      // The four below are reached only by the no-memo block's wider surface
-      // (non-src `apps/**`/`packages/**`, `scripts/**`, and the `.mjs`/`.cjs`/
-      // `.mts`/`.cts` extensions). Enumerated for the same reason as the rest:
-      // an unknown NEW directive must still fail loudly.
-      'no-empty-function': noopRule,
-      'no-explicit-any': noopRule,
-      'no-non-null-assertion': noopRule,
-      'no-unused-vars': noopRule,
-      'no-var-requires': noopRule,
-    },
+    rules: { 'no-var-requires': noopRule },
   },
   'react-doctor': {
     rules: {
@@ -160,65 +150,6 @@ export default [
       // it fails the runtime's identity check exactly like a function would.
       // Only immutable primitives can be compared equal across a reload.
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
-    },
-  },
-  {
-    // The React Compiler escape-directive ban, replacing the bespoke
-    // `scripts/forbid-no-memo.mjs` scan (#3629 follow-up). `no-restricted-syntax`
-    // is ESLint core, and its AST selector is STRICTLY STRONGER than the regex it
-    // replaces. Measured against 10 planted variants:
-    //   both catch:  "use no memo"; / 'use no memo' / indented / .mjs / .cjs /
-    //                .mts / .jsx
-    //   AST ALSO catches, regex MISSED:
-    //     - the directive inline in a single-line body
-    //       (`function f() { "use no memo"; return 1; }`) — the regex is
-    //       line-anchored and requires the whole line to be the directive;
-    //     - an escaped spelling such as "use\u0020no memo" — the regex compares
-    //       source TEXT, while the selector compares the PARSED value.
-    //   neither catches: a template literal `use no memo`, which the React
-    //                    Compiler does not honour either, so that is parity.
-    //
-    // `scripts/__tests__/lint-rule-liveness-contract.test.mjs` drives a known
-    // violation through this config, so a selector that silently stops matching
-    // fails loudly instead of reading as a clean repo (the BST-1220 class).
-    //
-    // SURFACE IS DELIBERATELY WIDER THAN THE REACT BLOCK ABOVE and matches the
-    // retired script's globs exactly, so retiring it narrows nothing: all of
-    // `apps/**`, `packages/**`, `scripts/**` and the root configs, across all
-    // eight extensions. Tests are in scope, as they were for the script.
-    files: [
-      'apps/**/*.{js,jsx,cjs,mjs,ts,tsx,cts,mts}',
-      'packages/**/*.{js,jsx,cjs,mjs,ts,tsx,cts,mts}',
-      'scripts/**/*.{js,jsx,cjs,mjs,ts,tsx,cts,mts}',
-      '*.config.{js,cjs,mjs,ts,cts,mts}',
-    ],
-    ignores: ['**/dist/**', '**/coverage/**', '**/.turbo/**', '**/build/**', '**/*.d.ts'],
-    languageOptions: {
-      parser: tsParser,
-      sourceType: 'module',
-    },
-    linterOptions: {
-      // Same reason as the react block: the stubs never report, so every
-      // directive addressed to another engine would read as unused.
-      reportUnusedDisableDirectives: 'off',
-    },
-    plugins: {
-      ...externalDirectiveStubs,
-      // Carried for DIRECTIVE RESOLUTION ONLY — no rule from it is enabled
-      // here, so this block adds no warnings to the per-rule baseline. Without
-      // it, a `react-hooks/*` disable comment in this wider surface hard-errors
-      // as an unresolvable rule.
-      ...recommendedLatest.plugins,
-    },
-    rules: {
-      'no-restricted-syntax': [
-        'error',
-        {
-          message:
-            'Forbidden React compiler escape directive. Refactor around the React compiler instead.',
-          selector: "ExpressionStatement > Literal[value='use no memo']",
-        },
-      ],
     },
   },
 ];

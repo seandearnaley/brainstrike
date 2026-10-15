@@ -138,6 +138,7 @@ test('native guard globs prune ignored directories and document POSIX output', (
   const guardPaths = [
     'scripts/assistant-run-id-producer-guard.mjs',
     'scripts/browser-events-literal-guard.mjs',
+    'scripts/forbid-no-memo.mjs',
     'scripts/verify-mastra-schema-init-order.mjs',
   ];
 
@@ -154,11 +155,12 @@ test('native guard globs prune ignored directories and document POSIX output', (
     }
   }
 
-  // The POSIX-normalisation assertion that stood here covered
-  // `scripts/forbid-no-memo.mjs`, retired in the #3629 follow-up: ESLint's
-  // `no-restricted-syntax` now owns that check and reports paths itself, so
-  // there is no hand-rolled glob output left to normalise. The glob-pruning
-  // invariant above still applies to the three remaining native guards.
+  const noMemoSource = readFileSync(path.join(repoRoot, 'scripts/forbid-no-memo.mjs'), 'utf8');
+  assert.match(
+    noMemoSource,
+    /Windows: Node glob returns platform-separated paths by default/,
+    'the POSIX normalization must retain its Windows rationale'
+  );
 });
 
 /**

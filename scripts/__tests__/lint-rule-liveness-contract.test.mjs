@@ -90,29 +90,6 @@ const CASES = [
     // `lint:eslint` exits 0. The gate would stop blocking with nothing red.
     severity: 2,
   },
-  {
-    // The React Compiler escape-directive ban (#3629 follow-up). This case is
-    // the REASON the bespoke `scripts/forbid-no-memo.mjs` scan could be
-    // retired: a regex cannot silently stop matching, but an AST selector can
-    // — a `no-restricted-syntax` selector that no longer resolves reports zero
-    // and reads exactly like a clean repo. That is the BST-1220 class this file
-    // exists for, so the replacement only holds while this case does.
-    code: [
-      '"use no memo";',
-      '',
-      'export function SomeComponent() {',
-      '  return null;',
-      '}',
-      '',
-    ].join('\n'),
-    name: 'the React Compiler escape directive is rejected',
-    ruleId: 'no-restricted-syntax',
-    // MUST stay 2 ('error'). The per-rule ratchet fails on any error-severity
-    // finding (rule 1, zero errors always), which is what makes this block a
-    // hard gate without needing a baseline entry. A downgrade to 'warn' would
-    // demand a baseline entry and otherwise pass silently.
-    severity: 2,
-  },
 ];
 
 for (const { code, name, ruleId, severity } of CASES) {

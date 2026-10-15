@@ -74,8 +74,6 @@ const CACHE_KEY_INPUTS = ['pnpm-lock.yaml', 'eslint.config.js'];
 // the baseline that describes it cannot drift apart; a contract test asserts
 // this matches eslint.config.js's `files` globs.
 const TARGETS = [
-  // The react block's 17 source roots, each of which must stay listed here or
-  // its warnings drop out of the per-rule baseline without failing.
   'apps/desktop/src',
   'apps/web/src',
   'packages/app-shell/src',
@@ -93,16 +91,6 @@ const TARGETS = [
   'packages/ui/src',
   'packages/vector-management/src',
   'packages/workspace-search/src',
-  // The no-memo block's wider surface (#3629 follow-up). These three roots
-  // SUBSUME the 17 above; they are listed separately rather than collapsed to
-  // keep the react block's set explicit and independently checkable, and
-  // because ESLint de-duplicates the overlap itself. The react block's `files`
-  // globs do not match outside the 17, so adding these contributes no new
-  // warnings to the baseline — only `no-restricted-syntax` errors, which rule 1
-  // (zero errors, always) already fails on.
-  'apps',
-  'packages',
-  'scripts',
 ];
 
 // Anti-vacuous-green floor: if lintFiles silently matches nothing, every
