@@ -28,7 +28,7 @@ export default defineConfig({
     reporters: ['default', new LostTestFileReporter()],
     setupFiles: [
       '@brainstrike/test-utils/vitest.event-loop-watchdog.setup',
-      '@brainstrike/test-utils/vitest.setup',
+      '@brainstrike/test-utils/vitest.dom-aware.setup',
     ],
     testTimeout: 30_000,
     unstubGlobals: true,

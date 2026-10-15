@@ -19,6 +19,6 @@ export const testBase: InlineConfig = {
   // module map under load, on macOS and Linux (BST-2002); forks start no worker threads.
   pool: 'forks',
   restoreMocks: true,
-  setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+  setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
   testTimeout: 10_000,
 };

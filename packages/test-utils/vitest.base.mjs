@@ -14,6 +14,6 @@ export const testBase = {
   // Forks, Vitest's default: Node 26 worker threads segfault under load (BST-2002).
   pool: 'forks',
   restoreMocks: true,
-  setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+  setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
   testTimeout: 10_000,
 };

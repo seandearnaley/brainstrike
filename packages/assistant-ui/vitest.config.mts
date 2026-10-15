@@ -94,7 +94,7 @@ export default defineConfig({
           sequence: {
             groupOrder: 0,
           },
-          setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+          setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
         },
       },
       {
@@ -115,7 +115,7 @@ export default defineConfig({
           sequence: {
             groupOrder: 0,
           },
-          setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+          setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
         },
       },
       {

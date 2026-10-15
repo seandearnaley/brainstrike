@@ -39,8 +39,9 @@ export default defineConfig({
     // waitFor/findBy budget and nothing else (BST-1299). This lane opts out
     // of the shared vitest.setup (which registers beforeEach/afterEach
     // hooks), but its suites still use waitFor and would otherwise sit on
-    // the library's unscalable 1s default.
-    setupFiles: ['@brainstrike/test-utils/vitest.timeouts.setup'],
+    // the library's unscalable 1s default. Applied only where the file's
+    // environment has a DOM; node-environment files skip the import.
+    setupFiles: ['@brainstrike/test-utils/vitest.dom-aware-timeouts.setup'],
     testTimeout: 15_000,
   },
 });
