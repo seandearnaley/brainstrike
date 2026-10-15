@@ -58,7 +58,8 @@ the workspace-context snapshot that decides which checked files reach the model.
   "not measured", never as zero. Unknown, unindexed and unmapped are display
   states, not zero-filled values.
 - Shell output (`cat`, `sed`) is counted as other tool output and isn't mapped
-  to lines. Child runs keep their own logs and are not yet shown in the
+  to lines. Child runs keep their own logs. Each direct child is a lane of the
+  parent's Context tab, folded from its own log (BST-2021), not merged into the
   parent's map.
 - Retrieval loses the explorer budget as its default and uses its fixed
   4,000-token default.

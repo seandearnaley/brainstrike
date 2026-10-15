@@ -1,10 +1,14 @@
+import { createLogger } from '@brainstrike/logging';
 import type {
   AssistantThreadHostCapability,
   AssistantThreadHostChild,
 } from './assistant-thread-host-context';
 
+const logger = createLogger('HostChildSidebar');
+const DISCOVERY_FAILURE = 'Child conversations could not be loaded. Try again.';
+
 export interface HostChildSidebarSnapshot {
-  /** Each expanded host parent's children, in delegation order, or why they could not be read. */
+  /** Each observed host parent's children, in delegation order, or why they could not be read. */
   readonly children: ReadonlyMap<string, readonly AssistantThreadHostChild[] | Error>;
   /** Children whose status changed while their tab was not the selected one. */
   readonly unread: ReadonlySet<string>;
@@ -21,13 +25,14 @@ function asError(value: unknown): Error {
 }
 
 /**
- * BST-1932 (F19–F21): the threads panel's host child rows. An expanded parent's
+ * BST-1932 (F19–F21): the threads panel's host child rows. A visible parent's
  * children are read from the host, and read again only when the host says that
  * parent's children changed: no polling, and no child log is watched. A child
  * whose status changes while its tab is not selected is unread until seen.
  */
 export class HostChildSidebarStore {
   private readonly listeners = new Set<() => void>();
+  private observed = new Set<string>();
   private readonly requests = new Map<string, number>();
   private snapshot: HostChildSidebarSnapshot = { children: new Map(), unread: new Set() };
   private readonly release: () => void;
@@ -61,13 +66,37 @@ export class HostChildSidebarStore {
     return () => this.listeners.delete(listener);
   };
 
+  /** Discover disclosure for visible parents, including collapsed ones. */
+  observe(threadIds: readonly string[]): void {
+    const next = new Set(threadIds);
+    const previous = this.observed;
+    this.observed = next;
+    for (const threadId of previous) {
+      if (!next.has(threadId)) {
+        this.collapse(threadId);
+      }
+    }
+    for (const threadId of next) {
+      this.expand(threadId);
+    }
+  }
+
   expand(threadId: string): void {
     if (!this.requests.has(threadId)) {
       this.read(threadId);
     }
   }
 
+  retry(threadId: string): void {
+    if (this.requests.has(threadId)) {
+      this.read(threadId);
+    }
+  }
+
   collapse(threadId: string): void {
+    if (this.observed.has(threadId)) {
+      return;
+    }
     this.requests.delete(threadId);
     const children = new Map(this.snapshot.children);
     children.delete(threadId);
@@ -88,6 +117,7 @@ export class HostChildSidebarStore {
     this.release();
     this.releaseSelection();
     this.requests.clear();
+    this.observed.clear();
     this.listeners.clear();
   }
 
@@ -109,19 +139,23 @@ export class HostChildSidebarStore {
     if (this.requests.get(threadId) !== request) {
       return;
     }
+    if (listed instanceof Error) {
+      logger.error('Host child threads could not be listed', { threadId });
+    }
+    const settled = listed instanceof Error ? new Error(DISCOVERY_FAILURE) : listed;
     const previous = this.snapshot.children.get(threadId);
     const unread = new Set(this.snapshot.unread);
-    if (previous !== undefined && !(previous instanceof Error) && !(listed instanceof Error)) {
+    if (previous !== undefined && !(previous instanceof Error) && !(settled instanceof Error)) {
       const before = new Map(previous.map((child) => [child.threadId, child.status]));
       const selected = this.selection.current();
-      for (const child of listed) {
+      for (const child of settled) {
         const status = before.get(child.threadId);
         if (status !== undefined && status !== child.status && child.threadId !== selected) {
           unread.add(child.threadId);
         }
       }
     }
-    this.publish({ children: new Map(this.snapshot.children).set(threadId, listed), unread });
+    this.publish({ children: new Map(this.snapshot.children).set(threadId, settled), unread });
   }
 
   private publish(next: HostChildSidebarSnapshot): void {

@@ -23,6 +23,7 @@ import { connectDesktopAgentHost } from './agent-host-client';
 import { createDesktopHostConnection, type DesktopHostConnection } from './desktop-host-connection';
 import { createHostRewindPort } from './host-rewind-port';
 import { HostThreadCanvases } from './host-thread-canvases';
+import { openHostThreadContext } from './host-thread-context';
 import { HostThreadLedger } from './host-thread-ledger';
 import { HostThreadRuns } from './host-thread-runs';
 
@@ -258,6 +259,14 @@ export function createWindowThreadCapability(
     isHostThread: (threadId) => threads.has(threadId),
     ledger,
     listThreads,
+    // BST-2021: a subagent's lane in its parent's Context tab.
+    openThreadContext: async (threadId) => {
+      const host = await threadClient(threadId);
+      if (!host) {
+        throw new Error('This thread is not owned by the agent host');
+      }
+      return openHostThreadContext(host, threadId);
+    },
     ownsThread: async (threadId) => (await threadClient(threadId)) !== undefined,
     // This frame's desktop-ui client: the host reads its own store; Main serves none.
     providers: {

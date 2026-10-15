@@ -122,6 +122,8 @@ export interface TreeTableColumn<T> {
   showSortIndicator?: boolean;
   /** Whether this column is sortable */
   sortable?: boolean;
+  /** First-line pitch in pixels for top-pinned controls; defaults to 40. */
+  treeControlLineHeight?: number | ((node: TreeNode<T>) => number);
   /** Pin expand and checkbox controls to the first row line when cell content can grow. */
   treeControlsPosition?: 'center' | 'top';
   /** Fixed width in pixels or CSS string */
