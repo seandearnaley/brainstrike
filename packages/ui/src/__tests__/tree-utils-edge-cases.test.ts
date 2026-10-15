@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * Edge case tests for tree-utils functions.
  *

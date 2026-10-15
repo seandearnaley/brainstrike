@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import type { ModelPickerModel } from '../types';
 import { filterModels } from '../utils/filter-models';
