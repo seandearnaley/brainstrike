@@ -1,5 +1,4 @@
 // @ts-check
-import { randomUUID } from 'node:crypto';
 import { derivePromptItemTitle, normalizePromptItemTags } from '@brainstrike/types/prompt-item';
 
 export const PROMPT_CATALOG_SCHEMA = `
@@ -145,7 +144,7 @@ export function executePromptCatalogRequest(db, request) {
         case 'revisions':
           return { items: [], revisions: revisions(db, request.id) };
         case 'create': {
-          const id = request.input.id ?? `prompt-item-${randomUUID()}`;
+          const id = request.input.id ?? `prompt-item-${crypto.randomUUID()}`;
           db.prepare(
             'INSERT INTO prompt_items(id,kind,title,content,description,tags,is_favorite,source_url,rating,model_key,model_settings,revision,use_count,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,0,?,?)'
           ).run(id, ...values(request.input), now, now);
@@ -162,7 +161,7 @@ export function executePromptCatalogRequest(db, request) {
           db.prepare(
             'INSERT INTO prompt_item_revisions(id,prompt_item_id,revision,title,content,description,tags,model_key,model_settings,note,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)'
           ).run(
-            `prompt-revision-${randomUUID()}`,
+            `prompt-revision-${crypto.randomUUID()}`,
             previous.id,
             previous.revision,
             previous.title,

@@ -3,14 +3,43 @@
 // src/frame.ts). A row's payload is its event body with the row's seq written first: `{"seq":N,...}`.
 // SQLite stores no checksum of row content: a flipped payload byte passes `integrity_check` and is returned as if
 // nothing happened (M0-A2 item 3c), so every row also carries crc32(payload).
-import { crc32 } from 'node:zlib';
+// The browser writer (@brainstrike/web-state-store) shares this module, so the crc comes from Node's zlib only where
+// the runtime provides it, and otherwise from the same CRC-32 (IEEE 802.3, zlib's) computed here.
+
+/** @type {((data: string) => number) | undefined} */
+const zlibCrc32 = globalThis.process?.getBuiltinModule?.('node:zlib')?.crc32;
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) {
+      c = c & 1 ? 0xed_b8_83_20 ^ (c >>> 1) : c >>> 1;
+    }
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+const utf8 = new TextEncoder();
 
 /**
- * crc32 of the payload's UTF-8 bytes.
- * @param {string} payload
+ * zlib's crc32 of `bytes`.
+ * @param {Uint8Array} bytes
  * @returns {number}
  */
-export const crcOf = (payload) => crc32(Buffer.from(payload, 'utf8'));
+export function crc32Bytes(bytes) {
+  let crc = 0xff_ff_ff_ff;
+  for (const byte of bytes) {
+    crc = /** @type {number} */ (CRC_TABLE[(crc ^ byte) & 0xff]) ^ (crc >>> 8);
+  }
+  return (crc ^ 0xff_ff_ff_ff) >>> 0;
+}
+
+/**
+ * crc32 of the payload's UTF-8 bytes; zlib encodes a string argument as UTF-8.
+ * @type {(payload: string) => number}
+ */
+export const crcOf = zlibCrc32 ?? ((payload) => crc32Bytes(utf8.encode(payload)));
 
 /**
  * Whether a stored row still matches its crc.
