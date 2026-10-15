@@ -43,6 +43,47 @@ callbacks cannot settle a replacement. Keep independent errors and failed owners
 observable until cleanup settles. Retry transactions through the existing bounded
 schedule without losing rollback or original failure identity.
 
+### Named boundary contracts
+
+Each boundary below owns its resources at one Effect seam. The measured evidence
+sits with the archived contract history; the rules themselves are current and
+guarded by `scripts/__tests__/effect-boundary-contract.test.mjs`.
+
+- Provider auth and assistant provider probes bound fetch and body reading together;
+  cancellation aborts fetch and polling sleeps, preserving typed failures,
+  verdicts and cache provenance.
+- The MCP OAuth callback Scope owns listener teardown; each wait uses
+  `Effect.ensuring` for timer cleanup, and close joins all active waits.
+  Provider OAuth loopback Scope owns listener cleanup; reject duplicate waits,
+  and close joins its callback timer and both socket cleanup operations.
+- Embedding admission reserves partial permits transactionally; abort only
+  capacity waits, never committed grants.
+- Parser host generation Scope joins actual exit and listener cleanup; failed
+  kills retain ownership and block reuse until retry or exit, and stale
+  callbacks never affect replacements.
+- OXC IPC request Scope owns its correlation entry and timer; first terminal
+  outcome wins, malformed or mismatched replies remain pending, and local
+  cleanup never cancels remote parsing.
+- Python cold-install scopes join hash-stream and tar-child close before
+  staging cleanup; preserve first-caller ownership; committed installs win only
+  over late abort, and cleanup failures remain visible.
+- File-tree bulk operations share one Scope-owned pending entry; detach before
+  settlement, preserve synchronous posting and first terminal outcome, and clean
+  failed sends before replacement.
+- Renderer startup adopts `Effect.retry` and always finalizes readiness waits.
+
+Evidence (archived):
+[provider-auth-lifetimes](../archive/agent-contract-history/effect-boundary/provider-auth-lifetimes.md),
+[provider-probe-lifetimes](../archive/agent-contract-history/effect-boundary/provider-probe-lifetimes.md),
+[mcp-oauth-callback-scope](../archive/agent-contract-history/effect-boundary/mcp-oauth-callback-scope.md),
+[provider-loopback-scope](../archive/agent-contract-history/effect-boundary/provider-loopback-scope.md),
+[embedding-admission-permits](../archive/agent-contract-history/effect-boundary/embedding-admission-permits.md),
+[parser-generation-scope](../archive/agent-contract-history/effect-boundary/parser-generation-scope.md),
+[oxc-request-scopes](../archive/agent-contract-history/effect-boundary/oxc-request-scopes.md),
+[python-resource-scopes](../archive/agent-contract-history/effect-boundary/python-resource-scopes.md),
+[file-tree-operation-scopes](../archive/agent-contract-history/effect-boundary/file-tree-operation-scopes.md),
+[renderer-startup](../archive/agent-contract-history/effect-boundary/renderer-startup.md).
+
 ## Schema at the LLM tool boundary
 
 Effect Schema owns tool definitions (ADR-0004, amended 2026-10-15). Declare a
@@ -65,6 +106,18 @@ Decode runtime payloads, worker messages and database rows at their receiving
 boundary; derive types and check cross-field invariants rather than asserting a
 shape. Preserve the established error class/cause and pure preload parser surface.
 Type-only brands do not add a runtime producer or identity alias.
+
+Decoded fields annotate `message` with old hand-check sentences; predicate-only
+`Schema.is` boundaries preserve existing errors in caller code. Python maps
+issue paths to legacy `PythonManifestInvalidError` messages, and missing targets
+stay unsupported-platform errors. Worker envelope Schema lives behind
+`@brainstrike/worker-runtime/validation`: keep the root import light and
+preserve plain `Error` sentences, array roots and object identity.
+
+Evidence (archived):
+[parser-host-schema](../archive/agent-contract-history/effect-boundary/parser-host-schema.md),
+[python-manifest-schema](../archive/agent-contract-history/effect-boundary/python-manifest-schema.md),
+[worker-envelope-schema](../archive/agent-contract-history/effect-boundary/worker-envelope-schema.md).
 
 Use the existing effect-kit helpers and package diagnostics. Do not patch the
 shared TypeScript compiler as part of a library adoption. Versions, import paths

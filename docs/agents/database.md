@@ -23,6 +23,23 @@ ledger keys; the Drizzle ledger is derived. Do not invent legacy-data conversion
 or populated old-schema gates: [ADR-0020](../adr/0020-greenfield-data-lifecycle.md)
 governs greenfield scope.
 
+Updating only the static catalog is NOT enough — the in-app model picker is driven
+by a DB-backed catalog, so a catalog change is a two-part edit. The single source
+of truth to edit is:
+
+   - packages/assistant-contract/src/provider-catalog.json
+
+The catalog is DATA, not a TypeScript literal.
+`scripts/model-catalog-migration-contract.mjs` and the provider env-keys mirror contract read it with `JSON.parse`,
+so no catalog field may reference a constant; comments are optional `_note`
+strings that `parseProviderCatalog` strips. `tsc` does not check catalog rows,
+because JSON widens under `resolveJsonModule`:
+`packages/assistant-contract/src/provider-catalog-schema.ts` does, at module load, and THROWS.
+Every object is a Zod `strictObject`, so an unknown or misspelled key fails
+rather than being dropped, and adding or retyping a field means editing the
+schema AND the interface in the same change. Catalog row changes that must
+survive in PGlite still need a numbered migration carrying its `ledgerKey`.
+
 `packages/db/src/migrations/current-schema.sql` is the whole schema in one step,
 GENERATED from a database the real chain built (`pnpm --filter @brainstrike/db
 db:schema:ddl`) and never transcribed from migration sources. It is not applied
