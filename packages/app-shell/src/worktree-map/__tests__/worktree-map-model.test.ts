@@ -1,4 +1,3 @@
-// @vitest-environment node
 import type { AssistantMemoryThread, AssistantThreadMetadata } from '@brainstrike/assistant-data';
 import type { WorktreeListEntry } from '@brainstrike/types';
 import { forgePrCacheKey } from '@brainstrike/types';

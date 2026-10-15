@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { forgePrCacheKey } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
 import { projectForgePrRows } from '../hooks/use-forge-pr-cache';

@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { Folder, Settings } from 'lucide-react';
 import { navigationItems } from '../navigation';
 

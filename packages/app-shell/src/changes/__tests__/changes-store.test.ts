@@ -1,4 +1,3 @@
-// @vitest-environment node
 import type { ChangedFileEntry } from '@brainstrike/types';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { changedFileKey, selectRenderedFiles, useChangesStore } from '../changes-store';

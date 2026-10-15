@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * BST-1592 — pure MCP prompt catalog projection: authority gating (connected +
  * advertised `prompts` feature), server-disambiguated ids/labels, stable

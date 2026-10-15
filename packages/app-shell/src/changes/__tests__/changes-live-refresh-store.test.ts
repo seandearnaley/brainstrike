@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { createLogger } from '@brainstrike/logging';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {

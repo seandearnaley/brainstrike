@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * BST-1990: a thread folder the workspace no longer serves. The host refuses
  * every write and run while the binding names one, so each repair action drops

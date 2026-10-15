@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Unit tests for `buildChangedFilesTree` (BST-1114, W4 Task B).
  *

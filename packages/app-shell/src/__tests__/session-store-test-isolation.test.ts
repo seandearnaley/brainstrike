@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { beforeAll, describe, expect, it } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import type { BrowserTab } from '../browser-pane/browser-bridge';

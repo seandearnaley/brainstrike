@@ -1,4 +1,3 @@
-// @vitest-environment node
 import type { IDatabase } from '@brainstrike/db';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { runWorkspaceIndexStageBenchmark } from '../workspace-index-debug-benchmark';

@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { BrowserTab } from '../browser-pane/browser-bridge';
 import { selectActiveBrowserTab, useBrowserTabsStore } from '../browser-pane/browser-tabs-store';
