@@ -9,8 +9,11 @@
  * so no import cycle is possible.
  */
 import { writeShellOutputChunk } from '@brainstrike/agent';
+import {
+  type ToolInputIssue,
+  validateToolInputValue,
+} from '@brainstrike/assistant-contract/native-tool-schemas';
 import { createLogger } from '@brainstrike/logging';
-import type { z } from 'zod';
 
 const logger = createLogger('DesktopAssistantTools');
 
@@ -65,12 +68,12 @@ export function readToolCallId(context: ToolExecuteRunContext | undefined): stri
 }
 
 export function resolveToolExecuteInputCandidate<T>(
-  schema: z.ZodType<T>,
+  schema: unknown,
   input: ToolExecuteInput<T>
 ): unknown {
-  const directResult = schema.safeParse(input);
+  const directResult = validateToolInputValue(schema, input);
   if (directResult.success) {
-    return directResult.data;
+    return directResult.value;
   }
 
   // Mastra sometimes wraps tool args as { context: T } for compatibility. Try
@@ -84,9 +87,9 @@ export function resolveToolExecuteInputCandidate<T>(
     'context' in input &&
     maybeWrapped.context !== undefined
   ) {
-    const wrappedResult = schema.safeParse(maybeWrapped.context);
+    const wrappedResult = validateToolInputValue(schema, maybeWrapped.context);
     if (wrappedResult.success) {
-      return wrappedResult.data;
+      return wrappedResult.value;
     }
     return input;
   }
@@ -99,29 +102,33 @@ const TOOL_INPUT_ERROR_MAX_CHARS = 600;
 
 /**
  * Input-validation failure with a compact single-line `message` (the model
- * reads it verbatim) that still carries the raw Zod `issues`, so per-tool
- * enrichers that duck-type on `.issues` keep working.
+ * reads it verbatim) that still carries the per-field `issues`, so per-tool
+ * enrichers that duck-type on `.issues` keep working. The issue shape is the
+ * producer-neutral one both tool-schema libraries report in.
  */
 export class ToolInputValidationError extends Error {
   constructor(
     message: string,
-    readonly issues: z.ZodError['issues']
+    readonly issues: readonly ToolInputIssue[]
   ) {
     super(message);
     this.name = 'ToolInputValidationError';
   }
 }
 
-export function parseToolExecuteInput<T>(schema: z.ZodType<T>, input: ToolExecuteInput<T>): T {
-  const result = schema.safeParse(resolveToolExecuteInputCandidate(schema, input));
+export function parseToolExecuteInput<T>(schema: unknown, input: ToolExecuteInput<T>): T {
+  const result = validateToolInputValue(schema, resolveToolExecuteInputCandidate(schema, input));
   if (result.success) {
-    return result.data;
+    return result.value as T;
   }
-  // The model reads this text verbatim on every failed call — a raw ZodError
-  // serializes as a multi-line JSON blob. Compact it to one dense line with
-  // the same information (field path + message per issue), capped.
-  const issueText = result.error.issues
-    .map((issue) => `${issue.path.length > 0 ? issue.path.join('.') : 'input'}: ${issue.message}`)
+  // The model reads this text verbatim on every failed call — a raw decode
+  // error serializes as a multi-line JSON blob. Compact it to one dense line
+  // with the same information (field path + message per issue), capped.
+  const issueText = result.issues
+    .map(
+      (issue) =>
+        `${issue.path.length > 0 ? issue.path.map(String).join('.') : 'input'}: ${issue.message}`
+    )
     .join('; ')
     .replace(/\s+/g, ' ');
   const message = `invalid tool input — ${issueText}`;
@@ -129,7 +136,7 @@ export function parseToolExecuteInput<T>(schema: z.ZodType<T>, input: ToolExecut
     message.length > TOOL_INPUT_ERROR_MAX_CHARS
       ? `${message.slice(0, TOOL_INPUT_ERROR_MAX_CHARS - 1)}…`
       : message,
-    result.error.issues
+    result.issues
   );
 }
 

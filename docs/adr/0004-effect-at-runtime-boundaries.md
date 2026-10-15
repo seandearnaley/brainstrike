@@ -74,6 +74,7 @@ Later phases (main's composition root as a Layer graph, RPC over workers,
   (ADR-0001) until their own contracts change.
 - zod remains the schema library for LLM tool definitions. The AI SDK
   special-cases it, and migrating 99 exported schemas buys little.
+  **Superseded by the 2026-10-15 amendment below.**
 - Import churn is contained by an allowlist, not by a ban on one directory.
   `effect/unstable/*` existed when this ADR was written and was dropped in
   rc.118; the contract allows exactly `effect` and `effect/testing`, so that
@@ -94,3 +95,47 @@ Later phases (main's composition root as a Layer graph, RPC over workers,
   most of the hand-built machinery above lives.
 - **Stay with zod plus hand-written helpers.** Covers decoding but leaves the
   error channel, timeouts, and locks as they are.
+
+## Amendment (2026-10-15): Effect Schema is the single boundary owner
+
+Carrying two schema libraries is the option that costs most and decides least.
+The repository had zod at 152 non-test files and Effect Schema at 50, and an RPC
+contract is schemas — so the unanswered question blocked putting the host
+protocol onto a schema-derived contract. Effect Schema now owns every boundary,
+LLM tool definitions included. The paragraph above reserving zod for tool
+definitions is superseded.
+
+**Where the boundary sits.** A tool declares an Effect Schema and registers it
+through `effectToolInputSchema`
+([producer](../../packages/assistant-contract/src/native-tools/schemas/effect-tool-input.ts)).
+That one call returns a value carrying both halves of the boundary: the
+draft-07 JSON Schema the provider is sent, and the validator the host parses
+tool input with. The AI SDK needs no adapter — `FlexibleSchema` admits a
+Standard Schema whose props carry a `StandardJSONSchemaV1.Converter`
+(`@standard-schema/spec` 1.1.0), and `@mastra/schema-compat` accepts the same
+value as a `StandardSchemaWithJSON`. The per-provider compat layer and
+`prepareHostProviderTools` were not changed.
+
+**The rule new code follows.** Author the tool's input in Effect Schema and
+register it with `effectToolInputSchema`. Read a registered schema through
+`toToolInputJsonSchema` / `validateToolInputValue`
+([accessors](../../packages/assistant-contract/src/native-tools/schemas/tool-input-schema.ts)),
+never by narrowing to a library at the call site. Do not use
+`Schema.toStandardJSONSchemaV1`: it takes no options, so it always emits
+`additionalProperties: true` and would advertise an open object for a tool whose
+validator rejects unknown keys. Derivation and decoding must take
+`onExcessProperty: 'error'` together, from one helper, or the advertised
+contract and the enforced one drift.
+
+That drift does not fail uniformly, which is why it is stated as a rule rather
+than left to a provider to catch: OpenAI's strict layer sets
+`additionalProperties: false` itself and Google's layer strips the key, so an
+open derivation looks correct on both and reaches Anthropic open.
+
+**Staging.** Each tool has exactly one producer; `NativeToolInputSchema` is the
+union of the two while the remaining zod schemas are converted, and the catalog
+spec refuses a schema that is neither. `providerCompatibleInputSchema` is the
+zod producer being retired, and both producers share one
+`normalizeProviderNulls`, so a provider `null` means omission of a declared
+optional property whoever authored the schema. The order for the remaining
+boundaries is [the migration plan](../agents/effect-schema-migration.md).

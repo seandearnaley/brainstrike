@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { ManageWorktreeInputSchema } from '../schemas/schemas-worktrees.js';
 
 // Creates and archives real linked worktrees on disk (spec §6.4: "execute-risk
@@ -21,7 +21,7 @@ export const manageWorktree = defineNativeTool({
     'Create an isolated git worktree for the current repository, or archive one. create takes a branch name and a base ref; archive takes the worktree id from listWorktrees and refuses a dirty or in-use worktree unless force is set. Archiving always captures a restorable snapshot first.',
   discovery: { family: 'git worktrees', namespace: 'workspace' },
   id: 'brainstrike.manageWorktree',
-  inputSchema: providerCompatibleInputSchema(ManageWorktreeInputSchema),
+  inputSchema: effectToolInputSchema(ManageWorktreeInputSchema),
   kind: 'desktop',
   localProvider: 'unregistered',
   returns:

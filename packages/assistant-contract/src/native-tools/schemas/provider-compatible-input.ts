@@ -7,6 +7,28 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/**
+ * The single literal a property schema pins, however its dialect spells it.
+ *
+ * zod emits a discriminant as `const`; Effect emits it as a one-element
+ * `enum`. Both are draft-07, and this normalizer serves both tool-schema
+ * producers, so it has to read both — the same reason it reads `oneOf` and
+ * `anyOf`. A multi-value `enum` is a constrained field, NOT a discriminant,
+ * and must not select a branch.
+ */
+function discriminantValue(propertySchema: unknown): { readonly value: unknown } | undefined {
+  if (!isRecord(propertySchema)) {
+    return;
+  }
+  if ('const' in propertySchema) {
+    return { value: propertySchema['const'] };
+  }
+  const enumValues = propertySchema['enum'];
+  return Array.isArray(enumValues) && enumValues.length === 1
+    ? { value: enumValues[0] }
+    : undefined;
+}
+
 function constMatchedBranch(branches: readonly unknown[], value: unknown): unknown {
   if (!isRecord(value)) {
     return;
@@ -21,17 +43,18 @@ function constMatchedBranch(branches: readonly unknown[], value: unknown): unkno
       return false;
     }
 
-    let hasConst = false;
+    let hasDiscriminant = false;
     for (const [key, propertySchema] of Object.entries(properties)) {
-      if (!(isRecord(propertySchema) && 'const' in propertySchema)) {
+      const discriminant = discriminantValue(propertySchema);
+      if (!discriminant) {
         continue;
       }
-      hasConst = true;
-      if (propertySchema['const'] !== value[key]) {
+      hasDiscriminant = true;
+      if (discriminant.value !== value[key]) {
         return false;
       }
     }
-    return hasConst;
+    return hasDiscriminant;
   });
   return matches.length === 1 ? matches[0] : undefined;
 }
@@ -110,7 +133,18 @@ function normalizeDeclaredProperties(
   return normalized ?? value;
 }
 
-function normalizeProviderNulls(value: unknown, schema: unknown): unknown {
+/**
+ * Treat provider-emitted `null` as omission, deciding only from the authored
+ * JSON Schema: a `null` is removed only where it sits on a declared
+ * optional/defaulted object property. Required, unknown, dynamic-record and
+ * ambiguous-union values are left for the authored schema to validate.
+ *
+ * This is the ONE normalizer for both tool-schema producers — the zod
+ * {@link providerCompatibleInputSchema} below and the Effect
+ * `effectToolInputSchema`. It reads a JSON Schema and a value, so it is not
+ * specific to either library; do not write a second one.
+ */
+export function normalizeProviderNulls(value: unknown, schema: unknown): unknown {
   if (!isRecord(schema)) {
     return value;
   }
@@ -128,10 +162,10 @@ function normalizeProviderNulls(value: unknown, schema: unknown): unknown {
 }
 
 /**
- * Treat provider-emitted `null` as omission at the complete-input boundary.
- * A single immutable JSON Schema traversal removes null only from declared
- * optional/defaulted object properties. Required, unknown, dynamic-record, and
- * ambiguous-union values remain untouched for the authored schema to validate.
+ * Admit a zod schema as a native tool's input schema, normalizing provider
+ * `null` to omission on the way in. Retained for the tool schemas not yet
+ * moved to Effect Schema (ADR-0004, amended 2026-10-15); new tools use
+ * `effectToolInputSchema`.
  */
 export function providerCompatibleInputSchema<Schema extends z.ZodType>(
   schema: Schema

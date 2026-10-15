@@ -1,9 +1,9 @@
+import { validateToolInputValue } from '@brainstrike/assistant-contract/native-tool-schemas';
 import {
   DESKTOP_NATIVE_TOOLS,
   type DesktopNativeTool,
   isDesktopNativeToolId,
 } from '@brainstrike/assistant-contract/tool-metadata';
-import type { z } from 'zod';
 
 export * from './provider-compatible-input';
 export * from './schemas-artifacts';
@@ -26,24 +26,21 @@ export const NATIVE_TOOL_INPUT_SCHEMAS = Object.freeze(
   Object.fromEntries(DESKTOP_NATIVE_TOOLS.map((tool) => [tool.id, tool.inputSchema]))
 ) as { readonly [Tool in DesktopNativeTool as Tool['id']]: Tool['inputSchema'] };
 
-function formatZodIssue(issue: z.ZodIssue): string {
-  const path = Array.isArray(issue.path) ? issue.path.join('.') : String(issue.path);
-  const prefix = path.length > 0 ? `${path} ` : '';
-  return `${prefix}${issue.message}`;
-}
-
 function parseWithSchema(
-  schema: z.ZodSchema,
+  schema: unknown,
   params: Record<string, unknown> | undefined
 ): { ok: true; data: unknown } | { ok: false; issues: string[] } {
-  const res = schema.safeParse(params ?? {});
-  if (!res.success) {
+  const result = validateToolInputValue(schema, params ?? {});
+  if (!result.success) {
     return {
-      issues: res.error.issues.map((issue) => formatZodIssue(issue)),
+      issues: result.issues.map((issue) => {
+        const path = issue.path.map(String).join('.');
+        return path.length > 0 ? `${path} ${issue.message}` : issue.message;
+      }),
       ok: false,
     };
   }
-  return { data: res.data, ok: true };
+  return { data: result.value, ok: true };
 }
 
 export function validateToolInput(

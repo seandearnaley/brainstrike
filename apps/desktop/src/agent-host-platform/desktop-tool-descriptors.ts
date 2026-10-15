@@ -59,7 +59,13 @@ function admitted(id: string, admission: DesktopToolAdmission): boolean {
 
 const JsonSchemaSchema = z.record(z.string(), z.json());
 
-async function jsonSchema(schema: z.ZodType): Promise<z.output<typeof JsonSchemaSchema>> {
+/**
+ * `unknown`, matching `canonicalToolInputSchema`: a tool's registered input
+ * schema is authored in Effect Schema or zod (ADR-0004, amended 2026-10-15)
+ * and Mastra's `toStandardSchema` admits either. Naming zod here would be a
+ * false type for the converted tools.
+ */
+async function jsonSchema(schema: unknown): Promise<z.output<typeof JsonSchemaSchema>> {
   return JsonSchemaSchema.parse(
     await canonicalToolInputJsonSchema(canonicalToolInputSchema(schema))
   );
