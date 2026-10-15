@@ -189,27 +189,59 @@ the wrong order of operations; the statement was always wrong.
   evidence; this ADR scopes it out rather than pretending it follows.
 - `@mastra/memory` and `agent-host`'s memory adapter are untouched, per ADR-0012.
 
-### Correction carried into ADR-0022's step 4
+### Correction carried into ADR-0022's step 4: delete the count, keep the rule
 
-ADR-0022's deletion list (82, corrected to 83 files) was computed from a
-tool-projection seed that does not include the two public entries the host
-imports. Walking from `packages/agent/src/tool-runtime.ts` and
-`packages/agent/src/mcp-client.ts` reaches nine further `src/mastra/` modules —
-`default-instructions`, `tool-search-runtime`, `mcp-tool-loader`,
-`plan-mode-tool-gate`, `stream-run-event-chunks`, `mcp-discovery-diagnostics`,
-`deferred-tool-catalog`, `mastra-agent-error`, `deferred-capability-families` —
-each with at least one consumer outside `packages/agent`.
+ADR-0022's step 4 names a file count. It should not. The count has now been
+computed four times by three sessions and come out 83, 79, 75 and 69 — every
+time because the seed set was incomplete, and every time lower. I contributed
+one of the wrong numbers.
 
-| Set | Files | Lines |
+It is not a fact about the tree. It is a function of how many public entries and
+outside consumers get detangled first, and it moves by tens:
+
+| Seed | Survivors | Retirable |
 | --- | ---: | ---: |
-| `src/mastra/` non-test, total | 100 | 32,847 |
-| Seeded tool-projection cluster (reproduces the scoping doc's 16 / 4,983) | 16 | 4,967 |
-| Union with the `tool-runtime` + `mcp-client` entry closures | **25** | **7,517** |
-| Retirable | **75** | **25,330** |
+| Tool-projection names (the scoping doc) | 16 | 83 |
+| `closure(tool-runtime ∪ mcp-client)` | 21 | 79 |
+| + direct-consumer accounting (this ADR's first draft) | 25 | 75 |
+| + every other surviving `package.json` export, notably `./provider-request` and `./provider-runtime` | 31 | 69 |
+| + `shell-output-stream`, `permission-tool-gate`, `mcp-app-tool-call` | 35 | 65 |
+| + `runtime-assembly/tool-pipeline` (`composeRuntimeToolMap`) | **73** | **27** |
 
-This does not change ADR-0022's decision — web still stops calling the loop, and
-the deletion is still the largest subtraction available. It changes which files
-step 4 may delete, and should be settled there, not here.
+`./provider-request` and `./provider-runtime` were found by
+`delete-the-orphaned-mastra-agent-loop` and reproduced here: they reach 13
+`src/mastra/` modules over **runtime (value)** edges, four of them Mastra
+`Processor` implementations (`error-processors`,
+`projection-safe-tool-call-filter`, `token-measurement`,
+`tool-projection-rewrite-processor`, plus `mastra-chunk-decoding`,
+`bedrock-message-hygiene`, `openai-duplicate-item-compat`,
+`openai-tool-search-history-compat`, `runtime-configuration`,
+`runtime-assembly/usage-metering`). Deleting them breaks two published entries.
+
+**So state the rule and compute it at execution:**
+
+> Delete every `src/mastra/` module that no surviving `package.json` export entry
+> reaches and no non-test consumer outside `packages/agent` imports, recomputed
+> immediately before the deletion lands.
+
+**The rule needs one more clause than that, or it yields 27 or 65 depending on
+who reads it.** The last row of the table is a single file:
+`apps/desktop/e2e/helpers/mcp-apps-ordinary-admission.ts` is the only consumer
+outside `packages/agent` of *both* `composeRuntimeToolMap` and
+`createMcpAppOrdinaryToolCallPreparer`, and it drags in 38 further modules on
+its own. It is an e2e **helper** — test support that lives outside `__tests__`
+and is not named `*.spec.ts`, so a literal "non-test consumer" filter counts it
+and cancels most of the deletion. It should be re-pointed or deleted alongside
+the nine desktop tests step 3 already re-points, which is a decision, not a
+measurement. The rule must say so.
+
+For sizing only, labelled as sizing and not to be written into the ADR:
+**65 retirable / 35 surviving** once that helper is dealt with, against
+**27 / 73** if it is not.
+
+None of this changes ADR-0022's decision — web still stops calling the loop, and
+the deletion is still the largest subtraction available. It changes what step 4
+must establish before it deletes anything.
 
 ## Alternatives considered
 
@@ -256,9 +288,13 @@ one-line pass-through; that `@mastra/core/schema` re-exports
 `@mastra/schema-compat/schema`; that `toStandardSchema` on raw JSON Schema is a
 clone plus `$schema` stamp; that AI SDK 7's `jsonSchema()` stores JSON Schema
 verbatim and `asSchema` returns it unchanged; that `strict` exists on AI SDK 7's
-`Tool`; and the file and line counts in the table above, by a static import walk.
+`Tool`; and every row of the seed-ladder table, by a static import walk, including
+an independent reproduction of `delete-the-orphaned-mastra-agent-loop`'s
+`./provider-request` / `./provider-runtime` finding and of its 31-survivor figure.
 
-Not verified: **nothing was executed.** No test was run and no behaviour was
+Not verified: **nothing was executed.** The seed-ladder figures are each correct
+for their own seed and none of them is a prediction of what step 4 will delete —
+that is the point of replacing the count with a rule. No test was run and no behaviour was
 exercised. Whether Ajv's draft-07 engine resolves `#/$defs/...` pointers
 identically to its 2020-12 engine was not tested — it matters only for an MCP
 server using `$defs` without declaring `$schema`. Whether any MCP server actually

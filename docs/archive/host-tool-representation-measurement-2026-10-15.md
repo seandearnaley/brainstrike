@@ -268,7 +268,7 @@ ones a tool-representation change does **not** reach:
 
 ---
 
-## 7. A correction to ADR-0022's step-4 file list
+## 7. ADR-0022's step-4 file count, and why it should not exist
 
 `docs/archive/web-assistant-engine-scoping-2026-10-15.md` computed the
 tool-projection cluster by seeding from ten named projection modules and taking
@@ -276,46 +276,76 @@ their closure. Reproducing that seed gives **16 files / 4,967 lines** — matchi
 the doc's 16 / 4,983 to within a line-counting difference, which confirms the
 method.
 
-But that seed does not include the two *public entries the host actually
-imports*. Walking from `packages/agent/src/tool-runtime.ts` and
-`packages/agent/src/mcp-client.ts` reaches **21** `src/mastra/` files, nine of
-which are outside the seeded cluster:
+The seed is what was incomplete, and it has been incomplete four times. Each row
+below was measured with the same walk, widening only the seed:
+
+| Seed | Survivors | Retirable |
+| --- | ---: | ---: |
+| Tool-projection names (the scoping doc) | 16 | 83 |
+| `closure(tool-runtime ∪ mcp-client)` | 21 | 79 |
+| + direct-consumer accounting (this document's first revision) | 25 | 75 |
+| + every other surviving `package.json` export | 31 | 69 |
+| + `shell-output-stream`, `permission-tool-gate`, `mcp-app-tool-call` | 35 | 65 |
+| + `runtime-assembly/tool-pipeline` | **73** | **27** |
+
+### What the entry-only closure adds over the seeded cluster
+
+Walking from `tool-runtime.ts` and `mcp-client.ts` adds nine modules, each with
+at least one consumer outside `packages/agent`:
 
 | Lines | File | Reached via |
 | ---: | --- | --- |
-| 753 | `default-instructions.ts` | `tool-runtime` → `buildDefaultInstructions` and four siblings |
-| 753 | `tool-search-runtime.ts` | `tool-runtime` → `BrainstrikeToolSearchProcessor`, `resolveToolDiscoverySurface`, `createPersistedStepArgs`, `resolveHostedToolDiscoveryAdapter` |
-| 445 | `mcp-tool-loader.ts` | `mcp-client` → `collectCombinedTools` |
-| 148 | `plan-mode-tool-gate.ts` | `tool-runtime` → `filterToolsForPlanMode` |
+| 753 | `default-instructions.ts` | `buildDefaultInstructions` and four siblings |
+| 753 | `tool-search-runtime.ts` | `BrainstrikeToolSearchProcessor`, `resolveToolDiscoverySurface`, `createPersistedStepArgs`, `resolveHostedToolDiscoveryAdapter` |
+| 445 | `mcp-tool-loader.ts` | `collectCombinedTools` (seven consumer files) |
+| 148 | `plan-mode-tool-gate.ts` | `filterToolsForPlanMode` |
 | 137 | `stream-run-event-chunks.ts` | closure |
-| 123 | `mcp-discovery-diagnostics.ts` | `mcp-client` → `McpDiscoverySkip` |
-| 112 | `deferred-tool-catalog.ts` | `tool-runtime` → `LIST_AVAILABLE_TOOLS_ID` |
+| 123 | `mcp-discovery-diagnostics.ts` | `McpDiscoverySkip` |
+| 112 | `deferred-tool-catalog.ts` | `LIST_AVAILABLE_TOOLS_ID` |
 | 45 | `mastra-agent-error.ts` | closure |
 | 34 | `deferred-capability-families.ts` | closure |
 
-Every one of those entry symbols has at least one consumer outside
-`packages/agent` (`collectCombinedTools`: seven files).
+Widening to **every** surviving `package.json` export adds thirteen more,
+reached over **runtime (value)** edges, not type edges. This set was found by
+`delete-the-orphaned-mastra-agent-loop` and reproduced here independently:
 
-The root `.` entry adds no further `src/mastra/` modules beyond the seeded
-cluster: the host's 104 root imports resolve to nine `./mastra/*` modules
-(`grep-model-format`, `mcp-task-tool-result`, `permission-policy-request`,
-`permission-tool-gate`, `shell-output-stream`, `tool-call-telemetry`,
-`tool-model-output`, `tool-output-artifact-reader`,
-`tool-projection-input-rejected`), all already inside the 16.
+| Entry | Modules |
+| --- | --- |
+| `./provider-request` | `error-processors` (239), `projection-safe-tool-call-filter` (753), `token-measurement` (661), `tool-projection-rewrite-processor` (73), `openai-tool-search-history-compat` (220), `openai-duplicate-item-compat` (338), `bedrock-message-hygiene` (245), `mastra-agent-error` (45), `tool-call-telemetry` (48) |
+| `./provider-runtime` | `mastra-chunk-decoding` (734), `runtime-configuration` (137), `runtime-assembly/usage-metering` (263) |
 
-| Set | Files | Lines |
-| --- | ---: | ---: |
-| `src/mastra/` non-test, total | 100 | 32,847 |
-| Seeded tool-projection cluster (reproduces the scoping doc) | 16 | 4,967 |
-| Union with the `tool-runtime` + `mcp-client` entry closures | **25** | **7,517** |
-| Retirable on that union | **75** | **25,330** |
+Verified as value edges by reading the entry files: `provider-request.ts:22-32`
+is seven plain `import { … }` statements and `provider-runtime.ts:15-23` is
+three `export { … } from`. Four are Mastra `Processor` implementations.
+Deleting any of them breaks a published entry.
 
-This does not change ADR-0022's decision — web still stops calling the loop and
-the deletion is still the largest subtraction available. It changes **which
-files step 4 may delete**. The 82/83-file list would remove nine modules that
-two surviving public entries export.
+### The last row is one file, and it is a decision
 
----
+`apps/desktop/e2e/helpers/mcp-apps-ordinary-admission.ts` is the **only**
+consumer outside `packages/agent` of both `composeRuntimeToolMap`
+(`index.ts:266` → `mastra/runtime-assembly/tool-pipeline.ts:503`) and
+`createMcpAppOrdinaryToolCallPreparer` (`index.ts:249` →
+`mastra/mcp-app-tool-call.ts:291`). Counting it as a consumer pulls in 38
+further modules and takes the deletion from 65 files to 27.
+
+It is an e2e **helper**: test support that lives outside `__tests__` and is not
+named `*.spec.ts`, so a literal "non-test consumer outside `packages/agent`"
+filter counts it. Whether it is re-pointed or deleted alongside the nine desktop
+tests step 3 already re-points is a decision, not a measurement — and the rule
+below has to say which, or two readers will compute two answers.
+
+### The rule
+
+> Delete every `src/mastra/` module that no surviving `package.json` export
+> entry reaches and no non-test consumer outside `packages/agent` imports —
+> where e2e helpers count as tests and are re-pointed, not preserved —
+> recomputed immediately before the deletion lands.
+
+Current sizing, **as sizing and not as an ADR commitment**: 65 retirable / 35
+surviving with that helper re-pointed; 27 / 73 without.
+
+None of this changes ADR-0022's decision. It changes what step 4 must establish
+before it deletes anything.
 
 ## 8. What was not verified
 
