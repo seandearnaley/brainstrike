@@ -188,7 +188,7 @@
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "concurrently --kill-others --names types,bundle \"tsc --project tsconfig.json --watch --preserveWatchOutput\" \"tsup --watch\"",
     "lint": "pnpm -w lint",
-    "test": "vitest run --no-file-parallelism --exclude \"**/*.integration.spec.*\"",
+    "test": "vitest run --exclude \"**/*.integration.spec.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts --no-file-parallelism",
     "test:coverage": "vitest run --no-file-parallelism --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
