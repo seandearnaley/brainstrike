@@ -17,6 +17,7 @@
 // partition the base suite by construction — no file can be orphaned. Base
 // `test:coverage` keeps the base config's full include so coverage still
 // measures every file in one process.
+import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 import baseConfig, {
   ELECTRON_RUNTIME_TESTS,
@@ -45,6 +46,14 @@ export default defineConfig({
     // "Something removed the coverage directory ... Vitest created earlier").
     // Full-suite coverage is owned by the single-process `test:coverage` script.
     coverage: { ...(baseTest.coverage ?? {}), enabled: false },
+    // Migrate one PGlite template per lane run instead of once per file: the
+    // files get isolated restored copies from
+    // `@brainstrike/db/test-support/migrated-test-db`. Node pass only, because
+    // the Electron pass's files open no migrated database. That pass and the
+    // base-config coverage pass fall back to one template per file.
+    globalSetup: UNDER_ELECTRON
+      ? []
+      : [resolve(import.meta.dirname, '../../packages/db/__tests__/helpers/db-snapshot-global.ts')],
     // This include MIRRORS the pure lane's --exclude suffix (restricted to
     // real test-module extensions; see the note just above the glob), so the
     // two lanes partition the suffix by construction: a
