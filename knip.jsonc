@@ -489,7 +489,7 @@
       "ignoreDependencies": [
         // The Effect language-service tsconfig plugin NAME, not a package: the
         // pinned `@effect/tsgo` binary resolves it in its dedicated diagnostics
-        // mode (docs/agents/effect-boundary.md § "Effect diagnostics"). Every
+        // mode (docs/agents/effect-boundary.md § "Decoding and tooling"). Every
         // Effect package carries the same entry.
         "@effect/language-service"
       ],

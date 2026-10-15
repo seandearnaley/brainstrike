@@ -12,7 +12,10 @@ import type { Migration } from './migration-runner';
  * plain role is what denies them — a read-only transaction alone does NOT.
  *
  * Full contract, including the measured evidence for every layer:
- * `docs/agents/agent-self-query.md`.
+ * `docs/archive/agent-contract-history/agent-self-query/sandbox-layers.md`.
+ * BST-1995 (#3581) removed the `brainstrike.querySelf` caller and deleted the
+ * active contract; the role stays in the numbered chain and the generated
+ * current schema, so the layer record is archived rather than live.
  *
  * NOLOGIN is deliberate: this is an authorization identity assumed via
  * `SET LOCAL ROLE` inside a transaction, never a connection identity. PGlite

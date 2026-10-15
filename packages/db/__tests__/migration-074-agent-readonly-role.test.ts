@@ -14,7 +14,8 @@ interface NameRow {
 /**
  * Migration 074 creates the non-superuser role that is one of the four
  * independent layers of the agent SQL sandbox. See
- * `docs/agents/agent-self-query.md`.
+ * `docs/archive/agent-contract-history/agent-self-query/sandbox-layers.md`
+ * (archived: BST-1995 removed the caller, not the role).
  */
 describe('migration 074: agent read-only role', () => {
   let db: PGlite;
