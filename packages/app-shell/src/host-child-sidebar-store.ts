@@ -1,7 +1,11 @@
+import { createLogger } from '@brainstrike/logging';
 import type {
   AssistantThreadHostCapability,
   AssistantThreadHostChild,
 } from './assistant-thread-host-context';
+
+const logger = createLogger('HostChildSidebar');
+const DISCOVERY_FAILURE = 'Child conversations could not be loaded. Try again.';
 
 export interface HostChildSidebarSnapshot {
   /** Each observed host parent's children, in delegation order, or why they could not be read. */
@@ -83,6 +87,12 @@ export class HostChildSidebarStore {
     }
   }
 
+  retry(threadId: string): void {
+    if (this.requests.has(threadId)) {
+      this.read(threadId);
+    }
+  }
+
   collapse(threadId: string): void {
     if (this.observed.has(threadId)) {
       return;
@@ -129,19 +139,23 @@ export class HostChildSidebarStore {
     if (this.requests.get(threadId) !== request) {
       return;
     }
+    if (listed instanceof Error) {
+      logger.error('Host child threads could not be listed', { threadId });
+    }
+    const settled = listed instanceof Error ? new Error(DISCOVERY_FAILURE) : listed;
     const previous = this.snapshot.children.get(threadId);
     const unread = new Set(this.snapshot.unread);
-    if (previous !== undefined && !(previous instanceof Error) && !(listed instanceof Error)) {
+    if (previous !== undefined && !(previous instanceof Error) && !(settled instanceof Error)) {
       const before = new Map(previous.map((child) => [child.threadId, child.status]));
       const selected = this.selection.current();
-      for (const child of listed) {
+      for (const child of settled) {
         const status = before.get(child.threadId);
         if (status !== undefined && status !== child.status && child.threadId !== selected) {
           unread.add(child.threadId);
         }
       }
     }
-    this.publish({ children: new Map(this.snapshot.children).set(threadId, listed), unread });
+    this.publish({ children: new Map(this.snapshot.children).set(threadId, settled), unread });
   }
 
   private publish(next: HostChildSidebarSnapshot): void {

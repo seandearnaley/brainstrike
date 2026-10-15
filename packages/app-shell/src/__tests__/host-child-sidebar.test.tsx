@@ -13,6 +13,7 @@ import {
   type AssistantThreadHostChild,
   AssistantThreadHostContext,
 } from '../assistant-thread-host-context';
+import { DelegatedSidebarCell } from '../delegated-sidebar-cell';
 import { HostChildSidebarCell } from '../host-child-sidebar-cell';
 import { hostChildWorkspaceTabId } from '../host-child-workspace-tab';
 import type { ThreadPanelVisibleRow } from '../thread-panel-visible-rows';
@@ -61,8 +62,8 @@ const root: ThreadPanelVisibleRow = {
 };
 
 /** The threads panel's use of the hook: a root row that expands, then its child rows. */
-function Panel() {
-  const sidebar = useHostChildSidebar([root]);
+function Panel({ base = root }: { base?: ThreadPanelVisibleRow }) {
+  const sidebar = useHostChildSidebar([base]);
   return (
     <>
       {sidebar.rows.map((row) => {
@@ -81,7 +82,9 @@ function Panel() {
             </button>
           );
         }
-        return <p key={row.id}>{row.kind === 'delegated-state' ? row.label : null}</p>;
+        return row.kind === 'delegated-state' ? (
+          <DelegatedSidebarCell key={row.id} row={row} />
+        ) : null;
       })}
     </>
   );
@@ -217,7 +220,7 @@ it('shows failed child discovery rather than treating failure as an empty leaf',
     <AssistantThreadHostContext.Provider
       value={hostWith(
         async () => {
-          throw new Error('Children unavailable');
+          throw new Error('Internal RPC failure: /private/profile/credentials.json');
         },
         () => () => undefined
       )}
@@ -225,5 +228,119 @@ it('shows failed child discovery rather than treating failure as an empty leaf',
       <Panel />
     </AssistantThreadHostContext.Provider>
   );
-  expect(await screen.findByText('Children unavailable')).toBeVisible();
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Child conversations could not be loaded. Try again.'
+  );
+  expect(screen.queryByText(/private\/profile/)).toBeNull();
+  expect(screen.getByRole('button', { name: 'Retry loading child conversations' })).toBeEnabled();
+});
+
+it('retries failed discovery for collapsed and expanded parents without exposing internal errors', async () => {
+  let failure = true;
+  let notify: ((threadId: string) => void) | undefined;
+  const host = hostWith(
+    async (threadId) => {
+      if (threadId !== 'root-1') {
+        return [];
+      }
+      if (failure) {
+        throw new Error('Internal RPC failure: /private/profile/credentials.json');
+      }
+      return [child('working')];
+    },
+    (listener) => {
+      notify = listener;
+      return () => undefined;
+    }
+  );
+  render(
+    <AssistantThreadHostContext.Provider value={host}>
+      <Panel />
+    </AssistantThreadHostContext.Provider>
+  );
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Child conversations could not be loaded. Try again.'
+  );
+  failure = false;
+  await userEvent.click(screen.getByRole('button', { name: 'Retry loading child conversations' }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Expand Plan the release' })).toBeEnabled()
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Expand Plan the release' }));
+  expect(await screen.findByRole('button', { name: /^Cedar-1a2b3c\s*Working$/u })).toBeVisible();
+  failure = true;
+  act(() => notify?.('root-1'));
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Child conversations could not be loaded. Try again.'
+  );
+  expect(screen.queryByText(/private\/profile/)).toBeNull();
+  failure = false;
+  await userEvent.click(screen.getByRole('button', { name: 'Retry loading child conversations' }));
+  expect(await screen.findByRole('button', { name: /^Cedar-1a2b3c\s*Working$/u })).toBeVisible();
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('recomputes child and grandchild indentation when an expanded root moves between groups', async () => {
+  const grandchild = {
+    ...child('idle'),
+    callSign: 'Birch-123',
+    depth: 2,
+    parentThreadId: 'child-1',
+    threadId: 'grandchild-1',
+  };
+  const host = hostWith(
+    async (id) => (id === 'root-1' ? [child('working')] : id === 'child-1' ? [grandchild] : []),
+    () => () => undefined
+  );
+  function Geometry({ base }: { base: ThreadPanelVisibleRow }) {
+    const sidebar = useHostChildSidebar([base]);
+    return (
+      <>
+        {sidebar.rows.map((row) =>
+          row.kind === 'thread' || row.kind === 'host-child' ? (
+            <button
+              data-depth={row.kind === 'thread' ? (row.parentId === null ? 0 : 1) : row.depth}
+              data-group={row.groupId}
+              data-testid={row.id}
+              disabled={!sidebar.hasChildren(row)}
+              key={row.id}
+              onClick={() => sidebar.toggle(row)}
+              type="button"
+            >
+              {row.id}
+            </button>
+          ) : null
+        )}
+      </>
+    );
+  }
+  const grouped: ThreadPanelVisibleRow = { ...root, groupId: 'group-a', parentId: 'group:group-a' };
+  const view = render(
+    <AssistantThreadHostContext.Provider value={host}>
+      <Geometry base={grouped} />
+    </AssistantThreadHostContext.Provider>
+  );
+  await waitFor(() => expect(screen.getByTestId('root-1')).toBeEnabled());
+  await userEvent.click(screen.getByTestId('root-1'));
+  await waitFor(() => expect(screen.getByTestId(CHILD_TAB)).toBeEnabled());
+  await userEvent.click(screen.getByTestId(CHILD_TAB));
+  const grandchildTab = hostChildWorkspaceTabId(grandchild);
+  expect(await screen.findByTestId(grandchildTab)).toHaveAttribute('data-depth', '3');
+  view.rerender(
+    <AssistantThreadHostContext.Provider value={host}>
+      <Geometry base={root} />
+    </AssistantThreadHostContext.Provider>
+  );
+  expect(screen.getByTestId(CHILD_TAB)).toHaveAttribute('data-depth', '1');
+  expect(screen.getByTestId(CHILD_TAB)).not.toHaveAttribute('data-group');
+  expect(screen.getByTestId(grandchildTab)).toHaveAttribute('data-depth', '2');
+  expect(screen.getByTestId(grandchildTab)).not.toHaveAttribute('data-group');
+  view.rerender(
+    <AssistantThreadHostContext.Provider value={host}>
+      <Geometry base={{ ...root, groupId: 'group-b', parentId: 'group:group-b' }} />
+    </AssistantThreadHostContext.Provider>
+  );
+  expect(screen.getByTestId(CHILD_TAB)).toHaveAttribute('data-depth', '2');
+  expect(screen.getByTestId(grandchildTab)).toHaveAttribute('data-depth', '3');
+  expect(screen.getByTestId(grandchildTab)).toHaveAttribute('data-group', 'group-b');
 });

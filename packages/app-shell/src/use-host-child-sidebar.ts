@@ -12,8 +12,6 @@ import { hostChildWorkspaceTabId, readHostChildWorkspaceTab } from './host-child
 import type { ThreadPanelVisibleRow } from './thread-panel-visible-rows';
 
 interface ExpandedParent {
-  readonly depth: number;
-  readonly groupId: string | null;
   readonly threadId: string;
 }
 
@@ -51,9 +49,8 @@ function expandHostParent(
   store: HostChildSidebarStore
 ): ReadonlyMap<string, ExpandedParent> {
   const threadId = row.kind === 'thread' ? row.id : row.child.threadId;
-  const depth = row.kind === 'host-child' ? row.depth : row.parentId === null ? 0 : 1;
   store.expand(threadId);
-  return new Map(expanded).set(row.id, { depth, groupId: row.groupId, threadId });
+  return new Map(expanded).set(row.id, { threadId });
 }
 
 /** The child thread a selected workspace tab shows; a malformed address shows its own error. */
@@ -76,63 +73,62 @@ function selectedChildThread(): string | undefined {
 function projectHostChildRows(
   base: readonly ThreadPanelVisibleRow[],
   expanded: ReadonlyMap<string, ExpandedParent>,
-  snapshot: HostChildSidebarSnapshot
+  snapshot: HostChildSidebarSnapshot,
+  retry: (threadId: string) => void
 ): ThreadPanelVisibleRow[] {
   const rows: ThreadPanelVisibleRow[] = [];
   const append = (
-    parentId: string,
+    parent: Extract<ThreadPanelVisibleRow, { kind: 'thread' | 'host-child' }>,
     parentColor: AgentColor | undefined,
     root: Extract<DelegatedSidebarRow, { kind: 'host-child' }>['root']
   ): void => {
-    const parent = expanded.get(parentId);
-    if (!parent) {
-      return;
-    }
+    const threadId = parent.kind === 'thread' ? parent.id : parent.child.threadId;
+    const depth = parent.kind === 'host-child' ? parent.depth : parent.parentId === null ? 0 : 1;
+    const children = snapshot.children.get(threadId);
     const state = (label: string, isError = false): void => {
       rows.push({
-        depth: parent.depth + 1,
+        depth: depth + 1,
         groupId: parent.groupId,
-        id: `delegated-state:${parentId}`,
+        id: `delegated-state:${parent.id}`,
         isError,
         kind: 'delegated-state',
         label,
-        parentId,
+        onRetry: isError ? () => retry(threadId) : undefined,
+        parentId: parent.id,
       });
     };
-    const children = snapshot.children.get(parent.threadId);
-    if (children === undefined) {
-      state('Loading child conversations…');
-      return;
-    }
     if (children instanceof Error) {
       state(children.message, true);
       return;
     }
-    if (children.length === 0) {
+    if (!expanded.has(parent.id)) {
+      return;
+    }
+    if (children === undefined) {
+      state('Loading child conversations…');
       return;
     }
     for (const child of children) {
-      const id = hostChildWorkspaceTabId(child);
-      const row: DelegatedSidebarRow = {
+      const row: Extract<DelegatedSidebarRow, { kind: 'host-child' }> = {
         child,
-        depth: parent.depth + 1,
+        depth: depth + 1,
         groupId: parent.groupId,
-        id,
+        id: hostChildWorkspaceTabId(child),
         kind: 'host-child',
         parentColor,
-        parentId,
+        parentId: parent.id,
         root,
         unread: snapshot.unread.has(child.threadId),
       };
       rows.push(row);
-      append(id, isAgentColor(child.color) ? child.color : undefined, root);
+      append(row, isAgentColor(child.color) ? child.color : undefined, root);
     }
   };
   for (const row of base) {
     rows.push(row);
     if (row.kind === 'thread') {
       const color = row.thread.metadata?.color;
-      append(row.id, isAgentColor(color) ? color : undefined, {
+      append(row, isAgentColor(color) ? color : undefined, {
         resourceId: row.thread.resourceId,
         threadId: row.thread.id,
       });
@@ -185,31 +181,10 @@ export function useHostChildSidebar(base: readonly ThreadPanelVisibleRow[]) {
     },
     [expanded, owns, snapshot, store]
   );
+  const retry = useCallback((threadId: string) => store?.retry(threadId), [store]);
   const rows = useMemo(
-    () =>
-      projectHostChildRows(base, expanded, snapshot).flatMap((row): ThreadPanelVisibleRow[] => {
-        if (!(row.kind === 'thread' || row.kind === 'host-child') || expanded.has(row.id)) {
-          return [row];
-        }
-        const threadId = row.kind === 'host-child' ? row.child.threadId : row.id;
-        const failure = snapshot.children.get(threadId);
-        if (!(failure instanceof Error)) {
-          return [row];
-        }
-        return [
-          row,
-          {
-            depth: row.kind === 'host-child' ? row.depth + 1 : row.parentId === null ? 1 : 2,
-            groupId: row.groupId,
-            id: `delegated-state:${row.id}`,
-            isError: true,
-            kind: 'delegated-state',
-            label: failure.message,
-            parentId: row.id,
-          },
-        ];
-      }),
-    [base, expanded, snapshot]
+    () => projectHostChildRows(base, expanded, snapshot, retry),
+    [base, expanded, snapshot, retry]
   );
   useEffect(() => {
     store?.observe(
