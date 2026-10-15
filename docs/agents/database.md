@@ -99,6 +99,58 @@ self-comparison. The only values exempted from the row comparison are columns
 whose DEFAULT is non-IMMUTABLE per `pg_proc` (the clock, `uuidv7()`); the seed
 leaves those to fire at install time.
 
+### An artifact derived from itself cannot be the source of anything it has lost
+
+`current-schema-ddl.ts` is authored BY HAND and normalized by the generator. The
+generator introspects whatever `migrate()` built -- which is this DDL -- so it
+can only ever re-emit what the file already says. Two defects in this work came
+from forgetting that, and both looked like something else at first:
+
+- The collapse dropped migration 074's `REVOKE EXECUTE ... FROM PUBLIC` on
+  `pg_sleep*` and `set_config`. Re-running the generator could not bring them
+  back; it emitted `FUNCTION PRIVILEGES: none`, because the database it read had
+  already lost them. The DDL and the fixture had to be regenerated FROM THE
+  CHAIN, in a worktree at the commit that still had it.
+- The first documented workflow said a schema change edits `src/schema/index.ts`
+  and then regenerates. That is a no-op: nothing in the drizzle model reaches
+  the generator.
+
+So: when a derived artifact is wrong, the fix comes from OUTSIDE it. Reach for
+the independent source -- the chain in git history, or your own hands on the DDL
+-- never for "just regenerate it".
+
+### The comparison's coverage boundary is enforced, not assumed
+
+A catalog comparison is only as good as the classes it reads, and "no diff" is
+easy to misread as "nothing changed" when it means "nothing changed in what I
+looked at". The `pg_sleep` regression passed a zero-diff proof for exactly that
+reason.
+
+So the boundary is stated in both directions:
+
+- **COMPARED**, by `current-schema-catalog.integration.test.ts` against the
+  frozen fixture: extensions, enum and domain types, relations, columns,
+  constraints, indexes, sequences, views, triggers, routines, comments, function
+  privileges, relation PUBLIC privileges, row counts and seed rows.
+- **ASSERTED TO ADD NOTHING**, by
+  `schema-coverage-boundary.integration.test.ts`, which diffs the shipped
+  database against a pristine one carrying the same extensions: access methods,
+  casts, collations, default privileges, event triggers, extended statistics,
+  foreign servers, operator classes, operators, publications, RLS policies, role
+  settings, roles, rules, schema PUBLIC access, schemas, security labels,
+  standalone composite/range types, subscriptions, table inheritance,
+  tablespaces, text search configs and dictionaries.
+
+Identity against pristine rather than literal emptiness, because `pg_cast` ships
+258 rows and `pg_operator` 855; identity subsumes emptiness for the classes that
+are empty and still catches an addition in the ones that are not.
+
+Adding an RLS policy, a role, a default ACL or a custom type therefore FAILS that
+test. That is the point: whoever adds one must either extend the dump in
+`src/schema-snapshot/introspect.ts` to compare it properly and regenerate the
+fixture, or record why it needs no comparison. Do not widen the asserted-empty
+list to make a red run green.
+
 The drizzle-kit artifacts are NOT on the boot path. `drizzle/meta/`'s snapshot is
 deliberately drifted from `src/schema/index.ts` and `db:generate` is blocked, so
 drizzle-kit emits nothing production applies; `src/drizzle/migrations.json`
