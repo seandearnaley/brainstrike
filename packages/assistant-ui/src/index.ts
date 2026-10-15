@@ -162,6 +162,7 @@ export {
   SubagentLiveInvocationContext,
 } from './subagent-conversation-navigation';
 export { personaLabelForToolName } from './subagent-persona-label';
+export { ThreadContextReader } from './thread-context-reader';
 export {
   type ThreadMessageNavigation,
   ThreadMessageNavigationContext,

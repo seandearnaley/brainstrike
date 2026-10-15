@@ -16,6 +16,14 @@ import type { IndexChunkBoundsCapability } from '@brainstrike/indexing-contract/
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  type AssistantThreadContextSnapshot,
+  type AssistantThreadContextSource,
+  type AssistantThreadHostCapability,
+  type AssistantThreadHostChild,
+  AssistantThreadHostContext,
+} from '../../assistant-thread-host-context';
+import { openHostChildTab } from '../../open-host-child-tab';
 import { RootIdentityProvider } from '../../roots/root-identity-context';
 import { contextBundleMarkdown } from '../context-bundle';
 import { contextFileRows } from '../context-map-model';
@@ -33,6 +41,8 @@ vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => ({
   useFileExplorerStoreSelector: <T,>(selector: (state: typeof explorer) => T): T =>
     selector(explorer),
 }));
+
+vi.mock('../../open-host-child-tab', () => ({ openHostChildTab: vi.fn() }));
 
 const rootId = 'root-1';
 
@@ -123,9 +133,11 @@ const onRetryFileContent = vi.fn();
 function Page({
   chunkBounds: bounds,
   fileContents = {},
+  host,
 }: {
   readonly chunkBounds: IndexChunkBoundsCapability | null;
   readonly fileContents?: Record<string, string>;
+  readonly host?: AssistantThreadHostCapability;
 }): ReactElement {
   const tabs = {
     fileContentErrors: new Map(),
@@ -134,11 +146,13 @@ function Page({
     onRetryFileContent,
   } as unknown as WorkspaceTabsValue;
   return (
-    <WorkspaceTabsContext.Provider value={tabs}>
-      <RootIdentityProvider dbRootIdByAdapterRootId={new Map([[adapterRootId, rootId]])}>
-        <ThreadContextPage chunkBounds={bounds} />
-      </RootIdentityProvider>
-    </WorkspaceTabsContext.Provider>
+    <AssistantThreadHostContext value={host}>
+      <WorkspaceTabsContext.Provider value={tabs}>
+        <RootIdentityProvider dbRootIdByAdapterRootId={new Map([[adapterRootId, rootId]])}>
+          <ThreadContextPage chunkBounds={bounds} />
+        </RootIdentityProvider>
+      </WorkspaceTabsContext.Provider>
+    </AssistantThreadHostContext>
   );
 }
 
@@ -299,6 +313,239 @@ describe('ThreadContextPage', () => {
     });
     const first = screen.getAllByTestId('context-map-file')[0];
     expect(first && within(first).getAllByText(/\.ts$/u)[0]?.textContent).toBe('a.ts');
+  });
+});
+
+/** A subagent's log: one run that read 10 lines of src/c.ts. */
+function childRecord() {
+  const list: CommittedAssistantLogRow[] = [];
+  const add = (event: Record<string, unknown>) =>
+    list.push({ event, seq: list.length + 1, threadId: 'child-1' });
+  add({ prompt: 'look at c', runId: 'c1', type: 'run.started' });
+  add({
+    input: {},
+    runId: 'c1',
+    toolCallId: 'c',
+    toolCatalogId: 'brainstrike.readWorkspaceFile',
+    type: 'effect.started',
+  });
+  add({
+    output: {
+      approxOutputTokens: 1,
+      content: Array.from({ length: 10 }, (_, i) => `${i + 1}: c`).join('\n'),
+      endLine: 10,
+      path: 'src/c.ts',
+      rootId,
+      startLine: 1,
+      totalLines: 10,
+      truncated: false,
+    },
+    runId: 'c1',
+    toolCallId: 'c',
+    type: 'effect.finished',
+  });
+  add({
+    runId: 'c1',
+    toolCallWindow: diffPromptToolCallWindow(undefined, [
+      {
+        inputTokens: 0,
+        output: 'full',
+        outputTokens: 100,
+        toolCallId: 'c',
+        toolName: 'brainstrike.readWorkspaceFile',
+      },
+    ]),
+    type: 'provider.request.prepared',
+  });
+  return { branchRunIds: ['c1'], snapshot: new ThreadContextFold().accept(list) };
+}
+
+function child(threadId: string, parentRunId: string): AssistantThreadHostChild {
+  return {
+    callSign: threadId === 'child-1' ? 'Cedar-1a2b3c' : 'Oak-9f0e1d',
+    color: 'family:1:1',
+    depth: 1,
+    parentRunId,
+    parentThreadId: 'thread-1',
+    persona: 'explore',
+    status: 'working',
+    threadId,
+    toolCallId: `call-${threadId}`,
+  };
+}
+
+function laneSource(snapshot: AssistantThreadContextSnapshot) {
+  let current = snapshot;
+  const listeners = new Set<() => void>();
+  return {
+    close: vi.fn(),
+    getSnapshot: () => current,
+    push(next: AssistantThreadContextSnapshot) {
+      current = next;
+      for (const listener of listeners) {
+        listener();
+      }
+    },
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  } satisfies AssistantThreadContextSource & { push: unknown };
+}
+
+function laneHost(
+  children: () => readonly AssistantThreadHostChild[],
+  open: (threadId: string) => Promise<AssistantThreadContextSource>
+) {
+  const changed = new Set<(threadId: string) => void>();
+  const host = {
+    childThreads: vi.fn(async () => children()),
+    openThreadContext: vi.fn(open),
+    subscribeChildren: (listener: (threadId: string) => void) => {
+      changed.add(listener);
+      return () => changed.delete(listener);
+    },
+  } as unknown as AssistantThreadHostCapability;
+  return {
+    host,
+    reportChanged: (threadId: string) => {
+      for (const listener of changed) {
+        listener(threadId);
+      }
+    },
+  };
+}
+
+const chooseLane = (name: RegExp) => {
+  const chip = screen.getByRole('tab', { name });
+  act(() => {
+    fireEvent.mouseDown(chip);
+    fireEvent.click(chip);
+  });
+};
+
+describe('ThreadContextPage subagent lanes', () => {
+  it('offers each subagent on the displayed branch as a lane from the turn that started it', async () => {
+    seed();
+    const source = laneSource({ isLoading: false, record: childRecord() });
+    const { host } = laneHost(
+      () => [child('child-1', 'r2'), child('child-2', 'r-off-branch')],
+      async () => source
+    );
+    render(<Page chunkBounds={null} host={host} />);
+    const chip = await screen.findByRole('tab', { name: /Cedar-1a2b3c/u });
+    expect(chip.textContent).toBe('Cedar-1a2b3c· working· ~100 tokens');
+    expect(screen.queryByRole('tab', { name: /Oak-9f0e1d/u })).toBeNull();
+    // A child off the displayed branch is never read.
+    expect(host.openThreadContext).toHaveBeenCalledTimes(1);
+    expect(host.openThreadContext).toHaveBeenCalledWith('child-1');
+    // Before the turn that started it, the subagent has no lane.
+    act(() => {
+      fireEvent.click(screen.getByTestId('context-map-turn-1'));
+    });
+    expect(screen.queryByRole('tab', { name: /Cedar-1a2b3c/u })).toBeNull();
+  });
+
+  it("shows a lane's own map and scrubber, and opens its conversation", async () => {
+    seed();
+    const source = laneSource({ isLoading: false, record: childRecord() });
+    const { host } = laneHost(
+      () => [child('child-1', 'r2')],
+      async () => source
+    );
+    render(<Page chunkBounds={null} host={host} />);
+    await screen.findByRole('tab', { name: /Cedar-1a2b3c/u });
+    chooseLane(/Cedar-1a2b3c/u);
+    expect(screen.getByTestId('context-map-title').textContent).toBe(
+      "What Cedar-1a2b3c's model received"
+    );
+    expect(screen.getByText(/As of turn 1 of 1/u)).toBeTruthy();
+    const files = screen.getAllByTestId('context-map-file');
+    expect(files.map((file) => within(file).getAllByText(/\.ts$/u)[0]?.textContent)).toEqual([
+      'c.ts',
+    ]);
+    expect(screen.getByTestId('context-map-window-tokens').textContent).toBe('~100 tokens');
+    // The composer ring is the thread's own figure, not the subagent's.
+    expect(screen.queryByTestId('context-map-ring')).toBeNull();
+    fireEvent.click(screen.getByTestId('context-map-open-lane-conversation'));
+    expect(openHostChildTab).toHaveBeenCalledWith(expect.objectContaining({ threadId: 'child-1' }));
+    chooseLane(/^This thread$/u);
+    expect(screen.getByTestId('context-map-title').textContent).toBe(
+      "What this thread's model received"
+    );
+  });
+
+  it('says a lane could not be read, and reads it again on Retry', async () => {
+    seed();
+    const source = laneSource({ isLoading: false, record: childRecord() });
+    const open = vi
+      .fn<(threadId: string) => Promise<AssistantThreadContextSource>>()
+      .mockRejectedValueOnce(new Error('the host refused the read'))
+      .mockResolvedValue(source);
+    const { host } = laneHost(() => [child('child-1', 'r2')], open);
+    render(<Page chunkBounds={null} host={host} />);
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /Cedar-1a2b3c/u }).textContent).toContain(
+        'unavailable'
+      )
+    );
+    chooseLane(/Cedar-1a2b3c/u);
+    expect(screen.getByTestId('context-map-lane-error').textContent).toContain(
+      "Cedar-1a2b3c's log could not be read: the host refused the read"
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.getAllByTestId('context-map-file')).toHaveLength(1));
+    expect(open).toHaveBeenCalledTimes(2);
+    // A lane that stops updating keeps its map and says so.
+    act(() => {
+      source.push({
+        error: 'The agent host connection closed.',
+        isLoading: false,
+        record: childRecord(),
+      });
+    });
+    expect(screen.getByTestId('context-map-lane-error').textContent).toContain(
+      'The agent host connection closed.'
+    );
+    expect(screen.getAllByTestId('context-map-file')).toHaveLength(1);
+  });
+
+  it("re-lists when the host reports the thread's children changed, and closes every lane it read", async () => {
+    seed();
+    let children: readonly AssistantThreadHostChild[] = [];
+    const source = laneSource({ isLoading: true });
+    const { host, reportChanged } = laneHost(
+      () => children,
+      async () => source
+    );
+    const { unmount } = render(<Page chunkBounds={null} host={host} />);
+    await waitFor(() => expect(host.childThreads).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('tab', { name: /This thread/u })).toBeNull();
+    children = [child('child-1', 'r2')];
+    // Another thread's change is not this thread's.
+    act(() => reportChanged('thread-other'));
+    act(() => reportChanged('thread-1'));
+    const chip = await screen.findByRole('tab', { name: /Cedar-1a2b3c/u });
+    expect(host.childThreads).toHaveBeenCalledTimes(2);
+    expect(chip.textContent).toContain('reading…');
+    chooseLane(/Cedar-1a2b3c/u);
+    expect(screen.getByRole('status').textContent).toBe("Reading Cedar-1a2b3c's log…");
+    unmount();
+    expect(source.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('names a failed listing instead of showing no subagents', async () => {
+    seed();
+    const { host } = laneHost(
+      () => {
+        throw new Error('host unavailable');
+      },
+      async () => laneSource({ isLoading: true })
+    );
+    render(<Page chunkBounds={null} host={host} />);
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'Subagents could not be listed: host unavailable'
+    );
   });
 });
 

@@ -14,6 +14,19 @@ export interface ThreadContextRecord {
   readonly snapshot: ThreadContextSnapshot;
 }
 
+/** The record for a fold's snapshot and branch: `previous` itself when neither changed. */
+export function nextThreadContextRecord(
+  previous: ThreadContextRecord | undefined,
+  snapshot: ThreadContextSnapshot,
+  branchRunIds: readonly string[]
+): ThreadContextRecord {
+  return previous &&
+    previous.snapshot === snapshot &&
+    previous.branchRunIds.join('\n') === branchRunIds.join('\n')
+    ? previous
+    : { branchRunIds, snapshot };
+}
+
 /**
  * The composer ring's figure for a thread, written only by `ContextUsageMeter`
  * so the Context tab shows the same total and budget without recomputing it.

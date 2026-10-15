@@ -26,6 +26,14 @@ compaction or branch rules. A result the fold can't read shows as unmapped, and 
 unmeasured request as "not measured", never as zero. It is desktop-only: web has
 no committed run log.
 
+A thread's direct subagents are lanes of its Context tab (BST-2021). The host
+lists the children; a child's lane appears from the parent turn whose run started
+it, on the displayed branch. Each lane reads the child's own committed log through
+the host and folds it with the same fold and branch rules as the child's own view,
+so a lane shows the child's map and scrubber, never the parent's. Lanes are read
+only while the tab shows them, and a lane that can't be read says so. A
+grandchild is a lane of its parent's Context tab.
+
 "Changed since read" compares through the shared content owner. A file that
 wasn't checked reads "not checked", and a failed check says so; neither reads as
 unchanged.
