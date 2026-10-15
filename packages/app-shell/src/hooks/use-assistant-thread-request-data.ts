@@ -33,10 +33,9 @@ interface UseAssistantThreadRequestDataArgs {
   readonly providerOptions: Record<string, unknown> | undefined;
   /** Explicit selection only; absent means Auto. */
   readonly requestedReasoningEffort?: RuntimeData['requestedReasoningEffort'];
-  readonly runtimeWorkspaceContext: RuntimeData['workspaceContext'] | null;
   readonly selectedMemoryThreadId: string | undefined;
+  /** The explorer's focused folder. */
   readonly selectionData: {
-    readonly filePaths: string[];
     readonly folderId: string | null | undefined;
   };
   readonly semanticRecallSettings: RuntimeAssistantSemanticRecallSettings;
@@ -83,7 +82,6 @@ export function useAssistantThreadRequestData({
   planMode,
   providerOptions,
   requestedReasoningEffort,
-  runtimeWorkspaceContext,
   selectedMemoryThreadId,
   selectionData,
   semanticRecallSettings,
@@ -122,7 +120,6 @@ export function useAssistantThreadRequestData({
         requestedReasoningEffort,
         selectedMemoryThreadId,
         selectionData,
-        workspaceContext: runtimeWorkspaceContext,
         ...(skillsPreference ? { skillsPreference } : {}),
         ...(subagentPersonasRequest ? { subagentPersonasRequest } : {}),
         subagentSettings,
@@ -146,7 +143,6 @@ export function useAssistantThreadRequestData({
       runtimeMemorySettings,
       selectedMemoryThreadId,
       selectionData,
-      runtimeWorkspaceContext,
       skillsPreference,
       subagentPersonasRequest,
       subagentSettings,

@@ -1,7 +1,6 @@
 /** Main's stores and services the agent host's own tools read through Main. */
 import { mainBrowserToolRunner } from '../assistant-server/browser-agent-tools';
 import { mainDiagnosticsReader } from '../assistant-server/query-diagnostics-tool';
-import { mainWorkspaceContextBroadcaster } from '../assistant-server/workspace-context-broadcast';
 import {
   type DesktopWorktreeServices,
   desktopWorktreeToolDependencies,
@@ -20,7 +19,6 @@ export function desktopHostToolServices(
       : {}),
     ...(dependencies.nativeIndexSearch ? { indexSearch: dependencies.nativeIndexSearch } : {}),
     browser: mainBrowserToolRunner,
-    contextDelivery: mainWorkspaceContextBroadcaster,
     diagnostics: mainDiagnosticsReader,
     retrievalStore: dependencies.retrievalStore,
     shell: desktopShellCorrelation(dependencies),

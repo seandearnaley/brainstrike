@@ -201,7 +201,8 @@ describe('preload runtime contract', () => {
   it('keeps renderer tool execution out of the preload bridge', () => {
     const preloadSource = readPreloadSource();
 
-    expect(extractExposedBridgeMethodNames(preloadSource, 'tools')).not.toContain('execute');
+    // The `tools` bridge carried only the retired selection write-backs (BST-2019).
+    expect(preloadSource).not.toMatch(/exposeInMainWorld\(\s*['"]tools['"]/u);
     expect(preloadSource).not.toContain('TOOLS_EXECUTE_CHANNEL');
   });
 

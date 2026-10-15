@@ -145,9 +145,9 @@ function stripChunkContent(chunks: readonly PackedContextChunk[]): RetrievalResu
   }));
 }
 
-function resolveTokenBudget(runtime: RuntimeData | undefined, override?: number): number {
-  const runtimeBudget = runtime?.tokenBudget;
-  const candidate = override ?? runtimeBudget ?? DEFAULT_TOKEN_BUDGET;
+/** The call's own budget, else the fixed default; the explorer budget is retired (BST-2019). */
+function resolveTokenBudget(override?: number): number {
+  const candidate = override ?? DEFAULT_TOKEN_BUDGET;
   if (!Number.isFinite(candidate) || candidate <= 0) {
     return DEFAULT_TOKEN_BUDGET;
   }
@@ -272,7 +272,6 @@ async function packRetrievedContext(
     similarity: number;
     rank: number;
   }>,
-  runtimeData: RuntimeData | undefined,
   input: RetrievalContextInput,
   admittedRootIds: readonly string[] | undefined
 ): Promise<{
@@ -298,7 +297,7 @@ async function packRetrievedContext(
   }
 
   const packerOptions = {
-    budgetTokens: resolveTokenBudget(runtimeData, input.tokenBudget),
+    budgetTokens: resolveTokenBudget(input.tokenBudget),
     estimateTokens: countTokensHeuristic,
     ...(input.maxChunks === undefined ? {} : { maxChunks: input.maxChunks }),
   };
@@ -371,7 +370,6 @@ async function runRetrieval(
   const { packed, contextText, skippedSourceRangeChunks } = await packRetrievedContext(
     store,
     searchResults,
-    runtimeData,
     input,
     admittedRootIds
   );
@@ -464,9 +462,7 @@ function omitImplicitContextRuntimeData(
   }
   const {
     embeddingSetId: _embeddingSetId,
-    selectionFilePaths: _selectionFilePaths,
     selectionSnapshotId: _selectionSnapshotId,
-    tokenBudget: _tokenBudget,
     ...explicitRuntimeData
   } = runtimeData;
   return explicitRuntimeData;

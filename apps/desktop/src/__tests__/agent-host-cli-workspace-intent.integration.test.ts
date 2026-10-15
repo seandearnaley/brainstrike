@@ -50,7 +50,6 @@ vi.mock('@brainstrike/app-shell', () => ({
   buildAgentLoopSettings: () => renderer.intent().agentLoop,
   buildAssistantMemoryOptions: () => renderer.intent().memoryOptions,
   buildDraftRuntimeForProvider: renderer.project,
-  toRuntimeWorkspaceContext: () => renderer.intent().workspaceContext ?? null,
 }));
 vi.mock('@brainstrike/app-state/stores/assistant-preferences-store', () => ({
   useAssistantPreferencesStore: {
@@ -338,10 +337,6 @@ test.for([{ rootIds: ['root-a'] }, { rootIds: [] }])(
       masterEnabled: true,
       oversizedOptInByRootId: { 'root-a': true, 'root-b': true },
     };
-    original.workspaceContext!.files.push({
-      ...original.workspaceContext!.files[0]!,
-      rootId: 'root-b',
-    });
     const unchanged = structuredClone(original);
     const readOwner = vi.fn(async () => original);
     const capabilities = desktopAdmission({}, undefined, readOwner);
@@ -353,10 +348,6 @@ test.for([{ rootIds: ['root-a'] }, { rootIds: [] }])(
         ...retained,
         cliWorkspace: cliInput(rootIds).workspace,
         skillsPreference: { ...original.skillsPreference, masterEnabled: false },
-        workspaceContext: {
-          ...original.workspaceContext,
-          files: original.workspaceContext!.files.filter((file) => rootIds.includes(file.rootId!)),
-        },
         workspaceInstructionsPreference: {
           masterEnabled: false,
           oversizedOptInByRootId: rootIds.length ? { 'root-a': true } : {},
@@ -525,7 +516,6 @@ test('actual Main context reads never begin B after revocation while A is held',
       rootIds: ['root-a', 'root-b'],
       skills: 'off' as const,
     },
-    workspaceContext: { ...intent().workspaceContext!, files: [] },
     workspaceInstructionsPreference: { masterEnabled: true, oversizedOptInByRootId: {} },
   };
   const capabilities = desktopAdmission({});
@@ -656,7 +646,6 @@ test.each([
         ...intent(),
         cliWorkspace: { instructions: 'off', rootIds: selected, skills: 'off' },
         enabledNativeToolIds: [toolId],
-        workspaceContext: { ...intent().workspaceContext!, files: [] },
       })
     );
     try {
@@ -706,7 +695,6 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
         ...intent(),
         cliWorkspace: { instructions: 'off', rootIds: ['root-a'], skills: 'off' },
         enabledNativeToolIds: [toolId],
-        workspaceContext: { ...intent().workspaceContext!, files: [] },
       })
     );
     try {
@@ -741,7 +729,6 @@ test.each([
         ...intent(),
         cliWorkspace: { instructions: 'off', rootIds: selected, skills: 'off' },
         enabledNativeToolIds: [toolId],
-        workspaceContext: { ...intent().workspaceContext!, files: [] },
       })
     );
     try {
@@ -797,7 +784,6 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
         ...intent(),
         cliWorkspace: { instructions: 'off', rootIds: ['root-a'], skills: 'off' },
         enabledNativeToolIds: [toolId],
-        workspaceContext: { ...intent().workspaceContext!, files: [] },
       })
     );
     try {
@@ -828,7 +814,6 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
       request({
         ...intent(),
         enabledNativeToolIds: [toolId],
-        workspaceContext: { ...intent().workspaceContext!, files: [] },
       })
     );
     try {
@@ -871,7 +856,6 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
         ...intent(),
         cliWorkspace: { instructions: 'off', rootIds: ['root-a'], skills: 'off' },
         enabledNativeToolIds: [toolId],
-        workspaceContext: { ...intent().workspaceContext!, files: [] },
       })
     );
     try {
@@ -946,7 +930,6 @@ test.each([
         ...intent(),
         cliWorkspace: { instructions: 'off', rootIds: ['root-a'], skills: 'off' },
         enabledNativeToolIds: [toolId],
-        workspaceContext: { ...intent().workspaceContext!, files: [] },
       })
     );
     try {

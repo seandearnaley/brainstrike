@@ -15,7 +15,6 @@ import { z } from 'zod';
 import type { BrowserToolRunner } from '../assistant-server/native-tool-executors-browser';
 import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';
 import type { RetrievalStore } from '../assistant-server/retrieval-store';
-import type { WorkspaceContextBroadcaster } from '../assistant-server/workspace-context-tools';
 import {
   WORKTREE_TOOLS_UNAVAILABLE,
   type WorktreeToolCapability,
@@ -26,8 +25,6 @@ import {
   BrowserNavigateRequestSchema,
   BrowserPageTextRequestSchema,
   BrowserReadPageRequestSchema,
-  ContextSelectionDeliveryRequestSchema,
-  ContextTapestryDeliveryRequestSchema,
   DiagnosticsReadRequestSchema,
   GrepIndexRequestSchema,
   PlatformShellCompletedResultSchema,
@@ -59,8 +56,6 @@ export interface DesktopShellCorrelation {
 export interface HostToolServiceCapabilities {
   /** The window-bound browser pane's reads, driven in Main for a host run. */
   readonly browser?: BrowserToolRunner;
-  /** Delivery of a host run's validated context write-back to the visible windows. */
-  readonly contextDelivery?: WorkspaceContextBroadcaster;
   /** The diagnostic events store, projected and scrubbed before a row leaves Main. */
   readonly diagnostics?: DiagnosticsReader;
   /** grep's indexed half over Main's PGlite file chunks. */
@@ -150,7 +145,6 @@ export function serveHostToolServices(
   serveIndexReads(connection, execute, services);
   serveWorktreeCalls(connection, execute, services);
   serveBrowserCalls(connection, execute, services);
-  serveContextDelivery(connection, execute, services);
   serveSelfInspectionReads(connection, execute, services);
   serveRetrievalReads(connection, execute, services);
 }
@@ -218,32 +212,6 @@ function serveBrowserCalls(
       const request = BrowserPageTextRequestSchema.parse(input);
       return await required(services?.browser, 'browser pane').getPageText(request.input);
     })
-  );
-}
-
-/** `platform/workspace-context/*`: only Main can reach the app windows. */
-function serveContextDelivery(
-  connection: MessageConnection,
-  execute: Execute,
-  services: HostToolServiceCapabilities | undefined
-): void {
-  connection.onRequest(
-    'platform/workspace-context/selection',
-    (input: unknown, token: CancellationToken) =>
-      execute(token, async () => {
-        const { payload } = ContextSelectionDeliveryRequestSchema.parse(input);
-        const delivery = required(services?.contextDelivery, 'window delivery');
-        return { notifiedWindowCount: await delivery.selection(payload) };
-      })
-  );
-  connection.onRequest(
-    'platform/workspace-context/tapestry',
-    (input: unknown, token: CancellationToken) =>
-      execute(token, async () => {
-        const { payload } = ContextTapestryDeliveryRequestSchema.parse(input);
-        const delivery = required(services?.contextDelivery, 'window delivery');
-        return { notifiedWindowCount: await delivery.tapestry(payload) };
-      })
   );
 }
 

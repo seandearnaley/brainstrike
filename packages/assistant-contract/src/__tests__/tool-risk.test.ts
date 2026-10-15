@@ -77,8 +77,6 @@ describe('resolveToolRiskCategory', () => {
 
     it('classifies the approval-gated workspace mutators as edit (via explicit annotation)', () => {
       const editTools = [
-        NATIVE_TOOL_ID.updateWorkspaceContextSelection,
-        NATIVE_TOOL_ID.updateWorkspaceTapestrySelections,
         NATIVE_TOOL_ID.writeWorkspaceFile,
         NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
       ];
@@ -108,8 +106,6 @@ describe('resolveToolRiskCategory', () => {
 
     it("classifies every other current native tool as 'read' (no throw)", () => {
       const explicitlyNonRead = new Set<string>([
-        'brainstrike.updateWorkspaceContextSelection',
-        'brainstrike.updateWorkspaceTapestrySelections',
         'brainstrike.writeWorkspaceFile',
         'brainstrike.stringReplaceWorkspaceFile',
         'brainstrike.deleteWorkspaceFile',
@@ -138,8 +134,6 @@ describe('resolveToolRiskCategory', () => {
 
 describe('buildNativeToolRiskMap', () => {
   const EDIT_TOOLS: readonly string[] = [
-    'brainstrike.updateWorkspaceContextSelection',
-    'brainstrike.updateWorkspaceTapestrySelections',
     'brainstrike.writeWorkspaceFile',
     'brainstrike.stringReplaceWorkspaceFile',
     'brainstrike.deleteWorkspaceFile',

@@ -287,7 +287,7 @@ describe('retrieval-tool on the native index', () => {
     const result = expectAvailable(
       await hostSemantic(
         { embeddingSetId: 'selected', query: '  Hello  ' },
-        { embeddingSetId: 'set-1', selectionFilePaths: ['/repo/file.ts'], tokenBudget: 10 },
+        { embeddingSetId: 'set-1' },
         dependencies
       )
     );
@@ -305,9 +305,8 @@ describe('retrieval-tool on the native index', () => {
     expect(result.chunks[0]?.lineRange).toEqual({ end: 12, start: 10 });
     expect(result.chunks[0]?.offsets).toEqual({ end: 155, start: 120 });
     expect(result.selectionSnapshotId).toBeUndefined();
-    // The runtime's selectionFilePaths/tokenBudget above are INERT on the live
-    // path (omitImplicitContextRuntimeData strips them): the default budget —
-    // not the runtime's 10 — proves the strip is exercised.
+    // With no budget in the call, retrieval packs to its fixed default; the
+    // runtime carries no budget since the explorer budget was retired (BST-2019).
     expect(result.budget).toBe(4000);
     expect(f.capability.search).toHaveBeenCalledWith({
       collectionId: 'selected',

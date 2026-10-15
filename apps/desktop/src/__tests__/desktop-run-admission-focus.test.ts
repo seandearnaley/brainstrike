@@ -118,27 +118,9 @@ test('an explicit selection from an unavailable folder is refused even for an un
   const request = send('root-gone');
   await expect(
     createDesktopRunAdmission(mainReads(), async () => undefined).readConfiguration({
-      configuration: z.record(z.string(), z.json()).parse(
-        PlatformClientConfigurationSchema.parse({
-          ...request.configuration,
-          workspaceContext: {
-            files: [
-              {
-                approxTokens: null,
-                outputApproxTokens: null,
-                path: 'selected.md',
-                ranges: [],
-                rootId: 'root-gone',
-              },
-            ],
-            includeProjectTree: false,
-            projectTreeApproxTokens: null,
-            projectTreeTokenCountLoading: false,
-            selectedOutputApproxTokens: null,
-            selectedSourceApproxTokens: null,
-          },
-        })
-      ),
+      configuration: z
+        .record(z.string(), z.json())
+        .parse(PlatformClientConfigurationSchema.parse(request.configuration)),
       modelId: request.modelId,
       runId: request.runId,
       signal: request.signal,

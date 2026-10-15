@@ -40,8 +40,6 @@ import { skillRead } from './definitions/skill-read.js';
 import { skillSearch } from './definitions/skill-search.js';
 import { stringReplaceWorkspaceFile } from './definitions/string-replace-workspace-file.js';
 import { submitPlan } from './definitions/submit-plan.js';
-import { updateWorkspaceContextSelection } from './definitions/update-workspace-context-selection.js';
-import { updateWorkspaceTapestrySelections } from './definitions/update-workspace-tapestry-selections.js';
 import { webExtract } from './definitions/web-extract.js';
 import { webSearch } from './definitions/web-search.js';
 import { writeWorkspaceFile } from './definitions/write-workspace-file.js';
@@ -83,8 +81,6 @@ export const NATIVE_TOOLS = [
   runSkillScript,
   stringReplaceWorkspaceFile,
   submitPlan,
-  updateWorkspaceContextSelection,
-  updateWorkspaceTapestrySelections,
   webExtract,
   webSearch,
   writeWorkspaceFile,

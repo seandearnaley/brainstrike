@@ -162,7 +162,7 @@ test('a host thread is not offered worktree tools while Main has no worktree ser
   }
 });
 
-test('Main admits the request’s curated context selection to the host’s native runtime', async () => {
+test('Main admits the focused folder, and no checked files, to the host’s native runtime (BST-2019)', async () => {
   const workspaceContext = {
     files: [
       {
@@ -180,6 +180,7 @@ test('Main admits the request’s curated context selection to the host’s nati
     selectedSourceApproxTokens: null,
     tokenBudget: 321,
   };
+  // An intent captured before checked files were retired still parses; nothing reads it.
   const captured = await desktopAdmission({}).readConfiguration(
     request([NATIVE_TOOL_ID.readWorkspaceContext], {
       selectionFolderId: 'root-a',
@@ -187,11 +188,10 @@ test('Main admits the request’s curated context selection to the host’s nati
     })
   );
   try {
-    expect(captured.nativeRuntime).toMatchObject({
-      selectionFilePaths: ['notes.txt'],
-      selectionFolderId: 'root-a',
-      workspaceContext,
-    });
+    expect(captured.nativeRuntime).toMatchObject({ selectionFolderId: 'root-a' });
+    expect(captured.nativeRuntime).not.toHaveProperty('selectionFilePaths');
+    expect(captured.nativeRuntime).not.toHaveProperty('workspaceContext');
+    expect(captured.nativeRuntime).not.toHaveProperty('attachedRootIds');
   } finally {
     await captured.close();
   }

@@ -73,21 +73,12 @@ import type {
   ComposerAttachmentsAvailability,
 } from '@brainstrike/assistant-ui';
 import {
-  type TapestryRange,
-  toolLineRangeToTapestryRange,
-  type useWorkspaceContextCurationStore,
-} from '@brainstrike/file-explorer-ui/preview';
-import {
   isLoadedRuntimeModelCatalogState,
   type LocalRuntimeAvailabilityState,
   type LocalRuntimeId,
   type LocalRuntimeModelCatalogState,
 } from '@brainstrike/local-runtime';
-import {
-  getGoogleThinkingLevels,
-  resolveTapestryColorHex,
-  type TapestryColorName,
-} from '@brainstrike/types';
+import { getGoogleThinkingLevels } from '@brainstrike/types';
 
 const SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google', 'local']);
 const SUPPORTED_OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set([
@@ -565,12 +556,10 @@ export function buildAssistantRequestData(args: {
   /** Explicit selection only; absent means Auto even when providerOptions has a resolved effort. */
   requestedReasoningEffort?: RuntimeData['requestedReasoningEffort'];
   selectedMemoryThreadId: string | undefined;
+  /** The explorer's focused folder. */
   selectionData: {
-    filePaths: string[];
     folderId: string | null | undefined;
-    otherRootsCount?: number;
   };
-  workspaceContext: RuntimeData['workspaceContext'] | null;
   workspaceIndex: {
     blockedReason: RuntimeData['workspaceIndexBlockedReason'] | null;
     enabled: boolean;
@@ -611,17 +600,8 @@ export function buildAssistantRequestData(args: {
   if (args.boundWorkspaceRootId) {
     data['boundWorkspaceRootId'] = args.boundWorkspaceRootId;
   }
-  if (args.selectionData.filePaths.length > 0) {
-    data['selectionFilePaths'] = args.selectionData.filePaths;
-  }
   if (args.selectionData.folderId) {
     data['selectionFolderId'] = args.selectionData.folderId;
-  }
-  if ((args.selectionData.otherRootsCount ?? 0) > 0) {
-    // Multi-root: files selected in OTHER active roots are not addressable
-    // by the single-root assistant workspace — surface the count, never
-    // silently drop them.
-    data['selectionFilePathsFromOtherRoots'] = args.selectionData.otherRootsCount;
   }
   if (args.workspaceRootPath) {
     data['workspaceRootPath'] = args.workspaceRootPath;
@@ -636,9 +616,6 @@ export function buildAssistantRequestData(args: {
     data['mainRootPath'] = args.mainRootPath;
   }
   data['enabledNativeToolIds'] = Array.from(args.enabledNativeToolIds);
-  if (args.workspaceContext) {
-    data['workspaceContext'] = args.workspaceContext;
-  }
   if (args.workspaceIndex.embeddingSetId) {
     data['workspaceIndexEmbeddingSetId'] = args.workspaceIndex.embeddingSetId;
   }
@@ -723,60 +700,6 @@ function attachOptInRequestFields(data: Record<string, unknown>, fields: OptInRe
   if (fields.skillsPreference) {
     data['skillsPreference'] = fields.skillsPreference;
   }
-}
-
-function getAssistantTapestryColor(key: string): string {
-  const palette = ['#2563eb', '#059669', '#dc2626', '#7c3aed', '#d97706', '#0891b2'];
-  let hash = 0;
-  for (let index = 0; index < key.length; index += 1) {
-    hash = (hash * 31 + key.charCodeAt(index)) >>> 0;
-  }
-  return palette[hash % palette.length] ?? '#2563eb';
-}
-
-export function buildAssistantTapestryRange(args: {
-  color?: TapestryColorName;
-  compositeKey: string;
-  endLine: number;
-  index: number;
-  isActive: boolean | undefined;
-  startLine: number;
-}): TapestryRange {
-  const internalRange = toolLineRangeToTapestryRange({
-    endLine: args.endLine,
-    startLine: args.startLine,
-  });
-  const rangeKey = `${args.compositeKey}:${args.index}:${args.startLine}:${args.endLine}`;
-  return {
-    color: resolveTapestryColorHex(args.color) ?? getAssistantTapestryColor(rangeKey),
-    endLine: internalRange.endLine,
-    id: `assistant-${rangeKey}`,
-    isActive: args.isActive !== false,
-    startLine: internalRange.startLine,
-    userModified: true,
-  };
-}
-
-/**
- * The run's checked files, whichever folder the explorer focuses (BST-1990):
- * each file carries its folder's `rootId`, and the host places it by the
- * thread's binding rather than the renderer dropping it on a focus mismatch.
- */
-export function toRuntimeWorkspaceContext(
-  snapshot: ReturnType<typeof useWorkspaceContextCurationStore.getState>['contextSnapshot']
-): RuntimeData['workspaceContext'] | null {
-  if (!snapshot) {
-    return null;
-  }
-  return {
-    files: snapshot.files,
-    includeProjectTree: snapshot.includeProjectTree,
-    projectTreeApproxTokens: snapshot.projectTreeApproxTokens,
-    projectTreeTokenCountLoading: snapshot.projectTreeTokenCountLoading,
-    selectedOutputApproxTokens: snapshot.selectedOutputApproxTokens,
-    selectedSourceApproxTokens: snapshot.selectedSourceApproxTokens,
-    ...(snapshot.tokenBudget === null ? {} : { tokenBudget: snapshot.tokenBudget }),
-  };
 }
 
 export function resolveAssistantProviderDisabledNotice(args: {

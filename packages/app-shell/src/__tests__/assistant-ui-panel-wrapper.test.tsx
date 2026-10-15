@@ -30,7 +30,6 @@ import {
   readPanelRequestData,
   renderAssistantPanel,
   renderAssistantThreadPanel,
-  type SelectionUpdateHandler,
   setMcpApi,
   TestWrapperTree,
   testEnabledModels,
@@ -798,296 +797,7 @@ describe('AssistantUiPanelWrapper', () => {
     });
   });
 
-  test('applies root-tree selection updates with default add mode and unsubscribes on unmount', async () => {
-    let handler: SelectionUpdateHandler | undefined;
-    const unsubscribe = vi.fn();
-    (
-      window as typeof window & {
-        tools?: { onRootTreeSelectionUpdate: (cb: SelectionUpdateHandler) => () => void };
-      }
-    ).tools = {
-      onRootTreeSelectionUpdate: (cb) => {
-        handler = cb as SelectionUpdateHandler;
-        return unsubscribe;
-      },
-    };
-
-    const { unmount } = await renderAssistantPanel(['openai'], () =>
-      waitFor(() => {
-        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
-      })
-    );
-
-    act(() => {
-      handler?.({
-        filePaths: ['alpha.ts', '/beta.ts', 'alpha.ts'],
-        folderId: 'test-folder',
-      });
-    });
-
-    expect(fileExplorerMocks.addMultipleSelectedFiles).toHaveBeenCalledWith('test-folder', [
-      '/alpha.ts',
-      '/beta.ts',
-    ]);
-
-    unmount();
-    expect(unsubscribe).toHaveBeenCalledTimes(1);
-  });
-
-  test('applies preview-context selection updates in remove mode', async () => {
-    let handler: SelectionUpdateHandler | undefined;
-    (
-      window as typeof window & {
-        tools?: { onPreviewContextSelectionUpdate: (cb: SelectionUpdateHandler) => () => void };
-      }
-    ).tools = {
-      onPreviewContextSelectionUpdate: (cb) => {
-        handler = cb as SelectionUpdateHandler;
-        return vi.fn();
-      },
-    };
-
-    await renderAssistantPanel(['openai'], () =>
-      waitFor(() => {
-        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
-      })
-    );
-
-    act(() => {
-      handler?.({
-        filePaths: ['/remove-me.ts'],
-        folderId: 'test-folder',
-        mode: 'remove',
-      });
-    });
-
-    expect(fileExplorerMocks.removeMultipleSelectedFiles).toHaveBeenCalledWith('test-folder', [
-      '/remove-me.ts',
-    ]);
-  });
-
-  test('applies workspace-context selection updates from native tools', async () => {
-    let handler: SelectionUpdateHandler | undefined;
-    (
-      window as typeof window & {
-        tools?: { onWorkspaceContextSelectionUpdate: (cb: SelectionUpdateHandler) => () => void };
-      }
-    ).tools = {
-      onWorkspaceContextSelectionUpdate: (cb) => {
-        handler = cb as SelectionUpdateHandler;
-        return vi.fn();
-      },
-    };
-
-    await renderAssistantPanel(['openai'], () =>
-      waitFor(() => {
-        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
-      })
-    );
-
-    act(() => {
-      handler?.({
-        filePaths: ['/curated.ts'],
-        folderId: 'test-folder',
-        mode: 'add',
-      });
-    });
-
-    expect(fileExplorerMocks.addMultipleSelectedFiles).toHaveBeenCalledWith('test-folder', [
-      '/curated.ts',
-    ]);
-  });
-
-  test('applies workspace-context tapestry updates from native tools', async () => {
-    let handler:
-      | ((payload: {
-          folderId: string;
-          mode: 'replace' | 'add';
-          updates: Array<{
-            path: string;
-            ranges: Array<{ startLine: number; endLine: number; isActive?: boolean }>;
-          }>;
-        }) => void)
-      | undefined;
-    (
-      window as typeof window & {
-        tools?: {
-          onWorkspaceContextTapestryUpdate: (cb: NonNullable<typeof handler>) => () => void;
-        };
-      }
-    ).tools = {
-      onWorkspaceContextTapestryUpdate: (cb) => {
-        handler = cb;
-        return vi.fn();
-      },
-    };
-
-    await renderAssistantPanel(['openai'], () =>
-      waitFor(() => {
-        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
-      })
-    );
-
-    act(() => {
-      handler?.({
-        folderId: 'test-folder',
-        mode: 'replace',
-        updates: [
-          {
-            path: '/curated.ts',
-            ranges: [{ endLine: 12, isActive: true, startLine: 4 }],
-          },
-        ],
-      });
-    });
-
-    expect(fileExplorerMocks.setTapestryRangesForKey).toHaveBeenCalledTimes(1);
-    expect(fileExplorerMocks.setTapestryRangesForKey.mock.calls[0]?.[0]).toBe(
-      encodeFileSelection('test-folder', '/curated.ts')
-    );
-    expect(fileExplorerMocks.setTapestryRangesForKey.mock.calls[0]?.[1]).toMatchObject([
-      {
-        endLine: 12,
-        isActive: true,
-        startLine: 3,
-        userModified: true,
-      },
-    ]);
-  });
-
-  test('adds workspace-context tapestry updates against the current store snapshot', async () => {
-    let handler:
-      | ((payload: {
-          folderId: string;
-          mode: 'add';
-          updates: Array<{
-            path: string;
-            ranges: Array<{ startLine: number; endLine: number; isActive?: boolean }>;
-          }>;
-        }) => void)
-      | undefined;
-    (
-      window as typeof window & {
-        tools?: {
-          onWorkspaceContextTapestryUpdate: (cb: NonNullable<typeof handler>) => () => void;
-        };
-      }
-    ).tools = {
-      onWorkspaceContextTapestryUpdate: (cb) => {
-        handler = cb;
-        return vi.fn();
-      },
-    };
-
-    await renderAssistantPanel(['openai'], () =>
-      waitFor(() => {
-        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
-      })
-    );
-
-    const compositeKey = encodeFileSelection('test-folder', '/curated.ts');
-    fileExplorerMocks.tapestryRangesByKey = {
-      [compositeKey]: [{ endLine: 2, isActive: true, startLine: 0 }],
-    };
-
-    act(() => {
-      handler?.({
-        folderId: 'test-folder',
-        mode: 'add',
-        updates: [
-          {
-            path: '/curated.ts',
-            ranges: [{ endLine: 12, isActive: true, startLine: 4 }],
-          },
-        ],
-      });
-    });
-
-    expect(fileExplorerMocks.setTapestryRangesForKey).toHaveBeenCalledWith(
-      compositeKey,
-      expect.arrayContaining([
-        expect.objectContaining({ endLine: 2, startLine: 0 }),
-        expect.objectContaining({ endLine: 12, startLine: 3 }),
-      ])
-    );
-  });
-
-  test('replace mode preserves other-folder selections and bad keys', async () => {
-    let handler: SelectionUpdateHandler | undefined;
-    (
-      window as typeof window & {
-        tools?: { onRootTreeSelectionUpdate: (cb: SelectionUpdateHandler) => () => void };
-      }
-    ).tools = {
-      onRootTreeSelectionUpdate: (cb) => {
-        handler = cb as SelectionUpdateHandler;
-        return vi.fn();
-      },
-    };
-    fileExplorerMocks.effectiveSelection = new Set<string>([
-      encodeFileSelection('other-folder', '/keep.ts'),
-      encodeFileSelection('test-folder', '/drop.ts'),
-      'bad-selection-key',
-    ]);
-
-    await renderAssistantPanel(['openai'], () =>
-      waitFor(() => {
-        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
-      })
-    );
-
-    act(() => {
-      handler?.({
-        filePaths: ['new-file.ts', '/new-file.ts'],
-        folderId: 'test-folder',
-        mode: 'replace',
-      });
-    });
-
-    expect(fileExplorerMocks.resetSelectionToExplicit).toHaveBeenCalledTimes(1);
-    expect(fileExplorerMocks.setSelectedFiles).toHaveBeenCalledTimes(1);
-    const nextSelection = fileExplorerMocks.setSelectedFiles.mock.calls[0]?.[0] as
-      | Set<string>
-      | undefined;
-    expect(nextSelection).toBeDefined();
-    expect(nextSelection?.has(encodeFileSelection('other-folder', '/keep.ts'))).toBe(true);
-    expect(nextSelection?.has('bad-selection-key')).toBe(true);
-    expect(nextSelection?.has(encodeFileSelection('test-folder', '/new-file.ts'))).toBe(true);
-    expect(nextSelection?.has(encodeFileSelection('test-folder', '/drop.ts'))).toBe(false);
-  });
-
-  test('ignores invalid selection update payloads', async () => {
-    let handler: SelectionUpdateHandler | undefined;
-    (
-      window as typeof window & {
-        tools?: { onRootTreeSelectionUpdate: (cb: SelectionUpdateHandler) => () => void };
-      }
-    ).tools = {
-      onRootTreeSelectionUpdate: (cb) => {
-        handler = cb as SelectionUpdateHandler;
-        return vi.fn();
-      },
-    };
-
-    await renderAssistantPanel(['openai'], () =>
-      waitFor(() => {
-        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
-      })
-    );
-
-    act(() => {
-      handler?.({
-        filePaths: [],
-        folderId: '',
-      });
-    });
-
-    expect(fileExplorerMocks.addMultipleSelectedFiles).not.toHaveBeenCalled();
-    expect(fileExplorerMocks.removeMultipleSelectedFiles).not.toHaveBeenCalled();
-    expect(fileExplorerMocks.setSelectedFiles).not.toHaveBeenCalled();
-  });
-
-  test('keeps selected files as tool hints without sending hidden context controls', async () => {
+  test('sends the focused folder and index state, never checked files or hidden context controls (BST-2019)', async () => {
     useWorkspaceCollectionSyncStatusStore.setState({
       blockedReason: 'missing-provider-key',
       lastError: 'OpenAI key is required for Workspace Index.',
@@ -1153,7 +863,7 @@ describe('AssistantUiPanelWrapper', () => {
       waitFor(() => {
         const requestData = readPanelRequestData();
         const contextMenu = readPanelContextMenu();
-        expect(requestData['selectionFilePaths']).toEqual(['/alpha.ts', '/beta.ts']);
+        expect(requestData['selectionFilePaths']).toBeUndefined();
         expect(requestData['selectionFolderId']).toBe('test-folder');
         expect(requestData['workspaceRootPath']).toBe('/tmp/test-workspace');
         expect(requestData['workspaceIndexEmbeddingSetId']).toBe('managed-set-1');
@@ -1172,44 +882,13 @@ describe('AssistantUiPanelWrapper', () => {
           processed: 7,
           totalQueued: 11,
         });
-        expect(requestData['workspaceContext']).toEqual(fileExplorerMocks.workspaceContextSnapshot);
+        expect(requestData['workspaceContext']).toBeUndefined();
         expect(requestData['embeddingSetId']).toBeUndefined();
         expect(requestData['tokenBudget']).toBeUndefined();
         expect(requestData['contextTokenCount']).toBeUndefined();
         expect(requestData['includeFileReport']).toBeUndefined();
         expect(requestData['includeProjectTree']).toBeUndefined();
         expect(contextMenu).toEqual({});
-      })
-    );
-  });
-
-  test('sends checked files from a folder other than the focused one (BST-1990)', async () => {
-    fileExplorerMocks.effectiveSelection = new Set<string>([
-      encodeFileSelection('test-folder', '/alpha.ts'),
-    ]);
-    fileExplorerMocks.workspaceContextSnapshot = {
-      files: [
-        {
-          approxTokens: 200,
-          outputApproxTokens: 60,
-          path: '/alpha.ts',
-          ranges: [{ endLine: 12, isActive: true, startLine: 4 }],
-        },
-      ],
-      includeProjectTree: false,
-      projectTreeApproxTokens: 1200,
-      projectTreeTokenCountLoading: false,
-      selectedOutputApproxTokens: 60,
-      selectedSourceApproxTokens: 320,
-      selectionFolderId: 'other-folder',
-      tokenBudget: 8192,
-    };
-
-    await renderAssistantPanel(['openai'], () =>
-      waitFor(() => {
-        const requestData = readPanelRequestData();
-        expect(requestData['selectionFolderId']).toBe('test-folder');
-        expect(requestData['workspaceContext']).toMatchObject({ files: [{ path: '/alpha.ts' }] });
       })
     );
   });

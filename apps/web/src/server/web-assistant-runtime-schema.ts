@@ -19,39 +19,6 @@ const textSchema = z.string().max(MAX_TEXT_CHARS);
 // Keep in sync with desktop's ALLOWED_WORKSPACE_INDEXING_MODES.
 const workspaceIndexingModeSchema = z.literal('root-folder-cache');
 
-const workspaceRangeSchema = z
-  .object({
-    approxTokens: countSchema.nullable().optional(),
-    endLine: countSchema,
-    isActive: z.boolean().optional(),
-    startLine: countSchema,
-  })
-  .strict()
-  .refine((range) => range.endLine >= range.startLine);
-
-const workspaceFileSchema = z
-  .object({
-    approxTokens: countSchema.nullable().optional(),
-    outputApproxTokens: countSchema.nullable().optional(),
-    path: pathSchema,
-    ranges: z.array(workspaceRangeSchema).max(MAX_LIST_ITEMS).optional(),
-    rootDisplayName: idSchema.optional(),
-    rootId: idSchema.optional(),
-  })
-  .strict();
-
-const workspaceContextSchema = z
-  .object({
-    files: z.array(workspaceFileSchema).max(MAX_LIST_ITEMS).optional(),
-    includeProjectTree: z.boolean().optional(),
-    projectTreeApproxTokens: countSchema.nullable().optional(),
-    projectTreeTokenCountLoading: z.boolean().optional(),
-    selectedOutputApproxTokens: countSchema.nullable().optional(),
-    selectedSourceApproxTokens: countSchema.nullable().optional(),
-    tokenBudget: z.number().int().positive().max(MAX_COUNT).optional(),
-  })
-  .strict();
-
 const queueProgressSchema = z
   .object({
     failed: countSchema,
@@ -166,11 +133,7 @@ const FORWARDED_REQUEST_SCHEMAS = {
   mainRootId: idSchema,
   mainRootPath: pathSchema,
   projectId: idSchema,
-  selectionFilePaths: z.array(pathSchema).max(MAX_LIST_ITEMS),
-  selectionFilePathsFromOtherRoots: countSchema.max(MAX_LIST_ITEMS),
   selectionFolderId: idSchema,
-  tokenBudget: z.number().int().positive().max(MAX_COUNT).nullable(),
-  workspaceContext: workspaceContextSchema,
   workspaceIndexBlockedReason: idSchema.nullable(),
   workspaceIndexEmbeddingSetId: idSchema,
   workspaceIndexingEnabled: z.boolean(),

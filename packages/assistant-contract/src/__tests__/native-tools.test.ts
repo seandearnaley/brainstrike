@@ -69,8 +69,6 @@ describe('NATIVE_TOOLS catalog', () => {
         "brainstrike.runSkillScript",
         "brainstrike.stringReplaceWorkspaceFile",
         "brainstrike.submitPlan",
-        "brainstrike.updateWorkspaceContextSelection",
-        "brainstrike.updateWorkspaceTapestrySelections",
         "brainstrike.webExtract",
         "brainstrike.webSearch",
         "brainstrike.writeWorkspaceFile",
@@ -82,7 +80,7 @@ describe('NATIVE_TOOLS catalog', () => {
   });
 
   it('partitions desktop (brainstrike.*) and skill ids exactly, with no duplicates', () => {
-    expect(DESKTOP_NATIVE_TOOL_IDS).toHaveLength(35);
+    expect(DESKTOP_NATIVE_TOOL_IDS).toHaveLength(33);
     expect(SKILL_NATIVE_TOOL_IDS).toEqual(['skill', 'skill_read', 'skill_search']);
     expect(NATIVE_TOOL_IDS).toEqual([...DESKTOP_NATIVE_TOOL_IDS, ...SKILL_NATIVE_TOOL_IDS]);
     expect(new Set(NATIVE_TOOL_IDS).size).toBe(NATIVE_TOOL_IDS.length);
@@ -99,7 +97,7 @@ describe('NATIVE_TOOLS catalog', () => {
     expect(WEB_NATIVE_TOOL_IDS).toEqual(
       DESKTOP_CATALOG.filter((tool) => tool.surfaces.includes('web')).map((tool) => tool.id)
     );
-    expect(WEB_NATIVE_TOOL_IDS).toHaveLength(24);
+    expect(WEB_NATIVE_TOOL_IDS).toHaveLength(22);
     expect(LOCAL_DESKTOP_NATIVE_TOOL_IDS).toEqual([
       'brainstrike.executeCommand',
       'brainstrike.globWorkspace',
@@ -165,7 +163,7 @@ describe('NATIVE_TOOLS catalog', () => {
         "git worktrees",
         "file delete/rename",
         "directory listings",
-        "workspace context and tapestry",
+        "workspace context",
         "symbol and LSP inspection",
         "embedding search",
         "diagnostics",

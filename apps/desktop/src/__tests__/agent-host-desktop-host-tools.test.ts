@@ -120,13 +120,6 @@ function selection(root: string, native: Record<string, unknown> = {}) {
         permissionToolId: NATIVE_TOOL_ID.readWorkspaceContext,
         risk: 'read',
       },
-      brainstrike_updateWorkspaceContextSelection: {
-        description: 'Select context files',
-        identity: NATIVE_TOOL_ID.updateWorkspaceContextSelection,
-        inputSchema: { type: 'object' },
-        permissionToolId: NATIVE_TOOL_ID.updateWorkspaceContextSelection,
-        risk: 'edit',
-      },
     },
     toolTimeoutMs: 5000,
   });
@@ -181,7 +174,7 @@ test('the desktop host runs lspInspect in its own process, revalidating roots th
   ]);
 });
 
-test('the desktop host reads the curated context selection in its own process', async () => {
+test('the desktop host reads named workspace context files in its own process', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-context-')));
   directories.push(root);
   await writeFile(join(root, 'notes.txt'), 'curated notes\n');
@@ -197,34 +190,14 @@ test('the desktop host reads the curated context selection in its own process', 
     request,
     // These cases build no web search; the host's Tavily owner is never read.
     resolveTavilyApiKey: async () => undefined,
-    selected: selection(root, {
-      selectionFilePaths: ['notes.txt'],
-      selectionFolderId: 'root-a',
-      workspaceContext: {
-        files: [
-          {
-            approxTokens: 3,
-            outputApproxTokens: null,
-            path: 'notes.txt',
-            ranges: [],
-            rootId: 'root-a',
-          },
-        ],
-        includeProjectTree: false,
-        projectTreeApproxTokens: null,
-        projectTreeTokenCountLoading: false,
-        selectedOutputApproxTokens: null,
-        selectedSourceApproxTokens: null,
-      },
-      workspaceRootPath: root,
-    }),
+    selected: selection(root, { selectionFolderId: 'root-a', workspaceRootPath: root }),
     threadId: 'host-thread',
   });
   const tool = tools['brainstrike_readWorkspaceContext'];
   if (!tool) {
     throw new Error('readWorkspaceContext was not built for the host');
   }
-  const output = await tool.execute({}, execution());
+  const output = await tool.execute({ filePaths: ['notes.txt'] }, execution());
   expect(JSON.stringify(output)).toContain('curated notes');
   expect(request.mock.calls.map(([method]) => method)).toEqual([
     'admission/fresh-roots',
@@ -523,48 +496,6 @@ test('the desktop host runs the browser tools, asking Main to drive the window-b
     { input: { filter: 'interactive', maxChars: 6000 }, threadId: 'host-thread' },
     expect.any(AbortSignal)
   );
-});
-
-test('the desktop host validates a context selection in its own process and asks Main only to deliver it', async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-select-')));
-  directories.push(root);
-  await writeFile(join(root, 'notes.txt'), 'notes\n');
-  const request = vi.fn(async (method: string, _input: unknown) => {
-    switch (method) {
-      case 'admission/fresh-roots':
-        return [{ displayName: 'A', path: root, rootId: 'root-a' }];
-      case 'platform/workspace-context/selection':
-        return { notifiedWindowCount: 1 };
-      default:
-        throw new Error(`Unexpected Main request ${method}`);
-    }
-  });
-  const tools = desktopHostSharedTools({
-    freshRoots: () => request('admission/fresh-roots', {}),
-    readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
-    request,
-    resolveTavilyApiKey: async () => undefined,
-    selected: selection(root, { selectionFolderId: 'folder-a', workspaceRootPath: root }),
-    threadId: 'host-thread',
-  });
-  const tool = tools['brainstrike_updateWorkspaceContextSelection'];
-  if (!tool) {
-    throw new Error('updateWorkspaceContextSelection was not built for the host');
-  }
-  await expect(
-    tool.execute({ filePaths: ['notes.txt', 'missing.txt'] }, execution())
-  ).resolves.toMatchObject({
-    appliedCount: 1,
-    folderId: 'folder-a',
-    notifiedWindowCount: 1,
-    selectedFiles: ['notes.txt'],
-    skippedFiles: [{ path: 'missing.txt', reason: 'missing' }],
-  });
-  // Only the validated selection crosses to Main, for delivery to the visible windows.
-  expect(request).toHaveBeenCalledWith('platform/workspace-context/selection', {
-    payload: { filePaths: ['notes.txt'], folderId: 'folder-a', mode: 'add' },
-    threadId: 'host-thread',
-  });
 });
 
 test('the desktop host runs queryDiagnostics, reading only Main’s diagnostics store through a typed read', async () => {

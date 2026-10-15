@@ -1,4 +1,3 @@
-import { TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { z } from 'zod';
 import { CANVAS_HTML_MAX_BYTES, canvasHtmlWithinByteCeiling } from '../../mastra-memory-schema.js';
 
@@ -8,9 +7,6 @@ import { CANVAS_HTML_MAX_BYTES, canvasHtmlWithinByteCeiling } from '../../mastra
 
 const ROOT_QUALIFIER_DESCRIPTION =
   "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.";
-
-const ROOT_WRITE_GUARD_DESCRIPTION =
-  'Open-folder name/id. Omit for the Focused folder; an explicit root always wins.';
 
 /**
  * A canvas HTML field, bounded by UTF-8 BYTES rather than by whatever unit the
@@ -279,27 +275,8 @@ export const FindWorkspaceSymbolInputSchema = z
 
 export type FindWorkspaceSymbolInput = z.infer<typeof FindWorkspaceSymbolInputSchema>;
 
-export const ListWorkspaceContextInputSchema = z
-  .object({
-    detail: z
-      .boolean()
-      .optional()
-      .describe(
-        'Include full curated-context metadata with per-file Tapestry ranges (default: compact summary with counts and token budgets)'
-      ),
-    includeTokenEstimates: z
-      .boolean()
-      .optional()
-      .describe('Include token estimates for selected files when available'),
-    offset: z
-      .number()
-      .int()
-      .min(0)
-      .max(10_000)
-      .optional()
-      .describe('Skip this many selected file paths to continue a truncated listing'),
-  })
-  .strict();
+/** The listing takes no input: it reports the open roots and the index. */
+export const ListWorkspaceContextInputSchema = z.object({}).strict();
 
 export type ListWorkspaceContextInput = z.infer<typeof ListWorkspaceContextInputSchema>;
 
@@ -309,8 +286,7 @@ export const ReadWorkspaceContextInputSchema = z
       .array(z.string().min(1))
       .min(1)
       .max(5000)
-      .optional()
-      .describe('Workspace-relative file paths to read. Defaults to selected workspace context.'),
+      .describe('Workspace-relative file paths to read'),
     maxCharsPerFile: z
       .number()
       .int()
@@ -327,133 +303,7 @@ export const ReadWorkspaceContextInputSchema = z
       .max(200_000)
       .optional()
       .describe('Total output token cap'),
-    useTapestrySelections: z
-      .boolean()
-      .optional()
-      .describe('Apply selected Tapestry line ranges when reading curated workspace context'),
   })
   .strict();
 
 export type ReadWorkspaceContextInput = z.infer<typeof ReadWorkspaceContextInputSchema>;
-
-export const UpdateWorkspaceContextSelectionInputSchema = z
-  .object({
-    filePaths: z
-      .array(z.string().min(1))
-      .min(1)
-      .max(5000)
-      .describe('Workspace-relative file paths to select in the workspace context explorer'),
-    folderId: z.string().min(1).optional().describe('Optional folder id for multi-root workspaces'),
-    mode: z
-      .enum(['replace', 'add', 'remove'])
-      .optional()
-      .describe('Selection update strategy (default: add)'),
-    root: z.string().optional().describe(ROOT_WRITE_GUARD_DESCRIPTION),
-  })
-  .strict();
-
-export type UpdateWorkspaceContextSelectionInput = z.infer<
-  typeof UpdateWorkspaceContextSelectionInputSchema
->;
-
-const WorkspaceTapestryRangeInputSchema = z
-  .object({
-    color: z
-      .enum(TAPESTRY_COLOR_NAMES)
-      .optional()
-      .describe('Group color; reuse per concept; omit to auto-assign'),
-    endLine: z.number().int().positive().describe('1-based inclusive ending line'),
-    isActive: z.boolean().optional().describe('Whether this range contributes to context output'),
-    startLine: z.number().int().positive().describe('1-based inclusive starting line'),
-  })
-  .strict()
-  .refine((value) => value.endLine >= value.startLine, {
-    message: 'endLine must be greater than or equal to startLine',
-    path: ['endLine'],
-  });
-
-export const UpdateWorkspaceTapestrySelectionsInputSchema = z
-  .object({
-    folderId: z.string().min(1).optional().describe('Optional folder id for multi-root workspaces'),
-    mode: z
-      .enum(['replace', 'add', 'clear'])
-      .optional()
-      .describe('Range update strategy for each file (default: replace)'),
-    root: z.string().optional().describe(ROOT_WRITE_GUARD_DESCRIPTION),
-    selectFiles: z
-      .boolean()
-      .optional()
-      .describe('Also add affected files to the workspace context selection (default: true)'),
-    updates: z
-      .array(
-        z
-          .object({
-            path: z.string().min(1).describe('Workspace-relative file path'),
-            ranges: z
-              .array(WorkspaceTapestryRangeInputSchema)
-              .max(50)
-              .describe('1-based inclusive line ranges for this file'),
-          })
-          .strict()
-      )
-      .min(1)
-      .max(500)
-      .describe('Tapestry selection updates grouped by file'),
-  })
-  .strict();
-
-export type UpdateWorkspaceTapestrySelectionsInput = z.infer<
-  typeof UpdateWorkspaceTapestrySelectionsInputSchema
->;
-
-/**
- * @deprecated Use UpdateWorkspaceContextSelectionInputSchema. The legacy root-tree
- * tool is no longer registered in the assistant runtime.
- */
-export const SelectRootTreeFilesInputSchema = z
-  .object({
-    filePaths: z
-      .array(z.string().min(1))
-      .min(1)
-      .max(5000)
-      .describe('Workspace-relative file paths to add to the left root tree selection'),
-    folderId: z
-      .string()
-      .min(1)
-      .optional()
-      .describe('Optional folder identifier when multiple roots are present'),
-    mode: z
-      .enum(['replace', 'add', 'remove'])
-      .optional()
-      .describe('Selection update strategy for root tree selection (default: add)'),
-  })
-  .strict();
-
-/** @deprecated Use UpdateWorkspaceContextSelectionInput. */
-export type SelectRootTreeFilesInput = z.infer<typeof SelectRootTreeFilesInputSchema>;
-
-/**
- * @deprecated Use UpdateWorkspaceContextSelectionInputSchema. The legacy preview
- * context tool is no longer registered in the assistant runtime.
- */
-export const UpdatePreviewContextFilesInputSchema = z
-  .object({
-    filePaths: z
-      .array(z.string().min(1))
-      .min(1)
-      .max(5000)
-      .describe('Workspace-relative file paths to adjust in the preview context selection'),
-    folderId: z
-      .string()
-      .min(1)
-      .optional()
-      .describe('Optional folder identifier when multiple roots are present'),
-    mode: z
-      .enum(['replace', 'add', 'remove'])
-      .optional()
-      .describe('Selection update strategy for preview context files (default: add)'),
-  })
-  .strict();
-
-/** @deprecated Use UpdateWorkspaceContextSelectionInput. */
-export type UpdatePreviewContextFilesInput = z.infer<typeof UpdatePreviewContextFilesInputSchema>;

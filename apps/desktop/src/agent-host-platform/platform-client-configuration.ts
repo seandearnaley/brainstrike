@@ -80,32 +80,6 @@ export const PlatformMemorySettingsSchema = z.strictObject({
     topK: z.number().int().positive(),
   }),
 });
-const NullableTokens = z.number().nonnegative().nullable();
-export const PlatformWorkspaceContextSchema = z.strictObject({
-  files: z.array(
-    z.strictObject({
-      approxTokens: NullableTokens,
-      outputApproxTokens: NullableTokens,
-      path: Id,
-      ranges: z.array(
-        z.strictObject({
-          approxTokens: NullableTokens.optional(),
-          endLine: z.number().int().positive(),
-          isActive: z.boolean(),
-          startLine: z.number().int().positive(),
-        })
-      ),
-      rootDisplayName: z.string().optional(),
-      rootId: Id.optional(),
-    })
-  ),
-  includeProjectTree: z.boolean(),
-  projectTreeApproxTokens: NullableTokens,
-  projectTreeTokenCountLoading: z.boolean(),
-  selectedOutputApproxTokens: NullableTokens,
-  selectedSourceApproxTokens: NullableTokens,
-  tokenBudget: z.number().positive().optional(),
-});
 /** BST-1932: the renderer's subagent preferences, captured with each run's input. */
 export const PlatformSubagentsIntentSchema = z.strictObject({
   delegationEnabled: z.boolean(),
@@ -135,7 +109,13 @@ export const PlatformClientConfigurationSchema = z.strictObject({
     })
     .optional(),
   subagents: PlatformSubagentsIntentSchema.optional(),
-  workspaceContext: PlatformWorkspaceContextSchema.optional(),
+  /**
+   * Checked files as context, retired (BST-2019). A run committed before then
+   * carries it in its captured intent. It is accepted and read as nothing, so
+   * that intent still parses. A run whose tools have since changed still cannot
+   * resume: a reopen refuses a changed tool catalog.
+   */
+  workspaceContext: z.json().optional(),
   workspaceInstructionsPreference: z.strictObject({
     masterEnabled: z.boolean(),
     oversizedOptInByRootId: z.record(z.string(), z.boolean()),

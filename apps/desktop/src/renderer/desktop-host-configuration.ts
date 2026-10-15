@@ -2,7 +2,6 @@ import {
   buildAgentLoopSettings,
   buildAssistantMemoryOptions,
   buildDraftRuntimeForProvider,
-  toRuntimeWorkspaceContext,
 } from '@brainstrike/app-shell';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
@@ -22,7 +21,6 @@ import {
   type OpenRouterModelMetadataLookup,
 } from '@brainstrike/assistant-contract';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
-import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import {
   captureDesktopHostIntent,
   type DesktopHostModelProjection,
@@ -65,9 +63,6 @@ export function readDesktopHostConfiguration(
   const { sessionGrants: _sessionGrants, ...permission } = getPermissionToolGateSnapshotInput();
   const personas = useSubagentPersonasStore.getState();
   const instructions = useWorkspaceInstructionsPreferencesStore.getState();
-  const workspaceContext = toRuntimeWorkspaceContext(
-    useWorkspaceContextCurationStore.getState().contextSnapshot
-  );
   // The built-in local model gets its own small tool surface, as the legacy composer offers it.
   const offeredNativeToolIds: readonly string[] =
     provider === 'local' ? LOCAL_DESKTOP_NATIVE_TOOL_IDS : DESKTOP_NATIVE_TOOL_IDS;
@@ -89,7 +84,6 @@ export function readDesktopHostConfiguration(
       settings: useAssistantSubagentPreferencesStore.getState().settings,
     },
     threadDraft,
-    workspaceContext,
     workspaceInstructionsPreference: {
       masterEnabled: instructions.masterEnabled,
       oversizedOptInByRootId: instructions.oversizedOptInByRootId,

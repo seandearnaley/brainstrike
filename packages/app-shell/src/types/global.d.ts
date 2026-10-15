@@ -1,10 +1,5 @@
 import type { BoundaryTransport } from '@brainstrike/assistant-contract/boundary-result';
 import type { SkillsBridge } from '@brainstrike/assistant-contract/skills-bridge';
-import type {
-  AssistantSelectionUpdatePayload,
-  AssistantWorkspaceContextSelectionUpdatePayload,
-  AssistantWorkspaceTapestryUpdatePayload,
-} from '@brainstrike/types';
 import type { ChangesBridge } from '../changes/changes-bridge';
 import type { PlatformBridge } from '../platform-bridge';
 import type { UserCommandsBridge } from '../user-commands-bridge';
@@ -41,20 +36,6 @@ declare global {
      * it.
      */
     skills?: Partial<BoundaryTransport<SkillsBridge>>;
-    tools?: {
-      onRootTreeSelectionUpdate?: (
-        callback: (payload: AssistantSelectionUpdatePayload) => void
-      ) => (() => void) | undefined;
-      onPreviewContextSelectionUpdate?: (
-        callback: (payload: AssistantSelectionUpdatePayload) => void
-      ) => (() => void) | undefined;
-      onWorkspaceContextSelectionUpdate?: (
-        callback: (payload: AssistantWorkspaceContextSelectionUpdatePayload) => void
-      ) => (() => void) | undefined;
-      onWorkspaceContextTapestryUpdate?: (
-        callback: (payload: AssistantWorkspaceTapestryUpdatePayload) => void
-      ) => (() => void) | undefined;
-    };
     /**
      * Desktop-only user-defined slash command discovery bridge. Absent on web
      * (no preload) — capability-check via `resolveUserCommandsBridge()`

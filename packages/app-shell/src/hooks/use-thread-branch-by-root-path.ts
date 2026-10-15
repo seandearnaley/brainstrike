@@ -66,8 +66,8 @@
  */
 import type { GitInventory, WorktreeDescriptor } from '@brainstrike/types';
 import { useMemo } from 'react';
-import { normalizeRootPathForLookup } from '../assistant-selection-write-back';
 import { useGitInventory } from '../changes/use-git-inventory';
+import { normalizeRootPathForLookup } from '../root-path-lookup';
 
 const NO_BRANCHES: ReadonlyMap<string, ThreadBranchInfo> = new Map();
 const NO_BRANCHES_BY_ID_AND_PATH: ReadonlyMap<

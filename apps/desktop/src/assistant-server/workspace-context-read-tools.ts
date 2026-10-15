@@ -1,38 +1,28 @@
 /**
  * The read half of the workspace-context tool family (BST-743):
- * listWorkspaceContext and readWorkspaceContext over the request's curated
- * selection, with batched bounded reads. It must not import Electron: the
- * desktop agent host runs these tools in its own process.
+ * listWorkspaceContext reports the open roots and the index; readWorkspaceContext
+ * reads explicit files with batched bounded reads. It must not import Electron:
+ * the desktop agent host runs these tools in its own process.
  */
-import {
-  fitItemsToCharBudget,
-  type ListWorkspaceContextInput,
-  type ReadWorkspaceContextInput,
-  type RuntimeData,
-  type RuntimeWorkspaceContextFileMetadata,
-  type RuntimeWorkspaceContextMetadata,
-  type RuntimeWorkspaceContextRangeMetadata,
-  type RuntimeWorkspaceRoot,
+import type {
+  ListWorkspaceContextInput,
+  ReadWorkspaceContextInput,
+  RuntimeData,
+  RuntimeWorkspaceRoot,
 } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import {
   normalizeWorkspacePath,
   normalizeWorkspacePaths,
   REDACTED_PATH_LOG_VALUE,
-  readWorkspaceTextFile,
   redactToolErrorForLog,
   runReadWorkspaceFile,
   WorkspacePathRefusal,
   type WorkspacePathRefusalReason,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
-import { countTokensHeuristic } from '@brainstrike/tokenization';
 import type { WorkspaceIndexSummary } from './workspace-index-summary';
-import {
-  getWorkspaceRoots,
-  resolveFocusedWorkspaceRoot,
-  resolveWorkspaceRoot,
-} from './workspace-roots';
+import { getWorkspaceRoots, resolveWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('DesktopAssistantTools');
 
@@ -41,142 +31,11 @@ const DEFAULT_CONTEXT_MAX_FILES = 20;
 const DEFAULT_CONTEXT_MAX_CHARS_PER_FILE = 12_000;
 const READ_WORKSPACE_CONTEXT_BATCH_SIZE = 10;
 
-function escapeSelectionBoundaryTags(content: string): string {
-  return content
-    .replaceAll('</selection>', '&lt;/selection&gt;')
-    .replace(/<selection(?=[\s/>])/g, '&lt;selection');
-}
-
-function truncateContent(
-  content: string,
-  maxChars: number
-): { content: string; truncated: boolean; omittedChars: number } {
-  if (content.length <= maxChars) {
-    return { content, omittedChars: 0, truncated: false };
-  }
-  return {
-    content: content.slice(0, maxChars),
-    omittedChars: content.length - maxChars,
-    truncated: true,
-  };
-}
-
-function normalizeRuntimeSelectionFilePaths(runtimeData: RuntimeData | undefined): string[] {
-  return normalizeWorkspacePaths(Array.from(runtimeData?.selectionFilePaths ?? []));
-}
-
-export function resolveSelectionFolderId(
-  inputFolderId: string | undefined,
-  runtimeData: RuntimeData | undefined
-): string {
-  const folderId = inputFolderId?.trim() || runtimeData?.selectionFolderId?.trim();
-  if (!folderId) {
-    throw new ToolInputError('No selection folder is available. Select a workspace root first.');
-  }
-  return folderId;
-}
-
-function getRuntimeWorkspaceContext(
-  runtimeData: RuntimeData | undefined
-): RuntimeWorkspaceContextMetadata | undefined {
-  return runtimeData?.workspaceContext;
-}
-
-function getRuntimeWorkspaceContextFiles(
-  runtimeData: RuntimeData | undefined
-): RuntimeWorkspaceContextFileMetadata[] {
-  const files = getRuntimeWorkspaceContext(runtimeData)?.files;
-  return Array.isArray(files) ? Array.from(files) : [];
-}
-
-function normalizeWorkspaceContextRange(
-  range: RuntimeWorkspaceContextRangeMetadata
-): RuntimeWorkspaceContextRangeMetadata | null {
-  if (!(Number.isInteger(range.startLine) && Number.isInteger(range.endLine))) {
-    return null;
-  }
-  if (range.startLine < 1 || range.endLine < range.startLine) {
-    return null;
-  }
-  return {
-    endLine: range.endLine,
-    startLine: range.startLine,
-    ...(typeof range.approxTokens === 'number' ? { approxTokens: range.approxTokens } : {}),
-    ...(range.isActive === false ? { isActive: false } : { isActive: true }),
-  };
-}
-
-function buildRuntimeTapestryRangesByPath(
-  runtimeData: RuntimeData | undefined
-): Map<string, RuntimeWorkspaceContextRangeMetadata[]> {
-  const rangesByPath = new Map<string, RuntimeWorkspaceContextRangeMetadata[]>();
-  for (const file of getRuntimeWorkspaceContextFiles(runtimeData)) {
-    const normalizedPath = normalizeWorkspacePath(file.path);
-    const ranges = Array.from(file.ranges ?? [])
-      .map((range) => normalizeWorkspaceContextRange(range))
-      .filter((range): range is RuntimeWorkspaceContextRangeMetadata => range !== null);
-    if (ranges.length > 0) {
-      rangesByPath.set(normalizedPath, ranges);
-    }
-  }
-  return rangesByPath;
-}
-
-interface CuratedContextSummary {
-  fileCount: number;
-  includeProjectTree?: boolean;
-  projectTreeApproxTokens?: number | null;
-  rangeCount: number;
-  selectedOutputApproxTokens?: number | null;
-  selectedSourceApproxTokens?: number | null;
-  tokenBudget?: number;
-}
-
-/** Counts and token budgets only — the per-file range metadata stays behind detail: true. */
-function summarizeCuratedContext(context: RuntimeWorkspaceContextMetadata): CuratedContextSummary {
-  const files = Array.isArray(context.files) ? context.files : [];
-  const rangeCount = files.reduce((total, file) => total + (file.ranges?.length ?? 0), 0);
-  return {
-    fileCount: files.length,
-    rangeCount,
-    ...(context.tokenBudget === undefined ? {} : { tokenBudget: context.tokenBudget }),
-    ...(context.includeProjectTree === undefined
-      ? {}
-      : { includeProjectTree: context.includeProjectTree }),
-    ...(context.projectTreeApproxTokens === undefined
-      ? {}
-      : { projectTreeApproxTokens: context.projectTreeApproxTokens }),
-    ...(context.selectedSourceApproxTokens === undefined
-      ? {}
-      : { selectedSourceApproxTokens: context.selectedSourceApproxTokens }),
-    ...(context.selectedOutputApproxTokens === undefined
-      ? {}
-      : { selectedOutputApproxTokens: context.selectedOutputApproxTokens }),
-  };
-}
-
 interface ListWorkspaceContextToolResult {
-  curatedContext?: RuntimeWorkspaceContextMetadata;
-  curatedContextSummary?: CuratedContextSummary;
-  /** Actionable next step when the selected-file listing was truncated. */
-  hint?: string;
-  offset: number;
-  selectedFileCount: number;
-  selectedFiles: string[];
-  /**
-   * Multi-root forest: selected files in OTHER workspace roots this
-   * single-root toolset cannot address — reported so the model can tell the
-   * user instead of acting as if the selection were complete.
-   */
-  selectedFilesOutsideWorkspace?: number;
-  selectionFolderId?: string | null;
-  tokenEstimates?: Array<{ path: string; approxTokens: number | null }>;
-  truncated: boolean;
   workspaceIndex: WorkspaceIndexSummary;
   /**
    * MAIN root path (the assistant's operating root — `workspaceRoots[0]`,
-   * client-declared with a created_at fallback). NOT the focused root:
-   * selected files live in the FOCUSED root — see selectionFolderId.
+   * client-declared with a created_at fallback).
    */
   workspaceRootPath: string | null;
   /**
@@ -186,61 +45,11 @@ interface ListWorkspaceContextToolResult {
   workspaceRoots: readonly RuntimeWorkspaceRoot[];
 }
 
-/**
- * BST-1990: the checked files by where they come from. Files in the thread's
- * folders are the selection; the rest are counted, with a note when the run
- * may read some of them as attached content. Without a curated selection, the
- * selection paths and their count of files in other roots.
- */
-function placeListedCheckedFiles(
-  runtimeData: RuntimeData | undefined,
-  workspaceRoots: readonly RuntimeWorkspaceRoot[],
-  checkedFiles: CheckedFileAccess | undefined
-): { attachedNote?: string; outside: number; selected: string[] } {
-  const files = getRuntimeWorkspaceContextFiles(runtimeData);
-  if (files.length === 0) {
-    return {
-      outside: runtimeData?.selectionFilePathsFromOtherRoots ?? 0,
-      selected: normalizeRuntimeSelectionFilePaths(runtimeData),
-    };
-  }
-  const threadRootIds = new Set(workspaceRoots.map((root) => root.rootId));
-  const attachedRootIds = new Set(checkedFiles?.attachedRootIds ?? []);
-  const labelRoot =
-    new Set(files.map((file) => file.rootId).filter((id) => id && threadRootIds.has(id))).size > 1;
-  const selected: string[] = [];
-  let attached = 0;
-  let outside = 0;
-  for (const file of files) {
-    const { rootId } = file;
-    if (rootId !== undefined && threadRootIds.has(rootId)) {
-      const filePath = normalizeWorkspacePath(file.path);
-      const root = workspaceRoots.find((candidate) => candidate.rootId === rootId);
-      selected.push(labelRoot && root ? `${root.displayName}:${filePath}` : filePath);
-      continue;
-    }
-    outside += 1;
-    if (rootId !== undefined && attachedRootIds.has(rootId)) {
-      attached += 1;
-    }
-  }
-  if (attached === 0) {
-    return { outside, selected };
-  }
-  const one = attached === 1;
-  return {
-    attachedNote: `${attached} checked file${one ? ' is' : 's are'} from workspace folders that are not one of this thread's folders; readWorkspaceContext attaches ${one ? 'it' : 'them'} for this run only.`,
-    outside,
-    selected,
-  };
-}
-
 export function runListWorkspaceContext(
-  input: ListWorkspaceContextInput,
+  _input: ListWorkspaceContextInput,
   runtimeData: RuntimeData | undefined,
   /** The native index's status summary, read by the caller. */
-  workspaceIndex: WorkspaceIndexSummary,
-  checkedFiles?: CheckedFileAccess
+  workspaceIndex: WorkspaceIndexSummary
 ): ListWorkspaceContextToolResult {
   const workspaceRoots = getWorkspaceRoots(runtimeData);
   const resolvedWorkspaceRoots = runtimeData?.workspaceRoots;
@@ -250,90 +59,18 @@ export function runListWorkspaceContext(
   ) {
     throw new TypeError('Workspace root metadata is malformed. Refresh the workspace and retry.');
   }
-  if (workspaceRoots.length === 0) {
-    if (resolvedWorkspaceRoots === undefined) {
-      throw new ToolInputError(
-        'No folder is open in the workspace. Add a folder in the left file tree first.'
-      );
-    }
-    if ((runtimeData?.selectionFilePathsFromOtherRoots ?? 0) > 0) {
-      throw new TypeError(
-        'Workspace root metadata is inconsistent: a zero-root workspace cannot retain selections from other roots.'
-      );
-    }
-    return {
-      offset: input.offset ?? 0,
-      selectedFileCount: 0,
-      selectedFiles: [],
-      selectionFolderId: null,
-      truncated: false,
-      workspaceIndex,
-      workspaceRootPath: null,
-      workspaceRoots: [],
-      ...(input.includeTokenEstimates === true ? { tokenEstimates: [] } : {}),
-    };
+  if (workspaceRoots.length === 0 && resolvedWorkspaceRoots === undefined) {
+    throw new ToolInputError(
+      'No folder is open in the workspace. Add a folder in the left file tree first.'
+    );
   }
   // The first root is the MAIN root (client-declared via mainRootId, with the
-  // DB created_at order as fallback — see orderWorkspaceRoots). Identical to
-  // the legacy resolveWorkspaceRootPath value in the single-root case.
-  const workspaceRootPath = workspaceRoots[0]?.path ?? '';
-  const {
-    attachedNote,
-    outside: outsideWorkspaceCount,
-    selected: selectedFiles,
-  } = placeListedCheckedFiles(runtimeData, workspaceRoots, checkedFiles);
-  const curatedContext = getRuntimeWorkspaceContext(runtimeData);
-  const curatedFilesByPath = new Map(
-    getRuntimeWorkspaceContextFiles(runtimeData).map((file) => [
-      normalizeWorkspacePath(file.path),
-      file,
-    ])
-  );
-  const detail = input.detail ?? false;
-  const offset = input.offset ?? 0;
-  const pagedFiles = selectedFiles.slice(offset);
-
-  // Large selections can hold thousands of paths; bound the listing (and its
-  // parallel token-estimate list) to the tool output budget, with the hint
-  // built inside the fitted candidate.
-  const { result } = fitItemsToCharBudget(pagedFiles, (files): ListWorkspaceContextToolResult => {
-    const truncated = offset + files.length < selectedFiles.length;
-    const pageHint = truncated
-      ? `Showing selected files ${offset + 1}-${offset + files.length} of ${selectedFiles.length}. ` +
-        `Continue with offset: ${offset + files.length}.`
-      : undefined;
-    const hint = [pageHint, attachedNote].filter(Boolean).join(' ') || undefined;
-    return {
-      offset,
-      selectedFileCount: selectedFiles.length,
-      selectedFiles: files,
-      truncated,
-      workspaceIndex,
-      workspaceRootPath,
-      workspaceRoots,
-      ...(outsideWorkspaceCount > 0
-        ? { selectedFilesOutsideWorkspace: outsideWorkspaceCount }
-        : {}),
-      ...(hint ? { hint } : {}),
-      ...(typeof runtimeData?.selectionFolderId === 'string'
-        ? { selectionFolderId: runtimeData.selectionFolderId }
-        : {}),
-      ...(curatedContext
-        ? detail
-          ? { curatedContext }
-          : { curatedContextSummary: summarizeCuratedContext(curatedContext) }
-        : {}),
-      ...(input.includeTokenEstimates === true
-        ? {
-            tokenEstimates: files.map((filePath) => ({
-              approxTokens: curatedFilesByPath.get(filePath)?.approxTokens ?? null,
-              path: filePath,
-            })),
-          }
-        : {}),
-    };
-  });
-  return result;
+  // DB created_at order as fallback — see orderWorkspaceRoots).
+  return {
+    workspaceIndex,
+    workspaceRootPath: workspaceRoots[0]?.path ?? null,
+    workspaceRoots,
+  };
 }
 
 interface WorkspaceContextFileResult {
@@ -341,22 +78,9 @@ interface WorkspaceContextFileResult {
   content: string;
   endLine: number;
   omittedChars: number;
-  /** BST-1990: a checked file from a workspace folder that is not one of this thread's. */
-  outsideThread?: true;
   path: string;
-  /** The file's folder, when the checked files span folders or come from outside the thread. */
-  rootName?: string;
   size: number;
-  /** Where an attached file comes from, for the model. */
-  source?: string;
   startLine: number;
-  tapestryRangeCount?: number;
-  tapestryRanges?: Array<{
-    approxTokens: number;
-    content: string;
-    endLine: number;
-    startLine: number;
-  }>;
   totalLines: number;
   truncated: boolean;
 }
@@ -366,7 +90,6 @@ interface WorkspaceContextSkippedFile {
   path: string;
   reason:
     | 'binary'
-    | 'folderUnavailable'
     | 'maxFiles'
     | 'missing'
     | 'notFile'
@@ -409,121 +132,14 @@ function classifyReadContextError(
   return { path: workspacePath, reason: 'readError' };
 }
 
-function buildRangedContextContent(args: {
-  content: string;
-  maxChars: number;
-  ranges: readonly RuntimeWorkspaceContextRangeMetadata[];
-}): {
-  approxTokens: number;
-  content: string;
-  endLine: number;
-  omittedChars: number;
-  ranges: NonNullable<WorkspaceContextFileResult['tapestryRanges']>;
-  startLine: number;
-  totalLines: number;
-  truncated: boolean;
-} {
-  const fullLines = args.content.split('\n');
-  const totalLines = fullLines.length;
-  const activeRanges = args.ranges
-    .filter((range) => range.isActive !== false)
-    .map((range) => ({
-      endLine: Math.max(1, Math.min(range.endLine, totalLines)),
-      startLine: Math.max(1, Math.min(range.startLine, totalLines)),
-    }))
-    .filter((range) => range.endLine >= range.startLine)
-    .sort((left, right) => left.startLine - right.startLine || left.endLine - right.endLine);
-
-  if (activeRanges.length === 0) {
-    return {
-      approxTokens: 0,
-      content: '<selection_summary>No active tapestry ranges selected.</selection_summary>',
-      endLine: 1,
-      omittedChars: 0,
-      ranges: [],
-      startLine: 1,
-      totalLines,
-      truncated: false,
-    };
-  }
-
-  let remainingChars = args.maxChars;
-  let omittedChars = 0;
-  let truncated = false;
-  const rangeResults: NonNullable<WorkspaceContextFileResult['tapestryRanges']> = [];
-
-  const measureRangeChars = (range: (typeof activeRanges)[number]): number =>
-    fullLines.slice(range.startLine - 1, range.endLine).join('\n').length;
-
-  for (const [rangeIndex, range] of activeRanges.entries()) {
-    const sliced = fullLines.slice(range.startLine - 1, range.endLine).join('\n');
-    const truncatedRange = truncateContent(sliced, Math.max(remainingChars, 0));
-    if (sliced.length > 0 && truncatedRange.content.length === 0) {
-      const laterRanges = activeRanges.slice(rangeIndex + 1);
-      omittedChars +=
-        sliced.length +
-        laterRanges.reduce((sum, laterRange) => sum + measureRangeChars(laterRange), 0);
-      truncated = true;
-      break;
-    }
-    if (truncatedRange.truncated) {
-      truncated = true;
-      omittedChars += truncatedRange.omittedChars;
-    }
-    remainingChars -= truncatedRange.content.length;
-    rangeResults.push({
-      approxTokens: countTokensHeuristic(truncatedRange.content),
-      content: truncatedRange.content,
-      endLine: range.endLine,
-      startLine: range.startLine,
-    });
-    if (remainingChars <= 0) {
-      const laterRanges = activeRanges.slice(rangeIndex + 1);
-      omittedChars += laterRanges.reduce(
-        (sum, laterRange) => sum + measureRangeChars(laterRange),
-        0
-      );
-      truncated = laterRanges.length > 0 || truncated;
-      break;
-    }
-  }
-
-  const content = rangeResults
-    .map(
-      (
-        range,
-        index
-      ) => `<selection index="${index + 1}" start_line="${range.startLine}" end_line="${range.endLine}">
-${escapeSelectionBoundaryTags(range.content)}
-</selection>`
-    )
-    .join('\n');
-
-  return {
-    approxTokens: countTokensHeuristic(content),
-    content,
-    endLine: activeRanges.at(-1)?.endLine ?? 1,
-    omittedChars,
-    ranges: rangeResults,
-    startLine: activeRanges[0]?.startLine ?? 1,
-    totalLines,
-    truncated,
-  };
-}
-
 interface WorkspaceContextResolvedFile {
   approxOutputTokens: number;
   content: string;
   endLine: number;
   omittedChars: number;
-  outsideThread?: true;
   path: string;
-  rootName?: string;
   size: number;
-  source?: string;
   startLine: number;
-  tapestryRangeCount?: number;
-  tapestryRanges?: WorkspaceContextFileResult['tapestryRanges'];
   totalLines: number;
   truncated: boolean;
 }
@@ -532,33 +148,7 @@ async function readWorkspaceContextFile(args: {
   maxCharsPerFile: number;
   requestedPath: string;
   root: RuntimeWorkspaceRoot;
-  tapestryRanges: RuntimeWorkspaceContextRangeMetadata[] | undefined;
 }): Promise<WorkspaceContextResolvedFile> {
-  if (args.tapestryRanges && args.tapestryRanges.length > 0) {
-    const rawFile = await readWorkspaceTextFile({
-      requestedPath: args.requestedPath,
-      rootPath: args.root.path,
-    });
-    const ranged = buildRangedContextContent({
-      content: rawFile.content,
-      maxChars: args.maxCharsPerFile,
-      ranges: args.tapestryRanges,
-    });
-    return {
-      approxOutputTokens: ranged.approxTokens,
-      content: ranged.content,
-      endLine: ranged.endLine,
-      omittedChars: ranged.omittedChars,
-      path: rawFile.path,
-      size: rawFile.size,
-      startLine: ranged.startLine,
-      tapestryRangeCount: ranged.ranges.length,
-      tapestryRanges: ranged.ranges,
-      totalLines: ranged.totalLines,
-      truncated: ranged.truncated,
-    };
-  }
-
   const file = await runReadWorkspaceFile(
     {
       maxChars: args.maxCharsPerFile,
@@ -596,16 +186,13 @@ async function readWorkspaceContextBatch(args: {
   batchPaths: readonly string[];
   maxCharsPerFile: number;
   root: RuntimeWorkspaceRoot;
-  tapestryRangesByPath: ReadonlyMap<string, RuntimeWorkspaceContextRangeMetadata[]>;
 }): Promise<WorkspaceContextBatchReadResult[]> {
   const batchResults = await Promise.allSettled(
     args.batchPaths.map(async (requestedPath) => {
-      const normalizedRequestedPath = normalizeWorkspacePath(requestedPath);
       const file = await readWorkspaceContextFile({
         maxCharsPerFile: args.maxCharsPerFile,
-        requestedPath: normalizedRequestedPath,
+        requestedPath: normalizeWorkspacePath(requestedPath),
         root: args.root,
-        tapestryRanges: args.tapestryRangesByPath.get(normalizedRequestedPath),
       });
       return { file, requestedPath };
     })
@@ -624,7 +211,7 @@ function toWorkspaceContextFileResult(
   file: WorkspaceContextResolvedFile,
   approxTokens: number
 ): WorkspaceContextFileResult {
-  const fileResult: WorkspaceContextFileResult = {
+  return {
     approxTokens,
     content: file.content,
     endLine: file.endLine,
@@ -635,22 +222,6 @@ function toWorkspaceContextFileResult(
     totalLines: file.totalLines,
     truncated: file.truncated,
   };
-  if (file.tapestryRangeCount !== undefined) {
-    fileResult.tapestryRangeCount = file.tapestryRangeCount;
-  }
-  if (file.tapestryRanges !== undefined) {
-    fileResult.tapestryRanges = file.tapestryRanges;
-  }
-  if (file.rootName !== undefined) {
-    fileResult.rootName = file.rootName;
-  }
-  if (file.outsideThread) {
-    fileResult.outsideThread = true;
-  }
-  if (file.source !== undefined) {
-    fileResult.source = file.source;
-  }
-  return fileResult;
 }
 
 function appendWorkspaceContextBatch(args: {
@@ -682,182 +253,9 @@ function appendWorkspaceContextBatch(args: {
   return nextTotalApproxTokens;
 }
 
-/**
- * BST-1990: what a run may read of the checked files outside its thread. The
- * run may read exactly the checked files of `attachedRootIds`, each only while
- * its folder is still one of the workspace's live folders.
- */
-export interface CheckedFileAccess {
-  readonly attachedRootIds: readonly string[];
-  readonly liveRoots: () => Promise<readonly RuntimeWorkspaceRoot[]>;
-}
-
-/** One checked file the run may read, with the folder it is read from. */
-interface CheckedSource {
-  readonly outsideThread: boolean;
-  readonly path: string;
-  readonly ranges: RuntimeWorkspaceContextRangeMetadata[];
-  readonly root: RuntimeWorkspaceRoot;
-}
-
-function checkedRanges(
-  file: RuntimeWorkspaceContextFileMetadata
-): RuntimeWorkspaceContextRangeMetadata[] {
-  return Array.from(file.ranges ?? [])
-    .map((range) => normalizeWorkspaceContextRange(range))
-    .filter((range): range is RuntimeWorkspaceContextRangeMetadata => range !== null);
-}
-
-/** Where an attached file comes from, as the model reads it. */
-function outsideThreadSource(rootName: string): string {
-  return `from ${rootName}, not one of this thread's folders; attached for this run only`;
-}
-
-/**
- * The checked files by the folder each is read from: a thread folder, or a live
- * workspace folder outside the thread this run may read. A file whose folder is
- * neither is reported, never read.
- */
-async function resolveCheckedSources(
-  runtimeData: RuntimeData | undefined,
-  access: CheckedFileAccess | undefined
-): Promise<{ sources: CheckedSource[]; skipped: WorkspaceContextSkippedFile[] }> {
-  const threadRoots = getWorkspaceRoots(runtimeData);
-  const attached = new Set(access?.attachedRootIds ?? []);
-  const live = access && attached.size > 0 ? await access.liveRoots() : [];
-  const sources: CheckedSource[] = [];
-  const skipped: WorkspaceContextSkippedFile[] = [];
-  for (const file of getRuntimeWorkspaceContextFiles(runtimeData)) {
-    const filePath = normalizeWorkspacePath(file.path);
-    const { rootId } = file;
-    const inThread = threadRoots.find((root) => root.rootId === rootId);
-    const outside =
-      inThread || rootId === undefined || !attached.has(rootId)
-        ? undefined
-        : live.find((root) => root.rootId === rootId);
-    const root = inThread ?? outside;
-    if (!root) {
-      skipped.push({
-        message:
-          rootId === undefined
-            ? 'The checked file names no folder.'
-            : `Its folder${file.rootDisplayName ? ` "${file.rootDisplayName}"` : ''} is not a folder in the workspace now.`,
-        path: filePath,
-        reason: 'folderUnavailable',
-      });
-      continue;
-    }
-    sources.push({ outsideThread: !inThread, path: filePath, ranges: checkedRanges(file), root });
-  }
-  return { skipped, sources };
-}
-
-async function readCheckedSource(
-  source: CheckedSource,
-  options: {
-    readonly labelRoot: boolean;
-    readonly maxCharsPerFile: number;
-    readonly useRanges: boolean;
-  }
-): Promise<WorkspaceContextBatchReadResult> {
-  const { labelRoot, maxCharsPerFile, useRanges } = options;
-  try {
-    const file = await readWorkspaceContextFile({
-      maxCharsPerFile,
-      requestedPath: source.path,
-      root: source.root,
-      tapestryRanges: useRanges && source.ranges.length > 0 ? source.ranges : undefined,
-    });
-    return {
-      file: {
-        ...file,
-        ...(source.outsideThread
-          ? {
-              outsideThread: true as const,
-              rootName: source.root.displayName,
-              source: outsideThreadSource(source.root.displayName),
-            }
-          : labelRoot
-            ? { rootName: source.root.displayName }
-            : {}),
-      },
-      requestedPath: source.path,
-      status: 'fulfilled',
-    };
-  } catch (error) {
-    return { error, requestedPath: source.path, status: 'rejected' };
-  }
-}
-
-/**
- * readWorkspaceContext's default read (BST-1990): every checked file, from every
- * thread folder whichever is focused, and from live workspace folders outside
- * the thread as attached content. The thread's folders are unchanged.
- */
-async function readCheckedFiles(
-  input: ReadWorkspaceContextInput,
-  runtimeData: RuntimeData | undefined,
-  access: CheckedFileAccess | undefined
-) {
-  // The thread's operating folder names the result, as the focused read names its folder.
-  const [operating] = getWorkspaceRoots(runtimeData);
-  if (!operating) {
-    throw new ToolInputError(
-      'No folder is open in the workspace. Add a folder in the left file tree first.'
-    );
-  }
-  const { skipped, sources } = await resolveCheckedSources(runtimeData, access);
-  const tokenBudget = input.tokenBudget ?? DEFAULT_CONTEXT_TOKEN_BUDGET;
-  const maxFiles = input.maxFiles ?? DEFAULT_CONTEXT_MAX_FILES;
-  const readOptions = {
-    labelRoot: new Set(sources.map((source) => source.root.rootId)).size > 1,
-    maxCharsPerFile: input.maxCharsPerFile ?? DEFAULT_CONTEXT_MAX_CHARS_PER_FILE,
-    useRanges: input.useTapestrySelections !== false,
-  };
-  const files: WorkspaceContextFileResult[] = [];
-  const skippedFiles: WorkspaceContextSkippedFile[] = [...skipped];
-  let totalApproxTokens = 0;
-  let cursor = 0;
-  while (cursor < sources.length && files.length < maxFiles) {
-    const batchSize = Math.min(
-      READ_WORKSPACE_CONTEXT_BATCH_SIZE,
-      maxFiles - files.length,
-      sources.length - cursor
-    );
-    const batch = sources.slice(cursor, cursor + batchSize);
-    cursor += batchSize;
-    totalApproxTokens = appendWorkspaceContextBatch({
-      batchResults: await Promise.all(
-        batch.map((source) => readCheckedSource(source, readOptions))
-      ),
-      files,
-      skippedFiles,
-      tokenBudget,
-      totalApproxTokens,
-    });
-  }
-  for (const source of sources.slice(cursor)) {
-    skippedFiles.push({ path: source.path, reason: 'maxFiles' });
-  }
-  return {
-    files,
-    includedCount: files.length,
-    requestedCount: sources.length + skipped.length,
-    rootId: operating.rootId,
-    rootName: operating.displayName,
-    skippedCount: skippedFiles.length,
-    skippedFiles,
-    tokenBudget,
-    totalApproxTokens,
-    truncated: files.some((file) => file.truncated) || skippedFiles.length > 0,
-    workspaceRootPath: operating.path,
-  };
-}
-
 export async function runReadWorkspaceContext(
   input: ReadWorkspaceContextInput,
-  runtimeData: RuntimeData | undefined,
-  access?: CheckedFileAccess
+  runtimeData: RuntimeData | undefined
 ): Promise<{
   workspaceRootPath: string;
   rootId: string;
@@ -871,42 +269,15 @@ export async function runReadWorkspaceContext(
   files: WorkspaceContextFileResult[];
   skippedFiles: WorkspaceContextSkippedFile[];
 }> {
-  if (
-    input.root === undefined &&
-    input.filePaths === undefined &&
-    getRuntimeWorkspaceContextFiles(runtimeData).length > 0
-  ) {
-    return await readCheckedFiles(input, runtimeData, access);
-  }
-  const root =
-    input.root === undefined && input.filePaths === undefined
-      ? resolveFocusedWorkspaceRoot(runtimeData)
-      : resolveWorkspaceRoot(runtimeData, input.root);
-  const workspaceRootPath = root.path;
-  // The selected-context default (runtimeData.selectionFilePaths) is relative to
-  // the FOCUSED root only, so it cannot be resolved against an explicitly chosen
-  // root — require explicit filePaths in that case rather than read wrong files.
-  if (input.root !== undefined && input.filePaths === undefined) {
-    throw new ToolInputError(
-      `Provide filePaths when reading from a specific root ("${root.displayName}"); the selected-context default only applies to the focused folder.`
-    );
-  }
-  const requestedPaths = normalizeWorkspacePaths(
-    input.filePaths ? input.filePaths : Array.from(runtimeData?.selectionFilePaths ?? [])
-  );
+  const root = resolveWorkspaceRoot(runtimeData, input.root);
+  const requestedPaths = normalizeWorkspacePaths(input.filePaths);
   if (requestedPaths.length === 0) {
-    throw new ToolInputError(
-      'No workspace context files are selected. Provide filePaths or select files first.'
-    );
+    throw new ToolInputError('Provide the workspace-relative filePaths to read.');
   }
 
   const tokenBudget = input.tokenBudget ?? DEFAULT_CONTEXT_TOKEN_BUDGET;
   const maxFiles = input.maxFiles ?? DEFAULT_CONTEXT_MAX_FILES;
   const maxCharsPerFile = input.maxCharsPerFile ?? DEFAULT_CONTEXT_MAX_CHARS_PER_FILE;
-  const useTapestrySelections = input.useTapestrySelections !== false;
-  const tapestryRangesByPath = useTapestrySelections
-    ? buildRuntimeTapestryRangesByPath(runtimeData)
-    : new Map<string, RuntimeWorkspaceContextRangeMetadata[]>();
   const files: WorkspaceContextFileResult[] = [];
   const skippedFiles: WorkspaceContextSkippedFile[] = [];
   let totalApproxTokens = 0;
@@ -921,12 +292,7 @@ export async function runReadWorkspaceContext(
     );
     const batchPaths = requestedPaths.slice(cursor, cursor + batchSize);
     cursor += batchSize;
-    const batchResults = await readWorkspaceContextBatch({
-      batchPaths,
-      maxCharsPerFile,
-      root,
-      tapestryRangesByPath,
-    });
+    const batchResults = await readWorkspaceContextBatch({ batchPaths, maxCharsPerFile, root });
     totalApproxTokens = appendWorkspaceContextBatch({
       batchResults,
       files,
@@ -951,6 +317,6 @@ export async function runReadWorkspaceContext(
     tokenBudget,
     totalApproxTokens,
     truncated: files.some((file) => file.truncated) || skippedFiles.length > 0,
-    workspaceRootPath,
+    workspaceRootPath: root.path,
   };
 }

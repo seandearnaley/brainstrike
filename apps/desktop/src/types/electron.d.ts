@@ -6,11 +6,6 @@ import type {
   WorkspaceIndexingThermalState,
 } from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
-import type {
-  AssistantSelectionUpdatePayload,
-  AssistantWorkspaceContextSelectionUpdatePayload,
-  AssistantWorkspaceTapestryUpdatePayload,
-} from '@brainstrike/types';
 import type { mainDiagnosticEventsReader } from '../assistant-server/query-diagnostics-tool';
 import type { DesktopPlatformDiagnosticsSnapshot } from '../desktop-platform-diagnostics';
 import type { MainLogWindowRequest, MainLogWindowResult } from '../diagnostics/main-log-window';
@@ -298,20 +293,6 @@ declare global {
      */
     terminal?: TransportBridge<typeof terminalContract>;
     threadGroups?: TransportBridge<typeof threadGroupsContract>;
-    tools: {
-      onRootTreeSelectionUpdate: (
-        callback: (payload: AssistantSelectionUpdatePayload) => void
-      ) => (() => void) | undefined;
-      onPreviewContextSelectionUpdate: (
-        callback: (payload: AssistantSelectionUpdatePayload) => void
-      ) => (() => void) | undefined;
-      onWorkspaceContextSelectionUpdate: (
-        callback: (payload: AssistantWorkspaceContextSelectionUpdatePayload) => void
-      ) => (() => void) | undefined;
-      onWorkspaceContextTapestryUpdate: (
-        callback: (payload: AssistantWorkspaceTapestryUpdatePayload) => void
-      ) => (() => void) | undefined;
-    };
     userCommands?: TransportBridge<typeof userCommandsContract>;
     viewFilterPresets?: TransportBridge<typeof viewFilterPresetsContract>;
     /**

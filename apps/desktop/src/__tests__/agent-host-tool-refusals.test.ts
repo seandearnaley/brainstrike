@@ -298,10 +298,11 @@ test('deliberate path, read, write and context refusals reach the model verbatim
       { fromPath: 'src/a.ts', toPath: 'taken.ts' },
       'Destination "taken.ts" already exists. Delete it first or choose another path (rename does not overwrite).',
     ],
+    // A context read names its files (BST-2019); an unknown folder is refused by type.
     [
       NATIVE_TOOL_ID.readWorkspaceContext,
-      {},
-      'No workspace context files are selected. Provide filePaths or select files first.',
+      { filePaths: ['src/a.ts'], root: 'Nope' },
+      'No folder "Nope" in the workspace. Open folders: A (id root-a).',
     ],
   ];
   const outcomes = [];

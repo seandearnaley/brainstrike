@@ -18,7 +18,6 @@ import {
   PlatformMemoryOptionsSchema,
   PlatformMemorySettingsSchema,
   PlatformModelConfigurationSchema,
-  PlatformWorkspaceContextSchema,
 } from './platform-client-configuration';
 import { InferencePlanSchema, QueryEmbeddingPayloadSchema } from './retrieval-wire';
 
@@ -30,7 +29,6 @@ export {
   PlatformPolicySchema,
   type PlatformSubagentsIntent,
   PlatformSubagentsIntentSchema,
-  PlatformWorkspaceContextSchema,
   platformPermissionPolicy,
 } from './platform-client-configuration';
 
@@ -88,22 +86,13 @@ export const PlatformAdmittedSkillSchema = z.strictObject({
 
 /** Admission data of the shared native tools; roots are revalidated per call via Main. */
 export const PlatformNativeRuntimeSchema = z.strictObject({
-  /**
-   * BST-1990: live workspace folders outside the thread with checked files. The
-   * run may read exactly those checked files, while each folder is still live.
-   */
-  attachedRootIds: z.array(Id).optional(),
   boundWorkspaceRootId: Id.optional(),
   provider: Id,
   /** Main admitted retrieval to the thread's own roots (a CLI selection or a binding). */
   retrievalRootsOnly: z.literal(true).optional(),
-  /** The focused root's curated files, each relative to that folder. */
-  selectionFilePaths: z.array(z.string()).optional(),
   selectionFolderId: Id.optional(),
   /** The enabled skills of Main's one scan for this run; the host reads their files itself. */
   skills: z.array(PlatformAdmittedSkillSchema).optional(),
-  /** The request's curated context selection, as Main admitted it. */
-  workspaceContext: PlatformWorkspaceContextSchema.optional(),
   workspaceRootPath: Id.optional(),
   workspaceRoots: CliWorkspaceRootsSchema,
 });

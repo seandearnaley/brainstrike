@@ -729,8 +729,12 @@ describe('assistant route', () => {
     const req = new Request('http://localhost/api/assistant', {
       body: JSON.stringify({
         data: {
-          workspaceContext: {
-            files: [{ injected: true, path: '/a.ts' }],
+          workspaceIndexQueueProgress: {
+            failed: 0,
+            injected: true,
+            pending: 1,
+            processed: 2,
+            totalQueued: 3,
           },
         },
         messages: [{ id: '1', parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
@@ -743,7 +747,7 @@ describe('assistant route', () => {
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toEqual({
       error: 'invalid_runtime_data',
-      message: 'Invalid web assistant runtime field: workspaceContext',
+      message: 'Invalid web assistant runtime field: workspaceIndexQueueProgress',
     });
     expect(createStatelessAssistantDataStreamResponse).not.toHaveBeenCalled();
   });

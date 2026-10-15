@@ -108,7 +108,6 @@ test('a file mentioned outside the thread reaches the model as attached content,
     expect(selected.referencedFileFailures).toBeUndefined();
     // The mention attaches a file, not the folder: the thread keeps its binding.
     expect(selected.nativeRuntime.workspaceRoots).toEqual([alpha]);
-    expect(selected.nativeRuntime.attachedRootIds).toBeUndefined();
   } finally {
     await selected.close();
   }

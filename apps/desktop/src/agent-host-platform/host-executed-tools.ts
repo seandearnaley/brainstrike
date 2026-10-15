@@ -1,6 +1,5 @@
 import { homedir } from 'node:os';
 import type { HostToolContext } from '@brainstrike/agent-host';
-import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import { NATIVE_TOOL_ID, scanShellCommandForGitSignals } from '@brainstrike/assistant-contract';
 import {
   isSharedNativeToolId,
@@ -16,7 +15,6 @@ import {
 import {
   CONTEXT_READ_TOOL_IDS,
   contextReadExecutors,
-  contextWriteExecutors,
 } from '../assistant-server/native-tool-executors-context';
 import { grepSearchExecutor } from '../assistant-server/native-tool-executors-grep';
 import { INSPECTION_TOOL_EXECUTORS } from '../assistant-server/native-tool-executors-inspection';
@@ -36,7 +34,6 @@ import { worktreeToolExecutors } from '../assistant-server/native-tool-executors
 import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';
 import { admittedWorkspaceSkills } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
-import type { WorkspaceContextBroadcaster } from '../assistant-server/workspace-context-tools';
 import { nativeWorkspaceIndexSummary } from '../assistant-server/workspace-index-summary';
 import type { WorktreeToolCapability } from '../assistant-server/worktree-tools';
 import { resolvePythonBinary } from '../python-runtime/resolve-python-binary';
@@ -48,7 +45,6 @@ import {
   BrowserNavigateResultSchema,
   BrowserPageTextResultSchema,
   BrowserReadPageResultSchema,
-  ContextDeliveryResultSchema,
   DiagnosticEventItemsSchema,
   DiagnosticFingerprintItemsSchema,
   GrepIndexResultSchema,
@@ -65,8 +61,6 @@ const logger = createLogger('DesktopHostTools');
 /** Desktop tools the agent host runs in its own process beside the shared ones. */
 const DESKTOP_HOST_TOOL_IDS: ReadonlySet<string> = new Set([
   ...CONTEXT_READ_TOOL_IDS,
-  NATIVE_TOOL_ID.updateWorkspaceContextSelection,
-  NATIVE_TOOL_ID.updateWorkspaceTapestrySelections,
   NATIVE_TOOL_ID.queryDiagnostics,
   ...Object.keys(INSPECTION_TOOL_EXECUTORS),
   NATIVE_TOOL_ID.executeCommand,
@@ -198,19 +192,6 @@ function hostBrowserTools(request: MainRequest, threadId: string): BrowserToolRu
 }
 
 /** A validated context write-back reaches the app windows only through Main. */
-function hostContextDelivery(request: MainRequest, threadId: string): WorkspaceContextBroadcaster {
-  return {
-    selection: async (payload) =>
-      ContextDeliveryResultSchema.parse(
-        await request('platform/workspace-context/selection', { payload, threadId })
-      ).notifiedWindowCount,
-    tapestry: async (payload) =>
-      ContextDeliveryResultSchema.parse(
-        await request('platform/workspace-context/tapestry', { payload, threadId })
-      ).notifiedWindowCount,
-  };
-}
-
 /** The diagnostics store stays Main's; its rows arrive projected and scrubbed. */
 function hostDiagnosticsReader(request: MainRequest, threadId: string): DiagnosticsReader {
   return {
@@ -305,16 +286,9 @@ export function desktopHostToolExecutors(
       },
       store,
     })),
-    ...contextReadExecutors(
-      async () => nativeWorkspaceIndexSummary(await nativeIndexSearch.status()),
-      {
-        attachedRootIds: native.attachedRootIds ?? [],
-        // An attached file is read only while its folder is still a live workspace folder.
-        liveRoots: async () =>
-          CliWorkspaceRootsSchema.parse(await request('platform/admission/roots', {})),
-      }
+    ...contextReadExecutors(async () =>
+      nativeWorkspaceIndexSummary(await nativeIndexSearch.status())
     ),
-    ...contextWriteExecutors(hostContextDelivery(request, threadId)),
     ...INSPECTION_TOOL_EXECUTORS,
     [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(hostGrepIndex(request, threadId)),
     ...browserToolExecutors(hostBrowserTools(request, threadId)),

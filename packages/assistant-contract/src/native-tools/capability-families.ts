@@ -32,7 +32,7 @@ export const DEFERRED_CAPABILITY_FAMILY_PHRASES = [
   'git worktrees',
   'file delete/rename',
   'directory listings',
-  'workspace context and tapestry',
+  'workspace context',
   'symbol and LSP inspection',
   'embedding search',
   'diagnostics',

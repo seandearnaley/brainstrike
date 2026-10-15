@@ -7,7 +7,6 @@
  */
 import { NATIVE_TOOL_INPUT_SCHEMAS } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
-import { TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { z } from 'zod';
 
 const Id = z.string().min(1);
@@ -164,45 +163,6 @@ export const BrowserPageTextRequestSchema = z.strictObject({
   input: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserGetPageText],
   threadId: Id,
 });
-
-const ContextTarget = {
-  folderId: z.string().min(1),
-  rootId: Id.exactOptional(),
-  rootPath: z.string().min(1).exactOptional(),
-};
-
-/** A validated selection write-back, delivered by Main to the visible windows. */
-export const ContextSelectionDeliveryRequestSchema = z.strictObject({
-  payload: z.strictObject({
-    ...ContextTarget,
-    filePaths: z.array(z.string().min(1)),
-    mode: z.enum(['replace', 'add', 'remove']),
-  }),
-  threadId: Id,
-});
-
-export const ContextTapestryDeliveryRequestSchema = z.strictObject({
-  payload: z.strictObject({
-    ...ContextTarget,
-    mode: z.enum(['replace', 'add', 'clear']),
-    updates: z.array(
-      z.strictObject({
-        path: z.string().min(1),
-        ranges: z.array(
-          z.strictObject({
-            color: z.enum(TAPESTRY_COLOR_NAMES).exactOptional(),
-            endLine: z.number().int().positive(),
-            isActive: z.boolean().exactOptional(),
-            startLine: z.number().int().positive(),
-          })
-        ),
-      })
-    ),
-  }),
-  threadId: Id,
-});
-
-export const ContextDeliveryResultSchema = z.object({ notifiedWindowCount: z.number().int() });
 
 const Severity = z.enum(['warn', 'error', 'fatal']);
 

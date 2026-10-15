@@ -45,9 +45,8 @@ interface WorkspaceIntent {
         readonly masterEnabled: boolean;
       }
     | undefined;
-  readonly workspaceContext?:
-    | { readonly files: readonly { readonly rootId?: string | undefined }[] }
-    | undefined;
+  /** Checked files as context, retired (BST-2019): an older intent's is dropped. */
+  readonly workspaceContext?: unknown;
   readonly workspaceInstructionsPreference: {
     readonly masterEnabled: boolean;
     readonly oversizedOptInByRootId: Readonly<Record<string, boolean>>;
@@ -68,7 +67,7 @@ export function materializeCliWorkspaceIntent<T extends WorkspaceIntent>(
     cliWorkspace,
     selectionFolderId,
     skillsPreference,
-    workspaceContext,
+    workspaceContext: _retiredWorkspaceContext,
     workspaceInstructionsPreference,
     ...retained
   } = owner;
@@ -79,16 +78,6 @@ export function materializeCliWorkspaceIntent<T extends WorkspaceIntent>(
     ...retained,
     cliWorkspace: selection,
     ...(selectionFolderId && ids.has(selectionFolderId) ? { selectionFolderId } : {}),
-    ...(workspaceContext
-      ? {
-          workspaceContext: {
-            ...workspaceContext,
-            files: workspaceContext.files.filter(
-              (file) => file.rootId !== undefined && ids.has(file.rootId)
-            ),
-          },
-        }
-      : {}),
     ...(selection.skills === 'off' || skillsPreference
       ? {
           skillsPreference: {

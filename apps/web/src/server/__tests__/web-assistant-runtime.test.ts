@@ -276,10 +276,7 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
     ['mainRootId', 42],
     ['mainRootPath', 'x'.repeat(4097)],
     ['projectId', false],
-    ['selectionFilePaths', Array.from({ length: 5001 }, () => '/a.ts')],
-    ['selectionFilePathsFromOtherRoots', -1],
     ['selectionFolderId', []],
-    ['tokenBudget', 0],
     ['workspaceIndexBlockedReason', {}],
     ['workspaceIndexEmbeddingSetId', 42],
     ['workspaceIndexingEnabled', 'true'],
@@ -288,17 +285,6 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
     ['workspaceIndexLastError', []],
     ['workspaceIndexStatusState', 'ready'],
     ['workspaceRootPath', null],
-    [
-      'workspaceContext',
-      {
-        files: [
-          {
-            path: '/a.ts',
-            ranges: [{ endLine: 2, injected: true, startLine: 0 }],
-          },
-        ],
-      },
-    ],
     [
       'workspaceIndexQueueProgress',
       { failed: 0, pending: 1, processed: 2, secret: 'attacker', totalQueued: 3 },
@@ -311,6 +297,19 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
     ).toThrow(`Invalid web assistant runtime field: ${field}`);
   });
 
+  it.each([
+    'selectionFilePaths',
+    'selectionFilePathsFromOtherRoots',
+    'tokenBudget',
+    'workspaceContext',
+  ])('rejects the retired runtime field %s (checked files are not context, BST-2019)', (field) => {
+    vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
+
+    expect(() =>
+      resolveWebAssistantRuntime(asRuntimeData({ [field]: ['/a.ts'] }), 'server-key')
+    ).toThrow(`Unsupported web assistant runtime field: ${field}`);
+  });
+
   it('accepts bounded request metadata without dropping or coercing it', () => {
     vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
     const data = {
@@ -318,23 +317,7 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
       mainRootId: 'root-1',
       mainRootPath: '/workspace',
       projectId: 'project-1',
-      selectionFilePaths: ['/a.ts'],
-      selectionFilePathsFromOtherRoots: 1,
       selectionFolderId: 'folder-1',
-      tokenBudget: 200_000,
-      workspaceContext: {
-        files: [
-          {
-            approxTokens: 10,
-            path: '/a.ts',
-            ranges: [{ approxTokens: 5, endLine: 2, isActive: true, startLine: 0 }],
-            rootDisplayName: 'root',
-            rootId: 'root-1',
-          },
-        ],
-        includeProjectTree: true,
-        tokenBudget: 200_000,
-      },
       workspaceIndexBlockedReason: null,
       workspaceIndexEmbeddingSetId: 'embedding-set-1',
       workspaceIndexingEnabled: true,
@@ -359,11 +342,7 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
       mainRootPath: '/workspace',
       projectId: 'project-1',
       provider: 'openai',
-      selectionFilePaths: ['/a.ts'],
-      selectionFilePathsFromOtherRoots: 1,
       selectionFolderId: 'folder-1',
-      tokenBudget: 200_000,
-      workspaceContext: data.workspaceContext,
       workspaceIndexBlockedReason: null,
       workspaceIndexEmbeddingSetId: 'embedding-set-1',
       workspaceIndexingEnabled: true,

@@ -10,11 +10,11 @@ export const readWorkspaceContext = defineNativeTool({
     requiresApproval: false,
   },
   description:
-    'Read selected or explicit workspace files under strict file and token budgets after semantic search needs exact source',
-  discovery: { family: 'workspace context and tapestry', namespace: 'context' },
+    'Read explicit workspace files under strict file and token budgets after semantic search needs exact source',
+  discovery: { family: 'workspace context', namespace: 'context' },
   // Inspector-only prose (never sent to the model); see toToolSchemaDisplay.
   display: {
-    root: 'Folder name or id to read from when multiple folders are open (omit when one). Requires explicit filePaths — the selected-context default only applies to the focused folder.',
+    root: "Folder name or id to read from when multiple folders are open (omit for the thread's primary folder).",
   },
   history: { staleReplayable: true },
   id: 'brainstrike.readWorkspaceContext',

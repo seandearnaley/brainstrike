@@ -47,23 +47,6 @@ export function desktopHostIntentFixture() {
       disabledPersonaIds: ['analyze'],
       settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxConcurrentWork: 2, maxDepth: 1 },
     },
-    workspaceContext: {
-      files: [
-        {
-          approxTokens: null,
-          outputApproxTokens: null,
-          path: 'note.txt',
-          ranges: [],
-          rootId: 'root-a',
-        },
-      ],
-      includeProjectTree: false,
-      projectTreeApproxTokens: null,
-      projectTreeTokenCountLoading: false,
-      selectedOutputApproxTokens: null,
-      selectedSourceApproxTokens: null,
-      tokenBudget: 321,
-    },
     workspaceInstructionsPreference: { masterEnabled: false, oversizedOptInByRootId: {} },
   });
 }
