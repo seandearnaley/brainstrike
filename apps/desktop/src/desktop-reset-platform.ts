@@ -1,8 +1,10 @@
+import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
 import type { ProfileResetLease } from '@brainstrike/host-lease';
 import { RootLock } from '@brainstrike/state-store';
 import { disposeActiveBrowserPaneViews } from './browser/browser-pane-host';
 import { clearDesktopBrowserSessions } from './browser/browser-session';
 import { resetDesktopApplicationData } from './desktop-factory-reset';
+import { RESET_REOPEN_CANCELLED } from './desktop-shutdown-state';
 
 export interface DesktopResetRuntime {
   readonly name: string;
@@ -280,7 +282,7 @@ export function createDesktopFactoryResetHandler({
     // Quit joins accepted deletion but cancels replacement readiness/startup.
     // The same signal fences subsequent reset requests; purge never observes it.
     close: async () => {
-      shutdown.abort(new Error('Factory reset replacement cancelled by terminal quit'));
+      shutdown.abort(new BoundaryFailureError(RESET_REOPEN_CANCELLED));
       await resetInFlight?.completion;
     },
     idle: async () => {

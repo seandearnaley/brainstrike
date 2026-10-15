@@ -8,7 +8,9 @@ import {
   openAgentHostPortRelay,
 } from './agent-host-port-relay';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
-import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
+import { createDesktopIpcRegistry, settleIpcResult } from './platform/desktop-ipc-registry';
+
+const CONNECT_FAILURE = { category: 'availability', code: 'agent-host-connect-failed' } as const;
 
 /**
  * Visible clients borrow the profile's existing lease; they never acquire another root.
@@ -88,7 +90,8 @@ export function registerAgentHostClientIpc(
         () => pending.delete(operation),
         () => pending.delete(operation)
       );
-      return operation;
+      // A refusal (a profile closed for reset or quit) reaches the frame typed.
+      return settleIpcResult(CONNECT_FAILURE, () => operation);
     }
   );
   return {

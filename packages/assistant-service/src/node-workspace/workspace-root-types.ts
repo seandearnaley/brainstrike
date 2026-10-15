@@ -65,6 +65,11 @@ export interface WorkspaceRootRegistryOptions {
   readonly disposeCommandSessionsForRoot: (rootId: string) => Promise<number>;
   readonly evictLspServersForRoot: (rootId: string) => Promise<void>;
   readonly getRootsCatalog: () => Promise<WorkspaceRootPort>;
+  /**
+   * A roots-catalog refusal its owner expects, such as the desktop quitting
+   * while the catalog's profile is retired. Convergence logs it at info.
+   */
+  readonly isExpectedCatalogRefusal?: (error: unknown) => boolean;
   readonly onRootGranted?: (grantedPath: string) => void;
   readonly pathExists: (rootPath: string) => Promise<boolean>;
   readonly resolveCanonicalRoot?: (rootPath: string) => Promise<string>;

@@ -1,3 +1,4 @@
+import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { expect, it, vi } from 'vitest';
 import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { reportNativeIndexActivationError } from '../native-index-activation-error';
@@ -13,7 +14,27 @@ it('reports an owned startup cancellation during shutdown as retirement', () => 
   });
 });
 
+it('reports a closed index that refuses work during shutdown as retirement', () => {
+  const logger = { error: vi.fn(), info: vi.fn() };
+  const error = new NativeIndexRefusalError(
+    { kind: 'closed', reason: 'root-data-deletion' },
+    'Native index activation is closed for terminal retirement.'
+  );
+  reportNativeIndexActivationError('Agent host profile unavailable', error, true, logger);
+  expect(logger.error).not.toHaveBeenCalled();
+  expect(logger.info).toHaveBeenCalledWith('Native index activation retired during shutdown', {
+    reason: error.message,
+  });
+});
+
 it.each([
+  {
+    error: new NativeIndexRefusalError(
+      { kind: 'closed', reason: 'root-data-deletion' },
+      'Native index activation is closed for terminal retirement.'
+    ),
+    shuttingDown: false,
+  },
   { error: new NativeAuthorityTransitionError('Native ingestion paused.'), shuttingDown: false },
   { error: new Error('Native ingestion paused.'), shuttingDown: true },
   {

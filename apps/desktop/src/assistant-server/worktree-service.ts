@@ -33,6 +33,7 @@ import type {
   WorktreeSettings,
   WorktreeSetupOutcome,
 } from '@brainstrike/types';
+import { isExpectedShutdownRefusal } from '../desktop-shutdown-state';
 import {
   describeFailure,
   GIT_DEFAULT_TIMEOUT_MS,
@@ -897,7 +898,13 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
           value: rows.map((row) => ({ id: row.id, path: row.path })),
         };
       } catch (error) {
-        logger.error('managed worktree path list failed', { error });
+        if (isExpectedShutdownRefusal(error)) {
+          logger.info('managed worktree path list stopped: the app is quitting', {
+            reason: toErrorMessage(error),
+          });
+        } else {
+          logger.error('managed worktree path list failed', { error });
+        }
         return { error: toErrorMessage(error), ok: false };
       }
     },

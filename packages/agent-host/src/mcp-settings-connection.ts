@@ -1,3 +1,4 @@
+import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import { ErrorCodes, type MessageConnection, ResponseError } from 'vscode-jsonrpc';
 import type { HostMethodHandler } from './auth-connection.js';
 import type { HostClientOrigin, HostMcpSettingsService } from './ports.js';
@@ -32,10 +33,14 @@ export function bindHostMcpSettingsMethods(
     return settings;
   };
   // Settings shows each refusal (a fault, an invalid path) as the host wrote it.
+  // A typed failure (a lifecycle closed for reset or quit) keeps its type.
   const visible = async <T>(work: () => Promise<T>): Promise<T> => {
     try {
       return await work();
     } catch (cause) {
+      if (cause instanceof BoundaryFailureError) {
+        throw cause;
+      }
       throw new ResponseError(
         ErrorCodes.InternalError,
         cause instanceof Error
