@@ -26,7 +26,9 @@ export function resolveDesktopUnitWorkers(
 }
 
 const UNIT_EXCLUDE = '**/*.integration.test.*';
-const MAIN_IMPORT = /\bimport\(\s*['"](?:\.\.\/)+main['"]\s*\)|\bfrom\s+['"](?:\.\.\/)+main['"]/u;
+// Dynamic, `from` and side-effect (`import '../main'`) imports all load Main.
+const MAIN_IMPORT =
+  /\bimport\(\s*['"](?:\.\.\/)+main['"]\s*\)|\bfrom\s+['"](?:\.\.\/)+main['"]|\bimport\s+['"](?:\.\.\/)+main['"]/u;
 
 /** Unit test files that import main.ts, relative to the desktop package. */
 export function findMainImportUnitTests(desktopRoot: string): string[] {
