@@ -94,6 +94,16 @@ export async function ensureFileExplorerPanelVisible(page: Page): Promise<void> 
   ) {
     await showExplorerPanelButton.click();
   }
+  // The panel is the Explorer tab's content, hidden while the Search tab is selected.
+  const explorerTab = page
+    .getByRole('tablist', { name: 'Explorer and search' })
+    .getByRole('tab', { name: 'Explorer' });
+  if (
+    !(await explorerPanel.isVisible().catch(() => false)) &&
+    (await explorerTab.isVisible().catch(() => false))
+  ) {
+    await explorerTab.click();
+  }
 
   await expect(explorerPanel).toBeVisible({ timeout: 15_000 });
 }

@@ -76,15 +76,12 @@ const { fileExplorerMocks, preparedRequestDataLog, testEnabledModels } = vi.hois
     } as { path: string; name: string } | null,
     setIncludeProjectTree: vi.fn<(value: boolean) => void>(),
     setSelectedFiles: vi.fn<(files: ReadonlySet<string>) => void>(),
-    setTapestryRangesForKey: vi.fn<(key: string, ranges: unknown[]) => void>(),
     setTokenBudget: vi.fn<(budget: number) => void>(),
-    tapestryRangesByKey: {} as Record<string, unknown[]>,
     tokenBudget: 100_000,
     tokenCache: null as null | {
       cacheVersion: number;
       getTokenCount: (folderId: string, path: string) => number | undefined;
     },
-    workspaceContextSnapshot: null as null | Record<string, unknown>,
   },
   // Track enabled models in a mutable Set for testing toggle functionality
   preparedRequestDataLog: [] as Array<Record<string, unknown> | undefined>,
@@ -611,29 +608,6 @@ vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => {
       selector(getState()),
     useFileSystem: () => ({ rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle }),
     useSelectionManager: () => ({ effectiveSelection: fileExplorerMocks.effectiveSelection }),
-  };
-});
-
-vi.mock('@brainstrike/file-explorer-ui/preview', () => {
-  const getWorkspaceContextCurationState = () => ({
-    contextSnapshot: fileExplorerMocks.workspaceContextSnapshot,
-    setTapestryRangesForKey: fileExplorerMocks.setTapestryRangesForKey,
-    tapestryRangesByKey: fileExplorerMocks.tapestryRangesByKey,
-  });
-  const useWorkspaceContextCurationStore = Object.assign(
-    (selector: (state: ReturnType<typeof getWorkspaceContextCurationState>) => unknown): unknown =>
-      selector(getWorkspaceContextCurationState()),
-    {
-      getState: getWorkspaceContextCurationState,
-    }
-  );
-
-  return {
-    toolLineRangeToTapestryRange: (range: { endLine: number; startLine: number }) => ({
-      endLine: range.endLine,
-      startLine: range.startLine - 1,
-    }),
-    useWorkspaceContextCurationStore,
   };
 });
 
@@ -1203,12 +1177,9 @@ beforeEach(() => {
     path: '/tmp/test-workspace',
   };
   fileExplorerMocks.tokenBudget = 100_000;
-  fileExplorerMocks.workspaceContextSnapshot = null;
-  fileExplorerMocks.tapestryRangesByKey = {};
   fileExplorerMocks.addMultipleSelectedFiles.mockReset();
   fileExplorerMocks.resetSelectionToExplicit.mockReset();
   fileExplorerMocks.removeMultipleSelectedFiles.mockReset();
-  fileExplorerMocks.setTapestryRangesForKey.mockReset();
   fileExplorerMocks.setIncludeProjectTree.mockReset();
   fileExplorerMocks.setSelectedFiles.mockReset();
   fileExplorerMocks.setTokenBudget.mockReset();

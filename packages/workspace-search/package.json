@@ -34,10 +34,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./chunk-selection-store": {
-      "types": "./dist/bridge/chunk-selection-store.d.ts",
-      "import": "./dist/bridge/chunk-selection-store.js"
-    },
     "./core": {
       "types": "./dist/core/index.d.ts",
       "import": "./dist/core/index.js"

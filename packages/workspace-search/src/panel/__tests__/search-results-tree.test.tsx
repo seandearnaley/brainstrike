@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
-  ChunkSelectionState,
   FileSelectionState,
   SearchSelectionBridge,
 } from '../../bridge/use-search-selection-bridge';
@@ -31,9 +30,7 @@ vi.mock('@tanstack/react-virtual', () => ({
 }));
 
 const bridgeMock: SearchSelectionBridge = {
-  chunkState: vi.fn((): ChunkSelectionState => 'unchecked'),
   fileState: vi.fn((): FileSelectionState => 'unchecked'),
-  toggleChunk: vi.fn(),
   toggleFile: vi.fn(),
 };
 vi.mock('../../bridge/use-search-selection-bridge', () => ({
@@ -159,7 +156,6 @@ describe('SearchResultsTree', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockReturnValue('unchecked');
-    (bridgeMock.chunkState as ReturnType<typeof vi.fn>).mockReturnValue('unchecked');
     useWorkspaceSearchStore.getState().reset();
   });
 
@@ -291,26 +287,7 @@ describe('SearchResultsTree', () => {
     expect(onOpenFile).not.toHaveBeenCalled();
   });
 
-  it('toggles a chunk range via the bridge from the chunk checkbox', () => {
-    seedResults(
-      makeResults([fileResult({ children: [textMatch({ chunkEndLine: 12, chunkStartLine: 8 })] })])
-    );
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
-    const checkboxes = screen.getAllByRole('checkbox');
-    // [0] is the select-all header, [1] is the file row, [2] is the chunk row;
-    // match rows carry NO checkbox.
-    fireEvent.click(checkboxes[2] as HTMLElement);
-    expect(bridgeMock.toggleChunk).toHaveBeenCalledTimes(1);
-    expect(bridgeMock.toggleChunk).toHaveBeenCalledWith(
-      'adapter-root-mounted|@|src/a.ts',
-      { chunkId: 'chunk-1', endLine: 12, startLine: 8 },
-      true,
-      // Sibling result-chunk list threaded from the tree (this file has one chunk).
-      [{ chunkId: 'chunk-1', endLine: 12, startLine: 8 }]
-    );
-  });
-
-  it('puts the checkbox on the chunk row (aria-label Select lines X-Y), never on match rows', () => {
+  it('gives chunk and match rows no checkbox: only files are selected (BST-2019)', () => {
     seedResults(
       makeResults([
         fileResult({
@@ -322,11 +299,31 @@ describe('SearchResultsTree', () => {
       ])
     );
     render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
-    // select-all header + file checkbox + ONE chunk checkbox — two matches
-    // share one chunk.
-    const checkboxes = screen.getAllByRole('checkbox');
-    expect(checkboxes).toHaveLength(3);
-    expect(screen.getByRole('checkbox', { name: 'Select lines 8-12' })).toBeInTheDocument();
+    // The select-all header and the one file row.
+    expect(screen.getAllByRole('checkbox')).toHaveLength(2);
+    expect(screen.queryByRole('checkbox', { name: 'Select lines 8-12' })).toBeNull();
+  });
+
+  it('attaches a result file from its row without opening it, where attaching is offered', () => {
+    const onAttachFile = vi.fn();
+    const onOpenFile = vi.fn();
+    seedResults(makeResults([fileResult({ children: [textMatch()] })]));
+    const { rerender } = render(
+      <SearchResultsTree
+        onAttachFile={onAttachFile}
+        onOpenFile={onOpenFile}
+        resolveAdapterRootId={resolveAdapterRootId}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Attach src/a.ts to the thread' }));
+    expect(onAttachFile).toHaveBeenCalledExactlyOnceWith('adapter-root-mounted|@|src/a.ts');
+    expect(onOpenFile).not.toHaveBeenCalled();
+
+    // Web reads no mentions: no attach button at all.
+    rerender(
+      <SearchResultsTree onOpenFile={onOpenFile} resolveAdapterRootId={resolveAdapterRootId} />
+    );
+    expect(screen.queryByTestId('search-attach-file')).toBeNull();
   });
 
   it('renders the "· N matches" chunk label only when N > 1', () => {
@@ -456,7 +453,7 @@ describe('SearchResultsTree', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('aligns file/chunk checkboxes per level: chunk rows indent further AND reserve toggle space (semantic)', () => {
+  it('aligns rows per level: chunk rows indent further AND reserve toggle space (semantic)', () => {
     // Semantic mode: file (depth 0, has a child chunk) → chunk (depth 1, LEAF).
     seedResults(makeResults([fileResult({ children: [chunkHit()] })]), { mode: 'semantic' });
     const { container } = render(
@@ -474,9 +471,7 @@ describe('SearchResultsTree', () => {
     );
 
     // The leaf chunk row RESERVES the expand-toggle column (the h-6 w-6 spacer)
-    // so its checkbox lines up under the file's checkbox instead of the reported
-    // regression where it landed left of it. Removing reserveToggleSpace:false
-    // is what restores this spacer.
+    // so its content lines up under the file's instead of landing left of it.
     expect(chunkRow?.querySelector('[data-testid="tree-toggle-spacer"]')).not.toBeNull();
   });
 
@@ -494,7 +489,6 @@ describe('SearchResultsTree select-all header', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockReturnValue('unchecked');
-    (bridgeMock.chunkState as ReturnType<typeof vi.fn>).mockReturnValue('unchecked');
     useWorkspaceSearchStore.getState().reset();
   });
 
@@ -539,22 +533,6 @@ describe('SearchResultsTree select-all header', () => {
     );
     (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockImplementation(
       (key: string): FileSelectionState => (key.endsWith('src/a.ts') ? 'checked' : 'unchecked')
-    );
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
-    const header = screen.getByRole('checkbox', { name: 'Select 2 shown' });
-    expect(header).toHaveAttribute('data-state', 'indeterminate');
-  });
-
-  it('counts a chunk-refined file (fileState "indeterminate") as "some" -> header indeterminate', () => {
-    seedResults(
-      makeResults([
-        fileResult({ path: 'src/a.ts' }),
-        fileResult({ dbRootId: 'root-b', path: 'src/b.ts' }),
-      ])
-    );
-    (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockImplementation(
-      (key: string): FileSelectionState =>
-        key.endsWith('src/a.ts') ? 'indeterminate' : 'unchecked'
     );
     render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
     const header = screen.getByRole('checkbox', { name: 'Select 2 shown' });

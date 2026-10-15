@@ -32,9 +32,11 @@ import type {
   FileRowMetadata,
   FileRowMetadataStore,
 } from '../indexing/file-row-metadata-store';
-import { formatTokenCount } from '../preview/use-preview-panel-state';
-import { EXTENSIONLESS_FILE_TYPE } from '../utils/grouping-configs';
-import { formatPreviewFileSize } from '../utils/preview-formatters';
+import {
+  EXTENSIONLESS_FILE_TYPE,
+  formatFileSize,
+  formatTokenCount,
+} from '../utils/metadata-formatters';
 import type { FileTreeRowData } from './optimized-file-tree-model';
 import { useRowCompositeKey } from './use-row-composite-key';
 
@@ -179,7 +181,7 @@ function FileSizeValue({ compositeKey }: { compositeKey: string }) {
   }
   return (
     <NumericValue title={`${metadata.size.toLocaleString()} bytes`}>
-      {formatPreviewFileSize(metadata.size)}
+      {formatFileSize(metadata.size)}
     </NumericValue>
   );
 }
@@ -192,7 +194,7 @@ function DirectorySizeValue({ compositeKey }: { compositeKey: string }) {
   }
   return (
     <NumericValue title={`Folder total: ${rollup.size.toLocaleString()} bytes`}>
-      {formatPreviewFileSize(rollup.size)}
+      {formatFileSize(rollup.size)}
     </NumericValue>
   );
 }

@@ -14,11 +14,6 @@ import {
 } from '../stores/workspace-tab-selection-store';
 import { CANVAS_APP, CHANGES_APP, FILES_APP, renderWorkspace } from './workspace-tabs-test-support';
 
-// Mock the preview-panel surface (Files app body) — same pattern as existing tests
-vi.mock('../preview/preview-panel', () => ({
-  PreviewPanel: vi.fn(() => <div data-testid="preview-panel">PreviewPanel</div>),
-}));
-
 // File tabs mount the explorer pane by default (BST-1318); the real one
 // requires a FileSystemProvider — stub it, pane tests cover its behavior.
 vi.mock('../shell/file-tab-explorer-pane', () => ({
@@ -82,10 +77,6 @@ describe('workspace tabs — apps, launcher, selection', () => {
       openFileInTab: vi.fn(),
       registerOpenFileInTab: vi.fn(),
     });
-    vi.spyOn(uiModule, 'useUndoableAction').mockReturnValue({
-      clearUndoTimeout: vi.fn(),
-      performUndoableAction: vi.fn(),
-    });
 
     const tabModule = await import('../hooks/use-tab-manager');
     const empty: UseTabManagerReturn = {
@@ -117,7 +108,7 @@ describe('workspace tabs — apps, launcher, selection', () => {
     expect(filesTab).toBeInTheDocument();
     expect(filesTab).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByTestId('workspace-tab-strip')).toBeInTheDocument();
-    expect(await screen.findByTestId('preview-panel')).toBeInTheDocument();
+    expect(await screen.findByTestId('files-app-body')).toBeInTheDocument();
   });
 
   it('renders app tabs in registry order regardless of open order', async () => {
@@ -357,7 +348,7 @@ describe('workspace tabs — apps, launcher, selection', () => {
         kind: 'app',
       });
     });
-    expect(await screen.findByTestId('preview-panel')).toBeInTheDocument();
+    expect(await screen.findByTestId('files-app-body')).toBeInTheDocument();
   });
 
   it('an unregistered persisted app selection with no other open app lands on the launcher', async () => {

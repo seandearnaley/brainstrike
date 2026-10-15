@@ -41,7 +41,6 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   CANVAS_APP_ID: 'canvas',
   CHANGES_APP_ID: 'changes',
   CONTEXT_EXPLORER_APP_ID: 'context-explorer',
-  ContextExplorerAppBody: () => <div data-testid="context-explorer-app-body" />,
   ExplorerContextExportAction: () => null,
   FileExplorerPanel: () => <div data-testid="file-explorer-panel" />,
   FileSystemProvider: ({ children }: { children: React.ReactNode }) => children,

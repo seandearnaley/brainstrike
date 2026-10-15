@@ -8,7 +8,6 @@ import {
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { type ContextExportOutcome, useReportManager } from '@brainstrike/hooks';
 import { useCallback } from 'react';
-import type { ContextExportOptions } from '../context-export-options';
 import type { useFileExplorerStoreContext } from './file-explorer-provider';
 
 interface UseContextExportActionsInput {
@@ -25,32 +24,9 @@ interface UseContextExportActionsInput {
   useRegex: boolean;
 }
 
-// Strip UI-only range fields (id, color) before passing ranges to context generation.
-const toContextGenerationOverrides = (
-  options: ContextExportOptions | undefined
-): ContextGenerationOverrides | undefined => {
-  if (!options) {
-    return;
-  }
-
-  return {
-    projectTreeUsesViewFilters: options.projectTreeUsesViewFilters,
-    selectedLineRangesByFile: Object.fromEntries(
-      Object.entries(options.selectedLineRangesByFile).map(([fileKey, ranges]) => [
-        fileKey,
-        ranges.map((range) => ({
-          endLine: range.endLine,
-          isActive: range.isActive,
-          startLine: range.startLine,
-        })),
-      ])
-    ),
-  };
-};
-
 export function useContextExportActions(input: UseContextExportActionsInput): {
-  handleDownloadContext: (options?: ContextExportOptions) => Promise<ContextExportOutcome>;
-  handleCopyContext: (options?: ContextExportOptions) => Promise<ContextExportOutcome>;
+  handleDownloadContext: (options?: ContextGenerationOverrides) => Promise<ContextExportOutcome>;
+  handleCopyContext: (options?: ContextGenerationOverrides) => Promise<ContextExportOutcome>;
 } {
   const { fileSystemAdapter } = useAdapters();
   const { toast } = useToastManager();
@@ -98,23 +74,8 @@ export function useContextExportActions(input: UseContextExportActionsInput): {
     toast,
   });
 
-  const handleDownloadContext = manager.handleDownloadContext;
-  const handleCopyContext = manager.handleCopyContext;
-
-  const handleDownloadContextWithOptions = useCallback(
-    async (options?: ContextExportOptions): Promise<ContextExportOutcome> =>
-      handleDownloadContext(toContextGenerationOverrides(options)),
-    [handleDownloadContext]
-  );
-
-  const handleCopyContextWithOptions = useCallback(
-    async (options?: ContextExportOptions): Promise<ContextExportOutcome> =>
-      handleCopyContext(toContextGenerationOverrides(options)),
-    [handleCopyContext]
-  );
-
   return {
-    handleCopyContext: handleCopyContextWithOptions,
-    handleDownloadContext: handleDownloadContextWithOptions,
+    handleCopyContext: manager.handleCopyContext,
+    handleDownloadContext: manager.handleDownloadContext,
   };
 }

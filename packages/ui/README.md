@@ -35,6 +35,6 @@ itself. Cached highlighting and code/markdown surfaces reuse their existing
 resource owners. Keep feature-specific runtime/persistence out of primitives.
 
 See [UI conventions](../../docs/agents/ui-conventions.md) and
-[preview contracts](../../docs/agents/explorer-search-tapestry.md).
+[explorer contracts](../../docs/agents/explorer-search-context-map.md).
 [`package.json`](package.json) owns dependencies, exports and scripts; use
 [shared contribution/validation policy](../../AGENTS.md).

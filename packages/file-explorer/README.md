@@ -21,5 +21,5 @@ Keep paths and file content out of diagnostics.
 
 [`package.json`](package.json) owns exports/scripts. Relevant contracts:
 [workspace](../../docs/agents/workspace-context.md) and
-[explorer/preview](../../docs/agents/explorer-search-tapestry.md).
+[explorer](../../docs/agents/explorer-search-context-map.md).
 For contribution and validation policy, use [root guidance](../../AGENTS.md).

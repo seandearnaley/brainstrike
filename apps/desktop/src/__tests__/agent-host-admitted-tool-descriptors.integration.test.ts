@@ -30,9 +30,6 @@ vi.mock('node:os', async (importOriginal) => ({
   ...(await importOriginal<typeof import('node:os')>()),
   homedir: () => owner.home,
 }));
-vi.mock('@brainstrike/file-explorer-ui/preview', () => ({
-  useWorkspaceContextCurationStore: { getState: () => ({ contextSnapshot: null }) },
-}));
 vi.mock('../db-main', () => ({
   getDatabase: async () => {
     throw new Error('PGlite must not be opened by host admission');

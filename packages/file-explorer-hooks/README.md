@@ -22,5 +22,5 @@ A callback or abort notification alone does not retire physical reads.
 
 Hook signatures and exports live in source and [`package.json`](package.json).
 See [workspace](../../docs/agents/workspace-context.md) and
-[explorer](../../docs/agents/explorer-search-tapestry.md) contracts, with
+[explorer](../../docs/agents/explorer-search-context-map.md) contracts, with
 [shared contribution/validation policy](../../AGENTS.md).

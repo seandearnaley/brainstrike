@@ -624,7 +624,7 @@ export function buildDefaultInstructions(
   const names = resolveModelFacingToolNames(toolNameMap);
   const planModePrefix = buildPlanModePrefix(names, options.planMode);
   const workspaceInspectionInstruction = names.listWorkspaceContext
-    ? `Inspect selected context, token budgets, open roots, and the workspace-index hint with ${names.listWorkspaceContext}; use detail: true only for per-file Tapestry ranges.`
+    ? `Inspect open roots and the workspace-index hint with ${names.listWorkspaceContext}.`
     : '';
   const multiRootInstruction = buildMultiRootInstruction(names);
   const searchInstruction = buildSearchInstruction(names);

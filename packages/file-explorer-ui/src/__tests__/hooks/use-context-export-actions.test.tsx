@@ -98,7 +98,7 @@ describe('useContextExportActions', () => {
     expect(handleCopyContext).toHaveBeenCalledTimes(1);
   });
 
-  it('preserves typed export outcomes while stripping UI-only range fields', async () => {
+  it('preserves typed export outcomes and passes the export options through', async () => {
     const copyOutcome = {
       ok: false as const,
       reason: 'generation-failed' as const,
@@ -127,20 +127,10 @@ describe('useContextExportActions', () => {
       { wrapper: createWrapper() }
     );
 
-    const outcome = await result.current.handleCopyContext({
-      projectTreeUsesViewFilters: true,
-      selectedLineRangesByFile: {
-        'file-a': [{ color: 'blue', endLine: 9, id: 'ui-range', isActive: true, startLine: 4 }],
-      },
-    });
+    const outcome = await result.current.handleCopyContext({ projectTreeUsesViewFilters: true });
 
     expect(outcome).toEqual(copyOutcome);
-    expect(handleCopyContext).toHaveBeenCalledExactlyOnceWith({
-      projectTreeUsesViewFilters: true,
-      selectedLineRangesByFile: {
-        'file-a': [{ endLine: 9, isActive: true, startLine: 4 }],
-      },
-    });
+    expect(handleCopyContext).toHaveBeenCalledExactlyOnceWith({ projectTreeUsesViewFilters: true });
   });
 
   it('passes expected parameters to useReportGeneration and useReportManager', () => {

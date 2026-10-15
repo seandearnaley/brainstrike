@@ -62,7 +62,7 @@ describe('app-shell assistant contract boundary', () => {
    *    this test exists to prevent.
    */
   const WRAPPER_LINE_BUDGET = 1064;
-  const WRAPPER_TEST_LINE_BUDGET = 1723;
+  const WRAPPER_TEST_LINE_BUDGET = 1707;
 
   function expectShrinkOnly(source: string, budget: number, label: string): void {
     const lineCount = source.split('\n').length;

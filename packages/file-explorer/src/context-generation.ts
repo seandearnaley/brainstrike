@@ -3,12 +3,6 @@ import { generateProjectTreeText } from './project-tree-text.js';
 import { readFullFileTree } from './read-full-file-tree.js';
 import { decodeFileSelection } from './selection.js';
 
-export interface ContextLineRange {
-  endLine: number;
-  isActive?: boolean;
-  startLine: number;
-}
-
 /** Display metadata for a root, keyed by RootId (storage v5 descriptor). */
 export interface RootDisplayInfo {
   displayName: string;
@@ -24,7 +18,6 @@ export interface ContextGenerationOptions {
    * keep the raw key.
    */
   rootDisplayInfoById?: Record<string, RootDisplayInfo>;
-  selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
 }
 
 /**
@@ -71,11 +64,6 @@ function formatContextFilePath(
   return `${info.displayName}/${relativePath}`;
 }
 
-export function splitContentLines(content: string): string[] {
-  const lines = content.split(/\r?\n/u);
-  return lines.length > 0 ? lines : [''];
-}
-
 // Pre-compile the regular expression to match all XML-illegal ASCII control characters.
 // These are characters < 0x20, EXCEPT tab (0x9), line feed (0xa), and carriage return (0xd).
 // eslint-disable-next-line no-control-regex
@@ -99,114 +87,17 @@ function escapeXmlAttribute(value: string): string {
     .replace(/'/g, '&apos;');
 }
 
-function clampRange(range: ContextLineRange, totalLines: number): ContextLineRange {
-  const safeTotalLines = Math.max(totalLines, 1);
-  const maxStart = Math.max(safeTotalLines - 1, 0);
-  const startLine = Math.min(Math.max(Math.floor(range.startLine), 0), maxStart);
-  const endLine = Math.min(Math.max(Math.floor(range.endLine), startLine + 1), safeTotalLines);
-  return { ...range, endLine, startLine };
-}
-
-export function normalizeContextLineRanges(
-  ranges: ContextLineRange[] | undefined,
-  totalLines: number
-): ContextLineRange[] {
-  if (!ranges || ranges.length === 0) {
-    return [];
-  }
-
-  const normalized = ranges
-    .filter((range) => range.isActive !== false)
-    .map((range) => clampRange(range, totalLines))
-    .sort((a, b) => a.startLine - b.startLine || a.endLine - b.endLine);
-
-  if (normalized.length === 0) {
-    return [];
-  }
-
-  const merged: ContextLineRange[] = [];
-  for (const range of normalized) {
-    const current = merged.at(-1);
-    if (!current) {
-      merged.push(range);
-      continue;
-    }
-
-    if (range.startLine <= current.endLine) {
-      merged[merged.length - 1] = {
-        ...current,
-        endLine: Math.max(current.endLine, range.endLine),
-      };
-      continue;
-    }
-
-    merged.push(range);
-  }
-
-  return merged;
-}
-
 function buildFileContextContent(args: {
   filePath: string;
   /** Human-readable path for the `path` attribute; defaults to filePath. */
   displayPath?: string;
   fileContents: Record<string, string>;
-  selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
 }): string {
-  const { filePath, displayPath, fileContents, selectedLineRangesByFile } = args;
-  const escapedFilePath = escapeXmlAttribute(displayPath ?? filePath);
+  const { filePath, displayPath, fileContents } = args;
   const content =
     fileContents[filePath] ?? `Unable to read file content for ${displayPath ?? filePath}`;
-  const fullFileContextContent = `<file path="${escapedFilePath}">
+  return `<file path="${escapeXmlAttribute(displayPath ?? filePath)}">
 ${content}
-</file>`;
-
-  // A file whose content was never loaded cannot be sliced by ranges — emit the
-  // full/fallback `<file>` path instead of an empty selection.
-  if (!(filePath in fileContents)) {
-    return fullFileContextContent;
-  }
-
-  // Invariant: absence of ranges = whole file. A present-but-EMPTY array is
-  // equivalent to absence (empty ≡ absent), so it must be treated as whole file
-  // too — only a present, NON-EMPTY range list is "explicit". A present list of
-  // all-inactive ranges stays explicit (length > 0) and falls through to the
-  // <selection_summary> exclusion notice below.
-  const explicitRanges = selectedLineRangesByFile?.[filePath];
-  const hasExplicitRangesForFile = explicitRanges !== undefined && explicitRanges.length > 0;
-
-  // If a file has no explicit tapestry ranges, treat it as fully selected.
-  // This preserves expected "default hot" behavior for context export.
-  if (!hasExplicitRangesForFile) {
-    return fullFileContextContent;
-  }
-
-  const lines = splitContentLines(content);
-  const activeRanges = normalizeContextLineRanges(
-    selectedLineRangesByFile?.[filePath],
-    lines.length
-  );
-
-  if (activeRanges.length === 0) {
-    // Keep an explicit marker instead of omitting the file so downstream consumers
-    // can distinguish "file intentionally excluded by ranges" from "file omitted".
-    // Consumers should treat this as selection metadata, not file content.
-    return `<file path="${escapedFilePath}">
-<selection_summary>No active tapestry ranges selected.</selection_summary>
-</file>`;
-  }
-
-  const selections = activeRanges
-    .map((range, index) => {
-      const selectionContent = lines.slice(range.startLine, range.endLine).join('\n');
-      return `<selection index="${index + 1}" start_line="${range.startLine}" end_line="${range.endLine}">
-${selectionContent}
-</selection>`;
-    })
-    .join('\n');
-
-  return `<file path="${escapedFilePath}">
-${selections}
 </file>`;
 }
 
@@ -219,8 +110,6 @@ function generateContextContent(
 ): string {
   // Context export format uses <context>/<relevant_context>; function aliases below
   // preserve API migration compatibility for callers still using "report" naming.
-  // File payloads may contain either <selection> blocks or a <selection_summary> metadata marker
-  // when all ranges are inactive for a file.
   const relevantContext = `<relevant_context>
 ${Array.from(selectedFiles)
   .map((filePath) =>
@@ -228,9 +117,6 @@ ${Array.from(selectedFiles)
       displayPath: formatContextFilePath(filePath, options.rootDisplayInfoById),
       fileContents,
       filePath,
-      ...(options.selectedLineRangesByFile
-        ? { selectedLineRangesByFile: options.selectedLineRangesByFile }
-        : {}),
     })
   )
   .join('\n')}

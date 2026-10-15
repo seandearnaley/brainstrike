@@ -11,7 +11,6 @@ export {
   type OpenRootTopology,
   orderWorkspaceRoots,
   RootNotInThreadError,
-  resolveFocusedWorkspaceRoot,
   resolveOptionalWorkspaceRoot,
   resolveWorkspaceRoot,
   resolveWorkspaceSearchScope,

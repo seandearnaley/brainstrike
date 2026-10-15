@@ -2,7 +2,6 @@ export {
   buildSearchTreeNodes,
   childNodeId,
   fileNodeId,
-  fileResultChunks,
   type SearchNodeData,
   textChunkNodeId,
 } from './build-tree-nodes';

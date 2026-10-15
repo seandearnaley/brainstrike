@@ -14,5 +14,5 @@ than creating another selection, content-loading or virtualization owner.
 - Preserve binary/inaccessible content handling, selection limits and ephemeral
   file-byte storage. Keep paths and content out of diagnostics.
 
-Consult `docs/agents/ui-conventions.md`, `explorer-search-tapestry.md` and
+Consult `docs/agents/ui-conventions.md`, `explorer-search-context-map.md` and
 `workspace-context.md` for the relevant contract.

@@ -18,7 +18,7 @@ against current source and tests. Historical notes are reference, not more rules
 | Derived search and indexing | [Indexer](indexer.md), [retrieval quality](retrieval-quality.md) |
 | Embeddings and local LLM | [Local inference](local-inference.md) |
 | Workspace instructions, roots and edits | [Workspace](workspace-context.md) |
-| Explorer, search and file previews | [Explorer](explorer-search-tapestry.md) |
+| Explorer, search and the thread context map | [Explorer](explorer-search-context-map.md) |
 | Git changes and managed worktrees | [Changesets](changeset-diff.md) |
 | Shared UI, menus and reload | [UI](ui-conventions.md) |
 | IPC, logging and reset | [Platform](platform-contracts.md) |

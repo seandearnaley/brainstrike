@@ -30,12 +30,10 @@ export function createReportGenerationWorker(options: ReportGenerationWorkerOpti
       projectTreeUsesViewFilters,
       folderSummaryThreshold,
       rootDisplayInfoById,
-      selectedLineRangesByFile,
     } = request;
     const generationOptions = {
       projectTreeUsesViewFilters: projectTreeUsesViewFilters ?? false,
       ...(rootDisplayInfoById ? { rootDisplayInfoById } : {}),
-      ...(selectedLineRangesByFile ? { selectedLineRangesByFile } : {}),
     };
 
     const context = await generateContext(

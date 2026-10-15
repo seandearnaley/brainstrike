@@ -1,4 +1,3 @@
-import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import { Button } from '@brainstrike/ui';
 import { AlertCircle, Loader2, Search } from 'lucide-react';
 import type * as React from 'react';
@@ -22,6 +21,8 @@ const MIN_TEXT_QUERY_LENGTH = 3;
 
 export interface WorkspaceSearchPanelProps {
   allowTextPaging?: boolean;
+  /** Attach a result file to the active thread; absent where nothing reads mentions (web). */
+  onAttachFile?: ((compositeKey: string) => void) | undefined;
   onOpenFile: (compositeKey: string, target?: SearchOpenTarget) => void;
   resolveAdapterRootId: (dbRootId: string) => string | null;
   runSemanticSearch: () => void;
@@ -33,13 +34,13 @@ export interface WorkspaceSearchPanelProps {
 
 /**
  * The workspace-search tab content: mode + collection controls, the query
- * input, coverage banner, the status-driven results area, and a selection
- * footer. Presentation + store only — the executor lives at the composition
+ * input, coverage banner and the status-driven results area. Presentation + store only — the executor lives at the composition
  * layer (Task 11) and is passed down as the two run callbacks.
  */
 export function WorkspaceSearchPanel({
   allowTextPaging = true,
   semanticAvailability,
+  onAttachFile,
   onOpenFile,
   workspaceDbRootIds,
   resolveAdapterRootId,
@@ -61,13 +62,6 @@ export function WorkspaceSearchPanel({
   const { available: semanticAvailable, reason: semanticReason } = useSemanticAvailability(
     collectionId,
     semanticAvailability
-  );
-
-  // Output (post-range) tokens match the per-file range model + the meters'
-  // locked "output" language — source tokens would show a huge-file total even
-  // when only one chunk is checked.
-  const approxTokens = useWorkspaceContextCurationStore(
-    (state) => state.contextSnapshot?.selectedOutputApproxTokens
   );
 
   // Gate the SUBMIT path, not just the toggle's ENTRY: the toggle only blocks
@@ -164,7 +158,7 @@ export function WorkspaceSearchPanel({
     // One column the panel's width: an `auto` track grew to its widest row's
     // unbreakable content (311px in a 180px panel, BST-1981), pushing controls
     // and results past the panel's clipped edge.
-    <div className="grid h-full grid-cols-[minmax(0,1fr)] grid-rows-[auto_1fr_auto]">
+    <div className="grid h-full grid-cols-[minmax(0,1fr)] grid-rows-[auto_1fr]">
       {/* Fixed header: search controls, query input, coverage status. Rows
           wrap rather than overflow, so every control stays inside the panel. */}
       <div className="flex flex-col gap-2 border-b p-2">
@@ -217,9 +211,10 @@ export function WorkspaceSearchPanel({
         {status === 'results' ? (
           // Flex column so SearchResultsTree's flex-1 height chain reaches the
           // TreeTable's 100%-height viewport (a plain block breaks it, collapsing
-          // the tree to content height and shoving the pinned footer off-screen).
+          // the tree to content height).
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-2">
             <SearchResultsTree
+              onAttachFile={onAttachFile}
               onOpenFile={onOpenFile}
               {...(allowTextPaging ? { onShowMore: handleShowMore } : {})}
               resolveAdapterRootId={resolveAdapterRootId}
@@ -228,11 +223,6 @@ export function WorkspaceSearchPanel({
           </div>
         ) : null}
       </div>
-
-      {/* Fixed footer: selection summary, matching the Explorer footer tone. */}
-      <footer className="flex items-center border-t bg-gradient-to-t from-muted/20 to-transparent px-3 py-2 text-muted-foreground text-xs">
-        <span>~{approxTokens ?? 0} tokens in context</span>
-      </footer>
     </div>
   );
 }

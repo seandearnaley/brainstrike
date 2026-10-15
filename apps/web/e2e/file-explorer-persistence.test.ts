@@ -204,7 +204,7 @@ async function seedRootHandleInCache(page: Page, rootId: string, rootName: strin
 }
 
 async function openPreviewFile(page: Page, fileName: string): Promise<void> {
-  // File-name clicks open tabs; Tapestry background buttons create line ranges.
+  // A file-name click opens the file in a tab.
   const fileLabel = new FileExplorerPage(page).fileTree.getByText(fileName, { exact: true });
   await fileLabel.scrollIntoViewIfNeeded();
   await expect(fileLabel).toBeVisible({ timeout: 15_000 });

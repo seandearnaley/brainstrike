@@ -56,7 +56,7 @@ describe('report-generation-worker', () => {
     expect(progress).toEqual([0, 1]);
   });
 
-  it('passes tapestry and tree filter options when provided', async () => {
+  it('passes the tree filter option when provided', async () => {
     const adapter = new MockFileSystemAdapter();
     const worker = createReportGenerationWorker({ fileSystemAdapter: adapter });
     const rootHandle = await adapter.requestDirectoryAccess();
@@ -66,17 +66,9 @@ describe('report-generation-worker', () => {
       ...baseRequest,
       projectTreeUsesViewFilters: false,
       rootDirectoryHandle: rootHandle,
-      selectedLineRangesByFile: {
-        'a.ts': [{ endLine: 1, isActive: true, startLine: 0 }],
-      },
     });
 
     const call = spy.mock.calls[0];
-    expect(call?.[9]).toEqual({
-      projectTreeUsesViewFilters: false,
-      selectedLineRangesByFile: {
-        'a.ts': [{ endLine: 1, isActive: true, startLine: 0 }],
-      },
-    });
+    expect(call?.[9]).toEqual({ projectTreeUsesViewFilters: false });
   });
 });

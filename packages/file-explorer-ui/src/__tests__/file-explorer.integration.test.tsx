@@ -3,44 +3,13 @@ import type { IFileNode } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PreviewPanel } from '../preview/preview-panel';
 import FileTree from '../tree/file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 
-type PreviewPanelMocksModule = typeof import('./__mocks__/preview-panel-mocks');
-
-const previewPanelMocksPromise = vi.hoisted(
-  async () => (await import('./__mocks__/preview-panel-mocks')) as PreviewPanelMocksModule
-);
-
-vi.mock('@brainstrike/ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/ui')>();
-  const { createUiModuleMock } = await previewPanelMocksPromise;
-  return {
-    ...actual,
-    ...createUiModuleMock(),
-  };
-});
-
-vi.mock('@brainstrike/hooks', async () => {
-  const { createHooksModuleMock } = await previewPanelMocksPromise;
-  return createHooksModuleMock();
-});
-
-vi.mock('../preview/use-preview-panel-state', () => ({
-  formatTokenCount: (tokens: number) => tokens.toString(),
-  usePreviewPanelState: () => ({
-    flatListItems: [],
-    totalStats: { totalFiles: 1, totalTokens: 0 },
-  }),
-}));
-
 vi.mock('lucide-react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('lucide-react')>();
-  const { createLucideModuleMock } = await previewPanelMocksPromise;
   return {
     ...actual,
-    ...createLucideModuleMock(),
     ChevronDown: () => <div data-testid="chevron-down" />,
     ChevronRight: () => <div data-testid="chevron-right" />,
     File: () => <div data-testid="file-icon" />,
@@ -146,38 +115,6 @@ describe('File Explorer Integration Tests', () => {
 
     // Click should work without errors
     await user.click(packageFile);
-  });
-
-  it('should integrate with preview panel for selected files', () => {
-    const selectedFiles = new Set(['test-folder:/package.json']);
-    const { container } = render(
-      <FileExplorerTestWrapper mockFileSystemAdapter={mockFileSystemAdapter}>
-        <div className="flex">
-          <FileTree fileTree={mockFiles} folderId="test-folder" loadingFiles={new Set()} />
-          <PreviewPanel
-            decodeFileSelection={(key: string) => {
-              const [folderId, path] = key.split(':');
-              return { folderId: folderId!, path: path! };
-            }}
-            fileContents={{}}
-            loadingFiles={new Set()}
-            onSelectionChange={() => {}}
-            performUndoableAction={() => {}}
-            selectedFiles={selectedFiles}
-            tokenCounting={{
-              countTokens: async () => 100,
-              loading: false,
-              mode: 'accurate',
-              reason: null,
-            }}
-          />
-        </div>
-      </FileExplorerTestWrapper>
-    );
-
-    // Check that both components render
-    expect(screen.getByRole('treegrid', { name: 'File tree' })).toBeInTheDocument();
-    expect(container.querySelector('.flex')).toBeInTheDocument();
   });
 
   it('should handle drag and drop operations', async () => {

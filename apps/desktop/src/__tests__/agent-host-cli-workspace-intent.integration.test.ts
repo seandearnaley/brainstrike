@@ -110,9 +110,6 @@ vi.mock('@brainstrike/app-state/stores/workspace-instructions-preferences-store'
     getState: () => renderer.intent().workspaceInstructionsPreference,
   },
 }));
-vi.mock('@brainstrike/file-explorer-ui/preview', () => ({
-  useWorkspaceContextCurationStore: { getState: () => ({ contextSnapshot: null }) },
-}));
 vi.mock('../db-main', () => ({
   getDatabase: async () => {
     throw new Error('PGlite must not be opened by host admission');

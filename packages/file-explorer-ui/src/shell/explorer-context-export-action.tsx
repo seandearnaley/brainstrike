@@ -1,10 +1,9 @@
 /**
  * The Files app's bulk "Export" action (ADR-0021, BST-2018): copy or download
  * the selected files' contents as one Markdown document, through the
- * explorer's existing context generation. It replaces the tapestry's export;
- * the project-tree option moved here with it.
+ * explorer's existing context generation, with its project-tree option.
  */
-import { useAdapters } from '@brainstrike/file-explorer-hooks';
+import { type ContextGenerationOverrides, useAdapters } from '@brainstrike/file-explorer-hooks';
 import { createLogger } from '@brainstrike/logging';
 import {
   Button,
@@ -17,7 +16,6 @@ import {
 } from '@brainstrike/ui';
 import { Clipboard, Download, FileOutput } from 'lucide-react';
 import { type ReactElement, useCallback, useId, useState } from 'react';
-import type { ContextExportOptions } from '../context-export-options';
 import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 import {
   useFileExplorerStoreContext,
@@ -95,15 +93,11 @@ export function ExplorerContextExportAction(): ReactElement {
   );
 
   const run = async (
-    exportContext: (options: ContextExportOptions) => Promise<{ readonly ok: boolean }>
+    exportContext: (options: ContextGenerationOverrides) => Promise<{ readonly ok: boolean }>
   ) => {
     setBusy(true);
     try {
-      // Whole files: the selection carries no line ranges.
-      const outcome = await exportContext({
-        projectTreeUsesViewFilters: treeUsesViewFilters,
-        selectedLineRangesByFile: {},
-      });
+      const outcome = await exportContext({ projectTreeUsesViewFilters: treeUsesViewFilters });
       if (outcome.ok) {
         setOpen(false);
       }

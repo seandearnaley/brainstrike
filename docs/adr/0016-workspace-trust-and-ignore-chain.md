@@ -37,7 +37,7 @@ development database were copies under `.claude/worktrees`.
 - File mutation tools do not yet consult the agent-ignore guard, so an agent can still
   write to an agent-ignored path (BST-1433).
 - Adding an ignore source means placing it in the one precedence table in
-  `docs/agents/explorer-search-tapestry.md`.
+  `docs/agents/explorer-search-context-map.md`.
 
 ## Sources
 
@@ -45,5 +45,5 @@ Contract markers this ADR replaces (line numbers at `43daec7fb`):
 
 - `docs/agents/workspace-context.md:96` (workspace instructions default-on), `:343`
   (Agent Skills default-on), `:226` (no shell expansion).
-- `docs/agents/explorer-search-tapestry.md:386-389` (ignore-chain precedence),
+- `docs/agents/explorer-search-context-map.md:386-389` (ignore-chain precedence),
   `:439` (`.llmignore` enforced for both grep engines).

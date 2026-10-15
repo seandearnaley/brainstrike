@@ -18,7 +18,7 @@ export interface NativeToolDiscoveryNamespaceDefinition {
 
 const NATIVE_TOOL_DISCOVERY_NAMESPACE_SUMMARIES: Record<NativeToolDiscoveryNamespace, string> = {
   artifacts: 'Continue reading durable oversized tool results by opaque cursor.',
-  context: 'Inspect and update workspace context, directory, and Tapestry selections.',
+  context: 'Inspect open workspace roots, and read named workspace files and directories.',
   database:
     "Inspect durable diagnostic failures or run read-only SQL over Brainstrike's own local database: assistant run history, edit checkpoints, token usage and cost, queue metrics, and the workspace code index.",
   embeddings: 'Inspect and query configured embedding spaces.',

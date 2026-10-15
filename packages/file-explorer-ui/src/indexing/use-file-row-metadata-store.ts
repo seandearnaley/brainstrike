@@ -11,7 +11,7 @@
  *   caller (the tree), so the store stays free of tree traversal.
  *
  * INVALIDATION rides existing channels only — no polling, no new event channel
- * (docs/agents/explorer-search-tapestry.md "EXPLORER TREE LIVE REFRESH"). There
+ * (docs/agents/explorer-search-context-map.md "EXPLORER TREE LIVE REFRESH"). There
  * are two paths, and the split is the whole point:
  *
  * 1. **Precise (the hot path).** The returned `onTokenResolved` must be passed

@@ -2,7 +2,6 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { createContext } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
-  ChunkSelectionState,
   FileSelectionState,
   SearchSelectionBridge,
 } from '../../bridge/use-search-selection-bridge';
@@ -39,9 +38,7 @@ vi.mock('@tanstack/react-virtual', () => ({
 }));
 
 const bridgeMock: SearchSelectionBridge = {
-  chunkState: vi.fn((): ChunkSelectionState => 'unchecked'),
   fileState: vi.fn((): FileSelectionState => 'unchecked'),
-  toggleChunk: vi.fn(),
   toggleFile: vi.fn(),
 };
 vi.mock('../../bridge/use-search-selection-bridge', () => ({
@@ -71,7 +68,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
-import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import { SEMANTIC_UNAVAILABLE_NO_CHUNKS } from '../use-semantic-availability';
 import { WorkspaceSearchPanel } from '../workspace-search-panel';
 
@@ -140,7 +136,6 @@ describe('WorkspaceSearchPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useWorkspaceSearchStore.getState().reset();
-    useWorkspaceContextCurationStore.setState({ contextSnapshot: null });
   });
 
   it('shows the idle empty state before any search', () => {
@@ -187,35 +182,27 @@ describe('WorkspaceSearchPanel', () => {
     expect(screen.getByText('Root A')).toBeInTheDocument();
   });
 
-  it('pins the footer via a three-row grid with the results tree in the middle scroll region', () => {
+  it('gives the results tree the second, shrinkable grid row below the header', () => {
     act(() => {
       const generation = useWorkspaceSearchStore.getState().generation;
       useWorkspaceSearchStore.getState().resolveResults(makeResults(), generation);
     });
     const { container } = renderPanel();
 
-    // The panel is a full-height three-row grid: header / results / footer.
+    // A full-height two-row grid: header / results. The retired "tokens in
+    // context" footer read the checked-files snapshot (BST-2019).
     const grid = container.querySelector<HTMLElement>('.grid.h-full');
     expect(grid).not.toBeNull();
-    expect(grid?.className).toContain('grid-rows-[auto_1fr_auto]');
+    expect(grid?.className).toContain('grid-rows-[auto_1fr]');
     const rows = Array.from(grid?.children ?? []);
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(2);
+    expect(container.querySelector('footer')).toBeNull();
 
-    // The footer is the LAST grid row (pinned to the bottom), not flowing after
-    // the tree content, and carries the top border like the Explorer footer.
-    const footer = rows.at(-1) as HTMLElement;
-    expect(footer.tagName).toBe('FOOTER');
-    expect(footer.className).toContain('border-t');
-    expect(footer).toHaveTextContent('~0 tokens in context');
-
-    // The results tree lives in the middle (1fr) row's scroll region, never
-    // inside the footer.
     const middle = rows[1] as HTMLElement;
     const treegrid = screen.getByRole('treegrid');
     expect(middle.contains(treegrid)).toBe(true);
-    expect(footer.contains(treegrid)).toBe(false);
-    // The middle row constrains height (min-h-0) so the 1fr track can shrink and
-    // the tree scrolls rather than pushing the footer away.
+    // The results row constrains height (min-h-0) so the 1fr track can shrink and
+    // the tree scrolls.
     expect(middle.className).toContain('min-h-0');
   });
 
@@ -303,31 +290,6 @@ describe('WorkspaceSearchPanel', () => {
     fireEvent.keyDown(screen.getByPlaceholderText('Search workspace'), { key: 'Enter' });
 
     expect(props.runSemanticSearch).toHaveBeenCalledTimes(1);
-  });
-
-  it('shows selected token count in the footer', () => {
-    renderPanel();
-    expect(screen.getByText('~0 tokens in context')).toBeInTheDocument();
-  });
-
-  it('reports OUTPUT (post-range) tokens in the footer, not source tokens', () => {
-    // The per-file range model means checking one chunk of a huge file must show
-    // the small output number, never the full source total.
-    act(() => {
-      useWorkspaceContextCurationStore.getState().setContextSnapshot({
-        files: [],
-        includeProjectTree: false,
-        projectTreeApproxTokens: null,
-        projectTreeTokenCountLoading: false,
-        selectedOutputApproxTokens: 12,
-        selectedSourceApproxTokens: 9999,
-        selectionFolderId: null,
-        tokenBudget: null,
-      });
-    });
-    renderPanel();
-    expect(screen.getByText('~12 tokens in context')).toBeInTheDocument();
-    expect(screen.queryByText('~9999 tokens in context')).not.toBeInTheDocument();
   });
 
   it('clears stale results and drops a late resolve when the text query shrinks below min length', () => {

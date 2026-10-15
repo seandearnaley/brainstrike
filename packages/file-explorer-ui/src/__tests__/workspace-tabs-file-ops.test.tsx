@@ -22,15 +22,10 @@ async function openThreeTabsWithDemoAppSelected(): Promise<void> {
   useWorkspaceTabSelectionStore.getState().selectApp(DEMO_APP.id);
 }
 
-// Mock the preview-panel surface (Files app body) — same pattern as existing tests
 // File tabs mount the explorer pane by default (BST-1318); the real one
 // requires a FileSystemProvider — stub it, pane tests cover its behavior.
 vi.mock('../shell/file-tab-explorer-pane', () => ({
   FileTabExplorerPane: () => <div data-testid="pane-spy" />,
-}));
-
-vi.mock('../preview/preview-panel', () => ({
-  PreviewPanel: vi.fn(() => <div data-testid="preview-panel">PreviewPanel</div>),
 }));
 
 // Mock useFileExplorer — minimal shape used by the controller
@@ -90,10 +85,6 @@ describe('workspace tabs — file tab operations', () => {
       openFileInTab: vi.fn(),
       registerOpenFileInTab: vi.fn(),
     });
-    vi.spyOn(uiModule, 'useUndoableAction').mockReturnValue({
-      clearUndoTimeout: vi.fn(),
-      performUndoableAction: vi.fn(),
-    });
 
     const tabModule = await import('../hooks/use-tab-manager');
     const empty: UseTabManagerReturn = {
@@ -140,7 +131,7 @@ describe('workspace tabs — file tab operations', () => {
 
     renderWorkspace();
 
-    expect(await screen.findByTestId('preview-panel')).toBeInTheDocument();
+    expect(await screen.findByTestId('files-app-body')).toBeInTheDocument();
 
     const fileTab = await screen.findByRole('tab', { name: /index\.ts/i });
     expect(fileTab).toHaveAttribute('aria-selected', 'false');
@@ -309,7 +300,7 @@ describe('workspace tabs — file tab operations', () => {
     });
   });
 
-  it('clicking the Files tab swaps back to the preview body', async () => {
+  it('clicking the Files tab swaps back to the Files body', async () => {
     const user = userEvent.setup();
     useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/index.ts');
 
@@ -351,11 +342,11 @@ describe('workspace tabs — file tab operations', () => {
     await screen.findByText(/export const file/);
     // Files was activated at the session default, so it stays MOUNTED but
     // hidden while a file tab is showing (keep-alive contract).
-    expect(screen.getByTestId('preview-panel')).not.toBeVisible();
+    expect(screen.getByTestId('files-app-body')).not.toBeVisible();
 
     await user.click(await screen.findByRole('tab', { name: /files/i }));
 
-    expect(await screen.findByTestId('preview-panel')).toBeVisible();
+    expect(await screen.findByTestId('files-app-body')).toBeVisible();
     await waitFor(() => {
       expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
         appId: 'context-explorer',

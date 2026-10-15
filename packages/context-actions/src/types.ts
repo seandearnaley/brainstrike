@@ -54,32 +54,6 @@ export type ContextTarget =
       readonly title: string;
       readonly url: string;
     }
-  | {
-      readonly allowOverlap: boolean;
-      readonly compositeKey: string;
-      readonly contentStatus: 'idle' | 'loading' | 'ready';
-      readonly fileId: string;
-      readonly fileName: string;
-      readonly inspectedLine: number;
-      readonly kind: 'tapestry-document';
-      readonly lensEnabled: boolean;
-      readonly manualRangeCount: number;
-      readonly searchRangeCount: number;
-    }
-  | {
-      readonly color: string;
-      readonly contentStatus: 'idle' | 'loading' | 'ready';
-      readonly endLine: number;
-      readonly fileId: string;
-      readonly fileName: string;
-      readonly isActive: boolean;
-      readonly kind: 'tapestry-range';
-      readonly manualRangeCount: number;
-      readonly origin: 'manual' | 'search';
-      readonly rangeId: string;
-      readonly searchRangeCount: number;
-      readonly startLine: number;
-    }
   /**
    * The empty background of a tab strip (BST-1836 §6.4). Strip-level local
    * actions (New, Close All) claim it; `stripId` names the owning strip.
