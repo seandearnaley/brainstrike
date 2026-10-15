@@ -1,35 +1,38 @@
 /**
- * E2E-only seam for the loaded foreground-latency benchmark (BST-1925,
+ * E2E-only seam for the loaded foreground-latency benchmark (BST-1925, BST-2012,
  * `e2e/foreground-latency-under-index-build.desktop.test.ts`).
  *
- * The benchmark times two foreground operations that live in the main process
- * and have no renderer path with the same shape:
+ * The benchmark times two foreground operations through their current owners,
+ * from the main process, which brokers both for the app:
  *
- * - the chat path's per-step database write: one `run.step.finished` event
- *   through `recordDesktopAssistantRunEvent`, which runs on the foreground lane
- *   of the desktop `DatabaseWorkScheduler` and then on the DB host;
- * - an agent tool's read: the shared tool file reader, then a file-scoped grep
- *   through the same repository and service `grep-search-tool.ts` builds, on
- *   the raw main-process database handle (that tool does not use the
- *   scheduler).
+ * - the chat path's per-step write: one committed agent-host command
+ *   (`thread/update` of a probe thread's title) through main's own host
+ *   client. Like every run event, it is one append through the host's single
+ *   StateStore writer, so it waits on whatever that writer and the host are
+ *   doing;
+ * - an agent tool's read: the shared tool file reader, then the grep tool's
+ *   index half (`nativeGrepIndex` over the native index's query host), scoped
+ *   to one file path.
  *
- * A renderer `db.query` would add a renderer hop to both and put the tool read
- * on a scheduler lane the tool never uses, so in E2E test mode main exposes
- * exactly these two calls on a global. Nothing here changes app behaviour.
+ * In E2E test mode main exposes exactly these calls on a global. Nothing here
+ * changes app behaviour.
  */
-import type { AssistantRunEvent } from '@brainstrike/agent';
-import { FileChunkRepository, GrepSearchService } from '@brainstrike/db';
+import { randomUUID } from 'node:crypto';
+import type { HostMethod, HostParams, HostResults } from '@brainstrike/agent-host/protocol';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
-import { recordDesktopAssistantRunEvent } from './assistant-server/run-persistence';
-import { getDatabase } from './db-main';
+import type { GrepIndexSearch } from './assistant-server/grep-search-core';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 
 const E2E_FOREGROUND_LATENCY_PROBES_KEY = '__brainstrike_e2e_foreground_latency_probes__';
 
 interface E2eForegroundLatencyProbes {
-  /** The grep tool's index pass, scoped to one file path. Resolves with the candidate match count. */
+  /** The chat path's write: one committed title update of the probe thread. */
+  readonly commitThreadUpdate: (input: {
+    readonly threadId: string;
+    readonly title: string;
+  }) => Promise<void>;
+  /** The grep tool's index pass, scoped to one file path. Resolves with the match count. */
   readonly grepToolIndex: (input: {
-    readonly embeddingSetId: string;
     readonly filePath: string;
     readonly pattern: string;
   }) => Promise<number>;
@@ -38,52 +41,36 @@ interface E2eForegroundLatencyProbes {
     readonly requestedPath: string;
     readonly rootPath: string;
   }) => Promise<number>;
-  /** The chat path's per-step write: one `run.step.finished` event for an existing run row. */
-  readonly writeRunStepEvent: (input: {
-    readonly eventId: string;
-    readonly runId: string;
-    readonly sequence: number;
-  }) => Promise<void>;
+  /** Starts the host thread the chat-path probe updates. Resolves with its id. */
+  readonly startProbeThread: () => Promise<string>;
 }
 
-export function installE2eForegroundLatencyProbes(): void {
+interface E2eForegroundLatencyProbeOwners {
+  readonly grepIndex: GrepIndexSearch;
+  readonly hostRequest: <M extends HostMethod>(
+    method: M,
+    params: HostParams<M>
+  ) => Promise<HostResults[M]>;
+}
+
+export function installE2eForegroundLatencyProbes(owners: E2eForegroundLatencyProbeOwners): void {
   if (!isElectronE2ETestMode()) {
     throw new Error('Foreground latency probes exist only in Electron E2E test mode.');
   }
   const probes: E2eForegroundLatencyProbes = {
-    grepToolIndex: async ({ embeddingSetId, filePath, pattern }) => {
-      const service = new GrepSearchService(new FileChunkRepository(await getDatabase()));
-      const result = await service.search({
-        contextLines: 0,
-        embeddingSetId,
-        filePaths: [filePath],
-        pattern,
-      });
+    commitThreadUpdate: async ({ threadId, title }) => {
+      await owners.hostRequest('thread/update', { commandId: randomUUID(), threadId, title });
+    },
+    grepToolIndex: async ({ filePath, pattern }) => {
+      const result = await owners.grepIndex({ contextLines: 0, filePaths: [filePath], pattern });
       return result.totalMatches;
     },
     readToolFile: async ({ requestedPath, rootPath }) => {
       const file = await readWorkspaceTextFile({ requestedPath, rootPath });
       return file.size;
     },
-    writeRunStepEvent: async ({ eventId, runId, sequence }) => {
-      // The shape `agent-streaming.ts` mints for a finished step: makeStepMetadata
-      // fields plus the step's own finishReason.
-      const event: AssistantRunEvent = {
-        id: eventId,
-        kind: 'run.step.finished',
-        label: 'Generation step completed',
-        metadata: {
-          completionTokens: 180,
-          finishReason: 'tool-calls',
-          messageId: `${runId}-message`,
-          promptTokens: 12_000,
-        },
-        sequence,
-        status: 'completed',
-        timestamp: new Date().toISOString(),
-      };
-      await recordDesktopAssistantRunEvent(runId, event, getDatabase);
-    },
+    startProbeThread: async () =>
+      (await owners.hostRequest('thread/start', { commandId: randomUUID() })).threadId,
   };
   (globalThis as Record<string, unknown>)[E2E_FOREGROUND_LATENCY_PROBES_KEY] =
     Object.freeze(probes);

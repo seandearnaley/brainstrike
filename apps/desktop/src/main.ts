@@ -24,6 +24,7 @@ import { createAgentHostMainClient } from './agent-host-main-client';
 import { bindDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
 import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-workspace-binding';
 import { readEmbeddingHostDevice } from './agent-host-platform/memory-vector-selection';
+import { nativeGrepIndex } from './agent-host-platform/native-grep-index';
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
 import { createDesktopWorkspaceRootCatalog } from './agent-host-platform/workspace-root-client';
 import { buildFileMenuTemplate } from './application-file-menu';
@@ -1128,7 +1129,10 @@ if (singleInstanceLockAcquired) {
   const e2eTestMode = isElectronE2ETestMode();
   if (e2eTestMode) {
     // The loaded foreground-latency benchmark times main-process operations (BST-1925).
-    installE2eForegroundLatencyProbes();
+    installE2eForegroundLatencyProbes({
+      grepIndex: nativeGrepIndex(nativeIndexSearch),
+      hostRequest: (method, params) => agentHostMainClient.request(method, params),
+    });
   }
 
   const workspaceOpenQueue = desktopBootstrap.workspaceOpenQueue;

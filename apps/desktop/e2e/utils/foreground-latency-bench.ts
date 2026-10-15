@@ -125,24 +125,91 @@ export async function seedPausedWorkspace(
   });
 }
 
-/** A thread with a `running` run row: the chat-path write needs a parent run, as during a real turn. */
-export async function seedRunningChatRun(page: Page): Promise<string> {
-  const threadId = 'foreground-latency-benchmark-thread';
-  const runId = 'foreground-latency-benchmark-run';
-  await queryDb(
-    page,
-    `INSERT INTO mastra_threads (id, "resourceId", title, metadata, "createdAt", "updatedAt")
-     VALUES ($1, $2, 'Foreground latency benchmark', '{}'::jsonb, now(), now())`,
-    [threadId, WORKSPACE_RESOURCE_ID]
-  );
-  await queryDb(
-    page,
-    `INSERT INTO brainstrike_assistant_thread_runs
-       (id, resource_id, thread_id, provider, model, runtime_kind, status, started_at, created_at, updated_at)
-     VALUES ($1, $2, $3, 'openrouter', 'benchmark/model', 'hosted', 'running', now(), now(), now())`,
-    [runId, WORKSPACE_RESOURCE_ID, threadId]
-  );
-  return runId;
+/**
+ * The host thread the chat-path probe commits to, started through main's host
+ * client (`src/e2e-foreground-latency-probes.ts`), as the composer's first
+ * Send starts one.
+ */
+export async function startProbeThread(app: ElectronApplication): Promise<string> {
+  return await app.evaluate(async () => {
+    const seam = (globalThis as Record<string, unknown>)[
+      '__brainstrike_e2e_foreground_latency_probes__'
+    ] as { readonly startProbeThread?: () => Promise<string> } | undefined;
+    if (!seam?.startProbeThread) {
+      throw new Error(
+        'The main process exposes no foreground latency probes; is it running in E2E test mode?'
+      );
+    }
+    return await seam.startProbeThread();
+  });
+}
+
+/** One reading of the hidden embedding host's renderer process, as main sees it. */
+export interface EmbeddingHostReading {
+  /**
+   * Percent of all cores since the previous reading, as Electron normalizes it:
+   * 100 / cores is one busy core, so several busy threads read as a multiple of it.
+   */
+  readonly cpuPercent: number;
+  readonly crossOriginIsolated: boolean;
+  readonly hardwareConcurrency: number;
+  readonly peakWorkingSetMb: number;
+  readonly workingSetMb: number;
+}
+
+/**
+ * Reads the hidden embedding host: its isolation (BST-1999) and its process's
+ * CPU and memory from `app.getAppMetrics()`. Its workers, ONNX Runtime's WASM
+ * threads among them, run in that process. Null while no host runs.
+ */
+export async function readEmbeddingHost(
+  app: ElectronApplication
+): Promise<EmbeddingHostReading | null> {
+  return await app.evaluate(async ({ app: electronApp, BrowserWindow }) => {
+    const host = BrowserWindow.getAllWindows().find((window) => {
+      if (window.isDestroyed()) {
+        return false;
+      }
+      try {
+        return new URL(window.webContents.getURL()).searchParams.get('mode') === 'embedding-host';
+      } catch {
+        return false;
+      }
+    });
+    if (!host) {
+      return null;
+    }
+    const pid = host.webContents.getOSProcessId();
+    const metric = electronApp.getAppMetrics().find((candidate) => candidate.pid === pid);
+    if (!metric) {
+      return null;
+    }
+    const realm = (await host.webContents.executeJavaScript(
+      '({ coi: globalThis.crossOriginIsolated === true, cores: navigator.hardwareConcurrency })'
+    )) as { readonly coi: boolean; readonly cores: number };
+    const mb = (kilobytes: number): number => Math.round(kilobytes / 102.4) / 10;
+    return {
+      cpuPercent: Math.round(metric.cpu.percentCPUUsage * 10) / 10,
+      crossOriginIsolated: realm.coi,
+      hardwareConcurrency: realm.cores,
+      peakWorkingSetMb: mb(metric.memory.peakWorkingSetSize),
+      workingSetMb: mb(metric.memory.workingSetSize),
+    };
+  });
+}
+
+/** The embedding host readings of a loaded window, summarized for the evidence. */
+export function embeddingHostMetrics(readings: readonly EmbeddingHostReading[]) {
+  const last = readings.at(-1);
+  return {
+    cpuPercent: summarize(readings.map((reading) => reading.cpuPercent)),
+    crossOriginIsolated: last?.crossOriginIsolated ?? null,
+    hardwareConcurrency: last?.hardwareConcurrency ?? null,
+    peakWorkingSetMb:
+      readings.length === 0
+        ? null
+        : Math.max(...readings.map((reading) => reading.peakWorkingSetMb)),
+  };
 }
 
 export function rendererMetrics(samples: RendererWindowSamples) {

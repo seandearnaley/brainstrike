@@ -813,7 +813,6 @@ export function WorkspaceCollectionSyncProvider({
   if (nativeIndexSearch) {
     return (
       <NativeWorkspaceIndexProvider capability={nativeIndexSearch}>
-        <WorkspaceIndexStageProvider native />
         {children}
       </NativeWorkspaceIndexProvider>
     );

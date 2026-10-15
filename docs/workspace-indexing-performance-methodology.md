@@ -38,28 +38,12 @@ The analyzer fails if:
 - the actual embedding worker backend is not the required backend,
 - `fallbackApplied` is true,
 - fatal log patterns include DB host timeouts, local embedding execution failure, uncaught, or unhandled errors,
-- retained heap exceeds `--max-retained-heap-mb` when provided,
-- integrated throughput is below `--min-ratio` when stage ceilings are provided.
+- retained heap exceeds `--max-retained-heap-mb` when provided.
 
-## Throughput Ratio
+## Stage Throughput
 
-The acceptance ratio is:
-
-```text
-integratedToBottleneckRatio =
-  integratedChunksPerSecond / min(stageCeilings)
-```
-
-Stage ceilings must be measured on the same machine and backend as the integrated run, and passed explicitly. Do not publish a bottleneck ratio unless those ceilings were measured on the same machine/backend:
-
-```bash
-node apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs \
-  --evidence apps/desktop/test-results/full-workspace-index-evidence.json \
-  --require-device webgpu \
-  --stage-ceiling embeddingCeilingChunksPerSecond=25 \
-  --stage-ceiling dbCompletionCeilingChunksPerSecond=40 \
-  --stage-ceiling chunkingCeilingChunksPerSecond=60 \
-  --stage-ceiling importCeilingEquivalentChunksPerSecond=80
-```
-
-Do not publish a ratio with guessed ceilings. If ceilings are not supplied, the analyzer reports integrated throughput and terminal evidence only.
+The analyzer reports integrated throughput and terminal evidence. The stage
+ceiling ratio is retired with the desktop stage benchmark, which measured PGlite
+stages the native index no longer runs (BST-2012). The loaded native build
+benchmark records when each stage's committed receipts completed instead
+(`build.stageMilestonesMs` in `docs/performance/foreground-latency-under-index-build.md`).

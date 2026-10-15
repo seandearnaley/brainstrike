@@ -1,103 +1,122 @@
 {
   "build": {
-    "actualDevice": "webgpu",
-    "backfillCompletion": {
-      "current": 5682,
-      "requestId": "background-indexing-backfill:3401f589-fef4-41d4-8e10-7ab339da2852",
-      "total": 5682
+    "actualDevice": "wasm",
+    "checkReadMs": {
+      "max": 678.135,
+      "n": 61,
+      "p50": 366.529,
+      "p95": 625.458
     },
-    "chunkCount": 6962,
-    "chunksPerSecond": 43.152,
-    "completedChunkCount": 6962,
-    "dtype": "fp16",
-    "elapsedMs": 161338,
-    "fileCount": 1000
+    "chunkCount": 666,
+    "chunksPerSecond": 4.091,
+    "completedChunkCount": 666,
+    "dtype": "q8",
+    "elapsedMs": 162805,
+    "fileCount": 100,
+    "stageMilestonesMs": {
+      "firstChunk": 17553,
+      "firstVector": 17553,
+      "allFilesChunked": 162805,
+      "allVectors": 162805
+    }
   },
-  "capturedAt": "2026-10-02T12:04:25.378Z",
-  "commit": "81f285e4790e89482334c8990359cfae4871a09c",
+  "capturedAt": "2026-10-15T14:45:25.087Z",
+  "commit": "bd7f3b10fcf5c8aa1572057c9445c7c98e4a9d56",
   "config": {
+    "checkEveryMs": 2000,
     "corpus": {
-      "bytes": 3864680,
-      "files": 1000,
+      "bytes": 373058,
+      "files": 100,
       "seed": 1925,
-      "sha256": "64dcd0167650bc048e28b1b73e009b32aa427a364ff68559d09594f474e2fd23"
+      "sha256": "1f9d55a77e875b775094396dd41edab06e74229e8740b088dd664a8196a7ecdb"
     },
-    "device": "webgpu",
+    "device": "wasm",
     "idleSamplesPerProbe": 150,
-    "loadedWindowSegments": 1,
+    "loadedWindowSegments": 61,
     "minBuildMs": 60000,
     "minLoadedSamplesPerProbe": 100,
     "probePeriodMs": 200,
     "rendererCalibration": {
       "blockMs": 120,
       "observed": {
-        "frameGapMs": 116.59999999999991,
+        "frameGapMs": 100,
         "longTaskMs": 120
       }
     },
     "stallWindowMs": 200000,
     "warmupSamplesPerProbe": 10
   },
+  "embeddingHost": {
+    "cpuPercent": {
+      "max": 29.1,
+      "n": 61,
+      "p50": 24.5,
+      "p95": 25.1
+    },
+    "crossOriginIsolated": true,
+    "hardwareConcurrency": 16,
+    "peakWorkingSetMb": 1995.4
+  },
   "environment": {
-    "arch": "arm64",
+    "arch": "x64",
     "ci": false,
     "cpuCount": 16,
-    "cpuModel": "Apple M4 Max",
-    "electronVersion": "44.4.5",
+    "cpuModel": "Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz",
+    "electronVersion": "44.7.2",
     "loadAverageAtStart": [
-      4.79,
-      3.59,
-      3.33
+      3.52,
+      6.63,
+      7.79
     ],
-    "osRelease": "27.0.0",
-    "platform": "darwin",
+    "osRelease": "7.0.0-38-generic",
+    "platform": "linux",
     "runner": null,
-    "totalMemoryGb": 128,
+    "totalMemoryGb": 31,
     "loadAverageAtEnd": [
-      2.954,
-      3.098,
-      3.157
+      11.76,
+      9.4,
+      8.61
     ]
   },
   "invalidReasons": [],
   "metrics": {
     "chatPathOp": {
       "idleMs": {
-        "max": 7.633,
-        "n": 150,
-        "p50": 4.061,
-        "p95": 6.461
+        "max": 2.266,
+        "n": 202,
+        "p50": 1.325,
+        "p95": 1.598
       },
       "loadedMs": {
-        "max": 92.649,
-        "n": 807,
-        "p50": 5.143,
-        "p95": 49.483
+        "max": 20.936,
+        "n": 671,
+        "p50": 1.407,
+        "p95": 4.67
       },
-      "operation": "recordDesktopAssistantRunEvent(run.step.finished), foreground scheduler lane",
-      "p95DeltaMs": 43.022
+      "operation": "agent-host thread/update command (one committed StateStore append)",
+      "p95DeltaMs": 3.072
     },
     "mainEventLoopLag": {
       "idleMs": {
-        "max": 8.481,
-        "n": 2557,
-        "p50": 2.075,
-        "p95": 2.853
+        "max": 25.095,
+        "n": 3969,
+        "p50": 0.174,
+        "p95": 0.576
       },
       "loadedMs": {
-        "max": 9.35,
-        "n": 14324,
-        "p50": 1.411,
-        "p95": 2.157
+        "max": 704.605,
+        "n": 13336,
+        "p50": 0.134,
+        "p95": 0.781
       }
     },
     "renderer": {
       "idle": {
         "frameGapMs": {
-          "max": 18.7,
-          "n": 1800,
+          "max": 16.8,
+          "n": 2424,
           "p50": 16.7,
-          "p95": 18.6
+          "p95": 16.7
         },
         "framesOver50Ms": 0,
         "longTasks": {
@@ -108,10 +127,10 @@
       },
       "loaded": {
         "frameGapMs": {
-          "max": 18.8,
-          "n": 9680,
+          "max": 50,
+          "n": 8181,
           "p50": 16.7,
-          "p95": 18
+          "p95": 16.7
         },
         "framesOver50Ms": 0,
         "longTasks": {
@@ -125,74 +144,74 @@
       "components": {
         "fileReadMs": {
           "idle": {
-            "max": 11.482,
+            "max": 3.029,
             "n": 150,
-            "p50": 4.37,
-            "p95": 6.912
+            "p50": 0.902,
+            "p95": 1.345
           },
           "loaded": {
-            "max": 2.355,
-            "n": 807,
-            "p50": 0.739,
-            "p95": 1.187
+            "max": 23.565,
+            "n": 350,
+            "p50": 0.907,
+            "p95": 6.055
           }
         },
         "indexQueryMs": {
           "idle": {
-            "max": 4.48,
+            "max": 320.622,
             "n": 150,
-            "p50": 2.466,
-            "p95": 4.014
+            "p50": 263.944,
+            "p95": 291.961
           },
           "loaded": {
-            "max": 140.672,
-            "n": 807,
-            "p50": 30.027,
-            "p95": 53.446
+            "max": 692.477,
+            "n": 350,
+            "p50": 298.697,
+            "p95": 543.527
           }
         }
       },
       "idleMs": {
-        "max": 14.609,
+        "max": 321.499,
         "n": 150,
-        "p50": 7.599,
-        "p95": 9.781
+        "p50": 264.792,
+        "p95": 292.66
       },
       "loadedMs": {
-        "max": 141.354,
-        "n": 807,
-        "p50": 30.833,
-        "p95": 54.137
+        "max": 697.24,
+        "n": 350,
+        "p50": 299.444,
+        "p95": 545.448
       },
-      "p95LoadedOverIdle": 5.535
+      "p95LoadedOverIdle": 1.864
     }
   },
   "rawSamplesMs": {
     "idle": {
       "chatPathOp": [
-        2.741,
-        5.746,
-        2.871
+        1.431,
+        1.374,
+        1.564
       ],
       "toolRead": [
-        5.673,
-        5.918,
-        1.807
+        309.421,
+        292.66,
+        276.296
       ]
     },
     "loaded": {
       "chatPathOp": [
-        1.416,
-        0.973,
-        0.869
+        1.292,
+        1.28,
+        20.936
       ],
       "toolRead": [
-        2.334,
-        1.409,
-        1.859
+        327.79,
+        326.59,
+        286.119
       ]
     }
   },
-  "schema": "brainstrike.foreground-latency-under-index-build.v1",
+  "schema": "brainstrike.foreground-latency-under-index-build.v3",
   "status": "valid"
 }

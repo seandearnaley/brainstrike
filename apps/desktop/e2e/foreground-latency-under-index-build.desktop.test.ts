@@ -9,14 +9,17 @@ import { HomePage } from './page-objects/home-page';
 import {
   type BenchDevice,
   describeEnvironment,
+  type EmbeddingHostReading,
+  embeddingHostMetrics,
   formatSummary,
   mainMetrics,
   readBenchDevice,
+  readEmbeddingHost,
   rendererMetrics,
   round3,
   seedPausedWorkspace,
-  seedRunningChatRun,
   showAppWindow,
+  startProbeThread,
 } from './utils/foreground-latency-bench';
 import {
   calibrateRendererFrameProbe,
@@ -29,21 +32,22 @@ import {
   runMainIdlePhase,
   startMainLoadedPhase,
   stopMainLoadedPhase,
+  summarize,
   warmUpMainProbes,
 } from './utils/foreground-latency-probes';
 import { type IndexBuildCorpus, writeIndexBuildCorpus } from './utils/index-build-corpus';
 import { createIndexProgressWatch } from './utils/index-progress-watch';
 
 /**
- * Loaded foreground-latency benchmark (BST-1925): the instrument behind working
- * rule 4. It runs a full Workspace Index build of a seeded corpus and measures,
- * idle (before the build) and loaded (during it):
+ * Loaded foreground-latency benchmark (BST-1925, BST-2012): the instrument
+ * behind working rule 4. It runs a full Workspace Index build of a seeded
+ * corpus and measures, idle (before the build) and loaded (during it):
  *
  * - renderer: rAF frame gaps and `longtask` entries in the visible window;
  * - main: event-loop lag (`monitorEventLoopDelay`);
- * - the chat path's per-step DB write (`recordDesktopAssistantRunEvent`);
- * - an agent tool's read (the tool file reader plus a grep-tool index query);
- * - build throughput in chunks/s.
+ * - the chat path's per-step write: one committed agent-host command;
+ * - an agent tool's read (the tool file reader plus the grep tool's native index query);
+ * - build throughput in chunks/s, and when each stage's receipts completed.
  *
  * The build is the native Workspace Index's (`NativeWorkspaceIndexProvider`):
  * the seeded root opens paused, BGE Small is chosen through Search & Indexing
@@ -75,12 +79,8 @@ const BENCH_ROOT_ID = 'foreground-latency-benchmark-root';
 /** Root-relative and never written, so the grep's index work is identical idle and loaded. */
 const NEVER_INDEXED_GREP_PATH = 'packages/foreground-latency-probe/never-indexed.ts';
 const GREP_PATTERN = 'total +=';
-/**
- * The native index holds no PGlite Workspace Index set, so the tool read's
- * index half greps a set id with no rows: the same foreground PGlite read idle
- * and loaded.
- */
-const PROBE_EMBEDDING_SET_ID = 'foreground-latency-benchmark-no-set';
+/** How long the paused index may take to activate before the idle phase. */
+const READY_TIMEOUT_MS = 300_000;
 /** How often the loaded window pauses to read the index counts (unmeasured). */
 const CHECK_EVERY_MS = 2000;
 /** Search & Indexing's execution choice for each benchmark device. */
@@ -174,6 +174,33 @@ async function readIndexSummary(page: Page): Promise<IndexSummary> {
   });
 }
 
+type StageMilestone = 'allFilesChunked' | 'allVectors' | 'firstChunk' | 'firstVector';
+
+/**
+ * When each stage's committed receipts were first seen, in ms after Resume, at
+ * the check's resolution: chunks (scan and chunking) and vectors (embedding)
+ * complete separately, so a change can say which stage it moved.
+ */
+function createStageMilestones() {
+  const milestones: Partial<Record<StageMilestone, number>> = {};
+  return {
+    milestones,
+    observe(summary: IndexSummary, files: number, elapsedMs: number): void {
+      const reached: Record<StageMilestone, boolean> = {
+        allFilesChunked: summary.scanComplete && summary.fileCount === files,
+        allVectors: isTerminal(summary, files),
+        firstChunk: summary.chunkCount > 0,
+        firstVector: summary.embeddedChunkCount > 0,
+      };
+      for (const [stage, done] of Object.entries(reached) as [StageMilestone, boolean][]) {
+        if (done && milestones[stage] === undefined) {
+          milestones[stage] = elapsedMs;
+        }
+      }
+    },
+  };
+}
+
 function isTerminal(summary: IndexSummary, files: number): boolean {
   return (
     summary.scanComplete &&
@@ -203,6 +230,28 @@ async function configureNativeIndex(page: Page, device: BenchDevice): Promise<vo
   await page.getByRole('option', { exact: true, name: EXECUTION_LABEL[device] }).click();
   await home.leaveSettings();
   await expect(page.getByTestId('indexing-status-trigger')).toContainText('Paused');
+}
+
+/**
+ * The idle phase needs the paused index activated: until then its reads, and
+ * so the grep tool's, refuse as transitioning. Activation embeds on the
+ * configured device, so a device too slow for its request deadline fails here.
+ */
+async function waitForReadyIndex(page: Page): Promise<void> {
+  let last = '';
+  try {
+    await expect
+      .poll(
+        async () => {
+          last = (await readIndexSummary(page)).status;
+          return last;
+        },
+        { intervals: [1000], timeout: READY_TIMEOUT_MS }
+      )
+      .toBe('ready');
+  } catch {
+    throw new Error(`The paused native index never became ready; last status: ${last}`);
+  }
 }
 
 /** Opens the indexing popover and returns its Resume button, ready to click. */
@@ -247,12 +296,12 @@ test.describe('Foreground latency under a full index build', () => {
           'foreground-latency-benchmark-seeded'
         );
         await configureNativeIndex(page, device);
-        const chatRunId = await seedRunningChatRun(page);
+        await waitForReadyIndex(page);
+        const chatThreadId = await startProbeThread(electronApp.app);
 
         await installRendererFrameProbe(page);
         await installMainProbes(electronApp.app, {
-          chatRunId,
-          embeddingSetId: PROBE_EMBEDDING_SET_ID,
+          chatThreadId,
           grepFilePath: NEVER_INDEXED_GREP_PATH,
           grepPattern: GREP_PATTERN,
           periodMs: PROBE_PERIOD_MS,
@@ -285,6 +334,10 @@ test.describe('Foreground latency under a full index build', () => {
           startedAtMs: buildStartedAt,
         });
         const loadedWindows: Array<readonly [string, string]> = [];
+        const stages = createStageMilestones();
+        const hostReadings: EmbeddingHostReading[] = [];
+        /** Each unmeasured check's native coverage read: whether index reads wait on the build. */
+        const checkReadMs: number[] = [];
         let finalSummary: IndexSummary;
         let buildElapsedMs: number;
         for (let segment = 0; ; segment += 1) {
@@ -293,7 +346,14 @@ test.describe('Foreground latency under a full index build', () => {
           await pauseMainLoadedPhase(electronApp.app);
           await markRendererPhase(page, `loaded-end-${segment}`);
           loadedWindows.push([`loaded-start-${segment}`, `loaded-end-${segment}`]);
+          const readStartedAt = performance.now();
           const summary = await readIndexSummary(page);
+          checkReadMs.push(performance.now() - readStartedAt);
+          stages.observe(summary, files, wokeAt - buildStartedAt);
+          const hostReading = await readEmbeddingHost(electronApp.app);
+          if (hostReading) {
+            hostReadings.push(hostReading);
+          }
           if (isTerminal(summary, files)) {
             finalSummary = summary;
             buildElapsedMs = wokeAt - buildStartedAt;
@@ -356,12 +416,14 @@ test.describe('Foreground latency under a full index build', () => {
         const evidence = {
           build: {
             actualDevice: finalSummary.actualDevice,
+            checkReadMs: summarize(checkReadMs.map(round3)),
             chunkCount: finalSummary.chunkCount,
             chunksPerSecond: round3(finalSummary.embeddedChunkCount / (buildElapsedMs / 1000)),
             completedChunkCount: finalSummary.embeddedChunkCount,
             dtype: finalSummary.dtype,
             elapsedMs: buildElapsedMs,
             fileCount: finalSummary.fileCount,
+            stageMilestonesMs: stages.milestones,
           },
           capturedAt: new Date().toISOString(),
           commit,
@@ -383,14 +445,14 @@ test.describe('Foreground latency under a full index build', () => {
             stallWindowMs: STALL_WINDOW_MS,
             warmupSamplesPerProbe: WARMUP_SAMPLES,
           },
+          embeddingHost: embeddingHostMetrics(hostReadings),
           environment: { ...environment, loadAverageAtEnd: os.loadavg().map(round3) },
           invalidReasons,
           metrics: {
             chatPathOp: {
               idleMs: idle.chatPathOpMs,
               loadedMs: loaded.chatPathOpMs,
-              operation:
-                'recordDesktopAssistantRunEvent(run.step.finished), foreground scheduler lane',
+              operation: 'agent-host thread/update command (one committed StateStore append)',
               p95DeltaMs: round3(loaded.chatPathOpMs.p95 - idle.chatPathOpMs.p95),
             },
             mainEventLoopLag: { idleMs: idle.eventLoopLagMs, loadedMs: loaded.eventLoopLagMs },
@@ -415,7 +477,7 @@ test.describe('Foreground latency under a full index build', () => {
               toolRead: loadedMain.toolReadMs.map(round3),
             },
           },
-          schema: 'brainstrike.foreground-latency-under-index-build.v2',
+          schema: 'brainstrike.foreground-latency-under-index-build.v3',
           status: invalidReasons.length === 0 ? 'valid' : 'invalid',
         };
         mkdirSync(path.dirname(evidencePath), { recursive: true });
@@ -433,6 +495,8 @@ test.describe('Foreground latency under a full index build', () => {
             formatSummary('tool read idle', idle.toolReadMs),
             formatSummary('tool read loaded', loaded.toolReadMs),
             `tool read p95 loaded/idle = ${evidence.metrics.toolRead.p95LoadedOverIdle}`,
+            `embedding host: crossOriginIsolated=${evidence.embeddingHost.crossOriginIsolated}, cores=${evidence.embeddingHost.hardwareConcurrency}, cpu p50=${evidence.embeddingHost.cpuPercent.p50}% max=${evidence.embeddingHost.cpuPercent.max}%, peak working set=${evidence.embeddingHost.peakWorkingSetMb} MB`,
+            `stages (ms after Resume): ${JSON.stringify(stages.milestones)}`,
             ...invalidReasons.map((reason) => `INVALID: ${reason}`),
           ].join('\n')
         );
