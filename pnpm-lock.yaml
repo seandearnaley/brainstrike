@@ -4349,15 +4349,27 @@ importers:
       '@brainstrike/chunking-worker':
         specifier: workspace:*
         version: link:../chunking-worker
+      '@brainstrike/embedding-worker':
+        specifier: workspace:*
+        version: link:../embedding-worker
+      '@brainstrike/embeddings':
+        specifier: workspace:*
+        version: link:../embeddings
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../file-system
       '@brainstrike/indexer':
         specifier: workspace:*
         version: link:../indexer
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
+      '@brainstrike/queue':
+        specifier: workspace:*
+        version: link:../queue
       '@brainstrike/state-store':
         specifier: workspace:*
         version: link:../state-store
@@ -4368,6 +4380,9 @@ importers:
         specifier: workspace:*
         version: link:../web-state-store
     devDependencies:
+      '@brainstrike/build-utils':
+        specifier: workspace:*
+        version: link:../build-utils
       '@brainstrike/config':
         specifier: workspace:*
         version: link:../config

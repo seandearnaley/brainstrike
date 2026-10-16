@@ -75,8 +75,9 @@ interface DownloadOptions {
 let transformersModule: TransformersModule | null = null;
 let transformersModulePromise: Promise<TransformersModule> | null = null;
 
+/** The capability itself, not a window: a worker's embeddings run in workers of its own (BST-1940). */
 function supportsWorkerQueue(): boolean {
-  return typeof window !== 'undefined' && typeof Worker !== 'undefined';
+  return typeof Worker !== 'undefined';
 }
 
 async function getBrowserQueue(): Promise<QueueAdapter> {

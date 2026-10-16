@@ -34,7 +34,8 @@ export function estimateHardwareConcurrency(): number {
 
 export function supportsWorkers(): boolean {
   // Type-only detection keeps us CSP-safe. Any instantiation errors will be caught during adapter creation.
-  return typeof window !== 'undefined' && typeof Worker !== 'undefined';
+  // The capability itself, not a window: a worker can start workers of its own (BST-1940).
+  return typeof Worker !== 'undefined';
 }
 
 /**
