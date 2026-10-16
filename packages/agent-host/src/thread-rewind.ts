@@ -37,7 +37,7 @@ import type {
   HostResults,
   HostTurnSnapshot,
 } from './protocol.js';
-import { assertHostThreadSettled } from './run-admission.js';
+import { assertHostThreadSettled } from './run-branch.js';
 
 type Started = Extract<HostEvent, { type: 'thread.rewind.started' }>;
 type Preview = HostResults['thread/rewind/preview'];

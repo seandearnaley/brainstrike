@@ -226,9 +226,22 @@ Owner decisions on how web chat goes on the shared log:
   writer and the proxy. Desktop's `CommittedThreadSession` and
   `CommittedAssistantLogStore` then read web threads unchanged.
 - **A run its tab abandons is interrupted.** A run streams in the tab that
-  sent it. If that tab closes mid-run, the run is recorded interrupted when
-  the writer next opens, as the host recovers after an unclean exit;
-  uncommitted output is lost.
+  sent it. If that tab closes mid-run, the run is recorded interrupted, as the
+  host recovers after an unclean exit, and uncommitted output is lost.
+  - **As built:** the recording tab holds a Web Lock for the run's whole
+    life. A host client that closes cleanly records its own run interrupted,
+    keeping the partial reply.
+  - **An abandoned run:** a run whose lock is free is finished by the next tab
+    that opens its host client, or that admits or stops a run on that thread.
+    The rule is `recoverHostRun`'s: a run whose Stop had committed finishes
+    stopped, any other interrupted.
+- **One root run per thread, across tabs** (BST-1940, as built). A tab admits
+  a run under a per-thread Web Lock, after folding every committed row of the
+  thread. So Core's admission check (`run.already-active`) sees every tab's
+  runs, and the run's recording lock is taken before the thread's lock
+  releases. A Stop from any tab commits `run/stop`, and the tab recording the
+  run stops it on folding that command. Live text reaches only the recording
+  tab; another tab sees the run's text when its step commits.
 
 Rejected: the tab rebuilding steps from the UI stream, which can commit
 messages that differ from the host's for the same step; a web-specific thread

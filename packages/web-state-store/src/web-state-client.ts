@@ -72,14 +72,17 @@ export class WebStateStore
   /** Settles `open` on the first writer or the first failure. */
   #opening: { readonly reject: (error: Error) => void; readonly resolve: () => void } | undefined;
   #view: WebStateLeaseView | undefined;
+  /** The store's name (`WebStateStoreConfig.name`), which scopes what its tabs share. */
+  readonly name: string;
 
-  private constructor(worker: Worker) {
+  private constructor(worker: Worker, name: string) {
     this.#worker = worker;
+    this.name = name;
   }
 
   /** Starts `worker` (the module worker built from `web-state-worker.ts`) on `config`. */
   static open(worker: Worker, config: WebStateStoreConfig): Promise<WebStateStore> {
-    const store = new WebStateStore(worker);
+    const store = new WebStateStore(worker, config.name);
     worker.onmessage = (event: MessageEvent<WorkerMessage>) => store.#receive(event.data);
     worker.onerror = (event: ErrorEvent) => {
       event.preventDefault();

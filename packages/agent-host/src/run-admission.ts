@@ -5,7 +5,6 @@ import {
   isPermissionDenied,
   NATIVE_TOOL_ID,
   type PermissionToolGateSnapshot,
-  refusalError,
   resolvePermissionDecision,
 } from '@brainstrike/assistant-contract';
 import {
@@ -55,30 +54,6 @@ export function prepareHostProviderStep(
     // A UserPromptSubmit hook's context joins the run's instructions.
     ...combineHostSystemContext(provider.system, memorySystem, hookContext),
   };
-}
-
-export function assertHostRunStartAvailable(runs: Iterable<HostRunState>, threadId: string): void {
-  const threadRuns = [...runs].filter((run) => run.threadId === threadId);
-  if (threadRuns.some((run) => !run.terminal)) {
-    throw refusalError('conflict', 'run.already-active', 'Thread already has an active root run');
-  }
-  assertHostThreadSettled(threadRuns);
-}
-
-/**
- * A finished run's memory still settling: Core joins it before admitting the
- * thread's next run or rewind, so this refuses only one that raced its end.
- */
-export function assertHostThreadSettled(threadRuns: Iterable<HostRunState>): void {
-  for (const run of threadRuns) {
-    if (run.settlement) {
-      throw refusalError(
-        'conflict',
-        'run.settling',
-        "The thread's previous run is still saving its memory"
-      );
-    }
-  }
 }
 
 /** Distinguish rejected selection from a resource owner that failed to join. */

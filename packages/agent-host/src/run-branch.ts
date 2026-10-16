@@ -8,13 +8,13 @@
  * context is its selected path only: a sibling branch is never on it.
  */
 
-import { createHash } from 'node:crypto';
 import { refusalError } from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
   AssistantAttachmentValidationError,
   validateImageAttachmentPart,
 } from '@brainstrike/assistant-contract/assistant-attachments';
+import { sha256Hex } from '@brainstrike/utils/crypto';
 import { type ModelMessage, modelMessageSchema, type UserModelMessage } from 'ai';
 import { z } from 'zod';
 import { overlayHostChildOutcomes, withHostDeliveryLedger } from './child-delivery.js';
@@ -37,7 +37,6 @@ import {
   type HostParams,
   type HostRunSnapshot,
 } from './protocol.js';
-import { assertHostRunStartAvailable } from './run-admission.js';
 
 /** The configuration a committed run command carried; its other fields have their own readers. */
 const CommittedRunInputSchema = z.looseObject({
@@ -424,6 +423,31 @@ export function foldHostStartedRun(
   return run;
 }
 
+/** One root run at a time per thread, once the thread's previous run has settled. */
+export function assertHostRunStartAvailable(runs: Iterable<HostRunState>, threadId: string): void {
+  const threadRuns = [...runs].filter((run) => run.threadId === threadId);
+  if (threadRuns.some((run) => !run.terminal)) {
+    throw refusalError('conflict', 'run.already-active', 'Thread already has an active root run');
+  }
+  assertHostThreadSettled(threadRuns);
+}
+
+/**
+ * A finished run's memory still settling: Core joins it before admitting the
+ * thread's next run or rewind, so this refuses only one that raced its end.
+ */
+export function assertHostThreadSettled(threadRuns: Iterable<HostRunState>): void {
+  for (const run of threadRuns) {
+    if (run.settlement) {
+      throw refusalError(
+        'conflict',
+        'run.settling',
+        "The thread's previous run is still saving its memory"
+      );
+    }
+  }
+}
+
 /** A new run needs its thread, no active run there, and an unused command identity. */
 export function assertHostRunAdmissible(
   threads: ReadonlySet<string>,
@@ -466,7 +490,7 @@ export function hostStartCommandRecord(params: HostStartParams): HostStartComman
     ...command,
     attachments: attachments.map(({ data, ...image }) => ({
       ...image,
-      sha256: createHash('sha256').update(data).digest('hex'),
+      sha256: sha256Hex(data),
     })),
   };
 }

@@ -8,8 +8,9 @@ import plan from '@brainstrike/test-utils/fixtures/committed-host-plan.json' wit
 import rich from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json' with {
   type: 'json',
 };
-import { afterEach, describe, expect, it } from 'vitest';
-import { WebHostClient } from '../web-host-client';
+import { afterEach, describe, expect, inject, it } from 'vitest';
+import { WebHostClient, type WebHostClientOptions } from '../web-host-client';
+import type { WebRunTurn } from '../web-run-turn';
 import { closeTabs, openTab, storeConfig, storeCorpus } from './writer-tabs';
 
 const clients: WebHostClient[] = [];
@@ -20,8 +21,11 @@ afterEach(async () => {
   await closeTabs();
 });
 
-async function client(tab: Awaited<ReturnType<typeof openTab>>): Promise<WebHostClient> {
-  const opened = await WebHostClient.open(tab);
+async function client(
+  tab: Awaited<ReturnType<typeof openTab>>,
+  options?: WebHostClientOptions
+): Promise<WebHostClient> {
+  const opened = await WebHostClient.open(tab, options);
   clients.push(opened);
   return opened;
 }
@@ -136,6 +140,51 @@ describe("the browser's host client (BST-1940)", () => {
     await host.request('thread/update', { commandId: 'rename-4', threadId, title: 'Once' });
     await expect.poll(() => seen).toEqual([3, 4]);
     expect(rows.map((row) => row.seq)).toEqual([1, 2]);
+  });
+
+  it("records a run from Hosted Web's own wire on the writer, and a second tab's thread session follows it", async () => {
+    const config = storeConfig();
+    const wire = inject('recordedProxyTurn');
+    const turn: WebRunTurn = async () => new Response(wire);
+    const first = await client(await openTab(config), { turn });
+    const second = await client(await openTab(config));
+    const { threadId } = await first.request('thread/start', { commandId: 'start-run' });
+    const session = new CommittedThreadSession(second, threadId);
+    await expect.poll(async () => (await second.request('thread/list', {})).threads.length).toBe(1);
+    const disconnect = session.connect();
+
+    const { runId } = await first.request('run/start', {
+      commandId: 'run-1',
+      modelId: 'openai',
+      prompt: 'Say hello',
+      threadId,
+    });
+
+    await expect.poll(() => types(session.getSnapshot().rows).at(-1)).toBe('run.finished');
+    const rows = session.getSnapshot().rows;
+    expect(types(rows).slice(2)).toEqual([
+      'command.accepted',
+      'run.started',
+      'stream.chunk',
+      'stream.chunk',
+      'model.step',
+      'stream.chunk',
+      'stream.chunk',
+      'run.finished',
+    ]);
+    expect(rows.find((row) => row.event.type === 'model.step')?.event).toMatchObject({
+      messages: [{ content: [{ text: 'Hello from the proxy', type: 'text' }], role: 'assistant' }],
+    });
+    // The snapshot round-trips through the writer's blobs, read in the other tab.
+    const read = await second.request('thread/read', { fromSeq: 0, threadId });
+    expect(read.rows.find((row) => row.event.type === 'run.started')?.event).toMatchObject({
+      runId,
+      snapshot: { configuration: {}, maxSteps: 1, toolIdentities: {} },
+    });
+    await expect
+      .poll(async () => (await second.request('thread/list', {})).threads[0]?.latestRun)
+      .toMatchObject({ status: 'completed' });
+    await disconnect();
   });
 
   it('deletes a thread for its tab, forgetting its commands, and serves no method it does not own', async () => {
