@@ -113,9 +113,14 @@ export class WebFileIndex implements ScopedIndexerPort, Pick<IndexerPort, 'info'
    * none are saved; the writer reads them as desktop main does. The store
    * opens, or reopens, under their partition; until then every op refuses.
    * Settings that fail refuse, and leave the index refusing with their failure.
+   * VECTOR search embeds a local model with `embeddingWorkerUrl`, the embedding
+   * worker as this tab's bundle serves it (`resolveViteEmbeddingWorkerUrlHref`).
    */
-  configure(preferences: string | null): Promise<{ readonly rebuilt: string | null }> {
-    return this.#call('configure', { preferences });
+  configure(
+    preferences: string | null,
+    embeddingWorkerUrl?: string
+  ): Promise<{ readonly rebuilt: string | null }> {
+    return this.#call('configure', { embeddingWorkerUrl: embeddingWorkerUrl ?? null, preferences });
   }
 
   /** Reopens the store under the saved partition's current roots, collection and files. */

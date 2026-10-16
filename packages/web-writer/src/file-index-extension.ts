@@ -8,8 +8,8 @@ import {
   fileIndexFailure,
 } from './file-index-protocol';
 
-/** Version 3: `files.configure`; the index follows the saved settings' partition. */
-export const FILE_INDEX_EXTENSION_ID = 'file-index@3';
+/** Version 4: VECTOR ingestion, with `files.configure`'s embedding worker. */
+export const FILE_INDEX_EXTENSION_ID = 'file-index@4';
 
 interface Pending {
   readonly reject: (error: Error) => void;
@@ -123,8 +123,15 @@ export const fileIndexExtension: WebStateExtension = {
     }
     const handlers: Record<string, (params: unknown) => Promise<unknown>> = {
       'files.configure': (params) => {
-        const { preferences } = params as { readonly preferences: string | null };
-        return worker.send({ kind: 'configure', preferences });
+        const { embeddingWorkerUrl, preferences } = params as {
+          readonly embeddingWorkerUrl?: string | null;
+          readonly preferences: string | null;
+        };
+        return worker.send({
+          embeddingWorkerUrl: embeddingWorkerUrl ?? null,
+          kind: 'configure',
+          preferences,
+        });
       },
       'files.reauthorize': () => worker.send({ kind: 'reauthorize' }),
       'files.scan': (params) => {

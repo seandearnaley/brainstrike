@@ -36,9 +36,15 @@ export type FileIndexRequest =
   /**
    * The Search & Indexing preferences as the visible settings stored them
    * (`NATIVE_INDEX_SETTINGS_KEY`), or null when none are saved. The tab hands
-   * them over: a worker cannot read the tab's storage.
+   * them over: a worker cannot read the tab's storage. VECTOR search also
+   * takes the embedding worker's URL, as the tab's bundle serves it.
    */
-  | { readonly id: number; readonly kind: 'configure'; readonly preferences: string | null }
+  | {
+      readonly embeddingWorkerUrl: string | null;
+      readonly id: number;
+      readonly kind: 'configure';
+      readonly preferences: string | null;
+    }
   | { readonly id: number; readonly kind: 'reauthorize' }
   | { readonly id: number; readonly kind: 'request'; readonly op: string; readonly params: unknown }
   /**

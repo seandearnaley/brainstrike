@@ -29,13 +29,18 @@ it('bundles the composed writer worker for the browser, with no Node module and 
     platform: 'browser',
     plugins: [
       // As the web app's bundler serves them today: a module reaching Node only through a runtime-guarded
-      // dynamic import (the tree-sitter grammar loader, web-tree-sitter's own Node branch), and tiktoken's wasm URL.
+      // dynamic import (the tree-sitter grammar loader, web-tree-sitter's own Node branch), workerpool's
+      // browser build, whose Node branches `require` Node's modules behind its platform check, and
+      // tiktoken's wasm URL.
       {
         name: 'browser-bundler-conventions',
         setup(builder) {
           builder.onResolve({ filter: /\?url$/ }, (args) => ({ external: true, path: args.path }));
           builder.onResolve({ filter: /^(node:)?[a-z_/]+$/ }, (args) =>
-            args.kind === 'dynamic-import' ? { external: true, path: args.path } : undefined
+            args.kind === 'dynamic-import' ||
+            (args.kind === 'require-call' && /[\\/]workerpool[\\/]dist[\\/]/u.test(args.importer))
+              ? { external: true, path: args.path }
+              : undefined
           );
         },
       },
@@ -63,6 +68,11 @@ it('bundles the composed writer worker for the browser, with no Node module and 
     'src/file-ingestion.ts',
     'canonical-ingestion/src/workspace-runtime.ts',
     'chunking-worker/src/canonical.ts',
+    // VECTOR's profile, inference and embedder.
+    'canonical-ingestion/src/canonical-profile.ts',
+    'src/file-embeddings.ts',
+    'embeddings/src/bge-m3-service.ts',
+    'queue/src/browser.ts',
   ]) {
     expect(inputs.some((input) => input.includes(composed))).toBe(true);
   }

@@ -4343,6 +4343,9 @@ importers:
       '@brainstrike/agent-host':
         specifier: workspace:*
         version: link:../agent-host
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
       '@brainstrike/canonical-ingestion':
         specifier: workspace:*
         version: link:../canonical-ingestion
