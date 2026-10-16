@@ -55,14 +55,16 @@ const DEFAULT_MAX_ENTRIES = 10_000;
 const DEFAULT_TTL_MS = 30_000; // 30 seconds
 
 function normalizeCachePath(filePath: string): string {
-  if (process.platform !== 'win32') {
+  // A browser has no `process`; its workspace paths are already slash-separated.
+  if (globalThis.process?.platform !== 'win32') {
     return filePath;
   }
   return filePath.replaceAll('\\', '/');
 }
 
 function denormalizeCachePath(filePath: string): string {
-  if (process.platform !== 'win32') {
+  // A browser has no `process`; its workspace paths are already slash-separated.
+  if (globalThis.process?.platform !== 'win32') {
     return filePath;
   }
   return filePath.replaceAll('/', '\\');

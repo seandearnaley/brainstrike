@@ -7,7 +7,7 @@
  */
 export { sha256Bytes, sha256Hex } from '@brainstrike/utils/crypto';
 
-const nodePath = globalThis.process?.getBuiltinModule?.('node:path');
+import { hostBasename } from '@brainstrike/utils/host-path';
 
 function hex(bytes: Uint8Array): string {
   let text = '';
@@ -35,7 +35,7 @@ export function basenamePosix(path: string): string {
 
 /** A source file's own name, by the host's path rules: Node's on desktop (Windows separators included). */
 export function basenameOfSource(path: string): string {
-  return nodePath ? nodePath.basename(path) : basenamePosix(path);
+  return hostBasename(path);
 }
 
 /** The float32 little-endian bytes of `values`. */

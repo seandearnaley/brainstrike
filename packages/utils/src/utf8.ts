@@ -26,3 +26,15 @@ export function utf8ByteLength(text: string): number {
   }
   return bytes;
 }
+
+const decoder = new TextDecoder('utf-8', { ignoreBOM: true });
+
+/**
+ * UTF-8 bytes as Node's `Buffer.from(bytes).toString('utf8')` decodes them:
+ * malformed sequences become replacement characters, and a leading BOM is
+ * kept. WHATWG's decoder agrees with Node's once it keeps the BOM, so this
+ * runs alike in desktop's processes and in a browser worker.
+ */
+export function utf8Decode(bytes: Uint8Array): string {
+  return decoder.decode(bytes);
+}
