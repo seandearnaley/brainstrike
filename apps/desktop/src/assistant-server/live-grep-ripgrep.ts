@@ -7,8 +7,7 @@
  * this module's public surface for existing consumers.
  */
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { constants as fsConstants, writeFileSync } from 'node:fs';
+import { constants as fsConstants, mkdtempSync, writeFileSync } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,17 +27,21 @@ let credentialFloorFile: string | undefined;
  * `--ignore-file`, so rg never opens a credential file nor spends its candidate
  * cap on one before the JS matcher drops it. `--glob` cannot carry the floor's
  * template re-includes (a positive glob turns rg into a whitelist), and
- * `--no-ignore` does not disable `--ignore-file`. Written once per process,
- * named by its contents.
+ * `--no-ignore` does not disable `--ignore-file`. Written once per process
+ * inside a directory `mkdtemp` created for it (owner-only), with exclusive
+ * create, so no path another local user could predict or pre-plant a symlink
+ * at is ever written.
  */
 function credentialFloorIgnoreFile(): string {
   if (credentialFloorFile !== undefined) {
     return credentialFloorFile;
   }
-  const contents = `${WORKSPACE_SECRET_FILE_PATTERNS.join('\n')}\n`;
-  const digest = createHash('sha256').update(contents).digest('hex').slice(0, 16);
-  const file = path.join(os.tmpdir(), `brainstrike-credential-floor-${digest}.ignore`);
-  writeFileSync(file, contents, { mode: 0o644 });
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'brainstrike-credential-floor-'));
+  const file = path.join(directory, 'floor.ignore');
+  writeFileSync(file, `${WORKSPACE_SECRET_FILE_PATTERNS.join('\n')}\n`, {
+    flag: 'wx',
+    mode: 0o600,
+  });
   credentialFloorFile = file;
   return file;
 }

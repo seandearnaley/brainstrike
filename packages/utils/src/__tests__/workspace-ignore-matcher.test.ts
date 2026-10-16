@@ -333,4 +333,17 @@ describe('createWorkspaceIgnoreMatcher — secret file floor', () => {
     expect(matcher.ignoresFile('.env.local')).toBe(true);
     expect(matcher.ignoresHard('.env.local', false)).toBe(true);
   });
+
+  // Codex review on #3718: the floor names credential FILES. A directory that
+  // happens to share a name (`.env.d/`, `keys.key/`) is walked as usual and only
+  // its own credential files are held back.
+  it('holds back credential files only, never a directory that shares their name', () => {
+    const matcher = createWorkspaceIgnoreMatcher();
+    expect(matcher.ignoresDirectory('.env.d')).toBe(false);
+    expect(matcher.ignoresDirectory('config/.env.local')).toBe(false);
+    expect(matcher.ignoresFile('.env.d/app.ts')).toBe(false);
+    expect(matcher.ignoresFile('config/.env.local/settings.ts')).toBe(false);
+    expect(matcher.ignoresFile('.env.d/.env.production')).toBe(true);
+    expect(isWorkspaceSecretFile('.env.d', true)).toBe(false);
+  });
 });

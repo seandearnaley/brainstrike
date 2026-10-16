@@ -93,6 +93,14 @@ export const WORKSPACE_SECRET_FILE_PATTERNS: readonly string[] = Object.freeze([
   '*.pem',
   '*.key',
   'id_rsa*',
+  // FILES only: gitignore patterns also match directories, so every pattern's
+  // directory form is re-included. A `.env.d/` or `keys.key/` directory is
+  // walked as usual; only its own credential files are held back.
+  '!.env/',
+  '!.env.*/',
+  '!*.pem/',
+  '!*.key/',
+  '!id_rsa*/',
 ]);
 
 const SECRET_FILES = ignore().add([...WORKSPACE_SECRET_FILE_PATTERNS]);

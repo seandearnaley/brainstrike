@@ -224,6 +224,22 @@ describe('runLiveGrep — agent ignore files (BST-1432)', () => {
     expect([...run.candidatePaths].sort()).toEqual(['.env.example', 'src/enrich.ts']);
   });
 
+  it('still searches a directory that shares a credential name, holding back only its credential files', async () => {
+    const ripgrepPath = await discoverRipgrepPathForTests();
+    expect(ripgrepPath).not.toBeNull();
+    const dir = await makeWorkspace({
+      '.env.d/.env.production': 'enrichment SECRET\n',
+      '.env.d/app.ts': 'export const enrichment = 1;\n',
+    });
+    const run = await runRipgrep({
+      canonicalRootPath: dir,
+      caseSensitive: false,
+      prefilterLiteral: 'enrichment',
+      ripgrepPath: ripgrepPath ?? '',
+    });
+    expect([...run.candidatePaths]).toEqual(['.env.d/app.ts']);
+  });
+
   it('never searches credential files on the JS-walk engine either', async () => {
     const dir = await makeWorkspace(credentialed);
     const result = await withRipgrepHidden(() => grepCredentialed(dir));
