@@ -70,8 +70,10 @@ async function geometry(viewport: Locator) {
   });
 }
 
-for (const expanded of [false, true]) {
-  test(`preserves Threads across every ribbon app and Library tab (${expanded ? 'expanded descendants' : 'plain list'})`, async ({
+// Literal variants, so the static lane-coverage guard can read each title (BST-2026).
+for (const variant of ['plain list', 'expanded descendants'] as const) {
+  const expanded = variant === 'expanded descendants';
+  test(`preserves Threads across every ribbon app and Library tab (${variant})`, async ({
     window: page,
     electron,
     electronApp,
