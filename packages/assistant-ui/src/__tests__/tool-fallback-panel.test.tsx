@@ -262,7 +262,8 @@ describe('ToolFallback', () => {
         />
       );
 
-      expect(screen.getByText('Not connected')).toBeInTheDocument();
+      // A reason that fits shows once, on the row.
+      expect(screen.getByTestId('tool-failure-reason')).toHaveTextContent('· Not connected');
     });
 
     it('shows tool-result errors as failed tool cards', () => {
@@ -275,9 +276,9 @@ describe('ToolFallback', () => {
       );
 
       expect(screen.getByLabelText(/Failed/)).toBeInTheDocument();
-      expect(
-        screen.getByText('Select an active embedding set to enable retrieval.')
-      ).toBeInTheDocument();
+      expect(screen.getByTestId('tool-failure-reason')).toHaveTextContent(
+        '· Select an active embedding set to enable retrieval.'
+      );
     });
 
     it('shows error message from result when status.error is not a string', () => {

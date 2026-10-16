@@ -34,6 +34,7 @@ export * from './file-mention-directive.js';
 export * from './grep-match.js';
 export * from './guarded-tool-error.js';
 export * from './hook-skip-notices.js';
+export * from './host-meta-tools.js';
 export * from './mastra-memory-schema.js';
 export * from './mcp-apps-ipc.js';
 export * from './mcp-elicitation.js';

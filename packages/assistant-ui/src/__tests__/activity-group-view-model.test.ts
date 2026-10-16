@@ -210,6 +210,32 @@ describe('deriveLiveTail', () => {
       ['Ran', 'pnpm test', 'done'],
     ]);
   });
+
+  it('names a declined call by the action asked for, never as having run', () => {
+    const [declined] = deriveActivitySteps(
+      [
+        {
+          args: { path: '.' },
+          argsText: '{"path":"."}',
+          result: {
+            kind: 'declined',
+            message: 'The user declined this tool call, so it was not executed.',
+          },
+          status: { type: 'complete' },
+          toolCallId: 'call-0',
+          toolName: 'brainstrike.runSkillScript',
+          type: 'tool-call',
+        },
+      ],
+      {}
+    );
+    if (!declined) {
+      throw new Error('No step derived');
+    }
+    expect(deriveLiveTail([declined])).toEqual([
+      expect.objectContaining({ state: 'cancelled', verb: 'Run skill script' }),
+    ]);
+  });
 });
 
 describe('deriveRunStrip', () => {
