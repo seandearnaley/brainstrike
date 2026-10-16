@@ -38,6 +38,10 @@ async function isDevicePreferenceConfigured(page: Page): Promise<boolean> {
 test('factory reset stops the embedding host after its WebGPU worker failed @destructive @desktop-ipc-reset', async ({
   electron,
 }) => {
+  test.skip(
+    process.platform === 'win32',
+    'Windows Factory Reset is disabled for M3 by owner decision.'
+  );
   test.setTimeout(180_000);
   // CI launches the app with the GPU disabled, so no host offers a WebGPU adapter.
   const restoreEnv = withTemporaryProcessEnv({ BRAINSTRIKE_E2E_ALLOW_GPU: undefined, CI: 'true' });
