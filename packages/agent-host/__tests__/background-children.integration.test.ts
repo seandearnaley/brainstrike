@@ -221,6 +221,44 @@ test("a root Stop stops the turn's background children and wakes nothing", async
   );
 });
 
+test("a Stop on a turn whose root run already ended stops the turn's running background children and wakes nothing", async () => {
+  // The parent answers and ends while its children still work: between runs,
+  // the turn's root run is the one Stop that reaches them (no wake follows).
+  const { model, release } = fanOutModel({ blockChildren: true });
+  release();
+  const harness = await setupChildRunHost(model, cleanup);
+  const runId = await harness.start('Fan out.');
+  await rowsUntil(harness, harness.threadId, finished(runId));
+  await expect.poll(async () => (await childThreads(harness)).length).toBe(2);
+  for (const threadId of await childThreads(harness)) {
+    expect(
+      (await harness.core().read(threadId, 0)).some((row) => row.event.type === 'run.finished')
+    ).toBe(false);
+  }
+
+  await expect(
+    harness.core().stop({ commandId: randomUUID(), runId, threadId: harness.threadId })
+  ).resolves.toEqual({ outcome: 'already-terminal' });
+  await settledChildren(harness, 2);
+  for (const threadId of await childThreads(harness)) {
+    expect(
+      (await harness.core().read(threadId, 0)).find((row) => row.event.type === 'run.finished')
+        ?.event
+    ).toMatchObject({ outcome: 'stopped' });
+  }
+  const rows = await harness.core().read(harness.threadId, 0);
+  expect(rows.find(finished(runId))?.event).toMatchObject({ outcome: 'completed' });
+  expect(runsOf(rows)).toHaveLength(1);
+
+  // The stopped turn's results wait for the next user turn, as a root Stop's do.
+  const next = await harness.start('Why did they stop?');
+  const after = await rowsUntil(harness, harness.threadId, finished(next));
+  expect(runsOf(after).map((started) => started.delivery?.via)).toEqual([undefined, 'next-turn']);
+  expect(userTexts(model.doStreamCalls.at(-1) as CallOptions).at(-2)).toContain(
+    `${LEDGER} — 2 total: 0 returned, 0 failed, 2 cancelled, 0 still running.`
+  );
+});
+
 /** The last user text of a model request, as HostCore hands it to the provider. */
 function lastModelUser(messages: readonly ModelMessage[]): string {
   const user = messages.findLast((message) => message.role === 'user');

@@ -201,6 +201,51 @@ export function scriptedDelegation(
   });
 }
 
+/** A step held open until its run is aborted (a user's Stop). */
+function heldStep(abortSignal: AbortSignal | undefined): ReadableStream<Chunk> {
+  return new ReadableStream<Chunk>({
+    start(controller) {
+      controller.enqueue({ type: 'stream-start', warnings: [] });
+      if (abortSignal?.aborted) {
+        controller.error(abortSignal.reason);
+        return;
+      }
+      abortSignal?.addEventListener(
+        'abort',
+        () => controller.error(abortSignal.reason ?? new Error('aborted')),
+        { once: true }
+      );
+    },
+  });
+}
+
+/**
+ * BST-1932: like {@link scriptedDelegation}, but each child runs `childCalls`
+ * and then holds its next step open until it is stopped, so a test can watch
+ * a background child still working after its parent's run has ended.
+ */
+export function scriptedHeldDelegation(
+  delegate: { readonly toolId: string; readonly input: unknown },
+  childCalls: readonly { readonly toolId: string; readonly input: unknown }[]
+): MockLanguageModelV4 {
+  const parent = scriptedDelegation(delegate, []);
+  const child = scriptedToolSequence(childCalls);
+  return new MockLanguageModelV4({
+    doStream: async (options) => {
+      if ((options.tools ?? []).some((tool) => tool.name === delegate.toolId)) {
+        return parent.doStream(options);
+      }
+      const latestUser = options.prompt.findLastIndex((message) => message.role === 'user');
+      const results = options.prompt
+        .slice(latestUser)
+        .filter((message) => message.role === 'tool').length;
+      return results < childCalls.length
+        ? child.doStream(options)
+        : { stream: heldStep(options.abortSignal) };
+    },
+  });
+}
+
 /** Streams a partial answer, then holds its step open until the run is aborted (a user's Stop). */
 export function scriptedPartialThenHeld(partial: string): MockLanguageModelV4 {
   return new MockLanguageModelV4({
