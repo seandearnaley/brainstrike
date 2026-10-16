@@ -38,6 +38,7 @@ import {
   searchResultSchema,
   searchSchema,
   snapshotSchema,
+  stateCatchUpStepSchema,
   stateCountsSchema,
   stateEventIdentitySchema,
   stateGcSchema,
@@ -318,6 +319,12 @@ export function createIndexerConnection(
     catchUpState: async (threads) => {
       await call('state-catch-up', decoder(stateThreadsSchema)(threads), decoder(Schema.Boolean));
     },
+    catchUpStateStep: (threads, maxEvents) =>
+      call(
+        'state-catch-up-step',
+        decoder(stateCatchUpStepSchema)({ maxEvents, threads }),
+        decoder(Schema.Boolean)
+      ),
     close,
     commitFile: async (commit) =>
       call('commit-file', decoder(commitSchema)(commit), decoder(commitResultSchema)),

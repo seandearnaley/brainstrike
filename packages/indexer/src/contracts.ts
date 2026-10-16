@@ -110,6 +110,11 @@ export const optionsSchema = Schema.Struct({
 });
 export type IndexerOptions = typeof optionsSchema.Type;
 export const stateThreadsSchema = Schema.Array(nonblank);
+/** One bounded catch-up request: project at most `maxEvents` events of these threads. */
+export const stateCatchUpStepSchema = Schema.Struct({
+  maxEvents: positive,
+  threads: stateThreadsSchema,
+});
 export const stateEventIdentitySchema = Schema.Struct({ seq: positive, threadId: nonblank });
 export const stateGcSchema = Schema.Struct({
   hashes: Schema.Array(hash),

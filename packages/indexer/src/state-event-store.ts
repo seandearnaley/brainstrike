@@ -13,6 +13,7 @@ import {
   type StateSearchRow,
   type StateSearchSimilarHit,
   type StateSearchVectorsResult,
+  stateCatchUpStepSchema,
   stateEventIdentitySchema,
   stateGcSchema,
   stateMatchSchema,
@@ -344,7 +345,17 @@ export class StateEventStore {
   }
 
   catchUp(input: unknown): boolean {
-    const threads = decoder(stateThreadsSchema)(input);
+    return this.project(decoder(stateThreadsSchema)(input), Number.POSITIVE_INFINITY);
+  }
+
+  /** Projects at most `maxEvents` events, committing each batch; true once every thread is current. */
+  catchUpStep(input: unknown): boolean {
+    const { maxEvents, threads } = decoder(stateCatchUpStepSchema)(input);
+    return this.project(threads, maxEvents);
+  }
+
+  private project(threads: readonly string[], maxEvents: number): boolean {
+    let budget = maxEvents;
     for (const threadId of new Set(threads)) {
       const tail = this.truth.watermark(threadId);
       let next =
@@ -358,7 +369,10 @@ export class StateEventStore {
         throw new Error('State projection is ahead of its authoritative truth');
       }
       while (next <= tail) {
-        const rows = [...this.truth.read(threadId, next, tail)];
+        if (budget <= 0) {
+          return false;
+        }
+        const rows = [...this.truth.read(threadId, next, Math.min(tail, next + budget - 1))];
         if (rows.length === 0) {
           throw new Error('State truth ended before its committed watermark');
         }
@@ -376,6 +390,7 @@ export class StateEventStore {
             )
             .run(threadId, next - 1);
         })();
+        budget -= rows.length;
       }
     }
     return true;

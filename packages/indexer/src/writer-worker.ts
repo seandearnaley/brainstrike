@@ -86,6 +86,9 @@ try {
         case 'state-catch-up':
           value = writer.requireState().catchUp(request.payload);
           break;
+        case 'state-catch-up-step':
+          value = writer.requireState().catchUpStep(request.payload);
+          break;
         case 'state-reindex':
           value = writer.requireState().reindex(request.payload);
           break;
