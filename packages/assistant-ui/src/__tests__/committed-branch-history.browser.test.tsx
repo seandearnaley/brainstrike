@@ -2,7 +2,7 @@ import '@testing-library/jest-dom/vitest';
 // Installs the shared browser instrumentation before React and assistant-ui load.
 import './committed-assistant-browser-support';
 import { TooltipProvider } from '@brainstrike/ui';
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { expect, onTestFinished, test, vi } from 'vitest';
 import { userEvent } from 'vitest/browser';
@@ -144,8 +144,11 @@ test('a committed edit and a regeneration are navigable branches, and selecting 
   const actions = commands();
   render(<Surface actions={actions} store={store} />);
   const view = surface();
-  // The newest run (the edit) is the committed head.
-  expect(await view.ui.findByText('Add a rollback step with an owner.')).toBeVisible();
+  // The newest run (the edit) is the committed head. A new message root
+  // fades in (its `enter` animation starts at opacity 0), and plain user text
+  // renders at once, so visibility is awaited rather than assumed.
+  const head = await view.ui.findByText('Add a rollback step with an owner.');
+  await waitFor(() => expect(head).toBeVisible());
   expect(view.path()).toEqual([FIRST_USER, FIRST, EDITED_USER, EDITED]);
   const committed = store.getSnapshot().repository;
   expect(within(view.row(EDITED_USER)).getByText('2 / 2')).toBeVisible();

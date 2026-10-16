@@ -113,8 +113,8 @@ const TRANSCRIPT_STRIP_OPTIONS = { unterminated: 'keep' } as const;
  * markers on assistant text, so gating costs the fix nothing — while rewriting a
  * user row would be irreversible, would make a reloaded prompt differ from what
  * the user typed, and would change the history replayed to the model. It would
- * also contradict the renderer, where `UserMarkdownText` deliberately renders
- * user-authored text verbatim.
+ * also contradict the renderer, where `UserMessageText` deliberately shows
+ * user-authored text exactly as typed.
  *
  * Write-time only: rows persisted before this shipped keep their markers until
  * rewritten. Backfilling them is a data migration and is deliberately not done
