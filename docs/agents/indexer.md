@@ -38,7 +38,12 @@ desktop's native index and the browser's index worker alike; so do the
 canonical catalog over the source catalog (`canonical-catalog.ts`), scan
 admission (`scan-admission.ts`), and a collection's vector profile and the
 inference that embeds its chunks (`canonical-profile.ts`), each host giving it
-its transport, hosted embeddings and setup refusal. A transaction rejects stale preparation and atomically
+its transport, hosted embeddings and setup refusal. The saved Search & Indexing
+preferences are read by one decoder (`index-settings.ts`): desktop main reads
+them from its storage, and the browser's index takes them as a tab hands them
+over (`files.configure`), since a worker cannot read the tab's storage. Their
+partition, with its authority and the retirement of rows no binding owns at
+every open, is `index-partition.ts`. A transaction rejects stale preparation and atomically
 changes chunks, text indexes, vectors and graph data. Complete catalog inventories,
 acknowledged bindings and source revisions authorize publication/removal; a path
 match or partial scan is not authority.

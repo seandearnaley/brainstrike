@@ -7,7 +7,7 @@ import type {
   createNativeCanonicalPublication,
 } from '@brainstrike/canonical-ingestion';
 import {
-  decodeNativeCanonicalCatalogRecords,
+  loadPartitionRecords,
   type NativeCanonicalCatalogRecord,
   type NativeCanonicalProfileDependencies,
   NativeCanonicalProfileResolver,
@@ -81,25 +81,11 @@ export async function loadNativeGraphRecords(
   assertCurrent: (current: NativeIndexActivationGraph) => void,
   catalog: SourceCatalogPort
 ): Promise<readonly NativeCanonicalCatalogRecord[]> {
-  assertCurrent(current);
-  const result = await catalog.sourceCatalog({
-    embeddingSetId: current.settings.managedCollectionId,
-    operation: 'inventory',
-  });
-  assertCurrent(current);
-  const records = decodeNativeCanonicalCatalogRecords(result.files);
-  if (
-    records.some((record) => record.embeddingSetId !== current.settings.managedCollectionId) ||
-    new Set(records.map((record) => record.fileId)).size !== records.length
-  ) {
-    throw new Error('Canonical catalog returned duplicated or unauthorized file identities.');
-  }
-  // Retained rows of disconnected or ungranted folders remain outside this
-  // leased authority until that same canonical root is connected again (BST-1990).
-  return records.filter((record) =>
-    record.rootId === null
-      ? current.settings.managedCollectionId !== null
-      : current.leases.has(record.rootId)
+  return loadPartitionRecords(
+    catalog,
+    current.settings,
+    (rootId) => current.leases.has(rootId),
+    () => assertCurrent(current)
   );
 }
 

@@ -8,8 +8,8 @@ import {
   webStateNames,
 } from '@brainstrike/web-state-store';
 import { afterEach, describe, expect, it } from 'vitest';
-import { WebFileIndex } from '../web-writer-client';
-import { closeTabs, openTab, storeConfig } from './writer-tabs';
+import type { WebFileIndex } from '../web-writer-client';
+import { closeTabs, configuredIndex, openTab, storeConfig } from './writer-tabs';
 
 afterEach(closeTabs);
 
@@ -84,8 +84,7 @@ describe('the file index in a worker of its own', () => {
     const writer = await openTab(config);
     const follower = await openTab(config);
     const { file, rootId } = await rootWithSource(follower);
-    const index = new WebFileIndex(follower);
-    await index.reauthorize();
+    const index = await configuredIndex(follower);
 
     await publish(index, rootId, file.fileId, file.path);
     expect((await search(index, rootId)).hits).toEqual([
@@ -95,15 +94,16 @@ describe('the file index in a worker of its own', () => {
     writer.close();
     follower.close();
 
+    // The next writer's store opens once a tab hands it the saved settings again.
     const reloaded = await openTab(config);
-    expect((await search(new WebFileIndex(reloaded), rootId)).hits).toEqual([
+    expect((await search(await configuredIndex(reloaded), rootId)).hits).toEqual([
       expect.objectContaining({ fileId: file.fileId }),
     ]);
   });
 
   it('refuses a root registered after it opened, until the writer reauthorizes it', async () => {
     const tab = await openTab(storeConfig());
-    const index = new WebFileIndex(tab);
+    const index = await configuredIndex(tab);
     const { file, rootId } = await rootWithSource(tab);
     await expect(publish(index, rootId, file.fileId, file.path)).rejects.toMatchObject({
       code: 'file-not-authorized',
@@ -131,22 +131,20 @@ describe('the file index in a worker of its own', () => {
       operation: 'import',
     });
     const { file, rootId } = await rootWithSource(tab);
-    const index = new WebFileIndex(tab);
-    await index.reauthorize();
+    const index = await configuredIndex(tab);
     await publish(index, rootId, file.fileId, file.path);
     tab.close();
 
     // The next writer opens the file index with the same catalogs.
     const reopened = await openTab(config);
-    expect((await search(new WebFileIndex(reopened), rootId)).hits).toHaveLength(1);
+    expect((await search(await configuredIndex(reopened), rootId)).hits).toHaveLength(1);
   });
 
   it('retires with the store, releasing its pool so factory reset can delete it', async () => {
     const config = storeConfig();
     const tab = await openTab(config);
     const { file, rootId } = await rootWithSource(tab);
-    const index = new WebFileIndex(tab);
-    await index.reauthorize();
+    const index = await configuredIndex(tab);
     await publish(index, rootId, file.fileId, file.path);
     await tab.retire();
 

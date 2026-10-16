@@ -70,6 +70,8 @@ it('bundles the browser entry and its chunker for the browser, with no static No
     'packages/canonical-ingestion/src/canonical-catalog.ts',
     'packages/canonical-ingestion/src/scan-admission.ts',
     'packages/canonical-ingestion/src/canonical-profile.ts',
+    'packages/canonical-ingestion/src/index-partition.ts',
+    'packages/canonical-ingestion/src/index-settings.ts',
     'packages/canonical-ingestion/src/workspace-runtime.ts',
     'packages/canonical-ingestion/src/workspace-source-discovery.ts',
     'packages/file-system/src/workspace-root-nodes.ts',

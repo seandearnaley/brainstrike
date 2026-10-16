@@ -1,7 +1,7 @@
 import { type WebStateStore, webRootPath } from '@brainstrike/web-state-store';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebFileIndex } from '../web-writer-client';
-import { closeTabs, openTab, storeConfig } from './writer-tabs';
+import { closeTabs, configuredIndex, openTab, savedPreferences, storeConfig } from './writer-tabs';
 
 const folders: string[] = [];
 
@@ -79,7 +79,7 @@ describe('canonical ingestion in the file index worker', () => {
     const writer = await openTab(config);
     const follower = await openTab(config);
     await register(follower, rootId);
-    const index = new WebFileIndex(follower);
+    const index = await configuredIndex(follower);
 
     // The follower hands the writer its folder; the writer's index worker reads it.
     expect(await index.scan(rootId, folder)).toMatchObject({
@@ -115,7 +115,7 @@ describe('canonical ingestion in the file index worker', () => {
 
     // The catalog and the index both survive a reload.
     const reloaded = await openTab(config);
-    expect((await search(new WebFileIndex(reloaded), rootId, 'kestrel')).length).toBe(1);
+    expect((await search(await configuredIndex(reloaded), rootId, 'kestrel')).length).toBe(1);
     expect(await catalogPaths(reloaded, rootId)).toEqual(['src/greeter.py', 'src/one.ts']);
   });
 
@@ -123,7 +123,7 @@ describe('canonical ingestion in the file index worker', () => {
     const { folder, rootId } = await grantedFolder({ 'one.ts': 'export const one = 1;\n' });
     const other = await grantedFolder({ 'two.ts': 'export const two = 2;\n' });
     const tab = await openTab(storeConfig());
-    const index = new WebFileIndex(tab);
+    const index = await configuredIndex(tab);
     await expect(index.scan(rootId, folder)).rejects.toThrow('Only a live workspace root');
 
     await register(tab, rootId);
@@ -135,7 +135,7 @@ describe('canonical ingestion in the file index worker', () => {
     const { folder, rootId } = await grantedFolder({ 'one.ts': 'export const one = 1;\n' });
     const tab = await openTab(storeConfig());
     await register(tab, rootId);
-    const index = new WebFileIndex(tab);
+    const index = await configuredIndex(tab);
     expect(await index.scan(rootId, folder)).toMatchObject({ scanComplete: true });
 
     // The folder goes away under the root: the next pass cannot list it.
@@ -147,7 +147,7 @@ describe('canonical ingestion in the file index worker', () => {
     const { folder, rootId } = await grantedFolder({ 'one.ts': 'export const one = 1;\n' });
     const tab = await openTab(storeConfig());
     await register(tab, rootId);
-    const index = new WebFileIndex(tab);
+    const index = await configuredIndex(tab);
     const [first, second] = await Promise.all([
       index.scan(rootId, folder),
       index.scan(rootId, folder),
@@ -161,11 +161,164 @@ describe('canonical ingestion in the file index worker', () => {
     const { folder, rootId } = await grantedFolder({ 'one.ts': 'export const one = 1;\n' });
     const tab = await openTab(storeConfig());
     await register(tab, rootId);
-    const index = new WebFileIndex(tab);
+    const index = await configuredIndex(tab);
     expect(await index.scan(rootId, folder)).toMatchObject({ scanComplete: true });
 
     await tab.workspaceRoots({ operation: 'delete', paths: [webRootPath(rootId)], rootId });
     await expect(index.scan(rootId, folder)).rejects.toThrow('Only a live workspace root');
     expect(await catalogPaths(tab, rootId)).toEqual([]);
+  });
+});
+
+/** A collection in the writer's catalog, as Search & Indexing saves one. */
+async function collection(tab: WebStateStore): Promise<string> {
+  const id = crypto.randomUUID();
+  await tab.collections({
+    collection: {
+      createdAt: '2026-10-16T00:00:00.000Z',
+      dimensions: 384,
+      distance: 'cosine',
+      id,
+      modelId: 'Xenova/bge-small-en-v1.5',
+      modelKey: 'local::Xenova/bge-small-en-v1.5',
+    },
+    operation: 'create',
+  });
+  return id;
+}
+
+async function catalogRows(tab: WebStateStore, rootId: string) {
+  return (await tab.sourceCatalog({ operation: 'list' })).files
+    .filter((file) => file.rootId === rootId)
+    .map(({ embeddingSetId, fileId, path }) => ({ embeddingSetId, fileId, path }));
+}
+
+describe('the file index follows the saved Search & Indexing settings', () => {
+  it('refuses until a tab hands it the settings, and settings that fail leave it refusing', async () => {
+    const { folder, rootId } = await grantedFolder({ 'one.ts': 'export const one = 1;\n' });
+    const tab = await openTab(storeConfig());
+    await register(tab, rootId);
+    const index = new WebFileIndex(tab);
+    const unconfigured = 'no Search & Indexing settings until a tab configures it';
+    await expect(search(index, rootId, 'one')).rejects.toThrow(unconfigured);
+    await expect(index.scan(rootId, folder)).rejects.toThrow(unconfigured);
+
+    // The same refusals as desktop's native index, for the same stored values.
+    await expect(index.configure(null)).rejects.toThrow('Choose a search mode');
+    await expect(search(index, rootId, 'one')).rejects.toThrow('Choose a search mode');
+    await expect(index.configure(savedPreferences({ enabled: false }))).rejects.toThrow(
+      'File indexing is disabled in saved settings.'
+    );
+    await expect(
+      index.configure(savedPreferences({ managedCollectionId: 'absent' }))
+    ).rejects.toThrow('missing or ambiguous');
+    await expect(index.scan(rootId, folder)).rejects.toThrow('missing or ambiguous');
+    await expect(
+      index.configure(savedPreferences({ managedCollectionId: null, nativeIndexMode: 'VECTOR' }))
+    ).rejects.toThrow('Choose an embedding model and collection');
+    const saved = await collection(tab);
+    await expect(
+      index.configure(savedPreferences({ managedCollectionId: saved, nativeIndexMode: 'VECTOR' }))
+    ).rejects.toThrow('does not run VECTOR search yet');
+
+    await index.configure(savedPreferences());
+    expect(await index.scan(rootId, folder)).toMatchObject({ scanComplete: true });
+  });
+
+  it("holds a root's files in the saved collection, and a change of collection moves them", async () => {
+    const { folder, rootId } = await grantedFolder({
+      'one.ts': 'export const marker = "pangolin";\n',
+    });
+    const tab = await openTab(storeConfig());
+    await register(tab, rootId);
+    const saved = await collection(tab);
+    const index = await configuredIndex(tab, savedPreferences({ managedCollectionId: saved }));
+
+    expect(await index.scan(rootId, folder)).toMatchObject({ scanComplete: true });
+    const [held] = await catalogRows(tab, rootId);
+    expect(held).toMatchObject({ embeddingSetId: saved, path: 'one.ts' });
+    expect((await search(index, rootId, 'pangolin')).map((hit) => hit.fileId)).toEqual([
+      held?.fileId,
+    ]);
+
+    // With no collection, the TEXT partition holds the root's files: the collection's are no
+    // longer this index's to serve, until a scan ingests the root into the new partition.
+    await index.configure(savedPreferences());
+    expect(await search(index, rootId, 'pangolin')).toEqual([]);
+    expect(await index.scan(rootId, folder)).toMatchObject({ scanComplete: true });
+    const moved = (await catalogRows(tab, rootId)).find((row) => row.embeddingSetId === null);
+    expect(moved).toMatchObject({ path: 'one.ts' });
+    expect((await search(index, rootId, 'pangolin')).map((hit) => hit.fileId)).toEqual([
+      moved?.fileId,
+    ]);
+  });
+
+  it('lets the newest configuration govern, however the calls interleave', async () => {
+    const { folder, rootId } = await grantedFolder({ 'one.ts': 'export const one = 1;\n' });
+    const tab = await openTab(storeConfig());
+    await register(tab, rootId);
+    const index = new WebFileIndex(tab);
+    // The second call fails at once; the first is still reading its authority when it does.
+    const enabled = index.configure(savedPreferences());
+    const disabled = index.configure(savedPreferences({ enabled: false }));
+    await enabled;
+    await expect(disabled).rejects.toThrow('disabled in saved settings');
+    await expect(index.scan(rootId, folder)).rejects.toThrow('disabled in saved settings');
+    await expect(search(index, rootId, 'one')).rejects.toThrow('disabled in saved settings');
+  });
+
+  it("retires a running scan before it reads a new configuration's authority", async () => {
+    // Three batches of 64: the later batches' catalog rows are written while the scan runs.
+    const { folder, rootId } = await grantedFolder(
+      Object.fromEntries(
+        Array.from({ length: 150 }, (_, index) => [
+          `src/file-${index}.ts`,
+          `export const value${index} = "ocelot ${index}";\n`,
+        ])
+      )
+    );
+    const tab = await openTab(storeConfig());
+    await register(tab, rootId);
+    const index = await configuredIndex(tab);
+    const scanning = index.scan(rootId, folder).catch((error: unknown) => error);
+    // Into the second batch: its rows are written after the first batch's are published.
+    await expect
+      .poll(
+        async () =>
+          (await index.coverageScope({ scope: { kind: 'workspace', rootId } })).counts.indexedFiles,
+        { interval: 5, timeout: 30_000 }
+      )
+      .toBeGreaterThan(64);
+
+    await index.configure(savedPreferences({ indexingPolicyPreset: 'full-root' }));
+    await scanning;
+    // Every file the catalog holds as processed is still the store's: none was retired as unowned.
+    const processed = (await tab.sourceCatalog({ operation: 'list' })).files.filter(
+      (file) => file.rootId === rootId && file.chunksProcessed
+    ).length;
+    const { counts } = await index.coverageScope({ scope: { kind: 'workspace', rootId } });
+    expect(processed).toBeGreaterThan(0);
+    expect(counts.indexedFiles).toBeGreaterThanOrEqual(processed);
+    expect(await index.scan(rootId, folder)).toMatchObject({ scanComplete: true });
+    expect(await index.coverageScope({ scope: { kind: 'workspace', rootId } })).toMatchObject({
+      counts: { indexedFiles: 150 },
+    });
+  });
+
+  it('keeps a paused index readable, and admits no scan until it resumes', async () => {
+    const { folder, rootId } = await grantedFolder({
+      'one.ts': 'export const marker = "axolotl";\n',
+    });
+    const tab = await openTab(storeConfig());
+    await register(tab, rootId);
+    const index = await configuredIndex(tab);
+    expect(await index.scan(rootId, folder)).toMatchObject({ scanComplete: true });
+
+    await index.configure(savedPreferences({ paused: true }));
+    expect(await search(index, rootId, 'axolotl')).toHaveLength(1);
+    await expect(index.scan(rootId, folder)).rejects.toThrow('File ingestion is paused.');
+
+    await index.configure(savedPreferences());
+    expect(await index.scan(rootId, folder)).toMatchObject({ scanComplete: true });
   });
 });
