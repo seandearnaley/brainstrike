@@ -204,9 +204,20 @@ Owner decisions on how web chat goes on the shared log:
   the key refuses as invalid request data; a request without it receives no
   step, so a client keeping its own transcript stores none. The proxy stays
   stateless.
+- **It returns its stream parts too** (extending that decision, so the browser
+  streams and commits a run as the host does). A recording request also
+  receives every AI SDK `fullStream` part of its turn, as each arrives, in an
+  out-of-band data frame (`2:`) named `brainstrike.stream-part`. The frame
+  never slices the turn's visible text, so it needs no deferral. The part is
+  JSON as the host stores it (`jsonValue`). A provider error still ends the
+  turn as its error frame. A `finish-step` part leaves out the provider's
+  response headers, which belong to the server's provider account.
 - **The browser records the run.** The tab that sends commits `run.started`,
   each `model.step` and `run.finished` through the browser writer, as the
-  host's events. The writer is their only writer.
+  host's events. It streams each text and reasoning part as live telemetry and
+  commits every other part as `stream.chunk`, as the host's run loop does. So
+  a step opens as the host's does, and a Stop keeps its partial reply. The
+  writer is the only writer of these events.
 - **The browser serves a host client.** It answers the part of the host
   protocol desktop's thread view uses (`thread/list`, `start`, `read`,
   `update`, `delete`; `log/subscribe`; `run/start`, `run/stop`) over the

@@ -181,6 +181,23 @@ describe('Hosted Web turn over the real route core', () => {
         stepNumber: 0,
       },
     });
+    // And each stream part, as the host's run loop consumes it, as an out-of-band data frame.
+    const parts = decoded.flatMap((frame) =>
+      frame.code === '2'
+        ? (frame.value as { data: { type: string }; name: string }[])
+            .filter((entry) => entry.name === 'brainstrike.stream-part')
+            .map((entry) => entry.data.type)
+        : []
+    );
+    expect(parts).toEqual([
+      'start',
+      'start-step',
+      'text-start',
+      'text-delta',
+      'text-end',
+      'finish-step',
+      'finish',
+    ]);
   });
 
   it('returns no step to a client that does not ask, and refuses a malformed ask', async () => {
@@ -192,7 +209,7 @@ describe('Hosted Web turn over the real route core', () => {
       { finishReason: { raw: 'stop', unified: 'stop' }, type: 'finish', usage }
     );
     const decoded = await runTurn('hi');
-    expect(decoded.some((frame) => frame.code === 'aui-data')).toBe(false);
+    expect(decoded.some((frame) => frame.code === 'aui-data' || frame.code === '2')).toBe(false);
 
     const outcome = await runWebAssistantPost({
       bodyText: body('hi', { custom: { 'brainstrike.recordModelSteps': 'yes' } }),

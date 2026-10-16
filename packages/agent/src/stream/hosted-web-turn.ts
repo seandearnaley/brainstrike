@@ -13,6 +13,8 @@
  * stream that ends WITHOUT a terminal `message-finish` is reported as a failed
  * run by `DataStreamMapper.finalizeOnStreamEnd`. Both are loud by design.
  */
+
+import type { AssistantModelStreamPart } from '@brainstrike/assistant-contract/model-step';
 import {
   type LanguageModel,
   type LanguageModelUsage,
@@ -37,8 +39,9 @@ export interface HostedWebTurnParams {
   /** Prompt-assembly clock, injected so the composed instructions stay pure. */
   readonly now?: Date;
   /**
-   * Return each completed step (`model-step`) before the finish, for a client
-   * that records its runs as the host commits them (BST-1940).
+   * Return each completed step (`model-step`) before the finish, and each
+   * stream part as it arrives (`model-stream-part`), for a client that records
+   * its runs as the host commits them (BST-1940).
    */
   readonly recordSteps?: boolean;
   readonly signal?: AbortSignal;
@@ -84,12 +87,26 @@ export async function streamHostedWebTurn(params: HostedWebTurnParams): Promise<
         }
       : {}),
   });
-  return toStreamChunks(result.fullStream, steps);
+  return toStreamChunks(result.fullStream, steps, params.recordSteps === true);
+}
+
+/**
+ * A stream part as the host's run loop commits or streams it: JSON as the host
+ * stores it (`jsonValue`). The provider's response headers belong to the
+ * server's provider account, so a hosted turn keeps them.
+ */
+function recordedStreamPart(part: TextStreamPart<ToolSet>): AssistantModelStreamPart {
+  const recorded =
+    part.type === 'finish-step'
+      ? { ...part, response: { ...part.response, headers: undefined } }
+      : part;
+  return JSON.parse(JSON.stringify(recorded)) as AssistantModelStreamPart;
 }
 
 async function* toStreamChunks(
   fullStream: AsyncIterable<TextStreamPart<ToolSet>>,
-  steps: readonly StreamChunk[]
+  steps: readonly StreamChunk[],
+  record: boolean
 ): AsyncGenerator<StreamChunk> {
   // OpenRouter reports its exact charge in the STEP's providerMetadata; the
   // run-level `finish` part carries none. Keeping the provider-authoritative
@@ -99,6 +116,10 @@ async function* toStreamChunks(
   // rather than by reporting zero — the same rule agent-streaming.ts:419 uses.
   let billedCostUsd: number | undefined;
   for await (const part of fullStream) {
+    // A provider error still ends the turn below; the client records the failure it reports.
+    if (record && part.type !== 'error') {
+      yield { part: recordedStreamPart(part), type: 'model-stream-part' };
+    }
     switch (part.type) {
       case 'finish-step': {
         const reading = readOpenRouterBilledCost(part);

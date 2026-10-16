@@ -8,7 +8,10 @@ import {
   DELEGATED_CONVERSATION_DATA_NAME,
   type DelegatedConversationStreamData,
 } from '@brainstrike/assistant-contract/delegated-conversation-stream';
-import { MODEL_STEP_DATA_NAME } from '@brainstrike/assistant-contract/model-step';
+import {
+  MODEL_STEP_DATA_NAME,
+  MODEL_STREAM_PART_DATA_NAME,
+} from '@brainstrike/assistant-contract/model-step';
 import { CHILD_RUN_USAGE_DATA_NAME } from '@brainstrike/assistant-contract/run-usage';
 import { SHELL_OUTPUT_DATA_NAME } from '@brainstrike/assistant-contract/shell-output';
 import {
@@ -31,6 +34,7 @@ import type {
   StreamChunkFinish,
   StreamChunkMessageFinish,
   StreamChunkModelStep,
+  StreamChunkModelStreamPart,
   StreamChunkReasoning,
   StreamChunkRunEvent,
   StreamChunkShellOutput,
@@ -412,6 +416,9 @@ export class DataStreamMapper {
       case 'model-step':
         yield* this.handleModelStep(chunk);
         return;
+      case 'model-stream-part':
+        yield* this.handleModelStreamPart(chunk);
+        return;
       case 'child-run-usage':
         yield* this.handleChildRunUsage(chunk);
         return;
@@ -720,6 +727,19 @@ export class DataStreamMapper {
    * deferral contract as the context breakdown above; the finish flushes it
    * before `d`, so a recorded run always has its steps before it finishes.
    */
+  /**
+   * Emit a recorded turn's stream part (BST-1940) as it arrives, as an
+   * out-of-band data frame: it leaves an open text, reasoning or args part
+   * open, so it never slices visible text and needs no deferral, and the
+   * recording client streams the part's text live.
+   */
+  private *handleModelStreamPart(chunk: StreamChunkModelStreamPart): Generator<EncodedChunk> {
+    yield {
+      code: DataStreamCode.data,
+      value: [{ data: chunk.part, name: MODEL_STREAM_PART_DATA_NAME }],
+    } satisfies EncodedChunk;
+  }
+
   private *handleModelStep(chunk: StreamChunkModelStep): Generator<EncodedChunk> {
     const encoded = {
       code: DataStreamCode.auiDataPart,
