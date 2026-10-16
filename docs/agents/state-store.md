@@ -18,6 +18,10 @@ The browser writer (`@brainstrike/web-state-store`, ADR-0011's 2026-10-15
 amendment) runs the same `schema.mjs`, `run-log.mjs`, `catalog-domains.mjs`,
 `state-truth-reader.ts` and their imports on sqlite-wasm. Keep those modules free of static Node imports; reach a Node-only
 fast path through `process.getBuiltinModule`, as the run-log crc does.
+Purge, thread delete and blob GC are shared the same way: `state-deletion.ts`
+orchestrates them over a writer's `deletion-domain.mjs` ops, its derived index
+and its write chain. `__tests__/portable-modules.test.ts` bundles every shared
+module for the browser.
 
 The web app's writer worker (`@brainstrike/web-writer`) composes the derived
 index beside the state DB as a writer extension, in the same pool and under the

@@ -35,6 +35,17 @@ import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
 import { clearContentRows } from './clear-content.mjs';
 import { executeCollectionRequest } from './collection-domain.mjs';
+import {
+  acknowledgeSourceGc,
+  deleteDeletionIntent,
+  deleteThreadTruth,
+  deletionIntents,
+  okThreads,
+  purgeEvent,
+  recordDeletionIntent,
+  sourceBlobRefs,
+  sourceGcCandidates,
+} from './deletion-domain.mjs';
 import { newRetryStats, retrySharing } from './fs-retry.mjs';
 import { exportJsonl, readJsonl } from './jsonl.mjs';
 import { executeMcpTaskRequest } from './mcp-task-domain.mjs';
@@ -235,28 +246,6 @@ function verifyBlobReferences(rows) {
   }
 }
 
-/** Resource identities are retained in the existing purge intent before FK deletion.
- * @param {string} threadId @param {number} seq
- * @param {'clear' | 'detach-thread'} sharedResource
- * @param {import('./memory-types.js').ObservationTokenCounter} [countTokens] */
-function eraseThreadMemory(threadId, seq, sharedResource, countTokens) {
-  const intent = /** @type {{ memory_resources:string } | undefined} */ (
-    db
-      .prepare('SELECT memory_resources FROM purge_intent WHERE thread_id=? AND seq=?')
-      .get(threadId, seq)
-  );
-  if (!intent) {
-    throw new Error('Memory erasure requires the existing purge intent');
-  }
-  for (const resourceId of JSON.parse(intent.memory_resources)) {
-    executeMemoryRequest(
-      db,
-      { operation: 'purge-thread', resourceId, sharedResource, threadId },
-      countTokens
-    );
-  }
-}
-
 /**
  * Mastra OM's observation token counter, from the configured native memory
  * calculator module; none when no calculator is configured.
@@ -425,14 +414,12 @@ async function handle(m) {
         })),
       };
     case 'sourceGcCandidates':
-      return { hashes: db.prepare('SELECT hash FROM source_blob_gc').pluck().all() };
+      return { hashes: sourceGcCandidates(db) };
     case 'sourceGcAcknowledge':
-      db.prepare('DELETE FROM source_blob_gc WHERE hash IN (SELECT value FROM json_each(?))').run(
-        JSON.stringify(m['hashes'])
-      );
+      acknowledgeSourceGc(db, /** @type {string[]} */ (m['hashes']));
       return {};
     case 'sourceBlobRefs':
-      return { hashes: db.prepare('SELECT DISTINCT content_hash FROM file_records').pluck().all() };
+      return { hashes: sourceBlobRefs(db) };
     case 'storedBlobRefs':
       return { hashes: log.storedBlobRefs(String(m['threadId'])) };
     case 'damagedBlobRefs':
@@ -444,7 +431,7 @@ async function handle(m) {
     case 'threads':
       return { threads: log.threads() };
     case 'okThreads':
-      return { threads: log.threads().filter((t) => log.status(t).kind === 'ok') };
+      return { threads: okThreads(log) };
     case 'check':
       return log.check();
     case 'purge': {
@@ -457,63 +444,26 @@ async function handle(m) {
               throw new Error('unreachable: SIGKILL was sent');
             }
           : undefined;
-      const threadId = String(m['threadId']);
-      const seq = Number(m['seq']);
-      log.purge(threadId, seq, String(m['tombstone']), () => {
-        // A purge erases what the thread may have contributed to shared memory.
-        eraseThreadMemory(threadId, seq, 'clear');
-        kill?.();
-      });
+      purgeEvent(db, log, String(m['threadId']), Number(m['seq']), String(m['tombstone']), kill);
       return {};
     }
-    case 'deleteThread': {
-      const threadId = String(m['threadId']);
-      // Loaded before the transaction; the StateStore write chain keeps this op in order.
-      const countTokens = await observationTokenCounter();
-      // Deleting a thread keeps shared resource memory, as legacy did, minus its own sections.
-      log.deleteThread(threadId, () =>
-        eraseThreadMemory(threadId, 0, 'detach-thread', countTokens)
-      );
+    case 'deleteThread':
+      // The counter loads before the transaction; the StateStore write chain keeps this op in order.
+      deleteThreadTruth(db, log, String(m['threadId']), await observationTokenCounter());
       return {};
-    }
-    case 'intentRecord': {
-      // A retry after a failed purge finds the event already tombstoned: keep the blob hashes the first attempt recorded.
-      db.prepare(
-        'INSERT INTO purge_intent (thread_id, seq, hashes, operation, memory_resources) VALUES (?, ?, ?, ?, ?) ON CONFLICT(thread_id, seq) DO NOTHING'
-      ).run(
-        m['threadId'],
-        m['seq'],
-        m['hashes'],
-        m['operation'] === 'thread' ? 'thread' : 'event',
-        JSON.stringify(
-          db
-            .prepare(
-              'SELECT DISTINCT resource_id FROM brainstrike_memory_entities WHERE thread_id=?'
-            )
-            .pluck()
-            .all(m['threadId'])
-        )
-      );
-      const row = /** @type {{ hashes: string }} */ (
-        db
-          .prepare('SELECT hashes FROM purge_intent WHERE thread_id = ? AND seq = ?')
-          .get(m['threadId'], m['seq'])
-      );
-      return { hashes: row.hashes };
-    }
-    case 'intentList':
+    case 'intentRecord':
       return {
-        intents: db
-          .prepare(
-            'SELECT thread_id AS threadId, seq, hashes, operation FROM purge_intent ORDER BY rowid'
-          )
-          .all(),
+        hashes: recordDeletionIntent(db, {
+          hashes: String(m['hashes']),
+          operation: m['operation'] === 'thread' ? 'thread' : 'event',
+          seq: Number(m['seq']),
+          threadId: String(m['threadId']),
+        }),
       };
+    case 'intentList':
+      return { intents: deletionIntents(db) };
     case 'intentDelete':
-      db.prepare('DELETE FROM purge_intent WHERE thread_id = ? AND seq = ?').run(
-        m['threadId'],
-        m['seq']
-      );
+      deleteDeletionIntent(db, String(m['threadId']), Number(m['seq']));
       return {};
     case 'exportJsonl':
       exportJsonl(db, cfg.blobsDir, String(m['path']));
