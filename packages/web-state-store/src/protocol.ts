@@ -50,6 +50,11 @@ export interface WebStateTestHooks {
   readonly allowStall?: boolean | undefined;
   /** The first OPFS access-handle acquisition during pool init throws. */
   readonly failPoolInitOnce?: boolean | undefined;
+  /**
+   * The first purge fails after its truth commits, before the derived index
+   * reindexes, leaving its intent for the next open to complete.
+   */
+  readonly failPurgeAfterTruthOnce?: boolean | undefined;
 }
 
 /** One run-log row to append: the desktop writer's `AppendRow`. */
@@ -120,6 +125,15 @@ export interface WebStateSettings {
   readonly walAutocheckpoint: number;
 }
 
+/** Desktop's `PurgeReport`: the blobs deleted, and how long each step took. */
+export interface WebStatePurgeReport {
+  readonly blobsDeleted: readonly string[];
+  readonly derivedMs: number;
+  readonly gcMs: number;
+  readonly ms: number;
+  readonly truthMs: number;
+}
+
 export interface WebStateRequests {
   append: {
     readonly params: { readonly boundary?: boolean; readonly rows: readonly WebStateAppendRow[] };
@@ -145,8 +159,25 @@ export interface WebStateRequests {
     readonly params: Record<string, never>;
     readonly result: { readonly hashes: readonly string[] };
   };
+  /**
+   * Deletes a thread: its rows, what the derived index projected from them,
+   * and the blobs nothing else names. Returns the blobs deleted. Needs the
+   * derived index, as desktop's thread delete does.
+   */
+  deleteThread: {
+    readonly params: { readonly threadId: string };
+    readonly result: { readonly deleted: readonly string[] };
+  };
   modelChoices: { readonly params: ModelChoiceRequest; readonly result: ModelChoiceResult };
   promptCatalog: { readonly params: PromptCatalogRequest; readonly result: PromptCatalogReply };
+  /**
+   * Purges event `seq`: tombstoned in truth, reprojected in the derived
+   * index, its unreferenced blobs deleted. Needs the derived index.
+   */
+  purge: {
+    readonly params: { readonly seq: number; readonly threadId: string };
+    readonly result: WebStatePurgeReport;
+  };
   /** Content-addressed: `hash` is the SHA-256 of `content`'s UTF-8 bytes. */
   putBlob: {
     readonly params: { readonly content: string; readonly hash: string };
@@ -202,11 +233,6 @@ export interface WebStateRequests {
   threads: {
     readonly params: Record<string, never>;
     readonly result: { readonly threads: readonly string[] };
-  };
-  /** Removes blobs a collection found unreferenced; returns the hashes actually removed. */
-  unlinkBlobs: {
-    readonly params: { readonly hashes: readonly string[] };
-    readonly result: { readonly deleted: readonly string[] };
   };
   viewFilterPresets: {
     readonly params: ViewFilterPresetRequest;
@@ -265,9 +291,10 @@ export type ChannelMessage =
  * whose writer speaks another version refuses it visibly instead of guessing.
  * Bump it whenever `WebStateRequests`, a request's params or result, or a
  * channel message changes: version 2 added the catalog and blob requests,
- * version 3 writer extensions.
+ * version 3 writer extensions, version 4 the writer's purge and thread
+ * delete in place of tabs unlinking blobs.
  */
-export const WEB_STATE_PROTOCOL = 3;
+export const WEB_STATE_PROTOCOL = 4;
 
 /** The protocol a writer announces: this wire's version and the extensions it runs, by id. */
 export function webStateWireProtocol(extensionIds: readonly string[]): string {

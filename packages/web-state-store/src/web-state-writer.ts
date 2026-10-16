@@ -19,9 +19,21 @@ import {
   executeThreadGroups,
   executeViewFilterPresetRequest,
 } from '@brainstrike/state-store/catalog-domains';
+import {
+  acknowledgeSourceGc,
+  deleteDeletionIntent,
+  deleteThreadTruth,
+  deletionIntents,
+  okThreads,
+  purgeEvent,
+  recordDeletionIntent,
+  sourceBlobRefs,
+  sourceGcCandidates,
+} from '@brainstrike/state-store/deletion-domain';
 import { RunLog, ThreadDamage, ThreadReadOnlyRefusal } from '@brainstrike/state-store/run-log';
 import { blobsOf } from '@brainstrike/state-store/run-log-format';
 import { CheckpointBlockedError } from '@brainstrike/state-store/sqlite-checkpoint';
+import { type DeletionWriter, StateDeletion } from '@brainstrike/state-store/state-deletion';
 import sqlite3InitModule, {
   type Database,
   type SAHPoolUtil,
@@ -74,6 +86,8 @@ type AppendRows = Parameters<RunLog['append']>[0];
 interface Writer {
   readonly blobs: SqliteBlobStore;
   readonly db: SqliteWasmDatabase;
+  /** Purge, thread delete and blob GC: desktop's orchestration, over this writer's connections. */
+  readonly deletion: StateDeletion;
   readonly extensions: readonly WebStateExtensionInstance[];
   /** The extensions' ops, by name. */
   readonly handlers: ReadonlyMap<string, WebStateExtensionHandlers[string]>;
@@ -202,6 +216,45 @@ function recordWriter(sqlite3: Sqlite3Static, pool: SAHPoolUtil): number {
   }
 }
 
+/** The deletion ops on this writer's connections, as desktop's writer worker serves them (`deletion-domain.mjs`). */
+function deletionWriter(
+  db: SqliteWasmDatabase,
+  log: RunLog,
+  blobs: SqliteBlobStore
+): DeletionWriter {
+  const native = asBetterSqlite3(db);
+  return {
+    acknowledgeSourceGc: async (hashes) => acknowledgeSourceGc(native, hashes),
+    damagedBlobRefs: async () => log.damagedBlobRefs(),
+    deleteIntent: async (threadId, seq) => deleteDeletionIntent(native, threadId, seq),
+    // No memory calculator runs in the browser, so no observation tokens are recounted.
+    deleteThread: async (threadId) => deleteThreadTruth(native, log, threadId),
+    eventRaw: async (threadId, seq) => {
+      const read = log.readFrom(threadId, seq, 1);
+      if (read.damage) {
+        throw read.damage;
+      }
+      const [row] = read.rows;
+      return row && row.seq === seq ? row.payload : undefined;
+    },
+    intents: async () =>
+      deletionIntents(native).map((intent) => ({
+        ...intent,
+        hashes: JSON.parse(intent.hashes) as string[],
+      })),
+    okThreads: async () => okThreads(log),
+    purge: async (threadId, seq, tombstone) => purgeEvent(native, log, threadId, seq, tombstone),
+    recordIntent: async (intent) =>
+      JSON.parse(
+        recordDeletionIntent(native, { ...intent, hashes: JSON.stringify(intent.hashes) })
+      ) as string[],
+    sourceBlobRefs: async () => sourceBlobRefs(native),
+    sourceGcCandidates: async () => sourceGcCandidates(native),
+    storedBlobRefs: async (threadId) => log.storedBlobRefs(threadId),
+    unlinkBlobs: async (hashes) => blobs.unlink(hashes),
+  };
+}
+
 async function openWriter(
   sqlite3: Sqlite3Static,
   store: WebStateStoreConfig
@@ -233,6 +286,7 @@ async function openWriter(
   const log = new RunLog(asBetterSqlite3(db), damage);
   const opened: WebStateExtensionInstance[] = [];
   let handlers: ReadonlyMap<string, WebStateExtensionHandlers[string]>;
+  let deletion: StateDeletion;
   try {
     for (const extension of extensions) {
       opened.push(
@@ -252,6 +306,26 @@ async function openWriter(
       );
     }
     handlers = extensionOps(opened);
+    const indexers = opened.flatMap((instance) => (instance.indexer ? [instance.indexer] : []));
+    if (indexers.length > 1) {
+      throw new Error('Two writer extensions both provide the derived index');
+    }
+    let failPurge = store.testHooks?.failPurgeAfterTruthOnce === true;
+    deletion = new StateDeletion(deletionWriter(db, log, blobs), {
+      indexer: () => indexers[0],
+      purgeAfterTruth: () => {
+        if (failPurge) {
+          failPurge = false;
+          throw new Error('Test hook: the purge failed after its truth committed');
+        }
+      },
+      // Every op already runs in the writer's request order (`serialized`), and an open recovers before it leads.
+      run: (work) => Promise.resolve().then(work),
+    });
+    if (damage === null) {
+      // As desktop's open: complete what a crash interrupted before serving anyone.
+      await deletion.recover();
+    }
   } catch (error) {
     for (const instance of opened.reverse()) {
       instance.close();
@@ -262,7 +336,7 @@ async function openWriter(
   }
   return {
     lease: { epoch, instanceId },
-    writer: { blobs, db, extensions: opened, handlers, log, pool },
+    writer: { blobs, db, deletion, extensions: opened, handlers, log, pool },
   };
 }
 
@@ -342,6 +416,10 @@ async function handle(active: Writer, request: WireRequest): Promise<unknown> {
       );
     case 'damagedBlobRefs':
       return { hashes: log.damagedBlobRefs() };
+    case 'deleteThread': {
+      const { threadId } = params as WebStateRequests['deleteThread']['params'];
+      return { deleted: await active.deletion.deleteThread(threadId) };
+    }
     case 'modelChoices':
       return executeModelChoiceRequest(
         asBetterSqlite3(db),
@@ -352,6 +430,10 @@ async function handle(active: Writer, request: WireRequest): Promise<unknown> {
         asBetterSqlite3(db),
         params as WebStateRequests['promptCatalog']['params']
       );
+    case 'purge': {
+      const { seq, threadId } = params as WebStateRequests['purge']['params'];
+      return active.deletion.purge(threadId, seq);
+    }
     case 'putBlob': {
       const { content, hash } = params as WebStateRequests['putBlob']['params'];
       blobs.put(hash, content);
@@ -393,10 +475,6 @@ async function handle(active: Writer, request: WireRequest): Promise<unknown> {
       );
     case 'threads':
       return { threads: log.threads() };
-    case 'unlinkBlobs': {
-      const { hashes } = params as WebStateRequests['unlinkBlobs']['params'];
-      return { deleted: blobs.unlink(hashes) };
-    }
     case 'viewFilterPresets':
       return executeViewFilterPresetRequest(
         asBetterSqlite3(db),

@@ -1,62 +1,14 @@
 import {
   WEB_STATE_PROTOCOL,
-  type WebStateAppendRow,
-  WebStateStore,
-  type WebStateStoreConfig,
   webStateNames,
   webStateWireProtocol,
 } from '@brainstrike/web-state-store';
-import { afterEach, describe, expect, inject, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { DERIVED_INDEX_EXTENSION_ID } from '../derived-index-extension';
 import { WebDerivedIndex } from '../web-writer-client';
+import { closeTabs, corpus, openTab, storeConfig, storeCorpus } from './writer-tabs';
 
-const corpus = inject('storedHostCorpus');
-const opened: WebStateStore[] = [];
-const pools: string[] = [];
-
-function storeConfig(build = 'build-1'): WebStateStoreConfig {
-  const name = `writer-${crypto.randomUUID()}`;
-  pools.push(webStateNames(name).pool);
-  return { build, name };
-}
-
-/** One tab running the web app's composed writer worker. */
-async function openTab(config: WebStateStoreConfig): Promise<WebStateStore> {
-  const worker = new Worker(new URL('../web-writer-worker.ts', import.meta.url), {
-    type: 'module',
-  });
-  const store = await WebStateStore.open(worker, config);
-  opened.push(store);
-  return store;
-}
-
-/** Stores the recorded runs as Core stores them: blobs first, then the rows that name them. */
-async function storeCorpus(store: WebStateStore): Promise<void> {
-  for (const [hash, content] of corpus.blobs) {
-    await store.putBlob(hash, content);
-  }
-  await store.append(corpus.rows as readonly WebStateAppendRow[], { boundary: true });
-}
-
-afterEach(async () => {
-  for (const store of opened.splice(0)) {
-    store.close();
-  }
-  const root = await navigator.storage.getDirectory();
-  for (const pool of pools.splice(0)) {
-    for (let attempt = 0; attempt < 50; attempt++) {
-      try {
-        await root.removeEntry(pool, { recursive: true });
-        break;
-      } catch (error) {
-        if ((error as DOMException).name === 'NotFoundError') {
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      }
-    }
-  }
-});
+afterEach(closeTabs);
 
 describe('the derived index in the browser writer', () => {
   it('projects the committed runs, including the blobs they name, and serves history search', async () => {

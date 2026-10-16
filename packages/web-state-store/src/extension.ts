@@ -1,4 +1,5 @@
 import type { RunLog } from '@brainstrike/state-store/run-log';
+import type { IndexerPort } from '@brainstrike/state-store/state-deletion';
 import type { SqliteBlobStore } from './blob-store';
 import type { WebStateStoreConfig } from './protocol';
 import type { SqliteWasmDatabase } from './sqlite-wasm-database';
@@ -34,6 +35,12 @@ export interface WebStateExtensionInstance {
    * to open with one that is not, or that another extension also names.
    */
   readonly handlers: WebStateExtensionHandlers;
+  /**
+   * The derived index, when this extension is one: the writer's purge, thread
+   * delete and blob GC count blob references through it, as desktop's
+   * StateStore does through its IndexerPort. At most one extension has one.
+   */
+  readonly indexer?: IndexerPort;
 }
 
 /**

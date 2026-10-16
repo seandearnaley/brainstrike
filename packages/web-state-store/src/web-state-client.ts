@@ -161,8 +161,14 @@ export class WebStateStore
     return this.request('damagedBlobRefs', {});
   }
 
-  unlinkBlobs(hashes: readonly string[]): Promise<WebStateRequests['unlinkBlobs']['result']> {
-    return this.request('unlinkBlobs', { hashes });
+  /** Deletes a thread with what was derived from it and the blobs nothing else names; needs the derived index. */
+  deleteThread(threadId: string): Promise<WebStateRequests['deleteThread']['result']> {
+    return this.request('deleteThread', { threadId });
+  }
+
+  /** Purges event `seq` from truth, the derived index and the blobs; needs the derived index. */
+  purge(threadId: string, seq: number): Promise<WebStateRequests['purge']['result']> {
+    return this.request('purge', { seq, threadId });
   }
 
   check(): Promise<WebStateRequests['check']['result']> {

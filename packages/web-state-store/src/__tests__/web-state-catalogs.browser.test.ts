@@ -48,18 +48,22 @@ describe('blobs on the browser writer', () => {
     expect(error.message).toContain('blob hash does not match its content');
   });
 
-  it('unlinks only the blobs that exist, and a follower tab reaches the same blobs', async () => {
+  it('serves a follower the same blobs, and refuses deletion without the derived index that counts them', async () => {
     const config = storeConfig();
     const writer = await openTab(config);
     const follower = await openTab(config);
     const content = 'shared through the writer';
     const hash = await sha256(content);
     await follower.putBlob(hash, content);
+    await follower.append([spooled('thread-a', hash)], { boundary: true });
     expect(await writer.readBlob(hash, 1000)).toEqual({ content });
 
-    const absent = 'b'.repeat(64);
-    expect(await follower.unlinkBlobs([hash, absent])).toEqual({ deleted: [hash] });
-    expect((await rejection(writer.readBlob(hash, 1000))).message).toContain('missing');
+    // Only the writer's purge and thread delete remove blobs, and only with reference counts.
+    for (const refused of [follower.deleteThread('thread-a'), follower.purge('thread-a', 1)]) {
+      expect((await rejection(refused)).message).toContain('needs the indexer port');
+    }
+    expect(await writer.threads()).toEqual({ threads: ['thread-a'] });
+    expect(await writer.readBlob(hash, 1000)).toEqual({ content });
   });
 });
 
