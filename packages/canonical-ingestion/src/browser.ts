@@ -25,6 +25,7 @@ export {
   type NativeAcknowledgedPublication,
   type NativeScopeReadiness,
 } from './scoped-publication.js';
+export { createNativeSourceInventory } from './source-inventory.js';
 export {
   CanonicalWorkspaceIngestionRuntime,
   type CanonicalWorkspaceRuntimeDependencies,

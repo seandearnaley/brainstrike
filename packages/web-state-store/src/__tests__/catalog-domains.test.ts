@@ -345,7 +345,7 @@ describe('the catalog domains on sqlite-wasm', () => {
         ),
         run({ mountedPaths: [], operation: 'disconnect-except' }),
         run({ operation: 'list' }),
-        caught(() => run({ operation: 'delete', paths: ['fsa:wrong'], rootId })),
+        caught(() => run({ operation: 'delete', paths: ['/fsa/wrong'], rootId })),
         run({ operation: 'delete', paths: [root.path], rootId }),
         run({ operation: 'list' }),
       ];

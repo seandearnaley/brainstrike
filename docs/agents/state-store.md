@@ -36,7 +36,8 @@ blob directly. Without the derived index both are refused, as on desktop.
 It serves the source catalog and workspace roots on desktop's domains too, with
 desktop's rules: a source change or root deletion needs the derived index, and
 the sources it retires are collected after. A browser root's path is its handle
-key, `fsa:<rootId>` (`webRootPath`), and registration refuses a key that names
+key, `/fsa/<rootId>` (`webRootPath`), an absolute POSIX path so the shared
+workspace path rules treat it as a root, and registration refuses a key that names
 another root; the tab keeps the File System Access handle in IndexedDB under
 that id. The root domain is given the host's notion of a
 granted path, so desktop keeps requiring absolute OS paths.
@@ -48,7 +49,13 @@ serves desktop's `ScopedIndexerPort` as `files.*` ops, authorized for the
 catalogs' live roots, collections and their files when it opens (an import in
 no collection has no scope and is left out); `files.reauthorize` reopens it
 after they change. Its ops are `concurrent`: they run outside the writer's
-request order, so a chat append never waits behind index work. Retirement waits for it to
+request order, so a chat append never waits behind index work.
+`files.scan({ rootId, folder })` runs desktop's workspace ingestion runtime in
+the worker (`file-ingestion.ts`): the shared catalog, publication, scan
+admission and inventory over a File System Access lease. The tab hands over the
+folder it holds the user's grant for (a grant is asked for in a window, never in
+a worker); the worker reaches the catalogs through `WebStateWriterContext.request`,
+in the writer's request order. A root keeps the folder its runtime started on. Retirement waits for it to
 release its pool. A coded failure crosses the wire with its code, so
 `WebFileIndex` raises desktop's `IndexerError`.
 

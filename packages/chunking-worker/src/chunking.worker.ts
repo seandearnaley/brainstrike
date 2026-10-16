@@ -15,6 +15,7 @@
 /// <reference lib="webworker" />
 
 import { runWithTimeout } from '@brainstrike/effect-kit';
+import { setParserAuditSink } from './canonical-parser-runtime';
 import { isChunkBatchRequest, isChunkRequest } from './message-validation';
 import { chunkContent, type PortableChunkingResult } from './portable-chunking';
 import type {
@@ -26,6 +27,17 @@ import type {
   WorkerLog,
   WorkerRequest,
 } from './shared';
+
+// This worker's parent (file-import's chunking-worker-port) forwards a WorkerLog through the project's
+// logger, so the first-parse audit is visible in the unified dev output.
+setParserAuditSink((message) => {
+  try {
+    self.postMessage({ level: 'info', message, type: 'log' });
+  } catch {
+    // biome-ignore lint/suspicious/noConsole: one-time operational signal
+    console.info(message);
+  }
+});
 
 type TokenUtilsLiteModule = typeof import('@brainstrike/tokenization/token-utils-lite');
 

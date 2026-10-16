@@ -7,6 +7,19 @@ export interface FileIndexAuthority {
   readonly scopes: readonly IndexScope[];
 }
 
+/** A failure as it crosses between the workers, its code kept (an IndexerError's). */
+export interface FileIndexError {
+  readonly code: unknown;
+  readonly message: string;
+  readonly name: string;
+}
+
+/** What one scan of a root reads: its byte bound and batch size. */
+export interface FileIndexScanOptions {
+  readonly batchSize: number;
+  readonly maxFileBytes: number;
+}
+
 /** The writer's messages to the file index worker. */
 export type FileIndexRequest =
   | {
@@ -14,16 +27,52 @@ export type FileIndexRequest =
       readonly id: number;
       readonly kind: 'open';
       readonly pool: string;
+      readonly scan: FileIndexScanOptions;
       readonly vfs: string;
     }
   | { readonly authority: FileIndexAuthority; readonly id: number; readonly kind: 'reauthorize' }
   | { readonly id: number; readonly kind: 'request'; readonly op: string; readonly params: unknown }
-  | { readonly id: number; readonly kind: 'close' };
-
-export type FileIndexReply =
-  | { readonly id: number; readonly ok: true; readonly result: unknown }
+  /**
+   * Scans a live root's folder into the catalog and the index; answers with
+   * its receipt. The tab supplies the folder it holds the user's grant for.
+   */
   | {
-      readonly error: { readonly code: unknown; readonly message: string; readonly name: string };
+      readonly folder: FileSystemDirectoryHandle;
       readonly id: number;
-      readonly ok: false;
+      readonly kind: 'scan';
+      readonly rootId: string;
+    }
+  | { readonly id: number; readonly kind: 'close' }
+  /** The writer's answer to the worker's `writer` call of the same id. */
+  | {
+      readonly error?: FileIndexError;
+      readonly id: number;
+      readonly kind: 'writer-reply';
+      readonly ok: boolean;
+      readonly result?: unknown;
     };
+
+/** The file index worker's messages to the writer. */
+export type FileIndexMessage =
+  | { readonly id: number; readonly kind: 'reply'; readonly ok: true; readonly result: unknown }
+  | {
+      readonly error: FileIndexError;
+      readonly id: number;
+      readonly kind: 'reply';
+      readonly ok: false;
+    }
+  /** Runs one of the writer's ops in its request order (`WebStateWriterContext.request`). */
+  | { readonly id: number; readonly kind: 'writer'; readonly op: string; readonly params: unknown };
+
+export function fileIndexError(error: unknown): FileIndexError {
+  return {
+    code: error instanceof Error ? Reflect.get(error, 'code') : undefined,
+    message: error instanceof Error ? error.message : String(error),
+    name: error instanceof Error ? error.name : 'Error',
+  };
+}
+
+/** The failure as an Error again, with its name and code. */
+export function fileIndexFailure(error: FileIndexError): Error {
+  return Object.assign(new Error(error.message), error);
+}

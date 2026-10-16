@@ -4334,6 +4334,15 @@ importers:
       '@brainstrike/agent-host':
         specifier: workspace:*
         version: link:../agent-host
+      '@brainstrike/canonical-ingestion':
+        specifier: workspace:*
+        version: link:../canonical-ingestion
+      '@brainstrike/chunking-worker':
+        specifier: workspace:*
+        version: link:../chunking-worker
+      '@brainstrike/file-system':
+        specifier: workspace:*
+        version: link:../file-system
       '@brainstrike/indexer':
         specifier: workspace:*
         version: link:../indexer

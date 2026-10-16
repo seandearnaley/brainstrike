@@ -57,6 +57,10 @@
       "types": "./dist/workspace-root-nodes.d.ts",
       "default": "./dist/workspace-root-nodes.js"
     },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "default": "./dist/config.js"
+    },
     "./secure-file-read": {
       "types": "./dist/secure-file-read.d.ts",
       "default": "./dist/secure-file-read.js"

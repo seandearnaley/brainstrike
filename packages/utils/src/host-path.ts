@@ -2,7 +2,7 @@
  * Path operations by the host's own rules. Where the runtime has Node's
  * `path` (desktop's main, utility and CLI processes) they are Node's, Windows
  * separators included. In a browser they are POSIX: the browser's workspace
- * paths are handle keys (`fsa:<rootId>`) joined with `/`.
+ * paths are handle keys (`/fsa/<rootId>`) joined with `/`.
  */
 const nodePath = globalThis.process?.getBuiltinModule?.('node:path');
 

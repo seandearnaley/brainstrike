@@ -14,8 +14,8 @@ async function withoutNodeBuiltins(): Promise<typeof import('../host-path.js')> 
 }
 
 const JOINS: readonly (readonly string[])[] = [
-  ['fsa:00000000-0000-4000-8000-000000000001', 'src'],
-  ['fsa:00000000-0000-4000-8000-000000000001/src', 'one.ts'],
+  ['/fsa/00000000-0000-4000-8000-000000000001', 'src'],
+  ['/fsa/00000000-0000-4000-8000-000000000001/src', 'one.ts'],
   ['/home/user/project', 'src', 'one.ts'],
   ['/home/user/project/', 'src'],
   ['a//b', './c', '../d'],
@@ -26,7 +26,7 @@ const JOINS: readonly (readonly string[])[] = [
   ['café 🧠', 'notes.md'],
 ];
 const BASENAMES = [
-  'fsa:00000000-0000-4000-8000-000000000001',
+  '/fsa/00000000-0000-4000-8000-000000000001',
   '/home/user/project/',
   'a/b/c.ts',
   'x',

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   resolveThroughAliases,
@@ -27,6 +28,17 @@ it('bundles the composed writer worker for the browser, with no Node module and 
     outdir: 'bundle',
     platform: 'browser',
     plugins: [
+      // As the web app's bundler serves them today: a module reaching Node only through a runtime-guarded
+      // dynamic import (the tree-sitter grammar loader, web-tree-sitter's own Node branch), and tiktoken's wasm URL.
+      {
+        name: 'browser-bundler-conventions',
+        setup(builder) {
+          builder.onResolve({ filter: /\?url$/ }, (args) => ({ external: true, path: args.path }));
+          builder.onResolve({ filter: /^(node:)?[a-z_/]+$/ }, (args) =>
+            args.kind === 'dynamic-import' ? { external: true, path: args.path } : undefined
+          );
+        },
+      },
       {
         name: 'workspace-sources',
         setup(builder) {
@@ -48,9 +60,35 @@ it('bundles the composed writer worker for the browser, with no Node module and 
     'state-store/src/deletion-domain.mjs',
     'src/file-index-worker.ts',
     'indexer/src/scoped-operations.ts',
+    'src/file-ingestion.ts',
+    'canonical-ingestion/src/workspace-runtime.ts',
+    'chunking-worker/src/canonical.ts',
   ]) {
     expect(inputs.some((input) => input.includes(composed))).toBe(true);
   }
+  // A browser worker has no Node globals: an unguarded `Buffer.` or `process.` throws at runtime, where
+  // the build cannot see it. `globalThis.process?.…` and a line that checks `typeof` first are guarded.
+  const unguarded: string[] = [];
+  const workspaceSources = inputs.filter(
+    (path) => !path.includes('node_modules') && (path.startsWith('../') || path.startsWith('src/'))
+  );
+  for (const input of workspaceSources) {
+    readFileSync(resolve(import.meta.dirname, '../..', input), 'utf8')
+      .split('\n')
+      .forEach((line, index) => {
+        const code = line.trim();
+        if (code.startsWith('//') || code.startsWith('*') || code.startsWith('/*')) {
+          return;
+        }
+        if (
+          /(?<![\w$.?'"`])(?:Buffer|process)\s*\./.test(code) &&
+          !/typeof (?:Buffer|process)\b/.test(code)
+        ) {
+          unguarded.push(`${input}:${index + 1}: ${code}`);
+        }
+      });
+  }
+  expect(unguarded).toEqual([]);
   for (const nodeOnly of [
     'better-sqlite3',
     'sqlite-native',
