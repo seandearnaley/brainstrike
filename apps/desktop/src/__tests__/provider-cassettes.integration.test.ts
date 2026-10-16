@@ -48,6 +48,8 @@ async function record(scenario: ProviderCassetteScenario): Promise<ProviderCasse
   }
   expect(recorded.violations, 'a recording that breaks an invariant is never saved').toEqual([]);
   const replayed = await replayScenario(scenario, recorded.cassette);
+  expect(replayed.refusals, 'a recording must answer every request its replay makes').toEqual([]);
+  expect(replayed.unserved, 'a replay must claim every recorded exchange').toEqual([]);
   expect(replayed.shape, 'a recording must replay to the conversation it recorded').toEqual(
     recorded.shape
   );

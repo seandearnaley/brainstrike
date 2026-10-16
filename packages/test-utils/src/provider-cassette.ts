@@ -66,7 +66,12 @@ export interface ProviderCassetteResponse {
   readonly contentType: string | null;
   /** `client-aborted`: the client hung up mid-response (a Stop); replay holds after the last chunk. */
   readonly ended: 'client-aborted' | 'complete';
-  readonly status: number;
+  /**
+   * Null when the client hung up before the provider answered at all (a Stop
+   * that aborts a concurrent request): replay leaves it unanswered until the
+   * client hangs up again.
+   */
+  readonly status: number | null;
 }
 
 export interface ProviderCassetteExchange {
@@ -400,12 +405,32 @@ export function createProviderCassetteRecording(
         abort.abort();
       }
     });
-    const upstream = await fetch(`${upstreams[knob]}${route}${search}`, {
-      ...(method === 'GET' || method === 'HEAD' ? {} : { body: new Uint8Array(rawBody) }),
-      headers: forwardedHeaders(request),
-      method,
-      signal: abort.signal,
-    });
+    const recordedRequest = { body, headers: recordedHeaders(request), method, route };
+    const key = providerRequestKey({ body, knob, method, route });
+    let upstream: Response;
+    try {
+      upstream = await fetch(`${upstreams[knob]}${route}${search}`, {
+        ...(method === 'GET' || method === 'HEAD' ? {} : { body: new Uint8Array(rawBody) }),
+        headers: forwardedHeaders(request),
+        method,
+        signal: abort.signal,
+      });
+    } catch (error) {
+      if (!clientGone) {
+        throw error;
+      }
+      const unanswered = { body: '', chunks: [], contentType: null, status: null } as const;
+      exchanges.push({
+        exchange: {
+          key,
+          request: recordedRequest,
+          response: { ...unanswered, ended: 'client-aborted' },
+          startedAtMs: arrivedAt - startedAt,
+        },
+        order,
+      });
+      return;
+    }
     const contentType = upstream.headers.get('content-type');
     response.writeHead(upstream.status, contentType ? { 'Content-Type': contentType } : {});
     const received: Buffer[] = [];
@@ -415,8 +440,8 @@ export function createProviderCassetteRecording(
     );
     exchanges.push({
       exchange: {
-        key: providerRequestKey({ body, knob, method, route }),
-        request: { body, headers: recordedHeaders(request), method, route },
+        key,
+        request: recordedRequest,
         response: {
           body: utf8Body(Buffer.concat(received)),
           chunks,
@@ -552,6 +577,48 @@ export interface ProviderCassetteReplayOptions {
 const nextTask = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Writes a recorded response's head and chunks, paced by `pace`. Resolves false
+ * when the client hung up first; an unanswered response (status null) writes nothing.
+ */
+async function writeRecorded(
+  recorded: ProviderCassetteResponse,
+  response: ServerResponse,
+  pace: number
+): Promise<boolean> {
+  if (recorded.status !== null) {
+    response.writeHead(
+      recorded.status,
+      recorded.contentType ? { 'Content-Type': recorded.contentType } : {}
+    );
+  }
+  const bytes = Buffer.from(recorded.body, 'utf8');
+  const servedAt = Date.now();
+  let offset = 0;
+  for (const chunk of recorded.chunks) {
+    const wait = chunk.atMs * pace - (Date.now() - servedAt);
+    // One chunk per read, as the provider delivered them.
+    await (pace > 0 && wait > 0 ? delay(wait) : nextTask());
+    if (response.destroyed) {
+      return false;
+    }
+    response.write(bytes.subarray(offset, offset + chunk.bytes));
+    offset += chunk.bytes;
+  }
+  return true;
+}
+
+/** Resolves when the client hangs up: the response's own close, not a fully read request. */
+function clientHangUp(response: ServerResponse): Promise<void> {
+  return new Promise((resolve) => {
+    if (response.destroyed) {
+      resolve();
+      return;
+    }
+    response.once('close', () => resolve());
+  });
+}
+
 /** Serves `cassette`; each exchange answers exactly one request. */
 export function createProviderCassetteReplay(
   cassette: ProviderCassette,
@@ -573,40 +640,21 @@ export function createProviderCassetteReplay(
       }
       remaining.splice(index, 1);
       const recorded = exchange.response;
-      response.writeHead(
-        recorded.status,
-        recorded.contentType ? { 'Content-Type': recorded.contentType } : {}
-      );
-      const bytes = Buffer.from(recorded.body, 'utf8');
-      const servedAt = Date.now();
-      let offset = 0;
-      for (const chunk of recorded.chunks) {
-        const wait = chunk.atMs * pace - (Date.now() - servedAt);
-        // One chunk per read, as the provider delivered them.
-        await (pace > 0 && wait > 0 ? delay(wait) : nextTask());
-        if (response.destroyed) {
-          return;
-        }
-        response.write(bytes.subarray(offset, offset + chunk.bytes));
-        offset += chunk.bytes;
+      if (!(await writeRecorded(recorded, response, pace))) {
+        return;
       }
       if (recorded.ended === 'complete') {
         response.end();
         return;
       }
-      // The recorded client hung up here: hold until this client does too.
-      holding += 1;
+      // The recorded client hung up here: hold until this client does too. Only
+      // an answered exchange counts as held (a Stop waits on streamed output).
+      const answered = recorded.status !== null;
+      holding += answered ? 1 : 0;
       try {
-        // The response's own close is the client hanging up; a fully read request is not.
-        await new Promise<void>((resolve) => {
-          if (response.destroyed) {
-            resolve();
-            return;
-          }
-          response.once('close', () => resolve());
-        });
+        await clientHangUp(response);
       } finally {
-        holding -= 1;
+        holding -= answered ? 1 : 0;
       }
       return;
     },

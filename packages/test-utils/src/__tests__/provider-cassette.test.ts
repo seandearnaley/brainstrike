@@ -52,7 +52,7 @@ const FRAMES = [
   ]),
 ];
 
-async function startStandInProvider(options: { hold?: boolean } = {}) {
+async function startStandInProvider(options: { hold?: boolean; silent?: boolean } = {}) {
   const seen: { headers: Record<string, unknown>; url: string | undefined }[] = [];
   const url = await listen(
     createServer(async (request, response) => {
@@ -60,6 +60,10 @@ async function startStandInProvider(options: { hold?: boolean } = {}) {
         // Drain the request body.
       }
       seen.push({ headers: request.headers, url: request.url });
+      if (options.silent) {
+        // Never answers: a client that gives up first leaves nothing to relay.
+        return;
+      }
       response.writeHead(200, { 'Content-Type': 'text/event-stream', 'X-Request-Id': 'req_1' });
       for (const frame of options.hold ? FRAMES.slice(0, 1) : FRAMES) {
         response.write(frame);
@@ -337,6 +341,55 @@ describe('provider cassette replay', () => {
     };
     expect(await elapsed(1)).toBeGreaterThanOrEqual(recordedMs);
     expect(await elapsed(0)).toBeLessThan(recordedMs);
+  });
+
+  it('keeps a request the client abandoned before any answer, and replays it unanswered', async () => {
+    const provider = await startStandInProvider({ silent: true });
+    const recorder = await startProviderCassetteRecorder({ upstreams: upstreamsAt(provider.url) });
+    recorders.push(recorder);
+    const body = JSON.stringify({
+      messages: [{ content: 'Title this', role: 'user' }],
+      model: 'm',
+    });
+    const live = new AbortController();
+    const abandoned = fetch(`${recorder.baseUrlFor('OPENAI_BASE_URL')}/responses`, {
+      body,
+      method: 'POST',
+      signal: live.signal,
+    }).catch(() => 'aborted');
+    await expect.poll(() => provider.seen.length).toBe(1);
+    live.abort();
+    expect(await abandoned).toBe('aborted');
+    await expect.poll(() => recorder.recording.exchanges().length).toBe(1);
+    expect(recorder.recording.exchanges()[0]?.response).toEqual({
+      body: '',
+      chunks: [],
+      contentType: null,
+      ended: 'client-aborted',
+      status: null,
+    });
+
+    const replay = createProviderCassetteReplay(cassetteOf(recorder));
+    const server = await startReplay(replay);
+    const again = new AbortController();
+    const pending = fetch(`${server.url}/OPENAI_BASE_URL/responses`, {
+      body,
+      method: 'POST',
+      signal: again.signal,
+    }).then(
+      () => 'answered',
+      () => 'aborted'
+    );
+    const raced = await Promise.race([
+      pending,
+      new Promise((resolve) => setTimeout(() => resolve('unanswered'), 50)),
+    ]);
+    expect(raced).toBe('unanswered');
+    // An unanswered hold is not streamed output: a Stop must not fire on it.
+    expect(replay.holding()).toBe(0);
+    again.abort();
+    expect(await pending).toBe('aborted');
+    expect(replay.unserved()).toEqual([]);
   });
 
   it('holds a client-aborted exchange open after its last chunk until the client hangs up', async () => {

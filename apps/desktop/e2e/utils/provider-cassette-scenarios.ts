@@ -153,7 +153,7 @@ export function describeRecording(cassette: ProviderCassette): string {
         .filter(isRecord)
         .flatMap(frameKinds)
         .filter((kind, index, all) => kind !== all[index - 1]);
-      return `${exchange.response.status} ${exchange.key.knob}${exchange.key.route} ${exchange.key.stream ? 'stream' : 'one-shot'}: ${kinds.join(' ') || '-'}`;
+      return `${exchange.response.status ?? 'unanswered'} ${exchange.key.knob}${exchange.key.route} ${exchange.key.stream ? 'stream' : 'one-shot'}: ${kinds.join(' ') || '-'}`;
     })
     .join('\n');
 }
@@ -166,7 +166,7 @@ function isCutOffByStop(cassette: ProviderCassette): boolean {
 /** A provider HTTP refusal (4xx/5xx) answered a model step. */
 function refusesTheRequest(cassette: ProviderCassette): boolean {
   return cassette.exchanges.some(
-    (exchange) => exchange.key.stream && exchange.response.status >= 400
+    (exchange) => exchange.key.stream && (exchange.response.status ?? 0) >= 400
   );
 }
 
@@ -187,7 +187,7 @@ export const PROVIDER_CASSETTE_SCENARIOS: readonly ProviderCassetteScenario[] = 
       'beta.md': '# Beta\n\nBeta holds the second fixture sentence.\n',
     },
     id: 'openai-parallel-tool-calls',
-    model: 'openai::gpt-5.4-mini',
+    model: 'openai::gpt-6-luna',
     prompt: `Read alpha.md and beta.md with two read calls in the same step, then say in one sentence what each file holds. ${NO_ROOT}`,
   },
   {
@@ -243,7 +243,7 @@ export const PROVIDER_CASSETTE_SCENARIOS: readonly ProviderCassetteScenario[] = 
     },
     guards: '#3719',
     id: 'openai-background-delegation',
-    model: 'openai::gpt-5.4-mini',
+    model: 'openai::gpt-6-luna',
     pace: 1,
     prompt: `In one step, start two background Explorer agents: one that reads notes.md, and one that reads plan.md. When both results arrive, report each in one sentence. ${NO_ROOT}`,
   },
@@ -251,7 +251,7 @@ export const PROVIDER_CASSETTE_SCENARIOS: readonly ProviderCassetteScenario[] = 
     credential: 'recorder',
     exhibits: { behavior: 'a stream cut off by Stop', holds: isCutOffByStop },
     id: 'openai-stop-mid-stream',
-    model: 'openai::gpt-5.4-mini',
+    model: 'openai::gpt-6-luna',
     prompt:
       'Write a 1,500-word story about a lighthouse keeper who records the sea. Do not use any tools.',
     stop: true,
