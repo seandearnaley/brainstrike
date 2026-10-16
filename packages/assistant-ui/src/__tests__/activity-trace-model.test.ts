@@ -3,10 +3,15 @@ import { describe, expect, it } from 'vitest';
 import {
   deriveActivitySteps,
   readResultError,
+  readToolFailure,
+  stepVerbText,
   summarizeActivity,
   TOOL_EXECUTION_FAILED_MESSAGE,
   toolStepStateFor,
 } from '../activity-trace-model';
+import { verbForTool } from '../activity-verbs';
+
+const VERB_STUB = verbForTool('stub');
 
 const tool = (
   id: string,
@@ -58,6 +63,71 @@ describe('deriveActivitySteps', () => {
     ]);
     expect(steps[0]?.verb.done).toBe('Read');
     expect(steps[1]?.verb.active).toBe('Searching');
+  });
+
+  // Live QA 2026-10-16: "Using updateWorkingMemory # Session - **Active task**: …"
+  // — a tool whose arguments carry content names no target, and the host's
+  // meta tools name the argument that is one.
+  it('reads each step’s target from the argument its verb names, never from content', () => {
+    const memory = '# Session\n- **Active task**: ship the fix';
+    const steps = deriveActivitySteps(
+      [
+        tool('m', 'updateWorkingMemory', { memory }, complete),
+        tool('s', 'search_tools', { limit: 5, query: 'git worktree' }, complete),
+        tool('l', 'load_tool', { toolName: 'brainstrike_manageWorktree' }, complete),
+        tool('t', 'list_available_tools', { cursor: 'page-2' }, complete),
+        tool(
+          'c',
+          'brainstrike.manageCanvas',
+          { action: 'create', html: '<p/>', title: 'Plan' },
+          complete
+        ),
+        tool(
+          'u',
+          'brainstrike.manageCanvas',
+          { action: 'rewrite', canvasId: 'cv-1', html: '<h1>Plan</h1>' },
+          complete
+        ),
+      ],
+      {}
+    );
+    expect(steps.map((step) => [step.verb.done, step.target, step.targetKey])).toEqual([
+      ['Updated memory', null, null],
+      ['Searched tools', 'git worktree', 'git worktree'],
+      ['Loaded tool', 'brainstrike_manageWorktree', 'brainstrike_manageWorktree'],
+      ['Listed tools', null, null],
+      ['Created canvas', 'Plan', 'Plan'],
+      ['Updated canvas', null, null],
+    ]);
+  });
+
+  it('marks a call the user declined or the host blocked as never having run', () => {
+    const declined = {
+      result: {
+        kind: 'declined',
+        message: 'The user declined this tool call, so it was not executed.',
+      },
+      status: { type: 'complete' },
+    };
+    const [step, stopped] = deriveActivitySteps(
+      [
+        tool('d', 'brainstrike.runSkillScript', { path: '.' }, declined),
+        tool(
+          'x',
+          'brainstrike.executeCommand',
+          { command: 'sleep 9' },
+          {
+            status: { reason: 'cancelled', type: 'incomplete' },
+          }
+        ),
+      ],
+      {}
+    );
+    expect(step).toMatchObject({ ran: false, state: 'cancelled' });
+    expect(stepVerbText(step?.verb ?? VERB_STUB, 'cancelled', false)).toBe('Run skill script');
+    // A call cut off mid-run keeps its "Stopped" reading in the past tense.
+    expect(stopped).toMatchObject({ ran: true, state: 'cancelled' });
+    expect(stepVerbText(stopped?.verb ?? VERB_STUB, 'cancelled', true)).toBe('Ran');
   });
 
   it('maps statuses: requires-action → waiting, incomplete cancelled → cancelled, isError/guarded → failed', () => {
@@ -629,5 +699,31 @@ describe('readResultError', () => {
     expect(readResultError({ error: 'boom' })).toBe('boom');
     expect(readResultError({ error: { message: 'boom' }, ok: false })).toBe('boom');
     expect(readResultError({ isError: true })).toBe(TOOL_EXECUTION_FAILED_MESSAGE);
+  });
+});
+
+// Live QA 2026-10-16: an input the tool's schema refused showed only "Tool
+// execution failed." — the AI SDK commits its tool-error as the error's own
+// message string, which is the result of an errored part.
+describe('readToolFailure', () => {
+  const sdkRefusal =
+    'Invalid input for tool brainstrike.runSkillScript: Must be a canonical root-relative path without traversal';
+
+  it('reads an errored part’s string result as its stated failure', () => {
+    expect(readToolFailure(sdkRefusal, true)).toBe(sdkRefusal);
+  });
+
+  it('keeps every shape readResultError reads, errored or not', () => {
+    expect(readToolFailure({ error: 'boom' }, false)).toBe('boom');
+    expect(readToolFailure({ error: { message: 'boom' }, ok: false }, true)).toBe('boom');
+  });
+
+  it('never reads a successful string result as a failure', () => {
+    expect(readToolFailure('plain string result', false)).toBeNull();
+  });
+
+  it('says only that it failed when an errored part states nothing', () => {
+    expect(readToolFailure({ name: 'ToolInputError' }, true)).toBe(TOOL_EXECUTION_FAILED_MESSAGE);
+    expect(readToolFailure('   ', true)).toBe(TOOL_EXECUTION_FAILED_MESSAGE);
   });
 });

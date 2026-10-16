@@ -1198,6 +1198,15 @@
   white-space: nowrap;
 }
 
+/* A failed call's reason is a sentence, not a count: it takes the width the
+   row's content leaves (up to most of the row) and truncates there; its
+   tooltip carries the whole message. */
+.assistant-ui-panel .bs-step-row-meta.bs-step-row-failure {
+  flex: 0 1 auto;
+  max-inline-size: 60%;
+  min-width: 0;
+}
+
 /*
  * ACTIVITY TRACE AT SCALE. A run of hundreds of calls stays readable: the
  * header row carries the disclosure, the failed-step jump and the run strip;

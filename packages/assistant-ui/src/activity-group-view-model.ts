@@ -1,4 +1,4 @@
-import type { ActivityStep } from './activity-trace-model';
+import { type ActivityStep, stepVerbText } from './activity-trace-model';
 import { type ActivityVerb, VERB_FAMILIES, type VerbFamily } from './activity-verbs';
 
 /**
@@ -155,12 +155,14 @@ const FAMILY_FILTER_LABELS: Readonly<Record<VerbFamily, string>> = {
   canvas: 'Canvas',
   delegate: 'Delegations',
   edit: 'Edits',
+  memory: 'Memory',
   other: 'Other',
   read: 'Reads',
   run: 'Commands',
   search: 'Searches',
   skill: 'Skills',
   tasks: 'Tasks',
+  tools: 'Tool discovery',
   web: 'Web',
   worktree: 'Worktrees',
 };
@@ -224,7 +226,7 @@ export function deriveLiveTail(steps: readonly ActivityStep[]): readonly Activit
         id: step.id,
         state: step.state,
         target: step.verb.namesTool ? null : step.target,
-        verb: step.verb.done,
+        verb: stepVerbText(step.verb, step.state, step.ran),
       });
     }
   }
@@ -252,8 +254,7 @@ function markKind(step: ActivityStep): RunStripMarkKind {
 const MARK_PRECEDENCE: readonly RunStripMarkKind[] = ['failed', 'waiting', 'running'];
 
 function stepLabel(step: ActivityStep): string {
-  const verb =
-    step.state === 'running' || step.state === 'waiting' ? step.verb.active : step.verb.done;
+  const verb = stepVerbText(step.verb, step.state, step.ran);
   return step.target ? `${verb} ${step.target}` : verb;
 }
 

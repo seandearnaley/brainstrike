@@ -1,5 +1,8 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
+import { isDeclinedToolCallResult } from '@brainstrike/assistant-contract/tool-approval';
 import { useCallback, useId, useMemo, useRef, useState } from 'react';
+import { TOOL_EXECUTION_FAILED_MESSAGE } from './activity-trace-model';
+import { verbForTool } from './activity-verbs';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
 import { CommittedHumanInteraction } from './committed-human-interaction';
@@ -16,7 +19,12 @@ import {
   resolveCardStatus,
   resolveErrorMessage,
 } from './tool-fallback-state';
-import { extractPrimaryArg, summarizeResult } from './tool-summaries';
+import {
+  extractPrimaryArg,
+  readToolArgs,
+  summarizeFailureReason,
+  summarizeResult,
+} from './tool-summaries';
 import { categoryTintClasses, classifyToolName } from './tool-visual-classification';
 import { useActivityGroupView } from './use-activity-group-view';
 import { useToolCallProgressLabel } from './use-tool-call-progress';
@@ -125,14 +133,40 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
   const showDetails =
     policy.showDetailsExpander && !isRunning && (Boolean(displayArgsText) || hasResult);
 
+  // The verb reads the call's own arguments (a canvas call by its action) and
+  // rules which argument, if any, names the row's target.
+  const verb = useMemo(
+    () => verbForTool(toolName, readToolArgs(displayArgs, displayArgsText)),
+    [displayArgs, displayArgsText, toolName]
+  );
   const primaryArg = useMemo(
-    () => extractPrimaryArg(displayArgs, displayArgsText),
-    [displayArgs, displayArgsText]
+    () => extractPrimaryArg(displayArgs, displayArgsText, verb.targetArg),
+    [displayArgs, displayArgsText, verb]
   );
   const resultSummary = useMemo(
     () => (isError || !policy.showResultSummary ? undefined : summarizeResult(result)),
     [isError, policy.showResultSummary, result]
   );
+  // A failed call says why on its collapsed row, bounded like the result
+  // summary and under the same Detail-level policy. The generic message adds
+  // nothing the failed glyph does not already say.
+  const failureReason = useMemo(
+    () =>
+      isError &&
+      policy.showResultSummary &&
+      errorMessage !== undefined &&
+      errorMessage !== TOOL_EXECUTION_FAILED_MESSAGE
+        ? summarizeFailureReason(errorMessage)
+        : undefined,
+    [errorMessage, isError, policy.showResultSummary]
+  );
+  // The full reason shows once: the row carries it when it fits there, and the
+  // line under the row carries what the row had to cut (or everything, when
+  // the Detail level hides the row's chip).
+  const bodyErrorMessage =
+    failureReason !== undefined && failureReason.display === failureReason.full
+      ? undefined
+      : errorMessage;
   // A group spanning one root says so once, in its folder chip; each row
   // names its root only when the group's calls span more than one.
   const resolvedRootName = useMemo(
@@ -173,15 +207,20 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
         collapsed={isCollapsed}
         detailsId={detailsId}
         durationLabel={durationLabel}
+        failureReason={failureReason}
         glyphState={glyphState}
         onToggle={() => setUserCollapsed(!isCollapsed)}
         primaryArg={primaryArg}
         progressLabel={progressLabel}
+        // A declined or blocked call settles with the shared declined envelope:
+        // it never executed.
+        ran={!isDeclinedToolCallResult(result)}
         resolvedRootName={resolvedRootName}
         resultSummary={resultSummary}
         showDetails={showDetails}
         toolCallId={toolCallId}
         toolName={toolName}
+        verb={verb}
       />
       <CommittedHumanInteraction decisionRef={decisionRef} tool={props} />
       <CommittedNetworkConsent decisionRef={decisionRef} tool={props} />
@@ -190,7 +229,7 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
         argsText={displayArgsText}
         collapsed={isCollapsed}
         detailsId={detailsId}
-        errorMessage={errorMessage}
+        errorMessage={bodyErrorMessage}
         glyphState={glyphState}
         hasResult={hasResult}
         result={result}

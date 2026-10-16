@@ -46,25 +46,54 @@ export interface PrimaryArgSummary {
   full: string;
 }
 
-export function extractPrimaryArg(
+/**
+ * A call's arguments as a record: the parsed `args`, else its complete
+ * `argsText`. Undefined while the text is still a partial stream, or when the
+ * arguments are not an object.
+ */
+export function readToolArgs(
   args: unknown,
   argsText: string | undefined
-): PrimaryArgSummary | undefined {
-  let record: Record<string, unknown> | undefined;
+): Record<string, unknown> | undefined {
   if (args && typeof args === 'object' && !Array.isArray(args)) {
-    record = args as Record<string, unknown>;
-  } else if (argsText) {
-    try {
-      const parsed: unknown = JSON.parse(argsText);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        record = parsed as Record<string, unknown>;
-      }
-    } catch {
-      return;
-    }
+    return args as Record<string, unknown>;
   }
+  if (!argsText) {
+    return;
+  }
+  try {
+    const parsed: unknown = JSON.parse(argsText);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return;
+  }
+}
+
+/**
+ * The step's target chip. `targetArg` is the verb's own ruling
+ * (`ActivityVerb.targetArg`): a key reads that argument alone, `null` reads
+ * none — the arguments are content, never a target — and absent falls back
+ * to the generic reading for a tool no verb describes.
+ */
+export function extractPrimaryArg(
+  args: unknown,
+  argsText: string | undefined,
+  targetArg?: string | null
+): PrimaryArgSummary | undefined {
+  if (targetArg === null) {
+    return;
+  }
+  const record = readToolArgs(args, argsText);
   if (!record) {
     return;
+  }
+  if (targetArg !== undefined) {
+    const value = record[targetArg];
+    return typeof value === 'string' && value.trim().length > 0
+      ? summarizePrimaryArg(value, PATH_ARG_KEYS.has(targetArg))
+      : undefined;
   }
 
   for (const key of PRIMARY_ARG_KEYS) {
@@ -100,6 +129,29 @@ function summarizePrimaryArg(value: string, isPathKey: boolean): PrimaryArgSumma
   }
   const displayEnd = advanceCodePoints(full, MAX_PRIMARY_ARG_LENGTH - 1);
   return { display: `${full.slice(0, displayEnd)}…`, full };
+}
+
+/** Visible cap for a failed call's reason in its collapsed row. */
+const MAX_FAILURE_REASON_LENGTH = 80;
+
+/**
+ * A failed call's reason for its collapsed row, bounded like the primary arg:
+ * the message's first non-empty line, end-ellipsised past the cap. `full`
+ * keeps the whole message for the tooltip; the expanded card shows it too.
+ */
+export function summarizeFailureReason(message: string): PrimaryArgSummary | undefined {
+  const line = message
+    .split(/\r?\n/u)
+    .map((candidate) => candidate.replaceAll(/\s+/g, ' ').trim())
+    .find((candidate) => candidate.length > 0);
+  if (!line) {
+    return;
+  }
+  const display =
+    advanceCodePoints(line, MAX_FAILURE_REASON_LENGTH) === line.length
+      ? line
+      : `${line.slice(0, advanceCodePoints(line, MAX_FAILURE_REASON_LENGTH - 1))}…`;
+  return { display, full: message.trim() };
 }
 
 /** Advance by Unicode code points without materializing the complete string. */

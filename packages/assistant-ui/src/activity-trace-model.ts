@@ -7,7 +7,7 @@ import {
   type RunPythonDisplayResult,
 } from './run-python-result-model';
 import { isToolCallPart } from './tool-activity';
-import { extractPrimaryArg } from './tool-summaries';
+import { extractPrimaryArg, readToolArgs } from './tool-summaries';
 
 export type ActivityStepKind = 'reasoning' | 'tool';
 export type ActivityStepState = 'cancelled' | 'done' | 'failed' | 'running' | 'waiting';
@@ -17,6 +17,12 @@ export interface ActivityStep {
   readonly id: string;
   readonly kind: ActivityStepKind;
   readonly partIndex: number;
+  /**
+   * False only for a call that never executed: the user declined it or the
+   * host blocked it (the shared declined envelope). Its step reads the
+   * verb's request form, never a past tense it did not earn.
+   */
+  readonly ran: boolean;
   readonly state: ActivityStepState;
   /** `extractPrimaryArg(...).display` for tools (middle-ellipsised past 64
       chars); null for reasoning. Render-only — never dedupe on this. */
@@ -60,7 +66,23 @@ const REASONING_VERB: ActivityVerb = Object.freeze({
   active: 'Thinking',
   done: 'Thought',
   family: 'other',
+  request: 'Think',
 });
+
+/**
+ * THE tense rule for a step's verb, on every surface that names one (the tool
+ * row, the live tail, the run strip): the active tense while the step runs or
+ * waits on a person; the request form for a call that never ran — declined or
+ * blocked, so it neither "ran" nor "is running"; otherwise the past tense,
+ * including a call cut off mid-run, whose glyph says it stopped (and whose
+ * group reads "Stopped after Ns").
+ */
+export function stepVerbText(verb: ActivityVerb, state: ActivityStepState, ran: boolean): string {
+  if (state === 'running' || state === 'waiting') {
+    return verb.active;
+  }
+  return ran ? verb.done : verb.request;
+}
 const MAX_RESTING_VERBS = 3;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -117,6 +139,24 @@ export function readResultError(result: unknown): string | null {
     }
   }
   return result['isError'] === true ? TOOL_EXECUTION_FAILED_MESSAGE : null;
+}
+
+/**
+ * The message of a failed tool call: what its result states
+ * ({@link readResultError}), or — for an errored part — the AI SDK's
+ * `tool-error`, which carries the error's own message as a string (an input
+ * the tool's schema refused, for one) and which the projection commits as the
+ * part's result. An errored part that states nothing reads only that it
+ * failed; a successful string result is never a failure.
+ */
+export function readToolFailure(result: unknown, isError: boolean): string | null {
+  const stated = readResultError(result);
+  if (stated !== null || !isError) {
+    return stated;
+  }
+  return typeof result === 'string' && result.trim().length > 0
+    ? result
+    : TOOL_EXECUTION_FAILED_MESSAGE;
 }
 
 /** Whether {@link readResultError} finds a stated failure in this result. */
@@ -268,16 +308,18 @@ export function deriveActivitySteps(
           ? part['toolName']
           : 'tool';
       const argsText = typeof part['argsText'] === 'string' ? part['argsText'] : undefined;
-      const primaryArg = extractPrimaryArg(part['args'], argsText);
+      const verb = verbForTool(toolName, readToolArgs(part['args'], argsText));
+      const primaryArg = extractPrimaryArg(part['args'], argsText, verb.targetArg);
       steps.push({
         durationMs: durations[toolCallId],
         id: toolCallId,
         kind: 'tool',
         partIndex,
+        ran: !isDeclinedToolCallResult(part['result']),
         state: toolStepState(part, toolName),
         target: primaryArg?.display ?? null,
         targetKey: primaryArg?.full ?? null,
-        verb: verbForTool(toolName),
+        verb,
       });
       continue;
     }
@@ -287,6 +329,7 @@ export function deriveActivitySteps(
         id: `reasoning-${partIndex}`,
         kind: 'reasoning',
         partIndex,
+        ran: true,
         state: reasoningStepState(part),
         target: null,
         targetKey: null,
