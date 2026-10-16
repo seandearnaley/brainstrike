@@ -70,6 +70,21 @@ export class NativeIndexRefusalError extends Error {
   }
 }
 
+/**
+ * What an unavailable index refuses a search with: its typed cause when the
+ * lifecycle owner gave one, which the boundary maps to a fixed description and
+ * remedy (`nativeIndexBoundaryFailure`), else a plain error that stays an
+ * internal fault. The status reason may carry private diagnostics, so it is
+ * never promoted to a model- or user-facing refusal on its own.
+ */
+export function indexerStatusFailure(
+  status: Extract<IndexerStatus, { kind: 'unavailable' }>
+): Error {
+  return status.cause
+    ? new NativeIndexRefusalError(status.cause, status.reason)
+    : new Error(status.reason);
+}
+
 /** Readiness changes are projections of the native lifecycle owner, without stored resources. */
 export type NativeIndexLifecycleObservation =
   | { readonly generation: number; readonly kind: 'ready' }

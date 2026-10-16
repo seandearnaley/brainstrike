@@ -7,10 +7,9 @@ import {
   type IndexerSearchHit,
   type IndexerSearchResult,
   type IndexerSourceObservation,
-  type IndexerStatus,
   type IndexSearchCapability,
   indexerEmbeddingProfileValues,
-  NativeIndexRefusalError,
+  indexerStatusFailure,
   validIndexerEmbeddingProfile,
 } from '@brainstrike/indexing-contract/indexer-client';
 import type { NativeWorkspaceSearchDependencies } from './native-workspace-search-context';
@@ -297,11 +296,6 @@ function emptyNativeResults(mode: WorkspaceSearchMode): WorkspaceSearchResults {
     totalMatches: 0,
   };
 }
-function nativeStatusFailure(status: Extract<IndexerStatus, { kind: 'unavailable' }>): Error {
-  return status.cause
-    ? new NativeIndexRefusalError(status.cause, status.reason)
-    : new Error(status.reason);
-}
 export interface NativeWorkspaceSearchResults extends WorkspaceSearchResults {
   /** Only the scoped producer can prove incompleteness; bounded results do not imply it. */
   readonly incompleteSource?: {
@@ -404,7 +398,7 @@ export class NativeWorkspaceSearchExecutor {
       return null;
     }
     if (status.kind !== 'ready') {
-      throw nativeStatusFailure(status);
+      throw indexerStatusFailure(status);
     }
     assertNativeStatusScope(status, request.rootIds, request.collectionId);
     const vector =
