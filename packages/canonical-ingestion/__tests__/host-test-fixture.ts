@@ -1,5 +1,6 @@
 /** Shared canonical ingestion host fixtures for the host suites. */
 import { readFile } from 'node:fs/promises';
+import { createNodeChunker } from '@brainstrike/chunking-worker/node';
 import { vi } from 'vitest';
 import { CanonicalIngestionHost } from '../src/host.js';
 import type {
@@ -137,8 +138,8 @@ export async function fixture(
   };
   const host = new CanonicalIngestionHost({
     catalog,
+    chunker: createNodeChunker({ parser: 'oxc' }),
     managedCollectionId: membership,
-    parser: { parser: 'oxc' },
     publication,
     source,
   });

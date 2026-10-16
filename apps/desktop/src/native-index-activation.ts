@@ -1,13 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import type {
-  CanonicalIngestionDependencies,
-  CanonicalScanReceipt,
-  CanonicalSourceScope,
-} from '@brainstrike/canonical-ingestion';
+import type { CanonicalScanReceipt, CanonicalSourceScope } from '@brainstrike/canonical-ingestion';
 import { getFileSizeConfig } from '@brainstrike/file-system';
 import type { HostAttachment } from '@brainstrike/host-lease';
 import type { IndexerPort, ScopedIndexerPort, VectorProfile } from '@brainstrike/indexer';
+import type { CanonicalRemoteIngestion } from './canonical-utility-parent';
 import { resolveDesktopDatabaseProfileDirectory } from './desktop-database-location';
 import { generateHostedEmbeddings } from './hosted-embeddings';
 import {
@@ -77,7 +74,6 @@ import {
   openIndexCoverage,
 } from './sqlite-query-host-manager';
 
-type WithoutSource<T> = T extends unknown ? Omit<T, 'source'> : never;
 /** Desktop main's actual catalog/grant/inference callbacks; the utility owns parsing and scans. */
 export function createNativeIndexActivation(dependencies: Dependencies) {
   // This handle owns physical resources only. Admission and failure are owned by lifecycle.
@@ -354,9 +350,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         maxFileBytes: getFileSizeConfig().maxFileSize,
       },
     };
-    const pipeline = (
-      scope: CanonicalSourceScope
-    ): WithoutSource<CanonicalIngestionDependencies> => {
+    const pipeline = (scope: CanonicalSourceScope): CanonicalRemoteIngestion => {
       if (settings.mode === 'TEXT') {
         return {
           catalog,

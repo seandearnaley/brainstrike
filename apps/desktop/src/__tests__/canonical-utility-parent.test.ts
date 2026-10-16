@@ -1,11 +1,11 @@
 // @vitest-environment node
-import type {
-  CanonicalInferencePort,
-  CanonicalWorkspaceRuntimeDependencies,
-} from '@brainstrike/canonical-ingestion';
+import type { CanonicalInferencePort } from '@brainstrike/canonical-ingestion';
 import type { VectorProfile } from '@brainstrike/indexer';
 import { describe, expect, it, vi } from 'vitest';
-import { CanonicalUtilityParent } from '../canonical-utility-parent';
+import {
+  type CanonicalRemoteWorkspaceDependencies,
+  CanonicalUtilityParent,
+} from '../canonical-utility-parent';
 import { CANONICAL_CHANNEL, decodeCanonicalFrame } from '../canonical-utility-protocol';
 
 const scope = { kind: 'workspace' as const, rootId: 'root' };
@@ -20,7 +20,7 @@ const profile: VectorProfile = {
 };
 function vectorFixture(
   inference: CanonicalInferencePort<VectorProfile>
-): CanonicalWorkspaceRuntimeDependencies {
+): CanonicalRemoteWorkspaceDependencies {
   const base = fixture();
   return {
     ...base,
@@ -44,7 +44,7 @@ function vectorFixture(
     },
   };
 }
-function fixture(): CanonicalWorkspaceRuntimeDependencies {
+function fixture(): CanonicalRemoteWorkspaceDependencies {
   return {
     catalog: {
       applyManagedCacheBatch: async () => {},

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { NodeChunkerOptions } from '@brainstrike/chunking-worker/node';
+import { createNodeChunker } from '@brainstrike/chunking-worker/node';
 import type {
   IndexerPort,
   ScopedIndexerPort,
@@ -32,7 +32,7 @@ const profile: VectorProfile = {
   revision: 'a'.repeat(40),
   tokenCap: 256,
 };
-const parser: NodeChunkerOptions = { parser: 'oxc' as const };
+const chunker = createNodeChunker({ parser: 'oxc' });
 const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
 
 it.each([
@@ -211,16 +211,16 @@ it.each([
     };
     const textHost = new CanonicalIngestionHost({
       catalog,
+      chunker,
       mode: 'TEXT',
-      parser,
       publication,
       source,
     });
     const vectorHost = new CanonicalIngestionHost({
       catalog,
+      chunker,
       inference,
       mode: 'VECTOR',
-      parser,
       publication,
       source,
     });

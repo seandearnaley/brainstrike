@@ -1,4 +1,3 @@
-import type { CanonicalWorkspaceRuntimeDependencies } from '@brainstrike/canonical-ingestion';
 import { runWithTimeout } from '@brainstrike/effect-kit';
 import type { IndexerOptions, IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
@@ -8,6 +7,7 @@ import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import {
   type CanonicalCollectionAttachment,
   type CanonicalCollectionDependencies,
+  type CanonicalRemoteWorkspaceDependencies,
   CanonicalUtilityParent,
   type CanonicalWorkspaceAttachment,
 } from './canonical-utility-parent';
@@ -154,7 +154,7 @@ export class IndexerHostManager {
   }
 
   async attachCanonicalWorkspace(
-    dependencies: CanonicalWorkspaceRuntimeDependencies
+    dependencies: CanonicalRemoteWorkspaceDependencies
   ): Promise<CanonicalWorkspaceAttachment> {
     if (this.#sourceRetirementOwned) {
       throw new Error('Indexer canonical source retirement owns attachment admission.');

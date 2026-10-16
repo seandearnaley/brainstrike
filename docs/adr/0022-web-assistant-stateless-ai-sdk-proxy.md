@@ -170,6 +170,25 @@ described this change, not a lasting decision. Owner decision on BST-1940:
   collection and thread deletion, then chat. Web runs on PGlite until sqlite-wasm
   ships the pool-init fix; then the app is wired and PGlite retires from web.
 
+## Amendment (2026-10-16): the web file index runs in its own worker (BST-1940)
+
+Owner decision: the web workspace file index (the indexer's scoped store, binary
+codes in JavaScript with SQLite rescoring, and the 25K-chunk cap) runs in a
+dedicated index worker that the browser state writer starts.
+
+- It keeps its own OPFS pool, under the writer's Web Lock lease. There is no second
+  lease, so the index moves with the writer between tabs.
+- A chat append never waits behind indexing, as on desktop, where the workspace
+  index is a store and process apart from the state writer.
+- Factory reset retires both pools. Embedding stays outside the indexer.
+- The worker runs desktop's canonical ingestion host through its browser entry,
+  with the browser chunker. The source is File System Access handles, and the
+  catalog is the state writer's source catalog. No second web indexer exists.
+
+Rejected: the file index inside the writer worker, because chat writes would
+wait behind publication, and an index worker with its own lease, because it
+duplicates the lease and forwarding.
+
 ## Alternatives considered
 
 - **Web becomes a real host client against a hosted host.** The only option that

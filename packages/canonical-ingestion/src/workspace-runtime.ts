@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import {
   WorkspaceIndexingCoordinator,
   type WorkspaceIndexingCoordinatorService,
@@ -164,7 +163,7 @@ export class CanonicalWorkspaceIngestionRuntime {
         this.dependencies.onError('watch', new Error(signal.message));
       },
       this.dependencies.onWatchHealth,
-      { requestId: randomUUID(), signal: this.watching.signal }
+      { requestId: crypto.randomUUID(), signal: this.watching.signal }
     );
     if (!this.closing) {
       this.trigger();
@@ -195,7 +194,7 @@ export class CanonicalWorkspaceIngestionRuntime {
       throw new Error('Workspace pass is closed or still owned.');
     }
     const controller = new AbortController();
-    const context = { requestId: randomUUID(), signal: controller.signal };
+    const context = { requestId: crypto.randomUUID(), signal: controller.signal };
     const active: ActivePass = {
       context,
       controller,

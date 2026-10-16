@@ -1,8 +1,6 @@
+import { type CanonicalChunker, canonicalChunker } from '../canonical';
 import { babelAdapter } from '../parsers/babel-adapter';
 import { oxcNativeAdapter } from '../parsers/oxc-native-adapter';
-import { treeSitterAdapter } from '../parsers/tree-sitter-adapter';
-import { chunkContent, type PortableChunkingResult } from '../portable-chunking';
-import type { ChunkingRequestOptions } from '../shared';
 
 export type { ChunkSkipCode, PortableChunkingResult } from '../portable-chunking';
 export type { ChunkingRequestOptions, PortableChunk } from '../shared';
@@ -15,10 +13,7 @@ export type { ChunkingRequestOptions, PortableChunk } from '../shared';
 export interface NodeChunkerOptions {
   readonly parser: 'oxc' | 'babel';
 }
-export type NodeChunker = (
-  content: string,
-  options: ChunkingRequestOptions & { fileName?: string; filePath?: string }
-) => Promise<PortableChunkingResult>;
+export type NodeChunker = CanonicalChunker;
 
 /** Execute the production algorithm in its utility/CLI owner, with explicit parser capabilities. */
 export function createNodeChunker(options: NodeChunkerOptions): NodeChunker {
@@ -28,11 +23,5 @@ export function createNodeChunker(options: NodeChunkerOptions): NodeChunker {
   if (options.parser !== 'oxc' && options.parser !== 'babel') {
     throw new Error('Canonical Node parser configuration is invalid.');
   }
-  const codeAdapter = options.parser === 'oxc' ? oxcNativeAdapter : babelAdapter;
-  const pythonAdapter = treeSitterAdapter('python');
-  return (content, chunkOptions) =>
-    chunkContent(content, chunkOptions, {
-      selectAdapter: (fileName) => (/\.pyi?$/i.test(fileName ?? '') ? pythonAdapter : codeAdapter),
-      strict: true,
-    });
+  return canonicalChunker(options.parser === 'oxc' ? oxcNativeAdapter : babelAdapter);
 }

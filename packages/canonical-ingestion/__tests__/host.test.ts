@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { createNodeChunker } from '@brainstrike/chunking-worker/node';
 import { describe, expect, it, vi } from 'vitest';
 import { CanonicalIngestionHost } from '../src/host.js';
 import type { CanonicalManifestFile, CanonicalSourceFile } from '../src/ports.js';
@@ -722,7 +723,7 @@ describe('chunker-ineligible content through the canonical scan', () => {
       );
       const host = new CanonicalIngestionHost({
         catalog: f.catalog,
-        parser: { parser: 'oxc' },
+        chunker: createNodeChunker({ parser: 'oxc' }),
         publication: f.publication,
         source: f.source,
       });
@@ -815,8 +816,8 @@ describe('workspace content eligibility through the canonical scan', () => {
       );
       const host = new CanonicalIngestionHost({
         catalog: f.catalog,
+        chunker: createNodeChunker({ parser: 'oxc' }),
         managedCollectionId: f.file.embeddingSetId,
-        parser: { parser: 'oxc' },
         publication: f.publication,
         source,
       });
