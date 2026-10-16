@@ -137,7 +137,7 @@ function sandboxedAppSource(): string {
       top.postMessage({id:'protocol-failure',jsonrpc:'2.0',method:'tools/list',params:{}},'*');
     };
     app.onteardown=async(_params,extra)=>{
-      if(String(extra.requestId).startsWith('pending-')){
+      if(String(extra.mcpReq.id).startsWith('pending-')){
         return await new Promise(()=>{});
       }
       return {released:true};
@@ -890,6 +890,8 @@ async function buildHarness(directory: string, serverOrigin: string): Promise<st
     entryPoints: [appEntryPath],
     format: 'iife',
     logLevel: 'silent',
+    // Match the vendor's production app build while preserving the 1 MiB resource cap.
+    minify: true,
     platform: 'browser',
     target: 'chrome136',
     write: false,

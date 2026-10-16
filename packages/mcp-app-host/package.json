@@ -3,8 +3,9 @@
   "description": "Strict stable MCP Apps extension contracts for the Brainstrike host",
   "version": "0.1.0",
   "dependencies": {
+    "@modelcontextprotocol/client": "catalog:",
     "@modelcontextprotocol/core": "catalog:",
-    "@modelcontextprotocol/ext-apps": "1.7.5",
+    "@modelcontextprotocol/ext-apps": "2.0.3",
     "zod": "catalog:"
   },
   "devDependencies": {
