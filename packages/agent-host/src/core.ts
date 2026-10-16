@@ -609,7 +609,11 @@ export class HostCore {
       run.task = beginHostRun(run, admission, {
         commit: (events) => this.append(run.threadId, events, 'full', this.foldRows),
         fail: (detail) => this.finish(run, 'failed', detail),
-        loop: (model) => this.loop(run, model),
+        loop: (model) => {
+          // The prompt passed its UserPromptSubmit hooks: its title is generated beside the answer.
+          this.presentations.request(run, this.runs.values());
+          return this.loop(run, model);
+        },
       });
       // Stop/close joins this task; retain failures rather than leaking rejections.
       run.task.catch(() => undefined);
@@ -904,7 +908,8 @@ export class HostCore {
   }
 
   private closeRunOwner(run: Run): Promise<void> {
-    run.ownerClose ??= closeHostRunResources(run);
+    // The title request uses the run's admission: it is joined before the admission closes.
+    run.ownerClose ??= this.presentations.join(run).then(() => closeHostRunResources(run));
     return run.ownerClose;
   }
 
@@ -929,16 +934,14 @@ export class HostCore {
     detail?: string,
     wakes = true
   ): Promise<void> {
-    // A completed run asks for its thread's title while its admission is still live.
-    const titling =
-      outcome === 'completed' ? this.presentations.request(run, this.runs.values()) : undefined;
+    // While its admission is live: a completed run asks for a title, a failed one withdraws it.
+    this.presentations.finishing(run, outcome, this.runs.values());
     return finishHostRunWithProviderBilling(
       run,
       outcome,
       detail,
       () => this.closing,
-      (owned) =>
-        titling ? titling.then(() => this.closeRunOwner(owned)) : this.closeRunOwner(owned),
+      (owned) => this.closeRunOwner(owned),
       () => this.read(run.threadId, 0),
       async (event, commit) =>
         this.append(run.threadId, await hostRunTerminalEvents(run, event), 'full', (rows) => {

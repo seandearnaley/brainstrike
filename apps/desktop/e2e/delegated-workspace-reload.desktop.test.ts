@@ -190,9 +190,9 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await expect(rootPanel.getByText('Root fixture ready.', { exact: true })).toBeVisible({
     timeout: E2E_TIMEOUTS.messageVisibility,
   });
-  expect(modelProvider.requests()[0]?.toolNames, 'The root must offer Worker').toContain(
-    'agent-worker'
-  );
+  // The root's first turn; the thread's title request runs beside it.
+  const rootTurn = modelProvider.requests().find(({ toolNames }) => toolNames.length > 0);
+  expect(rootTurn?.toolNames, 'The root must offer Worker').toContain('agent-worker');
   // Two Workers under the root, a third under the first, and no run left in progress.
   await expect
     .poll(async () => {

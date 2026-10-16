@@ -26,6 +26,7 @@ import { jsonValue } from '../src/json-value.js';
 import { createProductionHostPlatform } from '../src/production-platform.js';
 import type { HostEvent } from '../src/protocol.js';
 import { HOST_THREAD_TITLE_INSTRUCTIONS } from '../src/thread-presentation-state.js';
+import { openAIResponsesJson } from './fixtures/provider-responses.js';
 
 const candidate = join(import.meta.dirname, '../../..');
 const review = z
@@ -768,8 +769,15 @@ test('production provider middleware removes host-identified aborted items witho
 
 test('production expired-item HTTP failure retains the typed decision boundary and sends no implicit replay', async (context) => {
   const requests: unknown[] = [];
+  let titleRequests = 0;
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
-    requests.push(await new Request(input, init).json());
+    const body: unknown = await new Request(input, init).json();
+    if (JSON.stringify(body).includes(HOST_THREAD_TITLE_INSTRUCTIONS)) {
+      // The untitled thread's title request, made beside the run's answer.
+      titleRequests += 1;
+      return openAIResponsesJson('gpt-6-sol', 'Offline title');
+    }
+    requests.push(body);
     return Response.json(
       {
         error: {
@@ -786,7 +794,10 @@ test('production expired-item HTTP failure retains the typed decision boundary a
   try {
     const result = await host.run('continue');
     expect(result.terminal.outcome).toBe('failed');
-    expect(fetch).toHaveBeenCalledTimes(1);
+    // Exactly one run request (no implicit replay), beside the one title request.
+    expect(requests).toHaveLength(1);
+    expect(titleRequests).toBe(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
     expect(z.object({ store: z.literal(true) }).parse(requests[0]).store).toBe(true);
     const errors = result.events.flatMap((event) =>
       event.type === 'stream.chunk' &&
@@ -832,7 +843,8 @@ test.for([
   'production OpenRouter $label cost keeps its typed meaning in committed SDK metadata',
   async ({ cost, expected }, context) => {
     const modelId = 'qwen/qwen3.8-max';
-    const requests: unknown[] = [];
+    const runRequests: unknown[] = [];
+    const titleRequests: unknown[] = [];
     const usage = {
       completion_tokens: 2,
       prompt_tokens: 3,
@@ -859,9 +871,9 @@ test.for([
       const request = new Request(input, init);
       expect(request.url).toBe('https://openrouter.ai/api/v1/chat/completions');
       const body: unknown = await request.json();
-      requests.push(body);
       if ((body as { stream?: unknown }).stream !== true) {
-        // The completed first run's thread-title request is not streamed.
+        // The untitled thread's title request, made beside the run's answer, is not streamed.
+        titleRequests.push(body);
         return Response.json({
           choices: [
             {
@@ -876,6 +888,7 @@ test.for([
           usage: { completion_tokens: 2, prompt_tokens: 3, total_tokens: 5 },
         });
       }
+      runRequests.push(body);
       return new Response(
         `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('')}data: [DONE]\n\n`,
         { headers: { 'content-type': 'text/event-stream' } }
@@ -889,18 +902,20 @@ test.for([
     try {
       const result = await host.run('Read README.md');
       expect(result.terminal.outcome).toBe('completed');
-      // The run's request, then the untitled thread's one title request.
+      // The run's one request, and the untitled thread's one title request.
       expect(fetch).toHaveBeenCalledTimes(2);
+      expect(runRequests).toHaveLength(1);
+      expect(titleRequests).toHaveLength(1);
       expect(
-        z.object({ messages: z.array(z.json()), model: z.literal(modelId) }).parse(requests[1])
+        z.object({ messages: z.array(z.json()), model: z.literal(modelId) }).parse(titleRequests[0])
           .messages
       ).toEqual([
         { content: [{ text: HOST_THREAD_TITLE_INSTRUCTIONS, type: 'text' }], role: 'system' },
-        { content: 'Read README.md', role: 'user' },
+        { content: '<message>\nRead README.md\n</message>', role: 'user' },
       ]);
       const body = z
         .object({ messages: z.array(z.json()), model: z.literal(modelId), stream: z.literal(true) })
-        .parse(requests[0]);
+        .parse(runRequests[0]);
       expect(body.messages).toEqual([{ content: 'Read README.md', role: 'user' }]);
       const steps = result.events.flatMap((event) =>
         event.type === 'stream.chunk' &&
