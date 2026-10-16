@@ -1266,6 +1266,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@effect/tsgo':
+        specifier: 'catalog:'
+        version: 0.53.1
       '@electric-sql/pglite':
         specifier: 'catalog:'
         version: 0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6)
@@ -1982,12 +1985,18 @@ importers:
         specifier: 'catalog:'
         version: 4.0.5
     devDependencies:
+      '@brainstrike/config':
+        specifier: workspace:*
+        version: link:../config
       '@brainstrike/secure-fs-native':
         specifier: workspace:*
         version: link:../secure-fs-native
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@effect/tsgo':
+        specifier: 'catalog:'
+        version: 0.53.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -4326,6 +4335,9 @@ importers:
       '@vitest/browser-playwright':
         specifier: 'catalog:'
         version: 5.0.5(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.5)
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       better-sqlite3:
         specifier: 'catalog:'
         version: 13.0.3
@@ -4405,6 +4417,9 @@ importers:
       '@vitest/browser-playwright':
         specifier: 'catalog:'
         version: 5.0.5(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.5)
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       esbuild:
         specifier: 'catalog:'
         version: 0.28.2

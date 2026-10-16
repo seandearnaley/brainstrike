@@ -3,7 +3,17 @@
   "compilerOptions": {
     "composite": true, "declaration": true, "declarationMap": true,
     "incremental": true, "outDir": "dist", "rootDir": "src",
-    "tsBuildInfoFile": "./dist/.tsbuildinfo", "types": ["node"]
+    "tsBuildInfoFile": "./dist/.tsbuildinfo", "types": ["node"],
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "diagnosticSeverity": {
+          "apiStabilityLeak": "error",
+          "experimentalApiUsage": "error",
+          "unstableApiUsage": "error"
+        }
+      }
+    ]
   },
   "include": ["src/**/*.ts"],
   "exclude": ["dist", "node_modules", "__tests__"]
