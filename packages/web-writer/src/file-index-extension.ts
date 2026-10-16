@@ -8,8 +8,8 @@ import {
   fileIndexFailure,
 } from './file-index-protocol';
 
-/** Version 4: VECTOR ingestion, with `files.configure`'s embedding worker. */
-export const FILE_INDEX_EXTENSION_ID = 'file-index@4';
+/** Version 5: `files.embedQuery`, a semantic search query's vector. */
+export const FILE_INDEX_EXTENSION_ID = 'file-index@5';
 
 interface Pending {
   readonly reject: (error: Error) => void;
@@ -102,6 +102,8 @@ class FileIndexWorker {
  *   preferences; the store opens, or reopens, under their partition;
  * - `files.reauthorize`, which reopens the store under the catalogs'
  *   current authority;
+ * - `files.embedQuery`, which embeds a semantic search query with the saved
+ *   collection's model, for `files.searchScopes` to search;
  * - `files.scan`, which ingests a live root's folder, as the tab hands it
  *   over, through canonical ingestion and answers with its receipt.
  */
@@ -132,6 +134,10 @@ export const fileIndexExtension: WebStateExtension = {
           kind: 'configure',
           preferences,
         });
+      },
+      'files.embedQuery': (params) => {
+        const { query } = params as { readonly query: string };
+        return worker.send({ kind: 'embed-query', query });
       },
       'files.reauthorize': () => worker.send({ kind: 'reauthorize' }),
       'files.scan': (params) => {

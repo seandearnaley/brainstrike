@@ -411,6 +411,45 @@ describe('vectors in the file index worker', () => {
     expect(hits[1]?.score).toBeGreaterThan(0);
   });
 
+  it("embeds a search query with the saved model's query prompt, and searches with it", async () => {
+    const { folder, rootId } = await grantedFolder({
+      'notes.md': '# Otters\n\nA wholly different note about otters.\n',
+      'one.ts': 'export const marker = "narwhal";\n',
+    });
+    const tab = await openTab(storeConfig());
+    await register(tab, rootId);
+    // bge-small's catalog row states a query prompt and no document prompt.
+    const saved = await collection(tab);
+    const index = new WebFileIndex(tab);
+    await expect(index.embedQuery('narwhal')).rejects.toThrow('no Search & Indexing settings');
+    await index.configure(savedPreferences());
+    await expect(index.embedQuery('narwhal')).rejects.toThrow('needs VECTOR search');
+
+    await index.configure(
+      savedPreferences({
+        managedCollectionId: saved,
+        nativeIndexMode: 'VECTOR',
+        nativeLocalSelection: { ...MINILM_SELECTION, modelId: 'Xenova/bge-small-en-v1.5' },
+      }),
+      embedder(384)
+    );
+    expect(await index.scan(rootId, folder)).toMatchObject({ scanComplete: true });
+    const { profile, vector } = await index.embedQuery('narwhal');
+    expect(profile).toMatchObject({ dimensions: 384, modelId: 'Xenova/bge-small-en-v1.5' });
+    expect(vector).toEqual(
+      expectedVector('Represent this sentence for searching relevant passages: narwhal', 384)
+    );
+    const { hits } = await index.searchScopes({
+      limit: 10,
+      mode: 'vector',
+      profile,
+      scopes: [{ kind: 'workspace', rootId }],
+      vector,
+    });
+    expect(hits.map((hit) => hit.relativePath).sort()).toEqual(['notes.md', 'one.ts']);
+    await expect(index.embedQuery('  ')).rejects.toThrow('needs text');
+  });
+
   it('refuses a hosted collection visibly: the browser has no hosted embedder', async () => {
     const { folder, rootId } = await grantedFolder({ 'one.ts': 'export const one = 1;\n' });
     const tab = await openTab(storeConfig());
@@ -425,5 +464,6 @@ describe('vectors in the file index worker', () => {
       embedder(1536)
     );
     await expect(index.scan(rootId, folder)).rejects.toThrow('unsupported for provider openai');
+    await expect(index.embedQuery('one')).rejects.toThrow('no embedder for provider openai');
   });
 });

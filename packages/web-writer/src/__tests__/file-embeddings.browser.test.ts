@@ -136,6 +136,18 @@ describe('the file index worker embeds documents through the shared embedding st
       });
   });
 
+  it("embeds a search query with the model's query prompt, on the plan it is given", async () => {
+    const host = startHost();
+    const { texts: _texts, ...plan } = payload([]);
+    await expect(
+      host.call({ kind: 'query', payload: { ...plan, query: 'kestrel' } })
+    ).resolves.toEqual(expectedVector('query: kestrel'));
+    // The same plan's documents still embed with the document prompt.
+    await expect(host.call({ kind: 'embed', payload: payload(['kestrel']) })).resolves.toEqual([
+      expectedVector('passage: kestrel'),
+    ]);
+  });
+
   it('refuses vectors that differ from the plan', async () => {
     const host = startHost();
     // The model yields three dimensions; the plan states four.
@@ -143,6 +155,10 @@ describe('the file index worker embeds documents through the shared embedding st
     const { revision: _revision, ...unpinned } = wide.inferencePlan;
     await expect(
       host.call({ kind: 'embed', payload: { ...wide, inferencePlan: unpinned } })
+    ).rejects.toThrow(/invalid model, dimensions or vector values/u);
+    const { texts: _texts, ...plan } = wide;
+    await expect(
+      host.call({ kind: 'query', payload: { ...plan, inferencePlan: unpinned, query: 'text' } })
     ).rejects.toThrow(/invalid model, dimensions or vector values/u);
   });
 

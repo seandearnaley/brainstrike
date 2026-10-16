@@ -44,8 +44,9 @@ them from its storage, and the browser's index takes them as a tab hands them
 over (`files.configure`), since a worker cannot read the tab's storage. Their
 partition, with its authority and the retirement of rows no binding owns at
 every open, is `index-partition.ts`. The browser's index embeds a local model
-in embedding workers of its own, from the tab's embedding worker URL; a hosted
-collection has no embedder there and refuses. A transaction rejects stale preparation and atomically
+in embedding workers of its own, from the tab's embedding worker URL, and a
+semantic search query embeds there too (`files.embedQuery`, with the model's
+query prompt); a hosted collection has no embedder there and refuses. A transaction rejects stale preparation and atomically
 changes chunks, text indexes, vectors and graph data. Complete catalog inventories,
 acknowledged bindings and source revisions authorize publication/removal; a path
 match or partial scan is not authority.
