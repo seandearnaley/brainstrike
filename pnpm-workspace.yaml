@@ -62,7 +62,7 @@ catalog:
   '@eslint-community/regexpp': 4.12.2
   '@fontsource-variable/geist': ^5.3.0
   '@fontsource-variable/geist-mono': ^5.3.0
-  '@huggingface/transformers': ^4.3.0
+  '@huggingface/transformers': ^4.3.1
   '@mastra/schema-compat': 1.3.15
   # GHSA-6qxp-vccf-f47h / CVE-2026-104850 (HIGH, CVSS 7.5): in 2.0.0-2.1.0 the
   # MCP *server* chose which authorization server received a stored
@@ -170,7 +170,7 @@ catalog:
   minimatch: ^10.2.6
   node-addon-api: 8.9.2
   node-gyp: 13.0.2
-  oxc-parser: ^0.144.0
+  oxc-parser: ^0.154.0
   # BST-1659: optional peer of @vitejs/plugin-react and the ONLY backend its
   # `react({ compiler: <options> })` plugin has — it imports this package and hard-errors
   # when it is missing. Both apps pass an options object rather than `true`.
@@ -362,9 +362,9 @@ patchedDependencies:
   # Requalify these together instead of weakening cleanup or storage ownership.
   '@mastra/memory@1.32.1': patches/@mastra__memory@1.32.1.patch
   '@assistant-ui/core@0.3.17': patches/@assistant-ui__core@0.3.17.patch
-  '@huggingface/transformers@4.3.0': patches/@huggingface__transformers@4.3.0.patch
   '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch
   app-builder-lib@26.17.0: patches/app-builder-lib@26.17.0.patch
   vscode-jsonrpc@9.0.3: patches/vscode-jsonrpc@9.0.3.patch
   '@electric-sql/pglite@0.5.10': patches/@electric-sql__pglite@0.5.10.patch
   '@mastra/core@1.71.0': patches/@mastra__core@1.71.0.patch
+  '@huggingface/transformers@4.3.1': patches/@huggingface__transformers@4.3.1.patch

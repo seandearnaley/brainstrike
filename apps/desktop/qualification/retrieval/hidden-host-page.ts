@@ -6,6 +6,8 @@
  * from the product's own Transformers.js build, imported from the same assets.
  */
 import { StreamingEmbeddingWorkerClient } from '@brainstrike/embedding-worker';
+import { readOnnxWasmPathsFragment } from '@brainstrike/indexing-contract';
+import type { OnnxWasmPaths } from '@brainstrike/types';
 
 interface VendorTensor {
   readonly data: ArrayLike<number>;
@@ -43,6 +45,11 @@ interface VendorTransformers {
   AutoTokenizer: {
     // biome-ignore lint/style/useNamingConvention: Transformers.js API name.
     from_pretrained(model: string, options: { revision: string }): Promise<VendorTokenizer>;
+  };
+  readonly env: {
+    readonly backends: {
+      readonly onnx: { readonly wasm?: { wasmPaths?: OnnxWasmPaths } };
+    };
   };
   pipeline(
     task: 'feature-extraction',
@@ -116,6 +123,12 @@ const integers = (tensor: VendorTensor): number[][] =>
 /** Installs `window.qualification` over the production worker and Transformers.js assets. */
 export async function install(transformersUrl: string, workerUrl: string): Promise<void> {
   const transformers = (await import(/* @vite-ignore */ transformersUrl)) as VendorTransformers;
+  const onnxPaths = readOnnxWasmPathsFragment(new URL(workerUrl).hash);
+  const wasm = transformers.env.backends.onnx.wasm;
+  if (!(onnxPaths && wasm)) {
+    throw new Error('Hidden-host qualification requires app-served ONNX Runtime WASM URLs.');
+  }
+  wasm.wasmPaths = { mjs: onnxPaths.mjs, wasm: onnxPaths.wasm };
   const client = new StreamingEmbeddingWorkerClient({ workerUrl });
   let tokenizer: VendorTokenizer | undefined;
   const page: QualificationPage = {
