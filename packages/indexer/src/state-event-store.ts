@@ -412,13 +412,17 @@ export class StateEventStore {
     return true;
   }
 
-  /** Resets the thread's projection; the caller re-projects it in bounded catch-up steps. */
+  /**
+   * Re-projects the thread from its first event: its vectors are invalidated and
+   * its cursor reset, and the caller's bounded catch-up steps then overwrite every
+   * row (`replace` upserts each row with its references, search row and text
+   * index). No request deletes the thread's whole projection at once.
+   */
   rebuild(input: unknown): boolean {
     const threadId = decoder(Schema.NonEmptyString)(input);
     this.messages.invalidate(threadId);
     this.db.transaction(() => {
       this.observations.invalidate(threadId);
-      this.db.prepare('DELETE FROM state_event_rows WHERE thread_id=?').run(threadId);
       this.db.prepare('DELETE FROM state_thread_cursors WHERE thread_id=?').run(threadId);
     })();
     this.messages.finishCleanup();
