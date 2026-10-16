@@ -11,6 +11,7 @@ import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { createGrepLineMatcher } from '@brainstrike/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetRipgrepAvailabilityForTests, runLiveGrep } from '../../assistant-server/live-grep';
+import { discoverRipgrepPathForTests, runRipgrep } from '../../assistant-server/live-grep-ripgrep';
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();
@@ -208,6 +209,19 @@ describe('runLiveGrep — agent ignore files (BST-1432)', () => {
       'src/enrich.ts',
     ]);
     expect(JSON.stringify(result)).not.toMatch(/SECRET/);
+  });
+
+  it('keeps credential files out of ripgrep itself, so they never read or spend its cap', async () => {
+    const ripgrepPath = await discoverRipgrepPathForTests();
+    expect(ripgrepPath).not.toBeNull();
+    const dir = await makeWorkspace(credentialed);
+    const run = await runRipgrep({
+      canonicalRootPath: dir,
+      caseSensitive: false,
+      prefilterLiteral: 'enrichment',
+      ripgrepPath: ripgrepPath ?? '',
+    });
+    expect([...run.candidatePaths].sort()).toEqual(['.env.example', 'src/enrich.ts']);
   });
 
   it('never searches credential files on the JS-walk engine either', async () => {

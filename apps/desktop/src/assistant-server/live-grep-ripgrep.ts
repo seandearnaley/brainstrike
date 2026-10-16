@@ -7,8 +7,10 @@
  * this module's public surface for existing consumers.
  */
 import { execFile } from 'node:child_process';
-import { constants as fsConstants } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { constants as fsConstants, writeFileSync } from 'node:fs';
 import fsPromises from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { extractTrigramLiteral } from '@brainstrike/db';
@@ -16,7 +18,30 @@ import { trackNativeChild } from '@brainstrike/state-store/native-children';
 import {
   BALANCED_UNCONDITIONAL_EXCLUDED_DIRECTORY_SEGMENTS,
   UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES,
+  WORKSPACE_SECRET_FILE_PATTERNS,
 } from '@brainstrike/utils';
+
+let credentialFloorFile: string | undefined;
+
+/**
+ * The shared credential floor as a gitignore-syntax file for ripgrep's
+ * `--ignore-file`, so rg never opens a credential file nor spends its candidate
+ * cap on one before the JS matcher drops it. `--glob` cannot carry the floor's
+ * template re-includes (a positive glob turns rg into a whitelist), and
+ * `--no-ignore` does not disable `--ignore-file`. Written once per process,
+ * named by its contents.
+ */
+function credentialFloorIgnoreFile(): string {
+  if (credentialFloorFile !== undefined) {
+    return credentialFloorFile;
+  }
+  const contents = `${WORKSPACE_SECRET_FILE_PATTERNS.join('\n')}\n`;
+  const digest = createHash('sha256').update(contents).digest('hex').slice(0, 16);
+  const file = path.join(os.tmpdir(), `brainstrike-credential-floor-${digest}.ignore`);
+  writeFileSync(file, contents, { mode: 0o644 });
+  credentialFloorFile = file;
+  return file;
+}
 
 /**
  * ripgrep executable name(s) to look for. On Windows the binary is `rg.exe`; on
@@ -218,6 +243,9 @@ function buildRipgrepArgs(args: {
     // Always fixed-strings: rg is a literal SUPERSET prefilter only; the
     // authoritative literal/regex match is re-derived by the shared JS matcher.
     '--fixed-strings',
+    // The credential floor binds rg itself, in every mode, including the
+    // excluded-path probe: it is beneath every layer, never re-includable.
+    `--ignore-file=${credentialFloorIgnoreFile()}`,
   ];
   // Prune the directories the indexer policy excludes UNCONDITIONALLY by name
   // at ANY depth. `--no-ignore --hidden` would otherwise make rg DESCEND into

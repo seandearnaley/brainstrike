@@ -84,7 +84,7 @@ const HARD_LAYERS = [
  * (BST-1429), so a gitignored `.env.local` was otherwise searchable, and on
  * 2026-10-16 a grep context line carried its API key to the provider.
  */
-const SECRET_FILES = ignore().add([
+export const WORKSPACE_SECRET_FILE_PATTERNS: readonly string[] = Object.freeze([
   '.env',
   '.env.*',
   '!.env.example',
@@ -94,6 +94,8 @@ const SECRET_FILES = ignore().add([
   '*.key',
   'id_rsa*',
 ]);
+
+const SECRET_FILES = ignore().add([...WORKSPACE_SECRET_FILE_PATTERNS]);
 
 /** Whether a workspace-relative POSIX path is a credential file under the floor. */
 export function isWorkspaceSecretFile(relativePath: string, asDirectory = false): boolean {
