@@ -133,6 +133,15 @@ test('a grep the index cannot serve refuses with its fixed, model-readable reaso
     message: 'The search index could not prepare its sources.',
   });
   expect(JSON.stringify(boundary)).not.toContain('/Users/someone');
+  // The diagnostic stays in Main's log, under the refusal's correlation id.
+  expect(log).toHaveBeenCalledWith(
+    'Native index refusal retained its original cause',
+    expect.objectContaining({
+      cause: expect.objectContaining({ message: 'EACCES /Users/someone/private/profile' }),
+      correlationId: boundary.correlationId,
+    })
+  );
+  expect(boundary.correlationId).toEqual(expect.any(String));
   const f = fixture();
   await expect(f.search({ embeddingSetId: 'other', pattern: 'needle' })).rejects.toMatchObject({
     failure: { category: 'input', kind: 'refusal' },
