@@ -378,7 +378,7 @@ overrides:
 
 patchedDependencies:
   '@assistant-ui/core@0.3.17': 549173d35294b059b61150d1106e3d1e4dcac33281cdf39f2f510d1dcb53e1e6
-  '@electric-sql/pglite@0.5.10': 831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000
+  '@electric-sql/pglite@0.5.10': 8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6
   '@huggingface/transformers@4.3.0': a572be510cf95f8a4974ce5aeffe247c5faa0a595e23015ad5f9012cfaab0155
   '@mastra/core@1.71.0': 1d99591e79c438ba36ca2ea5456588c7aa60bdf1520aa954bc2e475218cb9256
   '@mastra/memory@1.32.1': f7befcfb44f11beb53a614da33214230578faf7791902115cf7087a666b52532
@@ -629,13 +629,13 @@ importers:
         version: link:../../packages/workspace-search
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000)
+        version: 0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6)
       '@electric-sql/pglite-pg_textsearch':
         specifier: 'catalog:'
-        version: 0.0.12(@electric-sql/pglite@0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000))
+        version: 0.0.12(@electric-sql/pglite@0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6))
       '@electric-sql/pglite-pgvector':
         specifier: 'catalog:'
-        version: 0.0.11(@electric-sql/pglite@0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000))
+        version: 0.0.11(@electric-sql/pglite@0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6))
       '@fontsource-variable/geist':
         specifier: 'catalog:'
         version: 5.3.0
@@ -972,10 +972,10 @@ importers:
         version: link:../../packages/utils
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000)
+        version: 0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6)
       '@electric-sql/pglite-pgvector':
         specifier: 'catalog:'
-        version: 0.0.11(@electric-sql/pglite@0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000))
+        version: 0.0.11(@electric-sql/pglite@0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6))
       '@fontsource-variable/geist':
         specifier: 'catalog:'
         version: 5.3.0
@@ -1268,10 +1268,10 @@ importers:
         version: link:../test-utils
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000)
+        version: 0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6)
       '@electric-sql/pglite-pgvector':
         specifier: 'catalog:'
-        version: 0.0.11(@electric-sql/pglite@0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000))
+        version: 0.0.11(@electric-sql/pglite@0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6))
       '@modelcontextprotocol/node':
         specifier: 'catalog:'
         version: 2.1.1(@modelcontextprotocol/server@2.3.1)
@@ -2138,16 +2138,16 @@ importers:
         version: link:../utils
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000)
+        version: 0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6)
       '@electric-sql/pglite-pg_textsearch':
         specifier: 'catalog:'
-        version: 0.0.12(@electric-sql/pglite@0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000))
+        version: 0.0.12(@electric-sql/pglite@0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6))
       '@electric-sql/pglite-pgvector':
         specifier: 'catalog:'
-        version: 0.0.11(@electric-sql/pglite@0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000))
+        version: 0.0.11(@electric-sql/pglite@0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6))
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.4(@electric-sql/pglite@0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000))(@opentelemetry/api@1.9.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)
+        version: 0.45.4(@electric-sql/pglite@0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6))(@opentelemetry/api@1.9.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)
       effect:
         specifier: 'catalog:'
         version: 4.0.5
@@ -2467,7 +2467,7 @@ importers:
         version: 0.53.1
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000)
+        version: 0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6)
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -2670,7 +2670,7 @@ importers:
         version: link:../workers
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.4(@electric-sql/pglite@0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000))(@opentelemetry/api@1.9.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)
+        version: 0.45.4(@electric-sql/pglite@0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6))(@opentelemetry/api@1.9.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)
       react:
         specifier: ^19.3.1
         version: 19.3.1
@@ -2695,7 +2695,7 @@ importers:
         version: link:../test-utils
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000)
+        version: 0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6)
       '@tanstack/react-virtual':
         specifier: 'catalog:'
         version: 3.14.20(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -2774,7 +2774,7 @@ importers:
         version: link:../test-utils
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000)
+        version: 0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6)
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -3881,7 +3881,7 @@ importers:
         version: link:../worker-runtime
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000)
+        version: 0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6)
       effect:
         specifier: 'catalog:'
         version: 4.0.5
@@ -4254,7 +4254,7 @@ importers:
         version: link:../worker-runtime
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000)
+        version: 0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6)
       lucide-react:
         specifier: 'catalog:'
         version: 1.58.0(@types/react@19.3.0)(react@19.3.1)
@@ -17848,15 +17848,15 @@ snapshots:
       '@effect/tsgo-win32-arm64': 0.53.1
       '@effect/tsgo-win32-x64': 0.53.1
 
-  '@electric-sql/pglite-pg_textsearch@0.0.12(@electric-sql/pglite@0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000))':
+  '@electric-sql/pglite-pg_textsearch@0.0.12(@electric-sql/pglite@0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6))':
     dependencies:
-      '@electric-sql/pglite': 0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000)
+      '@electric-sql/pglite': 0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6)
 
-  '@electric-sql/pglite-pgvector@0.0.11(@electric-sql/pglite@0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000))':
+  '@electric-sql/pglite-pgvector@0.0.11(@electric-sql/pglite@0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6))':
     dependencies:
-      '@electric-sql/pglite': 0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000)
+      '@electric-sql/pglite': 0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6)
 
-  '@electric-sql/pglite@0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000)': {}
+  '@electric-sql/pglite@0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6)': {}
 
   '@electron-internal/extract-zip@1.0.4': {}
 
@@ -23809,9 +23809,9 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.23.12
 
-  drizzle-orm@0.45.4(@electric-sql/pglite@0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000))(@opentelemetry/api@1.9.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3):
+  drizzle-orm@0.45.4(@electric-sql/pglite@0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6))(@opentelemetry/api@1.9.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3):
     optionalDependencies:
-      '@electric-sql/pglite': 0.5.10(patch_hash=831d1fc46ea16de4c7071d15eda662c7a65a05082120b72ac2b9d3174e1ad000)
+      '@electric-sql/pglite': 0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6)
       '@opentelemetry/api': 1.9.1
       '@types/better-sqlite3': 9.6.0
       better-sqlite3: 13.0.3

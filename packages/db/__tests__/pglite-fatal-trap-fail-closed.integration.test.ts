@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it, vi } from 'vitest';
 import { wasmLoader } from '../src/wasm-loader.js';
@@ -11,14 +12,16 @@ interface TrapCapableModule {
   _PostgresMainLoopOnce: () => void;
   _PostgresSendReadyForQueryIfNecessary: () => void;
   _pgl_pq_flush: () => void;
+  stackSave: () => number;
+  stringToUTF8OnStack: (value: string) => number;
 }
 
 // The probe below drives the real synchronous loop. Without the patch that loop
 // never returns, and no timer, Promise.race, or Vitest timeout can interrupt a
 // blocked event loop, so the worker would burn a core until the CI job is
 // killed. Prove the patched loop is what we are about to call before calling it.
-function assertFailClosedPatchApplied(): void {
-  const loopSource = String(PGlite.prototype.execProtocolRawSync);
+function assertFailClosedPatchApplied(engine: typeof PGlite = PGlite): void {
+  const loopSource = String(engine.prototype.execProtocolRawSync);
   if (!loopSource.includes('PGliteFatalTrapError')) {
     throw new Error(
       'patches/@electric-sql__pglite@0.5.10.patch is not applied to @electric-sql/pglite: ' +
@@ -37,6 +40,40 @@ function moduleOf(db: PGlite): TrapCapableModule {
 }
 
 describe('PGlite fail-closed behaviour on a WebAssembly trap', () => {
+  const cjsEngine: typeof PGlite = createRequire(import.meta.url)('@electric-sql/pglite').PGlite;
+  it.each([
+    { engine: PGlite, format: 'ESM' },
+    { engine: cjsEngine, format: 'CJS' },
+  ])(
+    'restores a changed WASM stack before reporting a fatal trap and closing ($format)',
+    async ({ engine }) => {
+      assertFailClosedPatchApplied(engine);
+      const db = await engine.create();
+      const mod = moduleOf(db);
+      const originalLoop = mod._PostgresMainLoopOnce;
+      const savedStack = mod.stackSave();
+      let stackAtTrap: number | undefined;
+      const trap = new WebAssembly.RuntimeError('trap after a native stack allocation');
+      mod._PostgresMainLoopOnce = () => {
+        mod.stringToUTF8OnStack('allocation whose native epilogue did not run');
+        stackAtTrap = mod.stackSave();
+        throw trap;
+      };
+      try {
+        expect(() => db.execProtocolRawSync(new Uint8Array([81, 0, 0, 0, 4]))).toThrowError(
+          expect.objectContaining({ cause: trap, name: 'PGliteFatalTrapError' })
+        );
+        expect(stackAtTrap).toBeDefined();
+        expect(stackAtTrap).not.toBe(savedStack);
+        expect(mod.stackSave()).toBe(savedStack);
+      } finally {
+        mod._PostgresMainLoopOnce = originalLoop;
+        await expect(db.close()).rejects.toMatchObject({ name: 'PGliteFatalTrapError' });
+        expect((db as unknown as { mod?: unknown }).mod).toBeUndefined();
+      }
+    }
+  );
+
   it('throws a named fatal error instead of spinning, poisons later calls, and refuses a clean close', async () => {
     assertFailClosedPatchApplied();
     const db = await wasmLoader.createPGlite('memory://fatal-trap');
