@@ -37,6 +37,7 @@ import {
   SCOPED_INDEX_OPERATIONS,
   type ScopedIndexOperation,
   scopedIndexOperations,
+  vectorProfileHash,
 } from '@brainstrike/indexer/browser';
 import { createLogger } from '@brainstrike/logging';
 import type {
@@ -457,6 +458,22 @@ async function embedQuery(
     modelKey: resolved.modelKey,
     query,
   });
+  // As desktop's retrieval rechecks its saved query profile: settings changed
+  // while the query embedded answer with a refusal, never an outdated profile.
+  const current = resolver();
+  const now =
+    current &&
+    (await current.resolve(
+      { embeddingSetId: vectorCollectionId(settings()), kind: 'collection' },
+      resolveContext()
+    ));
+  if (
+    !now ||
+    now.modelKey !== resolved.modelKey ||
+    vectorProfileHash(now.profile) !== vectorProfileHash(resolved.profile)
+  ) {
+    throw new Error('The saved query profile changed during the query. Retry the query.');
+  }
   return { profile: resolved.profile, vector };
 }
 

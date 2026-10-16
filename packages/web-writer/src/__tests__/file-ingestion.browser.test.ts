@@ -197,9 +197,9 @@ async function collection(
 }
 
 /** The production embedding worker over the synthetic runtime, at a model's dimensions. */
-function embedder(dimensions: number): string {
+function embedder(dimensions: number, delayMs = 0): string {
   const url = new URL(syntheticEmbeddingWorkerUrl, location.href);
-  url.hash = `channel=${crypto.randomUUID()}&dimensions=${dimensions}`;
+  url.hash = `channel=${crypto.randomUUID()}&dimensions=${dimensions}&delay=${delayMs}`;
   return url.href;
 }
 
@@ -448,6 +448,33 @@ describe('vectors in the file index worker', () => {
     });
     expect(hits.map((hit) => hit.relativePath).sort()).toEqual(['notes.md', 'one.ts']);
     await expect(index.embedQuery('  ')).rejects.toThrow('needs text');
+  });
+
+  it('refuses a query whose saved profile changed while it embedded, rather than answer with the old one', async () => {
+    const { folder, rootId } = await grantedFolder({ 'one.ts': 'export const one = 1;\n' });
+    const tab = await openTab(storeConfig());
+    await register(tab, rootId);
+    const minilm = await collection(tab, MINILM);
+    const bge = await collection(tab);
+    const index = new WebFileIndex(tab);
+    const vector = (managedCollectionId: string, modelId: string) =>
+      savedPreferences({
+        managedCollectionId,
+        nativeIndexMode: 'VECTOR',
+        nativeLocalSelection: { ...MINILM_SELECTION, modelId },
+      });
+    // Each batch takes 500 ms, so the query is still embedding when the settings change.
+    const slow = embedder(384, 500);
+    await index.configure(vector(minilm, MINILM_SELECTION.modelId), slow);
+    expect(await index.scan(rootId, folder)).toMatchObject({ scanComplete: true });
+
+    const query = index.embedQuery('one');
+    await index.configure(vector(bge, 'Xenova/bge-small-en-v1.5'), slow);
+    await expect(query).rejects.toThrow('saved query profile changed during the query');
+    // The next query answers under the settings now saved.
+    await expect(index.embedQuery('one')).resolves.toMatchObject({
+      profile: { modelId: 'Xenova/bge-small-en-v1.5' },
+    });
   });
 
   it('refuses a hosted collection visibly: the browser has no hosted embedder', async () => {
