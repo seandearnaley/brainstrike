@@ -114,6 +114,42 @@ describe('TaskListToolCard', () => {
     ).toBeInTheDocument();
   });
 
+  // Live smoke 2026-10-16 (Claude Sonnet 5): the model called the task list
+  // before loading it, and the card read "Updated tasks" with a failed glyph
+  // and no reason, where every other row says why it failed (#3723).
+  it('says why a failed call failed on its row', () => {
+    renderTaskCard({
+      args: {},
+      argsText: '{}',
+      isError: true,
+      result:
+        "AI_NoSuchToolError: Model tried to call unavailable tool 'brainstrike_manageTaskList'.",
+      status: { type: 'complete' },
+      toolCallId: 'tasks-1',
+      toolName: 'brainstrike_manageTaskList',
+    });
+    expect(screen.getByRole('img', { name: 'Failed' })).toBeInTheDocument();
+    expect(screen.getByTestId('tool-failure-reason')).toHaveTextContent(
+      'AI_NoSuchToolError: Model tried to call unavailable tool'
+    );
+  });
+
+  it('reads a declined call as the request it was, never as done', () => {
+    renderTaskCard({
+      args: {},
+      argsText: '{}',
+      result: {
+        kind: 'declined',
+        message: 'The user declined this tool call, so it was not executed.',
+      },
+      status: { type: 'complete' },
+      toolCallId: 'tasks-1',
+      toolName: 'brainstrike.manageTaskList',
+    });
+    expect(screen.getByText('Update tasks')).toBeInTheDocument();
+    expect(screen.queryByText('Updated tasks')).not.toBeInTheDocument();
+  });
+
   it('reads the present-tense verb while the call runs', () => {
     renderTaskCard({
       args: {},

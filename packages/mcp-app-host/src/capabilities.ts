@@ -5,12 +5,12 @@ export const MCP_APPS_SPEC_VERSION = '2026-01-26' as const;
 export const MCP_APPS_MIME_TYPE = 'text/html;profile=mcp-app' as const;
 
 export const MCP_APPS_CONTRACT_SOURCE = Object.freeze({
-  gitCommit: '92f46a574568a3ddac7600343b7d3c4c4ed7b588',
+  gitCommit: '82221c0c8ce7661efa6771c9d461511b1650495f',
   package: '@modelcontextprotocol/ext-apps',
-  packageVersion: '1.7.5',
-  schemaSha256: '002db9178110e644499e781415ee1025e5fde1e54500d14986626ba4a7b5b331',
+  packageVersion: '2.0.3',
+  schemaSha256: 'e9af2289956641a266d99273facb746c2023bae48567d64bb83c63aadecb856f',
   specificationUrl:
-    'https://github.com/modelcontextprotocol/ext-apps/blob/92f46a574568a3ddac7600343b7d3c4c4ed7b588/specification/2026-01-26/apps.mdx',
+    'https://github.com/modelcontextprotocol/ext-apps/blob/82221c0c8ce7661efa6771c9d461511b1650495f/specification/2026-01-26/apps.mdx',
 } as const);
 
 export interface McpAppsClientCapability {

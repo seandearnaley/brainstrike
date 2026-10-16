@@ -845,12 +845,12 @@ test('extraction: reads the real provider declaration and the real mirrors', () 
     `expected the options declaration to expose several top-level fields, read ${upstream.fieldCount}`
   );
   assert.deepEqual(upstream.effort, ['high', 'low', 'max', 'medium', 'xhigh']);
-  assert.deepEqual(upstream.thinkingTypes, ['adaptive', 'disabled', 'enabled']);
+  assert.deepEqual(upstream.thinkingTypes, ['adaptive', 'between_tools', 'disabled', 'enabled']);
   assert.deepEqual(upstream.adaptiveDisplay, ['omitted', 'summarized', 'updates']);
   const agentMirror = mirrors.find((mirror) => mirror.file === 'packages/agent/src/types.ts');
   assert.ok(agentMirror, 'expected the packages/agent mirror to be discovered');
   assert.deepEqual(agentMirror.effort, ['high', 'low', 'max', 'medium', 'xhigh']);
-  assert.deepEqual(agentMirror.thinkingTypes, ['adaptive', 'disabled', 'enabled']);
+  assert.deepEqual(agentMirror.thinkingTypes, ['adaptive', 'between_tools', 'disabled', 'enabled']);
   assert.deepEqual(agentMirror.adaptiveDisplay, ['omitted', 'summarized', 'updates']);
   assert.deepEqual(agentMirror.annotatedVersions, [installedVersion]);
 });

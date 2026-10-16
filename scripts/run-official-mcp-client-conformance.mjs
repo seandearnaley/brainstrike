@@ -20,7 +20,7 @@ import {
   OFFICIAL_AUTH_SCENARIOS_BY_PROTOCOL,
 } from '../packages/assistant-contract/src/official-auth-conformance.ts';
 
-const CONFORMANCE_VERSION = '0.2.0-alpha.10';
+const CONFORMANCE_VERSION = '0.2.0-alpha.12';
 const CLIENT_COMMAND = 'node apps/desktop/dist/official-conformance-client-entry.js';
 const BASELINE_PROFILE = 'baseline';
 const CORE_PROFILE = 'core';

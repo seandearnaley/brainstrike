@@ -6,6 +6,7 @@ import {
   buildOpenAIDuplicateItemCompatInputProcessor,
   OpenAIDuplicateItemCompat,
 } from '../mastra-processors/openai-duplicate-item-compat';
+import { materializeHostProviderModel } from '../providers/model-router-sdk';
 
 const REASONING_EMPTY_ID = 'rs_dup_empty';
 const REASONING_SUMMARY_ID = 'rs_dup_summary';
@@ -382,7 +383,7 @@ describe('OpenAIDuplicateItemCompat', () => {
     });
 
     const result = processPrompt(new OpenAIDuplicateItemCompat(), createDuplicatedPrompt());
-    await provider.responses('gpt-5.6-luna').doGenerate({
+    await materializeHostProviderModel(provider.responses('gpt-5.6-luna')).doGenerate({
       prompt: (result?.prompt ?? []) as LanguageModelV4Prompt,
       providerOptions: { openai: { store: false } },
     });

@@ -428,6 +428,22 @@ describe('cross-tool safety guidance', () => {
     expect(instructions).toMatch(/declined.*continue.*native workspace tools/i);
     expect(instructions).toMatch(/never.*heredoc/i);
   });
+
+  // Live smoke 2026-10-16: "activate it proactively" sent GLM, Qwen and Grok
+  // through a broadly described design skill on plain canvas requests. A skill
+  // is activated when the user's request clearly calls for it, and a script
+  // runs only when the skill's instructions call for it in the task.
+  it('activates a skill when the request clearly calls for it, and runs scripts only when needed', () => {
+    const instructions = buildDefaultInstructions(
+      new Map<string, string>([
+        ['brainstrike_runSkillScript', 'brainstrike.runSkillScript'],
+        ['skill', 'skill'],
+      ])
+    );
+    expect(instructions).not.toMatch(/proactively/i);
+    expect(instructions).toMatch(/when the user's request clearly calls for one/i);
+    expect(instructions).toMatch(/run a listed script only when/i);
+  });
 });
 
 describe('multi-root guidance', () => {

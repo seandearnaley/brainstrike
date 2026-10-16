@@ -25,9 +25,8 @@ import { getProviderEnvKeys } from './registry';
  *
  * Upstream fix belongs in @openrouter/ai-sdk-provider's
  * convert-to-openrouter-chat-messages (still `text || null` on main as of
- * 2026-08-16); until it lands, this gateway resolves the same provider
- * version Mastra bundles (2.10.0, pinned in the workspace catalog) with a
- * request-normalizing fetch.
+ * 2026-08-16). The published 3.1.0 converter still emits `text || null`, so
+ * this gateway retains the request-normalizing fetch with its native V4 model.
  */
 
 const OPENROUTER_ROUTER_PREFIX = 'openrouter/';
@@ -105,9 +104,9 @@ export function createOpenRouterStrictContentFetch(baseFetch?: typeof fetch): ty
  * without it.
  *
  * Resolution parity with the built-in models.dev gateway is deliberate:
- * same provider package + version (guarded by
- * `scripts/__tests__/openrouter-provider-mirror-contract.test.mjs`), same
- * base URL (`OPENROUTER_BASE_URL` env override honored), same missing-auth
+ * The qualified pair is Mastra 1.71.0's vendored 2.10.0 and the native V4
+ * provider 3.1.0 (guarded by `openrouter-provider-mirror-contract.test.mjs`).
+ * Both use the same base URL (`OPENROUTER_BASE_URL` env override honored), missing-auth
  * phrasing — the only delta is the strict-content fetch, pinned by the
  * request-equivalence spec. Everything else the router does
  * (explicit-credential precedence, sampling-param stripping keyed by router
@@ -177,12 +176,8 @@ export class OpenRouterStrictContentGateway implements MastraModelGatewayInterfa
       ...(args.headers ? { headers: args.headers } : {}),
       fetch: createOpenRouterStrictContentFetch(),
     });
-    // The npm package is the exact provider version Mastra bundles for its
-    // own openrouter resolution, so the runtime stream shape (including
-    // providerMetadata cost accounting) is identical; only the declared
-    // @ai-sdk type lineage differs, hence the cast. The provider CALLABLE
-    // (not `.chat()`) is required for parity: it dispatches
-    // `openai/gpt-3.5-turbo-instruct` to the completion model.
-    return provider(args.modelId) as unknown as GatewayLanguageModel;
+    // Mastra's public gateway accepts V4 models. The request-equivalence and
+    // host receipts qualify this provider callable, including raw usage/cost.
+    return provider(args.modelId);
   }
 }

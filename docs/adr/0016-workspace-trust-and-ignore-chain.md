@@ -65,6 +65,6 @@ both grep engines, direct reads (which refuse it by name as a credential file) a
 workspace index scans. Patterns match without case, as the matcher does, and
 ripgrep's floor file spells each letter in both cases. Agent reads that bypass the
 walk check it too: skill listings and reads, line previews of language-server
-targets, and indexed grep and semantic search, which drop any credential chunk
-still stored from before the floor. Shell commands remain governed by the execute
-permission, and a language server's own hover text is not filtered.
+targets, a hover whose symbol resolves into a credential file, and indexed grep and
+semantic search, which drop any credential chunk still stored from before the
+floor. Shell commands remain governed by the execute permission.

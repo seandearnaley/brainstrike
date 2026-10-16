@@ -472,7 +472,7 @@ export async function prepareProviderRequest(
   return { accounting, params: prepared, projectedPrompt, rewrittenToolCallIds };
 }
 
-/** Use with installed ai@7.0.126 wrapLanguageModel; the host retains its one streamText loop. */
+/** Use with installed ai@7.0.142 wrapLanguageModel; the host retains its one streamText loop. */
 export function createProviderRequestMiddleware(options: {
   readonly context: () => ProviderRequestContext | Promise<ProviderRequestContext>;
   readonly onPrepared?: (prepared: PreparedProviderRequest) => void | Promise<void>;

@@ -3,12 +3,16 @@ import { build } from 'esbuild';
 import { expect, it } from 'vitest';
 import { McpAppProvenanceAuthority } from '../src/index.js';
 
-it('admits an unminified official SDK app within the production resource budget', async () => {
+it('admits the official SDK production bundle within the unchanged resource budget', async () => {
   const entry = createRequire(import.meta.url).resolve('@modelcontextprotocol/ext-apps');
   const output = await build({
     bundle: true,
     format: 'iife',
     logLevel: 'silent',
+    // The vendor quickstart minifies production app resources; SDK 2's
+    // unminified development bundle exceeds the unchanged 1 MiB guard.
+    // https://apps.extensions.modelcontextprotocol.io/api/documents/quickstart.html
+    minify: true,
     platform: 'browser',
     stdin: {
       contents: `
