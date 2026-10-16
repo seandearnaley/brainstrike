@@ -45,13 +45,10 @@ export type EmbeddingRuntimeStatus = BackgroundRuntimeStatus<
   readonly embeddingRuntime?: EmbeddingHostRuntimeMetadata;
 };
 
-/**
- * Result of enqueueBackfill. `{ canceled: true }` is returned (desktop only) when
- * the backfill was deliberately canceled before it started — desktop main resolves
- * this instead of rejecting the IPC call (a rejection logs "Error occurred in
- * handler"). The local/web runtime always returns `{ requestId }`.
- */
-export type EnqueueBackfillResult = { requestId: string } | { canceled: true };
+/** Result of enqueueBackfill; a canceled backfill rejects with an AbortError. */
+export interface EnqueueBackfillResult {
+  readonly requestId: string;
+}
 
 export interface EmbeddingRuntimeController {
   cancelAllBackfills: () => Promise<void>;
@@ -93,19 +90,13 @@ function projectDesktopRuntimeStatus(status: EmbeddingHostStatus): EmbeddingRunt
   return runtimeStatus;
 }
 
+/**
+ * The desktop hidden embedding host. It has no backfill queue: the native indexer owns
+ * desktop background embedding, so backfill on this controller is local (web) only.
+ */
 export interface EmbeddingHostApi {
-  readonly cancelAllBackfills?: () => Promise<void>;
-  readonly cancelBackfill?: (embeddingSetId: string) => Promise<void>;
-  readonly enqueueBackfill?: (request: {
-    embeddingSetId: string;
-    source?: EmbeddingRuntimeBackfillSource;
-  }) => Promise<EnqueueBackfillResult>;
   readonly ensureStarted: () => Promise<EmbeddingHostStatus>;
-  readonly getBackfillsInFlight?: () => Promise<EmbeddingRuntimeBackfillInfo[]>;
   readonly getStatus: () => Promise<EmbeddingHostStatus>;
-  readonly onBackfillProgress?: (
-    callback: (progress: EmbeddingRuntimeBackfillProgress) => void
-  ) => () => void;
   readonly onStatus: (callback: (status: EmbeddingHostStatus) => void) => () => void;
   readonly reset: () => Promise<EmbeddingHostStatus>;
   readonly stop: () => Promise<EmbeddingHostStatus>;
@@ -147,15 +138,6 @@ export function getEmbeddingHostApi(): EmbeddingHostApi | null {
   }
   const candidate = (window as Window & { embeddingHost?: unknown }).embeddingHost;
   return isEmbeddingHostApi(candidate) ? candidate : null;
-}
-
-export function hasEmbeddingBackfillCapability(): boolean {
-  const embeddingHost = getEmbeddingHostApi();
-  return Boolean(
-    embeddingHost &&
-      typeof embeddingHost.getBackfillsInFlight === 'function' &&
-      typeof embeddingHost.onBackfillProgress === 'function'
-  );
 }
 
 function createStoppedLocalStatus(runtimeId: string): EmbeddingRuntimeStatus {
@@ -339,19 +321,9 @@ export function useEmbeddingRuntimeController(
       statusStoreRef.current.setStatus(projectDesktopRuntimeStatus(status));
     });
 
-    const cleanupBackfill = desktopHost.onBackfillProgress?.((progress) => {
-      if (disposed) {
-        return;
-      }
-      for (const listener of backfillListenersRef.current) {
-        listener(progress);
-      }
-    });
-
     return () => {
       disposed = true;
       cleanupStatus();
-      cleanupBackfill?.();
     };
   }, [desktopHost]);
 
@@ -442,19 +414,11 @@ export function useEmbeddingRuntimeController(
 
     return {
       cancelAllBackfills: async () => {
-        if (desktopHost?.cancelAllBackfills) {
-          await desktopHost.cancelAllBackfills();
-          return;
-        }
         for (const backfill of localBackfillsRef.current.values()) {
           backfill.abortController.abort();
         }
       },
       cancelBackfill: async (embeddingSetId: string) => {
-        if (desktopHost?.cancelBackfill) {
-          await desktopHost.cancelBackfill(embeddingSetId);
-          return;
-        }
         const backfill = localBackfillsRef.current.get(embeddingSetId);
         if (!backfill) {
           return;
@@ -465,16 +429,10 @@ export function useEmbeddingRuntimeController(
         embeddingSetId: string,
         options?: { signal?: AbortSignal; source?: EmbeddingRuntimeBackfillSource }
       ): Promise<EnqueueBackfillResult> => {
-        const source = options?.source ?? 'manual';
-        if (desktopHost?.enqueueBackfill) {
-          const status = await ensureDesktopHostStarted();
-          if (status.state === 'error') {
-            throw new Error(status.lastError ?? 'Embedding runtime failed to apply host settings.');
-          }
-          return await desktopHost.enqueueBackfill({
-            embeddingSetId,
-            source,
-          });
+        if (desktopHost) {
+          throw new Error(
+            'Desktop background embedding is owned by the native indexer; the embedding host has no backfill queue.'
+          );
         }
         if (!service) {
           throw new Error('Embedding runtime backfill requires a vector queue service.');
@@ -493,19 +451,13 @@ export function useEmbeddingRuntimeController(
         }
         return ensureLocalStarted();
       },
-      getBackfillsInFlight: async () => {
-        if (desktopHost?.getBackfillsInFlight) {
-          return desktopHost.getBackfillsInFlight();
-        }
-        return Array.from(localBackfillsRef.current.entries()).map(
-          ([embeddingSetId, backfill]) => ({
-            embeddingSetId,
-            progress: backfill.progress,
-            requestId: backfill.requestId,
-            source: backfill.source,
-          })
-        );
-      },
+      getBackfillsInFlight: async () =>
+        Array.from(localBackfillsRef.current.entries()).map(([embeddingSetId, backfill]) => ({
+          embeddingSetId,
+          progress: backfill.progress,
+          requestId: backfill.requestId,
+          source: backfill.source,
+        })),
       getStatus: async () => {
         if (desktopHost) {
           const status = await desktopHost.getStatus();

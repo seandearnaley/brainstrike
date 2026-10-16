@@ -23,9 +23,6 @@ import type {
   ChunkingHostStatus,
 } from '../chunking-host-shared';
 import type {
-  EmbeddingHostBackfillInfo,
-  EmbeddingHostBackfillProgress,
-  EmbeddingHostBackfillRequest,
   EmbeddingHostCommand,
   EmbeddingHostDocumentEmbeddingsCancel,
   EmbeddingHostDocumentEmbeddingsPayload,
@@ -142,21 +139,14 @@ export type ChunkingHostRuntimeBridge = Pick<
 >;
 
 export interface VisibleEmbeddingHostBridge {
-  cancelAllBackfills: () => Promise<void>;
-  cancelBackfill: (embeddingSetId: string) => Promise<void>;
   cancelDocumentEmbeddings: (requestId: string) => Promise<void>;
   cancelQueryEmbedding: (requestId: string) => Promise<EmbeddingHostQueryCancellationResult>;
   documentEmbeddings: (
     payload: EmbeddingHostDocumentEmbeddingsPayload,
     options: { requestId: string }
   ) => Promise<number[][]>;
-  enqueueBackfill: (
-    request: EmbeddingHostBackfillRequest
-  ) => Promise<{ requestId: string } | { canceled: true }>;
   ensureStarted: () => Promise<EmbeddingHostStatus>;
-  getBackfillsInFlight: () => Promise<EmbeddingHostBackfillInfo[]>;
   getStatus: () => Promise<EmbeddingHostStatus>;
-  onBackfillProgress: (callback: (progress: EmbeddingHostBackfillProgress) => void) => () => void;
   onCommand: (callback: (command: EmbeddingHostCommand) => void) => () => void;
   onDocumentEmbeddingsCancel: (
     callback: (notice: EmbeddingHostDocumentEmbeddingsCancel) => void

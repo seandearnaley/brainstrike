@@ -25,7 +25,6 @@ import {
   parseManagedCacheInvalidationsArgs,
 } from '../db-shared';
 import { getFactoryResetUnavailableReason } from '../factory-reset-availability';
-import { isDisposedRenderFrameSendError } from '../ipc-embedding-backfill';
 import {
   getDesktopDatabaseWorkSchedulerSnapshot,
   resolveSqlParamsAndWorkOptions,
@@ -38,6 +37,16 @@ import {
 import type { IpcChannel } from '../platform/ipc-contract';
 import { databaseContract, databaseLiveContract, databasePathContract } from './database.contract';
 import { clearOptionalRelation } from './db-reset-relation';
+
+function isDisposedRenderFrameSendError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  // Electron does not currently expose a stable error code for this path, so
+  // we have to match the message text. Verified against Electron 38.x; re-check
+  // this contract during Electron upgrades or if Electron exposes a stable code.
+  return error.message.toLowerCase().includes('frame was disposed');
+}
 
 interface DatabaseHostWindowMatcher {
   readonly isHostWindow: (window: BrowserWindow) => boolean;

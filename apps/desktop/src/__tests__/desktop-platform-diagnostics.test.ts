@@ -70,14 +70,6 @@ describe('desktop platform diagnostics', () => {
       runningPriority: null,
       snapshotAt: 1,
     };
-    const activeBackfills = [
-      {
-        embeddingSetId: 'set-1',
-        progress: { current: 2, total: 4 },
-        requestId: 'background-indexing-backfill:set-1',
-        source: 'background-indexing' as const,
-      },
-    ];
     const dimensionIndexMaintenance = {
       maintenance: [
         {
@@ -192,7 +184,6 @@ describe('desktop platform diagnostics', () => {
         getTelemetrySnapshot: vi.fn(() => embeddingTelemetry),
       },
       indexing: {
-        getBackfillsInFlight: vi.fn(() => activeBackfills),
         getDimensionIndexMaintenanceSnapshot: vi.fn(() => dimensionIndexMaintenance),
       },
       logging: { getState: vi.fn(() => loggingState) },
@@ -220,7 +211,6 @@ describe('desktop platform diagnostics', () => {
       embeddingHost: embeddingHostStatus,
       errors: {},
       indexing: {
-        activeBackfills,
         databaseWork: {
           scheduler: schedulerSnapshot,
         },
@@ -286,9 +276,6 @@ describe('desktop platform diagnostics', () => {
         }),
       },
       indexing: {
-        getBackfillsInFlight: vi.fn(() => {
-          throw new Error('backfills unavailable');
-        }),
         getDimensionIndexMaintenanceSnapshot: vi.fn(() => {
           throw new Error('dimension maintenance unavailable');
         }),
@@ -319,7 +306,6 @@ describe('desktop platform diagnostics', () => {
     });
 
     expect(snapshot.errors).toMatchObject({
-      activeBackfills: 'backfills unavailable',
       crashRecovery: 'crash unavailable',
       databaseScheduler: 'scheduler unavailable',
       dimensionIndexMaintenance: 'dimension maintenance unavailable',
@@ -333,7 +319,6 @@ describe('desktop platform diagnostics', () => {
     expect(snapshot.telemetry.processCounters).toEqual({ installedAt: null, samples: [] });
     expect(snapshot.databaseScheduler).toBeNull();
     expect(snapshot.databaseIntegrity).toEqual({ revision: 0, state: { kind: 'healthy' } });
-    expect(snapshot.indexing.activeBackfills).toEqual([]);
     expect(snapshot.indexing.dimensionIndexMaintenance).toEqual({
       maintenance: [],
       suspensions: [],

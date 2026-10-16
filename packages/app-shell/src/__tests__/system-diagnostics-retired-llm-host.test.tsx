@@ -38,7 +38,7 @@ function installRetiredHostSnapshot(): void {
           sourceState: 'running',
           state: 'active',
         },
-        indexing: { activeBackfills: [], databaseWork: {} },
+        indexing: { databaseWork: {} },
         reset: { status: 'idle', userDataPath: '/tmp/brainstrike-user-data' },
         telemetry: { backgroundRuntimeMetrics: [] },
       },

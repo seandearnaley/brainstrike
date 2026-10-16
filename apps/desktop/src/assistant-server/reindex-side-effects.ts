@@ -65,8 +65,7 @@ function skipsWhileDatabaseIntegrityContained(): boolean {
 
 /**
  * The database handle for index maintenance: every query and transaction is a
- * `background` task on the desktop work scheduler, exactly like the embedding
- * backfill's handle (`ipc-embedding-backfill.ts`, `createScheduledDbHandle` over
+ * `background` task on the desktop work scheduler (`createScheduledDbHandle` over
  * `getDesktopDatabaseWorkScheduler()`). The scheduler's start-time gate then
  * rejects each statement, including the write, once containment is active.
  */

@@ -85,9 +85,6 @@ import type { DesktopPlatformDiagnosticsSnapshot } from './desktop-platform-diag
 import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
 import type {
-  EmbeddingHostBackfillInfo,
-  EmbeddingHostBackfillProgress,
-  EmbeddingHostBackfillRequest,
   EmbeddingHostCommand,
   EmbeddingHostDocumentEmbeddingsCancel,
   EmbeddingHostDocumentEmbeddingsPayload,
@@ -555,10 +552,6 @@ if (shouldExposeBridge('workspace')) {
 }
 
 const embeddingHost = {
-  cancelAllBackfills: (): Promise<void> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.cancelAllBackfills),
-  cancelBackfill: (embeddingSetId: string): Promise<void> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.cancelBackfill, embeddingSetId),
   cancelDocumentEmbeddings: (requestId: string): Promise<void> =>
     ipcRenderer.invoke(
       DESKTOP_IPC_CHANNELS.embeddingHost.cancelDocumentEmbeddings,
@@ -577,22 +570,10 @@ const embeddingHost = {
         'Document requestId must be non-empty.'
       ),
     }),
-  enqueueBackfill: (request: EmbeddingHostBackfillRequest) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.enqueueBackfill, request),
   ensureStarted: (): Promise<EmbeddingHostStatus> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.ensureStarted),
-  getBackfillsInFlight: (): Promise<EmbeddingHostBackfillInfo[]> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.getBackfillsInFlight),
   getStatus: (): Promise<EmbeddingHostStatus> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.getStatus),
-  onBackfillProgress: (callback: (progress: EmbeddingHostBackfillProgress) => void) => {
-    const listener = (_event: unknown, progress: EmbeddingHostBackfillProgress) =>
-      callback(progress);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.embeddingHost.backfillProgress, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.embeddingHost.backfillProgress, listener);
-    };
-  },
   onCommand: (callback: (command: EmbeddingHostCommand) => void) => {
     const listener = (_event: unknown, command: EmbeddingHostCommand) => callback(command);
     ipcRenderer.on(DESKTOP_IPC_CHANNELS.embeddingHost.command, listener);

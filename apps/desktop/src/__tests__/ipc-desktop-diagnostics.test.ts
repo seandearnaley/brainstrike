@@ -77,7 +77,7 @@ describe('desktop diagnostics IPC', () => {
           peakVectorsInFlight: 0,
         })),
       },
-      indexing: { getBackfillsInFlight: vi.fn(() => []) },
+      indexing: null,
       logging: {
         getState: vi.fn(() => ({
           capabilities: { fileDestination: false },
@@ -113,7 +113,7 @@ describe('desktop diagnostics IPC', () => {
       value: {
         database: { hasDatabaseHandle: true },
         databaseIntegrity: { revision: 0, state: { kind: 'healthy' } },
-        indexing: { activeBackfills: [] },
+        indexing: { legacyDatabaseMaintenance: 'not-applicable' },
         reset: { userDataPath: '<redacted>' },
         telemetry: {
           backgroundRuntimeMetrics: [],

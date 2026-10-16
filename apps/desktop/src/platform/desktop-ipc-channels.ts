@@ -104,18 +104,13 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   // Hidden embedding host; same pinning as chunkingHost (embedding-host-shared.ts).
   embeddingHost: {
-    backfillProgress: 'embedding-host:backfill-progress',
-    cancelAllBackfills: 'embedding-host:cancel-all-backfills',
-    cancelBackfill: 'embedding-host:cancel-backfill',
     cancelDocumentEmbeddings: 'embedding-host:cancel-document-embeddings',
     cancelQueryEmbedding: 'embedding-host:cancel-query-embedding',
     command: 'embedding-host:command',
     documentEmbeddings: 'embedding-host:document-embeddings',
     documentEmbeddingsCancel: 'embedding-host:document-embeddings-cancel',
     documentEmbeddingsRequest: 'embedding-host:document-embeddings-request',
-    enqueueBackfill: 'embedding-host:enqueue-backfill',
     ensureStarted: 'embedding-host:ensure-started',
-    getBackfillsInFlight: 'embedding-host:get-backfills-in-flight',
     getStatus: 'embedding-host:get-status',
     queryEmbedding: 'embedding-host:query-embedding',
     queryEmbeddingCancel: 'embedding-host:query-embedding-cancel',

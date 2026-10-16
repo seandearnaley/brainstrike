@@ -1,7 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  type EmbeddingRuntimeBackfillProgress,
   type EmbeddingRuntimeStatus,
   useEmbeddingRuntimeController,
 } from '../vector-status/embedding-runtime-controller';
@@ -29,27 +28,9 @@ const {
   };
 });
 
-const {
-  cancelBackfillMock,
-  cancelAllBackfillsMock,
-  enqueueBackfillMock,
-  ensureStartedMock,
-  getBackfillsInFlightMock,
-  getStatusMock,
-  onBackfillProgressMock,
-  onStatusMock,
-  resetMock,
-  stopMock,
-} = vi.hoisted(() => ({
-  cancelAllBackfillsMock: vi.fn(async () => {}),
-  cancelBackfillMock: vi.fn(async () => {}),
-  enqueueBackfillMock: vi.fn(async () => ({ requestId: 'embedding-backfill:test' })),
+const { ensureStartedMock, getStatusMock, onStatusMock, resetMock, stopMock } = vi.hoisted(() => ({
   ensureStartedMock: vi.fn(),
-  getBackfillsInFlightMock: vi.fn(async () => []),
   getStatusMock: vi.fn(),
-  onBackfillProgressMock: vi.fn<
-    (callback: (progress: EmbeddingRuntimeBackfillProgress) => void) => () => void
-  >(() => () => {}),
   onStatusMock: vi.fn<(callback: (status: EmbeddingRuntimeStatus) => void) => () => void>(
     () => () => {}
   ),
@@ -104,13 +85,8 @@ describe('useEmbeddingRuntimeController', () => {
     Object.defineProperty(window, 'embeddingHost', {
       configurable: true,
       value: {
-        cancelAllBackfills: cancelAllBackfillsMock,
-        cancelBackfill: cancelBackfillMock,
-        enqueueBackfill: enqueueBackfillMock,
         ensureStarted: ensureStartedMock,
-        getBackfillsInFlight: getBackfillsInFlightMock,
         getStatus: getStatusMock,
-        onBackfillProgress: onBackfillProgressMock,
         onStatus: onStatusMock,
         reset: resetMock,
         stop: stopMock,
@@ -173,7 +149,7 @@ describe('useEmbeddingRuntimeController', () => {
     unsubscribe();
   });
 
-  it('starts the desktop host without resetting it before desktop backfill', async () => {
+  it('refuses backfill on the desktop host, whose embedding the native indexer owns (BST-2023)', async () => {
     const { result } = renderHook(() =>
       useEmbeddingRuntimeController({
         db: null,
@@ -183,136 +159,21 @@ describe('useEmbeddingRuntimeController', () => {
       })
     );
 
-    await act(async () => {
-      await result.current.enqueueBackfill('set-1');
-    });
-
-    expect(getStatusMock).toHaveBeenCalledTimes(1);
-    expect(stopMock).not.toHaveBeenCalled();
-    expect(ensureStartedMock).toHaveBeenCalledTimes(1);
-    expect(enqueueBackfillMock).toHaveBeenCalledWith({
-      embeddingSetId: 'set-1',
-      source: 'manual',
-    });
-  });
-
-  it('forwards desktop backfill cancellation requests through the host bridge', async () => {
-    const { result } = renderHook(() =>
-      useEmbeddingRuntimeController({
-        db: null,
-        devicePreference: 'wasm',
-        reinitEveryN: 200,
-        service: null,
-      })
+    await expect(result.current.enqueueBackfill('set-1')).rejects.toThrow(
+      'Desktop background embedding is owned by the native indexer'
     );
-
-    await act(async () => {
-      await result.current.cancelAllBackfills();
-    });
-
-    expect(cancelAllBackfillsMock).toHaveBeenCalledTimes(1);
+    expect(ensureStartedMock).not.toHaveBeenCalled();
+    await expect(result.current.getBackfillsInFlight()).resolves.toEqual([]);
+    await expect(result.current.cancelBackfill('set-1')).resolves.toBeUndefined();
+    await expect(result.current.cancelAllBackfills()).resolves.toBeUndefined();
   });
 
-  it('forwards per-collection desktop backfill cancellation requests through the host bridge', async () => {
-    const { result } = renderHook(() =>
-      useEmbeddingRuntimeController({
-        db: null,
-        devicePreference: 'wasm',
-        reinitEveryN: 200,
-        service: null,
-      })
-    );
-
-    await act(async () => {
-      await result.current.cancelBackfill('set-1');
-    });
-
-    expect(cancelBackfillMock).toHaveBeenCalledWith('set-1');
-  });
-
-  it('returns structured in-flight desktop backfill metadata', async () => {
-    const inFlightMock = vi.fn(async () => [
-      {
-        embeddingSetId: 'set-1',
-        progress: { current: 2, total: 4 },
-        requestId: 'background-indexing-backfill:test',
-      },
-    ]);
-    Object.defineProperty(window, 'embeddingHost', {
-      configurable: true,
-      value: {
-        cancelAllBackfills: cancelAllBackfillsMock,
-        cancelBackfill: cancelBackfillMock,
-        enqueueBackfill: enqueueBackfillMock,
-        ensureStarted: ensureStartedMock,
-        getBackfillsInFlight: inFlightMock,
-        getStatus: getStatusMock,
-        onBackfillProgress: onBackfillProgressMock,
-        onStatus: onStatusMock,
-        reset: resetMock,
-        stop: stopMock,
-      },
-    });
-
-    const { result } = renderHook(() =>
-      useEmbeddingRuntimeController({
-        db: null,
-        devicePreference: 'wasm',
-        reinitEveryN: 200,
-        service: null,
-      })
-    );
-
-    await expect(result.current.getBackfillsInFlight()).resolves.toEqual([
-      {
-        embeddingSetId: 'set-1',
-        progress: { current: 2, total: 4 },
-        requestId: 'background-indexing-backfill:test',
-      },
-    ]);
-  });
-
-  it('does not reset the desktop host across repeated backfills when the settings are unchanged', async () => {
-    const { result } = renderHook(() =>
-      useEmbeddingRuntimeController({
-        db: null,
-        devicePreference: 'wasm',
-        reinitEveryN: 200,
-        service: null,
-      })
-    );
-
-    await act(async () => {
-      await result.current.enqueueBackfill('set-1');
-      await result.current.enqueueBackfill('set-2');
-    });
-
-    expect(stopMock).not.toHaveBeenCalled();
-    expect(ensureStartedMock).toHaveBeenCalledTimes(2);
-    expect(enqueueBackfillMock).toHaveBeenNthCalledWith(1, {
-      embeddingSetId: 'set-1',
-      source: 'manual',
-    });
-    expect(enqueueBackfillMock).toHaveBeenNthCalledWith(2, {
-      embeddingSetId: 'set-2',
-      source: 'manual',
-    });
-  });
-
-  it('cleans up desktop host status and backfill subscriptions on unmount', async () => {
+  it('cleans up the desktop host status subscription on unmount', async () => {
     const cleanupStatus = vi.fn();
-    const cleanupBackfillProgress = vi.fn();
-    const emitters: {
-      backfillProgress?: (progress: EmbeddingRuntimeBackfillProgress) => void;
-      status?: (status: EmbeddingRuntimeStatus) => void;
-    } = {};
+    let emitStatus: ((status: EmbeddingRuntimeStatus) => void) | undefined;
     onStatusMock.mockImplementation((callback) => {
-      emitters.status = callback;
+      emitStatus = callback;
       return cleanupStatus;
-    });
-    onBackfillProgressMock.mockImplementation((callback) => {
-      emitters.backfillProgress = callback;
-      return cleanupBackfillProgress;
     });
 
     const { result, unmount } = renderHook(() =>
@@ -325,14 +186,11 @@ describe('useEmbeddingRuntimeController', () => {
     );
 
     const statusListener = vi.fn();
-    const backfillProgressListener = vi.fn();
     const unsubscribeStatus = result.current.onStatus(statusListener);
-    const unsubscribeBackfillProgress = result.current.onBackfillProgress(backfillProgressListener);
-    if (emitters.status === undefined || emitters.backfillProgress === undefined) {
-      throw new Error('Expected desktop host listeners to be registered');
+    if (emitStatus === undefined) {
+      throw new Error('Expected the desktop host status listener to be registered');
     }
-    const statusEmitter = emitters.status;
-    const backfillProgressEmitter = emitters.backfillProgress;
+    const statusEmitter = emitStatus;
 
     await act(async () => {
       statusEmitter({
@@ -341,14 +199,6 @@ describe('useEmbeddingRuntimeController', () => {
         runtimeId: 'embedding-host:running',
         runtimeKind: 'embedding-host',
         state: 'running',
-      });
-      backfillProgressEmitter({
-        current: 2,
-        embeddingSetId: 'set-1',
-        requestId: 'background-indexing-backfill:1',
-        source: 'background-indexing',
-        stage: 'backfill',
-        total: 5,
       });
     });
 
@@ -359,20 +209,11 @@ describe('useEmbeddingRuntimeController', () => {
         state: 'running',
       })
     );
-    expect(backfillProgressListener).toHaveBeenCalledWith(
-      expect.objectContaining({
-        current: 2,
-        embeddingSetId: 'set-1',
-        total: 5,
-      })
-    );
 
     unsubscribeStatus();
-    unsubscribeBackfillProgress();
     unmount();
 
     expect(cleanupStatus).toHaveBeenCalledTimes(1);
-    expect(cleanupBackfillProgress).toHaveBeenCalledTimes(1);
   });
 
   it('resets the desktop host bridge and stores the returned status', async () => {
@@ -419,7 +260,7 @@ describe('useEmbeddingRuntimeController', () => {
     );
 
     await act(async () => {
-      await firstRender.result.current.enqueueBackfill('set-1');
+      await firstRender.result.current.ensureStarted();
     });
 
     firstRender.unmount();
@@ -434,15 +275,11 @@ describe('useEmbeddingRuntimeController', () => {
     );
 
     await act(async () => {
-      await secondRender.result.current.enqueueBackfill('set-2');
+      await secondRender.result.current.ensureStarted();
     });
 
     expect(stopMock).not.toHaveBeenCalled();
     expect(ensureStartedMock).toHaveBeenCalledTimes(2);
-    expect(enqueueBackfillMock).toHaveBeenNthCalledWith(2, {
-      embeddingSetId: 'set-2',
-      source: 'manual',
-    });
   });
 
   it('does not stop the desktop host automatically when the visible preference changes', async () => {
@@ -463,21 +300,17 @@ describe('useEmbeddingRuntimeController', () => {
     );
 
     await act(async () => {
-      await result.current.enqueueBackfill('set-1');
+      await result.current.ensureStarted();
     });
 
     rerender({ devicePreference: 'webgpu' });
 
     await act(async () => {
-      await result.current.enqueueBackfill('set-2');
+      await result.current.ensureStarted();
     });
 
     expect(stopMock).not.toHaveBeenCalled();
     expect(ensureStartedMock).toHaveBeenCalledTimes(2);
-    expect(enqueueBackfillMock).toHaveBeenNthCalledWith(2, {
-      embeddingSetId: 'set-2',
-      source: 'manual',
-    });
   });
 
   it('passes the registered streaming worker URL when starting the local web worker', async () => {
@@ -746,7 +579,7 @@ describe('useEmbeddingRuntimeController', () => {
       })
     );
 
-    let pendingBackfill: Promise<{ requestId: string } | { canceled: true }> | null = null;
+    let pendingBackfill: Promise<{ requestId: string }> | null = null;
     await act(async () => {
       const startedBackfill = result.current.enqueueBackfill('set-1', {
         source: 'background-indexing',
@@ -881,8 +714,8 @@ describe('useEmbeddingRuntimeController', () => {
     const progressListener = vi.fn();
     const unsubscribe = result.current.onBackfillProgress(progressListener);
 
-    let pendingOne: Promise<{ requestId: string } | { canceled: true }> | null = null;
-    let pendingTwo: Promise<{ requestId: string } | { canceled: true }> | null = null;
+    let pendingOne: Promise<{ requestId: string }> | null = null;
+    let pendingTwo: Promise<{ requestId: string }> | null = null;
     await act(async () => {
       const startedOne = result.current.enqueueBackfill('set-1');
       const startedTwo = result.current.enqueueBackfill('set-2');

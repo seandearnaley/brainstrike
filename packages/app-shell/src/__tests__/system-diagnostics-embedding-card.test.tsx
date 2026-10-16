@@ -26,7 +26,7 @@ function installDesktopDiagnostics(embedding: EmbeddingTelemetrySnapshot): void 
           sourceState: 'running',
           state: 'idle',
         },
-        indexing: { activeBackfills: [] },
+        indexing: { databaseWork: {} },
         reset: { userDataPath: '/tmp/brainstrike-user-data' },
         telemetry: { backgroundRuntimeMetrics: [], embedding },
       },

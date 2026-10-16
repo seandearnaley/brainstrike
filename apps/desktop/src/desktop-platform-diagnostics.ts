@@ -14,7 +14,6 @@ import type { DesktopRendererCrashRecoverySnapshot } from './desktop-crash-recov
 import type { DesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
-import type { EmbeddingHostBackfillInfo } from './embedding-host-shared';
 import type { LoggingSettingsPayload } from './logging-shared';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import type { RuntimeHostPlatformStatus } from './platform/runtime-host-state';
@@ -33,7 +32,6 @@ export interface DesktopPlatformDiagnosticsSnapshot {
   readonly errors: Partial<Record<DesktopPlatformDiagnosticsProviderName, string>>;
   readonly indexing: {
     readonly legacyDatabaseMaintenance?: 'not-applicable';
-    readonly activeBackfills: readonly EmbeddingHostBackfillInfo[];
     readonly databaseWork: {
       readonly scheduler: DatabaseWorkSchedulerSnapshot | null;
     };
@@ -79,9 +77,6 @@ export interface DesktopPlatformDiagnosticsProviders {
     readonly getTelemetrySnapshot: () => EmbeddingTelemetrySnapshot;
   };
   readonly indexing: {
-    readonly getBackfillsInFlight: () =>
-      | Promise<readonly EmbeddingHostBackfillInfo[]>
-      | readonly EmbeddingHostBackfillInfo[];
     readonly getDimensionIndexMaintenanceSnapshot: () =>
       | Promise<DesktopDimensionIndexMaintenanceSnapshot>
       | DesktopDimensionIndexMaintenanceSnapshot;
@@ -105,7 +100,6 @@ export interface DesktopPlatformDiagnosticsProviders {
 }
 
 type DesktopPlatformDiagnosticsProviderName =
-  | 'activeBackfills'
   | 'crashRecovery'
   | 'database'
   | 'databaseScheduler'
@@ -168,12 +162,6 @@ export async function collectDesktopPlatformDiagnostics(
     'databaseScheduler',
     () => providers.databaseScheduler?.getSnapshot() ?? null,
     null
-  );
-  const activeBackfills = await readDiagnosticsProvider(
-    errors,
-    'activeBackfills',
-    () => providers.indexing?.getBackfillsInFlight() ?? [],
-    []
   );
   const dimensionIndexMaintenance = await readDiagnosticsProvider(
     errors,
@@ -240,7 +228,6 @@ export async function collectDesktopPlatformDiagnostics(
       ...(providers.indexing === null
         ? { legacyDatabaseMaintenance: 'not-applicable' as const }
         : {}),
-      activeBackfills,
       databaseWork: { scheduler: databaseScheduler },
       dimensionIndexMaintenance,
     },

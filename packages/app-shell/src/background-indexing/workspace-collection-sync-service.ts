@@ -147,9 +147,7 @@ export interface WorkspaceCollectionSyncServiceDependencies {
   enqueueBackfill: (
     embeddingSetId: string,
     options: { signal?: AbortSignal; source: 'background-indexing' }
-    // { canceled: true } when the backfill was deliberately canceled before it
-    // started (desktop main resolves this instead of rejecting the IPC call).
-  ) => Promise<{ requestId: string } | { canceled: true }>;
+  ) => Promise<{ requestId: string }>;
   ensureChunkingWorker: () => Promise<ChunkingWorkerPort>;
   ensureEmbeddingRuntimeStarted: () => Promise<void>;
   fileContentProcessor?: FileContentProcessor;
@@ -990,21 +988,10 @@ export class WorkspaceCollectionSyncService {
       unsubscribe: unsubscribeBackfillProgress,
     };
 
-    const enqueueResult = await this.deps.enqueueBackfill(args.collection.id, {
+    const { requestId } = await this.deps.enqueueBackfill(args.collection.id, {
       signal: args.backfillAbortSignal,
       source: 'background-indexing',
     });
-    if ('canceled' in enqueueResult) {
-      this.releaseBackfillTracking(unsubscribeBackfillProgress);
-      // Desktop main now resolves a benign { canceled: true } for a deliberate
-      // cancellation instead of rejecting the IPC call. Re-raise it locally as an
-      // abort so the existing upstream cancellation handling (isAbortError →
-      // benign, never handleSyncFailure) is byte-identical to the prior
-      // reject-on-cancel behavior; only the spurious main-process handler-error
-      // log is gone.
-      throw createAbortError('Embedding backfill was canceled before it started.');
-    }
-    const { requestId } = enqueueResult;
     // `currentSyncCollectionId` is set synchronously at the top of `sync()`, so it is
     // already armed while a replacement is still scanning; the tracked slot and the
     // backfill controller are both armed too late to close that window.

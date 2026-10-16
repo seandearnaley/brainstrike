@@ -204,7 +204,6 @@ export type DatabaseIntegrityContext =
   | 'db:test'
   | 'db:transaction'
   | 'dimension-index-maintenance'
-  | 'embedding-host:enqueue-backfill'
   | 'maintenance';
 
 /**

@@ -392,12 +392,44 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
       DESKTOP_IPC_CHANNELS.db.liveQueryStart,
       DESKTOP_IPC_CHANNELS.db.liveQueryStop,
       DESKTOP_IPC_CHANNELS.db.integrityState,
-      DESKTOP_IPC_CHANNELS.embeddingHost.enqueueBackfill,
-      DESKTOP_IPC_CHANNELS.embeddingHost.cancelBackfill,
-      DESKTOP_IPC_CHANNELS.embeddingHost.cancelAllBackfills,
-      DESKTOP_IPC_CHANNELS.embeddingHost.getBackfillsInFlight,
+      // The retired embedding backfill bridge (BST-2023): neither side may return.
+      'embedding-host:enqueue-backfill',
+      'embedding-host:cancel-backfill',
+      'embedding-host:cancel-all-backfills',
+      'embedding-host:get-backfills-in-flight',
     ]);
     expect(union.filter((entry) => retired.has(entry.channel))).toEqual([]);
+  });
+
+  it('exposes no preload channel that main does not handle (BST-2023)', async () => {
+    // A bridge method over an unregistered channel rejects "No handler registered" only
+    // when a renderer calls it; this keeps every preload invoke and send backed by Main.
+    const { readFileSync } = await vi.importActual<typeof import('node:fs')>('node:fs');
+    const groups = DESKTOP_IPC_CHANNELS as unknown as Record<string, Record<string, unknown>>;
+    const expected = ['preload.ts', 'hidden-preload.ts'].flatMap((file) =>
+      [
+        ...readFileSync(path.resolve(import.meta.dirname, '../..', file), 'utf8').matchAll(
+          /ipcRenderer\.(invoke|send)\(\s*DESKTOP_IPC_CHANNELS\.(\w+)\.(\w+)/g
+        ),
+      ].map(([, method, group = '', name = '']) => ({
+        channel: String(groups[group]?.[name] ?? `${group}.${name}`),
+        file,
+        kind: method === 'invoke' ? 'invoke' : 'event',
+      }))
+    );
+    expect(expected.length).toBeGreaterThan(50);
+    // Preload and Main both gate these on E2E test mode, which this boot is not.
+    const e2eOnly = new Set<string>([
+      DESKTOP_IPC_CHANNELS.storage.clearAllForE2e,
+      DESKTOP_IPC_CHANNELS.storage.seedMainOwnedForE2e,
+    ]);
+    const registered = new Set([
+      ...union.map(({ channel, kind }) => `${kind} ${channel}`),
+      ...[...e2eOnly].map((channel) => `invoke ${channel}`),
+    ]);
+    expect(expected.filter(({ channel, kind }) => !registered.has(`${kind} ${channel}`))).toEqual(
+      []
+    );
   });
 
   it('registers every contract invoke channel exactly once, as an invoke, and never a push event', () => {

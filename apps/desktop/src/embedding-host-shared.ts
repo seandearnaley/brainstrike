@@ -5,7 +5,6 @@ import {
 } from '@brainstrike/embedding-worker';
 import type { CatalogEmbeddingWorkerPlan } from '@brainstrike/embeddings/inference-plan';
 import type {
-  BackgroundRuntimeProgress,
   BackgroundRuntimeStatus,
   RuntimeErrorEnvelope,
   RuntimeProgressEnvelope,
@@ -23,15 +22,10 @@ import { decodeNativeEmbeddingWorkerPlan } from './platform/native-embedding-val
 export const EMBEDDING_HOST_RUNTIME = createBackgroundRuntimeDescriptor('embedding-host');
 export const EMBEDDING_HOST_LIFECYCLE_CHANNELS = EMBEDDING_HOST_RUNTIME.lifecycleChannels;
 const EMBEDDING_HOST_CHANNELS = EMBEDDING_HOST_RUNTIME.createScopedChannels({
-  backfillProgress: 'backfill-progress',
-  cancelAllBackfills: 'cancel-all-backfills',
-  cancelBackfill: 'cancel-backfill',
   command: 'command',
   documentEmbeddings: 'document-embeddings',
   documentEmbeddingsCancel: 'document-embeddings-cancel',
   documentEmbeddingsRequest: 'document-embeddings-request',
-  enqueueBackfill: 'enqueue-backfill',
-  getBackfillsInFlight: 'get-backfills-in-flight',
   queryEmbedding: 'query-embedding',
   queryEmbeddingCancel: 'query-embedding-cancel',
   queryEmbeddingRequest: 'query-embedding-request',
@@ -49,34 +43,18 @@ export const EMBEDDING_HOST_ENSURE_STARTED_CHANNEL =
 export const EMBEDDING_HOST_STOP_CHANNEL = EMBEDDING_HOST_LIFECYCLE_CHANNELS.stop;
 export const EMBEDDING_HOST_RESET_CHANNEL = EMBEDDING_HOST_LIFECYCLE_CHANNELS.reset;
 export const EMBEDDING_HOST_GET_STATUS_CHANNEL = EMBEDDING_HOST_LIFECYCLE_CHANNELS.getStatus;
-export const EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL = EMBEDDING_HOST_CHANNELS.enqueueBackfill;
-export const EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT = EMBEDDING_HOST_CHANNELS.backfillProgress;
 export const EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT =
   EMBEDDING_HOST_CHANNELS.queryEmbeddingRequest;
 export const EMBEDDING_HOST_QUERY_EMBEDDING_CANCEL_EVENT =
   EMBEDDING_HOST_CHANNELS.queryEmbeddingCancel;
 export const EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL =
   EMBEDDING_HOST_CHANNELS.reportQueryEmbeddingResponse;
-export const EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL =
-  EMBEDDING_HOST_CHANNELS.getBackfillsInFlight;
-export const EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL =
-  EMBEDDING_HOST_CHANNELS.cancelAllBackfills;
-export const EMBEDDING_HOST_CANCEL_BACKFILL_CHANNEL = EMBEDDING_HOST_CHANNELS.cancelBackfill;
 export const EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL = EMBEDDING_HOST_CHANNELS.queryEmbedding;
 export const EMBEDDING_HOST_WEBGPU_ADAPTER_CHANNEL = EMBEDDING_HOST_CHANNELS.webgpuAdapter;
 export const EMBEDDING_HOST_WEBGPU_ADAPTER_REQUEST_EVENT =
   EMBEDDING_HOST_CHANNELS.webgpuAdapterRequest;
 export const EMBEDDING_HOST_REPORT_WEBGPU_ADAPTER_RESPONSE_CHANNEL =
   EMBEDDING_HOST_CHANNELS.reportWebgpuAdapterResponse;
-export const EMBEDDING_BACKFILL_CANCELED_MESSAGE = 'Embedding backfill was canceled.' as const;
-
-export type EmbeddingBackfillSource = 'background-indexing' | 'manual';
-
-export interface EmbeddingHostBackfillRequest {
-  readonly embeddingSetId: string;
-  readonly source?: EmbeddingBackfillSource;
-}
-
 export type EmbeddingHostCommandAction = 'reset' | 'resolve-device' | 'start-background' | 'stop';
 
 export type EmbeddingHostCommandPayload =
@@ -94,18 +72,6 @@ export type EmbeddingHostCommandPayload =
       /** Re-resolve `hostDevice` from the saved preference; the worker keeps its device. */
       readonly action: 'resolve-device';
     };
-
-export interface EmbeddingHostBackfillProgress extends BackgroundRuntimeProgress {
-  readonly embeddingSetId: string;
-  readonly source: EmbeddingBackfillSource;
-}
-
-export interface EmbeddingHostBackfillInfo {
-  readonly embeddingSetId: string;
-  readonly progress: { current: number; total: number } | null;
-  readonly requestId: string;
-  readonly source: EmbeddingBackfillSource;
-}
 
 export interface EmbeddingHostQueryEmbeddingPayload {
   readonly dimensions: number;
