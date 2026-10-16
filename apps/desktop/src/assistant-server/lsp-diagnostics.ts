@@ -46,6 +46,7 @@ import {
   QUERY_TIMEOUT_MS,
   type RawLocation,
   type RawQueryFailure,
+  resolvesIntoCredentialFile,
   toInspectLocations,
   toQueryFailure,
 } from '@brainstrike/host-capabilities/native-tools';
@@ -895,7 +896,11 @@ export async function getLspInspection(args: GetLspInspectionArgs): Promise<LspI
         language,
         args.position
       );
-      const hover = clipHover(raw.hover);
+      // A symbol defined in a credential file hovers with its literal (ADR-0016).
+      const hover =
+        resolvesIntoCredentialFile(raw.definition) || resolvesIntoCredentialFile(raw.implementation)
+          ? undefined
+          : clipHover(raw.hover);
       const [definition, implementation] = await Promise.all([
         toInspectLocations(raw.definition, args.rootPath),
         toInspectLocations(raw.implementation, args.rootPath),
