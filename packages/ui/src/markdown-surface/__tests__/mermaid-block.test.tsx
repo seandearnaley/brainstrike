@@ -2,8 +2,9 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const renderMock = vi.hoisted(() => vi.fn());
+const initializeMock = vi.hoisted(() => vi.fn());
 vi.mock('mermaid', () => ({
-  default: { initialize: vi.fn(), render: renderMock },
+  default: { initialize: initializeMock, render: renderMock },
 }));
 
 import { MermaidBlock } from '../mermaid-block';
@@ -11,6 +12,7 @@ import { MermaidBlock } from '../mermaid-block';
 describe('MermaidBlock', () => {
   beforeEach(() => {
     renderMock.mockReset();
+    initializeMock.mockReset();
   });
 
   it('renders the diagram svg on success', async () => {
@@ -18,6 +20,13 @@ describe('MermaidBlock', () => {
     render(<MermaidBlock code="graph TD; a-->b;" />);
     await waitFor(() => {
       expect(screen.getByTestId('mermaid-diagram').innerHTML).toContain('data-diagram="ok"');
+    });
+    expect(initializeMock).toHaveBeenCalledWith({
+      layout: 'dagre',
+      look: 'classic',
+      securityLevel: 'strict',
+      startOnLoad: false,
+      theme: 'default',
     });
   });
 
