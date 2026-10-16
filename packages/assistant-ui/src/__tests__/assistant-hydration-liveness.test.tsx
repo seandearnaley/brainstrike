@@ -399,60 +399,6 @@ describe('hydrated threads render no live indicator unless something is genuinel
     ).toBeInTheDocument();
   });
 
-  it('interrupted subagent delegation: child rows are static', async () => {
-    const childStarted = {
-      data: {
-        id: 'cs',
-        kind: 'subagent.tool.started',
-        label: 'Subagent tool started',
-        metadata: {
-          childToolName: 'brainstrike_grepSearch',
-          parentToolCallId: 'p1',
-          toolCallId: 'c1',
-        },
-        status: 'running',
-        timestamp: T(1),
-      },
-      name: ASSISTANT_RUN_EVENT_DATA_NAME,
-      type: 'data' as const,
-    };
-    const { container } = renderHydrated([
-      {
-        content: [
-          {
-            args: { task: 'explore' },
-            argsText: '{"task":"explore"}',
-            toolCallId: 'p1',
-            toolName: 'agent-explorer',
-            type: 'tool-call' as const,
-          },
-          childStarted,
-        ],
-        role: 'assistant',
-        status: cancelled,
-      },
-    ]);
-    const group = await screen.findByTestId('assistant-activity-group');
-    // The delegation card renders collapsed by default (`useState(false)` in
-    // SubagentExecutionCard), and only renders child rows once expanded — so
-    // the zero-live assertion below is vacuous unless the child row actually
-    // reaches the DOM. Expand the turn's activity group, then the card
-    // itself, before checking liveness.
-    const user = userEvent.setup();
-    await user.click(within(group).getByRole('button', { name: 'Expand activity' }));
-    const cardToggle = within(group).getByRole('button', { expanded: false });
-    expect(cardToggle).toHaveTextContent('1 tool call');
-    await user.click(cardToggle);
-    const childRow = screen.getByText('brainstrike_grepSearch').closest('li');
-    expect(childRow).not.toBeNull();
-    // Interrupted (not running): the owning message already settled
-    // (`cancelled`) with no terminal `subagent.tool.*` event for this child,
-    // so `readLiveSubagentToolRowsFromMessages` downgrades it from 'running'
-    // to 'interrupted' — CircleSlash, not the pulsing CircleDashed.
-    expect(childRow?.querySelector('svg')).toHaveClass('lucide-circle-slash');
-    expect(live(container)).toHaveLength(0);
-  });
-
   it('a LIVE run that finishes ends with no live indicator (parity with hydration)', async () => {
     const finish = { release: () => {} };
     const adapter: ChatModelAdapter = {
@@ -493,7 +439,7 @@ describe('hydrated threads render no live indicator unless something is genuinel
           {
             args: {},
             argsText: '{}',
-            result: { subAgentToolResults: [], text: 'Found it.' },
+            result: { text: 'Found it.' },
             toolCallId: 'delegate-1',
             toolName: 'agent-explore',
             type: 'tool-call' as const,

@@ -2,8 +2,8 @@
  * Pure summary helpers for tool-call display: the inline header's primary-arg
  * readout and the "what came back" result count. Split out of tool-fallback.tsx
  * so that file exports only components (Fast Refresh can then preserve state)
- * — these are shared by ToolFallback, the activity working label
- * (tool-activity.ts), and subagent tool rows (subagent-tool-rows.ts).
+ * — these are shared by ToolFallback and the activity working label
+ * (tool-activity.ts).
  */
 
 /**

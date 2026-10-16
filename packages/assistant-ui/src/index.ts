@@ -155,6 +155,9 @@ export {
   DelegatedApprovalOwnerContext,
   type SubagentAnsweredApproval,
   SubagentApprovalHistoryContext,
+  type SubagentChildRun,
+  SubagentChildRunContext,
+  type SubagentChildRunSource,
   SubagentConversationNavigationContext,
   type SubagentConversationPresentation,
   SubagentConversationPresentationContext,
@@ -162,6 +165,7 @@ export {
   SubagentLiveInvocationContext,
 } from './subagent-conversation-navigation';
 export { personaLabelForToolName } from './subagent-persona-label';
+export { SubagentsRunningStrip } from './subagents-running-strip';
 export { ThreadContextReader } from './thread-context-reader';
 export {
   type ThreadMessageNavigation,

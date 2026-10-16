@@ -11,7 +11,7 @@ import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { TooltipProvider } from '@brainstrike/ui';
 import type { ReactNode } from 'react';
 import { AssistantActivityParts } from '../assistant-activity-parts';
-import { SubagentInvocationIndexProvider } from '../subagent-invocation-index';
+import type { SubagentChildRun } from '../subagent-conversation-navigation';
 
 // Named individually so `completedPartsWithEvents` below can splice the SAME
 // part objects between run events without re-deriving them via a tuple cast
@@ -169,6 +169,28 @@ export const completedPartsWithEvents = [
   { text: 'Review complete.', type: 'text' as const },
 ];
 
+/**
+ * A conversation owner's child run states, as the desktop's delegation tree
+ * publishes them: `set` replaces a child's state and tells the cards.
+ */
+export function childRunSource(initial: Readonly<Record<string, SubagentChildRun>> = {}) {
+  const runs = new Map(Object.entries(initial));
+  const listeners = new Set<() => void>();
+  return {
+    read: (threadId: string) => runs.get(threadId),
+    set: (threadId: string, run: SubagentChildRun) => {
+      runs.set(threadId, run);
+      for (const listener of listeners) {
+        listener();
+      }
+    },
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+
 export function Harness({
   adapter,
   children,
@@ -208,9 +230,7 @@ export function Harness({
   return (
     <TooltipProvider>
       <AssistantRuntimeProvider runtime={runtime}>
-        <SubagentInvocationIndexProvider>
-          {children ? children(content) : content}
-        </SubagentInvocationIndexProvider>
+        {children ? children(content) : content}
       </AssistantRuntimeProvider>
     </TooltipProvider>
   );

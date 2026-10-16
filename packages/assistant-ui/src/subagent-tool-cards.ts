@@ -9,27 +9,40 @@ import {
   readSubagentConversationAddress,
   readSubagentInvocationRun,
   SubagentApprovalHistoryContext,
+  type SubagentChildRun,
+  SubagentChildRunContext,
   type SubagentConversationAddress,
   type SubagentInvocationRun,
   SubagentLiveInvocationContext,
 } from './subagent-conversation-navigation';
 import { SubagentExecutionCard } from './subagent-execution-card';
-import { useSubagentInvocationSnapshot } from './use-subagent-invocation-snapshot';
 import { useSubagentNavigation } from './use-subagent-navigation';
 import { useSubagentPresentation } from './use-subagent-presentation';
 
 /**
- * The registered delegation-tool component: reads the current message's parts
- * from the assistant-ui store, derives this delegation's LIVE `subagent.tool.*`
- * rows (matched by `parentToolCallId`), and threads them to the presentational
- * SubagentExecutionCard so a running delegation shows in-progress child tools
- * before the result (with `subAgentToolResults`) lands. Kept out of the card so
- * the card stays render-testable without the assistant-ui store.
- *
- * One thread-level incremental index derives the live rows and special outcome;
- * this card subscribes only to its `toolCallId` snapshot. That keeps the
- * sibling-message hydration rule without making every visible card walk the
- * full retained thread on every store update.
+ * The delegated child's committed run, from the conversation owner's source.
+ * A card that names a child its owner does not follow fails loudly: without
+ * the child's own log, a started background child could only be guessed at.
+ */
+function useSubagentChildRun(threadId: string | undefined): SubagentChildRun | undefined {
+  const source = use(SubagentChildRunContext);
+  if (threadId !== undefined && !source) {
+    throw new Error('A delegation card with a child conversation requires SubagentChildRunContext');
+  }
+  const read = useCallback(
+    () => (threadId === undefined ? undefined : source?.read(threadId)),
+    [source, threadId]
+  );
+  return useSyncExternalStore(source?.subscribe ?? emptySubscribe, read, read);
+}
+
+/**
+ * The registered delegation-tool component: resolves this delegation's child
+ * conversation from the current message (its result names the child, or the
+ * owner's live listing does before the result lands) and threads the child's
+ * committed run state, presentation and navigation to the presentational
+ * SubagentExecutionCard. Kept out of the card so the card stays
+ * render-testable without the assistant-ui store.
  */
 const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => {
   const liveInvocations = use(SubagentLiveInvocationContext);
@@ -80,7 +93,7 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
   const navigation = useSubagentNavigation(address, invocation, props.toolCallId);
   // BST-1932 (AT-07): the child's answered approvals, from its own committed log.
   const approvalHistory = use(SubagentApprovalHistoryContext);
-  const { outcome, rows: liveRows } = useSubagentInvocationSnapshot(props.toolCallId);
+  const childRun = useSubagentChildRun(address.kind === 'available' ? address.threadId : undefined);
   return createElement(SubagentExecutionCard, {
     // Conditional spread, not `isError: props.isError`: under
     // `exactOptionalPropertyTypes` an optional prop may be absent but never
@@ -97,8 +110,7 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
     ...(approvalHistory && address.kind === 'available'
       ? { approvalHistory: approvalHistory(address.threadId) }
       : {}),
-    liveRows,
-    ...(outcome ? { outcome } : {}),
+    ...(childRun ? { childRun } : {}),
     result: props.result,
     status: props.status,
     toolCallId: props.toolCallId,

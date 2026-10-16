@@ -56,6 +56,12 @@ accident. Human input during active child work ends that run after its current
 step, then starts the child's next run once; failed or stopped work reports why
 it could not consume the input.
 
+A delegation card shows its child's committed run — working, waiting on a person, or
+how it ended, with its tool calls — read from the child's own log, never from the
+delegation call, which settles when a background child starts. While a root has no
+run of its own, its working background children are named at its composer, and their
+Stop is the turn's root Stop (accepted after that run ended).
+
 Root Stop cancels its turn's descendants; child Stop leaves its parent and siblings running.
 Join actual work and memory/provider owners before releasing resources. Stopped
 turns keep results for the next user turn and do not auto-wake. Restart marks

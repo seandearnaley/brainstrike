@@ -7,6 +7,7 @@ import {
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
+import { StrictMode } from 'react';
 import { afterEach, expect, it } from 'vitest';
 import {
   type AssistantThreadHostCapability,
@@ -213,6 +214,41 @@ it('keeps leaves quiet and discovers children added while the parent is collapse
     expect(screen.getByRole('button', { name: 'Expand Plan the release' })).toBeDisabled()
   );
   expect(screen.queryByText('No child conversations')).toBeNull();
+});
+
+it('follows children delegated after mount under StrictMode’s replayed effects', async () => {
+  // The desktop renders its app in StrictMode: the panel's effects are torn down
+  // and set up again on mount, and the host's notices must still reach the rows.
+  let listed: readonly AssistantThreadHostChild[] = [];
+  const listeners = new Set<(threadId: string) => void>();
+  const host = hostWith(
+    async () => listed,
+    (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    }
+  );
+  render(
+    <StrictMode>
+      <AssistantThreadHostContext.Provider value={host}>
+        <Panel />
+      </AssistantThreadHostContext.Provider>
+    </StrictMode>
+  );
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Expand Plan the release' })).toBeDisabled()
+  );
+  listed = [child('working')];
+  act(() => {
+    for (const listener of listeners) {
+      listener('root-1');
+    }
+  });
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Expand Plan the release' })).toBeEnabled()
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Expand Plan the release' }));
+  expect(await screen.findByRole('button', { name: /^Cedar-1a2b3c\s*Working$/u })).toBeVisible();
 });
 
 it('shows failed child discovery rather than treating failure as an empty leaf', async () => {

@@ -1,0 +1,267 @@
+// @vitest-environment node
+/**
+ * Live QA 2026-10-16: a host thread view follows each delegated child's run
+ * from the child's own committed log — working with its tool calls while it
+ * runs, then how it ended — and, between the parent's runs, stops the turn of
+ * its still-working background children through the host's `run/stop`. Only
+ * the model is scripted.
+ */
+import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  type AgentHost,
+  attachAgentHost,
+  type HostClient,
+  hostChildCallSign,
+  startAgentHost,
+} from '@brainstrike/agent-host';
+import {
+  scriptedDelegation,
+  scriptedHeldDelegation,
+} from '@brainstrike/agent-host/test-fixtures/scripted-model';
+import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
+import {
+  DEFAULT_PERMISSION_POLICIES,
+  DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+  describeBoundaryError,
+  refusalError,
+} from '@brainstrike/assistant-contract';
+import { afterEach, expect, test } from 'vitest';
+import { z } from 'zod';
+import {
+  HOST_TREE_DISCONNECTED,
+  HostTreeApprovals,
+  stopHostChildTurns,
+} from '../renderer/host-tree-approvals';
+
+const roots: string[] = [];
+const hosts: AgentHost[] = [];
+const clients: HostClient[] = [];
+const cleanups: (() => Promise<void>)[] = [];
+afterEach(async () => {
+  await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
+  await Promise.all(clients.splice(0).map((client) => client.close()));
+  await Promise.all(hosts.splice(0).map((host) => host.close()));
+  await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
+});
+
+const DELEGATE = { input: { prompt: 'Survey the notes' }, toolId: 'agent-explore' };
+const READS = [
+  { input: { path: 'a.md' }, toolId: 'read_note' },
+  { input: { path: 'b.md' }, toolId: 'read_note' },
+  { input: { path: 'c.md' }, toolId: 'read_note' },
+];
+
+/** A host whose root delegates once, in the background, to an Explorer that reads notes. */
+async function explorerHost(
+  model: ReturnType<typeof scriptedDelegation>,
+  treeClient: (client: HostClient) => HostClient = (client) => client
+) {
+  const root = await mkdtemp(join(tmpdir(), 'bs-host-tree-child-runs-'));
+  roots.push(root);
+  const host = await startAgentHost(
+    { lifetime: 'persistent', root },
+    {
+      close: async () => undefined,
+      delegation: {
+        personas: [
+          {
+            allowedToolIds: ['read_note'],
+            description: 'Reads workspace notes.',
+            id: 'explore',
+            instructions: 'You are the Explorer.',
+            label: 'Explorer',
+            maxSteps: 8,
+            mode: 'read-only',
+          },
+        ],
+        settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxDepth: 1 },
+      },
+      maxSteps: 8,
+      readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
+      resolveModel: async () => model,
+      tools: {
+        read_note: {
+          description: 'Read a workspace note',
+          execute: async (input) => ({ read: input }),
+          identity: 'native-read-note-generation-1',
+          inputSchema: z.object({ path: z.string() }),
+          risk: 'read',
+        },
+      },
+    }
+  );
+  hosts.push(host);
+  const client = await attachAgentHost(host.record);
+  clients.push(client);
+  const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+  const session = new CommittedThreadSession(client, threadId);
+  const tree = new HostTreeApprovals(treeClient(client), threadId, session);
+  const leave = session.connect();
+  cleanups.push(async () => {
+    await tree.close();
+    await leave();
+  });
+  return { client, session, threadId, tree };
+}
+
+const runStarts = (session: CommittedThreadSession) =>
+  session.getSnapshot().rows.filter(({ event }) => event.type === 'run.started');
+const finished = (session: CommittedThreadSession) =>
+  session.getSnapshot().rows.some(({ event }) => event.type === 'run.finished');
+
+test('a host thread’s tree reads its child’s run and tool calls from the child’s own log', async () => {
+  const { client, threadId, tree } = await explorerHost(scriptedDelegation(DELEGATE, READS));
+  await client.request('run/start', {
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Delegate the survey',
+    threadId,
+  });
+  await expect
+    .poll(async () => (await client.request('thread/children', { threadId })).children.length)
+    .toBe(1);
+  const [child] = (await client.request('thread/children', { threadId })).children;
+  if (!child) {
+    throw new Error('The root delegated no child');
+  }
+  // The background child's own log is the truth: its three calls, then its end.
+  await expect.poll(() => tree.read(child.threadId)).toEqual({ status: 'completed', toolCalls: 3 });
+  // The read keeps its identity until the child's run changes.
+  expect(tree.read(child.threadId)).toBe(tree.read(child.threadId));
+  await expect.poll(() => tree.getRunning().children).toEqual([]);
+});
+
+// Codex review on #3719: when listing a thread's children fails, the tree
+// knows no child to read, and a background card stayed on its dispatch
+// acknowledgement ("working"). A child it could not list reads unavailable,
+// with the listing's reason.
+test('a child the tree cannot list reads unavailable with the reason, never working', async () => {
+  const refusal = refusalError(
+    'availability',
+    'host.children-unlisted',
+    'Delegated conversations could not be listed.'
+  );
+  const failingChildren = (real: HostClient): HostClient =>
+    new Proxy(real, {
+      get(target, property) {
+        if (property === 'request') {
+          return ((method: string, params: unknown) =>
+            method === 'thread/children'
+              ? Promise.reject(refusal)
+              : Reflect.apply(target.request, target, [method, params])) as HostClient['request'];
+        }
+        const value: unknown = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  const { client, threadId, tree } = await explorerHost(
+    scriptedDelegation(DELEGATE, READS),
+    failingChildren
+  );
+  await client.request('run/start', {
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Delegate the survey',
+    threadId,
+  });
+  await expect
+    .poll(async () => (await client.request('thread/children', { threadId })).children.length)
+    .toBe(1);
+  const [child] = (await client.request('thread/children', { threadId })).children;
+  if (!child) {
+    throw new Error('The root delegated no child');
+  }
+  await expect
+    .poll(() => tree.read(child.threadId))
+    .toEqual({
+      reason: describeBoundaryError(refusal),
+      status: 'unavailable',
+      toolCalls: 0,
+    });
+  expect(tree.read(child.threadId)).toBe(tree.read(child.threadId));
+});
+
+// Codex review on #3719: a lost connection leaves each session's last rows
+// with `connected: false` and no error, and the cards kept reading "working"
+// while the strip offered a Stop over a closed client. Once the connection is
+// gone, every child's progress is unavailable, and none is offered a Stop.
+test('after the host connection closes, children read unavailable and the strip offers no Stop', async () => {
+  const { client, threadId, tree } = await explorerHost(
+    scriptedHeldDelegation(DELEGATE, READS.slice(0, 2))
+  );
+  await client.request('run/start', {
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Delegate the survey',
+    threadId,
+  });
+  await expect.poll(() => tree.getRunning().children.length).toBe(1);
+  const [working] = tree.getRunning().children;
+  if (!working) {
+    throw new Error('The root delegated no working child');
+  }
+
+  await client.close();
+  await expect
+    .poll(() => tree.read(working.threadId))
+    .toEqual({
+      reason: HOST_TREE_DISCONNECTED,
+      status: 'unavailable',
+      toolCalls: expect.any(Number),
+    });
+  expect(tree.getRunning().children).toEqual([]);
+});
+
+test('between the parent’s runs, the tree names its working background child and Stop ends it without a wake', async () => {
+  const { client, session, threadId, tree } = await explorerHost(
+    scriptedHeldDelegation(DELEGATE, READS.slice(0, 2))
+  );
+  const { runId } = await client.request('run/start', {
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Delegate the survey',
+    threadId,
+  });
+  await expect
+    .poll(async () => (await client.request('thread/children', { threadId })).children.length)
+    .toBe(1);
+  const [child] = (await client.request('thread/children', { threadId })).children;
+  if (!child) {
+    throw new Error('The root delegated no child');
+  }
+  // The parent answered and ended; its child still works, two calls in, and
+  // no root run is active whose Stop would end it.
+  await expect.poll(() => finished(session)).toBe(true);
+  await expect.poll(() => tree.read(child.threadId)).toEqual({ status: 'running', toolCalls: 2 });
+  await expect
+    .poll(() => tree.getRunning())
+    .toEqual({
+      children: [
+        { owner: hostChildCallSign(child.threadId), threadId: child.threadId, turnId: runId },
+      ],
+    });
+
+  await stopHostChildTurns(client, threadId, tree.getRunning().children);
+  await expect.poll(() => tree.read(child.threadId)).toEqual({ status: 'stopped', toolCalls: 2 });
+  await expect.poll(() => tree.getRunning().children).toEqual([]);
+  // A stopped turn's results wait for the next user turn: a wake would have
+  // been admitted ahead of it in the host's one admission queue.
+  const next = await client.request('run/start', {
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Why did it stop?',
+    threadId,
+  });
+  await expect.poll(() => runStarts(session).length).toBe(2);
+  expect(
+    runStarts(session).map(({ event }) =>
+      event.type === 'run.started' ? [event.runId, event.delivery?.via] : []
+    )
+  ).toEqual([
+    [runId, undefined],
+    [next.runId, 'next-turn'],
+  ]);
+});

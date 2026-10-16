@@ -24,7 +24,6 @@ import { ApprovalRanksProvider } from './approval-presentation-context';
 import { ApprovalQueueStrip } from './approval-queue-strip';
 import { AssistantDataRendererRegistration } from './assistant-data-renderer-registration';
 import type { AssistantStreamCallbacks } from './assistant-stream-callbacks';
-import { SubagentInvocationIndexProvider } from './subagent-invocation-index';
 import { useAssistantThreadRuntimeAdapters } from './use-assistant-thread-runtime-adapters';
 import { useThreadPresentationActivityMode } from './use-thread-presentation-activity-mode';
 import '@assistant-ui/styles/index.css';
@@ -813,13 +812,11 @@ export const ChatThreadUI = ({
                  *
                  * See: packages/assistant-ui/src/overrides.css
                  */}
-                <SubagentInvocationIndexProvider key={`invocations:${threadKey}`}>
-                  <ThreadMessagesRegion
-                    components={THREAD_MESSAGE_COMPONENTS}
-                    {...(disabledReason ? { disabledReason } : {})}
-                    {...(threadKey ? { threadKey } : {})}
-                  />
-                </SubagentInvocationIndexProvider>
+                <ThreadMessagesRegion
+                  components={THREAD_MESSAGE_COMPONENTS}
+                  {...(disabledReason ? { disabledReason } : {})}
+                  {...(threadKey ? { threadKey } : {})}
+                />
 
                 {/**
                  * Composer: Fixed at bottom of thread
