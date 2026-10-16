@@ -25,6 +25,25 @@ function verboseLog(...args: unknown[]): void {
   console.log(...args);
 }
 
+/**
+ * The app's middle panel, named by the prefix `IdeLayout` derives its panel ids
+ * from. `agent-workspace-layout.tsx` passes `panelIdPrefix="agent-workspace"`;
+ * the bare `#middle-panel` is the unprefixed default, kept for any surface that
+ * renders `IdeLayout` without a prefix.
+ *
+ * NOT `#context-explorer-middle-panel`: BST-2018 removed the nested explorer
+ * layout, so that id no longer renders anywhere (pinned by
+ * `root-layout-content.test.tsx`, which asserts no `IdeLayout` is given the
+ * `context-explorer` prefix). The web helpers' AGENT_MIDDLE_PANEL_SELECTOR is
+ * the same set.
+ */
+const AGENT_MIDDLE_PANEL_SELECTOR = [
+  '#agent-workspace-middle-panel',
+  '[data-panel-id="agent-workspace-middle-panel"]',
+  '#middle-panel',
+  '[data-panel-id="middle-panel"]',
+].join(', ');
+
 async function waitForAppReadyInHelpers(page: Page): Promise<void> {
   const { waitForAppReady } = await loadElectronHelpers();
   await waitForAppReady(page);
@@ -149,7 +168,7 @@ export async function showDatabaseDemoPanel(
     activePage = await resolveActivePage(activePage);
     await waitForAppReadyInHelpers(activePage);
     await activePage
-      .locator('#context-explorer-middle-panel, #middle-panel')
+      .locator(AGENT_MIDDLE_PANEL_SELECTOR)
       .waitFor({ state: 'attached', timeout: tabTimeoutMs });
 
     activePage = await resolveActivePage(activePage);

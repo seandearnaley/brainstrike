@@ -52,7 +52,7 @@ import {
   HOOK_RESULT_ENVELOPE_FIELD,
   type HookToolGateResult,
 } from '../tools/hook-runner';
-import { ManageTaskListInputSchema } from '../tools/schemas';
+import { NATIVE_TOOL_INPUT_SCHEMAS } from '../tools/schemas';
 import type { StreamChunk } from '../types';
 
 // vi.mock factories are hoisted above imports, so the model the fake provider
@@ -2769,7 +2769,7 @@ describe('permission tool gating (real @mastra/core/agent)', () => {
         return Promise.resolve({ summary: summarizeAssistantTaskList(tasks), tasks });
       },
       id: 'brainstrike.manageTaskList',
-      inputSchema: ManageTaskListInputSchema,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.manageTaskList'],
     });
 
     modelHolder.current = createScriptedToolCallModel({

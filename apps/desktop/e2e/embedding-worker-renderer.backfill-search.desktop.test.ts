@@ -141,8 +141,13 @@ test.describe('Embedding Host Renderer - backfill search', () => {
     const collectionName = `Search E2E ${Date.now()}`;
     const fixture = await createNativeImportedSearchFixture(activeWindow, collectionName);
     expect(fixture.fileCount).toBe(2);
-    const before = await getEmbeddingSetCounts(activeWindow, fixture.embeddingSetId);
-    expect(before.embeddedChunks).toBe(0);
+    // No "nothing embedded yet" pre-check: `getEmbeddingSetCounts` reads the
+    // renderer `electronAPI.db` PG bridge, retired with desktop PGlite (#3595),
+    // and the native owner publishes no coverage until a vector profile exists —
+    // so there is nothing to ask before the next line configures one. The
+    // collection is created fresh under a unique name here, so it cannot carry
+    // vectors in; that embedding actually ran is proved by the coverage and
+    // diagnostics assertions below (vectors === chunks, chunks > 0).
 
     await configureNativeCollectionSearch(activeWindow, collectionName);
     const observation = await waitForNativeCollectionCoverage(

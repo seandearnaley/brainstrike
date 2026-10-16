@@ -71,6 +71,14 @@ const RUN_STARTED: AssistantRunEvent = {
 
 describe('main-process run-event schema provenance', () => {
   it('createThreadRun cannot return an id unless the run-event relations exist', async () => {
+    const runInput = {
+      id: 'run-1' as HostRunId,
+      model: 'gpt-5.2',
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted' as const,
+      threadId: 'thread-1',
+    };
     const db = await wasmLoader.createPGlite(`memory://run-event-provenance-mint-${Date.now()}`);
     try {
       // Seed ONLY the Mastra parent tables, so the FK target exists while the
@@ -95,32 +103,52 @@ describe('main-process run-event schema provenance', () => {
       expect(await tableExists(db, 'brainstrike_assistant_run_events')).toBe(false);
 
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
-      const runInput = {
-        id: 'run-1' as HostRunId,
-        model: 'gpt-5.2',
-        provider: 'openai',
-        resourceId: 'workspace-a',
-        runtimeKind: 'hosted' as const,
-        threadId: 'thread-1',
-      };
       await expect(repository.createThreadRun(runInput)).rejects.toThrow(
         /brainstrike_assistant_thread_runs/
       );
       // And it created nothing on the way out.
       expect(await tableExists(db, 'brainstrike_assistant_thread_runs')).toBe(false);
+    } finally {
+      await db.close();
+    }
 
-      await migrate(db);
-      const run = await repository.createThreadRun(runInput);
+    // The positive half runs on a FRESH profile rather than migrating the
+    // hand-seeded one: `migrate` owns the WHOLE current schema, mastra_* tables
+    // included, and creates them unconditionally (there is no `IF NOT EXISTS`
+    // and no numbered upgrade series left — ADR-0020). Layering it over the
+    // seeded parents above therefore fails on `mastra_messages` before it can
+    // reach the assistant relations, which says nothing about this test's
+    // subject.
+    const migrated = await wasmLoader.createPGlite(
+      `memory://run-event-provenance-migrated-${Date.now()}`
+    );
+    try {
+      await migrate(migrated);
+      await migrated.query(
+        `INSERT INTO ${MASTRA_MEMORY_TABLES.threads}
+          (id, "resourceId", title, metadata, "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
+        [
+          'thread-1',
+          'workspace-a',
+          'Seeded thread',
+          JSON.stringify({ source: 'brainstrike' }),
+          new Date(),
+          new Date(),
+        ]
+      );
+      const migratedRepository = createPgliteAssistantThreadRepository(migrated as DbHandle);
+      const run = await migratedRepository.createThreadRun(runInput);
 
       // Holding a runId therefore IMPLIES both relations exist — which is the
       // whole safety argument for the un-guarded main-process inserts. The
       // implication used to hold because `createThreadRun` created them; it now
       // holds because `createThreadRun` refuses to proceed without them.
       expect(run.id).toBe('run-1');
-      expect(await tableExists(db, 'brainstrike_assistant_thread_runs')).toBe(true);
-      expect(await tableExists(db, 'brainstrike_assistant_run_events')).toBe(true);
+      expect(await tableExists(migrated, 'brainstrike_assistant_thread_runs')).toBe(true);
+      expect(await tableExists(migrated, 'brainstrike_assistant_run_events')).toBe(true);
     } finally {
-      await db.close();
+      await migrated.close();
     }
   });
 
