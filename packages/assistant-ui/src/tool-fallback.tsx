@@ -1,6 +1,6 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import { useCallback, useId, useMemo, useRef, useState } from 'react';
-import { TOOL_EXECUTION_FAILED_MESSAGE, toolCallRan } from './activity-trace-model';
+import { toolCallRan } from './activity-trace-model';
 import { verbForTool } from './activity-verbs';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
@@ -15,15 +15,11 @@ import { ToolFallbackBody } from './tool-fallback-body';
 import { ToolFallbackRow } from './tool-fallback-row';
 import {
   extractResolvedRootName,
+  failureReasonSummary,
   resolveCardStatus,
   resolveErrorMessage,
 } from './tool-fallback-state';
-import {
-  extractPrimaryArg,
-  readToolArgs,
-  summarizeFailureReason,
-  summarizeResult,
-} from './tool-summaries';
+import { extractPrimaryArg, readToolArgs, summarizeResult } from './tool-summaries';
 import { categoryTintClasses, classifyToolName } from './tool-visual-classification';
 import { useActivityGroupView } from './use-activity-group-view';
 import { useToolCallProgressLabel } from './use-tool-call-progress';
@@ -146,17 +142,9 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
     () => (isError || !policy.showResultSummary ? undefined : summarizeResult(result)),
     [isError, policy.showResultSummary, result]
   );
-  // A failed call says why on its collapsed row, bounded like the result
-  // summary and under the same Detail-level policy. The generic message adds
-  // nothing the failed glyph does not already say.
+  // A failed call says why on its collapsed row (the shared rule).
   const failureReason = useMemo(
-    () =>
-      isError &&
-      policy.showResultSummary &&
-      errorMessage !== undefined &&
-      errorMessage !== TOOL_EXECUTION_FAILED_MESSAGE
-        ? summarizeFailureReason(errorMessage)
-        : undefined,
+    () => failureReasonSummary(isError, errorMessage, policy.showResultSummary),
     [errorMessage, isError, policy.showResultSummary]
   );
   // The full reason shows once: the row carries it when it fits there, and the

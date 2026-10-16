@@ -76,7 +76,7 @@ function createDefaultRuntimePorts(): McpAppRuntimePorts {
 
 function initializeResult(hostVersion: string): Readonly<Record<string, unknown>> {
   return Object.freeze({
-    hostCapabilities: Object.freeze({}),
+    hostCapabilities: Object.freeze({ serverTools: Object.freeze({}) }),
     hostContext: Object.freeze({ platform: 'desktop' }),
     hostInfo: Object.freeze({ name: 'Brainstrike', version: hostVersion }),
     protocolVersion: MCP_APPS_PROTOCOL_VERSION,

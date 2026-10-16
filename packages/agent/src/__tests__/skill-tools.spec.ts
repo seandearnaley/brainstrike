@@ -162,6 +162,18 @@ describe('activation execution guidance', () => {
     expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).toContain('same response');
     expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).not.toContain('next turn');
   });
+
+  // Live smoke 2026-10-16: on plain canvas requests GLM, Qwen and Grok
+  // activated a broadly described design skill and then asked to run its
+  // script, because this guidance (appended to EVERY activation) read as an
+  // instruction to run one. A script runs only when the skill's instructions
+  // call for it in the user's task.
+  it('asks for a skill script only when the skill’s instructions call for it in the task', async () => {
+    const { BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE } = await import('../skills/skill-tools');
+    expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).toMatch(
+      /only when these instructions call for (?:it|one) in the user's task/
+    );
+  });
 });
 
 describe('activation guidance survives truncation', () => {
