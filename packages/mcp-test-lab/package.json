@@ -12,7 +12,7 @@
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@modelcontextprotocol/conformance": "0.2.0-alpha.10",
+    "@modelcontextprotocol/conformance": "0.2.0-alpha.12",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",

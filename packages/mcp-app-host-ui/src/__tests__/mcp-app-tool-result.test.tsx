@@ -4,6 +4,8 @@ import type { McpAppBridge, McpAppOrigin } from '@brainstrike/assistant-contract
 import { createMcpAppToolInvocationResult } from '@brainstrike/assistant-contract';
 import { AssistantConversationPanel, ToolResultRendererProvider } from '@brainstrike/assistant-ui';
 import { TooltipProvider } from '@brainstrike/ui';
+import { InMemoryTransport, parseJSONRPCMessage } from '@modelcontextprotocol/client';
+import { App } from '@modelcontextprotocol/ext-apps';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createContext, type ReactElement, StrictMode, use } from 'react';
@@ -69,9 +71,11 @@ class TestMessageTarget {
 
 class TestFrame {
   readonly sent: unknown[] = [];
+  onMessage?: (message: unknown) => void;
 
   postMessage(message: unknown): void {
     this.sent.push(message);
+    this.onMessage?.(message);
   }
 }
 
@@ -291,6 +295,49 @@ describe('MCP App tool result', () => {
     const token = 'f'.repeat(32);
     resolveShell?.({ shellUrl: `brainstrike-mcp-app://${token}/`, token });
     await waitFor(() => expect(test.bridge.releaseShell).toHaveBeenCalledWith({ token }));
+  });
+
+  it('lets a published SDK 2 app call tools through the production initializer and consent', async () => {
+    const user = userEvent.setup();
+    const test = harness('ask');
+    const [appTransport, frameTransport] = InMemoryTransport.createLinkedPair();
+    const app = new App(
+      { name: 'Linear', version: '1.0.0' },
+      {},
+      {
+        autoResize: false,
+        strict: true,
+      }
+    );
+    frameTransport.onmessage = (message) => test.target.dispatch(test.frame, message);
+    test.frame.onMessage = (message) => {
+      void frameTransport.send(parseJSONRPCMessage(message));
+    };
+    const connected = vi.fn();
+    const view = renderApp(test, connected);
+    try {
+      await waitFor(() => expect(connected).toHaveBeenCalled());
+      await frameTransport.start();
+      await act(async () => await app.connect(appTransport));
+      expect(app.getHostCapabilities()).toEqual({ serverTools: {} });
+      const result = app.callServerTool({ arguments: { title: 'SDK 2' }, name: 'create_issue' });
+      await user.click(await screen.findByRole('button', { name: 'Allow create_issue once' }));
+      await expect(result).resolves.toMatchObject({ content: [{ text: 'done', type: 'text' }] });
+      expect(test.prepare).toHaveBeenCalledWith({
+        arguments: { title: 'SDK 2' },
+        origin: APP,
+        preparationId: expect.stringContaining('mcp-app-preparation-'),
+        threadId: 'thread-a',
+        toolName: 'create_issue',
+      });
+      expect(test.execute).toHaveBeenCalledTimes(1);
+    } finally {
+      view.unmount();
+      await app.close();
+      await frameTransport.close();
+    }
+    await waitFor(() => expect(test.target.listeners.size).toBe(0));
+    await waitFor(() => expect(test.revoked).toEqual(test.created));
   });
 
   it('routes an app tools/call through consent, execution, and the frame reply', async () => {

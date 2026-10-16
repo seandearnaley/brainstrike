@@ -1,4 +1,5 @@
 import { createServer, type Server } from 'node:http';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -34,6 +35,46 @@ function appDocument(label: string): string {
       params:{appCapabilities:{},appInfo:{name:'${label}',version:'1.0.0'},protocolVersion:'2026-01-26'}
     });
   ${scriptClose}`;
+}
+
+async function buildOfficialApp(): Promise<string> {
+  const entry = createRequire(import.meta.url).resolve('@modelcontextprotocol/ext-apps');
+  const output = await build({
+    bundle: true,
+    format: 'iife',
+    minify: true,
+    platform: 'browser',
+    stdin: {
+      contents: `
+        import {App,PostMessageTransport} from ${JSON.stringify(entry)};
+        const app=new App({name:document.title,version:'1.0.0'},{},{autoResize:false,strict:true});
+        app.ontoolinput=()=>{
+          void app.callServerTool({name:'wait'}).catch(error=>console.info('Tool settled',String(error)));
+        };
+        app.onhostcontextchanged=()=>{
+          parent.postMessage({id:'invalid-method',jsonrpc:'2.0',method:'tools/list',params:{}},'*');
+        };
+        app.onteardown=async(_params,extra)=>{
+          if(!(extra.mcpReq.signal instanceof AbortSignal))throw new Error('Missing SDK 2 request signal');
+          if(String(extra.mcpReq.id)==='pending')return await new Promise(()=>{});
+          return {};
+        };
+        void app.connect(new PostMessageTransport(parent,parent)).catch(error=>console.error(error));
+      `,
+      resolveDir: import.meta.dirname,
+    },
+    target: 'chrome136',
+    write: false,
+  });
+  const script = output.outputFiles[0]?.text;
+  if (script === undefined) {
+    throw new Error('Official SDK 2 app bundle is unavailable');
+  }
+  return script;
+}
+
+function officialAppDocument(label: string, script: string): string {
+  return `<!doctype html><title>${label}</title><script>${script.replaceAll('</script>', '<\\/script>')}</script>`;
 }
 
 async function createModuleServer(): Promise<{ readonly origin: string; readonly server: Server }> {
@@ -89,10 +130,12 @@ async function createModuleServer(): Promise<{ readonly origin: string; readonly
 describe('real opaque-origin iframe MCP Apps bridge', () => {
   let browser: Awaited<ReturnType<typeof chromium.launch>>;
   let origin: string;
+  let officialApp: string;
   let server: Server;
 
   beforeAll(async () => {
     ({ origin, server } = await createModuleServer());
+    officialApp = await buildOfficialApp();
     browser = await chromium.launch({ headless: true });
   });
 
@@ -104,7 +147,7 @@ describe('real opaque-origin iframe MCP Apps bridge', () => {
     await browser.close();
   });
 
-  it('pins identity and quiescent replacement, failure, disconnect, and close lifecycle', async () => {
+  async function verifyFrameLifecycle(mode: 'legacy-wire' | 'official-sdk2'): Promise<void> {
     const page = await browser.newPage();
     await page.goto(origin);
     await page.addScriptTag({
@@ -157,7 +200,7 @@ describe('real opaque-origin iframe MCP Apps bridge', () => {
           onRequest: async (message, context) => {
             if (message.method === 'ui/initialize') {
               return {
-                hostCapabilities: {},
+                hostCapabilities: { serverTools: {} },
                 hostContext: { platform: 'desktop' },
                 hostInfo: { name: 'Brainstrike', version: '1.0.0' },
                 protocolVersion: '2026-01-26',
@@ -292,9 +335,14 @@ describe('real opaque-origin iframe MCP Apps bridge', () => {
         };
       },
       {
-        firstHtml: appDocument('first'),
-        secondHtml: appDocument('second'),
-        thirdHtml: appDocument('third'),
+        firstHtml:
+          mode === 'legacy-wire' ? appDocument('first') : officialAppDocument('first', officialApp),
+        secondHtml:
+          mode === 'legacy-wire'
+            ? appDocument('second')
+            : officialAppDocument('second', officialApp),
+        thirdHtml:
+          mode === 'legacy-wire' ? appDocument('third') : officialAppDocument('third', officialApp),
       }
     );
 
@@ -332,5 +380,10 @@ describe('real opaque-origin iframe MCP Apps bridge', () => {
       timerCount: 0,
     });
     await page.close();
-  });
+  }
+
+  it.each(['legacy-wire', 'official-sdk2'] as const)(
+    'pins identity and quiescent replacement, failure, disconnect, and close lifecycle (%s)',
+    verifyFrameLifecycle
+  );
 });

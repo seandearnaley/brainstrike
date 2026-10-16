@@ -28,7 +28,7 @@ cleanupUnusedCatalogs: true
 catalog:
   # ADR-0012: only the new host consumes this pin; the legacy Mastra closure retains ai 6.
   ai: 7.0.142
-  vscode-jsonrpc: 9.0.2
+  vscode-jsonrpc: 9.0.3
   '@ai-sdk/amazon-bedrock': 5.0.117
   # BST-2029: retain the qualified fence until 0.0.79 passes both OS suites.
   # macOS behavior passed; Linux readiness is blocked by host AppArmor policy.
@@ -322,17 +322,9 @@ overrides:
   # which fails until all three are done together.
   vite-plugin-top-level-await>@swc/core: ~1.15.47
   vite-plugin-top-level-await>@swc/wasm: ~1.15.43
-  # GHSA-6qxp-vccf-f47h / CVE-2026-104850 again, on the v1 line: @ext-apps 1.7.5
-  # peer-depends on @modelcontextprotocol/sdk ^1.29.0, so pnpm auto-installs a
-  # copy inside the advisory's affected 1.12.0-1.30.1 range. 1.31.0 carries the
-  # same issuer-binding fix; 1.32.1 is the head of that line and still satisfies
-  # ^1.29.0. DEFENCE IN DEPTH, not a live hole: the vulnerable code is the OAuth
-  # client, ext-apps imports only client/index.js, server/mcp.js,
-  # server/zod-compat.js, shared/protocol.js, shared/transport.js and types.js,
-  # and no first-party source may reference the v1 SDK at all (enforced by
-  # scripts/__tests__/mcp-sdk-v2-boundary-contract.test.mjs). Retire this edge
-  # when ext-apps admits the v2 split packages.
-  '@modelcontextprotocol/ext-apps@1.7.5>@modelcontextprotocol/sdk': 1.32.1
+  # Test-only conformance alpha.12 still declares SDK ^1.29.0. Keep its OAuth
+  # issuer-binding fix; first-party code continues to use only the split SDK 2.
+  '@modelcontextprotocol/conformance@0.2.0-alpha.12>@modelcontextprotocol/sdk': 1.32.1
 allowBuilds:
   '@brainstrike/secure-fs-native': true
   '@brainstrike/windows-job-native': true
@@ -370,4 +362,4 @@ patchedDependencies:
   '@mastra/memory@1.32.1': patches/@mastra__memory@1.32.1.patch
   '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch
   app-builder-lib@26.17.0: patches/app-builder-lib@26.17.0.patch
-  vscode-jsonrpc@9.0.2: patches/vscode-jsonrpc@9.0.2.patch
+  vscode-jsonrpc@9.0.3: patches/vscode-jsonrpc@9.0.3.patch
