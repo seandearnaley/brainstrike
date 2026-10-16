@@ -15,7 +15,7 @@ import {
   summarizeHostContext,
 } from './context-compaction.js';
 import { hostContextNotes } from './context-notes.js';
-import { finishHostSdkLoop, recoverHostRun, retainHostRunWork } from './core-run-lifecycle.js';
+import { finishHostSdkLoop, retainHostRunWork } from './core-run-lifecycle.js';
 import type { HostRunState as Run } from './core-state.js';
 import { healInterruptedRunHistory } from './interrupted-history.js';
 import { jsonValue } from './json-value.js';
@@ -541,10 +541,8 @@ async function runHostSdkAttempt(
         } catch (cause) {
           run.controller.abort(cause);
           // While the host closes, the run cannot commit its own failure, so the
-          // lost checkpoint must reject close with its original cause. A run that
-          // restart holds for its decision loses nothing: its continuation
-          // checkpoints the run's committed steps again. A child is never resumed.
-          if (ports.closing() && recoverHostRun(run)?.kind !== 'await-decision') {
+          // lost checkpoint must reject close with its original cause.
+          if (ports.closing()) {
             checkpointFailure = cause;
             return;
           }
