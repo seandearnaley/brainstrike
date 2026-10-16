@@ -9,7 +9,7 @@
     "@brainstrike/tokenization": "workspace:*",
     "effect": "catalog:",
     "oxc-parser": "catalog:",
-    "web-tree-sitter": "^0.27.1"
+    "web-tree-sitter": "^0.25.10"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
