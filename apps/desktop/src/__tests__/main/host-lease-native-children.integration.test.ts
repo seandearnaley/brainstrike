@@ -129,8 +129,18 @@ describe.skipIf(process.platform === 'win32')(
       // next client's admission closes this owner at once (BST-2004); the
       // survivor still gets its grace.
       await owner.close();
+      // Join Node's own bookkeeping BEFORE reading the signal. `close()` joins the
+      // OS, not Node: it polls `processStartTime`/`kill(-pid, 0)`, and a group left
+      // holding only an unreaped zombie already reads as gone there (Darwin's
+      // killpg raises EPERM for it). That is the only join Main can do — in
+      // production the host spawns these processes and reports pid/start/group, so
+      // Main never holds a ChildProcess and never sees an 'exit' event; the Root's
+      // flock is what proves nothing LIVE survived. This test does own the handle,
+      // and `signalCode` stays null until Node reaps, which is strictly after the
+      // zombie window `close()` returns in.
+      const killedAt = await killed;
       expect(stubborn.signalCode).toBe('SIGKILL');
-      expect((await killed) - lostAt).toBeGreaterThanOrEqual(KILL_GRACE_MS);
+      expect(killedAt - lostAt).toBeGreaterThanOrEqual(KILL_GRACE_MS);
     });
 
     it('closes a lost host without the full grace once its processes exit on SIGTERM', async () => {
