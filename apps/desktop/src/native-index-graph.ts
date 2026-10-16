@@ -4,6 +4,7 @@ import type {
   CanonicalOperationContext,
   CanonicalScanReceipt,
   CanonicalWorkspaceLease,
+  createNativeCanonicalPublication,
 } from '@brainstrike/canonical-ingestion';
 import type { HostAttachment } from '@brainstrike/host-lease';
 import type {
@@ -23,7 +24,6 @@ import {
   type NativeCanonicalProfileDependencies,
   NativeCanonicalProfileResolver,
 } from './native-canonical-profile';
-import type { createNativeCanonicalPublication } from './native-canonical-publication';
 import { vectorCollectionId } from './native-index-partition';
 import type { NativeIndexSettings } from './native-index-settings';
 import type { NativeIndexSources } from './native-index-source-retirement';

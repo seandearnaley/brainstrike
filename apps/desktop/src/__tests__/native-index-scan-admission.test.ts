@@ -1,11 +1,11 @@
 // @vitest-environment node
 import type { CanonicalFileIdentity, CanonicalSourceScope } from '@brainstrike/canonical-ingestion';
+import { createNativeCanonicalPublication } from '@brainstrike/canonical-ingestion';
 import type { ScopedIndexerPort } from '@brainstrike/indexer';
 import type { FileSystemWatchSignal } from '@brainstrike/types';
 import { expect, it, vi } from 'vitest';
 import { CanonicalUtilityChild } from '../canonical-utility-child';
 import { CanonicalUtilityParent } from '../canonical-utility-parent';
-import { createNativeCanonicalPublication } from '../native-canonical-publication';
 import { catalogFingerprint, deferNativeIndexCatalog } from '../native-index-catalog-observation';
 import { createNativeScanAdmission } from '../native-index-scan-admission';
 

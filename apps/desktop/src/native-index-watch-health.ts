@@ -1,5 +1,5 @@
+import type { createNativeCanonicalPublication } from '@brainstrike/canonical-ingestion';
 import type { WatcherHealthTransition } from '@brainstrike/types';
-import type { createNativeCanonicalPublication } from './native-canonical-publication';
 
 interface Dependencies {
   /** Null for the TEXT partition, which has no collection scope to invalidate. */

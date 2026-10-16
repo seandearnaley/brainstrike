@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { CanonicalScanReceipt, CanonicalSourceScope } from '@brainstrike/canonical-ingestion';
+import { createNativeCanonicalPublication } from '@brainstrike/canonical-ingestion';
 import { getFileSizeConfig } from '@brainstrike/file-system';
 import type { HostAttachment } from '@brainstrike/host-lease';
 import type { IndexerPort, ScopedIndexerPort, VectorProfile } from '@brainstrike/indexer';
@@ -23,7 +24,6 @@ import {
   NativeCanonicalInference,
   type NativeCanonicalProfileResolver,
 } from './native-canonical-profile';
-import { createNativeCanonicalPublication } from './native-canonical-publication';
 import { isolateNativeCoverage } from './native-coverage-reader';
 import { nativeFileIdentity } from './native-index-attach';
 import {
