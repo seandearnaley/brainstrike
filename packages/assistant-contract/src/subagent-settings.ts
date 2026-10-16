@@ -63,10 +63,13 @@ export const SUBAGENT_SETTINGS_LIMITS = Object.freeze({
    */
   maxConcurrentWork: Object.freeze({ max: 20, min: 1 }),
   /**
-   * Up to 8 levels: the parent stream watchdog unwraps at most eight nested
-   * delegation envelopes (`MAX_DELEGATED_ENVELOPE_UNWRAPS` in
-   * `packages/agent/src/mastra/agent-streaming.ts`), so a deeper foreground
-   * descendant's tool calls would lose their tool-execution window.
+   * Up to 8 levels: the shipped parent stream watchdog unwrapped at most eight
+   * nested delegation envelopes (`MAX_DELEGATED_ENVELOPE_UNWRAPS` in
+   * `packages/agent/src/mastra/agent-streaming.ts`, removed with ADR-0022), so
+   * a deeper foreground descendant's tool calls would lose their tool-execution
+   * window. The host enforces `maxDepth` in `packages/agent-host/src/child-runs.ts`
+   * and its run-stream watchdog unwraps no envelopes, so the ceiling of 8 is
+   * retained but no longer follows from a technical limit.
    */
   maxDepth: Object.freeze({ max: 8, min: 1 }),
   maxInvocations: Object.freeze({ max: MAX_INVOCATIONS, min: 1 }),

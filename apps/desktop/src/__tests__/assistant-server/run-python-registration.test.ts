@@ -85,7 +85,7 @@ describe('run_python registration', () => {
     // `{description, execute, id, inputSchema}` literal shape DROPS
     // suspendSchema/resumeSchema. BST-1070 adds a suspendSchema to this tool
     // for the network escalation; if the registration were re-wrapped in that
-    // literal, `hasSuspendSchema` would go false, the network prompt would
+    // literal, the tool would carry no suspendSchema, the network prompt would
     // never fire, and the run would proceed with NO error and NO run event.
     // Asserting the real Tool object here arms that guard before the schema
     // exists.
@@ -98,8 +98,8 @@ describe('run_python registration', () => {
     expect(Object.getPrototypeOf(tool)).not.toBe(Object.prototype);
     // GATE B IS ARMED (BST-1070): the registered entry carries the suspend
     // and resume schemas. This is the only guard against the silent bypass
-    // above — with hasSuspendSchema false, a non-empty allowedDomains would
-    // run with no prompt, no error, and no run event.
+    // above — with no suspendSchema, a non-empty allowedDomains would run with
+    // no prompt, no error, and no run event.
     expect(tool.suspendSchema).toBeTruthy();
     expect(tool.resumeSchema).toBeTruthy();
   });

@@ -1,9 +1,11 @@
 /**
  * Prompt-composition breakdown for the context usage popover.
  *
- * Computed server-side at prompt assembly (packages/agent
- * mastra/prompt-breakdown.ts) with the shared chars/4 heuristic and shipped as
- * a TRANSIENT `brainstrike.context-breakdown` aui-data part at run start.
+ * Computed server-side at prompt assembly (`preparedPromptBreakdown` in
+ * packages/agent/src/provider-request.ts, formerly packages/agent
+ * mastra/prompt-breakdown.ts, removed with ADR-0022) with the shared chars/4
+ * heuristic and shipped as a TRANSIENT `brainstrike.context-breakdown` aui-data
+ * part at run start.
  *
  * TRANSIENCE (deliberate, mirrors SHELL_OUTPUT_DATA_NAME): the breakdown rides
  * its OWN data part, NOT a run-event. Run-events are persisted server-side into

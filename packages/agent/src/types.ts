@@ -167,12 +167,13 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * the immutable Mastra `Agent` is built (`filterToolsByPermissionWithMetadata`):
    * `'allow'` keeps a tool, `'deny'` omits it, and `'ask'` keeps a CLONE carrying
    * the FUNCTION form of Mastra's PER-TOOL `requireApproval` (the runtime's live
-   * gate, `mastra/approval-gate.ts`) so the run SUSPENDS for approval only when
-   * that tool is called and no remembered session grant allows it (allowed
-   * tools run free; the run-wide `requireToolApproval` is NOT forced). Never silently run; when no storage
+   * gate, `mastra/approval-gate.ts`, removed with ADR-0022) so the run SUSPENDS
+   * for approval only when that tool is called and no remembered session grant
+   * allows it (allowed tools run free; the run-wide `requireToolApproval` is NOT
+   * forced). Never silently run; when no storage
    * exists to resume, `'ask'` falls back to a fail-safe omit. OPTIONAL — when
    * absent, the tool map is unchanged (production-default). Agent-only. See
-   * `mastra/permission-tool-gate.ts`.
+   * `permissions/permission-tool-gate.ts`.
    *
    * This is the TRUSTED, server-built snapshot (risk classification is
    * registry-side). The renderer never sets it directly — it sends the OPT-IN

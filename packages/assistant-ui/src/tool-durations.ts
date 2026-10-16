@@ -56,11 +56,12 @@ function runEventToolCallId(data: AssistantRunEvent): string | undefined {
  * HISTORY, because this comment used to say the opposite. It claimed the resume
  * leg emits `tool.completed` FIRST with no second `tool.started`, and that
  * nothing downstream could repair the deliberation gap. That was true when
- * written and is FALSE since BST-1440: the resume leg now synthesises a
+ * written and was FALSE since BST-1440: the shipped resume leg synthesised a
  * `tool.started` (`makeResumedStartChunks` in
  * `packages/agent/src/mastra/agent-streaming.ts`, routed through the shared
- * lifecycle seam) so the Threads panel's "needs you" signal can clear when the
- * user ANSWERS rather than when the tool finishes.
+ * lifecycle seam; removed with ADR-0022) so the Threads panel's "needs you"
+ * signal could clear when the user ANSWERED rather than when the tool
+ * finished.
  *
  * What that changes here, precisely:
  *   - `durationMs` PRESENT — the normal path for anything this build produced —

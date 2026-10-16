@@ -13,14 +13,12 @@ import { createSubmitPlanTool } from '../../tools/submit-plan-tool';
 import {
   ASK_USER_TOOL_ID,
   filterToolsForPlanMode,
-  hasSuspendSchema,
-  resolveSuspendToolsForRun,
   SUBMIT_PLAN_TOOL_ID,
   SUSPENDING_NATIVE_TOOL_IDS,
 } from '../plan-mode-tool-gate';
 
 function makeLogger() {
-  return { info: vi.fn(), warn: vi.fn() };
+  return { info: vi.fn() };
 }
 
 // The gate keys tools by SANITIZED id; brainstrike.* ids sanitize to underscores.
@@ -55,14 +53,6 @@ function makeToolMap() {
   };
 }
 
-describe('hasSuspendSchema', () => {
-  it('detects a tool declaring suspendSchema', () => {
-    expect(hasSuspendSchema({ suspendSchema: {} })).toBe(true);
-    expect(hasSuspendSchema({ id: 'x' })).toBe(false);
-    expect(hasSuspendSchema(null)).toBe(false);
-  });
-});
-
 // A tool that CAN suspend() but has no registered typed resume UI pauses runs
 // this build cannot answer. That direction has no compile-time guard, so it is
 // guarded here.
@@ -80,7 +70,7 @@ describe('suspending tools vs the resume-UI registry', () => {
       resolveHost: () => Promise.reject(new Error('unused in this test')),
     });
     for (const tool of [createAskUserTool(), runPythonTool, createSubmitPlanTool()]) {
-      expect(hasSuspendSchema(tool)).toBe(true);
+      expect(tool.suspendSchema).toBeTruthy();
       expect(hasRegisteredSuspendResumeUi(tool.id)).toBe(true);
     }
   });
@@ -173,23 +163,5 @@ describe('filterToolsForPlanMode', () => {
       makeLogger()
     );
     expect(result).not.toHaveProperty('brainstrike_editThing');
-  });
-});
-
-describe('resolveSuspendToolsForRun', () => {
-  it('returns the map unchanged when storage is present', () => {
-    const tools = makeToolMap();
-    expect(resolveSuspendToolsForRun(tools, true, toolNameMap, makeLogger())).toBe(tools);
-  });
-
-  it('omits suspending tools when storage is absent (fail-safe)', () => {
-    const logger = makeLogger();
-    const result = resolveSuspendToolsForRun(makeToolMap(), false, toolNameMap, logger);
-    expect(result).not.toHaveProperty('brainstrike_submitPlan');
-    expect(result).not.toHaveProperty('brainstrike_askUser');
-    // Non-suspending tools survive.
-    expect(result).toHaveProperty('brainstrike_readWorkspaceFile');
-    expect(result).toHaveProperty('brainstrike_writeWorkspaceFile');
-    expect(logger.warn).toHaveBeenCalledTimes(2);
   });
 });

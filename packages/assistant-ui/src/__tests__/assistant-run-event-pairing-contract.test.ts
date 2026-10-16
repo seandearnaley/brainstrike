@@ -159,11 +159,11 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     // VISIBLE rather than paired — pinned by 'forces a skipped MCP server to
     // stay visible (BST-1602)' in assistant-run-timeline.test.tsx.
     'mcp.tools.unavailable',
-    // The resolved permission gate (debug pack, 2026-09-15). Emitted `status:
-    // 'completed'` (`makePermissionGateResolvedChunks` in
-    // packages/agent/src/mastra/permission-gate-run-events.ts), never
-    // `'running'`: the gate has already decided when the row is minted. The
-    // emitted status is asserted by permission-gate-run-events.spec.ts.
+    // The resolved permission gate (debug pack, 2026-09-15). The shipped loop
+    // emitted it `status: 'completed'` (`makePermissionGateResolvedChunks` in
+    // packages/agent/src/mastra/permission-gate-run-events.ts, removed with
+    // ADR-0022), never `'running'`: the gate had already decided when the row
+    // was minted. The kind stays pinned here as a standalone row.
     'permission.gate.resolved',
     // BST-1391's forge PR events. `use-forge-run-events.ts` emits these with
     // `status: 'info' | 'completed' | 'failed'` (see `describe()`), NEVER
@@ -172,11 +172,11 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     'pr.checks',
     'pr.merged',
     'pr.opened',
-    // BST-1701's provider call warning. Emitted `status: 'failed'`
-    // (`makeProviderCallWarningChunks` in
-    // packages/agent/src/mastra/provider-warning-run-events.ts), never
-    // `'running'`: by the time the adapter reports what it dropped, the
-    // decision is already made and nothing is in flight. A standalone
+    // BST-1701's provider call warning. Emitted `status: 'failed'` (`warned()`
+    // in packages/assistant-ui/src/committed-assistant-log-projection.ts, from
+    // the `warnings` of a committed `start-step` chunk), never `'running'`: by
+    // the time the adapter reports what it dropped, the decision is already made
+    // and nothing is in flight. A standalone
     // breadcrumb that stays VISIBLE rather than paired - pinned by 'forces a
     // dropped provider setting to stay visible (BST-1701)' in
     // assistant-run-timeline.test.tsx.
@@ -188,8 +188,9 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     'run.failed',
     'run.finished',
     // BST-1409's recovery pair. Both are emitted `status: 'info'`, never
-    // `running` (`makeRunDetailEventChunk('run.stalled'|'run.resumed', 'info', …)`
-    // in packages/agent/src/mastra/agent-streaming.ts), so neither needs a
+    // `running` (`attempt()` in
+    // packages/assistant-ui/src/committed-assistant-log-projection.ts, from a
+    // committed `run.attempt` row), so neither needs a
     // terminal of its own — they are standalone breadcrumbs, not spans. They
     // stay VISIBLE rather than paired; that is pinned separately by
     // 'keeps run.stalled and run.resumed visible in the timeline' below.

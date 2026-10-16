@@ -1,26 +1,18 @@
 /**
- * Plan-mode + suspend-storage gates. Two PURE tool-map filters applied in
- * the run's tool map BEFORE it is bound, alongside the permission gate. The
- * host applies {@link filterToolsForPlanMode} in
- * `apps/desktop/src/agent-host-platform/desktop-host-context.ts`:
+ * Plan-mode tool gate: a PURE tool-map filter applied to the run's tool map
+ * BEFORE it is bound, alongside the permission gate. The host applies
+ * {@link filterToolsForPlanMode} in
+ * `apps/desktop/src/agent-host-platform/desktop-host-context.ts`: when the run
+ * is in plan mode, keep only risk ∈ {read, mcp} and OMIT every edit/execute
+ * tool, so the model can investigate and propose a plan but cannot mutate
+ * anything until it is approved. Runs BEFORE the permission gate (a dropped
+ * mutation tool is dropped regardless of allow/ask/deny). `submitPlan`/`askUser`
+ * survive because they are classified `read` — NOT because they suspend
+ * (BST-1073).
  *
- * 1. {@link filterToolsForPlanMode} — when the run is in plan mode, keep only
- *    risk ∈ {read, mcp} and OMIT every edit/execute tool, so the model can
- *    investigate and propose a plan but cannot mutate anything until it is
- *    approved. Runs BEFORE the permission gate (a dropped mutation tool is
- *    dropped regardless of allow/ask/deny). `submitPlan`/`askUser` survive
- *    because they are classified `read` — NOT because they suspend (BST-1073).
- *
- * 2. {@link resolveSuspendToolsForRun} — a tool that pauses via `suspend()` is
- *    useless without Mastra workflow storage to resume it, so without storage
- *    the suspending tools are FAIL-SAFE omitted (mirrors the ask-tools omit in
- *    `resolveAskToolsForRun`). Never run a suspend tool that cannot resume.
- *
- * A "suspending tool" is detected structurally by an own `suspendSchema`
- * property, so this needs no coupling to specific tool ids (future suspend tools
- * are covered automatically). {@link SUSPENDING_NATIVE_TOOL_IDS} names those
- * tools for registry/UX purposes and is DERIVED from the resume-UI registry, so
- * a suspending tool can never be listed here without a way to answer its pause.
+ * {@link SUSPENDING_NATIVE_TOOL_IDS} names the suspending native tools for
+ * registry/UX purposes and is DERIVED from the resume-UI registry, so a
+ * suspending tool can never be listed here without a way to answer its pause.
  */
 
 import {
@@ -33,9 +25,9 @@ export const SUBMIT_PLAN_TOOL_ID = NATIVE_TOOL_ID.submitPlan;
 export const ASK_USER_TOOL_ID = NATIVE_TOOL_ID.askUser;
 
 /**
- * The suspending native tools (omitted without storage). They also survive
- * plan mode, but on their `read` risk classification rather than on suspending
- * — a suspend schema is not a plan-mode admission ticket (BST-1073).
+ * The suspending native tools. They survive plan mode on their `read` risk
+ * classification rather than on suspending — a suspend schema is not a
+ * plan-mode admission ticket (BST-1073).
  * DERIVED from `REGISTERED_SUSPEND_RESUME_TOOL_IDS` — a tool that can `suspend()`
  * but has no registered typed resume UI would pause a run this build cannot
  * answer, so the two lists are one list by construction rather than two
@@ -45,14 +37,6 @@ export const SUSPENDING_NATIVE_TOOL_IDS: readonly string[] = REGISTERED_SUSPEND_
 
 export interface PlanModeToolGateLogger {
   info: (message: string, context?: Record<string, unknown>) => void;
-  warn: (message: string, context?: Record<string, unknown>) => void;
-}
-
-/** True when `tool` declares a Mastra `suspendSchema` (i.e. it can `suspend()`). */
-export function hasSuspendSchema(tool: unknown): boolean {
-  return Boolean(
-    tool && typeof tool === 'object' && (tool as { suspendSchema?: unknown }).suspendSchema
-  );
 }
 
 /** Risk buckets that plan mode keeps (investigation/read-only + MCP). */
@@ -116,34 +100,4 @@ export function filterToolsForPlanMode<TMap extends Record<string, unknown>>(
     });
   }
   return kept as TMap;
-}
-
-/**
- * Fail-safe for the suspending tools: without Mastra workflow storage a
- * `suspend()` can never resume, so OMIT the suspending tools (logged) rather
- * than run one that would wedge the run. PURE. With storage, returns the map
- * unchanged.
- */
-export function resolveSuspendToolsForRun<TMap extends Record<string, unknown>>(
-  tools: TMap,
-  hasStorage: boolean,
-  toolNameMap: ReadonlyMap<string, string>,
-  logger: PlanModeToolGateLogger
-): TMap {
-  if (hasStorage) {
-    return tools;
-  }
-  const reduced: Record<string, unknown> = {};
-  for (const [sanitizedId, tool] of Object.entries(tools)) {
-    if (hasSuspendSchema(tool)) {
-      logger.warn('Suspending tool omitted; no workflow storage to resume it (fail-safe)', {
-        code: 'suspend_tool_omitted_no_storage',
-        sanitizedId,
-        tool: toolNameMap.get(sanitizedId) ?? sanitizedId,
-      });
-      continue;
-    }
-    reduced[sanitizedId] = tool;
-  }
-  return reduced as TMap;
 }

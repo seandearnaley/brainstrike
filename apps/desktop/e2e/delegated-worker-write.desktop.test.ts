@@ -372,7 +372,9 @@ async function assertWorkerWrite(
           .click();
         // A cancelled background child wakes its parent once, as the shipped
         // assistant did (packages/agent/src/mastra/background-idle-loop.ts:38-46 on
-        // main ed97957e0); that turn settles before the next answer is scripted.
+        // main ed97957e0, removed with ADR-0022); the host admits that turn as a
+        // `wake` run (packages/agent-host/src/core.ts). It settles before the next
+        // answer is scripted.
         const stoppedRuns = [
           { outcome: 'completed', states: [], via: 'command' },
           { outcome: 'completed', states: ['cancelled'], via: 'wake' },
