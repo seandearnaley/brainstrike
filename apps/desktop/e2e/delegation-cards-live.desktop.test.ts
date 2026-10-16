@@ -57,68 +57,72 @@ test('open delegation cards follow their background children to the end without 
     };
   });
   let joined = false;
-  const context = await launchElectronAppWithOptions({
-    disableExternalLocalRuntimeProbes: true,
-    modelProvider: provider,
-    userDataDir: profile,
-    workspaceRoot: workspace,
-  });
-  const child = context.app.process();
   try {
-    const page = context.window;
-    await expect(page.getByTestId('new-agent-button')).toBeVisible();
-    await seedRoot(page, workspace, {
-      disableBackgroundIndexing: true,
-      reloadReason: 'delegation-cards-live',
-      rootId: randomUUID(),
+    const context = await launchElectronAppWithOptions({
+      disableExternalLocalRuntimeProbes: true,
+      modelProvider: provider,
+      userDataDir: profile,
+      workspaceRoot: workspace,
     });
-    await configureAssistantProvider(page, {
-      apiKey: 'test-key-delegation-cards-live',
-      compositeModelKey: 'openai::gpt-5.4-mini',
-      provider: 'openai',
-    });
-    await enableAssistantCatalogModel(page, 'openai::gpt-5.4-mini');
-    await ensureAssistantShellVisible(page);
-    const region = page.getByRole('region', { exact: true, name: 'Assistant' });
-    await region.getByRole('textbox', { name: 'Message input' }).fill('Explore both files.');
-    await region.getByRole('button', { exact: true, name: 'Send' }).click();
+    const child = context.app.process();
+    try {
+      const page = context.window;
+      await expect(page.getByTestId('new-agent-button')).toBeVisible();
+      await seedRoot(page, workspace, {
+        disableBackgroundIndexing: true,
+        reloadReason: 'delegation-cards-live',
+        rootId: randomUUID(),
+      });
+      await configureAssistantProvider(page, {
+        apiKey: 'test-key-delegation-cards-live',
+        compositeModelKey: 'openai::gpt-5.4-mini',
+        provider: 'openai',
+      });
+      await enableAssistantCatalogModel(page, 'openai::gpt-5.4-mini');
+      await ensureAssistantShellVisible(page);
+      const region = page.getByRole('region', { exact: true, name: 'Assistant' });
+      await region.getByRole('textbox', { name: 'Message input' }).fill('Explore both files.');
+      await region.getByRole('button', { exact: true, name: 'Send' }).click();
 
-    await ensureActivityExpanded(region.getByTestId('assistant-activity-group').first());
-    const cards = region.getByTestId('subagent-execution-card');
-    await expect(cards).toHaveCount(2);
-    await expect(cards.filter({ hasText: / is working\s*· 1 tool call/u })).toHaveCount(2);
-    answer();
+      await ensureActivityExpanded(region.getByTestId('assistant-activity-group').first());
+      const cards = region.getByTestId('subagent-execution-card');
+      await expect(cards).toHaveCount(2);
+      await expect(cards.filter({ hasText: / is working\s*· 1 tool call/u })).toHaveCount(2);
+      answer();
 
-    // The root's own run, then its wake on both children's results.
-    await expect
-      .poll(async () =>
-        (await readHostThreadTree(profile))
-          .filter(({ parentThreadId }) => parentThreadId === undefined)
-          .flatMap(({ rows }) =>
-            rows.flatMap(({ event }) => (event.type === 'run.finished' ? [event.outcome] : []))
-          )
-      )
-      .toEqual(['completed', 'completed']);
-    for (const card of await cards.all()) {
-      await expect(card).toBeVisible();
-      await expect(card).toContainText(/ finished\s*· 1 tool call/u);
+      // The root's own run, then its wake on both children's results.
+      await expect
+        .poll(async () =>
+          (await readHostThreadTree(profile))
+            .filter(({ parentThreadId }) => parentThreadId === undefined)
+            .flatMap(({ rows }) =>
+              rows.flatMap(({ event }) => (event.type === 'run.finished' ? [event.outcome] : []))
+            )
+        )
+        .toEqual(['completed', 'completed']);
+      for (const card of await cards.all()) {
+        await expect(card).toBeVisible();
+        await expect(card).toContainText(/ finished\s*· 1 tool call/u);
+      }
+      expect(provider.refusals()).toEqual([]);
+    } catch (error) {
+      answer();
+      await testInfo.attach('host-tree', {
+        body: JSON.stringify(await readHostThreadTree(profile), null, 2),
+        contentType: 'application/json',
+      });
+      await testInfo.attach('app-text', {
+        body: await context.window.locator('body').innerText(),
+        contentType: 'text/plain',
+      });
+      throw error;
+    } finally {
+      await context.app.close();
+      joined = true;
+      expect(child.exitCode).toBe(0);
     }
-    expect(provider.refusals()).toEqual([]);
-  } catch (error) {
-    answer();
-    await testInfo.attach('host-tree', {
-      body: JSON.stringify(await readHostThreadTree(profile), null, 2),
-      contentType: 'application/json',
-    });
-    await testInfo.attach('app-text', {
-      body: await context.window.locator('body').innerText(),
-      contentType: 'text/plain',
-    });
-    throw error;
   } finally {
-    await context.app.close();
-    joined = true;
-    expect(child.exitCode).toBe(0);
+    // The provider closes however the launch ends; the profile goes once the app has exited.
     await provider.close();
     if (joined) {
       await rm(profile, { force: true, recursive: true });
