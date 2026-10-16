@@ -3,7 +3,10 @@ import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
+import {
+  DEFAULT_PERMISSION_POLICIES,
+  DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+} from '@brainstrike/assistant-contract';
 import { RootLock, RootLockedError, StateStore } from '@brainstrike/state-store';
 import { expect, onTestFinished, test } from 'vitest';
 import { z } from 'zod';
@@ -11,6 +14,7 @@ import { HostCore } from '../src/core.js';
 import type { HostPlatform } from '../src/ports.js';
 import type { HostEvent } from '../src/protocol.js';
 import { startAgentHost } from '../src/runtime.js';
+import { scriptedDelegation } from '../src/test-fixtures/scripted-model.js';
 import { scriptedModel } from './fixtures/scripted-model.js';
 
 function errorMembers(cause: unknown): readonly unknown[] {
@@ -275,6 +279,74 @@ test('close that cuts a parked run step checkpoint keeps its approval answerable
     expect(checkpoints).toBe(2);
   } finally {
     await core.close();
+    await store.close();
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+test('close that cuts a parked child run step checkpoint still reports it, since restart never resumes a child', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-parked-child-retirement-'));
+  const store = await StateStore.open(root);
+  const checkpointing = Promise.withResolvers<AbortSignal>();
+  let rootThreadId: string | undefined;
+  const platform: HostPlatform = {
+    close: async () => undefined,
+    delegation: {
+      personas: [
+        {
+          allowedToolIds: ['write_file'],
+          description: 'Writes the file.',
+          id: 'worker',
+          instructions: 'You are the Worker.',
+          label: 'Worker',
+          maxSteps: 4,
+          mode: 'worker',
+        },
+      ],
+      settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxDepth: 1 },
+    },
+    maxSteps: 4,
+    openRun: async ({ signal, threadId }) => ({
+      close: async () => undefined,
+      // The step that parked the background child is still checkpointing when the host closes.
+      commitHostStep: async () => {
+        if (threadId === rootThreadId) {
+          return;
+        }
+        checkpointing.resolve(signal);
+        await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
+        signal.throwIfAborted();
+      },
+    }),
+    readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
+    resolveModel: async () =>
+      scriptedDelegation({ input: { prompt: 'Write the file' }, toolId: 'agent-worker' }, [
+        { input: { text: 'written by the child' }, toolId: 'write_file' },
+      ]),
+    tools: {
+      write_file: {
+        description: 'Recorded SDK tool',
+        execute: async () => ({ written: true }),
+        identity: 'native',
+        inputSchema: z.object({ text: z.string() }),
+        risk: 'edit',
+      },
+    },
+  };
+  const core = await HostCore.open(store, platform, () => () => undefined);
+  try {
+    const { threadId } = await core.startThread({ commandId: randomUUID() });
+    rootThreadId = threadId;
+    await core.startRun({
+      commandId: randomUUID(),
+      modelId: 'scripted',
+      prompt: 'Delegate the file.',
+      threadId,
+    });
+    const signal = await checkpointing.promise;
+    const failure = await core.close().catch((cause: unknown) => cause);
+    expect(errorMembers(failure)).toContain(signal.reason);
+  } finally {
     await store.close();
     await rm(root, { force: true, recursive: true });
   }
