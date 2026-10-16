@@ -8,7 +8,7 @@ import {
 } from '@assistant-ui/react';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { UserMessageText } from '../assistant-message-text';
+import { UserMessageText } from '../user-message-text';
 
 // Live smoke 2026-10-16: a prompt naming the globs `**/.ENV*, **/ID_RSA*`
 // rendered as "*/.ENV, */ID_RSA" with bold text, because user messages went
