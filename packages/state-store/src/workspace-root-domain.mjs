@@ -7,8 +7,8 @@ const projection = `id, path, display_name AS displayName, kind, status,
 
 /**
  * How the writer's host names a root it was granted: desktop main grants absolute OS paths; the browser writer
- * keys a File System Access handle by its root (`@brainstrike/web-state-store`).
- * @typedef {{ isGrantedPath(path: string): boolean }} RootPaths
+ * keys a File System Access handle by the root's own id (`@brainstrike/web-state-store`).
+ * @typedef {{ isGranted(root: { readonly path: string; readonly preferredId: string }): boolean }} RootPaths
  */
 
 /** @param {import('better-sqlite3').Database} db
@@ -17,7 +17,7 @@ const projection = `id, path, display_name AS displayName, kind, status,
  * @returns {import('./workspace-root-types.js').WorkspaceRootReply} */
 function register(db, request, paths) {
   const { root } = request;
-  if (!(root.preferredId.trim() && root.displayName.trim() && paths.isGrantedPath(root.path))) {
+  if (!(root.preferredId.trim() && root.displayName.trim() && paths.isGranted(root))) {
     throw new Error('Workspace registration requires the granted absolute path and identity');
   }
   return db.transaction(

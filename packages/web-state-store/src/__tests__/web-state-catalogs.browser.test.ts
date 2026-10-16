@@ -140,6 +140,17 @@ describe('catalogs on the browser writer', () => {
     expect((await writer.workspaceRoots({ operation: 'list' })).roots).toEqual([
       expect.objectContaining({ id: rootId, status: 'live' }),
     ]);
+    // A key that names another root would file its handle under the wrong id.
+    expect(
+      (
+        await rejection(
+          follower.workspaceRoots({
+            operation: 'register',
+            root: { ...root, preferredId: crypto.randomUUID() },
+          })
+        )
+      ).message
+    ).toContain('granted absolute path');
     // A desktop path is not a root this host was granted.
     expect(
       (

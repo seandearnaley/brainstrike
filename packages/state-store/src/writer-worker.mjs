@@ -365,7 +365,7 @@ async function handle(m) {
         db,
         /** @type {import('./workspace-root-types.js').WorkspaceRootRequest} */ (m['request']),
         // Main grants absolute OS paths.
-        { isGrantedPath: isAbsolute }
+        { isGranted: (root) => isAbsolute(root.path) }
       );
     case 'memory':
       return handleMemory(

@@ -51,6 +51,12 @@ function onBothDrivers<T>(work: (db: BetterSqlite3.Database) => T): { desktop: T
   );
 }
 
+/** The browser writer's root rule: a root is named by its own id (`webRootPath`). */
+const browserRoots = {
+  isGranted: (root: { readonly path: string; readonly preferredId: string }) =>
+    isWebRootPath(root.path, root.preferredId),
+};
+
 const collection = {
   createdAt: '2026-10-13T19:45:00.000Z',
   dimensions: 384,
@@ -247,7 +253,7 @@ describe('the catalog domains on sqlite-wasm', () => {
           operation: 'register',
           root: { displayName: 'notes', path: webRootPath(rootId), preferredId: rootId },
         },
-        { isGrantedPath: isWebRootPath }
+        browserRoots
       );
       const imported = run({
         embeddingSetId: collection.id,
@@ -310,7 +316,7 @@ describe('the catalog domains on sqlite-wasm', () => {
   });
 
   it('workspace roots answer as on the desktop driver, with a browser root named by its handle key', () => {
-    const paths = { isGrantedPath: isWebRootPath };
+    const paths = browserRoots;
     const rootId = '00000000-0000-4000-8000-00000000bbbb';
     const { desktop, web } = onBothDrivers((db) => {
       const run = (request: Parameters<typeof executeWorkspaceRootRequest>[1]) =>
@@ -318,8 +324,19 @@ describe('the catalog domains on sqlite-wasm', () => {
       const root = { displayName: 'project', path: webRootPath(rootId), preferredId: rootId };
       return [
         run({ operation: 'register', root }),
-        // The same handle key keeps its root, whatever id the tab offers.
-        run({ operation: 'register', root: { ...root, preferredId: 'another-id' } }),
+        // Re-picking the folder registers its root again under the same id and key.
+        run({ operation: 'register', root }),
+        // A key that names another root would file the handle under the wrong id.
+        caught(() =>
+          run({
+            operation: 'register',
+            root: {
+              ...root,
+              path: webRootPath('00000000-0000-4000-8000-00000000cccc'),
+              preferredId: '00000000-0000-4000-8000-00000000dddd',
+            },
+          })
+        ),
         caught(() =>
           run({
             operation: 'register',
@@ -334,9 +351,10 @@ describe('the catalog domains on sqlite-wasm', () => {
       ];
     });
     expect(web[1]).toMatchObject({ roots: [{ id: rootId, status: 'live' }] });
-    // A path the writer's host did not grant is refused, as an OS path is in the browser.
+    // A key naming another root, and an OS path, are not roots this host granted.
     expect(web[2]).toEqual({ code: undefined, name: 'Error' });
-    expect(web[7]).toEqual({ roots: [] });
+    expect(web[3]).toEqual({ code: undefined, name: 'Error' });
+    expect(web[8]).toEqual({ roots: [] });
     expect(web).toEqual(desktop);
   });
 });

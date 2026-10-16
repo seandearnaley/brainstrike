@@ -421,7 +421,8 @@ async function workspaceRoots(
     active.deletion.requireIndexer('root data deletion');
   }
   const reply = executeWorkspaceRootRequest(asBetterSqlite3(active.db), request, {
-    isGrantedPath: isWebRootPath,
+    // A root is named by its own id, so its handle is found under the same IndexedDB key.
+    isGranted: (root) => isWebRootPath(root.path, root.preferredId),
   });
   if (request.operation === 'delete') {
     await active.deletion.collectRetiredSources();

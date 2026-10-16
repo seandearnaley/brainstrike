@@ -36,8 +36,9 @@ blob directly. Without the derived index both are refused, as on desktop.
 It serves the source catalog and workspace roots on desktop's domains too, with
 desktop's rules: a source change or root deletion needs the derived index, and
 the sources it retires are collected after. A browser root's path is its handle
-key, `fsa:<rootId>` (`webRootPath`); the tab keeps the File System Access handle
-in IndexedDB under that id. The root domain is given the host's notion of a
+key, `fsa:<rootId>` (`webRootPath`), and registration refuses a key that names
+another root; the tab keeps the File System Access handle in IndexedDB under
+that id. The root domain is given the host's notion of a
 granted path, so desktop keeps requiring absolute OS paths.
 
 ## Root and content identity

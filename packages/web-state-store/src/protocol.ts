@@ -327,9 +327,9 @@ export function webRootPath(rootId: string): string {
   return path;
 }
 
-/** Whether `path` names a browser workspace root (`webRootPath`). */
-export function isWebRootPath(path: string): boolean {
-  return WEB_ROOT_PATH.test(path);
+/** Whether `path` is the handle key of the root `rootId` (`webRootPath`), and of no other. */
+export function isWebRootPath(path: string, rootId: string): boolean {
+  return WEB_ROOT_PATH.test(path) && path === `fsa:${rootId}`;
 }
 
 /** The protocol a writer announces: this wire's version and the extensions it runs, by id. */
