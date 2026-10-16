@@ -479,7 +479,7 @@ export async function hostStepActiveTools(
   const native = run.nativeWebSearch;
   const nativeAllowed =
     native !== undefined && (await hostRunToolDecision(platform, run, native.toolId)) === 'allow';
-  // Hosted discovery: a deferred tool is offered only after this run committed its load.
+  // Hosted discovery: a deferred tool is offered once this run's branch committed its load.
   const discovered = await run.admission?.discovery?.activeTools({
     runId: run.id,
     threadId: run.threadId,

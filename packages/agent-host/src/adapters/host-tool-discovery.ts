@@ -11,7 +11,7 @@ import type { StateStore } from '@brainstrike/state-store';
 import type { MastraDBMessage } from '@mastra/core/agent';
 import type { StandardSchemaWithJSON } from '@mastra/core/schema';
 import { createTool, type ToolExecutionContext } from '@mastra/core/tools';
-import { committedRowAddress } from '../committed-identities.js';
+import { committedRowAddress, committedRunAncestors } from '../committed-identities.js';
 import { readHostRow } from '../event-storage.js';
 import type { HostTool, HostToolDiscovery } from '../ports.js';
 import { canonicalToolInputSchema, createCanonicalToolContext } from './canonical-context.js';
@@ -26,7 +26,13 @@ type DiscoveryTools = Awaited<
   ReturnType<BrainstrikeToolSearchProcessor['processInputStep']>
 >['tools'];
 
-/** One run's committed conversation in Mastra's stored form (the Memory transcript's own conversion). */
+/**
+ * The committed conversation of a run's branch (its ancestor runs, then the run)
+ * in Mastra's stored form (the Memory transcript's own conversion). Discovery
+ * reads loads from the same history the model receives: a load an earlier run
+ * committed stays loaded, so a model that sees "Already loaded" is offered the
+ * tool. A sibling branch never saw that load and starts unloaded.
+ */
 export async function committedRunMessages(
   store: Pick<StateStore, 'read' | 'root'>,
   resourceId: string,
@@ -35,9 +41,10 @@ export async function committedRunMessages(
   const rows = await Promise.all(
     (await store.read(run.threadId, 0)).map((row) => readHostRow(store, row))
   );
+  const branch = new Set([...committedRunAncestors(rows, run.runId), run.runId]);
   const own = new Set(
     rows.flatMap((row) =>
-      'runId' in row.event && row.event.runId === run.runId ? [committedRowAddress(row)] : []
+      'runId' in row.event && branch.has(row.event.runId) ? [committedRowAddress(row)] : []
     )
   );
   return committedMemoryTranscript(rows, resourceId).filter((message) => own.has(message.id));
@@ -122,7 +129,7 @@ export function hostToolDiscoveryEnabled(catalog: HostDiscoveryCatalog): boolean
 /**
  * The legacy hosted discovery (`prepareHostedToolDiscovery`) over a run's
  * admitted tools: the same eager/deferred split, the same Brainstrike shell
- * around Mastra's processor, and its loaded set derived from the run's
+ * around Mastra's processor, and its loaded set derived from the run's branch's
  * committed messages. Undefined for a local runtime or when nothing defers.
  */
 export async function createHostToolDiscovery(
