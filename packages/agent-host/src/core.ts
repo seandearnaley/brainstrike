@@ -725,6 +725,10 @@ export class HostCore {
   /** A user stop of one run: abort it, join its owner, then commit `stopped`. */
   private async stopRun(run: Run, reason: unknown): Promise<void> {
     run.stopped = true;
+    // A finished run has nothing to abort; its memory settles undisturbed.
+    if (run.terminal) {
+      return;
+    }
     run.controller.abort(reason);
     await joinHostRunOwner(run, (owned) => this.closeRunOwner(owned));
     await this.ends.finish(run, 'stopped');

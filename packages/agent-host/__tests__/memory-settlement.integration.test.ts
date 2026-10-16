@@ -274,6 +274,35 @@ test("a rewind is admitted only after the previous run's memory settles", async 
   }
 });
 
+test('a Stop after run.finished leaves the settling memory to commit', async () => {
+  const observer = heldObserver();
+  const host = await settlementHost(observer.model);
+  try {
+    const { runId } = await host.start(PROMPT);
+    await observer.entered;
+    await host.finished(runId);
+    // The answer already finished: Stop has nothing to stop, and must not
+    // cancel the observation its run launched.
+    expect(
+      await host.client.request('run/stop', {
+        commandId: randomUUID(),
+        runId,
+        threadId: host.threadId,
+      })
+    ).toEqual({ outcome: 'already-terminal' });
+    observer.release();
+    await host.committed(usageOf(runId));
+    const rows = await host.rows();
+    expect(rows.some(({ event }) => event.type === 'memory.settlement.failed')).toBe(false);
+    expect(
+      rows.filter(({ event }) => event.type === 'run.finished').map(({ event }) => event)
+    ).toEqual([expect.objectContaining({ outcome: 'completed', runId })]);
+  } finally {
+    observer.release();
+    await host.close();
+  }
+});
+
 test('a buffered observation that fails after run.finished is its own committed fact', async () => {
   const diagnostics = captureHostFailureDiagnostics();
   const observer = heldObserver(true);

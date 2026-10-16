@@ -95,8 +95,12 @@ export async function acceptHostRunStop(
   const acceptance = Promise.withResolvers<void>();
   run.stopAcceptance = acceptance.promise;
   acceptance.promise.catch(() => undefined);
+  // An ended run's Stop still marks its turn stopped and ends the turn's
+  // running children; aborting it would only cancel the memory it settles.
   run.stopped = true;
-  run.controller.abort(new Error('Run stopped by user'));
+  if (result.outcome === 'stopped') {
+    run.controller.abort(new Error('Run stopped by user'));
+  }
   try {
     await accept(result);
     acceptance.resolve();
