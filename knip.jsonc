@@ -120,6 +120,9 @@
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
+        // logs-page-content.test.tsx imports the real virtualizer inside its mock.
+        // This workspace's production graph excludes tests; keep ownership local.
+        "@tanstack/react-virtual",
         "electron-builder-squirrel-windows", // Required peer dependency for electron-builder Windows builds
         "@effect/language-service", // Effect language-service plugin name, not a package; see packages/effect-kit
         "@vitest/coverage-v8", // Only used in vitest.config.mts, not imported in source code
@@ -293,6 +296,8 @@
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
+        // Test-only virtualizer mock; excluded from the production source graph.
+        "@tanstack/react-virtual",
         // Some suites opt into jsdom via file-level annotation
         "jsdom"
       ],
@@ -504,6 +509,8 @@
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
+        // Test-only virtualizer mock; excluded from the production source graph.
+        "@tanstack/react-virtual",
         // vitest.config.mts:10 loads ../test-utils/src/vitest.setup.ts; the dep pins that workspace version
         "@brainstrike/test-utils"
       ],

@@ -24,6 +24,7 @@
     "react-resizable-panels": "catalog:"
   },
   "devDependencies": {
+    "@tanstack/react-virtual": "catalog:",
     "@brainstrike/file-tree-test-fixtures": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@electric-sql/pglite": "catalog:",

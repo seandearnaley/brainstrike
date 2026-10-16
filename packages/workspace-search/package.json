@@ -17,6 +17,7 @@
     "zustand": "catalog:"
   },
   "devDependencies": {
+    "@tanstack/react-virtual": "catalog:",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@testing-library/react": "catalog:",
