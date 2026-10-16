@@ -6,6 +6,10 @@ import { Worker } from 'node:worker_threads';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { RootLock, RootLockedError, StateStore } from '@brainstrike/state-store';
 import { expect, onTestFinished, test } from 'vitest';
+import { z } from 'zod';
+import { HostCore } from '../src/core.js';
+import type { HostPlatform } from '../src/ports.js';
+import type { HostEvent } from '../src/protocol.js';
 import { startAgentHost } from '../src/runtime.js';
 import { scriptedModel } from './fixtures/scripted-model.js';
 
@@ -186,3 +190,92 @@ test.each(['owner', 'platform', 'writer'] as const)(
     expect(f.state()).toMatchObject({ ownerCloses: 1, platformCloses: 1 });
   }
 );
+
+test('close that cuts a parked run step checkpoint keeps its approval answerable and reports nothing', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-parked-retirement-'));
+  let store = await StateStore.open(root);
+  const checkpointing = Promise.withResolvers<void>();
+  let checkpoints = 0;
+  let effects = 0;
+  const platform: HostPlatform = {
+    close: async () => undefined,
+    maxSteps: 3,
+    openRun: async ({ signal }) => ({
+      close: async () => undefined,
+      // The step that parked the run is still checkpointing when the host closes.
+      commitHostStep: async () => {
+        checkpoints += 1;
+        if (checkpoints === 1) {
+          checkpointing.resolve();
+          await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
+          signal.throwIfAborted();
+        }
+      },
+    }),
+    readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
+    resolveModel: async () => scriptedModel('write_file'),
+    tools: {
+      write_file: {
+        description: 'Recorded SDK tool',
+        execute: async () => {
+          effects += 1;
+          return { effects };
+        },
+        identity: 'native',
+        inputSchema: z.object({ text: z.string() }),
+        risk: 'edit',
+      },
+    },
+  };
+  let core = await HostCore.open(store, platform, () => () => undefined);
+  try {
+    const { threadId } = await core.startThread({ commandId: randomUUID() });
+    const { runId } = await core.startRun({
+      commandId: randomUUID(),
+      modelId: 'scripted',
+      prompt: 'Write the file.',
+      threadId,
+    });
+    await checkpointing.promise;
+    // Clients already show the committed approval, so the host may close right here.
+    const approval = (await core.read(threadId, 0))
+      .map((row) => row.event)
+      .find(
+        (event): event is Extract<HostEvent, { type: 'interaction.requested' }> =>
+          event.type === 'interaction.requested'
+      );
+    if (!approval) {
+      throw new Error('Expected the parked step to commit its approval');
+    }
+    await core.close();
+    await store.close();
+    store = await StateStore.open(root);
+    core = await HostCore.open(store, platform, () => () => undefined);
+    await core.respond({
+      commandId: randomUUID(),
+      decision: 'approve',
+      interactionId: approval.interactionId,
+      runId,
+      threadId,
+    });
+    await expect
+      .poll(
+        async () =>
+          (await core.read(threadId, 0)).some(
+            (row) =>
+              row.event.type === 'run.finished' &&
+              row.event.runId === runId &&
+              row.event.outcome === 'completed'
+          ),
+        { timeout: 30_000 }
+      )
+      .toBe(true);
+    expect(effects).toBe(1);
+    // The continuation checkpoints the run's committed steps again.
+    expect(checkpoints).toBe(2);
+  } finally {
+    await core.close();
+    await store.close();
+    await rm(root, { force: true, recursive: true });
+  }
+});

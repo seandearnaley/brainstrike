@@ -541,8 +541,10 @@ async function runHostSdkAttempt(
         } catch (cause) {
           run.controller.abort(cause);
           // While the host closes, the run cannot commit its own failure, so the
-          // lost checkpoint must reject close with its original cause.
-          if (ports.closing()) {
+          // lost checkpoint must reject close with its original cause. A step
+          // that parked the run loses nothing: close keeps the run answerable,
+          // and its continuation checkpoints the run's committed steps again.
+          if (ports.closing() && !run.paused) {
             checkpointFailure = cause;
             return;
           }
