@@ -90,11 +90,46 @@ function liveStreamPart(
     ...previous,
     type: partType,
     ...(metadata ? { providerMetadata: metadata } : {}),
-    status: type.endsWith('-end')
-      ? { type: 'complete' }
-      : (previous?.status ?? { type: 'running' }),
+    status:
+      type.endsWith('-end') || (!type.endsWith('-start') && previous?.status?.type === 'complete')
+        ? { type: 'complete' }
+        : { type: 'running' },
     text,
   };
+}
+
+/** Where a live overlay entry is stored, and whether the next text block may join it. */
+export interface LiveOverlayTarget {
+  readonly joins: boolean;
+  readonly key: string;
+}
+
+/**
+ * The overlay part a live chunk writes. A text block that opens directly after
+ * the step's streamed text (that text is still the message's last part) joins
+ * it: providers split one answer into adjacent content blocks (Anthropic, mid-
+ * sentence), which are one text, as a committed step's parts are. A block
+ * after reasoning, a call or a replay notice starts its own part.
+ */
+export function liveOverlayTarget(
+  run: {
+    readonly overlay: ReadonlyMap<string, LiveOverlayTarget>;
+    readonly partIndexes: ReadonlyMap<string, number>;
+  },
+  entry: { readonly joins?: true; readonly key: string },
+  content: readonly Part[]
+): LiveOverlayTarget {
+  const known = run.overlay.get(entry.key);
+  if (known) {
+    return known;
+  }
+  const tail = content.length - 1;
+  const joined = entry.joins
+    ? [...run.overlay.values()].find(
+        (target) => target.joins && run.partIndexes.get(target.key) === tail
+      )
+    : undefined;
+  return joined ?? { joins: entry.joins === true, key: entry.key };
 }
 
 /**
@@ -106,7 +141,12 @@ export function liveOverlayEntry(
   step: number,
   chunk: unknown
 ):
-  | { readonly key: string; readonly part: (prior: Part | undefined) => TextPart | undefined }
+  | {
+      /** A model text block, which may join the step's text it directly follows. */
+      readonly joins?: true;
+      readonly key: string;
+      readonly part: (prior: Part | undefined) => TextPart | undefined;
+    }
   | undefined {
   const live = asRecord(chunk);
   const type = live?.['type'];
@@ -132,6 +172,7 @@ export function liveOverlayEntry(
   }
   const partType = type.startsWith('reasoning') ? 'reasoning' : 'text';
   return {
+    ...(partType === 'text' ? { joins: true as const } : {}),
     key: `live:${JSON.stringify([step, partType, live['id'] ?? null])}`,
     part: (prior) => liveStreamPart(prior, type, live),
   };
@@ -156,10 +197,26 @@ function committedTextPart(entry: unknown): TextPart | undefined {
   };
 }
 
+/** A text part directly after the step's text joins it; anything else is its own part. */
+function appendStepText(pending: TextPart[], part: TextPart, adjacent: boolean): void {
+  const previous = pending.at(-1);
+  if (!(adjacent && part.type === 'text' && previous?.type === 'text')) {
+    pending.push(part);
+    return;
+  }
+  const metadata = mergeProviderMetadata(previous.providerMetadata, part.providerMetadata);
+  pending[pending.length - 1] = {
+    ...previous,
+    ...(metadata ? { providerMetadata: metadata } : {}),
+    text: previous.text + part.text,
+  };
+}
+
 /**
  * A step's committed text and reasoning, in its assistant messages' order. Each
  * part names the tool part it precedes (`tool:<callId>`), so a reload keeps the
- * model's order of text and calls.
+ * model's order of text and calls. Adjacent text parts are one text: providers
+ * split an answer into content blocks (Anthropic, mid-sentence).
  */
 export function committedStepParts(
   messages: unknown
@@ -171,15 +228,21 @@ export function committedStepParts(
     if (item?.['role'] !== 'assistant' || !Array.isArray(item['content'])) {
       continue;
     }
+    let adjacent = false;
     for (const entry of item['content']) {
       const text = committedTextPart(entry);
       const call = asRecord(entry);
       if (text) {
-        pending.push(text);
+        appendStepText(pending, text, adjacent);
+        adjacent = true;
       } else if (call?.['type'] === 'tool-call' && typeof call['toolCallId'] === 'string') {
         const anchor = `tool:${call['toolCallId']}`;
         parts.push(...pending.map((part) => ({ anchor, part })));
         pending = [];
+      } else {
+        // A file or any other item separates the texts around it; reasoning
+        // with nothing to show (`isOpaqueReasoning`) draws nothing between them.
+        adjacent &&= call?.['type'] === 'reasoning';
       }
     }
   }

@@ -139,6 +139,79 @@ it('a replay that dropped the step’s oldest text opens with a visible notice u
   ]);
 });
 
+// October 16 live smoke (Claude Sonnet 5, direct): one answer step streamed
+// 21 text content blocks, split mid-sentence (", with `research/lab` holding "
+// | "experiment runners, fixtures, and retained results" | ".\n\n### README…").
+// Each block drew as its own markdown paragraph. Adjacent blocks are one text.
+it('joins a step’s adjacent text blocks into one text while it streams', () => {
+  const projection = projector();
+  const finalStep = rows.findLastIndex(
+    ({ event }) =>
+      event['type'] === 'stream.chunk' &&
+      (event['chunk'] as { type?: string })?.type === 'start-step'
+  );
+  projection.acceptCommitted(rows.slice(0, finalStep + 1));
+  projection.acceptLive(runId, { id: '0', type: 'text-start' });
+  projection.acceptLive(runId, {
+    id: '0',
+    text: 'with `research/lab` holding ',
+    type: 'text-delta',
+  });
+  projection.acceptLive(runId, { id: '0', type: 'text-end' });
+  projection.acceptLive(runId, { id: '1', type: 'text-start' });
+  projection.acceptLive(runId, { id: '1', text: 'experiment runners', type: 'text-delta' });
+  expect(texts(projection)).toEqual([
+    { status: { type: 'running' }, text: 'with `research/lab` holding experiment runners' },
+  ]);
+  projection.acceptLive(runId, { id: '1', type: 'text-end' });
+
+  // A block after reasoning is not adjacent to the text before it.
+  projection.acceptLive(runId, { id: 'r', type: 'reasoning-start' });
+  projection.acceptLive(runId, { id: 'r', text: 'Checking the README.', type: 'reasoning-delta' });
+  projection.acceptLive(runId, { id: 'r', type: 'reasoning-end' });
+  projection.acceptLive(runId, { id: '2', type: 'text-start' });
+  projection.acceptLive(runId, { id: '2', text: 'Beaker is a catalog.', type: 'text-delta' });
+  expect(texts(projection).map(({ text }) => text)).toEqual([
+    'with `research/lab` holding experiment runners',
+    'Beaker is a catalog.',
+  ]);
+});
+
+it('joins a committed step’s adjacent text parts, never across a call', () => {
+  const parts = committedStepParts([
+    {
+      content: [
+        { text: 'contracts, with `research/lab` holding ', type: 'text' },
+        { text: 'experiment runners', type: 'text' },
+        { input: {}, toolCallId: 'call-1', toolName: 'readWorkspaceFile', type: 'tool-call' },
+        { text: '.\n\n### README summary\n\n', type: 'text' },
+        { text: 'Beaker is a catalog.', type: 'text' },
+      ],
+      role: 'assistant',
+    },
+  ]);
+  expect(parts.map(({ anchor, part }) => ({ anchor, text: part.text }))).toEqual([
+    { anchor: 'tool:call-1', text: 'contracts, with `research/lab` holding experiment runners' },
+    { anchor: undefined, text: '.\n\n### README summary\n\nBeaker is a catalog.' },
+  ]);
+  // Codex review on #3725: any other item (a file) separates the texts around
+  // it; reasoning with nothing to show does not.
+  expect(
+    committedStepParts([
+      {
+        content: [
+          { text: 'Here is the chart:', type: 'text' },
+          { data: 'iVBORw0KGgo=', mediaType: 'image/png', type: 'file' },
+          { text: 'It shows the trend.', type: 'text' },
+          { text: '  ', type: 'reasoning' },
+          { text: ' Rising.', type: 'text' },
+        ],
+        role: 'assistant',
+      },
+    ]).map(({ part }) => part.text)
+  ).toEqual(['Here is the chart:', 'It shows the trend. Rising.']);
+});
+
 // October 12 owner export: encrypted reasoning items have no visible summary.
 it('omits recorded empty thinking disclosures while retaining the answer and visible reasoning', () => {
   const original = JSON.stringify(emptyReasoning);
