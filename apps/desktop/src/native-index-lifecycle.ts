@@ -15,6 +15,12 @@ export type NativeIndexCloseReason =
   | 'shutdown'
   | 'host-released';
 
+/** An automatic re-open scheduled after a transient startup failure: which, of how many. */
+export interface NativeIndexReopen {
+  readonly attempt: number;
+  readonly attempts: number;
+}
+
 /**
  * Why the native index is not serving, as a value the renderer and the agent
  * read (BST-1988 lifecycle). A transition is a cause, never a failure.
@@ -32,6 +38,8 @@ export type NativeIndexCause =
       readonly message: string;
       readonly error?: unknown;
       readonly recovery?: 'sources';
+      /** Set while an automatic re-open of these settings is scheduled. */
+      readonly reopen?: NativeIndexReopen;
     }
   /** The index was closed for good: shutdown, reset, or profile retirement. */
   | { readonly kind: 'closed'; readonly reason: NativeIndexCloseReason };
@@ -112,7 +120,10 @@ export type NativeIndexEvent =
       readonly message: string;
       readonly error?: unknown;
       readonly recovery?: 'sources';
+      readonly reopen?: NativeIndexReopen;
     }
+  /** Open the failed generation's own settings again: a scheduled automatic re-open. */
+  | { readonly kind: 'reopen'; readonly generation: number }
   /** Rebuild the derived index from the catalog. */
   | { readonly kind: 'rebuild' }
   /** Cancel sources now, before the root-operation owner can join this save. */
@@ -230,10 +241,7 @@ function rootsChanged(
 
 function failure(
   state: NativeIndexState,
-  generation: number,
-  message: string,
-  error?: unknown,
-  recovery?: 'sources'
+  { error, generation, message, recovery, reopen }: Extract<NativeIndexEvent, { kind: 'failure' }>
 ): NativeIndexTransition {
   if (
     generation !== state.generation ||
@@ -253,12 +261,20 @@ function failure(
         message,
         ...(error === undefined ? {} : { error }),
         ...(recovery ? { recovery } : {}),
+        ...(reopen ? { reopen } : {}),
       },
       generation,
       kind: 'failed',
       settings: state.settings,
     },
   };
+}
+
+/** Only the generation that failed reopens; a later save or close already superseded it. */
+function reopen(state: NativeIndexState, generation: number): NativeIndexTransition {
+  return state.kind === 'failed' && state.generation === generation
+    ? settingsSaved(state, state.settings)
+    : unchanged(state);
 }
 
 function opened(state: NativeIndexState, generation: number): NativeIndexTransition {
@@ -350,6 +366,7 @@ function closedTransition(
     case 'fence':
     case 'opened':
     case 'failure':
+    case 'reopen':
       return unchanged(state);
     default:
       break;
@@ -409,7 +426,9 @@ export function reduceNativeIndex(
     case 'settings-unchanged':
       return unchanged(state);
     case 'failure':
-      return failure(state, event.generation, event.message, event.error, event.recovery);
+      return failure(state, event);
+    case 'reopen':
+      return reopen(state, event.generation);
     case 'opened':
       return opened(state, event.generation);
     case 'prepare-pause': {
@@ -502,8 +521,17 @@ export function nativeIndexObservation(state: NativeIndexState): NativeIndexLife
         ? { kind: cause.kind }
         : cause.kind === 'closed'
           ? { kind: cause.kind, reason: cause.reason }
-          : { kind: cause.kind, message: cause.message },
+          : { kind: cause.kind, message: describeCause(cause) },
     generation: state.generation,
     kind: readiness.kind,
   };
+}
+
+function describeCause(
+  cause: Exclude<NativeIndexCause, { readonly kind: 'transitioning' | 'closed' }>
+): string {
+  const reopen = cause.kind === 'source-failure' ? cause.reopen : undefined;
+  return reopen
+    ? `${cause.message} Retrying automatically (attempt ${reopen.attempt} of ${reopen.attempts}).`
+    : cause.message;
 }

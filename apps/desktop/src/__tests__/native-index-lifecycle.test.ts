@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   type NativeIndexEvent,
   type NativeIndexState,
+  nativeIndexObservation,
   nativeIndexReadiness,
   reduceNativeIndex,
 } from '../native-index-lifecycle';
@@ -253,6 +254,71 @@ describe('read admission', () => {
     });
     expect(nativeIndexReadiness(closed)).toEqual({
       cause: { kind: 'closed', reason: 'shutdown' },
+      kind: 'refused',
+    });
+  });
+});
+
+describe('automatic re-open', () => {
+  const reopen = (generation: number): NativeIndexEvent => ({ generation, kind: 'reopen' });
+
+  it('a re-open of the failed generation opens its own settings again', () => {
+    expect(reduceNativeIndex(failed, reopen(3))).toEqual({
+      actions: [openAction(4)],
+      state: { from: 3, generation: 4, kind: 'transitioning', settings: VECTOR },
+    });
+  });
+
+  it('a re-open after a source-retirement failure re-admits sources in place, as a save does', () => {
+    const retained: NativeIndexState = {
+      ...failed,
+      cause: { ...failed.cause, recovery: 'sources' },
+    } as NativeIndexState;
+    expect(reduceNativeIndex(retained, reopen(3))).toEqual(
+      reduceNativeIndex(retained, saved(VECTOR))
+    );
+  });
+
+  it('a re-open of any other generation or state changes nothing and refuses nothing', () => {
+    for (const [state, generation] of [
+      [failed, 2],
+      [ready, 3],
+      [opening, 3],
+      [unconfigured, 3],
+      [closed, 3],
+    ] as const) {
+      expect(reduceNativeIndex(state, reopen(generation))).toEqual({ actions: [], state });
+    }
+  });
+
+  it('a failure with a scheduled re-open carries it, and observers read it with the cause', () => {
+    const next = reduceNativeIndex(ready, {
+      generation: 3,
+      kind: 'failure',
+      message: 'The state index did not answer in time.',
+      reopen: { attempt: 1, attempts: 3 },
+    });
+    expect(next.state).toEqual({
+      cause: {
+        kind: 'source-failure',
+        message: 'The state index did not answer in time.',
+        reopen: { attempt: 1, attempts: 3 },
+      },
+      generation: 3,
+      kind: 'failed',
+      settings: VECTOR,
+    });
+    expect(nativeIndexObservation(next.state)).toEqual({
+      cause: {
+        kind: 'source-failure',
+        message: 'The state index did not answer in time. Retrying automatically (attempt 1 of 3).',
+      },
+      generation: 3,
+      kind: 'refused',
+    });
+    expect(nativeIndexObservation(failed)).toEqual({
+      cause: { kind: 'source-failure', message: 'Initial native workspace scan was aborted.' },
+      generation: 3,
       kind: 'refused',
     });
   });
