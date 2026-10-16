@@ -172,6 +172,20 @@ describe('SubagentExecutionCard', () => {
     expect(screen.getByText('· 2 tool calls')).toBeTruthy();
   });
 
+  it('says when a child’s progress cannot be read, and why, never that it is working', () => {
+    // Codex review on #3719: a failed child-log subscription.
+    renderCard({
+      childRun: { reason: 'The agent host is not connected.', status: 'unavailable', toolCalls: 0 },
+      result: { childThreadId: 'child-1', status: 'started', text: 'Background task started.' },
+      status: { type: 'complete' },
+      toolCallId: 'delegation-1',
+      toolName: 'agent-explore',
+    });
+    expect(screen.getByText('Explorer’s progress is unavailable')).toBeTruthy();
+    expect(screen.queryByText('Explorer is working')).toBeNull();
+    expect(screen.getByRole('alert')).toHaveTextContent('The agent host is not connected.');
+  });
+
   it('shows a refused delegation as rejected, with no child and no count', () => {
     // BST-1751: the host refuses past its invocation limit; no child runs.
     renderCard({

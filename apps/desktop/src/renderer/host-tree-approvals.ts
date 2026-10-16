@@ -361,7 +361,8 @@ export class HostTreeApprovals implements SubagentChildRunSource {
     const children: HostTreeRunningChild[] = [];
     let activeTurnId: string | undefined;
     for (const [threadId, { fold, origin, owner, session }] of this.threads) {
-      const run = fold.apply(session.getSnapshot().rows);
+      const { error, rows } = session.getSnapshot();
+      const run = fold.apply(rows, error);
       if (origin === undefined || owner === undefined) {
         activeTurnId = working(run) ? fold.rootTurnId() : undefined;
         continue;

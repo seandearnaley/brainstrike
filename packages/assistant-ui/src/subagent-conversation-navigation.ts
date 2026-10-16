@@ -40,20 +40,23 @@ export const SubagentApprovalHistoryContext = createContext<
  * A delegated child conversation's run state, as its own committed log says:
  * its latest run working, waiting on a person, or how that run ended, and the
  * tool calls its runs made. `no-answer` is a run that completed without
- * writing an answer (agent-host `hostAnswerText`). The owner folds the child's
- * log; nothing else writes it.
+ * writing an answer (agent-host `hostAnswerText`); `unavailable` is a child
+ * whose log cannot be read, with the reason. The owner folds the child's log;
+ * nothing else writes it.
  */
-export interface SubagentChildRun {
-  readonly status:
-    | 'running'
-    | 'needs-input'
-    | 'completed'
-    | 'no-answer'
-    | 'stopped'
-    | 'failed'
-    | 'interrupted';
-  readonly toolCalls: number;
-}
+export type SubagentChildRun =
+  | {
+      readonly status:
+        | 'running'
+        | 'needs-input'
+        | 'completed'
+        | 'no-answer'
+        | 'stopped'
+        | 'failed'
+        | 'interrupted';
+      readonly toolCalls: number;
+    }
+  | { readonly reason: string; readonly status: 'unavailable'; readonly toolCalls: number };
 /** The owner's child run states by child thread; a read keeps its identity until it changes. */
 export interface SubagentChildRunSource {
   /** Undefined until the child's committed log has been read. */

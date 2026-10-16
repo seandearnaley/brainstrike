@@ -50,6 +50,23 @@ test('a root thread’s working run names its turn: its own, or the turn its wak
   expect(fold.rootTurnId()).toBe('turn-b');
 });
 
+// Codex review on #3719: a child whose log subscription failed has no rows,
+// and reading that as "not started yet" left its card on the dispatch
+// acknowledgement. Its run reads unavailable, with the session's reason.
+test('a child whose log cannot be read is unavailable, with the reason', () => {
+  const fold = new HostChildRunFold();
+  expect(fold.apply([], 'The agent host is not connected.')).toEqual({
+    reason: 'The agent host is not connected.',
+    status: 'unavailable',
+    toolCalls: 0,
+  });
+  const rows: HostLogRow[] = [row(1, { runId: 'delegated', type: 'run.started' })];
+  expect(fold.apply(rows)).toEqual({ status: 'running', toolCalls: 0 });
+  const lost = fold.apply(rows, 'Host is closing');
+  expect(lost).toEqual({ reason: 'Host is closing', status: 'unavailable', toolCalls: 0 });
+  expect(fold.apply(rows, 'Host is closing')).toBe(lost);
+});
+
 test('a child that has not started reports no delegated invocation', () => {
   const fold = new HostChildRunFold();
   expect(fold.apply([])).toBeUndefined();

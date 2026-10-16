@@ -79,6 +79,7 @@ const CHILD_STEP_STATE: Record<SubagentChildRun['status'], StepGlyphState> = {
   'no-answer': 'no-answer',
   running: 'running',
   stopped: 'cancelled',
+  unavailable: 'failed',
 };
 
 /**
@@ -141,7 +142,13 @@ function delegationVerb(
   childRun: SubagentChildRun | undefined,
   label: string
 ): string {
-  return childRun?.status === 'needs-input' ? `${label} needs your input` : STEP_VERB[state](label);
+  if (childRun?.status === 'needs-input') {
+    return `${label} needs your input`;
+  }
+  // Nothing is known of the child's run, only that its log cannot be read.
+  return childRun?.status === 'unavailable'
+    ? `${label}’s progress is unavailable`
+    : STEP_VERB[state](label);
 }
 
 function SubagentTaskSummary({
@@ -260,6 +267,11 @@ export const SubagentExecutionCard = ({
       {navigationError ? (
         <p className="border-border border-t px-3 py-2 text-destructive text-xs" role="alert">
           {navigationError}
+        </p>
+      ) : null}
+      {childRun?.status === 'unavailable' ? (
+        <p className="border-border border-t px-3 py-2 text-destructive text-xs" role="alert">
+          {childRun.reason}
         </p>
       ) : null}
       <SubagentPresentationError error={presentationError} onReload={onReloadPresentation} />

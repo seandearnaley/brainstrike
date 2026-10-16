@@ -28,27 +28,42 @@ export class HostChildRunFold {
   private toolCalls = 0;
   private value: SubagentChildRun | undefined;
 
-  /** Fold the rows past the last call; `rows` is the same log, grown. */
-  apply(rows: readonly HostLogRow[]): SubagentChildRun | undefined {
+  /**
+   * Fold the rows past the last call; `rows` is the same log, grown. `error`
+   * is the log subscription's failure: the run is then unavailable, never
+   * "not started yet".
+   */
+  apply(rows: readonly HostLogRow[], error?: string): SubagentChildRun | undefined {
     if (rows.length < this.cursor) {
       throw new Error('A committed thread log never shrinks');
     }
-    let changed = false;
     for (let index = this.cursor; index < rows.length; index += 1) {
-      changed = this.fold(rows[index]?.event) || changed;
+      this.fold(rows[index]?.event);
     }
     this.cursor = rows.length;
-    if (!changed || this.latest === undefined) {
-      return this.value;
-    }
-    const status = this.status();
-    if (this.value?.status !== status || this.value.toolCalls !== this.toolCalls) {
-      this.value = { status, toolCalls: this.toolCalls };
+    const next = this.read(error);
+    if (
+      next?.status !== this.value?.status ||
+      next?.toolCalls !== this.value?.toolCalls ||
+      (next?.status === 'unavailable' &&
+        this.value?.status === 'unavailable' &&
+        next.reason !== this.value.reason)
+    ) {
+      this.value = next;
     }
     return this.value;
   }
 
-  private fold(event: HostLogRow['event'] | undefined): boolean {
+  private read(error: string | undefined): SubagentChildRun | undefined {
+    if (error !== undefined) {
+      return { reason: error, status: 'unavailable', toolCalls: this.toolCalls };
+    }
+    return this.latest === undefined
+      ? undefined
+      : { status: this.status(), toolCalls: this.toolCalls };
+  }
+
+  private fold(event: HostLogRow['event'] | undefined): void {
     switch (event?.type) {
       case 'run.started':
         this.first ??= event.runId;
@@ -57,33 +72,34 @@ export class HostChildRunFold {
         this.outcome = undefined;
         this.answered = false;
         this.waiting.clear();
-        return true;
+        return;
       case 'model.step':
       case 'model.messages':
-        return event.runId === this.latest && this.answer(hostAnswerText(event.messages));
+        if (event.runId === this.latest) {
+          this.answer(hostAnswerText(event.messages));
+        }
+        return;
       case 'stream.chunk':
-        if (!isHostToolCallChunk(event.chunk)) {
-          return false;
+        if (isHostToolCallChunk(event.chunk)) {
+          this.toolCalls += 1;
         }
-        this.toolCalls += 1;
-        return true;
+        return;
       case 'interaction.requested':
-        if (event.runId !== this.latest) {
-          return false;
+        if (event.runId === this.latest) {
+          this.waiting.add(event.interactionId);
         }
-        this.waiting.add(event.interactionId);
-        return true;
+        return;
       case 'interaction.responded':
-        return this.waiting.delete(event.interactionId);
+        this.waiting.delete(event.interactionId);
+        return;
       case 'run.finished':
-        if (event.runId !== this.latest) {
-          return false;
+        if (event.runId === this.latest) {
+          this.outcome = event.outcome;
+          this.waiting.clear();
         }
-        this.outcome = event.outcome;
-        this.waiting.clear();
-        return true;
+        return;
       default:
-        return false;
+        return;
     }
   }
 
@@ -105,15 +121,13 @@ export class HostChildRunFold {
   }
 
   /** A step's messages replace the answer only when they hold an assistant message. */
-  private answer(text: string | undefined): boolean {
-    if (text === undefined || this.answered === (text !== '')) {
-      return false;
+  private answer(text: string | undefined): void {
+    if (text !== undefined) {
+      this.answered = text !== '';
     }
-    this.answered = text !== '';
-    return true;
   }
 
-  private status(): SubagentChildRun['status'] {
+  private status(): Exclude<SubagentChildRun['status'], 'unavailable'> {
     if (this.outcome === 'completed' && !this.answered) {
       return 'no-answer';
     }
