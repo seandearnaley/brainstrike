@@ -1,166 +1,31 @@
 /**
  * Server-side permission-policy WIRE assembly (PR-1.4a).
  *
- * Two layers are proven here:
+ * `resolveRequestPermissionPolicy` (pure): the renderer-carried opt-in snapshot
+ * → trusted `PermissionToolGateSnapshot`. `enforce:false`/absent → `undefined`
+ * (passthrough); `enforce:true` → a snapshot with SERVER-built `riskByTool`
+ * (`buildNativeToolRiskMap`) + `defaultRisk: 'mcp'`.
  *
- * 1. `resolveRequestPermissionPolicy` (pure): the renderer-carried opt-in
- *    snapshot → trusted `PermissionToolGateSnapshot`. `enforce:false`/absent →
- *    `undefined` (passthrough); `enforce:true` → a snapshot with SERVER-built
- *    `riskByTool` (`buildNativeToolRiskMap`) + `defaultRisk: 'mcp'`.
- *
- * 2. END-TO-END through the REAL Mastra agent loop (no agent mocks — only the
- *    language model is a scripted fake): a runtime whose `permissionPolicy` is
- *    the resolver output for an `edit:'deny'` + `enforce:true` request OMITS the
- *    two edit-risk native tools, while an `enforce:false` request leaves every
- *    tool callable. This mirrors the harness in `mastra-tool-execution.spec.ts`.
+ * This file used to carry a second layer: the resolved snapshot driven END TO
+ * END through the Mastra agent loop, asserting that an `edit:'deny'` request
+ * omitted the edit-risk tools from the live tool map. That loop is retired
+ * (ADR-0022); the equivalent on the production path is the host's own
+ * admission, and `filterToolsForPlanMode`'s sibling gate is exercised by
+ * `apps/desktop/src/__tests__/host-live-native-tools.integration.test.ts`
+ * against the real host loop.
  */
-import type {
-  LanguageModelV2,
-  LanguageModelV2CallOptions,
-  LanguageModelV2StreamPart,
-} from '@ai-sdk/provider';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
-import { createTool } from '@mastra/core/tools';
-import { describe, expect, it, vi } from 'vitest';
-import { z } from 'zod';
+import { describe, expect, it } from 'vitest';
 import {
   type AssistantPermissionPolicyRequest,
   resolveRequestPermissionPolicy,
 } from '../permissions/permission-policy-request';
-import type { RuntimeData, StreamChunk } from '../types';
+import type { RuntimeData } from '../types';
 
-const { modelHolder } = vi.hoisted(() => ({
-  modelHolder: { current: undefined as LanguageModelV2 | undefined },
-}));
-
-vi.mock('../providers/provider-factory', async (importActual) => {
-  const actual = await importActual<typeof import('../providers/provider-factory')>();
-  return {
-    ...actual,
-    createProvider: () => {
-      if (!modelHolder.current) {
-        throw new Error('test fake model was not configured');
-      }
-      return modelHolder.current;
-    },
-    getDefaultModel: (provider: string) =>
-      ({
-        anthropic: 'claude-sonnet-5',
-        google: 'gemini-3.5-flash',
-        local: 'onnx-community/gemma-4-E2B-it-ONNX',
-        openrouter: 'openai/gpt-5.6-terra',
-      })[provider] ?? 'gpt-5.6-terra',
-  };
-});
-
-const { streamMastraAgent } = await import('../mastra/agent-streaming');
-
-const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
-
-// One critical and one deferred edit-risk mutator. The critical tool keeps the
-// direct execution assertions independent from discovery; the deferred tool
-// proves the permission gate removes it before the searchable catalog is built.
+// The two known edit mutators and one reader, named for the risk assertions.
 const EDIT_TOOL_A = 'brainstrike.stringReplaceWorkspaceFile';
 const EDIT_TOOL_B = 'brainstrike.writeWorkspaceFile';
 const READ_TOOL = 'brainstrike.readWorkspaceFile';
-
-// The agent sanitizes a tool's id (`.` → `_`) into the name the MODEL must call;
-// the permission gate maps the sanitized id back to the original via
-// `toolNameMap`, so `riskByTool` (keyed by the original dotted id) still
-// resolves. The scripted model below requests the SANITIZED name.
-function sanitizedName(toolId: string): string {
-  return toolId.replace(/[^a-zA-Z0-9_-]/g, '_');
-}
-
-function enqueue(parts: LanguageModelV2StreamPart[]): ReadableStream<LanguageModelV2StreamPart> {
-  return new ReadableStream<LanguageModelV2StreamPart>({
-    start(controller) {
-      for (const part of parts) {
-        controller.enqueue(part);
-      }
-      controller.close();
-    },
-  });
-}
-
-/**
- * A scripted model that requests `toolName` on the first turn, then emits a
- * final answer once the prompt carries a tool result.
- */
-function createScriptedToolCallModel(args: {
-  toolName: string;
-  toolCallId: string;
-  input: string;
-  finalText: string;
-}): LanguageModelV2 {
-  return {
-    doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
-    doStream: (options: LanguageModelV2CallOptions) => {
-      const promptHasToolResult =
-        Array.isArray(options.prompt) && options.prompt.some((message) => message.role === 'tool');
-      if (promptHasToolResult) {
-        const id = 'text-final';
-        return Promise.resolve({
-          stream: enqueue([
-            { type: 'stream-start', warnings: [] },
-            { id, type: 'text-start' },
-            { delta: args.finalText, id, type: 'text-delta' },
-            { id, type: 'text-end' },
-            { finishReason: 'stop', type: 'finish', usage: USAGE },
-          ]),
-        });
-      }
-      return Promise.resolve({
-        stream: enqueue([
-          { type: 'stream-start', warnings: [] },
-          {
-            input: args.input,
-            toolCallId: args.toolCallId,
-            toolName: args.toolName,
-            type: 'tool-call',
-          },
-          { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
-        ]),
-      });
-    },
-    modelId: 'fake-model',
-    provider: 'fake',
-    specificationVersion: 'v2',
-    supportedUrls: {},
-  };
-}
-
-function makeNativeTools(executors: {
-  editA: () => Promise<{ ok: boolean }>;
-  editB: () => Promise<{ ok: boolean }>;
-  read: () => Promise<{ ok: boolean }>;
-}): Record<string, ReturnType<typeof createTool>> {
-  const inputSchema = z.object({ value: z.string() });
-  const outputSchema = z.object({ ok: z.boolean() });
-  return {
-    [EDIT_TOOL_A]: createTool({
-      description: 'Edit-risk workspace mutator A.',
-      execute: executors.editA,
-      id: EDIT_TOOL_A,
-      inputSchema,
-      outputSchema,
-    }),
-    [EDIT_TOOL_B]: createTool({
-      description: 'Edit-risk workspace mutator B.',
-      execute: executors.editB,
-      id: EDIT_TOOL_B,
-      inputSchema,
-      outputSchema,
-    }),
-    [READ_TOOL]: createTool({
-      description: 'Read-risk workspace reader.',
-      execute: executors.read,
-      id: READ_TOOL,
-      inputSchema,
-      outputSchema,
-    }),
-  };
-}
 
 describe('resolveRequestPermissionPolicy', () => {
   it('returns undefined when the request is absent (passthrough)', () => {
@@ -274,112 +139,5 @@ describe('permissionPolicyRequest wire-shape contract (absent key vs explicit un
     // Round-trip fidelity only — `defaultRisk` and the rest of the resolver's
     // output are covered by the `resolveRequestPermissionPolicy` suite above.
     expect(snapshot?.policies).toEqual(enforcing.policies);
-  });
-});
-
-describe('runtime gate fed by resolveRequestPermissionPolicy (real Mastra loop)', () => {
-  async function runWithToolCall(args: {
-    permissionPolicy: ReturnType<typeof resolveRequestPermissionPolicy>;
-    toolName: string;
-    tools: Record<string, ReturnType<typeof createTool>>;
-  }): Promise<StreamChunk[]> {
-    modelHolder.current = createScriptedToolCallModel({
-      finalText: 'done',
-      input: JSON.stringify({ value: 'x' }),
-      toolCallId: `call-${sanitizedName(args.toolName)}`,
-      toolName: sanitizedName(args.toolName),
-    });
-    const iterator = await streamMastraAgent(
-      [{ id: 'u-1', parts: [{ text: 'go', type: 'text' }], role: 'user' }],
-      {
-        runtime: {
-          apiKey: 'test-key',
-          provider: 'openai',
-          ...(args.permissionPolicy ? { permissionPolicy: args.permissionPolicy } : {}),
-        },
-        tools: args.tools,
-      }
-    );
-    const chunks: StreamChunk[] = [];
-    for await (const chunk of iterator) {
-      chunks.push(chunk);
-    }
-    return chunks;
-  }
-
-  it("enforce:true + edit:'deny' OMITS the two edit native tools (execute never called), keeps read callable", async () => {
-    const editA = vi.fn(() => Promise.resolve({ ok: true }));
-    const editB = vi.fn(() => Promise.resolve({ ok: true }));
-    const read = vi.fn(() => Promise.resolve({ ok: true }));
-
-    const permissionPolicy = resolveRequestPermissionPolicy({
-      enforce: true,
-      policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
-      yolo: false,
-    });
-    expect(permissionPolicy).toBeDefined();
-
-    // The model tries EDIT_TOOL_A: it must have been omitted, so execute never
-    // runs and no successful tool completion surfaces.
-    const editChunks = await runWithToolCall({
-      permissionPolicy,
-      toolName: EDIT_TOOL_A,
-      tools: makeNativeTools({ editA, editB, read }),
-    });
-    expect(editA).not.toHaveBeenCalled();
-    const editCompleted = editChunks.some(
-      (chunk) => chunk.type === 'run-event' && chunk.event.kind === 'tool.completed'
-    );
-    expect(editCompleted).toBe(false);
-
-    // The model tries EDIT_TOOL_B: same — omitted.
-    const editBChunks = await runWithToolCall({
-      permissionPolicy,
-      toolName: EDIT_TOOL_B,
-      tools: makeNativeTools({ editA, editB, read }),
-    });
-    expect(editB).not.toHaveBeenCalled();
-    const editBCompleted = editBChunks.some(
-      (chunk) => chunk.type === 'run-event' && chunk.event.kind === 'tool.completed'
-    );
-    expect(editBCompleted).toBe(false);
-
-    // The read tool is 'allow' (read policy) — it stays in the map and executes.
-    const readChunks = await runWithToolCall({
-      permissionPolicy,
-      toolName: READ_TOOL,
-      tools: makeNativeTools({ editA, editB, read }),
-    });
-    expect(read).toHaveBeenCalledTimes(1);
-    const readCompleted = readChunks.some(
-      (chunk) => chunk.type === 'run-event' && chunk.event.kind === 'tool.completed'
-    );
-    expect(readCompleted).toBe(true);
-  });
-
-  it('enforce:false yields no permissionPolicy → all tools remain callable (passthrough)', async () => {
-    const editA = vi.fn(() => Promise.resolve({ ok: true }));
-    const editB = vi.fn(() => Promise.resolve({ ok: true }));
-    const read = vi.fn(() => Promise.resolve({ ok: true }));
-
-    // enforce:false → resolver returns undefined → runtime gets NO policy.
-    const permissionPolicy = resolveRequestPermissionPolicy({
-      enforce: false,
-      policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
-    });
-    expect(permissionPolicy).toBeUndefined();
-
-    // Even an 'edit'-deny policy is irrelevant — it was never sent. The edit tool
-    // executes normally.
-    const chunks = await runWithToolCall({
-      permissionPolicy,
-      toolName: EDIT_TOOL_A,
-      tools: makeNativeTools({ editA, editB, read }),
-    });
-    expect(editA).toHaveBeenCalledTimes(1);
-    const completed = chunks.some(
-      (chunk) => chunk.type === 'run-event' && chunk.event.kind === 'tool.completed'
-    );
-    expect(completed).toBe(true);
   });
 });

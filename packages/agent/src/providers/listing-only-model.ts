@@ -6,9 +6,12 @@ const LISTING_ONLY_INVARIANT =
 /**
  * An inert `LanguageModelV2`-shaped stub for the suspended-run DISCOVERY path.
  *
- * `agent.listSuspendedRuns()` only reads workflow-storage snapshots — it never
- * runs inference — yet `createMastraAgentRuntime` unconditionally instantiates a
- * language model. Resolving a real provider/model for listing is both wasteful
+ * Its live consumer is the host's hosted tool discovery
+ * (`agent-host/src/adapters/host-tool-discovery.ts`), which needs a model-shaped
+ * value to feed the tool-search processor but never runs inference. It was
+ * introduced for the retired engine's suspended-run DISCOVERY path, where
+ * `listSuspendedRuns()` only read workflow-storage snapshots yet the runtime
+ * unconditionally instantiated a language model. Resolving a real provider/model for listing is both wasteful
  * and a live failure mode: a keyless provider with no static default (e.g.
  * `ollama`, whose models are discovered dynamically) throws
  * `No default model configured` at init, before any listing happens (the D1

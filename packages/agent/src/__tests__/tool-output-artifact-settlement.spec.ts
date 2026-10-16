@@ -12,7 +12,6 @@ import {
 import type { ToolsInput } from '@mastra/core/agent';
 import { RequestContext } from '@mastra/core/request-context';
 import { describe, expect, it, vi } from 'vitest';
-import { resolveEligibleArtifactReaderName } from '../mastra/runtime-assembly/tool-pipeline';
 import { resolveScaledToolResultBudget } from '../stream/tool-output-limits';
 import {
   applyToolModelOutputProjections,
@@ -26,6 +25,31 @@ import {
   type ToolOutputArtifactSettlementStore,
 } from '../tool-projection/tool-output-artifact-settlement';
 import { applyToolHooks } from '../tools/hook-tool-wrap';
+
+/**
+ * The `getReaderToolName` precondition a caller must enforce: exactly ONE
+ * registered tool resolves to the artifact reader, else refuse before any
+ * artifact is written.
+ *
+ * The retired Mastra agent loop supplied this (ADR-0022). The host resolves
+ * the reader itself (`agent-host/src/tool-artifacts.ts`), so the shape is
+ * reproduced here rather than imported: what this file pins is the settlement
+ * store's behaviour when the port THROWS, which is the port's contract either
+ * way.
+ */
+function requireSoleArtifactReaderName(
+  tools: Readonly<Record<string, unknown>>,
+  toolNameMap: ReadonlyMap<string, string>
+): string {
+  const names = Object.keys(tools).filter(
+    (id) => toolNameMap.get(id) === NATIVE_TOOL_ID.readToolOutputArtifact
+  );
+  const name = names[0];
+  if (names.length !== 1 || !name) {
+    throw new Error('Durable tool output requires one eligible artifact reader.');
+  }
+  return name;
+}
 
 const ANCHOR_TOOL_RESULT_BUDGET = resolveScaledToolResultBudget(131_072);
 
@@ -186,7 +210,7 @@ describe('tool output artifact settlement', () => {
     const tools = applyToolOutputArtifactSettlement(
       { fixture: executableTool(async () => 'x'.repeat(12_500)) },
       {
-        getReaderToolName: () => resolveEligibleArtifactReaderName(readers, names),
+        getReaderToolName: () => requireSoleArtifactReaderName(readers, names),
         store: settlementStore(store),
         toolNameMap: new Map(),
       }

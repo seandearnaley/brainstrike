@@ -20,7 +20,7 @@
  * omit normally — never a silent downgrade of the user's explicit choice.
  *
  * The native tool is injected AFTER `sanitizeTools`/`applyToolGuards`/the
- * permission gate (see `createMastraAgentRuntime`), because `sanitizeTools`
+ * permission gate, because `sanitizeTools`
  * rewrites a dotted tool key and CLOBBERS `tool.id` — and for a provider-defined
  * tool `id` (`anthropic.web_search_20250305`) is the provider's dispatch key, not
  * a cosmetic label.

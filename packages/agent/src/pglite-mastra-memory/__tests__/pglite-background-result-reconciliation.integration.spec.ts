@@ -8,11 +8,82 @@ import type { MastraDBMessage } from '@mastra/core/memory';
 import { getTransformedToolPayload } from '@mastra/core/tools';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { createPristineEngineTestDb } from '../../__tests__/helpers/migrated-agent-test-db';
-import { saveBackgroundResult } from '../../mastra/background-results';
 import { createPgliteMastraMemory } from '../memory-factory';
 import type { PgliteDatabase } from '../types';
 
 const scope = { resourceId: 'owner', threadId: 'root' } as const;
+
+/**
+ * Save a terminal task's result through the STORE's own atomic API.
+ *
+ * The retired Mastra agent loop had a `saveBackgroundResult` wrapper over this
+ * (ADR-0022); all it contributed was the recovery message's shape, which is
+ * reproduced here. The subject is and always was
+ * `PgliteMemoryStore.saveBackgroundTaskResult` — the atomic overlay plus
+ * delivery acknowledgement this file exists to pin.
+ */
+async function saveTerminalBackgroundResult(
+  backing: Awaited<ReturnType<typeof createPgliteMastraMemory>>,
+  task: {
+    readonly args: unknown;
+    readonly completedAt?: Date | undefined;
+    readonly createdAt: Date;
+    readonly id: string;
+    readonly resourceId?: string | undefined;
+    readonly threadId?: string | undefined;
+    readonly toolCallId: string;
+    readonly toolName: string;
+  }
+): Promise<void> {
+  if (!(task.threadId && task.resourceId)) {
+    throw new Error('Background result has no root memory owner.');
+  }
+  // `MemoryStorage` does not declare the atomic background-result write, so it
+  // is narrowed structurally — exactly as the retired engine's wrapper did.
+  const store = await backing.storage.getStore('memory');
+  if (
+    !(
+      store &&
+      'saveBackgroundTaskResult' in store &&
+      typeof store.saveBackgroundTaskResult === 'function'
+    )
+  ) {
+    throw new Error('Background execution requires atomic task-result persistence.');
+  }
+  const save = store.saveBackgroundTaskResult.bind(store) as (args: {
+    recoveryMessage: MastraDBMessage;
+    taskId: string;
+  }) => Promise<MastraDBMessage[]>;
+  await save({
+    recoveryMessage: {
+      content: {
+        format: 2,
+        metadata: { backgroundTasks: { [task.toolCallId]: { taskId: task.id } } },
+        parts: [
+          {
+            text: 'Recovered a finished background task whose original message is no longer available. This reports its saved outcome; the work was not executed again.',
+            type: 'text',
+          },
+          {
+            toolInvocation: {
+              args: task.args,
+              state: 'call',
+              toolCallId: task.toolCallId,
+              toolName: task.toolName,
+            },
+            type: 'tool-invocation',
+          },
+        ],
+      },
+      createdAt: task.completedAt ?? task.createdAt,
+      id: `background-result-${task.id}`,
+      resourceId: task.resourceId,
+      role: 'assistant',
+      threadId: task.threadId,
+    } as MastraDBMessage,
+    taskId: task.id,
+  });
+}
 
 function port(database: PGlite): PgliteDatabase {
   return {
@@ -542,10 +613,7 @@ it('keeps newer parent content when a child callback holds an older message snap
   if (!terminalTask) {
     throw new Error('Missing terminal task');
   }
-  await saveBackgroundResult(backing.memory, terminalTask, {
-    result: terminalTask.result,
-    status: 'completed',
-  });
+  await saveTerminalBackgroundResult(backing, terminalTask);
 
   const saved = await backing.store.listMessagesById({ messageIds: [initial.id] });
   expect(saved.messages[0]?.content.parts[0]).toEqual({
@@ -603,10 +671,7 @@ it('reconciles legitimate progressive snapshot rows sharing one tool call', asyn
   if (!terminal) {
     throw new Error('Missing terminal task');
   }
-  await saveBackgroundResult(backing.memory, terminal, {
-    result: terminal.result,
-    status: 'completed',
-  });
+  await saveTerminalBackgroundResult(backing, terminal);
 
   const saved = await backing.store.listMessagesById({
     messageIds: [first.id, second.id],

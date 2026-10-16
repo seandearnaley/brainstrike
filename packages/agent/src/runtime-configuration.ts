@@ -31,8 +31,7 @@ export interface ResolvedRuntimeConfiguration {
 
 /**
  * Project a threaded auth input onto the resolved bearer-key string the rest
- * of the runtime assembly consumes (`composeRuntimeToolMap`, persona pin
- * reuse). Only `aws` has no bearer projection — it resolves to `''` WITHOUT
+ * of the runtime assembly consumes. Only `aws` has no bearer projection — it resolves to `''` WITHOUT
  * tripping the missing-key rejection (SigV4 auth needs no bearer key; the
  * factory owns aws consumption/validation).
  */

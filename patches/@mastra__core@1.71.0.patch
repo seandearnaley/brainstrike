@@ -22,27 +22,6 @@ index a659625a54f5309f959123c27a54cc284a2eefd2..75368d3437ae0853e4f5d35d33425348
  	indexValidationCache = /* @__PURE__ */ new Map();
  	constructor(options) {
  		this.storage = options.storage;
-@@ -30107,7 +30111,7 @@ function createToolCallStep({ tools, messageList, options, outputWriter, control
- 											},
- 											outputWriter: async (chunk) => {
- 												await opts?.onProgress?.(chunk);
--												return toolOptions.outputWriter?.(chunk);
-+												// Background output is delivered by the task stream only.
- 											},
- 											abortSignal: opts?.abortSignal
- 										})
-@@ -39149,7 +39153,10 @@ var Agent = class Agent extends require_base.MastraBase {
- 							role: "user",
- 							content: effectivePrompt
- 						}];
--						const subAgentAbortOptions = context?.abortSignal ? { abortSignal: context.abortSignal } : {};
-+						const childAbortSignal = resolvedDefaultOptions?.abortSignal;
-+						const parentAbortSignal = context?.abortSignal;
-+						const subAgentAbortSignal = childAbortSignal && parentAbortSignal ? AbortSignal.any([childAbortSignal, parentAbortSignal]) : childAbortSignal ?? parentAbortSignal;
-+						const subAgentAbortOptions = subAgentAbortSignal ? { abortSignal: subAgentAbortSignal } : {};
- 						if ((methodType === "generate" || methodType === "generateLegacy") && require_trip_wire.supportedLanguageModelSpecifications.includes(resolvedModelVersion)) {
- 							const generateResult = shouldResumeSubAgent ? await resolvedAgent.resumeGenerate(resumeData, {
- 								runId: suspendedToolRunId,
 diff --git a/dist/agent-BOxKOk3n.js b/dist/agent-BOxKOk3n.js
 index 20808d18e0d490d5f745c85ec943e62cd8aa0d02..b0f870db01e1aac9ec8a6db61479395f0e6caf4e 100644
 --- a/dist/agent-BOxKOk3n.js
@@ -67,27 +46,6 @@ index 20808d18e0d490d5f745c85ec943e62cd8aa0d02..b0f870db01e1aac9ec8a6db61479395f
  	indexValidationCache = /* @__PURE__ */ new Map();
  	constructor(options) {
  		this.storage = options.storage;
-@@ -30105,7 +30109,7 @@ function createToolCallStep({ tools, messageList, options, outputWriter, control
- 											},
- 											outputWriter: async (chunk) => {
- 												await opts?.onProgress?.(chunk);
--												return toolOptions.outputWriter?.(chunk);
-+												// Background output is delivered by the task stream only.
- 											},
- 											abortSignal: opts?.abortSignal
- 										})
-@@ -39147,7 +39151,10 @@ var Agent = class Agent extends MastraBase {
- 							role: "user",
- 							content: effectivePrompt
- 						}];
--						const subAgentAbortOptions = context?.abortSignal ? { abortSignal: context.abortSignal } : {};
-+						const childAbortSignal = resolvedDefaultOptions?.abortSignal;
-+						const parentAbortSignal = context?.abortSignal;
-+						const subAgentAbortSignal = childAbortSignal && parentAbortSignal ? AbortSignal.any([childAbortSignal, parentAbortSignal]) : childAbortSignal ?? parentAbortSignal;
-+						const subAgentAbortOptions = subAgentAbortSignal ? { abortSignal: subAgentAbortSignal } : {};
- 						if ((methodType === "generate" || methodType === "generateLegacy") && supportedLanguageModelSpecifications.includes(resolvedModelVersion)) {
- 							const generateResult = shouldResumeSubAgent ? await resolvedAgent.resumeGenerate(resumeData, {
- 								runId: suspendedToolRunId,
 diff --git a/dist/background-tasks-BcWw6v_H.cjs b/dist/background-tasks-BcWw6v_H.cjs
 index 81d0e10d65b5454597ccb78b5dad4675d4f91fba..3c2444e62668af4f31cf87b944903213773b18a7 100644
 --- a/dist/background-tasks-BcWw6v_H.cjs
@@ -538,32 +496,6 @@ index de86aa89de4a77fb67e449c07c080c065e655483..214b060ba1ec2b66c96dbe2754a41d34
  		return true;
  	}
  	/**
-diff --git a/dist/create-durable-agent-DrUvhzKE.js b/dist/create-durable-agent-DrUvhzKE.js
-index c5260198a4587c47ad079c4ac3fe6aee746948de..061e952eaf6cefe66758a60508b9e28b3e678031 100644
---- a/dist/create-durable-agent-DrUvhzKE.js
-+++ b/dist/create-durable-agent-DrUvhzKE.js
-@@ -4368,7 +4368,7 @@ function createDurableToolCallStep() {
- 											},
- 											outputWriter: async (chunk) => {
- 												await taskContext?.onProgress?.(chunk);
--												return toolOptions.outputWriter?.(chunk);
-+												// Background output is delivered by the task stream only.
- 											},
- 											abortSignal: taskContext?.abortSignal ?? toolOptions.abortSignal
- 										})
-diff --git a/dist/create-durable-agent-f7FFJ8pU.cjs b/dist/create-durable-agent-f7FFJ8pU.cjs
-index 085b33ed17633d5cfbbf8324fb992255f67b709d..668368397cefc7a3c3ebd7ec9995c0c37ae2f98c 100644
---- a/dist/create-durable-agent-f7FFJ8pU.cjs
-+++ b/dist/create-durable-agent-f7FFJ8pU.cjs
-@@ -4368,7 +4368,7 @@ function createDurableToolCallStep() {
- 											},
- 											outputWriter: async (chunk) => {
- 												await taskContext?.onProgress?.(chunk);
--												return toolOptions.outputWriter?.(chunk);
-+												// Background output is delivered by the task stream only.
- 											},
- 											abortSignal: taskContext?.abortSignal ?? toolOptions.abortSignal
- 										})
 diff --git a/dist/workflow-DLhRNxEW.js b/dist/workflow-DLhRNxEW.js
 index d73027c3b90cab676908db6a5401fbff276f2121..eb6f346df6f4a019dc626e117d65b4be92a85b9b 100644
 --- a/dist/workflow-DLhRNxEW.js

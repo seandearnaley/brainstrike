@@ -1,7 +1,8 @@
 /**
  * Plan-mode + suspend-storage gates. Two PURE tool-map filters applied in
- * `createMastraAgentRuntime` BEFORE the immutable Agent is built, alongside the
- * permission gate:
+ * the run's tool map BEFORE it is bound, alongside the permission gate. The
+ * host applies {@link filterToolsForPlanMode} in
+ * `apps/desktop/src/agent-host-platform/desktop-host-context.ts`:
  *
  * 1. {@link filterToolsForPlanMode} — when the run is in plan mode, keep only
  *    risk ∈ {read, mcp} and OMIT every edit/execute tool, so the model can

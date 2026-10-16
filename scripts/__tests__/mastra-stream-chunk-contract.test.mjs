@@ -6,31 +6,10 @@ import test from 'node:test';
 
 import { findMastraStreamChunkContractViolations } from '../mastra-stream-chunk-contract.mjs';
 
-const AGENT_STREAMING_FILE = 'packages/agent/src/mastra/agent-streaming.ts';
 const DATA_STREAM_MAPPER_FILE = 'packages/agent/src/stream/data-stream-mapper.ts';
 const TOOL_EVENT_MAPPER_FILE = 'packages/agent/src/tool-projection/tool-event-mapper.ts';
 
 const COMPLIANT_FILES = {
-  [AGENT_STREAMING_FILE]: `import type { ChunkType } from '@mastra/core/stream';
-type MastraChunkTypeMustStayLiteral = string extends ChunkType['type'] ? never : true;
-const MASTRA_CHUNK_TYPE_MUST_STAY_LITERAL: MastraChunkTypeMustStayLiteral = true;
-type StaticMastraChunkType = Exclude<ChunkType['type'], DynamicMastraChunkType>;
-type MastraStaticChunkDisposition = 'ignored' | 'mapped';
-const MASTRA_STATIC_CHUNK_DISPOSITIONS = {} satisfies Record<
-  StaticMastraChunkType,
-  MastraStaticChunkDisposition
->;
-function warnForUnrecognizedMastraStreamPart() {
-  logger.warn('unrecognized', { code: 'mastra_agent_unrecognized_stream_chunk' });
-}
-function processMastraStreamPart(part) {
-  switch (part.type) {
-    default:
-      warnForUnrecognizedMastraStreamPart();
-      return;
-  }
-}
-`,
   [DATA_STREAM_MAPPER_FILE]: `class DataStreamMapper {
   handleChunk(chunk) {
     switch (chunk.type) {
@@ -61,7 +40,7 @@ async function writeFixture(files) {
   return root;
 }
 
-test('real tree: R6 keeps the Mastra chunk union typed and every dispatch observable', async () => {
+test('real tree: R6 keeps every surviving chunk dispatch observable', async () => {
   const { violations } = await findMastraStreamChunkContractViolations();
   assert.deepEqual(
     violations,
@@ -70,7 +49,7 @@ test('real tree: R6 keeps the Mastra chunk union typed and every dispatch observ
   );
 });
 
-test('accepts the typed coverage and coded diagnostics in all three dispatch files', async () => {
+test('accepts the coded diagnostics in both surviving dispatch files', async () => {
   const root = await writeFixture(COMPLIANT_FILES);
   const { violations } = await findMastraStreamChunkContractViolations({ root });
   assert.deepEqual(violations, []);
@@ -79,21 +58,27 @@ test('accepts the typed coverage and coded diagnostics in all three dispatch fil
 test('flags the deliberately silent default that the R6 policy forbids', async () => {
   const root = await writeFixture({
     ...COMPLIANT_FILES,
-    [AGENT_STREAMING_FILE]: `const MASTRA_STATIC_CHUNK_DISPOSITIONS = {};
-return { chunks: [], finished: false };
-`,
+    [DATA_STREAM_MAPPER_FILE]: 'return { chunks: [], finished: false };\n',
     [TOOL_EVENT_MAPPER_FILE]: 'return undefined;\n',
   });
   const { violations } = await findMastraStreamChunkContractViolations({ root });
   const reasons = violations.map((v) => v.reason);
 
-  assert.ok(reasons.some((reason) => reason.includes("ChunkType } from '@mastra/core/stream'")));
-  assert.ok(reasons.some((reason) => reason.includes('StaticMastraChunkType')));
-  assert.ok(reasons.some((reason) => reason.includes('MastraChunkTypeMustStayLiteral')));
-  assert.ok(reasons.some((reason) => reason.includes('MastraStaticChunkDisposition')));
-  assert.ok(reasons.some((reason) => reason.includes('mastra_agent_unrecognized_stream_chunk')));
+  assert.ok(reasons.some((reason) => reason.includes('data_stream_mapper_unrecognized_chunk')));
   assert.ok(
     reasons.some((reason) => reason.includes('mastra_tool_event_unrecognized_stream_chunk'))
+  );
+});
+
+test('flags a dispatch file that has gone missing entirely', async () => {
+  const { [TOOL_EVENT_MAPPER_FILE]: _removed, ...rest } = COMPLIANT_FILES;
+  const root = await writeFixture(rest);
+  const { violations } = await findMastraStreamChunkContractViolations({ root });
+  assert.ok(
+    violations.some(
+      ({ filePath, reason }) =>
+        filePath === TOOL_EVENT_MAPPER_FILE && reason.includes('could not read')
+    )
   );
 });
 

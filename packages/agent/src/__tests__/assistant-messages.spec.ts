@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentMessage, RuntimeData } from '..';
+import { describe, expect, it } from 'vitest';
+import type { AgentMessage } from '..';
 import {
   AssistantAttachmentValidationError,
   convertAssistantUiMessages,
@@ -13,26 +13,6 @@ import {
   MAX_ASSISTANT_MESSAGE_STRING_CHARS,
   MAX_ASSISTANT_MESSAGES,
 } from '../assistant-message-boundary';
-// Deep import: `toAiSdkStyleStream` is no longer on the package's public
-// surface (ADR-0022 step 3 dropped the engine re-exports, and #3652 removed
-// web's use of it). It retires with the engine in step 4, along with the
-// `toAiSdkStyleStream` cases below.
-import { toAiSdkStyleStream } from '../mastra/to-ai-sdk-style-stream';
-import { buildWorkspaceRootManifestContextMessage } from '../workspace-root-manifest';
-
-const { streamMastraAgentMock } = vi.hoisted(() => ({
-  streamMastraAgentMock: vi.fn(),
-}));
-
-vi.mock('../mastra/agent-streaming', async () => {
-  const actual = await vi.importActual<typeof import('../mastra/agent-streaming')>(
-    '../mastra/agent-streaming'
-  );
-  return {
-    ...actual,
-    streamMastraAgent: streamMastraAgentMock,
-  };
-});
 
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAA=';
 
@@ -397,10 +377,6 @@ describe('convertAssistantUiMessages image attachments', () => {
 });
 
 describe('convertAssistantUiMessages', () => {
-  beforeEach(() => {
-    streamMastraAgentMock.mockReset();
-  });
-
   it('extracts unique text segments across nested assistant-ui nodes', () => {
     const messages = convertAssistantUiMessages([
       {
@@ -531,180 +507,5 @@ describe('convertAssistantUiMessages', () => {
     ]);
 
     expect(messages).toEqual([]);
-  });
-});
-
-describe('toAiSdkStyleStream', () => {
-  const originalEnvValue = process.env['OPENAI_API_KEY'];
-
-  beforeEach(() => {
-    streamMastraAgentMock.mockReset();
-    process.env['OPENAI_API_KEY'] = 'env-key';
-  });
-
-  afterEach(() => {
-    if (originalEnvValue === undefined) {
-      process.env['OPENAI_API_KEY'] = undefined;
-    } else {
-      process.env['OPENAI_API_KEY'] = originalEnvValue;
-    }
-  });
-
-  it('forwards model, mcp config, and tools to streamMastraAgent', async () => {
-    const asyncStream = (async function* () {
-      /* noop */
-    })();
-    streamMastraAgentMock.mockResolvedValue(asyncStream);
-
-    const toolStub = {
-      foo: { description: 'stub', id: 'foo' },
-    } as unknown as NonNullable<RuntimeData['mastraTools']>;
-    const runtime: RuntimeData = {
-      mastraTools: toolStub,
-      mcpConfig: {
-        servers: [
-          {
-            command: 'echo',
-            name: 'stdio-test',
-            transport: 'stdio',
-          },
-        ],
-      },
-      model: 'gpt-test',
-    };
-    const messages: AgentMessage[] = [
-      { id: '1', parts: [{ text: 'hi', type: 'text' }], role: 'user' },
-    ];
-
-    const result = await toAiSdkStyleStream(messages, runtime);
-
-    expect(result).toBe(asyncStream);
-    expect(streamMastraAgentMock).toHaveBeenCalledTimes(1);
-    const [passedMessages, options] = streamMastraAgentMock.mock.calls[0] as unknown as [
-      AgentMessage[],
-      Record<string, unknown>,
-    ];
-    expect(passedMessages).toEqual([
-      buildWorkspaceRootManifestContextMessage(runtime),
-      ...messages,
-    ]);
-    expect(options['model']).toBe('gpt-test');
-    expect((options['mcpConfig'] as RuntimeData['mcpConfig'])?.servers?.[0]?.name).toBe(
-      'stdio-test'
-    );
-    expect(options['tools']).toBe(toolStub);
-    expect(options['runtime']).toEqual(runtime);
-  });
-
-  it('sends only the current turn when Mastra memory is active', async () => {
-    const asyncStream = (async function* () {
-      /* noop */
-    })();
-    streamMastraAgentMock.mockResolvedValue(asyncStream);
-    const messages: AgentMessage[] = [
-      { id: '1', parts: [{ text: 'old question', type: 'text' }], role: 'user' },
-      { id: '2', parts: [{ text: 'old answer', type: 'text' }], role: 'assistant' },
-      { id: '3', parts: [{ text: 'current question', type: 'text' }], role: 'user' },
-    ];
-
-    const runtime: RuntimeData = {
-      memory: {
-        resourceId: 'workspace-a',
-        threadId: 'thread-1',
-      },
-    };
-    await toAiSdkStyleStream(messages, runtime);
-
-    expect(streamMastraAgentMock).toHaveBeenCalledTimes(1);
-    const [passedMessages] = streamMastraAgentMock.mock.calls[0] as unknown as [AgentMessage[]];
-    expect(passedMessages).toEqual([
-      buildWorkspaceRootManifestContextMessage(runtime),
-      messages[2],
-    ]);
-  });
-
-  it('keeps trailing tool messages with the active turn when Mastra memory is active', async () => {
-    const asyncStream = (async function* () {
-      /* noop */
-    })();
-    streamMastraAgentMock.mockResolvedValue(asyncStream);
-    const messages: AgentMessage[] = [
-      { id: '1', parts: [{ text: 'old question', type: 'text' }], role: 'user' },
-      { id: '2', parts: [{ text: 'old answer', type: 'text' }], role: 'assistant' },
-      { id: '3', parts: [{ text: 'current question', type: 'text' }], role: 'user' },
-      {
-        id: '4',
-        parts: [
-          {
-            input: {},
-            output: 'done',
-            state: 'output-available',
-            type: 'tool-search',
-          },
-        ],
-        role: 'assistant',
-      },
-    ];
-
-    const runtime: RuntimeData = {
-      memory: {
-        resourceId: 'workspace-a',
-        threadId: 'thread-1',
-      },
-    };
-    await toAiSdkStyleStream(messages, runtime);
-
-    expect(streamMastraAgentMock).toHaveBeenCalledTimes(1);
-    const [passedMessages] = streamMastraAgentMock.mock.calls[0] as unknown as [AgentMessage[]];
-    expect(passedMessages).toEqual([
-      buildWorkspaceRootManifestContextMessage(runtime),
-      ...messages.slice(2),
-    ]);
-  });
-
-  it('preserves leading system-context precedence while trimming memory history', async () => {
-    const asyncStream = (async function* () {
-      /* noop */
-    })();
-    streamMastraAgentMock.mockResolvedValue(asyncStream);
-    const messages: AgentMessage[] = [
-      { id: 'system-1', parts: [{ text: 'Use workspace context.', type: 'text' }], role: 'system' },
-      { id: '1', parts: [{ text: 'old question', type: 'text' }], role: 'user' },
-      { id: '2', parts: [{ text: 'old answer', type: 'text' }], role: 'assistant' },
-      { id: '3', parts: [{ text: 'current question', type: 'text' }], role: 'user' },
-    ];
-
-    const runtime: RuntimeData = {
-      memory: {
-        resourceId: 'workspace-a',
-        threadId: 'thread-1',
-      },
-    };
-    await toAiSdkStyleStream(messages, runtime);
-
-    expect(streamMastraAgentMock).toHaveBeenCalledTimes(1);
-    const [passedMessages] = streamMastraAgentMock.mock.calls[0] as unknown as [AgentMessage[]];
-    expect(passedMessages).toEqual([
-      messages[0],
-      buildWorkspaceRootManifestContextMessage(runtime),
-      messages[3],
-    ]);
-  });
-
-  it('rejects memory-backed streams without a user turn', async () => {
-    const messages: AgentMessage[] = [
-      { id: 'system-1', parts: [{ text: 'Use context.', type: 'text' }], role: 'system' },
-      { id: 'assistant-1', parts: [{ text: 'No prompt.', type: 'text' }], role: 'assistant' },
-    ];
-
-    await expect(
-      toAiSdkStyleStream(messages, {
-        memory: {
-          resourceId: 'workspace-a',
-          threadId: 'thread-1',
-        },
-      })
-    ).rejects.toThrow('Mastra memory requires a current user message');
-    expect(streamMastraAgentMock).not.toHaveBeenCalled();
   });
 });
