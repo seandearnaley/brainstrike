@@ -5,6 +5,8 @@ import { expect, test } from '@playwright/test';
 import { closePackagedDesktop, launchPackagedDesktop } from './utils/packaged-electron';
 
 test('settings and encrypted OAuth records persist across packaged reopen and clear @packaged @destructive', async () => {
+  // Three fresh processes share the existing packaged lifecycle lane's total budget.
+  test.setTimeout(360_000);
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'bst-settings-packaged-'));
   const windowState = {
     v1: {

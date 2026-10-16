@@ -60,6 +60,11 @@ async function main() {
     );
   } finally {
     data.dispose();
+    // ConPTY's output worker remains owned after the shell exits. Release it
+    // through the public terminal owner so this probe can actually exit too.
+    if (windows) {
+      terminal.kill();
+    }
   }
 }
 
