@@ -7,6 +7,7 @@ export const OFFICIAL_CORE_LEGACY_SCENARIOS = Object.freeze([
   'tools_call',
   'elicitation-sep1034-client-defaults',
   'sse-retry',
+  'json-schema-2020-12-preservation',
 ] as const);
 
 export const OFFICIAL_CORE_MODERN_SCENARIOS = Object.freeze([
@@ -17,6 +18,7 @@ export const OFFICIAL_CORE_MODERN_SCENARIOS = Object.freeze([
   'http-custom-headers',
   'http-invalid-tool-headers',
   'json-schema-ref-no-deref',
+  'json-schema-2020-12-preservation',
 ] as const);
 
 export type OfficialCoreScenarioName =

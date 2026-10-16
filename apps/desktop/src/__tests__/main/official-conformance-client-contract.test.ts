@@ -62,9 +62,15 @@ function closeReport(
   } as const;
 }
 
+type ListedInputSchema = Extract<
+  McpHostOperationResult,
+  { type: 'tools/list' }
+>['result']['tools'][number]['inputSchema'];
+
 function runtimeReturningToolCall(
   result: McpHostOperationResult,
-  toolName: string | readonly string[] = 'add_numbers'
+  toolName: string | readonly string[] = 'add_numbers',
+  inputSchemas: Readonly<Record<string, ListedInputSchema>> = {}
 ): {
   close: ReturnType<typeof vi.fn>;
   operations: McpHostOperation[];
@@ -85,7 +91,7 @@ function runtimeReturningToolCall(
           return {
             result: {
               tools: (typeof toolName === 'string' ? [toolName] : toolName).map((name) => ({
-                inputSchema: { type: 'object' },
+                inputSchema: inputSchemas[name] ?? { type: 'object' },
                 name,
               })),
             },
@@ -541,6 +547,46 @@ describe('production MCP conformance client contract', () => {
       }))
     );
   });
+
+  it.each(['2025-11-25', '2026-07-28'] as const)(
+    'echoes the 2020-12 focal schema exactly as the host listed it at %s',
+    async (protocolVersion) => {
+      const focalSchema = {
+        $defs: { address: { $anchor: 'address', type: 'object' } },
+        $schema: 'https://json-schema.org/draft/2020-12/schema',
+        additionalProperties: false,
+        allOf: [{ required: ['name'] }],
+        if: { properties: { kind: { const: 'home' } } },
+        properties: { name: { type: 'string' } },
+        // biome-ignore lint/suspicious/noThenProperty: JSON Schema's if/then keyword; never awaited.
+        then: { required: ['address'] },
+        type: 'object',
+      } satisfies ListedInputSchema;
+      const { operations, runtime } = runtimeReturningToolCall(
+        { result: { content: [{ text: 'ok', type: 'text' }] }, type: 'tools/call' },
+        ['json_schema_2020_12_tool', 'json_schema_echo'],
+        { json_schema_2020_12_tool: focalSchema }
+      );
+
+      await runProductionMcpConformanceClient(
+        {
+          protocolVersion,
+          scenario: 'json-schema-2020-12-preservation',
+          serverUrl: 'https://mcp.example.test/mcp',
+        },
+        { createRuntime: () => runtime }
+      );
+
+      expect(operations.filter(({ type }) => type === 'tools/call')).toEqual([
+        {
+          arguments: { schema: focalSchema },
+          configuredServerId: 'official-conformance',
+          toolName: 'json_schema_echo',
+          type: 'tools/call',
+        },
+      ]);
+    }
+  );
 
   it('wires MRTR elicitation through the production capability engine', async () => {
     const { replaceResolvedConfig, runtime } = runtimeReturningToolCall(

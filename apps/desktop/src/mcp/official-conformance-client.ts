@@ -65,6 +65,11 @@ const ProductionConformanceInputSchema = z.discriminatedUnion('scenario', [
     serverUrl: z.string().min(1),
   }),
   z.strictObject({
+    protocolVersion: z.enum(['2025-11-25', '2026-07-28']),
+    scenario: z.literal('json-schema-2020-12-preservation'),
+    serverUrl: z.string().min(1),
+  }),
+  z.strictObject({
     protocolVersion: z.literal('2026-07-28'),
     scenario: z.enum([
       'request-metadata',
@@ -283,6 +288,23 @@ async function runModernScenario(
   switch (parsed.scenario) {
     case 'json-schema-ref-no-deref':
       return true;
+    case 'json-schema-2020-12-preservation': {
+      // Echo the focal schema exactly as the production host listed it, so the
+      // server sees any keyword its parsing stripped or rewrote.
+      if (listed.type !== 'tools/list') {
+        throw new Error('Production MCP conformance client received an invalid tools/list result');
+      }
+      const focal = listed.result.tools.find((tool) => tool.name === 'json_schema_2020_12_tool');
+      if (!focal) {
+        throw new Error(
+          'Production MCP conformance server does not expose json_schema_2020_12_tool'
+        );
+      }
+      await callScenarioTool(runtime, listed, 'json_schema_echo', {
+        schema: z.json().parse(focal.inputSchema),
+      });
+      return true;
+    }
     case 'sep-2322-client-request-state':
       await Promise.all(
         [
