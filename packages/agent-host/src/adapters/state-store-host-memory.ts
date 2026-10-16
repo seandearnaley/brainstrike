@@ -578,6 +578,11 @@ export class StateStoreHostMemory implements HostRunOwner {
     }
   }
 
+  /** The run's foreground memory work; storage stays open for the native settlement. */
+  endTurn(): Promise<void> {
+    return this.memory.endTurn();
+  }
+
   close(): Promise<void> {
     this.closing ??= (async () => {
       let failure: unknown;

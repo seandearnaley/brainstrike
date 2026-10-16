@@ -118,6 +118,9 @@ export function isAlwaysVisibleRunEvent(data: unknown): boolean {
     // A hook file that did not load: its hooks silently not running is the
     // degradation the row reports.
     (event.kind === 'hook.notice' && event.status === 'failed') ||
+    // A background memory cycle that failed after the answer: the only sign
+    // that the run's memory did not settle.
+    (event.kind === 'memory.observation.failed' && event.status === 'failed') ||
     event.kind === 'mcp.tools.unavailable' ||
     event.kind === 'provider.request.warned' ||
     event.kind === 'reference.unavailable' ||

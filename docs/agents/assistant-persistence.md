@@ -33,6 +33,15 @@ existing StateStore writer. It creates no transcript store or independent
 permission authority. Recall from other threads includes settled turns only;
 active or suspended work is not completed provider history.
 
+A run's memory settles after its answer, as Mastra documents for
+`Memory.settled()`. `run.finished` commits once the answer and the memory's
+foreground work have joined. Mastra's buffered observation and reflection join
+afterwards, and their usage still counts toward that run. The thread's next run,
+rewind or wake first joins that settlement; deletion and shutdown cancel and
+join it. A failure after the end is its own `memory.settlement.failed` fact, and
+the run's outcome stands. A run owner without that foreground phase joins whole
+before its end.
+
 Keep observations within the selected chat provider's privacy boundary under
 [ADR-0013](../adr/0013-observational-memory.md), with concrete resolved models and
 explicit credential authority. Actual observer and reflector usage belongs in

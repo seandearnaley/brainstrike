@@ -1,8 +1,8 @@
 diff --git a/dist/transformers.node.cjs b/dist/transformers.node.cjs
-index e8fe721f948c3a2c361b1d45ceda9411fb220e65..20d0b33177a85f7697285f3f8736ab1a2214e068 100644
+index a5d3155ce81b918999014681b7e3233c68ad8033..671e1d641c1ea2a20a83e06db0995525c14442bc 100644
 --- a/dist/transformers.node.cjs
 +++ b/dist/transformers.node.cjs
-@@ -16189,11 +16189,11 @@ function quantize_embeddings(tensor, precision) {
+@@ -16193,11 +16193,11 @@ function quantize_embeddings(tensor, precision) {
  }
  
  // src/utils/model_registry/get_tokenizer_files.js
@@ -16,7 +16,7 @@ index e8fe721f948c3a2c361b1d45ceda9411fb220e65..20d0b33177a85f7697285f3f8736ab1a
    if (metadata.exists) {
      return ["tokenizer.json", "tokenizer_config.json"];
    }
-@@ -16202,7 +16202,7 @@ async function get_tokenizer_files(modelId) {
+@@ -16206,7 +16206,7 @@ async function get_tokenizer_files(modelId) {
  
  // src/tokenization_utils.js
  async function loadTokenizer(pretrained_model_name_or_path, options) {
@@ -25,7 +25,7 @@ index e8fe721f948c3a2c361b1d45ceda9411fb220e65..20d0b33177a85f7697285f3f8736ab1a
    return await Promise.all(
      tokenizerFiles.map((file) => getModelJSON(pretrained_model_name_or_path, file, true, options))
    );
-@@ -26252,8 +26252,14 @@ function get_config(modelId, { config = null, cache_dir = null, local_files_only
+@@ -26428,8 +26428,14 @@ function get_config(modelId, { config = null, cache_dir = null, local_files_only
      () => AutoConfig.from_pretrained(modelId, { config, cache_dir, local_files_only, revision })
    );
  }
@@ -42,7 +42,7 @@ index e8fe721f948c3a2c361b1d45ceda9411fb220e65..20d0b33177a85f7697285f3f8736ab1a
    const files = [
      // Add config.json (always loaded)
      "config.json"
-@@ -35361,11 +35367,11 @@ var TASK_ALIASES = Object.freeze({
+@@ -35585,11 +35591,11 @@ var TASK_ALIASES = Object.freeze({
  });
  
  // src/utils/model_registry/get_processor_files.js
@@ -56,7 +56,7 @@ index e8fe721f948c3a2c361b1d45ceda9411fb220e65..20d0b33177a85f7697285f3f8736ab1a
    return metadata.exists ? [IMAGE_PROCESSOR_NAME] : [];
  }
  
-@@ -35376,15 +35382,16 @@ async function get_files(modelId, {
+@@ -35600,15 +35606,16 @@ async function get_files(modelId, {
    device = null,
    model_file_name = null,
    include_tokenizer = true,
@@ -77,7 +77,7 @@ index e8fe721f948c3a2c361b1d45ceda9411fb220e65..20d0b33177a85f7697285f3f8736ab1a
      files.push(...processorFiles);
    }
    return files;
-@@ -35447,12 +35454,19 @@ async function pipeline(task, model = null, {
+@@ -35671,12 +35678,19 @@ async function pipeline(task, model = null, {
    }
    const expected_files = await get_pipeline_files(task, model, {
      device,
@@ -99,7 +99,7 @@ index e8fe721f948c3a2c361b1d45ceda9411fb220e65..20d0b33177a85f7697285f3f8736ab1a
        metadata.forEach((m, i) => {
          if (m.exists) {
            files_loading[expected_files[i]] = {
-@@ -36029,8 +36043,8 @@ var ModelRegistry = class {
+@@ -36253,8 +36267,8 @@ var ModelRegistry = class {
     * console.log(files); // ['tokenizer.json', 'tokenizer_config.json']
     * ```
     */
@@ -110,7 +110,7 @@ index e8fe721f948c3a2c361b1d45ceda9411fb220e65..20d0b33177a85f7697285f3f8736ab1a
    }
    /**
     * Get processor files needed for a specific model.
-@@ -36044,8 +36058,8 @@ var ModelRegistry = class {
+@@ -36268,8 +36282,8 @@ var ModelRegistry = class {
     * console.log(files); // ['preprocessor_config.json']
     * ```
     */
@@ -122,7 +122,7 @@ index e8fe721f948c3a2c361b1d45ceda9411fb220e65..20d0b33177a85f7697285f3f8736ab1a
    /**
     * Detects which quantization levels (dtypes) are available for a model
 diff --git a/dist/transformers.node.mjs b/dist/transformers.node.mjs
-index 66363e7ecba6a8a76ba6c05d66559622dc32b7f2..1feee553795da91f795923f38830f5a6826dd98d 100644
+index 7f65e73c286e064f5d9257a0a76742bcd64f4eba..091c9c410bb05c3785915d44ae0da3f3b2e778c9 100644
 --- a/dist/transformers.node.mjs
 +++ b/dist/transformers.node.mjs
 @@ -15200,11 +15200,11 @@ function quantize_embeddings(tensor, precision) {
@@ -148,7 +148,7 @@ index 66363e7ecba6a8a76ba6c05d66559622dc32b7f2..1feee553795da91f795923f38830f5a6
    return await Promise.all(
      tokenizerFiles.map((file) => getModelJSON(pretrained_model_name_or_path, file, true, options))
    );
-@@ -25263,8 +25263,14 @@ function get_config(modelId, { config = null, cache_dir = null, local_files_only
+@@ -25435,8 +25435,14 @@ function get_config(modelId, { config = null, cache_dir = null, local_files_only
      () => AutoConfig.from_pretrained(modelId, { config, cache_dir, local_files_only, revision })
    );
  }
@@ -165,7 +165,7 @@ index 66363e7ecba6a8a76ba6c05d66559622dc32b7f2..1feee553795da91f795923f38830f5a6
    const files = [
      // Add config.json (always loaded)
      "config.json"
-@@ -34372,11 +34378,11 @@ var TASK_ALIASES = Object.freeze({
+@@ -34592,11 +34598,11 @@ var TASK_ALIASES = Object.freeze({
  });
  
  // src/utils/model_registry/get_processor_files.js
@@ -179,7 +179,7 @@ index 66363e7ecba6a8a76ba6c05d66559622dc32b7f2..1feee553795da91f795923f38830f5a6
    return metadata.exists ? [IMAGE_PROCESSOR_NAME] : [];
  }
  
-@@ -34387,15 +34393,16 @@ async function get_files(modelId, {
+@@ -34607,15 +34613,16 @@ async function get_files(modelId, {
    device = null,
    model_file_name = null,
    include_tokenizer = true,
@@ -200,7 +200,7 @@ index 66363e7ecba6a8a76ba6c05d66559622dc32b7f2..1feee553795da91f795923f38830f5a6
      files.push(...processorFiles);
    }
    return files;
-@@ -34458,12 +34465,19 @@ async function pipeline(task, model = null, {
+@@ -34678,12 +34685,19 @@ async function pipeline(task, model = null, {
    }
    const expected_files = await get_pipeline_files(task, model, {
      device,
@@ -222,7 +222,7 @@ index 66363e7ecba6a8a76ba6c05d66559622dc32b7f2..1feee553795da91f795923f38830f5a6
        metadata.forEach((m, i) => {
          if (m.exists) {
            files_loading[expected_files[i]] = {
-@@ -35040,8 +35054,8 @@ var ModelRegistry = class {
+@@ -35260,8 +35274,8 @@ var ModelRegistry = class {
     * console.log(files); // ['tokenizer.json', 'tokenizer_config.json']
     * ```
     */
@@ -233,7 +233,7 @@ index 66363e7ecba6a8a76ba6c05d66559622dc32b7f2..1feee553795da91f795923f38830f5a6
    }
    /**
     * Get processor files needed for a specific model.
-@@ -35055,8 +35069,8 @@ var ModelRegistry = class {
+@@ -35275,8 +35289,8 @@ var ModelRegistry = class {
     * console.log(files); // ['preprocessor_config.json']
     * ```
     */
@@ -245,7 +245,7 @@ index 66363e7ecba6a8a76ba6c05d66559622dc32b7f2..1feee553795da91f795923f38830f5a6
    /**
     * Detects which quantization levels (dtypes) are available for a model
 diff --git a/dist/transformers.web.js b/dist/transformers.web.js
-index 5ac054cb23be44616d4e3ef32813e1e7c3acef41..f7f199acc3157496d7e6b331fbe3e3682eb730d1 100644
+index 17b5141a9c536eaafca8ec311e320c1e43f465bb..45a52bd1794d6f76ddbaa681269acfad7d1f4fbf 100644
 --- a/dist/transformers.web.js
 +++ b/dist/transformers.web.js
 @@ -11219,11 +11219,11 @@ function quantize_embeddings(tensor, precision) {
@@ -271,7 +271,7 @@ index 5ac054cb23be44616d4e3ef32813e1e7c3acef41..f7f199acc3157496d7e6b331fbe3e368
    return await Promise.all(
      tokenizerFiles.map((file) => getModelJSON(pretrained_model_name_or_path, file, true, options))
    );
-@@ -21291,8 +21291,14 @@ function get_config(modelId, { config = null, cache_dir = null, local_files_only
+@@ -21463,8 +21463,14 @@ function get_config(modelId, { config = null, cache_dir = null, local_files_only
      () => AutoConfig.from_pretrained(modelId, { config, cache_dir, local_files_only, revision })
    );
  }
@@ -288,7 +288,7 @@ index 5ac054cb23be44616d4e3ef32813e1e7c3acef41..f7f199acc3157496d7e6b331fbe3e368
    const files = [
      // Add config.json (always loaded)
      "config.json"
-@@ -30400,11 +30406,11 @@ var TASK_ALIASES = Object.freeze({
+@@ -30620,11 +30626,11 @@ var TASK_ALIASES = Object.freeze({
  });
  
  // src/utils/model_registry/get_processor_files.js
@@ -302,7 +302,7 @@ index 5ac054cb23be44616d4e3ef32813e1e7c3acef41..f7f199acc3157496d7e6b331fbe3e368
    return metadata.exists ? [IMAGE_PROCESSOR_NAME] : [];
  }
  
-@@ -30415,15 +30421,16 @@ async function get_files(modelId, {
+@@ -30635,15 +30641,16 @@ async function get_files(modelId, {
    device = null,
    model_file_name = null,
    include_tokenizer = true,
@@ -323,7 +323,7 @@ index 5ac054cb23be44616d4e3ef32813e1e7c3acef41..f7f199acc3157496d7e6b331fbe3e368
      files.push(...processorFiles);
    }
    return files;
-@@ -30486,12 +30493,19 @@ async function pipeline2(task, model = null, {
+@@ -30706,12 +30713,19 @@ async function pipeline2(task, model = null, {
    }
    const expected_files = await get_pipeline_files(task, model, {
      device,
@@ -345,7 +345,7 @@ index 5ac054cb23be44616d4e3ef32813e1e7c3acef41..f7f199acc3157496d7e6b331fbe3e368
        metadata.forEach((m, i) => {
          if (m.exists) {
            files_loading[expected_files[i]] = {
-@@ -31068,8 +31082,8 @@ var ModelRegistry = class {
+@@ -31288,8 +31302,8 @@ var ModelRegistry = class {
     * console.log(files); // ['tokenizer.json', 'tokenizer_config.json']
     * ```
     */
@@ -356,7 +356,7 @@ index 5ac054cb23be44616d4e3ef32813e1e7c3acef41..f7f199acc3157496d7e6b331fbe3e368
    }
    /**
     * Get processor files needed for a specific model.
-@@ -31083,8 +31097,8 @@ var ModelRegistry = class {
+@@ -31303,8 +31317,8 @@ var ModelRegistry = class {
     * console.log(files); // ['preprocessor_config.json']
     * ```
     */
