@@ -1,4 +1,5 @@
 import type { GrepSearchInput, RuntimeData } from '@brainstrike/agent';
+import { BoundaryFailureError, refusalError } from '@brainstrike/assistant-contract';
 import { projectGrepSearchModelOutput } from '@brainstrike/host-capabilities/native-tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { runGrepSearchWith } from '../../assistant-server/grep-search-core';
@@ -358,6 +359,34 @@ describe('grep search tool', () => {
     const promise = grepSearch({ pattern: 'needle' }, undefined);
     await expect(promise).rejects.toThrow(/Unable to perform grep search/);
     await expect(promise).rejects.not.toThrow(/file_chunks/);
+  });
+
+  // Live smoke 2026-10-16 (Workspace Index: Blocked): Main refused the grep
+  // with its fixed, model-readable reason ("The search index could not prepare
+  // its sources."), and this catch replaced it with the generic message, which
+  // the tool guard then hid as "did not complete successfully". A typed
+  // refusal passes through, as the guard reads it; a fault stays hidden.
+  it('passes the index’s typed refusal through, and still hides its faults', async () => {
+    const refusal = refusalError(
+      'availability',
+      'native-index-source-failure',
+      'The search index could not prepare its sources.'
+    );
+    const refused = runGrepSearchWith({ pattern: 'needle' }, undefined, () =>
+      Promise.reject(refusal)
+    );
+    await expect(refused).rejects.toBe(refusal);
+
+    const fault = new BoundaryFailureError({
+      category: 'internal',
+      code: 'boundary.internal',
+      correlationId: 'fault-1',
+      kind: 'fault',
+      message: 'Something went wrong. The details were recorded in the diagnostic log.',
+    });
+    await expect(
+      runGrepSearchWith({ pattern: 'needle' }, undefined, () => Promise.reject(fault))
+    ).rejects.toThrow(/Unable to perform grep search/);
   });
 
   it('redacts grep patterns from failure logs', async () => {
