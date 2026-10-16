@@ -344,6 +344,17 @@ export interface HostRunAdmission {
    */
   readObservation?(threadId: string): Promise<HostObservationalMemoryState>;
   readonly referencedFileFailures?: readonly ReferencedFileFailure[];
+  /**
+   * The tool-result budget this run's model was selected with, as the
+   * projection owner resolved it. The effect commit needs it to tell an MCP
+   * result that merely exceeds the model budget from one that fits. Absent on
+   * a platform that registers its own tools directly, which projects them
+   * unbounded — there is no clipping to recover from there. It stays out of
+   * the ledger on purpose: the decision is committed, not the input it was
+   * made from, so a later change to the budget constants cannot re-answer a
+   * question an already-committed output settled.
+   */
+  readonly resolvedToolResultBudget?: ScaledToolResultBudget;
   readonly snapshot: HostRunSnapshot;
   readonly tools: Readonly<Record<string, HostTool>>;
   /** Configured MCP servers this run proceeds without; committed with `run.started`. */

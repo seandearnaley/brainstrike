@@ -190,6 +190,9 @@ export function foldHostRunEffect(
   } else if (event.type === 'effect.finished') {
     const run = runs.get(event.runId);
     run?.outputs.set(event.toolCallId, event.output);
+    if (event.projectionClipped) {
+      run?.artifactSettled.add(event.toolCallId);
+    }
     if (ts !== undefined) {
       run?.outputCommittedAt.set(event.toolCallId, ts);
     }
@@ -230,6 +233,14 @@ export interface HostRunState {
   /** A child's root permission policy at admission; only its denies stay frozen (ADR-0010). */
   admittedPolicy?: PermissionToolGateSnapshot;
   readonly approvals: Map<string, PendingInteraction>;
+  /**
+   * Calls whose committed output settles as a durable artifact for a reason
+   * its size does not show, from each `effect.finished.projectionClipped`.
+   * Folded from the committed event, so it is rebuilt by a replay exactly as
+   * the live run had it — settlement and artifact reads cannot disagree
+   * across a restart.
+   */
+  readonly artifactSettled: Set<string>;
   readonly branch: HostRunBranch;
   readonly checkpointedResults: Set<string>;
   /** BST-1932: human input a running child takes; it starts the run after this one. */
@@ -389,6 +400,7 @@ export function createHostRunState(
 ): HostRunState {
   return {
     approvals: new Map(),
+    artifactSettled: new Set(),
     branch,
     checkpointedResults: new Set(),
     consents: new Map(),

@@ -548,6 +548,7 @@ export async function createProductionHostPlatform<Configuration extends Product
           ...(selected.referencedFileFailures
             ? { referencedFileFailures: selected.referencedFileFailures }
             : {}),
+          resolvedToolResultBudget: selected.resolvedToolResultBudget,
           ...admittedNativeWebSearch(provider, auth),
           openRun: (context) => {
             const bridge = runVectorBridge(selected, context.threadId, context.signal);
