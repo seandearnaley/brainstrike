@@ -54,7 +54,7 @@ describe('tool execution durations', () => {
   });
 
   it('reads the toolCallId from the nested agent context too', async () => {
-    // Mirrors readToolCallId in tool-output-artifact-settlement.ts: Mastra has
+    // Mirrors readToolCallId in tools/read-tool-call-id.ts: Mastra has
     // put the id in both places across versions.
     const durations = createToolExecutionDurations();
     const guarded = guardToolExecution(
