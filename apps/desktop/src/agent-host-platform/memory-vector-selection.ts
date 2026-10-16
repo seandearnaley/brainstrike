@@ -1,4 +1,5 @@
 import { parseSemanticRecallEmbeddingModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
+import { resolveNativeCanonicalProfile } from '@brainstrike/canonical-ingestion';
 import {
   type CatalogEmbeddingWorkerPlan,
   unpinnedCatalogEmbeddingPlan,
@@ -7,7 +8,7 @@ import type { VectorProfile } from '@brainstrike/indexer';
 import type { CatalogEmbeddingModel } from '@brainstrike/indexing-contract';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { waitForHostStartup } from '../embedding-host-startup';
-import { resolveNativeCanonicalProfile } from '../native-canonical-profile';
+import { desktopSetupRequired } from '../native-index-setup-required';
 import type { PlatformSelection } from './platform-wire';
 
 /** Main's admitted recall embedding: the wire profile, plus the local worker plan it keeps. */
@@ -64,7 +65,8 @@ export async function resolveDesktopMemoryVectors(
       modelKey,
     },
     local ? unpinnedCatalogEmbeddingPlan(local, await sources.readLocalDevice()) : undefined,
-    local ?? undefined
+    local ?? undefined,
+    desktopSetupRequired
   );
   return {
     profile: resolved.profile,

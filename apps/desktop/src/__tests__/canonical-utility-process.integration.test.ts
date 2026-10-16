@@ -12,7 +12,11 @@ import type {
   CanonicalPublicationPort,
   CanonicalVectorPublicationPort,
 } from '@brainstrike/canonical-ingestion';
-import { createNativeCanonicalCatalog } from '@brainstrike/canonical-ingestion';
+import {
+  createNativeCanonicalCatalog,
+  NativeCanonicalInference,
+  NativeCanonicalProfileResolver,
+} from '@brainstrike/canonical-ingestion';
 import type { ScopedFilePlan } from '@brainstrike/indexer';
 import { createIndexerConnection } from '@brainstrike/indexer/transport';
 import { StateStore } from '@brainstrike/state-store';
@@ -23,10 +27,6 @@ import { CanonicalUtilityParent } from '../canonical-utility-parent';
 import { isCanonicalFrame } from '../canonical-utility-protocol';
 import type { EmbeddingHostDocumentEmbeddingsPayload } from '../embedding-host-shared';
 import { generateHostedEmbeddings } from '../hosted-embeddings';
-import {
-  NativeCanonicalInference,
-  NativeCanonicalProfileResolver,
-} from '../native-canonical-profile';
 
 const desktop = path.resolve(import.meta.dirname, '../..');
 const scope = { embeddingSetId: 'actual-set', kind: 'collection' as const };
@@ -188,7 +188,9 @@ it.each([
       vi.stubEnv('COHERE_API_KEY', 'recorded-test-key');
       vi.stubGlobal('fetch', hostedFetch);
     }
+    // Desktop's composition hands the shared inference its own hosted embeddings.
     const ownedInference = new NativeCanonicalInference({
+      hostedEmbeddings: generateHostedEmbeddings,
       resolver,
       scope,
       transport: { documentEmbeddings },

@@ -3,16 +3,16 @@ import type {
   CanonicalOperationContext,
   CanonicalSourceScope,
 } from '@brainstrike/canonical-ingestion';
+import {
+  NativeCanonicalInference,
+  NativeCanonicalProfileResolver,
+  resolveNativeCanonicalProfile,
+} from '@brainstrike/canonical-ingestion';
 import type { SelectedEmbeddingRequestPlan } from '@brainstrike/embeddings/inference-plan';
 import type { VectorProfile } from '@brainstrike/indexer';
 import type { CollectionPort, CollectionRecord, CollectionReply } from '@brainstrike/state-store';
 import { describe, expect, it, vi } from 'vitest';
 import type { EmbeddingHostDocumentEmbeddingsPayload } from '../embedding-host-shared';
-import {
-  NativeCanonicalInference,
-  NativeCanonicalProfileResolver,
-  resolveNativeCanonicalProfile,
-} from '../native-canonical-profile';
 
 const metadata = {
   dimensions: 384,

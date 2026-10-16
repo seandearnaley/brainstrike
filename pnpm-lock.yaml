@@ -1947,12 +1947,18 @@ importers:
 
   packages/canonical-ingestion:
     dependencies:
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
       '@brainstrike/chunking-worker':
         specifier: workspace:*
         version: link:../chunking-worker
       '@brainstrike/effect-kit':
         specifier: workspace:*
         version: link:../effect-kit
+      '@brainstrike/embeddings':
+        specifier: workspace:*
+        version: link:../embeddings
       '@brainstrike/file-import':
         specifier: workspace:*
         version: link:../file-import
@@ -1962,6 +1968,9 @@ importers:
       '@brainstrike/indexer':
         specifier: workspace:*
         version: link:../indexer
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
       '@brainstrike/state-store':
         specifier: workspace:*
         version: link:../state-store

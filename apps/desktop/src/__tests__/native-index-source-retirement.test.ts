@@ -2,6 +2,7 @@
 import type {
   CanonicalSourceScope,
   CanonicalWorkspaceLease,
+  NativeCanonicalInference,
 } from '@brainstrike/canonical-ingestion';
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
@@ -16,7 +17,6 @@ import { decodeCanonicalFrame } from '../canonical-utility-protocol';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
-import type { NativeCanonicalInference } from '../native-canonical-profile';
 import { createNativeIndexActivation } from '../native-index-activation';
 import {
   type NativeIndexSources,

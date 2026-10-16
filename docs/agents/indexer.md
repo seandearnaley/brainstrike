@@ -35,8 +35,10 @@ use `@brainstrike/utils/host-path` (Node's `path` where the runtime has it,
 POSIX in a browser) and bytes `@brainstrike/utils/utf8`. Scan receipts and publication
 readiness have one owner, `scoped-publication.ts` in canonical-ingestion, for
 desktop's native index and the browser's index worker alike; so do the
-canonical catalog over the source catalog (`canonical-catalog.ts`) and scan
-admission (`scan-admission.ts`). A transaction rejects stale preparation and atomically
+canonical catalog over the source catalog (`canonical-catalog.ts`), scan
+admission (`scan-admission.ts`), and a collection's vector profile and the
+inference that embeds its chunks (`canonical-profile.ts`), each host giving it
+its transport, hosted embeddings and setup refusal. A transaction rejects stale preparation and atomically
 changes chunks, text indexes, vectors and graph data. Complete catalog inventories,
 acknowledged bindings and source revisions authorize publication/removal; a path
 match or partial scan is not authority.

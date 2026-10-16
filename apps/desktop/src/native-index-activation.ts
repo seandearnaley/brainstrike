@@ -7,6 +7,8 @@ import {
   createNativeScanAdmission,
   createNativeSourceInventory,
   type NativeCanonicalCatalogRecord,
+  NativeCanonicalInference,
+  type NativeCanonicalProfileResolver,
 } from '@brainstrike/canonical-ingestion';
 import { getFileSizeConfig } from '@brainstrike/file-system';
 import type { HostAttachment } from '@brainstrike/host-lease';
@@ -22,10 +24,6 @@ import {
   getReadyScopedIndexerPort,
 } from './indexer-runtime';
 import { NativeAuthorityTransitionError as TransitionError } from './native-authority-transition';
-import {
-  NativeCanonicalInference,
-  type NativeCanonicalProfileResolver,
-} from './native-canonical-profile';
 import { isolateNativeCoverage } from './native-coverage-reader';
 import { nativeFileIdentity } from './native-index-attach';
 import {

@@ -1,3 +1,4 @@
+import type { CanonicalDocumentEmbeddingsPayload } from '@brainstrike/canonical-ingestion';
 import {
   assertEmbeddingTelemetrySnapshot,
   type EmbeddingTelemetrySnapshot,
@@ -584,13 +585,8 @@ export const EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_REQUEST_EVENT =
 export const EMBEDDING_HOST_REPORT_DOCUMENT_EMBEDDINGS_RESPONSE_CHANNEL =
   EMBEDDING_HOST_CHANNELS.reportDocumentEmbeddingsResponse;
 export const MAX_DOCUMENT_EMBEDDING_BATCH_SIZE = 64;
-export interface EmbeddingHostDocumentEmbeddingsPayload {
-  readonly dimensions: number;
-  readonly inferencePlan: CatalogEmbeddingWorkerPlan;
-  readonly modelId: string;
-  readonly modelKey: string;
-  readonly texts: string[];
-}
+/** The shared canonical inference's local transport payload (`@brainstrike/canonical-ingestion`). */
+export type EmbeddingHostDocumentEmbeddingsPayload = CanonicalDocumentEmbeddingsPayload;
 export type EmbeddingHostDocumentEmbeddingsRequest = RuntimeRequestEnvelope<
   'document-embeddings',
   EmbeddingHostDocumentEmbeddingsPayload

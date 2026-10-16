@@ -1,8 +1,12 @@
 // @vitest-environment node
+
+import { resolveNativeCanonicalProfile } from '@brainstrike/canonical-ingestion';
 import { describe, expect, it } from 'vitest';
-import { resolveNativeCanonicalProfile } from '../native-canonical-profile';
 import { readNativeIndexSettings } from '../native-index-settings';
-import { NativeIndexSetupRequiredError } from '../native-index-setup-required';
+import {
+  desktopSetupRequired,
+  NativeIndexSetupRequiredError,
+} from '../native-index-setup-required';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 
 const saved = (changes: Record<string, unknown> = {}) =>
@@ -33,7 +37,10 @@ describe('native index setup observation', () => {
     for (const value of [null, saved(), saved({ nativeIndexMode: null })]) {
       expect(() => readNativeIndexSettings(value)).toThrow(NativeIndexSetupRequiredError);
     }
-    expect(() => resolveNativeCanonicalProfile(metadata)).toThrow(NativeIndexSetupRequiredError);
+    // Desktop's resolver and memory selection hand the shared profile desktop's refusal.
+    expect(() =>
+      resolveNativeCanonicalProfile(metadata, undefined, undefined, desktopSetupRequired)
+    ).toThrow(NativeIndexSetupRequiredError);
     for (const value of [
       '{',
       saved({ managedCollectionId: '' }),

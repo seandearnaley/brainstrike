@@ -1,11 +1,6 @@
+// A collection's vector profile and the inference that produces its vectors: desktop's native index and the
+// browser's index worker (BST-1940) embed through the same owners, each with its own transport.
 import type { ModelCatalogCapability } from '@brainstrike/assistant-contract';
-import type {
-  CanonicalCatalogPort,
-  CanonicalInferencePort,
-  CanonicalOperationContext,
-  CanonicalSourceScope,
-} from '@brainstrike/canonical-ingestion';
-import type { EmbeddingSet } from '@brainstrike/db';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import {
   type CatalogEmbeddingWorkerPlan,
@@ -14,13 +9,21 @@ import {
   type SelectedEmbeddingRequestPlan,
 } from '@brainstrike/embeddings/inference-plan';
 import { isHostedProvider, parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
-import { type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
-import { decodeCatalogEmbeddingModel } from '@brainstrike/indexing-contract';
+import type { VectorProfile } from '@brainstrike/indexer';
+import { vectorProfileHash } from '@brainstrike/indexer/browser';
+import {
+  decodeCatalogEmbeddingModel,
+  type HostedProviderType,
+} from '@brainstrike/indexing-contract';
 import type { CollectionPort } from '@brainstrike/state-store';
+import type { CollectionRecord } from '@brainstrike/types';
 import { Schema } from 'effect';
-import type { EmbeddingHostDocumentEmbeddingsPayload } from './embedding-host-shared';
-import { generateHostedEmbeddings } from './hosted-embeddings';
-import { NativeIndexSetupRequiredError } from './native-index-setup-required';
+import type {
+  CanonicalCatalogPort,
+  CanonicalInferencePort,
+  CanonicalOperationContext,
+  CanonicalSourceScope,
+} from './ports.js';
 
 const nonblank = Schema.String.check(Schema.isPattern(/\S/u));
 const metadataSchema = Schema.Struct({
@@ -32,9 +35,28 @@ const metadataSchema = Schema.Struct({
 });
 const decodeMetadata = makeThrowingDecoder(metadataSchema);
 type ProfileMetadata = Pick<
-  EmbeddingSet,
+  CollectionRecord,
   'dimensions' | 'distance' | 'id' | 'modelId' | 'modelKey'
 >;
+
+/** A local model's document embeddings, as the host's inference worker computes them. */
+export interface CanonicalDocumentEmbeddingsPayload {
+  readonly dimensions: number;
+  readonly inferencePlan: CatalogEmbeddingWorkerPlan;
+  readonly modelId: string;
+  readonly modelKey: string;
+  readonly texts: string[];
+}
+
+/** A hosted provider's document embeddings, as the host reaches its provider. */
+export type CanonicalHostedEmbeddings = (input: {
+  readonly dimensions: number;
+  readonly modelId: string;
+  readonly provider: HostedProviderType;
+  readonly purpose: 'document';
+  readonly signal: AbortSignal;
+  readonly texts: string[];
+}) => Promise<number[][]>;
 
 export interface NativeCanonicalProfile {
   readonly modelKey: string;
@@ -45,11 +67,15 @@ export interface NativeCanonicalProfile {
 /** The catalog facts a local plan takes from the model's `models` row (BST-1993). */
 export type NativeCatalogModel = CatalogModelFacts;
 
-/** Pure resolution. Reading a profile neither enables vectors nor changes saved choices. */
+/**
+ * Pure resolution. Reading a profile neither enables vectors nor changes saved choices. `setupRequired`
+ * makes the host's own refusal when a local model has no execution chosen yet.
+ */
 export function resolveNativeCanonicalProfile(
   input: ProfileMetadata,
   selection?: SelectedEmbeddingRequestPlan,
-  model?: NativeCatalogModel
+  model?: NativeCatalogModel,
+  setupRequired: (message: string) => Error = (message) => new Error(message)
 ): NativeCanonicalProfile {
   const metadata = decodeMetadata(input);
   const parsed = parseProviderModelKey(metadata.modelKey);
@@ -73,9 +99,7 @@ export function resolveNativeCanonicalProfile(
     };
   }
   if (!selection) {
-    throw new NativeIndexSetupRequiredError(
-      'Choose local model execution in Search & Indexing settings.'
-    );
+    throw setupRequired('Choose local model execution in Search & Indexing settings.');
   }
   if (selection.modelId !== metadata.modelId || selection.dimensions !== metadata.dimensions) {
     throw new Error('Canonical local selection disagrees with saved model or dimensions.');
@@ -107,6 +131,8 @@ export interface NativeCanonicalProfileDependencies {
     scope: CanonicalSourceScope,
     context: CanonicalOperationContext
   ) => Promise<string>;
+  /** The host's own refusal when a local model has no execution chosen yet. */
+  readonly setupRequired?: (message: string) => Error;
 }
 
 export class NativeCanonicalProfileResolver {
@@ -151,18 +177,24 @@ export class NativeCanonicalProfileResolver {
     const selection = await this.dependencies.readLocalSelection(metadata, context);
     context.signal.throwIfAborted();
     // The collection keeps its own dimensions (a local model may be truncated to fewer).
-    return resolveNativeCanonicalProfile(metadata, selection, {
-      dimensions: metadata.dimensions,
-      id: metadata.modelId,
-      ...(catalog.pooling === undefined ? {} : { pooling: catalog.pooling }),
-      ...(catalog.prompts === undefined ? {} : { prompts: catalog.prompts }),
-      ...(catalog.revision === undefined ? {} : { revision: catalog.revision }),
-    });
+    return resolveNativeCanonicalProfile(
+      metadata,
+      selection,
+      {
+        dimensions: metadata.dimensions,
+        id: metadata.modelId,
+        ...(catalog.pooling === undefined ? {} : { pooling: catalog.pooling }),
+        ...(catalog.prompts === undefined ? {} : { prompts: catalog.prompts }),
+        ...(catalog.revision === undefined ? {} : { revision: catalog.revision }),
+      },
+      this.dependencies.setupRequired
+    );
   }
 }
 
 export interface NativeCanonicalInferenceDependencies {
-  readonly hostedEmbeddings?: typeof generateHostedEmbeddings;
+  /** A hosted provider's embeddings; without it, only local models embed. */
+  readonly hostedEmbeddings?: CanonicalHostedEmbeddings;
   readonly resolver: Pick<NativeCanonicalProfileResolver, 'resolve'>;
   readonly scope: CanonicalSourceScope;
   /**
@@ -173,7 +205,7 @@ export interface NativeCanonicalInferenceDependencies {
    */
   readonly transport: {
     readonly documentEmbeddings: (
-      payload: EmbeddingHostDocumentEmbeddingsPayload,
+      payload: CanonicalDocumentEmbeddingsPayload,
       options?: { signal?: AbortSignal }
     ) => Promise<number[][]>;
   };
@@ -317,8 +349,8 @@ export class NativeCanonicalInference implements InferencePort {
           },
           { signal: context.signal }
         )
-      : isHostedProvider(profile.provider)
-        ? await (this.dependencies.hostedEmbeddings ?? generateHostedEmbeddings)({
+      : isHostedProvider(profile.provider) && this.dependencies.hostedEmbeddings
+        ? await this.dependencies.hostedEmbeddings({
             dimensions: profile.dimensions,
             modelId: profile.modelId,
             provider: profile.provider,

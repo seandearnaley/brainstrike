@@ -2,9 +2,9 @@ import type {
   CanonicalWorkspaceLease,
   createNativeScanAdmission,
   NativeCanonicalCatalogRecord,
+  NativeCanonicalInference,
 } from '@brainstrike/canonical-ingestion';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
-import type { NativeCanonicalInference } from './native-canonical-profile';
 
 export interface NativeIndexSources {
   readonly attachments: Set<{ close(): Promise<void> }>;

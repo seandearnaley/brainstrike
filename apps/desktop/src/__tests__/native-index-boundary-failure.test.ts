@@ -4,6 +4,7 @@ import {
   BoundaryFailureSchema,
   INTERNAL_FAULT,
 } from '@brainstrike/assistant-contract/boundary-failure';
+import { NativeCanonicalInference } from '@brainstrike/canonical-ingestion';
 import { clearHostedProviderApiKeyCache } from '@brainstrike/embeddings/provider-core';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { Schema } from 'effect';
@@ -11,7 +12,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CanonicalUtilityChannel } from '../canonical-utility-channel';
 import { canonicalFault, decodeCanonicalFrame } from '../canonical-utility-protocol';
 import { generateHostedEmbeddings, HostedEmbeddingError } from '../hosted-embeddings';
-import { NativeCanonicalInference } from '../native-canonical-profile';
 import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 
 vi.mock('../secrets', () => ({
