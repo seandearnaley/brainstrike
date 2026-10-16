@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/agent-host": "workspace:*",
+    "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/canonical-ingestion": "workspace:*",
     "@brainstrike/chunking-worker": "workspace:*",
     "@brainstrike/embedding-worker": "workspace:*",

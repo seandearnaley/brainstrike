@@ -12,17 +12,23 @@
  * the writer's catalogs. A change of authority reopens it. It also runs
  * canonical ingestion over the user's granted folders (`file-ingestion.ts`),
  * reading and writing the catalogs through the writer's own request order.
+ * Under VECTOR, the saved collection's local model embeds in embedding
+ * workers of its own (`file-embeddings.ts`); a hosted model has no embedder
+ * here, and refuses.
  */
 
+import { projectModelCatalog } from '@brainstrike/assistant-contract';
 import {
   assertSavedCollection,
   isPartitionRoot,
   loadPartitionRecords,
+  NativeCanonicalProfileResolver,
   type NativeIndexSettings,
   nativeIndexConfigurationIdentity,
   partitionAuthority,
   readNativeIndexSettings,
   retireUnownedRows,
+  vectorCollectionId,
 } from '@brainstrike/canonical-ingestion/browser';
 import {
   binaryVectorEngine,
@@ -35,6 +41,7 @@ import { createLogger } from '@brainstrike/logging';
 import type {
   CollectionPort,
   CollectionReply,
+  ModelChoiceResult,
   SourceCatalogPort,
   WorkspaceRootReply,
 } from '@brainstrike/state-store';
@@ -47,6 +54,7 @@ import sqlite3InitModule, {
   type SAHPoolUtil,
   type Sqlite3Static,
 } from '@sqlite.org/sqlite-wasm';
+import { WebDocumentEmbeddings } from './file-embeddings';
 import { fileIdentity } from './file-index-authority';
 import {
   type FileIndexAuthority,
@@ -73,9 +81,16 @@ let authorized: FileIndexAuthority | undefined;
 let ingestion: FileIngestion | undefined;
 let scanOptions: FileIndexScanOptions | undefined;
 /** The settings a tab last handed over; until then, or after they fail, every op refuses. */
-let configured: { readonly settings: NativeIndexSettings } | { readonly refusal: Error } = {
+let configured:
+  | {
+      readonly resolver: NativeCanonicalProfileResolver | undefined;
+      readonly settings: NativeIndexSettings;
+    }
+  | { readonly refusal: Error } = {
   refusal: new Error('The file index has no Search & Indexing settings until a tab configures it.'),
 };
+/** VECTOR's local embedder: workers of this worker's own, started from the tab's embedding worker. */
+let embeddings: WebDocumentEmbeddings | undefined;
 
 /**
  * Authority transitions (configure, reauthorize, a scan's first rebind) run one
@@ -112,6 +127,41 @@ const sourceCatalog: SourceCatalogPort = {
 const collections: CollectionPort = {
   collections: (request) => writerRequest<CollectionReply>('collections', request),
 };
+/** The model catalog as desktop's capability reads it: the writer's model choices. */
+const modelCatalog = {
+  read: async () =>
+    projectModelCatalog(
+      await writerRequest<ModelChoiceResult>('modelChoices', { operation: 'snapshot' })
+    ),
+};
+
+/**
+ * The saved collection's profile, as desktop's native graph resolves it: the
+ * collection's model, the catalog's facts and the saved local execution. A
+ * scope the saved partition does not hold is refused.
+ */
+function profileResolver(partition: NativeIndexSettings): NativeCanonicalProfileResolver {
+  return new NativeCanonicalProfileResolver({
+    collections,
+    modelCatalog,
+    readLocalSelection: async () => partition.selection ?? undefined,
+    resolveEmbeddingSetId: async (scope) => {
+      const collectionId = vectorCollectionId(partition);
+      if (
+        (scope.kind === 'workspace' && !authorized?.rootIds.includes(scope.rootId)) ||
+        (scope.kind === 'collection' && scope.embeddingSetId !== collectionId)
+      ) {
+        throw new Error('Canonical profile scope is not authorized by the saved settings.');
+      }
+      return collectionId;
+    },
+  });
+}
+
+const resolveContext = () => ({
+  requestId: crypto.randomUUID(),
+  signal: new AbortController().signal,
+});
 const roots = async () =>
   (await writerRequest<WorkspaceRootReply>('workspaceRoots', { operation: 'list' })).roots;
 
@@ -136,8 +186,21 @@ function settings(): NativeIndexSettings {
   return configured.settings;
 }
 
-/** The saved partition's authority over the writer's catalogs, as desktop's native index takes it. */
-async function currentAuthority(partition: NativeIndexSettings): Promise<FileIndexAuthority> {
+/** VECTOR's profile resolver for the configured settings; TEXT has none. */
+function resolver(): NativeCanonicalProfileResolver | undefined {
+  settings();
+  return 'resolver' in configured ? configured.resolver : undefined;
+}
+
+/**
+ * The saved partition's authority over the writer's catalogs, as desktop's
+ * native index takes it: under VECTOR, every file is bound with the saved
+ * collection's profile.
+ */
+async function currentAuthority(
+  partition: NativeIndexSettings,
+  resolver: NativeCanonicalProfileResolver | undefined
+): Promise<FileIndexAuthority> {
   const live = (await roots())
     .filter((root) => isPartitionRoot(root, partition))
     .map((root) => root.id);
@@ -148,9 +211,17 @@ async function currentAuthority(partition: NativeIndexSettings): Promise<FileInd
     (rootId) => liveRoots.has(rootId),
     () => {}
   );
+  const profile = resolver
+    ? (
+        await resolver.resolve(
+          { embeddingSetId: vectorCollectionId(partition), kind: 'collection' },
+          resolveContext()
+        )
+      ).profile
+    : null;
   return partitionAuthority({
     identity: fileIdentity,
-    profile: null,
+    profile,
     records,
     rootIds: live,
     settings: partition,
@@ -163,7 +234,7 @@ async function currentAuthority(partition: NativeIndexSettings): Promise<FileInd
  * bindings are replaced in place.
  */
 async function rebind(): Promise<void> {
-  const authority = await currentAuthority(settings());
+  const authority = await currentAuthority(settings(), resolver());
   const sameScopes =
     authorized &&
     JSON.stringify([authorized.rootIds, authorized.scopes]) ===
@@ -177,7 +248,11 @@ async function rebind(): Promise<void> {
   await openOwned(authority);
 }
 
-function ingestionFor(scan: FileIndexScanOptions, partition: NativeIndexSettings): FileIngestion {
+function ingestionFor(
+  scan: FileIndexScanOptions,
+  partition: NativeIndexSettings,
+  vectors: NativeCanonicalProfileResolver | undefined
+): FileIngestion {
   return new FileIngestion({
     catalog: sourceCatalog,
     onError: (operation, error) => {
@@ -192,6 +267,7 @@ function ingestionFor(scan: FileIndexScanOptions, partition: NativeIndexSettings
     roots,
     scan,
     settings: partition,
+    ...(vectors && embeddings ? { vectors: { resolver: vectors, transport: embeddings } } : {}),
   });
 }
 
@@ -277,6 +353,9 @@ async function unconfigure(refusal: Error): Promise<void> {
   await ingestion?.close();
   ingestion = undefined;
   close();
+  const embedder = embeddings;
+  embeddings = undefined;
+  await embedder?.close();
 }
 
 /**
@@ -285,7 +364,10 @@ async function unconfigure(refusal: Error): Promise<void> {
  * the store under it; a change of Pause alone keeps the store open. Settings
  * that fail leave the index refusing with their failure, visibly.
  */
-async function configure(preferences: string | null): Promise<{ readonly rebuilt: string | null }> {
+async function configure(
+  preferences: string | null,
+  embeddingWorkerUrl: string | null
+): Promise<{ readonly rebuilt: string | null }> {
   if (!scanOptions) {
     throw new Error('The file index pool is not installed');
   }
@@ -295,8 +377,8 @@ async function configure(preferences: string | null): Promise<{ readonly rebuilt
     if (!next.enabled) {
       throw new Error('File indexing is disabled in saved settings.');
     }
-    if (next.mode === 'VECTOR') {
-      throw new Error('The browser file index does not run VECTOR search yet.');
+    if (next.mode === 'VECTOR' && embeddingWorkerUrl === null) {
+      throw new Error('VECTOR search needs the embedding worker the tab serves.');
     }
     await assertSavedCollection(next, collections, () => {});
   } catch (error) {
@@ -309,12 +391,13 @@ async function configure(preferences: string | null): Promise<{ readonly rebuilt
     writer &&
     nativeIndexConfigurationIdentity(previous) === nativeIndexConfigurationIdentity(next)
   ) {
+    const kept = resolver();
     if (previous.paused !== next.paused) {
       // Pause admits no source: the roots' ingestion retires, and the store stays open.
       await ingestion?.close();
-      ingestion = ingestionFor(scanOptions, next);
+      ingestion = ingestionFor(scanOptions, next, kept);
     }
-    configured = { settings: next };
+    configured = { resolver: kept, settings: next };
     return { rebuilt: null };
   }
   try {
@@ -322,10 +405,17 @@ async function configure(preferences: string | null): Promise<{ readonly rebuilt
     // authority read below, and its rows would then be retired as unowned.
     await ingestion?.close();
     ingestion = undefined;
-    const authority = await currentAuthority(next);
+    const vectors = next.mode === 'VECTOR' ? profileResolver(next) : undefined;
+    const authority = await currentAuthority(next, vectors);
     close();
-    configured = { settings: next };
-    ingestion = ingestionFor(scanOptions, next);
+    if (!vectors) {
+      await embeddings?.close();
+      embeddings = undefined;
+    } else if (embeddingWorkerUrl !== null) {
+      embeddings ??= new WebDocumentEmbeddings(embeddingWorkerUrl);
+    }
+    configured = { resolver: vectors, settings: next };
+    ingestion = ingestionFor(scanOptions, next, vectors);
     return await openOwned(authority);
   } catch (error) {
     await unconfigure(error instanceof Error ? error : new Error(String(error)));
@@ -348,7 +438,7 @@ async function handle(
       return null;
     }
     case 'configure':
-      return transition(() => configure(request.preferences));
+      return transition(() => configure(request.preferences, request.embeddingWorkerUrl));
     case 'scan': {
       if (settings().paused) {
         throw new Error('File ingestion is paused.');
@@ -367,7 +457,7 @@ async function handle(
     }
     case 'reauthorize':
       return transition(async () => {
-        const authority = await currentAuthority(settings());
+        const authority = await currentAuthority(settings(), resolver());
         close();
         return openOwned(authority);
       });

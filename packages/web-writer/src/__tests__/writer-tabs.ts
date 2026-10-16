@@ -65,6 +65,12 @@ export function savedPreferences(
     readonly indexingPolicyPreset?: 'balanced' | 'full-root';
     readonly managedCollectionId?: string | null;
     readonly nativeIndexMode?: 'TEXT' | 'VECTOR' | null;
+    readonly nativeLocalSelection?: {
+      readonly device: 'wasm' | 'webgpu';
+      readonly dimensions: number;
+      readonly dtype: string;
+      readonly modelId: string;
+    } | null;
     readonly paused?: boolean;
   } = {}
 ): string {

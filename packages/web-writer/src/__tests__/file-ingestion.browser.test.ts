@@ -1,6 +1,9 @@
+import { resolveNativeCanonicalProfile } from '@brainstrike/canonical-ingestion/browser';
 import { type WebStateStore, webRootPath } from '@brainstrike/web-state-store';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebFileIndex } from '../web-writer-client';
+import { expectedVector } from './fixtures/synthetic-embedding';
+import syntheticEmbeddingWorkerUrl from './fixtures/synthetic-embedding.worker.ts?worker&url';
 import { closeTabs, configuredIndex, openTab, savedPreferences, storeConfig } from './writer-tabs';
 
 const folders: string[] = [];
@@ -171,20 +174,33 @@ describe('canonical ingestion in the file index worker', () => {
 });
 
 /** A collection in the writer's catalog, as Search & Indexing saves one. */
-async function collection(tab: WebStateStore): Promise<string> {
+async function collection(
+  tab: WebStateStore,
+  model: { readonly dimensions: number; readonly modelKey: string } = {
+    dimensions: 384,
+    modelKey: 'local::Xenova/bge-small-en-v1.5',
+  }
+): Promise<string> {
   const id = crypto.randomUUID();
   await tab.collections({
     collection: {
       createdAt: '2026-10-16T00:00:00.000Z',
-      dimensions: 384,
+      dimensions: model.dimensions,
       distance: 'cosine',
       id,
-      modelId: 'Xenova/bge-small-en-v1.5',
-      modelKey: 'local::Xenova/bge-small-en-v1.5',
+      modelId: model.modelKey.split('::')[1] ?? model.modelKey,
+      modelKey: model.modelKey,
     },
     operation: 'create',
   });
   return id;
+}
+
+/** The production embedding worker over the synthetic runtime, at a model's dimensions. */
+function embedder(dimensions: number): string {
+  const url = new URL(syntheticEmbeddingWorkerUrl, location.href);
+  url.hash = `channel=${crypto.randomUUID()}&dimensions=${dimensions}`;
+  return url.href;
 }
 
 async function catalogRows(tab: WebStateStore, rootId: string) {
@@ -217,9 +233,12 @@ describe('the file index follows the saved Search & Indexing settings', () => {
       index.configure(savedPreferences({ managedCollectionId: null, nativeIndexMode: 'VECTOR' }))
     ).rejects.toThrow('Choose an embedding model and collection');
     const saved = await collection(tab);
-    await expect(
-      index.configure(savedPreferences({ managedCollectionId: saved, nativeIndexMode: 'VECTOR' }))
-    ).rejects.toThrow('does not run VECTOR search yet');
+    const vector = savedPreferences({ managedCollectionId: saved, nativeIndexMode: 'VECTOR' });
+    await expect(index.configure(vector)).rejects.toThrow('needs the embedding worker');
+    // A local model with no execution chosen: desktop's own setup refusal.
+    await expect(index.configure(vector, embedder(384))).rejects.toThrow(
+      'Choose local model execution in Search & Indexing settings.'
+    );
 
     await index.configure(savedPreferences());
     expect(await index.scan(rootId, folder)).toMatchObject({ scanComplete: true });
@@ -320,5 +339,91 @@ describe('the file index follows the saved Search & Indexing settings', () => {
 
     await index.configure(savedPreferences());
     expect(await index.scan(rootId, folder)).toMatchObject({ scanComplete: true });
+  });
+});
+
+const MINILM = { dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' } as const;
+const MINILM_SELECTION = {
+  device: 'wasm',
+  dimensions: 384,
+  dtype: 'q8',
+  modelId: 'Xenova/all-MiniLM-L6-v2',
+} as const;
+
+describe('vectors in the file index worker', () => {
+  it("embeds a root's files with the saved collection's local model, and finds them by vector", async () => {
+    const content = 'export const marker = "narwhal";\n';
+    const { folder, rootId } = await grantedFolder({
+      'notes.md': '# Otters\n\nA wholly different note about otters.\n',
+      'one.ts': content,
+    });
+    const tab = await openTab(storeConfig());
+    await register(tab, rootId);
+    const saved = await collection(tab, MINILM);
+    const index = new WebFileIndex(tab);
+    await index.configure(
+      savedPreferences({
+        managedCollectionId: saved,
+        nativeIndexMode: 'VECTOR',
+        nativeLocalSelection: MINILM_SELECTION,
+      }),
+      embedder(MINILM.dimensions)
+    );
+
+    expect(await index.scan(rootId, folder)).toMatchObject({ scanComplete: true });
+    // The collection's profile as desktop resolves it: its model, the saved execution, the catalog's facts.
+    const { profile } = resolveNativeCanonicalProfile(
+      {
+        dimensions: MINILM.dimensions,
+        distance: 'cosine',
+        id: saved,
+        modelId: MINILM_SELECTION.modelId,
+        modelKey: MINILM.modelKey,
+      },
+      MINILM_SELECTION,
+      {
+        dimensions: MINILM.dimensions,
+        id: MINILM_SELECTION.modelId,
+        prompts: { document: '', query: '' },
+      }
+    );
+    const coverage = await index.coverageScope({
+      profile,
+      scope: { embeddingSetId: saved, kind: 'collection' },
+    });
+    expect(coverage.counts.chunks).toBeGreaterThan(0);
+    expect(coverage.counts).toMatchObject({ missingVectors: 0, vectors: coverage.counts.chunks });
+    expect(coverage.vectorCoverageComplete).toBe(true);
+
+    // The model states no prompt: a chunk is embedded as it reads, so its own vector finds it at
+    // distance 0, ahead of the other file's.
+    const { hits } = await index.searchScopes({
+      limit: 2,
+      mode: 'vector',
+      profile,
+      scopes: [{ kind: 'workspace', rootId }],
+      vector: expectedVector(content.trim(), MINILM.dimensions),
+    });
+    expect(hits.map(({ relativePath, score }) => ({ relativePath, score }))).toEqual([
+      { relativePath: 'one.ts', score: 0 },
+      { relativePath: 'notes.md', score: expect.any(Number) },
+    ]);
+    expect(hits[1]?.score).toBeGreaterThan(0);
+  });
+
+  it('refuses a hosted collection visibly: the browser has no hosted embedder', async () => {
+    const { folder, rootId } = await grantedFolder({ 'one.ts': 'export const one = 1;\n' });
+    const tab = await openTab(storeConfig());
+    await register(tab, rootId);
+    const saved = await collection(tab, {
+      dimensions: 1536,
+      modelKey: 'openai::text-embedding-3-small',
+    });
+    const index = new WebFileIndex(tab);
+    await index.configure(
+      savedPreferences({ managedCollectionId: saved, nativeIndexMode: 'VECTOR' }),
+      embedder(1536)
+    );
+    await expect(index.scan(rootId, folder)).rejects.toThrow('unsupported for provider openai');
   });
 });

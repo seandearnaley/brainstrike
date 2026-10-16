@@ -4,8 +4,9 @@
  * source inventory, over this worker's scoped store and the writer's
  * catalogs. Only the source differs: a File System Access folder, lent by
  * `fsaWorkspaceLease`. The saved settings' partition holds the root's files:
- * their collection, or the TEXT partition with none (BST-1988). TEXT only;
- * vectors come with the index's profile.
+ * their collection, or the TEXT partition with none (BST-1988). VECTOR embeds
+ * through desktop's canonical inference, with the collection's profile as the
+ * saved settings resolve it and the index worker's own embedder.
  */
 import {
   type CanonicalScanReceipt,
@@ -16,6 +17,9 @@ import {
   createNativeSourceInventory,
   isPartitionRoot,
   loadPartitionRecords,
+  NativeCanonicalInference,
+  type NativeCanonicalInferenceDependencies,
+  type NativeCanonicalProfileResolver,
   type NativeIndexSettings,
 } from '@brainstrike/canonical-ingestion/browser';
 import { createBrowserChunker } from '@brainstrike/chunking-worker/canonical';
@@ -42,6 +46,11 @@ export interface FileIngestionDependencies {
     NativeIndexSettings,
     'indexingPolicyPreset' | 'managedCollectionId' | 'worktreeOptIns'
   >;
+  /** VECTOR only: the saved collection's profile and the embedder that produces its vectors. */
+  readonly vectors?: {
+    readonly resolver: Pick<NativeCanonicalProfileResolver, 'resolve' | 'resolveProfile'>;
+    readonly transport: NativeCanonicalInferenceDependencies['transport'];
+  };
 }
 
 interface RootIngestion {
@@ -54,6 +63,8 @@ interface RootIngestion {
     | undefined;
   /** The folder the root's runtime reads. */
   readonly folder: FileSystemDirectoryHandle;
+  /** VECTOR only: the root's inference, retired with its runtime. */
+  readonly inference: NativeCanonicalInference | undefined;
   readonly lease: FsaWorkspaceLease;
   /** The root's scans, one pass each, in the order they were asked for. */
   queue: Promise<void>;
@@ -136,6 +147,7 @@ export class FileIngestion {
     const retired = new DOMException('File ingestion retired.', 'AbortError');
     try {
       await root.runtime.close();
+      await root.inference?.close();
     } finally {
       // A pass the runtime cancelled reports nothing: the scan waiting for it fails with the retirement.
       root.current?.reject(retired);
@@ -145,7 +157,7 @@ export class FileIngestion {
   }
 
   async #open(rootId: string, folder: FileSystemDirectoryHandle): Promise<RootIngestion> {
-    const { catalog: sourceCatalog, port, settings } = this.dependencies;
+    const { catalog: sourceCatalog, port, settings, vectors } = this.dependencies;
     if (!(await this.#isLive(rootId))) {
       throw new Error('Only a live workspace root the saved settings index can be scanned.');
     }
@@ -168,8 +180,11 @@ export class FileIngestion {
         await admission.acquireBindings(context, () => this.dependencies.rebind());
         assertSource();
       },
-      resolveProfile: async () => {
-        throw new Error('The browser file index publishes TEXT only.');
+      resolveProfile: async (requested, _authority, context) => {
+        if (!vectors) {
+          throw new Error('TEXT search resolves no vector profile.');
+        }
+        return vectors.resolver.resolveProfile({ scope: requested }, context);
       },
       resolveScope: async (requested) => {
         assertSource();
@@ -192,17 +207,29 @@ export class FileIngestion {
         };
       },
     });
+    const publication = admission.workspacePublication(
+      createNativeCanonicalPublication(port, [scope])
+    );
+    const inference = vectors
+      ? new NativeCanonicalInference({
+          resolver: vectors.resolver,
+          scope,
+          transport: vectors.transport,
+        })
+      : undefined;
     const ingestion: RootIngestion = {
       current: undefined,
       folder,
+      inference,
       lease,
       queue: Promise.resolve(),
       retired: false,
       runtime: new CanonicalWorkspaceIngestionRuntime({
-        catalog,
+        ...(inference
+          ? { catalog, inference, mode: 'VECTOR' as const, publication }
+          : { catalog, mode: 'TEXT' as const, publication }),
         chunker: createBrowserChunker(),
         managedCollectionId: settings.managedCollectionId,
-        mode: 'TEXT',
         // A pass that fails reports no receipt: the scan that asked for it fails with it, visibly.
         onError: (operation, error) => {
           this.dependencies.onError(operation, error);
@@ -217,9 +244,6 @@ export class FileIngestion {
           ingestion.current?.resolve(receipt);
         },
         onWatchHealth: () => {},
-        publication: admission.workspacePublication(
-          createNativeCanonicalPublication(port, [scope])
-        ),
         request: {
           batchSize: this.dependencies.scan.batchSize,
           chunkingOptions: { strategy: 'auto' },
