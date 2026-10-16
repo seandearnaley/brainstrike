@@ -34,6 +34,7 @@ import { activityTraceShowsEnd } from './assistant-activity-grouping';
 import { committedApprovalOptions } from './committed-approval-options';
 import { committedFileNotices } from './committed-file-notices';
 import {
+  CommittedRowUnreadableError,
   committedAttachments,
   committedStreamData,
   HOST_EVENT_DATA_NAME,
@@ -298,20 +299,6 @@ function committedInteractionApproved(
   return kind !== 'approval' || event['decision'] === 'approve';
 }
 
-/** A committed row this presentation cannot read; the view stops before it. */
-export class CommittedRowUnreadableError extends Error {
-  constructor(row: CommittedAssistantLogRow, cause: unknown) {
-    const kind = [row.event['type'], record(row.event['chunk'])?.['type']]
-      .filter((part) => typeof part === 'string')
-      .join(' ');
-    const reason = cause instanceof Error ? cause.message : String(cause);
-    super(`This conversation cannot be shown past committed row ${row.seq} (${kind}): ${reason}`, {
-      cause,
-    });
-    this.name = 'CommittedRowUnreadableError';
-  }
-}
-
 function incompleteReason(outcome: unknown): 'cancelled' | 'error' | 'other' {
   return outcome === 'stopped' ? 'cancelled' : outcome === 'failed' ? 'error' : 'other';
 }
@@ -324,6 +311,8 @@ function incompleteReason(outcome: unknown): 'cancelled' | 'error' | 'other' {
  */
 export class CommittedAssistantLogProjection {
   private cursor = 0;
+  /** The first committed row this projection could not read; it folds nothing after it. */
+  private failure: CommittedRowUnreadableError | undefined;
   private readonly runs = new Map<string, ProjectedRun>();
   private readonly messageIndexes = new Map<string, number>();
   private readonly rewinds = new CommittedRewindHead();
@@ -340,6 +329,9 @@ export class CommittedAssistantLogProjection {
   readonly getSnapshot = (): CommittedAssistantLogView => this.view;
 
   acceptCommitted(rows: readonly CommittedAssistantLogRow[]): CommittedAssistantLogView {
+    if (this.failure) {
+      throw this.failure;
+    }
     for (const row of rows) {
       if (row.threadId !== this.options.threadId || row.seq <= this.cursor) {
         continue;
@@ -347,10 +339,16 @@ export class CommittedAssistantLogProjection {
       if (row.seq !== this.cursor + 1) {
         throw new Error('Rich projection requires the owner’s contiguous committed prefix.');
       }
+      const before = this.view;
       try {
         this.apply(row);
       } catch (cause) {
-        throw new CommittedRowUnreadableError(row, cause);
+        // The view is immutable, so the last good one is restored whole. The
+        // run maps may hold the row's partial writes, so the projection stays
+        // failed rather than folding later rows over them.
+        this.view = before;
+        this.failure = new CommittedRowUnreadableError(row, cause);
+        throw this.failure;
       }
       this.cursor = row.seq;
     }
@@ -641,7 +639,7 @@ export class CommittedAssistantLogProjection {
    * deltas into the committed transcript (ADR-0011 amendment).
    */
   acceptLive(runId: string, chunk: unknown): CommittedAssistantLogView {
-    const run = this.runs.get(runId);
+    const run = this.failure ? undefined : this.runs.get(runId);
     const entry = run?.stepOpen && !run.terminal ? liveOverlayEntry(run.step, chunk) : undefined;
     if (run && entry) {
       run.overlay.add(entry.key);

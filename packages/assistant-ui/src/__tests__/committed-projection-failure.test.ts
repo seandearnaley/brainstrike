@@ -4,9 +4,13 @@
 // a console error, froze the transcript mid-run, and left Stop naming a run
 // that had already ended (2026-10-15 debug pack).
 
+import approvedRecording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json';
 import recording from '@brainstrike/test-utils/fixtures/committed-host-incremental-tool-input.json';
 import { describe, expect, it } from 'vitest';
-import type { CommittedAssistantLogRow } from '../committed-assistant-log-projection';
+import {
+  CommittedAssistantLogProjection,
+  type CommittedAssistantLogRow,
+} from '../committed-assistant-log-projection';
 import {
   type CommittedAssistantLogSourceSnapshot,
   CommittedAssistantLogStore,
@@ -93,5 +97,37 @@ describe('a committed row the presentation cannot read', () => {
     expect(failed.error).toContain(`committed row ${malformed.seq}`);
     expect(() => owner.append(corrupted.slice(malformedIndex + 1))).not.toThrow();
     expect(view.getSnapshot()).toBe(failed);
+  });
+
+  it('publishes nothing a failed row changed before it threw, and stays failed', () => {
+    // A request without its tool identity: the call's approval is written
+    // first, then reading the identity throws.
+    const approved: readonly CommittedAssistantLogRow[] = approvedRecording;
+    const at = approved.findIndex(({ event }) => event['type'] === 'interaction.requested');
+    const broken = approved.map((row, index) => {
+      if (index !== at) {
+        return row;
+      }
+      const { toolIdentity: _identity, ...event } = row.event;
+      return { ...row, event };
+    });
+    const runId = approved.find(({ event }) => event['type'] === 'run.started')?.event['runId'];
+    const projection = new CommittedAssistantLogProjection({
+      identifyRun: () => ({
+        assistantMessageId: String(runId),
+        createdAt: new Date('2026-10-16T03:18:00.000Z'),
+        parentMessageId: null,
+      }),
+      threadId: approved[0]?.threadId ?? '',
+    });
+    const before = projection.acceptCommitted(broken.slice(0, at));
+    expect(() => projection.acceptCommitted(broken.slice(at, at + 1))).toThrow(
+      'Committed host event is missing toolIdentity.'
+    );
+    expect(projection.getSnapshot()).toBe(before);
+    expect(() => projection.acceptCommitted(broken)).toThrow(
+      `committed row ${broken[at]?.seq} (interaction.requested)`
+    );
+    expect(projection.getSnapshot()).toBe(before);
   });
 });

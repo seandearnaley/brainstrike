@@ -30,6 +30,23 @@ export function record(value: unknown): Readonly<Record<string, unknown>> | unde
     : undefined;
 }
 
+/** A committed row the presentation cannot read; the view stops before it. */
+export class CommittedRowUnreadableError extends Error {
+  constructor(
+    row: { readonly event: Readonly<Record<string, unknown>>; readonly seq: number },
+    cause: unknown
+  ) {
+    const kind = [row.event['type'], record(row.event['chunk'])?.['type']]
+      .filter((part) => typeof part === 'string')
+      .join(' ');
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    super(`This conversation cannot be shown past committed row ${row.seq} (${kind}): ${reason}`, {
+      cause,
+    });
+    this.name = 'CommittedRowUnreadableError';
+  }
+}
+
 /** An identity, name or host-authored label: a non-empty string. */
 export function requiredString(value: Readonly<Record<string, unknown>>, key: string): string {
   const field = value[key];

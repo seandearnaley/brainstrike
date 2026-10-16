@@ -4,12 +4,12 @@ import {
   type CommittedAssistantLogProjectionOptions,
   type CommittedAssistantLogRow,
   type CommittedAssistantLogView,
-  CommittedRowUnreadableError,
 } from './committed-assistant-log-projection';
 import type {
   CommittedAssistantSnapshot,
   CommittedAssistantStore,
 } from './committed-assistant-store';
+import { CommittedRowUnreadableError } from './committed-host-event-readers';
 import { type ThreadTokenUsage, useContextUsageStore } from './context-usage-store';
 import type { LiveShellOutputs } from './live-shell-outputs';
 import { displayedBranchRunIds, ThreadContextFold } from './thread-context-fold';
