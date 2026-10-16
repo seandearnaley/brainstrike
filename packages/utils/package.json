@@ -122,6 +122,10 @@
       "types": "./dist/crypto.d.ts",
       "default": "./dist/crypto.js"
     },
+    "./host-path": {
+      "types": "./dist/host-path.d.ts",
+      "default": "./dist/host-path.js"
+    },
     "./utf8": {
       "types": "./dist/utf8.d.ts",
       "default": "./dist/utf8.js"

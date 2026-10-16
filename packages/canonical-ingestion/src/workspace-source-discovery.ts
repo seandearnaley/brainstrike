@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { AccessError } from '@brainstrike/file-system';
 import { readResolvedWorkspaceFile } from '@brainstrike/file-system/secure-file-read';
 import {
@@ -17,6 +16,7 @@ import {
   collectScopedRemovalInvalidations,
 } from '@brainstrike/file-system/workspace-scan-reconciliation';
 import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
+import { hostBasename } from '@brainstrike/utils/host-path';
 import type {
   CanonicalDiscoveredSourceFile,
   CanonicalDiscoveryCompletion,
@@ -46,7 +46,7 @@ export async function discoverCanonicalWorkspace(
   }
   const rootHandle: DirectoryHandle = {
     kind: 'directory',
-    name: path.basename(lease.canonicalPath),
+    name: hostBasename(lease.canonicalPath),
     path: lease.canonicalPath,
     platform: 'electron',
     rootId: lease.rootId,

@@ -69,6 +69,9 @@ it('bundles the browser entry and its chunker for the browser, with no static No
     'packages/canonical-ingestion/src/scoped-publication.ts',
     'packages/canonical-ingestion/src/canonical-catalog.ts',
     'packages/canonical-ingestion/src/scan-admission.ts',
+    'packages/canonical-ingestion/src/workspace-runtime.ts',
+    'packages/canonical-ingestion/src/workspace-source-discovery.ts',
+    'packages/file-system/src/workspace-root-nodes.ts',
     'packages/chunking-worker/src/canonical.ts',
     'packages/chunking-worker/src/parsers/babel-adapter.ts',
     'packages/chunking-worker/src/parsers/tree-sitter-adapter.ts',
@@ -96,12 +99,7 @@ it('bundles the browser entry and its chunker for the browser, with no static No
       });
   }
   expect(unguarded).toEqual([]);
-  for (const nodeOnly of [
-    'oxc-parser',
-    'better-sqlite3',
-    'chunking-worker/src/node/',
-    'canonical-ingestion/src/workspace-source',
-  ]) {
+  for (const nodeOnly of ['oxc-parser', 'better-sqlite3', 'chunking-worker/src/node/']) {
     expect(inputs.filter((input) => input.includes(nodeOnly))).toEqual([]);
   }
 });

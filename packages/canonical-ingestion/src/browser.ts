@@ -1,7 +1,7 @@
 /**
- * Canonical ingestion for a host that brings its own source, catalog,
- * publication and inference ports: the browser's index worker (BST-1940).
- * The workspace runtime and its mounted-lease source stay on the Node entry.
+ * Canonical ingestion for the browser's index worker (BST-1940): the host,
+ * and the workspace runtime and source over a lease the worker brings, its
+ * File System Access handles.
  * Nothing reachable from here imports a Node module statically;
  * `browser-entry.test.ts` holds that.
  */
@@ -25,3 +25,9 @@ export {
   type NativeAcknowledgedPublication,
   type NativeScopeReadiness,
 } from './scoped-publication.js';
+export {
+  CanonicalWorkspaceIngestionRuntime,
+  type CanonicalWorkspaceRuntimeDependencies,
+} from './workspace-runtime.js';
+export { CanonicalWorkspaceSource } from './workspace-source.js';
+export * from './workspace-source-ports.js';
