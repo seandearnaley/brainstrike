@@ -83,9 +83,6 @@ try {
         case 'state-rebuild':
           value = writer.requireState().rebuild(request.payload);
           break;
-        case 'state-catch-up':
-          value = writer.requireState().catchUp(request.payload);
-          break;
         case 'state-catch-up-step':
           value = writer.requireState().catchUpStep(request.payload);
           break;

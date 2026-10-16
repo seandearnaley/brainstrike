@@ -110,6 +110,13 @@ export const optionsSchema = Schema.Struct({
 });
 export type IndexerOptions = typeof optionsSchema.Type;
 export const stateThreadsSchema = Schema.Array(nonblank);
+/**
+ * Events one catch-up request projects. A cold projection of a real 73k-event state
+ * log ran at about 11k events/s idle, so a step is ~45 ms: far inside the 5 s
+ * request deadline even under heavy CPU contention. Event payloads are bounded
+ * (large content lives in blobs), so a count bounds the work.
+ */
+export const STATE_CATCH_UP_STEP_EVENTS = 500;
 /** One bounded catch-up request: project at most `maxEvents` events of these threads. */
 export const stateCatchUpStepSchema = Schema.Struct({
   maxEvents: positive,

@@ -7,10 +7,9 @@ import {
   createStateStoreIndexer,
   openIndexer,
   STATE_CATCH_UP_STEP_EVENTS,
-  type StateIndexerPort,
 } from '@brainstrike/indexer';
 import { type RunEvent, StateStore } from '@brainstrike/state-store';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, it } from 'vitest';
 
 const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
 const producer = new URL('./fixtures/state-search-schema.mjs', import.meta.url).href;
@@ -68,29 +67,23 @@ it('projects a backlog in steps of at most maxEvents, each resuming where the la
   await expect(port.catchUpStateStep(['one', 'two'], 3)).resolves.toBe(true);
 });
 
-it('a blob count projects its backlog first in bounded steps; the count request projects nothing', async () => {
+it('a blob count over a backlog larger than a step catches it all up and counts', async () => {
   const { port, store } = await fixture();
-  await append(store, 'one', STATE_CATCH_UP_STEP_EVENTS * 2 + 1);
-  const steps = vi.fn<StateIndexerPort['catchUpStateStep']>((threads, maxEvents) =>
-    port.catchUpStateStep(threads, maxEvents)
-  );
-  let backlogAtCount: number | undefined;
-  const indexer = createStateStoreIndexer({
-    ...port,
-    catchUpStateStep: steps,
-    stateBlobCounts: async (threads, hashes) => {
-      backlogAtCount = STATE_CATCH_UP_STEP_EVENTS * 2 + 1 - (await port.stateStats('one')).cursor;
-      return port.stateBlobCounts(threads, hashes);
-    },
-  });
+  const backlog = STATE_CATCH_UP_STEP_EVENTS * 2 + 1;
+  await append(store, 'one', backlog);
 
-  await expect(indexer.gcCheck(['one'], ['a'.repeat(64)])).resolves.toEqual({
+  await expect(createStateStoreIndexer(port).gcCheck(['one'], ['a'.repeat(64)])).resolves.toEqual({
     ['a'.repeat(64)]: 0,
   });
-  expect(backlogAtCount).toBe(0);
-  expect(steps.mock.calls.map(([, maxEvents]) => maxEvents)).toEqual([
-    STATE_CATCH_UP_STEP_EVENTS,
-    STATE_CATCH_UP_STEP_EVENTS,
-    STATE_CATCH_UP_STEP_EVENTS,
-  ]);
+  expect((await port.stateStats('one')).cursor).toBe(backlog);
+});
+
+it('a rebuild resets a thread and re-projects all of it, however long', async () => {
+  const { port, store } = await fixture();
+  await append(store, 'one', STATE_CATCH_UP_STEP_EVENTS + 3);
+  await port.catchUpState(['one']);
+  const projected = await port.stateStats('one');
+
+  await port.rebuildState('one');
+  expect(await port.stateStats('one')).toEqual(projected);
 });

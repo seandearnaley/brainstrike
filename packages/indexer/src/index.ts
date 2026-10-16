@@ -118,7 +118,7 @@ export type {
   TextFileCommit,
   VectorProfile,
 } from './contracts.js';
-export { decodeVectorProfile, IndexerError } from './contracts.js';
+export { decodeVectorProfile, IndexerError, STATE_CATCH_UP_STEP_EVENTS } from './contracts.js';
 export { vectorProfileHash } from './scope-authority.js';
 export type { StateMessageEvent, StateProducerDecoder } from './state-projection.js';
 export type { IndexerDeadlines } from './transport.js';
@@ -179,7 +179,8 @@ export interface StateIndexerPort {
   catchUpState(threads: readonly string[]): Promise<void>;
   /**
    * Projects at most `maxEvents` committed events of `threads`, resuming where the
-   * last step committed. True once every thread is current.
+   * last step committed. True once every thread is current. The Node transport's
+   * catch-up, rebuild and thread-scoped reads all catch up through it.
    */
   catchUpStateStep(threads: readonly string[], maxEvents: number): Promise<boolean>;
   dropStateThread(threadId: string): Promise<readonly string[]>;
@@ -204,13 +205,6 @@ export interface StateIndexerPort {
   stateHealth(): Promise<{ readonly indexerErrors: readonly string[] }>;
   stateStats(threadId: string): Promise<StateProjectionStats>;
 }
-/**
- * Events one catch-up request projects. A cold projection of a real 73k-event state
- * log ran at about 11k events/s idle, so a step is ~45 ms: far inside the 5 s
- * request deadline even under heavy CPU contention. Event payloads are bounded
- * (large content lives in blobs), so a count bounds the work.
- */
-export const STATE_CATCH_UP_STEP_EVENTS = 500;
 export interface StateStoreProjectionPort extends StateStoreIndexerPort {
   health(): Promise<{ readonly indexerErrors: readonly string[] }>;
   match(threadId: string, query: string): Promise<readonly number[]>;
@@ -220,21 +214,10 @@ export interface StateStoreProjectionPort extends StateStoreIndexerPort {
 export function createStateStoreIndexer(
   port: StateIndexerPort & Pick<IndexerPort, 'destroy'>
 ): StateStoreProjectionPort {
-  // Every catch-up is a series of bounded steps, so no one request carries a backlog.
-  const catchUp = async (threads: readonly string[]): Promise<void> => {
-    let current = false;
-    while (!current) {
-      current = await port.catchUpStateStep(threads, STATE_CATCH_UP_STEP_EVENTS);
-    }
-  };
   return {
-    catchUp,
+    catchUp: (threads) => port.catchUpState(threads),
     dropThread: (threadId) => port.dropStateThread(threadId),
-    // Counting only reads once the threads are current; its own catch-up is then empty.
-    gcCheck: async (threads, hashes) => {
-      await catchUp(threads);
-      return port.stateBlobCounts(threads, hashes);
-    },
+    gcCheck: (threads, hashes) => port.stateBlobCounts(threads, hashes),
     health: () => port.stateHealth(),
     match: (threadId, query) => port.matchState(threadId, query),
     promptVectors: (request) => port.promptVectors(request),

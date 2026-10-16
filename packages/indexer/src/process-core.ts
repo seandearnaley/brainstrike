@@ -260,7 +260,6 @@ export async function runIndexerProcess(
             );
             break;
           case 'state-rebuild':
-          case 'state-catch-up':
           case 'state-catch-up-step':
           case 'state-reindex':
             work = client.call(request.op, request.payload, decoder(Schema.Boolean));

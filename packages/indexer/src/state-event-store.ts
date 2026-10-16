@@ -412,6 +412,7 @@ export class StateEventStore {
     return true;
   }
 
+  /** Resets the thread's projection; the caller re-projects it in bounded catch-up steps. */
   rebuild(input: unknown): boolean {
     const threadId = decoder(Schema.NonEmptyString)(input);
     this.messages.invalidate(threadId);
@@ -419,7 +420,6 @@ export class StateEventStore {
       this.observations.invalidate(threadId);
       this.db.prepare('DELETE FROM state_event_rows WHERE thread_id=?').run(threadId);
       this.db.prepare('DELETE FROM state_thread_cursors WHERE thread_id=?').run(threadId);
-      this.catchUp([threadId]);
     })();
     this.messages.finishCleanup();
     return true;
