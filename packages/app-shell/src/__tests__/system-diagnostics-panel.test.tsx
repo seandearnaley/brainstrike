@@ -120,7 +120,7 @@ describe('SystemDiagnosticsPanel', () => {
             sourceState: 'running',
             state: 'idle',
           },
-          indexing: { activeBackfills: [] },
+          indexing: { databaseWork: {} },
           reset: { userDataPath: '/tmp/brainstrike-user-data' },
           telemetry: {
             backgroundRuntimeMetrics: [],
@@ -582,14 +582,6 @@ describe('SystemDiagnosticsPanel', () => {
               state: 'idle',
             },
             indexing: {
-              activeBackfills: [
-                {
-                  embeddingSetId: 'set-1',
-                  progress: { current: 2, total: 4 },
-                  requestId: 'background-indexing-backfill:set-1',
-                  source: 'background-indexing',
-                },
-              ],
               databaseWork: {
                 runningLabel: 'background-indexing-backfill',
                 runningPriority: 'background',
@@ -660,8 +652,8 @@ describe('SystemDiagnosticsPanel', () => {
       expect(await screen.findByText('Desktop Platform')).toBeInTheDocument();
       expect(screen.getByText('Embedding Host')).toBeInTheDocument();
       expect(screen.getByText('/tmp/brainstrike-user-data')).toBeInTheDocument();
-      expect(screen.getByText('Active Backfills')).toBeInTheDocument();
-      expect(screen.getByText('1 active')).toBeInTheDocument();
+      // Desktop has no backfill queue; native indexing reports its own activity.
+      expect(screen.queryByText('Active Backfills')).not.toBeInTheDocument();
       expect(screen.getByText('Dimension Maintenance')).toBeInTheDocument();
       expect(screen.getByText('1 pending / 1 suspended')).toBeInTheDocument();
       expect(screen.getByText('Migration')).toBeInTheDocument();

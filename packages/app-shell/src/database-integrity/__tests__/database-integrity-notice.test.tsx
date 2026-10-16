@@ -223,7 +223,6 @@ describe('DatabaseIntegrityNotice', () => {
   it.each<[DatabaseIntegrityContext, string]>([
     ['db:query', 'a database query'],
     ['maintenance', 'scheduled maintenance'],
-    ['embedding-host:enqueue-backfill', 'embedding indexing'],
     ['assistant:reindex', 'assistant file re-indexing'],
     ['db:exec', 'db:exec'],
   ])('describes the %s context as "%s"', async (context, phrase) => {

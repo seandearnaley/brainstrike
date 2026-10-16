@@ -49,10 +49,6 @@ vi.mock('../../ipc-domains/db-ipc', () => ({
   setBackgrounded: vi.fn(),
 }));
 
-vi.mock('../../ipc-domains/embedding-backfill-ipc', () => ({
-  registerEmbeddingBackfillIpcHandlers: vi.fn(() => () => undefined),
-}));
-
 import { createApplicationIpcDomain } from '../../ipc-handlers';
 
 async function fixture() {

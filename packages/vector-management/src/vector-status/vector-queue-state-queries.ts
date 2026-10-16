@@ -1,7 +1,3 @@
-import {
-  type ActiveBackfillState,
-  useVectorStatusUIStore,
-} from '@brainstrike/app-state/stores/vector-status-ui-store';
 import type { EmbeddingRuntimeController } from './embedding-runtime-controller';
 import type { BackfillProgress } from './use-vector-queue-state';
 import { EMBEDDINGS_QUEUE, type QueueCounts } from './vector-queue-service';
@@ -124,18 +120,6 @@ export function isBackfillCancellationError(error: unknown): boolean {
   return error.name === 'AbortError';
 }
 
-/**
- * Build a cancellation error recognized by isBackfillCancellationError (name ===
- * 'AbortError'). Used to re-raise a desktop `{ canceled: true }` enqueue result so
- * a deliberately-canceled backfill is handled identically to a local AbortSignal
- * cancel — never reported as a completion.
- */
-export function createBackfillCancellationError(): Error {
-  const error = new Error('Embedding backfill was canceled.');
-  error.name = 'AbortError';
-  return error;
-}
-
 export function subscribeBackfillProgress(
   controller: EmbeddingRuntimeController,
   activeEmbeddingSetId: string,
@@ -155,102 +139,4 @@ export function subscribeBackfillProgress(
       requestId: progress.requestId,
     });
   });
-}
-
-export function shouldClearRecoveredBackfillState(
-  currentBackfill: ActiveBackfillState | null,
-  activeEmbeddingSetId: string,
-  isJobQueueActive: boolean
-): boolean {
-  return (
-    currentBackfill?.embeddingSetId === activeEmbeddingSetId &&
-    (isJobQueueActive || currentBackfill.requestId.startsWith('recovered:'))
-  );
-}
-
-export function shouldSkipRecoveredBackfillRestore(
-  currentBackfill: ActiveBackfillState | null,
-  activeEmbeddingSetId: string
-): boolean {
-  return (
-    currentBackfill?.embeddingSetId === activeEmbeddingSetId &&
-    !currentBackfill.requestId.startsWith('recovered:')
-  );
-}
-
-export function createRecoveredBackfillState(activeEmbeddingSetId: string): ActiveBackfillState {
-  return {
-    embeddingSetId: activeEmbeddingSetId,
-    progress: null,
-    requestId: `recovered:${activeEmbeddingSetId}:${Date.now()}`,
-  };
-}
-
-export interface ReconcileBackfillStateAfterReloadParams {
-  activeEmbeddingSetId: string;
-  cleanupRecoveryRef: React.MutableRefObject<(() => void) | null>;
-  clearTransientBackfillState: (expectedEmbeddingSetId?: string | null) => void;
-  controller: EmbeddingRuntimeController;
-  isCancelled: () => boolean;
-  markCancelled: () => void;
-  setActiveBackfill: (backfill: ActiveBackfillState | null) => void;
-  setIsJobQueueActive: (active: boolean) => void;
-}
-
-export async function reconcileBackfillStateAfterReload({
-  activeEmbeddingSetId,
-  clearTransientBackfillState,
-  cleanupRecoveryRef,
-  controller,
-  isCancelled,
-  markCancelled,
-  setActiveBackfill,
-  setIsJobQueueActive,
-}: ReconcileBackfillStateAfterReloadParams): Promise<void> {
-  const inFlight = await controller.getBackfillsInFlight();
-  if (isCancelled()) {
-    return;
-  }
-
-  if (!inFlight.some((backfill) => backfill.embeddingSetId === activeEmbeddingSetId)) {
-    const currentState = useVectorStatusUIStore.getState();
-    if (
-      shouldClearRecoveredBackfillState(
-        currentState.activeBackfill,
-        activeEmbeddingSetId,
-        currentState.isJobQueueActive
-      )
-    ) {
-      clearTransientBackfillState(activeEmbeddingSetId);
-    }
-    return;
-  }
-
-  const currentBackfill = useVectorStatusUIStore.getState().activeBackfill;
-  if (shouldSkipRecoveredBackfillRestore(currentBackfill, activeEmbeddingSetId)) {
-    return;
-  }
-
-  setIsJobQueueActive(true);
-  setActiveBackfill(createRecoveredBackfillState(activeEmbeddingSetId));
-
-  const unsubscribe = subscribeBackfillProgress(
-    controller,
-    activeEmbeddingSetId,
-    (backfill: {
-      embeddingSetId: string;
-      progress: NonNullable<BackfillProgress>;
-      requestId: string;
-    }) => {
-      if (isCancelled()) {
-        return;
-      }
-      setActiveBackfill(backfill);
-    }
-  );
-
-  cleanupRecoveryRef.current = () => {
-    markCancelled();
-    unsubscribe();
-  };
 }

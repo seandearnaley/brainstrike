@@ -227,15 +227,9 @@ describe('runtime host boundary', () => {
 
   it('keeps desktop IPC database tests split by owned responsibility', () => {
     const databaseIpcTest = readDesktopSource('__tests__/main/ipc-handlers-db.test.ts');
-    const embeddingBackfillIpcTest = readDesktopSource(
-      '__tests__/main/ipc-handlers-db-embedding-backfill.test.ts'
-    );
-
     const integrityIpcTest = readDesktopSource('__tests__/main/ipc-handlers-db-integrity.test.ts');
 
     expect(databaseIpcTest.split('\n').length).toBeLessThanOrEqual(2000);
-    expect(embeddingBackfillIpcTest).toMatch(/embedding-host:enqueue-backfill/);
-    expect(embeddingBackfillIpcTest.split('\n').length).toBeLessThanOrEqual(2000);
     expect(integrityIpcTest).toMatch(/DatabaseIntegrityError/);
     expect(integrityIpcTest.split('\n').length).toBeLessThanOrEqual(2000);
   });

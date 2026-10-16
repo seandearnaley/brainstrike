@@ -134,7 +134,6 @@ const {
   resetDesktopApplicationDataMock,
   getDatabaseDiagnosticsMock,
   getDbHostManagerMock,
-  enqueueEmbeddingBackfillMock,
   embeddingHostIsHostWindowMock,
   embeddingHostEnsureStartedMock,
   embeddingHostGetStatusMock,
@@ -216,7 +215,6 @@ const {
     pendingDeletionPaths: [],
     preservedPaths: [],
   }));
-  const enqueueEmbeddingBackfillMock = vi.fn();
   const embeddingHostIsHostWindowMock = vi.fn(() => false);
   const embeddingHostEnsureStartedMock = vi.fn(async () => ({
     active: false,
@@ -278,7 +276,6 @@ const {
     embeddingHostIsHostWindowMock,
     embeddingHostResetMock,
     embeddingHostStopMock,
-    enqueueEmbeddingBackfillMock,
     getDatabaseDiagnosticsMock,
     getDatabaseMock,
     getDbHostManagerMock,
@@ -306,7 +303,6 @@ export {
   embeddingHostIsHostWindowMock,
   embeddingHostResetMock,
   embeddingHostStopMock,
-  enqueueEmbeddingBackfillMock,
   getDatabaseDiagnosticsMock,
   getDatabaseMock,
   getDbHostManagerMock,
@@ -495,10 +491,6 @@ vi.mock('../../desktop-factory-reset', () => ({
   resetDesktopApplicationData: resetDesktopApplicationDataMock,
 }));
 
-vi.mock('../../embedding-backfill', () => ({
-  enqueueEmbeddingBackfill: enqueueEmbeddingBackfillMock,
-}));
-
 vi.mock('../../embedding-host-manager', () => ({
   EmbeddingHostManager: class MockEmbeddingHostManager {
     acceptStatusReport = vi.fn();
@@ -553,24 +545,11 @@ vi.mock('electron-store', () => {
 });
 
 import { EmbeddingHostManager } from '../../embedding-host-manager';
-import {
-  flushPendingLiveUpdates,
-  isDesktopDatabaseBackgrounded,
-  registerDatabaseIpcHandlers,
-} from '../../ipc-domains/db-ipc';
-import { registerEmbeddingBackfillIpcHandlers } from '../../ipc-domains/embedding-backfill-ipc';
-import { getDesktopDatabaseWorkScheduler } from '../../platform/desktop-database-work';
+import { registerDatabaseIpcHandlers } from '../../ipc-domains/db-ipc';
 
-// Retained database module coverage: production Main no longer registers these domains.
+// Retained database module coverage: production Main no longer registers this domain.
 const retainedEmbeddingHost = new EmbeddingHostManager();
 registerDatabaseIpcHandlers({ embeddingHostManager: retainedEmbeddingHost });
-registerEmbeddingBackfillIpcHandlers({
-  embeddingHostManager: retainedEmbeddingHost,
-  flushPendingLiveUpdates,
-  getDatabaseWorkScheduler: getDesktopDatabaseWorkScheduler,
-  getDimensionIndexMaintenanceStrategy: () => 'regular',
-  isBackgrounded: isDesktopDatabaseBackgrounded,
-});
 
 export async function resetDatabaseIpcHandlerMocks(): Promise<void> {
   vi.clearAllMocks();
@@ -582,15 +561,9 @@ export async function resetDatabaseIpcHandlerMocks(): Promise<void> {
     '../../platform/desktop-database-work'
   );
   const { setBackgrounded } = await import('../../ipc-domains/db-ipc');
-  const { resetEmbeddingBackfillStateForTests } = await import('../../ipc-embedding-backfill');
   setBackgrounded(false);
   resetDesktopDatabaseWorkSchedulerForTests();
-  resetEmbeddingBackfillStateForTests();
   browserWindowMock.getAllWindows.mockReturnValue([]);
-  Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_CHECK_INTERVAL_MS');
-  Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED');
-  Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE');
-  Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD');
   embeddingHostEnsureStartedMock.mockResolvedValue({
     active: false,
     lastError: null,

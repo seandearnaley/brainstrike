@@ -116,7 +116,6 @@ interface DesktopPlatformDiagnosticsSnapshot {
     readonly embeddingTelemetry?: string;
   };
   readonly indexing?: {
-    readonly activeBackfills: readonly unknown[];
     readonly databaseWork: unknown;
     readonly dimensionIndexMaintenance?: {
       readonly maintenance: readonly DimensionIndexMaintenanceRow[];
@@ -756,12 +755,6 @@ function DesktopPlatformStatusSection({
           <span className="text-muted-foreground">Pending Requests</span>
           <span className="font-mono text-[10px]">
             {snapshot.embeddingHost.pendingRequestCount}
-          </span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Active Backfills</span>
-          <span className="font-medium">
-            {formatCount(snapshot.indexing?.activeBackfills.length ?? 0, 'active', 'active')}
           </span>
         </div>
         <div className="flex items-center justify-between">

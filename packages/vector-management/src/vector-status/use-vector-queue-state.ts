@@ -4,10 +4,7 @@ import { createLogger } from '@brainstrike/logging';
 import { onQueueDrained } from '@brainstrike/utils/browser-events';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEmbeddingQueueSafe } from '../embedding-queue-provider';
-import {
-  type EmbeddingRuntimeController,
-  hasEmbeddingBackfillCapability,
-} from './embedding-runtime-controller';
+import type { EmbeddingRuntimeController } from './embedding-runtime-controller';
 import { dispatchQueueDrainedEvent } from './queue-events';
 import {
   type ApiKeyValidation,
@@ -20,7 +17,6 @@ import {
   ACTIVE_SET_QUEUE_COUNTS_QUERY,
   COVERAGE_QUERY,
   type CoverageRow,
-  createBackfillCancellationError,
   DEFAULT_COVERAGE,
   DEFAULT_METRICS,
   DEFAULT_QUEUE_COUNTS,
@@ -32,7 +28,6 @@ import {
   type LatencyRow,
   QUEUE_COUNTS_QUERY,
   type QueueCountsRow,
-  reconcileBackfillStateAfterReload,
   subscribeBackfillProgress,
   THROUGHPUT_QUERY,
   type ThroughputRow,
@@ -115,7 +110,6 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const backfillTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backfillRequestIdRef = useRef<string | null>(null);
   const backfillInvocationIdRef = useRef(0);
-  const cleanupRecoveryRef = useRef<(() => void) | null>(null);
 
   const clearBackfillTimeout = useCallback(() => {
     if (backfillTimeoutRef.current) {
@@ -161,7 +155,6 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     !isEmbeddingActive &&
     !isBackfillActive &&
     !isJobQueueActive;
-  const canRecoverDesktopBackfills = hasEmbeddingBackfillCapability();
 
   // Clear timeout on unmount.
   useEffect(
@@ -170,48 +163,6 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     },
     [clearBackfillTimeout]
   );
-
-  // Reconcile backfill state after renderer reload (e.g., crash recovery).
-  // If the main process has a backfill in flight for the active embedding set,
-  // re-attach to the progress stream so the UI shows the progress indicator.
-  useEffect(() => {
-    if (!(activeEmbeddingSetId && canRecoverDesktopBackfills)) {
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        await reconcileBackfillStateAfterReload({
-          activeEmbeddingSetId,
-          cleanupRecoveryRef,
-          clearTransientBackfillState,
-          controller,
-          isCancelled: () => cancelled,
-          markCancelled: () => {
-            cancelled = true;
-          },
-          setActiveBackfill,
-          setIsJobQueueActive,
-        });
-      } catch (error) {
-        logger.warn('Failed to reconcile backfill state after reload', {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    })();
-    return () => {
-      cancelled = true;
-      cleanupRecoveryRef.current?.();
-      cleanupRecoveryRef.current = null;
-    };
-  }, [
-    activeEmbeddingSetId,
-    clearTransientBackfillState,
-    controller,
-    canRecoverDesktopBackfills,
-    setActiveBackfill,
-    setIsJobQueueActive,
-  ]);
 
   const queueCountsResult = usePGliteLiveQuery<QueueCountsRow>({
     cacheKey: makeLiveQueryKey('queue-counts', EMBEDDINGS_QUEUE),
@@ -388,20 +339,8 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
         return;
       }
       void refreshCoverageAndQueueState();
-      // The drained job may have populated a "recovered" backfill (desktop reconcile
-      // path) whose only other clear point is a remount. If we don't clear it here,
-      // the recovered state — and any UI keyed off it — stays stranded until reload.
-      // A genuine in-flight backfill keeps a non-`recovered:` requestId and is left to
-      // its own completion path, so it survives drained-between-batches events.
-      const current = useVectorStatusUIStore.getState().activeBackfill;
-      if (
-        current?.embeddingSetId === activeEmbeddingSetId &&
-        current.requestId.startsWith('recovered:')
-      ) {
-        clearTransientBackfillState(activeEmbeddingSetId);
-      }
     });
-  }, [activeEmbeddingSetId, clearTransientBackfillState, refreshCoverageAndQueueState]);
+  }, [activeEmbeddingSetId, refreshCoverageAndQueueState]);
 
   useEffect(() => {
     setRecentErrorCount(metrics.windowErrorCount);
@@ -484,18 +423,9 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     );
     try {
       logger.info('backfillActiveSet: starting backfill', { activeEmbeddingSetId });
-      const enqueueResult = await controller.enqueueBackfill(activeEmbeddingSetId, {
+      await controller.enqueueBackfill(activeEmbeddingSetId, {
         source: 'manual',
       });
-      // Desktop main resolves { canceled: true } for a deliberate cancellation
-      // instead of rejecting (a rejection logs "Error occurred in handler"). A
-      // canceled backfill is NOT a completion — re-raise it as an abort so the
-      // catch's cancellation branch handles it (no queue-drained, no "completed").
-      // The local/web controller resolves { requestId } (and progress-only
-      // controllers may resolve nothing), so guard the membership check.
-      if (enqueueResult && 'canceled' in enqueueResult) {
-        throw createBackfillCancellationError();
-      }
       dispatchQueueDrainedEvent(activeEmbeddingSetId);
       logger.info('backfillActiveSet: backfill completed', { activeEmbeddingSetId });
     } catch (error) {

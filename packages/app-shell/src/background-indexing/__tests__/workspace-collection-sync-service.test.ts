@@ -3441,13 +3441,14 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
-  it('treats a desktop { canceled: true } enqueue result as a benign cancellation, not a failure', async () => {
+  it('treats an enqueue rejected as canceled as a benign cancellation, not a failure', async () => {
     const deps = createDeps({
-      // Desktop main resolves { canceled: true } for a deliberate cancellation
-      // instead of rejecting. The service must re-raise it as an abort and handle
-      // it benignly (isAbortError → no handleSyncFailure), never surfacing an
-      // error status for what is a cancellation, not a failure.
-      enqueueBackfill: vi.fn(async () => ({ canceled: true }) as const),
+      // A canceled backfill rejects with an AbortError. The service handles it
+      // benignly (isAbortError → no handleSyncFailure), never surfacing an error
+      // status for what is a cancellation, not a failure.
+      enqueueBackfill: vi.fn(async () => {
+        throw Object.assign(new Error('Embedding backfill was canceled.'), { name: 'AbortError' });
+      }),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
           [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
@@ -4666,12 +4667,11 @@ describe('WorkspaceCollectionSyncService', () => {
 
     /**
      * BST-1654 follow-up (review round 4): the same ownership hazard on the
-     * benign-cancel path. Desktop main resolves `{ canceled: true }` rather than
-     * rejecting, so a superseded pass reaches its cleanup normally — and
-     * `activeBackfill` is one slot, so clearing it unconditionally unsubscribes
-     * whichever run replaced it and the UI stops seeing that run's progress.
+     * benign-cancel path. A superseded pass's enqueue rejects as canceled, and
+     * `activeBackfill` is one slot, so clearing it then would unsubscribe
+     * whichever run replaced it and the UI would stop seeing that run's progress.
      */
-    it('leaves the replacement subscription alone when a superseded enqueue reports canceled', async () => {
+    it('leaves the replacement subscription alone when a superseded enqueue rejects as canceled', async () => {
       const unsubscribes: ReturnType<typeof vi.fn>[] = [];
       let releaseFirstEnqueue: () => void = () => undefined;
       const firstEnqueueLanded = new Promise<void>((resolve) => {
@@ -4683,7 +4683,9 @@ describe('WorkspaceCollectionSyncService', () => {
           enqueueCount += 1;
           if (enqueueCount === 1) {
             await firstEnqueueLanded;
-            return { canceled: true };
+            throw Object.assign(new Error('Embedding backfill was canceled.'), {
+              name: 'AbortError',
+            });
           }
           return { requestId: 'background-indexing-backfill:replacement' };
         }) as unknown as WorkspaceCollectionSyncServiceDependencies['enqueueBackfill'],

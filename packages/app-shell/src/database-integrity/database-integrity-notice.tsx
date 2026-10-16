@@ -25,7 +25,6 @@ const COPY: DatabaseIntegrityNoticeCopy = {
   contexts: {
     'assistant:reindex': 'assistant file re-indexing',
     'db:query': 'a database query',
-    'embedding-host:enqueue-backfill': 'embedding indexing',
     maintenance: 'scheduled maintenance',
   },
   detailsSummary: 'Details',
