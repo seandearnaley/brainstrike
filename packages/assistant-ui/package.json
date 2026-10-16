@@ -56,6 +56,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./activity-trace-model": {
+      "types": "./dist/activity-trace-model.d.ts",
+      "import": "./dist/activity-trace-model.js"
+    },
     "./assistant-link-capabilities": {
       "types": "./dist/assistant-link-capabilities.d.ts",
       "import": "./dist/assistant-link-capabilities.js"

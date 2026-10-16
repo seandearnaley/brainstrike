@@ -69,6 +69,10 @@
     "./playwright": {
       "types": "./src/playwright/failure-artifacts.ts",
       "default": "./src/playwright/failure-artifacts.ts"
+    },
+    "./provider-cassette": {
+      "types": "./src/provider-cassette.ts",
+      "default": "./src/provider-cassette.ts"
     }
   },
   "files": [

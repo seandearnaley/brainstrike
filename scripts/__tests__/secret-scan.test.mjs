@@ -69,6 +69,18 @@ test('scanText detects current OpenAI project and service account key formats', 
   );
 });
 
+test('scanText detects OpenRouter API keys', () => {
+  const findings = scanText({
+    filePath: 'fixture.env',
+    text: `OPENROUTER_API_KEY=sk-or-v1-${'0123456789abcdef'.repeat(4)}`,
+  });
+
+  assert.deepEqual(
+    findings.map((finding) => finding.ruleId),
+    ['openrouter-api-key']
+  );
+});
+
 test('scanText detects fine-grained GitHub personal access tokens', () => {
   const findings = scanText({
     filePath: 'fixture.env',
