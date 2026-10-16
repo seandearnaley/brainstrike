@@ -75,6 +75,32 @@ const HARD_LAYERS = [
   'brainstrikeignore',
 ] as const satisfies readonly (keyof WorkspaceIgnoreSources)[];
 
+/**
+ * Credential files no agent tool walks, greps, reads or indexes, whatever the
+ * ignore files say: environment files (but not their committed templates) and
+ * private keys. A FLOOR beneath every layer, not a ninth layer, because a
+ * layer can be negated: no `!` pattern in any file and no `includeIgnored`
+ * lifts it, and it reads as hard. Live grep does not consult `.gitignore`
+ * (BST-1429), so a gitignored `.env.local` was otherwise searchable, and on
+ * 2026-10-16 a grep context line carried its API key to the provider.
+ */
+const SECRET_FILES = ignore().add([
+  '.env',
+  '.env.*',
+  '!.env.example',
+  '!.env.sample',
+  '!.env.template',
+  '*.pem',
+  '*.key',
+  'id_rsa*',
+]);
+
+/** Whether a workspace-relative POSIX path is a credential file under the floor. */
+export function isWorkspaceSecretFile(relativePath: string, asDirectory = false): boolean {
+  const normalized = relativePath.replace(/^\/+/, '');
+  return normalized !== '' && SECRET_FILES.ignores(asDirectory ? `${normalized}/` : normalized);
+}
+
 interface CompiledScope {
   /**
    * Bypassable layers 1-6, CONCATENATED in precedence order into a single
@@ -397,6 +423,9 @@ export function createWorkspaceIgnoreMatcher(
   const scopes: CompiledScope[] = [];
 
   const isIgnored = (relativePath: string, asDirectory: boolean, hardOnly = false): boolean => {
+    if (isWorkspaceSecretFile(relativePath, asDirectory)) {
+      return true;
+    }
     const onlyScope = scopes.length === 1 ? scopes[0] : undefined;
     if (
       onlyScope !== undefined &&

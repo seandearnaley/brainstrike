@@ -1,7 +1,11 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { ToolInputError } from '@brainstrike/assistant-contract';
-import { createWorkspaceIgnoreMatcher, type WorkspaceIgnoreSources } from '@brainstrike/utils';
+import {
+  createWorkspaceIgnoreMatcher,
+  isWorkspaceSecretFile,
+  type WorkspaceIgnoreSources,
+} from '@brainstrike/utils';
 import {
   ancestorDirectoriesBetween,
   findRepositoryRoot,
@@ -312,6 +316,13 @@ export async function assertNotAgentIgnored(args: {
 }): Promise<void> {
   const guard = createAgentIgnoreGuard(args.canonicalRootPath);
   const candidates = await agentIgnoreCandidatePaths(args);
+  // The credential floor is no ignore file's rule, so its refusal names it
+  // rather than sending the user to search their ignore files.
+  if (candidates.some((candidate) => isWorkspaceSecretFile(candidate))) {
+    throw new ToolInputError(
+      `Path "${args.relativePath}" is a credential file (an environment file or private key), which agent tools never read.`
+    );
+  }
   // Resolved together: the request and the canonical target are independent
   // queries, and either one being excluded blocks the read, so there is nothing
   // to gain by short-circuiting on the first.
