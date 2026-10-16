@@ -53,7 +53,7 @@ export interface FileIngestionDependencies {
   };
 }
 
-interface RootIngestion {
+export interface RootIngestion {
   /** The scan whose pass is running: that pass's receipt or failure answers it, and no other. */
   current:
     | {
@@ -72,6 +72,39 @@ interface RootIngestion {
   retired: boolean;
   readonly runtime: CanonicalWorkspaceIngestionRuntime;
   started: boolean;
+}
+
+/**
+ * Retires one root's ingestion as desktop retires its sources: the runtime
+ * first, which cancels its own pass, then its inference, then the folder's
+ * lease. A lease revoked under a running pass would fail the pass, and its
+ * retirement with it. Every step runs even when an earlier one fails, so no
+ * owner is left unretired once the root is gone; the failures surface together.
+ */
+export async function retireRootIngestion(
+  root: Pick<RootIngestion, 'current' | 'inference' | 'lease' | 'runtime'>
+): Promise<void> {
+  const retired = new DOMException('File ingestion retired.', 'AbortError');
+  const failures: unknown[] = [];
+  const attempt = async (step: () => Promise<void> | undefined): Promise<void> => {
+    try {
+      await step();
+    } catch (error) {
+      failures.push(error);
+    }
+  };
+  await attempt(() => root.runtime.close());
+  await attempt(() => root.inference?.close());
+  // A pass the runtime cancelled reports nothing: the scan waiting for it fails with the retirement.
+  root.current?.reject(retired);
+  root.lease.revoke(retired);
+  await attempt(() => root.lease.retire());
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'File ingestion retirement failed.');
+  }
 }
 
 export class FileIngestion {
@@ -137,23 +170,9 @@ export class FileIngestion {
     return root !== undefined && isPartitionRoot(root, this.dependencies.settings);
   }
 
-  /**
-   * As desktop retires its sources: the runtime first, which cancels its own
-   * pass, then the folder's lease. A lease revoked under a running pass would
-   * fail the pass, and its retirement with it.
-   */
   async #retire(root: RootIngestion): Promise<void> {
     root.retired = true;
-    const retired = new DOMException('File ingestion retired.', 'AbortError');
-    try {
-      await root.runtime.close();
-      await root.inference?.close();
-    } finally {
-      // A pass the runtime cancelled reports nothing: the scan waiting for it fails with the retirement.
-      root.current?.reject(retired);
-      root.lease.revoke(retired);
-      await root.lease.retire();
-    }
+    await retireRootIngestion(root);
   }
 
   async #open(rootId: string, folder: FileSystemDirectoryHandle): Promise<RootIngestion> {
