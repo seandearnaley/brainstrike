@@ -40,7 +40,14 @@ export function hostToolCatalogId(name: string, tool: HostTool): string {
 
 /**
  * One committed output as the legacy settlement measures it: undefined when
- * it stays inline or its tool is never durable. Settlement and reads share it.
+ * it stays inline or its tool is never durable. Settlement and reads share it,
+ * so an id the model holds a cursor for always re-serializes the same way.
+ *
+ * Deliberately a pure function of committed run state (`outputs`,
+ * `effectTools`), which `foldHostRunEffect` rebuilds from the ledger. Any
+ * settlement rule added here has to replay from the same events, or a cursor
+ * the model already holds stops resolving after a restart — see the note on
+ * {@link settleHostToolOutputs}.
  */
 function settledOutput(run: HostRunState, toolCallId: string): SerializedToolOutput | undefined {
   const toolName = run.effectTools.get(toolCallId);
@@ -48,6 +55,27 @@ function settledOutput(run: HostRunState, toolCallId: string): SerializedToolOut
     return;
   }
   return toolOutputArtifactCandidate(run.outputs.get(toolCallId), toolName, {})?.serialized;
+}
+
+/**
+ * The run's sole eligible artifact reader, by its callable name. An ambiguous
+ * catalog refuses rather than paging through an arbitrary one of them; no
+ * reader at all is ordinary (the run simply cannot page) and returns undefined.
+ */
+export function requireSoleHostArtifactReader(
+  tools: Readonly<Record<string, HostTool>>
+): string | undefined {
+  const readers = Object.entries(tools)
+    .filter(
+      ([name, tool]) => hostToolCatalogId(name, tool) === NATIVE_TOOL_ID.readToolOutputArtifact
+    )
+    .map(([name]) => name);
+  if (readers.length > 1) {
+    throw new Error(
+      `Durable tool output requires one eligible artifact reader; this run registered ${readers.length}.`
+    );
+  }
+  return readers[0];
 }
 
 function reference(
@@ -79,14 +107,24 @@ function defaultModelOutput(output: unknown): ToolResultOutput {
  * can page artifacts, an output past the inline ceiling reaches the model as
  * its first artifact page with a continuation cursor instead of a clipped
  * projection. The complete output is the committed `effect.finished`.
+ *
+ * KNOWN GAP, measured and deliberately not closed here: an MCP result that
+ * stays inline on size yet loses data to its own bounded model projection
+ * reaches the model clipped, with an honest `tool_result_truncated` notice and
+ * no cursor to recover the rest. At the 128k anchor that band is roughly
+ * 6 000–12 000 bytes, since the inline ceiling is fixed while the projection
+ * budget scales. The retired Mastra loop settled it through
+ * `wouldTruncateModelOutput` (ADR-0022). Settling it here needs the decision
+ * to survive replay, and neither input is in committed state today: the
+ * resolved tool-result budget is not on the run snapshot, and
+ * `snapshot.mcpAuthorities` is keyed by registered tool name while
+ * `effectTools` stores the catalog id. Both are protocol additions.
  */
 export function settleHostToolOutputs(
   run: HostRunState,
   tools: Readonly<Record<string, HostTool>>
 ): Readonly<Record<string, HostTool>> {
-  const reader = Object.entries(tools).find(
-    ([name, tool]) => hostToolCatalogId(name, tool) === NATIVE_TOOL_ID.readToolOutputArtifact
-  )?.[0];
+  const reader = requireSoleHostArtifactReader(tools);
   if (!reader) {
     return tools;
   }

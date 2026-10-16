@@ -8,6 +8,7 @@ import type { HostTool } from '../src/ports.js';
 import {
   hostArtifactId,
   hostArtifactReader,
+  requireSoleHostArtifactReader,
   settleHostToolOutputs,
 } from '../src/tool-artifacts.js';
 
@@ -113,5 +114,14 @@ describe('host tool output artifacts', () => {
         offsetByte: 0,
       },
     });
+  });
+
+  it('refuses a catalog that registers two eligible artifact readers', () => {
+    expect(() =>
+      requireSoleHostArtifactReader({
+        first: tool(NATIVE_TOOL_ID.readToolOutputArtifact),
+        second: tool(NATIVE_TOOL_ID.readToolOutputArtifact),
+      })
+    ).toThrow(/one eligible artifact reader/u);
   });
 });
