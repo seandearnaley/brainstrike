@@ -324,8 +324,8 @@ export interface ProviderCassetteRecording {
   readonly exchanges: () => readonly ProviderCassetteExchange[];
   /** Exchanges still streaming; a cassette is only complete once this is zero. */
   readonly inFlight: () => number;
-  /** Response bytes received so far by exchanges still streaming (a Stop waits on these). */
-  readonly inFlightBytes: () => number;
+  /** What each exchange still streaming has received so far, as text (a Stop waits on these). */
+  readonly inFlightBodies: () => readonly string[];
   /** Forwards one request to its provider, streams the answer back and keeps the exchange. */
   readonly record: (input: ProviderCassetteRequest) => Promise<void>;
 }
@@ -357,17 +357,15 @@ async function relay(
   upstream: Response,
   response: ServerResponse,
   arrivedAt: number,
-  progress: (bytes: number) => void,
+  received: Buffer[],
   clientGone: () => boolean
-): Promise<{ chunks: ProviderCassetteChunk[]; received: Buffer[] }> {
-  const received: Buffer[] = [];
+): Promise<ProviderCassetteChunk[]> {
   const chunks: ProviderCassetteChunk[] = [];
   try {
     for await (const piece of upstream.body ?? []) {
       const bytes = Buffer.from(piece);
       received.push(bytes);
       chunks.push({ atMs: Date.now() - arrivedAt, bytes: bytes.length });
-      progress(bytes.length);
       response.write(bytes);
     }
     response.end();
@@ -376,7 +374,7 @@ async function relay(
       throw error;
     }
   }
-  return { chunks, received };
+  return chunks;
 }
 
 export function createProviderCassetteRecording(
@@ -388,7 +386,7 @@ export function createProviderCassetteRecording(
   const exchanges: { exchange: ProviderCassetteExchange; order: number }[] = [];
   let arrivals = 0;
   let inFlight = 0;
-  const streaming = new Map<number, number>();
+  const streaming = new Map<number, Buffer[]>();
 
   const forward = async (input: ProviderCassetteRequest, order: number): Promise<void> => {
     const { knob, method, rawBody, request, response, route, search } = input;
@@ -410,14 +408,11 @@ export function createProviderCassetteRecording(
     });
     const contentType = upstream.headers.get('content-type');
     response.writeHead(upstream.status, contentType ? { 'Content-Type': contentType } : {});
-    streaming.set(order, 0);
-    const { chunks, received } = await relay(
-      upstream,
-      response,
-      arrivedAt,
-      (bytes) => streaming.set(order, (streaming.get(order) ?? 0) + bytes),
-      () => clientGone
-    ).finally(() => streaming.delete(order));
+    const received: Buffer[] = [];
+    streaming.set(order, received);
+    const chunks = await relay(upstream, response, arrivedAt, received, () => clientGone).finally(
+      () => streaming.delete(order)
+    );
     exchanges.push({
       exchange: {
         key: providerRequestKey({ body, knob, method, route }),
@@ -439,7 +434,8 @@ export function createProviderCassetteRecording(
     exchanges: () =>
       exchanges.toSorted((left, right) => left.order - right.order).map(({ exchange }) => exchange),
     inFlight: () => inFlight,
-    inFlightBytes: () => [...streaming.values()].reduce((sum, bytes) => sum + bytes, 0),
+    inFlightBodies: () =>
+      [...streaming.values()].map((parts) => Buffer.concat(parts).toString('utf8')),
     async record(input) {
       inFlight += 1;
       try {

@@ -43,8 +43,12 @@ const KNOBS = Object.keys(PROVIDER_CASSETTE_UPSTREAMS) as ProviderCassetteKnob[]
 const INVALID_KEY = 'provider-cassette-invalid-key';
 /** The key a replayed host holds: the shim never reads it. */
 const REPLAY_KEY = 'provider-cassette-replay';
-/** Streamed bytes a recorded Stop waits for, so it cuts the answer off mid-stream. */
-const STOP_AFTER_BYTES = 2048;
+/** A provider stream has sent answer text, on any of the three wires: a Stop now cuts it off. */
+function streamsText(body: string): boolean {
+  return /"type":"response\.output_text\.delta"|"type":"text_delta"|"delta":\{[^}]*"content":"[^"]/u.test(
+    body
+  );
+}
 
 export interface ScenarioResult {
   readonly shape: ConversationShape;
@@ -216,7 +220,7 @@ export async function recordScenario(
         ...credentialEnvironment(scenario, key),
       },
       workspace,
-      () => recorder.recording.inFlightBytes() >= STOP_AFTER_BYTES
+      () => recorder.recording.inFlightBodies().some(streamsText)
     );
     await pollUntil(
       async () => recorder.recording.inFlight(),
