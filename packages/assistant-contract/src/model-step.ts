@@ -7,6 +7,9 @@ import { z } from 'zod';
  * AI SDK step result (the response messages, the model and the usage), so the
  * browser commits the step the host would have, from one source.
  *
+ * It goes out as it completes, as an out-of-band data frame (`2:`), ahead of
+ * its step's `finish-step` part, in the order the host commits them.
+ *
  * Opt-in: only a request that asks to record its steps receives these parts,
  * so a client that keeps its own transcript never stores them.
  */
@@ -22,7 +25,20 @@ export const AssistantModelStepDataSchema = z.strictObject({
 });
 export type AssistantModelStepData = z.infer<typeof AssistantModelStepDataSchema>;
 
-/** The `runConfig.custom` key a client sets to receive its turn's steps. */
+/**
+ * Each AI SDK `fullStream` part of a recorded turn, as the host's run loop
+ * consumes it, so the browser streams and commits the turn as the host does
+ * (BST-1940): its text and reasoning parts are live telemetry, every other
+ * part commits as `stream.chunk`. A part goes out as it arrives, as an
+ * out-of-band data frame, which never slices the turn's visible text; the
+ * provider's response headers stay on the server.
+ */
+export const MODEL_STREAM_PART_DATA_NAME = 'brainstrike.stream-part';
+
+export const AssistantModelStreamPartSchema = z.looseObject({ type: z.string().min(1) });
+export type AssistantModelStreamPart = z.infer<typeof AssistantModelStreamPartSchema>;
+
+/** The `runConfig.custom` key a client sets to receive its turn's steps and stream parts. */
 export const MODEL_STEP_RECORD_RUN_CONFIG_KEY = 'brainstrike.recordModelSteps';
 
 /**

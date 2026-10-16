@@ -1,4 +1,7 @@
-import { MODEL_STEP_DATA_NAME } from '@brainstrike/assistant-contract/model-step';
+import {
+  MODEL_STEP_DATA_NAME,
+  MODEL_STREAM_PART_DATA_NAME,
+} from '@brainstrike/assistant-contract/model-step';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { describe, expect, it } from 'vitest';
 import type { AgentMessage, StreamChunk } from '../../types';
@@ -16,9 +19,13 @@ function userMessage(text: string): AgentMessage {
 }
 
 /** A model that streams `parts` verbatim, recording what the SDK sent it. */
-function scriptedModel(parts: readonly unknown[]): MockLanguageModelV4 {
+function scriptedModel(
+  parts: readonly unknown[],
+  headers?: Record<string, string>
+): MockLanguageModelV4 {
   return new MockLanguageModelV4({
     doStream: async () => ({
+      ...(headers ? { response: { headers } } : {}),
       stream: simulateReadableStream({
         chunkDelayInMs: null,
         chunks: parts as never,
@@ -56,13 +63,14 @@ describe('a turn that records its steps (BST-1940)', () => {
       })
     );
 
-    expect(chunks.map((chunk) => chunk.type)).toEqual([
+    const reduced = chunks.filter((chunk) => chunk.type !== 'model-stream-part');
+    expect(reduced.map((chunk) => chunk.type)).toEqual([
       'text-delta',
       'text-delta',
       'model-step',
       'message-finish',
     ]);
-    expect(chunks[2]).toEqual({
+    expect(reduced[2]).toEqual({
       messages: [{ content: [{ text: 'Hello', type: 'text' }], role: 'assistant' }],
       model: { modelId: 'mock-model-id', provider: 'mock-provider' },
       stepNumber: 0,
@@ -71,7 +79,53 @@ describe('a turn that records its steps (BST-1940)', () => {
     });
   });
 
-  it('returns no step to a client that keeps its own transcript', async () => {
+  it("returns each stream part as it arrives, as the host's run loop consumes it, without the provider's headers", async () => {
+    const chunks = await collect(
+      await streamHostedWebTurn({
+        messages: [userMessage('hello')],
+        model: scriptedModel(textStream(['Hel', 'lo']), { 'x-provider-account': 'acme' }),
+        recordSteps: true,
+      })
+    );
+    const parts = chunks.flatMap((chunk) =>
+      chunk.type === 'model-stream-part' ? [chunk.part] : []
+    );
+
+    expect(parts.map((part) => part.type)).toEqual([
+      'start',
+      'start-step',
+      'text-start',
+      'text-delta',
+      'text-delta',
+      'text-end',
+      'finish-step',
+      'finish',
+    ]);
+    expect(parts[3]).toEqual({ id: 't1', text: 'Hel', type: 'text-delta' });
+    // Each text part arrives before the turn's own text chunk for it: live, not at the step's end.
+    expect(chunks.map((chunk) => chunk.type).slice(3, 7)).toEqual([
+      'model-stream-part',
+      'text-delta',
+      'model-stream-part',
+      'text-delta',
+    ]);
+    // The completed step comes ahead of its finish-step part, as the host commits them.
+    // (The SDK can complete a step while its text parts are still queued; that text is telemetry.)
+    const order = chunks.map((chunk) =>
+      chunk.type === 'model-stream-part' ? `part:${chunk.part.type}` : chunk.type
+    );
+    expect(order.indexOf('model-step')).toBeGreaterThan(order.indexOf('part:start-step'));
+    expect(order.indexOf('model-step')).toBeLessThan(order.indexOf('part:finish-step'));
+    const finishStep = parts.find((part) => part.type === 'finish-step');
+    expect(finishStep).toMatchObject({
+      finishReason: 'stop',
+      response: { modelId: 'mock-model-id' },
+    });
+    expect(finishStep?.['response']).not.toHaveProperty('headers');
+    expect(JSON.stringify(parts)).not.toContain('acme');
+  });
+
+  it('returns no step and no stream part to a client that keeps its own transcript', async () => {
     const chunks = await collect(
       await streamHostedWebTurn({
         messages: [userMessage('hello')],
@@ -79,10 +133,49 @@ describe('a turn that records its steps (BST-1940)', () => {
       })
     );
 
-    expect(chunks.some((chunk) => chunk.type === 'model-step')).toBe(false);
+    expect(
+      chunks.some((chunk) => chunk.type === 'model-step' || chunk.type === 'model-stream-part')
+    ).toBe(false);
   });
 
-  it('carries the step on the wire as its data part, ahead of the finish', async () => {
+  it('carries each stream part on the wire as an out-of-band data frame, between the text it streams', async () => {
+    const response = createStatelessAssistantDataStreamResponse(
+      await streamHostedWebTurn({
+        messages: [userMessage('hello')],
+        model: scriptedModel(textStream(['Hel', 'lo'])),
+        recordSteps: true,
+      }),
+      { messageId: 'recorded', sessionId: 'recorded' }
+    );
+    const lines = (await response.text()).split('\n').filter((line) => line.length > 0);
+    const frames = lines.map((line) => {
+      const separator = line.indexOf(':');
+      return { code: line.slice(0, separator), value: JSON.parse(line.slice(separator + 1)) };
+    });
+    const partFrame = (text: string) =>
+      frames.findIndex(
+        (frame) =>
+          frame.code === '2' &&
+          (frame.value as { data: { text?: string }; name: string }[])[0]?.name ===
+            MODEL_STREAM_PART_DATA_NAME &&
+          (frame.value as { data: { text?: string } }[])[0]?.data.text === text
+      );
+    const textFrame = (text: string) =>
+      frames.findIndex((frame) => frame.code === '0' && frame.value === text);
+
+    expect(partFrame('Hel')).toBeGreaterThan(-1);
+    // Live while the text is open, not deferred to its end: each part precedes its text frame.
+    expect(partFrame('Hel')).toBeLessThan(textFrame('Hel'));
+    expect(partFrame('lo')).toBeGreaterThan(textFrame('Hel'));
+    expect(partFrame('lo')).toBeLessThan(textFrame('lo'));
+    // The text itself is not sliced by the parts.
+    expect(frames.filter((frame) => frame.code === '0').map((frame) => frame.value)).toEqual([
+      'Hel',
+      'lo',
+    ]);
+  });
+
+  it('carries the step on the wire as an out-of-band data frame, ahead of its finish-step part', async () => {
     const response = createStatelessAssistantDataStreamResponse(
       await streamHostedWebTurn({
         messages: [userMessage('hello')],
@@ -93,19 +186,24 @@ describe('a turn that records its steps (BST-1940)', () => {
     );
     const lines = (await response.text()).split('\n').filter((line) => line.length > 0);
     const step = lines.findIndex((line) => line.includes(MODEL_STEP_DATA_NAME));
-    const finish = lines.findIndex((line) => line.startsWith('d:'));
+    const finishStep = lines.findIndex(
+      (line) => line.includes(MODEL_STREAM_PART_DATA_NAME) && line.includes('"type":"finish-step"')
+    );
 
     expect(step).toBeGreaterThan(-1);
-    expect(step).toBeLessThan(finish);
+    // As the host commits them: the step before its finish-step part.
+    expect(step).toBeLessThan(finishStep);
     const [code, ...value] = (lines[step] ?? '').split(':');
-    expect(code).toBe('aui-data');
-    expect(JSON.parse(value.join(':'))).toMatchObject({
-      data: {
-        messages: [{ content: [{ text: 'hi', type: 'text' }], role: 'assistant' }],
-        stepNumber: 0,
+    expect(code).toBe('2');
+    expect(JSON.parse(value.join(':'))).toMatchObject([
+      {
+        data: {
+          messages: [{ content: [{ text: 'hi', type: 'text' }], role: 'assistant' }],
+          stepNumber: 0,
+        },
+        name: MODEL_STEP_DATA_NAME,
       },
-      name: MODEL_STEP_DATA_NAME,
-    });
+    ]);
   });
 });
 

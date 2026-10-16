@@ -12,7 +12,10 @@ import type {
   DelegatedConversationBaseline,
   DelegatedRunIdentity,
 } from '@brainstrike/assistant-contract/delegated-conversation-stream';
-import type { AssistantModelStepData } from '@brainstrike/assistant-contract/model-step';
+import type {
+  AssistantModelStepData,
+  AssistantModelStreamPart,
+} from '@brainstrike/assistant-contract/model-step';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import type {
@@ -550,9 +553,19 @@ export interface StreamChunkModelStep {
   readonly usage: AssistantModelStepData['usage'];
 }
 
+/**
+ * One AI SDK `fullStream` part of a recorded turn (BST-1940), JSON-safe, as
+ * the host's run loop consumes it. Only a turn asked to record its steps emits it.
+ */
+export interface StreamChunkModelStreamPart {
+  readonly part: AssistantModelStreamPart;
+  readonly type: 'model-stream-part';
+}
+
 export type ConversationStreamChunk =
   | StreamChunkChildUserMessage
   | StreamChunkModelStep
+  | StreamChunkModelStreamPart
   | StreamChunkChildRunUsage
   | StreamChunkContextBreakdown
   | StreamChunkReasoning
