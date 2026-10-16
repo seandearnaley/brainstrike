@@ -1,15 +1,5 @@
 import { LogLevel, type LogRecord } from '@brainstrike/logging';
-import {
-  Badge,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  SelectItem,
-  TablePagination,
-  type useToast,
-} from '@brainstrike/ui';
+import { Badge, SelectItem, TablePagination, type useToast } from '@brainstrike/ui';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import {
   type CellContext,
@@ -202,18 +192,20 @@ function buildLogColumns(
   onShowDetails: (record: LogRecord) => void
 ): ColumnDef<LogTableFeatures, LogRecordRow>[] {
   const messageClassName = wrapLines ? 'line-clamp-2 break-words' : 'truncate';
-  const payloadClassName = wrapLines ? 'line-clamp-2 break-all' : 'truncate';
+  // `line-clamp` brings its own display; a `block` beside it would cancel the clamp.
+  const payloadClassName = wrapLines ? 'line-clamp-2 break-all' : 'block truncate';
   return [
     {
       accessorKey: 'timestamp',
       cell: ({ getValue }: CellContext<LogTableFeatures, LogRecordRow, unknown>) => (
-        <span className="font-mono text-muted-foreground text-xs">
+        <span className="whitespace-nowrap font-mono text-muted-foreground text-xs">
           {formatLogTimestamp(getValue() as number)}
         </span>
       ),
       enableSorting: true,
       header: 'Time',
-      size: 110,
+      // Fits HH:MM:SS.mmm on one line beside the cell padding.
+      size: 124,
     },
     {
       accessorKey: 'level',
@@ -273,7 +265,7 @@ function buildLogColumns(
         const payload = getValue() as string;
         return payload ? (
           <code
-            className={`block rounded border border-border/20 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground ${payloadClassName}`}
+            className={`rounded border border-border/20 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground ${payloadClassName}`}
             title={payload}
           >
             {payload}
@@ -293,7 +285,7 @@ function buildLogColumns(
         const parsed = bindings && bindings !== '{}' ? bindings : null;
         return parsed ? (
           <code
-            className={`block rounded border border-border/20 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground ${payloadClassName}`}
+            className={`rounded border border-border/20 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground ${payloadClassName}`}
             title={parsed}
           >
             {parsed}
@@ -623,6 +615,11 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
       ? 'No logs to display.'
       : `Showing ${pageStart}-${pageEnd} of ${filteredRecords.length} logs (retention ${retentionLimit.toLocaleString()}).`;
   const totalPages = Math.max(1, table.getPageCount());
+  const activeFilterCount =
+    Number(sourceFilter !== ALL_SOURCES_VALUE) +
+    Number(codeFilter !== ALL_CODES_VALUE) +
+    Number(timeStart !== null) +
+    Number(timeEnd !== null);
 
   if (!logSource) {
     return null;
@@ -630,15 +627,14 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
 
   return (
     <>
-      <Card className="flex h-[600px] flex-col overflow-hidden border-border/60 shadow-sm transition-all duration-300 hover:shadow-md">
-        <CardHeader className="border-border/40 border-b bg-muted/10 pb-3">
-          <CardTitle className="font-semibold text-lg tracking-tight">Log Viewer</CardTitle>
-          <CardDescription className="text-xs">
-            Real-time application logs and diagnostics.
-          </CardDescription>
-        </CardHeader>
-
+      {/* Fills its pane; only the log list below scrolls (BST-1791). */}
+      <section
+        aria-label="Log Viewer"
+        className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        data-testid="log-viewer"
+      >
         <LogToolbar
+          activeFilterCount={activeFilterCount}
           autoScroll={autoScroll}
           canRefresh={Boolean(logSource.getInitialRecords)}
           diagnosticFilters={
@@ -680,7 +676,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
           wrapLines={wrapLines}
         />
 
-        <CardContent className="relative flex flex-1 flex-col overflow-hidden p-0">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <LogList
             autoScroll={autoScroll}
             autoScrollAnchor={sortNewestFirst ? 'start' : 'end'}
@@ -691,11 +687,11 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
             {...(emptyStateText === undefined ? {} : { emptyStateText })}
           />
           <div className="pointer-events-none absolute right-0 bottom-0 left-0 h-6 bg-gradient-to-t from-background to-transparent opacity-50" />
-        </CardContent>
+        </div>
 
-        <div className="flex items-center justify-between border-border/40 border-t bg-muted/20 px-4 py-2 text-[10px] text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-border/40 border-t bg-muted/20 px-3 py-1.5 text-[10px] text-muted-foreground">
           <span data-testid="log-viewer-summary">{summaryText}</span>
-          <span className="flex items-center gap-3">
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span data-testid="log-viewer-source-coverage">{sourceCoverageText}</span>
             <span data-testid="log-viewer-live-status" role="status">
               {subscriptionError
@@ -720,7 +716,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
             totalPages={totalPages}
           />
         ) : null}
-      </Card>
+      </section>
       <LogRecordDetailDialog onClose={() => setSelectedRecord(null)} record={selectedRecord} />
     </>
   );

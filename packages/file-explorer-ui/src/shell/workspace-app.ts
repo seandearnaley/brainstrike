@@ -55,3 +55,5 @@ export const TERMINAL_APP_ID = 'terminal';
 export const WORKTREE_MAP_APP_ID = 'worktree-map';
 /** The thread context map (ADR-0021): what the active thread's model received. */
 export const THREAD_CONTEXT_APP_ID = 'thread-context';
+/** Application and diagnostic logs (BST-1791). */
+export const LOGS_APP_ID = 'logs';

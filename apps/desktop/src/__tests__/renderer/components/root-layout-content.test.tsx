@@ -149,6 +149,10 @@ vi.mock('../../../renderer/components/worktree-map-page-content', () => ({
   WorktreeMapPageContent: () => <div data-testid="worktree-map-page-content" />,
 }));
 
+vi.mock('../../../renderer/components/logs-page-content', () => ({
+  LogsPageContent: () => <div data-testid="logs-page-content" />,
+}));
+
 vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
   RootLayoutContent: (props: {
     gitPageContent?: React.ReactNode;
@@ -292,6 +296,8 @@ describe('RootLayoutContent', () => {
     render(<RootLayoutContent />);
     expect(screen.getByTestId('settings-page-content')).toBeInTheDocument();
     expect(sharedRootLayoutCapture.props).not.toHaveProperty('contextExplorerPageContent');
+    // Every desktop window has logs, so the Logs tab is not capability-gated (BST-1791).
+    expect(sharedRootLayoutCapture.props?.['logsPageContent']).toBeDefined();
   });
 
   it('writes the window title for the route on screen, as its one writer', () => {

@@ -72,6 +72,10 @@
       "types": "./dist/settings/system/logging-settings-section.d.ts",
       "import": "./dist/settings/system/logging-settings-section.js"
     },
+    "./settings/system/logs-page": {
+      "types": "./dist/settings/system/logs-page.d.ts",
+      "import": "./dist/settings/system/logs-page.js"
+    },
     "./settings/system/notification-settings-category": {
       "types": "./dist/settings/system/notification-settings-category.d.ts",
       "import": "./dist/settings/system/notification-settings-category.js"

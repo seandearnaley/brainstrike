@@ -9,6 +9,7 @@ import {
   CANVAS_APP_ID,
   CHANGES_APP_ID,
   CONTEXT_EXPLORER_APP_ID,
+  LOGS_APP_ID,
   TERMINAL_APP_ID,
   THREAD_CONTEXT_APP_ID,
   WORKTREE_MAP_APP_ID,
@@ -113,6 +114,24 @@ describe('buildWorkspaceApps', () => {
     expect(apps[2]?.render()).toBe('context');
     expect(
       buildWorkspaceApps({ filesContent: 'files' }).some((app) => app.id === THREAD_CONTEXT_APP_ID)
+    ).toBe(false);
+  });
+
+  it('registers Logs last, after Terminal, only when its page exists (BST-1791)', () => {
+    const apps = buildWorkspaceApps({
+      filesContent: 'files',
+      logsPageContent: 'logs',
+      terminalPageContent: 'terminal',
+    });
+    expect(apps.map((app) => [app.id, app.placement])).toEqual([
+      [CONTEXT_EXPLORER_APP_ID, 'pinned'],
+      [TERMINAL_APP_ID, 'pinned'],
+      [LOGS_APP_ID, 'pinned'],
+    ]);
+    expect(apps.at(-1)?.label).toBe('Logs');
+    expect(apps.at(-1)?.render()).toBe('logs');
+    expect(
+      buildWorkspaceApps({ filesContent: 'files' }).some((app) => app.id === LOGS_APP_ID)
     ).toBe(false);
   });
 });

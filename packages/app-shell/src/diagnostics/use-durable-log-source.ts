@@ -5,8 +5,8 @@ import { createDurableLogSource, type DurableLogSource } from './durable-log-sou
 /**
  * Renderer-side hook (Flight Recorder P2a) that exposes the durable
  * `brainstrike_diagnostic_events` table as a `DurableLogSource` (a
- * `LogSourceAdapter` widened with `exportNdjson()`, Task 6) for the settings
- * Log Viewer's "Persistent errors" source.
+ * `LogSourceAdapter` widened with `exportNdjson()`, Task 6) for the Logs
+ * tab's "Persistent errors" source.
  *
  * Capability by composition, not `isElectron()`: `useOptionalPGliteDatabase()`
  * returns `null` until a PGlite database handle is ready, in which case this
@@ -17,7 +17,7 @@ import { createDurableLogSource, type DurableLogSource } from './durable-log-sou
  * The returned adapter is memoized and keyed on the `db` handle's identity
  * so it stays referentially STABLE across re-renders with the same handle.
  * `createDurableLogSource` itself returns a brand-new object on every call
- * (Task 4's contract), and the settings Log Viewer's effect depends on
+ * (Task 4's contract), and the Log Viewer's effect depends on
  * `logSource` identity to decide whether to tear down and re-subscribe — an
  * unstable adapter would re-subscribe (and restart polling) on every
  * render, the same hazard the desktop `forwardedRecords` prop hit in P1.

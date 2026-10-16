@@ -1,7 +1,7 @@
 import {
+  openLogsTab,
   useDiagnosticSinkHealthStore,
   useDiagnosticsPurge,
-  useDurableLogSource,
 } from '@brainstrike/app-shell/diagnostics';
 import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
 import {
@@ -10,7 +10,6 @@ import {
 } from '@brainstrike/assistant-contract/boundary-failure';
 import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import type { LoggingPreferences } from '@brainstrike/logging';
-import { LogBuffer, LogLevel, type LogRecord } from '@brainstrike/logging';
 import {
   LoggingSettingsSection,
   type LoggingSettingsSectionProps,
@@ -23,9 +22,8 @@ import {
   CardTitle,
   useToast,
 } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useReducer } from 'react';
+import { useCallback, useEffect, useReducer } from 'react';
 import type { LoggingSettingsPayload } from '../../../logging-shared';
-import { getRendererLogBuffer } from '../../log-buffer';
 
 interface LoggingSettingsState {
   error: string | null;
@@ -56,61 +54,6 @@ function loggingSettingsReducer(
   }
 }
 
-function createDesktopLogSource(): LoggingSettingsSectionProps['logSource'] {
-  const buffer = getRendererLogBuffer();
-  const mainBuffer = new LogBuffer();
-  let diagnostic: LogRecord | undefined;
-  const subscribers = new Set<(records: readonly LogRecord[]) => void>();
-  const readRecords = () => [
-    ...buffer.getRecords(),
-    ...mainBuffer.getRecords(),
-    ...(diagnostic ? [diagnostic] : []),
-  ];
-  const publish = () => {
-    const records = readRecords();
-    for (const handler of subscribers) {
-      handler(records);
-    }
-  };
-  return {
-    getInitialRecords: async () => {
-      try {
-        const getMainRecords = window.logging?.getBufferedLogs;
-        if (!getMainRecords) {
-          throw refusalError(
-            'availability',
-            'logging.unavailable',
-            'Electron main logging is unavailable.'
-          );
-        }
-        const records = await callBoundary(getMainRecords);
-        mainBuffer.clear();
-        for (const record of records) {
-          mainBuffer.push(record);
-        }
-        diagnostic = undefined;
-      } catch (error) {
-        diagnostic = createMainLogSourceDiagnostic(describeBoundaryError(error));
-      }
-      publish();
-      return readRecords();
-    },
-    subscribe: (handler) => {
-      subscribers.add(handler);
-      const unsubscribeRenderer = buffer.subscribe(publish);
-      const unsubscribeMain = window.logging?.onDurableRecord((record) => {
-        mainBuffer.push(record);
-        publish();
-      });
-      return () => {
-        subscribers.delete(handler);
-        unsubscribeRenderer();
-        unsubscribeMain?.();
-      };
-    },
-  };
-}
-
 export function DesktopLoggingSettings() {
   const [settingsState, settingsDispatch] = useReducer(loggingSettingsReducer, {
     error: null,
@@ -122,9 +65,6 @@ export function DesktopLoggingSettings() {
   const { toast } = useToast();
 
   const setPreferences = useLoggingPreferencesStore((state) => state.setPreferences);
-  const logSource = useMemo(() => createDesktopLogSource(), []);
-
-  const durableLogSource = useDurableLogSource();
   const onPurgeNow = useDiagnosticsPurge();
   const sinkHealthReason = useDiagnosticSinkHealthStore((state) => state.disabledReason);
 
@@ -292,36 +232,16 @@ export function DesktopLoggingSettings() {
     <LoggingSettingsSection
       busy={syncing}
       fileCapabilities={fileCapabilities}
-      logSource={logSource}
       onCommitPreferences={commitPreferences}
       onOpenLogDestination={openDestination}
+      onOpenLogs={openLogsTab}
       onResetPreferences={resetPreferences}
       onSelectLogDestination={selectDestination}
       runtime="electron-renderer"
       sinkHealthReason={sinkHealthReason}
-      {...(durableLogSource === undefined
-        ? {}
-        : {
-            durableLogSource,
-            onExportDurableNdjson: () => durableLogSource.exportNdjson(),
-          })}
       {...(onPurgeNow === undefined ? {} : { onPurgeNow })}
     />
   );
-}
-
-function createMainLogSourceDiagnostic(reason: string): LogRecord {
-  return {
-    args: [{ reason }],
-    bindings: {
-      logSource: 'electron-main',
-      runtime: 'electron-renderer',
-    },
-    level: LogLevel.WARN,
-    message: 'Electron main logs unavailable',
-    scope: 'DesktopLoggingSettings',
-    timestamp: Date.now(),
-  };
 }
 
 export default DesktopLoggingSettings;

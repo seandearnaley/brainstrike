@@ -17,6 +17,7 @@ import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
 import { NotebookPen } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo } from 'react';
 import { getEmbeddingQueue, registerWebEmbeddingRuntimeConfig } from '../create-embedding-queue';
+import { LogsPageContent } from './logs-page-content';
 import SettingsPageContent from './settings/page-content';
 
 const NOTES_NAVIGATION_ITEM: NavigationItem = { icon: NotebookPen, name: 'Notes', path: '/notes' };
@@ -96,6 +97,8 @@ export default function RootLayoutContent() {
     // `canvasPanelContent` back is one line once web gains a write path.
     databaseTabChunkingMode: 'local',
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring
+    // This tab's log buffer, and durable diagnostics when the database is open (BST-1791).
+    logsPageContent: <LogsPageContent />,
     navigationItems: navigationConfig,
     settingsPageContent: <SettingsPageContent />,
     ...(notesAvailable ? { notesPageContent: <NotesPageContent /> } : {}),

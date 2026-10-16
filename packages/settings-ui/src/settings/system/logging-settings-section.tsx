@@ -24,12 +24,11 @@ import {
   Switch,
   useToast,
 } from '@brainstrike/ui';
-import { Download, FolderOpen, RefreshCw, Trash2 } from 'lucide-react';
-import { type ReactNode, useMemo, useState } from 'react';
-import { LogViewer } from './log-viewer-components/log-viewer';
+import { FolderOpen, RefreshCw, ScrollText, Trash2 } from 'lucide-react';
+import { type ReactNode, useMemo } from 'react';
+import { DiagnosticSinkHealthBanner } from './diagnostic-sink-health-banner';
 import type { FileCapabilities, LoggingSettingsSectionProps } from './logging-settings-types';
 import { useDiagnosticsPurgeAction } from './use-diagnostics-purge-action';
-import { useDurableNdjsonExport } from './use-durable-ndjson-export';
 import { useLoggingPreferencesSync } from './use-logging-preferences-sync';
 
 const LOG_LEVEL_OPTIONS: LogLevel[] = [
@@ -48,10 +47,6 @@ export type {
   FileCapabilities,
   LoggingSettingsSectionProps,
 } from './logging-settings-types';
-
-type LogSourceMode = 'persistent' | 'session';
-
-const DURABLE_EMPTY_STATE_TEXT = 'No durable warn+ events recorded.';
 
 function formatLogLevel(level: LogLevel): string {
   return level.charAt(0).toUpperCase() + level.slice(1).toLowerCase();
@@ -81,13 +76,10 @@ export function LoggingSettingsSection({
   onSelectLogDestination,
   onOpenLogDestination,
   onResetPreferences,
-  logSource,
-  durableLogSource,
-  onExportDurableNdjson,
+  onOpenLogs,
   onPurgeNow,
   sinkHealthReason,
 }: LoggingSettingsSectionProps) {
-  const [logSourceMode, setLogSourceMode] = useState<LogSourceMode>('session');
   const { toast } = useToast();
   const {
     applyNestedUpdates,
@@ -106,14 +98,7 @@ export function LoggingSettingsSection({
     toast,
   });
   const { handlePurgeNow, isPurgingNow } = useDiagnosticsPurgeAction({ onPurgeNow, toast });
-  const { handleExportDurableNdjson, isExportingDurableNdjson } = useDurableNdjsonExport({
-    onExportDurableNdjson,
-    toast,
-  });
   const pending = busy || isSyncing;
-  const usingDurableLogSource = Boolean(durableLogSource) && logSourceMode === 'persistent';
-  const activeLogSource = usingDurableLogSource ? durableLogSource : logSource;
-  const activeEmptyStateText = usingDurableLogSource ? DURABLE_EMPTY_STATE_TEXT : undefined;
 
   const logLevelItems = useMemo(
     () =>
@@ -134,6 +119,7 @@ export function LoggingSettingsSection({
   return (
     <div className="space-y-6">
       {sinkHealthReason ? <DiagnosticSinkHealthBanner reason={sinkHealthReason} /> : null}
+      {onOpenLogs ? <OpenLogsCard onOpenLogs={onOpenLogs} /> : null}
       <GeneralLoggingCard
         applyUpdates={applyUpdates}
         logLevelItems={logLevelItems}
@@ -163,49 +149,27 @@ export function LoggingSettingsSection({
         isPurgingNow={isPurgingNow}
         pending={pending}
       />
-      {durableLogSource ? (
-        <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
-          <div>
-            <Label htmlFor="log-source-mode">Log Source</Label>
-            <p className="text-muted-foreground text-xs">
-              Session shows in-memory logs since launch. Persistent errors reads durable warn+
-              events stored in the database.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Select
-              onValueChange={(value) => setLogSourceMode(value as LogSourceMode)}
-              value={logSourceMode}
-            >
-              <SelectTrigger className="w-[200px]" id="log-source-mode">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="session">Session</SelectItem>
-                <SelectItem value="persistent">Persistent errors</SelectItem>
-              </SelectContent>
-            </Select>
-            {usingDurableLogSource && onExportDurableNdjson ? (
-              <Button
-                disabled={isExportingDurableNdjson}
-                onClick={handleExportDurableNdjson}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                <Download aria-hidden="true" className="mr-2 h-4 w-4" />
-                Export NDJSON
-              </Button>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-      <LogViewer
-        logSource={activeLogSource}
-        toast={toast}
-        {...(activeEmptyStateText === undefined ? {} : { emptyStateText: activeEmptyStateText })}
-      />
     </div>
+  );
+}
+
+/** The log viewer is its own workspace tab (BST-1791); Settings links to it. */
+function OpenLogsCard({ onOpenLogs }: { onOpenLogs: () => void }) {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+        <div className="space-y-1.5">
+          <CardTitle>Logs</CardTitle>
+          <CardDescription>
+            Application and diagnostic logs open in their own workspace tab.
+          </CardDescription>
+        </div>
+        <Button onClick={onOpenLogs} size="sm" type="button" variant="outline">
+          <ScrollText aria-hidden="true" className="mr-2 h-4 w-4" />
+          Open Logs
+        </Button>
+      </CardHeader>
+    </Card>
   );
 }
 
@@ -496,29 +460,6 @@ function AdvancedLoggingCard({
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-/**
- * Flight Recorder P2b Task 5: the §4.3 honest-degradation surface for a
- * diagnostic sink that gave up after repeated flush failures. Rendered at the
- * TOP of the section because everything below it (the Persistent log source,
- * the retention card) silently describes a store that is no longer being
- * written to. Uses the same amber treatment as the file-logging warning
- * already in this file.
- */
-function DiagnosticSinkHealthBanner({ reason }: { reason: string }) {
-  return (
-    <div
-      className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-warning text-xs"
-      data-testid="diagnostic-sink-health-banner"
-      role="alert"
-    >
-      <span className="font-medium">Durable diagnostic capture has stopped.</span> Warnings and
-      errors are no longer being written to the local database, so the Persistent log view and
-      exports will not include anything after this point. Reason: {reason}. Restarting the app
-      re-enables capture.
-    </div>
   );
 }
 

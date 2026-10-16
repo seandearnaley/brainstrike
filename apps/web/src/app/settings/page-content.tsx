@@ -8,9 +8,9 @@ import { verifyProviderCredential } from '@brainstrike/app-shell';
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking-settings';
 import {
   createSystemDiagnosticsSettingsCategory,
+  openLogsTab,
   useDiagnosticSinkHealthStore,
   useDiagnosticsPurge,
-  useDurableLogSource,
 } from '@brainstrike/app-shell/diagnostics';
 import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/app-state/automation-overrides';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
@@ -24,10 +24,7 @@ import {
   ModelSelectionPage,
 } from '@brainstrike/settings-ui/settings/models/model-selection-page';
 import { createProvidersSettingsCategory } from '@brainstrike/settings-ui/settings/providers/providers-settings-category';
-import {
-  LoggingSettingsSection,
-  type LogSourceAdapter,
-} from '@brainstrike/settings-ui/settings/system/logging-settings-section';
+import { LoggingSettingsSection } from '@brainstrike/settings-ui/settings/system/logging-settings-section';
 import { createNotificationSettingsCategory } from '@brainstrike/settings-ui/settings/system/notification-settings-category';
 import {
   createToolsSettingsCategory,
@@ -49,7 +46,6 @@ import {
 } from '@brainstrike/settings-ui/settings-page-content';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
-import { getWebLogBuffer } from '../../log-buffer';
 
 configureModelRuntimeServices({
   downloadEmbeddingModel: async (modelId, options) => {
@@ -100,15 +96,6 @@ export default function SettingsPageContent() {
     (s) => s.setDevInlineFixtureEnabled
   );
 
-  const logSource = useMemo<LogSourceAdapter>(() => {
-    const buffer = getWebLogBuffer();
-    return {
-      getInitialRecords: async () => buffer.getRecords(),
-      subscribe: (handler) => buffer.subscribe(handler),
-    };
-  }, []);
-
-  const durableLogSource = useDurableLogSource();
   const onPurgeNow = useDiagnosticsPurge();
   const sinkHealthReason = useDiagnosticSinkHealthStore((state) => state.disabledReason);
 
@@ -202,15 +189,9 @@ export default function SettingsPageContent() {
       {
         content: (
           <LoggingSettingsSection
-            logSource={logSource}
+            onOpenLogs={openLogsTab}
             runtime="browser"
             sinkHealthReason={sinkHealthReason}
-            {...(durableLogSource === undefined
-              ? {}
-              : {
-                  durableLogSource,
-                  onExportDurableNdjson: () => durableLogSource.exportNdjson(),
-                })}
             {...(onPurgeNow === undefined ? {} : { onPurgeNow })}
           />
         ),
@@ -241,8 +222,6 @@ export default function SettingsPageContent() {
       }),
     ];
   }, [
-    logSource,
-    durableLogSource,
     onPurgeNow,
     sinkHealthReason,
     storedFolders.length,
