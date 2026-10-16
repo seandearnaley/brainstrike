@@ -186,7 +186,7 @@ export const PROVIDER_CASSETTE_SCENARIOS: readonly ProviderCassetteScenario[] = 
     files: { 'notes.md': '# Notes\n\nThe cassette harness replays recorded provider streams.\n' },
     guards: '#3713',
     id: 'openrouter-empty-args-tool-call',
-    model: 'openrouter::z-ai/glm-5.3',
+    model: 'openrouter::z-ai/glm-5.3-flash',
     // At the provider's own pace the call's input deltas commit before the call
     // completes, as they do live; served at once, the completed call lands first.
     pace: 1,

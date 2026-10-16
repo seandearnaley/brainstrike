@@ -18,6 +18,7 @@ all lived in that gap.
 | Shape plus projection invariants | [`conversation-shape.ts`](../../apps/desktop/src/__tests__/helpers/conversation-shape.ts) |
 | Host lane, standalone host | `pnpm --filter @brainstrike/desktop test:provider-cassettes` |
 | Desktop E2E | `apps/desktop/e2e/provider-cassettes.desktop.test.ts` |
+| Record scenarios (host lane) | `pnpm cassettes:record <scenario id\|all>` |
 | Ad-hoc capture from any client | `pnpm cassettes:proxy --out <file.json>` |
 
 The model-provider shim serves a cassette when its script is
@@ -54,37 +55,39 @@ title timing. It is snapshotted (`__snapshots__`), never text.
 
 ## Record a scenario
 
-Recording makes paid provider calls with your own key. Export only the
-scenario's provider key in your shell (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`
-or `OPENAI_API_KEY`), then:
+Recording makes paid provider calls with the owner's own keys. Agents never read,
+print or export a key, and never use the owner's main profile unless the owner
+approves it for that task. Choose one route:
 
-```bash
-BRAINSTRIKE_PROVIDER_CASSETTE_RECORD=openrouter-empty-args-tool-call pnpm --filter @brainstrike/desktop test:provider-cassettes -u -t openrouter-empty-args-tool-call
-```
+1. **Keys the owner exports.** Export only the scenario's provider key in your
+   shell (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`), then
+   run `pnpm cassettes:record <scenario id|all>`. This runs the host lane in
+   record mode. `openrouter-provider-error` records with a deliberately invalid
+   key.
+2. **The app's own credentials.** Start the recorder with
+   `pnpm cassettes:proxy --out <file.json>`, which prints the three base-URL
+   knobs. Start the dev app with those knobs set, on a profile that holds keys
+   and that the owner approved for this, then reproduce the scenario. Ctrl-C
+   writes the capture. The proxy only forwards the app's own headers. Use this
+   for ad-hoc and desktop-only captures. A lane scenario replays reliably only
+   when the app called the same tools the standalone host offers.
 
-`all` records every scenario. A recording is written only if it passes four
-checks:
+The host lane writes a cassette only if it passes four checks:
 
-1. Nothing in it trips the secret scanner (`scripts/secret-scan.mjs`), and it
-   holds no home directory, user name, workspace path or the key itself.
-   Requests keep only protocol headers, never auth.
+1. Neither the requests nor the responses trip the secret scanner
+   (`scripts/secret-scan.mjs`), and nothing holds the home directory, user name,
+   workspace path or the key itself. Requests keep only protocol headers, never
+   auth. A tool result in a request can carry a leaked key.
 2. It shows the behavior its scenario exists for (`exhibits`), for example
    GLM's empty-arguments tool frame.
 3. It keeps every invariant.
 4. It replays to the same shape.
 
-Review the shape snapshot diff before committing.
+The proxy applies check 1. Review the shape snapshot diff before committing.
 
 Prompts name workspace-relative paths and pass no root, so a cassette replays
 in any workspace and in both lanes. A model that writes an absolute path fails
 check 1. Record the scenario again, or tighten its prompt.
-
-## Capture from the app
-
-`pnpm cassettes:proxy --out capture.json` prints the three base-URL knobs. Start
-the dev app on a disposable profile with them set, reproduce the issue, then
-press Ctrl-C. It applies the same findings check. To make a capture a lane
-scenario, write its scenario entry and record it through the lane.
 
 ## Phase 2
 
