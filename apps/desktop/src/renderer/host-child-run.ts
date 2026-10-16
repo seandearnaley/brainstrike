@@ -1,4 +1,5 @@
 import { hostAnswerText } from '@brainstrike/agent-host/child-answer';
+import { hostRootRunTurnId } from '@brainstrike/agent-host/committed-identities';
 import { isHostToolCallChunk } from '@brainstrike/agent-host/ledger-projection';
 import type { HostLogRow } from '@brainstrike/agent-host/protocol';
 import type { SubagentChildRun } from '@brainstrike/assistant-ui';
@@ -17,6 +18,8 @@ export class HostChildRunFold {
   /** The child's first run: its delegated invocation, part of the parent's turn. */
   private first: string | undefined;
   private latest: string | undefined;
+  /** The latest run's root turn, read as a root thread's run (`hostRootRunTurnId`). */
+  private latestTurn: string | undefined;
   private outcome: Extract<HostLogRow['event'], { type: 'run.finished' }>['outcome'] | undefined;
   /** Whether the latest run's last assistant message so far has text. */
   private answered = false;
@@ -50,6 +53,7 @@ export class HostChildRunFold {
       case 'run.started':
         this.first ??= event.runId;
         this.latest = event.runId;
+        this.latestTurn = hostRootRunTurnId(event);
         this.outcome = undefined;
         this.answered = false;
         this.waiting.clear();
@@ -90,6 +94,14 @@ export class HostChildRunFold {
    */
   runsDelegatedInvocation(): boolean {
     return this.latest !== undefined && this.latest === this.first;
+  }
+
+  /**
+   * For a root thread: the turn its latest run belongs to, which that run's
+   * Stop ends with the turn's background children. Undefined before its first run.
+   */
+  rootTurnId(): string | undefined {
+    return this.latestTurn;
   }
 
   /** A step's messages replace the answer only when they hold an assistant message. */

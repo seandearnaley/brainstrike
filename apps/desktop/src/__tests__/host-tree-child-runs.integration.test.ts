@@ -142,7 +142,8 @@ test('between the parent’s runs, the tree names its working background child a
   if (!child) {
     throw new Error('The root delegated no child');
   }
-  // The parent answered and ended; its child still works, two calls in.
+  // The parent answered and ended; its child still works, two calls in, and
+  // no root run is active whose Stop would end it.
   await expect.poll(() => finished(session)).toBe(true);
   await expect.poll(() => tree.read(child.threadId)).toEqual({ status: 'running', toolCalls: 2 });
   await expect
@@ -151,10 +152,9 @@ test('between the parent’s runs, the tree names its working background child a
       children: [
         { owner: hostChildCallSign(child.threadId), threadId: child.threadId, turnId: runId },
       ],
-      idle: true,
     });
 
-  await stopHostChildTurns(client, threadId, tree.getRunning());
+  await stopHostChildTurns(client, threadId, tree.getRunning().children);
   await expect.poll(() => tree.read(child.threadId)).toEqual({ status: 'stopped', toolCalls: 2 });
   await expect.poll(() => tree.getRunning().children).toEqual([]);
   // A stopped turn's results wait for the next user turn: a wake would have

@@ -8,7 +8,13 @@ import { SubagentsRunningStrip } from '../subagents-running-strip';
 afterEach(cleanup);
 
 it('says how many subagents are still working and names them', () => {
-  render(<SubagentsRunningStrip owners={['Cedar-1a2b3c', 'Fern-4d5e6f', 'Aspen-7a8b9c']} />);
+  render(
+    <SubagentsRunningStrip
+      onStop={vi.fn()}
+      owners={['Cedar-1a2b3c', 'Fern-4d5e6f', 'Aspen-7a8b9c']}
+      stoppable={[]}
+    />
+  );
   const strip = screen.getByRole('status');
   expect(strip).toHaveTextContent('3 subagents running');
   expect(screen.getByText('3 subagents running')).toHaveAttribute(
@@ -17,18 +23,41 @@ it('says how many subagents are still working and names them', () => {
   );
   // The live mark is the shared, reduced-motion-aware thinking mark.
   expect(strip.querySelector('[data-live="true"]')).not.toBeNull();
-  // Without a Stop of its own (the conversation's run is active), it only informs.
+  // None it could stop (the conversation's running turn owns them): it only informs.
   expect(screen.queryByRole('button')).toBeNull();
 });
 
 it('names a single subagent in the singular', () => {
-  render(<SubagentsRunningStrip onStop={vi.fn(async () => undefined)} owners={['Cedar-1a2b3c']} />);
+  render(
+    <SubagentsRunningStrip
+      onStop={vi.fn(async () => undefined)}
+      owners={['Cedar-1a2b3c']}
+      stoppable={['Cedar-1a2b3c']}
+    />
+  );
   expect(screen.getByRole('status')).toHaveTextContent('1 subagent running');
   expect(screen.getByRole('button', { name: 'Stop 1 running subagent' })).toBeEnabled();
 });
 
+// Codex review on #3719: a child from an earlier turn keeps running under the
+// conversation's next turn, whose Stop does not end it.
+it('offers Stop for the subagents the running turn does not own, and names them', () => {
+  render(
+    <SubagentsRunningStrip
+      onStop={vi.fn(async () => undefined)}
+      owners={['Cedar-1a2b3c', 'Fern-4d5e6f', 'Aspen-7a8b9c']}
+      stoppable={['Cedar-1a2b3c']}
+    />
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('3 subagents running');
+  const stop = screen.getByRole('button', { name: 'Stop 1 running subagent' });
+  expect(stop).toHaveAttribute('title', 'Cedar-1a2b3c');
+});
+
 it('renders nothing while no subagent works', () => {
-  const { container } = render(<SubagentsRunningStrip onStop={vi.fn()} owners={[]} />);
+  const { container } = render(
+    <SubagentsRunningStrip onStop={vi.fn()} owners={[]} stoppable={[]} />
+  );
   expect(container).toBeEmptyDOMElement();
 });
 
@@ -49,7 +78,8 @@ it('stops them once, says so while the host stops them, and shows a refusal', as
           settle = resolve;
         })
     );
-  render(<SubagentsRunningStrip onStop={onStop} owners={['Cedar-1a2b3c', 'Fern-4d5e6f']} />);
+  const owners = ['Cedar-1a2b3c', 'Fern-4d5e6f'];
+  render(<SubagentsRunningStrip onStop={onStop} owners={owners} stoppable={owners} />);
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: 'Stop 2 running subagents' }));
   const stopping = screen.getByRole('button', { name: 'Stop 2 running subagents' });
@@ -65,4 +95,24 @@ it('stops them once, says so while the host stops them, and shows a refusal', as
   await act(async () => settle?.());
   expect(onStop).toHaveBeenCalledTimes(2);
   expect(screen.getByRole('button', { name: 'Stop 2 running subagents' })).toBeEnabled();
+});
+
+// Codex review on #3719: a refusal is about the subagents it tried to stop;
+// once they finish, a later, unrelated subagent never shows it.
+it('a refusal clears once the subagents it was about are gone', async () => {
+  const onStop = vi.fn(async () => {
+    throw new Error('The agent host is not connected.');
+  });
+  const { rerender } = render(
+    <SubagentsRunningStrip onStop={onStop} owners={['Cedar-1a2b3c']} stoppable={['Cedar-1a2b3c']} />
+  );
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Stop 1 running subagent' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('The agent host is not connected.');
+
+  rerender(<SubagentsRunningStrip onStop={onStop} owners={[]} stoppable={[]} />);
+  rerender(
+    <SubagentsRunningStrip onStop={onStop} owners={['Fern-4d5e6f']} stoppable={['Fern-4d5e6f']} />
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('1 subagent running');
+  expect(screen.queryByRole('alert')).toBeNull();
 });

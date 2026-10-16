@@ -90,14 +90,17 @@ test('nothing renders while no child waits', () => {
   expect(container).toBeEmptyDOMElement();
 });
 
-/** A root's tree whose background children are still working. */
-function running(idle: boolean): Pick<HostTreeApprovals, 'getRunning' | 'subscribe' | 'threadId'> {
+/** A root's tree whose background children are still working, while the root runs `activeTurnId`. */
+function running(
+  activeTurnId?: string,
+  children: HostTreeRunning['children'] = [
+    { owner: 'Cedar-1a2b3c', threadId: 'child-a', turnId: 'turn-1' },
+    { owner: 'Fern-4d5e6f', threadId: 'child-b', turnId: 'turn-1' },
+  ]
+): Pick<HostTreeApprovals, 'getRunning' | 'subscribe' | 'threadId'> {
   const snapshot: HostTreeRunning = {
-    children: [
-      { owner: 'Cedar-1a2b3c', threadId: 'child-a', turnId: 'turn-1' },
-      { owner: 'Fern-4d5e6f', threadId: 'child-b', turnId: 'turn-1' },
-    ],
-    idle,
+    ...(activeTurnId === undefined ? {} : { activeTurnId }),
+    children,
   };
   return { getRunning: () => snapshot, subscribe: () => () => undefined, threadId: 'root-1' };
 }
@@ -110,7 +113,7 @@ function stopClient(request: (method: string, params: unknown) => Promise<unknow
 
 test('between the root’s runs, it names its working background children and Stop ends their turn', async () => {
   const request = vi.fn(async () => ({ outcome: 'already-terminal' as const }));
-  render(<HostChildrenRunning client={stopClient(request)} tree={running(true)} />);
+  render(<HostChildrenRunning client={stopClient(request)} tree={running()} />);
   expect(screen.getByRole('status')).toHaveTextContent('2 subagents running');
   fireEvent.click(screen.getByRole('button', { name: 'Stop 2 running subagents' }));
   // One root Stop for their shared turn: the host stops the turn's children and
@@ -124,16 +127,40 @@ test('between the root’s runs, it names its working background children and St
 });
 
 test('while the root runs, it only names its working children; the composer’s Stop ends the turn', () => {
-  render(<HostChildrenRunning client={stopClient(vi.fn())} tree={running(false)} />);
+  render(<HostChildrenRunning client={stopClient(vi.fn())} tree={running('turn-1')} />);
   expect(screen.getByRole('status')).toHaveTextContent('2 subagents running');
   expect(screen.queryByRole('button')).toBeNull();
+});
+
+// Codex review on #3719: a child of turn 1 still works after the root starts
+// turn 2. The composer's Stop ends turn 2 and its children only, so the strip
+// keeps a Stop for the turn-1 child, and never claims turn 2's.
+test('while the root runs a later turn, Stop ends only the children of earlier turns', async () => {
+  const request = vi.fn(async () => ({ outcome: 'already-terminal' as const }));
+  render(
+    <HostChildrenRunning
+      client={stopClient(request)}
+      tree={running('turn-2', [
+        { owner: 'Cedar-1a2b3c', threadId: 'child-a', turnId: 'turn-1' },
+        { owner: 'Fern-4d5e6f', threadId: 'child-b', turnId: 'turn-2' },
+      ])}
+    />
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('2 subagents running');
+  fireEvent.click(screen.getByRole('button', { name: 'Stop 1 running subagent' }));
+  await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+  expect(request).toHaveBeenCalledWith('run/stop', {
+    commandId: expect.any(String),
+    runId: 'turn-1',
+    threadId: 'root-1',
+  });
 });
 
 test('a Stop the host refuses stays visible with the host’s reason', async () => {
   const request = vi.fn(async () => {
     throw new BoundaryFailureError(INTERNAL_FAULT);
   });
-  render(<HostChildrenRunning client={stopClient(request)} tree={running(true)} />);
+  render(<HostChildrenRunning client={stopClient(request)} tree={running()} />);
   fireEvent.click(screen.getByRole('button', { name: 'Stop 2 running subagents' }));
   expect(await screen.findByRole('alert')).toHaveTextContent(
     describeBoundaryFailure(INTERNAL_FAULT)

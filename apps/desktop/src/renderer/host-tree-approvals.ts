@@ -22,9 +22,12 @@ export interface HostTreeRunningChild {
 
 /** The viewed thread's background children still working, and whether it runs itself. */
 export interface HostTreeRunning {
+  /**
+   * The turn of the viewed thread's own working run, whose composer Stop ends
+   * that turn's children; absent while the thread has no run in progress.
+   */
+  readonly activeTurnId?: string;
   readonly children: readonly HostTreeRunningChild[];
-  /** The viewed thread has no run of its own in progress, so its composer offers no Stop. */
-  readonly idle: boolean;
 }
 
 /**
@@ -38,9 +41,9 @@ export interface HostTreeRunning {
 export async function stopHostChildTurns(
   client: Pick<HostClient, 'request'>,
   threadId: string,
-  running: HostTreeRunning
+  children: readonly HostTreeRunningChild[]
 ): Promise<void> {
-  const turns = new Set(running.children.map((child) => child.turnId));
+  const turns = new Set(children.map((child) => child.turnId));
   await Promise.all(
     [...turns].map((runId) =>
       client.request('run/stop', { commandId: crypto.randomUUID(), runId, threadId })
@@ -124,7 +127,7 @@ interface WatchedThread {
 const NO_APPROVALS: readonly HostTreeApproval[] = [];
 const NO_INTERACTIONS: readonly HostTreeInteraction[] = [];
 const NO_ANSWERED: readonly HostTreeAnsweredApproval[] = [];
-const NOT_RUNNING: HostTreeRunning = { children: [], idle: true };
+const NOT_RUNNING: HostTreeRunning = { children: [] };
 
 /** A run still working, whether or not it waits on a person. */
 function working(run: SubagentChildRun | undefined): boolean {
@@ -140,7 +143,7 @@ function sameRuns(
 
 function sameRunning(a: HostTreeRunning, b: HostTreeRunning): boolean {
   return (
-    a.idle === b.idle &&
+    a.activeTurnId === b.activeTurnId &&
     a.children.length === b.children.length &&
     a.children.every(
       (child, index) =>
@@ -356,11 +359,11 @@ export class HostTreeApprovals implements SubagentChildRunSource {
   } {
     const runs = new Map<string, SubagentChildRun>();
     const children: HostTreeRunningChild[] = [];
-    let idle = true;
+    let activeTurnId: string | undefined;
     for (const [threadId, { fold, origin, owner, session }] of this.threads) {
       const run = fold.apply(session.getSnapshot().rows);
       if (origin === undefined || owner === undefined) {
-        idle = !working(run);
+        activeTurnId = working(run) ? fold.rootTurnId() : undefined;
         continue;
       }
       if (run) {
@@ -375,6 +378,12 @@ export class HostTreeApprovals implements SubagentChildRunSource {
         children.push({ owner, threadId, turnId: origin.turnId });
       }
     }
-    return { running: children.length > 0 ? { children, idle } : { ...NOT_RUNNING, idle }, runs };
+    return {
+      running: {
+        ...(activeTurnId === undefined ? {} : { activeTurnId }),
+        children: children.length > 0 ? children : NOT_RUNNING.children,
+      },
+      runs,
+    };
   }
 }

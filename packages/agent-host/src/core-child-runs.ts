@@ -27,6 +27,7 @@ import {
   hostInvocationLimitText,
 } from './child-runs.js';
 import { HostChildWorkQueue } from './child-work-queue.js';
+import { hostRootRunTurnId } from './committed-identities.js';
 import { retainHostRunWork } from './core-run-lifecycle.js';
 import {
   type HostRunState,
@@ -141,8 +142,11 @@ export function reportHostChildWakeFailure(threadId: string, cause: unknown): vo
 
 /** The root turn a run belongs to: children and wakes keep their turn's ID. */
 export function hostRunTurnId(run: HostRunState): string {
-  const delivery = run.branch.delivery;
-  return run.turnId ?? run.origin?.turnId ?? (delivery?.via === 'wake' ? delivery.turnId : run.id);
+  return (
+    run.turnId ??
+    run.origin?.turnId ??
+    hostRootRunTurnId({ delivery: run.branch.delivery, runId: run.id })
+  );
 }
 
 type Outcome = NonNullable<HostRunState['outcome']>;

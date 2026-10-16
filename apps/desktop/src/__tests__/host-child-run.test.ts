@@ -25,6 +25,31 @@ test('a child running its delegated invocation, then a follow-up turn of its own
   expect(fold.runsDelegatedInvocation()).toBe(false);
 });
 
+// Codex review on #3719: the composer's Stop ends only its run's turn, so the
+// strip needs the root's turn. A wake continues the turn it delivers; a user
+// run starts its own (agent-host `hostRootRunTurnId`).
+test('a root thread’s working run names its turn: its own, or the turn its wake delivers', () => {
+  const fold = new HostChildRunFold();
+  expect(fold.rootTurnId()).toBeUndefined();
+  const rows: HostLogRow[] = [row(1, { runId: 'turn-a', type: 'run.started' })];
+  fold.apply(rows);
+  expect(fold.rootTurnId()).toBe('turn-a');
+  rows.push(row(2, { outcome: 'completed', runId: 'turn-a', type: 'run.finished' }));
+  rows.push(
+    row(3, {
+      delivery: { entries: [], messageId: 'm', turnId: 'turn-a', via: 'wake' },
+      runId: 'wake-1',
+      type: 'run.started',
+    })
+  );
+  fold.apply(rows);
+  expect(fold.rootTurnId()).toBe('turn-a');
+  rows.push(row(4, { outcome: 'completed', runId: 'wake-1', type: 'run.finished' }));
+  rows.push(row(5, { runId: 'turn-b', type: 'run.started' }));
+  fold.apply(rows);
+  expect(fold.rootTurnId()).toBe('turn-b');
+});
+
 test('a child that has not started reports no delegated invocation', () => {
   const fold = new HostChildRunFold();
   expect(fold.apply([])).toBeUndefined();

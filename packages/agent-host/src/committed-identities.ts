@@ -15,6 +15,18 @@ type AcceptedRow = HostLogRow & {
 /** The commands whose acceptance admits a run. */
 const RUN_ADMISSIONS: ReadonlySet<string> = new Set(['run/regenerate', 'run/start']);
 
+/**
+ * The root turn a root thread's run belongs to, from its `run.started`: a wake
+ * continues the turn whose children it delivers; any other run starts its own.
+ * A run/stop of that turn's ID ends its background children (`hostRunTurnId`).
+ */
+export function hostRootRunTurnId(started: {
+  readonly delivery?: Extract<HostEvent, { type: 'run.started' }>['delivery'] | undefined;
+  readonly runId: string;
+}): string {
+  return started.delivery?.via === 'wake' ? started.delivery.turnId : started.runId;
+}
+
 /** Existing SQLite primary-key address, encoded for a library's string-ID port. */
 export function committedRowAddress(row: Pick<HostLogRow, 'threadId' | 'seq'>): string {
   return JSON.stringify([row.threadId, row.seq]);

@@ -22,10 +22,10 @@ const NO_HISTORY: readonly SubagentAnsweredApproval[] = [];
 
 /**
  * Live QA 2026-10-16: the root's background children still working, named at
- * its composer. Between the root's runs its composer has no Stop, so this
- * stops their turn through the host's root Stop, which also keeps their
- * results for the next user turn rather than waking the root. While the root
- * runs, its own Stop already ends the turn's children, so this only informs.
+ * its composer. This stops their turns through the host's root Stop, which
+ * also keeps their results for the next user turn rather than waking the root.
+ * While the root runs, its own Stop already ends that turn's children, so only
+ * the children of earlier turns are stopped here.
  */
 export function HostChildrenRunning({
   client,
@@ -36,18 +36,23 @@ export function HostChildrenRunning({
 }): ReactElement | null {
   const running = useSyncExternalStore(tree.subscribe, tree.getRunning, tree.getRunning);
   const owners = useMemo(() => running.children.map((child) => child.owner), [running]);
+  const earlier = useMemo(
+    () => running.children.filter((child) => child.turnId !== running.activeTurnId),
+    [running]
+  );
+  const stoppable = useMemo(() => earlier.map((child) => child.owner), [earlier]);
   const stop = useCallback(
     () =>
-      stopHostChildTurns(client, tree.threadId, running).catch((cause: unknown) => {
+      stopHostChildTurns(client, tree.threadId, earlier).catch((cause: unknown) => {
         logger.error('Background subagents could not be stopped', {
           error: cause,
           threadId: tree.threadId,
         });
         throw new Error(describeBoundaryError(cause));
       }),
-    [client, running, tree.threadId]
+    [client, earlier, tree.threadId]
   );
-  return <SubagentsRunningStrip owners={owners} {...(running.idle ? { onStop: stop } : {})} />;
+  return <SubagentsRunningStrip onStop={stop} owners={owners} stoppable={stoppable} />;
 }
 
 /**
