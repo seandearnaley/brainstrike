@@ -82,6 +82,8 @@ let writer: IndexWriter | undefined;
 let authorized: FileIndexAuthority | undefined;
 let ingestion: FileIngestion | undefined;
 let scanOptions: FileIndexScanOptions | undefined;
+/** The most chunks the store holds: a commit past it refuses (`corpus-cap`). */
+let chunkCap: number | undefined;
 /** The settings a tab last handed over; until then, or after they fail, every op refuses. */
 let configured:
   | {
@@ -294,6 +296,7 @@ function openWriter(engine: Sqlite3Static, owned: SAHPoolUtil, authority: FileIn
   const fresh = db.prepare('SELECT count(*) FROM sqlite_schema').pluck().get() === 0;
   return new IndexWriter(
     {
+      ...(chunkCap === undefined ? {} : { chunkCap }),
       dbPath: FILE_INDEX_FILE,
       embedding: { indexMode: 'text-only' },
       fileBindings: authority.fileBindings,
@@ -489,6 +492,7 @@ async function handle(
         name: request.vfs,
       });
       scanOptions = request.scan;
+      chunkCap = request.chunkCap;
       return null;
     }
     case 'configure':

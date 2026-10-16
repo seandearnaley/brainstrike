@@ -46,7 +46,11 @@ partition, with its authority and the retirement of rows no binding owns at
 every open, is `index-partition.ts`. The browser's index embeds a local model
 in embedding workers of its own, from the tab's embedding worker URL, and a
 semantic search query embeds there too (`files.embedQuery`, with the model's
-query prompt); a hosted collection has no embedder there and refuses. A transaction rejects stale preparation and atomically
+query prompt); a hosted collection has no embedder there and refuses. It holds
+at most 25,000 chunks (the indexer's opt-in `chunkCap`): a commit past the cap
+refuses whole with `corpus-cap`, and the scan with it. At the cap under VECTOR,
+the state DB and the index together measured 255 MB in Chromium
+(`corpus-size.measure.browser.test.ts`). A transaction rejects stale preparation and atomically
 changes chunks, text indexes, vectors and graph data. Complete catalog inventories,
 acknowledged bindings and source revisions authorize publication/removal; a path
 match or partial scan is not authority.

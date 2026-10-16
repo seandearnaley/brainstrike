@@ -84,6 +84,7 @@ interface SyntaxWriter {
 }
 export class ScopedIndex {
   readonly authority: ScopeAuthority;
+  readonly #chunkCap: number | undefined;
   constructor(
     readonly db: Database.Database,
     options: IndexerOptions,
@@ -91,6 +92,7 @@ export class ScopedIndex {
     readonly syntax?: SyntaxWriter
   ) {
     this.authority = new ScopeAuthority(options);
+    this.#chunkCap = options.chunkCap;
   }
   static initialize(db: Database.Database): void {
     db.exec(`CREATE TABLE index_scope_authority(singleton INTEGER PRIMARY KEY CHECK(singleton=1),epoch TEXT NOT NULL);
@@ -247,7 +249,33 @@ export class ScopedIndex {
       this.syntax.validate(syntax, plan.snapshot.fileId);
     }
     const syntaxWriter = this.syntax;
-    return this.db.transaction(() => this.apply(plan, supplied, syntax, syntaxWriter))();
+    return this.db.transaction(() => {
+      const before = this.#chunkCap === undefined ? 0 : this.storedChunks();
+      const result = this.apply(plan, supplied, syntax, syntaxWriter);
+      this.assertWithinChunkCap(before);
+      return result;
+    })();
+  }
+  private storedChunks(): number {
+    return Number(this.db.prepare('SELECT count(*) FROM file_chunks').pluck().get());
+  }
+  /**
+   * Inside the commit's transaction: a commit that grows the store past the
+   * cap rolls back whole. One that keeps or shrinks it is admitted, so a store
+   * over a cap lowered since it was filled can only converge down to it.
+   */
+  private assertWithinChunkCap(before: number): void {
+    const cap = this.#chunkCap;
+    if (cap === undefined) {
+      return;
+    }
+    const stored = this.storedChunks();
+    if (stored > cap && stored > before) {
+      throw new IndexerError(
+        'corpus-cap',
+        `The file index holds at most ${cap.toLocaleString('en-US')} chunks; this file would take it to ${stored.toLocaleString('en-US')}.`
+      );
+    }
   }
   private apply(
     plan: ScopedFilePlan,

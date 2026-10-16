@@ -25,8 +25,9 @@ export interface FileIndexScanOptions {
 
 /** The writer's messages to the file index worker. */
 export type FileIndexRequest =
-  /** Installs the worker's pool; the store opens once a tab configures it. */
+  /** Installs the worker's pool; the store opens once a tab configures it, holding at most `chunkCap` chunks. */
   | {
+      readonly chunkCap: number;
       readonly id: number;
       readonly kind: 'open';
       readonly pool: string;
