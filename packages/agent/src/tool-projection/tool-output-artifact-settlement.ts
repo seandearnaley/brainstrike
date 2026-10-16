@@ -19,7 +19,6 @@ import { projectToolOutputArtifactPage } from './tool-output-artifact-reader';
 
 const APPROX_CHARS_PER_TOKEN = 4;
 const TEXT_ENCODER = new TextEncoder();
-const SETTLED_OUTPUTS = new WeakMap<object, SettledToolOutput>();
 
 /** Results at or below this UTF-8 byte size remain inline. */
 export const TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES =
@@ -47,17 +46,6 @@ export interface SerializedToolOutput {
   readonly byteLength: number;
   readonly content: string;
   readonly format: ToolOutputArtifactFormat;
-}
-
-interface SettledToolOutput {
-  readonly displayOutput: unknown;
-  readonly modelOutput: ReturnType<typeof projectToolOutputArtifactPage>;
-  readonly projectionSource: unknown;
-}
-
-export interface SettledToolOutputModelProjection {
-  readonly hookContext?: string;
-  readonly output: ReturnType<typeof projectToolOutputArtifactPage>;
 }
 
 function serializeToolOutput(output: unknown, toolName: string): SerializedToolOutput | undefined {
@@ -127,30 +115,6 @@ function fitArtifactPreview(content: string): {
     throw new TypeError('Tool output artifact preview could not retain one UTF-8 code point.');
   }
   return best;
-}
-
-export function readSettledToolOutputProjectionSource(output: unknown): unknown {
-  if (!(output && typeof output === 'object')) {
-    return output;
-  }
-  return SETTLED_OUTPUTS.get(output)?.projectionSource ?? output;
-}
-
-export function readSettledToolOutputModelProjection(
-  output: unknown
-): SettledToolOutputModelProjection | undefined {
-  if (!(output && typeof output === 'object')) {
-    return;
-  }
-  const settled = SETTLED_OUTPUTS.get(output);
-  if (!settled) {
-    return;
-  }
-  const hookEnvelope = readHookResultEnvelope(settled.projectionSource);
-  return {
-    ...(hookEnvelope?.additionalContext ? { hookContext: hookEnvelope.additionalContext } : {}),
-    output: settled.modelOutput,
-  };
 }
 
 /** One complete tool result that must settle as a durable artifact. */
