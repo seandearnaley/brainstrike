@@ -4,6 +4,7 @@
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import type { SourceCatalogPort, SourceCatalogRecord } from '@brainstrike/state-store';
 import { sha256Hex } from '@brainstrike/utils/crypto';
+import { utf8ByteLength } from '@brainstrike/utils/utf8';
 import { Schema } from 'effect';
 import type {
   CanonicalCatalogFile,
@@ -247,7 +248,7 @@ export function createNativeCanonicalCatalog<Profile>(
       const records = await loadRecords(
         dependencies.catalog,
         request.files,
-        Math.max(0, ...request.files.map((file) => Buffer.byteLength(file.content)))
+        Math.max(0, ...request.files.map((file) => utf8ByteLength(file.content)))
       );
       checkCurrent(authority, context);
       const files = records.map((record, index) => {
@@ -398,7 +399,7 @@ export function createNativeCanonicalCatalog<Profile>(
         throw new Error('Retained source identity is missing.');
       }
       assertIdentity(identityFor(record, scope, authority), file);
-      if (record.content === null || Buffer.byteLength(record.content) > maxFileBytes) {
+      if (record.content === null || utf8ByteLength(record.content) > maxFileBytes) {
         throw new Error('Original retained source is absent or exceeds the byte bound.');
       }
       if (record.contentHash !== null) {

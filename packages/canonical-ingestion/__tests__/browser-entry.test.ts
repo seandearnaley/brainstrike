@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   resolveThroughAliases,
@@ -75,6 +76,26 @@ it('bundles the browser entry and its chunker for the browser, with no static No
   ]) {
     expect(inputs).toContain(composed);
   }
+  // A browser worker has no Node globals: an unguarded `Buffer.` or `process.` throws at runtime, where
+  // the build cannot see it. `globalThis.process?.…` and a line that checks `typeof` first are guarded.
+  const unguarded: string[] = [];
+  for (const input of inputs.filter((path) => path.startsWith('packages/'))) {
+    readFileSync(resolve(import.meta.dirname, '../../..', input), 'utf8')
+      .split('\n')
+      .forEach((line, index) => {
+        const code = line.trim();
+        if (code.startsWith('//') || code.startsWith('*') || code.startsWith('/*')) {
+          return;
+        }
+        if (
+          /(?<![\w$.?])(?:Buffer|process)\s*\./.test(code) &&
+          !/typeof (?:Buffer|process)\b/.test(code)
+        ) {
+          unguarded.push(`${input}:${index + 1}: ${code}`);
+        }
+      });
+  }
+  expect(unguarded).toEqual([]);
   for (const nodeOnly of [
     'oxc-parser',
     'better-sqlite3',
