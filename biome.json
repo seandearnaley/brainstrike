@@ -408,9 +408,6 @@
     },
     {
       "includes": [
-        "apps/desktop/e2e/embedding-worker-renderer.crash-b.desktop.test.ts",
-        "apps/desktop/e2e/embedding-worker-renderer.diagnostics.desktop.test.ts",
-        "apps/desktop/e2e/embedding-worker-renderer.shared.ts",
         "apps/desktop/e2e/file-explorer-selection-restore.desktop.test.ts",
         "apps/desktop/e2e/file-explorer-selection.shared.ts",
         "apps/desktop/e2e/utils/electron-helpers.mts",

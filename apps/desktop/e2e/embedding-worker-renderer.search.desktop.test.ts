@@ -9,129 +9,18 @@ import * as shared from './embedding-worker-renderer.shared';
 import { expect, test } from './embedding-worker-renderer.shared';
 
 const {
-  ERROR_LOCATOR,
-  clearEmbeddingQueue,
-  createChunkedImportFixture,
-  createImportTargetCollection,
-  getEmbeddingHostStatus,
-  getEmbeddingSetCounts,
-  getEmbeddingSetQueueStats,
   getRendererTimeOrigin,
   getVisibleAlertTexts,
-  isDatabaseError,
   openWorkspaceSearchPanel,
   reloadRendererInTest,
   runWorkspaceSemanticSearch,
   selectWorkspaceSearchCollection,
   setVectorDevicePreference,
   showDatabaseDemoPanel,
-  waitForBackfillButtonEnabled,
-  waitForBackfillQueueMovementOrFatalError,
-  waitForEmbeddedCollectionSummary,
   waitForWorkspaceSemanticSearchResults,
-  waitForImportedChunks,
 } = shared;
 
-test.describe('Embedding Host Renderer - backfill search', () => {
-  test('@desktop-embedding-backfill backfills chunked imported data without hanging and updates collection coverage', async ({
-    window,
-  }) => {
-    test.setTimeout(300_000);
-
-    let activeWindow = await showDatabaseDemoPanel(window);
-
-    if (await isDatabaseError(activeWindow)) {
-      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
-      return;
-    }
-
-    await clearEmbeddingQueue(activeWindow);
-
-    const collectionName = `Desktop UI Import ${Date.now()}`;
-    const { embeddingSetId } = await createImportTargetCollection(activeWindow, collectionName);
-    const chunkedFixture = await createChunkedImportFixture(activeWindow, embeddingSetId);
-    await setVectorDevicePreference(activeWindow, 'wasm');
-    await reloadRendererInTest(activeWindow, 'embedding-worker-import-backfill-flow');
-    activeWindow = await showDatabaseDemoPanel(activeWindow);
-
-    const collectionOption = activeWindow.locator(`#collection-option-${embeddingSetId}`);
-    await expect(collectionOption).toBeVisible({ timeout: 15_000 });
-    await collectionOption.click({ timeout: 5000 });
-
-    const databasePanel = activeWindow.locator('[data-testid="database-demo-panel"]');
-    const timeOriginBeforeBackfill = await getRendererTimeOrigin(activeWindow);
-
-    await waitForImportedChunks(activeWindow, embeddingSetId);
-    const countsBeforeBackfill = await getEmbeddingSetCounts(activeWindow, embeddingSetId);
-
-    expect(countsBeforeBackfill.fileCount).toBe(chunkedFixture.fileCount);
-    expect(countsBeforeBackfill.totalChunks).toBe(chunkedFixture.totalChunks);
-    expect(countsBeforeBackfill.embeddedChunks).toBe(0);
-
-    const backfillButton = databasePanel.getByRole('button', { name: /^Backfill(?:\s|$)/ });
-
-    await expect(backfillButton).toBeVisible({ timeout: 15_000 });
-    await waitForBackfillButtonEnabled(activeWindow, backfillButton);
-    await backfillButton.click({ timeout: 5000 });
-
-    const outcome = await waitForBackfillQueueMovementOrFatalError(activeWindow, embeddingSetId);
-    if (outcome === 'error') {
-      const status = await getEmbeddingHostStatus(activeWindow);
-      expect(status.state).toBe('error');
-      expect(status.lastError).toMatch(/Local embedding (model initialization|execution) failed/i);
-      return;
-    }
-
-    const setQueueStats = await getEmbeddingSetQueueStats(activeWindow, embeddingSetId);
-    expect(
-      setQueueStats.queued + setQueueStats.running + setQueueStats.failed + setQueueStats.succeeded
-    ).toBeGreaterThan(0);
-
-    await waitForEmbeddedCollectionSummary(activeWindow, collectionName);
-
-    await expect
-      .poll(async () => await getEmbeddingSetCounts(activeWindow, embeddingSetId), {
-        timeout: 90_000,
-      })
-      .toMatchObject({
-        embeddedChunks: expect.any(Number),
-        fileCount: chunkedFixture.fileCount,
-        totalChunks: expect.any(Number),
-      });
-
-    const countsAfterBackfill = await getEmbeddingSetCounts(activeWindow, embeddingSetId);
-    expect(countsAfterBackfill.totalChunks).toBeGreaterThan(0);
-    expect(countsAfterBackfill.embeddedChunks).toBe(countsAfterBackfill.totalChunks);
-
-    const timeOriginAfterBackfill = await getRendererTimeOrigin(activeWindow);
-    expect(timeOriginAfterBackfill).toBe(timeOriginBeforeBackfill);
-    await expect(backfillButton).toContainText('Backfill', { timeout: 15_000 });
-
-    // Exercise the shipped drawer and its real semantic executor against the
-    // fixture embedded above. This is intentionally not another SQL assertion.
-    const drawerToggle = databasePanel.getByRole('button', { name: /collection details/i });
-    await drawerToggle.click({ timeout: 5000 });
-    const drawerContent = databasePanel.getByTestId('collection-debug-drawer-content');
-    await expect(drawerContent).toBeVisible({ timeout: 15_000 });
-
-    const drawerQuery = 'desktop chunking backfill';
-    await expect(drawerContent.getByTestId('collection-debug-retrieval-refusal')).toHaveCount(0);
-    await drawerContent.getByLabel('Retrieval preview query').fill(drawerQuery);
-    await drawerContent.getByRole('button', { name: /^Run$/ }).click({ timeout: 5000 });
-
-    const drawerResults = drawerContent.getByTestId('collection-debug-retrieval-results');
-    const drawerError = drawerContent.getByTestId('collection-debug-retrieval-error');
-    await expect
-      .poll(async () => (await drawerResults.count()) + (await drawerError.count()), {
-        timeout: 60_000,
-      })
-      .toBeGreaterThan(0);
-    if ((await drawerError.count()) > 0) {
-      throw new Error(`Drawer retrieval failed: ${await drawerError.innerText()}`);
-    }
-    await expect(drawerResults).toContainText(/desktop chunking|manual backfill/i);
-  });
-
+test.describe('Embedding Host Renderer - search', () => {
   test('@desktop-embedding-search end-to-end: import, embed, then vector search returns correct results', async ({
     electronApp,
     window,
@@ -141,13 +30,11 @@ test.describe('Embedding Host Renderer - backfill search', () => {
     const collectionName = `Search E2E ${Date.now()}`;
     const fixture = await createNativeImportedSearchFixture(activeWindow, collectionName);
     expect(fixture.fileCount).toBe(2);
-    // No "nothing embedded yet" pre-check: `getEmbeddingSetCounts` reads the
-    // renderer `electronAPI.db` PG bridge, retired with desktop PGlite (#3595),
-    // and the native owner publishes no coverage until a vector profile exists —
-    // so there is nothing to ask before the next line configures one. The
-    // collection is created fresh under a unique name here, so it cannot carry
-    // vectors in; that embedding actually ran is proved by the coverage and
-    // diagnostics assertions below (vectors === chunks, chunks > 0).
+    // No "nothing embedded yet" pre-check: the native owner publishes no coverage
+    // until a vector profile exists, so there is nothing to ask before the next
+    // line configures one. The collection is created fresh under a unique name,
+    // so it cannot carry vectors in; that embedding actually ran is proved by the
+    // coverage and diagnostics assertions below (vectors === chunks, chunks > 0).
 
     await configureNativeCollectionSearch(activeWindow, collectionName);
     const observation = await waitForNativeCollectionCoverage(

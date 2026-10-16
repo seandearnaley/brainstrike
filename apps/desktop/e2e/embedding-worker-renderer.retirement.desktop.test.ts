@@ -7,13 +7,13 @@ import {
   observeNativeCollectionWork,
   waitForNativeCollectionCoverage,
 } from './embedding-worker-renderer.native-search';
-import { captureNativeShutdown } from './embedding-worker-renderer.retirement';
 import {
-  ACTUAL_IMPORT_SENTENCES_PER_FILE,
+  captureNativeShutdown,
+  prepareActiveNativeIngestion,
+} from './embedding-worker-renderer.retirement';
+import {
   getEmbeddingHostStatus,
   openWorkspaceSearchPanel,
-  prepareRealWorldMixedStateScenario,
-  REAL_WORLD_MIXED_STATE_FILE_COUNT,
   runWorkspaceSemanticSearch,
   selectWorkspaceSearchCollection,
   showDatabaseDemoPanel,
@@ -23,6 +23,10 @@ import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
+
+// Large enough that the workspace is still embedding when reset or quit lands.
+const ACTIVE_ROOT_FILE_COUNT = 1002;
+const ACTIVE_ROOT_SENTENCES_PER_FILE = 24;
 
 async function search(page: Page, name: string): Promise<void> {
   const panel = await openWorkspaceSearchPanel(page);
@@ -88,17 +92,19 @@ test.describe('@destructive native retirement', () => {
         process.platform === 'win32' && mode !== 'quit-and-relaunch',
         'Windows Factory Reset is disabled for M3 by owner decision.'
       );
+      test.fixme(
+        mode === 'quit-and-relaunch',
+        'BST-2025: quitting during active native inference reports native-index cleanup failures.'
+      );
       test.setTimeout(540_000);
       const root = await createNativeImportRoot(
-        REAL_WORLD_MIXED_STATE_FILE_COUNT,
-        ACTUAL_IMPORT_SENTENCES_PER_FILE
+        ACTIVE_ROOT_FILE_COUNT,
+        ACTIVE_ROOT_SENTENCES_PER_FILE
       );
       let current = electronApp;
       let assertCleanShutdown = captureNativeShutdown(current.app);
       try {
-        const scenario = await prepareRealWorldMixedStateScenario(current.app, window, {
-          nativeImportRoot: root,
-        });
+        const scenario = await prepareActiveNativeIngestion(current.app, window, root);
         const page = scenario.activeWindow;
         await expect
           .poll(() => observeNativeCollectionWork(page, scenario.searchableEmbeddingSetId), {

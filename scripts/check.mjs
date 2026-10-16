@@ -510,7 +510,6 @@ export function buildPlan(options = {}) {
     // refuse CI execution. Each command owns its opt-in and retains all assertions.
     for (const [id, command] of [
       ['lock-stress', 'pnpm --filter @brainstrike/state-store run test:stress'],
-      ['desktop-stress', 'pnpm --filter @brainstrike/desktop run test:e2e:stress'],
       [
         'desktop-native-retirement',
         'pnpm --filter @brainstrike/desktop run test:e2e:qualification:native-retirement',

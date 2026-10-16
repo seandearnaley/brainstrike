@@ -1192,7 +1192,7 @@ test('routine selection discloses the complete integration matrices it omits', (
 test('stress qualification is explicit and cannot silently omit E2E', () => {
   const ordinary = new Set(buildPlan(parseFlags(['--full'])).map((step) => step.id));
   const stress = new Set(buildPlan(parseFlags(['--full', '--stress'])).map((step) => step.id));
-  for (const id of ['lock-stress', 'desktop-stress', 'desktop-native-retirement']) {
+  for (const id of ['lock-stress', 'desktop-native-retirement']) {
     assert.ok(stress.has(id));
     assert.ok(!ordinary.has(id));
   }

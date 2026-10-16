@@ -12,8 +12,7 @@
  * here:
  *
  * 1. **Explicit scope.** Native collection search retains imported rootless
- *    files. Legacy search requires live workspace roots; its fixtures use
- *    {@link attachCollectionFilesToWorkspaceRoot}.
+ *    files; workspace search is scoped to live workspace roots.
  * 2. **Line-attributed chunks.** The semantic executor drops any chunk missing
  *    `start_line`/`end_line` (it cannot build a navigable range) and reports it
  *    as `skippedMissingLineMetadata`. Synthetic chunk fixtures must therefore
@@ -42,60 +41,6 @@ export interface WorkspaceSemanticSearchSnapshot {
   isSearching: boolean;
   /** Number of rendered FILE rows, read from the select-all header. */
   resultFileCount: number;
-}
-
-/**
- * Point a collection's imported files at the live workspace root so
- * workspace-scoped search can see them, and return that root's DB id.
- *
- * Throws when no live root is mounted — a silent no-op here would turn every
- * downstream search assertion into an unfalsifiable "no results".
- */
-export async function attachCollectionFilesToWorkspaceRoot(
-  page: Page,
-  embeddingSetId: string
-): Promise<string> {
-  return await page.evaluate<string, { embeddingSetId: string }>(
-    async ({ embeddingSetId: id }) => {
-      const api = (
-        window as Window & {
-          electronAPI?: {
-            db?: {
-              query?: (
-                sql: string,
-                params?: unknown[]
-              ) => Promise<{ rows: Record<string, unknown>[] }>;
-            };
-          };
-        }
-      ).electronAPI;
-
-      if (!api?.db?.query) {
-        throw new Error('Database API not available');
-      }
-
-      const rootResult = await api.db.query(
-        "SELECT id FROM roots WHERE status = 'live' ORDER BY created_at DESC LIMIT 1"
-      );
-      const rootRow = rootResult.rows[0] as { id?: string } | undefined;
-      const rootId = rootRow?.id;
-      if (typeof rootId !== 'string' || rootId.length === 0) {
-        throw new Error(
-          'No live workspace root is mounted. Workspace search is root-scoped, so a ' +
-            'collection with NULL-root file records can never return results — mount a ' +
-            'root (ensureMockWorkspaceOpen) before attaching fixture files to it.'
-        );
-      }
-
-      await api.db.query('UPDATE file_records SET root_id = $1 WHERE embedding_set_id = $2', [
-        rootId,
-        id,
-      ]);
-
-      return rootId;
-    },
-    { embeddingSetId }
-  );
 }
 
 /**

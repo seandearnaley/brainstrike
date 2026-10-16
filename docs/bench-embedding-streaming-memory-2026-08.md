@@ -136,6 +136,6 @@ These are measured values, not a reconstruction of a missing historical run. The
 the sender-side resident-memory effect of the exact accumulator and streaming/ack
 implementations under one controlled synthetic extractor and prompt collection. They omit the
 receiver and do not represent total Electron renderer RSS with a real model loaded. They do not
-replace
-`apps/desktop/e2e/embedding-worker-renderer.memory.desktop.test.ts`, which remains the
-application-level regression boundary.
+replace an application-level memory regression. The one that existed,
+`apps/desktop/e2e/embedding-worker-renderer.memory.desktop.test.ts`, drove the retired renderer
+database and was removed in BST-2022.
