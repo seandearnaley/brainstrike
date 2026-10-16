@@ -769,6 +769,15 @@ export function hostEventSchema(json: JsonSchemaFactory) {
       type: z.literal('effect.finished'),
       ...RunFields,
       output: json(),
+      /**
+       * This output's own bounded model projection would have clipped it, so
+       * it settles as a durable artifact although its size alone keeps it
+       * inline (an MCP result between the projection budget and the inline
+       * ceiling). Committed because settlement and artifact reads must agree
+       * after a replay, which rebuilds outputs from these events; absent for
+       * every output whose settlement its size already decides.
+       */
+      projectionClipped: z.literal(true).optional(),
       toolCallId: Id,
     }),
     z.strictObject({

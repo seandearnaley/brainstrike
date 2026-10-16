@@ -1,9 +1,13 @@
-import { TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES } from '@brainstrike/agent/tool-runtime';
+import {
+  resolveScaledToolResultBudget,
+  TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES,
+} from '@brainstrike/agent/tool-runtime';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { TOOL_OUTPUT_ARTIFACT_RETENTION_MS } from '@brainstrike/assistant-contract/tool-output-artifact';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import type { HostRunState } from '../src/core-state.js';
+import { projectionClipsOutput } from '../src/core-run-execution.js';
+import { foldHostRunEffect, type HostRunState } from '../src/core-state.js';
 import type { HostTool } from '../src/ports.js';
 import {
   hostArtifactId,
@@ -14,15 +18,37 @@ import {
 
 const committedAt = Date.parse('2026-10-08T12:00:00.000Z');
 const big = 'x'.repeat(TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES + 1000);
+const ANCHOR_BUDGET = resolveScaledToolResultBudget(131_072);
+/** Under the inline ceiling, over the run's projection budget. */
+const clipped = 'x'.repeat(9042);
 
-function run(id: string, threadId: string, outputs: Record<string, string>): HostRunState {
+function run(
+  id: string,
+  threadId: string,
+  outputs: Record<string, string>,
+  toolName = 'brainstrike.big'
+): HostRunState {
   return {
-    effectTools: new Map(Object.keys(outputs).map((call) => [call, 'brainstrike.big'])),
+    artifactSettled: new Set<string>(),
+    effectTools: new Map(Object.keys(outputs).map((call) => [call, toolName])),
     id,
     outputCommittedAt: new Map(Object.keys(outputs).map((call) => [call, committedAt])),
     outputs: new Map(Object.entries(outputs)),
+    started: new Set<string>(),
     threadId,
   } as unknown as HostRunState;
+}
+
+/** A run as a replay rebuilds it: nothing but its committed effect events. */
+function replayed(id: string, threadId: string, event: Record<string, unknown>): HostRunState {
+  const state = run(id, threadId, {}, 'server.fetch');
+  foldHostRunEffect(
+    new Map([[id, state]]),
+    { runId: id, toolCallId: 'call-1', toolId: 'server.fetch', type: 'effect.started' } as never,
+    committedAt
+  );
+  foldHostRunEffect(new Map([[id, state]]), event as never, committedAt);
+  return state;
 }
 
 function tool(permissionToolId: string): HostTool {
@@ -123,5 +149,97 @@ describe('host tool output artifacts', () => {
         second: tool(NATIVE_TOOL_ID.readToolOutputArtifact),
       })
     ).toThrow(/one eligible artifact reader/u);
+  });
+
+  it('commits the clipped decision for an MCP result the projection would shrink', () => {
+    const admission = { resolvedToolResultBudget: ANCHOR_BUDGET } as never;
+    const action = { toolCatalogId: 'server.fetch', toolId: 'fetch' } as never;
+    expect(projectionClipsOutput(admission, { risk: 'mcp' } as never, action, clipped)).toBe(true);
+    // Its own projector keeps a native tool's documented recovery instead.
+    expect(projectionClipsOutput(admission, { risk: 'read' } as never, action, clipped)).toBe(
+      false
+    );
+    // A result the projection carries whole needs no artifact.
+    expect(projectionClipsOutput(admission, { risk: 'mcp' } as never, action, 'small')).toBe(false);
+  });
+
+  it('clips nothing on a run whose tools are projected unbounded', () => {
+    // No resolved budget means no bounded projection (it reaches tools only
+    // through createAgentHostToolBindings), so nothing is clipped and there is
+    // nothing to recover — the capability is absent, not failing.
+    expect(
+      projectionClipsOutput(
+        {} as never,
+        { risk: 'mcp' } as never,
+        { toolCatalogId: 'server.fetch' } as never,
+        clipped
+      )
+    ).toBe(false);
+  });
+
+  it('settles a committed clipped output as its first artifact page', async () => {
+    const owner = run('run-1', 'thread-a', { 'call-1': clipped }, 'server.fetch');
+    owner.artifactSettled.add('call-1');
+    const settled = settleHostToolOutputs(owner, {
+      fetch: tool('server.fetch'),
+      reader: tool(NATIVE_TOOL_ID.readToolOutputArtifact),
+    });
+    const output = await settled['fetch']?.toModelOutput?.({
+      input: {},
+      output: clipped,
+      toolCallId: 'call-1',
+    });
+    expect(JSON.stringify(output)).not.toContain('tool_result_truncated');
+    expect(output).toMatchObject({
+      type: 'json',
+      value: { next: { input: { cursor: expect.stringMatching(/^bsto1\./u) }, tool: 'reader' } },
+    });
+  });
+
+  it('a replayed run reads a clipped artifact the live run handed a cursor for', async () => {
+    // The defect this pins: `outputs` is refolded from committed events, so a
+    // decision kept only in live state left the cursor resolving to not_found.
+    const restored = replayed('run-1', 'thread-a', {
+      output: clipped,
+      projectionClipped: true,
+      runId: 'run-1',
+      toolCallId: 'call-1',
+      type: 'effect.finished',
+    });
+    expect(restored.artifactSettled.has('call-1')).toBe(true);
+    const reader = hostArtifactReader(
+      () => [restored],
+      'thread-a',
+      () => committedAt
+    );
+    expect(
+      await reader.readRange({
+        artifactId: hostArtifactId('run-1', 'call-1'),
+        limitBytes: 4,
+        offsetByte: 0,
+      })
+    ).toMatchObject({ reference: { byteLength: clipped.length }, status: 'found' });
+  });
+
+  it('a replayed run exposes no artifact for a committed output that was never clipped', async () => {
+    const restored = replayed('run-1', 'thread-a', {
+      output: clipped,
+      runId: 'run-1',
+      toolCallId: 'call-1',
+      type: 'effect.finished',
+    });
+    expect(restored.artifactSettled.has('call-1')).toBe(false);
+    const reader = hostArtifactReader(
+      () => [restored],
+      'thread-a',
+      () => committedAt
+    );
+    expect(
+      await reader.readRange({
+        artifactId: hostArtifactId('run-1', 'call-1'),
+        limitBytes: 4,
+        offsetByte: 0,
+      })
+    ).toEqual({ status: 'not_found' });
   });
 });
