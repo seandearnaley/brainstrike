@@ -5,6 +5,7 @@ const { spawnSync } = require('node:child_process');
 const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 // @boundaries-ignore Electron's built-in native filesystem is required to distinguish OS files from virtual ASAR entries; this probe runs only in packaged Electron.
+// biome-ignore lint/correctness/noUndeclaredDependencies: Electron provides this builtin to the packaged Electron-only probe.
 const originalFs = require('original-fs');
 const { createRequire } = require('node:module');
 const { tmpdir } = require('node:os');

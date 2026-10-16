@@ -41,7 +41,9 @@ async function fixture(
   const profile = selectedProfile;
   const recorded = JSON.parse(
     await readFile(
-      new URL('../../indexer/__tests__/fixtures/canonical-provided-chunks.json', import.meta.url),
+      new URL(
+        import.meta.resolve('@brainstrike/test-utils/fixtures/canonical-provided-chunks.json')
+      ),
       'utf8'
     )
   ) as { content: string; fileId: string; relativePath: string; sourceHash: string };

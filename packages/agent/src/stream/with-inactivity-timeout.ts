@@ -569,6 +569,6 @@ export async function* withInactivityTimeout<T>(
     // promise because, if the source is suspended on a never-resolving await,
     // an awaited return() deadlocks. Calling without await is sufficient to
     // signal the generator to run its own finally blocks when it next resumes.
-    iterator.return?.();
+    void iterator.return?.();
   }
 }

@@ -1,8 +1,8 @@
 import { createBrowserChunker } from '@brainstrike/chunking-worker/canonical';
-import { describe, expect, it } from 'vitest';
-import recorded from '../../indexer/__tests__/fixtures/canonical-provided-chunks.json' with {
+import recorded from '@brainstrike/test-utils/fixtures/canonical-provided-chunks.json' with {
   type: 'json',
 };
+import { describe, expect, it } from 'vitest';
 import {
   type CanonicalCatalogPort,
   CanonicalIngestionHost,

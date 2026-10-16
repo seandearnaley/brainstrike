@@ -21,6 +21,7 @@
     "vitest": "catalog:"
   },
   "exports": {
+    "./fixtures/canonical-provided-chunks.json": "./fixtures/canonical-provided-chunks.json",
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"

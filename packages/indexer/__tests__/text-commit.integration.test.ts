@@ -81,7 +81,12 @@ it('explicit text commits need no inference, preserve valid vectors and permit s
 
 it('retains captured canonical symbols and refs during unchanged vector backfill and text reopen', async () => {
   const captured = JSON.parse(
-    readFileSync(new URL('./fixtures/canonical-provided-chunks.json', import.meta.url), 'utf8')
+    readFileSync(
+      new URL(
+        import.meta.resolve('@brainstrike/test-utils/fixtures/canonical-provided-chunks.json')
+      ),
+      'utf8'
+    )
   ) as {
     content: string;
     relativePath: string;
