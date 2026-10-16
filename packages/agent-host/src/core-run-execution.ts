@@ -161,18 +161,22 @@ export async function executeHostAction(
   const output = registered.delegation
     ? await ports.delegate(run, action, input)
     : await executeRegisteredTool(ports, run, action, registered, input, resumeData);
+  // Decided once: this append publishes without a fold, so the live run's own
+  // state is updated here, exactly as a replay's fold would set it.
+  const projectionClipped = projectionClipsOutput(admission, registered, action, output);
   const [finished] = await ports.append(run.threadId, [
     {
       output: jsonValue(output),
-      ...(projectionClipsOutput(admission, registered, action, output)
-        ? { projectionClipped: true as const }
-        : {}),
+      ...(projectionClipped ? { projectionClipped: true as const } : {}),
       runId: run.id,
       toolCallId: action.toolCallId,
       type: 'effect.finished',
     },
   ]);
   run.outputs.set(action.toolCallId, jsonValue(output));
+  if (projectionClipped) {
+    run.artifactSettled.add(action.toolCallId);
+  }
   if (finished?.ts !== undefined) {
     run.outputCommittedAt.set(action.toolCallId, finished.ts);
   }
