@@ -29,8 +29,13 @@ const testConfigPath = path.join(agentRoot, 'tsconfig.test.json');
 /**
  * Ratchet ceiling: the number of LEGACY SOURCE FILES still excluded from the
  * test project. Lower it as files are drained; never raise it.
+ *
+ * 68 -> 53 (ADR-0022): the Mastra agent loop's retirement deleted 15 of the
+ * excluded specs outright. They were drained by DELETION rather than by fixing
+ * their type errors, which is still a drain — the debt is gone either way — but
+ * it is worth naming so the drop does not read as 15 files repaired.
  */
-const MAX_EXCLUDED_LEGACY_FILES = 68;
+const MAX_EXCLUDED_LEGACY_FILES = 53;
 
 /** Not legacy debt — the ordinary build-output exclusions every project carries. */
 const NON_LEGACY_EXCLUDES = new Set(['dist', 'node_modules']);

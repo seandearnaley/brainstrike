@@ -207,80 +207,22 @@ for (const rel of BROWSER_BUNDLE_CONFIGS) {
   });
 }
 
-test('R1: the scoped Mastra instance registers no server, observability, or scorers', () => {
-  // The instance is a registration seam: one agent, storage, an optional
-  // idGenerator, logger disabled. Adding `server` here is the in-repo half of
-  // the R1 break that the dependency guards catch from the package side.
-  const runtimePath = path.join(repoRoot, 'packages', 'agent', 'src', 'mastra', 'agent-runtime.ts');
-  const source = readFileSync(runtimePath, 'utf8');
-
-  const start = source.indexOf('new Mastra(');
-  assert.notEqual(
-    start,
-    -1,
-    `Expected a "new Mastra(" construction in ${path.relative(repoRoot, runtimePath)}. If the runtime moved, ` +
-      'point this guard at the new file rather than deleting it — R1 is about what that call registers.'
-  );
-
-  // Balanced-brace scan of the config object literal, so a nested object in the
-  // argument cannot truncate the region we assert over.
-  //
-  // The brace MUST be the call's own argument. `indexOf('{', start)` alone finds
-  // the next `{` anywhere after `new Mastra(` — which is the config literal only
-  // because the call site is currently `new Mastra({`. Refactored to
-  // `new Mastra(config)` (plausible once the config grows conditional branches),
-  // an unanchored scan would silently retarget the next unrelated block, find no
-  // `server:`, and report green — the guard would then be guarding nothing, which
-  // is the exact BST-836 failure mode the vacuity test above exists to prevent.
-  // Caught in review on #1976.
-  const objectStart = source.indexOf('{', start);
-  assert.equal(
-    objectStart,
-    start + 'new Mastra('.length,
-    'new Mastra() is no longer called with an inline object literal, so the brace scan below would assert ' +
-      'over an unrelated block and pass vacuously. Point this guard at whatever now builds the config.'
-  );
-  let depth = 0;
-  let objectEnd = -1;
-  for (let i = objectStart; i < source.length; i += 1) {
-    if (source[i] === '{') {
-      depth += 1;
-    } else if (source[i] === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        objectEnd = i;
-        break;
-      }
-    }
-  }
-  assert.notEqual(objectEnd, -1, 'Could not find the end of the new Mastra({...}) config object.');
-  const config = source.slice(objectStart, objectEnd + 1);
-
-  // A spread of an opaque identifier (`...opts`) would hide any option from a
-  // syntactic scan entirely. The existing spread is an INLINE ternary of object
-  // literals, whose contents this scan still sees. Anything else is
-  // unanalyzable, so fail loudly rather than report a green we cannot justify.
-  assert.doesNotMatch(
-    config,
-    /\.\.\.\s*[A-Za-z_$][\w$]*\s*[,}]/,
-    'The new Mastra({...}) config spreads an opaque identifier, so this guard can no longer prove which ' +
-      'options are registered. Inline the object (or extend this guard to resolve the spread) rather than ' +
-      'leaving R1 unverifiable.'
-  );
-
-  for (const key of ['server', 'observability', 'scorers']) {
-    // Match the key as a property in EVERY form the object literal can use:
-    // `server:`, `'server':`/`"server":`, and bare shorthand `server,`. The
-    // shorthand case is not hypothetical — `storage,` in this very object is
-    // already written that way, so a colon-only regex would miss `server,`
-    // entirely. Caught in review on #1976.
-    assert.doesNotMatch(
-      config,
-      new RegExp(`(^|[{,\\s])['"\`]?${key}['"\`]?\\s*[:,}]`),
-      `The scoped Mastra instance now registers "${key}". docs/agents/mastra-boundary.md R1 keeps Mastra an ` +
-        'embedded library runtime: Brainstrike owns every assistant HTTP surface, and R8 keeps Pino logs, ' +
-        'durable run events and the usage ledger as the observability source of truth. Update the doc in the ' +
-        'same change if that is genuinely being revisited.'
-    );
-  }
-});
+/*
+ * R1's IN-REPO half retired with the Mastra agent loop (ADR-0022).
+ *
+ * This file used to assert, by a balanced-brace scan of
+ * `packages/agent/src/mastra/agent-runtime.ts`, that the scoped `new Mastra({...})`
+ * registered no `server`, `observability` or `scorers`. That file is deleted and
+ * no PRODUCTION code constructs a Mastra instance any more — the only surviving
+ * `new Mastra(` calls are spec harnesses for the memory and background-task
+ * storage adapters, and pointing a production-boundary guard at a test would be
+ * worse than having no guard.
+ *
+ * The case's own comment said "if the runtime moved, point this guard at the new
+ * file rather than deleting it". It did not move; there is nothing to point at.
+ * R1 is still guarded from the side that has a subject: the dependency and
+ * lockfile tripwires above, which refuse `@mastra/server`, `@mastra/deployer`,
+ * `@mastra/hono` and the rest, and which the vacuity test keeps honest by
+ * confirming some workspace package still declares `@mastra/core`. If an
+ * in-repo Mastra registration ever returns, this assertion returns with it.
+ */
