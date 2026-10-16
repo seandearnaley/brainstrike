@@ -224,6 +224,28 @@ describe('runLiveGrep — agent ignore files (BST-1432)', () => {
     expect([...run.candidatePaths].sort()).toEqual(['.env.example', 'src/enrich.ts']);
   });
 
+  // Codex review on #3718: the JS matcher (`ignore`) matches the floor without
+  // case, so rg must too; a differently cased credential name is the same file
+  // kind (and on a case-insensitive volume, the same file).
+  it('keeps differently cased credential files out of ripgrep too', async () => {
+    const ripgrepPath = await discoverRipgrepPathForTests();
+    expect(ripgrepPath).not.toBeNull();
+    const dir = await makeWorkspace({
+      'certs/SERVER.PEM': 'enrichment PRIVATE-KEY-SECRET\n',
+      'deploy/.ENV.Example': 'enrichment=\n',
+      'deploy/.Env.Local': 'enrichment SECRET\n',
+      'keys/ID_RSA': 'enrichment SECRET\n',
+      'src/enrich.ts': 'export const enrichment = true;\n',
+    });
+    const run = await runRipgrep({
+      canonicalRootPath: dir,
+      caseSensitive: false,
+      prefilterLiteral: 'enrichment',
+      ripgrepPath: ripgrepPath ?? '',
+    });
+    expect([...run.candidatePaths].sort()).toEqual(['deploy/.ENV.Example', 'src/enrich.ts']);
+  });
+
   it('still searches a directory that shares a credential name, holding back only its credential files', async () => {
     const ripgrepPath = await discoverRipgrepPathForTests();
     expect(ripgrepPath).not.toBeNull();

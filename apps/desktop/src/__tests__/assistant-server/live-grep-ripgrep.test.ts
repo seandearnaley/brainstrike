@@ -80,6 +80,7 @@ describe('runRipgrep credential floor file', () => {
     expect(directory).not.toBe(os.tmpdir());
     expect(path.dirname(directory)).toBe(os.tmpdir());
     expect(statSync(directory).mode & 0o777).toBe(0o700);
-    expect(readFileSync(file, 'utf8')).toContain('.env.*');
+    // Caseless, as the JS matcher reads the floor (Codex review on #3718).
+    expect(readFileSync(file, 'utf8')).toContain('.[eE][nN][vV].*');
   });
 });

@@ -23,6 +23,20 @@ import {
 let credentialFloorFile: string | undefined;
 
 /**
+ * One floor pattern, matched without case as the JS matcher (`ignore`) matches
+ * it: rg reads ignore files case-sensitively, and its
+ * `--ignore-file-case-insensitive` would make the workspace's own ignore files
+ * caseless too. Each letter becomes a two-case class, so a pattern that brings
+ * its own class cannot be rewritten here.
+ */
+function caselessIgnorePattern(pattern: string): string {
+  if (pattern.includes('[')) {
+    throw new Error(`The credential floor pattern "${pattern}" cannot be made caseless for rg`);
+  }
+  return pattern.replace(/[a-z]/gi, (letter) => `[${letter.toLowerCase()}${letter.toUpperCase()}]`);
+}
+
+/**
  * The shared credential floor as a gitignore-syntax file for ripgrep's
  * `--ignore-file`, so rg never opens a credential file nor spends its candidate
  * cap on one before the JS matcher drops it. `--glob` cannot carry the floor's
@@ -38,7 +52,8 @@ function credentialFloorIgnoreFile(): string {
   }
   const directory = mkdtempSync(path.join(os.tmpdir(), 'brainstrike-credential-floor-'));
   const file = path.join(directory, 'floor.ignore');
-  writeFileSync(file, `${WORKSPACE_SECRET_FILE_PATTERNS.join('\n')}\n`, {
+  const patterns = WORKSPACE_SECRET_FILE_PATTERNS.map(caselessIgnorePattern);
+  writeFileSync(file, `${patterns.join('\n')}\n`, {
     flag: 'wx',
     mode: 0o600,
   });
