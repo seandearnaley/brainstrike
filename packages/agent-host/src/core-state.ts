@@ -1,4 +1,3 @@
-import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import type { PermissionToolGateSnapshot, ToolRiskCategory } from '@brainstrike/assistant-contract';
 import { refusalError } from '@brainstrike/assistant-contract';
 import type { ModelMessage, Tool } from 'ai';
@@ -231,13 +230,6 @@ export interface HostRunState {
   /** A child's root permission policy at admission; only its denies stay frozen (ADR-0010). */
   admittedPolicy?: PermissionToolGateSnapshot;
   readonly approvals: Map<string, PendingInteraction>;
-  /**
-   * Calls whose committed output settled as a durable artifact for a reason
-   * its size alone does not show (an MCP result its own projection would
-   * clip). Settlement writes it before the model receives a cursor; reads of
-   * that artifact consult it so both agree. Same lifetime as `outputs`.
-   */
-  readonly artifactSettled: Set<string>;
   readonly branch: HostRunBranch;
   readonly checkpointedResults: Set<string>;
   /** BST-1932: human input a running child takes; it starts the run after this one. */
@@ -295,8 +287,6 @@ export interface HostRunState {
   promptContext?: string;
   readonly rawInputs: Map<string, Json>;
   release?: (() => void) | undefined;
-  /** The admitted run's resolved tool-result budget, for durable settlement. */
-  resolvedToolResultBudget?: ScaledToolResultBudget | undefined;
   readonly responses: Set<string>;
   readonly snapshot?: HostRunSnapshot;
   readonly started: Set<string>;
@@ -399,7 +389,6 @@ export function createHostRunState(
 ): HostRunState {
   return {
     approvals: new Map(),
-    artifactSettled: new Set(),
     branch,
     checkpointedResults: new Set(),
     consents: new Map(),

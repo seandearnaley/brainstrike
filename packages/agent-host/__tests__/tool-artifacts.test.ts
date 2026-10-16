@@ -1,8 +1,4 @@
-import {
-  applyToolModelOutputProjections,
-  resolveScaledToolResultBudget,
-  TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES,
-} from '@brainstrike/agent/tool-runtime';
+import { TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES } from '@brainstrike/agent/tool-runtime';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { TOOL_OUTPUT_ARTIFACT_RETENTION_MS } from '@brainstrike/assistant-contract/tool-output-artifact';
 import { describe, expect, it } from 'vitest';
@@ -18,21 +14,13 @@ import {
 
 const committedAt = Date.parse('2026-10-08T12:00:00.000Z');
 const big = 'x'.repeat(TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES + 1000);
-const ANCHOR_BUDGET = resolveScaledToolResultBudget(131_072);
 
-function run(
-  id: string,
-  threadId: string,
-  outputs: Record<string, string>,
-  toolName = 'brainstrike.big'
-): HostRunState {
+function run(id: string, threadId: string, outputs: Record<string, string>): HostRunState {
   return {
-    artifactSettled: new Set<string>(),
-    effectTools: new Map(Object.keys(outputs).map((call) => [call, toolName])),
+    effectTools: new Map(Object.keys(outputs).map((call) => [call, 'brainstrike.big'])),
     id,
     outputCommittedAt: new Map(Object.keys(outputs).map((call) => [call, committedAt])),
     outputs: new Map(Object.entries(outputs)),
-    resolvedToolResultBudget: ANCHOR_BUDGET,
     threadId,
   } as unknown as HostRunState;
 }
@@ -45,49 +33,6 @@ function tool(permissionToolId: string): HostTool {
     inputSchema: z.object({}),
     permissionToolId,
     risk: 'read',
-  } as unknown as HostTool;
-}
-
-/** The generic bounded projection the host installs for a tool with none of its own. */
-function projectedModelOutput(
-  catalogId: string,
-  output: string
-): NonNullable<HostTool['toModelOutput']> {
-  const projected = applyToolModelOutputProjections(
-    {
-      [catalogId]: {
-        description: 'fixture',
-        execute: async () => output,
-        id: catalogId,
-        inputSchema: { jsonSchema: { additionalProperties: false, type: 'object' } },
-      },
-    } as never,
-    new Map([[catalogId, catalogId]]),
-    undefined,
-    ANCHOR_BUDGET
-  );
-  const project = (projected[catalogId] as { toModelOutput: (value: unknown) => unknown })
-    .toModelOutput;
-  return (async ({ output: value }) => await project(value)) as NonNullable<
-    HostTool['toModelOutput']
-  >;
-}
-
-/** An MCP binding as `bindMcpTool` shapes it: `mcpAuthority` present, generic projection. */
-function mcpTool(catalogId: string, output: string): HostTool {
-  return {
-    ...tool(catalogId),
-    mcpAuthority: { configuredServerId: 'server', generation: 1 },
-    risk: 'mcp',
-    toModelOutput: projectedModelOutput(catalogId, output),
-  } as unknown as HostTool;
-}
-
-/** A native tool whose own projection truncates with its documented recovery. */
-function nativeProjectedTool(catalogId: string, output: string): HostTool {
-  return {
-    ...tool(catalogId),
-    toModelOutput: projectedModelOutput(catalogId, output),
   } as unknown as HostTool;
 }
 
@@ -178,61 +123,5 @@ describe('host tool output artifacts', () => {
         second: tool(NATIVE_TOOL_ID.readToolOutputArtifact),
       })
     ).toThrow(/one eligible artifact reader/u);
-  });
-
-  it('settles an MCP result the model projection would clip, so the model can page the rest', async () => {
-    // Below the inline ceiling, so size alone keeps it inline; the run's own
-    // projection budget is what it exceeds.
-    const clipped = 'x'.repeat(9042);
-    expect(new TextEncoder().encode(clipped).byteLength).toBeLessThan(
-      TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES
-    );
-    const owner = run('run-1', 'thread-a', { 'call-1': clipped }, 'server.fetch');
-    const settled = settleHostToolOutputs(owner, {
-      fetch: mcpTool('server.fetch', clipped),
-      reader: tool(NATIVE_TOOL_ID.readToolOutputArtifact),
-    });
-
-    const output = await settled['fetch']?.toModelOutput?.({
-      input: {},
-      output: clipped,
-      toolCallId: 'call-1',
-    });
-
-    expect(JSON.stringify(output)).not.toContain('tool_result_truncated');
-    expect(output).toMatchObject({
-      type: 'json',
-      value: { next: { input: { cursor: expect.stringMatching(/^bsto1\./u) }, tool: 'reader' } },
-    });
-
-    // Settlement and reads must agree, or the cursor it just handed the model
-    // resolves to not_found.
-    const reader = hostArtifactReader(
-      () => [owner],
-      'thread-a',
-      () => committedAt
-    );
-    expect(
-      await reader.readRange({
-        artifactId: hostArtifactId('run-1', 'call-1'),
-        limitBytes: 5,
-        offsetByte: 0,
-      })
-    ).toMatchObject({ status: 'found' });
-  });
-
-  it('leaves a non-MCP result that its own projection clips to that projection', async () => {
-    const clipped = 'y'.repeat(9042);
-    const owner = run('run-1', 'thread-a', { 'call-1': clipped }, 'brainstrike.workspaceSearch');
-    const settled = settleHostToolOutputs(owner, {
-      reader: tool(NATIVE_TOOL_ID.readToolOutputArtifact),
-      search: nativeProjectedTool('brainstrike.workspaceSearch', clipped),
-    });
-    const output = await settled['search']?.toModelOutput?.({
-      input: {},
-      output: clipped,
-      toolCallId: 'call-1',
-    });
-    expect(JSON.stringify(output)).not.toContain('bsto1.');
   });
 });

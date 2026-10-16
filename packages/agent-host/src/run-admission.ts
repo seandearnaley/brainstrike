@@ -392,7 +392,6 @@ export async function bindHostRunAdmission(
   run: HostRunState,
   acquired: HostRunAdmission
 ): Promise<HostRunAdmission> {
-  run.resolvedToolResultBudget = acquired.resolvedToolResultBudget;
   const admission = { ...acquired, tools: settleHostToolOutputs(run, acquired.tools) };
   run.nativeWebSearch = await admitHostNativeWebSearch(platform, run, admission);
   run.admission = admission;

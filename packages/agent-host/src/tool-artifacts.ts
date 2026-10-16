@@ -4,7 +4,6 @@ import {
   type SerializedToolOutput,
   toolOutputArtifactCandidate,
   toolOutputArtifactModelOutput,
-  wouldTruncateMcpModelOutput,
 } from '@brainstrike/agent/tool-runtime';
 import {
   NATIVE_TOOL_ID,
@@ -44,22 +43,18 @@ export function hostToolCatalogId(name: string, tool: HostTool): string {
  * it stays inline or its tool is never durable. Settlement and reads share it,
  * so an id the model holds a cursor for always re-serializes the same way.
  *
- * `run.artifactSettled` carries the one decision size alone cannot make: an
- * MCP result under the inline ceiling that its own projection would clip
- * (see {@link recordProjectionClippedArtifact}). Settlement records it before
- * handing the model a cursor, so reads of that id agree by construction
- * instead of re-deriving the rule.
+ * Deliberately a pure function of committed run state (`outputs`,
+ * `effectTools`), which `foldHostRunEffect` rebuilds from the ledger. Any
+ * settlement rule added here has to replay from the same events, or a cursor
+ * the model already holds stops resolving after a restart — see the note on
+ * {@link settleHostToolOutputs}.
  */
 function settledOutput(run: HostRunState, toolCallId: string): SerializedToolOutput | undefined {
   const toolName = run.effectTools.get(toolCallId);
   if (toolName === undefined || NON_DURABLE.has(toolName) || !run.outputs.has(toolCallId)) {
     return;
   }
-  return toolOutputArtifactCandidate(
-    run.outputs.get(toolCallId),
-    toolName,
-    run.artifactSettled.has(toolCallId) ? { wouldTruncateModelOutput: () => true } : {}
-  )?.serialized;
+  return toolOutputArtifactCandidate(run.outputs.get(toolCallId), toolName, {})?.serialized;
 }
 
 /**
@@ -81,36 +76,6 @@ export function requireSoleHostArtifactReader(
     );
   }
   return readers[0];
-}
-
-/**
- * Record an MCP result that stays inline on size yet loses data to its own
- * bounded model projection. Without this it would reach the model clipped,
- * with an honest truncation notice and no cursor to recover the rest; the
- * retired Mastra loop settled the same case through `wouldTruncateModelOutput`
- * (ADR-0022). The predicate is the shipped one, over the committed output, so
- * it stays a pure function of what the run committed.
- */
-function recordProjectionClippedArtifact(
-  run: HostRunState,
-  name: string,
-  tool: HostTool,
-  toolCallId: string
-): void {
-  if (tool.risk !== 'mcp' || run.artifactSettled.has(toolCallId)) {
-    return;
-  }
-  const output = run.outputs.get(toolCallId);
-  if (output === undefined) {
-    return;
-  }
-  const budget = run.resolvedToolResultBudget;
-  if (!budget) {
-    throw new Error('An admitted run settling tool output has no resolved tool result budget');
-  }
-  if (wouldTruncateMcpModelOutput(hostToolCatalogId(name, tool), output, budget)) {
-    run.artifactSettled.add(toolCallId);
-  }
 }
 
 function reference(
@@ -139,10 +104,21 @@ function defaultModelOutput(output: unknown): ToolResultOutput {
 
 /**
  * Legacy durable settlement over the host's committed outputs: when the run
- * can page artifacts, an output past the inline ceiling — or an MCP output
- * its own bounded projection would clip — reaches the model as its first
- * artifact page with a continuation cursor instead of a clipped projection.
- * The complete output is the committed `effect.finished`.
+ * can page artifacts, an output past the inline ceiling reaches the model as
+ * its first artifact page with a continuation cursor instead of a clipped
+ * projection. The complete output is the committed `effect.finished`.
+ *
+ * KNOWN GAP, measured and deliberately not closed here: an MCP result that
+ * stays inline on size yet loses data to its own bounded model projection
+ * reaches the model clipped, with an honest `tool_result_truncated` notice and
+ * no cursor to recover the rest. At the 128k anchor that band is roughly
+ * 6 000–12 000 bytes, since the inline ceiling is fixed while the projection
+ * budget scales. The retired Mastra loop settled it through
+ * `wouldTruncateModelOutput` (ADR-0022). Settling it here needs the decision
+ * to survive replay, and neither input is in committed state today: the
+ * resolved tool-result budget is not on the run snapshot, and
+ * `snapshot.mcpAuthorities` is keyed by registered tool name while
+ * `effectTools` stores the catalog id. Both are protocol additions.
  */
 export function settleHostToolOutputs(
   run: HostRunState,
@@ -159,7 +135,6 @@ export function settleHostToolOutputs(
       }
       const project = tool.toModelOutput;
       const toModelOutput: NonNullable<HostTool['toModelOutput']> = async (options) => {
-        recordProjectionClippedArtifact(run, name, tool, options.toolCallId);
         const serialized = settledOutput(run, options.toolCallId);
         if (!serialized) {
           return project ? await project(options) : defaultModelOutput(options.output);
