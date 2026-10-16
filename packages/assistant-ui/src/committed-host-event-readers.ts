@@ -30,9 +30,22 @@ export function record(value: unknown): Readonly<Record<string, unknown>> | unde
     : undefined;
 }
 
+/** An identity, name or host-authored label: a non-empty string. */
 export function requiredString(value: Readonly<Record<string, unknown>>, key: string): string {
   const field = value[key];
   if (typeof field !== 'string' || !field) {
+    throw new Error(`Committed host event is missing ${key}.`);
+  }
+  return field;
+}
+
+/**
+ * Streamed model content, such as a tool input delta: any string. A provider
+ * may stream an empty one (OpenRouter opens every call with `arguments: ""`).
+ */
+export function requiredText(value: Readonly<Record<string, unknown>>, key: string): string {
+  const field = value[key];
+  if (typeof field !== 'string') {
     throw new Error(`Committed host event is missing ${key}.`);
   }
   return field;

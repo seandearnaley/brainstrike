@@ -42,6 +42,7 @@ import {
   readRunAttempt,
   record,
   requiredString,
+  requiredText,
   worktreeCreatedNotice,
 } from './committed-host-event-readers';
 import { CommittedRewindHead, type CommittedRewindHeadMove } from './committed-rewind-head';
@@ -297,6 +298,20 @@ function committedInteractionApproved(
   return kind !== 'approval' || event['decision'] === 'approve';
 }
 
+/** A committed row this presentation cannot read; the view stops before it. */
+export class CommittedRowUnreadableError extends Error {
+  constructor(row: CommittedAssistantLogRow, cause: unknown) {
+    const kind = [row.event['type'], record(row.event['chunk'])?.['type']]
+      .filter((part) => typeof part === 'string')
+      .join(' ');
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    super(`This conversation cannot be shown past committed row ${row.seq} (${kind}): ${reason}`, {
+      cause,
+    });
+    this.name = 'CommittedRowUnreadableError';
+  }
+}
+
 function incompleteReason(outcome: unknown): 'cancelled' | 'error' | 'other' {
   return outcome === 'stopped' ? 'cancelled' : outcome === 'failed' ? 'error' : 'other';
 }
@@ -332,7 +347,11 @@ export class CommittedAssistantLogProjection {
       if (row.seq !== this.cursor + 1) {
         throw new Error('Rich projection requires the owner’s contiguous committed prefix.');
       }
-      this.apply(row);
+      try {
+        this.apply(row);
+      } catch (cause) {
+        throw new CommittedRowUnreadableError(row, cause);
+      }
       this.cursor = row.seq;
     }
     return this.view;
@@ -757,7 +776,7 @@ export class CommittedAssistantLogProjection {
       this.tool(run, { ...chunk, toolCallId: id });
       if (!run.authoritativeInputs.has(id)) {
         this.updateTool(run, id, (part) => {
-          const argsText = part.argsText + requiredString(chunk, 'delta');
+          const argsText = part.argsText + requiredText(chunk, 'delta');
           return { ...part, args: parsePartialJsonObject(argsText) ?? {}, argsText };
         });
       }

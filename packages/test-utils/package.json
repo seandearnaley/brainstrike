@@ -41,6 +41,7 @@
     "./fixtures/committed-host-granted-run.json": "./fixtures/committed-host-granted-run.json",
     "./fixtures/committed-host-hook-blocked.json": "./fixtures/committed-host-hook-blocked.json",
     "./fixtures/committed-host-hooks-skipped.json": "./fixtures/committed-host-hooks-skipped.json",
+    "./fixtures/committed-host-incremental-tool-input.json": "./fixtures/committed-host-incremental-tool-input.json",
     "./fixtures/committed-host-mcp-unavailable.json": "./fixtures/committed-host-mcp-unavailable.json",
     "./fixtures/committed-host-plan.json": "./fixtures/committed-host-plan.json",
     "./fixtures/committed-host-question.json": "./fixtures/committed-host-question.json",
