@@ -478,7 +478,6 @@ export {
   TOOL_OUTPUT_ARTIFACT_SETTLEMENT_MAX_BYTES,
   ToolOutputArtifactSettlementError,
   type ToolOutputArtifactSettlementFailureReason,
-  type ToolOutputArtifactSettlementStore,
 } from './tool-projection/tool-output-artifact-settlement';
 export {
   isToolProjectionInputRejected,

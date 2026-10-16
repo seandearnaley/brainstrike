@@ -145,7 +145,6 @@ export function settleHostToolOutputs(
           content: serialized.content,
           readerToolName: reader,
           reference: reference(run, options.toolCallId, serialized),
-          toolName: hostToolCatalogId(name, tool),
         }) as ToolResultOutput;
       };
       return [name, { ...tool, toModelOutput }];
