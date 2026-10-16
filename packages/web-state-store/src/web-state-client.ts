@@ -21,6 +21,8 @@ import type {
 /** A request the store refused or could not answer, with the writer's error kind. */
 export class WebStateStoreError extends Error {
   readonly atSeq: number | undefined;
+  /** The failure's own code, when it carries one (an IndexerError's). */
+  readonly code: string | undefined;
   readonly kind: WebStateErrorKind | 'closed';
   readonly threadId: string | undefined;
 
@@ -29,6 +31,7 @@ export class WebStateStoreError extends Error {
     this.name = 'WebStateStoreError';
     this.kind = reply.errorKind;
     this.atSeq = 'atSeq' in reply ? reply.atSeq : undefined;
+    this.code = 'code' in reply ? reply.code : undefined;
     this.threadId = 'threadId' in reply ? reply.threadId : undefined;
   }
 }

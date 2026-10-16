@@ -42,7 +42,7 @@ export async function closeTabs(): Promise<void> {
     store.close();
   }
   const root = await navigator.storage.getDirectory();
-  for (const pool of pools.splice(0)) {
+  for (const pool of pools.splice(0).flatMap((name) => [name, `${name}--files`])) {
     for (let attempt = 0; attempt < 50; attempt++) {
       try {
         await root.removeEntry(pool, { recursive: true });

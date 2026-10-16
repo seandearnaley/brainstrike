@@ -24,6 +24,7 @@ export {
   WEB_STATE_POOL_PREFIX,
   WEB_STATE_PROTOCOL,
   webRootPath,
+  webStateExtensionPool,
   webStateNames,
   webStateWireProtocol,
 } from './protocol';

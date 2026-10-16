@@ -476,6 +476,7 @@ describe('clearPersistentUiState OPFS-AHP handling', () => {
       yield 'brainstrike-notes'; // notes vault default — must be wiped even when pglite dirs exist
       yield 'brainstrike-web-state-default'; // browser state DB pools
       yield 'brainstrike-web-state-web-e2e-1';
+      yield 'brainstrike-web-state-default--files'; // the file index's own pool
       yield 'some-other-lib'; // unrelated OPFS consumer → must NOT be removed
     }
     Object.defineProperty(nav, 'storage', {
@@ -526,7 +527,27 @@ describe('clearPersistentUiState OPFS-AHP handling', () => {
     await clearPersistentUiState();
 
     expect(removeEntry.mock.calls.map(([name]) => name)).toEqual(
-      expect.arrayContaining(['brainstrike-web-state-default', 'brainstrike-web-state-web-e2e-1'])
+      expect.arrayContaining([
+        'brainstrike-web-state-default',
+        'brainstrike-web-state-web-e2e-1',
+        'brainstrike-web-state-default--files',
+      ])
+    );
+  });
+
+  it("removes the default store's pools, its file index's too, where OPFS cannot list its entries", async () => {
+    Object.defineProperty(nav, 'storage', {
+      configurable: true,
+      value: { getDirectory: vi.fn(async () => ({ removeEntry })) },
+    });
+
+    await clearPersistentUiState();
+
+    expect(removeEntry.mock.calls.map(([name]) => name)).toEqual(
+      expect.arrayContaining([
+        'brainstrike-web-state-default',
+        'brainstrike-web-state-default--files',
+      ])
     );
   });
 

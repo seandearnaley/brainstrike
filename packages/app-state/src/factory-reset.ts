@@ -265,6 +265,7 @@ export const FALLBACK_OPFS_DIR_NAMES = [
   'web',
   'brainstrike-notes', // Notes vault default "My Notes" (@brainstrike/notes-vault default-vault.ts)
   'brainstrike-web-state-default', // The browser state DB's default store (@brainstrike/web-state-store)
+  'brainstrike-web-state-default--files', // Its file index's own pool (webStateExtensionPool)
 ] as const;
 
 // Matches the pglite OPFS-AHP root dirs for our db names (`app`/`web`), versioned
@@ -279,8 +280,10 @@ const OPFS_NON_PGLITE_RESET_DIRS: ReadonlySet<string> = new Set([
 ]);
 
 // Every browser state DB pool: `WEB_STATE_POOL_PREFIX` plus the store's name
-// (@brainstrike/web-state-store protocol.ts `webStateNames`). Its writer must
-// first retire the store (`WebStateStore.retire`) so no OPFS handle is open.
+// (@brainstrike/web-state-store protocol.ts `webStateNames`), and the pools its
+// extensions keep in workers of their own, `<pool>--<part>` (`webStateExtensionPool`,
+// the file index's). Its writer must first retire the store (`WebStateStore.retire`)
+// so no OPFS handle is open.
 const OPFS_WEB_STATE_POOL_RE = /^brainstrike-web-state-[a-z0-9][a-z0-9-]*$/;
 
 /**
