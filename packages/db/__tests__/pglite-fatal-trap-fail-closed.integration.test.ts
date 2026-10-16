@@ -2,9 +2,9 @@ import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it, vi } from 'vitest';
 import { wasmLoader } from '../src/wasm-loader.js';
 
-// BST-1221: PGlite 0.5.8's synchronous protocol loop retries _PostgresMainLoopOnce
+// BST-1221: PGlite's synchronous protocol loop retries _PostgresMainLoopOnce
 // forever when the WASM call traps with anything but its longjmp exit code (see
-// patches/@electric-sql__pglite@0.5.8.patch and electric-sql/pglite#1058). The
+// patches/@electric-sql__pglite@0.5.10.patch and electric-sql/pglite#1058). The
 // patched loop must throw a named fatal error instead, poison the instance so
 // nothing can run on corrupted memory, and refuse to close cleanly.
 interface TrapCapableModule {
@@ -21,7 +21,7 @@ function assertFailClosedPatchApplied(): void {
   const loopSource = String(PGlite.prototype.execProtocolRawSync);
   if (!loopSource.includes('PGliteFatalTrapError')) {
     throw new Error(
-      'patches/@electric-sql__pglite@0.5.8.patch is not applied to @electric-sql/pglite: ' +
+      'patches/@electric-sql__pglite@0.5.10.patch is not applied to @electric-sql/pglite: ' +
         'execProtocolRawSync has no PGliteFatalTrapError branch, so a WebAssembly trap ' +
         'would spin forever. Refusing to run the trap probe against the unpatched loop.'
     );
