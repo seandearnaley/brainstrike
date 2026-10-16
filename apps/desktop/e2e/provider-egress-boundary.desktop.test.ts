@@ -20,7 +20,11 @@ import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
-import { startModelProviderShim } from './utils/model-provider-shim';
+import {
+  type ModelProviderRefusal,
+  type ProviderBaseUrlKnob,
+  startModelProviderShim,
+} from './utils/model-provider-shim';
 
 const SENTINEL_MESSAGE =
   'Loopback sentinel reached: this provider request was not refused by the E2E egress boundary.';
@@ -188,6 +192,27 @@ const REDIRECTABLE_CASES = [
 
 const REFUSAL_TEXT = /E2E egress boundary refused an unscripted provider request/;
 
+/**
+ * A new thread's first run streams its answer, and its title is requested
+ * beside it (#3720) as the one non-streaming request. The boundary refuses
+ * both; their arrival order is not fixed, so each is identified by its shape.
+ */
+function expectRunAndTitleRefused(
+  refusals: readonly ModelProviderRefusal[],
+  knob: ProviderBaseUrlKnob,
+  route: string
+): void {
+  const refused = { knob, method: 'POST', reason: 'unscripted', route };
+  expect(
+    refusals.filter(({ stream }) => stream === true),
+    'the run'
+  ).toEqual([expect.objectContaining(refused)]);
+  expect(
+    refusals.filter(({ stream }) => stream !== true),
+    'its title'
+  ).toEqual([expect.objectContaining({ ...refused, stream: false })]);
+}
+
 test.describe('Provider egress boundary (desktop)', () => {
   for (const scenario of REDIRECTABLE_CASES) {
     test(`an unscripted ${scenario.provider} request configured through ${scenario.knob} never reaches its destination`, async ({
@@ -215,14 +240,7 @@ test.describe('Provider egress boundary (desktop)', () => {
               .getByText(REFUSAL_TEXT)
               .first()
           ).toBeVisible();
-          expect(modelProvider.refusals()).toEqual([
-            expect.objectContaining({
-              knob: scenario.knob,
-              method: 'POST',
-              reason: 'unscripted',
-              route: scenario.route,
-            }),
-          ]);
+          expectRunAndTitleRefused(modelProvider.refusals(), scenario.knob, scenario.route);
         });
       } finally {
         try {
@@ -245,14 +263,7 @@ test.describe('Provider egress boundary (desktop)', () => {
       await expect(
         page.getByRole('region', { exact: true, name: 'Assistant' }).getByText(REFUSAL_TEXT).first()
       ).toBeVisible();
-      expect(modelProvider.refusals()).toEqual([
-        expect.objectContaining({
-          knob: 'OPENAI_BASE_URL',
-          method: 'POST',
-          reason: 'unscripted',
-          route: '/responses',
-        }),
-      ]);
+      expectRunAndTitleRefused(modelProvider.refusals(), 'OPENAI_BASE_URL', '/responses');
     } finally {
       await electron.dispose();
     }

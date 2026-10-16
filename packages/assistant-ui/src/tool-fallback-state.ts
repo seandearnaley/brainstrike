@@ -15,6 +15,7 @@ import {
   type ActivityStepState,
   readToolFailure,
   runPythonStepState,
+  TOOL_EXECUTION_FAILED_MESSAGE,
   toolStepStateFor,
 } from './activity-trace-model';
 import { readDelegatedTaskTerminalError } from './delegated-terminal-status';
@@ -22,6 +23,7 @@ import {
   narrowRunPythonDisplayResult,
   type RunPythonDisplayResult,
 } from './run-python-result-model';
+import { type PrimaryArgSummary, summarizeFailureReason } from './tool-summaries';
 
 type ToolFallbackProps = ComponentProps<ToolCallMessagePartComponent>;
 export type ToolStatus = ToolFallbackProps['status'];
@@ -119,6 +121,25 @@ export const resolveErrorMessage = (
 
   return 'Tool incomplete: unknown';
 };
+
+/**
+ * A failed call's stated reason for its collapsed row, bounded like a result
+ * summary and shown under the same Detail-level policy. The generic message
+ * adds nothing the failed glyph does not already say. Every card that draws
+ * a step row reads this one rule.
+ */
+export function failureReasonSummary(
+  failed: boolean,
+  errorMessage: string | undefined,
+  showResultSummary: boolean
+): PrimaryArgSummary | undefined {
+  return failed &&
+    showResultSummary &&
+    errorMessage !== undefined &&
+    errorMessage !== TOOL_EXECUTION_FAILED_MESSAGE
+    ? summarizeFailureReason(errorMessage)
+    : undefined;
+}
 
 export const formatResult = (result: ToolResult): string => {
   if (typeof result === 'string') {

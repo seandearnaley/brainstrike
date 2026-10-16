@@ -28,7 +28,7 @@ cleanupUnusedCatalogs: true
 catalog:
   # ADR-0012: only the new host consumes this pin; the legacy Mastra closure retains ai 6.
   ai: 7.0.142
-  vscode-jsonrpc: 9.0.2
+  vscode-jsonrpc: 9.0.3
   '@ai-sdk/amazon-bedrock': 5.0.117
   # BST-2029: retain the qualified fence until 0.0.79 passes both OS suites.
   # macOS behavior passed; Linux readiness is blocked by host AppArmor policy.
@@ -45,7 +45,7 @@ catalog:
   # implementation (eslint/prettier/lint-staged/globby all use it); already
   # present transitively, promoted to a direct dep so the walk can rely on it.
   '@babel/core': ^8.0.7
-  '@codemirror/state': ^6.7.4
+  '@codemirror/state': ^6.7.6
   # ADR-0004: the Effect language service on TypeScript 7. Run in dedicated
   # `effect-tsgo diagnostics` mode from each Effect package's type-check, never
   # `effect-tsgo patch`: patch rewrites the shared `tsc`, and the `typescript`
@@ -54,16 +54,16 @@ catalog:
   # Exact pin: its supported TypeScript list moves with every release (0.52.0
   # supports 7.0.2 and 7.1.0-dev, matching the `@typescript/native` alias).
   '@effect/tsgo': 0.53.1
-  '@electric-sql/pglite': 0.5.8
-  '@electric-sql/pglite-pg_textsearch': 0.0.10
-  '@electric-sql/pglite-pgvector': 0.0.9
+  '@electric-sql/pglite': 0.5.10
+  '@electric-sql/pglite-pg_textsearch': 0.0.12
+  '@electric-sql/pglite-pgvector': 0.0.11
   # BST-1939: the native grep trigram planner parses the JS regex AST. Already
   # resolved through eslint; promoted to a direct dependency of @brainstrike/utils.
   '@eslint-community/regexpp': 4.12.2
   '@fontsource-variable/geist': ^5.3.0
   '@fontsource-variable/geist-mono': ^5.3.0
   '@huggingface/transformers': ^4.3.0
-  '@mastra/schema-compat': 1.3.11
+  '@mastra/schema-compat': 1.3.15
   # GHSA-6qxp-vccf-f47h / CVE-2026-104850 (HIGH, CVSS 7.5): in 2.0.0-2.1.0 the
   # MCP *server* chose which authorization server received a stored
   # `refresh_token` or `client_secret`, because saved credentials carried no
@@ -88,14 +88,14 @@ catalog:
   '@openrouter/ai-sdk-provider': 3.1.0
   '@parcel/watcher': ^2.6.0
   '@playwright/test': 1.64.1
-  '@radix-ui/react-accordion': ^1.2.20
-  '@radix-ui/react-checkbox': ^1.3.11
-  '@radix-ui/react-dialog': ^1.1.23
-  '@radix-ui/react-scroll-area': ^1.2.18
-  '@radix-ui/react-tabs': ^1.1.21
-  '@radix-ui/react-toast': ^1.2.23
-  '@shikijs/langs': ^4.4.3
-  '@shikijs/themes': ^4.4.3
+  '@radix-ui/react-accordion': ^1.3.1
+  '@radix-ui/react-checkbox': ^1.4.1
+  '@radix-ui/react-dialog': ^1.3.1
+  '@radix-ui/react-scroll-area': ^1.4.0
+  '@radix-ui/react-tabs': ^1.2.1
+  '@radix-ui/react-toast': ^1.3.1
+  '@shikijs/langs': ^4.5.0
+  '@shikijs/themes': ^4.5.0
   '@smithy/eventstream-codec': ^4.5.2
   '@smithy/util-utf8': ^4.5.2
   # BST-1940: the official SQLite WASM build for the browser state writer
@@ -115,8 +115,8 @@ catalog:
   '@stryker-mutator/vitest-runner': ^10.0.0
   '@tailwindcss/typography': ^0.5.20
   '@tailwindcss/vite': ^4.3.3
-  '@tanstack/react-table': ^9.2.4
-  '@tanstack/react-virtual': ^3.14.11
+  '@tanstack/react-table': ^9.3.1
+  '@tanstack/react-virtual': 3.14.20
   '@testing-library/dom': ^10.4.2
   '@testing-library/jest-dom': ^7.0.1
   '@testing-library/react': ^16.3.3
@@ -144,7 +144,7 @@ catalog:
   better-sqlite3: 13.0.3
   bindings: 1.5.0
   concurrently: ^10.0.6
-  drizzle-orm: 0.45.2
+  drizzle-orm: 0.45.4
   # ADR-0004: Effect v4 is an LTS line, with fixes committed through September
   # 2029. The pin stays EXACT: `^4.0.0` constraints elsewhere in the ecosystem
   # reject rc builds, so a range here would have silently re-resolved the whole
@@ -165,8 +165,8 @@ catalog:
   jsdom: 30.1.3
   jszip: ^3.10.2
   knip: ^6.41.0
-  lucide-react: ^1.41.0
-  mermaid: ^11.17.1
+  lucide-react: ^1.58.0
+  mermaid: ^12.2.0
   minimatch: ^10.2.6
   node-addon-api: 8.9.2
   node-gyp: 13.0.2
@@ -179,17 +179,16 @@ catalog:
   pino: ^10.4.0
   playwright: 1.64.1
   react-hotkeys-hook: ^5.3.3
-  react-resizable-panels: ^4.12.3
-  react-router-dom: ^7.18.3
-  react-shiki: ^0.11.1
+  react-resizable-panels: ^4.14.5
+  react-router-dom: ^7.18.4
+  react-shiki: ^0.11.2
   remark-gfm: ^4.0.1
-  shiki: ^4.4.3
+  shiki: ^4.5.0
   # BST-1920: loadable vec0 extension; one optional package per platform
   # (sqlite-vec-<os>-<arch>). Exact pin; resolved through app.asar.unpacked.
   sqlite-vec: 0.1.9
-  # BST-1929: the version @assistant-ui/react-streamdown renders with (pinned by
-  # the override below). A direct dependency only so Tailwind's @source can scan
-  # its dist for the utility classes it ships.
+  # BST-2031: shared with react-streamdown; the direct dependency lets Tailwind
+  # @source scan the exact renderer version for its utility classes.
   streamdown: 2.6.0
   tailwindcss: ^4.3.3
   tiktoken: ^1.0.22
@@ -207,19 +206,21 @@ catalog:
   yaml: ^2.9.1
   zod: ^4.6.7
   zustand: ^5.0.15
+  '@codemirror/language': ^6.13.1
+  '@codemirror/view': ^6.43.14
 overrides:
-  # BST-1929: hold react-streamdown's own dependencies at the newest releases at
-  # least 14 days old when it was added, so the lockfile has one react-markdown
-  # wrapper, one streamdown (the catalog pin that Tailwind's @source scans) and
-  # one remend (streamdown pins 1.3.1 exactly). Retire these edges with the next
-  # @assistant-ui/react-streamdown bump.
+  # BST-2031: retain the chat-runtime closure until BST-1940 wires the web UI
+  # to the shared log. Its real send gate fails on the pre-upgrade artifact too:
+  # the legacy request hook requires memory, which the stateless proxy forbids.
+  # Preserve one Streamdown version for Tailwind's direct @source scan.
   '@assistant-ui/react-streamdown@0.3.17>@assistant-ui/react-markdown': 0.14.17
   '@assistant-ui/react-streamdown@0.3.17>remend': 1.3.1
   '@assistant-ui/react-streamdown@0.3.17>streamdown': 2.6.0
   # BST-875: Drizzle's published CLI/API use tsx, never its deprecated loader.
-  # Retire on owner update; do not reintroduce the unused esbuild 0.18 subtree.
-  'drizzle-kit@0.31.10>@esbuild-kit/esm-loader': '-'
-  'drizzle-kit@0.31.10>tsx': 4.23.12
+  # 0.31.11 still declares that unused loader. Retire these edges when its
+  # published CLI/API no longer need them; keep the executable TS-loading guard.
+  'drizzle-kit@0.31.11>@esbuild-kit/esm-loader': '-'
+  'drizzle-kit@0.31.11>tsx': 4.23.12
   # Vercel pins the same older tsx copy; include those edges in the full graph.
   '@vercel/backends@0.8.30>tsx': 4.23.12
   '@vercel/node@5.9.3>tsx': 4.23.12
@@ -261,8 +262,8 @@ overrides:
   # https://github.com/isaacs/minimatch/security/advisories/GHSA-23c5-xmqv-rm74
   # Parent scoping: https://pnpm.io/settings/dependency-resolution#overrides
   '@vercel/python-analysis@0.12.0>minimatch': 10.2.6
-  react: ^19.3.0
-  react-dom: ^19.3.0
+  react: ^19.3.1
+  react-dom: ^19.3.1
   # BST-871 / GHSA-vpq2-c234-7xj6: fun pins the vulnerable event-wait helper.
   # Same-major vendor patch; retire when this parent admits a patched version.
   '@vercel/fun@1.3.0>@tootallnate/once': 2.0.1
@@ -322,17 +323,9 @@ overrides:
   # which fails until all three are done together.
   vite-plugin-top-level-await>@swc/core: ~1.15.47
   vite-plugin-top-level-await>@swc/wasm: ~1.15.43
-  # GHSA-6qxp-vccf-f47h / CVE-2026-104850 again, on the v1 line: @ext-apps 1.7.5
-  # peer-depends on @modelcontextprotocol/sdk ^1.29.0, so pnpm auto-installs a
-  # copy inside the advisory's affected 1.12.0-1.30.1 range. 1.31.0 carries the
-  # same issuer-binding fix; 1.32.1 is the head of that line and still satisfies
-  # ^1.29.0. DEFENCE IN DEPTH, not a live hole: the vulnerable code is the OAuth
-  # client, ext-apps imports only client/index.js, server/mcp.js,
-  # server/zod-compat.js, shared/protocol.js, shared/transport.js and types.js,
-  # and no first-party source may reference the v1 SDK at all (enforced by
-  # scripts/__tests__/mcp-sdk-v2-boundary-contract.test.mjs). Retire this edge
-  # when ext-apps admits the v2 split packages.
-  '@modelcontextprotocol/ext-apps@1.7.5>@modelcontextprotocol/sdk': 1.32.1
+  # Test-only conformance alpha.12 still declares SDK ^1.29.0. Keep its OAuth
+  # issuer-binding fix; first-party code continues to use only the split SDK 2.
+  '@modelcontextprotocol/conformance@0.2.0-alpha.12>@modelcontextprotocol/sdk': 1.32.1
 allowBuilds:
   '@brainstrike/secure-fs-native': true
   '@brainstrike/windows-job-native': true
@@ -363,11 +356,15 @@ allowBuilds:
 # Explicit zero overrides pnpm 11's default one-day floor.
 minimumReleaseAge: 0
 patchedDependencies:
-  '@assistant-ui/core@0.3.17': patches/@assistant-ui__core@0.3.17.patch
-  '@electric-sql/pglite@0.5.8': patches/@electric-sql__pglite@0.5.8.patch
-  '@huggingface/transformers@4.3.0': patches/@huggingface__transformers@4.3.0.patch
-  '@mastra/core@1.71.0': patches/@mastra__core@1.71.0.patch
+  # BST-2032: retain the qualified Core/Memory pair and lifecycle patches.
+  # Memory 1.38 fails owner cancellation; Core 1.78 with retained Memory fails
+  # the public config contract and requires new background-task lease storage.
+  # Requalify these together instead of weakening cleanup or storage ownership.
   '@mastra/memory@1.32.1': patches/@mastra__memory@1.32.1.patch
+  '@assistant-ui/core@0.3.17': patches/@assistant-ui__core@0.3.17.patch
+  '@huggingface/transformers@4.3.0': patches/@huggingface__transformers@4.3.0.patch
   '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch
   app-builder-lib@26.17.0: patches/app-builder-lib@26.17.0.patch
-  vscode-jsonrpc@9.0.2: patches/vscode-jsonrpc@9.0.2.patch
+  vscode-jsonrpc@9.0.3: patches/vscode-jsonrpc@9.0.3.patch
+  '@electric-sql/pglite@0.5.10': patches/@electric-sql__pglite@0.5.10.patch
+  '@mastra/core@1.71.0': patches/@mastra__core@1.71.0.patch

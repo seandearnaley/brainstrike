@@ -38,7 +38,7 @@ export const VALID_EVIDENCE_SCHEMA = {
   schemaVersion: '1.1.0',
   ticket: 'BST-1484',
   versions: {
-    conformance: { package: '@modelcontextprotocol/conformance', version: '0.2.0-alpha.10' },
+    conformance: { package: '@modelcontextprotocol/conformance', version: '0.2.0-alpha.12' },
     fixture: { id: MODERN_SCENARIO.fixture, ...MODERN_SCENARIO.fixtureSource },
     sdk: { package: '@modelcontextprotocol/client', version: MODERN_SCENARIO.reference.sdkVersion },
     spec: '2026-07-28',
