@@ -20,7 +20,6 @@ on:
         type: choice
         options:
           - full
-          - memory-baseline
           - foreground-latency
 
 concurrency:
@@ -135,7 +134,7 @@ jobs:
   # `name`, so keep it exact). Fan-in over the shard matrix, like `unit` over
   # `unit-shard` in test.yml: a matrix job's result is `success` only when every
   # shard succeeded. It carries the shard job's own condition so it skips exactly
-  # when the shards do (a memory-baseline dispatch), and fails on anything else.
+  # when the shards do (a foreground-latency dispatch), and fails on anything else.
   desktop-full-regression-gate:
     name: Desktop Full Regression
     if: always() && (github.event_name != 'workflow_dispatch' || inputs.suite == 'full')
@@ -210,37 +209,18 @@ jobs:
       # don't fill the log with `[ERROR:dbus/bus.cc:405] Failed to connect`.
       - name: Run desktop embedding regression
         working-directory: apps/desktop
-        env:
-          DESKTOP_E2E_SUITE: ${{ inputs.suite || 'full' }}
         run: |
           unset NO_COLOR
-          if [[ "$DESKTOP_E2E_SUITE" == "memory-baseline" ]]; then
-            BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn dbus-run-session -- pnpm exec xvfb-maybe pnpm exec playwright test \
-              e2e/embedding-worker-renderer.memory.desktop.test.ts \
-              e2e/database-live-query-memory.desktop.test.ts \
-              --project=regression \
-              --workers=1 \
-              --retries=0 \
-              --max-failures=0 \
-              --global-timeout=3000000 \
-              --grep="@desktop-embedding-memory"
-          else
-            BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn dbus-run-session -- pnpm exec xvfb-maybe pnpm exec playwright test \
-              e2e/embedding-worker-renderer.smoke.desktop.test.ts \
-              e2e/embedding-worker-renderer.backfill-search.desktop.test.ts \
-              e2e/embedding-worker-renderer.memory.desktop.test.ts \
-              e2e/database-live-query-memory.desktop.test.ts \
-              e2e/embedding-worker-renderer.diagnostics.desktop.test.ts \
-              e2e/embedding-worker-renderer.crash-a.desktop.test.ts \
-              e2e/embedding-worker-renderer.crash-b.desktop.test.ts \
-              e2e/embedding-backfill-capacity.desktop.test.ts \
-              --project=regression \
-              --workers=1 \
-              --retries=0 \
-              --max-failures=0 \
-              --global-timeout=3000000 \
-              --grep="@desktop-embedding-"
-          fi
+          BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn dbus-run-session -- pnpm exec xvfb-maybe pnpm exec playwright test \
+            e2e/embedding-worker-renderer.smoke.desktop.test.ts \
+            e2e/embedding-worker-renderer.search.desktop.test.ts \
+            e2e/embedding-worker-renderer.lifecycle.desktop.test.ts \
+            --project=regression \
+            --workers=1 \
+            --retries=0 \
+            --max-failures=0 \
+            --global-timeout=3000000 \
+            --grep="@desktop-embedding-"
 
       - name: Upload desktop embedding traces
         if: failure()

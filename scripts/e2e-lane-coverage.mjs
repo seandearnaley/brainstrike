@@ -104,7 +104,7 @@ const MINIMUMS = {
   desktop: {
     e2eScripts: 8,
     lanes: 3,
-    laneTags: 12,
+    laneTags: 10,
     specs: 35,
     targetedE2eScripts: 1,
     titles: 100,

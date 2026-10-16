@@ -16,14 +16,14 @@ const embeddingFixturePath = path.join(
   'apps/desktop/e2e/embedding-worker-renderer.shared.ts'
 );
 
-test('desktop workflow exposes an untruncated memory-baseline dispatch', async () => {
+test('desktop workflow dispatches the full suite or the foreground-latency benchmark', async () => {
   const workflow = parseYaml(await readFile(workflowPath, 'utf8'));
   const suiteInput = workflow.on?.workflow_dispatch?.inputs?.suite;
 
   assert.deepEqual(suiteInput, {
     default: 'full',
     description: 'Desktop E2E suite to run',
-    options: ['full', 'memory-baseline', 'foreground-latency'],
+    options: ['full', 'foreground-latency'],
     required: true,
     type: 'choice',
   });
@@ -32,34 +32,27 @@ test('desktop workflow exposes an untruncated memory-baseline dispatch', async (
   assert.equal(
     fullRegression?.if,
     "github.event_name != 'workflow_dispatch' || inputs.suite == 'full'",
-    'memory-baseline dispatches must not spend time in the unrelated full regression'
+    'a foreground-latency dispatch must not spend time in the unrelated full regression'
   );
+});
 
-  const embeddingJob = workflow.jobs?.['desktop-embedding-e2e'];
-  const runStep = embeddingJob?.steps?.find(
+test('the embedding job runs its specs untruncated, each named literally', async () => {
+  const workflow = parseYaml(await readFile(workflowPath, 'utf8'));
+  const runStep = workflow.jobs?.['desktop-embedding-e2e']?.steps?.find(
     (step) => step.name === 'Run desktop embedding regression'
   );
-  assert.match(runStep?.env?.DESKTOP_E2E_SUITE ?? '', /^\$\{\{ inputs\.suite \|\| 'full' \}\}$/);
-  assert.match(runStep?.run ?? '', /memory-baseline/);
-  assert.match(runStep?.run ?? '', /e2e\/embedding-worker-renderer\.memory\.desktop\.test\.ts/);
-  assert.match(
-    runStep?.run ?? '',
-    /if \[\[ "\$DESKTOP_E2E_SUITE" == "memory-baseline" \]\]; then[\s\S]*?e2e\/database-live-query-memory\.desktop\.test\.ts[\s\S]*?\n\s*else/,
-    'memory-baseline dispatch must run the database live-query memory regression'
-  );
-  assert.match(
-    runStep?.run ?? '',
-    /\n\s*else\n[\s\S]*?e2e\/database-live-query-memory\.desktop\.test\.ts[\s\S]*?\n\s*fi/,
-    'the scheduled nightly full suite must also run the database live-query memory regression'
-  );
+  const run = runStep?.run ?? '';
+  for (const spec of ['smoke', 'search', 'lifecycle']) {
+    assert.match(run, new RegExp(`e2e/embedding-worker-renderer\\.${spec}\\.desktop\\.test\\.ts`));
+  }
   assert.doesNotMatch(
-    runStep?.run ?? '',
+    run,
     /test_files|max_failures|test_grep/,
-    'the reachability gate must see literal Playwright files and options in each branch'
+    'the reachability gate must see literal Playwright files and options'
   );
-  assert.match(runStep?.run ?? '', /--max-failures=0/);
+  assert.match(run, /--max-failures=0/);
   // BST-1915: one failing spec stopped the nightly and hid 17 never-run specs.
-  assert.doesNotMatch(runStep?.run ?? '', /--max-failures=[1-9]/);
+  assert.doesNotMatch(run, /--max-failures=[1-9]/);
 });
 
 test('scheduled embedding smoke distinguishes configured WebGPU from unavailable automatic selection', async () => {

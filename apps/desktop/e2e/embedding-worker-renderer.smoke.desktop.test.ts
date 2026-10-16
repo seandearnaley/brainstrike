@@ -3,28 +3,16 @@ import { expect, test } from './embedding-worker-renderer.shared';
 
 const {
   AUTOMATIC_WEBGPU_UNAVAILABLE_ERROR,
-  DESKTOP_IDLE_EMBED_RUNNING_JOB_LIMIT,
   ERROR_LOCATOR,
-  assertToolsPanelResponsive,
-  clearEmbeddingQueue,
-  countRecordsContainingText,
-  createLargeBackfillFixture,
-  createTestBackfillJob,
   ensureEmbeddingHostStarted,
   getEmbeddingHostPage,
   getEmbeddingHostStatus,
-  getEmbeddingQueueStats,
   getRendererLogRecords,
   isDatabaseError,
   recordContainsText,
-  reloadRendererInTest,
   requestLocalQueryEmbedding,
   setVectorDevicePreference,
-  showDatabaseDemoPanel,
-  waitForActiveProcessingOrFatalError,
   waitForAppReadyInTest,
-  waitForBackfillButtonEnabled,
-  waitForBoundedBackfillEnqueueOrFatalError,
   withTemporaryProcessEnv,
 } = shared;
 
@@ -116,148 +104,5 @@ test.describe('Embedding Host Renderer - smoke', () => {
       restoreEnv();
       await electron.restart();
     }
-  });
-
-  test('@desktop-embedding-lifecycle keeps the visible UI responsive while jobs are queued for the hidden host', async ({
-    window,
-  }) => {
-    const activeWindow = await showDatabaseDemoPanel(window);
-
-    if (await isDatabaseError(activeWindow)) {
-      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
-      return;
-    }
-
-    await setVectorDevicePreference(activeWindow, 'wasm');
-    const jobs = await Promise.all([
-      createTestBackfillJob(activeWindow),
-      createTestBackfillJob(activeWindow),
-      createTestBackfillJob(activeWindow),
-    ]);
-
-    expect(jobs).toHaveLength(3);
-    await assertToolsPanelResponsive(activeWindow);
-
-    const status = await getEmbeddingHostStatus(activeWindow);
-    if (status.state === 'error') {
-      expect(status.lastError).toMatch(/Local embedding (model initialization|execution) failed/i);
-      return;
-    }
-
-    expect(status.state).toBe('running');
-  });
-
-  test('@desktop-embedding-backfill keeps the visible UI responsive while a large backfill is being enqueued', async ({
-    window,
-  }) => {
-    const activeWindow = await showDatabaseDemoPanel(window);
-
-    if (await isDatabaseError(activeWindow)) {
-      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
-      return;
-    }
-
-    await clearEmbeddingQueue(activeWindow);
-    await setVectorDevicePreference(activeWindow, 'wasm');
-    const fixture = await createLargeBackfillFixture(activeWindow, 160);
-    await reloadRendererInTest(activeWindow, 'embedding-worker-large-backfill-fixture');
-    await showDatabaseDemoPanel(activeWindow);
-
-    const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
-    await expect(collectionOption).toBeVisible({ timeout: 15_000 });
-    await collectionOption.click({ timeout: 5000 });
-
-    const backfillButton = activeWindow
-      .locator('[data-testid="database-demo-panel"]')
-      .getByRole('button', { name: /^Backfill(?:\s|$)/ });
-
-    await expect(backfillButton).toBeVisible({ timeout: 15_000 });
-    await waitForBackfillButtonEnabled(activeWindow, backfillButton);
-
-    await backfillButton.click({ timeout: 5000 });
-    await assertToolsPanelResponsive(activeWindow);
-
-    const enqueueState = await waitForBoundedBackfillEnqueueOrFatalError(activeWindow);
-    const queueStats = await getEmbeddingQueueStats(activeWindow);
-
-    if (enqueueState === 'queued') {
-      expect(queueStats.queued + queueStats.running).toBeLessThanOrEqual(64);
-      expect(
-        queueStats.queued + queueStats.running + queueStats.failed + queueStats.succeeded
-      ).toBeGreaterThan(0);
-      return;
-    }
-
-    const status = await getEmbeddingHostStatus(activeWindow);
-    expect(status.state).toBe('error');
-    expect(status.lastError).toMatch(/Local embedding (model initialization|execution) failed/i);
-    expect(queueStats.queued + queueStats.running).toBeLessThanOrEqual(64);
-  });
-
-  test('@desktop-embedding-backfill keeps the visible UI responsive while the hidden host is actively processing a backfill', async ({
-    window,
-  }) => {
-    const activeWindow = await showDatabaseDemoPanel(window);
-
-    if (await isDatabaseError(activeWindow)) {
-      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
-      return;
-    }
-
-    await clearEmbeddingQueue(activeWindow);
-    await setVectorDevicePreference(activeWindow, 'wasm');
-    const fixture = await createLargeBackfillFixture(activeWindow, 96, { persistActiveSet: false });
-    await reloadRendererInTest(activeWindow, 'embedding-worker-host-processing-fixture');
-    await showDatabaseDemoPanel(activeWindow);
-
-    const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
-    await expect(collectionOption).toBeVisible({ timeout: 15_000 });
-    await collectionOption.click({ timeout: 5000 });
-
-    const backfillButton = activeWindow
-      .locator('[data-testid="database-demo-panel"]')
-      .getByRole('button', { name: /^Backfill(?:\s|$)/ });
-
-    await expect(backfillButton).toBeVisible({ timeout: 15_000 });
-    await waitForBackfillButtonEnabled(activeWindow, backfillButton);
-    await backfillButton.click({ timeout: 5000 });
-    await expect(
-      activeWindow
-        .locator('[data-testid="database-demo-panel"]')
-        .getByRole('button', { name: 'Starting…' })
-    ).toHaveCount(0);
-
-    const finalState = await waitForActiveProcessingOrFatalError(activeWindow);
-    const queueStats = await getEmbeddingQueueStats(activeWindow);
-
-    if (finalState === 'running') {
-      expect(queueStats.queued + queueStats.running).toBeGreaterThan(0);
-      expect(queueStats.running).toBeLessThanOrEqual(DESKTOP_IDLE_EMBED_RUNNING_JOB_LIMIT);
-      expect(queueStats.queued + queueStats.running).toBeLessThanOrEqual(64);
-    } else {
-      const status = await getEmbeddingHostStatus(activeWindow);
-      const hostPage = await getEmbeddingHostPage(activeWindow);
-      await hostPage.waitForTimeout(1000);
-      const hostLogs = await getRendererLogRecords(hostPage);
-
-      expect(status.state).toBe('error');
-      expect(status.lastError).toMatch(/Local embedding (model initialization|execution) failed/i);
-      expect(countRecordsContainingText(hostLogs, 'Pipeline load failed')).toBeLessThanOrEqual(1);
-      expect(
-        countRecordsContainingText(hostLogs, 'Embedding worker streaming failed')
-      ).toBeLessThanOrEqual(1);
-      expect(queueStats.running).toBe(0);
-      expect(queueStats.queued + queueStats.running).toBeLessThanOrEqual(64);
-      expect(
-        countRecordsContainingText(
-          hostLogs,
-          'Stopping embedding worker after fatal local model error'
-        )
-      ).toBeLessThanOrEqual(1);
-    }
-
-    await assertToolsPanelResponsive(activeWindow);
-    await activeWindow.waitForTimeout(500);
-    await assertToolsPanelResponsive(activeWindow);
   });
 });

@@ -47,8 +47,8 @@ production Tasks registration.
 
 ## Shared harness fixture exceptions
 
-Executable `*.test.ts` specs stay below 2,000 LOC. Two shared harness modules are
-explicitly documented test fixture exceptions to that budget: splitting them would
+Executable `*.test.ts` specs stay below 2,000 LOC. One shared harness module is an
+explicitly documented test fixture exception to that budget: splitting it would
 scatter one import surface across several files without making any spec smaller.
 
 `file-explorer-selection.shared.ts` owns the desktop file-system fixtures,
@@ -60,11 +60,7 @@ helpers for the two selection lanes, which stay split by purpose:
 - `file-explorer-selection-restore.desktop.test.ts` - restored explicit, query,
   materialized-snapshot and manual-path selection behavior after a restart.
 
-`embedding-worker-renderer.shared.ts` keeps the shared desktop setup, database
-fixtures, host diagnostics and memory samplers for the embedding-worker renderer
-lanes in one import surface.
-
-The exception covers these harness modules only. The executable specs they serve
+The exception covers this harness module only. The executable specs it serves
 stay under the budget, and `runtime-host-boundary.test.ts` enforces both halves:
 the per-spec line ceiling and this documentation.
 

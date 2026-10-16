@@ -51,7 +51,7 @@ const playwrightConfig: PlaywrightTestConfig = {
       name: 'regression',
     },
     // Long-running benchmarks and soak assertions run only when explicitly
-    // invoked. test:e2e:stress and test:e2e:lane:foreground-latency set this
+    // invoked. test:e2e:stress:foreground-thread and test:e2e:lane:foreground-latency set this
     // flag; ordinary correctness runs retain the other crash/lifecycle tests.
     ...(process.env['BRAINSTRIKE_E2E_PERF'] === '1'
       ? [
