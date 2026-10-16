@@ -35,6 +35,8 @@ import { EmbeddingHostManager } from '../embedding-host-manager';
 import {
   createEmbeddingHostDocumentCancellationError,
   createEmbeddingHostDocumentEmbeddingsErrorReport,
+  createEmbeddingHostRuntimeStoppedError,
+  EMBEDDING_HOST_RUNTIME_STOPPED_CODE,
 } from '../embedding-host-shared';
 
 const DOCUMENT = {
@@ -203,6 +205,53 @@ describe('document transport physical settlement', () => {
       reason,
       expect.objectContaining({ message: 'independent device abort', name: 'AbortError' }),
     ]);
+  });
+  it("joins a caller cancellation that the host's own Stop ended first", async () => {
+    const controller = new AbortController();
+    const reason = new Error('caller stopped');
+    const { outcome } = await start(controller.signal);
+    controller.abort(reason);
+    // Shutdown retires the host beside cooperative cancellation; its Stop answers first.
+    manager.acceptDocumentEmbeddingsResponseReport(
+      91,
+      createEmbeddingHostDocumentEmbeddingsErrorReport(
+        request,
+        createEmbeddingHostRuntimeStoppedError()
+      )
+    );
+    await expect(outcome).resolves.toBe(reason);
+  });
+  it('keeps a timeout alone when the escalated Stop ends the request', async () => {
+    const { outcome, settled } = await start();
+    await vi.advanceTimersByTimeAsync(60_000);
+    manager.acceptDocumentEmbeddingsResponseReport(
+      91,
+      createEmbeddingHostDocumentEmbeddingsErrorReport(
+        request,
+        createEmbeddingHostRuntimeStoppedError()
+      )
+    );
+    await flush();
+    expect(settled).not.toHaveBeenCalled();
+    stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
+    const error = await outcome;
+    expect(error).not.toBeInstanceOf(AggregateError);
+    expect(error).toEqual(
+      expect.objectContaining({ message: expect.stringContaining('timed out after 60000ms') })
+    );
+  });
+  it('reports a host Stop as a failure to a caller that did not cancel', async () => {
+    const { outcome } = await start();
+    manager.acceptDocumentEmbeddingsResponseReport(
+      91,
+      createEmbeddingHostDocumentEmbeddingsErrorReport(
+        request,
+        createEmbeddingHostRuntimeStoppedError()
+      )
+    );
+    expect(await outcome).toEqual(
+      expect.objectContaining({ code: EMBEDDING_HOST_RUNTIME_STOPPED_CODE, name: 'AbortError' })
+    );
   });
   it('escalates a non-cooperative cancellation into the existing Stop join', async () => {
     const controller = new AbortController();

@@ -3,6 +3,7 @@ import type { EmbeddingDeviceType } from '@brainstrike/embeddings';
 import type { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
 import { createLogger } from '@brainstrike/logging';
 import type { MutableRefObject } from 'react';
+import { createEmbeddingHostRuntimeStoppedError } from '../../embedding-host-shared';
 
 const logger = createLogger('EmbeddingHostRuntime');
 
@@ -138,9 +139,11 @@ export function closeQueryEmbeddingRuntimeOwner(
   owner.closed = true;
   const physical = Promise.resolve().then(retireQueue);
   owner.physicalRetirementRef.current = physical;
-  owner.inferenceController.abort();
+  // Coded, so Main can tell a request this Stop ended from an independent abort.
+  const stopped = createEmbeddingHostRuntimeStoppedError();
+  owner.inferenceController.abort(stopped);
   for (const controller of owner.requests.values()) {
-    controller.abort();
+    controller.abort(stopped);
   }
   owner.requests.clear();
   const inference = owner.inferenceRef.current;

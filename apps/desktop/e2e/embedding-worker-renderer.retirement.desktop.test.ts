@@ -94,10 +94,6 @@ test.describe('@destructive native retirement', () => {
         process.platform === 'win32' && mode !== 'quit-and-relaunch',
         'Windows Factory Reset is disabled for M3 by owner decision.'
       );
-      test.fixme(
-        mode === 'quit-and-relaunch',
-        'BST-2025: quitting during active native inference reports native-index cleanup failures.'
-      );
       test.setTimeout(540_000);
       const root = await createNativeImportRoot(
         ACTIVE_ROOT_FILE_COUNT,

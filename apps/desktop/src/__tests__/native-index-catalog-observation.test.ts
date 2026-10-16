@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished } from 'vitest';
 import { settleDeferredNativeIndexCatalog } from '../native-index-catalog-observation';
 
 function graph(): { queuedCatalogRefresh?: Promise<void> | undefined } {
@@ -83,5 +83,39 @@ describe('settleDeferredNativeIndexCatalog (BST-2012)', () => {
     await current.queuedCatalogRefresh;
     expect(refreshed).toBe(false);
     expect(reported).toEqual([failure]);
+  });
+
+  it('observes a read that finds a refresh already queued, so retirement leaves no unhandled rejection (BST-2025)', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    onTestFinished(() => {
+      process.off('unhandledRejection', onUnhandled);
+    });
+    const current = graph();
+    const scan = Promise.withResolvers<void>();
+    await settleDeferredNativeIndexCatalog(
+      current,
+      scan.promise,
+      false,
+      async () => {},
+      () => {}
+    );
+    // A later read's own join; source retirement rejects it with the transition reason.
+    const later = Promise.withResolvers<void>();
+    await settleDeferredNativeIndexCatalog(
+      current,
+      later.promise,
+      false,
+      async () => {},
+      () => {}
+    );
+    later.reject(new Error('Native ingestion paused.'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(unhandled).toEqual([]);
+    scan.resolve();
+    await current.queuedCatalogRefresh;
   });
 });

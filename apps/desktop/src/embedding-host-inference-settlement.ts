@@ -2,6 +2,7 @@ import { deserializeRuntimeError } from '@brainstrike/worker-runtime';
 import {
   EMBEDDING_HOST_DOCUMENT_CANCELED_CODE,
   EMBEDDING_HOST_QUERY_CANCELED_CODE,
+  EMBEDDING_HOST_RUNTIME_STOPPED_CODE,
   type EmbeddingHostDocumentEmbeddingsPayload,
   type EmbeddingHostDocumentEmbeddingsRequest,
   type EmbeddingHostDocumentEmbeddingsResponseReport,
@@ -85,8 +86,12 @@ async function joinEmbeddingInterruption<Response>(
     readonly label: string;
   }
 ): Promise<unknown> {
-  const isCancellation = (error: Error): boolean =>
-    (error as Error & { code?: unknown }).code === response.cancellationCode;
+  // The exact cancel, or a host Stop that ended the request: both answer only after the
+  // physical join. Shutdown and the Stop escalation below both retire the host this way.
+  const isCancellation = (error: Error): boolean => {
+    const code = (error as Error & { code?: unknown }).code;
+    return code === response.cancellationCode || code === EMBEDDING_HOST_RUNTIME_STOPPED_CODE;
+  };
   // Sending cancel is only a request. A terminal response is emitted after owned inference.
   // Give cooperative caller cancellation the existing Stop window, then retire through Stop.
   if (context.source === 'abort' && context.error === context.reason) {
