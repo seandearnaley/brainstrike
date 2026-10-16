@@ -107,7 +107,18 @@ export class WebFileIndex implements ScopedIndexerPort, Pick<IndexerPort, 'info'
     return this.#call('scan', { folder, rootId });
   }
 
-  /** Reopens the store under the catalogs' current roots, collections and files. */
+  /**
+   * Hands the index the saved Search & Indexing preferences, exactly as the
+   * visible settings stored them (`NATIVE_INDEX_SETTINGS_KEY`), or null when
+   * none are saved; the writer reads them as desktop main does. The store
+   * opens, or reopens, under their partition; until then every op refuses.
+   * Settings that fail refuse, and leave the index refusing with their failure.
+   */
+  configure(preferences: string | null): Promise<{ readonly rebuilt: string | null }> {
+    return this.#call('configure', { preferences });
+  }
+
+  /** Reopens the store under the saved partition's current roots, collection and files. */
   reauthorize(): Promise<{ readonly rebuilt: string | null }> {
     return this.#call('reauthorize', {});
   }

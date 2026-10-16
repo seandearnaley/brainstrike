@@ -3,7 +3,9 @@
  * workspace runtime, with desktop's catalog, publication, scan admission and
  * source inventory, over this worker's scoped store and the writer's
  * catalogs. Only the source differs: a File System Access folder, lent by
- * `fsaWorkspaceLease`. TEXT only; vectors come with the index's profile.
+ * `fsaWorkspaceLease`. The saved settings' partition holds the root's files:
+ * their collection, or the TEXT partition with none (BST-1988). TEXT only;
+ * vectors come with the index's profile.
  */
 import {
   type CanonicalScanReceipt,
@@ -12,8 +14,8 @@ import {
   createNativeCanonicalPublication,
   createNativeScanAdmission,
   createNativeSourceInventory,
-  decodeNativeCanonicalCatalogRecords,
-  type NativeCanonicalCatalogRecord,
+  loadPartitionRecords,
+  type NativeIndexSettings,
 } from '@brainstrike/canonical-ingestion/browser';
 import { createBrowserChunker } from '@brainstrike/chunking-worker/canonical';
 import type { IndexerPort, ScopedIndexerPort, VectorProfile } from '@brainstrike/indexer';
@@ -34,6 +36,8 @@ export interface FileIngestionDependencies {
   /** The writer's workspace roots. */
   readonly roots: () => Promise<readonly WorkspaceRootRecord[]>;
   readonly scan: FileIndexScanOptions;
+  /** The saved partition and policy every root's ingestion follows. */
+  readonly settings: Pick<NativeIndexSettings, 'indexingPolicyPreset' | 'managedCollectionId'>;
 }
 
 interface RootIngestion {
@@ -119,7 +123,7 @@ export class FileIngestion {
   }
 
   async #open(rootId: string, folder: FileSystemDirectoryHandle): Promise<RootIngestion> {
-    const { catalog: sourceCatalog, port } = this.dependencies;
+    const { catalog: sourceCatalog, port, settings } = this.dependencies;
     if (!(await this.#isLive(rootId))) {
       throw new Error('Only a live workspace root can be scanned.');
     }
@@ -127,16 +131,9 @@ export class FileIngestion {
     const scope = { kind: 'workspace', rootId } as const;
     const assertSource = (): void => lease.signal.throwIfAborted();
     const admission = createNativeScanAdmission(assertSource, lease.signal);
-    const loadRecords = async (): Promise<readonly NativeCanonicalCatalogRecord[]> => {
-      // The TEXT partition: the root's files in no collection.
-      const { files } = await sourceCatalog.sourceCatalog({
-        embeddingSetId: null,
-        operation: 'inventory',
-      });
-      return decodeNativeCanonicalCatalogRecords(files).filter(
-        (record) => record.rootId === rootId
-      );
-    };
+    // The saved partition's records of this root, as desktop's native index loads its partition's.
+    const loadRecords = () =>
+      loadPartitionRecords(sourceCatalog, settings, (id) => id === rootId, assertSource);
     const catalog = createNativeCanonicalCatalog<VectorProfile>({
       catalog: sourceCatalog,
       joinNativeRemoval: async (files, removed) => {
@@ -168,7 +165,7 @@ export class FileIngestion {
             }
             assertSource();
           },
-          embeddingSetId: null,
+          embeddingSetId: settings.managedCollectionId,
           resolveIdentity: fileIdentity,
         };
       },
@@ -181,7 +178,7 @@ export class FileIngestion {
       runtime: new CanonicalWorkspaceIngestionRuntime({
         catalog,
         chunker: createBrowserChunker(),
-        managedCollectionId: null,
+        managedCollectionId: settings.managedCollectionId,
         mode: 'TEXT',
         // A pass that fails reports no receipt: the scan that asked for it fails with it, visibly.
         onError: (operation, error) => {
@@ -206,7 +203,7 @@ export class FileIngestion {
           maxFileBytes: this.dependencies.scan.maxFileBytes,
         },
         source: {
-          indexingPolicyPreset: 'balanced',
+          indexingPolicyPreset: settings.indexingPolicyPreset,
           inventory: createNativeSourceInventory({
             assertSource,
             catalog,

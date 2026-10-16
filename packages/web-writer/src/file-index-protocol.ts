@@ -1,6 +1,9 @@
 import type { IndexFileBinding, IndexScope } from '@brainstrike/indexer';
 
-/** What the file index is authorized for: the writer's live roots, its collections and their files. */
+/**
+ * What the file index is authorized for: the saved partition (BST-1988) over
+ * the writer's catalogs, its live roots and the saved collection, and their files.
+ */
 export interface FileIndexAuthority {
   readonly fileBindings: readonly IndexFileBinding[];
   readonly rootIds: readonly string[];
@@ -22,15 +25,21 @@ export interface FileIndexScanOptions {
 
 /** The writer's messages to the file index worker. */
 export type FileIndexRequest =
+  /** Installs the worker's pool; the store opens once a tab configures it. */
   | {
-      readonly authority: FileIndexAuthority;
       readonly id: number;
       readonly kind: 'open';
       readonly pool: string;
       readonly scan: FileIndexScanOptions;
       readonly vfs: string;
     }
-  | { readonly authority: FileIndexAuthority; readonly id: number; readonly kind: 'reauthorize' }
+  /**
+   * The Search & Indexing preferences as the visible settings stored them
+   * (`NATIVE_INDEX_SETTINGS_KEY`), or null when none are saved. The tab hands
+   * them over: a worker cannot read the tab's storage.
+   */
+  | { readonly id: number; readonly kind: 'configure'; readonly preferences: string | null }
+  | { readonly id: number; readonly kind: 'reauthorize' }
   | { readonly id: number; readonly kind: 'request'; readonly op: string; readonly params: unknown }
   /**
    * Scans a live root's folder into the catalog and the index; answers with

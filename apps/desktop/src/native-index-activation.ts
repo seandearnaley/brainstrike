@@ -9,6 +9,7 @@ import {
   type NativeCanonicalCatalogRecord,
   NativeCanonicalInference,
   type NativeCanonicalProfileResolver,
+  partitionAuthority,
 } from '@brainstrike/canonical-ingestion';
 import { getFileSizeConfig } from '@brainstrike/file-system';
 import type { HostAttachment } from '@brainstrike/host-lease';
@@ -48,11 +49,7 @@ import {
   createNativeIndexLifecycle,
   NativeSourceRetirementFailure,
 } from './native-index-lifecycle-owner';
-import {
-  assertSavedCollection,
-  partitionScopes,
-  vectorCollectionId,
-} from './native-index-partition';
+import { assertSavedCollection, vectorCollectionId } from './native-index-partition';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from './native-index-runtime';
 import {
   NATIVE_INDEX_SETTINGS_KEY,
@@ -109,16 +106,13 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
             )
           ).profile
         : null;
-    const records = current.sources?.scanAdmission?.getInventory() ?? (await loadRecords(current));
-    const rootIds = [...current.leases.keys()].sort();
-    return {
-      fileBindings: records.map((record) => {
-        const { fileName: _fileName, ...binding } = identity(current, record);
-        return { ...binding, profile };
-      }),
-      rootIds,
-      scopes: partitionScopes(rootIds, current.settings),
-    };
+    return partitionAuthority({
+      identity: (record) => identity(current, record),
+      profile,
+      records: current.sources?.scanAdmission?.getInventory() ?? (await loadRecords(current)),
+      rootIds: [...current.leases.keys()],
+      settings: current.settings,
+    });
   };
   const runtime = createNativeIndexRuntime({
     closeQueries: closeAllIndexQueries,

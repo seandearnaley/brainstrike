@@ -5,6 +5,7 @@ import {
   webStateNames,
 } from '@brainstrike/web-state-store';
 import { inject } from 'vitest';
+import { WebFileIndex } from '../web-writer-client';
 
 /** The recorded committed runs, stored in Node as Core stores them (`stored-host-corpus.global.ts`). */
 export const corpus = inject('storedHostCorpus');
@@ -55,4 +56,37 @@ export async function closeTabs(): Promise<void> {
       }
     }
   }
+}
+
+/** The Search & Indexing preferences as the visible settings store them: TEXT, enabled, no collection. */
+export function savedPreferences(
+  state: {
+    readonly enabled?: boolean;
+    readonly managedCollectionId?: string | null;
+    readonly nativeIndexMode?: 'TEXT' | 'VECTOR' | null;
+    readonly paused?: boolean;
+  } = {}
+): string {
+  return JSON.stringify({
+    state: {
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: null,
+      nativeIndexMode: 'TEXT',
+      nativeLocalSelection: null,
+      paused: false,
+      ...state,
+    },
+    version: 6,
+  });
+}
+
+/** The tab's file index, configured with `preferences`. */
+export async function configuredIndex(
+  tab: WebStateStore,
+  preferences = savedPreferences()
+): Promise<WebFileIndex> {
+  const index = new WebFileIndex(tab);
+  await index.configure(preferences);
+  return index;
 }

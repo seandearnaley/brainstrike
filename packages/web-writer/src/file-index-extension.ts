@@ -1,59 +1,21 @@
 import { getFileSizeConfig } from '@brainstrike/file-system/config';
 import { SCOPED_INDEX_OPERATIONS } from '@brainstrike/indexer/browser';
+import { type WebStateExtension, webStateExtensionPool } from '@brainstrike/web-state-store';
 import {
-  executeCollectionRequest,
-  executeSourceCatalogRequest,
-  executeWorkspaceRootRequest,
-} from '@brainstrike/state-store/catalog-domains';
-import {
-  isWebRootPath,
-  type WebStateExtension,
-  type WebStateWriterContext,
-  webStateExtensionPool,
-} from '@brainstrike/web-state-store';
-import { asBetterSqlite3 } from '@brainstrike/web-state-store/sqlite-wasm-database';
-import { fileIndexAuthority } from './file-index-authority';
-import {
-  type FileIndexAuthority,
   type FileIndexMessage,
   type FileIndexRequest,
   fileIndexError,
   fileIndexFailure,
 } from './file-index-protocol';
 
-/** Version 2: `files.scan` and the worker's writer requests. */
-export const FILE_INDEX_EXTENSION_ID = 'file-index@2';
+/** Version 3: `files.configure`; the index follows the saved settings' partition. */
+export const FILE_INDEX_EXTENSION_ID = 'file-index@3';
 
 interface Pending {
   readonly reject: (error: Error) => void;
   readonly resolve: (value: unknown) => void;
 }
 type WithoutId<T> = T extends unknown ? Omit<T, 'id'> : never;
-
-/** The file index's authority, read from the writer's catalogs on its own connection. */
-function authorityOf(context: WebStateWriterContext): FileIndexAuthority {
-  const db = asBetterSqlite3(context.state);
-  return fileIndexAuthority(
-    executeWorkspaceRootRequest(
-      db,
-      { operation: 'list' },
-      { isGranted: (root) => isWebRootPath(root.path, root.preferredId) }
-    ).roots,
-    executeCollectionRequest(db, { operation: 'list' }).collections.map(
-      (collection) => collection.id
-    ),
-    executeSourceCatalogRequest(
-      db,
-      { operation: 'list' },
-      {
-        put: () => {
-          throw new Error('The file index reads the catalog only');
-        },
-        read: () => null,
-      }
-    ).files
-  );
-}
 
 /** The writer's end of the file index worker: one request at a time per id, failures visible. */
 class FileIndexWorker {
@@ -135,10 +97,13 @@ class FileIndexWorker {
  * the writer starts, with the scoped store in its own pool beside the
  * store's, under the writer's lease. Its ops are desktop's
  * `ScopedIndexerPort` (`files.prepareScopedFile`, `files.searchScopes`, ...),
- * plus `files.reauthorize`, which reopens the store under the catalogs'
- * current authority, and `files.scan`, which ingests a live root's folder,
- * as the tab hands it over, through canonical ingestion and answers with its
- * receipt.
+ * plus:
+ * - `files.configure`, which hands it the saved Search & Indexing
+ *   preferences; the store opens, or reopens, under their partition;
+ * - `files.reauthorize`, which reopens the store under the catalogs'
+ *   current authority;
+ * - `files.scan`, which ingests a live root's folder, as the tab hands it
+ *   over, through canonical ingestion and answers with its receipt.
  */
 export const fileIndexExtension: WebStateExtension = {
   id: FILE_INDEX_EXTENSION_ID,
@@ -147,7 +112,6 @@ export const fileIndexExtension: WebStateExtension = {
     const worker = new FileIndexWorker((op, params) => context.request(op, params));
     try {
       await worker.send({
-        authority: authorityOf(context),
         kind: 'open',
         // As desktop's native index scans: the configured file size bound, 64 files a batch.
         scan: { batchSize: 64, maxFileBytes: getFileSizeConfig().maxFileSize },
@@ -158,8 +122,11 @@ export const fileIndexExtension: WebStateExtension = {
       throw error;
     }
     const handlers: Record<string, (params: unknown) => Promise<unknown>> = {
-      'files.reauthorize': () =>
-        worker.send({ authority: authorityOf(context), kind: 'reauthorize' }),
+      'files.configure': (params) => {
+        const { preferences } = params as { readonly preferences: string | null };
+        return worker.send({ kind: 'configure', preferences });
+      },
+      'files.reauthorize': () => worker.send({ kind: 'reauthorize' }),
       'files.scan': (params) => {
         const { folder, rootId } = params as {
           readonly folder: FileSystemDirectoryHandle;

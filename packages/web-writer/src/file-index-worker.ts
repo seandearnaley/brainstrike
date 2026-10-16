@@ -6,12 +6,23 @@
  * behind the writer's chat appends.
  *
  * It serves desktop's `ScopedIndexerPort` operations on one IndexWriter. The
- * store is authorized for exactly the roots, scopes and file bindings the
- * writer's catalogs hold; a change of authority reopens it. It also runs
+ * store opens once a tab hands it the saved Search & Indexing preferences,
+ * and is authorized for exactly their partition (BST-1988), as desktop's
+ * native index is: the live roots, the saved collection, and their files in
+ * the writer's catalogs. A change of authority reopens it. It also runs
  * canonical ingestion over the user's granted folders (`file-ingestion.ts`),
  * reading and writing the catalogs through the writer's own request order.
  */
 
+import {
+  assertSavedCollection,
+  loadPartitionRecords,
+  type NativeIndexSettings,
+  nativeIndexConfigurationIdentity,
+  partitionAuthority,
+  readNativeIndexSettings,
+  retireUnownedRows,
+} from '@brainstrike/canonical-ingestion/browser';
 import {
   binaryVectorEngine,
   IndexWriter,
@@ -21,6 +32,7 @@ import {
 } from '@brainstrike/indexer/browser';
 import { createLogger } from '@brainstrike/logging';
 import type {
+  CollectionPort,
   CollectionReply,
   SourceCatalogPort,
   WorkspaceRootReply,
@@ -34,7 +46,7 @@ import sqlite3InitModule, {
   type SAHPoolUtil,
   type Sqlite3Static,
 } from '@sqlite.org/sqlite-wasm';
-import { fileIndexAuthority } from './file-index-authority';
+import { fileIdentity } from './file-index-authority';
 import {
   type FileIndexAuthority,
   type FileIndexMessage,
@@ -58,6 +70,11 @@ let writer: IndexWriter | undefined;
 /** The authority the open store holds. */
 let authorized: FileIndexAuthority | undefined;
 let ingestion: FileIngestion | undefined;
+let scanOptions: FileIndexScanOptions | undefined;
+/** The settings a tab last handed over; until then, or after they fail, every op refuses. */
+let configured: { readonly settings: NativeIndexSettings } | { readonly refusal: Error } = {
+  refusal: new Error('The file index has no Search & Indexing settings until a tab configures it.'),
+};
 
 /** The worker's calls on the writer's own ops, by id, waiting for their answers. */
 const calls = new Map<number, { reject(error: Error): void; resolve(value: unknown): void }>();
@@ -79,6 +96,9 @@ function writerRequest<T>(op: string, params: unknown): Promise<T> {
 const sourceCatalog: SourceCatalogPort = {
   sourceCatalog: (request) => writerRequest('sourceCatalog', request),
 };
+const collections: CollectionPort = {
+  collections: (request) => writerRequest<CollectionReply>('collections', request),
+};
 const roots = async () =>
   (await writerRequest<WorkspaceRootReply>('workspaceRoots', { operation: 'list' })).roots;
 
@@ -95,18 +115,31 @@ const port = Object.fromEntries(
   ])
 ) as unknown as ConstructorParameters<typeof FileIngestion>[0]['port'];
 
-/** The catalogs' full current authority, read through the writer. */
-async function currentAuthority(): Promise<FileIndexAuthority> {
-  const [workspaceRoots, collections, files] = await Promise.all([
-    roots(),
-    writerRequest<CollectionReply>('collections', { operation: 'list' }),
-    sourceCatalog.sourceCatalog({ operation: 'list' }),
-  ]);
-  return fileIndexAuthority(
-    workspaceRoots,
-    collections.collections.map((collection) => collection.id),
-    files.files
+/** The configured settings, or the refusal that stands in for them. */
+function settings(): NativeIndexSettings {
+  if ('refusal' in configured) {
+    throw configured.refusal;
+  }
+  return configured.settings;
+}
+
+/** The saved partition's authority over the writer's catalogs, as desktop's native index takes it. */
+async function currentAuthority(partition: NativeIndexSettings): Promise<FileIndexAuthority> {
+  const live = (await roots()).filter((root) => root.status === 'live').map((root) => root.id);
+  const liveRoots = new Set(live);
+  const records = await loadPartitionRecords(
+    sourceCatalog,
+    partition,
+    (rootId) => liveRoots.has(rootId),
+    () => {}
   );
+  return partitionAuthority({
+    identity: fileIdentity,
+    profile: null,
+    records,
+    rootIds: live,
+    settings: partition,
+  });
 }
 
 /**
@@ -115,7 +148,7 @@ async function currentAuthority(): Promise<FileIndexAuthority> {
  * bindings are replaced in place.
  */
 async function rebind(): Promise<void> {
-  const authority = await currentAuthority();
+  const authority = await currentAuthority(settings());
   const sameScopes =
     authorized &&
     JSON.stringify([authorized.rootIds, authorized.scopes]) ===
@@ -126,10 +159,10 @@ async function rebind(): Promise<void> {
     return;
   }
   close();
-  open(authority);
+  await openOwned(authority);
 }
 
-function ingestionFor(scan: FileIndexScanOptions): FileIngestion {
+function ingestionFor(scan: FileIndexScanOptions, partition: NativeIndexSettings): FileIngestion {
   return new FileIngestion({
     catalog: sourceCatalog,
     onError: (operation, error) => {
@@ -143,6 +176,7 @@ function ingestionFor(scan: FileIndexScanOptions): FileIngestion {
     rebind,
     roots,
     scan,
+    settings: partition,
   });
 }
 
@@ -203,10 +237,83 @@ function open(authority: FileIndexAuthority): { readonly rebuilt: string | null 
   }
 }
 
+/**
+ * Opens the store under `authority`, then retires the rows its scopes hold
+ * that no binding owns: another partition's, as desktop's native index does
+ * at every open (BST-1988, BST-2011).
+ */
+async function openOwned(
+  authority: FileIndexAuthority
+): Promise<{ readonly rebuilt: string | null }> {
+  const opened = open(authority);
+  await retireUnownedRows(port, authority);
+  return opened;
+}
+
 function close(): void {
   const current = writer;
   writer = undefined;
   current?.close();
+}
+
+/** Retires the root ingestions and the store; until a tab configures it again, every op refuses with `refusal`. */
+async function unconfigure(refusal: Error): Promise<void> {
+  configured = { refusal };
+  await ingestion?.close();
+  ingestion = undefined;
+  close();
+}
+
+/**
+ * Applies the saved Search & Indexing preferences, as desktop's native index
+ * reads them. A changed partition retires every root's ingestion and reopens
+ * the store under it; a change of Pause alone keeps the store open. Settings
+ * that fail leave the index refusing with their failure, visibly.
+ */
+async function configure(preferences: string | null): Promise<{ readonly rebuilt: string | null }> {
+  if (!scanOptions) {
+    throw new Error('The file index pool is not installed');
+  }
+  let next: NativeIndexSettings;
+  try {
+    next = readNativeIndexSettings(preferences);
+    if (!next.enabled) {
+      throw new Error('File indexing is disabled in saved settings.');
+    }
+    if (next.mode === 'VECTOR') {
+      throw new Error('The browser file index does not run VECTOR search yet.');
+    }
+    await assertSavedCollection(next, collections, () => {});
+  } catch (error) {
+    await unconfigure(error instanceof Error ? error : new Error(String(error)));
+    throw error;
+  }
+  const previous = 'settings' in configured ? configured.settings : undefined;
+  if (
+    previous &&
+    writer &&
+    nativeIndexConfigurationIdentity(previous) === nativeIndexConfigurationIdentity(next)
+  ) {
+    if (previous.paused !== next.paused) {
+      // Pause admits no source: the roots' ingestion retires, and the store stays open.
+      await ingestion?.close();
+      ingestion = ingestionFor(scanOptions, next);
+    }
+    configured = { settings: next };
+    return { rebuilt: null };
+  }
+  try {
+    const authority = await currentAuthority(next);
+    await ingestion?.close();
+    ingestion = undefined;
+    close();
+    configured = { settings: next };
+    ingestion = ingestionFor(scanOptions, next);
+    return await openOwned(authority);
+  } catch (error) {
+    await unconfigure(error instanceof Error ? error : new Error(String(error)));
+    throw error;
+  }
 }
 
 async function handle(
@@ -220,10 +327,15 @@ async function handle(
         initialCapacity: 4,
         name: request.vfs,
       });
-      ingestion = ingestionFor(request.scan);
-      return open(request.authority);
+      scanOptions = request.scan;
+      return null;
     }
+    case 'configure':
+      return configure(request.preferences);
     case 'scan': {
+      if (settings().paused) {
+        throw new Error('File ingestion is paused.');
+      }
       if (!ingestion) {
         throw new Error('The file index is closed');
       }
@@ -233,10 +345,13 @@ async function handle(
       }
       return ingestion.scan(request.rootId, request.folder);
     }
-    case 'reauthorize':
+    case 'reauthorize': {
+      const authority = await currentAuthority(settings());
       close();
-      return open(request.authority);
+      return openOwned(authority);
+    }
     case 'request': {
+      settings();
       if (!writer) {
         throw new Error('The file index is closed');
       }
@@ -246,9 +361,7 @@ async function handle(
       return scopedIndexOperations(writer)[request.op as ScopedIndexOperation](request.params);
     }
     case 'close':
-      await ingestion?.close();
-      ingestion = undefined;
-      close();
+      await unconfigure(new Error('The file index is closed'));
       // Releases the pool's OPFS handles, so factory reset can delete it.
       pool?.pauseVfs();
       return null;

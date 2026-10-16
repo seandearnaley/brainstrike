@@ -22,6 +22,25 @@ export {
   CanonicalIngestionHost,
   CanonicalScanIncompleteError,
 } from './host.js';
+export {
+  assertSavedCollection,
+  loadPartitionRecords,
+  type PartitionAuthority,
+  partitionAuthority,
+  partitionScopes,
+  retireUnownedRows,
+  vectorCollectionId,
+  workspaceRemoval,
+} from './index-partition.js';
+export {
+  type IndexSetupRequired,
+  NATIVE_INDEX_SETTINGS_KEY,
+  type NativeIndexSettings,
+  nativeIndexConfigurationIdentity,
+  readNativeIndexSettings,
+  readNativeManagedCollectionId,
+  readNativeSavedPause,
+} from './index-settings.js';
 export * from './ports.js';
 export { createNativeScanAdmission } from './scan-admission.js';
 export {
