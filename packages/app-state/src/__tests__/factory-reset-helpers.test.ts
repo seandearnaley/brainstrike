@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ClearPersistentUiStateResult } from '../factory-reset';
 import {
+  ClearPersistentUiStateIncompleteError,
   clearPersistentUiState,
   clearPersistentUiStateWithResult,
   FALLBACK_INDEXED_DB_NAMES,
@@ -301,7 +302,12 @@ describe('clearPersistentUiState IndexedDB handling', () => {
       operation: 'delete',
       target: 'indexed-db',
     });
-    await expect(clearPersistentUiState()).rejects.toThrow('IndexedDB bridge crashed');
+    const reset = clearPersistentUiState();
+    await expect(reset).rejects.toBeInstanceOf(ClearPersistentUiStateIncompleteError);
+    await expect(reset).rejects.toMatchObject({
+      message: expect.stringContaining('IndexedDB bridge crashed'),
+      result: expect.objectContaining({ success: false }),
+    });
   });
 
   it('clears browser storage and Electron renderer stores during reset', async () => {
@@ -381,9 +387,12 @@ describe('clearPersistentUiState IndexedDB handling', () => {
       expect(rendererStorageClear).toHaveBeenCalledTimes(1);
       expect(secretsClearAll).toHaveBeenCalledTimes(1);
       expect(settingsClearAll).toHaveBeenCalledTimes(1);
-      await expect(clearPersistentUiState({ skipIndexedDb: true })).rejects.toThrow(
-        'OS keychain refused deletion'
-      );
+      const reset = clearPersistentUiState({ skipIndexedDb: true });
+      await expect(reset).rejects.toBeInstanceOf(ClearPersistentUiStateIncompleteError);
+      await expect(reset).rejects.toMatchObject({
+        message: expect.stringContaining('OS keychain refused deletion'),
+        result: expect.objectContaining({ success: false }),
+      });
     } finally {
       Reflect.deleteProperty(globalWindow, 'electronAPI');
       Reflect.deleteProperty(globalWindow, 'secrets');
@@ -421,9 +430,12 @@ describe('clearPersistentUiState IndexedDB handling', () => {
       } as unknown as CacheStorage,
     });
 
-    await expect(clearPersistentUiState({ skipIndexedDb: true })).rejects.toThrow(
-      /CacheStorage reset incomplete/
-    );
+    const reset = clearPersistentUiState({ skipIndexedDb: true });
+    await expect(reset).rejects.toBeInstanceOf(ClearPersistentUiStateIncompleteError);
+    await expect(reset).rejects.toMatchObject({
+      message: expect.stringMatching(/CacheStorage reset incomplete/),
+      result: expect.objectContaining({ success: false }),
+    });
   });
 
   it('does not fail when CacheStorage delete reports false but verification shows no entries remain', async () => {

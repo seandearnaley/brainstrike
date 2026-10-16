@@ -51,7 +51,7 @@ catalog:
   # the second type-check stands; see docs/agents/effect-boundary.md.
   # Exact pin: its supported TypeScript list moves with every release (0.52.0
   # supports 7.0.2 and 7.1.0-dev, matching the `@typescript/native` alias).
-  '@effect/tsgo': 0.52.0
+  '@effect/tsgo': 0.53.1
   '@electric-sql/pglite': 0.5.8
   '@electric-sql/pglite-pg_textsearch': 0.0.10
   '@electric-sql/pglite-pgvector': 0.0.9
@@ -130,9 +130,9 @@ catalog:
   '@typescript/native': 'npm:typescript@7.0.2'
   '@typescript/old': 'npm:typescript@6.0.3'
   '@vitejs/plugin-react': ^6.1.2
-  '@vitest/browser-playwright': ^5.0.2
-  '@vitest/coverage-v8': ^5.0.2
-  '@vitest/ui': ^5.0.2
+  '@vitest/browser-playwright': ^5.0.5
+  '@vitest/coverage-v8': ^5.0.5
+  '@vitest/ui': ^5.0.5
   assistant-stream: 0.3.41
   # BST-1920: the SQLite state/index engine. Exact pin. It ships a PREBUILT
   # `prebuilds/<platform>-<arch>.node` for every release target and must never
@@ -157,7 +157,7 @@ catalog:
   eslint-plugin-react-refresh: ^0.5.7
   fake-indexeddb: ^6.2.5
   glob: ^13.0.6
-  happy-dom: ^20.14.0
+  happy-dom: ^21.0.3
   idb: ^8.0.4
   ignore: 7.0.12
   jsdom: 30.1.3
@@ -199,7 +199,7 @@ catalog:
   vite-plugin-static-copy: ^4.1.1
   vite-plugin-top-level-await: ^1.6.0
   vite-plugin-wasm: ^3.6.0
-  vitest: ^5.0.2
+  vitest: ^5.0.5
   workerpool: ^10.0.3
   xxhash-wasm: ^1.1.0
   yaml: ^2.9.1

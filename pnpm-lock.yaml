@@ -31,8 +31,8 @@ catalogs:
       specifier: ^6.7.4
       version: 6.7.4
     '@effect/tsgo':
-      specifier: 0.52.0
-      version: 0.52.0
+      specifier: 0.53.1
+      version: 0.53.1
     '@electric-sql/pglite':
       specifier: 0.5.8
       version: 0.5.8
@@ -175,14 +175,14 @@ catalogs:
       specifier: ^6.1.2
       version: 6.1.2
     '@vitest/browser-playwright':
-      specifier: ^5.0.2
-      version: 5.0.2
+      specifier: ^5.0.5
+      version: 5.0.5
     '@vitest/coverage-v8':
-      specifier: ^5.0.2
-      version: 5.0.2
+      specifier: ^5.0.5
+      version: 5.0.5
     '@vitest/ui':
-      specifier: ^5.0.2
-      version: 5.0.2
+      specifier: ^5.0.5
+      version: 5.0.5
     ai:
       specifier: 7.0.126
       version: 7.0.126
@@ -220,8 +220,8 @@ catalogs:
       specifier: ^13.0.6
       version: 13.0.6
     happy-dom:
-      specifier: ^20.14.0
-      version: 20.14.0
+      specifier: ^21.0.3
+      version: 21.0.3
     idb:
       specifier: ^8.0.4
       version: 8.0.4
@@ -313,8 +313,8 @@ catalogs:
       specifier: ^3.6.0
       version: 3.6.0
     vitest:
-      specifier: ^5.0.2
-      version: 5.0.2
+      specifier: ^5.0.5
+      version: 5.0.5
     vscode-jsonrpc:
       specifier: 9.0.2
       version: 9.0.2
@@ -422,10 +422,10 @@ importers:
         version: typescript@6.0.3
       '@vitest/browser-playwright':
         specifier: 'catalog:'
-        version: 5.0.2(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))(vitest@5.0.2)
+        version: 5.0.5(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))(vitest@5.0.5)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       babel-plugin-react-compiler:
         specifier: 1.0.0
         version: 1.0.0
@@ -443,7 +443,7 @@ importers:
         version: 0.5.7(eslint@10.12.0(jiti@2.7.0)(supports-color@10.2.2))
       happy-dom:
         specifier: 'catalog:'
-        version: 20.14.0
+        version: 21.0.3
       knip:
         specifier: 'catalog:'
         version: 6.41.0
@@ -485,7 +485,7 @@ importers:
         version: 8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1)
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
       yaml:
         specifier: 'catalog:'
         version: 2.9.1
@@ -717,7 +717,7 @@ importers:
         version: link:../../packages/vector-management
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.52.0
+        version: 0.53.1
       '@modelcontextprotocol/ext-apps':
         specifier: 1.7.5
         version: 1.7.5(@modelcontextprotocol/sdk@1.32.1(supports-color@10.2.2)(zod@4.6.5))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.6.5)
@@ -759,7 +759,7 @@ importers:
         version: 3.14.11(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@testing-library/jest-dom':
         specifier: 'catalog:'
-        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.2)
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -777,7 +777,7 @@ importers:
         version: 6.1.2(@rolldown/plugin-babel@0.2.3(@babel/core@8.0.7)(@babel/plugin-transform-runtime@8.0.1(@babel/core@8.0.7))(@babel/runtime@8.0.0)(rolldown@1.2.13)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1)))(babel-plugin-react-compiler@1.0.0)(oxc-transform-react@0.152.0)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       assistant-stream:
         specifier: 'catalog:'
         version: 0.3.41
@@ -858,7 +858,7 @@ importers:
         version: 3.6.0(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
       wait-on:
         specifier: ^9.5.1
         version: 9.5.1(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)
@@ -885,13 +885,13 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   apps/web:
     dependencies:
@@ -1075,10 +1075,10 @@ importers:
         version: 6.1.2(@rolldown/plugin-babel@0.2.3(@babel/core@8.0.7)(@babel/plugin-transform-runtime@8.0.1(@babel/core@8.0.7))(@babel/runtime@8.0.0)(rolldown@1.2.13)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1)))(babel-plugin-react-compiler@1.0.0)(oxc-transform-react@0.152.0)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       '@vitest/ui':
         specifier: 'catalog:'
-        version: 5.0.2(vitest@5.0.2)
+        version: 5.0.5(vitest@5.0.5)
       ai:
         specifier: 'catalog:'
         version: 7.0.126(zod@4.6.5)
@@ -1150,7 +1150,7 @@ importers:
         version: 3.6.0(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
       xxhash-wasm:
         specifier: 'catalog:'
         version: 1.1.0
@@ -1286,7 +1286,7 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       assistant-stream:
         specifier: 'catalog:'
         version: 0.3.41
@@ -1301,7 +1301,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/agent-host:
     dependencies:
@@ -1374,7 +1374,7 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       esbuild:
         specifier: 'catalog:'
         version: 0.28.2
@@ -1383,7 +1383,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/app-shell:
     dependencies:
@@ -1507,7 +1507,7 @@ importers:
         version: link:../test-utils
       '@testing-library/jest-dom':
         specifier: 'catalog:'
-        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.2)
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -1525,7 +1525,7 @@ importers:
         version: 6.1.2(@rolldown/plugin-babel@0.2.3(@babel/core@8.0.7)(@babel/plugin-transform-runtime@8.0.1(@babel/core@8.0.7))(@babel/runtime@8.0.0)(rolldown@1.2.13)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))(babel-plugin-react-compiler@1.0.0)(oxc-transform-react@0.152.0)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       jsdom:
         specifier: 'catalog:'
         version: 30.1.3(@noble/hashes@2.4.0)
@@ -1534,7 +1534,7 @@ importers:
         version: 19.3.0(react@19.3.0)
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       zustand:
         specifier: 'catalog:'
         version: 5.0.15(@types/react@19.3.0)(immer@10.2.0)(react@19.3.0)(use-sync-external-store@1.6.0(react@19.3.0))
@@ -1574,7 +1574,7 @@ importers:
         version: link:../test-utils
       '@testing-library/jest-dom':
         specifier: 'catalog:'
-        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.2)
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -1586,13 +1586,13 @@ importers:
         version: 19.3.0
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       jsdom:
         specifier: 'catalog:'
         version: 30.1.3(@noble/hashes@2.4.0)
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       zustand:
         specifier: 'catalog:'
         version: 5.0.15(@types/react@19.3.0)(immer@10.2.0)(react@19.3.0)(use-sync-external-store@1.6.0(react@19.3.0))
@@ -1626,19 +1626,19 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.52.0
+        version: 0.53.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/assistant-data:
     dependencies:
@@ -1681,7 +1681,7 @@ importers:
         version: 19.3.0
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       jsdom:
         specifier: 'catalog:'
         version: 30.1.3(@noble/hashes@2.4.0)
@@ -1690,7 +1690,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/assistant-service:
     dependencies:
@@ -1754,13 +1754,13 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.52.0
+        version: 0.53.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       concurrently:
         specifier: 'catalog:'
         version: 10.0.6
@@ -1772,7 +1772,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/assistant-ui:
     dependencies:
@@ -1851,7 +1851,7 @@ importers:
         version: 4.3.3(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
       '@testing-library/jest-dom':
         specifier: 'catalog:'
-        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.2)
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -1872,10 +1872,10 @@ importers:
         version: 6.1.2(@rolldown/plugin-babel@0.2.3(@babel/core@8.0.7)(@babel/plugin-transform-runtime@8.0.1(@babel/core@8.0.7))(@babel/runtime@8.0.0)(rolldown@1.2.13)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1)))(babel-plugin-react-compiler@1.0.0)(oxc-transform-react@0.152.0)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
       '@vitest/browser-playwright':
         specifier: 'catalog:'
-        version: 5.0.2(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))(vitest@5.0.2)
+        version: 5.0.5(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))(vitest@5.0.5)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       playwright:
         specifier: 'catalog:'
         version: 1.64.1
@@ -1893,7 +1893,7 @@ importers:
         version: 8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1)
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
 
   packages/assistant-wire:
     devDependencies:
@@ -1905,7 +1905,7 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       tsup:
         specifier: 'catalog:'
         version: 9.0.0(@swc/core@1.15.47(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.30)(tsx@4.23.15)(yaml@2.9.1)
@@ -1914,7 +1914,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/build-utils:
     devDependencies:
@@ -1926,7 +1926,7 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -1935,7 +1935,7 @@ importers:
         version: 8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1)
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
 
   packages/canonical-ingestion:
     dependencies:
@@ -1987,10 +1987,10 @@ importers:
         version: 24.13.3
       '@vitest/browser-playwright':
         specifier: 'catalog:'
-        version: 5.0.2(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.2)
+        version: 5.0.5(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.5)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       esbuild:
         specifier: 'catalog:'
         version: 0.28.2
@@ -2002,7 +2002,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/chunking-worker:
     dependencies:
@@ -2033,13 +2033,13 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.52.0
+        version: 0.53.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       tsup:
         specifier: 'catalog:'
         version: 9.0.0(@swc/core@1.15.47(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.30)(tsx@4.23.15)(yaml@2.9.1)
@@ -2048,7 +2048,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/config:
     devDependencies:
@@ -2057,10 +2057,10 @@ importers:
         version: 24.13.3
       '@vitest/browser-playwright':
         specifier: 'catalog:'
-        version: 5.0.2(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.2)
+        version: 5.0.5(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.5)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       playwright:
         specifier: 'catalog:'
         version: 1.64.1
@@ -2069,7 +2069,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/config/tsconfig: {}
 
@@ -2093,16 +2093,16 @@ importers:
         version: 19.3.0
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       happy-dom:
         specifier: 'catalog:'
-        version: 20.14.0
+        version: 21.0.3
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/db:
     dependencies:
@@ -2160,7 +2160,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.52.0
+        version: 0.53.1
       '@stryker-mutator/api':
         specifier: 'catalog:'
         version: 10.0.0
@@ -2172,7 +2172,7 @@ importers:
         version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(@typescript/typescript6@6.0.2)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(patch_hash=280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.2)
+        version: 10.0.0(patch_hash=280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.5)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -2187,10 +2187,10 @@ importers:
         version: 19.3.0(@types/react@19.3.0)
       '@vitest/browser-playwright':
         specifier: 'catalog:'
-        version: 5.0.2(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.2)
+        version: 5.0.5(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.5)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
@@ -2220,7 +2220,7 @@ importers:
         version: 3.6.0(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/db-explorer:
     dependencies:
@@ -2305,7 +2305,7 @@ importers:
         version: link:../test-utils
       '@testing-library/jest-dom':
         specifier: 'catalog:'
-        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.2)
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -2320,13 +2320,13 @@ importers:
         version: 19.3.0
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       jsdom:
         specifier: 'catalog:'
         version: 30.1.3(@noble/hashes@2.4.0)
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       zustand:
         specifier: 'catalog:'
         version: 5.0.15(@types/react@19.3.0)(immer@10.2.0)(react@19.3.0)(use-sync-external-store@1.6.0(react@19.3.0))
@@ -2342,19 +2342,19 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.52.0
+        version: 0.53.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/embedding-worker:
     dependencies:
@@ -2388,7 +2388,7 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       esbuild:
         specifier: 'catalog:'
         version: 0.28.2
@@ -2406,7 +2406,7 @@ importers:
         version: 8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1)
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
 
   packages/embeddings:
     dependencies:
@@ -2458,7 +2458,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.52.0
+        version: 0.53.1
       '@electric-sql/pglite':
         specifier: 'catalog:'
         version: 0.5.8(patch_hash=07412deadecaa3a5f5ba73c838108f930cb9092762ffb0c8f8deb495ef138311)
@@ -2467,13 +2467,13 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/file-explorer:
     dependencies:
@@ -2516,13 +2516,13 @@ importers:
         version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(@typescript/typescript6@6.0.2)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(patch_hash=280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.2)
+        version: 10.0.0(patch_hash=280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.5)
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       tsup:
         specifier: 'catalog:'
         version: 9.0.0(@swc/core@1.15.47(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.30)(tsx@4.23.15)(yaml@2.9.1)
@@ -2531,7 +2531,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/file-explorer-hooks:
     dependencies:
@@ -2586,7 +2586,7 @@ importers:
         version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(@typescript/typescript6@6.0.2)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(patch_hash=280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.2)
+        version: 10.0.0(patch_hash=280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.5)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -2601,13 +2601,13 @@ importers:
         version: 6.1.2(@rolldown/plugin-babel@0.2.3(@babel/core@8.0.7)(@babel/plugin-transform-runtime@8.0.1(@babel/core@8.0.7))(@babel/runtime@8.0.0)(rolldown@1.2.13)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))(babel-plugin-react-compiler@1.0.0)(oxc-transform-react@0.152.0)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/file-explorer-ui:
     dependencies:
@@ -2695,7 +2695,7 @@ importers:
         version: 3.14.11(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@testing-library/jest-dom':
         specifier: 'catalog:'
-        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.2)
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -2716,7 +2716,7 @@ importers:
         version: 6.1.2(@rolldown/plugin-babel@0.2.3(@babel/core@8.0.7)(@babel/plugin-transform-runtime@8.0.1(@babel/core@8.0.7))(@babel/runtime@8.0.0)(rolldown@1.2.13)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))(babel-plugin-react-compiler@1.0.0)(oxc-transform-react@0.152.0)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       jsdom:
         specifier: 'catalog:'
         version: 30.1.3(@noble/hashes@2.4.0)
@@ -2725,7 +2725,7 @@ importers:
         version: 1.41.0(react@19.3.0)
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/file-import:
     dependencies:
@@ -2780,7 +2780,7 @@ importers:
         version: 19.3.0(@types/react@19.3.0)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       jsdom:
         specifier: 'catalog:'
         version: 30.1.3(@noble/hashes@2.4.0)
@@ -2795,7 +2795,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/file-system:
     dependencies:
@@ -2829,13 +2829,13 @@ importers:
         version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(@typescript/typescript6@6.0.2)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(patch_hash=280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.2)
+        version: 10.0.0(patch_hash=280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.5)
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       electron:
         specifier: 'catalog:'
         version: 44.7.2(supports-color@10.2.2)
@@ -2847,13 +2847,13 @@ importers:
         version: 6.2.5
       happy-dom:
         specifier: 'catalog:'
-        version: 20.14.0
+        version: 21.0.3
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/file-tree-test-fixtures:
     dependencies:
@@ -2869,16 +2869,16 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       happy-dom:
         specifier: 'catalog:'
-        version: 20.14.0
+        version: 21.0.3
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/file-tree-worker:
     dependencies:
@@ -2900,13 +2900,13 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.52.0
+        version: 0.53.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       tsup:
         specifier: 'catalog:'
         version: 9.0.0(@swc/core@1.15.47(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.30)(tsx@4.23.15)(yaml@2.9.1)
@@ -2915,7 +2915,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/hooks:
     dependencies:
@@ -2958,7 +2958,7 @@ importers:
         version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(@typescript/typescript6@6.0.2)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(patch_hash=280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.2)
+        version: 10.0.0(patch_hash=280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.5)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -2976,16 +2976,16 @@ importers:
         version: 6.1.2(@rolldown/plugin-babel@0.2.3(@babel/core@8.0.7)(@babel/plugin-transform-runtime@8.0.1(@babel/core@8.0.7))(@babel/runtime@8.0.0)(rolldown@1.2.13)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))(babel-plugin-react-compiler@1.0.0)(oxc-transform-react@0.152.0)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       happy-dom:
         specifier: 'catalog:'
-        version: 20.14.0
+        version: 21.0.3
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/host-capabilities:
     dependencies:
@@ -3058,19 +3058,19 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.52.0
+        version: 0.53.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/host-lease:
     dependencies:
@@ -3092,13 +3092,13 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.52.0
+        version: 0.53.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
@@ -3107,7 +3107,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/indexer:
     dependencies:
@@ -3138,7 +3138,7 @@ importers:
         version: link:../web-state-store
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.52.0
+        version: 0.53.1
       '@sqlite.org/sqlite-wasm':
         specifier: 'catalog:'
         version: 3.53.4-build2
@@ -3150,7 +3150,7 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       electron:
         specifier: 'catalog:'
         version: 44.7.2(supports-color@10.2.2)
@@ -3162,7 +3162,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/indexing-contract:
     dependencies:
@@ -3181,13 +3181,13 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/local-runtime:
     dependencies:
@@ -3203,13 +3203,13 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/logging:
     dependencies:
@@ -3225,7 +3225,7 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       jsdom:
         specifier: 'catalog:'
         version: 30.1.3(@noble/hashes@2.4.0)
@@ -3234,7 +3234,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/mcp-app-host:
     dependencies:
@@ -3256,7 +3256,7 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       esbuild:
         specifier: 'catalog:'
         version: 0.28.2
@@ -3268,7 +3268,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/mcp-app-host-ui:
     dependencies:
@@ -3296,7 +3296,7 @@ importers:
         version: link:../test-utils
       '@testing-library/jest-dom':
         specifier: 'catalog:'
-        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.2)
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -3314,10 +3314,10 @@ importers:
         version: 19.3.0(@types/react@19.3.0)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       happy-dom:
         specifier: 'catalog:'
-        version: 20.14.0
+        version: 21.0.3
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -3329,7 +3329,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/mcp-tasks-extension:
     dependencies:
@@ -3348,13 +3348,13 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/mcp-test-lab:
     dependencies:
@@ -3388,13 +3388,13 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/notes-vault:
     dependencies:
@@ -3431,13 +3431,13 @@ importers:
         version: 19.3.0
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       fake-indexeddb:
         specifier: 'catalog:'
         version: 6.2.5
       happy-dom:
         specifier: 'catalog:'
-        version: 20.14.0
+        version: 21.0.3
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -3449,7 +3449,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/pipeline:
     dependencies:
@@ -3471,13 +3471,13 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/platform-utils:
     devDependencies:
@@ -3486,16 +3486,16 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       happy-dom:
         specifier: 'catalog:'
-        version: 20.14.0
+        version: 21.0.3
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/queue:
     dependencies:
@@ -3520,13 +3520,13 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/secure-fs-native:
     dependencies:
@@ -3588,7 +3588,7 @@ importers:
         version: link:../test-utils
       '@testing-library/jest-dom':
         specifier: 'catalog:'
-        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.2)
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -3603,13 +3603,13 @@ importers:
         version: 19.3.0
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       jsdom:
         specifier: 'catalog:'
         version: 30.1.3(@noble/hashes@2.4.0)
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       zustand:
         specifier: 'catalog:'
         version: 5.0.15(@types/react@19.3.0)(immer@10.2.0)(react@19.3.0)(use-sync-external-store@1.6.0(react@19.3.0))
@@ -3634,7 +3634,7 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       esbuild:
         specifier: 'catalog:'
         version: 0.28.2
@@ -3643,7 +3643,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/sqlite-query:
     dependencies:
@@ -3668,13 +3668,13 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.52.0
+        version: 0.53.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       electron:
         specifier: 'catalog:'
         version: 44.7.2(supports-color@10.2.2)
@@ -3683,7 +3683,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/state-store:
     dependencies:
@@ -3714,7 +3714,7 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       esbuild:
         specifier: 'catalog:'
         version: 0.28.2
@@ -3726,7 +3726,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/storage:
     dependencies:
@@ -3748,10 +3748,10 @@ importers:
         version: 24.13.3
       '@vitest/browser-playwright':
         specifier: 'catalog:'
-        version: 5.0.2(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.2)
+        version: 5.0.5(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.5)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       electron:
         specifier: 'catalog:'
         version: 44.7.2(supports-color@10.2.2)
@@ -3766,7 +3766,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/test-utils:
     devDependencies:
@@ -3790,13 +3790,13 @@ importers:
         version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(@typescript/typescript6@6.0.2)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(patch_hash=280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.2)
+        version: 10.0.0(patch_hash=280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.5)
       '@testing-library/dom':
         specifier: 'catalog:'
         version: 10.4.2
       '@testing-library/jest-dom':
         specifier: 'catalog:'
-        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.2)
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -3808,7 +3808,7 @@ importers:
         version: 19.3.0
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       jsdom:
         specifier: 'catalog:'
         version: 30.1.3(@noble/hashes@2.4.0)
@@ -3820,7 +3820,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/text-splitter:
     dependencies:
@@ -3836,13 +3836,13 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/token-cache:
     dependencies:
@@ -3879,7 +3879,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.52.0
+        version: 0.53.1
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -3891,7 +3891,7 @@ importers:
         version: 19.3.0
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -3903,7 +3903,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/tokenization:
     dependencies:
@@ -3919,13 +3919,13 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/types:
     devDependencies:
@@ -3934,13 +3934,13 @@ importers:
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/ui:
     dependencies:
@@ -4109,7 +4109,7 @@ importers:
         version: 4.3.3(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       '@testing-library/jest-dom':
         specifier: 'catalog:'
-        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.2)
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -4127,7 +4127,7 @@ importers:
         version: 6.1.2(@rolldown/plugin-babel@0.2.3(@babel/core@8.0.7)(@babel/plugin-transform-runtime@8.0.1(@babel/core@8.0.7))(@babel/runtime@8.0.0)(rolldown@1.2.13)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))(babel-plugin-react-compiler@1.0.0)(oxc-transform-react@0.152.0)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       axe-core:
         specifier: ^4.14.0
         version: 4.14.0
@@ -4145,7 +4145,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/utils:
     dependencies:
@@ -4188,19 +4188,19 @@ importers:
         version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(@typescript/typescript6@6.0.2)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(patch_hash=280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.2)
+        version: 10.0.0(patch_hash=280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.5)
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/vector-management:
     dependencies:
@@ -4252,7 +4252,7 @@ importers:
         version: link:../test-utils
       '@testing-library/jest-dom':
         specifier: 'catalog:'
-        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.2)
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -4267,16 +4267,16 @@ importers:
         version: 19.3.0
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       happy-dom:
         specifier: 'catalog:'
-        version: 20.14.0
+        version: 21.0.3
       jsdom:
         specifier: 'catalog:'
         version: 30.1.3(@noble/hashes@2.4.0)
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       zustand:
         specifier: 'catalog:'
         version: 5.0.15(@types/react@19.3.0)(immer@10.2.0)(react@19.3.0)(use-sync-external-store@1.6.0(react@19.3.0))
@@ -4310,7 +4310,7 @@ importers:
         version: 24.13.3
       '@vitest/browser-playwright':
         specifier: 'catalog:'
-        version: 5.0.2(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.2)
+        version: 5.0.5(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.5)
       better-sqlite3:
         specifier: 'catalog:'
         version: 13.0.3
@@ -4322,7 +4322,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/web-writer:
     dependencies:
@@ -4389,7 +4389,7 @@ importers:
         version: 24.13.3
       '@vitest/browser-playwright':
         specifier: 'catalog:'
-        version: 5.0.2(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.2)
+        version: 5.0.5(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.5)
       esbuild:
         specifier: 'catalog:'
         version: 0.28.2
@@ -4401,7 +4401,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/windows-job-native:
     dependencies:
@@ -4433,19 +4433,19 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.52.0
+        version: 0.53.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/workers:
     dependencies:
@@ -4479,19 +4479,19 @@ importers:
         version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(@typescript/typescript6@6.0.2)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(patch_hash=280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.2)
+        version: 10.0.0(patch_hash=280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.5)
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/workspace-search:
     dependencies:
@@ -4552,10 +4552,10 @@ importers:
         version: 19.3.0
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       happy-dom:
         specifier: 'catalog:'
-        version: 20.14.0
+        version: 21.0.3
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -4567,7 +4567,7 @@ importers:
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
-        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
 packages:
 
@@ -5557,43 +5557,43 @@ packages:
     resolution: {integrity: sha512-0dEVyRLM/lG4gp1R/Ik5bfPl/1wX00xFwd5KcNH602tzBa09oF7pbTKETEhR1GjZ75K6OJnYFu8II2dyMhONMw==}
     engines: {node: '>=16'}
 
-  '@effect/tsgo-darwin-arm64@0.52.0':
-    resolution: {integrity: sha512-UkC9wLIaO/8R8a3Z4M0GBUamaCYipjHcHFiO2K01dmnmQ2VFDG4SsWktfnAZOxGh+Dc0cVo8dUVQMYLoOxycpA==}
+  '@effect/tsgo-darwin-arm64@0.53.1':
+    resolution: {integrity: sha512-wje3jvSaN3ttD7sBm9Bw/E8xHq2ZQWMJNg1YAGCj3/tiwUxHDUjKrt1LC/HLju+OnTBSsSvkUE8jXUT3OdQY4A==}
     cpu: [arm64]
     os: [darwin]
 
-  '@effect/tsgo-darwin-x64@0.52.0':
-    resolution: {integrity: sha512-UhGdUAK947Cl/khX/yAAleA65qyPcGyGuVrgYIdpJ2/q08YcaDPWoEI5S+yKlluNGvHubt2V8LCG8qUvKwX4fQ==}
+  '@effect/tsgo-darwin-x64@0.53.1':
+    resolution: {integrity: sha512-x4mNzV8WLPZ71Vu7vyOJiJGTNOrfYR0g5+Zg9Q9ZieKCVSJkWJvOIOND+EvT9gUP4qdTYQh4kzGbe/T+kSrilg==}
     cpu: [x64]
     os: [darwin]
 
-  '@effect/tsgo-linux-arm64@0.52.0':
-    resolution: {integrity: sha512-5eLXezrIODBQQGVUTyhxJb2byXoA62c4OyVIcRwZpyGK/ZivjWbpxj3pEPqzDADo7s85s2QDHTix4gt3xDiqBA==}
+  '@effect/tsgo-linux-arm64@0.53.1':
+    resolution: {integrity: sha512-p2HrEKCh0EAY2G9MYS5vjJy2ZX27UyjZRgy2SUQu8PUVHLq3TAGTsX0d6I7LlNbRsUFxmI4HgypP6IPAUnjUwQ==}
     cpu: [arm64]
     os: [linux]
 
-  '@effect/tsgo-linux-arm@0.52.0':
-    resolution: {integrity: sha512-QUZlIzXcM0xuHoKwfLeYo4H/SsVHWzcD8RFjBkF5wQ7PsQYmmPizOXx9ntTLGhRNEJhNm+3SaLIsITgMu4fxVg==}
+  '@effect/tsgo-linux-arm@0.53.1':
+    resolution: {integrity: sha512-y29MekM4Riv1MjnRS0ST49ttmvHoVdPNmpR3aivmNlOWIKXXm4XSGx0F+PEnblq8dESWeSXmAcC0mcETUq880A==}
     cpu: [arm]
     os: [linux]
 
-  '@effect/tsgo-linux-x64@0.52.0':
-    resolution: {integrity: sha512-UhqpcF9QYkR8Ow94Pc77bXLeHWuudRkYb4WRKpZgMQ9WIgtHpgRscQL4kys1XEBmq4NzHlWcoHPoMjrtddd/TA==}
+  '@effect/tsgo-linux-x64@0.53.1':
+    resolution: {integrity: sha512-dvvZGUW2DhQGjP+28v7Q977it6CLw44rh+OhP/+3snk0IeoMiRtnmtd6k42ny3/uvexJFAgLc2ch0ttwwGc/LQ==}
     cpu: [x64]
     os: [linux]
 
-  '@effect/tsgo-win32-arm64@0.52.0':
-    resolution: {integrity: sha512-Q1lwa5gxiH09NxU/li8fklCiGACSsht/Zru3je26NVRpu1G7oahbhVF9xoINU8twLi7/jc50mdJc1DZrLg5dTw==}
+  '@effect/tsgo-win32-arm64@0.53.1':
+    resolution: {integrity: sha512-9AvAoqT6QDhVKSaVx2PpgBxFJNbOP8gjBz+Q9cCJTaiOFFMxpuSvsrU1+ttDh4XuaWn3mJXtdQDSrEHlepuhoQ==}
     cpu: [arm64]
     os: [win32]
 
-  '@effect/tsgo-win32-x64@0.52.0':
-    resolution: {integrity: sha512-34nH7qthdhaWaFjeUamZtC7OnV4rv36kLuJy2SVJxi+gRmLMDtXXI+Jo2f1G/dDs2SsudHga+nmwDFbxnuIbkg==}
+  '@effect/tsgo-win32-x64@0.53.1':
+    resolution: {integrity: sha512-XTKMzsK3I78oApuTTcOx6orxGOqkGeDZBDHYiJQ6vIlwiKaeyZqCWm2fUtAgkvyxDyY5g4JXm8Qd23RVRSoxmg==}
     cpu: [x64]
     os: [win32]
 
-  '@effect/tsgo@0.52.0':
-    resolution: {integrity: sha512-ue6Xl8lbamtOXY4pH2W7aLr/Vb2Bhv/kOy3xoL/Hgdai1ns+16xCmhSQbUkKYl75kKCAPl6I1TwpdsQkfk6OOw==}
+  '@effect/tsgo@0.53.1':
+    resolution: {integrity: sha512-0LW8VI1+HvC+S5KOpReuAneN4T93ipcd8aKNXpy2DubBfm6ShWhBtWxtxPSaQ9M25gAtQs6w/D9NEmXqgd8uGg==}
     hasBin: true
 
   '@electric-sql/pglite-pg_textsearch@0.0.10':
@@ -10457,38 +10457,38 @@ packages:
       oxc-transform-react:
         optional: true
 
-  '@vitest/browser-playwright@5.0.2':
-    resolution: {integrity: sha512-wU0B1Zy9+a55fdUT7JBCcnnjpTx0HHvUlQT6yFnuwCSY244BkPPwabNX+9PAljc96gRELcfm5APtnsn/3qiaPw==}
+  '@vitest/browser-playwright@5.0.5':
+    resolution: {integrity: sha512-lcdThFUUcMV9mGGV1SUiZXPxfjgW4CssA7o3STxzh8WK0tT2r526kc12tZIBRZfoLMwkhxjLmMXkWXONzdsDQw==}
     peerDependencies:
       playwright: '*'
-      vitest: 5.0.2
+      vitest: 5.0.5
 
-  '@vitest/browser@5.0.2':
-    resolution: {integrity: sha512-nX9xXZ/j8YfU7KTeFa+tpSP331SbI81qBQTASRlcopYeaTgBerNmJryzHXHrFOW0NYldd3Dn5gw651zGnmaQzw==}
+  '@vitest/browser@5.0.5':
+    resolution: {integrity: sha512-IDMoZX/iZ8rkilw7weaSgN8tJ7iZ9hUv0wYoKXyiyjWjWFwLSWAY707DcVTgxTYOudWC1E3HA9LYn7kVa9a7uQ==}
     peerDependencies:
-      vitest: 5.0.2
+      vitest: 5.0.5
 
-  '@vitest/coverage-v8@5.0.2':
-    resolution: {integrity: sha512-3ffHBEi8DOOBLwIGBhOBZbRfYFYWjMUuxZicONdhuFEFEG5AVsMOSrVeuROskqnqpbOmEJwxM2eTVZ9N3a1t+A==}
+  '@vitest/coverage-v8@5.0.5':
+    resolution: {integrity: sha512-4KpkGdIrSqBihx/JyP/e+S+IKB98etg1XDQiLAxksLfcShnwi1VReGeOT9NI43hLHbknosKp/1CCLn9Zgcs8mg==}
     peerDependencies:
-      '@vitest/browser': 5.0.2
-      vitest: 5.0.2
+      '@vitest/browser': 5.0.5
+      vitest: 5.0.5
     peerDependenciesMeta:
       '@vitest/browser':
         optional: true
 
-  '@vitest/istanbul-lib-coverage@1.0.1':
-    resolution: {integrity: sha512-k3DJZ8LhMBK9NS4SclF1ASD3OgXEWDorbIcPTRDK0/Zae6fRvu+fJRxtFdLfHsa9Y24beCdPnoNZ4LviTNstfA==}
+  '@vitest/istanbul-lib-coverage@1.0.2':
+    resolution: {integrity: sha512-9J/JMwOf9AoJhAywhrn7ScKTL38hsWQP/qPG60OtaAFcQ5OXPwKsxZFlbnuCKmZ61m8/lGgHYnFpdyQZUvG/iA==}
     engines: {node: '>=22'}
 
-  '@vitest/istanbul-lib-report@1.0.1':
-    resolution: {integrity: sha512-1EOLRfsTMnyAr3+kEAsP4o9dhaDlGPpD7H5iLBBeq//YpNB1VIahkPhB+eRp9N2Dkfw8oySROjE3yf9XDeaIkQ==}
+  '@vitest/istanbul-lib-report@1.0.2':
+    resolution: {integrity: sha512-gUsfXZJbzPamoIY5TvHFiMMoXESBrUMo+xqaj+rYrWI69+EnvRlYBlP96ZnHPY4vX8kyUpgAnFUCg5wZG/HkDQ==}
     engines: {node: '>=22'}
 
-  '@vitest/mocker@5.0.2':
-    resolution: {integrity: sha512-Z5FS00Q1SJHkB35xATsmWGdQ5WA1/0MV3CDjqyv7GavHv1OfOj145MNfHOlHk7QLes21dKFDHr8EO2zvL+9WGA==}
+  '@vitest/mocker@5.0.5':
+    resolution: {integrity: sha512-xLL3lkDegJZw+MGoGaCCsFayDZthGgpAtr3Vziyfc4p7xH89K7KRPcRBBh/kEYm0Aqkt5DtTmkYpBtRV/FrHZg==}
     peerDependencies:
-      msw: ^2.4.9
+      msw: ^2.4.9 || ^3.0.0
       vite: ^6.0.0 || ^7.0.0 || ^8.0.0
     peerDependenciesMeta:
       msw:
@@ -10496,19 +10496,19 @@ packages:
       vite:
         optional: true
 
-  '@vitest/pretty-format@5.0.2':
-    resolution: {integrity: sha512-YHM+mQQ7N1ROHMugJ7P/M+fC/q1G4zs/iAMZZCvhHcY8WkwPQcXBHD+z18oz+808Cfa12K7jOr3XPQMcLIovjw==}
+  '@vitest/pretty-format@5.0.5':
+    resolution: {integrity: sha512-24sSdIlMA9DVPXnYiB9siwU0bTd887Y9jX3+vabztCSsvHwo7ipvJ/a2L3Rljw8+2rK1f5fCj3h5U9I/Jsqgbw==}
 
-  '@vitest/spy@5.0.2':
-    resolution: {integrity: sha512-Ijc7T1nT9efNb5LxvjaBrEqw3f/QwUv5EE0nKqZxgqsaV/FxAAZ8baGylA8X/Z2oS4Lp+K74Jr6dTJsDKxJDeg==}
+  '@vitest/spy@5.0.5':
+    resolution: {integrity: sha512-lwJRExuH417257Q5wv9QYugN9IMJkoxcrKrYxGPQkBzl7wlNpTUxD/5yNX4ESKVUIShKPgkGchYPFMWOOk0wzw==}
 
-  '@vitest/ui@5.0.2':
-    resolution: {integrity: sha512-FRGWhLK/S+aaAtty/5d+jTtY5l+9pGNcjz6IHbyUiP3VWs6a+zIgU4lc1SzWCR7H+OXgetAI06i/VpCWQmVorQ==}
+  '@vitest/ui@5.0.5':
+    resolution: {integrity: sha512-dCoGUOdgmCaSB2g+WQ/spPCBkytAWdNUkFSXY4z+eYp2d8JEOY8v0uDRaJTG9qf/kTlTVZ4CuYMYMz/f1HS/qQ==}
     peerDependencies:
-      vitest: 5.0.2
+      vitest: 5.0.5
 
-  '@vitest/utils@5.0.2':
-    resolution: {integrity: sha512-mgpUtxFhKeOKVaArBVHNJGdYHAeRh135o59l13uVmPUCS1OUtis5pBqXEgE25iqRgFqEBwXvJlkhknRsYnMeqg==}
+  '@vitest/utils@5.0.5':
+    resolution: {integrity: sha512-/rBu7gzLDQI/SC79Tn98b5DwOgaHU/Gt4I9OVeP3YofzNaYtbImRCOJQmT1S6vOJg9gEIlWC+r3QxKkjuSa1nQ==}
 
   '@workflow/serde@4.1.0':
     resolution: {integrity: sha512-pav4F2BoirECWR7Nf1TKt+2eETcBj7jj4cBefQ8VXQCA6NPkaKeLfj/zMgi+3zYV5ZIBT4GuUiphsj0/b9hPQQ==}
@@ -10719,8 +10719,8 @@ packages:
     resolution: {integrity: sha512-x1FCFnFifvYDDzTaLII71vG5uvDwgtmDTEVWAxrgeiR8VjMONcCXJx7E+USjDtHlwFmt9MysbqgF9b9Vjr6w+w==}
     engines: {node: '>=4'}
 
-  ast-v8-to-istanbul@1.0.6:
-    resolution: {integrity: sha512-fvpl29helSO2w/z7utIbrkNXILdrLwDwAMH2I/zPKlGf5244+gf+B4cyS1sANcrPY2h+hWCGSgC8N61s/+AF9A==}
+  ast-v8-to-istanbul@1.0.7:
+    resolution: {integrity: sha512-kFL68AG6ajd8fg248zwM9GQrUWEp79gsmjum34OEXjs4yHuUMZfYKwOLW9GMmB4oNvVrj+EAGxsP7ye2UR9UlA==}
 
   astring@1.9.0:
     resolution: {integrity: sha512-LElXdjswlqjWrPpJFg1Fx4wpkOCxj1TDHlSV4PlaRxHGWko024xICaa97ZkMfs6DRKlCguiAI+rbXv5GWwXIkg==}
@@ -11004,8 +11004,8 @@ packages:
   ccount@2.0.1:
     resolution: {integrity: sha512-eyrF0jiFpY+3drT6383f1qhkbGsLSifNAjA61IUjZjmLCWjItY6LB9ft9YhoDgwfmclB2zhu51Lc7+95b8NRAg==}
 
-  chai@6.2.2:
-    resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
+  chai@6.3.0:
+    resolution: {integrity: sha512-XWAtwJ6OHO+tj0EKCs0Y2UamnyOxseZWltU4x2U2wh8g4AigdjwvtUjvLP2tqkA/avxHEtzxNaqGq/YGNwckKg==}
     engines: {node: '>=18'}
 
   chalk-template@0.4.0:
@@ -12413,8 +12413,8 @@ packages:
   hachure-fill@0.5.2:
     resolution: {integrity: sha512-3GKBOn+m2LX9iq+JC1064cSFprJY4jL1jCXTcpnfER5HYE2l/4EfWSGzkPa/ZDBmYI0ZOEj5VHV/eKnPGkHuOg==}
 
-  happy-dom@20.14.0:
-    resolution: {integrity: sha512-4bRh1KzRvKDnFNTlLhzT1RZTpkKhQbQDl9j+7GXszWsvuspYdo29k6OHRf4PwiM6oLb8r/pMWeYiJjkfod5AvQ==}
+  happy-dom@21.0.3:
+    resolution: {integrity: sha512-PesNgu5BnIEmAwzKGewB3K1ORFeznFZJ4JrRz89ea1wkHnxskdpzX9sN/+zb4KO6k8oSMhyJSj/cwXAFrYBBNA==}
     engines: {node: '>=20.0.0'}
 
   has-flag@4.0.0:
@@ -13273,8 +13273,8 @@ packages:
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
-  magic-string@1.2.3:
-    resolution: {integrity: sha512-Bpb0W2TbLKOZ7vJnOUnVRGq3WL2p+ISV29M6hYPL1AFCpyKZpdr5ytiXoTSSxRVhg8YW7f65+6gbG8WG6PCa/g==}
+  magic-string@1.4.3:
+    resolution: {integrity: sha512-z12OxmaPGE0F4xlpGdjuAUckipLpQlTAuAmyGhNoD7ODpYUzvDfvtxUbjM/jwznyP178oju/KDdyi220wNJ0RQ==}
 
   magicast@0.5.4:
     resolution: {integrity: sha512-llBEhWm1SacoRwgHUoQJYtwp4PBLF4faQi5TCpIGyGs9n4y5+juI0tDgyKIfpqxckRHaHzouUEph3THklWh03w==}
@@ -15030,8 +15030,8 @@ packages:
     resolution: {integrity: sha512-DvEy55V3DB7uknRo+4iOGT5fP1slR8wQohVdknigZPMpMstaKJQWhwiYBACJE3Ul2pTnATihhBYnRhZQHGBiRw==}
     engines: {node: '>= 0.8'}
 
-  std-env@4.2.0:
-    resolution: {integrity: sha512-oCUKSupKTHX53EyjDtuZQ64pjLJ6yYCtpmEw0goYxtjG9KpbRe8KAsl2tBUGU9DyMcJ0RwJ8GqJAFzMXcXW1Rw==}
+  std-env@4.3.0:
+    resolution: {integrity: sha512-OtU/EgQ1kIm5KwqQpBC6ZEMXrZRui11w8zgfTWp8cdO9B8OaPsbA8bTHO2P+HNo1VlUTGMVBwPhydu6poeXiag==}
 
   stream-parser@0.3.1:
     resolution: {integrity: sha512-bJ/HgKq41nlKvlhccD5kaCr/P+Hu0wPNKPJOH7en+YrJu/9EgqUF+88w5Jb6KNcjOFMhfX4B2asfeAtIGuHObQ==}
@@ -15228,8 +15228,8 @@ packages:
   tiny-async-pool@1.3.0:
     resolution: {integrity: sha512-01EAw5EDrcVrdgyCLgoSPvqznC0sVxDSVeiOz09FUpjh71G79VCqneOr+xvt7T1r76CF6ZZfPjHorN2+d+3mqA==}
 
-  tinybench@6.1.4:
-    resolution: {integrity: sha512-9APumHG7r4yOk4X4WlkmE71aZcv1gvin1czO3OQ1U9iJcFA5Ja/ygyb0vPOVHTthFozUYs8CLoLUlM8grb2lTQ==}
+  tinybench@6.2.2:
+    resolution: {integrity: sha512-nIZ2N2dFpjBsg2hgitKu7mA+FvsIJuGJOwysRngmVRRmWgR/UyPjwJj8c/fT/dhm8EkHnF5EOogRf+0Z2qrimA==}
     engines: {node: '>=20.0.0'}
 
   tinyexec@0.3.2:
@@ -15247,8 +15247,8 @@ packages:
     resolution: {integrity: sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==}
     engines: {node: '>=12.0.0'}
 
-  tinyrainbow@3.1.1:
-    resolution: {integrity: sha512-yau8yJdTt989Mm0Bd/236QnzEiPf2xLLTqUZRUJOo/3CB078LSwzei343DgtJVmfJKJE3TMINY1u42SQsP6mXw==}
+  tinyrainbow@3.2.0:
+    resolution: {integrity: sha512-LgO3D9yZJjApUiuUfl9iFAwrtaX4+lok3wJIqttGoKCHlWUqHqbQpnxCf82L8FjgKsh4iGo78hqJwgL8F6To2A==}
     engines: {node: '>=14.0.0'}
 
   tldts-core@7.4.6:
@@ -15713,20 +15713,20 @@ packages:
       yaml:
         optional: true
 
-  vitest@5.0.2:
-    resolution: {integrity: sha512-7MQrx9pDv5aHiUcovIb/70Ys3tgtkUVgCtledvKdCmEO+/1Dicq5ZqoSxOW034m03oqC+oHOKui2dM6qtMLoJg==}
+  vitest@5.0.5:
+    resolution: {integrity: sha512-cPODOMF8YnkiiYtDdHo6n4wWmBrOBBbOIYH2d33M4l3CdNn72h+qMmO6uXffUN6A5AZFXNND/d+krS9mgkXRfg==}
     engines: {node: ^22.12.0 || ^24.0.0 || >=26.0.0}
     hasBin: true
     peerDependencies:
       '@edge-runtime/vm': '*'
       '@opentelemetry/api': ^1.9.0
       '@types/node': ^22.0.0 || >=24.0.0
-      '@vitest/browser-playwright': 5.0.2
-      '@vitest/browser-preview': 5.0.2
+      '@vitest/browser-playwright': 5.0.5
+      '@vitest/browser-preview': 5.0.5
       '@vitest/browser-webdriverio': ^5.0.0-beta.5 || >=5.0.0
-      '@vitest/coverage-istanbul': 5.0.2
-      '@vitest/coverage-v8': 5.0.2
-      '@vitest/ui': 5.0.2
+      '@vitest/coverage-istanbul': 5.0.5
+      '@vitest/coverage-v8': 5.0.5
+      '@vitest/ui': 5.0.5
       happy-dom: '*'
       jsdom: '*'
       vite: ^6.4.0 || ^7.0.0 || ^8.0.0
@@ -15864,8 +15864,8 @@ packages:
     engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
     hasBin: true
 
-  why-is-node-running@3.2.2:
-    resolution: {integrity: sha512-NKUzAelcoCXhXL4dJzKIwXeR8iEVqsA0Lq6Vnd0UXvgaKbzVo4ZTHROF2Jidrv+SgxOQ03fMinnNhzZATxOD3A==}
+  why-is-node-running@3.2.1:
+    resolution: {integrity: sha512-Tb2FUhB4vUsGQlfSquQLYkApkuPAFQXGFzxWKHHumVz2dK+X1RUm/HnID4+TfIGYJ1kTcwOaCk/buYCEJr6YjQ==}
     engines: {node: '>=20.11'}
     hasBin: true
 
@@ -15908,6 +15908,18 @@ packages:
 
   ws@8.21.3:
     resolution: {integrity: sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
+  ws@8.22.0:
+    resolution: {integrity: sha512-Ydggc987+RO0AnWtZ/7Wq9FtNvcrL1b/RO0ud9mWjUPgDrsAAwQSF51sm2hm1XofbU/4jkpGEsLFsZZxU+1DOg==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -17455,36 +17467,36 @@ snapshots:
     dependencies:
       '@edge-runtime/primitives': 4.1.0
 
-  '@effect/tsgo-darwin-arm64@0.52.0':
+  '@effect/tsgo-darwin-arm64@0.53.1':
     optional: true
 
-  '@effect/tsgo-darwin-x64@0.52.0':
+  '@effect/tsgo-darwin-x64@0.53.1':
     optional: true
 
-  '@effect/tsgo-linux-arm64@0.52.0':
+  '@effect/tsgo-linux-arm64@0.53.1':
     optional: true
 
-  '@effect/tsgo-linux-arm@0.52.0':
+  '@effect/tsgo-linux-arm@0.53.1':
     optional: true
 
-  '@effect/tsgo-linux-x64@0.52.0':
+  '@effect/tsgo-linux-x64@0.53.1':
     optional: true
 
-  '@effect/tsgo-win32-arm64@0.52.0':
+  '@effect/tsgo-win32-arm64@0.53.1':
     optional: true
 
-  '@effect/tsgo-win32-x64@0.52.0':
+  '@effect/tsgo-win32-x64@0.53.1':
     optional: true
 
-  '@effect/tsgo@0.52.0':
+  '@effect/tsgo@0.53.1':
     optionalDependencies:
-      '@effect/tsgo-darwin-arm64': 0.52.0
-      '@effect/tsgo-darwin-x64': 0.52.0
-      '@effect/tsgo-linux-arm': 0.52.0
-      '@effect/tsgo-linux-arm64': 0.52.0
-      '@effect/tsgo-linux-x64': 0.52.0
-      '@effect/tsgo-win32-arm64': 0.52.0
-      '@effect/tsgo-win32-x64': 0.52.0
+      '@effect/tsgo-darwin-arm64': 0.53.1
+      '@effect/tsgo-darwin-x64': 0.53.1
+      '@effect/tsgo-linux-arm': 0.53.1
+      '@effect/tsgo-linux-arm64': 0.53.1
+      '@effect/tsgo-linux-x64': 0.53.1
+      '@effect/tsgo-win32-arm64': 0.53.1
+      '@effect/tsgo-win32-x64': 0.53.1
 
   '@electric-sql/pglite-pg_textsearch@0.0.10(@electric-sql/pglite@0.5.8(patch_hash=07412deadecaa3a5f5ba73c838108f930cb9092762ffb0c8f8deb495ef138311))':
     dependencies:
@@ -20778,14 +20790,14 @@ snapshots:
 
   '@stryker-mutator/util@10.0.0': {}
 
-  '@stryker-mutator/vitest-runner@10.0.0(patch_hash=280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.2)':
+  '@stryker-mutator/vitest-runner@10.0.0(patch_hash=280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.5)':
     dependencies:
       '@stryker-mutator/api': 10.0.0
       '@stryker-mutator/core': 10.0.0(@types/node@24.13.3)
       '@stryker-mutator/util': 10.0.0
       semver: 7.8.5
       tslib: 2.8.1
-      vitest: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+      vitest: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   '@swc/core-darwin-arm64@1.15.47':
     optional: true
@@ -20978,7 +20990,7 @@ snapshots:
       picocolors: 1.1.1
       pretty-format: 27.5.1
 
-  '@testing-library/jest-dom@7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.2)':
+  '@testing-library/jest-dom@7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5)':
     dependencies:
       '@adobe/css-tools': 4.5.0
       '@testing-library/dom': 10.4.2
@@ -20988,7 +21000,7 @@ snapshots:
       picocolors: 1.1.1
       redent: 3.0.0
     optionalDependencies:
-      vitest: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
+      vitest: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
 
   '@testing-library/react@16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
@@ -21723,127 +21735,127 @@ snapshots:
       babel-plugin-react-compiler: 1.0.0
       oxc-transform-react: 0.152.0
 
-  '@vitest/browser-playwright@5.0.2(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))(vitest@5.0.2)':
+  '@vitest/browser-playwright@5.0.5(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))(vitest@5.0.5)':
     dependencies:
-      '@vitest/browser': 5.0.2(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))(vitest@5.0.2)
-      '@vitest/mocker': 5.0.2(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
+      '@vitest/browser': 5.0.5(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))(vitest@5.0.5)
+      '@vitest/mocker': 5.0.5(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
       playwright: 1.64.1
-      tinyrainbow: 3.1.1
-      vitest: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
+      tinyrainbow: 3.2.0
+      vitest: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
     transitivePeerDependencies:
       - bufferutil
       - msw
       - utf-8-validate
       - vite
 
-  '@vitest/browser-playwright@5.0.2(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.2)':
+  '@vitest/browser-playwright@5.0.5(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.5)':
     dependencies:
-      '@vitest/browser': 5.0.2(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.2)
-      '@vitest/mocker': 5.0.2(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+      '@vitest/browser': 5.0.5(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.5)
+      '@vitest/mocker': 5.0.5(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       playwright: 1.64.1
-      tinyrainbow: 3.1.1
-      vitest: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+      tinyrainbow: 3.2.0
+      vitest: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
     transitivePeerDependencies:
       - bufferutil
       - msw
       - utf-8-validate
       - vite
 
-  '@vitest/browser@5.0.2(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))(vitest@5.0.2)':
+  '@vitest/browser@5.0.5(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))(vitest@5.0.5)':
     dependencies:
       '@blazediff/core': 1.10.0
-      '@vitest/mocker': 5.0.2(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
-      '@vitest/ui': 5.0.2(vitest@5.0.2)
-      '@vitest/utils': 5.0.2
-      magic-string: 1.2.3
+      '@vitest/mocker': 5.0.5(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
+      '@vitest/ui': 5.0.5(vitest@5.0.5)
+      '@vitest/utils': 5.0.5
+      magic-string: 1.4.3
       pngjs: 7.0.0
       sirv: 3.0.2
-      tinyrainbow: 3.1.1
-      vitest: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
-      ws: 8.21.3
+      tinyrainbow: 3.2.0
+      vitest: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
+      ws: 8.22.0
     transitivePeerDependencies:
       - bufferutil
       - msw
       - utf-8-validate
       - vite
 
-  '@vitest/browser@5.0.2(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.2)':
+  '@vitest/browser@5.0.5(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.5)':
     dependencies:
       '@blazediff/core': 1.10.0
-      '@vitest/mocker': 5.0.2(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
-      '@vitest/ui': 5.0.2(vitest@5.0.2)
-      '@vitest/utils': 5.0.2
-      magic-string: 1.2.3
+      '@vitest/mocker': 5.0.5(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+      '@vitest/ui': 5.0.5(vitest@5.0.5)
+      '@vitest/utils': 5.0.5
+      magic-string: 1.4.3
       pngjs: 7.0.0
       sirv: 3.0.2
-      tinyrainbow: 3.1.1
-      vitest: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
-      ws: 8.21.3
+      tinyrainbow: 3.2.0
+      vitest: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+      ws: 8.22.0
     transitivePeerDependencies:
       - bufferutil
       - msw
       - utf-8-validate
       - vite
 
-  '@vitest/coverage-v8@5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)':
+  '@vitest/coverage-v8@5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)':
     dependencies:
       '@bcoe/v8-coverage': 1.0.2
-      '@vitest/istanbul-lib-coverage': 1.0.1
-      '@vitest/istanbul-lib-report': 1.0.1
-      ast-v8-to-istanbul: 1.0.6
-      magicast: 0.5.4
-      obug: 2.1.4
-      std-env: 4.2.0
-      tinyrainbow: 3.1.1
-      vitest: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
+      '@vitest/istanbul-lib-coverage': 1.0.2
+      '@vitest/istanbul-lib-report': 1.0.2
+      ast-v8-to-istanbul: 1.0.7
+      magicast: 0.5.5
+      obug: 3.0.0
+      std-env: 4.3.0
+      tinyrainbow: 3.2.0
+      vitest: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
     optionalDependencies:
-      '@vitest/browser': 5.0.2(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))(vitest@5.0.2)
+      '@vitest/browser': 5.0.5(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))(vitest@5.0.5)
 
-  '@vitest/istanbul-lib-coverage@1.0.1': {}
+  '@vitest/istanbul-lib-coverage@1.0.2': {}
 
-  '@vitest/istanbul-lib-report@1.0.1':
+  '@vitest/istanbul-lib-report@1.0.2':
     dependencies:
-      '@vitest/istanbul-lib-coverage': 1.0.1
+      '@vitest/istanbul-lib-coverage': 1.0.2
 
-  '@vitest/mocker@5.0.2(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))':
+  '@vitest/mocker@5.0.5(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
-      '@vitest/spy': 5.0.2
+      '@vitest/spy': 5.0.5
       estree-walker: 3.0.3
-      magic-string: 1.2.3
+      magic-string: 1.4.3
     optionalDependencies:
       vite: 8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1)
 
-  '@vitest/mocker@5.0.2(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))':
+  '@vitest/mocker@5.0.5(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
-      '@vitest/spy': 5.0.2
+      '@vitest/spy': 5.0.5
       estree-walker: 3.0.3
-      magic-string: 1.2.3
+      magic-string: 1.4.3
     optionalDependencies:
       vite: 8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
 
-  '@vitest/pretty-format@5.0.2':
+  '@vitest/pretty-format@5.0.5':
     dependencies:
-      tinyrainbow: 3.1.1
+      tinyrainbow: 3.2.0
 
-  '@vitest/spy@5.0.2': {}
+  '@vitest/spy@5.0.5': {}
 
-  '@vitest/ui@5.0.2(vitest@5.0.2)':
+  '@vitest/ui@5.0.5(vitest@5.0.5)':
     dependencies:
-      '@vitest/utils': 5.0.2
+      '@vitest/utils': 5.0.5
       fflate: 0.8.3
       flatted: 3.4.4
       pathe: 2.0.3
       sirv: 3.0.2
-      tinyrainbow: 3.1.1
-      vitest: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
+      tinyrainbow: 3.2.0
+      vitest: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
 
-  '@vitest/utils@5.0.2':
+  '@vitest/utils@5.0.5':
     dependencies:
-      '@vitest/pretty-format': 5.0.2
+      '@vitest/pretty-format': 5.0.5
       convert-source-map: 2.0.0
-      tinyrainbow: 3.1.1
+      tinyrainbow: 3.2.0
 
   '@workflow/serde@4.1.0': {}
 
@@ -22093,7 +22105,7 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
-  ast-v8-to-istanbul@1.0.6:
+  ast-v8-to-istanbul@1.0.7:
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
       estree-walker: 3.0.3
@@ -22379,7 +22391,7 @@ snapshots:
 
   ccount@2.0.1: {}
 
-  chai@6.2.2: {}
+  chai@6.3.0: {}
 
   chalk-template@0.4.0:
     dependencies:
@@ -23896,9 +23908,9 @@ snapshots:
 
   hachure-fill@0.5.2: {}
 
-  happy-dom@20.14.0:
+  happy-dom@21.0.3:
     dependencies:
-      '@types/node': 26.1.0
+      '@types/node': 24.13.3
       '@types/whatwg-mimetype': 3.0.2
       '@types/ws': 8.18.1
       buffer-image-size: 0.6.4
@@ -24737,9 +24749,9 @@ snapshots:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  magic-string@1.2.3:
+  magic-string@1.4.3:
     dependencies:
-      '@jridgewell/sourcemap-codec': 1.5.5
+      '@jridgewell/sourcemap-codec': 1.6.0
 
   magicast@0.5.4:
     dependencies:
@@ -27009,7 +27021,7 @@ snapshots:
 
   statuses@2.0.2: {}
 
-  std-env@4.2.0: {}
+  std-env@4.3.0: {}
 
   stream-parser@0.3.1(supports-color@10.2.2):
     dependencies:
@@ -27268,7 +27280,7 @@ snapshots:
     dependencies:
       semver: 5.7.2
 
-  tinybench@6.1.4: {}
+  tinybench@6.2.2: {}
 
   tinyexec@0.3.2: {}
 
@@ -27281,7 +27293,7 @@ snapshots:
       fdir: 6.5.0(picomatch@4.0.7)
       picomatch: 4.0.7
 
-  tinyrainbow@3.1.1: {}
+  tinyrainbow@3.2.0: {}
 
   tldts-core@7.4.6: {}
 
@@ -27779,58 +27791,58 @@ snapshots:
       tsx: 4.23.15
       yaml: 2.9.1
 
-  vitest@5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1)):
+  vitest@5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1)):
     dependencies:
       '@types/chai': 5.2.3
-      '@vitest/mocker': 5.0.2(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
-      chai: 6.2.2
+      '@vitest/mocker': 5.0.5(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
+      chai: 6.3.0
       es-module-lexer: 2.3.2
       expect-type: 1.4.0
-      magic-string: 1.2.3
-      obug: 2.1.4
+      magic-string: 1.4.3
+      obug: 3.0.0
       picomatch: 4.0.7
-      std-env: 4.2.0
-      tinybench: 6.1.4
-      tinyexec: 1.3.0
+      std-env: 4.3.0
+      tinybench: 6.2.2
+      tinyexec: 1.3.1
       tinyglobby: 0.2.17
       vite: 8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1)
-      why-is-node-running: 3.2.2
+      why-is-node-running: 3.2.1
     optionalDependencies:
       '@edge-runtime/vm': 3.2.0
       '@opentelemetry/api': 1.9.1
       '@types/node': 24.13.3
-      '@vitest/browser-playwright': 5.0.2(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))(vitest@5.0.2)
-      '@vitest/coverage-v8': 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
-      '@vitest/ui': 5.0.2(vitest@5.0.2)
-      happy-dom: 20.14.0
+      '@vitest/browser-playwright': 5.0.5(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))(vitest@5.0.5)
+      '@vitest/coverage-v8': 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
+      '@vitest/ui': 5.0.5(vitest@5.0.5)
+      happy-dom: 21.0.3
       jsdom: 30.1.3(@noble/hashes@2.4.0)
     transitivePeerDependencies:
       - msw
 
-  vitest@5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)):
+  vitest@5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)):
     dependencies:
       '@types/chai': 5.2.3
-      '@vitest/mocker': 5.0.2(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
-      chai: 6.2.2
+      '@vitest/mocker': 5.0.5(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+      chai: 6.3.0
       es-module-lexer: 2.3.2
       expect-type: 1.4.0
-      magic-string: 1.2.3
-      obug: 2.1.4
+      magic-string: 1.4.3
+      obug: 3.0.0
       picomatch: 4.0.7
-      std-env: 4.2.0
-      tinybench: 6.1.4
-      tinyexec: 1.3.0
+      std-env: 4.3.0
+      tinybench: 6.2.2
+      tinyexec: 1.3.1
       tinyglobby: 0.2.17
       vite: 8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
-      why-is-node-running: 3.2.2
+      why-is-node-running: 3.2.1
     optionalDependencies:
       '@edge-runtime/vm': 3.2.0
       '@opentelemetry/api': 1.9.1
       '@types/node': 24.13.3
-      '@vitest/browser-playwright': 5.0.2(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.2)
-      '@vitest/coverage-v8': 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
-      '@vitest/ui': 5.0.2(vitest@5.0.2)
-      happy-dom: 20.14.0
+      '@vitest/browser-playwright': 5.0.5(playwright@1.64.1)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.5)
+      '@vitest/coverage-v8': 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
+      '@vitest/ui': 5.0.5(vitest@5.0.5)
+      happy-dom: 21.0.3
       jsdom: 30.1.3(@noble/hashes@2.4.0)
     transitivePeerDependencies:
       - msw
@@ -27929,7 +27941,7 @@ snapshots:
     dependencies:
       isexe: 4.0.0
 
-  why-is-node-running@3.2.2: {}
+  why-is-node-running@3.2.1: {}
 
   widest-line@4.0.1:
     dependencies:
@@ -27978,6 +27990,8 @@ snapshots:
       typedarray-to-buffer: 3.1.5
 
   ws@8.21.3: {}
+
+  ws@8.22.0: {}
 
   xdg-app-paths@5.1.0:
     dependencies:

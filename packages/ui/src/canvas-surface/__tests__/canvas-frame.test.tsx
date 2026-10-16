@@ -1,9 +1,13 @@
+// @vitest-environment-options {"settings":{"enableIframePageLoading":true}}
+
 import { CANVAS_FRAME_MESSAGE_TYPES } from '@brainstrike/platform-utils';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { CanvasFrame } from '../canvas-frame';
 
-const SHELL_SRC = 'https://shell.invalid/canvas-frame.html';
+// Happy DOM 21 requires an explicit iframe opt-in. Only this suite needs a
+// browsing context for message-source identity; about:blank loads no remote shell.
+const SHELL_SRC = 'about:blank';
 
 function getFrame(): HTMLIFrameElement {
   return screen.getByTitle<HTMLIFrameElement>('Canvas');
