@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Worker } from 'node:worker_threads';
-import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract';
+import { BoundaryFailureError, fault, refusal } from '@brainstrike/assistant-contract';
 import {
   createStateStoreIndexer,
   type IndexerPort,
@@ -154,8 +154,9 @@ export function createStateIndexOwner(options: {
   };
   const replace = async (retired: Generation): Promise<Generation> => {
     if (replacements >= STATE_INDEX_REPLACEMENTS) {
+      // Final, with a remedy: a refusal, so nothing re-opens it automatically.
       throw new BoundaryFailureError(
-        fault({
+        refusal({
           category: 'availability',
           code: 'state-index.retired',
           message: `The agent host's state index stopped ${STATE_INDEX_REPLACEMENTS + 1} times in a row and was not restarted again.`,
@@ -194,7 +195,18 @@ export function createStateIndexOwner(options: {
     return acquiring;
   };
   const use = async <T>(work: (port: ConnectedPort) => Promise<T>): Promise<T> => {
-    const live = await acquire();
+    let live: Generation;
+    try {
+      live = await acquire();
+    } catch (cause) {
+      // A replacement that could not start is the same stopped index. The final
+      // refusal and the owner's own close pass as they are.
+      if (closing || cause instanceof BoundaryFailureError) {
+        throw cause;
+      }
+      retiredBy = cause;
+      throw retiredFailure(cause);
+    }
     try {
       const value = await work(live.port);
       replacements = 0;

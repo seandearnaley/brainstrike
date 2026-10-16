@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract';
+import { BoundaryFailureError, fault, refusal } from '@brainstrike/assistant-contract';
 import { expect, it, vi } from 'vitest';
 import type { NativeIndexEvent } from '../native-index-lifecycle';
 import { createNativeIndexFailures } from '../native-index-reopen';
@@ -52,7 +52,7 @@ it('a started generation ends the series, so its next transient failure re-opens
   expect(scheduled().map(({ attempt }) => attempt)).toEqual([1, 2, 1]);
 });
 
-it('never re-opens a failure after startup, or one not typed as transient', async () => {
+it('never re-opens a failure after startup, a refusal, or one not typed as transient', async () => {
   const { events, failures } = recorder();
   failures.record(1, timeout);
   failures.record(1, new Error('Workspace walk failed.'), true);
@@ -63,6 +63,19 @@ it('never re-opens a failure after startup, or one not typed as transient', asyn
     ),
     true
   );
-  await vi.waitFor(() => expect(events).toHaveLength(3));
+  // The host's final word on a state index that keeps stopping: its remedy is a person.
+  failures.record(
+    1,
+    new BoundaryFailureError(
+      refusal({
+        category: 'availability',
+        code: 'state-index.retired',
+        message: 'The state index stopped 4 times in a row.',
+        remedy: 'Restart BrainStrike.',
+      })
+    ),
+    true
+  );
+  await vi.waitFor(() => expect(events).toHaveLength(4));
   expect(events.every((event) => event.kind === 'failure' && !event.reopen)).toBe(true);
 });
