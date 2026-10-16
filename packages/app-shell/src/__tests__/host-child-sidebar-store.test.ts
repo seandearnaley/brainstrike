@@ -66,11 +66,11 @@ function selection(initial?: string) {
   };
 }
 
-const stores: HostChildSidebarStore[] = [];
+const releases: (() => void)[] = [];
 afterEach(() => {
   diagnostics.error.mockClear();
-  for (const store of stores.splice(0)) {
-    store.close();
+  for (const release of releases.splice(0)) {
+    release();
   }
 });
 
@@ -78,7 +78,7 @@ it('lists an expanded parent’s children and re-reads them only when the host t
   const listed = new Map([['root-1', [child('a', 'working')]]]);
   const fake = host(listed);
   const store = new HostChildSidebarStore(fake.capability, selection());
-  stores.push(store);
+  releases.push(store.connect());
   store.expand('root-1');
   await vi.waitFor(() => expect(store.getSnapshot().children.get('root-1')).toHaveLength(1));
   expect(fake.childThreads).toHaveBeenCalledTimes(1);
@@ -97,7 +97,7 @@ it('marks a child unread when its status changes away from its open tab, and cle
   const fake = host(listed);
   const tabs = selection('b');
   const store = new HostChildSidebarStore(fake.capability, tabs);
-  stores.push(store);
+  releases.push(store.connect());
   store.expand('root-1');
   await vi.waitFor(() => expect(store.getSnapshot().children.get('root-1')).toHaveLength(2));
   expect(store.getSnapshot().unread.size).toBe(0);
@@ -113,7 +113,7 @@ it('marks a child unread when its status changes away from its open tab, and cle
 it('a collapsed parent stops being listed, and a refused listing shows why', async () => {
   const fake = host(new Map());
   const store = new HostChildSidebarStore(fake.capability, selection());
-  stores.push(store);
+  releases.push(store.connect());
   store.expand('missing');
   await vi.waitFor(() =>
     expect(store.getSnapshot().children.get('missing')).toEqual(
@@ -131,7 +131,7 @@ it('discovers children on visible collapsed parents and follows new children wit
   const listed = new Map<string, readonly AssistantThreadHostChild[]>([['root-1', []]]);
   const fake = host(listed);
   const store = new HostChildSidebarStore(fake.capability, selection());
-  stores.push(store);
+  releases.push(store.connect());
   store.observe(['root-1']);
   await vi.waitFor(() => expect(store.getSnapshot().children.get('root-1')).toEqual([]));
   store.observe(['root-1']);
@@ -144,4 +144,26 @@ it('discovers children on visible collapsed parents and follows new children wit
   fake.notify('root-1');
   expect(fake.childThreads).toHaveBeenCalledTimes(2);
   expect(store.getSnapshot().children.has('root-1')).toBe(false);
+});
+
+it('follows the host only while connected, and a reconnect re-reads what it missed', async () => {
+  const listed = new Map<string, readonly AssistantThreadHostChild[]>([['root-1', []]]);
+  const fake = host(listed);
+  const store = new HostChildSidebarStore(fake.capability, selection());
+  const release = store.connect();
+  store.observe(['root-1']);
+  await vi.waitFor(() => expect(store.getSnapshot().children.get('root-1')).toEqual([]));
+  release();
+  // A notice sent while nothing listens is missed…
+  listed.set('root-1', [child('a', 'working')]);
+  fake.notify('root-1');
+  expect(fake.childThreads).toHaveBeenCalledTimes(1);
+  // …so connecting again reads the followed parent, then follows its notices.
+  releases.push(store.connect());
+  await vi.waitFor(() => expect(store.getSnapshot().children.get('root-1')).toHaveLength(1));
+  listed.set('root-1', [child('a', 'idle')]);
+  fake.notify('root-1');
+  await vi.waitFor(() =>
+    expect(store.getSnapshot().children.get('root-1')).toEqual([child('a', 'idle')])
+  );
 });

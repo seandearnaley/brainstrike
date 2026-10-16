@@ -35,8 +35,6 @@ export class HostChildSidebarStore {
   private observed = new Set<string>();
   private readonly requests = new Map<string, number>();
   private snapshot: HostChildSidebarSnapshot = { children: new Map(), unread: new Set() };
-  private readonly release: () => void;
-  private readonly releaseSelection: () => void;
   private sequence = 0;
 
   constructor(
@@ -44,19 +42,35 @@ export class HostChildSidebarStore {
       Pick<AssistantThreadHostCapability, 'childThreads' | 'subscribeChildren'>
     >,
     private readonly selection: HostChildTabSelection
-  ) {
-    this.release = host.subscribeChildren((threadId) => {
+  ) {}
+
+  /**
+   * Follow the host's child notices and the tab selection until the returned
+   * release. Construction subscribes to nothing: a view connects in its effect,
+   * so a replayed or re-shown effect follows again rather than staying closed.
+   * Parents read while nothing listened are read again: their children may have
+   * changed unannounced.
+   */
+  connect(): () => void {
+    const release = this.host.subscribeChildren((threadId) => {
       if (this.requests.has(threadId)) {
         this.read(threadId);
       }
     });
     // Selecting a child's tab sees its changes.
-    this.releaseSelection = selection.subscribe(() => {
-      const selected = selection.current();
+    const releaseSelection = this.selection.subscribe(() => {
+      const selected = this.selection.current();
       if (selected) {
         this.markSeen(selected);
       }
     });
+    for (const threadId of this.requests.keys()) {
+      this.read(threadId);
+    }
+    return () => {
+      release();
+      releaseSelection();
+    };
   }
 
   readonly getSnapshot = (): HostChildSidebarSnapshot => this.snapshot;
@@ -111,14 +125,6 @@ export class HostChildSidebarStore {
     const unread = new Set(this.snapshot.unread);
     unread.delete(threadId);
     this.publish({ ...this.snapshot, unread });
-  }
-
-  close(): void {
-    this.release();
-    this.releaseSelection();
-    this.requests.clear();
-    this.observed.clear();
-    this.listeners.clear();
   }
 
   private read(threadId: string): void {
