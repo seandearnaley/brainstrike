@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -70,4 +70,40 @@ it('retains a real broken-pipe transport failure without recursively logging int
     uncaught: 0,
   });
   expect(JSON.stringify(messages)).not.toContain('private-test-value');
+});
+
+it('keeps an explicit console threshold independent from retained log records', () => {
+  const loggingUrl = pathToFileURL(resolve(import.meta.dirname, '../../dist/index.js')).href;
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        import { addLogListener, configureLogger, createLogger, LogLevel, resetLogger } from ${JSON.stringify(loggingUrl)};
+        configureLogger({ console: { enabled: true, level: LogLevel.WARN }, file: false, level: LogLevel.INFO });
+        const records = [];
+        addLogListener(record => records.push(record.message));
+        const logger = createLogger('Threshold');
+        logger.info('Retained below console threshold');
+        logger.warn('Visible console warning');
+        resetLogger();
+        process.stderr.write(JSON.stringify(records));
+      `,
+    ],
+    { encoding: 'utf8', timeout: 3000, windowsHide: true }
+  );
+
+  expect(result.error).toBeUndefined();
+  expect({ signal: result.signal, status: result.status }).toEqual({ signal: null, status: 0 });
+  expect(JSON.parse(result.stderr)).toEqual([
+    'Retained below console threshold',
+    'Visible console warning',
+  ]);
+  expect(
+    result.stdout
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line).msg)
+  ).toEqual(['Visible console warning']);
 });
