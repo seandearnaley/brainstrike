@@ -405,14 +405,16 @@ export class HostCore {
   /**
    * A command that opens the thread's next run or rewrites its history first
    * joins the memory its finished runs are still settling, outside the shared
-   * admission queue so other threads never wait on it.
+   * admission queue so other threads never wait on it. A replay opens nothing.
    */
   private async settledCommand<T extends Json>(
     method: string,
     params: { commandId: string; threadId: string },
     perform: () => Promise<T>
   ): Promise<T> {
-    await this.ends.settled(params.threadId);
+    if (!this.commands.known(params.commandId)) {
+      await this.ends.settled(params.threadId);
+    }
     return this.command(method, params, perform);
   }
 

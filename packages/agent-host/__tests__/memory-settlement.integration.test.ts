@@ -138,8 +138,7 @@ async function settlementHost(observer: MockLanguageModelV4) {
     }
     return found;
   };
-  const start = async (prompt: string) => {
-    const commandId = randomUUID();
+  const start = async (prompt: string, commandId: string = randomUUID()) => {
     const { runId } = await client.request('run/start', {
       commandId,
       modelId: `openai::${modelId}`,
@@ -216,6 +215,32 @@ test("the thread's next run is admitted only after the previous run's memory set
     expect(started?.seq).toBeGreaterThan(usage?.seq ?? Number.POSITIVE_INFINITY);
     expect((await host.finished(runId)).event.outcome).toBe('completed');
   } finally {
+    observer.release();
+    await host.close();
+  }
+});
+
+test('a retried run/start replays its committed result while the memory still settles', async () => {
+  const observer = heldObserver();
+  const host = await settlementHost(observer.model);
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const first = await host.start(PROMPT);
+    await observer.entered;
+    await host.finished(first.runId);
+    // The ledger replays a committed command: it opens no run, so it never
+    // waits for (or fails on) the settlement it would otherwise join.
+    const replay = host.start(PROMPT, first.commandId);
+    const blocked = new Promise<never>((_, reject) => {
+      deadline = setTimeout(
+        () => reject(new Error('The replay waited for the settlement')),
+        10_000
+      );
+    });
+    expect(await Promise.race([replay, blocked])).toEqual(first);
+    expect((await host.rows()).some(usageOf(first.runId))).toBe(false);
+  } finally {
+    clearTimeout(deadline);
     observer.release();
     await host.close();
   }

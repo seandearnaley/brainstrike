@@ -43,6 +43,11 @@ export class HostCommandLedger {
   private readonly accepted = new Map<string, AcceptedCommand>();
   private readonly attempts = new Map<string, AttemptedCommand>();
 
+  /** A command this host has attempted or committed: `perform` replays it. */
+  known(commandId: string): boolean {
+    return this.attempts.has(commandId) || this.accepted.has(commandId);
+  }
+
   commit(commandId: string, command: AcceptedCommand): void {
     this.accepted.set(commandId, command);
     const attempt = this.attempts.get(commandId);
