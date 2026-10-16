@@ -62,4 +62,9 @@ shared matcher (`isWorkspaceSecretFile`, `packages/utils`): `.env` and `.env.*`
 and no `includeIgnored` lifts it, and it reads as hard, so no "retry with
 includeIgnored" advice is offered. It binds wherever the matcher does — walks,
 both grep engines, direct reads (which refuse it by name as a credential file) and
-workspace index scans. Shell commands remain governed by the execute permission.
+workspace index scans. Patterns match without case, as the matcher does, and
+ripgrep's floor file spells each letter in both cases. Agent reads that bypass the
+walk check it too: skill listings and reads, line previews of language-server
+targets, and indexed grep and semantic search, which drop any credential chunk
+still stored from before the floor. Shell commands remain governed by the execute
+permission, and a language server's own hover text is not filtered.
