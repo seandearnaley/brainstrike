@@ -152,7 +152,10 @@ import {
 } from './main/desktop-graceful-shutdown';
 import { createDisposerStack, type DisposerHandle } from './main/disposer-stack';
 import { startGitAwarenessLifecycle } from './main/git-awareness-lifecycle';
-import { createDesktopLoggingPreferencesController } from './main/logging-preferences';
+import {
+  createDesktopLoggingPreferencesController,
+  readConsoleLevelOverride,
+} from './main/logging-preferences';
 import { installShutdownSignalHandlers } from './main/shutdown-signals';
 import { startSnapshotStartupMaintenance } from './main/snapshot-lifecycle';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
@@ -263,6 +266,7 @@ const logger = createLogger('DesktopMain');
 // and only ever reached from a later IPC-driven update.
 const loggingPreferences = createDesktopLoggingPreferencesController({
   app,
+  consoleLevelOverride: readConsoleLevelOverride(process.env['LOG_LEVEL']),
   createMainLogTransportConfig,
   disableFileLogs,
   getLogFilePath,

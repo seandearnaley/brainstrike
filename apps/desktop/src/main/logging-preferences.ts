@@ -39,6 +39,12 @@ type DesktopMainLogger = Pick<ReturnType<typeof createLogger>, 'debug' | 'error'
  */
 export interface DesktopLoggingPreferencesDeps {
   readonly app: Pick<App, 'getPath' | 'getVersion' | 'isReady'>;
+  /**
+   * `LOG_LEVEL`, the process-level override of Main's terminal threshold
+   * (`readConsoleLevelOverride`). It is applied on top of every preference set,
+   * but never persisted or reported as the saved preference.
+   */
+  readonly consoleLevelOverride?: LogLevel | undefined;
   readonly createMainLogTransportConfig: () => Pick<FileTransportConfig, 'options' | 'target'>;
   readonly disableFileLogs: boolean;
   readonly getLogFilePath: () => string | null;
@@ -72,6 +78,42 @@ export interface DesktopLoggingPreferencesController {
 interface FileStatSnapshot {
   mtimeMs: number;
   size: number;
+}
+
+const VERBOSITY_ORDER: readonly LogLevel[] = [
+  LogLevel.TRACE,
+  LogLevel.DEBUG,
+  LogLevel.INFO,
+  LogLevel.WARN,
+  LogLevel.ERROR,
+  LogLevel.FATAL,
+  LogLevel.SILENT,
+];
+
+/**
+ * Reads `LOG_LEVEL` as Main's terminal threshold: a level name, case-insensitive; anything
+ * else is no override. Pino honors the console target's own level (BST-2036), so without this
+ * the saved WARN default hides the info lines that E2E specs opt into with
+ * `electronEnv: { LOG_LEVEL: 'info' }`.
+ */
+export function readConsoleLevelOverride(value: string | undefined): LogLevel | undefined {
+  const normalized = value?.trim().toLowerCase();
+  return VERBOSITY_ORDER.find((level) => level === normalized);
+}
+
+/** The set Main actually runs: the console override, with the logger at least that verbose. */
+function withConsoleLevelOverride(
+  preferences: LoggingPreferences,
+  override: LogLevel | undefined
+): LoggingPreferences {
+  if (!override) {
+    return preferences;
+  }
+  const level =
+    VERBOSITY_ORDER.indexOf(override) < VERBOSITY_ORDER.indexOf(preferences.level)
+      ? override
+      : preferences.level;
+  return { ...preferences, consoleLevel: override, level };
 }
 
 function areLoggingPreferencesEqual(left: LoggingPreferences, right: LoggingPreferences): boolean {
@@ -162,6 +204,7 @@ export function createDesktopLoggingPreferencesController(
 ): DesktopLoggingPreferencesController {
   const {
     app,
+    consoleLevelOverride,
     createMainLogTransportConfig,
     disableFileLogs,
     getLogFilePath,
@@ -329,6 +372,10 @@ export function createDesktopLoggingPreferencesController(
   let currentLoggingPreferences = initialLoggingPreferences;
 
   function createInitializeLoggingOptions(): InitializeLoggingOptions {
+    const initialApplied = withConsoleLevelOverride(
+      initialLoggingPreferences,
+      consoleLevelOverride
+    );
     const loggingOptions: InitializeLoggingOptions = {
       appName: 'brainstrike-desktop',
       appVersion: app.getVersion(),
@@ -341,9 +388,9 @@ export function createDesktopLoggingPreferencesController(
           ? { logFile: initialLoggingPreferences.file.destination }
           : {}),
       },
-      consoleLevel: initialLoggingPreferences.consoleLevel,
+      consoleLevel: initialApplied.consoleLevel,
       includeTimestamp: initialLoggingPreferences.includeTimestamp,
-      level: initialLoggingPreferences.level,
+      level: initialApplied.level,
       runtime: 'electron-main',
     };
     if (initialLoggingPreferences.file.enabled && initialLoggingPreferences.file.destination) {
@@ -359,15 +406,19 @@ export function createDesktopLoggingPreferencesController(
   }
 
   function applyCurrentLoggingPreferences(): void {
-    applyLoggingPreferences(currentLoggingPreferences, 'electron-main', {
-      baseBindings: {
-        logFile:
-          currentLoggingPreferences.file.enabled && currentLoggingPreferences.file.destination
-            ? currentLoggingPreferences.file.destination
-            : null,
-      },
-      fileTransport: createMainLogTransportConfig(),
-    });
+    applyLoggingPreferences(
+      withConsoleLevelOverride(currentLoggingPreferences, consoleLevelOverride),
+      'electron-main',
+      {
+        baseBindings: {
+          logFile:
+            currentLoggingPreferences.file.enabled && currentLoggingPreferences.file.destination
+              ? currentLoggingPreferences.file.destination
+              : null,
+        },
+        fileTransport: createMainLogTransportConfig(),
+      }
+    );
   }
 
   function applyInitial(): void {
@@ -522,16 +573,20 @@ export function createDesktopLoggingPreferencesController(
         enabled: true,
       },
     };
-    applyLoggingPreferences(currentLoggingPreferences, 'electron-main', {
-      baseBindings: {
-        arch: process.arch,
-        electron: process.versions.electron,
-        logFile: resolvedLogPath,
-        node: process.versions.node,
-        platform: process.platform,
-      },
-      fileTransport: createMainLogTransportConfig(),
-    });
+    applyLoggingPreferences(
+      withConsoleLevelOverride(currentLoggingPreferences, consoleLevelOverride),
+      'electron-main',
+      {
+        baseBindings: {
+          arch: process.arch,
+          electron: process.versions.electron,
+          logFile: resolvedLogPath,
+          node: process.versions.node,
+          platform: process.platform,
+        },
+        fileTransport: createMainLogTransportConfig(),
+      }
+    );
     return resolvedLogPath;
   }
 

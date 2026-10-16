@@ -27,6 +27,8 @@ import { loadElectronHelpers } from './utils/load-electron-helpers';
 // Large enough that the workspace is still embedding when reset or quit lands.
 const ACTIVE_ROOT_FILE_COUNT = 1002;
 const ACTIVE_ROOT_SENTENCES_PER_FILE = 24;
+// The shutdown receipt and both reset milestones are info lines; Main prints WARN by default.
+test.use({ electronEnv: { LOG_LEVEL: 'info' } });
 
 async function search(page: Page, name: string): Promise<void> {
   const panel = await openWorkspaceSearchPanel(page);

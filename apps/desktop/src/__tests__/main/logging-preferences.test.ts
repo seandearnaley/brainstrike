@@ -27,7 +27,10 @@ vi.mock('node:fs', () => ({
   },
 }));
 
-import { createDesktopLoggingPreferencesController } from '../../main/logging-preferences';
+import {
+  createDesktopLoggingPreferencesController,
+  readConsoleLevelOverride,
+} from '../../main/logging-preferences';
 
 function createStore(initial?: { v1: LoggingPreferences }) {
   const records = new Map<string, unknown>();
@@ -44,6 +47,7 @@ function createStore(initial?: { v1: LoggingPreferences }) {
 }
 
 function createController(options: {
+  consoleLevelOverride?: LogLevel;
   disableFileLogs?: boolean;
   logFilePath?: string | null;
   store?: ReturnType<typeof createStore> | null;
@@ -56,6 +60,7 @@ function createController(options: {
       getVersion: vi.fn(() => '0.0.0-test'),
       isReady: vi.fn(() => true),
     },
+    consoleLevelOverride: options.consoleLevelOverride,
     createMainLogTransportConfig: () => ({ options: { maxBytes: 1, maxFiles: 1 }, target: '/t' }),
     disableFileLogs: options.disableFileLogs ?? false,
     getLogFilePath: () => options.logFilePath ?? '/mock/logs/brainstrike.log',
@@ -134,6 +139,51 @@ describe('createDesktopLoggingPreferencesController', () => {
       'electron-main',
       expect.objectContaining({ baseBindings: { logFile: '/mock/logs/brainstrike.log' } })
     );
+  });
+
+  it('applies LOG_LEVEL as the terminal threshold without persisting or reporting it (BST-2036)', async () => {
+    const { controller, store } = createController({ consoleLevelOverride: LogLevel.INFO });
+    expect(controller.createInitializeLoggingOptions()).toMatchObject({
+      consoleLevel: LogLevel.INFO,
+      level: LogLevel.INFO,
+    });
+    controller.applyInitial();
+    expect(applyLoggingPreferencesMock).toHaveBeenLastCalledWith(
+      { ...controller.current, consoleLevel: LogLevel.INFO },
+      'electron-main',
+      expect.anything()
+    );
+    expect(store?.records.get('loggingPreferences')).toMatchObject({
+      v1: { consoleLevel: LogLevel.WARN },
+    });
+    expect(controller.getSettingsPayload().preferences.consoleLevel).toBe(LogLevel.WARN);
+
+    // A saved update keeps the override on top; a more verbose override also lowers the logger.
+    const debug = createController({ consoleLevelOverride: LogLevel.DEBUG }).controller;
+    await debug.applyAndPersist({ ...debug.current, consoleLevel: LogLevel.ERROR });
+    expect(debug.current.consoleLevel).toBe(LogLevel.ERROR);
+    expect(applyLoggingPreferencesMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ consoleLevel: LogLevel.DEBUG, level: LogLevel.DEBUG }),
+      'electron-main',
+      expect.anything()
+    );
+  });
+
+  it('keeps the saved threshold without an override', () => {
+    const { controller } = createController({});
+    expect(controller.createInitializeLoggingOptions()).toMatchObject({
+      consoleLevel: LogLevel.WARN,
+      level: LogLevel.INFO,
+    });
+  });
+
+  it('reads LOG_LEVEL as a known level name, case-insensitively', () => {
+    expect(readConsoleLevelOverride('info')).toBe(LogLevel.INFO);
+    expect(readConsoleLevelOverride(' WARN ')).toBe(LogLevel.WARN);
+    expect(readConsoleLevelOverride('silent')).toBe(LogLevel.SILENT);
+    expect(readConsoleLevelOverride('verbose')).toBeUndefined();
+    expect(readConsoleLevelOverride('')).toBeUndefined();
+    expect(readConsoleLevelOverride(undefined)).toBeUndefined();
   });
 
   it('does not mutate the current set when persistence is unavailable', async () => {
