@@ -364,13 +364,72 @@ export async function joinHostClosingRun(
   return outcomes;
 }
 
+/**
+ * A run's owner as its end sees it. `end` joins the foreground work before
+ * `run.finished`; `settle` joins the rest (Mastra's buffered observation)
+ * after it, then releases the run.
+ */
+export interface HostRunOwnerLifetime {
+  readonly end: (run: HostRunState) => Promise<void>;
+  readonly settle: (run: HostRunState) => Promise<void>;
+}
+
+/**
+ * Join the run's owner after its end, then release the run. The thread's next
+ * run or rewind joins this; an owner that never joined keeps it pending, so
+ * those stay refused with its cleanup failure.
+ */
+export function settleHostRunOwner(
+  run: HostRunState,
+  closeOwner: (run: HostRunState) => Promise<void>
+): Promise<void> {
+  if (run.settlement) {
+    return run.settlement;
+  }
+  const settlement = closeOwner(run).then(() => {
+    run.settlement = undefined;
+    run.release?.();
+    run.release = undefined;
+  });
+  // Retained: admissions, deletion and close rethrow an unjoined owner.
+  settlement.catch(() => undefined);
+  run.settlement = settlement;
+  return settlement;
+}
+
+/**
+ * The thread's next run or rewind reads or rewrites its history: it first joins
+ * the memory its finished runs are still settling.
+ */
+export function joinHostThreadSettlements(
+  runs: Iterable<HostRunState>,
+  threadId: string
+): Promise<void> {
+  const settling = [...runs].flatMap((run) =>
+    run.threadId === threadId && run.settlement ? [run.settlement] : []
+  );
+  return joinAllHostWork(settling, 'Run memory settlement failed');
+}
+
+/** A joined owner failure after `run.finished`: the run's outcome stands. */
+export function hostRunSettlementFailed(
+  run: HostRunState,
+  failure: unknown
+): Extract<HostEvent, { type: 'memory.settlement.failed' }> {
+  return {
+    detail: describeRunFailure(run, failure),
+    runId: run.id,
+    type: 'memory.settlement.failed',
+  };
+}
+
 /** Terminal admission uses Core's existing full publisher and run-owned completion. */
 export function finishHostRun(
   run: HostRunState,
   outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'],
   detail: string | undefined,
   closing: () => boolean,
-  closeOwner: (run: HostRunState) => Promise<void>,
+  owner: HostRunOwnerLifetime,
   publish: (
     event: Extract<HostEvent, { type: 'run.finished' }>,
     commit: () => void
@@ -380,12 +439,12 @@ export function finishHostRun(
     return run.completion;
   }
   if (run.terminal) {
-    return closeOwner(run);
+    return owner.settle(run);
   }
   run.completion = (async () => {
     // SDK abort can end its stream before a tool's physical process exits.
     await Promise.allSettled([...run.effects]);
-    await closeOwner(run);
+    await owner.end(run);
     await run.stopAcceptance;
     const ownerDetail = failureDetail(run, run.ownerFailure);
     const joinedOutcome = run.stopped
@@ -411,8 +470,9 @@ export function finishHostRun(
       () => {
         run.terminal = true;
         run.outcome = joinedOutcome;
-        run.release?.();
-        run.release = undefined;
+        // The answer is finished; the owner's background memory settles after
+        // it. Begun with the commit, so whoever sees `run.finished` sees it too.
+        void owner.settle(run);
       }
     );
   })();
@@ -421,9 +481,10 @@ export function finishHostRun(
 
 /** A terminal failure is projected once; its original cause remains in the host log. */
 function failureDetail(run: HostRunState, failure: unknown): string | undefined {
-  if (failure === undefined) {
-    return undefined;
-  }
+  return failure === undefined ? undefined : describeRunFailure(run, failure);
+}
+
+function describeRunFailure(run: HostRunState, failure: unknown): string {
   return describeBoundaryFailure(
     toBoundaryFailure(failure, (message, fields) =>
       logger.error(message, { ...fields, runId: run.id, threadId: run.threadId })

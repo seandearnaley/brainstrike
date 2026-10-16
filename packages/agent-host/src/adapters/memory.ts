@@ -114,6 +114,9 @@ export interface HostMemoryStep {
  * The isolated M3 compatibility patch supplies native cancellation, failure
  * retention and a fail-closed settlement barrier. The public provider enclosure
  * additionally joins raw promises, original sources and actual usage receipts.
+ * As Mastra documents (`Memory.settled()`), its buffered observation continues
+ * after the run's answer: `endTurn` joins the foreground work before the run
+ * ends, and `close` joins the native background work after it.
  * Root admission, strict purge, derived cleanup and lease retention remain host-owned.
  * Upstream primitive: https://github.com/mastra-ai/mastra/tree/main/packages/memory
  * Remove the temporary patch when the pinned public memory library or M4 memory
@@ -129,6 +132,11 @@ export class HostMemory implements HostRunOwner {
   private readonly failureSteps = new WeakMap<object, HostMemoryStepName>();
   private turn: Turn | undefined;
   private beginning: Promise<NativeContext> | undefined;
+  /** Admitted work drained and the native turn ended, once. */
+  private ending: Promise<void> | undefined;
+  private turnOutcome: Promise<void> | undefined;
+  /** Failures `endTurn` already made the run's outcome; `close` reports only later ones. */
+  private readonly reported = new Set<unknown>();
   private closing: Promise<void> | undefined;
   private joined = false;
   private readonly observerModelId: string | undefined;
@@ -231,7 +239,7 @@ export class HostMemory implements HostRunOwner {
     operation: () => Promise<Value>,
     providerCancellation = false
   ): Promise<Value> {
-    if (this.closing) {
+    if (this.closing || this.ending) {
       return Promise.reject(new Error('Host memory admission is closed'));
     }
     try {
@@ -406,6 +414,48 @@ export class HostMemory implements HostRunOwner {
     }
   }
 
+  private endingTurn(): Promise<void> {
+    this.ending ??= Promise.resolve().then(async () => {
+      await this.drain();
+      if (this.turn && !this.turn.ended) {
+        const turn = this.turn;
+        await Promise.allSettled([this.track('observe', () => turn.end())]);
+      }
+    });
+    return this.ending;
+  }
+
+  /** Every listed failure joined: the outcome, naming the first failure's step. */
+  private joinedFailure(failures: readonly unknown[]): HostMemoryFailure | undefined {
+    const [first] = failures;
+    if (first === undefined) {
+      return;
+    }
+    return new HostMemoryFailure(
+      failures,
+      HostMemoryStepError.wrap(this.failedStep(first) ?? 'observe', first).message
+    );
+  }
+
+  /**
+   * The run's foreground memory work: every admitted operation and the native
+   * turn end. Native buffered observation and reflection keep running; `close`
+   * joins them. A failure retained so far is the run's outcome.
+   */
+  endTurn(): Promise<void> {
+    this.turnOutcome ??= this.endingTurn().then(() => {
+      const failures = [...new Set(this.failures)];
+      for (const failure of failures) {
+        this.reported.add(failure);
+      }
+      const failure = this.joinedFailure(failures);
+      if (failure) {
+        throw failure;
+      }
+    });
+    return this.turnOutcome;
+  }
+
   close(): Promise<void> {
     this.closing ??= Promise.resolve().then(async () => {
       // The run signal reaches native work and raw provider/source leaves as
@@ -413,11 +463,7 @@ export class HostMemory implements HostRunOwner {
       if (this.identity.signal.aborted) {
         await Promise.allSettled([this.track('provider', () => this.providers.join())]);
       }
-      await this.drain();
-      if (this.turn && !this.turn.ended) {
-        const turn = this.turn;
-        await Promise.allSettled([this.track('observe', () => turn.end())]);
-      }
+      await this.endingTurn();
       const native = await Promise.allSettled([this.track('observe', () => this.memory.settled())]);
       const enclosing = await Promise.allSettled([
         this.track('observe', () => this.capabilities.joinNativeLifetime?.() ?? Promise.resolve()),
@@ -441,13 +487,11 @@ export class HostMemory implements HostRunOwner {
           'Host memory cleanup failed'
         );
       }
-      const [first] = failures;
-      if (first !== undefined) {
-        // Every tail joined: the failures are the run's outcome, not a leak.
-        throw new HostMemoryFailure(
-          failures,
-          HostMemoryStepError.wrap(this.failedStep(first) ?? 'observe', first).message
-        );
+      // Every tail joined: the failures are an outcome, not a leak. Those
+      // `endTurn` reported are the run's; later ones are its settlement's.
+      const failure = this.joinedFailure(failures.filter((cause) => !this.reported.has(cause)));
+      if (failure) {
+        throw failure;
       }
     });
     return this.closing;

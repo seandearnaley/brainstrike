@@ -36,15 +36,14 @@ import { committedFileNotices } from './committed-file-notices';
 import {
   CommittedRowUnreadableError,
   committedAttachments,
+  committedRunNotice,
   committedStreamData,
   HOST_EVENT_DATA_NAME,
   HOST_STREAM_DATA_NAME,
-  mcpToolsUnavailableNotice,
   readRunAttempt,
   record,
   requiredString,
   requiredText,
-  worktreeCreatedNotice,
 } from './committed-host-event-readers';
 import { CommittedRewindHead, type CommittedRewindHeadMove } from './committed-rewind-head';
 import {
@@ -695,24 +694,13 @@ export class CommittedAssistantLogProjection {
    */
   private other(run: ProjectedRun, row: CommittedAssistantLogRow): void {
     const event = row.event;
-    if (event['type'] === 'mcp.tools.unavailable') {
-      const notice = mcpToolsUnavailableNotice(
-        event,
-        row,
-        requiredString(event, 'runId'),
-        this.message(run).createdAt.toISOString()
-      );
+    const notice = committedRunNotice(event, row, this.message(run).createdAt);
+    if (notice) {
       this.data(run, row, notice, ASSISTANT_RUN_EVENT_DATA_NAME);
       return;
     }
     if (event['type'] === 'run.attempt') {
       this.attempt(run, row);
-      return;
-    }
-    if (event['type'] === 'worktree.created') {
-      const at = this.message(run).createdAt.toISOString();
-      const notice = worktreeCreatedNotice(event, row, requiredString(event, 'runId'), at);
-      this.data(run, row, notice, ASSISTANT_RUN_EVENT_DATA_NAME);
       return;
     }
     const fileNotices = committedFileNotices(event);

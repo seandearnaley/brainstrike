@@ -288,6 +288,8 @@ export interface HostRunState {
   ownerClose?: Promise<void>;
   /** The owner joined all of its work, but some failed: this run's failed outcome. */
   ownerFailure?: unknown;
+  /** Every owner tail joined; no receipt of this run arrives after it. */
+  ownerJoined?: true;
   paused: boolean;
   readonly permits: Map<string, Action>;
   /** Committed on run.started: it reads and proposes a plan, and approval ends it. */
@@ -299,6 +301,11 @@ export interface HostRunState {
   readonly rawInputs: Map<string, Json>;
   release?: (() => void) | undefined;
   readonly responses: Set<string>;
+  /**
+   * After `run.finished`: the owner's background memory still joining. The
+   * thread's next run or rewind waits for it; an unjoined owner keeps it set.
+   */
+  settlement?: Promise<void> | undefined;
   readonly snapshot?: HostRunSnapshot;
   readonly started: Set<string>;
   /** A committed run/steer: the run ends after its step in flight. */
@@ -498,7 +505,8 @@ export function createHostRunContext(
       await publish(run.threadId, [{ reason, runId: run.id, type: 'memory.observation.withheld' }]);
     },
     recordObserverUsage: async (receipt) => {
-      if (run.terminal) {
+      // Buffered observation settles after the run's end; its spend is still the run's.
+      if (run.ownerJoined) {
         throw new Error('Memory receipt arrived after the run lifetime joined');
       }
       await publish(run.threadId, [

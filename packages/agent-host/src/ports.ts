@@ -192,6 +192,13 @@ export interface HostRunOwner {
   close(): Promise<void>;
   /** Native Memory may consume only the step that the host already committed. */
   commitHostStep?(): Promise<void>;
+  /**
+   * The run's foreground work, joined before its `run.finished`; a
+   * HostRunOwnerFailure is the run's outcome. Background work the owner still
+   * runs (Mastra's buffered observation) joins in `close`, after the run ends.
+   * An owner without it joins its whole `close` before the run ends.
+   */
+  endTurn?(): Promise<void>;
   /** Enclose the selected concrete model at its final public provider boundary. */
   prepareHostModel?(model: LanguageModel): LanguageModel;
   /** Public Memory context selection before the existing provider request boundary. */
