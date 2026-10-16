@@ -32,6 +32,8 @@ export function MermaidBlock({ code }: { readonly code: string }) {
       .then(async ({ default: mermaid }) => {
         const dark = document.documentElement.classList.contains('dark');
         mermaid.initialize({
+          layout: 'dagre',
+          look: 'classic',
           securityLevel: 'strict',
           startOnLoad: false,
           theme: dark ? 'dark' : 'default',
