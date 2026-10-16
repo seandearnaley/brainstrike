@@ -17,6 +17,7 @@ import {
   ProviderRequestContextOverflowError,
   prepareProviderRequest,
 } from '../provider-request';
+import { materializeHostProviderModel } from '../providers/model-router-sdk';
 import { dropAbortedOpenAIItems } from '../providers/request-history';
 import { createPreparedTokenMeasurement } from '../token-measurement';
 
@@ -361,7 +362,7 @@ describe('BST-1927 independent-review runtime counterexamples', () => {
         provider: store ? 'openai' : 'openai-codex',
         tokenMeasurement: measurement,
       });
-      await client.responses('gpt-6-sol').doGenerate(prepared.params);
+      await materializeHostProviderModel(client.responses('gpt-6-sol')).doGenerate(prepared.params);
       recorded[store ? 'stored_split' : 'stateless_split'] = body;
       expect.soft(JSON.stringify(body)).toContain(store ? 'rs_split' : 'offline-encrypted-split');
       expect.soft(JSON.stringify(body)).toContain(store ? 'msg_split' : 'recorded split answer');
@@ -444,7 +445,7 @@ describe('BST-1927 independent-review runtime counterexamples', () => {
       openai.responses('gpt-6-sol'),
       { history, provider: 'openai', tokenMeasurement: measurement }
     );
-    await openai.responses('gpt-6-sol').doGenerate(prepared.params);
+    await materializeHostProviderModel(openai.responses('gpt-6-sol')).doGenerate(prepared.params);
     recorded['anthropic_to_openai'] = body;
     expect.soft(JSON.stringify(body)).not.toContain('srvtoolu_recorded');
     expect.soft(JSON.stringify(body)).toContain('Earlier answer');
@@ -467,7 +468,7 @@ describe('BST-1927 independent-review runtime counterexamples', () => {
       ],
       2000
     );
-    await openai.responses('gpt-6-sol').doGenerate(denied.params);
+    await materializeHostProviderModel(openai.responses('gpt-6-sol')).doGenerate(denied.params);
     recorded['execution_denied_limited'] = body;
     expect.soft(JSON.stringify(body)).toContain('User denied');
     const google = createGoogleGenerativeAI({
@@ -512,9 +513,9 @@ describe('BST-1927 independent-review runtime counterexamples', () => {
     recorded['google_inline_text_file_limited'] = body;
     // Preserve the pinned OpenAI contract too: it rejects tagged text files;
     // the counting view must not silently turn them into ordinary text.
-    await expect(openai.responses('gpt-6-sol').doGenerate(inlineFile.params)).rejects.toMatchObject(
-      { name: 'AI_UnsupportedFunctionalityError' }
-    );
+    await expect(
+      materializeHostProviderModel(openai.responses('gpt-6-sol')).doGenerate(inlineFile.params)
+    ).rejects.toMatchObject({ name: 'AI_UnsupportedFunctionalityError' });
     const fixture = new URL(
       './fixtures/provider-requests/sdk7-review-payloads.json',
       import.meta.url
@@ -522,7 +523,7 @@ describe('BST-1927 independent-review runtime counterexamples', () => {
     if (process.env['BST_RECORD_PROVIDER_FIXTURES'] === '1') {
       await writeFile(
         fixture,
-        `${JSON.stringify({ payloads: recorded, sdk: '7.0.126', source: 'pinned runtime parsing/serialization; mocked HTTP; no real account' }, null, 2)}\n`
+        `${JSON.stringify({ payloads: recorded, sdk: '7.0.142', source: 'pinned runtime parsing/serialization; mocked HTTP; no real account' }, null, 2)}\n`
       );
     }
     if (process.env['BST_RECORD_PROVIDER_FIXTURES'] !== '1') {

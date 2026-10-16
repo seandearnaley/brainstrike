@@ -3,28 +3,17 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
-// PR #2501: `packages/agent/src/providers/openrouter-strict-content.ts`
-// resolves OpenRouter strict-content models (qwen/*) through the npm
-// `@openrouter/ai-sdk-provider` package, on the stated premise that it is THE
-// EXACT version `@mastra/core` bundles for its own openrouter resolution —
-// that premise is what makes the request-equivalence spec meaningful and the
-// `as unknown as GatewayLanguageModel` cast safe. Nothing ties the two
-// together: `@mastra/core` vendors its copy inside its dist (no dependency
-// edge in the lockfile), and the workspace catalog pin is a hand-maintained
-// mirror of it. Either side can move alone — a `@mastra/core` bump changes the
-// vendored converter with the pin unchanged, and a pin bump diverges from
-// Mastra — with no type error, because the cast erases the lineage.
-//
-// This contract closes the loop: the version path baked into the bundled
-// chunk's `//#region` provenance comments must match both the workspace
-// catalog pin and the installed npm package. On mismatch, re-verify the
-// strict-content gateway against the new vendored copy (the equivalence spec
-// in `packages/agent/src/__tests__/openrouter-strict-content.spec.ts` is the
-// behavioral check), then move the pin.
+// The strict-content gateway uses the native V4 provider through Mastra's
+// public gateway interface; Mastra's other OpenRouter models use its vendored
+// reference. The strict-content spec proves wire equivalence while preserving
+// the Qwen-only content normalization. No declaration cast joins the lineages.
+// Keep BOTH exact lineages explicit: changing either requires rerunning the
+// strict-content wire-equivalence and host usage/file/approval receipts.
+const QUALIFIED = { mastra: '1.71.0', strictContent: '3.1.0', vendored: '2.10.0' };
 const VENDORED_PATH_PATTERN = /@openrouter\/ai-sdk-provider\/(\d+\.\d+\.\d+(?:-[\w.]+)?)\//g;
 
 function readMastraVendoredVersions() {
@@ -72,18 +61,31 @@ test('@mastra/core vendors exactly one @openrouter/ai-sdk-provider version', () 
   );
 });
 
-test('the workspace catalog pin matches the version @mastra/core bundles', () => {
+test('both provider lineages match the explicitly qualified gateway pair', () => {
   const [vendoredVersion] = [...readMastraVendoredVersions()];
-  const catalogPin = readCatalogPin();
-  assert.equal(
-    catalogPin,
-    vendoredVersion,
-    `The @openrouter/ai-sdk-provider catalog pin (${catalogPin}) has diverged from the version ` +
-      `@mastra/core bundles (${vendoredVersion}). Re-verify the strict-content gateway against the ` +
-      'new vendored copy (openrouter-strict-content.spec.ts equivalence test), then move the pin.'
+  const require = createRequire(path.join(repoRoot, 'packages/agent/package.json'));
+  const mastra = JSON.parse(readFileSync(require.resolve('@mastra/core/package.json'), 'utf8'));
+  assert.deepEqual(
+    { mastra: mastra.version, strictContent: readCatalogPin(), vendored: vendoredVersion },
+    QUALIFIED,
+    'Re-qualify strict-content wire equivalence and host receipts before changing either lineage.'
   );
 });
 
 test('the installed npm provider matches the catalog pin', () => {
   assert.equal(readInstalledVersion(), readCatalogPin());
+});
+
+test('the installed strict-content provider exposes V4 through ESM and Node CJS interop', async () => {
+  const require = createRequire(path.join(repoRoot, 'packages/agent/package.json'));
+  const providerPath = require.resolve('@openrouter/ai-sdk-provider');
+  const providers = [require(providerPath), await import(pathToFileURL(providerPath).href)];
+  for (const provider of providers) {
+    const model = provider.createOpenRouter({ apiKey: 'offline-qualification' })(
+      'qwen/qwen3.8-max'
+    );
+    assert.equal(model.specificationVersion, 'v4');
+    assert.equal(typeof model.doGenerate, 'function');
+    assert.equal(typeof model.doStream, 'function');
+  }
 });
