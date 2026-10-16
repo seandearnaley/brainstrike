@@ -18,6 +18,7 @@ const {
   isDatabaseError,
   recordContainsText,
   reloadRendererInTest,
+  requestLocalQueryEmbedding,
   setVectorDevicePreference,
   showDatabaseDemoPanel,
   waitForActiveProcessingOrFatalError,
@@ -55,14 +56,8 @@ test.describe('Embedding Host Renderer - smoke', () => {
     await hostPage.waitForTimeout(1000);
     const hostLogs = await getRendererLogRecords(hostPage);
 
-    expect(
-      hostLogs.some((record) =>
-        recordContainsText(
-          record,
-          'Deferring local embedding model initialization until first claimed job'
-        )
-      )
-    ).toBe(true);
+    // Startup loads no model; the first embedding does (#3595).
+    expect((await getEmbeddingHostStatus(window)).embeddingRuntime).toBeUndefined();
     expect(
       hostLogs.some((record) => recordContainsText(record, 'Warmup job submission failed'))
     ).toBe(false);
@@ -93,6 +88,10 @@ test.describe('Embedding Host Renderer - smoke', () => {
     try {
       const context = await electron.restart();
       const window = context.window;
+      const output: string[] = [];
+      for (const stream of [context.app.process().stdout, context.app.process().stderr]) {
+        stream?.on('data', (chunk: Buffer) => output.push(chunk.toString()));
+      }
       await waitForAppReadyInTest(window);
 
       if (await isDatabaseError(window)) {
@@ -104,10 +103,15 @@ test.describe('Embedding Host Renderer - smoke', () => {
       expect(initialStatus.state).toBe('stopped');
       expect(initialStatus.lastError).toBeNull();
 
+      // Startup chooses no device (#3595), so the host runs. The first local query
+      // chooses one, and refuses to fall back to WASM.
       const status = await ensureEmbeddingHostStarted(window);
-      expect(status.active).toBe(false);
-      expect(status.state).toBe('error');
-      expect(status.lastError).toBe(AUTOMATIC_WEBGPU_UNAVAILABLE_ERROR);
+      expect(status.state).toBe('running');
+      expect(status.lastError).toBeNull();
+      expect((await requestLocalQueryEmbedding(window)).ok).toBe(false);
+      // The caller sees a redacted fault; main logs the exact reason.
+      await expect.poll(() => output.join('')).toContain(AUTOMATIC_WEBGPU_UNAVAILABLE_ERROR);
+      expect((await getEmbeddingHostStatus(window)).embeddingRuntime).toBeUndefined();
     } finally {
       restoreEnv();
       await electron.restart();
