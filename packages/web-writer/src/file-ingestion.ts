@@ -107,6 +107,33 @@ export async function retireRootIngestion(
   }
 }
 
+/**
+ * Retires a root's ingestion and gives up its place in `roots`, so the next
+ * scan opens it afresh. A retirement that fails keeps the place, with its
+ * failure: every later scan of the root refuses with it, rather than open a
+ * second owner beside one that did not retire.
+ */
+export async function retireOwnedRoot<T>(
+  roots: Map<string, Promise<T>>,
+  rootId: string,
+  owned: Promise<T>,
+  retire: () => Promise<void>
+): Promise<void> {
+  try {
+    await retire();
+  } catch (error) {
+    if (roots.get(rootId) === owned) {
+      const kept = Promise.reject(error);
+      kept.catch(() => undefined);
+      roots.set(rootId, kept);
+    }
+    throw error;
+  }
+  if (roots.get(rootId) === owned) {
+    roots.delete(rootId);
+  }
+}
+
 export class FileIngestion {
   readonly #roots = new Map<string, Promise<RootIngestion>>();
   #closed = false;
@@ -132,7 +159,7 @@ export class FileIngestion {
       opening.catch(() => this.#roots.delete(rootId));
     }
     const root = await opening;
-    const pass = root.queue.then(() => this.#pass(rootId, root));
+    const pass = root.queue.then(() => this.#pass(rootId, root, opening));
     root.queue = pass.then(
       () => undefined,
       () => undefined
@@ -141,15 +168,18 @@ export class FileIngestion {
   }
 
   /** One pass, once the root is confirmed live: a root deleted or disconnected since retires instead. */
-  async #pass(rootId: string, root: RootIngestion): Promise<CanonicalScanReceipt> {
+  async #pass(
+    rootId: string,
+    root: RootIngestion,
+    owned: Promise<RootIngestion>
+  ): Promise<CanonicalScanReceipt> {
     if (root.retired) {
       // Retired since this scan was asked for: after a failed pass a fresh runtime answers it,
       // and a closed index or a root no longer indexed refuses.
       return this.scan(rootId, root.folder);
     }
     if (!(await this.#isLive(rootId))) {
-      this.#roots.delete(rootId);
-      await this.#retire(root);
+      await retireOwnedRoot(this.#roots, rootId, owned, () => this.#retire(root));
       throw new Error('Only a live workspace root the saved settings index can be scanned.');
     }
     try {
@@ -169,12 +199,14 @@ export class FileIngestion {
       if (!root.retired) {
         // A failed pass keeps its scan admission until its sources retire, as desktop's does:
         // the root's ingestion retires, and the next scan opens it afresh.
-        if ((await this.#roots.get(rootId)) === root) {
-          this.#roots.delete(rootId);
+        try {
+          await retireOwnedRoot(this.#roots, rootId, owned, () => this.#retire(root));
+        } catch (retirement) {
+          throw new AggregateError(
+            [error, retirement],
+            "The scan failed, and so did its root's retirement."
+          );
         }
-        await this.#retire(root).catch((retirement: unknown) =>
-          this.dependencies.onError('failed pass retirement', retirement)
-        );
       }
       throw error;
     }

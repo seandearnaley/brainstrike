@@ -250,19 +250,27 @@ export class ScopedIndex {
     }
     const syntaxWriter = this.syntax;
     return this.db.transaction(() => {
+      const before = this.#chunkCap === undefined ? 0 : this.storedChunks();
       const result = this.apply(plan, supplied, syntax, syntaxWriter);
-      this.assertWithinChunkCap();
+      this.assertWithinChunkCap(before);
       return result;
     })();
   }
-  /** Inside the commit's transaction: a commit past the cap rolls back whole. */
-  private assertWithinChunkCap(): void {
+  private storedChunks(): number {
+    return Number(this.db.prepare('SELECT count(*) FROM file_chunks').pluck().get());
+  }
+  /**
+   * Inside the commit's transaction: a commit that grows the store past the
+   * cap rolls back whole. One that keeps or shrinks it is admitted, so a store
+   * over a cap lowered since it was filled can only converge down to it.
+   */
+  private assertWithinChunkCap(before: number): void {
     const cap = this.#chunkCap;
     if (cap === undefined) {
       return;
     }
-    const stored = Number(this.db.prepare('SELECT count(*) FROM file_chunks').pluck().get());
-    if (stored > cap) {
+    const stored = this.storedChunks();
+    if (stored > cap && stored > before) {
       throw new IndexerError(
         'corpus-cap',
         `The file index holds at most ${cap.toLocaleString('en-US')} chunks; this file would take it to ${stored.toLocaleString('en-US')}.`

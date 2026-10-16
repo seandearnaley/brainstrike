@@ -29,6 +29,7 @@ const lines = (count: number, word: string) =>
 let sqlite3: Sqlite3Static;
 const cleanup: (() => void)[] = [];
 let opened = 0;
+const reopened = new Set<string>();
 
 beforeAll(async () => {
   sqlite3 = await sqlite3InitModule();
@@ -40,8 +41,7 @@ afterEach(() => {
   }
 });
 
-function index(chunkCap?: number) {
-  const file = `/chunk-cap-${++opened}.sqlite`;
+function index(chunkCap?: number, file = `/chunk-cap-${++opened}.sqlite`) {
   const connection = new SqliteWasmDatabase(sqlite3, new sqlite3.oo1.DB(file, 'c'), file);
   const writer = new IndexWriter(
     {
@@ -55,11 +55,11 @@ function index(chunkCap?: number) {
     {
       db: asBetterSqlite3(connection),
       engine: binaryVectorEngine,
-      fresh: true,
+      fresh: !reopened.has(file),
       owner: { pid: 1, writerThreadId: 0 },
     }
   );
-  cleanup.push(() => writer.close());
+  reopened.add(file);
   const ops = scopedIndexOperations(writer);
   const publish = (file: (typeof files)[number], content: string) => {
     const { profile: _profile, ...identity } = file;
@@ -68,7 +68,8 @@ function index(chunkCap?: number) {
   };
   const chunks = () =>
     (ops.coverageScope({ scope }) as { counts: { chunks: number } }).counts.chunks;
-  return { chunks, publish };
+  cleanup.push(() => writer.close());
+  return { chunks, close: () => writer.close(), file, publish };
 }
 
 describe('the scoped store with a chunk cap', () => {
@@ -97,6 +98,23 @@ describe('the scoped store with a chunk cap', () => {
     publish(files[0]!, lines(3, 'gamma'));
     expect(chunks()).toBe(3);
     expect(() => publish(files[2]!, lines(1, 'delta'))).toThrow('at most 3 chunks');
+  });
+
+  it('lets a store over a cap lowered since it was filled converge down, and grow no further', () => {
+    const filled = index();
+    filled.publish(files[0]!, lines(3, 'alpha'));
+    filled.publish(files[1]!, lines(2, 'beta'));
+    filled.close();
+
+    const { chunks, publish } = index(3, filled.file);
+    expect(chunks()).toBe(5);
+    // A republication that shrinks the store is admitted, though it stays over the cap;
+    // growth past the cap is not.
+    publish(files[0]!, lines(2, 'alpha'));
+    expect(chunks()).toBe(4);
+    publish(files[1]!, lines(1, 'beta'));
+    expect(chunks()).toBe(3);
+    expect(() => publish(files[2]!, lines(1, 'gamma'))).toThrow('at most 3 chunks');
   });
 
   it('holds any number without a cap, as desktop runs it', () => {
