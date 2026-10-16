@@ -41,6 +41,11 @@ function containedRelative(containmentRoot: string, absPath: string): string | n
   return relative;
 }
 
+/** The credential floor reads a POSIX root-relative path; `relative` is native. */
+function isCredentialPath(relative: string): boolean {
+  return isWorkspaceSecretFile(relative.split(path.sep).join('/'));
+}
+
 function withSecureRoot<T>(containmentRoot: string, operate: (root: SecureRoot) => T): T | null {
   let root: SecureRoot | null = null;
   try {
@@ -74,7 +79,7 @@ export function createSecureSkillsFs(candidateRoots: readonly string[]): SkillCo
       logger.warn('Refused skill file read outside every containment root');
       return null;
     }
-    if (isWorkspaceSecretFile(best.relative)) {
+    if (isCredentialPath(best.relative)) {
       logger.warn('Refused skill credential file read');
       return null;
     }
@@ -95,7 +100,7 @@ export function createSecureSkillsFs(candidateRoots: readonly string[]): SkillCo
         listed && {
           ...listed,
           entries: listed.entries.filter(
-            (entry) => !(entry.isFile && isWorkspaceSecretFile(path.join(relative, entry.name)))
+            (entry) => !(entry.isFile && isCredentialPath(path.join(relative, entry.name)))
           ),
         }
       );
