@@ -30,7 +30,7 @@
     "@types/react-dom": "catalog:",
     "@vitest/browser-playwright": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "drizzle-kit": "^0.31.10",
+    "drizzle-kit": "^0.31.11",
     "esbuild": "catalog:",
     "fake-indexeddb": "catalog:",
     "jsdom": "catalog:",

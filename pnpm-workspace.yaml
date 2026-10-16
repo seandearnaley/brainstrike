@@ -54,16 +54,16 @@ catalog:
   # Exact pin: its supported TypeScript list moves with every release (0.52.0
   # supports 7.0.2 and 7.1.0-dev, matching the `@typescript/native` alias).
   '@effect/tsgo': 0.53.1
-  '@electric-sql/pglite': 0.5.8
-  '@electric-sql/pglite-pg_textsearch': 0.0.10
-  '@electric-sql/pglite-pgvector': 0.0.9
+  '@electric-sql/pglite': 0.5.10
+  '@electric-sql/pglite-pg_textsearch': 0.0.12
+  '@electric-sql/pglite-pgvector': 0.0.11
   # BST-1939: the native grep trigram planner parses the JS regex AST. Already
   # resolved through eslint; promoted to a direct dependency of @brainstrike/utils.
   '@eslint-community/regexpp': 4.12.2
   '@fontsource-variable/geist': ^5.3.0
   '@fontsource-variable/geist-mono': ^5.3.0
   '@huggingface/transformers': ^4.3.0
-  '@mastra/schema-compat': 1.3.11
+  '@mastra/schema-compat': 1.3.15
   # GHSA-6qxp-vccf-f47h / CVE-2026-104850 (HIGH, CVSS 7.5): in 2.0.0-2.1.0 the
   # MCP *server* chose which authorization server received a stored
   # `refresh_token` or `client_secret`, because saved credentials carried no
@@ -144,7 +144,7 @@ catalog:
   better-sqlite3: 13.0.3
   bindings: 1.5.0
   concurrently: ^10.0.6
-  drizzle-orm: 0.45.2
+  drizzle-orm: 0.45.4
   # ADR-0004: Effect v4 is an LTS line, with fixes committed through September
   # 2029. The pin stays EXACT: `^4.0.0` constraints elsewhere in the ecosystem
   # reject rc builds, so a range here would have silently re-resolved the whole
@@ -217,9 +217,10 @@ overrides:
   '@assistant-ui/react-streamdown@0.3.17>remend': 1.3.1
   '@assistant-ui/react-streamdown@0.3.17>streamdown': 2.6.0
   # BST-875: Drizzle's published CLI/API use tsx, never its deprecated loader.
-  # Retire on owner update; do not reintroduce the unused esbuild 0.18 subtree.
-  'drizzle-kit@0.31.10>@esbuild-kit/esm-loader': '-'
-  'drizzle-kit@0.31.10>tsx': 4.23.12
+  # 0.31.11 still declares that unused loader. Retire these edges when its
+  # published CLI/API no longer need them; keep the executable TS-loading guard.
+  'drizzle-kit@0.31.11>@esbuild-kit/esm-loader': '-'
+  'drizzle-kit@0.31.11>tsx': 4.23.12
   # Vercel pins the same older tsx copy; include those edges in the full graph.
   '@vercel/backends@0.8.30>tsx': 4.23.12
   '@vercel/node@5.9.3>tsx': 4.23.12
@@ -355,11 +356,15 @@ allowBuilds:
 # Explicit zero overrides pnpm 11's default one-day floor.
 minimumReleaseAge: 0
 patchedDependencies:
-  '@assistant-ui/core@0.3.17': patches/@assistant-ui__core@0.3.17.patch
-  '@electric-sql/pglite@0.5.8': patches/@electric-sql__pglite@0.5.8.patch
-  '@huggingface/transformers@4.3.0': patches/@huggingface__transformers@4.3.0.patch
-  '@mastra/core@1.71.0': patches/@mastra__core@1.71.0.patch
+  # BST-2032: retain the qualified Core/Memory pair and lifecycle patches.
+  # Memory 1.38 fails owner cancellation; Core 1.78 with retained Memory fails
+  # the public config contract and requires new background-task lease storage.
+  # Requalify these together instead of weakening cleanup or storage ownership.
   '@mastra/memory@1.32.1': patches/@mastra__memory@1.32.1.patch
+  '@assistant-ui/core@0.3.17': patches/@assistant-ui__core@0.3.17.patch
+  '@huggingface/transformers@4.3.0': patches/@huggingface__transformers@4.3.0.patch
   '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch
   app-builder-lib@26.17.0: patches/app-builder-lib@26.17.0.patch
   vscode-jsonrpc@9.0.3: patches/vscode-jsonrpc@9.0.3.patch
+  '@electric-sql/pglite@0.5.10': patches/@electric-sql__pglite@0.5.10.patch
+  '@mastra/core@1.71.0': patches/@mastra__core@1.71.0.patch

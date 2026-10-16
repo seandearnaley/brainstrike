@@ -40,10 +40,10 @@ test('Drizzle omits its unused deprecated loader and retains its TypeScript APIs
   const dbRequire = createRequire(path.join(root, 'packages/db/package.json'));
   const kitRequire = createRequire(dbRequire.resolve('drizzle-kit'));
   const lock = parse(await readFile(path.join(root, 'pnpm-lock.yaml'), 'utf8'));
-  const snapshot = lock.snapshots['drizzle-kit@0.31.10'];
+  const snapshot = lock.snapshots['drizzle-kit@0.31.11'];
   assert.ok(
     snapshot?.dependencies,
-    'Review the drizzle-kit@0.31.10 overrides and this guard after an owner upgrade'
+    'Review the drizzle-kit@0.31.11 overrides and this guard after an owner upgrade'
   );
   assert.equal(snapshot.dependencies['@esbuild-kit/esm-loader'], undefined);
   for (const file of ['bin.cjs', 'api.js', 'api.mjs', 'utils.js', 'utils.mjs']) {
