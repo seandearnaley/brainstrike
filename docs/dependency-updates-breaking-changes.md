@@ -14,6 +14,17 @@
 
 ---
 
+## Release-age policy (2026-10-16)
+
+The owner removed the dependency release-age delay. `pnpm-workspace.yaml` sets
+`minimumReleaseAge: 0` explicitly because pnpm 11 defaults to 1,440 minutes.
+Selected versions can install immediately; release timestamps no longer create
+an acceptance gate. The former temporary-exclusion ledger and expiry guard are
+retired. Exact upgrade targets, compatibility checks, build-script permissions,
+lockfile integrity and required local validation still apply.
+
+Reference: [pnpm minimumReleaseAge](https://pnpm.io/settings/dependency-resolution#minimumreleaseage).
+
 ## Snapshot: semver-major upgrades (from the companion report)
 
 These rows are **major** semver bumps (`current` → `latest`) at the time the report was generated.
@@ -393,7 +404,7 @@ Two upstream PRs landed together in the `0.12.26` release (published 2026-04-24,
 - **Why ownership, not the patch or a pin-back:** upstream broke this same path twice in two lines (0.14.28, 0.15.x) while building the top-anchor mode, two app-level workarounds failed empirically (the misread is invisible at the public API), and tier 2 already owned its scrolling via the virtualizer — tier 1 now matches. The engine is ~200 lines whose bugs are ours to fix rather than re-diagnose per upstream release.
 - Known cosmetic residue on 0.15 (unrelated to the engine move): the tap 0.9.10 scheduler emits React "flushSync was called from inside a lifecycle method" console warnings during streaming, and vitest-browser logs occasional "ResizeObserver loop completed with undelivered notifications" — both library-internal, no test asserts on them.
 
-**Release-provenance note:** 0.15.6/0.15.7/0.15.8 were published manually by the lead maintainer (no OIDC attestation, unlike the project's usual GitHub Actions publishes) within ~30 minutes on 2026-08-06, out of order. Upstream's changelog explains: 0.15.8 is a republish of 0.15.6 after registry staged-version conflicts blocked 0.15.6/0.15.7. Details recorded next to the `minimumReleaseAgeExclude` entries in `pnpm-workspace.yaml`.
+**Release-provenance note:** 0.15.6/0.15.7/0.15.8 were published manually by the lead maintainer (no OIDC attestation, unlike the project's usual GitHub Actions publishes) within ~30 minutes on 2026-08-06, out of order. Upstream's changelog explains: 0.15.8 is a republish of 0.15.6 after registry staged-version conflicts blocked 0.15.6/0.15.7. The former release-age exceptions are historical; the owner retired that policy on 2026-10-16.
 
 **Pointers**
 

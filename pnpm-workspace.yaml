@@ -359,77 +359,9 @@ allowBuilds:
   puppeteer: true
   sharp: true
   '@parcel/watcher': false
-# Supply-chain floor (BST-1183): refuse any npm version published less than 1
-# day ago. That window is where typosquats, compromised-maintainer publishes and
-# malicious postinstall payloads get found and unpublished. Before this the repo
-# had no release-age protection at all (measured on pnpm 11.15.0:
-# `pnpm config get minimumReleaseAge` returned undefined).
-#
-# The value is in MINUTES. 1440 = 1 day.
-#
-# LOWERED from 4320 (3 days) to 1440 (1 day) on 2026-08-15, BST-1302, and this
-# is a deliberate loosening of a security control rather than a tuning tweak.
-# The 2026-08 sweep hit the floor on 25 of 94 outdated packages simultaneously —
-# mastra, the PGlite triple, all three AI SDK providers, stryker, pragmatic-dnd,
-# swc, turbo — none landable in the same pass, each otherwise needing its own
-# pinned exclusion plus ledger record. That is friction the floor was not meant
-# to create, and the pressure it generates is toward blanket exclusions, which
-# are strictly worse than a shorter floor. 1 day still refuses the same-day
-# malicious publish; it gives up the tail of the detection window. Raising it
-# back is a one-line change if that trade stops being worth it.
-#
-# IT APPLIES TO `--frozen-lockfile` TOO. Measured, not assumed: pnpm re-checks
-# every LOCKFILE ENTRY against the cutoff and exits 1 on anything newer ("The
-# lockfile contains entries that the active policies reject"), so this is not
-# only a `pnpm add`/`pnpm update` resolution gate — it is a CI gate. Two direct
-# consequences:
-#   - The floor cannot exceed the age of the newest entry in the committed
-#     lockfile, or CI breaks the moment it lands. At 7 days this repo failed on
-#     react-doctor@0.9.3 + turbo@2.10.8 (then 6.0 and 6.7 days old); 1 day
-#     leaves correspondingly more margin than the 3 days it replaced.
-#   - Bumping any dependency to a release younger than 1 day now needs an
-#     explicit exclusion. That is the policy working, not a defect.
-#
-# Need something fresher? Do NOT lower the floor further. Pin that one exact
-# version in minimumReleaseAgeExclude below, with a record in
-# scripts/minimum-release-age-exclusions.json — the guard in
-# scripts/verify-minimum-release-age-exclusions.mjs then forces you to delete it
-# once it ages out, so the exception cannot quietly become permanent.
-#
-# The guard DERIVES its expiry window from this value (floor +
-# EXCLUSION_GRACE_DAYS), so lowering the floor also shortens how long an
-# exclusion may live: 1 + 7 = 8 days, where it was 3 + 7 = 10. Nothing to change
-# in the guard — it reads this number — but an exclusion added today expires two
-# days sooner than one added under the old floor.
-#
-# The 30-day MAX_EXCLUSION_AGE_DAYS in that guard is now ONLY the fallback for a
-# tree with no floor configured. Nothing cross-checks the two and they cannot
-# "cross": because the window is derived (floor + grace) it always exceeds the
-# floor, so the inversion hazard this comment used to warn about is impossible
-# by construction. The guard's assertMaxAgeClearsFloor() was deleted when the
-# window became derived.
-minimumReleaseAge: 1440
-# minimumReleaseAgeExclude entries are TEMPORARY, and enforced as temporary by
-# scripts/verify-minimum-release-age-exclusions.mjs (wired into `pnpm lint`).
-# Each entry must:
-#   * pin ONE exact version (`- 'name@1.2.3'`) — a bare name or version glob
-#     exempts releases that do not exist yet, so it could never age out;
-#   * carry a matching record in scripts/minimum-release-age-exclusions.json
-#     giving npm's publish timestamp and the reason this version was needed
-#     before it had aged;
-#   * be DELETED, together with its record, once that version is older than the
-#     DERIVED window — minimumReleaseAge plus EXCLUSION_GRACE_DAYS, currently
-#     1 + 7 = 8 days. Past that point the floor admits the version anyway, so
-#     the exemption is inert and the guard fails until it is removed. The window
-#     moves with the floor; do not hard-code it here.
-# Per-entry provenance prose lives in that JSON ledger, NOT here. Two reasons:
-# an indented comment in this block is deleted whenever pnpm rewrites the file,
-# and this block is edited by nearly every dependency PR — keeping the rationale
-# out of it removes the merge-conflict hotspot it had become.
-# The guard exists because an earlier entry ('@mastra/core@1.50.0') outlived its
-# justification by a month: its cleanup note pointed at a minimumReleaseAge floor
-# that was never configured, so nothing ever triggered the removal.
-minimumReleaseAgeExclude: []
+# Owner decision, 2026-10-16: install selected versions without a release-age delay.
+# Explicit zero overrides pnpm 11's default one-day floor.
+minimumReleaseAge: 0
 patchedDependencies:
   '@assistant-ui/core@0.3.17': patches/@assistant-ui__core@0.3.17.patch
   '@electric-sql/pglite@0.5.8': patches/@electric-sql__pglite@0.5.8.patch
