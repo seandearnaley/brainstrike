@@ -39,16 +39,10 @@ import type {
 import type { PromptCatalogReply, PromptCatalogRequest } from './prompt-catalog-types.js';
 import { executePromptLibrary } from './prompt-library.js';
 import { withSeq } from './run-log-format.mjs';
-import type { AppendItem, BlobContent, LogRow, RunEvent, ThreadStatus } from './run-log-types.js';
+import type { AppendItem, LogRow, RunEvent, ThreadStatus } from './run-log-types.js';
 import type { SourceCatalogReply, SourceCatalogRequest } from './source-catalog-types.js';
 import { type DeletionWriter, StateDeletion } from './state-deletion.js';
-import {
-  BLOBS_DIR,
-  exportStateBundle,
-  importStateBundle,
-  STATE_DB,
-  sha256Hex,
-} from './state-store-bundle.js';
+import { BLOBS_DIR, exportStateBundle, importStateBundle, STATE_DB } from './state-store-bundle.js';
 import type {
   HydrationThread,
   IndexerPort,
@@ -82,7 +76,7 @@ export type { ContentClearResult as ClearContentResult } from '@brainstrike/type
 
 import type { ContentClearResult as ClearContentResult } from '@brainstrike/types';
 
-/** Text of this size or more is stored as a content-addressed blob; the event keeps a preview and the hash. */
+export { BLOB_MIN_BYTES, largeText, PREVIEW_CHARS, type StoredText } from './large-text.js';
 export type {
   CheckpointRow,
   ExportedThread,
@@ -96,32 +90,6 @@ export type {
   SyncSpan,
   WriteSpan,
 } from './state-store-types.js';
-
-export const BLOB_MIN_BYTES = 12 * 1024;
-export const PREVIEW_CHARS = 2048;
-
-export type StoredText =
-  | { readonly output: string }
-  | { readonly preview: string; readonly blob: string; readonly bytes: number };
-
-/**
- * M0-A2 Host.toBody's rule for a large text: the fields to put in the event and, at 12 KB or more, the blob to append
- * with it (`AppendItem.blobs`), so the blob is durable before the event that references it commits.
- */
-export function largeText(output: string): {
-  readonly fields: StoredText;
-  readonly blob: BlobContent | null;
-} {
-  const bytes = Buffer.byteLength(output);
-  if (bytes < BLOB_MIN_BYTES) {
-    return { blob: null, fields: { output } };
-  }
-  const hash = sha256Hex(output);
-  return {
-    blob: { content: output, hash },
-    fields: { blob: hash, bytes, preview: output.slice(0, PREVIEW_CHARS) },
-  };
-}
 
 /** Trusted host composition after writer readiness, before interrupted purge replay. */
 export interface StateStoreStartupOwner {
