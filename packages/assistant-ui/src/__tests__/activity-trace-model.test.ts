@@ -133,6 +133,44 @@ describe('deriveActivitySteps', () => {
     expect(stepVerbText(stopped?.verb ?? VERB_STUB, 'cancelled', true)).toBe('Ran');
   });
 
+  // Codex review on #3723: run_python states its own outcome. Declined, denied
+  // network and an unavailable sandbox mean the script never ran (its card
+  // says so); a cancelled run was stopped after it started.
+  it('reads run_python outcomes that never started the script as never having run', () => {
+    const settled = (result: unknown) => ({ result, status: { type: 'complete' } });
+    const steps = deriveActivitySteps(
+      [
+        tool(
+          'n',
+          'brainstrike.runPython',
+          { code: 'x' },
+          settled({ deniedDomains: ['pypi.org'], kind: 'network_denied' })
+        ),
+        tool('a', 'brainstrike.runPython', { code: 'x' }, settled({ kind: 'declined' })),
+        tool(
+          'u',
+          'brainstrike.runPython',
+          { code: 'x' },
+          settled({ detail: 'no sandbox', kind: 'unavailable', reason: 'interpreter_unavailable' })
+        ),
+        tool(
+          'c',
+          'brainstrike.runPython',
+          { code: 'x' },
+          settled({
+            kind: 'cancelled',
+            partialStderr: '',
+            partialStdout: 'step 1\n',
+            stderrOmittedBytes: 0,
+            stdoutOmittedBytes: 0,
+          })
+        ),
+      ],
+      {}
+    );
+    expect(steps.map((step) => step.ran)).toEqual([false, false, false, true]);
+  });
+
   it('maps statuses: requires-action → waiting, incomplete cancelled → cancelled, isError/guarded → failed', () => {
     const steps = deriveActivitySteps(
       [

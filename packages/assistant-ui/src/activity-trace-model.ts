@@ -187,6 +187,27 @@ export function runPythonStepState(result: RunPythonDisplayResult): ActivityStep
   }
 }
 
+/** run_python outcomes whose script never started; its card says "didn't run". */
+const RUN_PYTHON_NEVER_RAN: ReadonlySet<RunPythonDisplayResult['kind']> = new Set([
+  'declined',
+  'network_denied',
+  'unavailable',
+]);
+
+/**
+ * Whether a call ran at all: never for the shared declined envelope (a user
+ * decline or a host block), nor for a run_python outcome that never started
+ * its script. A run stopped after it started did run.
+ */
+export function toolCallRan(toolName: string, result: unknown): boolean {
+  if (isDeclinedToolCallResult(result)) {
+    return false;
+  }
+  const runPython =
+    toolName === NATIVE_TOOL_ID.runPython ? narrowRunPythonDisplayResult(result) : null;
+  return !(runPython && RUN_PYTHON_NEVER_RAN.has(runPython.kind));
+}
+
 /**
  * The two readings a SETTLED result can make on top of a generic `done`.
  * Both used to be card-only overrides in `tool-fallback.tsx`, which is how a
@@ -315,7 +336,7 @@ export function deriveActivitySteps(
         id: toolCallId,
         kind: 'tool',
         partIndex,
-        ran: !isDeclinedToolCallResult(part['result']),
+        ran: toolCallRan(toolName, part['result']),
         state: toolStepState(part, toolName),
         target: primaryArg?.display ?? null,
         targetKey: primaryArg?.full ?? null,

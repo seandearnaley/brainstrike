@@ -1,7 +1,6 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
-import { isDeclinedToolCallResult } from '@brainstrike/assistant-contract/tool-approval';
 import { useCallback, useId, useMemo, useRef, useState } from 'react';
-import { TOOL_EXECUTION_FAILED_MESSAGE } from './activity-trace-model';
+import { TOOL_EXECUTION_FAILED_MESSAGE, toolCallRan } from './activity-trace-model';
 import { verbForTool } from './activity-verbs';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
@@ -212,9 +211,9 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
         onToggle={() => setUserCollapsed(!isCollapsed)}
         primaryArg={primaryArg}
         progressLabel={progressLabel}
-        // A declined or blocked call settles with the shared declined envelope:
-        // it never executed.
-        ran={!isDeclinedToolCallResult(result)}
+        // A declined or blocked call, or a run_python outcome that never
+        // started its script, never executed.
+        ran={toolCallRan(toolName, result)}
         resolvedRootName={resolvedRootName}
         resultSummary={resultSummary}
         showDetails={showDetails}
