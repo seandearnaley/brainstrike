@@ -16,6 +16,7 @@ import {
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import type { ModelMessage } from 'ai';
 import { z } from 'zod';
+import { hostAnswerText } from './child-answer.js';
 import { type HostChildWorkQueue, hostPermitModel } from './child-work-queue.js';
 import { canonical, jsonValue } from './json-value.js';
 import type { HostDelegation, HostRunAdmission, HostTool } from './ports.js';
@@ -272,20 +273,6 @@ export function deriveHostChildAdmission(
   };
 }
 
-function assistantText(messages: readonly ModelMessage[]): string {
-  const last = messages.findLast((message) => message.role === 'assistant');
-  if (!last) {
-    return '';
-  }
-  if (typeof last.content === 'string') {
-    return last.content;
-  }
-  return last.content
-    .flatMap((part) => (part.type === 'text' ? [part.text] : []))
-    .join('')
-    .trim();
-}
-
 function toolCallCount(messages: readonly ModelMessage[]): number {
   return messages.reduce(
     (count, message) =>
@@ -332,7 +319,7 @@ export function hostChildResult(
   messages: readonly ModelMessage[]
 ): HostChildResult {
   if (outcome === 'completed') {
-    const text = assistantText(messages);
+    const text = hostAnswerText(messages);
     return text
       ? { childThreadId, status: 'completed', text }
       : {

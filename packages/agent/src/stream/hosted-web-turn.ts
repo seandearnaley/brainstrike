@@ -17,6 +17,7 @@ import {
   type LanguageModel,
   type LanguageModelUsage,
   type ModelMessage,
+  type StepResult,
   streamText,
   type TextStreamPart,
   type ToolSet,
@@ -27,6 +28,7 @@ import {
 } from '../instructions/default-instructions';
 import type { AgentMessage, StreamChunk, StreamFinishReason, StreamIterator } from '../types';
 import { readOpenRouterBilledCost } from '../usage-metering';
+import { modelStepFields } from './model-step';
 
 export interface HostedWebTurnParams {
   readonly messages: readonly AgentMessage[];
@@ -34,6 +36,11 @@ export interface HostedWebTurnParams {
   readonly model: LanguageModel;
   /** Prompt-assembly clock, injected so the composed instructions stay pure. */
   readonly now?: Date;
+  /**
+   * Return each completed step (`model-step`) before the finish, for a client
+   * that records its runs as the host commits them (BST-1940).
+   */
+  readonly recordSteps?: boolean;
   readonly signal?: AbortSignal;
 }
 
@@ -62,17 +69,27 @@ export async function streamHostedWebTurn(params: HostedWebTurnParams): Promise<
   ]
     .filter((part) => part.length > 0)
     .join('\n');
+  // The host commits each step from this callback; a recorded turn returns the same fields.
+  const steps: StreamChunk[] = [];
   const result = streamText({
     messages: toModelMessages(rest),
     model: params.model,
     ...(instructions ? { instructions } : {}),
     ...(params.signal ? { abortSignal: params.signal } : {}),
+    ...(params.recordSteps
+      ? {
+          onStepFinish: (step: StepResult<ToolSet>) => {
+            steps.push({ ...modelStepFields(step), stepNumber: steps.length, type: 'model-step' });
+          },
+        }
+      : {}),
   });
-  return toStreamChunks(result.fullStream);
+  return toStreamChunks(result.fullStream, steps);
 }
 
 async function* toStreamChunks(
-  fullStream: AsyncIterable<TextStreamPart<ToolSet>>
+  fullStream: AsyncIterable<TextStreamPart<ToolSet>>,
+  steps: readonly StreamChunk[]
 ): AsyncGenerator<StreamChunk> {
   // OpenRouter reports its exact charge in the STEP's providerMetadata; the
   // run-level `finish` part carries none. Keeping the provider-authoritative
@@ -106,6 +123,8 @@ async function* toStreamChunks(
         throw asError(part.error);
       }
       case 'finish': {
+        // Every step has finished by now: its callback ran before this part.
+        yield* steps;
         yield {
           ...(billedCostUsd === undefined ? {} : { billedCostUsd }),
           finishReason: part.finishReason satisfies StreamFinishReason,

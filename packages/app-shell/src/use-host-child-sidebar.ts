@@ -157,7 +157,9 @@ export function useHostChildSidebar(base: readonly ThreadPanelVisibleRow[]) {
       ? new HostChildSidebarStore({ childThreads, subscribeChildren }, WORKSPACE_TAB_SELECTION)
       : undefined;
   }, [host]);
-  useEffect(() => () => store?.close(), [store]);
+  // The store follows the host from this effect, not from its render-time
+  // construction, so StrictMode's replayed effects reconnect it (BST-1932).
+  useEffect(() => store?.connect(), [store]);
   const snapshot = useSyncExternalStore(
     store?.subscribe ?? NO_SUBSCRIPTION,
     store?.getSnapshot ?? (() => EMPTY)

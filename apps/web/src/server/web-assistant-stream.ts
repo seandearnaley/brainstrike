@@ -37,6 +37,8 @@ export async function buildWebAssistantStreamFromPrepared(params: {
    * credential when present.
    */
   readonly credential: ResolvedProviderCredential | undefined;
+  /** The turn returns each completed step, for a client that records its runs (BST-1940). */
+  readonly recordSteps?: boolean;
   readonly runtimeData: RuntimeData;
   readonly signal?: AbortSignal;
 }): Promise<AsyncIterable<StreamChunk>> {
@@ -62,6 +64,7 @@ export async function buildWebAssistantStreamFromPrepared(params: {
   return await streamHostedWebTurn({
     messages,
     model,
+    ...(params.recordSteps ? { recordSteps: true } : {}),
     ...(params.signal ? { signal: params.signal } : {}),
   });
 }

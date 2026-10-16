@@ -1,5 +1,9 @@
 import type { StreamChunk } from '@brainstrike/agent/hosted-web';
 import {
+  MODEL_STEP_RECORD_RUN_CONFIG_KEY,
+  readRecordModelStepsRunConfig,
+} from '@brainstrike/assistant-contract/model-step';
+import {
   AssistantFilterPayloadError,
   prepareAssistantPostRequest,
 } from '@brainstrike/assistant-service/request';
@@ -78,12 +82,24 @@ export async function runWebAssistantPost(params: {
   }
 
   const hostedProviders = configuredProviders.map((config) => config.provider);
+  // A client that records its runs asks for each completed step (BST-1940).
+  let recordSteps = false;
   let prepared: Awaited<ReturnType<typeof prepareAssistantPostRequest>>;
   try {
     prepared = await prepareAssistantPostRequest({
       // The allow-list runs INSIDE preparation via the hook (BST-1030): one
       // parse total instead of web's previous parse -> stringify -> re-parse.
-      filterPayload: (payload) => filterWebAssistantPayload(payload, hostedProviders),
+      filterPayload: (payload) => {
+        const requested = readRecordModelStepsRunConfig(payload.runConfig);
+        if ('invalid' in requested) {
+          throw new InvalidWebAssistantRuntimeDataError(
+            MODEL_STEP_RECORD_RUN_CONFIG_KEY,
+            'invalid'
+          );
+        }
+        recordSteps = requested.record;
+        return filterWebAssistantPayload(payload, hostedProviders);
+      },
       logger: params.logger,
       readBody: async () => params.bodyText,
       // BST-1352: Hosted Web adapts via `api_key` credentials ONLY — server
@@ -141,6 +157,7 @@ export async function runWebAssistantPost(params: {
     const stream = await buildWebAssistantStreamFromPrepared({
       agentMessages: prepared.request.messages,
       credential: prepared.request.credential,
+      recordSteps,
       runtimeData: prepared.request.runtimeData,
       ...(params.signal ? { signal: params.signal } : {}),
     });

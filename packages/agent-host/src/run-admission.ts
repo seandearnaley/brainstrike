@@ -1,3 +1,4 @@
+import { modelStepFields } from '@brainstrike/agent/provider-runtime';
 import { resolveRunPythonExecutionContext } from '@brainstrike/agent/tool-runtime';
 import {
   intersectChildPermissionCeilings,
@@ -11,7 +12,7 @@ import {
   type ToolRiskCategory,
   WEB_SEARCH_TOOL_ID,
 } from '@brainstrike/assistant-contract/tool-metadata';
-import { modelMessageSchema, type StepResult, type ToolSet } from 'ai';
+import type { StepResult, ToolSet } from 'ai';
 import { leaseHostAdmission } from './admission-lease.js';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import { withHostDelegationTools } from './child-runs.js';
@@ -793,16 +794,16 @@ export async function decideHostSdkApproval(
 
 /** One model step and its answerable interactions, committed together by Core. */
 export function hostModelStepEvents(run: HostRunState, step: StepResult<ToolSet>): HostEvent[] {
+  // The same fields Hosted Web returns for a browser-recorded run (BST-1940).
+  const { messages, model, usage } = modelStepFields(step);
   return [
     {
-      messages: step.response.messages.map((message) =>
-        jsonValue(modelMessageSchema.parse(message))
-      ),
-      model: jsonValue(step.model),
+      messages: messages.map(jsonValue),
+      model: jsonValue(model),
       runId: run.id,
       stepNumber: run.steps,
       type: 'model.step',
-      usage: jsonValue(step.usage),
+      usage: jsonValue(usage),
     },
     ...hostStepInteractions(run, step.content),
   ];

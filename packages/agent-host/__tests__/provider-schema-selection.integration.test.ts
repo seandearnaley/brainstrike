@@ -200,8 +200,8 @@ test.each([
     const parameters =
       provider === 'google'
         ? z
-            .object({ functionDeclarations: z.array(z.object({ parameters: z.json() })) })
-            .parse(reference).functionDeclarations[0]?.parameters
+            .object({ functionDeclarations: z.array(z.object({ parametersJsonSchema: z.json() })) })
+            .parse(reference).functionDeclarations[0]?.parametersJsonSchema
         : provider === 'anthropic'
           ? reference['input_schema']
           : reference['parameters'];

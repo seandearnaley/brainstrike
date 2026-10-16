@@ -1,0 +1,47 @@
+import { z } from 'zod';
+
+/**
+ * A completed model step, as Hosted Web returns it to a client that records
+ * its runs (BST-1940; owner decision, 16 Oct: the proxy returns its step).
+ * It carries exactly what the agent host commits as `model.step` for the same
+ * AI SDK step result (the response messages, the model and the usage), so the
+ * browser commits the step the host would have, from one source.
+ *
+ * Opt-in: only a request that asks to record its steps receives these parts,
+ * so a client that keeps its own transcript never stores them.
+ */
+export const MODEL_STEP_DATA_NAME = 'brainstrike.model-step';
+
+export const AssistantModelStepDataSchema = z.strictObject({
+  /** The step's response messages, as the AI SDK's `modelMessageSchema` reads them. */
+  messages: z.array(z.json()),
+  model: z.json(),
+  /** Zero-based within its run, as the host numbers its steps. */
+  stepNumber: z.number().int().nonnegative(),
+  usage: z.json(),
+});
+export type AssistantModelStepData = z.infer<typeof AssistantModelStepDataSchema>;
+
+/** The `runConfig.custom` key a client sets to receive its turn's steps. */
+export const MODEL_STEP_RECORD_RUN_CONFIG_KEY = 'brainstrike.recordModelSteps';
+
+/**
+ * Whether a request asks for its turn's steps: `runConfig.custom[key]`, a
+ * boolean when present. Anything else there is invalid, never read as off.
+ */
+export function readRecordModelStepsRunConfig(
+  runConfig: unknown
+): { readonly record: boolean } | { readonly invalid: true } {
+  const custom =
+    typeof runConfig === 'object' && runConfig !== null && !Array.isArray(runConfig)
+      ? (runConfig as Record<string, unknown>)['custom']
+      : undefined;
+  if (typeof custom !== 'object' || custom === null || Array.isArray(custom)) {
+    return { record: false };
+  }
+  const value = (custom as Record<string, unknown>)[MODEL_STEP_RECORD_RUN_CONFIG_KEY];
+  if (value === undefined) {
+    return { record: false };
+  }
+  return typeof value === 'boolean' ? { record: value } : { invalid: true };
+}

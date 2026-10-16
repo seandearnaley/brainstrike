@@ -1,13 +1,59 @@
+import type { HostClient } from '@brainstrike/agent-host/browser';
 import { openHostChildTab } from '@brainstrike/app-shell';
+import { describeBoundaryError } from '@brainstrike/assistant-contract';
 import {
   type SubagentAnsweredApproval,
   SubagentApprovalHistoryContext,
+  SubagentsRunningStrip,
 } from '@brainstrike/assistant-ui';
+import { createLogger } from '@brainstrike/logging';
 import { Button } from '@brainstrike/ui';
-import { type ReactElement, type ReactNode, useMemo, useSyncExternalStore } from 'react';
-import type { HostTreeApprovals } from './host-tree-approvals';
+import {
+  type ReactElement,
+  type ReactNode,
+  useCallback,
+  useMemo,
+  useSyncExternalStore,
+} from 'react';
+import { type HostTreeApprovals, stopHostChildTurns } from './host-tree-approvals';
 
+const logger = createLogger('HostChildTreeNotices');
 const NO_HISTORY: readonly SubagentAnsweredApproval[] = [];
+
+/**
+ * Live QA 2026-10-16: the root's background children still working, named at
+ * its composer. This stops their turns through the host's root Stop, which
+ * also keeps their results for the next user turn rather than waking the root.
+ * While the root runs, its own Stop already ends that turn's children, so only
+ * the children of earlier turns are stopped here.
+ */
+export function HostChildrenRunning({
+  client,
+  tree,
+}: {
+  readonly client: Pick<HostClient, 'request'>;
+  readonly tree: Pick<HostTreeApprovals, 'getRunning' | 'subscribe' | 'threadId'>;
+}): ReactElement | null {
+  const running = useSyncExternalStore(tree.subscribe, tree.getRunning, tree.getRunning);
+  const owners = useMemo(() => running.children.map((child) => child.owner), [running]);
+  const earlier = useMemo(
+    () => running.children.filter((child) => child.turnId !== running.activeTurnId),
+    [running]
+  );
+  const stoppable = useMemo(() => earlier.map((child) => child.owner), [earlier]);
+  const stop = useCallback(
+    () =>
+      stopHostChildTurns(client, tree.threadId, earlier).catch((cause: unknown) => {
+        logger.error('Background subagents could not be stopped', {
+          error: cause,
+          threadId: tree.threadId,
+        });
+        throw new Error(describeBoundaryError(cause));
+      }),
+    [client, earlier, tree.threadId]
+  );
+  return <SubagentsRunningStrip onStop={stop} owners={owners} stoppable={stoppable} />;
+}
 
 /**
  * BST-1932 (AT-08): the questions and plans waiting in threads delegated

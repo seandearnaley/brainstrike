@@ -13,6 +13,7 @@ import {
   DebugBundleProvider,
   EditCheckpointProvider,
   RunVerdictProvider,
+  SubagentChildRunContext,
   useRewindContext,
 } from '@brainstrike/assistant-ui';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
@@ -288,37 +289,40 @@ function HostThread({
               <BudgetGuardrailProvider value={budgetGuardrail}>
                 <DebugBundleProvider value={debugBundle}>
                   <HostApprovalHistoryProvider tree={conversation.approvals}>
-                    <HostChildConversations revision={effects} threadId={threadId}>
-                      <CommittedAssistantConversation
-                        {...withMemoryGate(presentation, memory)}
-                        {...(memory.omSegment ? { omSegment: memory.omSegment } : {})}
-                        agentColor={agentColor}
-                        approvalStrip={
-                          <HostApprovalStrip
-                            client={client}
-                            self={child ? label : undefined}
-                            tree={conversation.approvals}
-                          />
-                        }
-                        commands={conversation.commands}
-                        {...(cumulativeUsage ? { cumulativeUsage } : {})}
-                        label={label}
-                        onRunningChange={onRunningChange}
-                        onSendActiveInput={child ? conversation.sendInput : undefined}
-                        onSteerActiveRun={steer}
-                        reconnect={reconnect}
-                        rewind={child ? null : rewind}
-                        store={conversation.store}
-                        workspaceBar={
-                          // A child shares its root's folder: named, never changed here.
-                          child ? (
-                            <HostChildWorkspaceChip threadId={threadId} />
-                          ) : (
-                            <CommittedWorkspaceControls threadId={threadId} />
-                          )
-                        }
-                      />
-                    </HostChildConversations>
+                    {/* Each delegation card reads its child's run from the tree's own follow of the child's log. */}
+                    <SubagentChildRunContext value={conversation.approvals}>
+                      <HostChildConversations revision={effects} threadId={threadId}>
+                        <CommittedAssistantConversation
+                          {...withMemoryGate(presentation, memory)}
+                          {...(memory.omSegment ? { omSegment: memory.omSegment } : {})}
+                          agentColor={agentColor}
+                          approvalStrip={
+                            <HostApprovalStrip
+                              client={client}
+                              self={child ? label : undefined}
+                              tree={conversation.approvals}
+                            />
+                          }
+                          commands={conversation.commands}
+                          {...(cumulativeUsage ? { cumulativeUsage } : {})}
+                          label={label}
+                          onRunningChange={onRunningChange}
+                          onSendActiveInput={child ? conversation.sendInput : undefined}
+                          onSteerActiveRun={steer}
+                          reconnect={reconnect}
+                          rewind={child ? null : rewind}
+                          store={conversation.store}
+                          workspaceBar={
+                            // A child shares its root's folder: named, never changed here.
+                            child ? (
+                              <HostChildWorkspaceChip threadId={threadId} />
+                            ) : (
+                              <CommittedWorkspaceControls threadId={threadId} />
+                            )
+                          }
+                        />
+                      </HostChildConversations>
+                    </SubagentChildRunContext>
                   </HostApprovalHistoryProvider>
                 </DebugBundleProvider>
               </BudgetGuardrailProvider>

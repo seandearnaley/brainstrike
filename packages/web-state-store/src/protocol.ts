@@ -282,7 +282,15 @@ export type TabMessage =
   | { readonly config: WebStateStoreConfig; readonly kind: 'open' }
   | { readonly id: number; readonly kind: 'request'; readonly request: WireRequest };
 
+/** One thread's rows a committed append added, by sequence number, in order. */
+export interface WebStateLogAppend {
+  readonly seqs: readonly number[];
+  readonly threadId: string;
+}
+
 export type WorkerMessage =
+  /** Rows the writer committed, announced to every tab, the appending one too (BST-1940). */
+  | { readonly kind: 'appended'; readonly threads: readonly WebStateLogAppend[] }
   /** The writer could not open the store, or this tab cannot use it; the worker can be dropped. */
   | { readonly error: string; readonly kind: 'failed' }
   /** The store was retired for factory reset; the worker must live until the tab reloads. */
@@ -293,6 +301,8 @@ export type WorkerMessage =
 export type ChannelMessage =
   /** A worker that just joined asks the writer to announce itself. */
   | { readonly kind: 'who' }
+  /** The writer committed an append; every worker tells its tab. */
+  | { readonly kind: 'appended'; readonly threads: readonly WebStateLogAppend[] }
   | { readonly kind: 'leader'; readonly lease: WebStateLease; readonly protocol: string }
   /** The writer retired the store for factory reset: no worker may open it again. */
   | { readonly kind: 'retired' }
@@ -315,9 +325,10 @@ export type ChannelMessage =
  * version 3 writer extensions, version 4 the writer's purge and thread
  * delete in place of tabs unlinking blobs, version 5 the source catalog and
  * workspace roots, version 6 a browser root's key as `/fsa/<rootId>` and the
- * extensions' in-order writer requests.
+ * extensions' in-order writer requests, version 7 the writer's announcement
+ * of every committed append.
  */
-export const WEB_STATE_PROTOCOL = 6;
+export const WEB_STATE_PROTOCOL = 7;
 
 const WEB_ROOT_PATH = /^\/fsa\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 

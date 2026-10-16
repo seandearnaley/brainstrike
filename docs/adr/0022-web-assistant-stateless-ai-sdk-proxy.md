@@ -189,6 +189,39 @@ Rejected: the file index inside the writer worker, because chat writes would
 wait behind publication, and an index worker with its own lease, because it
 duplicates the lease and forwarding.
 
+## Amendment (2026-10-16): web chat's runs are recorded from the proxy's steps (BST-1940)
+
+Owner decisions on how web chat goes on the shared log:
+
+- **The proxy returns its step.** A request that sets
+  `runConfig.custom['brainstrike.recordModelSteps']` to `true` receives each
+  completed step of its turn, before the finish, as an `aui-data` part named
+  `brainstrike.model-step`. Its payload is `{ messages, model, stepNumber,
+  usage }` (`@brainstrike/assistant-contract/model-step`). Those are the
+  response messages, model and usage the agent host commits as `model.step`
+  for the same AI SDK step result: one mapping (`modelStepFields`) serves both.
+  Steps are numbered from 0, as the host numbers them. Any other value under
+  the key refuses as invalid request data; a request without it receives no
+  step, so a client keeping its own transcript stores none. The proxy stays
+  stateless.
+- **The browser records the run.** The tab that sends commits `run.started`,
+  each `model.step` and `run.finished` through the browser writer, as the
+  host's events. The writer is their only writer.
+- **The browser serves a host client.** It answers the part of the host
+  protocol desktop's thread view uses (`thread/list`, `start`, `read`,
+  `update`, `delete`; `log/subscribe`; `run/start`, `run/stop`) over the
+  writer and the proxy. Desktop's `CommittedThreadSession` and
+  `CommittedAssistantLogStore` then read web threads unchanged.
+- **A run its tab abandons is interrupted.** A run streams in the tab that
+  sent it. If that tab closes mid-run, the run is recorded interrupted when
+  the writer next opens, as the host recovers after an unclean exit;
+  uncommitted output is lost.
+
+Rejected: the tab rebuilding steps from the UI stream, which can commit
+messages that differ from the host's for the same step; a web-specific thread
+view; and running the proxy request in the writer worker, which moves between
+tabs.
+
 ## Alternatives considered
 
 - **Web becomes a real host client against a hosted host.** The only option that

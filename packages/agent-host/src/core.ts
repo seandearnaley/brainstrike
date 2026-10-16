@@ -36,7 +36,7 @@ import {
   recordHostConversationId,
 } from './core-state.js';
 import { deleteHostThread } from './core-thread-deletion.js';
-import { readHostRow, storedHostEvent } from './event-storage.js';
+import { nodeHostRowReader, readHostRow, storedHostEvent } from './event-storage.js';
 import { beginHostRun, foldHostHookContextEvent } from './hook-context.js';
 import { type Json, jsonValue } from './json-value.js';
 import { HostLogProjections } from './log-projections.js';
@@ -216,7 +216,7 @@ export class HostCore {
     const core = new HostCore(store, platform, retainRun);
     // The root owner retains partially restored actors if hydration or cleanup fails.
     onAcquired?.(core);
-    await core.catalog.hydrate(store, core.threads, (row) => {
+    await core.catalog.hydrate(store, nodeHostRowReader(store), core.threads, (row) => {
       core.projections.apply(row);
       core.selections.fold(row);
       core.fold(row);
@@ -366,7 +366,7 @@ export class HostCore {
   }
 
   read(threadId: string, fromSeq: number): Promise<HostLogRow[]> {
-    return this.catalog.readHistory(this.store, this.threads, threadId, fromSeq);
+    return this.catalog.readHistory(nodeHostRowReader(this.store), this.threads, threadId, fromSeq);
   }
 
   readWorkspace(threadId: string): ReturnType<HostThreadWorkspaceState['readSnapshot']> {

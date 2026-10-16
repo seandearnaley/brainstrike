@@ -49,6 +49,7 @@ export {
   getAbnormalFinishMessage,
   outputLimitContextFor,
 } from './stream/abnormal-finish';
+export { type ModelStepFields, modelStepFields } from './stream/model-step';
 export {
   describeStreamStall,
   StreamStalledError,

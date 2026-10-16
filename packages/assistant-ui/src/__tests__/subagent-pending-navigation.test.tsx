@@ -5,12 +5,13 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
+  SubagentChildRunContext,
   SubagentConversationNavigationContext,
   SubagentConversationPresentationContext,
   SubagentInvocationResolverContext,
   SubagentLiveInvocationContext,
 } from '../subagent-conversation-navigation';
-import { Harness } from './assistant-activity-timeline-fixtures';
+import { childRunSource, Harness } from './assistant-activity-timeline-fixtures';
 
 const adapter = {
   async run() {
@@ -66,12 +67,15 @@ it('shows a persisted child callsign and color from an authorized live publicati
     displayName: 'Cedar',
     markClassName: 'bg-orange-500',
   }));
+  // The owner has not read the new child's log yet.
   const { container } = render(
-    <SubagentLiveInvocationContext value={source}>
-      <SubagentConversationPresentationContext value={presentation}>
-        <Harness adapter={adapter} initialMessages={[message('pending', ['run-one'])]} />
-      </SubagentConversationPresentationContext>
-    </SubagentLiveInvocationContext>
+    <SubagentChildRunContext value={childRunSource()}>
+      <SubagentLiveInvocationContext value={source}>
+        <SubagentConversationPresentationContext value={presentation}>
+          <Harness adapter={adapter} initialMessages={[message('pending', ['run-one'])]} />
+        </SubagentConversationPresentationContext>
+      </SubagentLiveInvocationContext>
+    </SubagentChildRunContext>
   );
   const user = userEvent.setup();
   await user.click(await screen.findByTestId('assistant-activity-summary'));
@@ -239,19 +243,25 @@ it('renders durable sibling names, roles and tasks through the shared tool rende
     id,
     role: 'assistant',
   });
+  const runs = childRunSource({
+    'child-one': { status: 'completed', toolCalls: 4 },
+    'child-two': { status: 'completed', toolCalls: 7 },
+  });
   render(
-    <SubagentConversationNavigationContext value={open}>
-      <SubagentConversationPresentationContext value={presentation}>
-        <Harness
-          adapter={adapter}
-          initialMessages={[
-            named('child-one', 'Inspect the renderer'),
-            { content: 'Next task', id: 'next', role: 'user' },
-            named('child-two', 'Inspect the native host'),
-          ]}
-        />
-      </SubagentConversationPresentationContext>
-    </SubagentConversationNavigationContext>
+    <SubagentChildRunContext value={runs}>
+      <SubagentConversationNavigationContext value={open}>
+        <SubagentConversationPresentationContext value={presentation}>
+          <Harness
+            adapter={adapter}
+            initialMessages={[
+              named('child-one', 'Inspect the renderer'),
+              { content: 'Next task', id: 'next', role: 'user' },
+              named('child-two', 'Inspect the native host'),
+            ]}
+          />
+        </SubagentConversationPresentationContext>
+      </SubagentConversationNavigationContext>
+    </SubagentChildRunContext>
   );
   const user = userEvent.setup();
   for (const fold of await screen.findAllByTestId('assistant-activity-summary')) {

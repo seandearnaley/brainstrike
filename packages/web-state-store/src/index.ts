@@ -11,6 +11,7 @@ export type {
   WebStateErrorReply,
   WebStateHydrationThread,
   WebStateLease,
+  WebStateLogAppend,
   WebStateRequests,
   WebStateSettings,
   WebStateStoreConfig,

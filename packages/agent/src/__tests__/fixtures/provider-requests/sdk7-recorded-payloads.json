@@ -172,7 +172,7 @@
             {
               "name": "read",
               "description": "Read a workspace file",
-              "parameters": {
+              "parametersJsonSchema": {
                 "required": [
                   "path"
                 ],
@@ -529,8 +529,8 @@
     }
   },
   "source": {
-    "base": "be835943559ab751c9c0267b5572104eaecbe357",
+    "base": "22888518d60b2c2dcd9717bccf58a7fc9753a712",
     "capture": "real installed SDK/provider serialization; fully intercepted fetch; no real account",
-    "sdk": "7.0.126"
+    "sdk": "7.0.142"
   }
 }

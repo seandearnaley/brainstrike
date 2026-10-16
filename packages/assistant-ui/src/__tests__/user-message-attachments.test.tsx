@@ -107,16 +107,11 @@ describe('UserMessage attachments layout', () => {
     );
 
     const bubble = await screen.findByTestId('assistant-user-message-content');
-    // The markdown renderer behind UserMessageText is lazy-loaded; on a loaded
-    // runner the dynamic import can exceed waitFor's default 1s deadline while
-    // the Suspense "Loading message…" placeholder is shown (same budget as
-    // markdown-text-runtime.test.tsx).
-    await waitFor(
-      () => {
-        expect(bubble).toHaveTextContent('look at this');
-      },
-      { timeout: 10_000 }
-    );
+    // User text renders as plain text; the wait covers the runtime's
+    // asynchronous hydration of initialMessages.
+    await waitFor(() => {
+      expect(bubble).toHaveTextContent('look at this');
+    });
     expect(within(bubble).queryByTestId('assistant-user-message-attachment')).toBeNull();
   }, 15_000);
 
