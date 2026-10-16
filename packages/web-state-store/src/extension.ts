@@ -28,8 +28,12 @@ export type WebStateExtensionHandlers = Readonly<
 >;
 
 export interface WebStateExtensionInstance {
-  /** Closes the extension's databases: when the writer closes or retires for factory reset. */
-  close(): void;
+  /**
+   * Closes the extension's databases: when the writer closes or retires for
+   * factory reset. An extension with its own pool has released it when this
+   * settles, so reset can delete it.
+   */
+  close(): void | Promise<void>;
   /**
    * Ops are namespaced by the extension (`index.search`); the writer refuses
    * to open with one that is not, or that another extension also names.
@@ -50,7 +54,10 @@ export interface WebStateExtensionInstance {
  */
 export interface WebStateExtension {
   readonly id: string;
-  open(context: WebStateWriterContext): WebStateExtensionInstance;
+  /** Opens on the lease holder, before it serves anyone; a failure fails the writer visibly. */
+  open(
+    context: WebStateWriterContext
+  ): WebStateExtensionInstance | Promise<WebStateExtensionInstance>;
   /**
    * Refuses, by throwing, a config the extension could not serve. Every
    * worker runs it when its tab opens, before it waits for the lock or

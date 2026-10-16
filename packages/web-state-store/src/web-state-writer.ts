@@ -142,6 +142,10 @@ function errorReply(error: unknown): WebStateErrorReply {
     return { error: error.message, errorKind: 'checkpoint-blocked' };
   }
   const cause = error as Error | undefined;
+  const code: unknown = cause instanceof Error ? Reflect.get(cause, 'code') : undefined;
+  if (typeof code === 'string' && cause instanceof Error) {
+    return { code, error: cause.message, errorKind: 'failed' };
+  }
   return { error: String(cause?.stack ?? cause), errorKind: 'failed' };
 }
 
@@ -293,7 +297,7 @@ async function openWriter(
   try {
     for (const extension of extensions) {
       opened.push(
-        extension.open({
+        await extension.open({
           blobs,
           config: store,
           log,
@@ -331,7 +335,7 @@ async function openWriter(
     }
   } catch (error) {
     for (const instance of opened.reverse()) {
-      instance.close();
+      await instance.close();
     }
     db.close();
     blobs.close();
@@ -364,12 +368,13 @@ function settings(db: SqliteWasmDatabase): WebStateRequests['settings']['result'
  * of the pool, so the reset can delete its directory. The lock stays held
  * until this tab reloads, so no other tab reopens the pool first.
  */
-function retire(active: Writer): void {
+async function retire(active: Writer): Promise<void> {
   writer = undefined;
   retired = true;
   refusal = { error: RETIRED, errorKind: 'unavailable' };
+  // An extension's own pool, in its own worker, is released before the reply lets reset delete it.
   for (const instance of [...active.extensions].reverse()) {
-    instance.close();
+    await instance.close();
   }
   active.db.close();
   active.blobs.close();
@@ -504,7 +509,7 @@ async function handle(active: Writer, request: WireRequest): Promise<unknown> {
         })),
       };
     case 'retire':
-      retire(active);
+      await retire(active);
       return {};
     case 'settings':
       return settings(db);

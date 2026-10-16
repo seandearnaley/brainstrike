@@ -41,6 +41,15 @@ another root; the tab keeps the File System Access handle in IndexedDB under
 that id. The root domain is given the host's notion of a
 granted path, so desktop keeps requiring absolute OS paths.
 
+The file index (`fileIndexExtension`) is a worker the writer starts on the lease
+holder, with the scoped store in its own pool, `<pool>--files`
+(`webStateExtensionPool`), which factory reset sweeps with the store's. It
+serves desktop's `ScopedIndexerPort` as `files.*` ops, authorized for the
+catalogs' live roots, collections and their files when it opens;
+`files.reauthorize` reopens it after they change. Retirement waits for it to
+release its pool. A coded failure crosses the wire with its code, so
+`WebFileIndex` raises desktop's `IndexerError`.
+
 ## Root and content identity
 
 The root lease supplies writer authority through acquisition, admitted work and

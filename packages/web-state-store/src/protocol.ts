@@ -94,6 +94,11 @@ export type WebStateErrorKind =
 /** A refused or failed request, in the desktop writer's error-reply shape. */
 export interface WebStateErrorReply {
   readonly atSeq?: number;
+  /**
+   * A failure's own code, such as an IndexerError's, so a tab can match it as
+   * desktop's port callers do; `error` is then its message alone.
+   */
+  readonly code?: string;
   readonly detail?: string;
   readonly error: string;
   readonly errorKind: WebStateErrorKind;
@@ -343,7 +348,8 @@ export const DEFAULT_WEB_STATE_STORE = 'default';
 /** Every store's OPFS pool directory starts with this; factory reset removes them all. */
 export const WEB_STATE_POOL_PREFIX = 'brainstrike-web-state-';
 
-const STORE_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
+/** No `--`: that separates a store's pool from an extension's own (`webStateExtensionPool`). */
+const STORE_NAME = /^[a-z0-9](?:[a-z0-9]|-(?!-)){0,62}$/;
 
 /** A store's lock, channel, pool directory and VFS, all from its one name. */
 export function webStateNames(name: string): {
@@ -357,4 +363,20 @@ export function webStateNames(name: string): {
   }
   const pool = `${WEB_STATE_POOL_PREFIX}${name}`;
   return { channel: pool, lock: pool, pool, vfs: pool };
+}
+
+/**
+ * The OPFS pool and VFS an extension keeps in a worker of its own (the file
+ * index): beside the store's pool, under the same prefix, so factory reset
+ * removes it with the store.
+ */
+export function webStateExtensionPool(
+  name: string,
+  part: string
+): { readonly pool: string; readonly vfs: string } {
+  if (!/^[a-z0-9]{1,16}$/.test(part)) {
+    throw new RangeError(`Invalid extension pool ${JSON.stringify(part)}`);
+  }
+  const pool = `${webStateNames(name).pool}--${part}`;
+  return { pool, vfs: pool };
 }
