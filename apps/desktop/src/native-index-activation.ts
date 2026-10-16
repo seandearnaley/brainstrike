@@ -1,7 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { CanonicalScanReceipt, CanonicalSourceScope } from '@brainstrike/canonical-ingestion';
-import { createNativeCanonicalPublication } from '@brainstrike/canonical-ingestion';
+import {
+  createNativeCanonicalCatalog,
+  createNativeCanonicalPublication,
+  createNativeScanAdmission,
+  type NativeCanonicalCatalogRecord,
+} from '@brainstrike/canonical-ingestion';
 import { getFileSizeConfig } from '@brainstrike/file-system';
 import type { HostAttachment } from '@brainstrike/host-lease';
 import type { IndexerPort, ScopedIndexerPort, VectorProfile } from '@brainstrike/indexer';
@@ -16,10 +21,6 @@ import {
   getReadyScopedIndexerPort,
 } from './indexer-runtime';
 import { NativeAuthorityTransitionError as TransitionError } from './native-authority-transition';
-import {
-  createNativeCanonicalCatalog,
-  type NativeCanonicalCatalogRecord,
-} from './native-canonical-catalog';
 import {
   NativeCanonicalInference,
   type NativeCanonicalProfileResolver,
@@ -54,7 +55,6 @@ import {
   vectorCollectionId,
 } from './native-index-partition';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from './native-index-runtime';
-import { createNativeScanAdmission } from './native-index-scan-admission';
 import {
   NATIVE_INDEX_SETTINGS_KEY,
   type NativeIndexSettings,

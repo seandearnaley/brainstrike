@@ -1,9 +1,9 @@
+import type { NativeCanonicalCatalogRecord } from './canonical-catalog.js';
 import type {
   CanonicalOperationContext,
   CanonicalScanReceipt,
   CanonicalVectorPublicationPort,
-} from '@brainstrike/canonical-ingestion';
-import type { NativeCanonicalCatalogRecord } from './native-canonical-catalog';
+} from './ports.js';
 
 /** Promise ownership on the existing source lifetime, before collection inventory loading. */
 export function createNativeScanAdmission(assertSource: () => void, signal: AbortSignal) {

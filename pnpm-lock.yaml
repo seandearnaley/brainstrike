@@ -1950,6 +1950,9 @@ importers:
       '@brainstrike/chunking-worker':
         specifier: workspace:*
         version: link:../chunking-worker
+      '@brainstrike/effect-kit':
+        specifier: workspace:*
+        version: link:../effect-kit
       '@brainstrike/file-import':
         specifier: workspace:*
         version: link:../file-import
@@ -1959,12 +1962,18 @@ importers:
       '@brainstrike/indexer':
         specifier: workspace:*
         version: link:../indexer
+      '@brainstrike/state-store':
+        specifier: workspace:*
+        version: link:../state-store
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.4
     devDependencies:
       '@brainstrike/secure-fs-native':
         specifier: workspace:*

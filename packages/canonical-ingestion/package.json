@@ -20,11 +20,14 @@
   "sideEffects": false,
   "dependencies": {
     "@brainstrike/chunking-worker": "workspace:*",
+    "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/file-import": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/indexer": "workspace:*",
+    "@brainstrike/state-store": "workspace:*",
     "@brainstrike/types": "workspace:*",
-    "@brainstrike/utils": "workspace:*"
+    "@brainstrike/utils": "workspace:*",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/secure-fs-native": "workspace:*",

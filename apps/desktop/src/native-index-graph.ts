@@ -6,6 +6,10 @@ import type {
   CanonicalWorkspaceLease,
   createNativeCanonicalPublication,
 } from '@brainstrike/canonical-ingestion';
+import {
+  decodeNativeCanonicalCatalogRecords,
+  type NativeCanonicalCatalogRecord,
+} from '@brainstrike/canonical-ingestion';
 import type { HostAttachment } from '@brainstrike/host-lease';
 import type {
   CollectionPort,
@@ -16,10 +20,6 @@ import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { DesktopProfileRuntime } from './desktop-profile-runtime';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import type { ApplicationIpcDomain } from './ipc-handlers';
-import {
-  decodeNativeCanonicalCatalogRecords,
-  type NativeCanonicalCatalogRecord,
-} from './native-canonical-catalog';
 import {
   type NativeCanonicalProfileDependencies,
   NativeCanonicalProfileResolver,

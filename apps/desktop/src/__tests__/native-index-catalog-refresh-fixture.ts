@@ -6,6 +6,7 @@ import path from 'node:path';
 import type {
   CanonicalScanReceipt,
   CanonicalWorkspaceLease,
+  NativeCanonicalCatalogRecord,
 } from '@brainstrike/canonical-ingestion';
 import type {
   IndexFileBinding,
@@ -25,7 +26,6 @@ import {
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
-import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
 import { createNativeIndexActivation } from '../native-index-activation';
 import {
   createNativeScopedSearchCapability,

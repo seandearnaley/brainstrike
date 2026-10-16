@@ -1,4 +1,10 @@
-import { createHash } from 'node:crypto';
+// The canonical catalog over the authoritative source catalog (SourceCatalogPort): desktop's native index and the
+// browser's index worker (BST-1940) scan through the same owner.
+
+import { makeThrowingDecoder } from '@brainstrike/effect-kit';
+import type { SourceCatalogPort, SourceCatalogRecord } from '@brainstrike/state-store';
+import { sha256Hex } from '@brainstrike/utils/crypto';
+import { Schema } from 'effect';
 import type {
   CanonicalCatalogFile,
   CanonicalCatalogPort,
@@ -8,10 +14,7 @@ import type {
   CanonicalOperationContext,
   CanonicalSourceScope,
   CanonicalSourceStat,
-} from '@brainstrike/canonical-ingestion';
-import { makeThrowingDecoder } from '@brainstrike/effect-kit';
-import type { SourceCatalogPort, SourceCatalogRecord } from '@brainstrike/state-store';
-import { Schema } from 'effect';
+} from './ports.js';
 
 const nullableText = Schema.NullOr(Schema.String);
 const statSchema = Schema.Struct({
@@ -117,7 +120,7 @@ function assertDiscoveryBatch(
   }
 }
 function assertHash(content: string, contentHash: string): void {
-  if (createHash('sha256').update(content).digest('hex') !== contentHash) {
+  if (sha256Hex(content) !== contentHash) {
     throw new Error('Canonical source hash does not match original content.');
   }
 }

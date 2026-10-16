@@ -66,6 +66,8 @@ it('bundles the browser entry and its chunker for the browser, with no static No
   for (const composed of [
     'packages/canonical-ingestion/src/host.ts',
     'packages/canonical-ingestion/src/scoped-publication.ts',
+    'packages/canonical-ingestion/src/canonical-catalog.ts',
+    'packages/canonical-ingestion/src/scan-admission.ts',
     'packages/chunking-worker/src/canonical.ts',
     'packages/chunking-worker/src/parsers/babel-adapter.ts',
     'packages/chunking-worker/src/parsers/tree-sitter-adapter.ts',
