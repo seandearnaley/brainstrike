@@ -1,4 +1,5 @@
 import {
+  HOST_META_TOOL_ID,
   resolveToolDiscoveryAdapter,
   type ToolDiscoveryAdapter,
 } from '@brainstrike/assistant-contract';
@@ -166,9 +167,11 @@ export function resolveHostedToolDiscoveryAdapter(
 
 type ToolSearchStepArgs = Parameters<ToolSearchProcessor['processInputStep']>[0];
 type ToolSearchStepResult = Awaited<ReturnType<ToolSearchProcessor['processInputStep']>>;
-type SearchTool = ToolSearchStepResult['tools']['search_tools'];
+/** Mastra's fixed search meta-tool id; its type indexes the vendor's own tool map. */
+const SEARCH_TOOLS_ID = HOST_META_TOOL_ID.searchTools;
+type SearchTool = ToolSearchStepResult['tools'][typeof SEARCH_TOOLS_ID];
 /** Mastra's fixed exact-selection meta-tool id (reserved alongside `search_tools`). */
-const LOAD_TOOL_ID = 'load_tool';
+const LOAD_TOOL_ID = HOST_META_TOOL_ID.loadTool;
 /**
  * Mastra types `load_tool` as optional because `search.autoLoad: true` omits
  * it. Brainstrike runs manual loading (BST-1667), so the exact-selection
@@ -673,7 +676,7 @@ export class BrainstrikeToolSearchProcessor {
       const baseToolIds = new Set(Object.keys(args.tools ?? {}));
       const loadedSanitizedIds = Object.keys(result.tools).filter(
         (toolId) =>
-          toolId !== 'search_tools' &&
+          toolId !== SEARCH_TOOLS_ID &&
           toolId !== LOAD_TOOL_ID &&
           toolId !== LIST_AVAILABLE_TOOLS_ID &&
           !baseToolIds.has(toolId)

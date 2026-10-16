@@ -1,9 +1,10 @@
+import { HOST_META_TOOL_ID } from '@brainstrike/assistant-contract';
 import type { ToolsInput } from '@mastra/core/agent';
 import { createTool, type Tool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { createMastraAgentError } from './mastra-boundary/mastra-agent-error';
 
-export const LIST_AVAILABLE_TOOLS_ID = 'list_available_tools';
+export const LIST_AVAILABLE_TOOLS_ID = HOST_META_TOOL_ID.listAvailableTools;
 const PAGE_SIZE = 50;
 const DESCRIPTION_LIMIT = 160;
 
