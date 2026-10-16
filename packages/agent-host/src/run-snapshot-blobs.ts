@@ -1,32 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { BLOBS_DIR, type BlobContent, sha256Hex } from '@brainstrike/state-store';
+import { BLOBS_DIR } from '@brainstrike/state-store';
 import { decodeRunSnapshot } from './host-event-decoding.js';
-import type { HostEvent, HostRunSnapshot } from './protocol.js';
-
-/**
- * ADR-0011 amendment: a committed run.started keeps its run snapshot (the run
- * configuration: system prompt, child system, captured intent, tool
- * identities) as one content-addressed blob, which every run of the same
- * configuration shares through the store's blob references. The row keeps the
- * snapshot's hash; reading the row resolves it to the exact snapshot the run
- * committed.
- */
-export function storedRunSnapshot(event: HostEvent): {
-  readonly blobs: readonly BlobContent[];
-  readonly body: Readonly<Record<string, unknown>> & { readonly type: string };
-} {
-  if (event.type !== 'run.started' || event.snapshot === undefined) {
-    return { blobs: [], body: event };
-  }
-  const { snapshot, ...started } = event;
-  const content = JSON.stringify(snapshot);
-  const hash = sha256Hex(content);
-  return { blobs: [{ content, hash }], body: { ...started, blobRefs: [hash], snapshotRef: hash } };
-}
+import type { HostRunSnapshot } from './protocol.js';
 
 export { takeRunSnapshotRef } from './host-event-decoding.js';
+export { storedRunSnapshot } from './host-event-encoding.js';
 
 /**
  * Resolved snapshots by store root and content hash. Blobs are immutable, so a

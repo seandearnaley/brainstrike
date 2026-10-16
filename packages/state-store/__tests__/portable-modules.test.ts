@@ -6,6 +6,7 @@ import { expect, it } from 'vitest';
 const PORTABLE = [
   'catalog-domains.mjs',
   'deletion-domain.mjs',
+  'large-text.ts',
   'run-log.mjs',
   'schema.mjs',
   'state-deletion.ts',

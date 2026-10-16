@@ -1,10 +1,26 @@
 import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
 import type { HydrationThread, LogRow, StateStore } from '@brainstrike/state-store';
-import { readHostRow, readHostThreadHistory } from './event-storage.js';
 import type { HostHookTrustStore } from './hook-trust.js';
 import type { HostLogRow, HostResults } from './protocol.js';
 
 type ListedThread = HostResults['thread/list']['threads'][number];
+
+/**
+ * How a host reads its stored rows as host rows: desktop resolves their blobs
+ * from its data root (`nodeHostRowReader`), the browser from its writer
+ * (BST-1940). The catalog folds either the same way.
+ */
+export interface HostRowReader {
+  readHistory(
+    threads: ReadonlySet<string>,
+    threadId: string,
+    fromSeq: number
+  ): Promise<HostLogRow[]>;
+  readRow(row: LogRow): Promise<HostLogRow>;
+}
+
+/** The store facts the catalog hydrates from: one hydration read, and the blob collection hold. */
+export type HostCatalogStore = Pick<StateStore, 'holdBlobGc' | 'readHydration'>;
 
 /** A damaged thread's refusal: its text is written for the person who opened or ran it. */
 export class HostThreadDamagedRefusal extends BoundaryFailureError {
@@ -35,7 +51,7 @@ const messageOf = (cause: unknown): string =>
 
 /** A damaged thread keeps its first row when that still decodes: its origin lists a child under its parent. */
 async function damaged(
-  store: HostEventStore,
+  rows: HostRowReader,
   damage: string,
   first: LogRow | undefined
 ): Promise<DecodedThread> {
@@ -43,7 +59,7 @@ async function damaged(
     return { damage };
   }
   try {
-    return { damage, head: await readHostRow(store, first) };
+    return { damage, head: await rows.readRow(first) };
   } catch {
     return { damage };
   }
@@ -53,17 +69,14 @@ async function damaged(
  * A thread's hydration rows, decoded. Damage the store reports (a crc or seq failure) and a row the host cannot decode
  * (a missing or altered blob, an event its schema rejects) make the thread unreadable.
  */
-async function decodeThread(
-  store: HostEventStore,
-  stored: HydrationThread
-): Promise<DecodedThread> {
+async function decodeThread(rows: HostRowReader, stored: HydrationThread): Promise<DecodedThread> {
   if (stored.damage) {
-    return damaged(store, stored.damage.message, stored.rows[0]);
+    return damaged(rows, stored.damage.message, stored.rows[0]);
   }
   try {
-    return { rows: await Promise.all(stored.rows.map((row) => readHostRow(store, row))) };
+    return { rows: await Promise.all(stored.rows.map((row) => rows.readRow(row))) };
   } catch (cause) {
-    return damaged(store, messageOf(cause), stored.rows[0]);
+    return damaged(rows, messageOf(cause), stored.rows[0]);
   }
 }
 
@@ -82,7 +95,8 @@ export class HostThreadCatalog {
    * so one unreadable row never stops the host from opening.
    */
   async hydrate(
-    store: HostEventStore,
+    store: HostCatalogStore,
+    rows: HostRowReader,
     threads: Set<string>,
     fold: (row: HostLogRow) => void
   ): Promise<void> {
@@ -90,7 +104,7 @@ export class HostThreadCatalog {
       const { createdAt, threadId, updatedAt } = stored;
       threads.add(threadId);
       this.times.set(threadId, { createdAt, updatedAt });
-      const decoded = await decodeThread(store, stored);
+      const decoded = await decodeThread(rows, stored);
       if ('damage' in decoded) {
         this.damaged.set(threadId, decoded.damage);
         if (decoded.head) {
@@ -152,7 +166,7 @@ export class HostThreadCatalog {
 
   /** A thread's committed history; a damaged thread refuses with the reason its listing names. */
   readHistory(
-    store: HostEventStore,
+    rows: HostRowReader,
     threads: ReadonlySet<string>,
     threadId: string,
     fromSeq: number
@@ -163,7 +177,7 @@ export class HostThreadCatalog {
         new HostThreadDamagedRefusal(`This thread's history cannot be read: ${damage}`)
       );
     }
-    return readHostThreadHistory(store, threads, threadId, fromSeq);
+    return rows.readHistory(threads, threadId, fromSeq);
   }
 
   assertRunnable(threadId: string): void {

@@ -39,6 +39,10 @@
       "types": "./dist/event-schema.d.ts",
       "default": "./dist/event-schema.js"
     },
+    "./large-text": {
+      "types": "./dist/large-text.d.ts",
+      "default": "./dist/large-text.js"
+    },
     "./native-children": {
       "types": "./dist/native-children.d.ts",
       "default": "./dist/native-children.js"
