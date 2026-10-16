@@ -187,6 +187,9 @@ export const PROVIDER_CASSETTE_SCENARIOS: readonly ProviderCassetteScenario[] = 
     guards: '#3713',
     id: 'openrouter-empty-args-tool-call',
     model: 'openrouter::z-ai/glm-5.3',
+    // At the provider's own pace the call's input deltas commit before the call
+    // completes, as they do live; served at once, the completed call lands first.
+    pace: 1,
     prompt: `Read notes.md and summarize it in one sentence. ${NO_ROOT}`,
   },
   {
