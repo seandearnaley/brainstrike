@@ -718,6 +718,15 @@ export function hostEventSchema(json: JsonSchemaFactory) {
       ...RunFields,
       reason: z.literal('branched-thread'),
     }),
+    /**
+     * Memory the run launched (Mastra's buffered observation) failed after its
+     * `run.finished`; the run's outcome stands. Its cause is in the host log.
+     */
+    z.strictObject({
+      type: z.literal('memory.settlement.failed'),
+      ...RunFields,
+      detail: z.string().min(1),
+    }),
     z.strictObject({
       type: z.literal('provider.request.prepared'),
       ...RunFields,

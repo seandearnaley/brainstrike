@@ -1,6 +1,6 @@
 import { readOpenRouterBilledCost } from '@brainstrike/agent/provider-runtime';
 import { createLogger } from '@brainstrike/logging';
-import { finishHostRun } from './core-run-lifecycle.js';
+import { finishHostRun, type HostRunOwnerLifetime } from './core-run-lifecycle.js';
 import type { HostRunState } from './core-state.js';
 import type { HostEvent, HostLogRow } from './protocol.js';
 
@@ -61,14 +61,14 @@ export function finishHostRunWithProviderBilling(
   outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'],
   detail: string | undefined,
   closing: () => boolean,
-  closeOwner: (run: HostRunState) => Promise<void>,
+  owner: HostRunOwnerLifetime,
   readHistory: () => Promise<readonly HostLogRow[]>,
   publish: (
     event: Extract<HostEvent, { type: 'run.finished' }>,
     commit: () => void
   ) => Promise<unknown>
 ): Promise<void> {
-  return finishHostRun(run, outcome, detail, closing, closeOwner, async (event, commit) => {
+  return finishHostRun(run, outcome, detail, closing, owner, async (event, commit) => {
     const provider =
       run.admission?.configuration.provider ?? run.snapshot?.configuration['provider'];
     const history =
