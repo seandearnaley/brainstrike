@@ -137,3 +137,31 @@ export class HostChildRunFold {
     return this.waiting.size > 0 ? 'needs-input' : 'running';
   }
 }
+
+type UnavailableChildRun = Extract<SubagentChildRun, { status: 'unavailable' }>;
+
+/**
+ * The parents whose `thread/children` listing currently fails, each with its
+ * reason. A child no listing has shown reads unavailable while any fails, so
+ * its card never falls back to "working"; only that parent's own successful
+ * listing clears its failure, never a descendant's.
+ */
+export class HostChildListingFailures {
+  private readonly failures = new Map<string, UnavailableChildRun>();
+
+  /** A parent's listing settled; whether the unlisted read changed. */
+  record(parentThreadId: string, failure: string | undefined): boolean {
+    const before = this.unlisted();
+    if (failure === undefined) {
+      this.failures.delete(parentThreadId);
+    } else if (this.failures.get(parentThreadId)?.reason !== failure) {
+      this.failures.set(parentThreadId, { reason: failure, status: 'unavailable', toolCalls: 0 });
+    }
+    return this.unlisted() !== before;
+  }
+
+  /** What a child no listing has shown reads; undefined while every listing succeeds. */
+  unlisted(): UnavailableChildRun | undefined {
+    return this.failures.values().next().value;
+  }
+}

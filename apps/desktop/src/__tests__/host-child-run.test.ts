@@ -4,7 +4,7 @@ import answerless from '@brainstrike/test-utils/fixtures/committed-host-answerle
 import answered from '@brainstrike/test-utils/fixtures/committed-host-incremental-tool-input.json';
 import { expect, test } from 'vitest';
 import { z } from 'zod';
-import { HostChildRunFold } from '../renderer/host-child-run';
+import { HostChildListingFailures, HostChildRunFold } from '../renderer/host-child-run';
 
 const row = (seq: number, event: Record<string, unknown>): HostLogRow =>
   ({ event, seq, threadId: 'child', ts: seq }) as unknown as HostLogRow;
@@ -65,6 +65,29 @@ test('a child whose log cannot be read is unavailable, with the reason', () => {
   const lost = fold.apply(rows, 'Host is closing');
   expect(lost).toEqual({ reason: 'Host is closing', status: 'unavailable', toolCalls: 0 });
   expect(fold.apply(rows, 'Host is closing')).toBe(lost);
+});
+
+// Codex review on #3719: listing failures belong to the parent whose listing
+// failed. A descendant's successful listing never clears the root's failure,
+// whose missing child would otherwise read "working" again.
+test('a listing failure clears only when that parent lists again', () => {
+  const failures = new HostChildListingFailures();
+  expect(failures.unlisted()).toBeUndefined();
+  expect(failures.record('root', 'Delegated conversations could not be listed.')).toBe(true);
+  const unlisted = failures.unlisted();
+  expect(unlisted).toEqual({
+    reason: 'Delegated conversations could not be listed.',
+    status: 'unavailable',
+    toolCalls: 0,
+  });
+  expect(failures.record('root', 'Delegated conversations could not be listed.')).toBe(false);
+  expect(failures.unlisted()).toBe(unlisted);
+
+  expect(failures.record('child-a', undefined)).toBe(false);
+  expect(failures.unlisted()).toBe(unlisted);
+
+  expect(failures.record('root', undefined)).toBe(true);
+  expect(failures.unlisted()).toBeUndefined();
 });
 
 test('a child that has not started reports no delegated invocation', () => {
