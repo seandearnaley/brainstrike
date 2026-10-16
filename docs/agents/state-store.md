@@ -19,6 +19,14 @@ amendment) runs the same `schema.mjs`, `run-log.mjs`, `catalog-domains.mjs`,
 `state-truth-reader.ts` and their imports on sqlite-wasm. Keep those modules free of static Node imports; reach a Node-only
 fast path through `process.getBuiltinModule`, as the run-log crc does.
 
+The web app's writer worker (`@brainstrike/web-writer`) composes the derived
+index beside the state DB as a writer extension, in the same pool and under the
+same lease. Extension ids are part of the wire protocol, so tabs of builds that
+compose different extensions refuse each other's writer. The index's projection
+identity names the app build in place of desktop's producer-source hash; a tab
+without a build is refused, whether it would lead or follow, and the index
+rebuilds from the log when the build changes.
+
 ## Root and content identity
 
 The root lease supplies writer authority through acquisition, admitted work and
