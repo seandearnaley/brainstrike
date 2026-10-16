@@ -1,14 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import type {
-  CanonicalOperationContext,
-  CanonicalWorkspaceRuntimeDependencies,
-} from '@brainstrike/canonical-ingestion';
+import type { CanonicalOperationContext } from '@brainstrike/canonical-ingestion';
 import { Schema } from 'effect';
 import {
   assertDiscoveredSource,
   assertMode,
   assertVectorManifestAuthority,
   type CanonicalCollectionDependencies,
+  type CanonicalRemoteWorkspaceDependencies,
   capturedAuthority,
   isOwnedCleanup,
   recheckCallbackAuthority,
@@ -30,7 +28,11 @@ import {
 } from './canonical-utility-protocol';
 import { assertCanonicalRequest } from './canonical-utility-request-authority';
 
-export type { CanonicalCollectionDependencies } from './canonical-utility-authority';
+export type {
+  CanonicalCollectionDependencies,
+  CanonicalRemoteIngestion,
+  CanonicalRemoteWorkspaceDependencies,
+} from './canonical-utility-authority';
 export interface CanonicalWorkspaceAttachment {
   cancel(): Promise<void>;
   close(): Promise<void>;
@@ -64,7 +66,7 @@ export class CanonicalUtilityParent {
   }
 
   async attachWorkspace(
-    dependencies: CanonicalWorkspaceRuntimeDependencies
+    dependencies: CanonicalRemoteWorkspaceDependencies
   ): Promise<CanonicalWorkspaceAttachment> {
     assertMode(dependencies);
     const lease = dependencies.source.lease;

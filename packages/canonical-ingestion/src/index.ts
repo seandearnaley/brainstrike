@@ -1,3 +1,4 @@
+export { createNodeChunker, type NodeChunkerOptions } from '@brainstrike/chunking-worker/node';
 export {
   type CanonicalIngestionDependencies,
   CanonicalIngestionHost,

@@ -6,7 +6,6 @@ import path from 'node:path';
 import type {
   CanonicalScanReceipt,
   CanonicalWorkspaceLease,
-  CanonicalWorkspaceRuntimeDependencies,
 } from '@brainstrike/canonical-ingestion';
 import type {
   IndexFileBinding,
@@ -20,6 +19,7 @@ import { vi } from 'vitest';
 import { CanonicalUtilityChild } from '../canonical-utility-child';
 import {
   type CanonicalCollectionDependencies,
+  type CanonicalRemoteWorkspaceDependencies,
   CanonicalUtilityParent,
 } from '../canonical-utility-parent';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
@@ -281,7 +281,7 @@ export async function fixture(withWorkspace = false, discovery = false) {
     subscribe: async () => ({ close: async () => {} }),
   };
   fixtureMocks.manager.attachCanonicalWorkspace.mockImplementation(
-    async (dependencies: CanonicalWorkspaceRuntimeDependencies) => {
+    async (dependencies: CanonicalRemoteWorkspaceDependencies) => {
       if (dependencies.mode !== 'TEXT') {
         throw new Error('Workspace refresh fixture requires explicit TEXT admission.');
       }

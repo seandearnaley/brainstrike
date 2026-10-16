@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import type { NodeChunkerOptions } from '@brainstrike/chunking-worker/node';
+import { createNodeChunker } from '@brainstrike/chunking-worker/node';
 import type { CanonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
 import { type ScopedFilePlan, type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
 import { describe, expect, it, vi } from 'vitest';
@@ -24,7 +24,7 @@ const profile: VectorProfile = {
   revision: 'a'.repeat(40),
   tokenCap: 256,
 };
-const parser: NodeChunkerOptions = { parser: 'oxc' as const };
+const chunker = createNodeChunker({ parser: 'oxc' });
 const hash = (content: string): string => createHash('sha256').update(content).digest('hex');
 function deferred() {
   let resolve = (): void => {};
@@ -156,9 +156,9 @@ async function fixture(
   };
   const host = new CanonicalIngestionHost({
     catalog,
+    chunker,
     inference,
     mode: 'VECTOR',
-    parser,
     publication,
     source,
   });
@@ -182,8 +182,8 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     const f = await fixture();
     const host = new CanonicalIngestionHost({
       catalog: f.catalog,
+      chunker,
       mode: 'TEXT',
-      parser,
       publication: f.publication,
       source: f.source,
     });
@@ -513,9 +513,9 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     const f = await fixture();
     const dependencies = {
       catalog: f.catalog,
+      chunker,
       inference: f.inference,
       mode: 'VECTOR' as const,
-      parser,
       publication: f.publication,
       source: f.source,
     };

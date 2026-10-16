@@ -1,16 +1,12 @@
-import { createHash, randomUUID } from 'node:crypto';
-import {
-  createNodeChunker,
-  type NodeChunker,
-  type NodeChunkerOptions,
-} from '@brainstrike/chunking-worker/node';
+import type { CanonicalChunker } from '@brainstrike/chunking-worker/canonical';
 import type { CanonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
 import {
   type ScopedFilePlan,
   type ScopedManifestFile,
   type VectorProfile,
   vectorProfileHash,
-} from '@brainstrike/indexer';
+} from '@brainstrike/indexer/browser';
+import { sha256Hex } from '@brainstrike/utils/crypto';
 import { chunkCanonicalRead } from './canonical-chunk-eligibility.js';
 import type {
   CanonicalCatalogFile,
@@ -69,12 +65,16 @@ interface DiscoveryOutcome {
 }
 interface CanonicalIngestionCommon {
   /**
+   * The canonical chunker: `createNodeChunker` in a Node host,
+   * `createBrowserChunker` in the browser's index worker.
+   */
+  readonly chunker: CanonicalChunker;
+  /**
    * The partition discovered workspace sources join: the workspace's collection,
    * or null for the native TEXT partition (BST-1988). A host that never discovers
    * files (a retained collection) omits it, and discovery without it is refused.
    */
   readonly managedCollectionId?: string | null;
-  readonly parser: NodeChunkerOptions;
   readonly source: CanonicalSourcePort;
 }
 export type CanonicalIngestionDependencies = CanonicalIngestionCommon &
@@ -97,7 +97,7 @@ export class CanonicalIngestionHost {
   private active: ActiveScan | undefined;
   private closed = false;
   private cleanupFailure: unknown;
-  private readonly chunk: NodeChunker;
+  private readonly chunk: CanonicalChunker;
   private readonly inferenceRequests = new Set<string>();
   private readonly failedAborts = new Set<CanonicalScanTicket>();
 
@@ -126,7 +126,10 @@ export class CanonicalIngestionHost {
         'Explicit VECTOR requires real inference and scoped vector publication dependencies.'
       );
     }
-    this.chunk = createNodeChunker(dependencies.parser);
+    if (typeof dependencies.chunker !== 'function') {
+      throw new Error('Canonical ingestion requires its canonical chunker.');
+    }
+    this.chunk = dependencies.chunker;
   }
 
   async scan(request: CanonicalScanRequest): Promise<CanonicalScanReceipt> {
@@ -674,7 +677,7 @@ export class CanonicalIngestionHost {
     if (dependencies.mode !== 'VECTOR') {
       throw new Error('VECTOR inference is not admitted.');
     }
-    const requestId = `${context.requestId}:${randomUUID()}`;
+    const requestId = `${context.requestId}:${crypto.randomUUID()}`;
     this.inferenceRequests.add(requestId);
     const errors: unknown[] = [];
     let cancellation: Promise<void> | undefined;
@@ -925,7 +928,7 @@ function validateVectorPlan(
     snapshot.sourcePath !== file.sourcePath ||
     snapshot.embeddingSetId !== file.embeddingSetId ||
     snapshot.content !== payload.content ||
-    plan.contentHash !== createHash('sha256').update(payload.content).digest('hex') ||
+    plan.contentHash !== sha256Hex(payload.content) ||
     !('providedChunks' in snapshot) ||
     snapshot.providedChunks.length !== payload.providedChunks.length ||
     snapshot.providedChunks.some((actual, index) => {

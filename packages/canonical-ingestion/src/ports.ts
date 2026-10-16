@@ -1,4 +1,4 @@
-import type { ChunkingRequestOptions } from '@brainstrike/chunking-worker/node';
+import type { ChunkingRequestOptions } from '@brainstrike/chunking-worker/canonical';
 import type { CanonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
 import type {
   ScopedCoverage,
@@ -6,7 +6,7 @@ import type {
   ScopedManifestFile,
   ScopedManifestResult,
   VectorProfile,
-} from '@brainstrike/indexer';
+} from '@brainstrike/indexer/browser';
 
 export type CanonicalSourceScope =
   | { readonly kind: 'workspace'; readonly rootId: string }

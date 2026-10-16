@@ -5,7 +5,12 @@ import { tokenizerAssetPlugin } from '../../scripts/tiktoken-asset-plugin';
 export default defineConfig((options) => ({
   clean: !options.watch,
   dts: true,
-  entry: ['src/index.ts', 'src/chunking.worker.ts', 'src/source-range-validation.ts'],
+  entry: [
+    'src/index.ts',
+    'src/canonical.ts',
+    'src/chunking.worker.ts',
+    'src/source-range-validation.ts',
+  ],
   esbuildOptions(options) {
     // Ensure CJS packages are properly converted to ESM for browser
     options.mainFields = ['browser', 'module', 'main'];

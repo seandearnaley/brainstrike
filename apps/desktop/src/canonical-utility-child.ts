@@ -223,6 +223,7 @@ export class CanonicalUtilityChild {
       const dependencies: CanonicalWorkspaceRuntimeDependencies = {
         ...mode,
         catalog,
+        chunker: publicRuntime.createNodeChunker(config.parser),
         managedCollectionId: config.managedCollectionId,
         onError: (operation, error) =>
           this.send({
@@ -242,7 +243,6 @@ export class CanonicalUtilityChild {
           }),
         // Main observes the same watch health directly through its captured lease.
         onWatchHealth: () => {},
-        parser: config.parser,
         publication,
         request: {
           ...config.request,
@@ -262,7 +262,7 @@ export class CanonicalUtilityChild {
       session.runtime = new publicRuntime.CanonicalIngestionHost({
         ...mode,
         catalog,
-        parser: config.parser,
+        chunker: publicRuntime.createNodeChunker(config.parser),
         publication,
         source: new publicRuntime.CanonicalWorkspaceSource({
           indexingPolicyPreset: config.indexingPolicyPreset,

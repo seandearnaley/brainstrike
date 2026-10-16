@@ -24,7 +24,12 @@ by a static import in the store's modules.
 ## Publication
 
 Use the canonical producer's chunks, spans, hashes and syntax metadata; do not
-parse or split them again. A transaction rejects stale preparation and atomically
+parse or split them again. The canonical ingestion host is given its chunker:
+desktop's utility builds `createNodeChunker` from the parser main names (main
+never chunks), and the browser index worker uses `createBrowserChunker`, Babel
+plus the vendored tree-sitter grammar. `@brainstrike/canonical-ingestion/browser`
+is the host without the mounted-lease source, and `browser-entry.test.ts`
+fails on a static Node import reachable from it. A transaction rejects stale preparation and atomically
 changes chunks, text indexes, vectors and graph data. Complete catalog inventories,
 acknowledged bindings and source revisions authorize publication/removal; a path
 match or partial scan is not authority.
