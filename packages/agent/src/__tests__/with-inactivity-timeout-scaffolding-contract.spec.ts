@@ -10,8 +10,9 @@
  * back onto the provider's silence window, mid-execution.
  *
  * Pinned here rather than in the main spec purely to keep that file under the
- * per-file line cap. Mastra's own closed, typed scaffolding list is pinned by
- * `../mastra/__tests__/mastra-tool-execution-part-kind.spec.ts`.
+ * per-file line cap. Mastra's own closed, typed scaffolding list was pinned by
+ * `../mastra/__tests__/mastra-tool-execution-part-kind.spec.ts` (removed with
+ * ADR-0022).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StreamStalledError, withInactivityTimeout } from '../stream/with-inactivity-timeout';

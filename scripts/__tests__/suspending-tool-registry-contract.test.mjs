@@ -78,8 +78,9 @@ const REGISTERED_SUSPENDING_TOOL_MODULES = [
 const ACKNOWLEDGED_NON_DECLARING_MODULES = [
   // (permission-tool-gate.ts left this list at the @mastra/core 1.56 idiom
   // adoption: the self-approving exception it read hasSuspendSchema for is
-  // gone — every ask tool takes the requireApproval clone.)
-  'packages/agent/src/permissions/plan-mode-tool-gate.ts',
+  // gone — every ask tool takes the requireApproval clone. plan-mode-tool-gate.ts
+  // left it when ADR-0022 retired the engine: its only reader of the property,
+  // the suspend-storage fail-safe, had no caller left and was deleted.)
 ];
 
 const SUSPEND_SCHEMA_TOKEN = /\bsuspendSchema\b/;

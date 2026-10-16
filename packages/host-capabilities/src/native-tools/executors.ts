@@ -335,8 +335,7 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
   // The two SUSPENDING native tools are registered as the factory-returned
   // Mastra Tool objects DIRECTLY (not re-wrapped in the registry's
   // { description, execute, id, inputSchema } literal shape): re-wrapping
-  // would drop suspendSchema/resumeSchema and break both suspension and the
-  // hasSuspendSchema fail-safe/plan-mode keep-rule. Both are
+  // would drop suspendSchema/resumeSchema and break suspension. Both are
   // `localProvider: 'unregistered'`: the built-in local provider has no
   // suspend/resume, so no fold builds them for it.
   [NATIVE_TOOL_ID.askUser]: () => createAskUserTool(),

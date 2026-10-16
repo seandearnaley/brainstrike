@@ -493,8 +493,8 @@ describe('assistant-tools multi-root read tools', () => {
   describe('suspending tool registration (submitPlan / askUser)', () => {
     it('registers the factory Tool objects directly so they keep suspendSchema', () => {
       // Re-wrapping in the registry's { description, execute, id, inputSchema }
-      // literal shape would DROP suspendSchema and break suspension + the
-      // hasSuspendSchema fail-safe. The built entries must carry it.
+      // literal shape would DROP suspendSchema and break suspension. The built
+      // entries must carry it.
       const tools = buildHostNativeTools({ provider: 'anthropic' } as RuntimeData);
       expect(
         (tools['brainstrike.submitPlan'] as { suspendSchema?: unknown }).suspendSchema

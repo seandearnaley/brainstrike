@@ -3,8 +3,9 @@
  * holds open (a background leg's parent while its children run). The stream
  * judges only its OWN producer; held work is judged by its own watchdog while
  * that watch runs, and otherwise bounded at the first-output window.
- * The Mastra router and the production part shapes are pinned by
- * `../mastra/__tests__/mastra-background-watchdog-holds.spec.ts`.
+ * The Mastra router and the production part shapes were pinned by
+ * `../mastra/__tests__/mastra-background-watchdog-holds.spec.ts` (removed with
+ * ADR-0022).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {

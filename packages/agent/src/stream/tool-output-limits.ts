@@ -156,7 +156,7 @@ export function resolveToolResultBudgetForModel(
  * BST-1195: the decoded-text domain-projection ruler. Desktop's purpose-built
  * TEXT projectors (`workspace-model-projection-helpers.ts`) and this
  * package's own domain-projection runtime guards
- * (`../mastra/tool-model-output.ts`: `assertDomainProjectionWithinBudget` and
+ * (`../tool-projection/tool-model-output.ts`: `assertDomainProjectionWithinBudget` and
  * `composeHookContextWithProjection`) share this ONE measurement
  * implementation. PR #2334 review caught exactly the earlier ruler
  * divergence: the projectors switched to decoded length, but the runtime

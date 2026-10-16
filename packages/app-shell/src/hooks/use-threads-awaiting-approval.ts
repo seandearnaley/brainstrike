@@ -43,7 +43,8 @@ import { useAssistantThreadHostRuns } from '../assistant-thread-host-context';
  * run event carrying the SAME `toolCallId`, on the PAUSING leg, BEFORE the
  * pause row. Observed order on the live loop, pinned in
  * `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`:
- * `['tool.started', 'tool.approval.requested']`. Matching `tool.started` on
+ * `['tool.started', 'tool.approval.requested']` (the spec was removed with
+ * ADR-0022 along with the loop it drove). Matching `tool.started` on
  * `toolCallId` alone would therefore let every pause answer ITSELF and the
  * "needs you" glyph would never light for anyone.
  *
@@ -84,17 +85,19 @@ import { useAssistantThreadHostRuns } from '../assistant-thread-host-context';
  * user was genuinely still being asked about B. That producer shape is pinned
  * against the live loop in
  * `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`
- * ("PAUSES ONE CALL AT A TIME") and its projection outcome in this hook's
- * integration lane. The defect predates BST-1440: with the older producer it
- * merely surfaced later, once `tool.completed` cleared the first pause.
+ * ("PAUSES ONE CALL AT A TIME"; removed with ADR-0022) and its projection
+ * outcome in this hook's integration lane. The defect predates BST-1440: with
+ * the older producer it merely surfaced later, once `tool.completed` cleared
+ * the first pause.
  *
  * The resume-leg re-yield is what makes this projection clear on ANSWER rather
- * than on completion (BST-1440), and it is produced by `makeResumedStartChunks`
- * in `packages/agent/src/mastra/agent-streaming.ts` — Mastra never replays a
- * resumed step's `tool-call` part, so that seam synthesises the start and hands
- * it to the same tool-lifecycle chunk maker the mainline uses. Until it did,
- * `tool.started` never appeared on a resume leg at all and the glyph stayed
- * lit, for a call the user had already approved, until `tool.completed` landed.
+ * than on completion (BST-1440), and the shipped loop produced it with
+ * `makeResumedStartChunks` in `packages/agent/src/mastra/agent-streaming.ts`
+ * (removed with ADR-0022) — Mastra never replays a resumed step's `tool-call`
+ * part, so that seam synthesised the start and handed it to the same
+ * tool-lifecycle chunk maker the mainline used. Until it did, `tool.started`
+ * never appeared on a resume leg at all and the glyph stayed lit, for a call
+ * the user had already approved, until `tool.completed` landed.
  *
  * Exported for the real-PGlite lane
  * (`__tests__/use-threads-awaiting-approval.integration.test.ts`), which proves

@@ -1,15 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
-
-const { localInferenceImport } = vi.hoisted(() => ({
-  localInferenceImport: vi.fn(),
-}));
-
-vi.mock('../providers/local', () => {
-  localInferenceImport();
-  return {
-    createLlmHostChatModel: vi.fn(),
-  };
-});
+import { describe, expect, it } from 'vitest';
 
 describe('hosted Web agent entrypoint', () => {
   it('exposes request-size configuration without loading the assistant runtime', async () => {
@@ -23,7 +12,6 @@ describe('hosted Web agent entrypoint', () => {
       'resolveAssistantRequestBodyLimitBytes',
     ]);
     expect(requestBoundaryModule.resolveAssistantRequestBodyLimitBytes('1024')).toBe(1024);
-    expect(localInferenceImport).not.toHaveBeenCalled();
   });
 
   it('exports the complete hosted assistant boundary without local inference APIs', async () => {
@@ -49,7 +37,6 @@ describe('hosted Web agent entrypoint', () => {
     expect('assistantDataStreamSessions' in hostedWebModule).toBe(false);
     expect('LocalLlmBackend' in hostedWebModule).toBe(false);
     expect('createLocalHostEmbeddingModel' in hostedWebModule).toBe(false);
-    expect(localInferenceImport).not.toHaveBeenCalled();
   });
 
   it('fails loudly instead of running the retired built-in local chat provider', async () => {
@@ -58,6 +45,5 @@ describe('hosted Web agent entrypoint', () => {
     expect(() => hostedWebModule.createProvider('local', undefined, undefined, {})).toThrow(
       'Provider local serves embeddings only'
     );
-    expect(localInferenceImport).not.toHaveBeenCalled();
   });
 });

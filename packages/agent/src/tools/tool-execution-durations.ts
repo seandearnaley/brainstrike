@@ -17,10 +17,10 @@
  * run.step.finished, run.finished` — "no second `tool.started`", with
  * `tool.completed` FIRST on the leg, so nothing precedes it that a consumer
  * could treat as an execution-start marker. True when measured; FALSE since
- * BST-1440, which makes the resume leg synthesise a `tool.started`
- * (`makeResumedStartChunks` in `../mastra/agent-streaming.ts`) so the Threads
- * panel's "needs you" signal clears when the user ANSWERS rather than when the
- * tool finishes.
+ * BST-1440, which made the shipped resume leg synthesise a `tool.started`
+ * (`makeResumedStartChunks` in `../mastra/agent-streaming.ts`, removed with
+ * ADR-0022) so the Threads panel's "needs you" signal cleared when the user
+ * ANSWERED rather than when the tool finished.
  *
  * That does NOT make this module redundant. `durationMs` still wins outright in
  * `collectToolDurations`, so the measured value is what users see; the resumed

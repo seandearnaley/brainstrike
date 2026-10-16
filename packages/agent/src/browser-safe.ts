@@ -1,9 +1,10 @@
 /**
  * Browser-safe agent exports.
  *
- * This entry intentionally excludes the local Transformers-backed runtime from
- * `./providers/local`, which introduces top-level await and async chunk
- * initialization when bundled for the browser.
+ * This boundary was drawn to keep the Transformers-backed local chat runtime
+ * (top-level await and async chunk initialization when bundled for the
+ * browser) out of browser bundles. That runtime was retired with the local chat
+ * engine (#3685); the entry stays as the narrow subset browser code imports.
  */
 
 export {
