@@ -5,6 +5,7 @@ import {
   foldHostRuns,
   type PendingHostApproval,
 } from '@brainstrike/agent-host/thread-view';
+import { describeBoundaryError } from '@brainstrike/assistant-contract';
 import type { SubagentChildRun, SubagentChildRunSource } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { HostChildRunFold } from './host-child-run';
@@ -204,6 +205,8 @@ export class HostTreeApprovals implements SubagentChildRunSource {
   private interactions = NO_INTERACTIONS;
   private answered = NO_ANSWERED;
   private runs: ReadonlyMap<string, SubagentChildRun> = new Map();
+  /** While listing children fails: what any child the tree does not follow reads. */
+  private unlisted: Extract<SubagentChildRun, { status: 'unavailable' }> | undefined;
   private running = NOT_RUNNING;
   private closed = false;
 
@@ -217,8 +220,12 @@ export class HostTreeApprovals implements SubagentChildRunSource {
 
   readonly getSnapshot = (): readonly HostTreeApproval[] => this.snapshot;
 
-  /** A delegated child's run state; undefined until its committed log is read. */
-  readonly read = (threadId: string): SubagentChildRun | undefined => this.runs.get(threadId);
+  /**
+   * A delegated child's run state; undefined until its committed log is read,
+   * and unavailable, with the reason, while the tree cannot list it.
+   */
+  readonly read = (threadId: string): SubagentChildRun | undefined =>
+    this.runs.get(threadId) ?? (this.threads.has(threadId) ? undefined : this.unlisted);
 
   /** The viewed thread's background children still working (Live QA 2026-10-16). */
   readonly getRunning = (): HostTreeRunning => this.running;
@@ -288,6 +295,7 @@ export class HostTreeApprovals implements SubagentChildRunSource {
   private listChildren(threadId: string): void {
     this.client.request('thread/children', { threadId }).then(
       ({ children }) => {
+        this.listed(undefined);
         for (const child of children) {
           if (this.closed || this.threads.has(child.threadId)) {
             continue;
@@ -300,8 +308,25 @@ export class HostTreeApprovals implements SubagentChildRunSource {
       },
       (error: unknown) => {
         logger.error('Delegated threads could not be listed', { error, threadId });
+        this.listed(describeBoundaryError(error));
       }
     );
+  }
+
+  /**
+   * Whether the last listing failed, and why. A failure gives each child the
+   * tree does not follow an unavailable read rather than "not started yet"; a
+   * later listing, run when the next delegation commits, clears it.
+   */
+  private listed(failure: string | undefined): void {
+    if (this.closed || failure === this.unlisted?.reason) {
+      return;
+    }
+    this.unlisted =
+      failure === undefined ? undefined : { reason: failure, status: 'unavailable', toolCalls: 0 };
+    for (const listener of this.listeners) {
+      listener();
+    }
   }
 
   private publish(): void {

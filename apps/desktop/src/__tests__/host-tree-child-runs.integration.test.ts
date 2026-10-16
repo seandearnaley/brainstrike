@@ -25,6 +25,8 @@ import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
 import {
   DEFAULT_PERMISSION_POLICIES,
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+  describeBoundaryError,
+  refusalError,
 } from '@brainstrike/assistant-contract';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
@@ -49,7 +51,10 @@ const READS = [
 ];
 
 /** A host whose root delegates once, in the background, to an Explorer that reads notes. */
-async function explorerHost(model: ReturnType<typeof scriptedDelegation>) {
+async function explorerHost(
+  model: ReturnType<typeof scriptedDelegation>,
+  treeClient: (client: HostClient) => HostClient = (client) => client
+) {
   const root = await mkdtemp(join(tmpdir(), 'bs-host-tree-child-runs-'));
   roots.push(root);
   const host = await startAgentHost(
@@ -89,7 +94,7 @@ async function explorerHost(model: ReturnType<typeof scriptedDelegation>) {
   clients.push(client);
   const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
   const session = new CommittedThreadSession(client, threadId);
-  const tree = new HostTreeApprovals(client, threadId, session);
+  const tree = new HostTreeApprovals(treeClient(client), threadId, session);
   const leave = session.connect();
   cleanups.push(async () => {
     await tree.close();
@@ -123,6 +128,56 @@ test('a host thread’s tree reads its child’s run and tool calls from the chi
   // The read keeps its identity until the child's run changes.
   expect(tree.read(child.threadId)).toBe(tree.read(child.threadId));
   await expect.poll(() => tree.getRunning().children).toEqual([]);
+});
+
+// Codex review on #3719: when listing a thread's children fails, the tree
+// knows no child to read, and a background card stayed on its dispatch
+// acknowledgement ("working"). A child it could not list reads unavailable,
+// with the listing's reason.
+test('a child the tree cannot list reads unavailable with the reason, never working', async () => {
+  const refusal = refusalError(
+    'availability',
+    'host.children-unlisted',
+    'Delegated conversations could not be listed.'
+  );
+  const failingChildren = (real: HostClient): HostClient =>
+    new Proxy(real, {
+      get(target, property) {
+        if (property === 'request') {
+          return ((method: string, params: unknown) =>
+            method === 'thread/children'
+              ? Promise.reject(refusal)
+              : Reflect.apply(target.request, target, [method, params])) as HostClient['request'];
+        }
+        const value: unknown = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  const { client, threadId, tree } = await explorerHost(
+    scriptedDelegation(DELEGATE, READS),
+    failingChildren
+  );
+  await client.request('run/start', {
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Delegate the survey',
+    threadId,
+  });
+  await expect
+    .poll(async () => (await client.request('thread/children', { threadId })).children.length)
+    .toBe(1);
+  const [child] = (await client.request('thread/children', { threadId })).children;
+  if (!child) {
+    throw new Error('The root delegated no child');
+  }
+  await expect
+    .poll(() => tree.read(child.threadId))
+    .toEqual({
+      reason: describeBoundaryError(refusal),
+      status: 'unavailable',
+      toolCalls: 0,
+    });
+  expect(tree.read(child.threadId)).toBe(tree.read(child.threadId));
 });
 
 test('between the parent’s runs, the tree names its working background child and Stop ends it without a wake', async () => {
