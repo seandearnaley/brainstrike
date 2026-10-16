@@ -183,13 +183,14 @@ describe('approval presentation: card vs row', () => {
     expect(row).toHaveAttribute('data-agent-color', 'rose');
     expect(row).not.toHaveAttribute('data-delegation-colour');
     expect(screen.getByTestId('approval-delegation-owner')).toHaveTextContent('Explorer');
-    // `verbForTool('brainstrike.readWorkspaceDirectory').done` is "Listed"
-    // (`activity-verbs.ts`); the row lower-cases it as the requested action.
-    expect(row).toHaveTextContent('listed');
+    // The row names the action the approval asked for: the verb's request form
+    // (`verbForTool('brainstrike.readWorkspaceDirectory').request` is "List"),
+    // lower-cased. Its status chip says what became of it.
+    expect(row).toHaveTextContent('list');
     expect(row).toHaveTextContent('apps/desktop');
     expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved');
     expect(
-      screen.getByRole('button', { name: /^Explorer listed apps\/desktop, show approval details$/ })
+      screen.getByRole('button', { name: /^Explorer list apps\/desktop, show approval details$/ })
     ).toHaveAttribute('aria-expanded', 'false');
   });
 
@@ -222,7 +223,7 @@ describe('approval presentation: card vs row', () => {
     const row = screen.getByTestId('assistant-tool-approval-notice');
     expect(row).toHaveAttribute('data-approval-presentation', 'row');
     expect(screen.getByTestId('approval-delegation-owner')).toHaveTextContent('Aster');
-    expect(screen.getByRole('button', { name: /^Aster listed apps\/desktop/ })).toBeVisible();
+    expect(screen.getByRole('button', { name: /^Aster list apps\/desktop/ })).toBeVisible();
   });
 
   it('expands a row into the locked full card and collapses it again', async () => {

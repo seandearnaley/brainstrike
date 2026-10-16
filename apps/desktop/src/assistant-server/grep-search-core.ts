@@ -4,7 +4,7 @@ import {
   type RuntimeData,
   type RuntimeWorkspaceRoot,
 } from '@brainstrike/agent';
-import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
+import { isBoundaryRefusal, NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
 import type { GrepMatch, GrepSearchOptions, GrepSearchResult, LineMatcher } from '@brainstrike/db';
 import { createGrepLineMatcher } from '@brainstrike/db';
 import {
@@ -759,10 +759,12 @@ export async function runGrepSearchWith(
           })
     );
   } catch (error) {
-    // A deliberate refusal is typed, never recognized by its text: it passes
-    // through, and everything else (raw PGlite/SQL errors, host paths) stays
-    // behind a generic message and the log (BST-1985).
-    if (error instanceof ToolInputError) {
+    // A deliberate refusal is typed, never recognized by its text: an input
+    // error or a boundary refusal (the index's fixed, sanitized reason, which
+    // the tool guard shows the model) passes through, and everything else (raw
+    // PGlite/SQL errors, host paths, faults) stays behind a generic message and
+    // the log (BST-1985).
+    if (error instanceof ToolInputError || isBoundaryRefusal(error)) {
       throw error;
     }
     logger.error('grepSearch failed', { error, pattern: REDACTED_GREP_PATTERN_LOG_VALUE });

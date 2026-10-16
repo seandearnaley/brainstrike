@@ -3,6 +3,7 @@ import { mkdtemp, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
 import { RootLock } from '@brainstrike/state-store';
 import { build } from 'tsup';
 import { expect, test } from 'vitest';
@@ -51,9 +52,8 @@ function execute(args: readonly string[], signal: AbortSignal): Promise<{ stdout
 }
 const driver = path.join(import.meta.dirname, 'fixtures/node-native-text-services.mjs');
 const desktop = path.resolve(import.meta.dirname, '../../../../apps/desktop/src');
-const captured = path.resolve(
-  import.meta.dirname,
-  '../../../indexer/__tests__/fixtures/canonical-provided-chunks.json'
+const captured = fileURLToPath(
+  import.meta.resolve('@brainstrike/test-utils/fixtures/canonical-provided-chunks.json')
 );
 
 /** Whether this Node's SQLite was compiled without memory accounting. */

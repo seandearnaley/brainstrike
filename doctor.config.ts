@@ -39,8 +39,8 @@ export default {
     // mock `new Function`, a guarded pgvector `sql.raw` (validated via
     // validateEmbeddingVector), a non-crypto diagnostic signature, a localStorage
     // sentinel mistaken for a secret, and pnpm-hardening nags. Secret detection is
-    // already covered by the lefthook `secrets-scan`. pnpm supply-chain hardening
-    // (minimumReleaseAge / trustPolicy) is tracked separately as an infra decision.
+    // already covered by the lefthook `secrets-scan`. Package-manager policy is
+    // owned by pnpm-workspace.yaml, including the owner's release-age decision.
     // biome-ignore lint/style/useNamingConvention: react-doctor category keys are PascalCase
     Security: 'off' as const,
   },

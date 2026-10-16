@@ -14,6 +14,7 @@ const step = (
   id,
   kind,
   partIndex,
+  ran: true,
   state,
   target: null,
   targetKey: null,

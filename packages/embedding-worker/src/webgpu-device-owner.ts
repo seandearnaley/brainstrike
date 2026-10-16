@@ -43,6 +43,7 @@ export function createWebGpuDeviceOwner(onLost: (error: EmbeddingDeviceLostError
       // WebIDL limits live on the prototype, so object spread drops them.
       const requiredLimits: Record<string, number> = {};
       // biome-ignore lint/suspicious/useGuardForIn: WebIDL limit properties are inherited and must be requested too.
+      // biome-ignore lint/suspicious/noForIn: WebIDL limits are inherited enumerable properties, not own record keys.
       for (const limit in adapter.limits) {
         const value = adapter.limits[limit];
         if (typeof value === 'number') {

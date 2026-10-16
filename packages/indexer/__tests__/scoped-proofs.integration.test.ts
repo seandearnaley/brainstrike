@@ -192,7 +192,12 @@ it('compares every original canonical parser chunk field without depending on de
     })
   )(
     JSON.parse(
-      await readFile(new URL('./fixtures/canonical-provided-chunks.json', import.meta.url), 'utf8')
+      await readFile(
+        new URL(
+          import.meta.resolve('@brainstrike/test-utils/fixtures/canonical-provided-chunks.json')
+        ),
+        'utf8'
+      )
     )
   );
   const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-parser-manifest-'));

@@ -445,9 +445,9 @@ export function mergeState(
     ...mergeActiveRoots(persistedSerialized, current),
   };
 
-  for (const key in current.folderStates) {
+  for (const [key, folderState] of Object.entries(current.folderStates)) {
     if (!mergedState.folderStates[key]) {
-      mergedState.folderStates[key] = current.folderStates[key] as FolderState;
+      mergedState.folderStates[key] = folderState;
     }
   }
 

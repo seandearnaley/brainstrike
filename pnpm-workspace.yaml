@@ -42,7 +42,7 @@ catalog:
   # BST-1427: gitignore semantics for the workspace walk. The de-facto Node
   # implementation (eslint/prettier/lint-staged/globby all use it); already
   # present transitively, promoted to a direct dep so the walk can rely on it.
-  '@babel/core': ^8.0.1
+  '@babel/core': ^8.0.7
   '@codemirror/state': ^6.7.4
   # ADR-0004: the Effect language service on TypeScript 7. Run in dedicated
   # `effect-tsgo diagnostics` mode from each Effect package's type-check, never
@@ -51,7 +51,7 @@ catalog:
   # the second type-check stands; see docs/agents/effect-boundary.md.
   # Exact pin: its supported TypeScript list moves with every release (0.52.0
   # supports 7.0.2 and 7.1.0-dev, matching the `@typescript/native` alias).
-  '@effect/tsgo': 0.52.0
+  '@effect/tsgo': 0.53.1
   '@electric-sql/pglite': 0.5.8
   '@electric-sql/pglite-pg_textsearch': 0.0.10
   '@electric-sql/pglite-pgvector': 0.0.9
@@ -85,7 +85,7 @@ catalog:
   '@noble/hashes': 2.4.0
   '@openrouter/ai-sdk-provider': 2.10.0
   '@parcel/watcher': ^2.6.0
-  '@playwright/test': 1.63.0
+  '@playwright/test': 1.64.1
   '@radix-ui/react-accordion': ^1.2.20
   '@radix-ui/react-checkbox': ^1.3.11
   '@radix-ui/react-dialog': ^1.1.23
@@ -118,7 +118,7 @@ catalog:
   '@testing-library/dom': ^10.4.2
   '@testing-library/jest-dom': ^7.0.1
   '@testing-library/react': ^16.3.3
-  '@testing-library/user-event': ^14.6.7
+  '@testing-library/user-event': ^14.6.8
   # BST-1920: types for better-sqlite3 (13.x ships none). Exact pin on the newest
   # published release (9.6.0, 2026-08-01); DefinitelyTyped majors do not track the
   # runtime's. `Database.Options` and `loadExtension(path)` type-check against
@@ -129,10 +129,10 @@ catalog:
   '@types/react-dom': ^19.3.0
   '@typescript/native': 'npm:typescript@7.0.2'
   '@typescript/old': 'npm:typescript@6.0.3'
-  '@vitejs/plugin-react': ^6.1.1
-  '@vitest/browser-playwright': ^5.0.2
-  '@vitest/coverage-v8': ^5.0.2
-  '@vitest/ui': ^5.0.2
+  '@vitejs/plugin-react': ^6.1.2
+  '@vitest/browser-playwright': ^5.0.5
+  '@vitest/coverage-v8': ^5.0.5
+  '@vitest/ui': ^5.0.5
   assistant-stream: 0.3.41
   # BST-1920: the SQLite state/index engine. Exact pin. It ships a PREBUILT
   # `prebuilds/<platform>-<arch>.node` for every release target and must never
@@ -154,15 +154,15 @@ catalog:
   # separate, reviewed decision, not a security bump.
   electron: ^44.7.2
   esbuild: ^0.28.2
-  eslint-plugin-react-refresh: ^0.5.6
+  eslint-plugin-react-refresh: ^0.5.7
   fake-indexeddb: ^6.2.5
   glob: ^13.0.6
-  happy-dom: ^20.14.0
+  happy-dom: ^21.0.3
   idb: ^8.0.4
   ignore: 7.0.12
-  jsdom: 30.0.1
+  jsdom: 30.1.3
   jszip: ^3.10.2
-  knip: ^6.34.0
+  knip: ^6.41.0
   lucide-react: ^1.41.0
   mermaid: ^11.17.1
   minimatch: ^10.2.6
@@ -172,9 +172,10 @@ catalog:
   # BST-1659: optional peer of @vitejs/plugin-react and the ONLY backend its
   # `react({ compiler: <options> })` plugin has — it imports this package and hard-errors
   # when it is missing. Both apps pass an options object rather than `true`.
-  oxc-transform-react: ^0.148.0
+  # plugin-react 6.1.2 requires ^0.152.0; 0.154 is outside that pre-1.0 peer range.
+  oxc-transform-react: ^0.152.0
   pino: ^10.4.0
-  playwright: 1.63.0
+  playwright: 1.64.1
   react-hotkeys-hook: ^5.3.3
   react-resizable-panels: ^4.12.3
   react-router-dom: ^7.18.3
@@ -190,7 +191,7 @@ catalog:
   streamdown: 2.6.0
   tailwindcss: ^4.3.3
   tiktoken: ^1.0.22
-  tsup: ^8.5.1
+  tsup: ^9.0.0
   typescript: 'npm:@typescript/typescript6@6.0.2'
   # 8.3.3 fixes three dev-server advisories (GHSA-rq7h-c2jc-7f22,
   # GHSA-vfpm-58rq-9qcg, GHSA-9jrq-w75r-8gcw); 8.3.4 is the current patch.
@@ -198,7 +199,7 @@ catalog:
   vite-plugin-static-copy: ^4.1.1
   vite-plugin-top-level-await: ^1.6.0
   vite-plugin-wasm: ^3.6.0
-  vitest: ^5.0.2
+  vitest: ^5.0.5
   workerpool: ^10.0.3
   xxhash-wasm: ^1.1.0
   yaml: ^2.9.1
@@ -220,9 +221,6 @@ overrides:
   # Vercel pins the same older tsx copy; include those edges in the full graph.
   '@vercel/backends@0.8.30>tsx': 4.23.12
   '@vercel/node@5.9.3>tsx': 4.23.12
-  # 0.28.2 retains tsup's build/context/plugin APIs; real owner builds guard it.
-  # Remove when tsup admits a release clearing GHSA-g7r4-m6w7-qqqr itself.
-  'tsup@8.5.1>esbuild': 0.28.2
   # BST-888: v11 keeps the plugin's CommonJS v5 API and patches bounds checks.
   # v1/v7 state changes are unused here; remove when this owner admits >=11.1.1.
   'vite-plugin-top-level-await@1.6.0>uuid': 11.1.1

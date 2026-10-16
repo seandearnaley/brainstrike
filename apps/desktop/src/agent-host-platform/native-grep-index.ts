@@ -5,6 +5,7 @@ import {
   type IndexSearchCapability,
   indexerStatusFailure,
 } from '@brainstrike/indexing-contract/indexer-client';
+import { isWorkspaceSecretFile } from '@brainstrike/utils';
 import type { GrepIndexSearch } from '../assistant-server/grep-search-core';
 
 function hasNoConfiguredIndex(
@@ -57,7 +58,7 @@ export function nativeGrepIndex(
         });
         candidatesTruncated = found.candidatesTruncated || found.truncated;
         scanLimited = found.scanLimited;
-        return found.hits.map((hit) => {
+        return found.hits.flatMap((hit) => {
           if (
             hit.rootId === null ||
             hit.relativePath === null ||
@@ -67,14 +68,22 @@ export function nativeGrepIndex(
           ) {
             throw new Error('Native grep returned a file outside its requested scope.');
           }
-          return {
-            chunkId: hit.chunkId,
-            content: hit.content,
-            endLine: hit.endLine,
-            filePath: hit.relativePath,
-            rootId: hit.rootId,
-            startLine: hit.startLine,
-          };
+          // Indexing skips credential files, but a chunk stored before that
+          // floor, or kept by a truncated reconciliation, still answers here.
+          // Dropped before line matching, it never counts toward the totals.
+          if (isWorkspaceSecretFile(hit.relativePath)) {
+            return [];
+          }
+          return [
+            {
+              chunkId: hit.chunkId,
+              content: hit.content,
+              endLine: hit.endLine,
+              filePath: hit.relativePath,
+              rootId: hit.rootId,
+              startLine: hit.startLine,
+            },
+          ];
         });
       },
     }).search({

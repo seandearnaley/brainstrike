@@ -6,14 +6,13 @@ import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui
 import { Undo2 } from 'lucide-react';
 import { type ReactElement, type ReactNode, useState } from 'react';
 import { StepRowHeader } from './activity-step-row';
-import type { ActivityStepState } from './activity-trace-model';
-import { verbForTool } from './activity-verbs';
+import { type ActivityStepState, stepVerbText } from './activity-trace-model';
+import type { ActivityVerb } from './activity-verbs';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
 import {
   REVERTIBLE_MUTATION_TOOL_NAMES,
   useCheckpointForToolCall,
 } from './edit-checkpoint-context';
-import { ACTIVE_TENSE_STATES } from './tool-fallback-state';
 import type { PrimaryArgSummary } from './tool-summaries';
 
 /**
@@ -29,39 +28,46 @@ export function ToolFallbackRow({
   collapsed,
   detailsId,
   durationLabel,
+  failureReason,
   glyphState,
   onToggle,
   primaryArg,
   progressLabel,
+  ran,
   resolvedRootName,
   resultSummary,
   showDetails,
   toolCallId,
   toolName,
+  verb,
 }: {
   readonly argsStreaming: boolean;
   readonly collapsed: boolean;
   readonly detailsId: string;
   readonly durationLabel: string | undefined;
+  /** A failed call's stated reason, bounded for the row; its full text is the tooltip. */
+  readonly failureReason: PrimaryArgSummary | undefined;
   readonly glyphState: ActivityStepState;
   readonly onToggle: () => void;
   readonly primaryArg: PrimaryArgSummary | undefined;
   readonly progressLabel: string;
+  /** False for a call that never executed (declined or blocked). */
+  readonly ran: boolean;
   readonly resolvedRootName: string | undefined;
   readonly resultSummary: string | undefined;
   readonly showDetails: boolean;
   readonly toolCallId: string;
   readonly toolName: string;
+  /** The call's verb, read with its own arguments (`verbForTool`). */
+  readonly verb: ActivityVerb;
 }): ReactNode {
-  const verb = verbForTool(toolName);
-  // A cancelled/failed step reads the past tense with the glyph carrying the
-  // state — consistent with the trace's resting summary, which lists failed
-  // verbs in the done tense too. A WAITING step does not: it is in flight,
-  // paused on the user, so it keeps the active tense on every surface (bot
-  // round 1, Claude Important 3 — "Ran rm -rf build" under a Waiting glyph
-  // asserted something that had not happened; the subagent card already read
-  // its waiting rows as "Delegating to <persona>").
-  const verbLabel = ACTIVE_TENSE_STATES.has(glyphState) ? verb.active : verb.done;
+  // The trace's one tense rule (`stepVerbText`): a WAITING step keeps the
+  // active tense, since it is paused on the user, not done (bot round 1,
+  // Claude Important 3 — "Ran rm -rf build" under a Waiting glyph); a call
+  // declined or blocked never ran, so it reads its request form ("Run skill
+  // script"); a failed or cut-off call reads the past tense with the glyph
+  // carrying the state.
+  const verbLabel = stepVerbText(verb, glyphState, ran);
   const isRunning = glyphState === 'running';
   const isError = glyphState === 'failed';
 
@@ -79,7 +85,11 @@ export function ToolFallbackRow({
         // (`namesTool`: "Called legacy.echo"), or the row would read it
         // twice. `targetTitle` stays the untruncated primary arg, so the
         // tooltip never labels the id as an argument.
-        target={primaryArg?.display ?? (verb.namesTool ? null : toolName)}
+        // A verb whose arguments name no target (`targetArg: null`: working
+        // memory's markdown, a canvas's HTML) shows none, not the tool id.
+        target={
+          primaryArg?.display ?? (verb.namesTool || verb.targetArg === null ? null : toolName)
+        }
         timing={
           <ToolRunTiming
             argsStreaming={argsStreaming}
@@ -92,6 +102,16 @@ export function ToolFallbackRow({
         trailing={
           <>
             {resultSummary ? <span className="bs-step-row-meta">{resultSummary}</span> : null}
+            {failureReason ? (
+              <span
+                className="bs-step-row-meta bs-step-row-failure"
+                data-testid="tool-failure-reason"
+                title={failureReason.full}
+              >
+                <span aria-hidden="true">· </span>
+                <span>{failureReason.display}</span>
+              </span>
+            ) : null}
             {resolvedRootName ? (
               <span
                 className="bs-step-row-meta"

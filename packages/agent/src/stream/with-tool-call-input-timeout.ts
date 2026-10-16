@@ -172,6 +172,6 @@ export async function* withToolCallInputTimeout<T>(
       yield result.value;
     }
   } finally {
-    iterator.return?.();
+    void iterator.return?.();
   }
 }

@@ -16,7 +16,12 @@ const recording = Schema.decodeUnknownSync(
   })
 )(
   JSON.parse(
-    readFileSync(new URL('./fixtures/canonical-provided-chunks.json', import.meta.url), 'utf8')
+    readFileSync(
+      new URL(
+        import.meta.resolve('@brainstrike/test-utils/fixtures/canonical-provided-chunks.json')
+      ),
+      'utf8'
+    )
   )
 );
 const profile = {

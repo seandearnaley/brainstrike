@@ -529,7 +529,16 @@ function createRootLogger(): PinoLogger {
 
     if (targets.length > 0) {
       const nodeTransport = resolveNodeTransport();
-      const transport = nodeTransport({ targets });
+      const [singleTarget] = targets;
+      // An inherited threshold is already enforced by the logger. Pino's
+      // single-target form also preserves the direct transport lifecycle.
+      const transport =
+        targets.length === 1 && singleTarget?.level === resolvedLevel
+          ? nodeTransport({
+              ...(singleTarget.options === undefined ? {} : { options: singleTarget.options }),
+              target: singleTarget.target,
+            })
+          : nodeTransport({ targets });
       // A closed parent pipe destroyed the M3 Windows proof's transport; logging
       // its uncaught error back into that worker recursively queued more errors.
       // Pino owns transport failure: observe it through its documented event.

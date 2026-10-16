@@ -6,6 +6,7 @@ import {
   resolveHostedToolDiscoveryAdapter,
   resolveToolDiscoverySurface,
 } from '@brainstrike/agent/tool-runtime';
+import { HOST_META_TOOL_ID } from '@brainstrike/assistant-contract';
 import type { ProviderId } from '@brainstrike/assistant-contract/provider-registry';
 import type { StateStore } from '@brainstrike/state-store';
 import type { MastraDBMessage } from '@mastra/core/agent';
@@ -18,8 +19,8 @@ import { canonicalToolInputSchema, createCanonicalToolContext } from './canonica
 import { committedMemoryTranscript } from './committed-memory-transcript.js';
 
 /** Mastra's fixed meta-tool ids, beside Brainstrike's catalog tool. */
-const SEARCH_TOOLS_ID = 'search_tools';
-const LOAD_TOOL_ID = 'load_tool';
+const SEARCH_TOOLS_ID = HOST_META_TOOL_ID.searchTools;
+const LOAD_TOOL_ID = HOST_META_TOOL_ID.loadTool;
 
 type HostRunKey = Parameters<HostToolDiscovery['activeTools']>[0];
 type DiscoveryTools = Awaited<

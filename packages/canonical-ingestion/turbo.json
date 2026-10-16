@@ -7,7 +7,7 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_EXTENDS$",
-        "../indexer/__tests__/fixtures/canonical-provided-chunks.json"
+        "../test-utils/fixtures/canonical-provided-chunks.json"
       ]
     },
     "test:integration": {

@@ -13,9 +13,8 @@ import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import type { ComponentProps } from 'react';
 import {
   type ActivityStepState,
-  readResultError,
+  readToolFailure,
   runPythonStepState,
-  TOOL_EXECUTION_FAILED_MESSAGE,
   toolStepStateFor,
 } from './activity-trace-model';
 import { readDelegatedTaskTerminalError } from './delegated-terminal-status';
@@ -67,17 +66,6 @@ export function resolveCardStatus(
   };
 }
 
-/**
- * The states whose verb reads in the ACTIVE tense: the step has not finished,
- * so the done tense would assert an outcome that does not exist yet. `waiting`
- * belongs here with `running` — an approval gate has not started the call, and
- * the glyph beside the verb is what says why it is standing still.
- */
-export const ACTIVE_TENSE_STATES: ReadonlySet<ActivityStepState> = new Set<ActivityStepState>([
-  'running',
-  'waiting',
-]);
-
 const isIncompleteStatus = (
   status: ToolStatus
 ): status is ToolStatus & { type: 'incomplete'; error?: unknown; reason?: unknown } =>
@@ -91,9 +79,9 @@ const isIncompleteStatus = (
  * the `failed` verdict the trace counts can never disagree about a shape
  * (bot round 1, Claude Important 2 — the card's own copy of the shape list had
  * already drifted on `ok: true`). The part-level `isError` flag stays a
- * SEPARATE branch: it is a signal about the call, not something the result
- * states, so it only supplies the generic message when the result itself
- * states none.
+ * SEPARATE signal (`readToolFailure`): an errored part's string result is the
+ * AI SDK tool-error's own message, and only an errored part that states
+ * nothing takes the generic one.
  */
 export const resolveErrorMessage = (
   status: ToolStatus,
@@ -101,11 +89,7 @@ export const resolveErrorMessage = (
   isErrorResult: boolean
 ): string | undefined => {
   if (!isIncompleteStatus(status)) {
-    const stated = readResultError(result);
-    if (stated !== null) {
-      return stated;
-    }
-    return isErrorResult ? TOOL_EXECUTION_FAILED_MESSAGE : undefined;
+    return readToolFailure(result, isErrorResult) ?? undefined;
   }
 
   if (typeof status.error === 'string') {

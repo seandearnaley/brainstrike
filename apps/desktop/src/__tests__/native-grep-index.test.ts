@@ -84,6 +84,28 @@ test('native grep refuses foreign provenance rather than returning it', async ()
   );
 });
 
+// Codex review on #3718: indexing skips credential files from now on, but a
+// chunk stored before the floor, or kept after a truncated reconciliation,
+// still answers the index query. No agent grep reads it, and it never counts
+// toward the totals the model pages by.
+test('an indexed credential file never reaches the model, nor its match totals', async () => {
+  const f = fixture();
+  const source = f.recorded.hits[0]!;
+  f.grep.mockResolvedValue({
+    ...f.recorded,
+    hits: [
+      { ...source, content: 'needle=sk-live-secret', relativePath: '.env' },
+      { ...source, content: 'needle in a key', relativePath: 'certs/server.pem' },
+      source,
+      { ...source, content: 'needle example', relativePath: '.env.example' },
+    ],
+  });
+  const result = await f.search({ pattern: 'needle' });
+  expect(result.matches.map((match) => match.path)).toEqual(['.env.example', 'selected.md']);
+  expect(JSON.stringify(result)).not.toContain('sk-live-secret');
+  expect(result).toMatchObject({ totalMatches: 2, truncated: false });
+});
+
 test('unconfigured indexing contributes no candidates to the existing fresh-file grep', async () => {
   const grep = vi.fn<IndexSearchCapability['grep']>();
   const search = nativeGrepIndex({

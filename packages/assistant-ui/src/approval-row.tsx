@@ -1,7 +1,7 @@
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import { ChevronRight } from 'lucide-react';
 import { type CSSProperties, useId, useState } from 'react';
-import { verbForTool } from './activity-verbs';
+import { type ActivityVerb, verbForTool } from './activity-verbs';
 import { agentColorStyle } from './agent-color-style';
 import { ApprovalCard } from './approval-card';
 import { describeDelegationChain } from './approval-notice-status';
@@ -17,10 +17,13 @@ export interface ApprovalRowProps {
   readonly state: ApprovalNoticeState;
 }
 
-/** "read" — the requested action as the row's verb (lower-cased `done` form). */
-function requestedAction(toolName: string): string {
-  const verb = verbForTool(toolName);
-  return `${verb.done.charAt(0).toLowerCase()}${verb.done.slice(1)}`;
+/**
+ * "run skill script" — the action the approval asks for, as the row's verb: the
+ * verb's request form, lower-cased. An approval names what was asked; its
+ * status chip says what became of it, so a declined call never reads "ran".
+ */
+function requestedAction(verb: ActivityVerb): string {
+  return `${verb.request.charAt(0).toLowerCase()}${verb.request.slice(1)}`;
 }
 
 /**
@@ -42,9 +45,11 @@ export function ApprovalRow({ approval, colorId, ownerDisplayName, state }: Appr
   // A named owner wins: a host child's history names its call sign without a legacy delegation identity.
   const owner =
     ownerDisplayName ?? (delegation ? describeDelegationChain(delegation) : 'Assistant');
-  const verb = verbForTool(approval.toolName);
-  const action = requestedAction(approval.toolName);
-  const target = verb.namesTool ? undefined : extractPrimaryArg(approval.args, undefined);
+  const verb = verbForTool(approval.toolName, approval.args);
+  const action = requestedAction(verb);
+  const target = verb.namesTool
+    ? undefined
+    : extractPrimaryArg(approval.args, undefined, verb.targetArg);
   const visible = target ? `${owner} ${action} ${target.display}` : `${owner} ${action}`;
   const affordance = expanded ? 'hide approval details' : 'show approval details';
   const style = {
