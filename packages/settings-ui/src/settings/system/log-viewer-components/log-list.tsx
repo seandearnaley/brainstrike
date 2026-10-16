@@ -89,12 +89,13 @@ export function LogList({
     [rowVirtualizer]
   );
 
+  // The Logs page's only scroller: it fills what the toolbar leaves and may
+  // shrink to it, so no ancestor has to scroll (BST-1791).
   return (
     <div
-      className="w-full flex-1 overflow-auto bg-muted/5"
+      className="min-h-0 w-full flex-1 overflow-auto bg-muted/5"
       data-testid="log-list-scroll-container"
       ref={parentRef}
-      style={{ height: '100%', minHeight: '300px' }} // Ensure it takes full height of container
     >
       {logsLoading && rows.length === 0 ? (
         <div className="flex h-full items-center justify-center text-muted-foreground text-sm">

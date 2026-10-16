@@ -202,6 +202,10 @@ vi.mock('../settings/page-content', () => ({
   default: MockSettingsPageContent,
 }));
 
+vi.mock('../logs-page-content', () => ({
+  LogsPageContent: () => <div data-testid="logs-page-content" />,
+}));
+
 describe('RootLayoutContent', () => {
   beforeAll(async () => {
     RootLayoutContent = (await import('../root-layout-content')).default;
@@ -250,6 +254,8 @@ describe('RootLayoutContent', () => {
     render(<RootLayoutContent />);
     expect(screen.getByTestId('navigation-items-count')).toHaveTextContent('2');
     expect(sharedRootLayoutCapture.props).not.toHaveProperty('promptsPageContent');
+    // Web has its own log buffer, so the Logs tab is not capability-gated (BST-1791).
+    expect(sharedRootLayoutCapture.props?.['logsPageContent']).toBeDefined();
   });
 
   it('shows settings page when navigation callback is triggered', async () => {

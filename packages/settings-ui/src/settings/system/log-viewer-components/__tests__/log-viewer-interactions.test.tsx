@@ -118,6 +118,30 @@ describe('LogViewer interactions and export', () => {
     expect(screen.getByRole('columnheader', { name: 'Message' })).toBeInTheDocument();
   });
 
+  it('keeps filters behind a toggle that counts the active ones', async () => {
+    render(
+      <LogViewer
+        logSource={{ getInitialRecords: async () => [], subscribe: () => () => {} }}
+        toast={mockToast}
+      />
+    );
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('log-diagnostic-filters')).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.change(screen.getByLabelText('From time'), {
+      target: { value: '2026-01-01T11:00' },
+    });
+    expect(toggle).toHaveAccessibleName('Filters, 1 active');
+
+    // A closed panel still says a filter is narrowing the list.
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId('log-diagnostic-filters')).not.toBeInTheDocument();
+    expect(toggle).toHaveAccessibleName('Filters, 1 active');
+  });
+
   it('filters logs by level through the accessible control', async () => {
     const user = userEvent.setup();
     const logSource = {

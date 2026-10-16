@@ -6,6 +6,11 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { LogViewer } from '../log-viewer';
 import { installLogViewerDomStubs } from './log-viewer-test-harness';
 
+/** Source, code, time and list limits sit behind the toolbar's Filters toggle. */
+function openFilters(): void {
+  fireEvent.click(screen.getByRole('button', { name: /^Filters/ }));
+}
+
 const clipboardMocks = vi.hoisted(() => ({
   writeText: vi.fn(),
 }));
@@ -65,7 +70,7 @@ describe('LogViewer', () => {
 
     render(<LogViewer logSource={logSource} toast={mockToast} />);
 
-    expect(screen.getByText('Log Viewer')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Log Viewer' })).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByText('No logs recorded for the current session.')).toBeInTheDocument();
     });
@@ -148,6 +153,7 @@ describe('LogViewer', () => {
       'Live updates unavailable: subscription failed'
     );
 
+    openFilters();
     await user.click(screen.getByRole('combobox', { name: 'Retention' }));
     await user.click(screen.getByRole('option', { name: '500 logs' }));
     expect(mockToast).toHaveBeenCalledTimes(1);
@@ -611,6 +617,7 @@ describe('LogViewer', () => {
     render(<LogViewer logSource={logSource} toast={mockToast} />);
 
     await waitFor(() => expect(screen.getByText('Renderer crash')).toBeInTheDocument());
+    openFilters();
     await user.click(screen.getByRole('combobox', { name: 'Source' }));
     await user.click(screen.getByRole('option', { name: 'electron-main' }));
 
@@ -711,6 +718,7 @@ describe('LogViewer', () => {
     fireEvent.change(screen.getByPlaceholderText('Search logs...'), {
       target: { value: 'needle' },
     });
+    openFilters();
     await user.click(screen.getByRole('combobox', { name: 'Source' }));
     await user.click(screen.getByRole('option', { name: 'electron-main' }));
     await user.click(screen.getByRole('combobox', { name: 'Code' }));
@@ -757,6 +765,7 @@ describe('LogViewer', () => {
     render(<LogViewer logSource={logSource} toast={mockToast} />);
 
     await waitFor(() => expect(screen.getByText('Inside range')).toBeInTheDocument());
+    openFilters();
     fireEvent.change(screen.getByLabelText('From time'), {
       target: { value: '2026-01-01T11:00' },
     });
@@ -788,6 +797,7 @@ describe('LogViewer', () => {
     render(<LogViewer logSource={logSource} toast={mockToast} />);
 
     await waitFor(() => expect(screen.getByText('Next minute')).toBeInTheDocument());
+    openFilters();
     fireEvent.change(screen.getByLabelText('To time'), {
       target: { value: '2026-01-01T13:00' },
     });
@@ -805,6 +815,7 @@ describe('LogViewer', () => {
     render(<LogViewer logSource={logSource} toast={mockToast} />);
 
     await screen.findByText('Test log message');
+    openFilters();
     const toInput = screen.getByLabelText('To time') as HTMLInputElement;
     const valueSpy = vi.spyOn(toInput, 'value', 'get').mockReturnValue('not-a-local-time');
     expect(() => fireEvent.change(toInput)).not.toThrow();
@@ -833,6 +844,7 @@ describe('LogViewer', () => {
     const user = userEvent.setup();
 
     render(<LogViewer logSource={logSource} toast={mockToast} />);
+    openFilters();
     await user.click(await screen.findByRole('combobox', { name: 'Source' }));
     await user.click(screen.getByRole('option', { name: 'electron-main' }));
     await user.click(screen.getByRole('combobox', { name: 'Code' }));

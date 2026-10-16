@@ -149,7 +149,7 @@ test.describe('Settings popup anchoring @stateful @web-settings-state', () => {
   /**
    * BST-963's rule, measured two-sided in compiled CSS: a popup out-ranks a
    * dialog panel. Both values are read live from real elements — the Log
-   * Viewer's "Details" dialog (opened from the Logging category) and the
+   * Viewer's "Details" dialog (in the Logs tab Settings opens) and the
    * Indexing-policy listbox — so a scale change that lifts dialogs past popups
    * fails here even though no constant in this file names either tier.
    * `computedZIndex` rejects `auto`, so a class Tailwind never emitted fails
@@ -160,6 +160,8 @@ test.describe('Settings popup anchoring @stateful @web-settings-state', () => {
     await openSettingsPage(page);
     await waitForSettingsPage(page);
     await page.getByRole('button', { name: 'Logging & Diagnostics' }).click();
+    // The viewer is the Logs workspace tab (BST-1791); Settings links to it.
+    await page.getByRole('button', { name: 'Open Logs' }).click();
 
     // Startup emits several records at the default level, but say so
     // explicitly — an empty viewer would otherwise surface as a bare timeout.
@@ -178,6 +180,8 @@ test.describe('Settings popup anchoring @stateful @web-settings-state', () => {
     await page.keyboard.press('Escape');
     await expect(panel).toHaveCount(0, { timeout: 15_000 });
 
+    await openSettingsPage(page);
+    await waitForSettingsPage(page);
     await page.getByRole('button', { name: 'Search & Indexing' }).click();
     await page.getByRole('combobox', { name: 'Indexing policy' }).click();
     const listbox = page.locator(SELECT_LISTBOX);

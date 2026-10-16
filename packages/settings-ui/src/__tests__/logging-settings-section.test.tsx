@@ -6,15 +6,11 @@ import {
 import { type LoggingPreferences, LogLevel } from '@brainstrike/logging';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  LoggingSettingsSection,
-  type LogSourceAdapter,
-} from '../settings/system/logging-settings-section';
+import { LoggingSettingsSection } from '../settings/system/logging-settings-section';
 
 const toastSpy = vi.fn();
 
 vi.mock('lucide-react', () => ({
-  Download: () => <span>Download Icon</span>,
   FolderOpen: () => <span>Open destination</span>,
   RefreshCw: () => <span>Reset Icon</span>,
 }));
@@ -277,51 +273,11 @@ describe('LoggingSettingsSection', () => {
     expect(state.includeTimestamp).toBe(true);
   });
 
-  it('renders no log source control when durableLogSource is absent', () => {
+  it('leaves the log source and its export to the Logs page', () => {
     render(<LoggingSettingsSection onCommitPreferences={vi.fn()} runtime="browser" />);
 
     expect(screen.queryByText('Persistent errors')).not.toBeInTheDocument();
     expect(screen.queryByText('Session')).not.toBeInTheDocument();
-  });
-
-  it('renders both Session and Persistent errors options when durableLogSource is present', () => {
-    const durableLogSource: LogSourceAdapter = {
-      getInitialRecords: async () => [],
-      subscribe: () => vi.fn(),
-    };
-
-    render(
-      <LoggingSettingsSection
-        durableLogSource={durableLogSource}
-        onCommitPreferences={vi.fn()}
-        runtime="browser"
-      />
-    );
-
-    expect(screen.getByRole('button', { name: 'Session' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Persistent errors' })).toBeInTheDocument();
-  });
-
-  it('does not render an export button while Session is selected', () => {
-    const durableLogSource: LogSourceAdapter = {
-      getInitialRecords: async () => [],
-      subscribe: () => vi.fn(),
-    };
-
-    render(
-      <LoggingSettingsSection
-        durableLogSource={durableLogSource}
-        onCommitPreferences={vi.fn()}
-        onExportDurableNdjson={vi.fn(async () => ({
-          exportedCount: 0,
-          ndjson: '',
-          totalCount: 0,
-          truncated: false,
-        }))}
-        runtime="browser"
-      />
-    );
-
     expect(screen.queryByRole('button', { name: /export ndjson/i })).not.toBeInTheDocument();
   });
 });

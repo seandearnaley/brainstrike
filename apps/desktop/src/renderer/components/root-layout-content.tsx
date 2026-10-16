@@ -56,6 +56,7 @@ import { useMcpAppsEnablement } from '../use-mcp-apps-enablement';
 // unlike its git/context-explorer/terminal siblings) — imported as written.
 import { ChangesPageContent } from './changes-page-content';
 import GitPageContent from './git-page-content';
+import { LogsPageContent } from './logs-page-content';
 import { NativeSearchProvider } from './native-search-provider';
 import SettingsPageContent from './settings/page-content';
 import TerminalPageContent from './terminal-page-content';
@@ -165,6 +166,8 @@ export default function RootLayoutContent() {
       }
       return callBoundary(() => bridge.fileSystem.deleteRootData(rootId));
     },
+    // Every desktop window has its own log buffer and Electron main's (BST-1791).
+    logsPageContent: <LogsPageContent />,
     nativeIndexSearch: nativeSearch,
     navigationItems: navigationConfig,
     settingsPageContent: <SettingsPageContent />,

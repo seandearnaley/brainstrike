@@ -8,7 +8,7 @@ import {
 
 /**
  * Renderer-side `LogSourceAdapter` (Flight Recorder P2a) that lets the
- * existing settings Log Viewer render durable `brainstrike_diagnostic_events`
+ * Logs tab's viewer render durable `brainstrike_diagnostic_events`
  * rows out of PGlite alongside the in-memory renderer/main log sources.
  */
 

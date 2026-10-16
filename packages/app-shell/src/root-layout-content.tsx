@@ -167,6 +167,12 @@ export interface RootLayoutContentProps {
    */
   readonly gitPageContent?: ReactNode;
   readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
+  /**
+   * Optional Logs surface (BST-1791): the log viewer, with Settings keeping the
+   * logging configuration. Each host supplies its own log sources; when absent,
+   * no Logs tab renders.
+   */
+  readonly logsPageContent?: ReactNode;
   readonly nativeIndexSearch?: IndexSearchCapability | null;
   readonly navigationItems: NavigationItem[];
   /**
@@ -440,6 +446,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   canvasPanelContent,
   changesPageContent,
   loadEmbeddingQueue,
+  logsPageContent,
   preloadDatabaseTabOnMount,
   terminalPageContent,
   threadContextPageContent,
@@ -450,6 +457,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   readonly canvasPanelContent?: ReactNode;
   readonly changesPageContent?: ReactNode;
   readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
+  readonly logsPageContent?: ReactNode;
   readonly preloadDatabaseTabOnMount: boolean;
   readonly terminalPageContent?: ReactNode;
   readonly threadContextPageContent?: ReactNode;
@@ -474,6 +482,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
         ...(canvasPanelContent ? { canvasPanelContent } : {}),
         ...(changesPageContent ? { changesPageContent } : {}),
         filesContent: <FilesAppSurface loadEmbeddingQueue={loadEmbeddingQueue} />,
+        ...(logsPageContent ? { logsPageContent } : {}),
         ...(terminalPageContent ? { terminalPageContent } : {}),
         ...(threadContextPageContent ? { threadContextPageContent } : {}),
         ...(worktreeMapPageContent ? { worktreeMapPageContent } : {}),
@@ -482,6 +491,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
       loadEmbeddingQueue,
       changesPageContent,
       canvasPanelContent,
+      logsPageContent,
       terminalPageContent,
       threadContextPageContent,
       worktreeMapPageContent,
@@ -573,6 +583,7 @@ export function RootLayoutContent({
   settingsPageContent,
   gitPageContent,
   notesPageContent,
+  logsPageContent,
   terminalPageContent,
   threadContextPageContent,
   worktreeMapPageContent,
@@ -714,6 +725,7 @@ export function RootLayoutContent({
                             canvasPanelContent={canvasPanelContent}
                             changesPageContent={changesPageContent}
                             loadEmbeddingQueue={loadEmbeddingQueue}
+                            logsPageContent={logsPageContent}
                             nativeIndexSearch={nativeIndexSearch ?? null}
                             preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
                             terminalPageContent={terminalPageContent}

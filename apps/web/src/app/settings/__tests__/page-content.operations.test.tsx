@@ -60,13 +60,8 @@ interface CapturedFactoryResetOptions {
   onClearStoredFolders?: () => void;
 }
 
-interface CapturedLogSource {
-  getInitialRecords: () => Promise<unknown[]>;
-  subscribe: (handler: (record: unknown) => void) => () => void;
-}
-
 interface CapturedLoggingProps {
-  logSource: CapturedLogSource;
+  onOpenLogs?: () => void;
   runtime: 'browser' | 'electron-main' | 'electron-renderer';
 }
 
@@ -83,6 +78,7 @@ const mockState = vi.hoisted(() => ({
   clearStoredHandlesMock: vi.fn<() => void>(),
   devInlineFixtureEnabled: false,
   nativeEnabledToolIds: new Set<string>(),
+  openLogsTabMock: vi.fn<() => void>(),
   renderedCategoryIds: [] as string[],
   resetToolsMock: vi.fn<() => void>(),
   setDevInlineFixtureEnabledMock: vi.fn<(checked: boolean) => void>(),
@@ -96,6 +92,7 @@ vi.mock('@brainstrike/app-shell/diagnostics', () => ({
     id: 'diagnostics',
     title: 'Diagnostics',
   }),
+  openLogsTab: mockState.openLogsTabMock,
   useDiagnosticSinkHealthStore: () => null,
   useDiagnosticsPurge: () => undefined,
   useDurableLogSource: () => undefined,
@@ -243,6 +240,7 @@ describe('SettingsPageContent tool operations', () => {
     mockState.resetToolsMock.mockClear();
     mockState.clearStoredHandlesMock.mockClear();
     mockState.setDevInlineFixtureEnabledMock.mockClear();
+    mockState.openLogsTabMock.mockClear();
     mockState.storedFolders = [];
     mockState.devInlineFixtureEnabled = false;
     mockState.capturedToolsOptions = null;
@@ -326,7 +324,7 @@ describe('SettingsPageContent tool operations', () => {
     expect(operations?.executeToolTest).toBeUndefined();
   });
 
-  test('wires logging source and factory reset callbacks from browser stores', async () => {
+  test('wires the Logs link and factory reset callbacks from browser stores', () => {
     mockState.storedFolders = ['/tmp/a'];
     mockState.devInlineFixtureEnabled = true;
 
@@ -347,10 +345,10 @@ describe('SettingsPageContent tool operations', () => {
     expect(mockState.clearStoredHandlesMock).toHaveBeenCalledTimes(1);
 
     expect(mockState.capturedLoggingProps?.runtime).toBe('browser');
-    const records = await mockState.capturedLoggingProps?.logSource.getInitialRecords();
-    expect(Array.isArray(records)).toBe(true);
-    const unsubscribe = mockState.capturedLoggingProps?.logSource.subscribe(() => undefined);
-    expect(typeof unsubscribe).toBe('function');
+    // The log viewer is the Logs workspace tab (BST-1791); Settings links to it.
+    expect(mockState.capturedLoggingProps).not.toHaveProperty('logSource');
+    mockState.capturedLoggingProps?.onOpenLogs?.();
+    expect(mockState.openLogsTabMock).toHaveBeenCalledTimes(1);
 
     expect(mockState.renderedCategoryIds).toEqual([
       'appearance',
