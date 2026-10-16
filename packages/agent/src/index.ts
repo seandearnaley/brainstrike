@@ -173,24 +173,6 @@ export {
   type TestCaseResult,
 } from './evaluation';
 export {
-  convertMessagesToMastra,
-  createMastraAgentRuntime,
-  type MastraAgentRuntime,
-  type MastraAgentRuntimeOptions,
-  type McpAppAdmissionObserver,
-} from './mastra/agent-runtime';
-export {
-  streamMastraAgent,
-  streamMastraChildFollowup,
-  streamMastraToolApprovalAction,
-  streamMastraToolResumeAction,
-} from './mastra/agent-streaming';
-export {
-  createMcpAppOrdinaryToolCallPreparer,
-  McpAppToolNotAdmittedError,
-} from './mastra/mcp-app-tool-call';
-export { composeRuntimeToolMap } from './mastra/runtime-assembly/tool-pipeline';
-export {
   createMastraAgentError,
   isMastraAgentError,
   MastraAgentError,

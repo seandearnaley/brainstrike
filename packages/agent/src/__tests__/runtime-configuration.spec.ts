@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PERSONA_PIN_KEYLESS_PROVIDERS } from '../mastra/persona-pinned-model';
 import { listProviders, providerAuthType, providerEnvKeys } from '../providers/types';
 import { resolveRuntimeConfiguration } from '../runtime-configuration';
 
@@ -40,10 +39,6 @@ describe('runtime configuration keyless providers (BST-1349)', () => {
         resolveRuntimeConfiguration({ apiKey: 'runtime-key', provider: provider.id }).apiKey
       ).toBe('runtime-key');
     }
-  });
-
-  it('persona pin keyless providers derive from the registry authType', () => {
-    expect([...PERSONA_PIN_KEYLESS_PROVIDERS].sort()).toEqual([...KEYLESS_PROVIDERS].sort());
   });
 });
 

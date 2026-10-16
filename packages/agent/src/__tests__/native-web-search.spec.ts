@@ -4,9 +4,7 @@ import {
   type PermissionToolGateSnapshot,
   WEB_SEARCH_TOOL_ID,
 } from '@brainstrike/assistant-contract/tool-metadata';
-import { MessageList, type ToolsInput } from '@mastra/core/agent';
-import type { ProcessInputStepArgs } from '@mastra/core/processors';
-import { MASTRA_THREAD_ID_KEY, RequestContext } from '@mastra/core/request-context';
+import type { ToolsInput } from '@mastra/core/agent';
 import { describe, expect, it, vi } from 'vitest';
 import { filterToolsByPermissionWithMetadata } from '../permissions/permission-tool-gate';
 import {
@@ -305,82 +303,5 @@ describe('applyProviderNativeWebSearch — driven by the real permission gate', 
 
     expect(result[SANITIZED_ID]).toBeUndefined();
     expect(Object.keys(result)).toHaveLength(0);
-  });
-});
-
-/**
- * Runtime wiring proof: construct the REAL agent runtime (real sanitize + guard +
- * permission gate) with a Tavily-style web-search tool in the map and assert the
- * final Agent tool map carries the provider-native tool for anthropic and the
- * Tavily tool for a non-native provider. The provider API itself is NOT called
- * (that is the manual live-key gate) — only tool-map assembly is exercised.
- */
-describe('createMastraAgentRuntime provider-native web search wiring', () => {
-  function createDiscoveryStepArgs(threadId: string, stepNumber: number): ProcessInputStepArgs {
-    const messageList = new MessageList();
-    const requestContext = new RequestContext();
-    requestContext.set(MASTRA_THREAD_ID_KEY, threadId);
-    return {
-      abort(reason?: string): never {
-        throw new Error(reason ?? 'processor aborted');
-      },
-      messageList,
-      messages: messageList.get.all.db(),
-      model: 'test-model',
-      requestContext,
-      retryCount: 0,
-      state: {},
-      stepNumber,
-      steps: [],
-      systemMessages: [],
-      tools: {},
-    };
-  }
-
-  async function buildSearchableToolMap(provider: string): Promise<Record<string, unknown>> {
-    const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
-    const runtime = await createMastraAgentRuntime({
-      runtime: { apiKey: 'sk-test', provider },
-      tools: {
-        [WEB_SEARCH_TOOL_ID]: makeTavilyToolStub() as unknown as ToolsInput[string],
-      },
-    });
-    try {
-      const eagerTools = (await runtime.agent.listTools()) as Record<string, unknown>;
-      if (eagerTools[SANITIZED_ID]) {
-        expect(runtime.toolDiscovery?.coreToolIds).toContain(WEB_SEARCH_TOOL_ID);
-        return eagerTools;
-      }
-      expect(runtime.toolDiscovery?.deferredToolIds).toContain(WEB_SEARCH_TOOL_ID);
-      const processor = runtime.toolSearchProcessor;
-      if (!processor) {
-        throw new Error('Hosted runtime did not install its tool-search processor');
-      }
-      const threadId = `native-web-${provider}`;
-      const first = await processor.processInputStep(createDiscoveryStepArgs(threadId, 0));
-      await first.tools.load_tool.execute?.({ toolName: SANITIZED_ID });
-      const second = await processor.processInputStep(createDiscoveryStepArgs(threadId, 1));
-      return second.tools;
-    } finally {
-      await runtime.dispose();
-    }
-  }
-
-  it('anthropic (read:allow default) → searchable catalog gets the provider-native web-search tool', async () => {
-    const tools = await buildSearchableToolMap('anthropic');
-    // sanitized key: `brainstrike.webSearch` → `brainstrike_webSearch`.
-    const picked = tools[SANITIZED_ID];
-    expect(picked).toBeDefined();
-    expect(toolType(picked)).toBe('provider');
-    expect(toolId(picked)).toBe('anthropic.web_search_20250305');
-    expect(hasExecute(picked)).toBe(false);
-  });
-
-  it('openrouter (no native search) → searchable catalog keeps the execute-backed Tavily tool', async () => {
-    const tools = await buildSearchableToolMap('openrouter');
-    const picked = tools[SANITIZED_ID];
-    expect(picked).toBeDefined();
-    expect(hasExecute(picked)).toBe(true);
-    expect(toolId(picked)).not.toBe('anthropic.web_search_20250305');
   });
 });
