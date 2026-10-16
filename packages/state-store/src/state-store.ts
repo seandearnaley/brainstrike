@@ -20,7 +20,7 @@ import type {
 } from '@brainstrike/types';
 import type { PromptLibraryReply, PromptLibraryRequest } from '@brainstrike/types/prompt-item';
 import type { CollectionReply, CollectionRequest } from './collection-types.js';
-import { IndexerRequiredError, ThreadDamagedError, ThreadReadOnlyError } from './errors.js';
+import { ThreadDamagedError, ThreadReadOnlyError } from './errors.js';
 import {
   type Decoded,
   decodeEvent,
@@ -38,9 +38,10 @@ import type {
 } from './model-choice-types.js';
 import type { PromptCatalogReply, PromptCatalogRequest } from './prompt-catalog-types.js';
 import { executePromptLibrary } from './prompt-library.js';
-import { blobsOf, TOMBSTONE_BODY, withSeq } from './run-log-format.mjs';
+import { withSeq } from './run-log-format.mjs';
 import type { AppendItem, BlobContent, LogRow, RunEvent, ThreadStatus } from './run-log-types.js';
 import type { SourceCatalogReply, SourceCatalogRequest } from './source-catalog-types.js';
+import { type DeletionWriter, StateDeletion } from './state-deletion.js';
 import {
   BLOBS_DIR,
   exportStateBundle,
@@ -166,7 +167,6 @@ export class StateStore implements MemoryDomainPort {
   private indexer: IndexerPort | undefined;
   private readonly waiters = new Map<number, Waiter>();
   private readonly inflight = new Set<Promise<void>>();
-  private readonly deferredGc = new Set<string>();
   private readonly visible = new Map<string, Unreadable>();
   private chain: Promise<unknown> = Promise.resolve();
   private nextId = 0;
@@ -174,8 +174,8 @@ export class StateStore implements MemoryDomainPort {
   private closeTask: Promise<void> | undefined;
   private closing = false;
   private failed: unknown = null;
-  /** Exports in flight plus holdBlobGc holders: while any holds, unreferenced blobs wait in deferredGc. */
-  private gcHolds = 0;
+  /** Purge, thread delete and blob GC, on this store's write chain. */
+  private readonly deletion: StateDeletion;
 
   private constructor(
     root: string,
@@ -193,6 +193,11 @@ export class StateStore implements MemoryDomainPort {
     this.indexer = options.indexer;
     this.statePath = join(root, STATE_DB);
     this.blobsPath = join(root, BLOBS_DIR);
+    this.deletion = new StateDeletion(this.deletionWriter(), {
+      indexer: () => this.indexer,
+      purgeAfterTruth: () => this.options.hooks?.purgeAfterTruth?.(),
+      run: (work) => this.run(work),
+    });
     worker.on('message', (m: Reply) => {
       const w = this.waiters.get(m.id);
       if (!w) {
@@ -243,8 +248,7 @@ export class StateStore implements MemoryDomainPort {
       if (ready.damage === null) {
         const acquired = store;
         await acquired.run(async () => {
-          await acquired.replayPurgeIntents();
-          await acquired.collectRetiredSources();
+          await acquired.deletion.recover();
         });
       }
       return store;
@@ -308,11 +312,7 @@ export class StateStore implements MemoryDomainPort {
   }
 
   private requireIndexer(operation: string): IndexerPort {
-    const { indexer } = this;
-    if (!indexer) {
-      throw new IndexerRequiredError(operation);
-    }
-    return indexer;
+    return this.deletion.requireIndexer(operation);
   }
 
   // ---- run log --------------------------------------------------------------------------------------------------------
@@ -507,33 +507,7 @@ export class StateStore implements MemoryDomainPort {
    * could not fold, whose blob references no count sees, holds collection while they exist.
    */
   holdBlobGc(): () => Promise<void> {
-    this.gcHolds++;
-    let released = false;
-    return async () => {
-      if (released) {
-        return;
-      }
-      released = true;
-      await this.releaseGcHold();
-    };
-  }
-
-  private async releaseGcHold(): Promise<void> {
-    this.gcHolds--;
-    if (this.gcHolds === 0 && this.deferredGc.size > 0) {
-      const pending = [...this.deferredGc];
-      this.deferredGc.clear();
-      const indexer = this.requireIndexer('blob GC');
-      await this.run(async () => {
-        await this.gc(indexer, pending);
-        await this.collectRetiredSources();
-      });
-    }
-  }
-
-  /** Threads whose every row verified (purge GC and catch-up read only these). */
-  private async okThreads(): Promise<string[]> {
-    return (await this.call({ op: 'okThreads' }))['threads'] as string[];
+    return this.deletion.holdBlobGc();
   }
 
   /** `PRAGMA integrity_check` plus per-thread seq contiguity (the reopen check after a crash). */
@@ -688,7 +662,7 @@ export class StateStore implements MemoryDomainPort {
       }
       const reply = await this.call({ op: 'workspace-roots', request });
       if (request.operation === 'delete') {
-        await this.collectRetiredSources();
+        await this.deletion.collectRetiredSources();
       }
       return { roots: reply['roots'] as WorkspaceRootReply['roots'] };
     };
@@ -709,7 +683,7 @@ export class StateStore implements MemoryDomainPort {
       }
       const reply = await this.call({ op: 'source-catalog', request });
       if (mutatesSource) {
-        await this.collectRetiredSources();
+        await this.deletion.collectRetiredSources();
       }
       return {
         files: reply['files'] as SourceCatalogReply['files'],
@@ -725,19 +699,6 @@ export class StateStore implements MemoryDomainPort {
       : this.run(execute);
   }
 
-  /** The writer commits retirement candidates with source changes; the existing GC owns physical erasure. */
-  private async collectRetiredSources(): Promise<void> {
-    const hashes = (await this.call({ op: 'sourceGcCandidates' }))['hashes'] as string[];
-    if (hashes.length === 0) {
-      return;
-    }
-    const indexer = this.requireIndexer('canonical source retirement');
-    await this.gc(indexer, hashes);
-    if (this.gcHolds === 0) {
-      await this.call({ hashes, op: 'sourceGcAcknowledge' });
-    }
-  }
-
   health(): { stateDamage: string | null; visibleErrors: Unreadable[] } {
     return { stateDamage: this.stateDamage, visibleErrors: [...this.visible.values()] };
   }
@@ -748,141 +709,66 @@ export class StateStore implements MemoryDomainPort {
    * Purge event `seq`: when this resolves no byte of it is left in the state DB files, the derived store or the blobs
    * (M0-A2 item 1). An intent is recorded first, so a crash at any point is completed by the next open.
    */
-  async purge(threadId: string, seq: number): Promise<PurgeReport> {
-    const indexer = this.requireIndexer('purge');
-    return this.run(async () => {
-      const [ev] = await this.read(threadId, seq, 1);
-      if (!ev || ev.seq !== seq) {
-        throw new Error(`purge: ${threadId}#${seq} does not exist`);
-      }
-      const r = await this.call({
-        hashes: JSON.stringify(blobsOf(ev.raw)),
-        op: 'intentRecord',
-        seq,
-        threadId,
-      });
-      return this.completePurge(
-        indexer,
-        threadId,
-        seq,
-        JSON.parse(String(r['hashes'])) as string[]
-      );
-    });
+  purge(threadId: string, seq: number): Promise<PurgeReport> {
+    return this.deletion.purge(threadId, seq);
   }
 
-  /** Idempotent: also replays an intent left by a crash at any point. */
-  private async completePurge(
-    indexer: IndexerPort,
-    threadId: string,
-    seq: number,
-    hashes: readonly string[]
-  ): Promise<PurgeReport> {
-    const t0 = performance.now();
-    await this.call({ op: 'purge', seq, threadId, tombstone: withSeq(seq, TOMBSTONE_BODY) });
-    const t1 = performance.now();
-    this.options.hooks?.purgeAfterTruth?.();
-    await indexer.reindex(threadId, seq);
-    const t2 = performance.now();
-    const deleted = await this.gc(indexer, hashes);
-    await this.call({ op: 'intentDelete', seq, threadId });
-    const t3 = performance.now();
+  deleteThread(threadId: string): Promise<string[]> {
+    return this.deletion.deleteThread(threadId);
+  }
+
+  /** The writer worker's deletion ops (`deletion-domain.mjs`), as the shared orchestration calls them. */
+  private deletionWriter(): DeletionWriter {
+    const hashes = async (op: string, fields: Record<string, unknown> = {}) =>
+      (await this.call({ op, ...fields }))['hashes'] as string[];
     return {
-      blobsDeleted: deleted,
-      derivedMs: t2 - t1,
-      gcMs: t3 - t2,
-      ms: t3 - t0,
-      truthMs: t1 - t0,
+      acknowledgeSourceGc: async (acknowledged) => {
+        await this.call({ hashes: acknowledged, op: 'sourceGcAcknowledge' });
+      },
+      damagedBlobRefs: () => hashes('damagedBlobRefs'),
+      deleteIntent: async (threadId, seq) => {
+        await this.call({ op: 'intentDelete', seq, threadId });
+      },
+      deleteThread: async (threadId) => {
+        await this.call({ op: 'deleteThread', threadId });
+      },
+      eventRaw: async (threadId, seq) => {
+        const [event] = await this.read(threadId, seq, 1);
+        return event && event.seq === seq ? event.raw : undefined;
+      },
+      intents: async () =>
+        (
+          (await this.call({ op: 'intentList' }))['intents'] as Array<{
+            hashes: string;
+            operation: 'event' | 'thread';
+            seq: number;
+            threadId: string;
+          }>
+        ).map((intent) => ({ ...intent, hashes: JSON.parse(intent.hashes) as string[] })),
+      okThreads: async () => (await this.call({ op: 'okThreads' }))['threads'] as string[],
+      purge: async (threadId, seq, tombstone) => {
+        await this.call({ op: 'purge', seq, threadId, tombstone });
+      },
+      recordIntent: async (intent) =>
+        JSON.parse(
+          String(
+            (
+              await this.call({
+                hashes: JSON.stringify(intent.hashes),
+                op: 'intentRecord',
+                operation: intent.operation,
+                seq: intent.seq,
+                threadId: intent.threadId,
+              })
+            )['hashes']
+          )
+        ) as string[],
+      sourceBlobRefs: () => hashes('sourceBlobRefs'),
+      sourceGcCandidates: () => hashes('sourceGcCandidates'),
+      storedBlobRefs: (threadId) => hashes('storedBlobRefs', { threadId }),
+      unlinkBlobs: async (unlink) =>
+        (await this.call({ hashes: unlink, op: 'unlinkBlobs' }))['deleted'] as string[],
     };
-  }
-
-  private async replayPurgeIntents(): Promise<void> {
-    const intents = (await this.call({ op: 'intentList' }))['intents'] as Array<{
-      threadId: string;
-      seq: number;
-      hashes: string;
-      operation: 'event' | 'thread';
-    }>;
-    if (intents.length === 0) {
-      return;
-    }
-    const indexer = this.requireIndexer('completing an interrupted purge');
-    for (const i of intents) {
-      if (i.operation === 'thread') {
-        await this.completeThreadDelete(indexer, i.threadId, JSON.parse(i.hashes) as string[]);
-      } else {
-        await this.completePurge(indexer, i.threadId, i.seq, JSON.parse(i.hashes) as string[]);
-      }
-    }
-  }
-
-  /** Unlink blobs no event references any more. Runs in the chain after the indexer caught up with every thread. */
-  private async gc(indexer: IndexerPort, hashes: readonly string[]): Promise<string[]> {
-    if (hashes.length === 0) {
-      return [];
-    }
-    // Held: the counts are taken at release. A holder may hold threads the indexer cannot yet read.
-    if (this.gcHolds > 0) {
-      for (const h of hashes) {
-        this.deferredGc.add(h);
-      }
-      return [];
-    }
-    const counts = await indexer.gcCheck(await this.okThreads(), hashes);
-    // A damaged thread is outside the verified count, yet its rows still name blobs (RunLog.damagedBlobRefs).
-    const held = new Set((await this.call({ op: 'damagedBlobRefs' }))['hashes'] as string[]);
-    for (const hash of (await this.call({ op: 'sourceBlobRefs' }))['hashes'] as string[]) {
-      held.add(hash);
-    }
-    const unlink: string[] = [];
-    for (const h of hashes) {
-      const count = counts[h];
-      if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) {
-        throw new Error(`indexer returned an invalid reference count for blob ${h}`);
-      }
-      if (count === 0 && !held.has(h)) {
-        unlink.push(h);
-      }
-    }
-    if (unlink.length === 0) {
-      return [];
-    }
-    return (await this.call({ hashes: unlink, op: 'unlinkBlobs' }))['deleted'] as string[];
-  }
-
-  async deleteThread(threadId: string): Promise<string[]> {
-    const indexer = this.requireIndexer('thread delete');
-    return this.run(async () => {
-      // A held collection counts at release, so nothing needs the indexer current now.
-      if (this.gcHolds === 0) {
-        await indexer.catchUp(await this.okThreads());
-      }
-      // Stored references, verified or not: a thread whose rows failed verification still deletes.
-      const hashes = (await this.call({ op: 'storedBlobRefs', threadId }))['hashes'] as string[];
-      const intent = await this.call({
-        hashes: JSON.stringify(hashes),
-        op: 'intentRecord',
-        operation: 'thread',
-        seq: 0,
-        threadId,
-      });
-      return this.completeThreadDelete(
-        indexer,
-        threadId,
-        JSON.parse(String(intent['hashes'])) as string[]
-      );
-    });
-  }
-
-  private async completeThreadDelete(
-    indexer: IndexerPort,
-    threadId: string,
-    hashes: readonly string[]
-  ): Promise<string[]> {
-    await this.call({ op: 'deleteThread', threadId });
-    const references = await indexer.dropThread(threadId);
-    const deleted = await this.gc(indexer, [...new Set([...hashes, ...references])]);
-    await this.call({ op: 'intentDelete', seq: 0, threadId });
-    return deleted;
   }
 
   // ---- export / import ------------------------------------------------------------------------------------------------
@@ -897,7 +783,7 @@ export class StateStore implements MemoryDomainPort {
       throw new Error(`export: ${bundleDir} already exists`);
     }
     mkdirSync(bundleDir, { recursive: true });
-    this.gcHolds++;
+    const release = this.deletion.holdBlobGc();
     try {
       await this.run(() => undefined); // the snapshot is not older than any write issued before this call
       await this.options.hooks?.exportAfterSnapshot?.();
@@ -909,7 +795,7 @@ export class StateStore implements MemoryDomainPort {
         statePath: this.statePath,
       });
     } finally {
-      await this.releaseGcHold();
+      await release();
     }
   }
 

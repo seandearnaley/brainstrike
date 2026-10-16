@@ -13,6 +13,7 @@
     "@types/better-sqlite3": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
+    "esbuild": "catalog:",
     "tsx": "^4.23.12",
     "typescript": "catalog:",
     "vitest": "catalog:"
@@ -28,6 +29,10 @@
     "./catalog-domains": {
       "types": "./dist/catalog-domains.d.mts",
       "default": "./dist/catalog-domains.mjs"
+    },
+    "./deletion-domain": {
+      "types": "./dist/deletion-domain.d.mts",
+      "default": "./dist/deletion-domain.mjs"
     },
     "./event-schema": {
       "types": "./dist/event-schema.d.ts",
@@ -52,6 +57,10 @@
     "./sqlite-checkpoint": {
       "types": "./dist/sqlite-checkpoint.d.mts",
       "default": "./dist/sqlite-checkpoint.mjs"
+    },
+    "./state-deletion": {
+      "types": "./dist/state-deletion.d.ts",
+      "default": "./dist/state-deletion.js"
     },
     "./state-truth-reader": {
       "types": "./dist/state-truth-reader.d.ts",
