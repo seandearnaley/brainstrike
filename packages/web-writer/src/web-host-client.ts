@@ -280,8 +280,15 @@ export class WebHostClient implements Pick<HostClient, 'closed' | 'onEvent' | 'o
             delivered: 0,
             subscribers: 0,
           };
+          const last = rows.at(-1)?.seq;
+          if (subscription.subscribers > 0) {
+            // The thread's subscribers so far are given what this replay read past their rows;
+            // a view already holding a row takes it once.
+            this.#deliver(subscription, rows);
+          } else {
+            subscription.delivered = Math.max(subscription.delivered, last ?? fromSeq);
+          }
           subscription.subscribers += 1;
-          subscription.delivered = Math.max(subscription.delivered, rows.at(-1)?.seq ?? fromSeq);
           this.#subscriptions.set(threadId, subscription);
           return { rows, telemetry: [] };
         });
@@ -375,8 +382,15 @@ export class WebHostClient implements Pick<HostClient, 'closed' | 'onEvent' | 'o
       this.#fold(row);
     }
     const subscription = this.#subscriptions.get(threadId);
+    if (subscription) {
+      this.#deliver(subscription, rows);
+    }
+  }
+
+  /** Gives a thread's subscribers its rows past those they were given, in order. */
+  #deliver(subscription: Subscription, rows: readonly HostLogRow[]): void {
     for (const row of rows) {
-      if (subscription && row.seq > subscription.delivered) {
+      if (row.seq > subscription.delivered) {
         subscription.delivered = row.seq;
         for (const listener of this.#events) {
           listener(row);
@@ -395,8 +409,14 @@ export class WebHostClient implements Pick<HostClient, 'closed' | 'onEvent' | 'o
   }
 
   #fold(row: HostLogRow): void {
-    this.#folded.set(row.threadId, row.seq);
     const event = row.event;
+    if (event.type === 'thread.started' && 'origin' in event) {
+      // A web turn has no tools, so it never delegates; Core's child topology is not composed here.
+      throw new Error(
+        `Thread ${row.threadId} is a delegated child thread, which the browser host does not serve`
+      );
+    }
+    this.#folded.set(row.threadId, row.seq);
     if (event.type === 'command.accepted') {
       this.#commands.commit(event.commandId, {
         method: event.method,

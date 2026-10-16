@@ -5,6 +5,7 @@
  */
 import { storedHostEvent } from '@brainstrike/agent-host/host-event-encoding';
 import type { HostEvent } from '@brainstrike/agent-host/protocol';
+import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
 import plan from '@brainstrike/test-utils/fixtures/committed-host-plan.json' with { type: 'json' };
 import type {
   WebStateLogAppend,
@@ -111,6 +112,31 @@ describe("the browser host client's ordering", () => {
     host.close();
   });
 
+  it("gives a thread's first subscriber the rows a second subscriber's replay read first", async () => {
+    const { announce, commit, store } = scriptedStore();
+    const host = await WebHostClient.open(store);
+    announce(commit({ commandId: 'start', type: 'thread.started' }));
+    await expect.poll(async () => (await host.request('thread/list', {})).threads.length).toBe(1);
+    const first = new CommittedThreadSession(host, THREAD);
+    const disconnect = first.connect();
+    await expect.poll(() => first.getSnapshot().isLoading).toBe(false);
+    const seqs = () => first.getSnapshot().rows.map((row) => row.seq);
+    expect(seqs()).toEqual([1]);
+
+    // Another tab renames; a second view in this tab subscribes before the announcement is handled.
+    const raced = commit({ title: 'Raced', type: 'thread.updated' });
+    const second = await host.request('log/subscribe', { fromSeq: 0, threadId: THREAD });
+    expect(second.rows.map((row) => row.seq)).toEqual([1, raced]);
+    await expect.poll(seqs).toEqual([1, raced]);
+    announce(raced);
+
+    const live = commit({ title: 'Live', type: 'thread.updated' });
+    announce(live);
+    await expect.poll(seqs).toEqual([1, raced, live]);
+    await disconnect();
+    host.close();
+  });
+
   it("folds another tab's row before this tab's own commit that overtook its announcement", async () => {
     const { announce, commit, store } = scriptedStore();
     const host = await WebHostClient.open(store);
@@ -149,6 +175,25 @@ describe("the browser host client's ordering", () => {
     );
     raced.close();
     calm.close();
+  });
+
+  it('refuses to open over a delegated child thread, which a web turn never commits', async () => {
+    const { commit, store } = scriptedStore();
+    commit({
+      origin: {
+        background: false,
+        depth: 1,
+        parentRunId: 'parent-run',
+        parentThreadId: 'parent',
+        persona: 'worker',
+        toolCallId: 'call-1',
+        turnId: 'parent-run',
+      },
+      type: 'thread.started',
+    });
+    await expect(WebHostClient.open(store)).rejects.toThrow(
+      'Thread thread is a delegated child thread, which the browser host does not serve'
+    );
   });
 
   it('closes with the reason when it cannot read a row it was told of, and serves nothing after', async () => {
