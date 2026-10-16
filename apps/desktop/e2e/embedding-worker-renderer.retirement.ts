@@ -18,18 +18,23 @@ export function captureNativeShutdown(app: ElectronApplication): () => void {
   process.stdout?.on('data', append);
   return () => {
     process.stdout?.off('data', append);
-    const reports = output.split('\n').flatMap((line) => {
+    const records = output.split('\n').flatMap((line) => {
       if (!line.startsWith('{')) {
         return [];
       }
       const record: unknown = JSON.parse(line);
-      if (typeof record !== 'object' || record === null || !('steps' in record)) {
-        return [];
-      }
-      return Array.isArray(record.steps) ? [record.steps] : [];
+      return typeof record === 'object' && record !== null ? [record] : [];
     });
+    const reports = records.flatMap((record) =>
+      'steps' in record && Array.isArray(record.steps) ? [record.steps] : []
+    );
+    // Retirement rejects every join it aborts; Main's process handler logs one left unobserved.
+    const unhandled = records.filter(
+      (record) => 'msg' in record && record.msg === 'Unhandled promise rejection'
+    );
     expect(process.exitCode).toBe(0);
     expect(process.signalCode).toBeNull();
+    expect(unhandled).toEqual([]);
     expect(reports).toHaveLength(1);
     expect(reports[0]).toEqual(
       expect.arrayContaining([

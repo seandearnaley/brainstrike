@@ -1,4 +1,5 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
+import { EMBEDDING_HOST_RUNTIME_STOPPED_CODE } from '../../../embedding-host-shared';
 import {
   closeQueryEmbeddingRuntimeOwner,
   createQueryEmbeddingRuntimeOwner,
@@ -40,7 +41,9 @@ describe('hidden inference physical owner retirement', () => {
       current: 'runtime-test',
     });
     expect(run.owner.closed).toBe(true);
-    expect(run.owner.inferenceController.signal.aborted).toBe(true);
+    expect(run.owner.inferenceController.signal.reason).toEqual(
+      expect.objectContaining({ code: EMBEDDING_HOST_RUNTIME_STOPPED_CODE, name: 'AbortError' })
+    );
     await Promise.resolve();
     expect(run.retire).toHaveBeenCalledOnce();
     expect(run.settled).not.toHaveBeenCalled();

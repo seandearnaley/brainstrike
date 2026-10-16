@@ -740,6 +740,20 @@ export function createEmbeddingHostDocumentCancellationError(): Error {
     name: 'AbortError',
   });
 }
+
+export const EMBEDDING_HOST_RUNTIME_STOPPED_CODE = 'EMBEDDING_HOST_RUNTIME_STOPPED';
+
+/**
+ * Only the host's owner close creates this reason, for every query and document request its Stop
+ * ends. The response follows the physical pool join, so it answers a caller that already asked to
+ * cancel; a caller that did not still receives it as a failure.
+ */
+export function createEmbeddingHostRuntimeStoppedError(): Error {
+  return Object.assign(new Error('Embedding host stopped while the request was in flight.'), {
+    code: EMBEDDING_HOST_RUNTIME_STOPPED_CODE,
+    name: 'AbortError',
+  });
+}
 export function assertEmbeddingHostDocumentEmbeddingsResponseReport(
   value: unknown
 ): EmbeddingHostDocumentEmbeddingsResponseReport {
