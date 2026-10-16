@@ -20,8 +20,10 @@ export type {
 } from './protocol';
 export {
   DEFAULT_WEB_STATE_STORE,
+  isWebRootPath,
   WEB_STATE_POOL_PREFIX,
   WEB_STATE_PROTOCOL,
+  webRootPath,
   webStateNames,
   webStateWireProtocol,
 } from './protocol';

@@ -2,8 +2,10 @@ import type {
   CollectionPort,
   ModelChoicePort,
   PromptCatalogPort,
+  SourceCatalogPort,
   ThreadGroupsPort,
   ViewFilterPresetPort,
+  WorkspaceRootPort,
 } from '@brainstrike/state-store';
 import type {
   TabMessage,
@@ -52,8 +54,10 @@ export class WebStateStore
     CollectionPort,
     ModelChoicePort,
     PromptCatalogPort,
+    SourceCatalogPort,
     ThreadGroupsPort,
-    ViewFilterPresetPort
+    ViewFilterPresetPort,
+    WorkspaceRootPort
 {
   readonly #listeners = new Set<(view: WebStateLeaseView) => void>();
   readonly #pending = new Map<number, Pending>();
@@ -124,6 +128,18 @@ export class WebStateStore
     request: WebStateRequests['modelChoices']['params']
   ): Promise<WebStateRequests['modelChoices']['result']> {
     return this.request('modelChoices', request);
+  }
+
+  sourceCatalog(
+    request: WebStateRequests['sourceCatalog']['params']
+  ): Promise<WebStateRequests['sourceCatalog']['result']> {
+    return this.request('sourceCatalog', request);
+  }
+
+  workspaceRoots(
+    request: WebStateRequests['workspaceRoots']['params']
+  ): Promise<WebStateRequests['workspaceRoots']['result']> {
+    return this.request('workspaceRoots', request);
   }
 
   promptCatalog(

@@ -5,8 +5,12 @@ import type {
   ModelChoiceResult,
   PromptCatalogReply,
   PromptCatalogRequest,
+  SourceCatalogReply,
+  SourceCatalogRequest,
   ThreadGroupsReply,
   ThreadGroupsRequest,
+  WorkspaceRootReply,
+  WorkspaceRootRequest,
 } from '@brainstrike/state-store';
 import type { ViewFilterPresetReply, ViewFilterPresetRequest } from '@brainstrike/types';
 
@@ -216,6 +220,11 @@ export interface WebStateRequests {
     readonly params: Record<string, never>;
     readonly result: WebStateSettings;
   };
+  /**
+   * The authoritative source catalog, on desktop's domain: a mutation needs
+   * the derived index, and the writer collects the sources it retires.
+   */
+  sourceCatalog: { readonly params: SourceCatalogRequest; readonly result: SourceCatalogReply };
   stall: {
     readonly params: Record<string, never>;
     readonly result: never;
@@ -238,6 +247,11 @@ export interface WebStateRequests {
     readonly params: ViewFilterPresetRequest;
     readonly result: ViewFilterPresetReply;
   };
+  /**
+   * Workspace roots, on desktop's domain. A root's path is its handle key
+   * (`webRootPath`); deleting one needs the derived index.
+   */
+  workspaceRoots: { readonly params: WorkspaceRootRequest; readonly result: WorkspaceRootReply };
 }
 
 export type WebStateOp = keyof WebStateRequests;
@@ -292,9 +306,31 @@ export type ChannelMessage =
  * Bump it whenever `WebStateRequests`, a request's params or result, or a
  * channel message changes: version 2 added the catalog and blob requests,
  * version 3 writer extensions, version 4 the writer's purge and thread
- * delete in place of tabs unlinking blobs.
+ * delete in place of tabs unlinking blobs, version 5 the source catalog and
+ * workspace roots.
  */
-export const WEB_STATE_PROTOCOL = 4;
+export const WEB_STATE_PROTOCOL = 5;
+
+const WEB_ROOT_PATH = /^fsa:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * A browser workspace root's path in the shared roots table. Desktop records
+ * the absolute path main granted; a File System Access handle has none, so
+ * the root is named by its id, and the tab keeps the handle in IndexedDB
+ * under that id. A root re-picked through `isSameEntry` keeps its id.
+ */
+export function webRootPath(rootId: string): string {
+  const path = `fsa:${rootId}`;
+  if (!WEB_ROOT_PATH.test(path)) {
+    throw new Error('A browser workspace root is named by its UUID');
+  }
+  return path;
+}
+
+/** Whether `path` is the handle key of the root `rootId` (`webRootPath`), and of no other. */
+export function isWebRootPath(path: string, rootId: string): boolean {
+  return WEB_ROOT_PATH.test(path) && path === `fsa:${rootId}`;
+}
 
 /** The protocol a writer announces: this wire's version and the extensions it runs, by id. */
 export function webStateWireProtocol(extensionIds: readonly string[]): string {

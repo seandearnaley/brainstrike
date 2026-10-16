@@ -4,5 +4,7 @@
 export { executeCollectionRequest } from './collection-domain.mjs';
 export { executeModelChoiceRequest } from './model-choice-domain.mjs';
 export { executePromptCatalogRequest } from './prompt-catalog-domain.mjs';
+export { executeSourceCatalogRequest } from './source-catalog-domain.mjs';
 export { executeThreadGroups } from './thread-groups-domain.mjs';
 export { executeViewFilterPresetRequest } from './view-filter-preset-domain.mjs';
+export { executeWorkspaceRootRequest } from './workspace-root-domain.mjs';
