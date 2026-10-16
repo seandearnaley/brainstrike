@@ -30,7 +30,11 @@ import {
 } from '@brainstrike/assistant-contract';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
-import { HostTreeApprovals, stopHostChildTurns } from '../renderer/host-tree-approvals';
+import {
+  HOST_TREE_DISCONNECTED,
+  HostTreeApprovals,
+  stopHostChildTurns,
+} from '../renderer/host-tree-approvals';
 
 const roots: string[] = [];
 const hosts: AgentHost[] = [];
@@ -178,6 +182,37 @@ test('a child the tree cannot list reads unavailable with the reason, never work
       toolCalls: 0,
     });
   expect(tree.read(child.threadId)).toBe(tree.read(child.threadId));
+});
+
+// Codex review on #3719: a lost connection leaves each session's last rows
+// with `connected: false` and no error, and the cards kept reading "working"
+// while the strip offered a Stop over a closed client. Once the connection is
+// gone, every child's progress is unavailable, and none is offered a Stop.
+test('after the host connection closes, children read unavailable and the strip offers no Stop', async () => {
+  const { client, threadId, tree } = await explorerHost(
+    scriptedHeldDelegation(DELEGATE, READS.slice(0, 2))
+  );
+  await client.request('run/start', {
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Delegate the survey',
+    threadId,
+  });
+  await expect.poll(() => tree.getRunning().children.length).toBe(1);
+  const [working] = tree.getRunning().children;
+  if (!working) {
+    throw new Error('The root delegated no working child');
+  }
+
+  await client.close();
+  await expect
+    .poll(() => tree.read(working.threadId))
+    .toEqual({
+      reason: HOST_TREE_DISCONNECTED,
+      status: 'unavailable',
+      toolCalls: expect.any(Number),
+    });
+  expect(tree.getRunning().children).toEqual([]);
 });
 
 test('between the parent’s runs, the tree names its working background child and Stop ends it without a wake', async () => {

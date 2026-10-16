@@ -12,6 +12,10 @@ import { HostChildListingFailures, HostChildRunFold } from './host-child-run';
 
 const logger = createLogger('HostTreeApprovals');
 
+/** Why a child's progress is unavailable once this client's connection closed. */
+export const HOST_TREE_DISCONNECTED =
+  'The agent host disconnected. Reconnect to see this subagent’s progress.';
+
 /** A background child of the viewed thread whose run is still working. */
 export interface HostTreeRunningChild {
   /** The child's call sign. */
@@ -385,8 +389,10 @@ export class HostTreeApprovals implements SubagentChildRunSource {
     const children: HostTreeRunningChild[] = [];
     let activeTurnId: string | undefined;
     for (const [threadId, { fold, origin, owner, session }] of this.threads) {
-      const { error, rows } = session.getSnapshot();
-      const run = fold.apply(rows, error);
+      // A closed connection never reopens for this client, so its last rows
+      // are no longer the child's truth.
+      const { connected, error, rows } = session.getSnapshot();
+      const run = fold.apply(rows, error ?? (connected ? undefined : HOST_TREE_DISCONNECTED));
       if (origin === undefined || owner === undefined) {
         activeTurnId = working(run) ? fold.rootTurnId() : undefined;
         continue;
