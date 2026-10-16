@@ -15,6 +15,24 @@ import {
 } from './edit-checkpoint-context';
 import type { PrimaryArgSummary } from './tool-summaries';
 
+/** A failed call's stated reason on its collapsed row; the full text in its tooltip. */
+export function FailureReasonChip({
+  reason,
+}: {
+  readonly reason: PrimaryArgSummary;
+}): ReactElement {
+  return (
+    <span
+      className="bs-step-row-meta bs-step-row-failure"
+      data-testid="tool-failure-reason"
+      title={reason.full}
+    >
+      <span aria-hidden="true">· </span>
+      <span>{reason.display}</span>
+    </span>
+  );
+}
+
 /**
  * The tool card's L1 step row: the shared `StepRowHeader` plus the checkpoint
  * revert control as its SIBLING inside `.bs-step-row-line` — never nested
@@ -102,16 +120,7 @@ export function ToolFallbackRow({
         trailing={
           <>
             {resultSummary ? <span className="bs-step-row-meta">{resultSummary}</span> : null}
-            {failureReason ? (
-              <span
-                className="bs-step-row-meta bs-step-row-failure"
-                data-testid="tool-failure-reason"
-                title={failureReason.full}
-              >
-                <span aria-hidden="true">· </span>
-                <span>{failureReason.display}</span>
-              </span>
-            ) : null}
+            {failureReason ? <FailureReasonChip reason={failureReason} /> : null}
             {resolvedRootName ? (
               <span
                 className="bs-step-row-meta"

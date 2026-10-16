@@ -532,7 +532,7 @@ function buildSkillsInstruction(names: ModelFacingToolNames): string {
     ? `${readClause ? ', and search' : ' Search'} across skill content with ${names.skillSearch}`
     : '';
   const executionClause = names.runSkillScript
-    ? ` Run listed scripts with ${names.runSkillScript} using literal args and mounted root/cwd; do not reconstruct an absolute skill path.`
+    ? ` Run a listed script only when the skill's instructions call for it in the user's task, with ${names.runSkillScript} using literal args and mounted root/cwd; do not reconstruct an absolute skill path.`
     : '';
   const mutationClause = names.writeWorkspaceFile
     ? ` Use ${names.writeWorkspaceFile} or other native tools for project writes; never construct shell heredocs.`
@@ -542,7 +542,7 @@ function buildSkillsInstruction(names: ModelFacingToolNames): string {
     : '';
   return (
     'Agent Skills are listed under <available_skills>. ' +
-    `When a task matches one, activate it proactively with ${names.skill}, then follow its returned instructions.` +
+    `When the user's request clearly calls for one, activate it with ${names.skill}, then follow its returned instructions.` +
     `${readClause}${searchClause}${readClause || searchClause ? '.' : ''}` +
     `${executionClause}${mutationClause}${declineClause} ` +
     'Never guess its contents before activation.'
