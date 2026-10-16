@@ -135,16 +135,20 @@ test.each([
       });
       const opened = core;
       let terminal: Extract<HostEvent, { type: 'run.finished' }> | undefined;
+      // Under machine load the run outlasts expect.poll's 1 s default.
       await expect
-        .poll(async () => {
-          terminal = (await opened.read(threadId, 0))
-            .map((row) => row.event)
-            .find(
-              (event): event is Extract<HostEvent, { type: 'run.finished' }> =>
-                event.type === 'run.finished' && event.runId === runId
-            );
-          return terminal !== undefined;
-        })
+        .poll(
+          async () => {
+            terminal = (await opened.read(threadId, 0))
+              .map((row) => row.event)
+              .find(
+                (event): event is Extract<HostEvent, { type: 'run.finished' }> =>
+                  event.type === 'run.finished' && event.runId === runId
+              );
+            return terminal !== undefined;
+          },
+          { timeout: 30_000 }
+        )
         .toBe(true);
       // One run request, beside the thread's one title request.
       expect(bodies).toHaveLength(1);
@@ -498,15 +502,26 @@ test('production schema selection preserves authored validation and one executor
     // then surfaces only as the finally close's error for the still-running run.
     const settled = { timeout: 30_000 };
     let approval: Extract<HostEvent, { type: 'interaction.requested' }> | undefined;
+    // The approval commits with its step, before that step's Memory checkpoint, and a
+    // close in between rightly reports the cut checkpoint. The SDK emits the stream's
+    // `finish` only after the step callback returns, so its row means the run has parked.
     await expect
       .poll(async () => {
-        approval = (await core.read(threadId, 0))
-          .map((row) => row.event)
-          .find(
-            (event): event is Extract<HostEvent, { type: 'interaction.requested' }> =>
-              event.type === 'interaction.requested' && event.runId === runId
-          );
-        return approval !== undefined;
+        const events = (await core.read(threadId, 0)).map((row) => row.event);
+        approval = events.find(
+          (event): event is Extract<HostEvent, { type: 'interaction.requested' }> =>
+            event.type === 'interaction.requested' && event.runId === runId
+        );
+        const parked = events.some(
+          (event) =>
+            event.type === 'stream.chunk' &&
+            event.runId === runId &&
+            typeof event.chunk === 'object' &&
+            event.chunk !== null &&
+            !Array.isArray(event.chunk) &&
+            event.chunk['type'] === 'finish'
+        );
+        return approval !== undefined && parked;
       }, settled)
       .toBe(true);
     if (!approval) {
