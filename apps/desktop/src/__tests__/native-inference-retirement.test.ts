@@ -1,13 +1,13 @@
 import { projectModelCatalog } from '@brainstrike/assistant-contract';
 // @vitest-environment node
 import { providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
-import { clearHostedProviderApiKeyCache } from '@brainstrike/embeddings/provider-core';
-import { afterEach, expect, it, vi } from 'vitest';
-import { HostedEmbeddingError } from '../hosted-embeddings';
 import {
   NativeCanonicalInference,
   NativeCanonicalProfileResolver,
-} from '../native-canonical-profile';
+} from '@brainstrike/canonical-ingestion';
+import { clearHostedProviderApiKeyCache } from '@brainstrike/embeddings/provider-core';
+import { afterEach, expect, it, vi } from 'vitest';
+import { generateHostedEmbeddings, HostedEmbeddingError } from '../hosted-embeddings';
 
 vi.mock('../secrets', () => ({ getSecretsService: () => ({ getKey: async () => undefined }) }));
 afterEach(() => {
@@ -46,7 +46,9 @@ it('retires an already physically settled missing-key request after generate del
     resolveEmbeddingSetId: async () => metadata.id,
   });
   const documentEmbeddings = vi.fn(async () => []);
+  // Desktop's composition hands the shared inference its own hosted embeddings.
   const inference = new NativeCanonicalInference({
+    hostedEmbeddings: generateHostedEmbeddings,
     resolver,
     scope,
     transport: { documentEmbeddings },

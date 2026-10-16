@@ -8,10 +8,10 @@ import type {
   CanonicalOperationContext,
   CanonicalSourceScope,
 } from '@brainstrike/canonical-ingestion';
+import { NativeCanonicalProfileResolver } from '@brainstrike/canonical-ingestion';
 import type { SelectedEmbeddingRequestPlan } from '@brainstrike/embeddings/inference-plan';
 import { type CollectionRecord, StateStore } from '@brainstrike/state-store';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
-import { NativeCanonicalProfileResolver } from '../native-canonical-profile';
 
 let store: StateStore;
 let directory: string;

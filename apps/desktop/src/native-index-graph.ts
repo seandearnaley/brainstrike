@@ -9,6 +9,8 @@ import type {
 import {
   decodeNativeCanonicalCatalogRecords,
   type NativeCanonicalCatalogRecord,
+  type NativeCanonicalProfileDependencies,
+  NativeCanonicalProfileResolver,
 } from '@brainstrike/canonical-ingestion';
 import type { HostAttachment } from '@brainstrike/host-lease';
 import type {
@@ -20,12 +22,9 @@ import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { DesktopProfileRuntime } from './desktop-profile-runtime';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import type { ApplicationIpcDomain } from './ipc-handlers';
-import {
-  type NativeCanonicalProfileDependencies,
-  NativeCanonicalProfileResolver,
-} from './native-canonical-profile';
 import { vectorCollectionId } from './native-index-partition';
 import type { NativeIndexSettings } from './native-index-settings';
+import { desktopSetupRequired } from './native-index-setup-required';
 import type { NativeIndexSources } from './native-index-source-retirement';
 
 export interface NativeIndexActivationGraph {
@@ -73,6 +72,7 @@ export function createNativeGraphProfileResolver(
       }
       return collectionId;
     },
+    setupRequired: desktopSetupRequired,
   });
 }
 

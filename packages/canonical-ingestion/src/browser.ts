@@ -14,6 +14,17 @@ export {
   type NativeCanonicalCatalogScope,
 } from './canonical-catalog.js';
 export {
+  type CanonicalDocumentEmbeddingsPayload,
+  type CanonicalHostedEmbeddings,
+  NativeCanonicalInference,
+  type NativeCanonicalInferenceDependencies,
+  type NativeCanonicalProfile,
+  type NativeCanonicalProfileDependencies,
+  NativeCanonicalProfileResolver,
+  type NativeCatalogModel,
+  resolveNativeCanonicalProfile,
+} from './canonical-profile.js';
+export {
   type CanonicalIngestionDependencies,
   CanonicalIngestionHost,
   CanonicalScanIncompleteError,
