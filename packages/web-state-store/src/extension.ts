@@ -35,6 +35,12 @@ export interface WebStateExtensionInstance {
    */
   close(): void | Promise<void>;
   /**
+   * Ops of `handlers` that run outside the writer's request order, because
+   * they do their work elsewhere (the file index's own worker) and at most
+   * read the state DB: a chat append never waits behind one.
+   */
+  readonly concurrent?: readonly string[];
+  /**
    * Ops are namespaced by the extension (`index.search`); the writer refuses
    * to open with one that is not, or that another extension also names.
    */

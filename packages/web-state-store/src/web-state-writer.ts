@@ -88,6 +88,8 @@ type AppendRows = Parameters<RunLog['append']>[0];
 
 interface Writer {
   readonly blobs: SqliteBlobStore;
+  /** The extensions' ops that run outside the request order (`WebStateExtensionInstance.concurrent`). */
+  readonly concurrent: ReadonlySet<string>;
   readonly db: SqliteWasmDatabase;
   /** Purge, thread delete and blob GC: desktop's orchestration, over this writer's connections. */
   readonly deletion: StateDeletion;
@@ -343,7 +345,18 @@ async function openWriter(
   }
   return {
     lease: { epoch, instanceId },
-    writer: { blobs, db, deletion, extensions: opened, handlers, log, pool },
+    writer: {
+      blobs,
+      concurrent: new Set(
+        opened.flatMap((instance) => (instance.concurrent ?? []).filter((op) => handlers.has(op)))
+      ),
+      db,
+      deletion,
+      extensions: opened,
+      handlers,
+      log,
+      pool,
+    },
   };
 }
 
@@ -570,7 +583,7 @@ function answer(id: number, request: WireRequest): Promise<WebStateReply> {
       ? new Promise<never>(() => {})
       : Promise.resolve({ error: errorReply(new Error('stall is a test hook')), id, ok: false });
   }
-  return serialized(async (): Promise<WebStateReply> => {
+  const run = async (): Promise<WebStateReply> => {
     const active = writer;
     if (!active) {
       return { error: refusal ?? leaderLost(), id, ok: false };
@@ -580,7 +593,9 @@ function answer(id: number, request: WireRequest): Promise<WebStateReply> {
     } catch (error) {
       return { error: errorReply(error), id, ok: false };
     }
-  });
+  };
+  // An extension op whose work runs elsewhere never holds the queue a chat append waits in.
+  return writer?.concurrent.has(request.op) ? run() : serialized(run);
 }
 
 /**

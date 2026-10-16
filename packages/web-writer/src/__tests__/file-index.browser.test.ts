@@ -114,6 +114,33 @@ describe('the file index in a worker of its own', () => {
     expect((await search(index, rootId)).hits).toHaveLength(1);
   });
 
+  it('leaves out an import in no collection, which no scope could authorize, and still opens', async () => {
+    const config = storeConfig();
+    const tab = await openTab(config);
+    await tab.sourceCatalog({
+      embeddingSetId: null,
+      files: [
+        {
+          content: CONTENT,
+          contentHash: sha256Hex(CONTENT),
+          fileName: 'loose.ts',
+          path: 'loose.ts',
+          stat: { mtimeMs: 1, size: utf8ByteLength(CONTENT) },
+        },
+      ],
+      operation: 'import',
+    });
+    const { file, rootId } = await rootWithSource(tab);
+    const index = new WebFileIndex(tab);
+    await index.reauthorize();
+    await publish(index, rootId, file.fileId, file.path);
+    tab.close();
+
+    // The next writer opens the file index with the same catalogs.
+    const reopened = await openTab(config);
+    expect((await search(new WebFileIndex(reopened), rootId)).hits).toHaveLength(1);
+  });
+
   it('retires with the store, releasing its pool so factory reset can delete it', async () => {
     const config = storeConfig();
     const tab = await openTab(config);

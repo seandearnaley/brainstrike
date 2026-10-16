@@ -535,6 +535,22 @@ describe('clearPersistentUiState OPFS-AHP handling', () => {
     );
   });
 
+  it("removes the default store's pools, its file index's too, where OPFS cannot list its entries", async () => {
+    Object.defineProperty(nav, 'storage', {
+      configurable: true,
+      value: { getDirectory: vi.fn(async () => ({ removeEntry })) },
+    });
+
+    await clearPersistentUiState();
+
+    expect(removeEntry.mock.calls.map(([name]) => name)).toEqual(
+      expect.arrayContaining([
+        'brainstrike-web-state-default',
+        'brainstrike-web-state-default--files',
+      ])
+    );
+  });
+
   it('reports incomplete reset results when an OPFS pglite directory cannot be removed', async () => {
     const resetFailure = new Error('locked opfs directory');
     removeEntry.mockImplementation(async (name: string) => {

@@ -265,6 +265,7 @@ export const FALLBACK_OPFS_DIR_NAMES = [
   'web',
   'brainstrike-notes', // Notes vault default "My Notes" (@brainstrike/notes-vault default-vault.ts)
   'brainstrike-web-state-default', // The browser state DB's default store (@brainstrike/web-state-store)
+  'brainstrike-web-state-default--files', // Its file index's own pool (webStateExtensionPool)
 ] as const;
 
 // Matches the pglite OPFS-AHP root dirs for our db names (`app`/`web`), versioned

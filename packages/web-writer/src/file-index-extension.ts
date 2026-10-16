@@ -46,7 +46,10 @@ function authorityOf(context: WebStateWriterContext): FileIndexAuthority {
       },
       read: () => null,
     }
-  ).files.filter((file) => file.rootId === null || live.has(file.rootId));
+  ).files.filter((file) =>
+    // An import in no collection has no scope the index could authorize it under.
+    file.rootId === null ? file.embeddingSetId !== null : live.has(file.rootId)
+  );
   return {
     fileBindings: files.map((file) => ({
       embeddingSetId: file.embeddingSetId,
@@ -149,6 +152,8 @@ export const fileIndexExtension: WebStateExtension = {
           worker.terminate();
         }
       },
+      // Index work runs in the worker's own order: a chat append never waits behind it.
+      concurrent: Object.keys(handlers),
       handlers,
     };
   },
