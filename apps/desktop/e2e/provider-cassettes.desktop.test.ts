@@ -19,7 +19,7 @@ import {
   type RenderedDelegationCard,
 } from './utils/conversation-invariants';
 import { launchElectronAppWithOptions } from './utils/electron-helpers.mts';
-import { ensureAssistantShellVisible } from './utils/layout-helpers';
+import { ensureActivityExpanded, ensureAssistantShellVisible } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
 import {
   PROVIDER_CASSETTE_SCENARIOS,
@@ -113,14 +113,17 @@ test('provider cassette openai-background-delegation replays through the desktop
       )
       .toBe(true);
     const conversation = await read();
-    // A fresh read of the settled conversation. Whether open cards follow
-    // their children live is its own contract, not this one.
-    await page.reload();
-    await ensureAssistantShellVisible(page);
-    const cards = page.getByTestId('subagent-execution-card');
+    // A collapsed activity group keeps its cards' last render in hidden DOM
+    // (#3740): only cards the user can see are read.
+    await ensureActivityExpanded(region);
+    const cards = region.getByTestId('subagent-execution-card');
     const childThreadIds = delegatedChildThreadIds(conversation.parent.rows);
     await expect(cards).toHaveCount(childThreadIds.length);
-    await expect(cards.filter({ hasText: /tool calls?/u })).toHaveCount(childThreadIds.length);
+    for (const card of await cards.all()) {
+      await expect(card).toBeVisible();
+    }
+    // Settled: once every child finished, no visible card still reads as working.
+    await expect(cards.filter({ hasText: /\bworking\b/u })).toHaveCount(0);
     const rendered = (await cards.allInnerTexts()).map((text, index) =>
       readCard(text, childThreadIds[index] ?? 'unmapped')
     );
