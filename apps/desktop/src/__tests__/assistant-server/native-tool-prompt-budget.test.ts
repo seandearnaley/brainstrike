@@ -1,6 +1,6 @@
 import {
   createAssistantSkillTools,
-  createMastraAgentRuntime,
+  createSanitizedToolNameMap,
   createScannedWorkspaceSkills,
   NATIVE_TOOL_DEFAULTS,
   PROVIDER_DEFAULT_MODELS,
@@ -12,6 +12,7 @@ import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { getAdjustedTimeout } from '@brainstrike/test-utils';
 import { get_encoding } from 'tiktoken';
 import { describe, expect, it, vi } from 'vitest';
+import { readDesktopHostSystemContext } from '../../agent-host-platform/desktop-host-context';
 import { desktopHostToolExecutors } from '../../agent-host-platform/host-executed-tools';
 import { runSkillScriptExecutor } from '../../assistant-server/native-tool-executors-skills';
 import {
@@ -187,17 +188,26 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 // slimmed the `listWorkspaceContext`/`readWorkspaceContext` schemas: a
 // deliberate drop. The authored surface measured 9126; both bounds move down
 // to centre it (9,975 → 9,276 and 9,675 → 8,976), width 300 unchanged.
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9276;
-const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 8976;
+//
+// ADR-0022 (the Mastra agent loop's retirement) RE-BASELINED this band, and the
+// raise is a change of INSTRUMENT, not of authored text. The instruction half
+// used to be `createMastraAgentRuntime(...).agent.getInstructions()` plus a
+// hand-pinned copy of Mastra's SkillsProcessor block. It is now
+// `readDesktopHostSystemContext` — the assembler that gives every production
+// host run its system text — so the measured text gained what the engine added
+// through processors rather than inside `getInstructions()`: the current-date
+// note, the context-budget note, and the vendor's real `formatSkillsCatalog`
+// output in place of the pinned copy. Measured 9826 on the host assembler
+// against 9126 on the engine's, with the tool half unchanged; both bounds move
+// to centre it (9,276 → 9,976 and 8,976 → 9,676), width 300 unchanged.
+//
+// No authored description or schema was edited for this, and the trim-first
+// rule below is untouched: the next raise still has to earn itself.
+/** The same 36 the eager-baseline gate above counts: the tool half is unchanged. */
+const AUTHORED_PROVIDER_TOOL_COUNT = 36;
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9976;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9676;
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
-// runPython joined the suspending set in BST-1070 Gate B: without workflow
-// storage its suspend metadata is stripped here for the same reason as the
-// other two (this fixture measures the PROMPT surface, not resumability).
-const SUSPENDING_TOOL_IDS = [
-  'brainstrike.askUser',
-  'brainstrike.runPython',
-  'brainstrike.submitPlan',
-] as const;
 const PROMPT_BUDGET_SKILL = {
   containmentRoot: '/workspace',
   description: 'A minimal production-equivalent skill for prompt-budget coverage.',
@@ -212,8 +222,6 @@ const PROMPT_BUDGET_SKILL = {
   userInvocable: true,
   warnings: [],
 } satisfies ScannedSkill;
-const SKILLS_PROCESSOR_USAGE_INSTRUCTION =
-  'IMPORTANT: Skills are NOT tools. Do not call skill names directly as tool names. To use a skill, call the `skill` tool with the skill name as the "name" parameter. If multiple skills share the same name, use the skill path (shown in the location field) instead of the name to disambiguate. When a user asks about a topic covered by an available skill, activate it immediately without asking for permission first.';
 
 interface ProviderFunctionTool {
   function: {
@@ -298,22 +306,65 @@ function buildPromptBudgetDesktopTools(
 }
 
 /**
- * Pins the first-turn system context emitted by Mastra 1.51's SkillsProcessor
- * for the representative skill above. createMastraAgentRuntime counts its
- * static skills guidance in getInstructions(), while this per-call processor
- * context is added later by buildToolLoopOptions and must be counted separately.
- * Keep this literal byte-aligned with @mastra/core when upgrading Mastra.
+ * The system text the PRODUCTION host sends for this tool set, through the
+ * desktop host's own assembler. This is the real seam: `readDesktopHostSystemContext`
+ * is what `desktop-host-context.ts` gives every run, so the instruction half of
+ * this budget is measured on the text the model actually receives.
+ *
+ * It replaces a `createMastraAgentRuntime(...).agent.getInstructions()` call
+ * plus a hand-pinned copy of Mastra's SkillsProcessor block (ADR-0022 retired
+ * that engine). The skills catalog is no longer pinned here at all: the host
+ * emits it itself through the vendor's public `formatSkillsCatalog`.
+ *
+ * Two inputs are PINNED so this band measures authored text and nothing else.
+ * `inputTokenLimit` is fixed rather than read from the catalog, so a catalog
+ * edit cannot move the band through the context budget note. The clock is
+ * frozen because `buildCurrentDateNote` interpolates the LONG WEEKDAY NAME,
+ * and o200k does not tokenize every weekday to the same length — a live clock
+ * would make this gate pass or fail by the day of the week.
  */
-function withSkillsProcessorContext(instructions: string): string {
-  const availableSkill = `<available_skills>
-  <skill>
-    <name>${PROMPT_BUDGET_SKILL.name}</name>
-    <description>${PROMPT_BUDGET_SKILL.description}</description>
-    <location>${PROMPT_BUDGET_SKILL.dirAbsPath}/SKILL.md</location>
-    <source>local</source>
-  </skill>
-</available_skills>`;
-  return [instructions, availableSkill, SKILLS_PROCESSOR_USAGE_INSTRUCTION].join('\n');
+const PROMPT_BUDGET_INPUT_TOKEN_LIMIT = 400_000;
+const PROMPT_BUDGET_CLOCK = new Date('2026-01-05T12:00:00.000Z');
+
+async function readDesktopHostSystemContextForBudget(args: {
+  readonly toolNameMap: ReadonlyMap<string, string>;
+  readonly tools: Readonly<Record<string, MastraProviderTool>>;
+  readonly workspaceSkills: ScannedWorkspaceSkills;
+}): Promise<string> {
+  const tools = Object.fromEntries(
+    Array.from(args.toolNameMap, ([name, canonicalId]) => {
+      const tool = args.tools[canonicalId];
+      if (!tool) {
+        throw new Error(`Tool-name map references missing desktop tool ${canonicalId}`);
+      }
+      return [name, { description: tool.description, permissionToolId: canonicalId }];
+    })
+  );
+  vi.useFakeTimers({ now: PROMPT_BUDGET_CLOCK, toFake: ['Date'] });
+  const assembled = await readDesktopHostSystemContext({
+    inputTokenLimit: PROMPT_BUDGET_INPUT_TOKEN_LIMIT,
+    planMode: false,
+    // The budget surface reads no workspace file: a mention or an instructions
+    // file would measure the fixture's bytes rather than the authored surface.
+    // It REFUSES rather than returning empty, so an accidental read is loud.
+    readWorkspaceFile: () =>
+      Promise.reject(new Error('The prompt-budget surface reads no workspace file')),
+    request: {
+      modelId: OPENROUTER_PROMPT_BUDGET_MODEL,
+      prompt: 'prompt budget',
+      signal: AbortSignal.timeout(getAdjustedTimeout('heavy')),
+      threadId: 'prompt-budget-thread',
+    },
+    runtime: { provider: 'openrouter' } as RuntimeData,
+    tools,
+    workspaceSkills: args.workspaceSkills,
+  }).finally(() => {
+    vi.useRealTimers();
+  });
+  if (typeof assembled.system !== 'string') {
+    throw new TypeError('The desktop host assembled no system text for the budget surface');
+  }
+  return assembled.system;
 }
 
 function snapshotProviderToolSurface(
@@ -337,36 +388,6 @@ function snapshotProviderToolSurface(
       ];
     })
   );
-}
-
-/**
- * Suspension/resume schemas are workflow metadata, not model-visible tool
- * definitions. Strip only that metadata so the real Mastra conversion keeps
- * both hosted tools without constructing a database-backed workflow store.
- */
-function omitNonProviderSuspendMetadata(
-  tools: NonNullable<RuntimeData['mastraTools']>
-): NonNullable<RuntimeData['mastraTools']> {
-  const promptTools = { ...tools };
-  for (const toolId of SUSPENDING_TOOL_IDS) {
-    const tool = tools[toolId];
-    if (!tool) {
-      throw new Error(`Desktop hosted registry is missing ${toolId}`);
-    }
-    const providerTool = tool as unknown as {
-      description?: unknown;
-      execute?: unknown;
-      id?: unknown;
-      inputSchema?: unknown;
-    };
-    promptTools[toolId] = {
-      description: providerTool.description,
-      execute: providerTool.execute,
-      id: providerTool.id,
-      inputSchema: providerTool.inputSchema,
-    } as unknown as typeof tool;
-  }
-  return promptTools;
 }
 
 interface JsonSchemaConversionContext {
@@ -741,7 +762,7 @@ describe('desktop native tool provider prompt budget', () => {
     });
   });
 
-  it('keeps the authored full hosted registry and instructions within the 8,976-9,276 o200k band', async () => {
+  it('keeps the authored full hosted registry and instructions within the recorded o200k band', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
     const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);
@@ -750,31 +771,23 @@ describe('desktop native tool provider prompt budget', () => {
       ...desktopTools,
     };
     const providerSurface = snapshotProviderToolSurface(authoredTools);
-    const runtime = await createMastraAgentRuntime({
-      model: OPENROUTER_PROMPT_BUDGET_MODEL,
-      runtime: {
-        apiKey: 'prompt-budget-test-key',
-        provider: 'openrouter',
-        workspaceSkills,
-      },
-      tools: omitNonProviderSuspendMetadata(desktopTools),
+    const toolNameMap = createSanitizedToolNameMap(Object.keys(authoredTools));
+    const system = await readDesktopHostSystemContextForBudget({
+      toolNameMap,
+      tools: providerSurface,
+      workspaceSkills,
     });
-
-    try {
-      const resolvedInstructions = await runtime.agent.getInstructions();
-      if (typeof resolvedInstructions !== 'string') {
-        throw new TypeError('Brainstrike hosted instructions must resolve to one string');
-      }
-      const providerTools = buildProviderFunctionTools(providerSurface, runtime.toolNameMap);
-      expectProviderSurfaceWithinBudget({
-        budget: MAX_AUTHORED_NATIVE_TOOL_TOKENS,
-        floor: MIN_AUTHORED_NATIVE_TOOL_TOKENS,
-        instructions: withSkillsProcessorContext(resolvedInstructions),
-        label: 'Authored native tool surface',
-        tools: providerTools,
-      });
-    } finally {
-      await runtime.dispose();
-    }
+    const providerTools = buildProviderFunctionTools(providerSurface, toolNameMap);
+    // The dropped-tool catcher for THIS surface, exact on purpose: the band has
+    // 150 tokens of headroom either way, so a small tool falling silently out
+    // of the registry would sit inside it (same doctrine as `eagerToolCount`).
+    expect(providerTools, 'authored tool count moved').toHaveLength(AUTHORED_PROVIDER_TOOL_COUNT);
+    expectProviderSurfaceWithinBudget({
+      budget: MAX_AUTHORED_NATIVE_TOOL_TOKENS,
+      floor: MIN_AUTHORED_NATIVE_TOOL_TOKENS,
+      instructions: system,
+      label: 'Authored native tool surface',
+      tools: providerTools,
+    });
   });
 });

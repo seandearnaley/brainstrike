@@ -1,17 +1,13 @@
 /**
- * LIVE-loop coverage for the desktop `brainstrike.stringReplaceWorkspaceFile`
- * tool.
+ * The desktop `brainstrike.stringReplaceWorkspaceFile` tool's REAL execute
+ * against a REAL temp-dir workspace: its real fuzzy-match cascade, its real
+ * path containment, and the per-path failure-streak escalation.
  *
- * Drives the REAL Mastra agent loop (`streamMastraAgent`) against the REAL
- * host string-replace tool (the agent host's live executor fold, `_host-native-tools`) — its real
- * `execute`, the real fuzzy-match cascade, real path containment, and a real
- * temp-dir workspace. Only the language model is scripted, through
- * `modelOverride` (`_scripted-chat-model.ts`) — no API key, no network.
- *
- * Proves a real Agent can call stringReplace, the matched block on a REAL file is
- * surgically replaced while the rest of the file is left intact, and the tool
- * result flows back through the loop. The global desktop setup mocks
- * `streamMastraAgent`; this file restores the REAL implementation.
+ * No loop is involved, and none is needed — every claim here is about the
+ * tool's own behaviour across repeated calls. That a real loop advertises this
+ * tool and dispatches a model call to this execute is proven once, on the
+ * production host path, by
+ * `src/__tests__/host-live-native-tools.integration.test.ts`.
  */
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
@@ -21,125 +17,15 @@ import {
   EDIT_FAILURE_HINT_MESSAGE,
   resetToolCallLoopGuards,
 } from '@brainstrike/host-capabilities/native-tools';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { buildHostNativeTools } from './_host-native-tools';
-import {
-  createScriptedChatModel,
-  type ScriptedChatModel,
-  scriptedLoopOptions,
-} from './_scripted-chat-model';
-import { requireTool, requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
-
-vi.mock('@brainstrike/agent', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/agent')>();
-  return { ...actual };
-});
-
-const { streamMastraAgent } = await import('@brainstrike/agent');
+import { requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 
 beforeEach(() => {
   resetToolCallLoopGuards();
 });
 
-function createScriptedStringReplaceModel(args: {
-  path: string;
-  oldStr: string;
-  newStr: string;
-}): ScriptedChatModel {
-  return createScriptedChatModel((completed) =>
-    completed.includes('brainstrike_stringReplaceWorkspaceFile')
-      ? { chunks: ['Edited ', 'the file.'], kind: 'text' }
-      : {
-          calls: [
-            {
-              input: { newStr: args.newStr, oldStr: args.oldStr, path: args.path },
-              toolCallId: 'call-sr-1',
-              toolName: 'brainstrike_stringReplaceWorkspaceFile',
-            },
-          ],
-          kind: 'tool-call',
-        }
-  );
-}
-
-describe('stringReplaceWorkspaceFile live Mastra loop (real agent, real tool execute)', () => {
-  it('lets a real Agent surgically edit a real file and leaves the rest intact', async () => {
-    const workspaceRootPath = await fsPromises.mkdtemp(
-      path.join(os.tmpdir(), 'brainstrike-sr-live-')
-    );
-    const targetPath = '/src/config.ts';
-    const original = [
-      'export const config = {',
-      '  retries: 3,',
-      '  timeoutMs: 1000,',
-      '};\n',
-    ].join('\n');
-    const expected = [
-      'export const config = {',
-      '  retries: 5,',
-      '  timeoutMs: 1000,',
-      '};\n',
-    ].join('\n');
-
-    await fsPromises.mkdir(path.join(workspaceRootPath, 'src'), { recursive: true });
-    await fsPromises.writeFile(path.join(workspaceRootPath, 'src', 'config.ts'), original, 'utf8');
-
-    try {
-      const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
-      const editTool = requireTool(tools, 'brainstrike.stringReplaceWorkspaceFile');
-
-      const model = createScriptedStringReplaceModel({
-        newStr: '  retries: 5,',
-        oldStr: '  retries: 3,',
-        path: targetPath,
-      });
-
-      const iterator = await streamMastraAgent(
-        [
-          {
-            id: 'u-edit',
-            parts: [{ text: 'bump retries to 5 in the config', type: 'text' }],
-            role: 'user',
-          },
-        ],
-        {
-          ...scriptedLoopOptions(model),
-          tools: { 'brainstrike.stringReplaceWorkspaceFile': editTool },
-        }
-      );
-
-      const runEventKinds: string[] = [];
-      let finalText = '';
-      const toolEventResults: unknown[] = [];
-      for await (const chunk of iterator) {
-        if (chunk.type === 'run-event') {
-          runEventKinds.push(chunk.event.kind);
-        } else if (chunk.type === 'text-delta') {
-          finalText += chunk.value;
-        } else if (chunk.type === 'tool-event') {
-          toolEventResults.push(chunk);
-        }
-      }
-
-      expect(runEventKinds).toContain('tool.completed');
-      expect(finalText).toContain('Edited the file.');
-
-      // The REAL file was surgically edited: only the matched line changed.
-      const onDisk = await fsPromises.readFile(
-        path.join(workspaceRootPath, 'src', 'config.ts'),
-        'utf8'
-      );
-      expect(onDisk).toBe(expected);
-
-      // The tool's success result is visible to the loop.
-      const serialized = JSON.stringify(toolEventResults);
-      expect(serialized).toContain('/src/config.ts');
-      expect(serialized).toContain('"replaced":true');
-    } finally {
-      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-    }
-  });
-
+describe('stringReplaceWorkspaceFile (real tool execute)', () => {
   it('escalates the third same-path match failure and resets after success', async () => {
     const workspaceRootPath = await fsPromises.mkdtemp(
       path.join(os.tmpdir(), 'brainstrike-sr-guard-')
