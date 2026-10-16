@@ -19,9 +19,6 @@
       "@brainstrike/agent/client": [
         "../../packages/agent/src/client.ts"
       ],
-      "@brainstrike/agent/local-llm": [
-        "../../packages/agent/src/local-llm.ts"
-      ],
       "@brainstrike/agent/hosted-web": [
         "../../packages/agent/src/hosted-web.ts"
       ],

@@ -29,7 +29,7 @@
 // on one line would make a freshly generated file fail `biome check` until a
 // `--fix` pass rewrote it. Regeneration has to be clean on its own.
 export const CURRENT_SCHEMA_LEDGER_KEY =
-  'custom-current-schema-97c612efd7588e841c1454d5554595206b01c73ad547fa92b798b5e6b05c335c';
+  'custom-current-schema-6165dd13b9b3e132c0436dab1ece057af735e98f10e56f3a54f676a0e75df496';
 
 export const CURRENT_SCHEMA_DDL = `-- EXTENSIONS (3)
 CREATE EXTENSION IF NOT EXISTS "vector";
@@ -1018,7 +1018,7 @@ INSERT INTO "providers" ("id", "name", "icon", "is_enabled", "sort_order") VALUE
   ('bedrock'::text, 'Amazon Bedrock'::text, NULL, 'false'::boolean, '8'::integer),
   ('cohere'::text, 'Cohere'::text, NULL, 'false'::boolean, '6'::integer),
   ('google'::text, 'Google AI Studio'::text, NULL, 'true'::boolean, '3'::integer),
-  ('local'::text, 'Local (Browser)'::text, NULL, 'true'::boolean, '4'::integer),
+  ('local'::text, 'Local (On device)'::text, NULL, 'true'::boolean, '4'::integer),
   ('openai'::text, 'OpenAI'::text, NULL, 'true'::boolean, '1'::integer),
   ('openai-codex'::text, 'OpenAI (ChatGPT)'::text, NULL, 'false'::boolean, '9'::integer),
   ('openrouter'::text, 'OpenRouter'::text, NULL, 'false'::boolean, '5'::integer),

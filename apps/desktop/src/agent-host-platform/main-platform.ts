@@ -1,5 +1,3 @@
-import type { LocalLlmHostProgress } from '@brainstrike/agent/local-llm';
-import type { LocalLlmHostClient } from '@brainstrike/agent/provider-runtime';
 import type { HostPlatform } from '@brainstrike/agent-host';
 import { toBoundaryResponseError } from '@brainstrike/agent-host/boundary-wire';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
@@ -24,9 +22,6 @@ import {
   PlatformCatalogModelResultSchema,
   PlatformCatalogModelSchema,
   PlatformEmbeddingQuerySchema,
-  PlatformLocalGenerationResultSchema,
-  PlatformLocalGenerationSchema,
-  PlatformLocalWarmupSchema,
   PlatformMemoryVectorsResultSchema,
   PlatformMemoryVectorsSchema,
   PlatformNativeChildSchema,
@@ -60,8 +55,6 @@ export interface DesktopPlatformCapabilities {
    * local recall or retrieval tools through `platform/embedding/query`.
    */
   readonly localEmbedding?: Pick<EmbeddingHostManager, 'queryEmbedding'>;
-  /** ADR-0007: Main's hidden llm-host, borrowed by a thread's admitted local chat model or observer. */
-  readonly localLlm?: LocalLlmHostClient;
   /** The Node host always composes its MCP runtime, which reaches these Main stores. */
   readonly mcp: DesktopMcpPlatformCapabilities;
   /** ADR-0017: Main's supervisor of the native processes the host reports starting. */
@@ -256,32 +249,6 @@ export function serveDesktopPlatform(
       return null;
     })
   );
-  // ADR-0007: the host decides which admitted model may borrow the llm-host.
-  const localLlm = (): LocalLlmHostClient => {
-    if (!capabilities.localLlm) {
-      throw new Error('This desktop has no local LLM host for the admitted local model');
-    }
-    return capabilities.localLlm;
-  };
-  // Cumulative snapshots stream the borrowed generation; a lost one never fails it.
-  const relayProgress =
-    (requestId: string) =>
-    (progress: LocalLlmHostProgress): void => {
-      connection
-        .sendNotification('platform/llm/progress', { progress, requestId })
-        .catch(() => undefined);
-    };
-  connection.onRequest('platform/llm/generate', (input: unknown, token: CancellationToken) =>
-    execute(token, async (signal) => {
-      const { requestId, ...generation } = PlatformLocalGenerationSchema.parse(input);
-      return PlatformLocalGenerationResultSchema.parse(
-        await localLlm().generate(generation, {
-          onProgress: relayProgress(requestId),
-          signal,
-        })
-      );
-    })
-  );
   connection.onRequest('platform/embedding/query', (input: unknown, token: CancellationToken) =>
     // The outcome union crosses as JSON; the host parses it (RefusableOutcomeSchema).
     execute(token, async (signal): Promise<unknown> => {
@@ -292,16 +259,6 @@ export function serveDesktopPlatform(
       }
       // A retrieval tool's query or an admitted local recall embedder's, as the host sent it.
       return await refusalOutcome(() => embeddings.queryEmbedding(request, { signal }));
-    })
-  );
-  connection.onRequest('platform/llm/warmup', (input: unknown, token: CancellationToken) =>
-    execute(token, async (signal) => {
-      const { modelId, requestId } = PlatformLocalWarmupSchema.parse(input);
-      await localLlm().warmup(modelId, {
-        onProgress: relayProgress(requestId),
-        signal,
-      });
-      return null;
     })
   );
   serveAdmissionReads(connection, execute, capabilities.admission, leases);

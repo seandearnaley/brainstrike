@@ -40,7 +40,10 @@ process.stdout.write(JSON.stringify({
     expect(JSON.parse(stdout)).toEqual({
       electron: null,
       hosted: { modelId: 'gpt-4o', specificationVersion: 'v4' },
-      localFailure: 'mastra_agent_runtime_init_failed',
+      // The on-device provider is refused on CAPABILITY (`capabilities.llm`),
+      // before any model resolution — not by the generic init failure that used
+      // to surface once transformers.js failed to register outside a browser.
+      localFailure: 'mastra_agent_unsupported_provider',
       localServer: {
         explicitTokenRetained: true,
         id: 'lmstudio/qwen3',

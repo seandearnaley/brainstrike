@@ -3,7 +3,6 @@ import {
   buildContextBudgetNote,
   buildCurrentDateNote,
   buildDefaultInstructions,
-  buildLocalDefaultInstructions,
   type DelegationPersonaSummary,
   filterToolsForPlanMode,
   formatSkillsCatalog,
@@ -87,22 +86,20 @@ export async function readDesktopHostSystemContext(options: {
   );
   const date = buildCurrentDateNote(new Date());
   const sections: (string | null)[] = [
-    options.runtime.provider === 'local'
-      ? buildLocalDefaultInstructions(names)
-      : buildDefaultInstructions(names, {
-          planMode: options.planMode,
-          // The same gate the admission uses to defer these tools behind discovery.
-          toolDiscoveryEnabled:
-            isSupportedProvider(options.runtime.provider) &&
-            hostToolDiscoveryEnabled({
-              modelId: options.request.modelId,
-              provider: options.runtime.provider,
-              tools: options.tools,
-            }),
-          ...(options.personas?.length
-            ? { backgroundDelegation: true, personas: options.personas }
-            : {}),
+    buildDefaultInstructions(names, {
+      planMode: options.planMode,
+      // The same gate the admission uses to defer these tools behind discovery.
+      toolDiscoveryEnabled:
+        isSupportedProvider(options.runtime.provider) &&
+        hostToolDiscoveryEnabled({
+          modelId: options.request.modelId,
+          provider: options.runtime.provider,
+          tools: options.tools,
         }),
+      ...(options.personas?.length
+        ? { backgroundDelegation: true, personas: options.personas }
+        : {}),
+    }),
     date,
     buildContextBudgetNote(options.inputTokenLimit),
   ];

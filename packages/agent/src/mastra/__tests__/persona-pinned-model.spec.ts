@@ -81,21 +81,13 @@ describe('createPersonaPinnedModelResolver', () => {
     }
   });
 
-  it('routes a local pin through the llm host client when present (renderer-only inference)', () => {
-    const { calls, resolver } = makeResolver({
-      runtime: { localLlmHostClient: {} } as RuntimeData,
-    });
+  // The built-in on-device provider is keyless, so a pin to it takes the
+  // keyless path and is handed to the factory — which refuses it there, because
+  // that provider is embeddings-only and has no chat model to instantiate.
+  it('hands a keyless on-device pin to the factory, which refuses it', () => {
+    const { calls, resolver } = makeResolver({});
     resolver(personaWithPin('local'));
     expect(calls[0]).toMatchObject({ auth: undefined, provider: 'local' });
-  });
-
-  it('throws for a local pin with NO llm host client (never Electron-main inference)', () => {
-    // docs/agents/local-inference.md: renderer-only inference is mandatory.
-    // Without a host client, createProvider('local') would fall through to the
-    // in-process backend in Electron main — so the resolver must throw and the
-    // factory skips the persona with a warn.
-    const { resolver } = makeResolver({});
-    expect(() => resolver(personaWithPin('local'))).toThrow(/host/i);
   });
 
   it('throws for a hosted cross-provider pin with no key available (skip-with-warn upstream)', () => {

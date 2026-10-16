@@ -27,10 +27,7 @@ import {
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
-import {
-  type CommittedAssistantConversationProps,
-  useLocalModelLoading,
-} from '@brainstrike/assistant-ui';
+import type { CommittedAssistantConversationProps } from '@brainstrike/assistant-ui';
 import {
   type AssistantProviderSettingsUpdate,
   mergeAssistantProviderSettings,
@@ -51,7 +48,6 @@ import type { HostThreadSelectionBinding } from './use-host-thread-selection';
 type Presentation = Pick<
   CommittedAssistantConversationProps,
   | 'attachmentsAvailability'
-  | 'localLoadingState'
   | 'onEnableModel'
   | 'onModelChange'
   | 'onProviderSettingsChange'
@@ -487,18 +483,11 @@ export function useDesktopHostPresentation(
   // Toggles write the native and MCP tool preferences the next send captures.
   const { toolMenu } = useAssistantToolMenu({ runsMcpTools: true });
   const contextWindow = metadata.modelDef?.contextWindow;
-  // The built-in local model's load progress: Main broadcasts the llm-host's
-  // loading reports for loads it starts itself, which a host thread's are.
-  const { localLoadingState } = useLocalModelLoading({
-    localViaDataStream: false,
-    modelName: undefined,
-  });
   return {
     ...picker,
     catalogKey: catalog.state === 'ready' ? [...catalog.keys].sort().join('\n') : catalog.state,
     composerDraftCommand: composerDraft.command,
     fileMentions,
-    ...(localLoadingState ? { localLoadingState } : {}),
     onComposerDraftCommandApplied: composerDraft.onApplied,
     onComposerTextChange: composerDraft.onTextChange,
     onEnableModel,

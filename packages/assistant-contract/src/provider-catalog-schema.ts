@@ -218,7 +218,7 @@ const ProviderSchema = z.strictObject({
   keyFormatHint: z.string().optional(),
   keyNotes: z.string().optional(),
   models: z.array(ProviderModelSchema),
-  runtime: z.enum(['hosted', 'gateway', 'local', 'browser']),
+  runtime: z.enum(['hosted', 'gateway', 'local', 'on-device']),
 });
 
 export const ProviderCatalogSchema = z.array(ProviderSchema);

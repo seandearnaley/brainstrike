@@ -21,7 +21,6 @@ import {
   changesetRefreshMock,
   delegatedPanelCallbacks,
   fileExplorerMocks,
-  hasDesktopLlmHostMock,
   type McpToolDescriptor,
   mockDb,
   NATIVE_TOOL_COUNT,
@@ -103,7 +102,7 @@ describe('AssistantUiPanelWrapper', () => {
     );
   });
 
-  test('offers the built-in local provider where the desktop llm-host exists', async () => {
+  test('leaves the request body unbounded on a desktop host', async () => {
     Object.defineProperty(window, 'agentHost', {
       configurable: true,
       value: { connect: async () => undefined },
@@ -112,20 +111,15 @@ describe('AssistantUiPanelWrapper', () => {
       configurable: true,
       value: { isTestMode: false },
     });
-    hasDesktopLlmHostMock.mockReturnValue(true);
     try {
-      await renderAssistantPanel(['openai', 'local'], () =>
+      await renderAssistantPanel(['openai'], () =>
         waitFor(() => {
-          expect(
-            screen.getByTestId('provider-select').querySelector('option[value="local"]')
-          ).not.toBeNull();
           expect(screen.getByTestId('request-body-limit')).toBeEmptyDOMElement();
         })
       );
     } finally {
       Object.defineProperty(window, 'agentHost', { configurable: true, value: undefined });
       Reflect.deleteProperty(window, 'desktopLifecycle');
-      hasDesktopLlmHostMock.mockReturnValue(false);
     }
   });
 

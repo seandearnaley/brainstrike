@@ -56,7 +56,6 @@ export const NATIVE_TOOL_DISCOVERY_NAMESPACES: Record<
 
 export type ToolDiscoveryAdapter =
   | 'anthropic-native-search'
-  | 'eager-core-only'
   | 'mastra-catalog-search'
   | 'openai-native-search';
 
@@ -79,7 +78,6 @@ export type ToolDiscoveryAdapterUnsupportedReason =
 export type ToolDiscoveryAdapterResolution =
   | {
       readonly adapter: ToolDiscoveryAdapter;
-      readonly reason?: 'local-discovery-not-enabled';
       readonly status: 'supported';
     }
   | {
@@ -121,16 +119,9 @@ function unsupportedAdapter(
 
 function resolveRequestedAdapter(
   requestedAdapter: ToolDiscoveryAdapter,
-  nativeAdapter: ToolDiscoveryAdapter | undefined,
-  providerRuntime: ReturnType<typeof getProviderDefinition>['runtime']
+  nativeAdapter: ToolDiscoveryAdapter | undefined
 ): ToolDiscoveryAdapterResolution {
-  if (
-    requestedAdapter === nativeAdapter ||
-    (requestedAdapter === 'eager-core-only' && providerRuntime === 'browser')
-  ) {
-    return { adapter: requestedAdapter, status: 'supported' };
-  }
-  if (requestedAdapter === 'mastra-catalog-search' && providerRuntime !== 'browser') {
+  if (requestedAdapter === nativeAdapter || requestedAdapter === 'mastra-catalog-search') {
     return { adapter: requestedAdapter, status: 'supported' };
   }
   const reason = requestedAdapter.endsWith('-native-search')
@@ -155,10 +146,9 @@ export function resolveToolDiscoveryAdapter(
   // Mastra catalog search is provider-runtime based, not model-capability
   // based. A caller that supplies a valid hosted model adapter directly (for
   // tests, evals, or an externally discovered model) must not be rejected only
-  // because the static registry does not know that model ID. Browser-local
-  // remains explicitly unsupported.
+  // because the static registry does not know that model ID.
   if (input.requestedAdapter === 'mastra-catalog-search') {
-    return resolveRequestedAdapter(input.requestedAdapter, undefined, provider.runtime);
+    return resolveRequestedAdapter(input.requestedAdapter, undefined);
   }
 
   const model = listProviderLlmModels(input.provider).find(({ id }) => id === input.modelId);
@@ -171,18 +161,11 @@ export function resolveToolDiscoveryAdapter(
 
   const nativeAdapter = nativeAdapterForCapability(model.nativeToolSearch);
   if (input.requestedAdapter) {
-    return resolveRequestedAdapter(input.requestedAdapter, nativeAdapter, provider.runtime);
+    return resolveRequestedAdapter(input.requestedAdapter, nativeAdapter);
   }
 
   if (nativeAdapter) {
     return { adapter: nativeAdapter, status: 'supported' };
-  }
-  if (provider.runtime === 'browser') {
-    return {
-      adapter: 'eager-core-only',
-      reason: 'local-discovery-not-enabled',
-      status: 'supported',
-    };
   }
   return { adapter: 'mastra-catalog-search', status: 'supported' };
 }

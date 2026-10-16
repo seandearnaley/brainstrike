@@ -1,4 +1,3 @@
-import type { LocalLlmHostClient } from '@brainstrike/agent/local-llm';
 import {
   buildGenerationProviderOptionsOption,
   buildModelSettingsOption,
@@ -66,12 +65,6 @@ export interface ProductionHostRunConfiguration {
   readonly hookSkips?: HostRunAdmission['hookSkips'];
   /** The run's lifecycle hooks, when the composition loaded any. */
   readonly hooks?: HostRunHooks;
-  /**
-   * The admitted thread's borrowed hidden-renderer inference for the built-in
-   * `local` provider (ADR-0007: models never load in a host process). The CLI
-   * has none and refuses that provider before admission.
-   */
-  readonly localLlmHostClient?: LocalLlmHostClient;
   readonly maxSteps: number;
   readonly memory: Omit<
     StateStoreHostMemoryOptions,
@@ -151,17 +144,14 @@ export interface ProductionHostPlatformOptions {
 
 function rootModel(
   configuration: RuntimeData,
-  auth: ProviderAuthInput | undefined,
-  localLlmHostClient: LocalLlmHostClient | undefined
+  auth: ProviderAuthInput | undefined
 ): Exclude<LanguageModel, string> {
   const selected = resolveRuntimeConfiguration(configuration, auth);
   const model = createProvider(
     selected.provider,
     selected.authInput,
     selected.runtime.model,
-    selected.provider === 'local' && localLlmHostClient
-      ? { ...selected.runtime, localLlmHostClient }
-      : selected.runtime
+    selected.runtime
   );
   return materializeHostProviderModel(model);
 }
@@ -189,21 +179,16 @@ async function admittedProviderAuth(
     : await options.resolveProviderAuth(provider);
 }
 
-/** The run's concrete model; a local one loads before admission returns, as the legacy stream did. */
+/** The run's concrete model. */
 async function admittedModel(
   options: Pick<ProductionHostPlatformOptions, 'resolveModel'>,
-  selected: Pick<ProductionHostRunConfiguration, 'configuration' | 'localLlmHostClient'>,
-  auth: ProviderAuthInput | undefined,
-  signal: AbortSignal
+  selected: Pick<ProductionHostRunConfiguration, 'configuration'>,
+  auth: ProviderAuthInput | undefined
 ): Promise<Exclude<LanguageModel, string>> {
-  const { configuration, localLlmHostClient } = selected;
-  const localModel = configuration.provider === 'local' ? configuration.model : undefined;
-  if (localModel && localLlmHostClient) {
-    await localLlmHostClient.warmup(localModel, { signal });
-  }
+  const { configuration } = selected;
   return options.resolveModel
     ? await options.resolveModel(configuration, auth)
-    : rootModel(configuration, auth, localLlmHostClient);
+    : rootModel(configuration, auth);
 }
 
 function unavailableMcpServers(
@@ -501,7 +486,7 @@ export async function createProductionHostPlatform<Configuration extends Product
         }
         const provider = selected.configuration.provider ?? '';
         const auth = await admittedProviderAuth(options, selected, provider);
-        const model = await admittedModel(options, selected, auth, request.signal);
+        const model = await admittedModel(options, selected, auth);
         request.signal.throwIfAborted();
         acquired = await acquireMcp(request, selected);
         // BST-1932: a delegated child opens its own run on this admission, so

@@ -33,7 +33,7 @@ async function startRun(resourceId: string, runId: string): Promise<void> {
     model: 'test-model',
     provider: 'test-provider',
     resourceId,
-    runtimeKind: 'browser',
+    runtimeKind: 'hosted',
     threadId: thread.id,
   });
 }

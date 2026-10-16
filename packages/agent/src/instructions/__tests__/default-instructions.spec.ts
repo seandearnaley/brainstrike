@@ -5,7 +5,6 @@ import {
   buildCurrentDateNote,
   buildCurrentTaskListNote,
   buildDefaultInstructions,
-  buildLocalDefaultInstructions,
 } from '../default-instructions';
 
 describe('buildCurrentTaskListNote', () => {
@@ -91,13 +90,6 @@ describe('manageTaskList advertisement', () => {
       new Map<string, string>([['brainstrike_grepSearch', 'brainstrike.grepSearch']])
     );
     expect(withoutTool).not.toContain('manageTaskList');
-  });
-
-  it('does NOT advertise the task-list tool in the compact local instructions (v1)', () => {
-    const local = buildLocalDefaultInstructions(
-      new Map<string, string>([['brainstrike_manageTaskList', 'brainstrike.manageTaskList']])
-    );
-    expect(local).not.toContain('manageTaskList');
   });
 });
 
@@ -210,11 +202,6 @@ describe('default assistant instructions', () => {
       new Map<string, string>([['brainstrike_grepSearch', 'brainstrike.grepSearch']])
     );
     expect(withoutGlob).not.toContain('globWorkspace');
-
-    const localWithGlob = buildLocalDefaultInstructions(
-      new Map<string, string>([['brainstrike_globWorkspace', 'brainstrike.globWorkspace']])
-    );
-    expect(localWithGlob).toContain('brainstrike_globWorkspace');
   });
 
   it('names the EXACT stringReplace schema fields in the edit instruction (oldStr/newStr)', () => {
@@ -232,31 +219,6 @@ describe('default assistant instructions', () => {
     expect(instructions).toContain('newStr');
     expect(instructions).not.toContain('old_str');
     expect(instructions).not.toContain('new_str');
-  });
-
-  it('keeps the built-in local instruction set compact and tool-name-aware', () => {
-    const toolNameMap = new Map<string, string>([
-      ['brainstrike_grepSearch', 'brainstrike.grepSearch'],
-      ['brainstrike_queryEmbeddingSpace', 'brainstrike.queryEmbeddingSpace'],
-      ['brainstrike_readWorkspaceFile', 'brainstrike.readWorkspaceFile'],
-    ]);
-
-    const localInstructions = buildLocalDefaultInstructions(toolNameMap);
-    const hostedInstructions = buildDefaultInstructions(toolNameMap);
-
-    expect(localInstructions).toContain('running fully on this device');
-    expect(localInstructions).toContain('brainstrike_grepSearch');
-    expect(localInstructions).toContain('brainstrike_queryEmbeddingSpace');
-    expect(localInstructions).toContain('brainstrike_readWorkspaceFile');
-    expect(localInstructions).toContain('Only run state-changing tools after the user confirms.');
-    // Keep the 2B model's WebGPU prefill independently bounded. A relative
-    // fraction regresses when the hosted prompt itself becomes more efficient.
-    expect(localInstructions.length).toBeLessThanOrEqual(650);
-    expect(localInstructions.length).toBeLessThan(hostedInstructions.length);
-
-    const withoutSearchTools = buildLocalDefaultInstructions(new Map());
-    expect(withoutSearchTools).not.toContain('brainstrike_grepSearch');
-    expect(withoutSearchTools).toContain('running fully on this device');
   });
 
   it('omits unavailable native-tool guidance instead of spending prompt tokens on it', () => {
@@ -509,11 +471,6 @@ describe('multi-root guidance', () => {
     expect(instructions).toContain('The initial workspace-root manifest reports');
     expect(instructions).toMatch(/several roots[^.]*pass "root"/i);
     expect(instructions).toContain('no implicit Main-root fallback');
-  });
-
-  it('keeps multi-root guidance out of the compact local instruction set', () => {
-    const localInstructions = buildLocalDefaultInstructions(FULL_TOOL_MAP);
-    expect(localInstructions).not.toContain('workspaceRoots');
   });
 });
 

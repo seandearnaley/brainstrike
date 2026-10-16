@@ -619,17 +619,6 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
     await runtime.dispose();
   });
 
-  it('does not build delegation tools for the local provider', async () => {
-    modelHolder.current = createSupervisorModel('unused');
-    const runtime = await createMastraAgentRuntime({
-      personas: [testPersona],
-      runtime: { apiKey: 'test-key', provider: 'local' },
-      tools: { 'brainstrike.grepSearch': makeChildTool(vi.fn()) },
-    });
-    expect(runtime.delegationToolPersonas.size).toBe(0);
-    await runtime.dispose();
-  });
-
   it('keeps delegation available when only a memory instance is supplied', async () => {
     modelHolder.current = createSupervisorModel('probe-child');
     const memory = new Memory({ options: { generateTitle: false }, storage: new InMemoryStore() });

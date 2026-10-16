@@ -286,8 +286,8 @@ let nextRecordingWindowId = 1;
  * That is not every send site in the app (BST-1624). `terminal-ipc-handlers.ts`
  * sends to a `WebContents` held in its own live-terminal registry, so it never
  * consults the listing and this harness has nothing to say about it. Check the
- * call site rather than the file: `llm-host-manager.ts` and
- * `chunking-host-manager.ts` DO reach `getAllWindows()` despite reading as
+ * call site rather than the file: `chunking-host-manager.ts` DOES reach
+ * `getAllWindows()` despite reading as
  * point-to-point, and `renderer-host-lifecycle.ts` and the mcp bridges iterate
  * the separate `getTrackedWindowsByRole('visible-ui')` registry.
  * A test that asserts what the renderer was told therefore needs at least one

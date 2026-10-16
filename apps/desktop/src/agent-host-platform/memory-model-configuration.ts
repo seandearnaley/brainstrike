@@ -1,7 +1,6 @@
 import {
   createProvider,
   type LocalEmbeddingHostClient,
-  type LocalLlmHostClient,
   type ProviderAuthInput,
   resolveRuntimeConfiguration,
 } from '@brainstrike/agent/provider-runtime';
@@ -15,32 +14,22 @@ import { requireMemoryApiKey } from './memory-readiness';
 import { createDesktopHostMemoryVectorConfiguration } from './memory-vector-configuration';
 import type { PlatformSelectionSchema } from './platform-wire';
 
-/** ADR-0007: Main's hidden embedding and llm hosts, borrowed for one admitted thread. */
+/** ADR-0007: Main's hidden embedding host, borrowed for one admitted thread. */
 export interface DesktopHostLocalInference {
   readonly embedding: LocalEmbeddingHostClient;
-  readonly llm: LocalLlmHostClient;
   readonly signal: AbortSignal;
 }
 
-/** The observer model: hosted providers resolve here; local borrows Main's llm-host. */
+/**
+ * The observer model. Every observer is a hosted provider now: the branch that
+ * borrowed Main's llm-host for a `local` target went with the built-in local
+ * chat model, and an observer target naming that provider refuses in
+ * `requireMemoryApiKey`/`createProvider` rather than resolving to nothing.
+ */
 async function createObserverModel(
   target: ReturnType<typeof parseObservationalMemoryModelTarget>,
-  resolveProviderAuth: (provider: string) => Promise<ProviderAuthInput | undefined>,
-  local: DesktopHostLocalInference | undefined
+  resolveProviderAuth: (provider: string) => Promise<ProviderAuthInput | undefined>
 ): Promise<ReturnType<typeof materializeHostProviderModel>> {
-  if (target.provider === 'local') {
-    if (!local) {
-      throw new Error(
-        'Local Observational Memory requires the desktop local LLM host, which this host cannot reach.'
-      );
-    }
-    // Cold model loads exceed one generation's ceiling; warm the observer before
-    // the run, as the legacy runtime did.
-    await local.llm.warmup(target.model, { signal: local.signal });
-    return materializeHostProviderModel(
-      createProvider('local', undefined, target.model, { localLlmHostClient: local.llm })
-    );
-  }
   const auth = await requireMemoryApiKey(
     'observational-memory',
     target.provider,
@@ -82,7 +71,7 @@ export async function createDesktopHostMemoryConfiguration(
     // The catalog id its usage is priced under, like a run's own model.
     observerModelId = `${target.provider}::${target.model}`;
     observationalMemory = {
-      model: await createObserverModel(target, resolveProviderAuth, local),
+      model: await createObserverModel(target, resolveProviderAuth),
       scope: observation.scope,
       ...(observation.retrievalMode === 'messages'
         ? { retrieval: { scope: observation.scope } }

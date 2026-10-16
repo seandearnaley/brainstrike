@@ -32,7 +32,6 @@ import type { WorkspaceSkills } from '@mastra/core/skills';
 import type { McpConfig } from './mcp/config';
 import type { RuntimeAssistantMemorySettings } from './memory-settings';
 import type { AssistantPermissionPolicyRequest } from './permissions/permission-policy-request';
-import type { LocalLlmHostClient } from './providers/local/llm-host-client';
 import type { AssistantRunEvent } from './run-events';
 import type { AgentHookRunner } from './tools/hook-runner';
 
@@ -151,12 +150,6 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * Agent-only — mirrors `localLlmHostClient`.
    */
   hookRunner?: AgentHookRunner;
-  /**
-   * Host-injected client that proxies built-in local LLM inference to its
-   * renderer host (desktop main → hidden llm-host window). Server-side only,
-   * never serialized over IPC/HTTP. Agent-only.
-   */
-  localLlmHostClient?: LocalLlmHostClient;
   /** Mastra agent tools registry. Agent-only. */
   mastraTools?: ToolsInput;
   /** MCP server configuration. Agent-only. */
@@ -348,12 +341,6 @@ export interface GoogleProviderOptions extends JSONObject {
   };
 }
 
-export interface LocalProviderOptions extends JSONObject {
-  thinking?: {
-    enabled?: boolean;
-  };
-}
-
 /**
  * Per-request transport config for a local runtime (Ollama or LM Studio).
  * `baseUrl` points the factory at a non-default host (e.g. a LAN GPU box) and
@@ -373,7 +360,6 @@ export type RuntimeProviderOptions = (SharedV2ProviderOptions | SharedV3Provider
   anthropic?: AnthropicProviderOptions & JSONObject;
   bedrock?: BedrockProviderOptions & JSONObject;
   google?: GoogleProviderOptions & JSONObject;
-  local?: LocalProviderOptions & JSONObject;
   ollama?: LocalRuntimeProviderOptions & JSONObject;
   lmstudio?: LocalRuntimeProviderOptions & JSONObject;
   openrouter?: OpenRouterProviderOptions & JSONObject;

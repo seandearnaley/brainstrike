@@ -19,7 +19,6 @@ import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import type { RuntimeData } from '../types';
 import { resolveBedrockModelId } from './bedrock-model-id';
 import { resolveCodexModelId } from './codex-model-id';
-import { createLlmHostChatModel } from './local/llm-host-chat-model';
 import { createLocalHostEmbeddingModel } from './local/local-host-embedding-model';
 import { OpenRouterStrictContentGateway } from './openrouter-strict-content';
 import { wrapModelWithDeclaredPromptCaching } from './prompt-caching';
@@ -36,6 +35,7 @@ import {
   requireCustomFetchAuthInput,
 } from './provider-auth-input';
 import {
+  getProviderDefinition,
   isSupportedProvider,
   listProviders,
   PROVIDER_DEFAULT_MODELS,
@@ -144,7 +144,7 @@ export function createProvider(
   provider: SupportedProvider | string,
   auth?: ProviderAuthInput,
   model?: string,
-  runtime?: Pick<RuntimeData, 'localLlmHostClient' | 'providerOptions'>
+  runtime?: Pick<RuntimeData, 'providerOptions'>
 ): ProviderModelConfiguration {
   // Shape validation (aws region) happens BEFORE provider dispatch so a
   // malformed input fails identically on every provider case.
@@ -157,6 +157,18 @@ export function createProvider(
   }
 
   const validatedProvider = provider;
+  // Registry-derived, never a provider-id branch: an EMBEDDINGS-ONLY provider
+  // (the built-in on-device one, cohere, voyage) has no chat model for this
+  // factory to build. Refusing here names that, instead of falling through to
+  // "no default model" or to the unsupported-provider default — both of which
+  // read as "misconfigured" for a provider that is configured correctly and
+  // simply does not do chat.
+  if (!getProviderDefinition(validatedProvider).capabilities.llm) {
+    throw createMastraAgentError('mastra_agent_unsupported_provider', {
+      context: { provider },
+      detail: `Provider ${provider} serves embeddings only; it has no chat model.`,
+    });
+  }
   const modelName = model ?? PROVIDER_DEFAULT_MODELS[validatedProvider];
   if (!modelName) {
     throw createMastraAgentError('mastra_agent_runtime_init_failed', {
@@ -352,27 +364,6 @@ export function createProvider(
       };
     }
 
-    case 'local': {
-      // The built-in local model never consumes a bearer key; the narrow runs
-      // (and its result is discarded) so custom_fetch/aws still fail typed
-      // instead of being silently ignored on this keyless case.
-      bearerApiKeyOnly(auth, validatedProvider);
-      // The hidden llm-host renderer is the ONLY engine for the built-in local
-      // provider (ADR-0007/0015: WebGPU inference belongs in a renderer, never
-      // in Electron main or a Node server). An absent client means this run
-      // cannot do local inference at all, so refuse visibly rather than
-      // substituting an in-process engine the host deliberately does not have.
-      const hostClient = runtime?.localLlmHostClient;
-      if (!hostClient) {
-        throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-          context: { model: modelName, provider: validatedProvider },
-          detail:
-            'The built-in local provider requires the local LLM host client (renderer-only inference); none was injected into this run.',
-        });
-      }
-      return createLlmHostChatModel(modelName, hostClient, runtime?.providerOptions?.local);
-    }
-
     default:
       throw createMastraAgentError('mastra_agent_unsupported_provider', {
         context: { provider, supportedProviders: listSupportedProviderIds() },
@@ -392,7 +383,7 @@ export function createLanguageModelProvider(
   provider: SupportedProvider | string,
   apiKey?: string,
   model?: string,
-  runtime?: Pick<RuntimeData, 'localLlmHostClient' | 'providerOptions'>
+  runtime?: Pick<RuntimeData, 'providerOptions'>
 ): ConcreteLanguageModel {
   if (
     !(isSupportedProvider(provider) && PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS.has(provider))

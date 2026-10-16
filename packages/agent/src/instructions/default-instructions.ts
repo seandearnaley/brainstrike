@@ -184,45 +184,6 @@ export function composeNativeToolInstructions(
 }
 
 /**
- * Compact instructions for the built-in LOCAL model (Gemma E2B on-device).
- *
- * The hosted default instructions below are a dense multi-thousand-token
- * playbook tuned for frontier models; on a 2B local model they bury the user
- * request, degrade tool selection, and inflate the WebGPU prefill (long local
- * prompts are also where ONNX-WebGPU kernel failures live). Keep this short
- * and directive.
- */
-export function buildLocalDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): string {
-  const names = resolveModelFacingToolNames(toolNameMap);
-  const searchLine =
-    names.grepSearch && names.queryEmbeddingSpace
-      ? `To look up project code: use ${names.grepSearch} for exact strings or identifiers, and ${names.queryEmbeddingSpace} for conceptual questions.`
-      : '';
-  const globLine = names.globWorkspace
-    ? `To find files by name/path pattern (e.g. **/*.test.ts), use ${names.globWorkspace}.`
-    : '';
-  const readLine = names.readWorkspaceFile
-    ? `Use ${names.readWorkspaceFile} to read a specific file when needed.`
-    : '';
-  const webSearchLine = names.webSearch
-    ? `For public web info you do not know (library docs, errors), use ${names.webSearch} (it sends the query to an external web-search service — the provider's built-in search when available, otherwise Tavily).`
-    : '';
-
-  return [
-    'You are the Brainstrike IDE assistant, running fully on this device.',
-    'Answer the user directly and concisely.',
-    'Project files are NOT preloaded; only use a tool when the answer needs project context you do not already have.',
-    searchLine,
-    globLine,
-    readLine,
-    webSearchLine,
-    'If a tool fails, say so plainly. Only run state-changing tools after the user confirms.',
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
-
-/**
  * Multi-root workflow guidance: the initial per-turn workspace-root manifest
  * supplies the operating topology, while listWorkspaceContext remains the
  * detailed/refreshable context source. Empty when listWorkspaceContext or every
@@ -459,8 +420,6 @@ export interface BuildDefaultInstructionsOptions {
    * When `true`, prepend a PLAN-MODE block: the model may investigate with
    * read-only tools and clarify with `askUser`, but MUST NOT modify files or run
    * commands, and MUST call `submitPlan` for approval before proposing changes.
-   * Not applied to the built-in local model (its instructions come from
-   * {@link buildLocalDefaultInstructions}).
    */
   planMode?: boolean;
   /**

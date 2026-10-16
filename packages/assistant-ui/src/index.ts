@@ -186,7 +186,6 @@ export {
   type DelegatedConversationRuntimeOptions,
   useDelegatedConversationRuntime,
 } from './use-delegated-conversation-runtime';
-export { type LocalModelLoadingState, useLocalModelLoading } from './use-local-model-loading';
 export { useMcpTaskBridge } from './use-mcp-task-bridge';
 export {
   type ToolResultRenderer,

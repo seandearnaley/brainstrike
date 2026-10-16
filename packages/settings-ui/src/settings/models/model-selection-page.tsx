@@ -61,53 +61,6 @@ function updateProgress(
   }
 }
 
-async function downloadLlmModel(
-  model: DbModel,
-  { modelCacheDir, setDownloadProgress, setDownloading, toast }: DownloadDeps
-): Promise<void> {
-  const { downloadBuiltInLocalLlmModel } = await import(
-    '@brainstrike/assistant-contract/local-llm-artifacts'
-  );
-
-  setDownloading(model.id, true);
-  setDownloadProgress(model.id, 0);
-
-  try {
-    toast({
-      description: `Starting download for ${model.name}...`,
-      title: 'Download Started',
-    });
-
-    const downloadOptions: {
-      cacheDir?: string;
-      onProgress: (progress: { progress: number }) => void;
-    } = {
-      onProgress: (progress) => {
-        setDownloadProgress(model.id, progress.progress);
-      },
-    };
-    if (modelCacheDir) {
-      downloadOptions.cacheDir = modelCacheDir;
-    }
-    await downloadBuiltInLocalLlmModel(model.id, downloadOptions);
-
-    setDownloadProgress(model.id, 100);
-    toast({
-      description: `${model.name} downloaded successfully!`,
-      title: 'Download Complete',
-    });
-  } catch (err) {
-    logger.error('Failed to download LLM model', err);
-    toast({
-      description: `Failed to download ${model.name}: ${(err as Error).message}`,
-      title: 'Download Failed',
-      variant: 'destructive',
-    });
-  } finally {
-    setDownloading(model.id, false);
-  }
-}
-
 async function downloadEmbeddingModel(
   model: DbModel,
   { modelCacheDir, setDownloadProgress, setDownloading, toast }: DownloadDeps
@@ -157,11 +110,12 @@ async function downloadEmbeddingModel(
   }
 }
 
+/**
+ * Only ON-DEVICE EMBEDDING models are downloadable. The chat branch here
+ * fetched the retired built-in local chat model's weights through
+ * `local-llm-artifacts`; no chat provider ships weights now.
+ */
 async function downloadModel(model: DbModel, deps: DownloadDeps): Promise<void> {
-  // Route to appropriate downloader based on model type
-  if (model.capabilities.type === 'llm') {
-    return downloadLlmModel(model, deps);
-  }
   return downloadEmbeddingModel(model, deps);
 }
 

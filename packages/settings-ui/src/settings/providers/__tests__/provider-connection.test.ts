@@ -115,9 +115,14 @@ describe('buildProviderRuntimeGroups', () => {
       sourcesBySlotId: NO_SOURCES,
     });
 
-    expect(groups.map((group) => group.runtime)).toEqual(['hosted', 'gateway', 'local', 'browser']);
-    expect(groups.map((group) => group.label)).toEqual(['Hosted', 'Gateway', 'Local', 'Browser']);
-    expect(PROVIDER_RUNTIME_ORDER).toEqual(['hosted', 'gateway', 'local', 'browser']);
+    expect(groups.map((group) => group.runtime)).toEqual([
+      'hosted',
+      'gateway',
+      'local',
+      'on-device',
+    ]);
+    expect(groups.map((group) => group.label)).toEqual(['Hosted', 'Gateway', 'Local', 'On device']);
+    expect(PROVIDER_RUNTIME_ORDER).toEqual(['hosted', 'gateway', 'local', 'on-device']);
   });
 
   it('sorts connected providers first, then registry order within a runtime group', () => {

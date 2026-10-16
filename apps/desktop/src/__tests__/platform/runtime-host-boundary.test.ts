@@ -44,10 +44,6 @@ describe('runtime host boundary', () => {
   it('allows renderer host modules to import renderer-only local runtimes', () => {
     const violations = findRuntimeHostBoundaryViolations([
       {
-        path: 'apps/desktop/src/renderer/components/llm-host-runtime.tsx',
-        source: "import { LocalLlmBackend } from '@brainstrike/agent/local-llm';",
-      },
-      {
         path: 'apps/desktop/src/renderer/components/embedding-host-runtime.tsx',
         source: "import { startEmbeddingWorker } from '@brainstrike/embeddings/worker';",
       },
@@ -56,23 +52,8 @@ describe('runtime host boundary', () => {
     expect(violations).toEqual([]);
   });
 
-  it('allows shared main contracts to import renderer-only runtime types only', () => {
-    const violations = findRuntimeHostBoundaryViolations([
-      {
-        path: 'apps/desktop/src/llm-host-shared.ts',
-        source: "import type { LocalLlmGenerationResult } from '@brainstrike/agent/local-llm';",
-      },
-    ]);
-
-    expect(violations).toEqual([]);
-  });
-
   it('rejects Electron main imports that can execute renderer-only local runtimes', () => {
     const violations = findRuntimeHostBoundaryViolations([
-      {
-        path: 'apps/desktop/src/main.ts',
-        source: "import { LocalLlmBackend } from '@brainstrike/agent/local-llm';",
-      },
       {
         path: 'apps/desktop/src/ipc-handlers.ts',
         source: "import { startEmbeddingWorker } from '@brainstrike/embeddings/worker';",
@@ -84,12 +65,6 @@ describe('runtime host boundary', () => {
     ]);
 
     expect(violations).toEqual([
-      {
-        importSource: '@brainstrike/agent/local-llm',
-        message:
-          'Built-in local LLM execution is renderer-only; Electron main must talk to llm-host.',
-        path: 'apps/desktop/src/main.ts',
-      },
       {
         importSource: '@brainstrike/embeddings/worker',
         message:
@@ -108,10 +83,6 @@ describe('runtime host boundary', () => {
   it('rejects Electron main imports below renderer-only runtime entrypoints', () => {
     const violations = findRuntimeHostBoundaryViolations([
       {
-        path: 'apps/desktop/src/main.ts',
-        source: "import { LocalLlmBackend } from '@brainstrike/agent/local-llm/internal';",
-      },
-      {
         path: 'apps/desktop/src/ipc-handlers.ts',
         source: "import { startEmbeddingWorker } from '@brainstrike/embeddings/worker/runtime';",
       },
@@ -123,12 +94,6 @@ describe('runtime host boundary', () => {
     ]);
 
     expect(violations).toEqual([
-      {
-        importSource: '@brainstrike/agent/local-llm/internal',
-        message:
-          'Built-in local LLM execution is renderer-only; Electron main must talk to llm-host.',
-        path: 'apps/desktop/src/main.ts',
-      },
       {
         importSource: '@brainstrike/embeddings/worker/runtime',
         message:
@@ -143,7 +108,7 @@ describe('runtime host boundary', () => {
       {
         path: 'apps/desktop/src/main.ts',
         source:
-          "async function loadLocalRuntime() { return import('@brainstrike/agent/local-llm'); }",
+          "async function loadLocalRuntime() { return import('@brainstrike/embeddings/worker'); }",
       },
       {
         path: 'apps/desktop/src/ipc-handlers.ts',
@@ -153,9 +118,9 @@ describe('runtime host boundary', () => {
 
     expect(violations).toEqual([
       {
-        importSource: '@brainstrike/agent/local-llm',
+        importSource: '@brainstrike/embeddings/worker',
         message:
-          'Built-in local LLM execution is renderer-only; Electron main must talk to llm-host.',
+          'Local embedding worker execution is renderer-only; Electron main must talk to embedding-host.',
         path: 'apps/desktop/src/main.ts',
       },
       {
@@ -171,7 +136,7 @@ describe('runtime host boundary', () => {
     const violations = findRuntimeHostBoundaryViolations([
       {
         path: 'apps/desktop/src/main.ts',
-        source: "export { LocalLlmBackend } from '@brainstrike/agent/local-llm';",
+        source: "export { startEmbeddingWorker } from '@brainstrike/embeddings/worker';",
       },
       {
         path: 'apps/desktop/src/ipc-handlers.ts',
@@ -181,9 +146,9 @@ describe('runtime host boundary', () => {
 
     expect(violations).toEqual([
       {
-        importSource: '@brainstrike/agent/local-llm',
+        importSource: '@brainstrike/embeddings/worker',
         message:
-          'Built-in local LLM execution is renderer-only; Electron main must talk to llm-host.',
+          'Local embedding worker execution is renderer-only; Electron main must talk to embedding-host.',
         path: 'apps/desktop/src/main.ts',
       },
       {
@@ -234,7 +199,6 @@ describe('runtime host boundary', () => {
     const hostSources = [
       readDesktopSource('ipc-embedding-host.ts'),
       readDesktopSource('ipc-chunking-host.ts'),
-      readDesktopSource('ipc-llm-host.ts'),
       readDesktopSource('ipc-parser-host.ts'),
     ];
 
@@ -252,7 +216,6 @@ describe('runtime host boundary', () => {
     const hostSources = [
       readDesktopSource('ipc-embedding-host.ts'),
       readDesktopSource('ipc-chunking-host.ts'),
-      readDesktopSource('ipc-llm-host.ts'),
     ];
 
     expect(lifecycleSource).not.toMatch(/inferLifecycleDomain/);
@@ -298,7 +261,7 @@ describe('runtime host boundary', () => {
       writeFileSync(path.join(sourceRoot, 'main.ts'), "import './safe';", 'utf8');
       writeFileSync(
         path.join(externalRoot, 'outside.ts'),
-        "import '@brainstrike/agent/local-llm';",
+        "import '@brainstrike/embeddings/worker';",
         'utf8'
       );
       symlinkSync(path.join(externalRoot, 'outside.ts'), path.join(sourceRoot, 'outside.ts'));

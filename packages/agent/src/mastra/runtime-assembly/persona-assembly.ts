@@ -51,7 +51,7 @@ const EMPTY_PERSONA_RUNTIME_PARTS: PersonaRuntimeParts = {
 
 /**
  * Build the persona delegation parts (child Agents + summaries) for a run.
- * Skipped for the built-in local provider (prompt budget) and in plan mode
+ * Skipped when the run has no personas, and in plan mode
  * (delegation is out of scope for planning — the `agent-<id>` tools are
  * Mastra-constructed and never enter the plan-mode-filtered tool map, so we
  * simply do not pass `agents`). Children re-gate the parent's GUARDED tool map
@@ -105,7 +105,7 @@ export async function resolvePersonaRuntimeParts(params: {
   );
   if (
     (params.planModeActive && !params.continuationChildScope) ||
-    !shouldEnablePersonas(params.provider, personas)
+    !shouldEnablePersonas(personas)
   ) {
     return EMPTY_PERSONA_RUNTIME_PARTS;
   }

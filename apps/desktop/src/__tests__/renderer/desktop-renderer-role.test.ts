@@ -26,7 +26,6 @@ describe('resolveDesktopRendererRole', () => {
   it.each([
     ['embedding-host', 'embedding-host'],
     ['chunking-host', 'chunking-host'],
-    ['llm-host', 'llm-host'],
     ['unknown', 'visible-ui'],
   ] as const)('preserves %s role resolution', (mode, expected) => {
     expect(resolveDesktopRendererRole(`?mode=${mode}`, false)).toBe(expected);

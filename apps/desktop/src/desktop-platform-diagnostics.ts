@@ -39,7 +39,6 @@ export interface DesktopPlatformDiagnosticsSnapshot {
     };
     readonly dimensionIndexMaintenance: DesktopDimensionIndexMaintenanceSnapshot | null;
   };
-  readonly llmHost: RuntimeHostPlatformStatus<'llm-host'>;
   readonly logging: LoggingSettingsPayload;
   readonly migration: {
     readonly attemptCount: number | null;
@@ -87,9 +86,6 @@ export interface DesktopPlatformDiagnosticsProviders {
       | Promise<DesktopDimensionIndexMaintenanceSnapshot>
       | DesktopDimensionIndexMaintenanceSnapshot;
   } | null;
-  readonly llmHost: {
-    readonly getPlatformStatus: () => RuntimeHostPlatformStatus<'llm-host'>;
-  };
   readonly logging: {
     readonly getState: () => LoggingSettingsPayload;
   };
@@ -116,7 +112,6 @@ type DesktopPlatformDiagnosticsProviderName =
   | 'dimensionIndexMaintenance'
   | 'embeddingHost'
   | 'embeddingTelemetry'
-  | 'llmHost'
   | 'logging'
   | 'processCounters'
   | 'reset'
@@ -249,20 +244,6 @@ export async function collectDesktopPlatformDiagnostics(
       databaseWork: { scheduler: databaseScheduler },
       dimensionIndexMaintenance,
     },
-    llmHost: await readDiagnosticsProvider(
-      errors,
-      'llmHost',
-      () => providers.llmHost.getPlatformStatus(),
-      {
-        active: false,
-        lastError: 'llm host diagnostics unavailable',
-        pendingRequestCount: 0,
-        runtimeId: 'llm-host:unavailable',
-        runtimeKind: 'llm-host',
-        sourceState: 'error',
-        state: 'failed',
-      }
-    ),
     logging: await readDiagnosticsProvider(errors, 'logging', () => providers.logging.getState(), {
       capabilities: {
         canSelectDestination: false,

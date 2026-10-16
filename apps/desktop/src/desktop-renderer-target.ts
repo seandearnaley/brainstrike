@@ -11,11 +11,8 @@ export {
   APP_RENDERER_SCHEME,
 } from './desktop-renderer-origin';
 
-/** The hidden hosts that run local inference on ONNX Runtime's WASM threads. */
-const CROSS_ORIGIN_ISOLATED_HOST_MODES: ReadonlySet<string> = new Set([
-  'embedding-host',
-  'llm-host',
-]);
+/** The hidden host that runs local inference on ONNX Runtime's WASM threads. */
+const CROSS_ORIGIN_ISOLATED_HOST_MODES: ReadonlySet<string> = new Set(['embedding-host']);
 const EMBEDDER_POLICY = { 'Cross-Origin-Embedder-Policy': 'require-corp' } as const;
 
 /**

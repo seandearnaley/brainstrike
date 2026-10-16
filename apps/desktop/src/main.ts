@@ -6,7 +6,6 @@ import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
-import { createMainLlmHostClient } from '@brainstrike/assistant-service/ports';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { clearReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import {
@@ -103,7 +102,6 @@ import { DEFAULT_MAX_BYTES, DEFAULT_MAX_FILES } from './diagnostics/rotating-fil
 import { installWebAssemblyCounter } from './diagnostics/webassembly-counter';
 import { resolveBuiltRendererPath } from './dist-root';
 import { installE2eForegroundLatencyProbes } from './e2e-foreground-latency-probes';
-import { createE2eScriptedLlmHost } from './e2e-scripted-llm-host';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
@@ -124,7 +122,6 @@ import { registerGitIpcHandlers } from './ipc-git';
 import { createApplicationIpcDomain, registerIpcHandlers } from './ipc-handlers';
 import { registerHooksIpcHandlers } from './ipc-hooks';
 import { registerIndexSearchIpcHandlers } from './ipc-index-search';
-import { registerLlmHostIpcHandlers } from './ipc-llm-host';
 import {
   cleanupMcpRuntimeForShutdown,
   registerMcpIpcHandlers,
@@ -148,7 +145,6 @@ import { registerUserCommandsIpcHandlers } from './ipc-user-commands';
 import { registerUserPersonasIpcHandlers } from './ipc-user-personas';
 import { registerViewFilterPresetsIpc } from './ipc-view-filter-presets';
 import { registerWorktreesIpcHandlers } from './ipc-worktrees';
-import { LlmHostManager } from './llm-host-manager';
 import { registerLoggingIpcHandlers } from './logging-ipc';
 import {
   createDesktopGracefulShutdown,
@@ -470,9 +466,6 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
           gitInventoryService = null;
         }
       },
-      'llm-host': async () => {
-        await llmHostManager.dispose();
-      },
       // Wrapped: the cleanup's optional parameter is the runtime, not a signal.
       'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
       'native-index': async () => {
@@ -499,9 +492,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         await closeDesktopRenderers(
           BrowserWindow.getAllWindows(),
           (window) =>
-            chunkingHostManager.isHostWindow(window) ||
-            embeddingHostManager.isHostWindow(window) ||
-            llmHostManager.isHostWindow(window)
+            chunkingHostManager.isHostWindow(window) || embeddingHostManager.isHostWindow(window)
         );
       },
     },
@@ -582,7 +573,6 @@ const listWorkspaceRecentRootPaths = async (): Promise<readonly string[]> => {
 const chunkingHostManager = new ChunkingHostManager();
 const parserHostManager = new ParserHostManager();
 const embeddingHostManager = new EmbeddingHostManager({ storage });
-const llmHostManager = new LlmHostManager();
 
 const profileReset = createDesktopProfileResetOwner({
   profilePath: () => {
@@ -649,7 +639,6 @@ const handleResetLocal = createDesktopFactoryResetHandler({
         return Promise.resolve();
       },
     },
-    { name: 'llm-host', stop: () => llmHostManager.stop() },
     // Reap any shell command the assistant left running so a factory reset is a
     // true fresh start with no orphaned subprocess surviving the wipe.
     {
@@ -992,7 +981,6 @@ ipcDisposers.add(
     },
   })
 );
-ipcDisposers.add('llm-host', registerLlmHostIpcHandlers(llmHostManager));
 ipcDisposers.add(
   'desktop-diagnostics',
   registerDesktopDiagnosticsIpcHandlers({
@@ -1004,7 +992,6 @@ ipcDisposers.add(
     databaseScheduler: null,
     embeddingHost: embeddingHostManager,
     indexing: null,
-    llmHost: llmHostManager,
     logging: {
       getState: loggingPreferences.getSettingsPayload,
     },
@@ -1174,11 +1161,7 @@ if (singleInstanceLockAcquired) {
   completeFactoryResetRendererReplacement = async (signal) => {
     const visibleWindows = BrowserWindow.getAllWindows().filter(
       (window) =>
-        !(
-          chunkingHostManager.isHostWindow(window) ||
-          embeddingHostManager.isHostWindow(window) ||
-          llmHostManager.isHostWindow(window)
-        )
+        !(chunkingHostManager.isHostWindow(window) || embeddingHostManager.isHostWindow(window))
     );
     await factoryResetRendererReplacement.replace(visibleWindows, signal);
   };
@@ -1187,11 +1170,7 @@ if (singleInstanceLockAcquired) {
     const existingWindow =
       BrowserWindow.getAllWindows().find(
         (window) =>
-          !(
-            embeddingHostManager.isHostWindow(window) ||
-            chunkingHostManager.isHostWindow(window) ||
-            llmHostManager.isHostWindow(window)
-          )
+          !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
       ) ?? null;
     if (!existingWindow) {
       return;
@@ -2123,11 +2102,7 @@ if (singleInstanceLockAcquired) {
         }
         const hasVisibleWindow = BrowserWindow.getAllWindows().some(
           (window) =>
-            !(
-              embeddingHostManager.isHostWindow(window) ||
-              chunkingHostManager.isHostWindow(window) ||
-              llmHostManager.isHostWindow(window)
-            )
+            !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
         );
         if (!hasVisibleWindow) {
           await createMainWindow();
@@ -2251,9 +2226,6 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
         throw new AggregateError(failures, 'Desktop workspace and native Root retirement failed');
       }
     },
-    // ADR-0007: a host thread's admitted local chat model or observer borrows the hidden
-    // llm-host (an isolated E2E launch may script it instead of downloading the model).
-    localLlm: createMainLlmHostClient(createE2eScriptedLlmHost() ?? llmHostManager),
     // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
     mcp: createDesktopMcpPlatformCapabilities(getMainMcpHostControl()),
     // ADR-0017: the host reports its native processes; Main ends them if it dies.

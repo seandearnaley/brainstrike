@@ -150,28 +150,6 @@ describe('ComposerEffortControl', () => {
       expect(screen.getByTestId('composer-effort-trigger')).toHaveAccessibleName('Thinking On');
     });
 
-    it('reads Thinking On/Off for the local provider (no effort axis)', () => {
-      const { rerender } = render(
-        <ComposerEffortControl
-          onProviderSettingsChange={vi.fn()}
-          providerSettings={{ local: { localThinkingEnabled: true } }}
-          selectedModel="local::onnx-community/gemma-4-E2B-it-ONNX"
-          selectedProvider="local"
-        />
-      );
-      expect(screen.getByTestId('composer-effort-trigger')).toHaveAccessibleName('Thinking On');
-
-      rerender(
-        <ComposerEffortControl
-          onProviderSettingsChange={vi.fn()}
-          providerSettings={{ local: { localThinkingEnabled: false } }}
-          selectedModel="local::onnx-community/gemma-4-E2B-it-ONNX"
-          selectedProvider="local"
-        />
-      );
-      expect(screen.getByTestId('composer-effort-trigger')).toHaveAccessibleName('Thinking Off');
-    });
-
     it('disables the trigger (readout stays visible) when settings updates are unavailable', () => {
       render(
         <ComposerEffortControl
@@ -368,27 +346,6 @@ describe('ComposerEffortControl', () => {
       expect(onProviderSettingsChange).toHaveBeenCalledWith('anthropic', {
         anthropicEffort: undefined,
         anthropicThinkingBudgetTokens: undefined,
-      });
-    });
-
-    it('drives localThinkingEnabled for the local provider without an effort slider', async () => {
-      const user = setup();
-      const onProviderSettingsChange = vi.fn();
-      render(
-        <ComposerEffortControl
-          onProviderSettingsChange={onProviderSettingsChange}
-          providerSettings={{ local: { localThinkingEnabled: true } }}
-          selectedModel="local::onnx-community/gemma-4-E2B-it-ONNX"
-          selectedProvider="local"
-        />
-      );
-
-      const popover = await openPopover(user);
-      expect(within(popover).queryByTestId('composer-effort-row')).not.toBeInTheDocument();
-      await user.click(within(popover).getByRole('switch', { name: 'Toggle thinking' }));
-
-      expect(onProviderSettingsChange).toHaveBeenCalledWith('local', {
-        localThinkingEnabled: false,
       });
     });
 

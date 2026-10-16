@@ -22,11 +22,6 @@ interface ForbiddenExecutionImportRule {
 const FORBIDDEN_EXECUTION_IMPORTS: readonly ForbiddenExecutionImportRule[] = [
   {
     matchSubpaths: true,
-    message: 'Built-in local LLM execution is renderer-only; Electron main must talk to llm-host.',
-    source: '@brainstrike/agent/local-llm',
-  },
-  {
-    matchSubpaths: true,
     message:
       'Local embedding worker execution is renderer-only; Electron main must talk to embedding-host.',
     source: '@brainstrike/embeddings/worker',

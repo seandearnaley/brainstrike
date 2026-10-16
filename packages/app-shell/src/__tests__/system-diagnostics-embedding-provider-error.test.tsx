@@ -57,15 +57,6 @@ describe('SystemDiagnosticsPanel embedding provider errors', () => {
             embeddingTelemetry:
               'Embedding provider failed for private-model at /Users/private/workspace',
           },
-          llmHost: {
-            active: false,
-            lastError: null,
-            pendingRequestCount: 0,
-            runtimeId: 'llm-host:idle',
-            runtimeKind: 'llm-host',
-            sourceState: 'running',
-            state: 'idle',
-          },
           reset: { userDataPath: '/tmp/brainstrike-user-data' },
           telemetry: {
             backgroundRuntimeMetrics: [],

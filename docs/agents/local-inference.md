@@ -2,21 +2,23 @@
 
 ## Execution boundary
 
-Embeddings and local LLM generation run only in hidden renderer hosts on desktop,
-never Electron main or a thread serving UI/log/client protocol. Main owns lifecycle
-and authorized IPC. Hidden preloads expose only their role's request/report,
-metadata, preferences and logging capabilities; no secrets or general database
-or storage bridge. Web runs embeddings in its browser-safe runtime; it has no
-built-in local LLM.
+Local inference means EMBEDDINGS. It runs only in hidden renderer hosts on
+desktop, never Electron main or a thread serving UI/log/client protocol. Main
+owns lifecycle and authorized IPC. Hidden preloads expose only their role's
+request/report, metadata, preferences and logging capabilities; no secrets or
+general database or storage bridge. Web runs embeddings in its browser-safe
+runtime.
 
-The built-in local LLM provider has exactly ONE engine: the desktop hidden
-llm-host, proxied into the ordinary assistant-server run loop by
-`LlmHostChatModel`. There is no in-renderer chat runtime and no in-process
-model: a host without the llm-host bridge does not offer the `local` provider,
-and `createProvider('local')` without an injected `runtime.localLlmHostClient`
-throws rather than substituting another engine.
+There is no built-in local CHAT model on either shell. The `local` provider
+declares `capabilities.llm: false`, and the engine that backed it (Gemma 4 E2B
+through transformers.js), its `llm-host` renderer role and the whole generation
+transport were retired: a 131072-token declared window that had to be
+contradicted by an 8192-token runtime budget because the WebGPU prefill
+allocates an O(seq^2) attention buffer, tool calling that never became
+reliable, and no token streaming. `createProvider('local')` refuses, derived
+from that capability rather than from the provider's name.
 
-Hidden inference host documents (`embedding-host`, `llm-host`) are cross-origin
+The hidden inference host document (`embedding-host`) is cross-origin
 isolated: the renderer protocol and the Vite dev server send them COOP and COEP,
 and COEP on every other bundled response so their workers start (BST-1999). ONNX
 Runtime then chooses its own WASM thread count; nothing sets `numThreads`. The
@@ -24,8 +26,7 @@ visible document stays unisolated because it frames the Canvas and MCP App shell
 `rendererIsolationHeaders` is the one policy.
 
 The visible renderer starts no duplicate embedding worker. Query and document
-inference share the hidden runtime's physical owner and serialization. Local LLM
-generations and disposal are likewise serialized by the backend, not caller locks.
+inference share the hidden runtime's physical owner and serialization.
 
 ## Model identity
 
@@ -63,9 +64,9 @@ physical background/inference owner. Use the existing QoS and permit primitives,
 not a new scheduler or pacing delay. Log bounded stage/identity information,
 never text, vectors, endpoints or credentials.
 
-Decision: [ADR-0007](../adr/0007-local-inference-placement.md). Implementation:
-`packages/embeddings`, `packages/embedding-worker`, `packages/queue` and desktop
-hidden-host adapters. Built-in local chat:
-`packages/agent/src/providers/local` (engine, backend, `LlmHostChatModel`),
-`packages/assistant-ui/src/local-runtime-desktop-host.ts` (renderer-side bridge
-probe and model warmup).
+Decision: [ADR-0007](../adr/0007-local-inference-placement.md) — its
+local-chat-placement half is now history; its embedding-placement rules above
+are live. Implementation: `packages/embeddings`, `packages/embedding-worker`,
+`packages/queue` and desktop hidden-host adapters. The on-device EMBEDDING
+model the assistant's semantic recall uses is
+`packages/agent/src/providers/local/local-host-embedding-model.ts`.

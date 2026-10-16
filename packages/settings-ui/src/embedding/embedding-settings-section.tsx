@@ -261,7 +261,7 @@ function toNormalizedHostedProvider(
     displayName: definition.displayName,
     id: definition.id as HostedEmbeddingProviderId,
     models: normalizedModels,
-    runtime: definition.runtime === 'browser' ? 'browser' : 'hosted',
+    runtime: 'hosted',
   };
 }
 

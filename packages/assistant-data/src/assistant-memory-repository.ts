@@ -146,7 +146,7 @@ export type AssistantThreadRunStatus =
   | 'completed'
   | 'failed'
   | 'running';
-export type AssistantThreadRuntimeKind = 'browser' | 'gateway' | 'hosted' | 'local';
+export type AssistantThreadRuntimeKind = 'gateway' | 'hosted' | 'local';
 
 export interface AssistantThreadRunRecord {
   readonly completedAt: Date | null;
@@ -1447,7 +1447,7 @@ function requireRunUsageKind(value: unknown): AssistantRunUsageKind {
 }
 
 function requireRuntimeKind(value: unknown): AssistantThreadRuntimeKind {
-  if (value === 'browser' || value === 'gateway' || value === 'hosted' || value === 'local') {
+  if (value === 'gateway' || value === 'hosted' || value === 'local') {
     return value;
   }
   throw new Error('Invalid assistant thread run row: runtime_kind is not valid.');

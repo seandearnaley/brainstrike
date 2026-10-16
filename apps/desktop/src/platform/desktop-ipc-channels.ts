@@ -199,22 +199,6 @@ export const DESKTOP_IPC_CHANNELS = {
     search: 'index-search:search',
     status: 'index-search:status',
   },
-  // Hidden local-LLM host; same pinning as chunkingHost (llm-host-shared.ts).
-  llmHost: {
-    cancel: 'llm-host:cancel',
-    ensureStarted: 'llm-host:ensure-started',
-    generate: 'llm-host:generate',
-    getStatus: 'llm-host:get-status',
-    progress: 'llm-host:progress',
-    reportProgress: 'llm-host:report-progress',
-    reportResponse: 'llm-host:report-response',
-    reportStatus: 'llm-host:report-status',
-    request: 'llm-host:request',
-    reset: 'llm-host:reset',
-    status: 'llm-host:status',
-    stop: 'llm-host:stop',
-    warmup: 'llm-host:warmup',
-  },
   // Logging settings/ingest surface; `platform/logging-api-contract.ts`
   // re-exports this group as LOGGING_API_CHANNELS (its validators need
   // @brainstrike/logging, which a preload cannot require).

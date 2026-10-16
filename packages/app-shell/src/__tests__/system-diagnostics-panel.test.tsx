@@ -63,15 +63,6 @@ describe('SystemDiagnosticsPanel', () => {
               sourceState: 'running',
               state: 'idle',
             },
-            llmHost: {
-              active: false,
-              lastError: null,
-              pendingRequestCount: 0,
-              runtimeId: 'llm-host:idle',
-              runtimeKind: 'llm-host',
-              sourceState: 'running',
-              state: 'idle',
-            },
             reset: { userDataPath: '/tmp/brainstrike-user-data' },
             telemetry: {
               backgroundRuntimeMetrics: [],
@@ -130,15 +121,6 @@ describe('SystemDiagnosticsPanel', () => {
             state: 'idle',
           },
           indexing: { activeBackfills: [] },
-          llmHost: {
-            active: false,
-            lastError: null,
-            pendingRequestCount: 0,
-            runtimeId: 'llm-host:idle',
-            runtimeKind: 'llm-host',
-            sourceState: 'running',
-            state: 'idle',
-          },
           reset: { userDataPath: '/tmp/brainstrike-user-data' },
           telemetry: {
             backgroundRuntimeMetrics: [],
@@ -640,15 +622,6 @@ describe('SystemDiagnosticsPanel', () => {
                 ],
               },
             },
-            llmHost: {
-              active: true,
-              lastError: null,
-              pendingRequestCount: 1,
-              runtimeId: 'llm-host:active',
-              runtimeKind: 'llm-host',
-              sourceState: 'running',
-              state: 'active',
-            },
             migration: {
               attemptCount: 2,
               inFlight: false,
@@ -686,7 +659,6 @@ describe('SystemDiagnosticsPanel', () => {
 
       expect(await screen.findByText('Desktop Platform')).toBeInTheDocument();
       expect(screen.getByText('Embedding Host')).toBeInTheDocument();
-      expect(screen.getByText('LLM Host')).toBeInTheDocument();
       expect(screen.getByText('/tmp/brainstrike-user-data')).toBeInTheDocument();
       expect(screen.getByText('Active Backfills')).toBeInTheDocument();
       expect(screen.getByText('1 active')).toBeInTheDocument();

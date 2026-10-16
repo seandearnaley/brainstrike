@@ -79,7 +79,7 @@ describe('registerDatabaseIntegrityIpcHandlers', () => {
       trackWindow('visible-ui'),
       trackWindow('embedding-host'),
     ];
-    const others = [trackWindow('chunking-host'), trackWindow('llm-host')];
+    const others = [trackWindow('chunking-host'), trackWindow('chunking-host')];
     const dispose = registerDatabaseIntegrityIpcHandlers({ integrity });
 
     const contained = integrity.contain('db:query', SIGNAL);

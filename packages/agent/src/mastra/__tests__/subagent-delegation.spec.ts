@@ -624,17 +624,13 @@ describe('createDelegationLifecycleTracker', () => {
 });
 
 describe('shouldEnablePersonas', () => {
-  it('is false for the local provider even with personas', () => {
-    expect(shouldEnablePersonas('local', [persona])).toBe(false);
-  });
-
   it('is false when there are no personas', () => {
-    expect(shouldEnablePersonas('openai', [])).toBe(false);
-    expect(shouldEnablePersonas('openai', undefined)).toBe(false);
+    expect(shouldEnablePersonas([])).toBe(false);
+    expect(shouldEnablePersonas(undefined)).toBe(false);
   });
 
   it('is true for a hosted provider with personas', () => {
-    expect(shouldEnablePersonas('openai', [persona])).toBe(true);
+    expect(shouldEnablePersonas([persona])).toBe(true);
   });
 });
 

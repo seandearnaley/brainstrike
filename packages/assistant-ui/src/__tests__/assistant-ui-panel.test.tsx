@@ -11,7 +11,7 @@ import { COMPACTION_SUMMARY_METADATA_KEY } from '@brainstrike/assistant-contract
 import { TooltipProvider } from '@brainstrike/ui';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { act, Fragment } from 'react';
+import { Fragment } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   ModelPickerModel,
@@ -1037,100 +1037,6 @@ describe('AssistantUiPanel model picker', () => {
       'stream failed',
       false
     );
-  });
-
-  // The hidden llm-host broadcasts load progress; the panel badge is the only
-  // place a user sees it, whoever started the load (a turn, or a cold memory
-  // model warmed by main).
-  it('renders compact local model status and auto-hides ready state', () => {
-    vi.useFakeTimers();
-    let emitHostProgress: ((report: unknown) => void) | undefined;
-    (window as Window & { llmHost?: unknown }).llmHost = {
-      onProgress: (listener: (report: unknown) => void) => {
-        emitHostProgress = listener;
-        return () => undefined;
-      },
-    };
-
-    const localGroups: ProviderGroupConfig[] = [
-      {
-        label: 'Local',
-        providers: [
-          {
-            capabilities: {
-              embeddings: false,
-              llm: true,
-              streaming: false,
-              supportsStandardEmbeddingDimension: false,
-            },
-            id: 'local',
-            models: [
-              {
-                default: true,
-                enabled: true,
-                id: 'onnx-community/gemma-4-E2B-it-ONNX',
-                label: 'Gemma 4 E2B',
-                type: 'llm',
-              },
-            ],
-            name: 'Local',
-            runtime: 'local',
-          },
-        ],
-        runtime: 'local',
-      },
-    ];
-
-    render(
-      <AssistantUiPanel
-        onModelChange={() => {}}
-        pickerModels={[
-          {
-            capabilities: { streaming: false, type: 'llm' },
-            description: null,
-            id: 'onnx-community/gemma-4-E2B-it-ONNX',
-            name: 'Gemma 4 E2B',
-            providerId: 'local',
-          },
-        ]}
-        pickerProviders={[{ icon: null, id: 'local', name: 'Local' }]}
-        providerGroups={localGroups}
-        selectedModel="local::onnx-community/gemma-4-E2B-it-ONNX"
-        selectedProvider="local"
-      />
-    );
-
-    act(() => {
-      emitHostProgress?.({
-        payload: { kind: 'loading', message: 'Warming up local model host...', progress: 42 },
-        requestId: 'main:warmup',
-        type: 'progress',
-      });
-    });
-
-    expect(screen.getByTestId('local-model-status')).toBeInTheDocument();
-    expect(screen.getByText('Gemma')).toBeInTheDocument();
-    expect(screen.getByText('Starting')).toBeInTheDocument();
-    expect(screen.queryByText('Loading model...')).not.toBeInTheDocument();
-    // Percent stays visible during the loading stage too (continuity with the
-    // download phase avoids the span blinking in and out — layout shift).
-    expect(screen.getByText('42%')).toBeInTheDocument();
-
-    act(() => {
-      emitHostProgress?.({
-        payload: { kind: 'loading', message: 'Local model ready.', progress: 100 },
-        requestId: 'main:warmup',
-        type: 'progress',
-      });
-    });
-
-    act(() => {
-      vi.advanceTimersByTime(1200);
-    });
-
-    expect(screen.queryByTestId('local-model-status')).not.toBeInTheDocument();
-    vi.useRealTimers();
-    (window as Window & { llmHost?: unknown }).llmHost = undefined;
   });
 
   it('renders the model menu in the composer controls dock', async () => {

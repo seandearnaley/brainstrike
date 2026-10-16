@@ -39,21 +39,6 @@ import {
   EMBEDDING_HOST_WEBGPU_ADAPTER_CHANNEL,
   EMBEDDING_HOST_WEBGPU_ADAPTER_REQUEST_EVENT,
 } from '../../embedding-host-shared';
-import {
-  LLM_HOST_CANCEL_CHANNEL,
-  LLM_HOST_ENSURE_STARTED_CHANNEL,
-  LLM_HOST_GENERATE_CHANNEL,
-  LLM_HOST_GET_STATUS_CHANNEL,
-  LLM_HOST_PROGRESS_EVENT,
-  LLM_HOST_REPORT_PROGRESS_CHANNEL,
-  LLM_HOST_REPORT_RESPONSE_CHANNEL,
-  LLM_HOST_REPORT_STATUS_CHANNEL,
-  LLM_HOST_REQUEST_EVENT,
-  LLM_HOST_RESET_CHANNEL,
-  LLM_HOST_STATUS_EVENT,
-  LLM_HOST_STOP_CHANNEL,
-  LLM_HOST_WARMUP_CHANNEL,
-} from '../../llm-host-shared';
 import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
 import { LOGGING_API_CHANNELS } from '../../platform/logging-api-contract';
 
@@ -178,21 +163,6 @@ describe('desktop IPC channel contract', () => {
       stop: EMBEDDING_HOST_STOP_CHANNEL,
       webgpuAdapter: EMBEDDING_HOST_WEBGPU_ADAPTER_CHANNEL,
       webgpuAdapterRequest: EMBEDDING_HOST_WEBGPU_ADAPTER_REQUEST_EVENT,
-    });
-    expect(DESKTOP_IPC_CHANNELS.llmHost).toEqual({
-      cancel: LLM_HOST_CANCEL_CHANNEL,
-      ensureStarted: LLM_HOST_ENSURE_STARTED_CHANNEL,
-      generate: LLM_HOST_GENERATE_CHANNEL,
-      getStatus: LLM_HOST_GET_STATUS_CHANNEL,
-      progress: LLM_HOST_PROGRESS_EVENT,
-      reportProgress: LLM_HOST_REPORT_PROGRESS_CHANNEL,
-      reportResponse: LLM_HOST_REPORT_RESPONSE_CHANNEL,
-      reportStatus: LLM_HOST_REPORT_STATUS_CHANNEL,
-      request: LLM_HOST_REQUEST_EVENT,
-      reset: LLM_HOST_RESET_CHANNEL,
-      status: LLM_HOST_STATUS_EVENT,
-      stop: LLM_HOST_STOP_CHANNEL,
-      warmup: LLM_HOST_WARMUP_CHANNEL,
     });
   });
 

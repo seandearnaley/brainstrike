@@ -64,7 +64,7 @@ describe('projectCatalogRow', () => {
         id: 'Xenova/bge-small-en-v1.5',
         providerId: 'local',
       }),
-      'Local (Browser)'
+      'Local (On device)'
     );
     expect(row.pricing).toBeNull();
     expect(row.isLocal).toBe(true);

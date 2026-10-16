@@ -45,7 +45,7 @@ async function seedRun(threadId: string, resourceId: string, runId: string): Pro
     model: 'test-model',
     provider: 'test-provider',
     resourceId,
-    runtimeKind: 'browser',
+    runtimeKind: 'hosted',
     status: 'completed',
     threadId,
   });

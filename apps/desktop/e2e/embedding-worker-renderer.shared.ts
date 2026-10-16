@@ -211,7 +211,7 @@ export interface HeapSnapshot {
 export interface RuntimeProcessSnapshot {
   osProcessId: number | null;
   privateMB: number | null;
-  runtimeKind: 'chunking-host' | 'embedding-host' | 'llm-host' | 'visible-ui';
+  runtimeKind: 'chunking-host' | 'embedding-host' | 'visible-ui';
   sharedMB: number | null;
   workingSetMB: number | null;
 }
@@ -1155,15 +1155,8 @@ export async function readDesktopProcessSnapshot(
         // Hidden hosts declare their DesktopWindowRole via the `mode` URL
         // param (renderer-host-lifecycle.ts); the visible window has none.
         // An unknown mode must throw rather than be silently measured as the
-        // visible UI (e.g. a lazily started llm-host skewing UI ceilings).
-        if (
-          !(
-            mode === null ||
-            mode === 'embedding-host' ||
-            mode === 'chunking-host' ||
-            mode === 'llm-host'
-          )
-        ) {
+        // visible UI (e.g. a lazily started hidden host skewing UI ceilings).
+        if (!(mode === null || mode === 'embedding-host' || mode === 'chunking-host')) {
           throw new Error(
             `Unknown desktop window mode "${mode}" (url: ${url}); update the E2E runtime classifier in embedding-worker-renderer.shared.ts.`
           );
@@ -1270,14 +1263,7 @@ export async function readTrackedRuntimeWorkingSetMB(
             } catch {
               mode = null;
             }
-            if (
-              !(
-                mode === null ||
-                mode === 'embedding-host' ||
-                mode === 'chunking-host' ||
-                mode === 'llm-host'
-              )
-            ) {
+            if (!(mode === null || mode === 'embedding-host' || mode === 'chunking-host')) {
               throw new Error(
                 `Unknown desktop window mode "${mode}" (url: ${url}); update the E2E runtime classifier in embedding-worker-renderer.shared.ts.`
               );

@@ -871,13 +871,13 @@ export function createDelegationLifecycleTracker(): DelegationLifecycleTracker {
 }
 
 /**
- * Whether persona delegation should be enabled for a run. Personas are skipped
- * for the built-in local provider (D10 — the 2B on-device model's prompt budget
- * cannot afford the delegation tool schemas/guidance) and when there are none.
+ * Whether persona delegation should be enabled for a run: only when the run has
+ * personas to delegate to. This used to also exclude the built-in local
+ * provider, whose 2B on-device model could not afford the delegation tool
+ * schemas (D10); that provider is embeddings-only now and never reaches a run.
  */
 export function shouldEnablePersonas(
-  provider: string,
   personas: readonly AssistantPersonaDefinition[] | undefined
 ): boolean {
-  return provider !== 'local' && Boolean(personas && personas.length > 0);
+  return Boolean(personas && personas.length > 0);
 }

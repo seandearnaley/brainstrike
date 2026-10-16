@@ -18,7 +18,6 @@ const broadEntries = [
   'src/test-fixtures/mcp-host-lifecycle.ts',
   'src/test-fixtures/scripted-agent-model.ts',
   'src/mcp-tasks.ts',
-  'src/local-llm.ts',
   'src/browser-safe.ts',
   'src/tool-metadata.ts',
   'src/provider-metadata.ts',

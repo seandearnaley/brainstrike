@@ -240,38 +240,6 @@ function createDisabledLocalRuntimeCatalog(runtimeId: string) {
   };
 }
 
-type LlmHostLifecycleState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
-
-interface LlmHostStatus {
-  readonly active: boolean;
-  readonly lastError: string | null;
-  readonly runtimeId: string;
-  readonly runtimeKind: 'llm-host';
-  readonly state: LlmHostLifecycleState;
-}
-
-interface LlmHostRequest {
-  readonly channel: 'llm';
-  readonly payload: {
-    readonly clientRequestId?: string;
-    readonly kind: 'generate' | 'warmup';
-    readonly modelId: string;
-    readonly messages?: unknown[];
-    readonly options?: unknown;
-  };
-  readonly requestId: string;
-  readonly runtimeId: string;
-  readonly type: 'request';
-}
-
-interface LlmHostResponseReport {
-  readonly channel: 'llm-error' | 'llm-progress' | 'llm-result';
-  readonly payload: Record<string, unknown>;
-  readonly requestId: string;
-  readonly runtimeId: string;
-  readonly type: 'error' | 'progress' | 'result';
-}
-
 // Expose storage APIs to renderer
 if (shouldExposeBridge('electronAPI')) {
   const layoutBridge = createIpcBridge(ipcRenderer, layoutContract);
@@ -763,70 +731,6 @@ const chunkingHost = {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.stop),
 } satisfies VisibleChunkingHostBridge;
 contextBridge.exposeInMainWorld('chunkingHost', chunkingHost);
-
-contextBridge.exposeInMainWorld('llmHost', {
-  cancel: (requestId: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.llmHost.cancel, requestId),
-  ensureStarted: (): Promise<LlmHostStatus> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.llmHost.ensureStarted),
-  generate: (payload: {
-    requestId?: string;
-    modelId: string;
-    messages: unknown[];
-    options?: unknown;
-  }) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.llmHost.generate, {
-      kind: 'generate',
-      ...(payload.requestId === undefined ? {} : { clientRequestId: payload.requestId }),
-      messages: payload.messages,
-      modelId: payload.modelId,
-      ...(payload.options === undefined ? {} : { options: payload.options }),
-    }),
-  getStatus: (): Promise<LlmHostStatus> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.llmHost.getStatus),
-  onProgress: (callback: (progress: LlmHostResponseReport) => void) => {
-    const listener = (_event: unknown, progress: LlmHostResponseReport) => callback(progress);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.llmHost.progress, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.llmHost.progress, listener);
-    };
-  },
-  onRequest: (callback: (request: LlmHostRequest) => void) => {
-    const listener = (_event: unknown, request: LlmHostRequest) => callback(request);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.llmHost.request, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.llmHost.request, listener);
-    };
-  },
-  onStatus: (callback: (status: LlmHostStatus) => void) => {
-    const listener = (_event: unknown, status: LlmHostStatus) => callback(status);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.llmHost.status, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.llmHost.status, listener);
-    };
-  },
-  reportProgress: (progress: LlmHostResponseReport): void => {
-    ipcRenderer.send(DESKTOP_IPC_CHANNELS.llmHost.reportProgress, progress);
-  },
-  reportResponse: (response: LlmHostResponseReport): void => {
-    ipcRenderer.send(DESKTOP_IPC_CHANNELS.llmHost.reportResponse, response);
-  },
-  reportStatus: (status: LlmHostStatus): void => {
-    ipcRenderer.send(DESKTOP_IPC_CHANNELS.llmHost.reportStatus, status);
-  },
-  reset: (): Promise<LlmHostStatus> => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.llmHost.reset),
-  stop: (): Promise<LlmHostStatus> => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.llmHost.stop),
-  warmup: (payload: { modelId: string; requestId?: string } | string) =>
-    ipcRenderer.invoke(
-      DESKTOP_IPC_CHANNELS.llmHost.warmup,
-      typeof payload === 'string'
-        ? payload
-        : {
-            kind: 'warmup',
-            modelId: payload.modelId,
-            ...(payload.requestId === undefined ? {} : { clientRequestId: payload.requestId }),
-          }
-    ),
-});
 
 // System Clipboard helper (renderer-friendly). Writes go through main over
 // IPC: sandboxed preloads cannot require Electron's clipboard module, so a

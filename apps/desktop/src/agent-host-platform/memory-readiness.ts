@@ -53,9 +53,7 @@ function memoryCredentialRequirements(
   const requirements: { need: MemoryCredentialNeed; provider: string }[] = [];
   if (observation.enabled) {
     const target = parseObservationalMemoryModelTarget(observation.modelTarget);
-    if (target.provider !== 'local') {
-      requirements.push({ need: 'observational-memory', provider: target.provider });
-    }
+    requirements.push({ need: 'observational-memory', provider: target.provider });
   }
   const profile = memory.vectorProfile;
   const vectors =

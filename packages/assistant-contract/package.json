@@ -52,26 +52,6 @@
       "import": "./dist/host-run-id.js",
       "require": "./dist/host-run-id.js"
     },
-    "./local-llm": {
-      "types": "./dist/local-llm.d.ts",
-      "import": "./dist/local-llm.js",
-      "require": "./dist/local-llm.js"
-    },
-    "./local-llm-artifacts": {
-      "types": "./dist/local-llm-artifacts.d.ts",
-      "import": "./dist/local-llm-artifacts.js",
-      "require": "./dist/local-llm-artifacts.js"
-    },
-    "./local-llm-device": {
-      "types": "./dist/local-llm-device.d.ts",
-      "import": "./dist/local-llm-device.js",
-      "require": "./dist/local-llm-device.js"
-    },
-    "./local-llm-model-specs": {
-      "types": "./dist/local-llm-model-specs.d.ts",
-      "import": "./dist/local-llm-model-specs.js",
-      "require": "./dist/local-llm-model-specs.js"
-    },
     "./mcp-host-status": {
       "types": "./dist/mcp-host-status.d.ts",
       "import": "./dist/mcp-host-status.js",

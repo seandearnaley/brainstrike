@@ -1,8 +1,16 @@
 # ADR-0007: Local inference never runs on a thread that serves the UI, log or protocol
 
-- **Status:** Accepted
+- **Status:** Accepted; its local-LLM half is spent (2026-10-15)
 - **Date:** 2026-10-02
 - **Ticket:** BST-1914 (rule wording from BST-1943)
+
+> **2026-10-15.** The built-in local CHAT model (Gemma 4 E2B through
+> transformers.js), its engine and the `llm-host` renderer role that hosted it
+> are gone; the `local` provider declares `capabilities.llm: false` and serves
+> embeddings only. The rule below is unchanged and still binding — it now binds
+> the EMBEDDING path alone, which is what the Consequences section already
+> anticipated ("this rule mainly binds the embedding path"). Nothing here needs
+> re-deciding; the chat placement it also covered has no subject left.
 
 ## Context
 

@@ -13,7 +13,6 @@ import {
   type BoundaryTransport,
   callBoundary,
 } from '@brainstrike/assistant-contract/boundary-result';
-import { hasDownloadedBuiltInLocalLlmModel } from '@brainstrike/assistant-contract/local-llm-artifacts';
 import type { DbHandle } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import { createBrowserJsonStorage } from '@brainstrike/storage';
@@ -227,15 +226,6 @@ interface FileSystemAccess {
   exists: (path: string) => Promise<boolean>;
 }
 
-async function checkLlmModelInCache(modelId: string): Promise<boolean> {
-  try {
-    return await hasDownloadedBuiltInLocalLlmModel(modelId);
-  } catch (err) {
-    logger.debug('Failed to check Cache API for model', { err, modelId });
-    return false;
-  }
-}
-
 function parseDbModel(row: RawModel): DbModel {
   return {
     bestFor: typeof row.best_for === 'string' ? JSON.parse(row.best_for) : row.best_for,
@@ -264,24 +254,17 @@ async function syncDurableDatabaseWrites(db: DbHandle): Promise<void> {
   await db.syncToFs?.();
 }
 
+/**
+ * Downloaded-weight state for an ON-DEVICE model. Only embedding models reach
+ * here now: the browser Cache API branch belonged to the retired built-in
+ * local chat model, whose weights `LocalLlmBackend` kept there.
+ */
 async function resolveDownloadedFlag(
   model: DbModel,
   fileSystem: FileSystemAccess | undefined,
   modelCacheDir: string | null,
   currentDownloadedModels: Record<string, boolean>
 ): Promise<boolean> {
-  // For LLM models, check the browser Cache API where LocalLlmBackend stores them
-  if (model.capabilities.type === 'llm') {
-    const inCache = await checkLlmModelInCache(model.id);
-    if (inCache) {
-      return true;
-    }
-    // Fall back to localStorage if Cache API check fails or returns false
-    // (Cache might have been cleared by browser)
-    return Boolean(currentDownloadedModels[model.id]);
-  }
-
-  // For embedding models, check filesystem if available
   if (fileSystem && modelCacheDir) {
     const modelPath = `${modelCacheDir}/${model.id}`;
     return fileSystem.exists(modelPath);

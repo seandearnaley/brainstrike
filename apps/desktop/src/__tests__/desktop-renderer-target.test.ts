@@ -33,12 +33,7 @@ function loadedDocumentUrl(target: DesktopRendererTarget, role: DesktopWindowRol
   return `${target.url}${query}`;
 }
 
-const ROLES: readonly DesktopWindowRole[] = [
-  'visible-ui',
-  'chunking-host',
-  'embedding-host',
-  'llm-host',
-];
+const ROLES: readonly DesktopWindowRole[] = ['visible-ui', 'chunking-host', 'embedding-host'];
 
 describe('desktop renderer target', () => {
   afterEach(() => {
@@ -150,7 +145,7 @@ describe('rendererIsolationHeaders (BST-1999)', () => {
 
   it.each([
     ['http://localhost:38181/?mode=embedding-host&runtimeId=r1', isolated],
-    ['http://localhost:38181/index.html?mode=llm-host', isolated],
+    ['http://localhost:38181/index.html?mode=embedding-host', isolated],
     ['http://localhost:38181/?mode=chunking-host', {}],
     ['http://localhost:38181/', {}],
     ['http://localhost:38181/?mode=unknown-host', {}],

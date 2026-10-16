@@ -33,14 +33,15 @@ export type DesktopMemoryModelTargetResolution<T extends DesktopMemoryModelTarge
 
 export type RuntimeMemoryOptions = NonNullable<RuntimeData['memory']>['memoryOptions'];
 
+// All four need a key. The built-in on-device provider used to be in this set,
+// resolved to an llm-host proxy chat model with no API key; it is
+// embeddings-only now, so an observer target naming it is rejected HERE —
+// before any credential is resolved.
 const DESKTOP_OBSERVATIONAL_MEMORY_PROVIDERS = new Set<SupportedProvider>([
   'openai',
   'anthropic',
   'google',
   'openrouter',
-  // Built-in local model: resolved to the llm-host proxy chat model (no API
-  // key); requires the llm-host manager to be injected into the runtime.
-  'local',
 ]);
 const DESKTOP_SEMANTIC_RECALL_EMBEDDING_PROVIDERS = new Set<SupportedProvider>([
   'openai',

@@ -62,4 +62,3 @@ export {
   type ToolSource,
 } from './registry/tool-categories';
 export { TOOL_DESCRIPTIONS } from './registry/tool-descriptions';
-export type { LocalProviderOptions } from './types';

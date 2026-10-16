@@ -20,14 +20,11 @@ import type {
   LanguageModelV2CallOptions,
   LanguageModelV2StreamPart,
 } from '@ai-sdk/provider';
-import { INTERNAL_FAULT } from '@brainstrike/assistant-contract';
 import type { PGlite } from '@electric-sql/pglite';
 import { createTool } from '@mastra/core/tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { PgliteDatabase, PgliteMastraMemoryOptions } from '../pglite-mastra-memory';
-import { readProviderRunError } from '../provider-error-metadata';
-import { LOCAL_TOOL_CALL_ARGUMENTS_INVALID } from '../providers/local/local-tool-call-validation';
 import { AssistantDataStreamSession } from '../stream/data-stream';
 import type { StreamChunk } from '../types';
 import { createPristineBareTestDb } from './helpers/migrated-agent-test-db';
@@ -65,8 +62,6 @@ const { streamMastraAgent, streamMastraToolApprovalAction } = await import(
 );
 const { listSuspendedMastraRuns } = await import('../mastra/suspended-run-discovery');
 const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
-const { LlmHostChatModel } = await import('../providers/local/llm-host-chat-model');
-const { GEMMA4_E2B_MODEL_ID } = await import('../providers/local/local-model-specs');
 // The DESKTOP initial-turn path: maps runtime.mastraTools -> options.tools. The
 // regression test below uses it so the wiring matches production exactly.
 const { toAiSdkStyleStream } = await import('../mastra/to-ai-sdk-style-stream');
@@ -588,186 +583,6 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     // Only the approved call ran. B is still waiting on the user.
     expect(askExecute).toHaveBeenCalledTimes(1);
     expect(askExecute.mock.calls[0]?.[0]).toMatchObject({ command: 'echo A' });
-
-    await database.close();
-  });
-
-  it('rejects malformed local arguments before Mastra creates an approval snapshot', async () => {
-    const database = await createPristineBareTestDb();
-    const { memory, storage } = await makeMemory(database);
-    const askExecute = vi.fn((inputData: { command: string }) =>
-      Promise.resolve({ ran: inputData.command })
-    );
-    const askTool = makeAskTool(askExecute);
-    const thread = {
-      resourceId: 'resource-malformed-local-tool-call',
-      threadId: 'thread-malformed-local-tool-call',
-    } as const;
-
-    modelHolder.current = new LlmHostChatModel(GEMMA4_E2B_MODEL_ID, {
-      generate: vi.fn().mockResolvedValue({
-        finishReason: 'tool_calls',
-        text: '',
-        toolCalls: [
-          {
-            function: {
-              arguments: '{"command":"printf "BST-708 manual approval preview\\n""}',
-              name: 'shell_tool',
-            },
-            id: 'call-malformed-local-command',
-            type: 'function',
-          },
-        ],
-        usage: { completionTokens: 24, promptTokens: 48, totalTokens: 72 },
-      }),
-      warmup: vi.fn().mockResolvedValue(undefined),
-    });
-
-    const iterator = await streamMastraAgent(
-      [
-        {
-          id: 'u-malformed-local-1',
-          parts: [{ text: 'run exact command', type: 'text' }],
-          role: 'user',
-        },
-      ],
-      {
-        memory,
-        runtime: {
-          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
-          model: GEMMA4_E2B_MODEL_ID,
-          permissionPolicy: ASK_POLICY,
-          provider: 'local',
-        },
-        storage,
-        tools: { shell_tool: askTool },
-      }
-    );
-    const chunks = await drainYielding(iterator);
-
-    expect(findApprovalChunk(chunks)).toBeUndefined();
-    expect(askExecute).not.toHaveBeenCalled();
-    expect(
-      chunks.some(
-        (chunk) => chunk.type === 'text-delta' && chunk.value.includes(INTERNAL_FAULT.message)
-      )
-    ).toBe(true);
-    const failure = chunks.find(
-      (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
-        chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
-    );
-    expect(readProviderRunError(failure?.event.metadata)).toEqual({
-      code: LOCAL_TOOL_CALL_ARGUMENTS_INVALID,
-    });
-
-    const visibleText = chunks
-      .filter((chunk) => chunk.type === 'text-delta')
-      .map((chunk) => chunk.value)
-      .join('');
-    expect(visibleText).not.toContain(LOCAL_TOOL_CALL_ARGUMENTS_INVALID);
-    expect(visibleText).not.toContain('BST-708 manual approval preview');
-
-    const discovered = await listSuspendedMastraRuns(thread, {
-      runtime: { provider: 'ollama' },
-      storage,
-      tools: { shell_tool: askTool },
-    });
-    expect(discovered.approvals).toEqual([]);
-
-    await database.close();
-  });
-
-  it('preserves a valid local pwd call through approval and execution', async () => {
-    const database = await createPristineBareTestDb();
-    const { memory, storage } = await makeMemory(database);
-    const askExecute = vi.fn((inputData: { command: string }) =>
-      Promise.resolve({ ran: inputData.command })
-    );
-    const askTool = makeAskTool(askExecute);
-    const thread = {
-      resourceId: 'resource-valid-local-tool-call',
-      threadId: 'thread-valid-local-tool-call',
-    } as const;
-    let turn = 0;
-
-    modelHolder.current = new LlmHostChatModel(GEMMA4_E2B_MODEL_ID, {
-      generate: vi.fn().mockImplementation(() => {
-        turn += 1;
-        if (turn === 1) {
-          return Promise.resolve({
-            finishReason: 'tool_calls',
-            text: '',
-            toolCalls: [
-              {
-                function: {
-                  arguments: '{"command":"pwd"}',
-                  name: 'shell_tool',
-                },
-                id: 'call-valid-local-pwd',
-                type: 'function',
-              },
-            ],
-            usage: { completionTokens: 8, promptTokens: 16, totalTokens: 24 },
-          });
-        }
-        return Promise.resolve({
-          finishReason: 'stop',
-          text: 'Command finished.',
-          usage: { completionTokens: 4, promptTokens: 20, totalTokens: 24 },
-        });
-      }),
-      warmup: vi.fn().mockResolvedValue(undefined),
-    });
-
-    const runtime = {
-      memory: { resourceId: thread.resourceId, threadId: thread.threadId },
-      model: GEMMA4_E2B_MODEL_ID,
-      permissionPolicy: ASK_POLICY,
-      provider: 'local',
-    } as const;
-    const iterator = await streamMastraAgent(
-      [{ id: 'u-valid-local-1', parts: [{ text: 'run pwd', type: 'text' }], role: 'user' }],
-      {
-        memory,
-        runtime,
-        storage,
-        tools: { shell_tool: askTool },
-      }
-    );
-    const approval = findApprovalChunk(await drainYielding(iterator));
-
-    expect(approval).toMatchObject({
-      args: { command: 'pwd' },
-      toolCallId: 'call-valid-local-pwd',
-      toolName: 'shell_tool',
-    });
-    expect(askExecute).not.toHaveBeenCalled();
-
-    const resumeIterator = await streamMastraToolApprovalAction(
-      {
-        action: 'approve',
-        runId: approval?.runId ?? '',
-        toolCallId: approval?.toolCallId ?? '',
-        toolName: 'shell_tool',
-      },
-      {
-        memory,
-        requireToolApproval: true,
-        runtime,
-        storage,
-        tools: { shell_tool: askTool },
-      }
-    );
-    const resumeChunks = await drainYielding(resumeIterator);
-
-    expect(askExecute).toHaveBeenCalledOnce();
-    expect(askExecute).toHaveBeenCalledWith(
-      { command: 'pwd' },
-      expect.objectContaining({
-        agent: expect.objectContaining({ toolCallId: 'call-valid-local-pwd' }),
-      })
-    );
-    expect(resumeChunks.some((chunk) => chunk.type === 'message-finish')).toBe(true);
 
     await database.close();
   });

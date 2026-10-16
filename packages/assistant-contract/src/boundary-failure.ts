@@ -44,7 +44,6 @@ const ProcessLostFacts = z.strictObject({
     'db-host',
     'index-utility',
     'embedding-host',
-    'llm-host',
     'chunking-host',
     'parser-host',
   ]),
@@ -126,7 +125,6 @@ const CHILD_NAMES: Readonly<Record<BoundaryChild, string>> = {
   'db-host': 'The database host',
   'embedding-host': 'The embedding host',
   'index-utility': 'The index process',
-  'llm-host': 'The local model host',
   'parser-host': 'The parser host',
 };
 
