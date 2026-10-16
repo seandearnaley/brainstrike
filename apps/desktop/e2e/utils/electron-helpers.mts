@@ -367,6 +367,15 @@ export async function getBufferedElectronOutput(
 // NOTE: killSpecificElectronProcess was removed - we no longer use explicit debug ports
 // Playwright manages CDP connections automatically, preventing debugger disconnect hangs.
 
+/**
+ * BST-2040: Chromium renders a window X11 never mapped at one frame per second, so
+ * Linux runs show the test-mode window unfocused (Xvfb has no user to disturb);
+ * elsewhere it stays hidden. An explicit value wins, `''` included, to keep it hidden.
+ */
+function e2eShowInactive(baseEnv: NodeJS.ProcessEnv): string {
+  return baseEnv['BRAINSTRIKE_E2E_SHOW_INACTIVE'] ?? (process.platform === 'linux' ? '1' : '');
+}
+
 function createLaunchOptions(
   _electronPath: string,
   mainPath: string,
@@ -468,6 +477,8 @@ function createLaunchOptions(
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES:
         baseEnv['BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES'] ?? 'windowFocus',
+      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+      BRAINSTRIKE_E2E_SHOW_INACTIVE: e2eShowInactive(baseEnv),
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase

@@ -564,6 +564,15 @@ export async function createWindow(options: CreateWindowOptions = {}) {
   if (!(isTestMode || win.isDestroyed())) {
     win.show();
     logStartupPhase('window-shown');
+  } else if (
+    isTestMode &&
+    process.env['BRAINSTRIKE_E2E_SHOW_INACTIVE'] === '1' &&
+    !win.isDestroyed()
+  ) {
+    // E2E keeps windows hidden so runs never pop up on a developer's desktop. On
+    // Linux, Chromium renders a window X11 never mapped at one frame per second,
+    // so the harness opts in to an unfocused show under Xvfb (BST-2040).
+    win.showInactive();
   }
 
   logStartupPhase('loading-renderer');
