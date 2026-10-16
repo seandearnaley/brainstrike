@@ -55,7 +55,7 @@ function offered(model: MockLanguageModelV4, request: number): string[] {
 async function discoveryHost(
   models: MockLanguageModelV4[],
   policy: PermissionToolGateSnapshot
-): Promise<{ run(prompt: string): Promise<HostEvent[]> }> {
+): Promise<{ run(prompt: string, parentMessageId?: string | null): Promise<HostEvent[]> }> {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-tool-discovery-'));
   const store = await StateStore.open(root, {
     memoryCalculatorModule: join(
@@ -109,7 +109,7 @@ async function discoveryHost(
   const { threadId } = await opened.startThread({ commandId: randomUUID() });
   return {
     // The run's rows once it finished, or once it paused for the user.
-    run: async (prompt) => {
+    run: async (prompt, parentMessageId) => {
       const settled = Promise.withResolvers<void>();
       const unsubscribe = opened.onCommitted((row) => {
         if (
@@ -122,6 +122,7 @@ async function discoveryHost(
       const { runId } = await opened.startRun({
         commandId: randomUUID(),
         modelId,
+        ...(parentMessageId === undefined ? {} : { parentMessageId }),
         prompt,
         threadId,
       });
@@ -134,7 +135,7 @@ async function discoveryHost(
   };
 }
 
-test('a deferred tool reaches the model only after load_tool, within the run that loaded it', async () => {
+test('a deferred tool reaches the model only after load_tool, and stays offered on its branch', async () => {
   const discovering = scriptedToolSequence([
     { input: { query: 'git worktree' }, toolId: 'search_tools' },
     { input: { toolName: DEFERRED }, toolId: 'load_tool' },
@@ -144,7 +145,8 @@ test('a deferred tool reaches the model only after load_tool, within the run tha
     { input: { toolName: DEFERRED }, toolId: 'load_tool' },
     { input: {}, toolId: DEFERRED },
   ]);
-  const host = await discoveryHost([discovering, loading], {
+  const sibling = scriptedToolSequence([]);
+  const host = await discoveryHost([discovering, loading, sibling], {
     policies: DEFAULT_PERMISSION_POLICIES,
     yolo: false,
   });
@@ -167,11 +169,19 @@ test('a deferred tool reaches the model only after load_tool, within the run tha
     })
   );
 
-  // A fresh run on the same thread starts unloaded; load_tool alone loads it.
+  // A later run on the same branch sees the earlier load in its history, so the
+  // tool must still be offered: a model told "Already loaded" that calls a tool
+  // the request no longer declares loses the call (OpenRouter GLM via Together
+  // billed ~8k tokens of canvas HTML and returned nothing, 2026-10-16).
   const second = await host.run('List them again');
   expect(second.at(-1)).toMatchObject({ outcome: 'completed', type: 'run.finished' });
-  expect(offered(loading, 0)).toEqual(FIRST_STEP);
+  expect(offered(loading, 0)).toEqual([...FIRST_STEP, DEFERRED].sort());
   expect(offered(loading, 1)).toContain(DEFERRED);
+
+  // A sibling branch from the thread root never saw that load: it starts unloaded.
+  const third = await host.run('Start over', null);
+  expect(third.at(-1)).toMatchObject({ outcome: 'completed', type: 'run.finished' });
+  expect(offered(sibling, 0)).toEqual(FIRST_STEP);
   expect(second).toContainEqual(
     expect.objectContaining({
       output: { worktrees: [] },
