@@ -15,9 +15,7 @@ import { closeTabs, openTab, storeConfig, storeCorpus } from './writer-tabs';
 
 const clients: WebHostClient[] = [];
 afterEach(async () => {
-  for (const client of clients.splice(0)) {
-    client.close();
-  }
+  await Promise.all(clients.splice(0).map((client) => client.close()));
   await closeTabs();
 });
 

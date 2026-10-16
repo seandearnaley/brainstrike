@@ -182,6 +182,8 @@ export class WebHostClient implements Pick<HostClient, 'closed' | 'onEvent' | 'o
   readonly #catalog = new HostThreadCatalog();
   /** Why the client closed, once it has: a request after that refuses with it. */
   #closedBy: Error | null = null;
+  /** The client's retirement, once `close` began it: it joins the runs it records. */
+  #closing: Promise<void> | undefined;
   /** Core's command ledger: a repeated command answers with its first result. */
   readonly #commands = new HostCommandLedger();
   readonly #conversationIds = new Set<string>();
@@ -256,7 +258,7 @@ export class WebHostClient implements Pick<HostClient, 'closed' | 'onEvent' | 'o
         (row) => client.#fold(row)
       );
     } catch (error) {
-      client.close();
+      await client.close();
       throw error;
     } finally {
       client.#markHydrated();
@@ -269,16 +271,34 @@ export class WebHostClient implements Pick<HostClient, 'closed' | 'onEvent' | 'o
         await client.#withThread(threadId, () => client.#recoverAbandoned(threadId));
       }
     } catch (error) {
-      client.close();
+      await client.close();
       throw error;
     }
     return client;
   }
 
-  /** Ends the client; a run it was recording ends interrupted, keeping its partial reply. */
-  close(): void {
-    for (const { controller } of this.#recordings.values()) {
+  /**
+   * Ends the client. A run it records ends interrupted, keeping its partial
+   * reply, and the client reports closed once those commits are made; a
+   * commit that fails is the reason `closed` rejects with.
+   */
+  close(): Promise<void> {
+    this.#closing ??= this.#retire();
+    return this.#closing;
+  }
+
+  async #retire(): Promise<void> {
+    const recordings = [...this.#recordings.values()];
+    for (const { controller } of recordings) {
       controller.abort(new WebRunInterrupted(ABANDONED_DETAIL));
+    }
+    const failed = (await Promise.allSettled(recordings.map(({ done }) => done))).find(
+      (settled): settled is PromiseRejectedResult => settled.status === 'rejected'
+    );
+    if (failed) {
+      const reason: unknown = failed.reason;
+      this.#end(reason instanceof Error ? reason : new Error(String(reason)), true);
+      return;
     }
     this.#end(new Error('The browser host client is closed'));
   }
@@ -296,6 +316,9 @@ export class WebHostClient implements Pick<HostClient, 'closed' | 'onEvent' | 'o
   async request<M extends HostMethod>(method: M, input: HostParams<M>): Promise<HostResults[M]> {
     if (this.#closedBy) {
       throw this.#closedBy;
+    }
+    if (this.#closing) {
+      throw new Error('The browser host client is closing');
     }
     const params = parseHostParams(method, input) as HostParams<ServedMethod>;
     return (await this.#serve(method as ServedMethod, params as never)) as HostResults[M];
@@ -333,8 +356,8 @@ export class WebHostClient implements Pick<HostClient, 'closed' | 'onEvent' | 'o
         if (!this.#threads.has(update.threadId)) {
           throw new Error('Unknown thread');
         }
-        return this.#commands.perform('thread/update', update, () =>
-          this.#presentations.update(update)
+        return this.#withThread(update.threadId, () =>
+          this.#commands.perform('thread/update', update, () => this.#presentations.update(update))
         );
       }
       case 'thread/delete': {
@@ -342,15 +365,18 @@ export class WebHostClient implements Pick<HostClient, 'closed' | 'onEvent' | 'o
         if (!this.#threads.has(threadId)) {
           throw new Error('Unknown thread');
         }
-        // As Core joins a thread's runs before erasing it.
-        const recorded = [...this.#recordings.values()].filter((r) => r.threadId === threadId);
-        for (const { controller } of recorded) {
-          controller.abort(new Error('Thread deleted'));
-        }
-        await Promise.allSettled(recorded.map(({ done }) => done));
-        await this.#store.deleteThread(threadId);
-        this.#forget(threadId);
-        return { deleted: true, threadIds: [threadId] };
+        return this.#withThread(threadId, async () => {
+          // As Core joins a thread's runs before erasing it, wherever each is
+          // recorded: no late output then recreates the thread it deleted.
+          for (const run of this.#runs.ofThread(threadId)) {
+            if (!run.terminal) {
+              await this.#endRun(threadId, run.id, run.stopped);
+            }
+          }
+          await this.#store.deleteThread(threadId);
+          this.#forget(threadId);
+          return { deleted: true, threadIds: [threadId] };
+        });
       }
       case 'log/subscribe': {
         const { fromSeq, threadId } = params as HostParams<'log/subscribe'>;
@@ -580,12 +606,41 @@ export class WebHostClient implements Pick<HostClient, 'closed' | 'onEvent' | 'o
     return `${webStateNames(this.#store.name).lock}/${kind}/${id}`;
   }
 
-  /** Runs `perform` while this tab alone admits on the thread, after folding every row of it. */
+  /**
+   * Runs `perform` while this tab alone changes the thread, after folding
+   * every row of it. Deletion is not announced to other tabs, so a thread
+   * another tab deleted is refused and forgotten here: a command never
+   * recreates it.
+   */
   #withThread<T>(threadId: string, perform: () => Promise<T>): Promise<T> {
     return navigator.locks.request(this.#lock('thread', threadId), async () => {
       await this.#follow(threadId);
+      const { damage, rows } = await this.#store.read(threadId, 1, 1);
+      if (!damage && rows.length === 0) {
+        this.#forget(threadId);
+        throw new Error('Unknown thread');
+      }
       return perform();
     });
+  }
+
+  /**
+   * Ends a run before its thread is erased. This tab's recording is stopped
+   * and joined; another tab's is stopped by a committed Stop, and its
+   * recording lock frees once that tab has ended it, or has closed.
+   */
+  async #endRun(threadId: string, runId: string, stopped: boolean): Promise<void> {
+    const recording = this.#recordings.get(runId);
+    if (recording) {
+      recording.controller.abort(new Error('Thread deleted'));
+      await recording.done.catch(() => undefined);
+      return;
+    }
+    if (!stopped) {
+      const stop: HostParams<'run/stop'> = { commandId: crypto.randomUUID(), runId, threadId };
+      await this.#accept(threadId, 'run/stop', stop, { outcome: 'stopped' }, []);
+    }
+    await navigator.locks.request(this.#lock('run', runId), async () => undefined);
   }
 
   /**

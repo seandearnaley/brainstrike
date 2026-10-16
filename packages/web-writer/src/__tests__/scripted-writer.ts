@@ -16,6 +16,8 @@ export interface ScriptedWriter {
   /** Commits rows as another tab would, announced like any append. */
   readonly append: (rows: readonly AppendRow[]) => Promise<void>;
   readonly logs: ReadonlyMap<string, readonly WebStateStoredRow[]>;
+  /** From now on every append is refused with `reason`, as a closed store refuses one. */
+  readonly refuseAppends: (reason: string) => void;
   readonly store: WebStateStore;
 }
 
@@ -24,7 +26,11 @@ export function scriptedWriter(): ScriptedWriter {
   const blobs = new Map<string, string>();
   const listeners = new Set<(append: WebStateLogAppend) => void>();
   let ts = 0;
+  let refusal: string | undefined;
   const append = async (rows: readonly AppendRow[]) => {
+    if (refusal) {
+      throw new Error(refusal);
+    }
     ts += 1;
     const appended = new Map<string, number[]>();
     const seqs = rows.map(([threadId, , , payload]) => {
@@ -86,6 +92,9 @@ export function scriptedWriter(): ScriptedWriter {
       await append(rows);
     },
     logs,
+    refuseAppends: (reason) => {
+      refusal = reason;
+    },
     store,
   };
 }

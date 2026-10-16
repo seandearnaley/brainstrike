@@ -103,10 +103,8 @@ function proxy(model: MockLanguageModelV4): {
 }
 
 const clients: WebHostClient[] = [];
-afterEach(() => {
-  for (const client of clients.splice(0)) {
-    client.close();
-  }
+afterEach(async () => {
+  await Promise.all(clients.splice(0).map((client) => client.close()));
 });
 
 async function open(...args: Parameters<typeof WebHostClient.open>): Promise<WebHostClient> {
@@ -336,7 +334,7 @@ describe("the browser host client's runs (BST-1940)", () => {
     ]);
   });
 
-  it('ends the run of a tab that closes interrupted, keeping its partial reply', async () => {
+  it('reports closed once the run of a tab that closes is committed interrupted, with its partial reply', async () => {
     const writer = scriptedWriter();
     const host = await open(writer.store, { turn: proxy(holding('Part').model).turn });
     const { threadId } = await host.request('thread/start', { commandId: 'thread-6' });
@@ -345,22 +343,85 @@ describe("the browser host client's runs (BST-1940)", () => {
       .poll(async () => eventOf(await rows(host, threadId), 'stream.chunk').length)
       .toBeGreaterThanOrEqual(2);
 
-    host.close();
-    const reader = await open(writer.store);
+    await host.close();
+    await expect(host.closed).resolves.toBeUndefined();
 
-    await expect
-      .poll(async () => eventOf(await rows(reader, threadId), 'run.finished'))
-      .toEqual([
-        {
-          detail: 'The tab recording this run closed before it finished',
-          outcome: 'interrupted',
-          runId,
-          type: 'run.finished',
-        },
-      ]);
-    expect(eventOf(await rows(reader, threadId), 'model.messages')[0]?.messages).toEqual([
-      { content: [{ text: 'Part', type: 'text' }], role: 'assistant' },
+    // Committed before the close settled, with nothing left to wait for.
+    const committed = (writer.logs.get(threadId) ?? []).map(
+      (row) => JSON.parse(row.payload) as HostEvent
+    );
+    expect(committed.filter((event) => event.type === 'run.finished')).toEqual([
+      {
+        detail: 'The tab recording this run closed before it finished',
+        outcome: 'interrupted',
+        runId,
+        seq: expect.any(Number),
+        type: 'run.finished',
+      },
     ]);
+    expect(committed.find((event) => event.type === 'model.messages')).toMatchObject({
+      messages: [{ content: [{ text: 'Part', type: 'text' }], role: 'assistant' }],
+    });
+    await expect(host.request('thread/list', {})).rejects.toThrow(
+      'The browser host client is closed'
+    );
+  });
+
+  it("rejects closed with the reason a closing tab's run could not commit its finish", async () => {
+    const writer = scriptedWriter();
+    const host = await open(writer.store, { turn: proxy(holding('Part').model).turn });
+    const { threadId } = await host.request('thread/start', { commandId: 'thread-6b' });
+    await host.request('run/start', start(threadId, 'run-6b', 'Write a lot'));
+    await expect
+      .poll(async () => eventOf(await rows(host, threadId), 'stream.chunk').length)
+      .toBeGreaterThanOrEqual(2);
+
+    writer.refuseAppends('The state store is closed');
+    await host.close();
+
+    await expect(host.closed).rejects.toThrow('The state store is closed');
+  });
+
+  it('deletes a thread only once the run another tab records on it has ended, so nothing recreates it', async () => {
+    const writer = scriptedWriter();
+    const recording = await open(writer.store, { turn: proxy(holding('Part').model).turn });
+    const deleting = await open(writer.store);
+    const { threadId } = await recording.request('thread/start', { commandId: 'thread-10' });
+    await recording.request('run/start', start(threadId, 'run-10', 'Write a lot'));
+    await expect
+      .poll(async () => (await deleting.request('thread/list', {})).threads.length)
+      .toBe(1);
+
+    expect(await deleting.request('thread/delete', { threadId })).toEqual({
+      deleted: true,
+      threadIds: [threadId],
+    });
+
+    // The recording tab was stopped and committed its end before the erase; nothing follows it.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(writer.logs.has(threadId)).toBe(false);
+  });
+
+  it("refuses a stale tab's rename and run on a thread another tab deleted, recreating nothing", async () => {
+    const writer = scriptedWriter();
+    const stale = await open(writer.store, { turn: proxy(answering('Hi')).turn });
+    const deleting = await open(writer.store);
+    const { threadId } = await stale.request('thread/start', { commandId: 'thread-11' });
+    await expect
+      .poll(async () => (await deleting.request('thread/list', {})).threads.length)
+      .toBe(1);
+    await deleting.request('thread/delete', { threadId });
+
+    // Each command reaches its own check: the rename first, while the stale tab still lists the thread.
+    await expect(
+      stale.request('thread/update', { commandId: 'rename-11', threadId, title: 'Back' })
+    ).rejects.toThrow('Unknown thread');
+    await expect(stale.request('run/start', start(threadId, 'run-11', 'Hi'))).rejects.toThrow(
+      'Unknown thread'
+    );
+    expect(writer.logs.has(threadId)).toBe(false);
+    // Refused once, the thread is gone from the stale tab's list too.
+    expect((await stale.request('thread/list', {})).threads).toEqual([]);
   });
 
   it('finishes the runs no tab records any more when a tab opens, as Core recovers them', async () => {
