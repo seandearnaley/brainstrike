@@ -1,6 +1,12 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { Schema } from 'effect';
-import { decoder, fault, IndexerError, requestSchema } from './contracts.js';
+import {
+  decoder,
+  fault,
+  IndexerError,
+  requestSchema,
+  STATE_CATCH_UP_STEP_EVENTS,
+} from './contracts.js';
 import { openDesktopIndex } from './desktop-index-connection.js';
 import { loadStateProjection } from './state-projection.js';
 import { IndexWriter } from './store.js';
@@ -63,10 +69,10 @@ try {
           value = writer.requireState().match(request.payload);
           break;
         case 'state-search':
-          value = writer.requireState().search(request.payload);
+          value = writer.requireState().search(request.payload, STATE_CATCH_UP_STEP_EVENTS);
           break;
         case 'state-search-pending':
-          value = writer.requireState().searchPending(request.payload);
+          value = writer.requireState().searchPending(request.payload, STATE_CATCH_UP_STEP_EVENTS);
           break;
         case 'prompt-vectors':
           value = writer.requireState().prompts.execute(request.payload);
@@ -75,10 +81,10 @@ try {
           value = writer.requireState().putSearchVectors(request.payload);
           break;
         case 'state-search-coverage':
-          value = writer.requireState().searchCoverage(request.payload);
+          value = writer.requireState().searchCoverage(request.payload, STATE_CATCH_UP_STEP_EVENTS);
           break;
         case 'state-search-similar':
-          value = writer.requireState().searchSimilar(request.payload);
+          value = writer.requireState().searchSimilar(request.payload, STATE_CATCH_UP_STEP_EVENTS);
           break;
         case 'state-rebuild':
           value = writer.requireState().rebuild(request.payload);
@@ -90,7 +96,7 @@ try {
           value = writer.requireState().reindex(request.payload);
           break;
         case 'state-gc-check':
-          value = writer.requireState().gcCheck(request.payload);
+          value = writer.requireState().gcCheck(request.payload, STATE_CATCH_UP_STEP_EVENTS);
           break;
         case 'state-drop-thread':
           value = writer.requireState().dropThread(request.payload);
@@ -133,7 +139,8 @@ try {
       }
       port.postMessage({ id, kind: 'response', ok: true, value });
     } catch (error) {
-      if (stateOperation) {
+      // A read refused as behind is the transport's cue to step again, not a failure.
+      if (stateOperation && !(error instanceof IndexerError && error.code === 'state-behind')) {
         writer.recordStateFailure(error);
       }
       if (id === undefined) {

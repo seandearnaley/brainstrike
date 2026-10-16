@@ -354,6 +354,20 @@ export class StateEventStore {
     return this.project(threads, maxEvents);
   }
 
+  /**
+   * A read projects its threads' backlog only within `budget`: past it the read
+   * refuses as behind, so a deadline-bound caller steps again and never carries
+   * a backlog in the read. An in-process caller with no deadline passes none.
+   */
+  private readable(threads: readonly string[], budget: number): void {
+    if (!this.project(threads, budget)) {
+      throw new IndexerError(
+        'state-behind',
+        'The requested threads are further behind their committed truth than this read may project.'
+      );
+    }
+  }
+
   private project(threads: readonly string[], maxEvents: number): boolean {
     let budget = maxEvents;
     for (const threadId of new Set(threads)) {
@@ -468,14 +482,14 @@ export class StateEventStore {
    * every query word (or, when asked, any of them), best bm25 match first,
    * each with a marked snippet.
    */
-  search(input: unknown): readonly StateSearchHit[] {
+  search(input: unknown, budget = Number.POSITIVE_INFINITY): readonly StateSearchHit[] {
     const request = decoder(stateSearchSchema)(input);
     const words = request.query.match(/[\p{L}\p{N}_]+/gu) ?? [];
     if (words.length === 0 || request.threadIds.length === 0) {
       return [];
     }
     // Like the blob check, a search first catches up to its threads' committed truth.
-    this.catchUp(request.threadIds);
+    this.readable(request.threadIds, budget);
     return decoder(Schema.Array(stateSearchHitSchema))(
       this.db
         .prepare(
@@ -494,12 +508,15 @@ export class StateEventStore {
   }
 
   /** The semantic arm's backlog: rows of the threads, caught up, with no vector under the profile. */
-  searchPending(input: unknown): readonly StateSearchPendingRow[] {
+  searchPending(
+    input: unknown,
+    budget = Number.POSITIVE_INFINITY
+  ): readonly StateSearchPendingRow[] {
     const request = decoder(stateSearchPendingSchema)(input);
     if (request.threadIds.length === 0) {
       return [];
     }
-    this.catchUp(request.threadIds);
+    this.readable(request.threadIds, budget);
     return this.searchVectors.pending(request);
   }
 
@@ -509,22 +526,25 @@ export class StateEventStore {
   }
 
   /** The semantic arm's coverage of the threads, caught up first like `search`. */
-  searchCoverage(input: unknown): StateSearchCoverage {
+  searchCoverage(input: unknown, budget = Number.POSITIVE_INFINITY): StateSearchCoverage {
     const request = decoder(stateSearchCoverageSchema)(input);
     if (request.threadIds.length === 0) {
       return { embedded: 0, errored: 0, rows: 0 };
     }
-    this.catchUp(request.threadIds);
+    this.readable(request.threadIds, budget);
     return this.searchVectors.coverage(request);
   }
 
   /** The semantic arm: the threads' rows nearest the query vector, caught up first like `search`. */
-  searchSimilar(input: unknown): readonly StateSearchSimilarHit[] {
+  searchSimilar(
+    input: unknown,
+    budget = Number.POSITIVE_INFINITY
+  ): readonly StateSearchSimilarHit[] {
     const request = decoder(stateSearchSimilarSchema)(input);
     if (request.threadIds.length === 0) {
       return [];
     }
-    this.catchUp(request.threadIds);
+    this.readable(request.threadIds, budget);
     return this.searchVectors.similar(request);
   }
 
@@ -536,9 +556,9 @@ export class StateEventStore {
     return { indexerErrors: [...this.failures] };
   }
 
-  gcCheck(input: unknown): Record<string, number> {
+  gcCheck(input: unknown, budget = Number.POSITIVE_INFINITY): Record<string, number> {
     const { threads, hashes } = decoder(stateGcSchema)(input);
-    this.catchUp(threads);
+    this.readable(threads, budget);
     const counts: Record<string, number> = {};
     for (const hash of new Set(hashes)) {
       counts[hash] = decodeCount(

@@ -322,6 +322,21 @@ export function createIndexerConnection(
       current = await call('state-catch-up-step', step, decoder(Schema.Boolean));
     }
   };
+  // A read catches its threads up first. The worker projects at most one more step
+  // inside the read and refuses past it as behind (an append raced the last step),
+  // so the read is stepped again rather than carrying that backlog.
+  const read = async <T>(threads: readonly string[], request: () => Promise<T>): Promise<T> => {
+    for (;;) {
+      await catchUp(threads);
+      try {
+        return await request();
+      } catch (error) {
+        if (!(error instanceof IndexerError && error.code === 'state-behind')) {
+          throw error;
+        }
+      }
+    }
+  };
   const port: IndexerPort &
     PurgeIndexerPort &
     ScopedIndexerPort &
@@ -491,36 +506,33 @@ export function createIndexerConnection(
       ),
     searchState: async (input) => {
       const request = decoder(stateSearchSchema)(input);
-      await catchUp(request.threadIds);
-      return call('state-search', request, decoder(Schema.Array(stateSearchHitSchema)));
+      return read(request.threadIds, () =>
+        call('state-search', request, decoder(Schema.Array(stateSearchHitSchema)))
+      );
     },
     searchStateCoverage: async (input) => {
       const request = decoder(stateSearchCoverageSchema)(input);
-      await catchUp(request.threadIds);
-      return call('state-search-coverage', request, decoder(stateSearchCoverageResultSchema));
+      return read(request.threadIds, () =>
+        call('state-search-coverage', request, decoder(stateSearchCoverageResultSchema))
+      );
     },
     searchStatePending: async (input) => {
       const request = decoder(stateSearchPendingSchema)(input);
-      await catchUp(request.threadIds);
-      return call(
-        'state-search-pending',
-        request,
-        decoder(Schema.Array(stateSearchPendingRowSchema))
+      return read(request.threadIds, () =>
+        call('state-search-pending', request, decoder(Schema.Array(stateSearchPendingRowSchema)))
       );
     },
     searchStateSimilar: async (input) => {
       const request = decoder(stateSearchSimilarSchema)(input);
-      await catchUp(request.threadIds);
-      return call(
-        'state-search-similar',
-        request,
-        decoder(Schema.Array(stateSearchSimilarHitSchema))
+      return read(request.threadIds, () =>
+        call('state-search-similar', request, decoder(Schema.Array(stateSearchSimilarHitSchema)))
       );
     },
     stateBlobCounts: async (threads, hashes) => {
       const request = decoder(stateGcSchema)({ hashes, threads });
-      await catchUp(request.threads);
-      return call('state-gc-check', request, decoder(stateCountsSchema));
+      return read(request.threads, () =>
+        call('state-gc-check', request, decoder(stateCountsSchema))
+      );
     },
     stateHealth: () => call('state-health', null, decoder(stateHealthSchema)),
     stateStats: (threadId) =>

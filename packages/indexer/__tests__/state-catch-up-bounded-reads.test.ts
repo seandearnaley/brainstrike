@@ -21,11 +21,16 @@ const replies: Readonly<Record<string, unknown>> = {
   'state-search-similar': [],
 };
 
-/** A worker whose backlog takes `steps` catch-up steps; it records every request it receives. */
-function worker(steps: number) {
+/**
+ * A worker whose backlog takes `steps` catch-up steps; it records every request it
+ * receives. Its first `behind` reads are refused as behind, as when an append lands
+ * between the last step and the read, leaving one more step to take.
+ */
+function worker(steps: number, behind = 0) {
   const sent: { readonly op: string; readonly payload: unknown }[] = [];
   const messages = new Set<(message: unknown) => void>();
   let remaining = steps;
+  let refusals = behind;
   let started = false;
   const transport: IndexerTransport = {
     kill: () => true,
@@ -69,9 +74,19 @@ function worker(steps: number) {
       sent.push({ op, payload });
       if (op === 'state-catch-up-step') {
         remaining = Math.max(0, remaining - 1);
+        answer({ id, kind: 'response', ok: true, value: remaining === 0 });
+      } else if (refusals > 0) {
+        refusals -= 1;
+        remaining = 1;
+        answer({
+          error: { code: 'state-behind', message: 'behind' },
+          id,
+          kind: 'response',
+          ok: false,
+        });
+      } else {
+        answer({ id, kind: 'response', ok: true, value: replies[op] });
       }
-      const value = op === 'state-catch-up-step' ? remaining === 0 : replies[op];
-      answer({ id, kind: 'response', ok: true, value });
     },
   };
   const port = createIndexerConnection(
@@ -129,3 +144,17 @@ it('a rebuild resets the thread, then re-projects it in bounded steps', async ()
   await (await port).rebuildState('t1');
   expect(sent).toEqual([{ op: 'state-rebuild', payload: 't1' }, step(['t1']), step(['t1'])]);
 });
+
+it.each(Object.entries(reads))(
+  '%s refused as behind (an append raced its last step) steps again and is served',
+  async (op, read) => {
+    const { port, sent } = worker(1, 1);
+    await read(await port);
+    expect(sent.map(({ op: name }) => name)).toEqual([
+      'state-catch-up-step',
+      op,
+      'state-catch-up-step',
+      op,
+    ]);
+  }
+);
