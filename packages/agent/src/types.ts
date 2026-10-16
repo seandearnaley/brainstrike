@@ -284,12 +284,12 @@ export interface OpenRouterProviderOptions extends JSONObject {
   };
 }
 
-/** Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.49). */
+/** Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.81). */
 export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
  * Mirrors the `thinking` discriminated union of the installed
- * `@ai-sdk/anthropic` (4.0.49). `display` governs whether reasoning is
+ * `@ai-sdk/anthropic` (4.0.81). `display` governs whether reasoning is
  * RETURNED and defaults to `omitted` provider-side, so it must be asked for.
  * `updates` — thinking returned BETWEEN tool calls — is new in this provider
  * range; the provider adds the `thinking-display-updates-2026-08-18` beta
@@ -305,6 +305,7 @@ export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
  */
 export type AnthropicThinkingOptions =
   | { type: 'adaptive'; display?: 'omitted' | 'summarized' | 'updates' }
+  | { type: 'between_tools' }
   | { type: 'enabled'; budgetTokens: number }
   | { type: 'disabled' };
 
@@ -314,7 +315,7 @@ export interface AnthropicProviderOptions extends JSONObject {
 }
 
 /**
- * Mirrors `reasoningConfig` of the installed `@ai-sdk/amazon-bedrock` (5.0.57).
+ * Mirrors `reasoningConfig` of the installed `@ai-sdk/amazon-bedrock` (5.0.117).
  * Kept in step with the identical declaration in
  * `@brainstrike/assistant-contract` — this package is what actually hands
  * `providerOptions` to the SDK, so a narrower type here would silently fail to

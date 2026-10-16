@@ -27,15 +27,17 @@ cleanupUnusedCatalogs: true
 # measured verdict — so keep rationale beside entries that stay.
 catalog:
   # ADR-0012: only the new host consumes this pin; the legacy Mastra closure retains ai 6.
-  ai: 7.0.126
+  ai: 7.0.142
   vscode-jsonrpc: 9.0.2
-  '@ai-sdk/amazon-bedrock': 5.0.76
+  '@ai-sdk/amazon-bedrock': 5.0.117
+  # BST-2029: retain the qualified fence until 0.0.79 passes both OS suites.
+  # macOS behavior passed; Linux readiness is blocked by host AppArmor policy.
   '@anthropic-ai/sandbox-runtime': 0.0.75
   # BST-1353: the AWS default credential chain (profiles, SSO, process creds,
   # instance/container roles) behind Bedrock's `credentialProvider` seam.
   # Node-only — imported ONLY beside the provider factory, never from the
   # browser-safe/hosted-web agent subpaths (verify-hosted-web-bundle.mjs).
-  '@aws-sdk/credential-providers': 3.1127.0
+  '@aws-sdk/credential-providers': 3.1152.0
   '@assistant-ui/react': '~0.15.18'
   '@assistant-ui/react-streamdown': 0.3.17
   '@assistant-ui/styles': ^0.3.7
@@ -83,7 +85,7 @@ catalog:
   # BST-1940: SHA-256 for the derived indexer where Node's crypto is absent (the
   # browser writer); packages/indexer/src/portable.ts uses node:crypto when present.
   '@noble/hashes': 2.4.0
-  '@openrouter/ai-sdk-provider': 2.10.0
+  '@openrouter/ai-sdk-provider': 3.1.0
   '@parcel/watcher': ^2.6.0
   '@playwright/test': 1.64.1
   '@radix-ui/react-accordion': ^1.2.20
@@ -149,7 +151,7 @@ catalog:
   # tree the moment 4.0.0 shipped. Stability is now a `@stability` JSDoc tag per
   # API, not a path segment, so an exact pin is what makes an unstable-API
   # change reviewable. docs/agents/effect-boundary.md.
-  effect: 4.0.4
+  effect: 4.0.5
   # Chromium security patches only. Stay on the 44 line: Electron 45 is a
   # separate, reviewed decision, not a security bump.
   electron: ^44.7.2
@@ -203,7 +205,7 @@ catalog:
   workerpool: ^10.0.3
   xxhash-wasm: ^1.1.0
   yaml: ^2.9.1
-  zod: ^4.6.5
+  zod: ^4.6.7
   zustand: ^5.0.15
 overrides:
   # BST-1929: hold react-streamdown's own dependencies at the newest releases at

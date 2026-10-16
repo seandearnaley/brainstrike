@@ -69,7 +69,7 @@ export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
  * Mirrors the `thinking` discriminated union of the installed
- * `@ai-sdk/anthropic` (4.0.49), held there by
+ * `@ai-sdk/anthropic` (4.0.81), held there by
  * `scripts/__tests__/ai-sdk-anthropic-mirror-contract.test.mjs`.
  *
  * `budgetTokens` is OPTIONAL upstream and required here on purpose: an
@@ -92,6 +92,7 @@ export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
  */
 export type AnthropicThinkingOptions =
   | { type: 'adaptive'; display?: 'omitted' | 'summarized' | 'updates' }
+  | { type: 'between_tools' }
   | { type: 'enabled'; budgetTokens: number }
   | { type: 'disabled' };
 
@@ -101,7 +102,7 @@ export interface AnthropicProviderOptions extends RuntimeJsonObject {
 }
 
 /**
- * Mirrors `reasoningConfig` of the installed `@ai-sdk/amazon-bedrock` (5.0.57).
+ * Mirrors `reasoningConfig` of the installed `@ai-sdk/amazon-bedrock` (5.0.117).
  *
  * Deliberately NOT a discriminated union: `type: 'enabled'` carries
  * `budgetTokens` for Claude routes and `maxReasoningEffort` for Amazon Nova,

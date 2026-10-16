@@ -66,8 +66,8 @@ function toolExecutionPartKind(
  * error and reports it to `onTimeout` first, so the caller can abort the
  * provider before the stream unwinds.
  *
- * The SDK's own `timeout.chunkMs` is not used: its timer keeps running while a
- * tool executes and resets on reasoning deltas, so it cannot hold these windows.
+ * SDK output timeouts do not express the host's separate first-output,
+ * reasoning-gap, local-tool and streamed-input deadline contract.
  */
 export function watchHostStream(
   source: AsyncIterable<Part>,
