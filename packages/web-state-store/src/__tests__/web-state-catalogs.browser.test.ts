@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { webRootPath } from '../protocol';
 import { closeTabs, openTab, rejection, storeConfig } from './tabs';
 
 afterEach(closeTabs);
@@ -128,5 +129,44 @@ describe('catalogs on the browser writer', () => {
     );
     expect(refused.kind).toBe('failed');
     expect((await writer.collections({ operation: 'list' })).collections).toEqual([collection]);
+  });
+  it('keeps workspace roots without the derived index, but refuses a source change or root deletion it would need', async () => {
+    const config = storeConfig();
+    const writer = await openTab(config);
+    const follower = await openTab(config);
+    const rootId = crypto.randomUUID();
+    const root = { displayName: 'project', path: webRootPath(rootId), preferredId: rootId };
+    await follower.workspaceRoots({ operation: 'register', root });
+    expect((await writer.workspaceRoots({ operation: 'list' })).roots).toEqual([
+      expect.objectContaining({ id: rootId, status: 'live' }),
+    ]);
+    // A desktop path is not a root this host was granted.
+    expect(
+      (
+        await rejection(
+          follower.workspaceRoots({
+            operation: 'register',
+            root: { displayName: 'os', path: '/home/user/project', preferredId: 'os' },
+          })
+        )
+      ).message
+    ).toContain('granted absolute path');
+
+    const content = 'export const one = 1;\n';
+    const file = {
+      content,
+      contentHash: await sha256(content),
+      fileName: 'one.ts',
+      path: 'src/one.ts',
+      stat: { mtimeMs: 1, size: content.length },
+    };
+    for (const refused of [
+      follower.sourceCatalog({ embeddingSetId: null, files: [file], operation: 'prepare', rootId }),
+      follower.workspaceRoots({ operation: 'delete', paths: [root.path], rootId }),
+    ]) {
+      expect((await rejection(refused)).message).toContain('needs the indexer port');
+    }
+    expect((await writer.sourceCatalog({ operation: 'list' })).files).toEqual([]);
+    expect((await writer.workspaceRoots({ operation: 'list' })).roots).toHaveLength(1);
   });
 });

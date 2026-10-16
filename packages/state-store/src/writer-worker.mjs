@@ -29,7 +29,7 @@ import {
   unlinkSync,
   writeSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
@@ -363,7 +363,9 @@ async function handle(m) {
     case 'workspace-roots':
       return executeWorkspaceRootRequest(
         db,
-        /** @type {import('./workspace-root-types.js').WorkspaceRootRequest} */ (m['request'])
+        /** @type {import('./workspace-root-types.js').WorkspaceRootRequest} */ (m['request']),
+        // Main grants absolute OS paths.
+        { isGrantedPath: isAbsolute }
       );
     case 'memory':
       return handleMemory(

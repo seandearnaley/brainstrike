@@ -16,8 +16,10 @@ import {
   executeCollectionRequest,
   executeModelChoiceRequest,
   executePromptCatalogRequest,
+  executeSourceCatalogRequest,
   executeThreadGroups,
   executeViewFilterPresetRequest,
+  executeWorkspaceRootRequest,
 } from '@brainstrike/state-store/catalog-domains';
 import {
   acknowledgeSourceGc,
@@ -48,6 +50,7 @@ import {
 } from './extension';
 import {
   type ChannelMessage,
+  isWebRootPath,
   type TabMessage,
   type WebStateAppendRow,
   type WebStateErrorReply,
@@ -382,6 +385,50 @@ function verifyBlobReferences(blobs: SqliteBlobStore, rows: readonly WebStateApp
   }
 }
 
+/**
+ * Desktop StateStore's `sourceCatalog`: a mutation needs the derived index
+ * before it commits bytes, and the sources it retires are collected after,
+ * by the same GC as purge and thread delete.
+ */
+async function sourceCatalog(
+  active: Writer,
+  request: WebStateRequests['sourceCatalog']['params']
+): Promise<WebStateRequests['sourceCatalog']['result']> {
+  const mutates =
+    request.operation === 'import' ||
+    request.operation === 'prepare' ||
+    request.operation === 'replace' ||
+    request.operation === 'remove';
+  if (mutates) {
+    active.deletion.requireIndexer('canonical source mutation');
+  }
+  const reply = executeSourceCatalogRequest(asBetterSqlite3(active.db), request, {
+    put: (hash, content) => active.blobs.put(hash, content),
+    read: (hash, maxBytes) => active.blobs.read(hash, maxBytes),
+  });
+  if (mutates) {
+    await active.deletion.collectRetiredSources();
+  }
+  return reply;
+}
+
+/** Desktop StateStore's `workspaceRoots`, with a root's path its handle key (`webRootPath`). */
+async function workspaceRoots(
+  active: Writer,
+  request: WebStateRequests['workspaceRoots']['params']
+): Promise<WebStateRequests['workspaceRoots']['result']> {
+  if (request.operation === 'delete') {
+    active.deletion.requireIndexer('root data deletion');
+  }
+  const reply = executeWorkspaceRootRequest(asBetterSqlite3(active.db), request, {
+    isGrantedPath: isWebRootPath,
+  });
+  if (request.operation === 'delete') {
+    await active.deletion.collectRetiredSources();
+  }
+  return reply;
+}
+
 /** One request on the writer, as the desktop writer worker handles the same op. */
 async function handle(active: Writer, request: WireRequest): Promise<unknown> {
   const { blobs, db, log } = active;
@@ -460,6 +507,8 @@ async function handle(active: Writer, request: WireRequest): Promise<unknown> {
       return {};
     case 'settings':
       return settings(db);
+    case 'sourceCatalog':
+      return sourceCatalog(active, params as WebStateRequests['sourceCatalog']['params']);
     case 'status': {
       const { threadId } = params as WebStateRequests['status']['params'];
       return { status: log.status(threadId) };
@@ -475,6 +524,8 @@ async function handle(active: Writer, request: WireRequest): Promise<unknown> {
       );
     case 'threads':
       return { threads: log.threads() };
+    case 'workspaceRoots':
+      return workspaceRoots(active, params as WebStateRequests['workspaceRoots']['params']);
     case 'viewFilterPresets':
       return executeViewFilterPresetRequest(
         asBetterSqlite3(db),

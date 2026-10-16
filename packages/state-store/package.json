@@ -5,6 +5,7 @@
   "dependencies": {
     "@brainstrike/secure-fs-native": "workspace:*",
     "@brainstrike/types": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
     "@brainstrike/windows-job-native": "workspace:*",
     "better-sqlite3": "catalog:"
   },

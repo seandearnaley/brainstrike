@@ -3686,6 +3686,9 @@ importers:
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
       '@brainstrike/windows-job-native':
         specifier: workspace:*
         version: link:../windows-job-native
