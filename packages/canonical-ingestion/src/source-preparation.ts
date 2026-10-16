@@ -1,4 +1,5 @@
 import { sha256Hex } from '@brainstrike/utils/crypto';
+import { utf8ByteLength } from '@brainstrike/utils/utf8';
 import type {
   CanonicalCatalogPort,
   CanonicalDiscoveredSourceFile,
@@ -66,7 +67,7 @@ export async function readCanonicalSource(
     };
   }
   context.signal.throwIfAborted();
-  if (Buffer.byteLength(read.content, 'utf8') > maxFileBytes) {
+  if (utf8ByteLength(read.content) > maxFileBytes) {
     throw new Error('Canonical source exceeds its explicit read bound.');
   }
   return {

@@ -30,8 +30,10 @@
     "@brainstrike/secure-fs-native": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
+    "@vitest/browser-playwright": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "esbuild": "catalog:",
+    "playwright": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
