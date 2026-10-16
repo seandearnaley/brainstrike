@@ -26,7 +26,10 @@ export {
   resolveToolResultBudgetForModel,
   type ScaledToolResultBudget,
 } from './stream/tool-output-limits';
-export { applyToolModelOutputProjections } from './tool-projection/tool-model-output';
+export {
+  applyToolModelOutputProjections,
+  wouldTruncateMcpModelOutput,
+} from './tool-projection/tool-model-output';
 export {
   projectToolOutputArtifactPage,
   type ReadToolOutputArtifactInput,

@@ -344,6 +344,14 @@ export interface HostRunAdmission {
    */
   readObservation?(threadId: string): Promise<HostObservationalMemoryState>;
   readonly referencedFileFailures?: readonly ReferencedFileFailure[];
+  /**
+   * The tool-result budget this run's model was selected with, as the
+   * projection owner resolved it. Settlement needs it to tell an MCP result
+   * that merely exceeds the model budget from one that fits; a platform with
+   * no MCP authority never supplies it, and settlement refuses visibly if an
+   * MCP tool reaches it without one.
+   */
+  readonly resolvedToolResultBudget?: ScaledToolResultBudget;
   readonly snapshot: HostRunSnapshot;
   readonly tools: Readonly<Record<string, HostTool>>;
   /** Configured MCP servers this run proceeds without; committed with `run.started`. */
