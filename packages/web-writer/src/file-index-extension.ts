@@ -1,3 +1,4 @@
+import { getFileSizeConfig } from '@brainstrike/file-system/config';
 import { SCOPED_INDEX_OPERATIONS } from '@brainstrike/indexer/browser';
 import {
   executeCollectionRequest,
@@ -8,13 +9,20 @@ import {
   isWebRootPath,
   type WebStateExtension,
   type WebStateWriterContext,
-  webRootPath,
   webStateExtensionPool,
 } from '@brainstrike/web-state-store';
 import { asBetterSqlite3 } from '@brainstrike/web-state-store/sqlite-wasm-database';
-import type { FileIndexAuthority, FileIndexReply, FileIndexRequest } from './file-index-protocol';
+import { fileIndexAuthority } from './file-index-authority';
+import {
+  type FileIndexAuthority,
+  type FileIndexMessage,
+  type FileIndexRequest,
+  fileIndexError,
+  fileIndexFailure,
+} from './file-index-protocol';
 
-export const FILE_INDEX_EXTENSION_ID = 'file-index@1';
+/** Version 2: `files.scan` and the worker's writer requests. */
+export const FILE_INDEX_EXTENSION_ID = 'file-index@2';
 
 interface Pending {
   readonly reject: (error: Error) => void;
@@ -22,49 +30,29 @@ interface Pending {
 }
 type WithoutId<T> = T extends unknown ? Omit<T, 'id'> : never;
 
-/**
- * The file index's authority, read from the writer's catalogs: the live
- * roots, every collection, and the files of either. A rooted file binds by
- * its root-relative path, as desktop's `nativeFileIdentity` binds it, with
- * its source named under the root's handle key.
- */
+/** The file index's authority, read from the writer's catalogs on its own connection. */
 function authorityOf(context: WebStateWriterContext): FileIndexAuthority {
   const db = asBetterSqlite3(context.state);
-  const roots = executeWorkspaceRootRequest(
-    db,
-    { operation: 'list' },
-    { isGranted: (root) => isWebRootPath(root.path, root.preferredId) }
-  ).roots.filter((root) => root.status === 'live');
-  const live = new Set(roots.map((root) => root.id));
-  const collections = executeCollectionRequest(db, { operation: 'list' }).collections;
-  const files = executeSourceCatalogRequest(
-    db,
-    { operation: 'list' },
-    {
-      put: () => {
-        throw new Error('The file index reads the catalog only');
-      },
-      read: () => null,
-    }
-  ).files.filter((file) =>
-    // An import in no collection has no scope the index could authorize it under.
-    file.rootId === null ? file.embeddingSetId !== null : live.has(file.rootId)
+  return fileIndexAuthority(
+    executeWorkspaceRootRequest(
+      db,
+      { operation: 'list' },
+      { isGranted: (root) => isWebRootPath(root.path, root.preferredId) }
+    ).roots,
+    executeCollectionRequest(db, { operation: 'list' }).collections.map(
+      (collection) => collection.id
+    ),
+    executeSourceCatalogRequest(
+      db,
+      { operation: 'list' },
+      {
+        put: () => {
+          throw new Error('The file index reads the catalog only');
+        },
+        read: () => null,
+      }
+    ).files
   );
-  return {
-    fileBindings: files.map((file) => ({
-      embeddingSetId: file.embeddingSetId,
-      fileId: file.fileId,
-      profile: null,
-      relativePath: file.rootId === null ? null : file.path,
-      rootId: file.rootId,
-      sourcePath: file.rootId === null ? file.path : `${webRootPath(file.rootId)}/${file.path}`,
-    })),
-    rootIds: [...live].sort(),
-    scopes: collections.map((collection) => ({
-      embeddingSetId: collection.id,
-      kind: 'collection' as const,
-    })),
-  };
 }
 
 /** The writer's end of the file index worker: one request at a time per id, failures visible. */
@@ -74,18 +62,36 @@ class FileIndexWorker {
   #failure: Error | undefined;
   #nextId = 1;
 
-  constructor() {
+  /** `request` runs the worker's calls on the writer's own ops, in its request order. */
+  constructor(request: (op: string, params: unknown) => Promise<unknown>) {
     this.#worker = new Worker(new URL('./file-index-worker.ts', import.meta.url), {
       type: 'module',
     });
-    this.#worker.onmessage = (event: MessageEvent<FileIndexReply>) => {
-      const reply = event.data;
-      const pending = this.#pending.get(reply.id);
-      this.#pending.delete(reply.id);
-      if (reply.ok) {
-        pending?.resolve(reply.result);
+    this.#worker.onmessage = (event: MessageEvent<FileIndexMessage>) => {
+      const message = event.data;
+      if (message.kind === 'writer') {
+        void request(message.op, message.params).then(
+          (result) => this.#post({ id: message.id, kind: 'writer-reply', ok: true, result }),
+          (error: unknown) =>
+            this.#post({
+              error: fileIndexError(error),
+              id: message.id,
+              kind: 'writer-reply',
+              ok: false,
+            })
+        );
+        return;
+      }
+      if (message.kind !== 'reply') {
+        this.#fail(new Error('The file index worker sent a message outside its protocol'));
+        return;
+      }
+      const pending = this.#pending.get(message.id);
+      this.#pending.delete(message.id);
+      if (message.ok) {
+        pending?.resolve(message.result);
       } else {
-        pending?.reject(Object.assign(new Error(reply.error.message), reply.error));
+        pending?.reject(fileIndexFailure(message.error));
       }
     };
     this.#worker.onerror = (event) => {
@@ -101,7 +107,13 @@ class FileIndexWorker {
     this.#pending.clear();
   }
 
-  send(request: WithoutId<FileIndexRequest>): Promise<unknown> {
+  #post(message: FileIndexRequest): void {
+    if (!this.#failure) {
+      this.#worker.postMessage(message);
+    }
+  }
+
+  send(request: WithoutId<Exclude<FileIndexRequest, { kind: 'writer-reply' }>>): Promise<unknown> {
     if (this.#failure) {
       return Promise.reject(this.#failure);
     }
@@ -124,15 +136,23 @@ class FileIndexWorker {
  * store's, under the writer's lease. Its ops are desktop's
  * `ScopedIndexerPort` (`files.prepareScopedFile`, `files.searchScopes`, ...),
  * plus `files.reauthorize`, which reopens the store under the catalogs'
- * current authority.
+ * current authority, and `files.scan`, which ingests a live root's folder,
+ * as the tab hands it over, through canonical ingestion and answers with its
+ * receipt.
  */
 export const fileIndexExtension: WebStateExtension = {
   id: FILE_INDEX_EXTENSION_ID,
   async open(context) {
     const names = webStateExtensionPool(context.config.name, 'files');
-    const worker = new FileIndexWorker();
+    const worker = new FileIndexWorker((op, params) => context.request(op, params));
     try {
-      await worker.send({ authority: authorityOf(context), kind: 'open', ...names });
+      await worker.send({
+        authority: authorityOf(context),
+        kind: 'open',
+        // As desktop's native index scans: the configured file size bound, 64 files a batch.
+        scan: { batchSize: 64, maxFileBytes: getFileSizeConfig().maxFileSize },
+        ...names,
+      });
     } catch (error) {
       worker.terminate();
       throw error;
@@ -140,6 +160,13 @@ export const fileIndexExtension: WebStateExtension = {
     const handlers: Record<string, (params: unknown) => Promise<unknown>> = {
       'files.reauthorize': () =>
         worker.send({ authority: authorityOf(context), kind: 'reauthorize' }),
+      'files.scan': (params) => {
+        const { folder, rootId } = params as {
+          readonly folder: FileSystemDirectoryHandle;
+          readonly rootId: string;
+        };
+        return worker.send({ folder, kind: 'scan', rootId });
+      },
     };
     for (const op of SCOPED_INDEX_OPERATIONS) {
       handlers[`files.${op}`] = (params) => worker.send({ kind: 'request', op, params });

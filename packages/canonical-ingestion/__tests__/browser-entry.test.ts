@@ -91,7 +91,7 @@ it('bundles the browser entry and its chunker for the browser, with no static No
           return;
         }
         if (
-          /(?<![\w$.?])(?:Buffer|process)\s*\./.test(code) &&
+          /(?<![\w$.?'"`])(?:Buffer|process)\s*\./.test(code) &&
           !/typeof (?:Buffer|process)\b/.test(code)
         ) {
           unguarded.push(`${input}:${index + 1}: ${code}`);

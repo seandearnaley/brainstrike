@@ -1,3 +1,4 @@
+import type { CanonicalScanReceipt } from '@brainstrike/canonical-ingestion/browser';
 import type {
   CommitResult,
   IndexerPort,
@@ -94,6 +95,16 @@ export class WebFileIndex implements ScopedIndexerPort, Pick<IndexerPort, 'info'
       }
       throw error;
     }
+  }
+
+  /**
+   * Ingests a live root's folder through canonical ingestion, into the
+   * source catalog and the index; resolves with the pass's receipt. `folder`
+   * is the handle this tab holds the user's grant for: the browser asks for
+   * a grant in a window, never in a worker.
+   */
+  scan(rootId: string, folder: FileSystemDirectoryHandle): Promise<CanonicalScanReceipt> {
+    return this.#call('scan', { folder, rootId });
   }
 
   /** Reopens the store under the catalogs' current roots, collections and files. */

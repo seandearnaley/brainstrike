@@ -1,13 +1,13 @@
+// A scan's source inventory over the canonical catalog: desktop's native index and the browser's index worker
+// (BST-1940) read a scope's authorized files through the same owner.
+import type { VectorProfile } from '@brainstrike/indexer/browser';
 import type {
-  CanonicalCatalogFile,
-  CanonicalFileIdentity,
-  CanonicalSourceInventoryPort,
-  CanonicalSourceScope,
   createNativeCanonicalCatalog,
-  createNativeScanAdmission,
   NativeCanonicalCatalogRecord,
-} from '@brainstrike/canonical-ingestion';
-import type { VectorProfile } from '@brainstrike/indexer';
+} from './canonical-catalog.js';
+import type { CanonicalCatalogFile, CanonicalFileIdentity, CanonicalSourceScope } from './ports.js';
+import type { createNativeScanAdmission } from './scan-admission.js';
+import type { CanonicalSourceInventoryPort } from './workspace-source-ports.js';
 
 export function createNativeSourceInventory(dependencies: {
   readonly assertSource: () => void;

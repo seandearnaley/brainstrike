@@ -1,0 +1,238 @@
+/**
+ * Canonical ingestion in the file index worker (BST-1940): desktop's
+ * workspace runtime, with desktop's catalog, publication, scan admission and
+ * source inventory, over this worker's scoped store and the writer's
+ * catalogs. Only the source differs: a File System Access folder, lent by
+ * `fsaWorkspaceLease`. TEXT only; vectors come with the index's profile.
+ */
+import {
+  type CanonicalScanReceipt,
+  CanonicalWorkspaceIngestionRuntime,
+  createNativeCanonicalCatalog,
+  createNativeCanonicalPublication,
+  createNativeScanAdmission,
+  createNativeSourceInventory,
+  decodeNativeCanonicalCatalogRecords,
+  type NativeCanonicalCatalogRecord,
+} from '@brainstrike/canonical-ingestion/browser';
+import { createBrowserChunker } from '@brainstrike/chunking-worker/canonical';
+import type { IndexerPort, ScopedIndexerPort, VectorProfile } from '@brainstrike/indexer';
+import type { SourceCatalogPort, WorkspaceRootRecord } from '@brainstrike/state-store';
+import { webRootPath } from '@brainstrike/web-state-store';
+import { fileIdentity } from './file-index-authority';
+import type { FileIndexScanOptions } from './file-index-protocol';
+import { type FsaWorkspaceLease, fsaWorkspaceLease } from './fsa-workspace-lease';
+
+export interface FileIngestionDependencies {
+  /** The writer's source catalog, in its request order. */
+  readonly catalog: SourceCatalogPort;
+  readonly onError: (operation: string, error: unknown) => void;
+  /** The scoped store as it stands, after any reopen. */
+  readonly port: ScopedIndexerPort & Pick<IndexerPort, 'info'>;
+  /** Rebinds the store to the catalogs' full current authority, as desktop re-acquires its index. */
+  readonly rebind: () => Promise<void>;
+  /** The writer's workspace roots. */
+  readonly roots: () => Promise<readonly WorkspaceRootRecord[]>;
+  readonly scan: FileIndexScanOptions;
+}
+
+interface RootIngestion {
+  /** The scan whose pass is running: that pass's receipt or failure answers it, and no other. */
+  current:
+    | {
+        readonly reject: (error: unknown) => void;
+        readonly resolve: (receipt: CanonicalScanReceipt) => void;
+      }
+    | undefined;
+  /** The folder the root's runtime reads. */
+  readonly folder: FileSystemDirectoryHandle;
+  readonly lease: FsaWorkspaceLease;
+  /** The root's scans, one pass each, in the order they were asked for. */
+  queue: Promise<void>;
+  readonly runtime: CanonicalWorkspaceIngestionRuntime;
+  started: boolean;
+}
+
+export class FileIngestion {
+  readonly #roots = new Map<string, Promise<RootIngestion>>();
+  #closed = false;
+
+  constructor(private readonly dependencies: FileIngestionDependencies) {}
+
+  /**
+   * Runs one pass over a live root's folder, after any pass already asked for;
+   * resolves with that pass's own receipt. A root keeps the folder its runtime
+   * started on: another folder for it is refused.
+   */
+  async scan(rootId: string, folder: FileSystemDirectoryHandle): Promise<CanonicalScanReceipt> {
+    if (this.#closed) {
+      throw new Error('File ingestion is closed');
+    }
+    const existing = this.#roots.get(rootId);
+    if (existing && !(await (await existing).folder.isSameEntry(folder))) {
+      throw new Error('The workspace root is already ingesting another folder.');
+    }
+    const opening = existing ?? this.#open(rootId, folder);
+    if (!existing) {
+      this.#roots.set(rootId, opening);
+      opening.catch(() => this.#roots.delete(rootId));
+    }
+    const root = await opening;
+    const pass = root.queue.then(() => this.#pass(rootId, root));
+    root.queue = pass.then(
+      () => undefined,
+      () => undefined
+    );
+    return pass;
+  }
+
+  /** One pass, once the root is confirmed live: a root deleted or disconnected since retires instead. */
+  async #pass(rootId: string, root: RootIngestion): Promise<CanonicalScanReceipt> {
+    if (!(await this.#isLive(rootId))) {
+      this.#roots.delete(rootId);
+      await this.#retire(root);
+      throw new Error('Only a live workspace root can be scanned.');
+    }
+    return new Promise<CanonicalScanReceipt>((resolve, reject) => {
+      root.current = { reject, resolve };
+      if (root.started) {
+        root.runtime.trigger();
+      } else {
+        // A started runtime runs its first full pass.
+        root.started = true;
+        root.runtime.start().catch(reject);
+      }
+    }).finally(() => {
+      root.current = undefined;
+    });
+  }
+
+  async #isLive(rootId: string): Promise<boolean> {
+    const root = (await this.dependencies.roots()).find((current) => current.id === rootId);
+    return root?.status === 'live';
+  }
+
+  async #retire(root: RootIngestion): Promise<void> {
+    root.lease.revoke(new DOMException('File ingestion retired.', 'AbortError'));
+    await root.runtime.close();
+    await root.lease.retire();
+  }
+
+  async #open(rootId: string, folder: FileSystemDirectoryHandle): Promise<RootIngestion> {
+    const { catalog: sourceCatalog, port } = this.dependencies;
+    if (!(await this.#isLive(rootId))) {
+      throw new Error('Only a live workspace root can be scanned.');
+    }
+    const lease = fsaWorkspaceLease(rootId, folder);
+    const scope = { kind: 'workspace', rootId } as const;
+    const assertSource = (): void => lease.signal.throwIfAborted();
+    const admission = createNativeScanAdmission(assertSource, lease.signal);
+    const loadRecords = async (): Promise<readonly NativeCanonicalCatalogRecord[]> => {
+      // The TEXT partition: the root's files in no collection.
+      const { files } = await sourceCatalog.sourceCatalog({
+        embeddingSetId: null,
+        operation: 'inventory',
+      });
+      return decodeNativeCanonicalCatalogRecords(files).filter(
+        (record) => record.rootId === rootId
+      );
+    };
+    const catalog = createNativeCanonicalCatalog<VectorProfile>({
+      catalog: sourceCatalog,
+      joinNativeRemoval: async (files, removed) => {
+        for (const file of files) {
+          await port.removeScopedFile({ fileId: file.fileId, scope: removed });
+        }
+        assertSource();
+      },
+      replaceTrustedBindings: async (_scope, context) => {
+        await admission.acquireBindings(context, () => this.dependencies.rebind());
+        assertSource();
+      },
+      resolveProfile: async () => {
+        throw new Error('The browser file index publishes TEXT only.');
+      },
+      resolveScope: async (requested) => {
+        assertSource();
+        if (requested.kind !== 'workspace' || requested.rootId !== rootId) {
+          throw new Error('Canonical catalog scope is not this lease.');
+        }
+        return {
+          assertCurrent: assertSource,
+          assertDiscoveredSource: (file) => {
+            if (
+              file.rootId !== rootId ||
+              file.sourcePath !== `${webRootPath(rootId)}/${file.relativePath}`
+            ) {
+              throw new Error('Canonical discovery differs from its lent folder.');
+            }
+            assertSource();
+          },
+          embeddingSetId: null,
+          resolveIdentity: fileIdentity,
+        };
+      },
+    });
+    const ingestion: RootIngestion = {
+      current: undefined,
+      folder,
+      lease,
+      queue: Promise.resolve(),
+      runtime: new CanonicalWorkspaceIngestionRuntime({
+        catalog,
+        chunker: createBrowserChunker(),
+        managedCollectionId: null,
+        mode: 'TEXT',
+        // A pass that fails reports no receipt: the scan that asked for it fails with it, visibly.
+        onError: (operation, error) => {
+          this.dependencies.onError(operation, error);
+          ingestion.current?.reject(error);
+        },
+        onReceipt: (receipt, sourceInvalidated) => {
+          if (sourceInvalidated) {
+            admission.releaseInvalidatedWorkspace(receipt);
+          } else {
+            admission.completeWorkspace(receipt);
+          }
+          ingestion.current?.resolve(receipt);
+        },
+        onWatchHealth: () => {},
+        publication: admission.workspacePublication(
+          createNativeCanonicalPublication(port, [scope])
+        ),
+        request: {
+          batchSize: this.dependencies.scan.batchSize,
+          chunkingOptions: { strategy: 'auto' },
+          maxFileBytes: this.dependencies.scan.maxFileBytes,
+        },
+        source: {
+          indexingPolicyPreset: 'balanced',
+          inventory: createNativeSourceInventory({
+            assertSource,
+            catalog,
+            identity: fileIdentity,
+            loadRecords,
+            retainCollection: () => {},
+            scanAdmission: admission,
+            scope,
+          }),
+          lease,
+        },
+      }),
+      started: false,
+    };
+    return ingestion;
+  }
+
+  /** Retires every root's runtime and its lease. */
+  async close(): Promise<void> {
+    this.#closed = true;
+    const roots = await Promise.allSettled([...this.#roots.values()]);
+    this.#roots.clear();
+    for (const settled of roots) {
+      if (settled.status === 'fulfilled') {
+        await this.#retire(settled.value);
+      }
+    }
+  }
+}

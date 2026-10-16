@@ -18,6 +18,13 @@ export interface WebStateWriterContext {
   openDatabase(file: string): SqliteWasmDatabase;
   /** Deletes a closed database of the pool, with its journal, so the extension can recreate it. */
   removeDatabase(file: string): void;
+  /**
+   * Runs one of the writer's own ops (`sourceCatalog`, `workspaceRoots`, ...)
+   * in its request order, as a tab's request runs: how an extension working
+   * in a worker of its own reads and writes the catalogs. Refused before the
+   * writer serves anyone, and after it retires.
+   */
+  request(op: string, params: unknown): Promise<unknown>;
   /** The state DB's connection, which the writer owns; an extension only reads through it. */
   readonly state: SqliteWasmDatabase;
 }

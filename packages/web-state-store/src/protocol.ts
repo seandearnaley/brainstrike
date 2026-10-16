@@ -312,20 +312,23 @@ export type ChannelMessage =
  * channel message changes: version 2 added the catalog and blob requests,
  * version 3 writer extensions, version 4 the writer's purge and thread
  * delete in place of tabs unlinking blobs, version 5 the source catalog and
- * workspace roots.
+ * workspace roots, version 6 a browser root's key as `/fsa/<rootId>` and the
+ * extensions' in-order writer requests.
  */
-export const WEB_STATE_PROTOCOL = 5;
+export const WEB_STATE_PROTOCOL = 6;
 
-const WEB_ROOT_PATH = /^fsa:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const WEB_ROOT_PATH = /^\/fsa\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
  * A browser workspace root's path in the shared roots table. Desktop records
  * the absolute path main granted; a File System Access handle has none, so
  * the root is named by its id, and the tab keeps the handle in IndexedDB
- * under that id. A root re-picked through `isSameEntry` keeps its id.
+ * under that id. A root re-picked through `isSameEntry` keeps its id. The
+ * key is an absolute POSIX path (`/fsa/<rootId>`), so the workspace path
+ * rules desktop and the browser share treat a browser root as a root.
  */
 export function webRootPath(rootId: string): string {
-  const path = `fsa:${rootId}`;
+  const path = `/fsa/${rootId}`;
   if (!WEB_ROOT_PATH.test(path)) {
     throw new Error('A browser workspace root is named by its UUID');
   }
@@ -334,7 +337,7 @@ export function webRootPath(rootId: string): string {
 
 /** Whether `path` is the handle key of the root `rootId` (`webRootPath`), and of no other. */
 export function isWebRootPath(path: string, rootId: string): boolean {
-  return WEB_ROOT_PATH.test(path) && path === `fsa:${rootId}`;
+  return WEB_ROOT_PATH.test(path) && path === `/fsa/${rootId}`;
 }
 
 /** The protocol a writer announces: this wire's version and the extensions it runs, by id. */

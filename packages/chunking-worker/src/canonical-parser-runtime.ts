@@ -14,6 +14,24 @@ export interface CanonicalChunkingRuntime {
   readonly strict: boolean;
 }
 
+/**
+ * Where the one-time first-parse audit goes. The chunking Web Worker's entry
+ * routes it to its parent as a WorkerLog (`setParserAuditSink`), so
+ * file-import's chunking-worker-port forwards it through the project's logger.
+ * Any other host (desktop's utility, the browser's file index worker, tests)
+ * logs it here: posting to a parent that speaks another protocol would corrupt
+ * that parent's channel.
+ */
+let auditSink = (message: string): void => {
+  // biome-ignore lint/suspicious/noConsole: one-time operational signal
+  console.info(message);
+};
+
+/** The chunking worker's entry routes the first-parse audit to its parent. */
+export function setParserAuditSink(sink: (message: string) => void): void {
+  auditSink = sink;
+}
+
 // Module-scoped flag for the one-shot "first parse audit" — see the
 // auditFirstSuccessfulParse() helper below.
 let auditFired = false;
@@ -22,29 +40,9 @@ function auditFirstSuccessfulParse(adapterId: string): void {
     return;
   }
   auditFired = true;
-  const message = `[chunking-parser] first parse succeeded using adapter "${adapterId}" — IPC chain confirmed`;
-  // When running inside the chunking Web Worker, post a WorkerLog message
-  // so the parent (file-import's chunking-worker-port) can forward it
-  // through the project's logger system at info level. That makes the
-  // audit visible in the unified `pnpm dev` output without requiring
-  // the operator to open the chunking-host renderer's DevTools.
-  // Falls back to console.info for non-worker contexts (unit tests,
-  // direct use from a non-Electron browser).
-  const workerSelf = (globalThis as { self?: { postMessage?: (msg: unknown) => void } }).self;
-  if (
-    workerSelf &&
-    typeof workerSelf.postMessage === 'function' &&
-    (globalThis as { window?: unknown }).window !== workerSelf
-  ) {
-    try {
-      workerSelf.postMessage({ level: 'info', message, type: 'log' });
-      return;
-    } catch {
-      // structured-clone or transport failure — fall through to console
-    }
-  }
-  // biome-ignore lint/suspicious/noConsole: one-time operational signal
-  console.info(message);
+  auditSink(
+    `[chunking-parser] first parse succeeded using adapter "${adapterId}" — IPC chain confirmed`
+  );
 }
 
 export function supportsCanonicalAst(

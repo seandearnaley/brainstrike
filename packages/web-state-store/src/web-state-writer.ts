@@ -310,6 +310,13 @@ async function openWriter(
               pool.unlink(`${file}${suffix}`);
             }
           },
+          request: (op, params) => {
+            const active = writer;
+            if (!active) {
+              return Promise.reject(new Error('The state writer is not serving requests'));
+            }
+            return serialized(() => handle(active, { op, params }));
+          },
           state: db,
         })
       );

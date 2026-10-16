@@ -5,6 +5,7 @@ import {
   createNativeCanonicalCatalog,
   createNativeCanonicalPublication,
   createNativeScanAdmission,
+  createNativeSourceInventory,
   type NativeCanonicalCatalogRecord,
 } from '@brainstrike/canonical-ingestion';
 import { getFileSizeConfig } from '@brainstrike/file-system';
@@ -61,7 +62,6 @@ import {
   prepareSavedNativeIndexPause,
   readNativeIndexSettings,
 } from './native-index-settings';
-import { createNativeSourceInventory } from './native-index-source-inventory';
 import {
   type NativeIndexSources,
   retireNativeIndexSources,

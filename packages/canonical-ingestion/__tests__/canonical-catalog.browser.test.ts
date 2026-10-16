@@ -56,7 +56,7 @@ function catalogOver(row: SourceCatalogRecord) {
         fileName: loaded.fileName,
         relativePath: loaded.rootId === null ? null : loaded.path,
         rootId: loaded.rootId,
-        sourcePath: loaded.rootId === null ? null : `fsa:root/${loaded.path}`,
+        sourcePath: loaded.rootId === null ? null : `/fsa/root/${loaded.path}`,
       }),
     }),
   });
@@ -80,7 +80,7 @@ describe('the canonical catalog in a browser worker', () => {
             fileName: 'a.ts',
             relativePath: 'src/a.ts',
             rootId: 'root',
-            sourcePath: 'fsa:root/src/a.ts',
+            sourcePath: '/fsa/root/src/a.ts',
             stat: { mtimeMs: 2, size: utf8ByteLength(changed) },
           },
         ],
