@@ -8,6 +8,7 @@ import {
   DELEGATED_CONVERSATION_DATA_NAME,
   type DelegatedConversationStreamData,
 } from '@brainstrike/assistant-contract/delegated-conversation-stream';
+import { MODEL_STEP_DATA_NAME } from '@brainstrike/assistant-contract/model-step';
 import { CHILD_RUN_USAGE_DATA_NAME } from '@brainstrike/assistant-contract/run-usage';
 import { SHELL_OUTPUT_DATA_NAME } from '@brainstrike/assistant-contract/shell-output';
 import {
@@ -29,6 +30,7 @@ import type {
   StreamChunkDelegatedConversation,
   StreamChunkFinish,
   StreamChunkMessageFinish,
+  StreamChunkModelStep,
   StreamChunkReasoning,
   StreamChunkRunEvent,
   StreamChunkShellOutput,
@@ -407,6 +409,9 @@ export class DataStreamMapper {
       case 'context-breakdown':
         yield* this.handleContextBreakdown(chunk);
         return;
+      case 'model-step':
+        yield* this.handleModelStep(chunk);
+        return;
       case 'child-run-usage':
         yield* this.handleChildRunUsage(chunk);
         return;
@@ -700,6 +705,32 @@ export class DataStreamMapper {
       value: {
         data: toJsonSafe(chunk.breakdown),
         name: CONTEXT_BREAKDOWN_DATA_NAME,
+      },
+    } satisfies EncodedChunk;
+    if (this.mustDeferDataParts()) {
+      this.pendingRunEventChunks.push(encoded);
+      return;
+    }
+    yield encoded;
+  }
+
+  /**
+   * Emit a completed step, for a client that records its runs (BST-1940), as
+   * an `aui-data` part: what the host commits as `model.step`. Same text-part
+   * deferral contract as the context breakdown above; the finish flushes it
+   * before `d`, so a recorded run always has its steps before it finishes.
+   */
+  private *handleModelStep(chunk: StreamChunkModelStep): Generator<EncodedChunk> {
+    const encoded = {
+      code: DataStreamCode.auiDataPart,
+      value: {
+        data: {
+          messages: chunk.messages,
+          model: chunk.model,
+          stepNumber: chunk.stepNumber,
+          usage: chunk.usage,
+        },
+        name: MODEL_STEP_DATA_NAME,
       },
     } satisfies EncodedChunk;
     if (this.mustDeferDataParts()) {

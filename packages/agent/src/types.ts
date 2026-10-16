@@ -12,6 +12,7 @@ import type {
   DelegatedConversationBaseline,
   DelegatedRunIdentity,
 } from '@brainstrike/assistant-contract/delegated-conversation-stream';
+import type { AssistantModelStepData } from '@brainstrike/assistant-contract/model-step';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import type {
@@ -535,8 +536,22 @@ export interface StreamChunkChildUserMessage {
   readonly type: 'child-user-message';
 }
 
+/**
+ * A completed step, for a client that records its runs (BST-1940): exactly
+ * what the agent host commits as `model.step` for the same step result. Only a
+ * turn asked to record its steps emits it.
+ */
+export interface StreamChunkModelStep {
+  readonly messages: AssistantModelStepData['messages'];
+  readonly model: AssistantModelStepData['model'];
+  readonly stepNumber: number;
+  readonly type: 'model-step';
+  readonly usage: AssistantModelStepData['usage'];
+}
+
 export type ConversationStreamChunk =
   | StreamChunkChildUserMessage
+  | StreamChunkModelStep
   | StreamChunkChildRunUsage
   | StreamChunkContextBreakdown
   | StreamChunkReasoning
