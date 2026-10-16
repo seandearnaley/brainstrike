@@ -43,18 +43,23 @@ export function hostToolCatalogId(name: string, tool: HostTool): string {
  * it stays inline or its tool is never durable. Settlement and reads share it,
  * so an id the model holds a cursor for always re-serializes the same way.
  *
- * Deliberately a pure function of committed run state (`outputs`,
- * `effectTools`), which `foldHostRunEffect` rebuilds from the ledger. Any
- * settlement rule added here has to replay from the same events, or a cursor
- * the model already holds stops resolving after a restart — see the note on
- * {@link settleHostToolOutputs}.
+ * A pure function of committed run state: `outputs`, `effectTools` and
+ * `artifactSettled` are all folded from the run's own events, so a replay
+ * answers exactly as the live run did. `artifactSettled` carries the one
+ * decision size cannot show — an output its own model projection would clip —
+ * which the effect commit records (`projectionClipped`) rather than this
+ * projection re-deriving it.
  */
 function settledOutput(run: HostRunState, toolCallId: string): SerializedToolOutput | undefined {
   const toolName = run.effectTools.get(toolCallId);
   if (toolName === undefined || NON_DURABLE.has(toolName) || !run.outputs.has(toolCallId)) {
     return;
   }
-  return toolOutputArtifactCandidate(run.outputs.get(toolCallId), toolName, {})?.serialized;
+  return toolOutputArtifactCandidate(
+    run.outputs.get(toolCallId),
+    toolName,
+    run.artifactSettled.has(toolCallId) ? { wouldTruncateModelOutput: () => true } : {}
+  )?.serialized;
 }
 
 /**
@@ -108,17 +113,14 @@ function defaultModelOutput(output: unknown): ToolResultOutput {
  * its first artifact page with a continuation cursor instead of a clipped
  * projection. The complete output is the committed `effect.finished`.
  *
- * KNOWN GAP, measured and deliberately not closed here: an MCP result that
- * stays inline on size yet loses data to its own bounded model projection
- * reaches the model clipped, with an honest `tool_result_truncated` notice and
- * no cursor to recover the rest. At the 128k anchor that band is roughly
- * 6 000–12 000 bytes, since the inline ceiling is fixed while the projection
- * budget scales. The retired Mastra loop settled it through
- * `wouldTruncateModelOutput` (ADR-0022). Settling it here needs the decision
- * to survive replay, and neither input is in committed state today: the
- * resolved tool-result budget is not on the run snapshot, and
- * `snapshot.mcpAuthorities` is keyed by registered tool name while
- * `effectTools` stores the catalog id. Both are protocol additions.
+ * An MCP result that stays inline on size yet loses data to its own bounded
+ * projection settles too, so the model pages it instead of receiving an
+ * unrecoverable `tool_result_truncated` notice. At the 128k anchor that band
+ * is roughly 6 000-12 000 bytes, since the inline ceiling is fixed while the
+ * projection budget scales. That decision is NOT made here: the effect commit
+ * makes it once and commits it (`effect.finished.projectionClipped`), because
+ * a replay rebuilds outputs from those events and a cursor the model already
+ * holds has to keep resolving.
  */
 export function settleHostToolOutputs(
   run: HostRunState,

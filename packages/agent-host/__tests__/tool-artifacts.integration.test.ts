@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apiKeyAuthInput, type RuntimeData } from '@brainstrike/agent/provider-runtime';
 import {
+  applyToolModelOutputProjections,
   projectToolOutputArtifactPage,
   readToolOutputArtifact,
   resolveScaledToolResultBudget,
@@ -17,7 +18,11 @@ import { HostCore } from '../src/core.js';
 import type { HostTool } from '../src/ports.js';
 import { createProductionHostPlatform } from '../src/production-platform.js';
 import type { HostEvent } from '../src/protocol.js';
-import { scriptedCursorPaging, scriptedToolResult } from '../src/test-fixtures/scripted-model.js';
+import {
+  scriptedCursorPaging,
+  scriptedToolResult,
+  scriptedToolSequence,
+} from '../src/test-fixtures/scripted-model.js';
 
 const candidate = join(import.meta.dirname, '../../..');
 const provider = 'openai';
@@ -137,4 +142,123 @@ test('an oversized tool result reaches the model as a durable artifact page it c
     .parse(scriptedToolResult(prompts[2] ?? [], 'paging-call-2'));
   expect(page.value.offsetByte).toBe(first.value.endByte);
   expect(BIG.slice(first.value.content.length).startsWith(page.value.content)).toBe(true);
+});
+
+/** Under the inline ceiling, over the run's own projection budget. */
+const CLIPPED = 'x'.repeat(9042);
+
+/**
+ * An MCP binding as `bindMcpTool` produces one: the generic bounded projection
+ * `createAgentHostToolBindings` installs, which is what clips the result.
+ */
+function genericProjection(catalogId: string): NonNullable<HostTool['toModelOutput']> {
+  const projected = applyToolModelOutputProjections(
+    {
+      [catalogId]: {
+        description: 'fixture',
+        execute: async () => CLIPPED,
+        id: catalogId,
+        inputSchema: { jsonSchema: { additionalProperties: false, type: 'object' } },
+      },
+    } as never,
+    new Map([[catalogId, catalogId]]),
+    undefined,
+    resolveScaledToolResultBudget(100_000)
+  );
+  const project = (projected[catalogId] as { toModelOutput: (value: unknown) => unknown })
+    .toModelOutput;
+  return (async ({ output }) => await project(output)) as NonNullable<HostTool['toModelOutput']>;
+}
+
+const clipping: HostTool = {
+  description: 'Return a result the model projection would clip',
+  execute: async () => CLIPPED,
+  identity: 'clipping-fixture',
+  inputSchema: z.object({}),
+  permissionToolId: 'server.fetch',
+  risk: 'mcp',
+  toModelOutput: genericProjection('server.fetch'),
+};
+
+test('an MCP result only the projection would clip reaches the live model as a pageable artifact', async () => {
+  // Size alone keeps it inline, so only the projection budget settles it.
+  expect(new TextEncoder().encode(CLIPPED).byteLength).toBeLessThan(
+    TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES
+  );
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-tool-artifacts-clipped-'));
+  const store = await StateStore.open(root, {
+    memoryCalculatorModule: join(
+      candidate,
+      'packages/agent-host/dist/adapters/memory-storage-calculator.js'
+    ),
+  });
+  let core: HostCore | undefined;
+  onTestFinished(async () => {
+    await core?.close();
+    await store.close();
+    await rm(root, { force: true, recursive: true });
+  });
+  const prompts: Parameters<typeof scriptedToolResult>[0][] = [];
+  const model = scriptedToolSequence([{ input: {}, toolId: 'fetch' }], prompts);
+  const configuration: RuntimeData = { model: modelId, provider };
+  const platform = await createProductionHostPlatform({
+    close: async () => undefined,
+    readConfiguration: async () => ({
+      configuration,
+      durableConfiguration: { model: modelId, provider },
+      maxSteps: 3,
+      memory: {
+        native: {
+          options: {
+            lastMessages: 200,
+            observationalMemory: false,
+            semanticRecall: false,
+            workingMemory: { enabled: false },
+          },
+        },
+        recordPrompt: async () => undefined,
+        resourceId: 'm3-tool-artifacts-clipped-fixture',
+      },
+      providerRequestContext: { inputTokenLimit: 100_000, provider, runtimeData: configuration },
+      resolvedToolResultBudget: resolveScaledToolResultBudget(100_000),
+      tools: { fetch: clipping, reader },
+      toolTimeoutMs: 5000,
+    }),
+    readPermissionPolicy: () => ({
+      policies: { ...DEFAULT_PERMISSION_POLICIES, mcp: 'allow' },
+      yolo: false,
+    }),
+    resolveModel: async () => model,
+    resolveProviderAuth: async () => apiKeyAuthInput('offline-artifact-fixture-key'),
+    startup: { register: async () => undefined, signal: new AbortController().signal, store },
+  });
+  core = await HostCore.open(store, platform, () => () => undefined);
+  const opened = core;
+  const { threadId } = await opened.startThread({ commandId: randomUUID() });
+  const finished = Promise.withResolvers<void>();
+  const unsubscribe = opened.onCommitted((row) => {
+    if (row.threadId === threadId && row.event.type === 'run.finished') {
+      finished.resolve();
+    }
+  });
+  await opened.startRun({ commandId: randomUUID(), modelId, prompt: 'Fetch it', threadId });
+  await finished.promise;
+  unsubscribe();
+  const events: HostEvent[] = (await opened.read(threadId, 0)).map((row) => row.event);
+
+  expect(events.at(-1)).toMatchObject({ outcome: 'completed', type: 'run.finished' });
+  // The decision is committed with the output, so a replay settles it the same way.
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      output: CLIPPED,
+      projectionClipped: true,
+      toolCallId: 'recorded-call-1',
+      type: 'effect.finished',
+    })
+  );
+  // And the LIVE run already handed the model a cursor rather than a dead end:
+  // this is what fails when only the committed event carries the decision.
+  const result = JSON.stringify(scriptedToolResult(prompts[1] ?? [], 'recorded-call-1'));
+  expect(result).not.toContain('tool_result_truncated');
+  expect(result).toContain('bsto1.');
 });

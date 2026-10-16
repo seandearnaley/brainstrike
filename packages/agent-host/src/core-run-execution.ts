@@ -1,4 +1,5 @@
 import { resolveAssistantResilienceConfig } from '@brainstrike/agent/provider-runtime';
+import { wouldTruncateMcpModelOutput } from '@brainstrike/agent/tool-runtime';
 import { isGuardedToolError } from '@brainstrike/assistant-contract';
 import { isToolTelemetryStreamPart } from '@brainstrike/assistant-contract/tool-telemetry';
 import type { BlobContent } from '@brainstrike/state-store';
@@ -100,6 +101,43 @@ export interface HostRunExecutionPorts {
   telemetry(telemetry: HostRunTelemetry): void;
 }
 
+/**
+ * Whether this output reaches the model clipped by its own bounded projection
+ * although its size keeps it inline — an MCP result between the run's
+ * projection budget and the fixed inline ceiling. Durable settlement turns
+ * that into a pageable artifact instead of an unrecoverable truncation notice
+ * (the retired Mastra loop's `wouldTruncateModelOutput`, ADR-0022).
+ *
+ * Decided here, once, by the writer that commits the output, because artifact
+ * reads must agree with settlement after a replay and a replay rebuilds
+ * outputs from the committed event. Only MCP results qualify: they use the
+ * generic projection, so any difference from the complete text IS loss, while
+ * a native tool's own projector reshapes output legitimately and keeps its
+ * documented "narrow the request" recovery.
+ *
+ * A run with no resolved budget has no bounded projection either: the budget
+ * reaches tools only through `createAgentHostToolBindings`, which is what
+ * installs `applyToolModelOutputProjections`. A platform that registers its
+ * own tools directly (`platform.tools`) projects them unbounded, so nothing
+ * clips and there is nothing to recover. That is why this answers false
+ * instead of refusing — the capability is absent, not failing.
+ */
+export function projectionClipsOutput(
+  admission: HostRunAdmission,
+  registered: HostTool,
+  action: HostRunAction,
+  output: unknown
+): boolean {
+  if (registered.risk !== 'mcp') {
+    return false;
+  }
+  const budget = admission.resolvedToolResultBudget;
+  if (!budget) {
+    return false;
+  }
+  return wouldTruncateMcpModelOutput(action.toolCatalogId ?? action.toolId, output, budget);
+}
+
 /** Run one admitted tool effect under its exact permission decision, committing start and output. */
 export async function executeHostAction(
   ports: HostRunExecutionPorts,
@@ -119,19 +157,26 @@ export async function executeHostAction(
     throw new Error('Tool permission was revoked');
   }
   run.controller.signal.throwIfAborted();
-  await ensureHostRunAdmission(ports.platform, run);
+  const admission = await ensureHostRunAdmission(ports.platform, run);
   const output = registered.delegation
     ? await ports.delegate(run, action, input)
     : await executeRegisteredTool(ports, run, action, registered, input, resumeData);
+  // Decided once: this append publishes without a fold, so the live run's own
+  // state is updated here, exactly as a replay's fold would set it.
+  const projectionClipped = projectionClipsOutput(admission, registered, action, output);
   const [finished] = await ports.append(run.threadId, [
     {
       output: jsonValue(output),
+      ...(projectionClipped ? { projectionClipped: true as const } : {}),
       runId: run.id,
       toolCallId: action.toolCallId,
       type: 'effect.finished',
     },
   ]);
   run.outputs.set(action.toolCallId, jsonValue(output));
+  if (projectionClipped) {
+    run.artifactSettled.add(action.toolCallId);
+  }
   if (finished?.ts !== undefined) {
     run.outputCommittedAt.set(action.toolCallId, finished.ts);
   }
