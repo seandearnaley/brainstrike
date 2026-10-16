@@ -39,6 +39,10 @@
       "types": "./dist/inference-plan.d.ts",
       "default": "./dist/inference-plan.js"
     },
+    "./pinned-plan": {
+      "types": "./dist/pinned-plan.d.ts",
+      "default": "./dist/pinned-plan.js"
+    },
     "./runtime-config": {
       "types": "./dist/runtime-config.d.ts",
       "default": "./dist/runtime-config.js"

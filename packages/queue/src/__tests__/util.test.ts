@@ -234,7 +234,7 @@ describe('isAbortError', () => {
 });
 
 describe('supportsWorkers', () => {
-  it('should return true when window and Worker are defined', () => {
+  it('should return true in a window that has Worker', () => {
     vi.stubGlobal('window', {});
     vi.stubGlobal('Worker', function Worker() {});
 
@@ -244,17 +244,17 @@ describe('supportsWorkers', () => {
     vi.unstubAllGlobals();
   });
 
-  it('should return false when window is undefined', () => {
+  it('should return true in a worker, which has Worker but no window', () => {
     vi.stubGlobal('window', undefined);
     vi.stubGlobal('Worker', function Worker() {});
 
     const result = supportsWorkers();
-    expect(result).toBe(false);
+    expect(result).toBe(true);
 
     vi.unstubAllGlobals();
   });
 
-  it('should return false when Worker is undefined', () => {
+  it('should return false in a window without Worker', () => {
     vi.stubGlobal('window', {});
     vi.stubGlobal('Worker', undefined);
 
