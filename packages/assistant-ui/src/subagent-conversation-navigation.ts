@@ -36,6 +36,24 @@ export const SubagentApprovalHistoryContext = createContext<
   ((threadId: string) => readonly SubagentAnsweredApproval[]) | null
 >(null);
 
+/**
+ * A delegated child conversation's run state, as its own committed log says:
+ * its latest run working, waiting on a person, or how that run ended, and the
+ * tool calls its runs made. The owner folds the child's log; nothing else
+ * writes it.
+ */
+export interface SubagentChildRun {
+  readonly status: 'running' | 'needs-input' | 'completed' | 'stopped' | 'failed' | 'interrupted';
+  readonly toolCalls: number;
+}
+/** The owner's child run states by child thread; a read keeps its identity until it changes. */
+export interface SubagentChildRunSource {
+  /** Undefined until the child's committed log has been read. */
+  readonly read: (threadId: string) => SubagentChildRun | undefined;
+  readonly subscribe: (listener: () => void) => () => void;
+}
+export const SubagentChildRunContext = createContext<SubagentChildRunSource | null>(null);
+
 /** Host-authorized display identity for an approval's exact delegated owner. */
 export interface DelegatedApprovalOwner {
   readonly colorId: string;

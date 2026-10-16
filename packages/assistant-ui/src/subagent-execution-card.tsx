@@ -1,19 +1,7 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
-import {
-  SUBAGENT_NO_ANSWER_OUTCOME,
-  SUBAGENT_REJECTED_OUTCOME,
-  SUBAGENT_TRUNCATED_OUTCOME,
-} from '@brainstrike/assistant-contract/personas';
 import { Button } from '@brainstrike/ui';
-import { AlertCircle, ArrowUpRight, CheckCircle, CircleDashed, CircleSlash } from 'lucide-react';
-import {
-  type ComponentProps,
-  type MouseEvent,
-  type ReactElement,
-  useId,
-  useMemo,
-  useState,
-} from 'react';
+import { ArrowUpRight } from 'lucide-react';
+import type { ComponentProps, MouseEvent } from 'react';
 import type { StepGlyphState } from './activity-step-icons';
 import { StepRowHeader } from './activity-step-row';
 import { toolStepStateFor } from './activity-trace-model';
@@ -23,26 +11,23 @@ import { useAssistantDetailLevel } from './assistant-detail-level-context';
 import { SubagentApprovalHistory } from './subagent-approval-history';
 import type {
   SubagentAnsweredApproval,
+  SubagentChildRun,
   SubagentConversationPresentation,
 } from './subagent-conversation-navigation';
 import { personaLabelForToolName } from './subagent-persona-label';
-import {
-  mergeSubagentToolRows,
-  readSubAgentToolRows,
-  type SubAgentToolRow,
-  type SubAgentToolRowStatus,
-  type SubagentDelegationOutcome,
-} from './subagent-tool-rows';
 import { useToolDurationMs } from './tool-duration-context';
 import { formatActivityDuration } from './tool-durations';
 
-/** Presentational-card props: the tool-part fields plus optional live rows. */
+/** Presentational-card props: the tool-part fields plus the child's committed run. */
 export type SubagentCardProps = Pick<
   ComponentProps<ToolCallMessagePartComponent>,
   'isError' | 'result' | 'status' | 'toolCallId' | 'toolName'
 > & {
-  /** In-flight child rows from live `subagent.tool.*` events (see SUBAGENTS). */
-  liveRows?: readonly SubAgentToolRow[];
+  /**
+   * The delegated child's run state, folded from its own committed log by the
+   * conversation's owner; absent until that log is read, or when no child ran.
+   */
+  childRun?: SubagentChildRun | undefined;
   presentation?: SubagentConversationPresentation;
   /** BST-1932 (AT-07): the child's answered approvals, shown as its history. */
   approvalHistory?: readonly SubagentAnsweredApproval[];
@@ -51,13 +36,6 @@ export type SubagentCardProps = Pick<
   navigationError?: string;
   presentationError?: string;
   onReloadPresentation?: () => void;
-  /**
-   * Terminal outcome the tool-call status cannot express (BST-1410) — today
-   * only `'no-answer'`: the child ran, made tool calls, and never wrote its
-   * summary. The delegation tool call itself SUCCEEDED, so without this the
-   * card reports that as Completed.
-   */
-  outcome?: SubagentDelegationOutcome | undefined;
 };
 type ToolStatus = SubagentCardProps['status'];
 type ToolResult = SubagentCardProps['result'];
@@ -68,8 +46,8 @@ type ToolResult = SubagentCardProps['result'];
  * and the verb says what happened. A delegation is the one step whose subject
  * is a persona rather than the assistant, so the verb names it — "Delegating
  * to Explorer" while the call waits at an approval gate, then "Explorer is
- * working" once the child runs, and "Explorer finished" / "Explorer
- * gave no answer" / "Explorer stopped" / "Explorer failed" once it settles.
+ * working" while the child runs, and "Explorer finished" / "Explorer gave no
+ * answer" / "Explorer stopped" / "Explorer failed" once it settles.
  *
  * Keyed by `StepGlyphState`, not by a private display union, so the type
  * proves the table is TOTAL over what the shared state machine can hand it: a
@@ -87,62 +65,83 @@ const STEP_VERB: Record<StepGlyphState, (label: string) => string> = {
   waiting: (label) => `Delegating to ${label}`,
 };
 
-const ROW_ICONS: Record<SubAgentToolRowStatus, ReactElement> = {
-  error: <AlertCircle aria-hidden="true" className="size-3.5 shrink-0 text-destructive" />,
-  interrupted: (
-    <CircleSlash aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
-  ),
-  running: (
-    <CircleDashed
-      aria-hidden="true"
-      className="size-3.5 shrink-0 animate-pulse text-muted-foreground motion-reduce:animate-none"
-      data-live="true"
-    />
-  ),
-  success: <CheckCircle aria-hidden="true" className="size-3.5 shrink-0 text-success" />,
+/**
+ * A child's committed run status as a step state, read as the child's own
+ * conversation reads it. An interrupted run (the host restarted under it) is
+ * reported to the parent as failed (`settledState` in the host's child
+ * manager), so it reads failed here too.
+ */
+const CHILD_STEP_STATE: Record<SubagentChildRun['status'], StepGlyphState> = {
+  completed: 'done',
+  failed: 'failed',
+  interrupted: 'failed',
+  'needs-input': 'waiting',
+  running: 'running',
+  stopped: 'cancelled',
 };
 
 /**
- * The delegation's step state: THE shared tool-step machine
- * (`toolStepStateFor` — the same derivation its four consumers read:
- * `deriveActivitySteps` for the trace headline and step rows, `ToolFallback`,
- * `TaskListToolCard`, and this card) plus the one refinement only this card
- * can make. `no-answer` is a reading of the delegation's OWN result shape
- * (BST-1410: the child ran, made tool calls, and never wrote its summary), so
- * it is applied strictly on TOP of a generic `done` — running, waiting,
- * cancelled and failed keep winning, or a delegation the user stopped would
- * read as an outcome it never reached (and, before this, as `failed`).
+ * The host's committed delegation result statuses (agent-host
+ * `HostChildResultSchema`) as step states. `started` is a background child's
+ * acknowledgement: it proves the child started, never that it finished
+ * ("Starting work never proves completion", docs/agents/assistant-subagents.md).
+ */
+const RESULT_STEP_STATE: Readonly<Record<string, StepGlyphState>> = {
+  completed: 'done',
+  failed: 'failed',
+  interrupted: 'failed',
+  'no-answer': 'no-answer',
+  rejected: 'rejected',
+  started: 'running',
+  stopped: 'cancelled',
+};
+
+function resultStepState(result: ToolResult): StepGlyphState | undefined {
+  if (typeof result !== 'object' || result === null || !('status' in result)) {
+    return;
+  }
+  const status = result.status;
+  return typeof status === 'string' ? RESULT_STEP_STATE[status] : undefined;
+}
+
+/**
+ * The delegation's step state. Once the child's own committed run is read it
+ * is the truth: a background delegation's call settles the moment its child
+ * starts, so the call alone would say "finished" while the child works. The
+ * host's settled `no-answer` verdict (BST-1410: the child ran and wrote no
+ * summary) refines a completed run.
  *
- * `isError` is the part-level flag, threaded through `SubagentCardProps` from
- * the connected wrapper (Task 5 fix-wave gap): the card used not to be handed
- * it, so a delegation the runtime marked as errored — without the result
- * saying so itself — read `Explorer finished` here while the group summary,
- * which sees the flag, counted the same step as failed.
+ * Before then, THE shared tool-step machine (`toolStepStateFor`, which the
+ * trace headline, `ToolFallback` and `TaskListToolCard` also read) decides,
+ * refined by the host's committed result: a refused delegation, a no-answer,
+ * or a background start, which reads as working until the child's log says
+ * otherwise. Running, waiting, cancelled and failed calls keep winning.
  *
  * No `toolName` is passed: the tool-specific settled readings in the shared
- * machine belong to `run_python`, and a delegation is not it. The declined
- * envelope is tool-agnostic and applies here as it does everywhere.
+ * machine belong to `run_python`, and a delegation is not it.
  */
 function resolveDelegationState(
   status: ToolStatus,
   result: ToolResult,
-  outcome: SubagentDelegationOutcome | undefined,
-  isError: boolean
+  isError: boolean,
+  childRun: SubagentChildRun | undefined
 ): StepGlyphState {
+  const settled = resultStepState(result);
+  if (childRun) {
+    const child = CHILD_STEP_STATE[childRun.status];
+    return child === 'done' && settled === 'no-answer' ? 'no-answer' : child;
+  }
   const generic = toolStepStateFor({ isError, result, status });
-  if (generic !== 'done') {
-    return generic;
-  }
-  if (outcome === SUBAGENT_REJECTED_OUTCOME) {
-    // BST-1751: refused before the child ran; the tool call itself succeeded.
-    return 'rejected';
-  }
-  if (outcome === SUBAGENT_TRUNCATED_OUTCOME) {
-    // The child's reserved summary was cut at its synthesis budget: a
-    // completion with partial findings, named as such.
-    return 'truncated';
-  }
-  return outcome === SUBAGENT_NO_ANSWER_OUTCOME ? 'no-answer' : 'done';
+  return generic === 'done' ? (settled ?? 'done') : generic;
+}
+
+/** A child waiting on a person is not delegating: it asks for their input. */
+function delegationVerb(
+  state: StepGlyphState,
+  childRun: SubagentChildRun | undefined,
+  label: string
+): string {
+  return childRun?.status === 'needs-input' ? `${label} needs your input` : STEP_VERB[state](label);
 }
 
 function SubagentTaskSummary({
@@ -197,46 +196,37 @@ function SubagentPresentationError({
   );
 }
 
-const EMPTY_LIVE_ROWS: readonly SubAgentToolRow[] = [];
 const EMPTY_APPROVAL_HISTORY: readonly SubagentAnsweredApproval[] = [];
 
 /**
- * Collapsed card for a subagent delegation (`agent-<key>`) tool part. Status
- * comes from `status.type`; per-child rows merge the persisted result's
- * `subAgentToolResults` (authoritative at completion + on reload) with LIVE
- * in-flight `subagent.tool.*` rows (`liveRows`, threaded by the connected
- * wrapper). Nested `subagent.*` run events are filtered out of the main timeline
- * (they belong to this card).
+ * Collapsed card for a subagent delegation (`agent-<key>`) tool part. Its
+ * state and tool-call count are the delegated child's committed run
+ * (`childRun`, threaded by the connected wrapper from the conversation's
+ * owner); the child's activity itself lives in its own conversation, which the
+ * card opens.
  */
 export const SubagentExecutionCard = ({
   approvalHistory = EMPTY_APPROVAL_HISTORY,
+  childRun,
   isError = false,
   toolName,
   toolCallId,
   result,
   status,
-  liveRows = EMPTY_LIVE_ROWS,
   onOpenConversation,
   navigationError,
   presentationError,
   onReloadPresentation,
   presentation,
   task,
-  outcome,
 }: SubagentCardProps) => {
-  const [expanded, setExpanded] = useState(false);
-  const rowsId = useId();
   const { detailLevel } = useAssistantDetailLevel();
   const policy = resolveToolDisplayPolicy(detailLevel);
-  const stepState = resolveDelegationState(status, result, outcome, isError);
+  const stepState = resolveDelegationState(status, result, isError, childRun);
   const label = personaLabelForToolName(toolName);
-  const rows = useMemo(
-    () => mergeSubagentToolRows(readSubAgentToolRows(result), liveRows),
-    [result, liveRows]
-  );
   const durationMs = useToolDurationMs(toolCallId);
   const elapsed = durationMs === undefined ? undefined : formatActivityDuration(durationMs);
-  const hasRows = rows.length > 0;
+  const toolCalls = childRun?.toolCalls;
 
   return (
     <div
@@ -247,32 +237,23 @@ export const SubagentExecutionCard = ({
     >
       <StepRowHeader
         family="delegate"
-        label={expanded ? 'Collapse details' : 'Expand details'}
+        label="Delegation details"
         state={stepState}
         stepId={toolCallId}
         target={null}
         timing={elapsed}
         toolName={toolName}
         // Gated on the same Detail-level policy `ToolFallback`'s own
-        // result-summary chip reads (BST-1686): compact hides EVERY trailing
-        // result chip in the trace, and this card's tool-call count is one —
-        // it just used to be the one chip the Detail control never touched.
+        // result-summary chip reads (BST-1686). An unread count is unknown,
+        // never zero, so it shows only once the child's log is read.
         trailing={
-          policy.showResultSummary ? (
+          policy.showResultSummary && toolCalls !== undefined ? (
             <span className="bs-step-row-meta">
-              · {rows.length} tool {rows.length === 1 ? 'call' : 'calls'}
+              · {toolCalls} tool {toolCalls === 1 ? 'call' : 'calls'}
             </span>
           ) : null
         }
-        verb={STEP_VERB[stepState](presentation?.displayName ?? label)}
-        // Conditional spread, not `prop={x ?? undefined}`: under
-        // `exactOptionalPropertyTypes` an optional prop may be absent but
-        // never explicitly `undefined`. With no child rows there is nothing to
-        // expand, so the row renders as its non-interactive form instead of a
-        // disabled button.
-        {...(hasRows
-          ? { bodyId: rowsId, expanded, onToggle: () => setExpanded((value) => !value) }
-          : {})}
+        verb={delegationVerb(stepState, childRun, presentation?.displayName ?? label)}
       />
       <SubagentTaskSummary label={label} presentation={presentation} task={task} />
       <SubagentApprovalHistory approvals={approvalHistory} colorId={presentation?.colorId} />
@@ -294,19 +275,6 @@ export const SubagentExecutionCard = ({
             Open conversation <ArrowUpRight aria-hidden="true" className="size-3.5" />
           </Button>
         </div>
-      ) : null}
-      {expanded && hasRows ? (
-        <ul className="border-border border-t px-3 py-2" id={rowsId}>
-          {rows.map((row) => (
-            <li className="flex items-center gap-2 py-1" key={row.key}>
-              {ROW_ICONS[row.status]}
-              <span className="font-mono text-xs">{row.toolName}</span>
-              {row.argSummary ? (
-                <span className="truncate text-muted-foreground text-xs">{row.argSummary}</span>
-              ) : null}
-            </li>
-          ))}
-        </ul>
       ) : null}
     </div>
   );

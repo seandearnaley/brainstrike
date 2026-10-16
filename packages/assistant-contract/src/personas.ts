@@ -66,38 +66,6 @@ export interface AssistantPersonaDefinition {
 export const SUBAGENT_DELEGATION_TOOL_PREFIX = 'agent-';
 
 /**
- * The `metadata.outcome` value on a `subagent.failed` run event marking a
- * delegation whose child ran but returned no written answer (BST-1410).
- *
- * Lives in the contract because it is the wire between the agent-side emitter
- * (`tool-lifecycle-processors.ts`) and the renderer's SubagentCard. Both that
- * case and a hard child `tool-error` are `subagent.failed`/`failed`, so the
- * card must not have to tell them apart by sniffing a human label. A bounded
- * enum string is neither args nor results, so it respects the ids/labels-only
- * rule for subagent metadata.
- */
-export const SUBAGENT_NO_ANSWER_OUTCOME = 'no-answer';
-
-/**
- * `metadata.outcome` on a `subagent.finished` run event whose child hit its
- * durable budget and whose reserved summary was cut by the model's output
- * limit (`finishReason: 'length'` on the synthesis step). The delegation
- * COMPLETED — the text is partial findings the root can use — so the kind is
- * `finished`, not `failed`; the discriminator lets the card and the wakeup
- * ledger say "truncated" without sniffing the label.
- */
-export const SUBAGENT_TRUNCATED_OUTCOME = 'truncated';
-
-/**
- * The delegation was refused before its child ran: a persona the host does
- * not know, the concurrency or per-turn backstop, or the durable tree budget
- * (depth, invocations, output) answered at delegation start (BST-1751). The
- * delegation tool call itself SUCCEEDS with Mastra's `[Delegation Rejected]`
- * text, so without this discriminator the card would read "finished".
- */
-export const SUBAGENT_REJECTED_OUTCOME = 'rejected';
-
-/**
  * The model-facing description of a persona's `agent-<id>` delegation tool.
  *
  * The supervisor picks the SIZE of a delegated task from this string and

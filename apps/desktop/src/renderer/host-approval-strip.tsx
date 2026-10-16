@@ -2,13 +2,14 @@ import type { HostClient } from '@brainstrike/agent-host/browser';
 import { CommittedApprovalStrip, type CommittedPendingApproval } from '@brainstrike/assistant-ui';
 import { type ReactElement, useMemo, useSyncExternalStore } from 'react';
 import { respondToHostApproval } from './host-approval-response';
-import { HostChildWaiting } from './host-child-tree-notices';
+import { HostChildrenRunning, HostChildWaiting } from './host-child-tree-notices';
 import type { HostTreeApprovals } from './host-tree-approvals';
 
 /**
  * BST-1932: a host thread's approvals strip. It counts the approvals waiting in
  * the thread and every thread delegated beneath it, and answers each in the
- * thread that asked; a delegated question or plan is named beside it (AT-08).
+ * thread that asked; a delegated question or plan is named beside it (AT-08),
+ * and so are the background children still working, with their Stop.
  */
 export function HostApprovalStrip({
   client,
@@ -54,6 +55,7 @@ export function HostApprovalStrip({
     <>
       <CommittedApprovalStrip approvals={approvals} />
       <HostChildWaiting tree={tree} />
+      <HostChildrenRunning client={client} tree={tree} />
     </>
   );
 }

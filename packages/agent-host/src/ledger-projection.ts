@@ -124,12 +124,23 @@ const MEMORY_USAGE_KIND = {
 /** A streamed chunk's kind; every committed chunk passes here, so the schema is built once. */
 const StreamedChunkSchema = z.object({ type: z.string() });
 
+/**
+ * Whether a committed `stream.chunk` is one of the model's tool calls: the one
+ * rule a run's `toolCallCount` follows, wherever its log is folded.
+ */
+export function isHostToolCallChunk(streamed: unknown): boolean {
+  const chunk = StreamedChunkSchema.safeParse(streamed);
+  return chunk.success && chunk.data.type === 'tool-call';
+}
+
 /** A streamed tool call or tool error counts toward its run's tool totals. */
 function countToolChunk(run: RunFold, streamed: unknown): void {
-  const chunk = StreamedChunkSchema.safeParse(streamed);
-  if (chunk.success && chunk.data.type === 'tool-call') {
+  if (isHostToolCallChunk(streamed)) {
     run.toolCallCount += 1;
-  } else if (chunk.success && chunk.data.type === 'tool-error') {
+    return;
+  }
+  const chunk = StreamedChunkSchema.safeParse(streamed);
+  if (chunk.success && chunk.data.type === 'tool-error') {
     run.failedToolCallCount += 1;
   }
 }

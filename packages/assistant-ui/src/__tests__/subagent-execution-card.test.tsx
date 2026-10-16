@@ -25,22 +25,20 @@ function renderCardAtDetailLevel(
   );
 }
 
+/**
+ * The host's committed delegation results (agent-host `HostChildResult`): a
+ * foreground child's settled result, and a background child's acknowledgement,
+ * which proves only that the child started.
+ */
 const completedResult = {
-  subAgentToolResults: [
-    {
-      args: { pattern: 'flag' },
-      isError: false,
-      toolCallId: 'c1',
-      toolName: 'brainstrike_grepSearch',
-    },
-    {
-      args: { path: 'src/main.ts' },
-      isError: false,
-      toolCallId: 'c2',
-      toolName: 'brainstrike_readWorkspaceFile',
-    },
-  ],
+  childThreadId: 'child-1',
+  status: 'completed',
   text: 'Found the flag.',
+};
+const startedResult = {
+  childThreadId: 'child-1',
+  status: 'started',
+  text: 'Background task started. Task ID: child-1. The tool "agent-explore" is running in the background. You will be notified when it completes.',
 };
 
 describe('personaLabelForToolName', () => {
@@ -91,13 +89,77 @@ describe('SubagentExecutionCard', () => {
       /^oklch\(/
     );
   });
-  it('shows a delegation that ran but never answered as "No answer", not Completed', () => {
-    // BST-1410. The delegation tool call succeeds even when the child exhausts
-    // its step cap mid-tool-loop and writes nothing, so `status.type` alone
-    // reports it as Completed — the same silent success that misled the model.
+
+  // Live QA 2026-10-16: a background delegation's call returns as soon as the
+  // child starts, so its card said "Explorer finished · 0 tool calls" while the
+  // child was still making the 43-81 tool calls its own log records. The card
+  // reads the child's committed run, never the start acknowledgement.
+  it('shows a started background child as working with its live tool-call count', () => {
     renderCard({
-      outcome: 'no-answer',
-      result: completedResult,
+      childRun: { status: 'running', toolCalls: 12 },
+      result: startedResult,
+      status: { type: 'complete' },
+      toolCallId: 'delegation-1',
+      toolName: 'agent-explore',
+    });
+    expect(screen.getByText('Explorer is working')).toBeTruthy();
+    expect(screen.getByRole('img', { name: 'Running' })).toBeTruthy();
+    expect(screen.getByText('· 12 tool calls')).toBeTruthy();
+    expect(screen.queryByText('Explorer finished')).toBeNull();
+  });
+
+  it('shows a started child as working, with no count, until its own log is read', () => {
+    renderCard({
+      result: startedResult,
+      status: { type: 'complete' },
+      toolCallId: 'delegation-1',
+      toolName: 'agent-explore',
+    });
+    expect(screen.getByText('Explorer is working')).toBeTruthy();
+    expect(screen.queryByText('Explorer finished')).toBeNull();
+    // An unread count is unknown, not zero.
+    expect(screen.queryByText(/tool calls?$/)).toBeNull();
+  });
+
+  it.each([
+    ['completed', 'Explorer finished', 'Completed'],
+    ['stopped', 'Explorer stopped', 'Stopped'],
+    ['failed', 'Explorer failed', 'Failed'],
+    ['interrupted', 'Explorer failed', 'Failed'],
+    ['needs-input', 'Explorer needs your input', 'Waiting for approval'],
+  ] as const)(
+    'names a child whose run is %s as its own conversation does',
+    (child, verb, glyph) => {
+      renderCard({
+        childRun: { status: child, toolCalls: 43 },
+        result: startedResult,
+        status: { type: 'complete' },
+        toolCallId: 'delegation-1',
+        toolName: 'agent-explore',
+      });
+      expect(screen.getByText(verb)).toBeTruthy();
+      expect(screen.getByRole('img', { name: glyph })).toBeTruthy();
+      expect(screen.getByText('· 43 tool calls')).toBeTruthy();
+    }
+  );
+
+  it('counts a single child tool call in the singular', () => {
+    renderCard({
+      childRun: { status: 'running', toolCalls: 1 },
+      result: startedResult,
+      status: { type: 'complete' },
+      toolCallId: 'delegation-1',
+      toolName: 'agent-explore',
+    });
+    expect(screen.getByText('· 1 tool call')).toBeTruthy();
+  });
+
+  it('shows a delegation that ran but never answered as "No answer", not Completed', () => {
+    // BST-1410: the host settles a foreground child that wrote no summary as
+    // `no-answer`; the child's run itself completed.
+    renderCard({
+      childRun: { status: 'completed', toolCalls: 2 },
+      result: { childThreadId: 'child-1', status: 'no-answer', text: 'No summary.' },
       status: { type: 'complete' },
       toolCallId: 'delegation-1',
       toolName: 'agent-explore',
@@ -106,29 +168,28 @@ describe('SubagentExecutionCard', () => {
     expect(screen.getByText('Explorer gave no answer')).toBeTruthy();
     expect(screen.queryByText('Explorer finished')).toBeNull();
     expect(screen.getByRole('img', { name: 'No answer' })).toBeTruthy();
-    // Still a real delegation with real child work: the rows stay browsable.
     expect(screen.getByText('· 2 tool calls')).toBeTruthy();
   });
 
-  it('names a delegation whose reserved summary was cut as a truncated completion', () => {
-    // GLM pack 2026-09-15: the child hit its budget and the model cut its
-    // summary at the synthesis reservation. It COMPLETED with partial
-    // findings — never "failed", never plainly "finished".
+  it('shows a refused delegation as rejected, with no child and no count', () => {
+    // BST-1751: the host refuses past its invocation limit; no child runs.
     renderCard({
-      outcome: 'truncated',
-      result: completedResult,
+      result: {
+        status: 'rejected',
+        text: '[Delegation Rejected] Delegation invocation limit reached (8 per original turn).',
+      },
       status: { type: 'complete' },
       toolCallId: 'delegation-1',
       toolName: 'agent-explore',
     });
-    expect(screen.getByText('Explorer finished with a truncated summary')).toBeTruthy();
-    expect(screen.queryByText('Explorer finished')).toBeNull();
-    expect(screen.getByRole('img', { name: 'Completed (truncated summary)' })).toBeTruthy();
-    expect(screen.getByText('· 2 tool calls')).toBeTruthy();
+    expect(screen.getByText('Explorer delegation rejected')).toBeTruthy();
+    expect(screen.getByRole('img', { name: 'Rejected' })).toBeTruthy();
+    expect(screen.queryByText(/tool calls?$/)).toBeNull();
   });
 
   it('renders a completed delegation summary with the persona label and tool-call count', () => {
     renderCard({
+      childRun: { status: 'completed', toolCalls: 2 },
       result: completedResult,
       status: { type: 'complete' },
       toolCallId: 'delegation-1',
@@ -139,21 +200,8 @@ describe('SubagentExecutionCard', () => {
     expect(screen.getByText('· 2 tool calls')).toBeTruthy();
     // The raw delegation tool id stays readable text (the e2e contract).
     expect(screen.getByText('agent-explore')).toBeTruthy();
-    // Collapsed by default: child rows not shown until expanded.
-    expect(screen.queryByText('brainstrike_grepSearch')).toBeNull();
-  });
-
-  it('lists the child tool rows on expand', () => {
-    renderCard({
-      result: completedResult,
-      status: { type: 'complete' },
-      toolCallId: 'delegation-1',
-      toolName: 'agent-explore',
-    });
-    fireEvent.click(screen.getByRole('button'));
-    expect(screen.getByText('brainstrike_grepSearch')).toBeTruthy();
-    expect(screen.getByText('brainstrike_readWorkspaceFile')).toBeTruthy();
-    expect(screen.getByText('flag')).toBeTruthy();
+    // The child's activity lives in its own conversation: nothing expands here.
+    expect(screen.queryByRole('button')).toBeNull();
   });
 
   it('shows the running state before a result lands', () => {
@@ -165,8 +213,8 @@ describe('SubagentExecutionCard', () => {
     });
     expect(screen.getByText('Analyst is working')).toBeTruthy();
     expect(screen.getByRole('img', { name: 'Running' })).toBeTruthy();
-    expect(screen.getByText('· 0 tool calls')).toBeTruthy();
-    // No child rows yet: nothing to expand, so the row is not a button.
+    // No child yet, so no count: never "Running · 0 tool calls".
+    expect(screen.queryByText(/tool calls?$/)).toBeNull();
     expect(screen.queryByRole('button')).toBeNull();
   });
 
@@ -174,8 +222,7 @@ describe('SubagentExecutionCard', () => {
   // `incomplete` status to `error`, so a delegation the user stopped read
   // "<Label> failed" under destructive chrome while the group summary — which
   // reads `toolStepStateFor` — called the same step Stopped. One step, one
-  // state machine; the delegation-only refinement ('no-answer') rides on top
-  // of `done` and nothing else.
+  // state machine.
   it('shows a stopped delegation as stopped, never failed', () => {
     const { container } = renderCard({
       result: undefined,
@@ -191,16 +238,13 @@ describe('SubagentExecutionCard', () => {
     expect(container.querySelectorAll('.text-destructive')).toHaveLength(0);
   });
 
-  // Task 5 fix-wave gap: `SubagentCardProps` picked only the tool-part fields
-  // the card happened to read, so the part-level `isError` flag never reached
-  // it. A delegation the runtime flagged as errored — with a status of
-  // `complete` and a result that does not state the failure itself — then read
-  // "Explorer finished" here while the group summary, which does see the flag,
-  // counted the same step as failed. One flag, one verdict.
+  // Task 5 fix-wave gap: the part-level `isError` flag must reach the card, or
+  // a delegation the runtime flagged as errored reads "Explorer finished" here
+  // while the group summary counts the same step as failed.
   it('reads a part-level isError flag as a failed delegation', () => {
     renderCard({
       isError: true,
-      result: completedResult,
+      result: { text: 'The delegation could not start.' },
       status: { type: 'complete' },
       toolCallId: 'delegation-1',
       toolName: 'agent-explore',
@@ -227,62 +271,11 @@ describe('SubagentExecutionCard', () => {
     expect(container.querySelectorAll('[data-live="true"]')).toHaveLength(0);
   });
 
-  it('renders running child rows from live events only (never "Running · 0 tool calls")', () => {
-    renderCard({
-      liveRows: [
-        {
-          argSummary: undefined,
-          key: 'child-1',
-          status: 'running',
-          toolName: 'brainstrike_grepSearch',
-        },
-      ],
-      result: undefined,
-      status: { type: 'running' },
-      toolCallId: 'delegation-1',
-      toolName: 'agent-explore',
-    });
-    expect(screen.getByText('Explorer is working')).toBeTruthy();
-    // The header count reflects the in-flight child tool, NOT zero.
-    expect(screen.getByText('· 1 tool call')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button'));
-    expect(screen.getByText('brainstrike_grepSearch')).toBeTruthy();
-  });
-
-  it('persisted result rows supersede live rows by child toolCallId', () => {
-    renderCard({
-      liveRows: [
-        { argSummary: undefined, key: 'c1', status: 'running', toolName: 'brainstrike_grepSearch' },
-      ],
-      result: completedResult,
-      status: { type: 'complete' },
-      toolCallId: 'delegation-1',
-      toolName: 'agent-explore',
-    });
-    // c1 is superseded by the persisted (completed) row; total stays 2 (c1 + c2).
-    expect(screen.getByText('· 2 tool calls')).toBeTruthy();
-  });
-
-  it('marks a failed child tool row as an error', () => {
-    renderCard({
-      result: {
-        subAgentToolResults: [
-          { args: {}, isError: true, toolCallId: 'c1', toolName: 'brainstrike_grepSearch' },
-        ],
-        text: '',
-      },
-      status: { type: 'complete' },
-      toolCallId: 'delegation-1',
-      toolName: 'agent-explore',
-    });
-    fireEvent.click(screen.getByRole('button'));
-    expect(screen.getByText('brainstrike_grepSearch')).toBeTruthy();
-  });
-
   it('marks the running step glyph data-live, exactly once', () => {
     const { container } = renderCard({
-      result: undefined,
-      status: { type: 'running' },
+      childRun: { status: 'running', toolCalls: 3 },
+      result: startedResult,
+      status: { type: 'complete' },
       toolCallId: 'p1',
       toolName: 'agent-explorer',
     });
@@ -294,101 +287,61 @@ describe('SubagentExecutionCard', () => {
     expect(live[0]).toHaveAttribute('data-testid', 'step-running-mark');
   });
 
-  it('renders no data-live element once the delegation has a result', () => {
+  it('renders no data-live element once the child has finished', () => {
     const { container } = renderCard({
-      result: completedResult,
+      childRun: { status: 'completed', toolCalls: 3 },
+      result: startedResult,
       status: { type: 'complete' },
       toolCallId: 'p1',
       toolName: 'agent-explorer',
     });
     expect(container.querySelectorAll('[data-live="true"]')).toHaveLength(0);
   });
-
-  it('renders an interrupted child row static and not data-live', () => {
-    const { container } = renderCard({
-      liveRows: [
-        {
-          argSummary: undefined,
-          key: 'c1',
-          status: 'interrupted',
-          toolName: 'brainstrike_grepSearch',
-        },
-      ],
-      result: undefined,
-      status: { reason: 'cancelled', type: 'incomplete' },
-      toolCallId: 'p1',
-      toolName: 'agent-explorer',
-    });
-    fireEvent.click(screen.getByRole('button', { expanded: false }));
-    expect(screen.getByText('brainstrike_grepSearch')).toBeInTheDocument();
-    expect(container.querySelectorAll('[data-live="true"]')).toHaveLength(0);
-
-    // Verify the static CircleSlash icon renders for the interrupted row.
-    const row = screen.getByText('brainstrike_grepSearch').closest('li');
-    expect(row).not.toBeNull();
-    const icon = row?.querySelector('svg');
-    expect(icon).not.toBeNull();
-    expect(icon).toHaveClass('lucide-circle-slash');
-    expect(icon).not.toHaveAttribute('data-live');
-  });
 });
 
 // BST-1686 finding 1 (PR #3066 review + CDT pass): `ToolFallback` gates its
 // result-summary chip on `policy.showResultSummary`
-// (`resolveToolDisplayPolicy`), but this card's own `· N tool calls` chip
-// rendered unconditionally in `.bs-step-row-meta` — the one trailing chip on
-// the delegation card the Detail control did not touch. It now reads the
+// (`resolveToolDisplayPolicy`); this card's own `· N tool calls` chip reads the
 // same policy every other trailing chip in the trace reads.
 describe('SubagentExecutionCard detail level', () => {
   beforeEach(() => window.localStorage.clear());
   afterEach(() => window.localStorage.clear());
 
+  const finished = {
+    childRun: { status: 'completed', toolCalls: 43 },
+    result: startedResult,
+    status: { type: 'complete' },
+    toolCallId: 'delegation-1',
+    toolName: 'agent-explore',
+  } as const;
+
   it('hides the tool-call-count chip at compact', () => {
-    renderCardAtDetailLevel(
-      {
-        result: completedResult,
-        status: { type: 'complete' },
-        toolCallId: 'delegation-1',
-        toolName: 'agent-explore',
-      },
-      'compact'
-    );
+    renderCardAtDetailLevel(finished, 'compact');
     expect(screen.getByText('Explorer finished')).toBeInTheDocument();
-    expect(screen.queryByText('· 2 tool calls', { exact: false })).not.toBeInTheDocument();
     expect(screen.queryByText(/tool calls?$/)).not.toBeInTheDocument();
   });
 
   it('shows the tool-call-count chip at standard', () => {
-    renderCardAtDetailLevel(
-      {
-        result: completedResult,
-        status: { type: 'complete' },
-        toolCallId: 'delegation-1',
-        toolName: 'agent-explore',
-      },
-      'standard'
-    );
-    expect(screen.getByText('· 2 tool calls')).toBeInTheDocument();
+    renderCardAtDetailLevel(finished, 'standard');
+    expect(screen.getByText('· 43 tool calls')).toBeInTheDocument();
   });
 });
 
 // BST-1686 finding 3 (PR #3066 review + CDT pass): `trailing` used to render
 // INSIDE `.bs-step-row-content`, which is the `aria-labelledby` target of the
-// non-interactive (`role="group"`) row form — so a zero-row delegation was
-// named "Delegating to Analyst · 0 tool calls" instead of just the verb.
-// Rendered at an explicit `standard` level (PR #3067 review finding 3): at
-// `compact` the chip would not render at all, and the name-only assertion
-// below would pass without exercising what it names — it never proves the
-// chip is present-but-unnamed, only that it is absent one way or another.
+// non-interactive (`role="group"`) row form — so the delegation was named with
+// its count folded in instead of just the verb. Rendered at an explicit
+// `standard` level so the chip is present-but-unnamed, not merely absent.
 describe('SubagentExecutionCard non-interactive row name', () => {
   beforeEach(() => window.localStorage.clear());
   afterEach(() => window.localStorage.clear());
 
-  it('names a zero-row delegation by its verb alone, without the tool-call chip folded in', () => {
+  it('names a delegation by its verb alone, without the tool-call chip folded in', () => {
     renderCardAtDetailLevel(
       {
-        result: undefined,
-        status: { type: 'running' },
+        childRun: { status: 'running', toolCalls: 12 },
+        result: startedResult,
+        status: { type: 'complete' },
         toolCallId: 'delegation-1',
         toolName: 'agent-analyze',
       },
@@ -396,16 +349,14 @@ describe('SubagentExecutionCard non-interactive row name', () => {
     );
     const row = screen.getByRole('group', { name: /^Analyst is working$/ });
     expect(row).toBeInTheDocument();
-    // The chip is present as row text — proving "fixed" (chip renders,
-    // excluded from the name) rather than "not rendered" (chip absent,
-    // making the name assertion above vacuous).
-    expect(row).toHaveTextContent('0 tool calls');
+    expect(row).toHaveTextContent('12 tool calls');
   });
 });
 
-it('opens the child conversation without expanding its activity rows', () => {
+it('opens the child conversation from its card', () => {
   const open = vi.fn();
   renderCard({
+    childRun: { status: 'completed', toolCalls: 2 },
     onOpenConversation: open,
     result: completedResult,
     status: { type: 'complete' },
@@ -414,7 +365,6 @@ it('opens the child conversation without expanding its activity rows', () => {
   });
   fireEvent.click(screen.getByRole('button', { name: 'Open Explorer conversation' }));
   expect(open).toHaveBeenCalledTimes(1);
-  expect(screen.queryByText('brainstrike_grepSearch')).not.toBeInTheDocument();
 });
 
 it('keeps a conflicting conversation address visible as a card-local error', () => {

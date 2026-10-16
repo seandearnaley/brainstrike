@@ -136,6 +136,8 @@ test('a host thread’s tree shows its child’s approval by call sign until the
     toolId: 'write_file',
   });
   expect(writes).toEqual([]);
+  // The child's own log says it waits on a person, one tool call in.
+  expect(tree.read(child.threadId)).toEqual({ status: 'needs-input', toolCalls: 1 });
 
   if (!waiting) {
     throw new Error('No approval is waiting');
@@ -153,6 +155,7 @@ test('a host thread’s tree shows its child’s approval by call sign until the
   );
   await expect.poll(() => tree.getSnapshot()).toEqual([]);
   await expect.poll(() => writes).toEqual([{ path: 'notes.md' }]);
+  await expect.poll(() => tree.read(child.threadId)).toEqual({ status: 'completed', toolCalls: 1 });
   // AT-07: the answered approval stays in the tree's history, owner-named, with its decision.
   expect(tree.getAnswered()).toMatchObject([
     {
