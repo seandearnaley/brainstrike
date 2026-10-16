@@ -1,0 +1,548 @@
+[
+  {
+    "event": {
+      "commandId": "d99cd575-cad4-45cc-aada-a687d27ec3b0",
+      "method": "thread/start",
+      "payload": {
+        "commandId": "d99cd575-cad4-45cc-aada-a687d27ec3b0"
+      },
+      "result": {
+        "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 1,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217115
+  },
+  {
+    "event": {
+      "commandId": "d99cd575-cad4-45cc-aada-a687d27ec3b0",
+      "type": "thread.started"
+    },
+    "seq": 2,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217115
+  },
+  {
+    "event": {
+      "commandId": "f21abe0b-15bd-4b46-97cd-03bd779bd340",
+      "method": "run/start",
+      "payload": {
+        "commandId": "f21abe0b-15bd-4b46-97cd-03bd779bd340",
+        "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+        "modelId": "scripted",
+        "prompt": "Read the fixture, then report it."
+      },
+      "result": {
+        "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 3,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217129
+  },
+  {
+    "event": {
+      "modelId": "scripted",
+      "type": "thread.selection.updated"
+    },
+    "seq": 4,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217129
+  },
+  {
+    "event": {
+      "type": "run.started",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "modelId": "scripted",
+      "parentMessageId": null,
+      "prompt": "Read the fixture, then report it.",
+      "snapshot": {
+        "configuration": {},
+        "maxSteps": 3,
+        "toolIdentities": {
+          "read_fixture": "native-fixture-generation-1"
+        }
+      }
+    },
+    "seq": 5,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217129
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "chunk": {
+        "type": "start"
+      }
+    },
+    "seq": 6,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217138
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 7,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217166
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "chunk": {
+        "id": "call_incremental_1",
+        "toolName": "read_fixture",
+        "type": "tool-input-start",
+        "dynamic": false
+      }
+    },
+    "seq": 8,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217321
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "chunk": {
+        "delta": "",
+        "id": "call_incremental_1",
+        "type": "tool-input-delta"
+      }
+    },
+    "seq": 9,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217347
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "chunk": {
+        "delta": "{",
+        "id": "call_incremental_1",
+        "type": "tool-input-delta"
+      }
+    },
+    "seq": 10,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217372
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "chunk": {
+        "delta": "\"path\":\"README.md\"}",
+        "id": "call_incremental_1",
+        "type": "tool-input-delta"
+      }
+    },
+    "seq": 11,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217397
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "chunk": {
+        "id": "call_incremental_1",
+        "type": "tool-input-end"
+      }
+    },
+    "seq": 12,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217423
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "chunk": {
+        "type": "tool-call",
+        "toolCallId": "call_incremental_1",
+        "toolName": "read_fixture",
+        "input": {
+          "path": "README.md"
+        }
+      }
+    },
+    "seq": 13,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217449
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "chunk": {
+        "type": "tool-approval-request",
+        "approvalId": "aitxt-vQHvOx19VnrZurET9RCUlDw3",
+        "toolCall": {
+          "type": "tool-call",
+          "toolCallId": "call_incremental_1",
+          "toolName": "read_fixture",
+          "input": {
+            "path": "README.md"
+          }
+        },
+        "isAutomatic": true
+      }
+    },
+    "seq": 14,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217450
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "chunk": {
+        "type": "tool-approval-response",
+        "approvalId": "aitxt-vQHvOx19VnrZurET9RCUlDw3",
+        "approved": true,
+        "toolCall": {
+          "type": "tool-call",
+          "toolCallId": "call_incremental_1",
+          "toolName": "read_fixture",
+          "input": {
+            "path": "README.md"
+          }
+        }
+      }
+    },
+    "seq": 15,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217451
+  },
+  {
+    "event": {
+      "type": "effect.started",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "input": {
+        "path": "README.md"
+      },
+      "toolCallId": "call_incremental_1",
+      "toolId": "read_fixture",
+      "toolIdentity": "native-fixture-generation-1"
+    },
+    "seq": 16,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217478
+  },
+  {
+    "event": {
+      "type": "effect.finished",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "output": {
+        "content": "hello",
+        "path": "README.md"
+      },
+      "toolCallId": "call_incremental_1"
+    },
+    "seq": 17,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217480
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "chunk": {
+        "type": "tool-result",
+        "toolCallId": "call_incremental_1",
+        "toolName": "read_fixture",
+        "input": {
+          "path": "README.md"
+        },
+        "output": {
+          "content": "hello",
+          "path": "README.md"
+        },
+        "dynamic": false
+      }
+    },
+    "seq": 18,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217492
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "reasoning",
+              "text": "Checking the fixture first."
+            },
+            {
+              "type": "text",
+              "text": "Reading the fixture now."
+            },
+            {
+              "type": "tool-call",
+              "toolCallId": "call_incremental_1",
+              "toolName": "read_fixture",
+              "input": {
+                "path": "README.md"
+              }
+            },
+            {
+              "type": "tool-approval-request",
+              "approvalId": "aitxt-vQHvOx19VnrZurET9RCUlDw3",
+              "toolCallId": "call_incremental_1",
+              "isAutomatic": true
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": [
+            {
+              "type": "tool-approval-response",
+              "approvalId": "aitxt-vQHvOx19VnrZurET9RCUlDw3",
+              "approved": true
+            },
+            {
+              "type": "tool-result",
+              "toolCallId": "call_incremental_1",
+              "toolName": "read_fixture",
+              "output": {
+                "type": "json",
+                "value": {
+                  "content": "hello",
+                  "path": "README.md"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 0,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 2,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 1
+        },
+        "totalTokens": 3
+      }
+    },
+    "seq": 19,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217494
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "tool-calls",
+        "rawFinishReason": "tool_calls",
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 2,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 1
+          },
+          "totalTokens": 3
+        },
+        "performance": {
+          "stepTimeMs": 343.05554200000006,
+          "toolExecutionMs": {
+            "call_incremental_1": 3.0194999999999936
+          },
+          "responseTimeMs": 336.88195800000005,
+          "effectiveOutputTokensPerSecond": 5.936797600778608,
+          "outputTokensPerSecond": 7.053220359880904,
+          "inputTokensPerSecond": 18.753443249389615,
+          "effectiveTotalTokensPerSecond": 8.905196401167911,
+          "timeToFirstOutputMs": 53.32354099999998,
+          "timeBetweenOutputChunksMs": {
+            "min": 25.237792000000013,
+            "p10": 25.237792000000013,
+            "median": 51.77612499999998,
+            "avg": 64.05352100000002,
+            "p90": 102.81441700000005,
+            "max": 102.81441700000005
+          }
+        },
+        "response": {
+          "id": "aitxt-hsSbeYQi9N8q5hmk9mWSeEg2",
+          "timestamp": "2026-10-16T07:53:37.139Z",
+          "modelId": "mock-model-id"
+        }
+      }
+    },
+    "seq": 20,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217503
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 21,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217532
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "The fixture says hello."
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 1,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 2,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 1
+        },
+        "totalTokens": 3
+      }
+    },
+    "seq": 22,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217611
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "stop",
+        "rawFinishReason": "stop",
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 2,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 1
+          },
+          "totalTokens": 3
+        },
+        "performance": {
+          "stepTimeMs": 105.89608400000009,
+          "toolExecutionMs": {},
+          "responseTimeMs": 105.23441700000001,
+          "effectiveOutputTokensPerSecond": 19.005189148337276,
+          "outputTokensPerSecond": 38.242440898745556,
+          "inputTokensPerSecond": 18.89055755480622,
+          "effectiveTotalTokensPerSecond": 28.507783722505916,
+          "timeToFirstOutputMs": 52.936500000000024
+        },
+        "response": {
+          "id": "aitxt-HjPQ1Xitmy8G9u6IeQx2hftX",
+          "timestamp": "2026-10-16T07:53:37.505Z",
+          "modelId": "mock-model-id"
+        }
+      }
+    },
+    "seq": 23,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217617
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "chunk": {
+        "type": "finish",
+        "finishReason": "stop",
+        "rawFinishReason": "stop",
+        "totalUsage": {
+          "inputTokens": 2,
+          "inputTokenDetails": {
+            "noCacheTokens": 2,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 4,
+          "outputTokenDetails": {
+            "textTokens": 2,
+            "reasoningTokens": 2
+          },
+          "totalTokens": 6
+        }
+      }
+    },
+    "seq": 24,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217622
+  },
+  {
+    "event": {
+      "type": "run.finished",
+      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "outcome": "completed"
+    },
+    "seq": 25,
+    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+    "ts": 1792137217624
+  }
+]

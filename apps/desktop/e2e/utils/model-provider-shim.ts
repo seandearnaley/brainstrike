@@ -433,6 +433,18 @@ function writeEventStreamHead(response: ServerResponse): void {
   });
 }
 
+/**
+ * One call's arguments as OpenRouter streams them for chat-completions models
+ * (GLM, Muse, Qwen; recorded 2026-10-16): the call opens with its name and
+ * EMPTY arguments, a continuation carries no argument text yet, then the JSON
+ * arrives in fragments. The provider turns this into `tool-input-start`, an
+ * empty `tool-input-delta`, then one delta per fragment.
+ */
+function openRouterArgumentFrames(call: ScriptedToolCall): readonly string[] {
+  const json = JSON.stringify(call.arguments);
+  return ['', json.slice(0, 1), json.slice(1)];
+}
+
 async function writeStreamingToolCall(
   response: ServerResponse,
   calls: readonly ScriptedToolCall[],
@@ -440,33 +452,33 @@ async function writeStreamingToolCall(
 ): Promise<void> {
   const { created, id } = completionIdentity();
   const toolCallIds = calls.map(() => `call_e2e_${randomUUID()}`);
-  writeEventStreamHead(response);
-  response.write(
+  const delta = (value: Record<string, unknown>) =>
     sseChunk({
-      choices: [
-        {
-          delta: {
-            role: 'assistant',
-            ['tool_calls']: calls.map((call, index) => ({
-              function: {
-                arguments: JSON.stringify(call.arguments),
-                name: call.name,
-              },
-              id: toolCallIds[index],
-              index,
-              type: 'function',
-            })),
-          },
-          ['finish_reason']: null,
-          index: 0,
-        },
-      ],
+      choices: [{ delta: value, ['finish_reason']: null, index: 0 }],
       created,
       id,
       model: 'e2e-scripted-model',
       object: 'chat.completion.chunk',
-    })
-  );
+    });
+  writeEventStreamHead(response);
+  for (const [index, call] of calls.entries()) {
+    response.write(
+      delta({
+        role: 'assistant',
+        ['tool_calls']: [
+          {
+            function: { arguments: '', name: call.name },
+            id: toolCallIds[index],
+            index,
+            type: 'function',
+          },
+        ],
+      })
+    );
+    for (const fragment of openRouterArgumentFrames(call)) {
+      response.write(delta({ ['tool_calls']: [{ function: { arguments: fragment }, index }] }));
+    }
+  }
   await beforeFinish;
   response.write(
     sseChunk({

@@ -1,3 +1,4 @@
+import { createLogger } from '@brainstrike/logging';
 import {
   CommittedAssistantLogProjection,
   type CommittedAssistantLogProjectionOptions,
@@ -8,6 +9,7 @@ import type {
   CommittedAssistantSnapshot,
   CommittedAssistantStore,
 } from './committed-assistant-store';
+import { CommittedRowUnreadableError } from './committed-host-event-readers';
 import { type ThreadTokenUsage, useContextUsageStore } from './context-usage-store';
 import type { LiveShellOutputs } from './live-shell-outputs';
 import { displayedBranchRunIds, ThreadContextFold } from './thread-context-fold';
@@ -16,6 +18,8 @@ import {
   type ThreadContextRecord,
   useThreadContextStore,
 } from './thread-context-store';
+
+const logger = createLogger('CommittedAssistantLogStore');
 
 /** Owner view fields pass through; this source has already applied committed gap ordering. */
 export interface CommittedAssistantLogSourceSnapshot {
@@ -49,6 +53,12 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
   readonly threadId: string;
   readonly liveShellOutputs: LiveShellOutputs | undefined;
   private readonly projection: CommittedAssistantLogProjection;
+  /**
+   * Why the presentation stopped: a committed row it could not read. The view
+   * stays at the last row it showed, and says so, rather than throwing into the
+   * owner's event delivery, which would freeze it silently.
+   */
+  private failure: string | undefined;
   private readonly listeners = new Set<() => void>();
   /** This store's last record in the thread context store, if any. */
   private recordedContext: ThreadContextRecord | undefined;
@@ -64,7 +74,7 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
     let displayedBreakdown: CommittedAssistantLogView['contextBreakdown'];
     const read = (): CommittedAssistantSnapshot => {
       const source = options.source.getSnapshot();
-      const view = this.projection.acceptCommitted(source.rows);
+      const view = this.fold(() => this.projection.acceptCommitted(source.rows));
       // The thread context map's fold reads the same rows (ADR-0021).
       const snapshot = contextFold.accept(source.rows);
       const branchRunIds = displayedBranchRunIds(view.repository, snapshot.runs);
@@ -85,7 +95,7 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
         connection:
           source.error === undefined ? (source.connected ? 'connected' : 'disconnected') : 'failed',
         contextUsage: view.contextUsage,
-        error: source.error,
+        error: this.failure ?? source.error,
         extras: source.extras,
         isDisabled: source.isDisabled,
         isLoading: source.isLoading ?? false,
@@ -127,13 +137,37 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
    * and reasoning show in the open step until its committed parts replace them.
    */
   acceptTelemetry(runId: string, chunk: unknown): void {
-    const view = this.projection.acceptLive(runId, chunk);
-    if (view.repository === this.snapshot.repository) {
+    const view = this.fold(() => this.projection.acceptLive(runId, chunk));
+    const error = this.failure ?? this.snapshot.error;
+    if (view.repository === this.snapshot.repository && error === this.snapshot.error) {
       return;
     }
-    this.snapshot = { ...this.snapshot, repository: view.repository };
+    this.snapshot = { ...this.snapshot, error, repository: view.repository };
     for (const listener of this.listeners) {
       listener();
+    }
+  }
+
+  /**
+   * Apply committed rows or live chunks to the presentation until it meets one
+   * it cannot read; from then on it holds its last view and the failure.
+   */
+  private fold(apply: () => CommittedAssistantLogView): CommittedAssistantLogView {
+    if (this.failure !== undefined) {
+      return this.projection.getSnapshot();
+    }
+    try {
+      return apply();
+    } catch (cause) {
+      this.failure =
+        cause instanceof CommittedRowUnreadableError
+          ? cause.message
+          : `This conversation cannot be shown: ${cause instanceof Error ? cause.message : String(cause)}`;
+      logger.error('Committed conversation presentation stopped', {
+        error: cause,
+        threadId: this.threadId,
+      });
+      return this.projection.getSnapshot();
     }
   }
 

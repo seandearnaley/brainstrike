@@ -285,4 +285,24 @@ describe('model provider shim', () => {
       'final-text',
     ]);
   });
+
+  it('streams a call as OpenRouter does: empty arguments first, then fragments', async () => {
+    shim = await startModelProviderShim(child);
+    const response = await fetch(`${shim.baseUrl}/chat/completions`, {
+      body: JSON.stringify({ messages: [{ content: 'Read it', role: 'user' }], stream: true }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    const frames = (await response.text())
+      .split('\n\n')
+      .map((event) => event.replace(/^data: /u, ''))
+      .filter((data) => data.startsWith('{'))
+      .flatMap((data) => JSON.parse(data).choices[0].delta.tool_calls ?? []);
+    expect(frames[0]).toMatchObject({ function: { arguments: '', name: 'read_file' } });
+    expect(frames.slice(1).map((frame) => frame.function.arguments)).toEqual([
+      '',
+      '{',
+      '"path":"fixture.txt"}',
+    ]);
+  });
 });

@@ -34,6 +34,7 @@ import { activityTraceShowsEnd } from './assistant-activity-grouping';
 import { committedApprovalOptions } from './committed-approval-options';
 import { committedFileNotices } from './committed-file-notices';
 import {
+  CommittedRowUnreadableError,
   committedAttachments,
   committedStreamData,
   HOST_EVENT_DATA_NAME,
@@ -42,6 +43,7 @@ import {
   readRunAttempt,
   record,
   requiredString,
+  requiredText,
   worktreeCreatedNotice,
 } from './committed-host-event-readers';
 import { CommittedRewindHead, type CommittedRewindHeadMove } from './committed-rewind-head';
@@ -309,6 +311,8 @@ function incompleteReason(outcome: unknown): 'cancelled' | 'error' | 'other' {
  */
 export class CommittedAssistantLogProjection {
   private cursor = 0;
+  /** The first committed row this projection could not read; it folds nothing after it. */
+  private failure: CommittedRowUnreadableError | undefined;
   private readonly runs = new Map<string, ProjectedRun>();
   private readonly messageIndexes = new Map<string, number>();
   private readonly rewinds = new CommittedRewindHead();
@@ -325,6 +329,9 @@ export class CommittedAssistantLogProjection {
   readonly getSnapshot = (): CommittedAssistantLogView => this.view;
 
   acceptCommitted(rows: readonly CommittedAssistantLogRow[]): CommittedAssistantLogView {
+    if (this.failure) {
+      throw this.failure;
+    }
     for (const row of rows) {
       if (row.threadId !== this.options.threadId || row.seq <= this.cursor) {
         continue;
@@ -332,7 +339,17 @@ export class CommittedAssistantLogProjection {
       if (row.seq !== this.cursor + 1) {
         throw new Error('Rich projection requires the owner’s contiguous committed prefix.');
       }
-      this.apply(row);
+      const before = this.view;
+      try {
+        this.apply(row);
+      } catch (cause) {
+        // The view is immutable, so the last good one is restored whole. The
+        // run maps may hold the row's partial writes, so the projection stays
+        // failed rather than folding later rows over them.
+        this.view = before;
+        this.failure = new CommittedRowUnreadableError(row, cause);
+        throw this.failure;
+      }
       this.cursor = row.seq;
     }
     return this.view;
@@ -622,7 +639,7 @@ export class CommittedAssistantLogProjection {
    * deltas into the committed transcript (ADR-0011 amendment).
    */
   acceptLive(runId: string, chunk: unknown): CommittedAssistantLogView {
-    const run = this.runs.get(runId);
+    const run = this.failure ? undefined : this.runs.get(runId);
     const entry = run?.stepOpen && !run.terminal ? liveOverlayEntry(run.step, chunk) : undefined;
     if (run && entry) {
       run.overlay.add(entry.key);
@@ -757,7 +774,7 @@ export class CommittedAssistantLogProjection {
       this.tool(run, { ...chunk, toolCallId: id });
       if (!run.authoritativeInputs.has(id)) {
         this.updateTool(run, id, (part) => {
-          const argsText = part.argsText + requiredString(chunk, 'delta');
+          const argsText = part.argsText + requiredText(chunk, 'delta');
           return { ...part, args: parsePartialJsonObject(argsText) ?? {}, argsText };
         });
       }
