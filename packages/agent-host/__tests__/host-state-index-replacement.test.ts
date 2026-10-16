@@ -1,7 +1,7 @@
 import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import { createIndexerConnection, type IndexerTransport } from '@brainstrike/indexer/transport';
-import { expect, it } from 'vitest';
-import { createStateIndexOwner } from '../src/host-state-index.js';
+import { expect, it, vi } from 'vitest';
+import { createStateIndexOwner } from '../src/host-state-index-owner.js';
 
 const dbPath = '/state/state-index.sqlite';
 const options = { dbPath, embedding: { indexMode: 'text-only' }, rootIds: ['/state'] };
@@ -18,24 +18,40 @@ const info = {
 };
 const healthy = { indexerErrors: [] };
 
-/** How the fake worker answers one `state-health` request: never, served, or refused. */
-type Health = 'hang' | 'serve' | 'refuse';
+/**
+ * How a fake worker answers one `state-health` request: never (its deadline
+ * retires it), served, refused by a live worker, or with a frame no request
+ * asked for (a protocol failure, which also retires it).
+ */
+type Answer = 'hang' | 'serve' | 'refuse' | 'garble';
 
-/** Never reports ready, and refuses termination until the test sets `killable`. */
-interface Stuck {
+/** One fake worker, speaking the real indexer frames over the real connection. */
+interface FakeWorker {
+  /** Requests are answered in this order; the last answer repeats. */
+  readonly answers: readonly Answer[];
+  /** The process dies on its own. */
+  crash: () => void;
+  /** False: it refuses termination, so its exit cannot be joined. */
   killable: boolean;
-  readonly stuck: true;
+  kills: number;
+  /** False: it never reports ready, so its startup deadline retires it. */
+  readonly starts: boolean;
 }
 
-/** A worker that answers each request as listed, one that never reports ready, or a stuck one. */
-type Worker = readonly Health[] | 'unstartable' | Stuck;
+function fake(
+  answers: readonly Answer[],
+  overrides: { readonly starts?: boolean; readonly killable?: boolean } = {}
+): FakeWorker {
+  return {
+    answers,
+    crash: () => undefined,
+    killable: overrides.killable ?? true,
+    kills: 0,
+    starts: overrides.starts ?? true,
+  };
+}
 
-/**
- * A worker speaking the real indexer frames over the real connection. It answers
- * its requests in `answers` order, repeating the last. A request it never
- * answers meets that connection's own deadline, which retires it.
- */
-function worker(answers: Worker): IndexerTransport {
+function transport(worker: FakeWorker): IndexerTransport {
   const exits = new Set<() => void>();
   const messages = new Set<(message: unknown) => void>();
   const deliver = (frame: unknown): void =>
@@ -44,19 +60,24 @@ function worker(answers: Worker): IndexerTransport {
         listener(frame);
       }
     });
-  const exit = (): boolean => {
+  const exit = (): void =>
     queueMicrotask(() => {
       for (const listener of exits) {
         listener();
       }
     });
-    return true;
-  };
+  worker.crash = exit;
   let started = false;
   let served = 0;
-  const stuck = typeof answers === 'object' && 'stuck' in answers ? answers : undefined;
   return {
-    kill: () => (stuck && !stuck.killable ? false : exit()),
+    kill: () => {
+      worker.kills += 1;
+      if (!worker.killable) {
+        return false;
+      }
+      exit();
+      return true;
+    },
     onError: () => () => {},
     onExit: (listener) => {
       exits.add(listener);
@@ -73,56 +94,59 @@ function worker(answers: Worker): IndexerTransport {
     send: (message) => {
       if (!started) {
         started = true;
-        if (Array.isArray(answers)) {
+        if (worker.starts) {
           deliver({ kind: 'ready', value: info });
         }
         return;
       }
       const { id, op } = message as { readonly id: number; readonly op: string };
-      const health = Array.isArray(answers)
-        ? answers[Math.min(served++, answers.length - 1)]
-        : 'hang';
       if (op === 'close') {
         deliver({ id, kind: 'response', ok: true, value: true });
         exit();
-      } else if (health === 'serve') {
+        return;
+      }
+      const answer = worker.answers[Math.min(served++, worker.answers.length - 1)];
+      if (answer === 'serve') {
         deliver({ id, kind: 'response', ok: true, value: healthy });
-      } else if (health === 'refuse') {
+      } else if (answer === 'refuse') {
         deliver({
           error: { code: 'invalid-request', message: 'refused' },
           id,
           kind: 'response',
           ok: false,
         });
+      } else if (answer === 'garble') {
+        deliver({ id: id + 1000, kind: 'response', ok: true, value: healthy });
       }
     },
   };
 }
 
-/** An owner whose nth worker answers as `workers[n]` says; later workers repeat the last. */
-function owner(workers: readonly Worker[]) {
+/** An owner whose nth worker is `workers[n]`; later workers repeat the last. */
+function owner(workers: readonly FakeWorker[]) {
   let starts = 0;
-  const created = createStateIndexOwner({
+  const index = createStateIndexOwner({
     dbPath,
     start: () => {
-      const answers = workers[Math.min(starts, workers.length - 1)] ?? ['serve'];
+      const worker = workers[Math.min(starts, workers.length - 1)] ?? fake(['serve']);
       starts += 1;
-      return createIndexerConnection(options, deadlines, worker(answers));
+      return createIndexerConnection(options, deadlines, transport(worker));
     },
   });
-  return { owner: created, starts: () => starts };
+  return { index, starts: () => starts };
 }
 
-it('replaces a worker its request deadline retired; the timed-out request fails typed, unretried', async () => {
-  const { owner: index, starts } = owner([['hang'], ['serve']]);
+const typed = (code: string) => ({ failure: { code, kind: 'fault' } });
+const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+it('a request deadline retires its worker: that request fails typed and unretried, the next is replaced', async () => {
+  const { index, starts } = owner([fake(['hang']), fake(['serve'])]);
   await index.open();
 
   const timedOut = await index.port.stateHealth().catch((error: unknown) => error);
   expect(timedOut).toBeInstanceOf(BoundaryFailureError);
-  expect((timedOut as BoundaryFailureError).failure).toMatchObject({
-    category: 'timeout',
-    code: 'state-index.request-timeout',
-    kind: 'fault',
+  expect(timedOut).toMatchObject({
+    failure: { category: 'timeout', code: 'state-index.request-timeout', kind: 'fault' },
   });
   expect(starts()).toBe(1);
 
@@ -131,31 +155,113 @@ it('replaces a worker its request deadline retired; the timed-out request fails 
   await index.close();
 });
 
-it('stops replacing after three retirements in a row with no served request', async () => {
-  const { owner: index, starts } = owner([['hang']]);
+it('a protocol failure retires its worker the same way', async () => {
+  const { index, starts } = owner([fake(['garble']), fake(['serve'])]);
+  await index.open();
+  await expect(index.port.stateHealth()).rejects.toMatchObject(typed('state-index.unavailable'));
+  await expect(index.port.stateHealth()).resolves.toEqual(healthy);
+  expect(starts()).toBe(2);
+  await index.close();
+});
+
+it('a worker that exits between requests is replaced before any request reaches it', async () => {
+  const first = fake(['serve']);
+  const { index, starts } = owner([first, fake(['serve'])]);
+  await index.open();
+  await expect(index.port.stateHealth()).resolves.toEqual(healthy);
+
+  first.crash();
+  await settle();
+  await expect(index.port.stateHealth()).resolves.toEqual(healthy);
+  expect(starts()).toBe(2);
+  await index.close();
+});
+
+it('a replacement that never starts fails typed, and the next request replaces it again', async () => {
+  const { index, starts } = owner([
+    fake(['hang']),
+    fake(['serve'], { starts: false }),
+    fake(['serve']),
+  ]);
+  await index.open();
+  await expect(index.port.stateHealth()).rejects.toMatchObject(
+    typed('state-index.request-timeout')
+  );
+
+  await expect(index.port.stateHealth()).rejects.toMatchObject(
+    typed('state-index.request-timeout')
+  );
+  expect(starts()).toBe(2);
+  await expect(index.port.stateHealth()).resolves.toEqual(healthy);
+  expect(starts()).toBe(3);
+  await index.close();
+});
+
+it('a timed-out worker whose exit cannot be joined is never asked again, and nothing starts beside it', async () => {
+  const stuck = fake(['hang'], { killable: false });
+  const { index, starts } = owner([stuck, fake(['serve'])]);
+  await index.open();
+  await expect(index.port.stateHealth()).rejects.toMatchObject(typed('state-index.unavailable'));
+  const killed = stuck.kills;
+
+  // The next request joins its exit (another termination attempt), not its failed client.
+  await expect(index.port.stateHealth()).rejects.toMatchObject(typed('state-index.unavailable'));
+  expect(stuck.kills).toBeGreaterThan(killed);
+  expect(starts()).toBe(1);
+
+  stuck.killable = true;
+  await expect(index.port.stateHealth()).resolves.toEqual(healthy);
+  expect(starts()).toBe(2);
+  await index.close();
+});
+
+it('a failed replacement whose exit cannot be joined stays owned; nothing starts beside it', async () => {
+  const replacement = fake(['serve'], { killable: false, starts: false });
+  const { index, starts } = owner([fake(['hang']), replacement, fake(['serve'])]);
+  await index.open();
+  await expect(index.port.stateHealth()).rejects.toBeInstanceOf(BoundaryFailureError);
+
+  await expect(index.port.stateHealth()).rejects.toBeInstanceOf(BoundaryFailureError);
+  expect(starts()).toBe(2);
+  await expect(index.port.stateHealth()).rejects.toMatchObject(typed('state-index.unavailable'));
+  expect(starts()).toBe(2);
+
+  replacement.killable = true;
+  await expect(index.port.stateHealth()).resolves.toEqual(healthy);
+  expect(starts()).toBe(3);
+  await index.close();
+});
+
+it('stops after three replacements in a row with no request served, refused with a remedy', async () => {
+  const { index, starts } = owner([fake(['hang'])]);
   await index.open();
   for (let attempt = 0; attempt < 4; attempt++) {
-    await expect(index.port.stateHealth()).rejects.toMatchObject({
-      failure: { code: 'state-index.request-timeout' },
-    });
+    await expect(index.port.stateHealth()).rejects.toMatchObject(
+      typed('state-index.request-timeout')
+    );
   }
   expect(starts()).toBe(4);
 
-  // Final: a refusal with a remedy, which nothing re-opens automatically.
+  // Final: a refusal, which nothing re-opens automatically.
   await expect(index.port.stateHealth()).rejects.toMatchObject({
-    failure: { category: 'availability', code: 'state-index.retired', kind: 'refusal' },
+    failure: {
+      category: 'availability',
+      code: 'state-index.retired',
+      kind: 'refusal',
+      remedy: 'Restart BrainStrike.',
+    },
   });
   expect(starts()).toBe(4);
   await index.close();
 });
 
 it('a served request ends the streak, so a later retirement is replaced again', async () => {
-  const { owner: index, starts } = owner([
-    ['hang'],
-    ['hang'],
-    ['hang'],
-    ['serve', 'hang'],
-    ['serve'],
+  const { index, starts } = owner([
+    fake(['hang']),
+    fake(['hang']),
+    fake(['hang']),
+    fake(['serve', 'hang']),
+    fake(['serve']),
   ]);
   await index.open();
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -170,52 +276,8 @@ it('a served request ends the streak, so a later retirement is replaced again', 
   await index.close();
 });
 
-it('a replacement that never starts fails typed too, and the next request replaces it again', async () => {
-  const { owner: index, starts } = owner([['hang'], 'unstartable', ['serve']]);
-  await index.open();
-  await expect(index.port.stateHealth()).rejects.toMatchObject({
-    failure: { code: 'state-index.request-timeout' },
-  });
-
-  const unstarted = await index.port.stateHealth().catch((error: unknown) => error);
-  expect(unstarted).toBeInstanceOf(BoundaryFailureError);
-  expect((unstarted as BoundaryFailureError).failure).toMatchObject({
-    category: 'timeout',
-    code: 'state-index.request-timeout',
-    kind: 'fault',
-  });
-  expect(starts()).toBe(2);
-
-  await expect(index.port.stateHealth()).resolves.toEqual(healthy);
-  expect(starts()).toBe(3);
-  await index.close();
-});
-
-it('never starts a worker beside a failed replacement whose exit it could not join', async () => {
-  const replacement: Stuck = { killable: false, stuck: true };
-  const { owner: index, starts } = owner([['hang'], replacement, ['serve']]);
-  await index.open();
-  await expect(index.port.stateHealth()).rejects.toBeInstanceOf(BoundaryFailureError);
-
-  // The replacement never starts, and neither its startup nor its close can stop it.
-  await expect(index.port.stateHealth()).rejects.toMatchObject({
-    failure: { code: 'state-index.unavailable' },
-  });
-  expect(starts()).toBe(2);
-  // It stays owned: a request joins it first, and starts nothing while that fails.
-  await expect(index.port.stateHealth()).rejects.toMatchObject({
-    failure: { code: 'state-index.unavailable' },
-  });
-  expect(starts()).toBe(2);
-
-  replacement.killable = true;
-  await expect(index.port.stateHealth()).resolves.toEqual(healthy);
-  expect(starts()).toBe(3);
-  await index.close();
-});
-
 it('keeps a live worker that refuses a request, and passes its refusal through untyped', async () => {
-  const { owner: index, starts } = owner([['refuse']]);
+  const { index, starts } = owner([fake(['refuse'])]);
   await index.open();
   const refused = await index.port.stateHealth().catch((error: unknown) => error);
   expect(refused).not.toBeInstanceOf(BoundaryFailureError);
@@ -223,4 +285,29 @@ it('keeps a live worker that refuses a request, and passes its refusal through u
   await expect(index.port.stateHealth()).rejects.toMatchObject({ code: 'invalid-request' });
   expect(starts()).toBe(1);
   await index.close();
+});
+
+it('close stops a replacement still starting, and nothing starts after it', async () => {
+  const { index, starts } = owner([fake(['hang']), fake(['serve'], { starts: false })]);
+  await index.open();
+  await expect(index.port.stateHealth()).rejects.toBeInstanceOf(BoundaryFailureError);
+
+  const replacing = index.port.stateHealth();
+  replacing.catch(() => undefined);
+  await vi.waitFor(() => expect(starts()).toBe(2));
+  await index.close();
+  await expect(replacing).rejects.toBeDefined();
+  await expect(index.port.stateHealth()).rejects.toThrow('Host resource owner is closing');
+  expect(starts()).toBe(2);
+});
+
+it('close keeps ownership of a retired worker it cannot join, and reports it', async () => {
+  const stuck = fake(['hang'], { killable: false });
+  const { index, starts } = owner([stuck]);
+  await index.open();
+  await expect(index.port.stateHealth()).rejects.toBeInstanceOf(BoundaryFailureError);
+
+  await expect(index.close()).rejects.toBeDefined();
+  await expect(index.port.stateHealth()).rejects.toThrow('Host resource owner is closing');
+  expect(starts()).toBe(1);
 });
