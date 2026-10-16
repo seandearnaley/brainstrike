@@ -17,6 +17,30 @@ export function electronExecutablePath(): string {
   return value;
 }
 
+/**
+ * The `electron` version a real-app proof must report in `process.versions`,
+ * read from the installed package's own manifest rather than pinned in a spec.
+ *
+ * The catalog declares a RANGE (`electron: ^44.7.2`), so no literal in a test
+ * stays true across a bump; the installed manifest is the one place that names
+ * the exact version `require('electron')` resolves to, which is the binary
+ * {@link electronExecutablePath} launches. A test that overrides the executable
+ * and points at a DIFFERENT Electron fails here on purpose: these proofs
+ * qualify the Electron this app installs, and a qualified binary that disagrees
+ * with the catalog is the inconsistency, not a false failure.
+ */
+export function installedElectronVersion(): string {
+  const manifest: unknown = createRequire(import.meta.url)('electron/package.json');
+  const version =
+    typeof manifest === 'object' && manifest !== null && 'version' in manifest
+      ? (manifest as { readonly version: unknown }).version
+      : undefined;
+  if (typeof version !== 'string' || version.length === 0) {
+    throw new TypeError('Installed electron package did not expose its version');
+  }
+  return version;
+}
+
 /** Linux's X11/Wayland session, and an explicit sandbox opt-out the machine set. */
 const SESSION_VARIABLES = [
   'DISPLAY',

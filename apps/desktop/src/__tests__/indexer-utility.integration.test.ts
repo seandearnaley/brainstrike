@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import { build } from 'esbuild';
 import { describe, expect, it } from 'vitest';
 import { MAIN_PROCESS_BUILD_OPTIONS } from '../../scripts/build-main-config.mjs';
+import { installedElectronVersion } from './helpers/electron-executable';
 
 const execute = promisify(execFile);
 const require = createRequire(import.meta.url);
@@ -62,7 +63,7 @@ describe('actual Electron indexer utility process', () => {
         console.log(stdout);
         expect(stdout).toContain(`INDEXER_UTILITY_PROOF_OK:${mode}`);
         if (mode === 'positive') {
-          expect(stdout).toContain('"electron":"44.4.5"');
+          expect(stdout).toContain(`"electron":"${installedElectronVersion()}"`);
         }
         expect(stderr).not.toContain('UnhandledPromiseRejection');
       } finally {

@@ -1,6 +1,8 @@
+import { realpathSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { ElectronApplication, Page } from 'playwright';
 import { APP_RENDERER_ORIGIN } from '../src/desktop-renderer-origin';
@@ -39,24 +41,50 @@ async function openSearchIndexingSettings(args: { homePage: HomePage; page: Page
 const ORT_WASM_REQUESTS_KEY = '__brainstrikeE2eOrtWasmRequests' as const;
 
 /**
- * Records every ONNX Runtime WASM request any window or worker sends outside the app's
- * own bundled origin, through the session's request hook in Main (BST-2003). The app
- * installs no onBeforeRequest listener of its own, so this observes without replacing one.
+ * The app's own bundled renderer directory, as a `file://` prefix.
+ *
+ * `renderer-protocol.ts` fulfils every `brainstrike-app://bundle/...` GET with
+ * `net.fetch(pathToFileURL(resource))`, AFTER proving with `realpath` that the
+ * resource is confined to this directory. `net.fetch` runs on the session the
+ * hook below watches, so the app serving its OWN bundle appears there as a
+ * `file://` request to a path inside this directory — which is precisely what
+ * BST-2003 requires, not a violation of it. `realpathSync` here because the
+ * handler resolves the served path the same way.
+ */
+const APP_BUNDLE_FILE_URL_PREFIX = `${
+  pathToFileURL(realpathSync(resolve(import.meta.dirname, '../dist/renderer'))).href
+}/`;
+
+/**
+ * Records every ONNX Runtime WASM request that does NOT come from the app's own
+ * bundle, through the session's request hook in Main (BST-2003). The app installs no
+ * onBeforeRequest listener of its own, so this observes without replacing one.
+ *
+ * Two shapes are the app serving itself and are not recorded: the renderer origin,
+ * and a `file://` read inside {@link APP_BUNDLE_FILE_URL_PREFIX} (how the renderer
+ * protocol fulfils that origin). A CDN fetch, or a `file://` read from outside the
+ * bundle, still is.
  */
 async function recordOrtWasmRequests(app: ElectronApplication): Promise<void> {
   await app.evaluate(
-    ({ session }, { appOrigin, key }) => {
+    ({ session }, { appOrigin, bundlePrefix, key }) => {
       const seen: string[] = [];
       Reflect.set(globalThis, key, seen);
       session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
         const url = new URL(details.url);
-        if (!details.url.startsWith(`${appOrigin}/`) && /ort-wasm/u.test(url.pathname)) {
+        const fromAppBundle =
+          details.url.startsWith(`${appOrigin}/`) || details.url.startsWith(bundlePrefix);
+        if (!fromAppBundle && /ort-wasm/u.test(url.pathname)) {
           seen.push(details.url);
         }
         callback({});
       });
     },
-    { appOrigin: APP_RENDERER_ORIGIN, key: ORT_WASM_REQUESTS_KEY }
+    {
+      appOrigin: APP_RENDERER_ORIGIN,
+      bundlePrefix: APP_BUNDLE_FILE_URL_PREFIX,
+      key: ORT_WASM_REQUESTS_KEY,
+    }
   );
 }
 
@@ -286,7 +314,8 @@ test.describe('Workspace Index first run (desktop)', () => {
         );
         // BST-2003: ONNX Runtime's WASM comes from the app's own files, never a CDN.
         // The semantic hits above prove ONNX Runtime ran; the session hook records every
-        // request outside the app's bundled origin, so any request it saw is a failure.
+        // ORT WASM request that did not come from the app's own bundle, so any request it
+        // saw is a failure.
         expect(await readOrtWasmRequests(app)).toEqual([]);
         await testInfo.attach('ui-created-index', {
           body: JSON.stringify(
