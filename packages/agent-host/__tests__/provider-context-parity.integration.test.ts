@@ -911,7 +911,7 @@ test.for([
           .messages
       ).toEqual([
         { content: [{ text: HOST_THREAD_TITLE_INSTRUCTIONS, type: 'text' }], role: 'system' },
-        { content: 'Read README.md', role: 'user' },
+        { content: '<message>\nRead README.md\n</message>', role: 'user' },
       ]);
       const body = z
         .object({ messages: z.array(z.json()), model: z.literal(modelId), stream: z.literal(true) })

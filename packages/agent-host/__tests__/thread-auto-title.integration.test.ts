@@ -1,8 +1,8 @@
 /**
  * Host auto-titles: the first run of an untitled thread asks the run's own
- * model for a title beside its answer, and a completed or stopped run commits
- * it as `thread.updated`. A user rename always wins, and a titled thread is
- * never retitled.
+ * model to title the quoted user message beside its answer, and commits the
+ * title as `thread.updated` as soon as it answers. A user rename always wins,
+ * and a titled thread is never retitled.
  */
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -15,7 +15,10 @@ import { afterEach, expect, onTestFinished, test, vi } from 'vitest';
 import { attachAgentHost, type HostClient } from '../src/client.js';
 import type { HostPlatform } from '../src/ports.js';
 import { type AgentHost, startAgentHost } from '../src/runtime.js';
-import { HOST_THREAD_TITLE_TIMEOUT_MS } from '../src/thread-presentation-state.js';
+import {
+  HOST_THREAD_TITLE_INSTRUCTIONS,
+  HOST_THREAD_TITLE_TIMEOUT_MS,
+} from '../src/thread-presentation-state.js';
 
 type Chunk =
   Awaited<ReturnType<MockLanguageModelV4['doStream']>>['stream'] extends ReadableStream<infer C>
@@ -216,6 +219,83 @@ test('the title is requested while the first run streams, not after its answer',
   await completed(client, threadId, 'Plan a rollback for the release');
   await expect.poll(() => titleOf(client, threadId)).toBe('Release rollback plan');
   expect(model.doGenerateCalls).toHaveLength(1);
+});
+
+test('the title commits as soon as it answers, while the answer is still streaming', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-auto-title-'));
+  roots.push(root);
+  const answer = Promise.withResolvers<void>();
+  const model = new MockLanguageModelV4({
+    doGenerate: async () => titleResult('Release rollback plan'),
+    // The answer holds its finish until the test releases it.
+    doStream: async ({ abortSignal }) => ({ stream: heldStream(answer.promise, abortSignal) }),
+  });
+  const client = await open(root, model);
+  const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+  const { runId } = await client.request('run/start', {
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Plan a rollback for the release',
+    threadId,
+  });
+  await expect.poll(() => titleOf(client, threadId)).toBe('Release rollback plan');
+  expect(await finished(client, threadId, runId)).toBeUndefined();
+
+  answer.resolve();
+  await expect
+    .poll(() => finished(client, threadId, runId))
+    .toMatchObject({ outcome: 'completed' });
+  const { rows } = await client.request('thread/read', { fromSeq: 0, threadId });
+  const types = rows.map(({ event }) => event.type);
+  expect(types.filter((type) => type === 'thread.updated')).toHaveLength(1);
+  expect(types.indexOf('thread.updated')).toBeLessThan(types.indexOf('run.finished'));
+});
+
+test('a title that arrived before the run failed stays committed', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-auto-title-'));
+  roots.push(root);
+  const fail = Promise.withResolvers<void>();
+  const model = new MockLanguageModelV4({
+    doGenerate: async () => titleResult('Release rollback plan'),
+    // The answer fails only once the test has seen the committed title.
+    doStream: async () => {
+      await fail.promise;
+      throw new Error('Offline answer failure');
+    },
+  });
+  const client = await open(root, model);
+  const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+  const { runId } = await client.request('run/start', {
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Plan a rollback for the release',
+    threadId,
+  });
+  await expect.poll(() => titleOf(client, threadId)).toBe('Release rollback plan');
+
+  fail.resolve();
+  await expect.poll(() => finished(client, threadId, runId)).toMatchObject({ outcome: 'failed' });
+  expect(await titleOf(client, threadId)).toBe('Release rollback plan');
+});
+
+test("the title request quotes the user's message as material to title, not a task", async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-auto-title-'));
+  roots.push(root);
+  const model = titledModel(async () => 'Release rollback plan');
+  const client = await open(root, model);
+  const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+
+  await completed(client, threadId, 'Plan a rollback for the release');
+  expect(model.doGenerateCalls).toHaveLength(1);
+  expect(model.doGenerateCalls[0]?.prompt).toMatchObject([
+    { content: HOST_THREAD_TITLE_INSTRUCTIONS, role: 'system' },
+    {
+      content: [{ text: '<message>\nPlan a rollback for the release\n</message>', type: 'text' }],
+      role: 'user',
+    },
+  ]);
+  // The instructions name that framing: the message is quoted material, never a task.
+  expect(HOST_THREAD_TITLE_INSTRUCTIONS).toContain('<message>');
 });
 
 test('a title that arrived before Stop is kept', async () => {

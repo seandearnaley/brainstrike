@@ -268,9 +268,9 @@ test.each(cases)('%s HTTP 400 (%s) commits a failed run', async (provider, messa
   expect(rows.some((row) => row.event.type === 'model.step')).toBe(false);
   expect(rows.some((row) => row.event.type === 'effect.started')).toBe(false);
   expect(terminal.outcome).toBe('failed');
-  // The thread's title is requested beside the answer; a failed run commits none.
+  // The thread's title is requested beside the answer, whatever the run's outcome
+  // (its commit belongs to thread-auto-title).
   expect(titleRequests).toBe(1);
-  expect(titleCommitted(rows)).toBe(false);
 });
 
 // The providers' documented rejected-key envelopes.
@@ -298,7 +298,7 @@ test.each(['openai', 'anthropic'] as const)(
   '%s HTTP 401 fails at once with the credential remedy first',
   async (provider) => {
     const expected = rejectedKey[provider];
-    const { rows, runRequests, terminal, titleRequests } = await runAgainstProviderHttp(
+    const { runRequests, terminal, titleRequests } = await runAgainstProviderHttp(
       provider,
       () =>
         new Response(JSON.stringify(expected.body), {
@@ -316,7 +316,6 @@ test.each(['openai', 'anthropic'] as const)(
         `Provider response: ${expected.providerMessage}`
     );
     expect(titleRequests).toBe(1);
-    expect(titleCommitted(rows)).toBe(false);
   }
 );
 
@@ -399,7 +398,6 @@ test('a provider that stays unavailable fails visibly after the bounded retries'
   expect(terminal.outcome).toBe('failed');
   expect(terminal.detail).toContain('Service unavailable.');
   expect(titleRequests).toBe(1);
-  expect(titleCommitted(rows)).toBe(false);
 });
 
 // Exact synthetic response body recorded by the desktop acceptance run on
