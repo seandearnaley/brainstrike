@@ -157,50 +157,139 @@ function comparable(value: unknown): unknown {
   );
 }
 
+const requests = [
+  ...['sqlite', 'browser vector', 'tapestry lease epoch', 'hamming'].map((text) => ({
+    limit: 8,
+    mode: 'bm25',
+    rootIds,
+    text,
+  })),
+  ...['ite ind', 'osine', 'pestr'].map((text) => ({
+    limit: 8,
+    mode: 'trigram',
+    rootIds,
+    text,
+  })),
+  ...[1, 2, 3].map((seed) => ({
+    limit: 8,
+    mode: 'vector',
+    profile,
+    rootIds: [rootIds[seed % 2] as string],
+    vector: vectorFor(`query-${seed}`),
+  })),
+];
+
+interface Hit {
+  readonly chunkId: string;
+  readonly score: number;
+}
+
+interface Search {
+  readonly hits: readonly Hit[];
+  readonly truncated: boolean;
+}
+
+/** A search as requested, and again at the largest limit, so every match is seen. */
+interface SearchRun {
+  readonly all: Search;
+  readonly limited: Search;
+  readonly mode: string;
+}
+
 /** One workload: commits, every search mode, an edit, a removal and coverage. */
-function workload(index: OpenIndex): unknown[] {
+function workload(index: OpenIndex): { results: unknown; searches: SearchRun[] } {
   const results: unknown[] = [];
+  const searches: SearchRun[] = [];
   for (let file = 0; file < 24; file++) {
     results.push(commit(index, `file-${file}`, rootIds[file % 2] as string, content(file, 6)));
   }
-  const searches = () =>
-    [
-      ...['sqlite', 'browser vector', 'tapestry lease epoch', 'hamming'].map((text) => ({
-        limit: 8,
-        mode: 'bm25',
-        rootIds,
-        text,
-      })),
-      ...['ite ind', 'osine', 'pestr'].map((text) => ({
-        limit: 8,
-        mode: 'trigram',
-        rootIds,
-        text,
-      })),
-      ...[1, 2, 3].map((seed) => ({
-        limit: 8,
-        mode: 'vector',
-        profile,
-        rootIds: [rootIds[seed % 2] as string],
-        vector: vectorFor(`query-${seed}`),
-      })),
-    ].map((request) => index.reader.search(request));
-  results.push(searches());
+  const search = () => {
+    for (const request of requests) {
+      searches.push({
+        all: index.reader.search({ ...request, limit: 100 }),
+        limited: index.reader.search(request),
+        mode: request.mode,
+      });
+    }
+  };
+  search();
   results.push(commit(index, 'file-3', 'root-b', content(303, 4)));
   results.push(index.writer.remove({ fileId: 'file-4', rootId: 'root-a' }));
-  results.push(searches());
+  search();
   results.push(index.reader.coverage({ rootIds }));
-  return results;
+  return { results: comparable(results), searches: comparable(searches) as SearchRun[] };
+}
+
+/** How many doubles lie between two scores of the same sign. */
+function ulps(a: number, b: number): number {
+  if (Math.sign(a) !== Math.sign(b)) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const view = new DataView(new ArrayBuffer(16));
+  view.setFloat64(0, a);
+  view.setFloat64(8, b);
+  const distance = view.getBigInt64(0) - view.getBigInt64(8);
+  return Number(distance < 0n ? -distance : distance);
+}
+
+/**
+ * The Apple Silicon better-sqlite3 build fuses FTS5 bm25's multiply-adds (clang's default
+ * `-ffp-contract=on`); sqlite-wasm, like the other prebuilds, does not. Their bm25 scores then
+ * differ by a few ulps, and scores equal in one engine can be a few ulps apart in the other.
+ */
+const BM25_ULPS = 4;
+
+/**
+ * Exact but for bm25 scores, which agree to within BM25_ULPS. Hits that close are tied: their
+ * order may differ, and so may which tied hit fills the last slot. The search at the largest
+ * limit proves each substitute is a tie on the desktop.
+ */
+function expectBm25Parity(web: SearchRun, desktop: SearchRun) {
+  const { hits: _webHits, ...webRest } = web.limited;
+  const { hits: _desktopHits, ...desktopRest } = desktop.limited;
+  expect(webRest).toEqual(desktopRest);
+  expect(web.all.truncated).toBe(false);
+  expect(desktop.all.truncated).toBe(false);
+  const desktopHits = new Map(desktop.all.hits.map((hit) => [hit.chunkId, hit]));
+  const desktopHit = (chunkId: string) => {
+    const hit = desktopHits.get(chunkId);
+    expect(hit, `desktop hit ${chunkId}`).toBeDefined();
+    return hit as Hit;
+  };
+  expect(web.all.hits.map((hit) => hit.chunkId).sort()).toEqual([...desktopHits.keys()].sort());
+  for (const hit of web.all.hits) {
+    const expected = desktopHit(hit.chunkId);
+    expect({ ...hit, score: 0 }).toEqual({ ...expected, score: 0 });
+    expect(ulps(hit.score, expected.score)).toBeLessThanOrEqual(BM25_ULPS);
+  }
+  expect(web.limited.hits).toHaveLength(desktop.limited.hits.length);
+  web.limited.hits.forEach((hit, slot) => {
+    const expected = desktop.limited.hits[slot] as Hit;
+    expect(ulps(hit.score, expected.score)).toBeLessThanOrEqual(BM25_ULPS);
+    if (hit.chunkId !== expected.chunkId) {
+      expect(ulps(desktopHit(hit.chunkId).score, expected.score)).toBeLessThanOrEqual(BM25_ULPS);
+    }
+  });
 }
 
 describe('the derived index on sqlite-wasm', () => {
-  it('commits, searches, edits, removes and reports coverage exactly as the desktop index does', () => {
-    const desktop = comparable(workload(desktopIndex()));
-    const web = comparable(workload(webIndex()));
-    expect(web).toEqual(desktop);
+  it('commits, searches, edits, removes and reports coverage as the desktop index does, bm25 scores to within a few ulps', () => {
+    const desktop = workload(desktopIndex());
+    const web = workload(webIndex());
+    expect(web.results).toEqual(desktop.results);
+    expect(web.searches).toHaveLength(desktop.searches.length);
+    desktop.searches.forEach((expected, index) => {
+      const actual = web.searches[index] as SearchRun;
+      if (expected.mode === 'vector') {
+        expect(actual).toEqual(expected);
+        return;
+      }
+      expectBm25Parity(actual, expected);
+    });
     // The workload exercised every search mode with hits.
-    const searches = (web as unknown[])[24] as { hits: unknown[] }[];
-    expect(searches.every((result) => result.hits.length > 0)).toBe(true);
+    expect(
+      web.searches.slice(0, requests.length).every((search) => search.limited.hits.length > 0)
+    ).toBe(true);
   });
 
   it("keeps the writer's connection open when a reader on it is refused", () => {

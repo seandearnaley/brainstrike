@@ -78,7 +78,21 @@ function value(db: Database.Database, sql: string, ...params: unknown[]): unknow
 }
 
 describe("the binary engine's vector functions", () => {
-  it("compute sqlite-vec's sign codes, lengths and distances bit for bit", () => {
+  /**
+   * Every sqlite-vec build sums fewer than 16 dimensions in order, as the engine does. Above that its
+   * Apple Silicon build sums L2 in sixteen fused NEON lanes (and its Intel macOS build in AVX lanes at
+   * multiples of 16). Two orders of summing the squared differences agree to within about dims·2⁻²⁴
+   * relative once the square root halves the error.
+   */
+  function expectL2(dimensions: number, actual: number, expected: number) {
+    if (dimensions < 16) {
+      expect(actual).toBe(expected);
+      return;
+    }
+    expect(Math.abs(actual - expected)).toBeLessThanOrEqual(dimensions * 2 ** -24 * expected);
+  }
+
+  it("compute sqlite-vec's sign codes, lengths and cosine distances bit for bit, and L2 distances to its summation bound", () => {
     const { desktop, web } = engines();
     let compared = 0;
     for (const dimensions of [8, 384, 1024]) {
@@ -88,13 +102,11 @@ describe("the binary engine's vector functions", () => {
         for (const fn of ['vec_quantize_binary', 'vec_length']) {
           expect(value(web, `SELECT ${fn}(?)`, a)).toEqual(value(desktop, `SELECT ${fn}(?)`, a));
         }
-        for (const fn of ['vec_distance_cosine', 'vec_distance_l2']) {
-          expect([fn, value(web, `SELECT ${fn}(?,?)`, a, b)]).toEqual([
-            fn,
-            value(desktop, `SELECT ${fn}(?,?)`, a, b),
-          ]);
-          compared++;
-        }
+        const cosine = 'SELECT vec_distance_cosine(?,?)';
+        expect(value(web, cosine, a, b)).toBe(value(desktop, cosine, a, b));
+        const l2 = 'SELECT vec_distance_l2(?,?)';
+        expectL2(dimensions, value(web, l2, a, b) as number, value(desktop, l2, a, b) as number);
+        compared += 2;
       }
     }
     expect(compared).toBe(180);
