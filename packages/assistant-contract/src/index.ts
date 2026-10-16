@@ -55,6 +55,7 @@ export type {
 } from './model-catalog.js';
 export { projectModelCatalog } from './model-catalog.js';
 export * from './model-reasoning.js';
+export * from './model-step.js';
 export * from './native-tool-catalog.js';
 export * from './openai-codex-defaults.js';
 export * from './openrouter-coding-defaults.js';

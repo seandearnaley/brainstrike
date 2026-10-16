@@ -158,6 +158,11 @@
       "import": "./dist/run-events.js",
       "require": "./dist/run-events.js"
     },
+    "./model-step": {
+      "types": "./dist/model-step.d.ts",
+      "import": "./dist/model-step.js",
+      "require": "./dist/model-step.js"
+    },
     "./run-usage": {
       "types": "./dist/run-usage.d.ts",
       "import": "./dist/run-usage.js",

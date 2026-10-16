@@ -1,6 +1,8 @@
+import { MODEL_STEP_DATA_NAME } from '@brainstrike/assistant-contract/model-step';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { describe, expect, it } from 'vitest';
 import type { AgentMessage, StreamChunk } from '../../types';
+import { createStatelessAssistantDataStreamResponse } from '../data-stream';
 import { streamHostedWebTurn } from '../hosted-web-turn';
 
 // The v4 provider usage DTO, as the host's own model fixtures declare it.
@@ -43,6 +45,69 @@ async function collect(stream: AsyncIterable<StreamChunk>): Promise<StreamChunk[
   }
   return chunks;
 }
+
+describe('a turn that records its steps (BST-1940)', () => {
+  it('returns its completed step before the finish, as the host commits it as model.step', async () => {
+    const chunks = await collect(
+      await streamHostedWebTurn({
+        messages: [userMessage('hello')],
+        model: scriptedModel(textStream(['Hel', 'lo'])),
+        recordSteps: true,
+      })
+    );
+
+    expect(chunks.map((chunk) => chunk.type)).toEqual([
+      'text-delta',
+      'text-delta',
+      'model-step',
+      'message-finish',
+    ]);
+    expect(chunks[2]).toEqual({
+      messages: [{ content: [{ text: 'Hello', type: 'text' }], role: 'assistant' }],
+      model: { modelId: 'mock-model-id', provider: 'mock-provider' },
+      stepNumber: 0,
+      type: 'model-step',
+      usage: expect.objectContaining({ inputTokens: 11, outputTokens: 7 }),
+    });
+  });
+
+  it('returns no step to a client that keeps its own transcript', async () => {
+    const chunks = await collect(
+      await streamHostedWebTurn({
+        messages: [userMessage('hello')],
+        model: scriptedModel(textStream(['hi'])),
+      })
+    );
+
+    expect(chunks.some((chunk) => chunk.type === 'model-step')).toBe(false);
+  });
+
+  it('carries the step on the wire as its data part, ahead of the finish', async () => {
+    const response = createStatelessAssistantDataStreamResponse(
+      await streamHostedWebTurn({
+        messages: [userMessage('hello')],
+        model: scriptedModel(textStream(['hi'])),
+        recordSteps: true,
+      }),
+      { messageId: 'recorded', sessionId: 'recorded' }
+    );
+    const lines = (await response.text()).split('\n').filter((line) => line.length > 0);
+    const step = lines.findIndex((line) => line.includes(MODEL_STEP_DATA_NAME));
+    const finish = lines.findIndex((line) => line.startsWith('d:'));
+
+    expect(step).toBeGreaterThan(-1);
+    expect(step).toBeLessThan(finish);
+    const [code, ...value] = (lines[step] ?? '').split(':');
+    expect(code).toBe('aui-data');
+    expect(JSON.parse(value.join(':'))).toMatchObject({
+      data: {
+        messages: [{ content: [{ text: 'hi', type: 'text' }], role: 'assistant' }],
+        stepNumber: 0,
+      },
+      name: MODEL_STEP_DATA_NAME,
+    });
+  });
+});
 
 describe('streamHostedWebTurn', () => {
   it('emits the model text as text-delta chunks in order', async () => {

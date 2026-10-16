@@ -63,10 +63,11 @@ const logger = {
   warn: vi.fn(),
 } as unknown as Parameters<typeof runWebAssistantPost>[0]['logger'];
 
-function body(text: string): string {
+function body(text: string, runConfig?: unknown): string {
   return JSON.stringify({
     data: { provider: 'openai' },
     messages: [{ id: 'u1', parts: [{ text, type: 'text' }], role: 'user' }],
+    ...(runConfig === undefined ? {} : { runConfig }),
   });
 }
 
@@ -81,8 +82,11 @@ function frames(wire: string): { code: string; value: unknown }[] {
     });
 }
 
-async function runTurn(text: string): Promise<{ code: string; value: unknown }[]> {
-  const outcome = await runWebAssistantPost({ bodyText: body(text), logger });
+async function runTurn(
+  text: string,
+  runConfig?: unknown
+): Promise<{ code: string; value: unknown }[]> {
+  const outcome = await runWebAssistantPost({ bodyText: body(text, runConfig), logger });
   if (outcome.kind !== 'stream') {
     throw new Error(`expected a stream, got ${JSON.stringify(outcome)}`);
   }
@@ -150,6 +154,51 @@ describe('Hosted Web turn over the real route core', () => {
     });
 
     expect(outcome).toMatchObject({ kind: 'rejection', status: 409 });
+  });
+
+  it('returns the completed step, before the finish, to a client that records its runs (BST-1940)', async () => {
+    scriptedParts.push(
+      { type: 'stream-start', warnings: [] },
+      { id: 't1', type: 'text-start' },
+      { delta: 'Recorded', id: 't1', type: 'text-delta' },
+      { id: 't1', type: 'text-end' },
+      { finishReason: { raw: 'stop', unified: 'stop' }, type: 'finish', usage }
+    );
+
+    const decoded = await runTurn('hi', { custom: { 'brainstrike.recordModelSteps': true } });
+    const step = decoded.findIndex(
+      (frame) =>
+        frame.code === 'aui-data' &&
+        (frame.value as { name?: unknown }).name === 'brainstrike.model-step'
+    );
+
+    expect(step).toBeGreaterThan(-1);
+    expect(step).toBeLessThan(decoded.length - 1);
+    expect(decoded.at(-1)?.code).toBe('d');
+    expect(decoded[step]?.value).toMatchObject({
+      data: {
+        messages: [{ content: [{ text: 'Recorded', type: 'text' }], role: 'assistant' }],
+        stepNumber: 0,
+      },
+    });
+  });
+
+  it('returns no step to a client that does not ask, and refuses a malformed ask', async () => {
+    scriptedParts.push(
+      { type: 'stream-start', warnings: [] },
+      { id: 't1', type: 'text-start' },
+      { delta: 'Plain', id: 't1', type: 'text-delta' },
+      { id: 't1', type: 'text-end' },
+      { finishReason: { raw: 'stop', unified: 'stop' }, type: 'finish', usage }
+    );
+    const decoded = await runTurn('hi');
+    expect(decoded.some((frame) => frame.code === 'aui-data')).toBe(false);
+
+    const outcome = await runWebAssistantPost({
+      bodyText: body('hi', { custom: { 'brainstrike.recordModelSteps': 'yes' } }),
+      logger,
+    });
+    expect(outcome).toMatchObject({ kind: 'rejection', status: 400 });
   });
 
   it('still rejects a runtime field the allow-list does not admit', async () => {
