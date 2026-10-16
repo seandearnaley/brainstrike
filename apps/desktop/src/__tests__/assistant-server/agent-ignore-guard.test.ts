@@ -150,4 +150,26 @@ describe('assertNotAgentIgnored', () => {
       assertNotAgentIgnored({ canonicalRootPath: root, relativePath: 'src/a.ts' })
     ).resolves.toBeUndefined();
   });
+
+  it('refuses a credential file with no ignore file at all, saying why', async () => {
+    const root = await makeWorkspace({ '.env.example': '', '.env.local': 'API_KEY=secret\n' });
+    await expect(
+      assertNotAgentIgnored({ canonicalRootPath: root, relativePath: '/.env.local' })
+    ).rejects.toThrow(/credential file/);
+    await expect(
+      assertNotAgentIgnored({ canonicalRootPath: root, relativePath: '.env.example' })
+    ).resolves.toBeUndefined();
+  });
+
+  it('refuses a symlink whose target is a credential file', async () => {
+    const root = await makeWorkspace({ '.env.local': 'API_KEY=secret\n', 'docs/readme.md': '' });
+    await fsPromises.symlink(path.join(root, '.env.local'), path.join(root, 'docs', 'env.md'));
+    await expect(
+      assertNotAgentIgnored({
+        canonicalAbsolutePath: await fsPromises.realpath(path.join(root, 'docs', 'env.md')),
+        canonicalRootPath: root,
+        relativePath: 'docs/env.md',
+      })
+    ).rejects.toThrow(/credential file/);
+  });
 });

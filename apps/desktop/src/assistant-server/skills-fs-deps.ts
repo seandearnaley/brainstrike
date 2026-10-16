@@ -16,6 +16,9 @@
  *   char cap can never exceed it — see the commands loader's bytes-vs-chars
  *   rationale),
  * - byte reads at {@link MAX_SKILL_ASSET_BYTES}.
+ *
+ * The workspace credential floor holds here as in every agent tool: a
+ * credential file inside a skill is never listed and never opened.
  */
 
 import path from 'node:path';
@@ -23,6 +26,7 @@ import type { SkillContentDeps } from '@brainstrike/agent';
 import { MAX_SKILL_ASSET_BYTES, MAX_SKILL_CONTENT_FILE_CHARS } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/logging';
 import { SecureRoot } from '@brainstrike/secure-fs-native';
+import { isWorkspaceSecretFile } from '@brainstrike/utils';
 
 const logger = createLogger('AssistantSkills');
 
@@ -35,6 +39,11 @@ function containedRelative(containmentRoot: string, absPath: string): string | n
     return null;
   }
   return relative;
+}
+
+/** The credential floor reads a POSIX root-relative path; `relative` is native. */
+function isCredentialPath(relative: string): boolean {
+  return isWorkspaceSecretFile(relative.split(path.sep).join('/'));
 }
 
 function withSecureRoot<T>(containmentRoot: string, operate: (root: SecureRoot) => T): T | null {
@@ -68,6 +77,11 @@ export function createSecureSkillsFs(candidateRoots: readonly string[]): SkillCo
     }
     if (!best) {
       logger.warn('Refused skill file read outside every containment root');
+      return null;
+    }
+    if (isCredentialPath(best.relative)) {
+      logger.warn('Refused skill credential file read');
+      return null;
     }
     return best;
   }
@@ -79,8 +93,16 @@ export function createSecureSkillsFs(candidateRoots: readonly string[]): SkillCo
         logger.warn('Refused skill directory listing outside its containment root');
         return null;
       }
-      return withSecureRoot(path.normalize(containmentRoot), (root) =>
+      const listed = withSecureRoot(path.normalize(containmentRoot), (root) =>
         root.listDir(relative || '.', maxEntries)
+      );
+      return (
+        listed && {
+          ...listed,
+          entries: listed.entries.filter(
+            (entry) => !(entry.isFile && isCredentialPath(path.join(relative, entry.name)))
+          ),
+        }
       );
     },
     readFileBytes: (absFile) => {

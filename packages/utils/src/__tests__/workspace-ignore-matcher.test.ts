@@ -12,7 +12,10 @@
  * behaviour we depend on means an upgrade that changes it fails here.
  */
 import { describe, expect, it } from 'vitest';
-import { createWorkspaceIgnoreMatcher } from '../workspace-ignore-matcher.js';
+import {
+  createWorkspaceIgnoreMatcher,
+  isWorkspaceSecretFile,
+} from '../workspace-ignore-matcher.js';
 
 describe('createWorkspaceIgnoreMatcher', () => {
   it('prunes a directory whose pattern is directory-only', () => {
@@ -287,5 +290,60 @@ describe('createWorkspaceIgnoreMatcher — the agent ignore files are a HARD bou
     matcher.push('', { llmignore: 'sub/key.ts\n' });
     matcher.push('sub', { brainstrikeignore: '!key.ts\n' });
     expect(matcher.ignoresFile('sub/key.ts')).toBe(false);
+  });
+});
+
+// 2026-10-16: a live grep's context line carried a gitignored `.env.local` API
+// key into a tool result, and from there to the provider on every later step.
+// Credential files are a floor no ignore file, negation or flag can lift.
+describe('createWorkspaceIgnoreMatcher — secret file floor', () => {
+  it('excludes environment files and private keys at any depth with no ignore files at all', () => {
+    const matcher = createWorkspaceIgnoreMatcher();
+    for (const secret of [
+      '.env',
+      '.env.local',
+      'apps/web/.env.production',
+      'certs/server.pem',
+      'certs/tls.key',
+      'id_rsa',
+      'home/id_rsa.pub',
+    ]) {
+      expect(matcher.ignoresFile(secret), secret).toBe(true);
+      expect(isWorkspaceSecretFile(secret), secret).toBe(true);
+    }
+    for (const ordinary of [
+      '.env.example',
+      'apps/web/.env.sample',
+      '.env.template',
+      '.envrc',
+      'src/env.ts',
+    ]) {
+      expect(matcher.ignoresFile(ordinary), ordinary).toBe(false);
+      expect(isWorkspaceSecretFile(ordinary), ordinary).toBe(false);
+    }
+  });
+
+  it('cannot be lifted by a negation in any layer, nor by includeIgnored, and reads as hard', () => {
+    const matcher = createWorkspaceIgnoreMatcher({ includeIgnored: true });
+    matcher.push('', {
+      brainstrikeignore: '!.env.local\n',
+      gitignore: '!.env.local\n',
+      llmignore: '!.env.local\n',
+    });
+    expect(matcher.ignoresFile('.env.local')).toBe(true);
+    expect(matcher.ignoresHard('.env.local', false)).toBe(true);
+  });
+
+  // Codex review on #3718: the floor names credential FILES. A directory that
+  // happens to share a name (`.env.d/`, `keys.key/`) is walked as usual and only
+  // its own credential files are held back.
+  it('holds back credential files only, never a directory that shares their name', () => {
+    const matcher = createWorkspaceIgnoreMatcher();
+    expect(matcher.ignoresDirectory('.env.d')).toBe(false);
+    expect(matcher.ignoresDirectory('config/.env.local')).toBe(false);
+    expect(matcher.ignoresFile('.env.d/app.ts')).toBe(false);
+    expect(matcher.ignoresFile('config/.env.local/settings.ts')).toBe(false);
+    expect(matcher.ignoresFile('.env.d/.env.production')).toBe(true);
+    expect(isWorkspaceSecretFile('.env.d', true)).toBe(false);
   });
 });

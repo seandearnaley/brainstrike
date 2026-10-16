@@ -47,3 +47,24 @@ Contract markers this ADR replaces (line numbers at `43daec7fb`):
   (Agent Skills default-on), `:226` (no shell expansion).
 - `docs/agents/explorer-search-context-map.md:386-389` (ignore-chain precedence),
   `:439` (`.llmignore` enforced for both grep engines).
+
+## Amendment (2026-10-16): a credential floor beneath the ignore chain
+
+Live grep deliberately does not consult `.gitignore` (BST-1429), so a gitignored
+`.env.local` was searchable. In an OpenRouter smoke run, a grep matched the comment
+above an API key, and one line of context carried the key into a tool result and
+from there to the provider on every later step of that agent.
+
+Owner decision: credential files are a floor beneath every layer, enforced in the
+shared matcher (`isWorkspaceSecretFile`, `packages/utils`): `.env` and `.env.*`
+(but not `.env.example`, `.env.sample` or `.env.template`), `*.pem`, `*.key` and
+`id_rsa*`. It is not a ninth layer, because layers can be negated: no `!` pattern
+and no `includeIgnored` lifts it, and it reads as hard, so no "retry with
+includeIgnored" advice is offered. It binds wherever the matcher does — walks,
+both grep engines, direct reads (which refuse it by name as a credential file) and
+workspace index scans. Patterns match without case, as the matcher does, and
+ripgrep's floor file spells each letter in both cases. Agent reads that bypass the
+walk check it too: skill listings and reads, line previews of language-server
+targets, and indexed grep and semantic search, which drop any credential chunk
+still stored from before the floor. Shell commands remain governed by the execute
+permission, and a language server's own hover text is not filtered.

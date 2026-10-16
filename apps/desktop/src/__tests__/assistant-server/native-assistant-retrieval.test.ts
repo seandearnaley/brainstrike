@@ -260,6 +260,30 @@ describe('native assistant retrieval cutover', () => {
       expect(pg.fts).not.toHaveBeenCalled();
     }
   );
+  // Codex review on #3718 (the grep twin): indexing skips credential files, but
+  // a chunk stored before that floor still answers the semantic and keyword
+  // arms. No agent search returns it.
+  it.each(tools)('never returns an indexed credential chunk in $name', async ({ run }) => {
+    const f = fixture();
+    const stored = [
+      {
+        ...hit,
+        chunkId: 'credential-chunk',
+        content: 'native marker TYPESAFE_API_KEY=sk-live-SECRET',
+        relativePath: '.env.local',
+      },
+      { ...hit, relativePath: 'notes/retained.md' },
+    ];
+    vi.mocked(f.capability.search).mockResolvedValue({ ...f.result, hits: stored });
+    vi.mocked(f.capability.grep).mockResolvedValue({ ...f.result, hits: stored });
+    const result = await run({ query: 'native marker' }, undefined, {
+      embeddingHostManager: { queryEmbedding: f.queryEmbedding },
+      nativeIndexSearch: f.capability,
+    });
+    expect(JSON.stringify(result)).not.toContain('sk-live-SECRET');
+    expect(JSON.stringify(result)).toContain('native marker');
+  });
+
   it('exposes native truncation to the semantic model projection', async () => {
     const f = fixture();
     f.result.candidatesTruncated = true;

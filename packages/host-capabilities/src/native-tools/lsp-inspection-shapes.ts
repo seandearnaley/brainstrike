@@ -15,6 +15,7 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isWorkspaceSecretFile } from '@brainstrike/utils';
 import type { EditDiagnostic, LspUnavailableReason } from './ports.js';
 import { isWithinRoot } from './workspace-path.js';
 
@@ -176,7 +177,11 @@ export async function toInspectLocations(
       continue;
     }
     seen.add(dedupeKey);
-    const preview = await readLinePreview(absolutePath, line);
+    // The language server may resolve into a credential file, wherever it
+    // lives; the floor's patterns are basenames, so that line is never read.
+    const preview = isWorkspaceSecretFile(path.basename(absolutePath))
+      ? undefined
+      : await readLinePreview(absolutePath, line);
     locations.push({
       line,
       path: toDisplayPath(absolutePath, rootPath),

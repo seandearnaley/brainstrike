@@ -6,6 +6,7 @@ import type {
   IndexerStatus,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
+import { isWorkspaceSecretFile } from '@brainstrike/utils';
 import {
   fuseNativeSearchPools,
   getNativeSemanticAvailability,
@@ -142,6 +143,18 @@ export async function resolveNativeAssistantCollection(
   return collection;
 }
 
+/**
+ * Indexing skips credential files, but a chunk stored before that floor, or
+ * kept by a truncated reconciliation, still answers a query. Dropped from each
+ * validated pool before selection and fusion, it never reaches the model.
+ */
+function withoutCredentialHits(pool: IndexerSearchResult): IndexerSearchResult {
+  const hits = pool.hits.filter(
+    (hit) => hit.relativePath === null || !isWorkspaceSecretFile(hit.relativePath)
+  );
+  return hits.length === pool.hits.length ? pool : { ...pool, hits };
+}
+
 /** Uses the existing main capability and hidden query transport; owns no reader or inference runtime. */
 export async function searchNativeAssistantChunks(request: NativeAssistantRequest): Promise<{
   assertCurrent: () => Promise<void>;
@@ -260,8 +273,9 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
   let vectorResultCount: number;
   let ftsResultCount = 0;
   if (request.mode === 'semantic') {
-    const pool = await read();
-    validatePool(pool);
+    const fetched = await read();
+    validatePool(fetched);
+    const pool = withoutCredentialHits(fetched);
     const selected = pool.hits.filter(
       (hit) => distanceSimilarity(hit.score, embeddingSet.distance) >= request.threshold
     );
@@ -302,7 +316,7 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
         throw new Error('Native search settlement invariant failed.');
       }
       validatePool(arm.value);
-      return arm.value;
+      return withoutCredentialHits(arm.value);
     });
     const [vectorPool, bm25, grep] = pools;
     if (!(vectorPool && bm25 && grep)) {
