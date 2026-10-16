@@ -33,8 +33,10 @@
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/config": "workspace:*",
     "@brainstrike/secure-fs-native": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
+    "@effect/tsgo": "catalog:",
     "@types/node": "catalog:",
     "@vitest/browser-playwright": "catalog:",
     "@vitest/coverage-v8": "catalog:",
@@ -48,7 +50,7 @@
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict",
     "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
   }
 }

@@ -152,6 +152,12 @@
       "@brainstrike/vector-management": [
         "./packages/vector-management/src"
       ],
+      "@brainstrike/web-state-store": [
+        "./packages/web-state-store/src"
+      ],
+      "@brainstrike/web-writer": [
+        "./packages/web-writer/src"
+      ],
       "@brainstrike/db-explorer": [
         "./packages/db-explorer/src"
       ],

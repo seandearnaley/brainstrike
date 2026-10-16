@@ -24,10 +24,10 @@ test('builds the exact applicable core scenarios for both pinned protocol revisi
       scenarios.map((scenario) => `${protocolVersion}/${scenario}`)
     )
   );
-  assert.equal(invocations.length, 11);
+  assert.equal(invocations.length, 13);
 });
 
-test('pins the canonical core manifest against the installed alpha.10 CLI', () => {
+test('pins the canonical core manifest against the installed alpha.12 CLI', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
   const entry = resolvePinnedConformanceEntry(repoRoot);
   for (const protocolVersion of ['2025-11-25', '2026-07-28']) {
@@ -44,7 +44,7 @@ test('pins the canonical core manifest against the installed alpha.10 CLI', () =
   }
 });
 
-test('writes exact-head core evidence for all eleven applicable executions', async () => {
+test('writes exact-head core evidence for all thirteen applicable executions', async () => {
   const invocations = buildOfficialClientInvocations({
     conformanceEntryPath: '/repo/conformance/dist/index.js',
     nodePath: '/runtime/node',
@@ -70,9 +70,9 @@ test('writes exact-head core evidence for all eleven applicable executions', asy
 
   assert.deepEqual(evidence.summary, {
     cleanup: 'confirmed',
-    executions: 11,
+    executions: 13,
     failed: 0,
-    passed: 11,
+    passed: 13,
   });
   assert.equal(evidence.profile, 'core');
   assert.equal(evidence.schemaVersion, '1.1.0');

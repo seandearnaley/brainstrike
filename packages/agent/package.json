@@ -39,6 +39,7 @@
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
+    "@effect/tsgo": "catalog:",
     "@electric-sql/pglite": "catalog:",
     "@electric-sql/pglite-pgvector": "catalog:",
     "@modelcontextprotocol/node": "catalog:",
@@ -184,7 +185,7 @@
     "test:integration": "vitest run --config vitest.integration.config.mts --no-file-parallelism",
     "test:coverage": "vitest run --no-file-parallelism --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },
   "sideEffects": false,
   "turbo": {

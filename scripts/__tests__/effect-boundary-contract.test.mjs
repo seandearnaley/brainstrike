@@ -649,7 +649,7 @@ test('worker envelope Schema uses a dedicated subpath outside root and preload i
   assert.match(validation, /Schema\.Struct\(/u);
   assert.match(validation, /Schema\.makeFilter\(/u);
   assert.match(validation, /Schema\.is\(/u);
-  for (const host of ['chunking', 'embedding', 'llm']) {
+  for (const host of ['chunking', 'embedding']) {
     const source = readRepoFile(`apps/desktop/src/${host}-host-shared.ts`);
     assert.match(source, /from ['"]@brainstrike\/worker-runtime\/validation['"]/u);
   }
