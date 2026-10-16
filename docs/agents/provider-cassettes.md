@@ -51,7 +51,7 @@ Each lane derives the settled conversation's shape and its violations:
 - no tool result is the guard's generic `tool_failed` fault.
 
 The shape names groups, row verbs and states, paragraphs per step, children and
-title timing. It is snapshotted (`__snapshots__`), never text.
+title timing. It is kept as one shape file per scenario, never text.
 
 ## Record a scenario
 
@@ -75,19 +75,23 @@ approves it for that task. Choose one route:
 The host lane writes a cassette only if it passes four checks:
 
 1. Neither the requests nor the responses trip the secret scanner
-   (`scripts/secret-scan.mjs`), and nothing holds the home directory, user name,
-   workspace path or the key itself. Requests keep only protocol headers, never
+   (`scripts/secret-scan.mjs`), and nothing holds the home directory, user name
+   or the key itself. Requests keep only protocol headers, never
    auth. A tool result in a request can carry a leaked key.
 2. It shows the behavior its scenario exists for (`exhibits`), for example
    GLM's empty-arguments tool frame.
 3. It keeps every invariant.
 4. It replays to the same shape.
 
-The proxy applies check 1. Review the shape snapshot diff before committing.
+The proxy applies check 1. Each scenario's shape is a file,
+`apps/desktop/src/__tests__/__snapshots__/provider-cassettes/<id>.shape.json`;
+review its diff before committing.
 
 Prompts name workspace-relative paths and pass no root, so a cassette replays
-in any workspace and in both lanes. A model that writes an absolute path fails
-check 1. Record the scenario again, or tighten its prompt.
+in any workspace and in both lanes. A model that writes the disposable
+workspace path into a tool call fails check 4, because the replayed call
+targets a folder that no longer exists. Record the scenario again, or tighten
+its prompt.
 
 ## Phase 2
 

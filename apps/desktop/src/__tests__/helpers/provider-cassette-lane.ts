@@ -231,11 +231,11 @@ export async function recordScenario(
       recordedAt: new Date().toISOString(),
       scenario: scenario.id,
     });
+    // A disposable workspace path a model echoes is not private; whether the
+    // recording still replays is the replay-shape check's to say.
     const findings = providerCassetteFindings(cassette, [
       { rule: 'home-directory', value: homedir() },
       { rule: 'user-name', value: userInfo().username },
-      { rule: 'workspace-path', value: workspace },
-      { rule: 'temporary-directory', value: tmpdir() },
       { rule: 'recorder-credential', value: key },
     ]);
     return { ...result, cassette, findings, secretScan: await secretScan(cassette) };

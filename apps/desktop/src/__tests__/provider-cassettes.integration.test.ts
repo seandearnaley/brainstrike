@@ -65,6 +65,9 @@ describe.each(PROVIDER_CASSETTE_SCENARIOS)('provider cassette $id', (scenario) =
     expect(refusals).toEqual([]);
     expect(unserved).toEqual([]);
     expect(violations).toEqual([]);
-    expect(shape).toMatchSnapshot();
+    // One file per scenario: a filtered `-u` never touches another scenario's shape.
+    await expect(`${JSON.stringify(shape, null, 2)}\n`).toMatchFileSnapshot(
+      `__snapshots__/provider-cassettes/${scenario.id}.shape.json`
+    );
   });
 });

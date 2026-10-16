@@ -112,24 +112,16 @@ function callsToolsInParallel(cassette: ProviderCassette): boolean {
   );
 }
 
-/** A chat-completions step that streamed reasoning and then opened a tool call. */
-function reasonsBeforeCallingATool(cassette: ProviderCassette): boolean {
+/** An Anthropic response that streamed a thinking block and then a tool call. */
+function thinksBeforeCallingATool(cassette: ProviderCassette): boolean {
   return cassette.exchanges.some((exchange) => {
-    const frames = responseFrames(exchange.response.body).filter(isRecord);
-    const reasoned = frames.findIndex((frame) =>
-      (Array.isArray(frame['choices']) ? frame['choices'] : []).some(
-        (choice) =>
-          isRecord(choice) &&
-          isRecord(choice['delta']) &&
-          ((typeof choice['delta']['reasoning'] === 'string' &&
-            choice['delta']['reasoning'] !== '') ||
-            (Array.isArray(choice['delta']['reasoning_details']) &&
-              choice['delta']['reasoning_details'].length > 0))
-      )
+    const blocks = responseFrames(exchange.response.body).flatMap((frame) =>
+      isRecord(frame) && frame['type'] === 'content_block_start' && isRecord(frame['content_block'])
+        ? [String(frame['content_block']['type'])]
+        : []
     );
-    return (
-      reasoned >= 0 && frames.slice(reasoned).some((frame) => toolCallDeltas(frame).length > 0)
-    );
+    const thinking = blocks.indexOf('thinking');
+    return thinking >= 0 && blocks.indexOf('tool_use', thinking) > thinking;
   });
 }
 
@@ -200,13 +192,11 @@ export const PROVIDER_CASSETTE_SCENARIOS: readonly ProviderCassetteScenario[] = 
   },
   {
     credential: 'recorder',
-    exhibits: {
-      behavior: 'reasoning streamed before a tool call',
-      holds: reasonsBeforeCallingATool,
-    },
+    exhibits: { behavior: 'a thinking block before a tool call', holds: thinksBeforeCallingATool },
     files: { 'one.md': '# One\n', 'three.txt': 'three\n', 'two.md': '# Two\n' },
-    id: 'openrouter-reasoning-tools',
-    model: 'openrouter::z-ai/glm-5.3-flash',
+    id: 'anthropic-reasoning-tools',
+    // Sonnet 5 thinks by default on the standalone host; Haiku 4.5 does not.
+    model: 'anthropic::claude-sonnet-5',
     prompt: `Think about how to answer first, then use the glob tool to find the markdown files in the workspace, and answer with how many there are. ${NO_ROOT}`,
   },
   {
