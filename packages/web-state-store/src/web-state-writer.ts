@@ -127,6 +127,28 @@ function broadcast(message: ChannelMessage): void {
   channel?.postMessage(message);
 }
 
+/**
+ * Announces a committed append to every tab: this one, and the others through
+ * their workers. A tab reading a thread live learns its new rows from this and
+ * reads them, so no tab polls the log (BST-1940).
+ */
+function announceAppended(rows: AppendRows, seqs: readonly number[]): void {
+  const threads = new Map<string, number[]>();
+  rows.forEach((row, index) => {
+    const seq = seqs[index];
+    if (seq !== undefined) {
+      const threadSeqs = threads.get(row[0]) ?? [];
+      threadSeqs.push(seq);
+      threads.set(row[0], threadSeqs);
+    }
+  });
+  const appended = [...threads].map(([threadId, threadSeqs]) => ({ seqs: threadSeqs, threadId }));
+  if (appended.length > 0) {
+    broadcast({ kind: 'appended', threads: appended });
+    toTab({ kind: 'appended', threads: appended });
+  }
+}
+
 function errorReply(error: unknown): WebStateErrorReply {
   if (error instanceof ThreadReadOnlyRefusal) {
     return { error: error.message, errorKind: 'readonly', threadId: error.threadId };
@@ -469,7 +491,10 @@ async function handle(active: Writer, request: WireRequest): Promise<unknown> {
       const ts = Date.now();
       try {
         // Structured clone delivers the rows as plain mutable arrays.
-        return { seqs: log.append(rows as unknown as AppendRows, ts, boundary), ts };
+        const appended = rows as unknown as AppendRows;
+        const seqs = log.append(appended, ts, boundary);
+        announceAppended(appended, seqs);
+        return { seqs, ts };
       } finally {
         if (boundary) {
           db.pragma('synchronous = NORMAL');
@@ -729,6 +754,9 @@ function onChannel(message: ChannelMessage): void {
       return;
     case 'request':
       onRequest(message);
+      return;
+    case 'appended':
+      toTab(message);
       return;
     case 'reply':
       if (message.to === instanceId && forwarded.delete(message.id)) {

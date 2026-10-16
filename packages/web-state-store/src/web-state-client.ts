@@ -12,6 +12,7 @@ import type {
   WebStateErrorKind,
   WebStateErrorReply,
   WebStateLease,
+  WebStateLogAppend,
   WebStateOp,
   WebStateRequests,
   WebStateStoreConfig,
@@ -63,6 +64,7 @@ export class WebStateStore
     WorkspaceRootPort
 {
   readonly #listeners = new Set<(view: WebStateLeaseView) => void>();
+  readonly #logListeners = new Set<(append: WebStateLogAppend) => void>();
   readonly #pending = new Map<number, Pending>();
   readonly #worker: Worker;
   #closed: WebStateStoreError | undefined;
@@ -99,6 +101,17 @@ export class WebStateStore
   subscribeLease(listener: (view: WebStateLeaseView) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
+  }
+
+  /**
+   * Tells `listener` of each thread's rows as the writer commits them, from
+   * any tab's append, this one's too; a reader of a thread reads them with
+   * `read` (BST-1940). Notice comes no later than the next row's, never
+   * before its commit.
+   */
+  subscribeLog(listener: (append: WebStateLogAppend) => void): () => void {
+    this.#logListeners.add(listener);
+    return () => this.#logListeners.delete(listener);
   }
 
   append(
@@ -283,6 +296,13 @@ export class WebStateStore
 
   #receive(message: WorkerMessage): void {
     switch (message.kind) {
+      case 'appended':
+        for (const append of message.threads) {
+          for (const listener of this.#logListeners) {
+            listener(append);
+          }
+        }
+        return;
       case 'failed':
         this.#fail(message.error);
         return;
