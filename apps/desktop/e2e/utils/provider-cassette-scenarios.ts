@@ -112,22 +112,63 @@ function callsToolsInParallel(cassette: ProviderCassette): boolean {
   );
 }
 
+/** A chat-completions step that streamed reasoning and then opened a tool call. */
+function reasonsBeforeCallingATool(cassette: ProviderCassette): boolean {
+  return cassette.exchanges.some((exchange) => {
+    const frames = responseFrames(exchange.response.body).filter(isRecord);
+    const reasoned = frames.findIndex((frame) =>
+      (Array.isArray(frame['choices']) ? frame['choices'] : []).some(
+        (choice) =>
+          isRecord(choice) &&
+          isRecord(choice['delta']) &&
+          ((typeof choice['delta']['reasoning'] === 'string' &&
+            choice['delta']['reasoning'] !== '') ||
+            (Array.isArray(choice['delta']['reasoning_details']) &&
+              choice['delta']['reasoning_details'].length > 0))
+      )
+    );
+    return (
+      reasoned >= 0 && frames.slice(reasoned).some((frame) => toolCallDeltas(frame).length > 0)
+    );
+  });
+}
+
+/** One frame's streamed kinds: an Anthropic block, a Responses item, or chat delta parts. */
+function frameKinds(frame: Record<string, unknown>): readonly string[] {
+  if (frame['type'] === 'content_block_start' && isRecord(frame['content_block'])) {
+    return [String(frame['content_block']['type'])];
+  }
+  if (frame['type'] === 'response.output_item.added' && isRecord(frame['item'])) {
+    return [String(frame['item']['type'])];
+  }
+  const [choice] = Array.isArray(frame['choices']) ? frame['choices'] : [];
+  const delta = isRecord(choice) && isRecord(choice['delta']) ? choice['delta'] : {};
+  return [
+    ...(delta['reasoning'] || delta['reasoning_details'] ? ['reasoning'] : []),
+    ...(delta['content'] ? ['text'] : []),
+    ...(toolCallDeltas(frame).length > 0 ? ['tool_call'] : []),
+  ];
+}
+
+/**
+ * What a recording holds, for a refusal: each exchange's status and route,
+ * then its streamed block or frame kinds, repeats collapsed. Never text.
+ */
+export function describeRecording(cassette: ProviderCassette): string {
+  return cassette.exchanges
+    .map((exchange) => {
+      const kinds = responseFrames(exchange.response.body)
+        .filter(isRecord)
+        .flatMap(frameKinds)
+        .filter((kind, index, all) => kind !== all[index - 1]);
+      return `${exchange.response.status} ${exchange.key.knob}${exchange.key.route} ${exchange.key.stream ? 'stream' : 'one-shot'}: ${kinds.join(' ') || '-'}`;
+    })
+    .join('\n');
+}
+
 /** A streamed response the client hung up on (a Stop). */
 function isCutOffByStop(cassette: ProviderCassette): boolean {
   return cassette.exchanges.some((exchange) => exchange.response.ended === 'client-aborted');
-}
-
-/** An Anthropic response that streamed a thinking block and then a tool call. */
-function thinksBeforeCallingATool(cassette: ProviderCassette): boolean {
-  return cassette.exchanges.some((exchange) => {
-    const blocks = responseFrames(exchange.response.body).flatMap((frame) =>
-      isRecord(frame) && frame['type'] === 'content_block_start' && isRecord(frame['content_block'])
-        ? [String(frame['content_block']['type'])]
-        : []
-    );
-    const thinking = blocks.indexOf('thinking');
-    return thinking >= 0 && blocks.indexOf('tool_use', thinking) > thinking;
-  });
 }
 
 /** A provider HTTP refusal (4xx/5xx) answered a model step. */
@@ -159,10 +200,13 @@ export const PROVIDER_CASSETTE_SCENARIOS: readonly ProviderCassetteScenario[] = 
   },
   {
     credential: 'recorder',
-    exhibits: { behavior: 'a thinking block before a tool call', holds: thinksBeforeCallingATool },
+    exhibits: {
+      behavior: 'reasoning streamed before a tool call',
+      holds: reasonsBeforeCallingATool,
+    },
     files: { 'one.md': '# One\n', 'three.txt': 'three\n', 'two.md': '# Two\n' },
-    id: 'anthropic-reasoning-tools',
-    model: 'anthropic::claude-haiku-4-5',
+    id: 'openrouter-reasoning-tools',
+    model: 'openrouter::z-ai/glm-5.3-flash',
     prompt: `Think about how to answer first, then use the glob tool to find the markdown files in the workspace, and answer with how many there are. ${NO_ROOT}`,
   },
   {
@@ -171,11 +215,19 @@ export const PROVIDER_CASSETTE_SCENARIOS: readonly ProviderCassetteScenario[] = 
       behavior: 'one answer split into several text content blocks',
       holds: splitsAnswerIntoTextBlocks,
     },
+    // As live (2026-10-16): the split answer was a long summary written after reading files.
+    files: {
+      'CHANGELOG.md':
+        '# Changelog\n\n## 0.3.0\n- Paced replay keeps background children in order.\n- Tool sets are stored once per cassette.\n\n## 0.2.0\n- Stop is recorded as a client-aborted stream.\n\n## 0.1.0\n- First recorder and replay.\n',
+      'docs/guide.md':
+        '# Guide\n\n## Record\nRun `cassette-player record --out <file>` and point your client at the printed URL.\n\n## Replay\nRun `cassette-player replay <file>`; unmatched requests get a 401 naming their key.\n\n## Matching\nRequests match by route, model, the first user message and their item count.\n',
+      'README.md':
+        '# cassette-player\n\nA command-line tool that records HTTP exchanges once and replays them byte for byte. It keeps chunk boundaries, refuses requests it never recorded, and never stores credentials.\n',
+    },
     guards: '#3725',
     id: 'anthropic-long-multiblock-answer',
     model: 'anthropic::claude-sonnet-5',
-    prompt:
-      'Write a detailed README for a small command-line tool named cassette-player, about 600 words: an overview, installation, usage with a fenced code block, configuration as a table, and a troubleshooting list. Do not use any tools.',
+    prompt: `Read README.md, docs/guide.md and CHANGELOG.md, then write a detailed summary of the project of about 500 words: what it is, how recording and replay work, how matching works, and its version history, with headings and bullet lists. ${NO_ROOT}`,
   },
   {
     credential: 'recorder',

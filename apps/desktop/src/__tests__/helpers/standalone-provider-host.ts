@@ -57,6 +57,7 @@ export async function createStandaloneWorkspace(
   const workspace = join(parent, name);
   await mkdir(workspace);
   for (const [file, content] of Object.entries(files)) {
+    await mkdir(dirname(join(workspace, file)), { recursive: true });
     await writeFile(join(workspace, file), content);
   }
   return { remove: () => rm(parent, { force: true, recursive: true }), workspace };

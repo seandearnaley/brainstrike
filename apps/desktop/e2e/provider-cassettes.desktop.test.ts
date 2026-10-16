@@ -52,6 +52,7 @@ test('provider cassette openai-background-delegation replays through the desktop
   const workspace = path.join(profile, 'cassette-workspace');
   await mkdir(workspace);
   for (const [file, content] of Object.entries(scenario.files ?? {})) {
+    await mkdir(path.dirname(path.join(workspace, file)), { recursive: true });
     await writeFile(path.join(workspace, file), content);
   }
   const provider = await startModelProviderShim({

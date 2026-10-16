@@ -11,7 +11,8 @@
  * it leaks nothing, shows the behavior the scenario exists for, keeps every
  * invariant and replays to the conversation it recorded.
  */
-import { writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import {
   encodeProviderCassette,
   type ProviderCassette,
@@ -19,6 +20,7 @@ import {
 import { describe, expect, test } from 'vitest';
 import {
   cassetteFile,
+  describeRecording,
   PROVIDER_CASSETTE_SCENARIOS,
   type ProviderCassetteScenario,
   readScenarioCassette,
@@ -41,7 +43,7 @@ async function record(scenario: ProviderCassetteScenario): Promise<ProviderCasse
   expect(recorded.secretScan, 'a recording that trips the secret scanner is never saved').toBe('');
   if (scenario.exhibits && !scenario.exhibits.holds(recorded.cassette)) {
     throw new Error(
-      `${scenario.id}: the recording shows no ${scenario.exhibits.behavior}; not saved. Record it again.`
+      `${scenario.id}: the recording shows no ${scenario.exhibits.behavior}; not saved. Record it again.\n${describeRecording(recorded.cassette)}`
     );
   }
   expect(recorded.violations, 'a recording that breaks an invariant is never saved').toEqual([]);
@@ -49,6 +51,7 @@ async function record(scenario: ProviderCassetteScenario): Promise<ProviderCasse
   expect(replayed.shape, 'a recording must replay to the conversation it recorded').toEqual(
     recorded.shape
   );
+  await mkdir(dirname(cassetteFile(scenario)), { recursive: true });
   await writeFile(cassetteFile(scenario), encodeProviderCassette(recorded.cassette));
   return recorded.cassette;
 }
