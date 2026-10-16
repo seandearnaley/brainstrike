@@ -485,7 +485,7 @@ async function executeAssistantTool(
   // The Settings action commits the choice and publishes the acknowledged
   // catalog snapshot to the same renderer registry the composer observes.
   await new HomePage(page).openSettings();
-  await new SettingsPage(page).openCategory(/Model Catalog/i, 'models');
+  await new SettingsPage(page).openCategory(/Model Catalog/i, 'embedding-models');
   await page.getByRole('searchbox', { name: 'Search models' }).fill('openai/gpt-5.6-terra');
   const modelToggle = page.getByTestId('model-toggle-openai/gpt-5.6-terra');
   await expect(modelToggle).toBeVisible();
