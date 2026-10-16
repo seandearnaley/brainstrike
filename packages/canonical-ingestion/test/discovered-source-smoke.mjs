@@ -6,7 +6,7 @@ assert.equal(globalThis.window, undefined);
 assert.equal(globalThis.self, undefined);
 const recorded = JSON.parse(
   await readFile(
-    new URL('../../indexer/__tests__/fixtures/canonical-provided-chunks.json', import.meta.url),
+    new URL(import.meta.resolve('@brainstrike/test-utils/fixtures/canonical-provided-chunks.json')),
     'utf8'
   )
 );

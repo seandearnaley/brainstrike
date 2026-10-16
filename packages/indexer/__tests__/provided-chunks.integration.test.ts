@@ -8,7 +8,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { ProvidedChunk } from '../src/contracts.js';
 
 const captured = JSON.parse(
-  readFileSync(new URL('./fixtures/canonical-provided-chunks.json', import.meta.url), 'utf8')
+  readFileSync(
+    new URL(import.meta.resolve('@brainstrike/test-utils/fixtures/canonical-provided-chunks.json')),
+    'utf8'
+  )
 ) as {
   content: string;
   sourceHash: string;

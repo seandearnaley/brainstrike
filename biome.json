@@ -140,6 +140,19 @@
   },
   "overrides": [
     {
+      "includes": [
+        "apps/desktop/e2e/**",
+        "apps/web/e2e/**",
+        "apps/desktop/qualification/m2-native/**",
+        "apps/desktop/qualification/retrieval/**"
+      ],
+      "linter": {
+        "rules": {
+          "correctness": { "noUndeclaredDependencies": "off" }
+        }
+      }
+    },
+    {
       "includes": ["**/__tests__/**", "**/*.test.*", "**/*.stories.*"],
       "linter": {
         "rules": {

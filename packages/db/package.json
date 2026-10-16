@@ -35,7 +35,7 @@
     "fake-indexeddb": "catalog:",
     "jsdom": "catalog:",
     "playwright": "catalog:",
-    "tsx": "^4.23.12",
+    "tsx": "^4.23.15",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plugin-wasm": "catalog:",

@@ -114,6 +114,10 @@ setInterval(() => {}, 1000);
               '<observations>\n- The user requested an owned workspace operation.\n</observations>',
           };
         }
+        // Distinguish the tool-free title after the Qwen observer above.
+        if (request.toolNames.length === 0) {
+          return { finalText: 'Owned workspace task' };
+        }
         return select(request);
       };
     let workspaceRootId: string | undefined;

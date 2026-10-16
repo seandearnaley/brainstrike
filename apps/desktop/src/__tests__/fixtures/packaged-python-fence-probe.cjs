@@ -4,8 +4,10 @@ const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const { createHash } = require('node:crypto');
 const fs = require('node:fs');
+// biome-ignore-start lint/correctness/noUndeclaredDependencies: Electron provides this builtin to the packaged Electron-only probe.
 // @boundaries-ignore Electron's built-in native filesystem is required to distinguish OS files from virtual ASAR entries; this probe runs only in packaged Electron.
 const originalFs = require('original-fs');
+// biome-ignore-end lint/correctness/noUndeclaredDependencies: Keep the exception limited to Electron's builtin.
 const { createRequire } = require('node:module');
 const { tmpdir } = require('node:os');
 const path = require('node:path');

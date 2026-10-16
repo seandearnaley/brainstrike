@@ -21,6 +21,10 @@ on the affected artifact/platform. Release and deliberate stress checks are
 separate work. Docs-only changes need review and appropriate formatting/link
 checks, not app tests.
 
+Biome's dependency rule checks actual workspace manifests. The module-format-only
+manifests under web/desktop E2E and desktop qualification do not own installs;
+their four scoped exceptions preserve the parent app's dependency ownership.
+
 ## Finish without an endless campaign
 
 Batch related corrections and retest the affected behavior. Reuse passing checks

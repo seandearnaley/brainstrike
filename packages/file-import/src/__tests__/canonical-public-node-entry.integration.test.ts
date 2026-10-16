@@ -10,7 +10,7 @@ import { readFile } from 'node:fs/promises';
 import { canonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
 assert.equal(globalThis.window, undefined);
 assert.equal(globalThis.self, undefined);
-const capture = JSON.parse(await readFile('../indexer/__tests__/fixtures/canonical-provided-chunks.json', 'utf8'));
+const capture = JSON.parse(await readFile(new URL(import.meta.resolve('@brainstrike/test-utils/fixtures/canonical-provided-chunks.json')), 'utf8'));
 const payload = canonicalIndexPayload({
   kind: 'worker-result', result: capture.result,
   source: { content: capture.content, fileRecordId: capture.fileId, fileName: 'artifact-reader-model-projection.ts', filePath: capture.relativePath }
