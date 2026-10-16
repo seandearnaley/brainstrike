@@ -1,6 +1,10 @@
 /** The current native index supplies candidates; the existing grep service owns line matching. */
+import { refusalError } from '@brainstrike/assistant-contract';
 import { GrepSearchService } from '@brainstrike/db';
-import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
+import {
+  type IndexSearchCapability,
+  indexerStatusFailure,
+} from '@brainstrike/indexing-contract/indexer-client';
 import type { GrepIndexSearch } from '../assistant-server/grep-search-core';
 
 function hasNoConfiguredIndex(
@@ -26,12 +30,16 @@ export function nativeGrepIndex(
         if (hasNoConfiguredIndex(status, options.embeddingSetId)) {
           return [];
         }
+        // A typed index cause crosses Main's boundary as its fixed refusal text
+        // and remedy, which reach the model; a plain Error stays a generic fault.
         if (status.kind !== 'ready') {
-          throw new Error(status.reason);
+          throw indexerStatusFailure(status);
         }
         const collection = options.embeddingSetId;
         if (collection !== undefined && !status.authorizedCollectionIds?.includes(collection)) {
-          throw new Error(
+          throw refusalError(
+            'input',
+            'native-grep.collection-unauthorized',
             'The requested grep collection is not the current authorized collection.'
           );
         }

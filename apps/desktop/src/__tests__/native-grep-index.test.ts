@@ -1,10 +1,12 @@
 // @vitest-environment node
-import type {
-  IndexerGrepResult,
-  IndexSearchCapability,
+import {
+  type IndexerGrepResult,
+  type IndexSearchCapability,
+  NativeIndexRefusalError,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { expect, test, vi } from 'vitest';
 import { nativeGrepIndex } from '../agent-host-platform/native-grep-index';
+import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import { hit, storeId } from './native-scoped-search-fixture';
 
 function fixture() {
@@ -103,6 +105,47 @@ test('unconfigured indexing contributes no candidates to the existing fresh-file
   await expect(search({ embeddingSetId: 'selected', pattern: 'needle' })).rejects.toThrow(
     'Choose a search mode'
   );
+});
+
+// A plain Error crosses the Main boundary as an untyped fault, which the tool
+// guard hides behind "did not complete successfully"; explorers then retried
+// grep five to seven times each (2026-10-16 debug pack). The index's typed
+// cause crosses as its fixed refusal instead; the status reason, which can
+// carry private diagnostics, never does.
+test('a grep the index cannot serve refuses with its fixed, model-readable reason', async () => {
+  const unavailable = nativeGrepIndex({
+    grep: vi.fn<IndexSearchCapability['grep']>(),
+    status: async () => ({
+      cause: { kind: 'source-failure', message: 'EACCES /Users/someone/private/profile' },
+      kind: 'unavailable',
+      phase: 'blocked',
+      reason: 'EACCES /Users/someone/private/profile',
+    }),
+  });
+  const refused = await unavailable({ pattern: 'needle' }).catch((error: unknown) => error);
+  expect(refused).toBeInstanceOf(NativeIndexRefusalError);
+  const log = vi.fn();
+  const boundary = nativeIndexBoundaryFailure(refused, log);
+  expect(boundary).toMatchObject({
+    category: 'availability',
+    code: 'native-index-source-failure',
+    kind: 'refusal',
+    message: 'The search index could not prepare its sources.',
+  });
+  expect(JSON.stringify(boundary)).not.toContain('/Users/someone');
+  // The diagnostic stays in Main's log, under the refusal's correlation id.
+  expect(log).toHaveBeenCalledWith(
+    'Native index refusal retained its original cause',
+    expect.objectContaining({
+      cause: expect.objectContaining({ message: 'EACCES /Users/someone/private/profile' }),
+      correlationId: boundary.correlationId,
+    })
+  );
+  expect(boundary.correlationId).toEqual(expect.any(String));
+  const f = fixture();
+  await expect(f.search({ embeddingSetId: 'other', pattern: 'needle' })).rejects.toMatchObject({
+    failure: { category: 'input', kind: 'refusal' },
+  });
 });
 
 test.each(['preparing', 'blocked'] as const)(
