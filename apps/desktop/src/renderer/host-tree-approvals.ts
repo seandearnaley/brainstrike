@@ -345,8 +345,10 @@ export class HostTreeApprovals implements SubagentChildRunSource {
 
   /**
    * Each child's run state, and the viewed thread's direct background children
-   * still working. Only a root delegation runs in the background; a nested
-   * one runs inline under its parent's active run, whose own Stop ends it.
+   * still working their delegated invocation. Only a root delegation runs in
+   * the background; a nested one runs inline under its parent's active run,
+   * whose own Stop ends it. A child's follow-up (input, Retry, Edit) is its own
+   * turn, stopped from the child, so the parent's turn Stop never claims it.
    */
   private projectRuns(): {
     readonly runs: ReadonlyMap<string, SubagentChildRun>;
@@ -364,7 +366,12 @@ export class HostTreeApprovals implements SubagentChildRunSource {
       if (run) {
         runs.set(threadId, run);
       }
-      if (origin.background && origin.parentThreadId === this.threadId && working(run)) {
+      if (
+        origin.background &&
+        origin.parentThreadId === this.threadId &&
+        working(run) &&
+        fold.runsDelegatedInvocation()
+      ) {
         children.push({ owner, threadId, turnId: origin.turnId });
       }
     }

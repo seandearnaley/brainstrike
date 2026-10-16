@@ -12,6 +12,8 @@ import type { SubagentChildRun } from '@brainstrike/assistant-ui';
  */
 export class HostChildRunFold {
   private cursor = 0;
+  /** The child's first run: its delegated invocation, part of the parent's turn. */
+  private first: string | undefined;
   private latest: string | undefined;
   private outcome: Extract<HostLogRow['event'], { type: 'run.finished' }>['outcome'] | undefined;
   /** Interactions the latest run asked and nobody has answered yet. */
@@ -42,6 +44,7 @@ export class HostChildRunFold {
   private fold(event: HostLogRow['event'] | undefined): boolean {
     switch (event?.type) {
       case 'run.started':
+        this.first ??= event.runId;
         this.latest = event.runId;
         this.outcome = undefined;
         this.waiting.clear();
@@ -70,6 +73,15 @@ export class HostChildRunFold {
       default:
         return false;
     }
+  }
+
+  /**
+   * Whether the child's current run is its delegated invocation. Core starts
+   * any later run (input, Retry, Edit) as a follow-up with a turn of its own
+   * (`adopt` in core-child-runs), which the parent's turn Stop does not end.
+   */
+  runsDelegatedInvocation(): boolean {
+    return this.latest !== undefined && this.latest === this.first;
   }
 
   private status(): SubagentChildRun['status'] {
