@@ -49,7 +49,9 @@ import {
 import { CommittedRewindHead, type CommittedRewindHeadMove } from './committed-rewind-head';
 import {
   committedStepParts,
+  type LiveOverlayTarget,
   liveOverlayEntry,
+  liveOverlayTarget,
   MODEL_STREAM_TYPES,
   mergeProviderMetadata,
   providerMetadata,
@@ -131,8 +133,8 @@ interface ProjectedRun {
   /** A refused call's reason, from its approval response, until its denial settles it. */
   readonly denialReasons: Map<string, string>;
   readonly messageId: string;
-  /** Keys of the open step's live text and reasoning overlay parts. */
-  readonly overlay: Set<string>;
+  /** The open step's live text and reasoning blocks, by block key: the part each writes. */
+  readonly overlay: Map<string, LiveOverlayTarget>;
   readonly partIndexes: Map<string, number>;
   readonly runId: string;
   /** The commit time of the run's `run.started`, when the row carries one. */
@@ -613,7 +615,7 @@ export class CommittedAssistantLogProjection {
       createdAt: identity.createdAt,
       denialReasons: new Map(),
       messageId: message.id,
-      overlay: new Set(),
+      overlay: new Map(),
       partIndexes: new Map(),
       runId,
       startedAt: row.ts,
@@ -642,8 +644,9 @@ export class CommittedAssistantLogProjection {
     const run = this.failure ? undefined : this.runs.get(runId);
     const entry = run?.stepOpen && !run.terminal ? liveOverlayEntry(run.step, chunk) : undefined;
     if (run && entry) {
-      run.overlay.add(entry.key);
-      this.part(run, entry.key, entry.part);
+      const target = liveOverlayTarget(run, entry, this.message(run).content);
+      run.overlay.set(entry.key, target);
+      this.part(run, target.key, entry.part);
     }
     return this.view;
   }
@@ -657,7 +660,7 @@ export class CommittedAssistantLogProjection {
    */
   private commitStepText(run: ProjectedRun, messages: unknown): void {
     run.stepOpen = false;
-    for (const key of run.overlay) {
+    for (const { key } of new Set(run.overlay.values())) {
       this.removePart(run, key);
     }
     run.overlay.clear();
