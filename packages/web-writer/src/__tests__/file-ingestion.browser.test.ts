@@ -143,4 +143,29 @@ describe('canonical ingestion in the file index worker', () => {
     await expect(index.scan(rootId, folder)).rejects.toThrow();
     expect(await catalogPaths(tab, rootId)).toEqual(['one.ts']);
   });
+  it('answers each of two concurrent scans with its own pass, not the one already running', async () => {
+    const { folder, rootId } = await grantedFolder({ 'one.ts': 'export const one = 1;\n' });
+    const tab = await openTab(storeConfig());
+    await register(tab, rootId);
+    const index = new WebFileIndex(tab);
+    const [first, second] = await Promise.all([
+      index.scan(rootId, folder),
+      index.scan(rootId, folder),
+    ]);
+    expect(first).toMatchObject({ scanComplete: true });
+    expect(second).toMatchObject({ scanComplete: true });
+    expect(second.ticket.requestId).not.toBe(first.ticket.requestId);
+  });
+
+  it('refuses a scan of a root deleted since its runtime started', async () => {
+    const { folder, rootId } = await grantedFolder({ 'one.ts': 'export const one = 1;\n' });
+    const tab = await openTab(storeConfig());
+    await register(tab, rootId);
+    const index = new WebFileIndex(tab);
+    expect(await index.scan(rootId, folder)).toMatchObject({ scanComplete: true });
+
+    await tab.workspaceRoots({ operation: 'delete', paths: [webRootPath(rootId)], rootId });
+    await expect(index.scan(rootId, folder)).rejects.toThrow('Only a live workspace root');
+    expect(await catalogPaths(tab, rootId)).toEqual([]);
+  });
 });

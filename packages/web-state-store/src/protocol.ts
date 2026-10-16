@@ -312,9 +312,10 @@ export type ChannelMessage =
  * channel message changes: version 2 added the catalog and blob requests,
  * version 3 writer extensions, version 4 the writer's purge and thread
  * delete in place of tabs unlinking blobs, version 5 the source catalog and
- * workspace roots.
+ * workspace roots, version 6 a browser root's key as `/fsa/<rootId>` and the
+ * extensions' in-order writer requests.
  */
-export const WEB_STATE_PROTOCOL = 5;
+export const WEB_STATE_PROTOCOL = 6;
 
 const WEB_ROOT_PATH = /^\/fsa\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 

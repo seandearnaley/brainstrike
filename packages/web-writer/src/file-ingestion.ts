@@ -37,15 +37,20 @@ export interface FileIngestionDependencies {
 }
 
 interface RootIngestion {
+  /** The scan whose pass is running: that pass's receipt or failure answers it, and no other. */
+  current:
+    | {
+        readonly reject: (error: unknown) => void;
+        readonly resolve: (receipt: CanonicalScanReceipt) => void;
+      }
+    | undefined;
   /** The folder the root's runtime reads. */
   readonly folder: FileSystemDirectoryHandle;
   readonly lease: FsaWorkspaceLease;
+  /** The root's scans, one pass each, in the order they were asked for. */
+  queue: Promise<void>;
   readonly runtime: CanonicalWorkspaceIngestionRuntime;
-  /** Callers waiting for the next pass's receipt, or its failure. */
-  readonly waiting: {
-    readonly reject: (error: unknown) => void;
-    readonly resolve: (receipt: CanonicalScanReceipt) => void;
-  }[];
+  started: boolean;
 }
 
 export class FileIngestion {
@@ -55,8 +60,9 @@ export class FileIngestion {
   constructor(private readonly dependencies: FileIngestionDependencies) {}
 
   /**
-   * Runs a pass over a live root's folder; resolves with its receipt. A root
-   * keeps the folder its runtime started on: another folder for it is refused.
+   * Runs one pass over a live root's folder, after any pass already asked for;
+   * resolves with that pass's own receipt. A root keeps the folder its runtime
+   * started on: another folder for it is refused.
    */
   async scan(rootId: string, folder: FileSystemDirectoryHandle): Promise<CanonicalScanReceipt> {
     if (this.#closed) {
@@ -72,22 +78,49 @@ export class FileIngestion {
       opening.catch(() => this.#roots.delete(rootId));
     }
     const root = await opening;
-    const receipt = new Promise<CanonicalScanReceipt>((resolve, reject) =>
-      root.waiting.push({ reject, resolve })
+    const pass = root.queue.then(() => this.#pass(rootId, root));
+    root.queue = pass.then(
+      () => undefined,
+      () => undefined
     );
-    if (existing) {
-      root.runtime.trigger();
-    } else {
-      // A started runtime runs its first full pass.
-      await root.runtime.start();
+    return pass;
+  }
+
+  /** One pass, once the root is confirmed live: a root deleted or disconnected since retires instead. */
+  async #pass(rootId: string, root: RootIngestion): Promise<CanonicalScanReceipt> {
+    if (!(await this.#isLive(rootId))) {
+      this.#roots.delete(rootId);
+      await this.#retire(root);
+      throw new Error('Only a live workspace root can be scanned.');
     }
-    return receipt;
+    return new Promise<CanonicalScanReceipt>((resolve, reject) => {
+      root.current = { reject, resolve };
+      if (root.started) {
+        root.runtime.trigger();
+      } else {
+        // A started runtime runs its first full pass.
+        root.started = true;
+        root.runtime.start().catch(reject);
+      }
+    }).finally(() => {
+      root.current = undefined;
+    });
+  }
+
+  async #isLive(rootId: string): Promise<boolean> {
+    const root = (await this.dependencies.roots()).find((current) => current.id === rootId);
+    return root?.status === 'live';
+  }
+
+  async #retire(root: RootIngestion): Promise<void> {
+    root.lease.revoke(new DOMException('File ingestion retired.', 'AbortError'));
+    await root.runtime.close();
+    await root.lease.retire();
   }
 
   async #open(rootId: string, folder: FileSystemDirectoryHandle): Promise<RootIngestion> {
     const { catalog: sourceCatalog, port } = this.dependencies;
-    const root = (await this.dependencies.roots()).find((current) => current.id === rootId);
-    if (root?.status !== 'live') {
+    if (!(await this.#isLive(rootId))) {
       throw new Error('Only a live workspace root can be scanned.');
     }
     const lease = fsaWorkspaceLease(rootId, folder);
@@ -141,19 +174,19 @@ export class FileIngestion {
       },
     });
     const ingestion: RootIngestion = {
+      current: undefined,
       folder,
       lease,
+      queue: Promise.resolve(),
       runtime: new CanonicalWorkspaceIngestionRuntime({
         catalog,
         chunker: createBrowserChunker(),
         managedCollectionId: null,
         mode: 'TEXT',
-        // A pass that fails reports no receipt: its waiting scans fail with it, visibly.
+        // A pass that fails reports no receipt: the scan that asked for it fails with it, visibly.
         onError: (operation, error) => {
           this.dependencies.onError(operation, error);
-          for (const waiter of ingestion.waiting.splice(0)) {
-            waiter.reject(error);
-          }
+          ingestion.current?.reject(error);
         },
         onReceipt: (receipt, sourceInvalidated) => {
           if (sourceInvalidated) {
@@ -161,9 +194,7 @@ export class FileIngestion {
           } else {
             admission.completeWorkspace(receipt);
           }
-          for (const waiter of ingestion.waiting.splice(0)) {
-            waiter.resolve(receipt);
-          }
+          ingestion.current?.resolve(receipt);
         },
         onWatchHealth: () => {},
         publication: admission.workspacePublication(
@@ -188,7 +219,7 @@ export class FileIngestion {
           lease,
         },
       }),
-      waiting: [],
+      started: false,
     };
     return ingestion;
   }
@@ -200,9 +231,7 @@ export class FileIngestion {
     this.#roots.clear();
     for (const settled of roots) {
       if (settled.status === 'fulfilled') {
-        settled.value.lease.revoke(new DOMException('File ingestion retired.', 'AbortError'));
-        await settled.value.runtime.close();
-        await settled.value.lease.retire();
+        await this.#retire(settled.value);
       }
     }
   }

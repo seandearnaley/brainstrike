@@ -21,7 +21,8 @@ import {
   fileIndexFailure,
 } from './file-index-protocol';
 
-export const FILE_INDEX_EXTENSION_ID = 'file-index@1';
+/** Version 2: `files.scan` and the worker's writer requests. */
+export const FILE_INDEX_EXTENSION_ID = 'file-index@2';
 
 interface Pending {
   readonly reject: (error: Error) => void;
