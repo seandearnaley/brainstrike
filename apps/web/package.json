@@ -29,7 +29,6 @@
     "@electric-sql/pglite-pgvector": "catalog:",
     "@fontsource-variable/geist": "catalog:",
     "@fontsource-variable/geist-mono": "catalog:",
-    "dompurify": "^3.4.13",
     "lucide-react": "catalog:",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

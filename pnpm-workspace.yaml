@@ -82,7 +82,7 @@ catalog:
   '@modelcontextprotocol/server-legacy': 2.3.1
   # BST-1940: SHA-256 for the derived indexer where Node's crypto is absent (the
   # browser writer); packages/indexer/src/portable.ts uses node:crypto when present.
-  '@noble/hashes': 2.2.0
+  '@noble/hashes': 2.4.0
   '@openrouter/ai-sdk-provider': 2.10.0
   '@parcel/watcher': ^2.6.0
   '@playwright/test': 1.63.0
@@ -111,8 +111,6 @@ catalog:
   '@stryker-mutator/core': ^10.0.0
   '@stryker-mutator/typescript-checker': ^10.0.0
   '@stryker-mutator/vitest-runner': ^10.0.0
-  # PINNED: 1.16.0 breaks the build — see the @swc/core note in `overrides:` below.
-  '@swc/core': ~1.15.47
   '@tailwindcss/typography': ^0.5.20
   '@tailwindcss/vite': ^4.3.3
   '@tanstack/react-table': ^9.2.4
@@ -143,7 +141,7 @@ catalog:
   # provenance smoke.
   better-sqlite3: 13.0.3
   bindings: 1.5.0
-  concurrently: ^10.0.5
+  concurrently: ^10.0.6
   drizzle-orm: 0.45.2
   # ADR-0004: Effect v4 is an LTS line, with fixes committed through September
   # 2029. The pin stays EXACT: `^4.0.0` constraints elsewhere in the ecosystem
@@ -160,10 +158,10 @@ catalog:
   fake-indexeddb: ^6.2.5
   glob: ^13.0.6
   happy-dom: ^20.14.0
-  idb: ^8.0.3
-  ignore: 7.0.8
+  idb: ^8.0.4
+  ignore: 7.0.12
   jsdom: 30.0.1
-  jszip: ^3.10.1
+  jszip: ^3.10.2
   knip: ^6.34.0
   lucide-react: ^1.41.0
   mermaid: ^11.17.1
@@ -175,7 +173,7 @@ catalog:
   # `react({ compiler: <options> })` plugin has — it imports this package and hard-errors
   # when it is missing. Both apps pass an options object rather than `true`.
   oxc-transform-react: ^0.148.0
-  pino: ^10.3.1
+  pino: ^10.4.0
   playwright: 1.63.0
   react-hotkeys-hook: ^5.3.3
   react-resizable-panels: ^4.12.3
@@ -203,7 +201,7 @@ catalog:
   vitest: ^5.0.2
   workerpool: ^10.0.3
   xxhash-wasm: ^1.1.0
-  yaml: ^2.9.0
+  yaml: ^2.9.1
   zod: ^4.6.5
   zustand: ^5.0.15
 overrides:
@@ -287,26 +285,10 @@ overrides:
   # pristine main at 1.15.47 builds green; the same tree with only the swc bump
   # fails at @brainstrike/desktop#build.
   #
-  # This SUBTREE-scoped override is what actually holds the line. The plugin
-  # declares its own `@swc/core: ^1.12.14`, which the catalog does NOT constrain —
-  # so before this, the only thing pinning 1.15.47 was the lockfile, and any
-  # `pnpm update` or dedupe could have resolved 1.16.0 and broken the build with
-  # no warning. The catalog was narrowed to `~1.15.47` in the same change to close
-  # the direct-dependency path.
-  #
-  # What the narrowing is and is NOT, measured: widening the catalog back to
-  # `^1.16.0` while these overrides stand does NOT put the plugin on 1.16.0 — it
-  # stays on 1.15.47, because the override wins. What widening actually does is
-  # split the tree into TWO @swc/core resolutions, 1.15.47 for the plugin and
-  # 1.16.0 for the four catalog consumers (packages/{hooks,types,utils,test-utils},
-  # which take it as a devDependency with no source import). So the narrowing is
-  # single-resolution hygiene and a second line of defence, NOT the thing keeping
-  # the build green — the override is. Do not widen it casually on that basis,
-  # but do not mistake it for the load-bearing pin either.
-  #
-  # Subtree-scoped on purpose: a BARE `@swc/core` override would shadow the
-  # catalog entry entirely, which scripts/verify-catalog-references.mjs rejects
-  # ("never both").
+  # The plugin owns both SWC dependencies; there are no first-party consumers.
+  # Keep these subtree pins after removing packages/types' unused declaration
+  # and catalog entry (BST-2027). Normal updates must not move the plugin to
+  # the incompatible AST representation.
   #
   # @swc/wasm is pinned for the SAME reason, and it is NOT belt-and-braces. The
   # plugin depends on both packages directly (`@swc/core: ^1.12.14`,
@@ -335,8 +317,8 @@ overrides:
   # so retiring the desktop usage alone would NOT retire these pins.
   #
   # Remove both once vite-plugin-top-level-await ships a release compatible with
-  # swc >= 1.16 (1.6.0 is latest as of 2026-08-15 and is not), widen the catalog
-  # back to a caret range, and delete scripts/__tests__/swc-ast-break-block.test.mjs,
+  # swc >= 1.16 (1.6.0 is latest as of 2026-08-15 and is not), and delete
+  # scripts/__tests__/swc-ast-break-block.test.mjs,
   # which fails until all three are done together.
   vite-plugin-top-level-await>@swc/core: ~1.15.47
   vite-plugin-top-level-await>@swc/wasm: ~1.15.43
