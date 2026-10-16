@@ -48,12 +48,18 @@ const ORT_WASM_REQUESTS_KEY = '__brainstrikeE2eOrtWasmRequests' as const;
  * resource is confined to this directory. `net.fetch` runs on the session the
  * hook below watches, so the app serving its OWN bundle appears there as a
  * `file://` request to a path inside this directory — which is precisely what
- * BST-2003 requires, not a violation of it. `realpathSync` here because the
- * handler resolves the served path the same way.
+ * BST-2003 requires, not a violation of it. `realpathSync` because the handler
+ * resolves the served path the same way.
+ *
+ * Resolved per call, NOT at module scope: `dist/` is gitignored and absent on a
+ * clean checkout, and `playwright test --list` collects specs without running
+ * them or the build setup, so a top-level `realpathSync` would fail discovery
+ * with ENOENT before any test could be reported. Resolving here still fails by
+ * name if the bundle is missing when the hook actually runs.
  */
-const APP_BUNDLE_FILE_URL_PREFIX = `${
-  pathToFileURL(realpathSync(resolve(import.meta.dirname, '../dist/renderer'))).href
-}/`;
+function appBundleFileUrlPrefix(): string {
+  return `${pathToFileURL(realpathSync(resolve(import.meta.dirname, '../dist/renderer'))).href}/`;
+}
 
 /**
  * Records every ONNX Runtime WASM request that does NOT come from the app's own
@@ -61,7 +67,7 @@ const APP_BUNDLE_FILE_URL_PREFIX = `${
  * onBeforeRequest listener of its own, so this observes without replacing one.
  *
  * Two shapes are the app serving itself and are not recorded: the renderer origin,
- * and a `file://` read inside {@link APP_BUNDLE_FILE_URL_PREFIX} (how the renderer
+ * and a `file://` read inside {@link appBundleFileUrlPrefix} (how the renderer
  * protocol fulfils that origin). A CDN fetch, or a `file://` read from outside the
  * bundle, still is.
  */
@@ -82,7 +88,7 @@ async function recordOrtWasmRequests(app: ElectronApplication): Promise<void> {
     },
     {
       appOrigin: APP_RENDERER_ORIGIN,
-      bundlePrefix: APP_BUNDLE_FILE_URL_PREFIX,
+      bundlePrefix: appBundleFileUrlPrefix(),
       key: ORT_WASM_REQUESTS_KEY,
     }
   );
