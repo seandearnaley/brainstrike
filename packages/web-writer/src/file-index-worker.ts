@@ -30,12 +30,14 @@ import {
   retireUnownedRows,
   vectorCollectionId,
 } from '@brainstrike/canonical-ingestion/browser';
+import type { VectorProfile } from '@brainstrike/indexer';
 import {
   binaryVectorEngine,
   IndexWriter,
   SCOPED_INDEX_OPERATIONS,
   type ScopedIndexOperation,
   scopedIndexOperations,
+  vectorProfileHash,
 } from '@brainstrike/indexer/browser';
 import { createLogger } from '@brainstrike/logging';
 import type {
@@ -423,6 +425,58 @@ async function configure(
   }
 }
 
+/**
+ * A semantic search query's vector, as desktop's retrieval asks its embedding
+ * host for one: the saved collection's model, with its query prompt, on the
+ * saved local execution. It answers with the profile to search the vector
+ * under. TEXT has no model, and a hosted one has no embedder here.
+ */
+async function embedQuery(
+  query: string
+): Promise<{ readonly profile: VectorProfile; readonly vector: number[] }> {
+  const partition = settings();
+  const vectors = resolver();
+  if (!vectors) {
+    throw new Error('Semantic search needs VECTOR search in Search & Indexing settings.');
+  }
+  if (!query.trim()) {
+    throw new Error('A semantic search query needs text.');
+  }
+  const resolved = await vectors.resolve(
+    { embeddingSetId: vectorCollectionId(partition), kind: 'collection' },
+    resolveContext()
+  );
+  if (!(resolved.workerPlan && embeddings)) {
+    throw new Error(
+      `The browser file index has no embedder for provider ${resolved.profile.provider}.`
+    );
+  }
+  const vector = await embeddings.queryEmbedding({
+    dimensions: resolved.profile.dimensions,
+    inferencePlan: resolved.workerPlan,
+    modelId: resolved.profile.modelId,
+    modelKey: resolved.modelKey,
+    query,
+  });
+  // As desktop's retrieval rechecks its saved query profile: settings changed
+  // while the query embedded answer with a refusal, never an outdated profile.
+  const current = resolver();
+  const now =
+    current &&
+    (await current.resolve(
+      { embeddingSetId: vectorCollectionId(settings()), kind: 'collection' },
+      resolveContext()
+    ));
+  if (
+    !now ||
+    now.modelKey !== resolved.modelKey ||
+    vectorProfileHash(now.profile) !== vectorProfileHash(resolved.profile)
+  ) {
+    throw new Error('The saved query profile changed during the query. Retry the query.');
+  }
+  return { profile: resolved.profile, vector };
+}
+
 async function handle(
   request: Exclude<FileIndexRequest, { kind: 'writer-reply' }>
 ): Promise<unknown> {
@@ -461,6 +515,8 @@ async function handle(
         close();
         return openOwned(authority);
       });
+    case 'embed-query':
+      return embedQuery(request.query);
     case 'request': {
       settings();
       if (!writer) {

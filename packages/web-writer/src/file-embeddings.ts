@@ -8,6 +8,7 @@
  *
  * One plan is loaded at a time, and a different plan replaces it. Calls run
  * one after another, so a plan is never replaced under a call that uses it.
+ * A search query embeds on the same plan, with the model's query prompt.
  */
 import type { CanonicalDocumentEmbeddingsPayload } from '@brainstrike/canonical-ingestion/browser';
 import { embeddingWorkerTelemetrySink } from '@brainstrike/embedding-worker';
@@ -23,8 +24,16 @@ interface LoadedPlan {
   readonly service: SimpleEmbeddingService;
 }
 
+/** The model a call runs: its key and its pinned plan. */
+type PlannedModel = Pick<CanonicalDocumentEmbeddingsPayload, 'inferencePlan' | 'modelKey'>;
+
+/** A search query's embedding, as desktop's embedding host computes one for retrieval. */
+export type WebQueryEmbeddingPayload = Omit<CanonicalDocumentEmbeddingsPayload, 'texts'> & {
+  readonly query: string;
+};
+
 /** What makes two payloads load the same model: its key and its whole execution. */
-function planIdentity({ inferencePlan: plan, modelKey }: CanonicalDocumentEmbeddingsPayload) {
+function planIdentity({ inferencePlan: plan, modelKey }: PlannedModel) {
   return JSON.stringify([
     modelKey,
     plan.modelId,
@@ -54,6 +63,12 @@ export class WebDocumentEmbeddings {
     payload: CanonicalDocumentEmbeddingsPayload,
     options?: { signal?: AbortSignal }
   ): Promise<number[][]> => this.#serially(() => this.#embed(payload, options?.signal));
+
+  /** A search query's vector, with the model's query prompt, on the same loaded plan. */
+  readonly queryEmbedding = (
+    payload: WebQueryEmbeddingPayload,
+    options?: { signal?: AbortSignal }
+  ): Promise<number[]> => this.#serially(() => this.#query(payload, options?.signal));
 
   /** Unloads the plan and stops the embedding workers; later calls refuse. */
   close(): Promise<void> {
@@ -93,7 +108,20 @@ export class WebDocumentEmbeddings {
     return results.map((result) => result.embedding);
   }
 
-  async #service(payload: CanonicalDocumentEmbeddingsPayload): Promise<SimpleEmbeddingService> {
+  async #query(
+    payload: WebQueryEmbeddingPayload,
+    signal: AbortSignal | undefined
+  ): Promise<number[]> {
+    signal?.throwIfAborted();
+    const service = await this.#service(payload);
+    signal?.throwIfAborted();
+    const result = await service.generateQueryEmbedding(payload.query, signal ? { signal } : {});
+    signal?.throwIfAborted();
+    assertPinnedPlanResult(payload.inferencePlan, result);
+    return result.embedding;
+  }
+
+  async #service(payload: PlannedModel): Promise<SimpleEmbeddingService> {
     if (this.#closed) {
       throw new Error('The file index embedder is closed.');
     }

@@ -5,7 +5,7 @@
  * The embedding worker URL is this worker's URL fragment (`#embedder=`).
  */
 import type { CanonicalDocumentEmbeddingsPayload } from '@brainstrike/canonical-ingestion/browser';
-import { WebDocumentEmbeddings } from '../../file-embeddings';
+import { WebDocumentEmbeddings, type WebQueryEmbeddingPayload } from '../../file-embeddings';
 
 export type TestWorkerRequest =
   | { readonly id: number; readonly kind: 'close' }
@@ -15,6 +15,7 @@ export type TestWorkerRequest =
       readonly kind: 'embed';
       readonly payload: CanonicalDocumentEmbeddingsPayload;
     }
+  | { readonly id: number; readonly kind: 'query'; readonly payload: WebQueryEmbeddingPayload }
   | { readonly id: number; readonly kind: 'realm' };
 
 export type TestWorkerReply =
@@ -38,6 +39,8 @@ async function answer(request: TestWorkerRequest): Promise<unknown> {
       }
       return embeddings.documentEmbeddings(request.payload, { signal: controller.signal });
     }
+    case 'query':
+      return embeddings.queryEmbedding(request.payload);
     case 'realm':
       return { window: typeof window, worker: typeof Worker };
   }

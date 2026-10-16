@@ -9,6 +9,7 @@ import type {
   ScopedIndexerPort,
   ScopedManifestResult,
   ScopedSearchResult,
+  VectorProfile,
 } from '@brainstrike/indexer';
 import { IndexerError } from '@brainstrike/indexer/browser';
 import { type WebStateStore, WebStateStoreError } from '@brainstrike/web-state-store';
@@ -121,6 +122,18 @@ export class WebFileIndex implements ScopedIndexerPort, Pick<IndexerPort, 'info'
     embeddingWorkerUrl?: string
   ): Promise<{ readonly rebuilt: string | null }> {
     return this.#call('configure', { embeddingWorkerUrl: embeddingWorkerUrl ?? null, preferences });
+  }
+
+  /**
+   * A semantic search query's vector, embedded with the saved collection's
+   * model and its query prompt, and the profile to search it under with
+   * `searchScopes({ mode: 'vector', profile, vector })`. TEXT, or a hosted
+   * model, refuses.
+   */
+  embedQuery(
+    query: string
+  ): Promise<{ readonly profile: VectorProfile; readonly vector: readonly number[] }> {
+    return this.#call('embedQuery', { query });
   }
 
   /** Reopens the store under the saved partition's current roots, collection and files. */

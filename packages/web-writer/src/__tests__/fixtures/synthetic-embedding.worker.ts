@@ -3,8 +3,9 @@
  * The production embedding worker over a synthetic Transformers runtime, so a
  * test runs the whole embedding stack offline. Each text's vector is a pure
  * function of its text, at the dimensions the worker's URL names
- * (`#dimensions=`, three by default), and every pipeline load is reported on
- * the BroadcastChannel it names (`#channel=`).
+ * (`#dimensions=`, three by default), each batch taking `#delay=`
+ * milliseconds, and every pipeline load is reported on the BroadcastChannel
+ * it names (`#channel=`).
  */
 import {
   EMBEDDING_WORKER_TEST_RUNTIME_AUTOMATION,
@@ -17,6 +18,8 @@ const fragment = new URLSearchParams(self.location.hash.slice(1));
 const channel = new BroadcastChannel(fragment.get('channel') ?? 'synthetic-embedding');
 /** The model's own dimensions; the worker truncates to the plan's. */
 const dimensions = Number(fragment.get('dimensions') ?? 3);
+/** How long each batch takes (`#delay=`, milliseconds), so a test can overlap one. */
+const delay = Number(fragment.get('delay') ?? 0);
 
 function createSyntheticRuntime(): Record<string, unknown> {
   return {
@@ -39,8 +42,10 @@ function createSyntheticRuntime(): Record<string, unknown> {
         model,
         revision: options.revision ?? null,
       });
-      const extractor = async (texts: readonly string[]) =>
-        texts.map((text) => syntheticVector(text, dimensions));
+      const extractor = async (texts: readonly string[]) => {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        return texts.map((text) => syntheticVector(text, dimensions));
+      };
       return Object.assign(extractor, {
         dispose: async () => undefined,
         tokenizer: (text: string) => ({

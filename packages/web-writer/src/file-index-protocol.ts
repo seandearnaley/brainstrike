@@ -46,6 +46,8 @@ export type FileIndexRequest =
       readonly preferences: string | null;
     }
   | { readonly id: number; readonly kind: 'reauthorize' }
+  /** A semantic search query's vector, with the saved collection's profile to search it under. */
+  | { readonly id: number; readonly kind: 'embed-query'; readonly query: string }
   | { readonly id: number; readonly kind: 'request'; readonly op: string; readonly params: unknown }
   /**
    * Scans a live root's folder into the catalog and the index; answers with
