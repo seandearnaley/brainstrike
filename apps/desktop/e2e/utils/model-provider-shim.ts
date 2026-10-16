@@ -161,7 +161,7 @@ export interface ModelProviderShim {
   /** The base URL the launch fixture assigns to one knob; refusals name the knob. */
   readonly baseUrlFor: (knob: ProviderBaseUrlKnob) => string;
   readonly close: () => Promise<void>;
-  /** Every refused request, oldest first. */
+  /** Every refused request, oldest first by arrival (`requestIndex`). */
   readonly refusals: () => readonly ModelProviderRefusal[];
   readonly requestCount: () => number;
   /** Every scripted request, oldest first, with its parsed wire payload. */
@@ -1094,7 +1094,7 @@ export async function startModelProviderShim(
         server.close((error) => (error ? reject(error) : resolve()));
       });
     },
-    refusals: () => [...refusals],
+    refusals: () => [...refusals].sort((a, b) => a.requestIndex - b.requestIndex),
     requestCount: () => requestCount,
     requests: () => [...requests],
     servedMetadata: () => [...servedMetadata],
