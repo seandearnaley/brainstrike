@@ -1,6 +1,8 @@
 import path from 'node:path';
-import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
-import type { NativeCanonicalCatalogRecord } from './native-canonical-catalog';
+import type {
+  CanonicalWorkspaceLease,
+  NativeCanonicalCatalogRecord,
+} from '@brainstrike/canonical-ingestion';
 
 /**
  * A catalog record's canonical identity under the generation's root leases: a

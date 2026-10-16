@@ -4,9 +4,9 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openHostStateIndex } from '@brainstrike/agent-host/test-fixtures/host-state-index';
+import { createNativeCanonicalCatalog } from '@brainstrike/canonical-ingestion';
 import { StateStore } from '@brainstrike/state-store';
 import { expect, test, vi } from 'vitest';
-import { createNativeCanonicalCatalog } from '../native-canonical-catalog';
 
 // Actual scanner payload fields; native identity remains resolved from Main's admitted grant.
 test('canonical discovery, completion and physical removal use the host writer with PG unavailable', async () => {

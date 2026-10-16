@@ -11,13 +11,13 @@ import type {
   CanonicalFileIdentity,
   CanonicalOperationContext,
 } from '@brainstrike/canonical-ingestion';
+import { createNativeCanonicalCatalog } from '@brainstrike/canonical-ingestion';
 import {
   type SourceCatalogPort,
   type SourceCatalogRecord,
   StateStore,
 } from '@brainstrike/state-store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createNativeCanonicalCatalog } from '../native-canonical-catalog';
 
 let store: StateStore;
 let stateIndex: HostStateIndex;

@@ -8,6 +8,7 @@ import type {
   CanonicalVectorPublicationPort,
   CanonicalWorkspaceLease,
   CanonicalWorkspaceRuntimeDependencies,
+  NativeCanonicalCatalogRecord,
 } from '@brainstrike/canonical-ingestion';
 import {
   DEFAULT_MAX_FILE_SIZE,
@@ -28,7 +29,6 @@ import {
 } from '../canonical-utility-parent';
 import { decodeCanonicalFrame } from '../canonical-utility-protocol';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
-import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
 import {
   createInitialWindowAfterNativeReader,
   observeNativeReaderStartup,

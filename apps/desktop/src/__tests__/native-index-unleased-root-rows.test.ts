@@ -1,7 +1,8 @@
 // @vitest-environment node
+
+import type { NativeCanonicalCatalogRecord } from '@brainstrike/canonical-ingestion';
 import { beforeEach, expect, it } from 'vitest';
 import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
-import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
 import {
   emptyCollection,
   fixture,

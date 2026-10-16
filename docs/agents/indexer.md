@@ -31,7 +31,9 @@ plus the vendored tree-sitter grammar. `@brainstrike/canonical-ingestion/browser
 is the host without the mounted-lease source, and `browser-entry.test.ts`
 fails on a static Node import reachable from it. Scan receipts and publication
 readiness have one owner, `scoped-publication.ts` in canonical-ingestion, for
-desktop's native index and the browser's index worker alike. A transaction rejects stale preparation and atomically
+desktop's native index and the browser's index worker alike; so do the
+canonical catalog over the source catalog (`canonical-catalog.ts`) and scan
+admission (`scan-admission.ts`). A transaction rejects stale preparation and atomically
 changes chunks, text indexes, vectors and graph data. Complete catalog inventories,
 acknowledged bindings and source revisions authorize publication/removal; a path
 match or partial scan is not authority.
