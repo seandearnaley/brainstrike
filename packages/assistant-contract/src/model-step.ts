@@ -7,6 +7,9 @@ import { z } from 'zod';
  * AI SDK step result (the response messages, the model and the usage), so the
  * browser commits the step the host would have, from one source.
  *
+ * It goes out as it completes, as an out-of-band data frame (`2:`), ahead of
+ * its step's `finish-step` part, in the order the host commits them.
+ *
  * Opt-in: only a request that asks to record its steps receives these parts,
  * so a client that keeps its own transcript never stores them.
  */

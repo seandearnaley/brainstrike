@@ -109,6 +109,13 @@ describe('a turn that records its steps (BST-1940)', () => {
       'model-stream-part',
       'text-delta',
     ]);
+    // The completed step comes ahead of its finish-step part, as the host commits them.
+    // (The SDK can complete a step while its text parts are still queued; that text is telemetry.)
+    const order = chunks.map((chunk) =>
+      chunk.type === 'model-stream-part' ? `part:${chunk.part.type}` : chunk.type
+    );
+    expect(order.indexOf('model-step')).toBeGreaterThan(order.indexOf('part:start-step'));
+    expect(order.indexOf('model-step')).toBeLessThan(order.indexOf('part:finish-step'));
     const finishStep = parts.find((part) => part.type === 'finish-step');
     expect(finishStep).toMatchObject({
       finishReason: 'stop',
@@ -168,7 +175,7 @@ describe('a turn that records its steps (BST-1940)', () => {
     ]);
   });
 
-  it('carries the step on the wire as its data part, ahead of the finish', async () => {
+  it('carries the step on the wire as an out-of-band data frame, ahead of its finish-step part', async () => {
     const response = createStatelessAssistantDataStreamResponse(
       await streamHostedWebTurn({
         messages: [userMessage('hello')],
@@ -179,19 +186,24 @@ describe('a turn that records its steps (BST-1940)', () => {
     );
     const lines = (await response.text()).split('\n').filter((line) => line.length > 0);
     const step = lines.findIndex((line) => line.includes(MODEL_STEP_DATA_NAME));
-    const finish = lines.findIndex((line) => line.startsWith('d:'));
+    const finishStep = lines.findIndex(
+      (line) => line.includes(MODEL_STREAM_PART_DATA_NAME) && line.includes('"type":"finish-step"')
+    );
 
     expect(step).toBeGreaterThan(-1);
-    expect(step).toBeLessThan(finish);
+    // As the host commits them: the step before its finish-step part.
+    expect(step).toBeLessThan(finishStep);
     const [code, ...value] = (lines[step] ?? '').split(':');
-    expect(code).toBe('aui-data');
-    expect(JSON.parse(value.join(':'))).toMatchObject({
-      data: {
-        messages: [{ content: [{ text: 'hi', type: 'text' }], role: 'assistant' }],
-        stepNumber: 0,
+    expect(code).toBe('2');
+    expect(JSON.parse(value.join(':'))).toMatchObject([
+      {
+        data: {
+          messages: [{ content: [{ text: 'hi', type: 'text' }], role: 'assistant' }],
+          stepNumber: 0,
+        },
+        name: MODEL_STEP_DATA_NAME,
       },
-      name: MODEL_STEP_DATA_NAME,
-    });
+    ]);
   });
 });
 

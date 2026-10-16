@@ -39,9 +39,10 @@ export interface HostedWebTurnParams {
   /** Prompt-assembly clock, injected so the composed instructions stay pure. */
   readonly now?: Date;
   /**
-   * Return each completed step (`model-step`) before the finish, and each
-   * stream part as it arrives (`model-stream-part`), for a client that records
-   * its runs as the host commits them (BST-1940).
+   * Return each completed step (`model-step`) as it completes, ahead of its
+   * `finish-step` part, and each stream part as it arrives
+   * (`model-stream-part`), for a client that records its runs as the host
+   * commits them (BST-1940).
    */
   readonly recordSteps?: boolean;
   readonly signal?: AbortSignal;
@@ -105,7 +106,8 @@ function recordedStreamPart(part: TextStreamPart<ToolSet>): AssistantModelStream
 
 async function* toStreamChunks(
   fullStream: AsyncIterable<TextStreamPart<ToolSet>>,
-  steps: readonly StreamChunk[],
+  /** The steps completed and not yet returned; each is taken once. */
+  steps: StreamChunk[],
   record: boolean
 ): AsyncGenerator<StreamChunk> {
   // OpenRouter reports its exact charge in the STEP's providerMetadata; the
@@ -116,6 +118,9 @@ async function* toStreamChunks(
   // rather than by reporting zero — the same rule agent-streaming.ts:419 uses.
   let billedCostUsd: number | undefined;
   for await (const part of fullStream) {
+    // A step's callback runs before its `finish-step` part arrives, and the host commits
+    // the step from that callback, so a completed step goes out ahead of the part.
+    yield* steps.splice(0);
     // A provider error still ends the turn below; the client records the failure it reports.
     if (record && part.type !== 'error') {
       yield { part: recordedStreamPart(part), type: 'model-stream-part' };
@@ -144,8 +149,6 @@ async function* toStreamChunks(
         throw asError(part.error);
       }
       case 'finish': {
-        // Every step has finished by now: its callback ran before this part.
-        yield* steps;
         yield {
           ...(billedCostUsd === undefined ? {} : { billedCostUsd }),
           finishReason: part.finishReason satisfies StreamFinishReason,

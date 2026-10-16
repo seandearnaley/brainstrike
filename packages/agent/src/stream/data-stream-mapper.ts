@@ -722,12 +722,6 @@ export class DataStreamMapper {
   }
 
   /**
-   * Emit a completed step, for a client that records its runs (BST-1940), as
-   * an `aui-data` part: what the host commits as `model.step`. Same text-part
-   * deferral contract as the context breakdown above; the finish flushes it
-   * before `d`, so a recorded run always has its steps before it finishes.
-   */
-  /**
    * Emit a recorded turn's stream part (BST-1940) as it arrives, as an
    * out-of-band data frame: it leaves an open text, reasoning or args part
    * open, so it never slices visible text and needs no deferral, and the
@@ -740,24 +734,27 @@ export class DataStreamMapper {
     } satisfies EncodedChunk;
   }
 
+  /**
+   * Emit a completed step, for a client that records its runs (BST-1940):
+   * what the host commits as `model.step`. Like a stream part it goes out at
+   * once, as an out-of-band data frame, so it reaches the client before its
+   * `finish-step` part, in the order the host commits them.
+   */
   private *handleModelStep(chunk: StreamChunkModelStep): Generator<EncodedChunk> {
-    const encoded = {
-      code: DataStreamCode.auiDataPart,
-      value: {
-        data: {
-          messages: chunk.messages,
-          model: chunk.model,
-          stepNumber: chunk.stepNumber,
-          usage: chunk.usage,
+    yield {
+      code: DataStreamCode.data,
+      value: [
+        {
+          data: {
+            messages: chunk.messages,
+            model: chunk.model,
+            stepNumber: chunk.stepNumber,
+            usage: chunk.usage,
+          },
+          name: MODEL_STEP_DATA_NAME,
         },
-        name: MODEL_STEP_DATA_NAME,
-      },
+      ],
     } satisfies EncodedChunk;
-    if (this.mustDeferDataParts()) {
-      this.pendingRunEventChunks.push(encoded);
-      return;
-    }
-    yield encoded;
   }
 
   /**

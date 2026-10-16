@@ -195,8 +195,10 @@ Owner decisions on how web chat goes on the shared log:
 
 - **The proxy returns its step.** A request that sets
   `runConfig.custom['brainstrike.recordModelSteps']` to `true` receives each
-  completed step of its turn, before the finish, as an `aui-data` part named
-  `brainstrike.model-step`. Its payload is `{ messages, model, stepNumber,
+  completed step of its turn as it completes, ahead of the step's
+  `finish-step` part, as the host commits them. It goes out as an
+  out-of-band data frame (`2:`) named `brainstrike.model-step`, never
+  deferred behind open text. Its payload is `{ messages, model, stepNumber,
   usage }` (`@brainstrike/assistant-contract/model-step`). Those are the
   response messages, model and usage the agent host commits as `model.step`
   for the same AI SDK step result: one mapping (`modelStepFields`) serves both.
