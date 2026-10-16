@@ -11,6 +11,13 @@ export interface StateSearchHit {
   readonly threadId: string;
 }
 
+/** A thread's projection, as the derived index reports it. */
+export interface StateProjectionStats {
+  readonly cursor: number;
+  readonly docs: number;
+  readonly gaps: readonly { readonly from: number; readonly reason: string; readonly to: number }[];
+}
+
 /**
  * A tab's handle on the derived index its writer composes: the requests the
  * desktop's IndexerPort sends its host state index.
@@ -46,13 +53,9 @@ export class WebDerivedIndex {
     >;
   }
 
-  /** Drops a thread whose truth is deleted; returns the blob hashes its rows named. */
-  dropThread(threadId: string): Promise<readonly string[]> {
-    return this.store.extension('index.dropThread', threadId) as Promise<readonly string[]>;
-  }
-
-  stats(threadId: string): Promise<unknown> {
-    return this.store.extension('index.stats', threadId);
+  /** A thread's projection: its cursor, its searchable documents, and the gaps it skipped. */
+  stats(threadId: string): Promise<StateProjectionStats> {
+    return this.store.extension('index.stats', threadId) as Promise<StateProjectionStats>;
   }
 
   /** How the writer opened the index: its projection identity, and whether it rebuilt. */

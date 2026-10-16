@@ -4,4 +4,8 @@ export {
   derivedIndexExtension,
   type WebDerivedIndexStatus,
 } from './derived-index-extension';
-export { type StateSearchHit, WebDerivedIndex } from './web-writer-client';
+export {
+  type StateProjectionStats,
+  type StateSearchHit,
+  WebDerivedIndex,
+} from './web-writer-client';

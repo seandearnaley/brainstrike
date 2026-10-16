@@ -30,6 +30,9 @@ compose different extensions refuse each other's writer. The index's projection
 identity names the app build in place of desktop's producer-source hash; a tab
 without a build is refused, whether it would lead or follow, and the index
 rebuilds from the log when the build changes.
+The browser writer runs `StateDeletion` with the derived index as its
+`IndexerPort`: `purge` and `deleteThread` are writer ops, and no tab unlinks a
+blob directly. Without the derived index both are refused, as on desktop.
 
 ## Root and content identity
 

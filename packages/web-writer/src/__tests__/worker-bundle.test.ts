@@ -39,6 +39,8 @@ it('bundles the composed writer worker for the browser, with no Node module and 
     'web-state-store/src/web-state-writer.ts',
     'indexer/src/store.ts',
     'agent-host/src/host-state-producer.ts',
+    'state-store/src/state-deletion.ts',
+    'state-store/src/deletion-domain.mjs',
   ]) {
     expect(inputs.some((input) => input.includes(composed))).toBe(true);
   }

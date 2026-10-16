@@ -135,22 +135,39 @@ export const derivedIndexExtension: WebStateExtension = {
       writer = openIndexWriter(context);
     }
     const state = () => writer.requireState();
+    let closed = false;
+    const close = () => {
+      if (!closed) {
+        closed = true;
+        writer.close();
+      }
+    };
     return {
-      close: () => writer.close(),
+      close,
       handlers: {
         'index.catchUp': (params) => {
           const threads = (params as { readonly threadIds?: readonly string[] }).threadIds;
           return state().catchUp(threads ?? context.log.threads());
         },
-        'index.dropThread': (params) => state().dropThread(params),
         'index.gcCheck': (params) => state().gcCheck(params),
-        'index.reindex': (params) => state().reindex(params),
         'index.search': (params) => state().search(params),
         'index.stats': (params) => state().stats(params),
         'index.status': (): WebDerivedIndexStatus => ({
           projection: projectionIdentity(context),
           rebuilt,
         }),
+      },
+      // The writer's purge, thread delete and GC drop, reproject and count through this, as desktop's IndexerPort.
+      indexer: {
+        catchUp: async (threads) => {
+          state().catchUp(threads);
+        },
+        dropThread: async (threadId) => state().dropThread(threadId),
+        gcCheck: async (threads, hashes) => state().gcCheck({ hashes, threads }),
+        reindex: async (threadId, seq) => {
+          state().reindex({ seq, threadId });
+        },
+        reset: async () => close(),
       },
     };
   },
