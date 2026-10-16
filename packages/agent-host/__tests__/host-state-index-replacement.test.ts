@@ -21,8 +21,14 @@ const healthy = { indexerErrors: [] };
 /** How the fake worker answers one `state-health` request: never, served, or refused. */
 type Health = 'hang' | 'serve' | 'refuse';
 
-/** A worker that answers each request as listed, or one that never reports ready. */
-type Worker = readonly Health[] | 'unstartable';
+/** Never reports ready, and refuses termination until the test sets `killable`. */
+interface Stuck {
+  killable: boolean;
+  readonly stuck: true;
+}
+
+/** A worker that answers each request as listed, one that never reports ready, or a stuck one. */
+type Worker = readonly Health[] | 'unstartable' | Stuck;
 
 /**
  * A worker speaking the real indexer frames over the real connection. It answers
@@ -48,8 +54,9 @@ function worker(answers: Worker): IndexerTransport {
   };
   let started = false;
   let served = 0;
+  const stuck = typeof answers === 'object' && 'stuck' in answers ? answers : undefined;
   return {
-    kill: exit,
+    kill: () => (stuck && !stuck.killable ? false : exit()),
     onError: () => () => {},
     onExit: (listener) => {
       exits.add(listener);
@@ -66,14 +73,15 @@ function worker(answers: Worker): IndexerTransport {
     send: (message) => {
       if (!started) {
         started = true;
-        if (answers !== 'unstartable') {
+        if (Array.isArray(answers)) {
           deliver({ kind: 'ready', value: info });
         }
         return;
       }
       const { id, op } = message as { readonly id: number; readonly op: string };
-      const health =
-        answers === 'unstartable' ? 'hang' : answers[Math.min(served++, answers.length - 1)];
+      const health = Array.isArray(answers)
+        ? answers[Math.min(served++, answers.length - 1)]
+        : 'hang';
       if (op === 'close') {
         deliver({ id, kind: 'response', ok: true, value: true });
         exit();
@@ -178,6 +186,29 @@ it('a replacement that never starts fails typed too, and the next request replac
   });
   expect(starts()).toBe(2);
 
+  await expect(index.port.stateHealth()).resolves.toEqual(healthy);
+  expect(starts()).toBe(3);
+  await index.close();
+});
+
+it('never starts a worker beside a failed replacement whose exit it could not join', async () => {
+  const replacement: Stuck = { killable: false, stuck: true };
+  const { owner: index, starts } = owner([['hang'], replacement, ['serve']]);
+  await index.open();
+  await expect(index.port.stateHealth()).rejects.toBeInstanceOf(BoundaryFailureError);
+
+  // The replacement never starts, and neither its startup nor its close can stop it.
+  await expect(index.port.stateHealth()).rejects.toMatchObject({
+    failure: { code: 'state-index.unavailable' },
+  });
+  expect(starts()).toBe(2);
+  // It stays owned: a request joins it first, and starts nothing while that fails.
+  await expect(index.port.stateHealth()).rejects.toMatchObject({
+    failure: { code: 'state-index.unavailable' },
+  });
+  expect(starts()).toBe(2);
+
+  replacement.killable = true;
   await expect(index.port.stateHealth()).resolves.toEqual(healthy);
   expect(starts()).toBe(3);
   await index.close();

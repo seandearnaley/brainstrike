@@ -114,6 +114,8 @@ export function createStateIndexOwner(options: {
 }): StateIndexOwner {
   let generation: Generation | undefined;
   let starting: IndexerConnection | undefined;
+  /** A worker that failed to start and whose exit is not joined: still owned, joined before any start. */
+  let unjoined: IndexerConnection | undefined;
   let acquiring: Promise<Generation> | undefined;
   let closing: Promise<void> | undefined;
   /** Replacements since a worker last served a request. */
@@ -125,17 +127,47 @@ export function createStateIndexOwner(options: {
     Promise.all(
       ['', '-wal', '-shm'].map((suffix) => rm(`${options.dbPath}${suffix}`, { force: true }))
     );
+  // Ownership ends when the exit is joined; a close that failed after joining it owns nothing.
+  const join = async (connection: IndexerConnection): Promise<void> => {
+    try {
+      await connection.close();
+    } catch (error) {
+      if (!connection.exited) {
+        throw error;
+      }
+    }
+  };
+  // No second writer starts beside a worker that may still be alive.
+  const joinUnjoined = async (): Promise<void> => {
+    if (unjoined) {
+      await join(unjoined);
+      unjoined = undefined;
+    }
+  };
+  // A worker that failed to start is joined, or stays owned until a later join succeeds.
+  const abandon = async (connection: IndexerConnection, cause: unknown): Promise<void> => {
+    try {
+      await join(connection);
+    } catch (cleanup) {
+      unjoined = connection;
+      throw new AggregateError(
+        [cause, cleanup],
+        'Host state index worker failed to start and its exit is not joined.'
+      );
+    }
+  };
   const connect = async (): Promise<Generation> => {
     for (let rebuilt = false; ; rebuilt = true) {
       if (closing) {
         throw new Error('Host resource owner is closing');
       }
+      await joinUnjoined();
       const connection = options.start();
       starting = connection;
       try {
         return { connection, port: await connection.ready };
       } catch (cause) {
-        await connection.close();
+        await abandon(connection, cause);
         if (rebuilt || !isRebuildRequired(cause)) {
           throw cause;
         }
@@ -224,6 +256,7 @@ export function createStateIndexOwner(options: {
     closing ??= (async () => {
       await starting?.close();
       await acquiring?.catch(() => undefined);
+      await unjoined?.close();
       await generation?.connection.close();
     })();
     return closing;
