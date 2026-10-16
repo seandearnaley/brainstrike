@@ -1,5 +1,8 @@
 import { projectModelCatalog } from '@brainstrike/assistant-contract';
-import type { CanonicalSourceScope } from '@brainstrike/canonical-ingestion';
+import type {
+  CanonicalSourceScope,
+  NativeCanonicalCatalogRecord,
+} from '@brainstrike/canonical-ingestion';
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import type {
@@ -13,7 +16,6 @@ import type { CanonicalCollectionDependencies } from '../canonical-utility-paren
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
-import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
 import { createNativeIndexActivation } from '../native-index-activation';
 
 const mocks = vi.hoisted(() => ({

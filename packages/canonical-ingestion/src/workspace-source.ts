@@ -4,6 +4,7 @@ import type { IFileNode } from '@brainstrike/types';
 import { BINARY_CONTENT_MESSAGE } from '@brainstrike/types';
 import { fileContent } from '@brainstrike/utils/file-content';
 import { getFileExtension, isBinaryExtension } from '@brainstrike/utils/file-utils';
+import { utf8ByteLength } from '@brainstrike/utils/utf8';
 import type {
   CanonicalDiscoveredSourceFile,
   CanonicalDiscoveryCompletion,
@@ -104,7 +105,7 @@ export class CanonicalWorkspaceSource implements CanonicalSourcePort {
           readContext
         );
         readContext.signal.throwIfAborted();
-        if (Buffer.byteLength(result.content, 'utf8') > maxFileBytes) {
+        if (utf8ByteLength(result.content) > maxFileBytes) {
           throw new Error('Retained source exceeds its explicit byte bound.');
         }
         this.assertContent(result.content, file.fileName, false);

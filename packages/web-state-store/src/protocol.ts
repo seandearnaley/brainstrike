@@ -5,8 +5,12 @@ import type {
   ModelChoiceResult,
   PromptCatalogReply,
   PromptCatalogRequest,
+  SourceCatalogReply,
+  SourceCatalogRequest,
   ThreadGroupsReply,
   ThreadGroupsRequest,
+  WorkspaceRootReply,
+  WorkspaceRootRequest,
 } from '@brainstrike/state-store';
 import type { ViewFilterPresetReply, ViewFilterPresetRequest } from '@brainstrike/types';
 
@@ -90,6 +94,11 @@ export type WebStateErrorKind =
 /** A refused or failed request, in the desktop writer's error-reply shape. */
 export interface WebStateErrorReply {
   readonly atSeq?: number;
+  /**
+   * A failure's own code, such as an IndexerError's, so a tab can match it as
+   * desktop's port callers do; `error` is then its message alone.
+   */
+  readonly code?: string;
   readonly detail?: string;
   readonly error: string;
   readonly errorKind: WebStateErrorKind;
@@ -216,6 +225,11 @@ export interface WebStateRequests {
     readonly params: Record<string, never>;
     readonly result: WebStateSettings;
   };
+  /**
+   * The authoritative source catalog, on desktop's domain: a mutation needs
+   * the derived index, and the writer collects the sources it retires.
+   */
+  sourceCatalog: { readonly params: SourceCatalogRequest; readonly result: SourceCatalogReply };
   stall: {
     readonly params: Record<string, never>;
     readonly result: never;
@@ -238,6 +252,11 @@ export interface WebStateRequests {
     readonly params: ViewFilterPresetRequest;
     readonly result: ViewFilterPresetReply;
   };
+  /**
+   * Workspace roots, on desktop's domain. A root's path is its handle key
+   * (`webRootPath`); deleting one needs the derived index.
+   */
+  workspaceRoots: { readonly params: WorkspaceRootRequest; readonly result: WorkspaceRootReply };
 }
 
 export type WebStateOp = keyof WebStateRequests;
@@ -292,9 +311,31 @@ export type ChannelMessage =
  * Bump it whenever `WebStateRequests`, a request's params or result, or a
  * channel message changes: version 2 added the catalog and blob requests,
  * version 3 writer extensions, version 4 the writer's purge and thread
- * delete in place of tabs unlinking blobs.
+ * delete in place of tabs unlinking blobs, version 5 the source catalog and
+ * workspace roots.
  */
-export const WEB_STATE_PROTOCOL = 4;
+export const WEB_STATE_PROTOCOL = 5;
+
+const WEB_ROOT_PATH = /^fsa:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * A browser workspace root's path in the shared roots table. Desktop records
+ * the absolute path main granted; a File System Access handle has none, so
+ * the root is named by its id, and the tab keeps the handle in IndexedDB
+ * under that id. A root re-picked through `isSameEntry` keeps its id.
+ */
+export function webRootPath(rootId: string): string {
+  const path = `fsa:${rootId}`;
+  if (!WEB_ROOT_PATH.test(path)) {
+    throw new Error('A browser workspace root is named by its UUID');
+  }
+  return path;
+}
+
+/** Whether `path` is the handle key of the root `rootId` (`webRootPath`), and of no other. */
+export function isWebRootPath(path: string, rootId: string): boolean {
+  return WEB_ROOT_PATH.test(path) && path === `fsa:${rootId}`;
+}
 
 /** The protocol a writer announces: this wire's version and the extensions it runs, by id. */
 export function webStateWireProtocol(extensionIds: readonly string[]): string {
@@ -307,7 +348,8 @@ export const DEFAULT_WEB_STATE_STORE = 'default';
 /** Every store's OPFS pool directory starts with this; factory reset removes them all. */
 export const WEB_STATE_POOL_PREFIX = 'brainstrike-web-state-';
 
-const STORE_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
+/** No `--`: that separates a store's pool from an extension's own (`webStateExtensionPool`). */
+const STORE_NAME = /^[a-z0-9](?:[a-z0-9]|-(?!-)){0,62}$/;
 
 /** A store's lock, channel, pool directory and VFS, all from its one name. */
 export function webStateNames(name: string): {
@@ -321,4 +363,20 @@ export function webStateNames(name: string): {
   }
   const pool = `${WEB_STATE_POOL_PREFIX}${name}`;
   return { channel: pool, lock: pool, pool, vfs: pool };
+}
+
+/**
+ * The OPFS pool and VFS an extension keeps in a worker of its own (the file
+ * index): beside the store's pool, under the same prefix, so factory reset
+ * removes it with the store.
+ */
+export function webStateExtensionPool(
+  name: string,
+  part: string
+): { readonly pool: string; readonly vfs: string } {
+  if (!/^[a-z0-9]{1,16}$/.test(part)) {
+    throw new RangeError(`Invalid extension pool ${JSON.stringify(part)}`);
+  }
+  const pool = `${webStateNames(name).pool}--${part}`;
+  return { pool, vfs: pool };
 }

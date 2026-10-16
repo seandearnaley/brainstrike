@@ -1,3 +1,4 @@
+import { createNodeChunker } from '@brainstrike/chunking-worker/node';
 import { describe, expect, it, vi } from 'vitest';
 import { CanonicalIngestionHost } from '../src/host.js';
 import { discoveredFixture } from './host-test-fixture.js';
@@ -35,7 +36,7 @@ describe('canonical discovery partition membership', () => {
     const f = await discoveredFixture();
     const host = new CanonicalIngestionHost({
       catalog: f.catalog,
-      parser: { parser: 'oxc' },
+      chunker: createNodeChunker({ parser: 'oxc' }),
       publication: f.publication,
       source: f.source,
     });

@@ -17,9 +17,12 @@ export function storeConfig(testHooks?: WebStateTestHooks): WebStateStoreConfig 
   return { name, testHooks };
 }
 
-/** One tab's handle: its own worker on the shared store. */
-export async function openTab(config: WebStateStoreConfig): Promise<WebStateStore> {
-  const worker = new Worker(new URL('../web-state-worker.ts', import.meta.url), { type: 'module' });
+/** One tab's handle: its own worker on the shared store (the plain writer, unless another entry is given). */
+export async function openTab(
+  config: WebStateStoreConfig,
+  entry = new URL('../web-state-worker.ts', import.meta.url)
+): Promise<WebStateStore> {
+  const worker = new Worker(entry, { type: 'module' });
   const store = await WebStateStore.open(worker, config);
   opened.push(store);
   return store;

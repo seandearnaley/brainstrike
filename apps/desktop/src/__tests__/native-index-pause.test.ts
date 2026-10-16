@@ -6,6 +6,7 @@ import type {
   CanonicalScanReceipt,
   CanonicalWorkspaceLease,
   CanonicalWorkspaceRuntimeDependencies,
+  NativeCanonicalCatalogRecord,
 } from '@brainstrike/canonical-ingestion';
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
@@ -15,7 +16,6 @@ import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
-import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
 import { createNativeIndexActivation } from '../native-index-activation';
 import { NativeIndexSetupRequiredError } from '../native-index-setup-required';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';

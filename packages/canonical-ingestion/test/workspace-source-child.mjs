@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   CanonicalWorkspaceIngestionRuntime,
   CanonicalWorkspaceSource,
+  createNodeChunker,
 } from '@brainstrike/canonical-ingestion';
 
 const recorded = JSON.parse(
@@ -405,6 +406,7 @@ async function runChild() {
       },
       resolveProfile: async () => assert.fail('TEXT resolved inference.'),
     },
+    chunker: createNodeChunker({ parser: 'oxc' }),
     managedCollectionId: 'controlled-PG-managed-set',
     onError: (operation, error) => {
       process.stderr.write(`${operation}: ${String(error)}\n`);
@@ -422,7 +424,6 @@ async function runChild() {
         scanComplete: receipt.scanComplete,
       }),
     onWatchHealth: () => {},
-    parser: { parser: 'oxc' },
     publication: {
       abortScan: async () => {},
       beginScan: async (request) => ({

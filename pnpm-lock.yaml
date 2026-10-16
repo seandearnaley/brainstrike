@@ -1950,6 +1950,9 @@ importers:
       '@brainstrike/chunking-worker':
         specifier: workspace:*
         version: link:../chunking-worker
+      '@brainstrike/effect-kit':
+        specifier: workspace:*
+        version: link:../effect-kit
       '@brainstrike/file-import':
         specifier: workspace:*
         version: link:../file-import
@@ -1959,12 +1962,18 @@ importers:
       '@brainstrike/indexer':
         specifier: workspace:*
         version: link:../indexer
+      '@brainstrike/state-store':
+        specifier: workspace:*
+        version: link:../state-store
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.4
     devDependencies:
       '@brainstrike/secure-fs-native':
         specifier: workspace:*
@@ -1975,9 +1984,18 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
+      '@vitest/browser-playwright':
+        specifier: 'catalog:'
+        version: 5.0.2(playwright@1.63.0)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0)(tsx@4.23.12)(yaml@2.9.0))(vitest@5.0.2)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+      esbuild:
+        specifier: 'catalog:'
+        version: 0.28.2
+      playwright:
+        specifier: 'catalog:'
+        version: 1.63.0
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -3677,6 +3695,9 @@ importers:
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
       '@brainstrike/windows-job-native':
         specifier: workspace:*
         version: link:../windows-job-native

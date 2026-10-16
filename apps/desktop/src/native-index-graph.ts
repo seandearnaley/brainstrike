@@ -4,6 +4,11 @@ import type {
   CanonicalOperationContext,
   CanonicalScanReceipt,
   CanonicalWorkspaceLease,
+  createNativeCanonicalPublication,
+} from '@brainstrike/canonical-ingestion';
+import {
+  decodeNativeCanonicalCatalogRecords,
+  type NativeCanonicalCatalogRecord,
 } from '@brainstrike/canonical-ingestion';
 import type { HostAttachment } from '@brainstrike/host-lease';
 import type {
@@ -16,14 +21,9 @@ import type { DesktopProfileRuntime } from './desktop-profile-runtime';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import type { ApplicationIpcDomain } from './ipc-handlers';
 import {
-  decodeNativeCanonicalCatalogRecords,
-  type NativeCanonicalCatalogRecord,
-} from './native-canonical-catalog';
-import {
   type NativeCanonicalProfileDependencies,
   NativeCanonicalProfileResolver,
 } from './native-canonical-profile';
-import type { createNativeCanonicalPublication } from './native-canonical-publication';
 import { vectorCollectionId } from './native-index-partition';
 import type { NativeIndexSettings } from './native-index-settings';
 import type { NativeIndexSources } from './native-index-source-retirement';

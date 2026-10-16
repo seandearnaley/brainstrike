@@ -1,4 +1,16 @@
-import type { WebStateStore } from '@brainstrike/web-state-store';
+import type {
+  CommitResult,
+  IndexerPort,
+  ScopedCoverage,
+  ScopedFileChunkBounds,
+  ScopedFilePage,
+  ScopedFilePlan,
+  ScopedIndexerPort,
+  ScopedManifestResult,
+  ScopedSearchResult,
+} from '@brainstrike/indexer';
+import { IndexerError } from '@brainstrike/indexer/browser';
+import { type WebStateStore, WebStateStoreError } from '@brainstrike/web-state-store';
 import type { WebDerivedIndexStatus } from './derived-index-extension';
 
 /** One state search hit, as the desktop's host state index returns it. */
@@ -61,5 +73,68 @@ export class WebDerivedIndex {
   /** How the writer opened the index: its projection identity, and whether it rebuilt. */
   status(): Promise<WebDerivedIndexStatus> {
     return this.store.extension('index.status', {}) as Promise<WebDerivedIndexStatus>;
+  }
+}
+
+/**
+ * A tab's handle on the file index its writer runs in a worker of its own:
+ * desktop's `ScopedIndexerPort`, so the shared publication owner takes it as
+ * it takes desktop's.
+ */
+export class WebFileIndex implements ScopedIndexerPort, Pick<IndexerPort, 'info'> {
+  constructor(private readonly store: WebStateStore) {}
+
+  /** A coded refusal arrives as desktop's port raises it: an IndexerError with its code. */
+  async #call<T>(op: string, params: unknown): Promise<T> {
+    try {
+      return (await this.store.extension(`files.${op}`, params)) as T;
+    } catch (error) {
+      if (error instanceof WebStateStoreError && error.code !== undefined) {
+        throw new IndexerError(error.code, error.message);
+      }
+      throw error;
+    }
+  }
+
+  /** Reopens the store under the catalogs' current roots, collections and files. */
+  reauthorize(): Promise<{ readonly rebuilt: string | null }> {
+    return this.#call('reauthorize', {});
+  }
+
+  info(): ReturnType<IndexerPort['info']> {
+    return this.#call('info', null);
+  }
+  commitScopedFile(commit: unknown): Promise<CommitResult> {
+    return this.#call('commitScopedFile', commit);
+  }
+  commitScopedTextFile(commit: unknown): Promise<CommitResult> {
+    return this.#call('commitScopedTextFile', commit);
+  }
+  coverageBatch(requests: unknown): Promise<readonly ScopedCoverage[]> {
+    return this.#call('coverageBatch', requests);
+  }
+  coverageScope(request: unknown): Promise<ScopedCoverage> {
+    return this.#call('coverageScope', request);
+  }
+  prepareScopedFile(request: unknown): Promise<ScopedFilePlan> {
+    return this.#call('prepareScopedFile', request);
+  }
+  readScopedFileChunkBounds(request: unknown): Promise<ScopedFileChunkBounds> {
+    return this.#call('readScopedFileChunkBounds', request);
+  }
+  readScopedFilePage(request: unknown): Promise<ScopedFilePage> {
+    return this.#call('readScopedFilePage', request);
+  }
+  removeScopedFile(identity: unknown): Promise<boolean> {
+    return this.#call('removeScopedFile', identity);
+  }
+  replaceFileBindings(bindings: unknown): Promise<void> {
+    return this.#call('replaceFileBindings', bindings);
+  }
+  searchScopes(request: unknown): Promise<ScopedSearchResult> {
+    return this.#call('searchScopes', request);
+  }
+  verifyScopedManifest(request: unknown): Promise<ScopedManifestResult> {
+    return this.#call('verifyScopedManifest', request);
   }
 }

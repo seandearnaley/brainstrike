@@ -1,15 +1,12 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto';
-import type {
-  CanonicalCatalogFile,
-  CanonicalScanReceipt,
-  CanonicalWorkspaceRuntimeDependencies,
-} from '@brainstrike/canonical-ingestion';
+import type { CanonicalCatalogFile, CanonicalScanReceipt } from '@brainstrike/canonical-ingestion';
 import type { CanonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
 import { describe, expect, it, vi } from 'vitest';
 import { CanonicalUtilityChild } from '../canonical-utility-child';
 import {
   type CanonicalCollectionDependencies,
+  type CanonicalRemoteWorkspaceDependencies,
   CanonicalUtilityParent,
 } from '../canonical-utility-parent';
 import { decodeCanonicalFrame } from '../canonical-utility-protocol';
@@ -260,7 +257,7 @@ describe('actual utility canonical runtime attachment', () => {
       const retire = vi.fn(async () => {});
       const errors = vi.fn();
       const leaseController = new AbortController();
-      const dependencies: CanonicalWorkspaceRuntimeDependencies = {
+      const dependencies: CanonicalRemoteWorkspaceDependencies = {
         catalog: {
           ...base.catalog,
           loadAuthorizedBatch: async () => [],

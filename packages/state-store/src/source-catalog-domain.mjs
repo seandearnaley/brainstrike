@@ -1,5 +1,5 @@
 // @ts-check
-import { createHash, randomUUID } from 'node:crypto';
+import { sha256Hex } from '@brainstrike/utils/crypto';
 
 export { SOURCE_CATALOG_SCHEMA } from './source-catalog-schema.mjs';
 
@@ -41,7 +41,7 @@ function assertSource(source) {
     source.stat.size < 0 ||
     (source.stat.mtimeMs !== null &&
       (!Number.isFinite(source.stat.mtimeMs) || source.stat.mtimeMs < 0)) ||
-    createHash('sha256').update(source.content).digest('hex') !== source.contentHash
+    sha256Hex(source.content) !== source.contentHash
   ) {
     throw new Error('Canonical source metadata or content hash is invalid');
   }
@@ -115,7 +115,7 @@ function importSources(db, request, blobs) {
     if (existing) {
       return read(db, existing.id);
     }
-    const id = randomUUID();
+    const id = crypto.randomUUID();
     const now = new Date().toISOString();
     blobs.put(source.contentHash, source.content);
     db.prepare(
@@ -156,7 +156,7 @@ function prepare(db, request, blobs) {
         .prepare('SELECT id FROM file_records WHERE root_id=? AND embedding_set_id IS ? AND path=?')
         .get(request.rootId, request.embeddingSetId, source.path)
     );
-    const id = existing?.id ?? randomUUID();
+    const id = existing?.id ?? crypto.randomUUID();
     blobs.put(source.contentHash, source.content);
     if (existing) {
       replace(db, id, source);

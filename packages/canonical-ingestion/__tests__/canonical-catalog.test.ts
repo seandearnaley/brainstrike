@@ -1,16 +1,13 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto';
-import type {
-  CanonicalFileIdentity,
-  CanonicalOperationContext,
-} from '@brainstrike/canonical-ingestion';
 import type { SourceCatalogPort, SourceCatalogRecord } from '@brainstrike/state-store';
 import { describe, expect, it, vi } from 'vitest';
 import {
   createNativeCanonicalCatalog,
   type NativeCanonicalCatalogDependencies,
   type NativeCanonicalCatalogRecord,
-} from '../native-canonical-catalog';
+} from '../src/canonical-catalog.js';
+import type { CanonicalFileIdentity, CanonicalOperationContext } from '../src/ports.js';
 
 const workspace = { kind: 'workspace', rootId: 'root' } as const;
 const collection = { embeddingSetId: 'set', kind: 'collection' } as const;

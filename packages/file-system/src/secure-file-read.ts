@@ -1,3 +1,4 @@
+import { utf8Decode } from '@brainstrike/utils/utf8';
 import { formatFileSize, getFileSizeConfig } from './config.js';
 import { AccessError } from './errors.js';
 
@@ -43,7 +44,7 @@ export async function readResolvedWorkspaceFile(
   }
   const result = await resolved.mounted.root.readFile(resolved.relativePath, maxFileBytes);
   if (result.status === 'ok') {
-    return Buffer.from(result.content).toString('utf8');
+    return utf8Decode(result.content);
   }
   if (result.status === 'oversized') {
     throw new AccessError(

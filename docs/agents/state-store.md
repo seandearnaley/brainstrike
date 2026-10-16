@@ -33,6 +33,24 @@ rebuilds from the log when the build changes.
 The browser writer runs `StateDeletion` with the derived index as its
 `IndexerPort`: `purge` and `deleteThread` are writer ops, and no tab unlinks a
 blob directly. Without the derived index both are refused, as on desktop.
+It serves the source catalog and workspace roots on desktop's domains too, with
+desktop's rules: a source change or root deletion needs the derived index, and
+the sources it retires are collected after. A browser root's path is its handle
+key, `fsa:<rootId>` (`webRootPath`), and registration refuses a key that names
+another root; the tab keeps the File System Access handle in IndexedDB under
+that id. The root domain is given the host's notion of a
+granted path, so desktop keeps requiring absolute OS paths.
+
+The file index (`fileIndexExtension`) is a worker the writer starts on the lease
+holder, with the scoped store in its own pool, `<pool>--files`
+(`webStateExtensionPool`), which factory reset sweeps with the store's. It
+serves desktop's `ScopedIndexerPort` as `files.*` ops, authorized for the
+catalogs' live roots, collections and their files when it opens (an import in
+no collection has no scope and is left out); `files.reauthorize` reopens it
+after they change. Its ops are `concurrent`: they run outside the writer's
+request order, so a chat append never waits behind index work. Retirement waits for it to
+release its pool. A coded failure crosses the wire with its code, so
+`WebFileIndex` raises desktop's `IndexerError`.
 
 ## Root and content identity
 

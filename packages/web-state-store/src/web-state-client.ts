@@ -2,8 +2,10 @@ import type {
   CollectionPort,
   ModelChoicePort,
   PromptCatalogPort,
+  SourceCatalogPort,
   ThreadGroupsPort,
   ViewFilterPresetPort,
+  WorkspaceRootPort,
 } from '@brainstrike/state-store';
 import type {
   TabMessage,
@@ -19,6 +21,8 @@ import type {
 /** A request the store refused or could not answer, with the writer's error kind. */
 export class WebStateStoreError extends Error {
   readonly atSeq: number | undefined;
+  /** The failure's own code, when it carries one (an IndexerError's). */
+  readonly code: string | undefined;
   readonly kind: WebStateErrorKind | 'closed';
   readonly threadId: string | undefined;
 
@@ -27,6 +31,7 @@ export class WebStateStoreError extends Error {
     this.name = 'WebStateStoreError';
     this.kind = reply.errorKind;
     this.atSeq = 'atSeq' in reply ? reply.atSeq : undefined;
+    this.code = 'code' in reply ? reply.code : undefined;
     this.threadId = 'threadId' in reply ? reply.threadId : undefined;
   }
 }
@@ -52,8 +57,10 @@ export class WebStateStore
     CollectionPort,
     ModelChoicePort,
     PromptCatalogPort,
+    SourceCatalogPort,
     ThreadGroupsPort,
-    ViewFilterPresetPort
+    ViewFilterPresetPort,
+    WorkspaceRootPort
 {
   readonly #listeners = new Set<(view: WebStateLeaseView) => void>();
   readonly #pending = new Map<number, Pending>();
@@ -124,6 +131,18 @@ export class WebStateStore
     request: WebStateRequests['modelChoices']['params']
   ): Promise<WebStateRequests['modelChoices']['result']> {
     return this.request('modelChoices', request);
+  }
+
+  sourceCatalog(
+    request: WebStateRequests['sourceCatalog']['params']
+  ): Promise<WebStateRequests['sourceCatalog']['result']> {
+    return this.request('sourceCatalog', request);
+  }
+
+  workspaceRoots(
+    request: WebStateRequests['workspaceRoots']['params']
+  ): Promise<WebStateRequests['workspaceRoots']['result']> {
+    return this.request('workspaceRoots', request);
   }
 
   promptCatalog(

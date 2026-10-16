@@ -2,7 +2,6 @@
 import type {
   CanonicalSourceScope,
   CanonicalWorkspaceLease,
-  CanonicalWorkspaceRuntimeDependencies,
 } from '@brainstrike/canonical-ingestion';
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
@@ -10,6 +9,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { CanonicalUtilityChild } from '../canonical-utility-child';
 import {
   type CanonicalCollectionDependencies,
+  type CanonicalRemoteWorkspaceDependencies,
   CanonicalUtilityParent,
 } from '../canonical-utility-parent';
 import { decodeCanonicalFrame } from '../canonical-utility-protocol';
@@ -250,7 +250,7 @@ it.each([
       originalReceive(input);
     });
     mocks.manager.attachCanonicalWorkspace.mockImplementation(
-      async (dependencies: CanonicalWorkspaceRuntimeDependencies) => {
+      async (dependencies: CanonicalRemoteWorkspaceDependencies) => {
         const inventory = dependencies.source.inventory;
         workspace = await parent.attachWorkspace({
           ...dependencies,

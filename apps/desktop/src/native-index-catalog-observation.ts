@@ -1,6 +1,8 @@
-import type { CanonicalSourceScope } from '@brainstrike/canonical-ingestion';
-import type { NativeCanonicalCatalogRecord } from './native-canonical-catalog';
-import type { NativeScopeReadiness } from './native-canonical-publication';
+import type {
+  CanonicalSourceScope,
+  NativeCanonicalCatalogRecord,
+  NativeScopeReadiness,
+} from '@brainstrike/canonical-ingestion';
 
 export function catalogFingerprint(records: readonly NativeCanonicalCatalogRecord[]): string {
   return JSON.stringify(

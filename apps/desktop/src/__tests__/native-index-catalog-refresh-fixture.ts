@@ -6,7 +6,7 @@ import path from 'node:path';
 import type {
   CanonicalScanReceipt,
   CanonicalWorkspaceLease,
-  CanonicalWorkspaceRuntimeDependencies,
+  NativeCanonicalCatalogRecord,
 } from '@brainstrike/canonical-ingestion';
 import type {
   IndexFileBinding,
@@ -20,12 +20,12 @@ import { vi } from 'vitest';
 import { CanonicalUtilityChild } from '../canonical-utility-child';
 import {
   type CanonicalCollectionDependencies,
+  type CanonicalRemoteWorkspaceDependencies,
   CanonicalUtilityParent,
 } from '../canonical-utility-parent';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
-import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
 import { createNativeIndexActivation } from '../native-index-activation';
 import {
   createNativeScopedSearchCapability,
@@ -281,7 +281,7 @@ export async function fixture(withWorkspace = false, discovery = false) {
     subscribe: async () => ({ close: async () => {} }),
   };
   fixtureMocks.manager.attachCanonicalWorkspace.mockImplementation(
-    async (dependencies: CanonicalWorkspaceRuntimeDependencies) => {
+    async (dependencies: CanonicalRemoteWorkspaceDependencies) => {
       if (dependencies.mode !== 'TEXT') {
         throw new Error('Workspace refresh fixture requires explicit TEXT admission.');
       }

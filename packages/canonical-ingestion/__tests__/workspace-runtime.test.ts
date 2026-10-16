@@ -1,3 +1,4 @@
+import { createNodeChunker } from '@brainstrike/chunking-worker/node';
 import { expect, it, vi } from 'vitest';
 import type { CanonicalWorkspaceRuntimeDependencies } from '../src/workspace-runtime.js';
 import { CanonicalWorkspaceIngestionRuntime } from '../src/workspace-runtime.js';
@@ -14,11 +15,11 @@ function fixture(): CanonicalWorkspaceRuntimeDependencies {
         throw new Error('TEXT resolved inference');
       },
     },
+    chunker: createNodeChunker({ parser: 'oxc' }),
     managedCollectionId: 'actual-managed-set',
     onError: vi.fn(),
     onReceipt: vi.fn(),
     onWatchHealth: vi.fn(),
-    parser: { parser: 'oxc' },
     publication: {
       abortScan: async () => {},
       beginScan: vi.fn(async (request) => ({ ...request, generation: 1, storeId: 'actual-store' })),

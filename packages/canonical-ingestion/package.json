@@ -8,6 +8,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
     }
   },
   "files": [
@@ -16,19 +20,25 @@
   "sideEffects": false,
   "dependencies": {
     "@brainstrike/chunking-worker": "workspace:*",
+    "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/file-import": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/indexer": "workspace:*",
+    "@brainstrike/state-store": "workspace:*",
     "@brainstrike/types": "workspace:*",
-    "@brainstrike/utils": "workspace:*"
+    "@brainstrike/utils": "workspace:*",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/secure-fs-native": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
+    "@vitest/browser-playwright": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "esbuild": "catalog:",
+    "playwright": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:",
-    "@vitest/coverage-v8": "catalog:"
+    "vitest": "catalog:"
   },
   "scripts": {
     "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",

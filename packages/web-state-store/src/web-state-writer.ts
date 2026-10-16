@@ -16,8 +16,10 @@ import {
   executeCollectionRequest,
   executeModelChoiceRequest,
   executePromptCatalogRequest,
+  executeSourceCatalogRequest,
   executeThreadGroups,
   executeViewFilterPresetRequest,
+  executeWorkspaceRootRequest,
 } from '@brainstrike/state-store/catalog-domains';
 import {
   acknowledgeSourceGc,
@@ -48,6 +50,7 @@ import {
 } from './extension';
 import {
   type ChannelMessage,
+  isWebRootPath,
   type TabMessage,
   type WebStateAppendRow,
   type WebStateErrorReply,
@@ -85,6 +88,8 @@ type AppendRows = Parameters<RunLog['append']>[0];
 
 interface Writer {
   readonly blobs: SqliteBlobStore;
+  /** The extensions' ops that run outside the request order (`WebStateExtensionInstance.concurrent`). */
+  readonly concurrent: ReadonlySet<string>;
   readonly db: SqliteWasmDatabase;
   /** Purge, thread delete and blob GC: desktop's orchestration, over this writer's connections. */
   readonly deletion: StateDeletion;
@@ -139,6 +144,10 @@ function errorReply(error: unknown): WebStateErrorReply {
     return { error: error.message, errorKind: 'checkpoint-blocked' };
   }
   const cause = error as Error | undefined;
+  const code: unknown = cause instanceof Error ? Reflect.get(cause, 'code') : undefined;
+  if (typeof code === 'string' && cause instanceof Error) {
+    return { code, error: cause.message, errorKind: 'failed' };
+  }
   return { error: String(cause?.stack ?? cause), errorKind: 'failed' };
 }
 
@@ -290,7 +299,7 @@ async function openWriter(
   try {
     for (const extension of extensions) {
       opened.push(
-        extension.open({
+        await extension.open({
           blobs,
           config: store,
           log,
@@ -328,7 +337,7 @@ async function openWriter(
     }
   } catch (error) {
     for (const instance of opened.reverse()) {
-      instance.close();
+      await instance.close();
     }
     db.close();
     blobs.close();
@@ -336,7 +345,18 @@ async function openWriter(
   }
   return {
     lease: { epoch, instanceId },
-    writer: { blobs, db, deletion, extensions: opened, handlers, log, pool },
+    writer: {
+      blobs,
+      concurrent: new Set(
+        opened.flatMap((instance) => (instance.concurrent ?? []).filter((op) => handlers.has(op)))
+      ),
+      db,
+      deletion,
+      extensions: opened,
+      handlers,
+      log,
+      pool,
+    },
   };
 }
 
@@ -361,12 +381,13 @@ function settings(db: SqliteWasmDatabase): WebStateRequests['settings']['result'
  * of the pool, so the reset can delete its directory. The lock stays held
  * until this tab reloads, so no other tab reopens the pool first.
  */
-function retire(active: Writer): void {
+async function retire(active: Writer): Promise<void> {
   writer = undefined;
   retired = true;
   refusal = { error: RETIRED, errorKind: 'unavailable' };
+  // An extension's own pool, in its own worker, is released before the reply lets reset delete it.
   for (const instance of [...active.extensions].reverse()) {
-    instance.close();
+    await instance.close();
   }
   active.db.close();
   active.blobs.close();
@@ -380,6 +401,51 @@ function verifyBlobReferences(blobs: SqliteBlobStore, rows: readonly WebStateApp
       blobs.verify(hash);
     }
   }
+}
+
+/**
+ * Desktop StateStore's `sourceCatalog`: a mutation needs the derived index
+ * before it commits bytes, and the sources it retires are collected after,
+ * by the same GC as purge and thread delete.
+ */
+async function sourceCatalog(
+  active: Writer,
+  request: WebStateRequests['sourceCatalog']['params']
+): Promise<WebStateRequests['sourceCatalog']['result']> {
+  const mutates =
+    request.operation === 'import' ||
+    request.operation === 'prepare' ||
+    request.operation === 'replace' ||
+    request.operation === 'remove';
+  if (mutates) {
+    active.deletion.requireIndexer('canonical source mutation');
+  }
+  const reply = executeSourceCatalogRequest(asBetterSqlite3(active.db), request, {
+    put: (hash, content) => active.blobs.put(hash, content),
+    read: (hash, maxBytes) => active.blobs.read(hash, maxBytes),
+  });
+  if (mutates) {
+    await active.deletion.collectRetiredSources();
+  }
+  return reply;
+}
+
+/** Desktop StateStore's `workspaceRoots`, with a root's path its handle key (`webRootPath`). */
+async function workspaceRoots(
+  active: Writer,
+  request: WebStateRequests['workspaceRoots']['params']
+): Promise<WebStateRequests['workspaceRoots']['result']> {
+  if (request.operation === 'delete') {
+    active.deletion.requireIndexer('root data deletion');
+  }
+  const reply = executeWorkspaceRootRequest(asBetterSqlite3(active.db), request, {
+    // A root is named by its own id, so its handle is found under the same IndexedDB key.
+    isGranted: (root) => isWebRootPath(root.path, root.preferredId),
+  });
+  if (request.operation === 'delete') {
+    await active.deletion.collectRetiredSources();
+  }
+  return reply;
 }
 
 /** One request on the writer, as the desktop writer worker handles the same op. */
@@ -456,10 +522,12 @@ async function handle(active: Writer, request: WireRequest): Promise<unknown> {
         })),
       };
     case 'retire':
-      retire(active);
+      await retire(active);
       return {};
     case 'settings':
       return settings(db);
+    case 'sourceCatalog':
+      return sourceCatalog(active, params as WebStateRequests['sourceCatalog']['params']);
     case 'status': {
       const { threadId } = params as WebStateRequests['status']['params'];
       return { status: log.status(threadId) };
@@ -475,6 +543,8 @@ async function handle(active: Writer, request: WireRequest): Promise<unknown> {
       );
     case 'threads':
       return { threads: log.threads() };
+    case 'workspaceRoots':
+      return workspaceRoots(active, params as WebStateRequests['workspaceRoots']['params']);
     case 'viewFilterPresets':
       return executeViewFilterPresetRequest(
         asBetterSqlite3(db),
@@ -513,7 +583,7 @@ function answer(id: number, request: WireRequest): Promise<WebStateReply> {
       ? new Promise<never>(() => {})
       : Promise.resolve({ error: errorReply(new Error('stall is a test hook')), id, ok: false });
   }
-  return serialized(async (): Promise<WebStateReply> => {
+  const run = async (): Promise<WebStateReply> => {
     const active = writer;
     if (!active) {
       return { error: refusal ?? leaderLost(), id, ok: false };
@@ -523,7 +593,9 @@ function answer(id: number, request: WireRequest): Promise<WebStateReply> {
     } catch (error) {
       return { error: errorReply(error), id, ok: false };
     }
-  });
+  };
+  // An extension op whose work runs elsewhere never holds the queue a chat append waits in.
+  return writer?.concurrent.has(request.op) ? run() : serialized(run);
 }
 
 /**

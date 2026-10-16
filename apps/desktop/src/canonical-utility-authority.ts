@@ -13,6 +13,7 @@ import type {
   CanonicalWorkspaceLease,
   CanonicalWorkspaceRuntimeDependencies,
   CanonicalWorkspaceSourceDependencies,
+  NodeChunkerOptions,
 } from '@brainstrike/canonical-ingestion';
 import type { ScopedManifestFile, VectorProfile } from '@brainstrike/indexer';
 import { Schema } from 'effect';
@@ -27,7 +28,17 @@ import {
 } from './canonical-utility-protocol';
 
 type WithoutSource<T> = T extends unknown ? Omit<T, 'source'> : never;
-export type CanonicalCollectionDependencies = WithoutSource<CanonicalIngestionDependencies> & {
+/**
+ * Main's description of an ingestion the utility hosts: its dependencies,
+ * naming the parser the utility builds its chunker from. Canonical chunking
+ * never runs in main.
+ */
+type Remote<T> = T extends unknown
+  ? Omit<T, 'chunker'> & { readonly parser: NodeChunkerOptions }
+  : never;
+export type CanonicalRemoteIngestion = Remote<WithoutSource<CanonicalIngestionDependencies>>;
+export type CanonicalRemoteWorkspaceDependencies = Remote<CanonicalWorkspaceRuntimeDependencies>;
+export type CanonicalCollectionDependencies = CanonicalRemoteIngestion & {
   readonly request: Omit<CanonicalScanRequest, 'requestId' | 'scope' | 'forceFileIds'>;
   readonly scope: Extract<CanonicalSourceScope, { kind: 'collection' }>;
   readonly source: Omit<CanonicalWorkspaceSourceDependencies, 'lease' | 'resolveScanScope'>;
@@ -37,7 +48,7 @@ export interface Session {
   childClosed: boolean;
   close?: Promise<void> | undefined;
   readonly config: CanonicalUtilityConfig;
-  readonly dependencies: CanonicalWorkspaceRuntimeDependencies | CanonicalCollectionDependencies;
+  readonly dependencies: CanonicalRemoteWorkspaceDependencies | CanonicalCollectionDependencies;
   readonly files: Map<string, CanonicalFileIdentity>;
   readonly inference: CanonicalInferencePort<VectorProfile> | undefined;
   readonly inferenceRequests: Set<string>;

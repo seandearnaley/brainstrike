@@ -1,6 +1,6 @@
-import path from 'node:path';
 import type { IFileNode, RootDescriptor } from '@brainstrike/types';
 import { fileNodeCollator } from '@brainstrike/utils/collator';
+import { hostBasename, hostJoin } from '@brainstrike/utils/host-path';
 
 /** Projection data only; a root ID grants no filesystem authority. */
 interface WorkspaceRootIdentity {
@@ -29,7 +29,7 @@ export function descriptorFor(
   permissionState: 'granted' | 'unknown',
   persisted = true
 ): RootDescriptor {
-  const displayName = path.basename(entry.path) || entry.path;
+  const displayName = hostBasename(entry.path) || entry.path;
   return {
     displayName,
     handle: {
@@ -51,7 +51,7 @@ function buildDirectoryNode(
   parentPath: string,
   entry: SecureWorkspaceDirEntry
 ): IFileNode {
-  const entryPath = path.join(parentPath, entry.name);
+  const entryPath = hostJoin(parentPath, entry.name);
   const isDirectory = entry.isDirectory && !entry.isSymbolicLink;
   if (isDirectory) {
     return {
@@ -99,7 +99,7 @@ function buildTruncationNode(
   parentPath: string,
   inspected: number
 ): IFileNode {
-  const entryPath = path.join(parentPath, TRUNCATION_NODE_BASENAME);
+  const entryPath = hostJoin(parentPath, TRUNCATION_NODE_BASENAME);
   return {
     depth: 0,
     handle: {

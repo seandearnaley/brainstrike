@@ -2,13 +2,18 @@ import {
   executeCollectionRequest,
   executeModelChoiceRequest,
   executePromptCatalogRequest,
+  executeSourceCatalogRequest,
   executeThreadGroups,
   executeViewFilterPresetRequest,
+  executeWorkspaceRootRequest,
 } from '@brainstrike/state-store/catalog-domains';
 import { migrate } from '@brainstrike/state-store/schema';
+import { sha256Hex } from '@brainstrike/utils/crypto';
+import { utf8ByteLength } from '@brainstrike/utils/utf8';
 import type { Sqlite3Static } from '@sqlite.org/sqlite-wasm';
 import type BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { isWebRootPath, webRootPath } from '../protocol';
 import { bothDrivers, caught, loadSqliteWasm } from './drivers';
 
 let sqlite3: Sqlite3Static;
@@ -45,6 +50,12 @@ function onBothDrivers<T>(work: (db: BetterSqlite3.Database) => T): { desktop: T
     }
   );
 }
+
+/** The browser writer's root rule: a root is named by its own id (`webRootPath`). */
+const browserRoots = {
+  isGranted: (root: { readonly path: string; readonly preferredId: string }) =>
+    isWebRootPath(root.path, root.preferredId),
+};
 
 const collection = {
   createdAt: '2026-10-13T19:45:00.000Z',
@@ -209,6 +220,141 @@ describe('the catalog domains on sqlite-wasm', () => {
       ];
     });
     expect(web[0]?.presets.length).toBeGreaterThan(0);
+    expect(web).toEqual(desktop);
+  });
+  it('the source catalog answers as on the desktop driver, retiring replaced and removed bytes', () => {
+    const source = (path: string, content: string) => ({
+      content,
+      contentHash: sha256Hex(content),
+      fileName: path.split('/').at(-1) ?? path,
+      path,
+      stat: { mtimeMs: 1, size: utf8ByteLength(content) },
+    });
+    const { desktop, web } = onBothDrivers((db) => {
+      const stored = new Map<string, string>();
+      const blobs = {
+        put: (hash: string, content: string) => {
+          stored.set(hash, content);
+        },
+        read: (hash: string, maxBytes: number) => {
+          const content = stored.get(hash) ?? null;
+          return content !== null && utf8ByteLength(content) > maxBytes ? null : content;
+        },
+      };
+      const run = (request: Parameters<typeof executeSourceCatalogRequest>[1]) =>
+        executeSourceCatalogRequest(db, request, blobs);
+      const retired = () =>
+        db.prepare('SELECT hash FROM source_blob_gc ORDER BY hash').pluck().all();
+      executeCollectionRequest(db, { collection, operation: 'create' });
+      const rootId = '00000000-0000-4000-8000-00000000aaaa';
+      executeWorkspaceRootRequest(
+        db,
+        {
+          operation: 'register',
+          root: { displayName: 'notes', path: webRootPath(rootId), preferredId: rootId },
+        },
+        browserRoots
+      );
+      const imported = run({
+        embeddingSetId: collection.id,
+        files: [source('a.md', 'alpha café 🧠'), source('b.md', 'alpha café 🧠')],
+        operation: 'import',
+      });
+      const prepared = run({
+        embeddingSetId: collection.id,
+        files: [source('src/one.ts', 'export const one = 1;\n')],
+        operation: 'prepare',
+        rootId,
+      });
+      const [rooted] = prepared.files;
+      if (!rooted) {
+        throw new Error('prepare returned no file');
+      }
+      const replaced = run({
+        files: [{ expected: rooted, source: source('src/one.ts', 'export const one = 2;\n') }],
+        operation: 'replace',
+      });
+      const afterReplace = retired();
+      const [current] = replaced.files;
+      if (!current) {
+        throw new Error('replace returned no file');
+      }
+      return [
+        imported,
+        prepared,
+        replaced,
+        afterReplace,
+        run({ fileIds: [current.fileId], maxContentBytes: 1000, operation: 'read' }),
+        run({ fileIds: [current.fileId], maxContentBytes: 3, operation: 'read' }),
+        run({ files: [{ chunkCount: 2, expected: current }], operation: 'complete' }),
+        run({ embeddingSetId: collection.id, operation: 'inventory' }),
+        run({
+          files: [run({ fileIds: [current.fileId], operation: 'read' }).files[0] ?? current],
+          operation: 'remove',
+        }),
+        retired(),
+        run({ operation: 'list' }),
+        caught(() =>
+          run({ embeddingSetId: 'absent', files: [source('c.md', 'c')], operation: 'import' })
+        ),
+        caught(() =>
+          run({
+            embeddingSetId: collection.id,
+            files: [{ ...source('d.md', 'd'), contentHash: sha256Hex('other') }],
+            operation: 'import',
+          })
+        ),
+      ];
+    });
+    expect(web[0]).toMatchObject({ imported: [true, false] });
+    // The replaced bytes, then the removed file's bytes, wait for the writer's GC.
+    expect(web[3]).toEqual([sha256Hex('export const one = 1;\n')]);
+    expect(web[9]).toEqual(
+      [sha256Hex('export const one = 1;\n'), sha256Hex('export const one = 2;\n')].sort()
+    );
+    expect(web).toEqual(desktop);
+  });
+
+  it('workspace roots answer as on the desktop driver, with a browser root named by its handle key', () => {
+    const paths = browserRoots;
+    const rootId = '00000000-0000-4000-8000-00000000bbbb';
+    const { desktop, web } = onBothDrivers((db) => {
+      const run = (request: Parameters<typeof executeWorkspaceRootRequest>[1]) =>
+        executeWorkspaceRootRequest(db, request, paths);
+      const root = { displayName: 'project', path: webRootPath(rootId), preferredId: rootId };
+      return [
+        run({ operation: 'register', root }),
+        // Re-picking the folder registers its root again under the same id and key.
+        run({ operation: 'register', root }),
+        // A key that names another root would file the handle under the wrong id.
+        caught(() =>
+          run({
+            operation: 'register',
+            root: {
+              ...root,
+              path: webRootPath('00000000-0000-4000-8000-00000000cccc'),
+              preferredId: '00000000-0000-4000-8000-00000000dddd',
+            },
+          })
+        ),
+        caught(() =>
+          run({
+            operation: 'register',
+            root: { displayName: 'os', path: '/home/user/project', preferredId: 'os' },
+          })
+        ),
+        run({ mountedPaths: [], operation: 'disconnect-except' }),
+        run({ operation: 'list' }),
+        caught(() => run({ operation: 'delete', paths: ['fsa:wrong'], rootId })),
+        run({ operation: 'delete', paths: [root.path], rootId }),
+        run({ operation: 'list' }),
+      ];
+    });
+    expect(web[1]).toMatchObject({ roots: [{ id: rootId, status: 'live' }] });
+    // A key naming another root, and an OS path, are not roots this host granted.
+    expect(web[2]).toEqual({ code: undefined, name: 'Error' });
+    expect(web[3]).toEqual({ code: undefined, name: 'Error' });
+    expect(web[8]).toEqual({ roots: [] });
     expect(web).toEqual(desktop);
   });
 });

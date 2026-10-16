@@ -24,7 +24,19 @@ by a static import in the store's modules.
 ## Publication
 
 Use the canonical producer's chunks, spans, hashes and syntax metadata; do not
-parse or split them again. A transaction rejects stale preparation and atomically
+parse or split them again. The canonical ingestion host is given its chunker:
+desktop's utility builds `createNodeChunker` from the parser main names (main
+never chunks), and the browser index worker uses `createBrowserChunker`, Babel
+plus the vendored tree-sitter grammar. `@brainstrike/canonical-ingestion/browser`
+holds the host, the workspace runtime and its source over a lease the worker
+brings; `browser-entry.test.ts` fails on a static Node import reachable from it,
+or an unguarded `Buffer.`/`process.` in a workspace source it bundles. Paths
+use `@brainstrike/utils/host-path` (Node's `path` where the runtime has it,
+POSIX in a browser) and bytes `@brainstrike/utils/utf8`. Scan receipts and publication
+readiness have one owner, `scoped-publication.ts` in canonical-ingestion, for
+desktop's native index and the browser's index worker alike; so do the
+canonical catalog over the source catalog (`canonical-catalog.ts`) and scan
+admission (`scan-admission.ts`). A transaction rejects stale preparation and atomically
 changes chunks, text indexes, vectors and graph data. Complete catalog inventories,
 acknowledged bindings and source revisions authorize publication/removal; a path
 match or partial scan is not authority.

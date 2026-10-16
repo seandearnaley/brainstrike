@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { CanonicalIngestionHost } from '@brainstrike/canonical-ingestion';
+import { CanonicalIngestionHost, createNodeChunker } from '@brainstrike/canonical-ingestion';
 
 assert.equal(globalThis.window, undefined);
 assert.equal(globalThis.self, undefined);
@@ -72,8 +72,8 @@ const host = new CanonicalIngestionHost({
       assert.fail('TEXT resolved a model profile.');
     },
   },
+  chunker: createNodeChunker({ parser: 'oxc' }),
   managedCollectionId: canonical.embeddingSetId,
-  parser: { parser: 'oxc' },
   publication: {
     async abortScan() {
       assert.fail('Unexpected cancellation.');

@@ -1,4 +1,5 @@
 import { projectModelCatalog } from '@brainstrike/assistant-contract';
+import type { NativeCanonicalCatalogRecord } from '@brainstrike/canonical-ingestion';
 import type {
   CollectionPort,
   SourceCatalogPort,
@@ -6,7 +7,6 @@ import type {
 } from '@brainstrike/state-store';
 import type { SourceFileRecord } from '@brainstrike/types';
 import { vi } from 'vitest';
-import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
 
 export function sourceRecord(record: NativeCanonicalCatalogRecord): SourceFileRecord {
   if (record.contentHash === null) {

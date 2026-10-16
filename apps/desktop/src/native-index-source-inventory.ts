@@ -3,13 +3,11 @@ import type {
   CanonicalFileIdentity,
   CanonicalSourceInventoryPort,
   CanonicalSourceScope,
+  createNativeCanonicalCatalog,
+  createNativeScanAdmission,
+  NativeCanonicalCatalogRecord,
 } from '@brainstrike/canonical-ingestion';
 import type { VectorProfile } from '@brainstrike/indexer';
-import type {
-  createNativeCanonicalCatalog,
-  NativeCanonicalCatalogRecord,
-} from './native-canonical-catalog';
-import type { createNativeScanAdmission } from './native-index-scan-admission';
 
 export function createNativeSourceInventory(dependencies: {
   readonly assertSource: () => void;

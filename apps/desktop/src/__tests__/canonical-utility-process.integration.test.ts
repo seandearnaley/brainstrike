@@ -12,6 +12,7 @@ import type {
   CanonicalPublicationPort,
   CanonicalVectorPublicationPort,
 } from '@brainstrike/canonical-ingestion';
+import { createNativeCanonicalCatalog } from '@brainstrike/canonical-ingestion';
 import type { ScopedFilePlan } from '@brainstrike/indexer';
 import { createIndexerConnection } from '@brainstrike/indexer/transport';
 import { StateStore } from '@brainstrike/state-store';
@@ -22,7 +23,6 @@ import { CanonicalUtilityParent } from '../canonical-utility-parent';
 import { isCanonicalFrame } from '../canonical-utility-protocol';
 import type { EmbeddingHostDocumentEmbeddingsPayload } from '../embedding-host-shared';
 import { generateHostedEmbeddings } from '../hosted-embeddings';
-import { createNativeCanonicalCatalog } from '../native-canonical-catalog';
 import {
   NativeCanonicalInference,
   NativeCanonicalProfileResolver,

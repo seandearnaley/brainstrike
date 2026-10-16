@@ -1,4 +1,11 @@
-import { createHash } from 'node:crypto';
+// The canonical catalog over the authoritative source catalog (SourceCatalogPort): desktop's native index and the
+// browser's index worker (BST-1940) scan through the same owner.
+
+import { makeThrowingDecoder } from '@brainstrike/effect-kit';
+import type { SourceCatalogPort, SourceCatalogRecord } from '@brainstrike/state-store';
+import { sha256Hex } from '@brainstrike/utils/crypto';
+import { utf8ByteLength } from '@brainstrike/utils/utf8';
+import { Schema } from 'effect';
 import type {
   CanonicalCatalogFile,
   CanonicalCatalogPort,
@@ -8,10 +15,7 @@ import type {
   CanonicalOperationContext,
   CanonicalSourceScope,
   CanonicalSourceStat,
-} from '@brainstrike/canonical-ingestion';
-import { makeThrowingDecoder } from '@brainstrike/effect-kit';
-import type { SourceCatalogPort, SourceCatalogRecord } from '@brainstrike/state-store';
-import { Schema } from 'effect';
+} from './ports.js';
 
 const nullableText = Schema.NullOr(Schema.String);
 const statSchema = Schema.Struct({
@@ -117,7 +121,7 @@ function assertDiscoveryBatch(
   }
 }
 function assertHash(content: string, contentHash: string): void {
-  if (createHash('sha256').update(content).digest('hex') !== contentHash) {
+  if (sha256Hex(content) !== contentHash) {
     throw new Error('Canonical source hash does not match original content.');
   }
 }
@@ -244,7 +248,7 @@ export function createNativeCanonicalCatalog<Profile>(
       const records = await loadRecords(
         dependencies.catalog,
         request.files,
-        Math.max(0, ...request.files.map((file) => Buffer.byteLength(file.content)))
+        Math.max(0, ...request.files.map((file) => utf8ByteLength(file.content)))
       );
       checkCurrent(authority, context);
       const files = records.map((record, index) => {
@@ -395,7 +399,7 @@ export function createNativeCanonicalCatalog<Profile>(
         throw new Error('Retained source identity is missing.');
       }
       assertIdentity(identityFor(record, scope, authority), file);
-      if (record.content === null || Buffer.byteLength(record.content) > maxFileBytes) {
+      if (record.content === null || utf8ByteLength(record.content) > maxFileBytes) {
         throw new Error('Original retained source is absent or exceeds the byte bound.');
       }
       if (record.contentHash !== null) {

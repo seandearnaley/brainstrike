@@ -16,10 +16,15 @@ it('bundles the composed writer worker for the browser, with no Node module and 
   const aliases = workspaceSrcAliases(resolve(import.meta.dirname, '../../..'));
   const result = await build({
     bundle: true,
-    entryPoints: [resolve(import.meta.dirname, '../web-writer-worker.ts')],
+    // The file index's worker is a module the writer starts by URL, so it is an entry of its own.
+    entryPoints: [
+      resolve(import.meta.dirname, '../web-writer-worker.ts'),
+      resolve(import.meta.dirname, '../file-index-worker.ts'),
+    ],
     format: 'esm',
     logLevel: 'silent',
     metafile: true,
+    outdir: 'bundle',
     platform: 'browser',
     plugins: [
       {
@@ -41,6 +46,8 @@ it('bundles the composed writer worker for the browser, with no Node module and 
     'agent-host/src/host-state-producer.ts',
     'state-store/src/state-deletion.ts',
     'state-store/src/deletion-domain.mjs',
+    'src/file-index-worker.ts',
+    'indexer/src/scoped-operations.ts',
   ]) {
     expect(inputs.some((input) => input.includes(composed))).toBe(true);
   }

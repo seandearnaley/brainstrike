@@ -1,8 +1,10 @@
-import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
+import type {
+  CanonicalWorkspaceLease,
+  createNativeScanAdmission,
+  NativeCanonicalCatalogRecord,
+} from '@brainstrike/canonical-ingestion';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
-import type { NativeCanonicalCatalogRecord } from './native-canonical-catalog';
 import type { NativeCanonicalInference } from './native-canonical-profile';
-import type { createNativeScanAdmission } from './native-index-scan-admission';
 
 export interface NativeIndexSources {
   readonly attachments: Set<{ close(): Promise<void> }>;

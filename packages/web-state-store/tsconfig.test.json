@@ -3,10 +3,25 @@
   "compilerOptions": {
     "composite": false,
     "noEmit": true,
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "rootDir": ".",
-    "types": ["node", "vitest/globals"]
+    "types": [
+      "node",
+      "vitest/globals"
+    ]
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["dist", "node_modules", "src/web-state-worker.ts", "src/web-state-writer.ts"]
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "src/web-state-worker.ts",
+    "src/web-state-writer.ts",
+    "src/__tests__/held-extension-worker.ts"
+  ]
 }
