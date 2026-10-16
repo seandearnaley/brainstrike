@@ -54,7 +54,7 @@ describe('direct Anthropic registry reasoning ladders', () => {
     const ladders = listProviderLlmModels('anthropic').flatMap((model) =>
       model.anthropicReasoning ? [model.anthropicReasoning] : []
     );
-    expect(ladders).toHaveLength(7);
+    expect(ladders).toHaveLength(8);
     for (const ladder of ladders) {
       expect(ladder.supportedEfforts).toContain(ladder.defaultEffort);
       let previous = -1;

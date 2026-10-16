@@ -95,7 +95,7 @@ describe('frontier model refresh (2026-07)', () => {
   });
 
   describe('Anthropic', () => {
-    it('exposes Fable 5.1 / Fable 5 / Opus 5.5 / Opus 5 / Sonnet 5 alongside the retained Opus and Haiku models', () => {
+    it('exposes Fable 5.1 / Fable 5 / Opus 5.5 / Opus 5 / Sonnet 5 / Haiku 5.5 alongside the retained Opus and Haiku models', () => {
       const ids = llmIds('anthropic');
       expect(ids).toEqual([
         'claude-fable-5-1',
@@ -105,6 +105,7 @@ describe('frontier model refresh (2026-07)', () => {
         'claude-opus-4-8',
         'claude-sonnet-5',
         'claude-sonnet-4-6',
+        'claude-haiku-5-5',
         'claude-haiku-4-5',
       ]);
     });
