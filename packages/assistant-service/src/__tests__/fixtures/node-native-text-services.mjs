@@ -15,6 +15,7 @@ import {
   joinProfileDirectory,
   openExistingNodeWorkspaceServices,
 } from '@brainstrike/assistant-service/node-workspace-services';
+import { createNativeCanonicalPublication } from '@brainstrike/canonical-ingestion';
 import { createStateStoreIndexer, openIndexer } from '@brainstrike/indexer';
 import {
   SqliteQueryClient,
@@ -30,7 +31,6 @@ assert.equal(process.versions.electron, undefined);
 const original = (name) => import(pathToFileURL(path.join(ownerBundles, `${name}.mjs`)).href);
 const { createDesktopProfileRuntime } = await original('desktop-profile-runtime');
 const { createNativeIndexRuntime } = await original('native-index-runtime');
-const { createNativeCanonicalPublication } = await original('native-canonical-publication');
 const { readNativeIndexSettings, NATIVE_INDEX_SETTINGS_KEY, nativeIndexConfigurationIdentity } =
   await original('native-index-settings');
 for (const [name, exportName, expectedClass] of [

@@ -1,12 +1,13 @@
 // @vitest-environment node
-import type { CanonicalFileIdentity, CanonicalSourceScope } from '@brainstrike/canonical-ingestion';
+
 import {
   type ScopedFilePlan,
   type ScopedIndexerPort,
   vectorProfileHash,
 } from '@brainstrike/indexer';
 import { describe, expect, it, vi } from 'vitest';
-import { createNativeCanonicalPublication } from '../native-canonical-publication';
+import type { CanonicalFileIdentity, CanonicalSourceScope } from '../src/ports.js';
+import { createNativeCanonicalPublication } from '../src/scoped-publication.js';
 
 const scope = { embeddingSetId: 'collection', kind: 'collection' } as const;
 const file: CanonicalFileIdentity = {

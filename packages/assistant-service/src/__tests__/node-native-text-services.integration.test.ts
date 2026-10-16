@@ -81,7 +81,6 @@ async function runFixture(mode: Mode, signal: AbortSignal): Promise<unknown> {
       'desktop-profile-runtime',
       'native-index-runtime',
       'native-index-settings',
-      'native-canonical-publication',
       'native-authority-transition',
       'native-index-setup-required',
       'native-index-search',

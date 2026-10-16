@@ -1,21 +1,5 @@
-import type {
-  NativeAcknowledgedPublication,
-  NativeScopeReadiness,
-} from '@brainstrike/assistant-service/node-native-text-services';
-
-export type {
-  NativeAcknowledgedPublication,
-  NativeScopeReadiness,
-} from '@brainstrike/assistant-service/node-native-text-services';
-
-import type {
-  CanonicalFileIdentity,
-  CanonicalManifestFile,
-  CanonicalScanReceipt,
-  CanonicalScanTicket,
-  CanonicalSourceScope,
-  CanonicalVectorPublicationPort,
-} from '@brainstrike/canonical-ingestion';
+// The scoped writer's publication receipts, as canonical ingestion earns them: desktop's native index and the
+// browser's index worker (BST-1940) publish through the same owner.
 import type {
   IndexerPort,
   ScopedFilePlan,
@@ -23,7 +7,34 @@ import type {
   ScopedManifestFile,
   VectorProfile,
 } from '@brainstrike/indexer';
-import { vectorProfileHash } from '@brainstrike/indexer';
+import { vectorProfileHash } from '@brainstrike/indexer/browser';
+import type {
+  CanonicalFileIdentity,
+  CanonicalManifestFile,
+  CanonicalScanReceipt,
+  CanonicalScanTicket,
+  CanonicalSourceScope,
+  CanonicalVectorPublicationPort,
+} from './ports.js';
+
+export interface NativeScopeReadiness {
+  readonly generation: number;
+  readonly mutationRevision: number;
+  readonly publication?: NativeAcknowledgedPublication;
+  readonly scanComplete: boolean;
+  readonly scope: CanonicalSourceScope;
+}
+
+export interface NativeAcknowledgedPublication {
+  readonly acknowledgedFiles: number;
+  readonly authorityEpoch: string;
+  readonly authorityRevision: number;
+  readonly generation: number;
+  readonly mutationRevision: number;
+  readonly profileHash: string | null;
+  readonly requestId: string;
+  readonly storeId: string;
+}
 
 type PublicationWriter = Pick<IndexerPort, 'info'> &
   Pick<

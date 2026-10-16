@@ -6,6 +6,11 @@ export {
 } from './host.js';
 export * from './ports.js';
 export {
+  createNativeCanonicalPublication,
+  type NativeAcknowledgedPublication,
+  type NativeScopeReadiness,
+} from './scoped-publication.js';
+export {
   CanonicalWorkspaceIngestionRuntime,
   type CanonicalWorkspaceRuntimeDependencies,
 } from './workspace-runtime.js';

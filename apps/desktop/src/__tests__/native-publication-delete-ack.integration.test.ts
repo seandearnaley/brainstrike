@@ -3,9 +3,9 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { createNativeCanonicalPublication } from '@brainstrike/canonical-ingestion';
 import { openIndexer } from '@brainstrike/indexer';
 import { expect, it } from 'vitest';
-import { createNativeCanonicalPublication } from '../native-canonical-publication';
 
 it('rejects a late commit ACK, then requires a returning canonical identity to republish its real native row', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'native-publication-ack-'));

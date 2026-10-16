@@ -1,10 +1,10 @@
 import type {
   CanonicalPublicationPort,
   CanonicalScanReceipt,
+  NativeScopeReadiness,
 } from '@brainstrike/canonical-ingestion';
 import type { ScopedFilePlan, ScopedIndexerPort } from '@brainstrike/indexer';
 import { expect } from 'vitest';
-import type { NativeScopeReadiness } from '../native-canonical-publication';
 
 interface ReceiptAssertions {
   readonly commitTextFile: (

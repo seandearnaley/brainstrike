@@ -4,11 +4,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { CanonicalFileIdentity, CanonicalScanReceipt } from '@brainstrike/canonical-ingestion';
+import { createNativeCanonicalPublication } from '@brainstrike/canonical-ingestion';
 import type { IndexFileBinding } from '@brainstrike/indexer';
 import { openIndexer } from '@brainstrike/indexer';
 import { expect, it } from 'vitest';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
-import { createNativeCanonicalPublication } from '../native-canonical-publication';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from '../native-index-runtime';
 
 const workspace = { kind: 'workspace', rootId: 'mounted-root' } as const;

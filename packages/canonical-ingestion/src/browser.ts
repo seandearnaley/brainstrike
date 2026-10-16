@@ -11,3 +11,8 @@ export {
   CanonicalScanIncompleteError,
 } from './host.js';
 export * from './ports.js';
+export {
+  createNativeCanonicalPublication,
+  type NativeAcknowledgedPublication,
+  type NativeScopeReadiness,
+} from './scoped-publication.js';
