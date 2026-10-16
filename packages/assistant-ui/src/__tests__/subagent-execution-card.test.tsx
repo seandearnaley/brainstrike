@@ -155,11 +155,12 @@ describe('SubagentExecutionCard', () => {
   });
 
   it('shows a delegation that ran but never answered as "No answer", not Completed', () => {
-    // BST-1410: the host settles a foreground child that wrote no summary as
-    // `no-answer`; the child's run itself completed.
+    // BST-1410: a child that completed without writing a summary gave no
+    // answer. Codex review on #3719: a background child's result stays the
+    // `started` acknowledgement, so the child's own run says so.
     renderCard({
-      childRun: { status: 'completed', toolCalls: 2 },
-      result: { childThreadId: 'child-1', status: 'no-answer', text: 'No summary.' },
+      childRun: { status: 'no-answer', toolCalls: 2 },
+      result: { childThreadId: 'child-1', status: 'started', text: 'Background task started.' },
       status: { type: 'complete' },
       toolCallId: 'delegation-1',
       toolName: 'agent-explore',

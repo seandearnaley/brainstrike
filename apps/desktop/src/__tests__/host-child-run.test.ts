@@ -1,6 +1,9 @@
 // @vitest-environment node
-import type { HostLogRow } from '@brainstrike/agent-host/protocol';
+import { type HostLogRow, HostLogRowSchema } from '@brainstrike/agent-host/protocol';
+import answerless from '@brainstrike/test-utils/fixtures/committed-host-answerless-runs.json';
+import answered from '@brainstrike/test-utils/fixtures/committed-host-incremental-tool-input.json';
 import { expect, test } from 'vitest';
+import { z } from 'zod';
 import { HostChildRunFold } from '../renderer/host-child-run';
 
 const row = (seq: number, event: Record<string, unknown>): HostLogRow =>
@@ -26,4 +29,33 @@ test('a child that has not started reports no delegated invocation', () => {
   const fold = new HostChildRunFold();
   expect(fold.apply([])).toBeUndefined();
   expect(fold.runsDelegatedInvocation()).toBe(false);
+});
+
+// Codex review on #3719: a background child's delegation result stays the
+// `started` acknowledgement, so the card reads the child's own log for how it
+// ended. A child that completes without writing an answer is the host's
+// `no-answer` (`hostChildResult`), never a success. Real-host recordings:
+// - answerless: a run that calls a tool, then only reasons before it stops
+//   (completed, no text), then a run that streams nothing (the empty-response
+//   guard fails it);
+// - incremental tool input: a run whose last step writes its answer.
+const recorded = (recording: unknown): HostLogRow[] => z.array(HostLogRowSchema).parse(recording);
+
+test('a child that completes without writing an answer reads no-answer, never finished', () => {
+  const rows = recorded(answerless);
+  const firstFinished = rows.findIndex((entry) => entry.event.type === 'run.finished');
+  const fold = new HostChildRunFold();
+
+  expect(fold.apply(rows.slice(0, firstFinished + 1))).toEqual({
+    status: 'no-answer',
+    toolCalls: 1,
+  });
+  expect(fold.apply(rows)).toEqual({ status: 'failed', toolCalls: 1 });
+});
+
+test('a child whose last step writes its answer reads completed', () => {
+  expect(new HostChildRunFold().apply(recorded(answered))).toEqual({
+    status: 'completed',
+    toolCalls: 1,
+  });
 });

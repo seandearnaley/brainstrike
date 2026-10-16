@@ -76,6 +76,7 @@ const CHILD_STEP_STATE: Record<SubagentChildRun['status'], StepGlyphState> = {
   failed: 'failed',
   interrupted: 'failed',
   'needs-input': 'waiting',
+  'no-answer': 'no-answer',
   running: 'running',
   stopped: 'cancelled',
 };
@@ -107,9 +108,10 @@ function resultStepState(result: ToolResult): StepGlyphState | undefined {
 /**
  * The delegation's step state. Once the child's own committed run is read it
  * is the truth: a background delegation's call settles the moment its child
- * starts, so the call alone would say "finished" while the child works. The
- * host's settled `no-answer` verdict (BST-1410: the child ran and wrote no
- * summary) refines a completed run.
+ * starts, so the call alone would say "finished" while the child works, and
+ * stays the `started` acknowledgement after the child ends. The child's run
+ * reads `no-answer` by the host's own rule (BST-1410: the child ran and wrote
+ * no summary), so a foreground and a background delegation read alike.
  *
  * Before then, THE shared tool-step machine (`toolStepStateFor`, which the
  * trace headline, `ToolFallback` and `TaskListToolCard` also read) decides,
@@ -126,13 +128,11 @@ function resolveDelegationState(
   isError: boolean,
   childRun: SubagentChildRun | undefined
 ): StepGlyphState {
-  const settled = resultStepState(result);
   if (childRun) {
-    const child = CHILD_STEP_STATE[childRun.status];
-    return child === 'done' && settled === 'no-answer' ? 'no-answer' : child;
+    return CHILD_STEP_STATE[childRun.status];
   }
   const generic = toolStepStateFor({ isError, result, status });
-  return generic === 'done' ? (settled ?? 'done') : generic;
+  return generic === 'done' ? (resultStepState(result) ?? 'done') : generic;
 }
 
 /** A child waiting on a person is not delegating: it asks for their input. */

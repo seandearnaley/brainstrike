@@ -24,6 +24,10 @@
       "types": "./dist/hook-trust.d.ts",
       "default": "./dist/hook-trust.js"
     },
+    "./child-answer": {
+      "types": "./dist/child-answer.d.ts",
+      "default": "./dist/child-answer.js"
+    },
     "./child-presentation": {
       "types": "./dist/child-presentation.d.ts",
       "default": "./dist/child-presentation.js"

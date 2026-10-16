@@ -1,14 +1,16 @@
+import { hostAnswerText } from '@brainstrike/agent-host/child-answer';
 import { isHostToolCallChunk } from '@brainstrike/agent-host/ledger-projection';
 import type { HostLogRow } from '@brainstrike/agent-host/protocol';
 import type { SubagentChildRun } from '@brainstrike/assistant-ui';
 
 /**
  * A host thread's run state, folded incrementally from its own committed log:
- * its latest run working, waiting on a person's answer, or how that run ended,
- * and the tool calls its runs made, counted by the host ledger's rule. Core
- * starts one run at a time per thread, so the latest `run.started` is the
- * thread's current run. The value keeps its identity until one of those facts
- * changes; undefined before the thread's first run.
+ * its latest run working, waiting on a person's answer, or how that run ended
+ * (a completed run without an answer, by the host's child-result rule, reads
+ * `no-answer`), and the tool calls its runs made, counted by the host ledger's
+ * rule. Core starts one run at a time per thread, so the latest `run.started`
+ * is the thread's current run. The value keeps its identity until one of those
+ * facts changes; undefined before the thread's first run.
  */
 export class HostChildRunFold {
   private cursor = 0;
@@ -16,6 +18,8 @@ export class HostChildRunFold {
   private first: string | undefined;
   private latest: string | undefined;
   private outcome: Extract<HostLogRow['event'], { type: 'run.finished' }>['outcome'] | undefined;
+  /** Whether the latest run's last assistant message so far has text. */
+  private answered = false;
   /** Interactions the latest run asked and nobody has answered yet. */
   private readonly waiting = new Set<string>();
   private toolCalls = 0;
@@ -47,8 +51,12 @@ export class HostChildRunFold {
         this.first ??= event.runId;
         this.latest = event.runId;
         this.outcome = undefined;
+        this.answered = false;
         this.waiting.clear();
         return true;
+      case 'model.step':
+      case 'model.messages':
+        return event.runId === this.latest && this.answer(hostAnswerText(event.messages));
       case 'stream.chunk':
         if (!isHostToolCallChunk(event.chunk)) {
           return false;
@@ -84,7 +92,19 @@ export class HostChildRunFold {
     return this.latest !== undefined && this.latest === this.first;
   }
 
+  /** A step's messages replace the answer only when they hold an assistant message. */
+  private answer(text: string | undefined): boolean {
+    if (text === undefined || this.answered === (text !== '')) {
+      return false;
+    }
+    this.answered = text !== '';
+    return true;
+  }
+
   private status(): SubagentChildRun['status'] {
+    if (this.outcome === 'completed' && !this.answered) {
+      return 'no-answer';
+    }
     if (this.outcome) {
       return this.outcome;
     }
