@@ -120,6 +120,9 @@
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
+        // logs-page-content.test.tsx imports the real virtualizer inside its mock.
+        // This workspace's production graph excludes tests; keep ownership local.
+        "@tanstack/react-virtual",
         "electron-builder-squirrel-windows", // Required peer dependency for electron-builder Windows builds
         "@effect/language-service", // Effect language-service plugin name, not a package; see packages/effect-kit
         "@vitest/coverage-v8", // Only used in vitest.config.mts, not imported in source code
@@ -235,10 +238,6 @@
     "packages/types": {
       "project": ["src/**/*.ts"],
       "ignore": [],
-      "ignoreDependencies": [
-        // Implicitly used by test/build runners?
-        "@swc/core"
-      ],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -297,6 +296,8 @@
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
+        // Test-only virtualizer mock; excluded from the production source graph.
+        "@tanstack/react-virtual",
         // Some suites opt into jsdom via file-level annotation
         "jsdom"
       ],
@@ -508,6 +509,8 @@
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
+        // Test-only virtualizer mock; excluded from the production source graph.
+        "@tanstack/react-virtual",
         // vitest.config.mts:10 loads ../test-utils/src/vitest.setup.ts; the dep pins that workspace version
         "@brainstrike/test-utils"
       ],
@@ -611,29 +614,14 @@
   ],
   "ignoreDependencies": [
     // These might need re-evaluation after running Knip
-    "dompurify",
     "@babel/core",
     "identity-obj-proxy", // Likely used for test mocking
     "tailwindcss", // Likely used via PostCSS, might be flagged
     "@commitlint/cli", // Used with commitlint.config.ts but no hooks yet
     "@vitejs/plugin-react", // Only used in Vite config
     "babel-plugin-react-compiler", // Resolved indirectly by reactCompilerPreset in Vite config
-    // NOTE (BST-1273, knip 6.32.2): the original justification — "used for JSDoc type
-    // annotations in stryker.config.js" — is obsolete. knip's Stryker plugin resolves that use
-    // natively, so any package carrying an `import('@stryker-mutator/api/core')` JSDoc tag is
-    // NOT flagged without this entry.
-    // UPDATED (Stryker mutation-lane unbreak): that PR added the tag to file-explorer-hooks,
-    // hooks, test-utils and utils, so this entry now masks exactly ONE package — file-explorer
-    // declares the dep and never references it. Measured by dropping the entry: the sole
-    // finding is `@stryker-mutator/api packages/file-explorer/package.json`. Deleting THAT
-    // declaration is the actual fix; do NOT delete the others, whose tags need the dep.
-    // Also measured: this entry filters unlisted-import findings too, so it would hide a tag
-    // added without a declaration — keep tag and declaration together.
-    "@stryker-mutator/api",
     "@mermaid-js/mermaid-cli", // Used in .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
     "mermaid", // Used in .claude/skills/mermaid-diagrams/scripts/ (validate-mermaid.mjs and test-one-diagram.mjs)
-    "@tanstack/react-table", // Used in packages/settings-ui for LogViewerCard table component
-    "@tanstack/react-virtual", // Used in packages/settings-ui for row virtualization
     "@jacobwolf/biome-unnecessary-effect", // Biome plugin used in biome.json for React useEffect linting
     "react-doctor" // CI/lint tool run via `pnpm run react-doctor` + the react-doctor.yml workflow, never imported
   ],

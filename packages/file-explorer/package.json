@@ -12,7 +12,6 @@
   "devDependencies": {
     "@brainstrike/file-tree-test-fixtures": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
-    "@stryker-mutator/api": "catalog:",
     "@stryker-mutator/core": "catalog:",
     "@stryker-mutator/typescript-checker": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
@@ -65,7 +64,6 @@
   "module": "dist/index.mjs",
   "peerDependencies": {
     "react": "^19.3.0",
-    "use-sync-external-store": "^1",
     "zustand": "^5"
   },
   "private": true,
