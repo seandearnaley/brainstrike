@@ -93,24 +93,6 @@ describe('tool output artifact settlement', () => {
     }
   );
 
-  it('settles a tool above its stricter serialized-character threshold', () => {
-    const output = { payload: '雪\\n"quoted" 😀'.repeat(400) };
-    const serialized = JSON.stringify(output);
-    expect(TEXT_ENCODER.encode(serialized).byteLength).toBeLessThan(
-      TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES
-    );
-
-    const options = {
-      inlineMaxSerializedCharsByToolName: new Map([['brainstrike.webExtract', 1000]]),
-    };
-
-    expect(
-      toolOutputArtifactCandidate(output, 'brainstrike.webExtract', options)?.serialized.content
-    ).toBe(serialized);
-    // The stricter ceiling is per tool name, never global.
-    expect(toolOutputArtifactCandidate(output, 'other.tool', options)).toBeUndefined();
-  });
-
   it('does not publish an EOF cursor when an artifact fits one page', () => {
     const content = JSON.stringify({ payload: 'x'.repeat(3000) });
     const byteLength = TEXT_ENCODER.encode(content).byteLength;

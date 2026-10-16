@@ -128,19 +128,13 @@ export interface ToolOutputArtifactCandidate {
 
 /**
  * The settlement decision for one complete result: undefined when it stays
- * inline (guarded errors, envelopes, multimodal output, or within every
+ * inline (guarded errors, envelopes, multimodal output, or within the
  * inline ceiling); otherwise its exact serialized artifact content.
  */
 export function toolOutputArtifactCandidate(
   output: unknown,
   toolName: string,
   options: {
-    /**
-     * Optional stricter inline ceilings for tools whose complete model projection
-     * must fit a smaller character budget than the generic transport envelope.
-     * Keys are canonical (pre-sanitization) tool names.
-     */
-    readonly inlineMaxSerializedCharsByToolName?: ReadonlyMap<string, number>;
     /** The model-projection owner decides whether an otherwise-inline result loses data. */
     readonly wouldTruncateModelOutput?: (toolName: string, output: unknown) => boolean;
   }
@@ -159,12 +153,8 @@ export function toolOutputArtifactCandidate(
   if (!serialized) {
     return;
   }
-  const inlineMaxSerializedChars = options.inlineMaxSerializedCharsByToolName?.get(toolName);
-  const exceedsToolCharacterLimit =
-    inlineMaxSerializedChars !== undefined && serialized.content.length > inlineMaxSerializedChars;
   if (
     !(
-      exceedsToolCharacterLimit ||
       serialized.byteLength > TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES ||
       options.wouldTruncateModelOutput?.(toolName, output)
     )
