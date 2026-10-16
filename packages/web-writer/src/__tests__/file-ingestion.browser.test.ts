@@ -253,6 +253,58 @@ describe('the file index follows the saved Search & Indexing settings', () => {
     ]);
   });
 
+  it('lets the newest configuration govern, however the calls interleave', async () => {
+    const { folder, rootId } = await grantedFolder({ 'one.ts': 'export const one = 1;\n' });
+    const tab = await openTab(storeConfig());
+    await register(tab, rootId);
+    const index = new WebFileIndex(tab);
+    // The second call fails at once; the first is still reading its authority when it does.
+    const enabled = index.configure(savedPreferences());
+    const disabled = index.configure(savedPreferences({ enabled: false }));
+    await enabled;
+    await expect(disabled).rejects.toThrow('disabled in saved settings');
+    await expect(index.scan(rootId, folder)).rejects.toThrow('disabled in saved settings');
+    await expect(search(index, rootId, 'one')).rejects.toThrow('disabled in saved settings');
+  });
+
+  it("retires a running scan before it reads a new configuration's authority", async () => {
+    // Three batches of 64: the later batches' catalog rows are written while the scan runs.
+    const { folder, rootId } = await grantedFolder(
+      Object.fromEntries(
+        Array.from({ length: 150 }, (_, index) => [
+          `src/file-${index}.ts`,
+          `export const value${index} = "ocelot ${index}";\n`,
+        ])
+      )
+    );
+    const tab = await openTab(storeConfig());
+    await register(tab, rootId);
+    const index = await configuredIndex(tab);
+    const scanning = index.scan(rootId, folder).catch((error: unknown) => error);
+    // Into the second batch: its rows are written after the first batch's are published.
+    await expect
+      .poll(
+        async () =>
+          (await index.coverageScope({ scope: { kind: 'workspace', rootId } })).counts.indexedFiles,
+        { interval: 5, timeout: 30_000 }
+      )
+      .toBeGreaterThan(64);
+
+    await index.configure(savedPreferences({ indexingPolicyPreset: 'full-root' }));
+    await scanning;
+    // Every file the catalog holds as processed is still the store's: none was retired as unowned.
+    const processed = (await tab.sourceCatalog({ operation: 'list' })).files.filter(
+      (file) => file.rootId === rootId && file.chunksProcessed
+    ).length;
+    const { counts } = await index.coverageScope({ scope: { kind: 'workspace', rootId } });
+    expect(processed).toBeGreaterThan(0);
+    expect(counts.indexedFiles).toBeGreaterThanOrEqual(processed);
+    expect(await index.scan(rootId, folder)).toMatchObject({ scanComplete: true });
+    expect(await index.coverageScope({ scope: { kind: 'workspace', rootId } })).toMatchObject({
+      counts: { indexedFiles: 150 },
+    });
+  });
+
   it('keeps a paused index readable, and admits no scan until it resumes', async () => {
     const { folder, rootId } = await grantedFolder({
       'one.ts': 'export const marker = "axolotl";\n',

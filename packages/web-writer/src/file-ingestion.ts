@@ -14,6 +14,7 @@ import {
   createNativeCanonicalPublication,
   createNativeScanAdmission,
   createNativeSourceInventory,
+  isPartitionRoot,
   loadPartitionRecords,
   type NativeIndexSettings,
 } from '@brainstrike/canonical-ingestion/browser';
@@ -37,7 +38,10 @@ export interface FileIngestionDependencies {
   readonly roots: () => Promise<readonly WorkspaceRootRecord[]>;
   readonly scan: FileIndexScanOptions;
   /** The saved partition and policy every root's ingestion follows. */
-  readonly settings: Pick<NativeIndexSettings, 'indexingPolicyPreset' | 'managedCollectionId'>;
+  readonly settings: Pick<
+    NativeIndexSettings,
+    'indexingPolicyPreset' | 'managedCollectionId' | 'worktreeOptIns'
+  >;
 }
 
 interface RootIngestion {
@@ -53,6 +57,8 @@ interface RootIngestion {
   readonly lease: FsaWorkspaceLease;
   /** The root's scans, one pass each, in the order they were asked for. */
   queue: Promise<void>;
+  /** Retired with the index's configuration or the root: no further pass runs. */
+  retired: boolean;
   readonly runtime: CanonicalWorkspaceIngestionRuntime;
   started: boolean;
 }
@@ -92,10 +98,13 @@ export class FileIngestion {
 
   /** One pass, once the root is confirmed live: a root deleted or disconnected since retires instead. */
   async #pass(rootId: string, root: RootIngestion): Promise<CanonicalScanReceipt> {
+    if (root.retired) {
+      throw new DOMException('File ingestion retired.', 'AbortError');
+    }
     if (!(await this.#isLive(rootId))) {
       this.#roots.delete(rootId);
       await this.#retire(root);
-      throw new Error('Only a live workspace root can be scanned.');
+      throw new Error('Only a live workspace root the saved settings index can be scanned.');
     }
     return new Promise<CanonicalScanReceipt>((resolve, reject) => {
       root.current = { reject, resolve };
@@ -111,21 +120,34 @@ export class FileIngestion {
     });
   }
 
+  /** A live root the saved settings index: a worktree only once it is opted in. */
   async #isLive(rootId: string): Promise<boolean> {
     const root = (await this.dependencies.roots()).find((current) => current.id === rootId);
-    return root?.status === 'live';
+    return root !== undefined && isPartitionRoot(root, this.dependencies.settings);
   }
 
+  /**
+   * As desktop retires its sources: the runtime first, which cancels its own
+   * pass, then the folder's lease. A lease revoked under a running pass would
+   * fail the pass, and its retirement with it.
+   */
   async #retire(root: RootIngestion): Promise<void> {
-    root.lease.revoke(new DOMException('File ingestion retired.', 'AbortError'));
-    await root.runtime.close();
-    await root.lease.retire();
+    root.retired = true;
+    const retired = new DOMException('File ingestion retired.', 'AbortError');
+    try {
+      await root.runtime.close();
+    } finally {
+      // A pass the runtime cancelled reports nothing: the scan waiting for it fails with the retirement.
+      root.current?.reject(retired);
+      root.lease.revoke(retired);
+      await root.lease.retire();
+    }
   }
 
   async #open(rootId: string, folder: FileSystemDirectoryHandle): Promise<RootIngestion> {
     const { catalog: sourceCatalog, port, settings } = this.dependencies;
     if (!(await this.#isLive(rootId))) {
-      throw new Error('Only a live workspace root can be scanned.');
+      throw new Error('Only a live workspace root the saved settings index can be scanned.');
     }
     const lease = fsaWorkspaceLease(rootId, folder);
     const scope = { kind: 'workspace', rootId } as const;
@@ -175,6 +197,7 @@ export class FileIngestion {
       folder,
       lease,
       queue: Promise.resolve(),
+      retired: false,
       runtime: new CanonicalWorkspaceIngestionRuntime({
         catalog,
         chunker: createBrowserChunker(),

@@ -11,7 +11,11 @@ import type {
   ScopedIndexerPort,
   VectorProfile,
 } from '@brainstrike/indexer';
-import type { CollectionPort, SourceCatalogPort } from '@brainstrike/state-store';
+import type {
+  CollectionPort,
+  SourceCatalogPort,
+  WorkspaceRootRecord,
+} from '@brainstrike/state-store';
 import {
   decodeNativeCanonicalCatalogRecords,
   type NativeCanonicalCatalogRecord,
@@ -37,6 +41,18 @@ export async function assertSavedCollection(
       'The saved native collection is missing or ambiguous in the application catalog.'
     );
   }
+}
+
+/**
+ * A root the saved settings index: a live one, and a managed worktree only
+ * once it is opted in. Worktrees default to off, so parallel checkouts of
+ * one repository are not each indexed unasked.
+ */
+export function isPartitionRoot(
+  root: Pick<WorkspaceRootRecord, 'id' | 'kind' | 'status'>,
+  { worktreeOptIns }: Pick<NativeIndexSettings, 'worktreeOptIns'>
+): boolean {
+  return root.status === 'live' && (root.kind !== 'worktree' || worktreeOptIns.has(root.id));
 }
 
 /** Each authorized workspace root's scope, and the collection's when one is saved. */

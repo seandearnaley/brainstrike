@@ -6,6 +6,7 @@ import {
   createNativeCanonicalPublication,
   createNativeScanAdmission,
   createNativeSourceInventory,
+  isPartitionRoot,
   type NativeCanonicalCatalogRecord,
   NativeCanonicalInference,
   type NativeCanonicalProfileResolver,
@@ -206,7 +207,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         continue;
       }
       const root = roots.find((row) => row.id === descriptor.rootId);
-      if (!root || (root.kind === 'worktree' && !settings.worktreeOptIns.has(root.id))) {
+      if (!(root && isPartitionRoot(root, settings))) {
         continue;
       }
       const lease = await dependencies.application.roots.borrowSourceRoot(

@@ -31,6 +31,7 @@ export {
 } from './host.js';
 export {
   assertSavedCollection,
+  isPartitionRoot,
   loadPartitionRecords,
   type PartitionAuthority,
   partitionAuthority,

@@ -16,6 +16,7 @@
 
 import {
   assertSavedCollection,
+  isPartitionRoot,
   loadPartitionRecords,
   type NativeIndexSettings,
   nativeIndexConfigurationIdentity,
@@ -76,6 +77,18 @@ let configured: { readonly settings: NativeIndexSettings } | { readonly refusal:
   refusal: new Error('The file index has no Search & Indexing settings until a tab configures it.'),
 };
 
+/**
+ * Authority transitions (configure, reauthorize, a scan's first rebind) run one
+ * at a time, so an older one never resumes over a newer one's outcome. The
+ * rebind a running scan makes is not one of them: a configure waits for scans.
+ */
+let transitions: Promise<unknown> = Promise.resolve();
+function transition<T>(run: () => Promise<T>): Promise<T> {
+  const next = transitions.then(run, run);
+  transitions = next.catch(() => undefined);
+  return next;
+}
+
 /** The worker's calls on the writer's own ops, by id, waiting for their answers. */
 const calls = new Map<number, { reject(error: Error): void; resolve(value: unknown): void }>();
 let nextCall = 1;
@@ -125,7 +138,9 @@ function settings(): NativeIndexSettings {
 
 /** The saved partition's authority over the writer's catalogs, as desktop's native index takes it. */
 async function currentAuthority(partition: NativeIndexSettings): Promise<FileIndexAuthority> {
-  const live = (await roots()).filter((root) => root.status === 'live').map((root) => root.id);
+  const live = (await roots())
+    .filter((root) => isPartitionRoot(root, partition))
+    .map((root) => root.id);
   const liveRoots = new Set(live);
   const records = await loadPartitionRecords(
     sourceCatalog,
@@ -303,9 +318,11 @@ async function configure(preferences: string | null): Promise<{ readonly rebuilt
     return { rebuilt: null };
   }
   try {
-    const authority = await currentAuthority(next);
+    // Scans retire first: one still publishing would otherwise outlive the
+    // authority read below, and its rows would then be retired as unowned.
     await ingestion?.close();
     ingestion = undefined;
+    const authority = await currentAuthority(next);
     close();
     configured = { settings: next };
     ingestion = ingestionFor(scanOptions, next);
@@ -331,7 +348,7 @@ async function handle(
       return null;
     }
     case 'configure':
-      return configure(request.preferences);
+      return transition(() => configure(request.preferences));
     case 'scan': {
       if (settings().paused) {
         throw new Error('File ingestion is paused.');
@@ -341,15 +358,19 @@ async function handle(
       }
       // A root registered since the store opened is authorized first.
       if (!authorized?.rootIds.includes(request.rootId)) {
-        await rebind();
+        await transition(rebind);
+      }
+      if (!ingestion) {
+        throw new Error('The file index is closed');
       }
       return ingestion.scan(request.rootId, request.folder);
     }
-    case 'reauthorize': {
-      const authority = await currentAuthority(settings());
-      close();
-      return openOwned(authority);
-    }
+    case 'reauthorize':
+      return transition(async () => {
+        const authority = await currentAuthority(settings());
+        close();
+        return openOwned(authority);
+      });
     case 'request': {
       settings();
       if (!writer) {

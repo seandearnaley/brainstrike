@@ -62,6 +62,7 @@ export async function closeTabs(): Promise<void> {
 export function savedPreferences(
   state: {
     readonly enabled?: boolean;
+    readonly indexingPolicyPreset?: 'balanced' | 'full-root';
     readonly managedCollectionId?: string | null;
     readonly nativeIndexMode?: 'TEXT' | 'VECTOR' | null;
     readonly paused?: boolean;

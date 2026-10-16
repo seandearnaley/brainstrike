@@ -73,10 +73,20 @@ export type FileIndexMessage =
   /** Runs one of the writer's ops in its request order (`WebStateWriterContext.request`). */
   | { readonly id: number; readonly kind: 'writer'; readonly op: string; readonly params: unknown };
 
+/** A failure's message, with an aggregate's own failures, which no other field carries across. */
+function failureMessage(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+  return error instanceof AggregateError && error.errors.length > 0
+    ? `${error.message} (${error.errors.map(failureMessage).join('; ')})`
+    : error.message;
+}
+
 export function fileIndexError(error: unknown): FileIndexError {
   return {
     code: error instanceof Error ? Reflect.get(error, 'code') : undefined,
-    message: error instanceof Error ? error.message : String(error),
+    message: failureMessage(error),
     name: error instanceof Error ? error.name : 'Error',
   };
 }
