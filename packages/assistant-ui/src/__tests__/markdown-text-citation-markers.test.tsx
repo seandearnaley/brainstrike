@@ -8,7 +8,8 @@ import {
 } from '@assistant-ui/react';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { AssistantMessageText, UserMessageText } from '../assistant-message-text';
+import { AssistantMessageText } from '../assistant-message-text';
+import { UserMessageText } from '../user-message-text';
 
 // Verbatim leak observed live (GPT-5.6 Terra + native webSearch): OpenAI's
 // private-use citation delimiters wrapping a `cite`/`turn0search0` payload.

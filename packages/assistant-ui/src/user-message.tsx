@@ -10,11 +10,11 @@ import {
   readApprovalActionChipProps,
   toApprovalActionChipKey,
 } from './approval-action-chip';
-import { UserMessageText } from './assistant-message-text';
 import { BranchPicker } from './branch-picker';
 import { UserMessageAttachments } from './composer-attachments';
 import { ExpandableMessageContent } from './expandable-message-content';
 import { MessageRewindAction } from './message-rewind-action';
+import { UserMessageText } from './user-message-text';
 
 // Extracted from assistant-ui-panel.tsx (the panel-root source-file budget in
 // __tests__/assistant-ui-panel-architecture.test.ts). Imports only sibling
