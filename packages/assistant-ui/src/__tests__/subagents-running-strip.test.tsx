@@ -97,6 +97,28 @@ it('stops them once, says so while the host stops them, and shows a refusal', as
   expect(screen.getByRole('button', { name: 'Stop 2 running subagents' })).toBeEnabled();
 });
 
+// Codex review on #3719: a Stop spanning two turns can stop one and fail the
+// other; the refusal stays while any subagent it was about still runs.
+it('keeps a refusal while a subagent it tried to stop still runs', async () => {
+  const onStop = vi.fn(async () => {
+    throw new Error('The agent host refused one turn’s Stop.');
+  });
+  const { rerender } = render(
+    <SubagentsRunningStrip
+      onStop={onStop}
+      owners={['Cedar-1a2b3c', 'Fern-4d5e6f']}
+      stoppable={['Cedar-1a2b3c', 'Fern-4d5e6f']}
+    />
+  );
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Stop 2 running subagents' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('refused one turn’s Stop');
+
+  rerender(
+    <SubagentsRunningStrip onStop={onStop} owners={['Fern-4d5e6f']} stoppable={['Fern-4d5e6f']} />
+  );
+  expect(screen.getByRole('alert')).toHaveTextContent('refused one turn’s Stop');
+});
+
 // Codex review on #3719: a refusal is about the subagents it tried to stop;
 // once they finish, a later, unrelated subagent never shows it.
 it('a refusal clears once the subagents it was about are gone', async () => {

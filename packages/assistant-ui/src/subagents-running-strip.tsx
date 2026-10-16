@@ -27,16 +27,20 @@ export function SubagentsRunningStrip({
   readonly stoppable: readonly string[];
 }): ReactElement | null {
   const [stopping, setStopping] = useState(false);
-  // A refusal is about the subagents it tried to stop, so it shows only while they still run.
-  const target = stoppable.join('\n');
-  const [failure, setFailure] = useState<{ readonly message: string; readonly target: string }>();
+  // A refusal is about the subagents it tried to stop, so it shows while any of them still runs.
+  const [failure, setFailure] = useState<{
+    readonly message: string;
+    readonly targets: readonly string[];
+  }>();
   if (owners.length === 0) {
     return null;
   }
   const count = owners.length;
   const noun = count === 1 ? 'subagent' : 'subagents';
   const stopNoun = stoppable.length === 1 ? 'subagent' : 'subagents';
-  const error = failure?.target === target ? failure.message : undefined;
+  const error = failure?.targets.some((owner) => stoppable.includes(owner))
+    ? failure.message
+    : undefined;
   const stop = (): void => {
     if (stopping) {
       return;
@@ -44,7 +48,7 @@ export function SubagentsRunningStrip({
     setStopping(true);
     setFailure(undefined);
     onStop()
-      .catch((cause: unknown) => setFailure({ message: errorText(cause), target }))
+      .catch((cause: unknown) => setFailure({ message: errorText(cause), targets: stoppable }))
       .finally(() => setStopping(false));
   };
   return (
