@@ -164,7 +164,7 @@ describe('verbForTool', () => {
         done: 'Loaded tool',
         family: 'tools',
         request: 'Load tool',
-        targetArg: 'toolName',
+        targetArg: ['toolName', 'toolNames'],
       },
     ],
     [

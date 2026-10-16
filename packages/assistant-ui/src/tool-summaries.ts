@@ -71,16 +71,25 @@ export function readToolArgs(
   }
 }
 
+/** A named target argument's text: a string, or a list of strings read as one list. */
+function targetText(value: unknown): string | undefined {
+  const parts = (Array.isArray(value) ? value : [value]).filter(
+    (part): part is string => typeof part === 'string' && part.trim().length > 0
+  );
+  return parts.length > 0 ? parts.join(', ') : undefined;
+}
+
 /**
  * The step's target chip. `targetArg` is the verb's own ruling
- * (`ActivityVerb.targetArg`): a key reads that argument alone, `null` reads
- * none — the arguments are content, never a target — and absent falls back
- * to the generic reading for a tool no verb describes.
+ * (`ActivityVerb.targetArg`): keys read those arguments alone, the first that
+ * is present (a list of names reads as one list); `null` reads none — the
+ * arguments are content, never a target — and absent falls back to the
+ * generic reading for a tool no verb describes.
  */
 export function extractPrimaryArg(
   args: unknown,
   argsText: string | undefined,
-  targetArg?: string | null
+  targetArg?: string | readonly string[] | null
 ): PrimaryArgSummary | undefined {
   if (targetArg === null) {
     return;
@@ -90,10 +99,13 @@ export function extractPrimaryArg(
     return;
   }
   if (targetArg !== undefined) {
-    const value = record[targetArg];
-    return typeof value === 'string' && value.trim().length > 0
-      ? summarizePrimaryArg(value, PATH_ARG_KEYS.has(targetArg))
-      : undefined;
+    for (const key of typeof targetArg === 'string' ? [targetArg] : targetArg) {
+      const value = targetText(record[key]);
+      if (value !== undefined) {
+        return summarizePrimaryArg(value, PATH_ARG_KEYS.has(key));
+      }
+    }
+    return;
   }
 
   for (const key of PRIMARY_ARG_KEYS) {

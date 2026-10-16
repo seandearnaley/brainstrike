@@ -71,17 +71,18 @@ export interface ActivityVerb {
   /**
    * The argument that names the step's target chip. Absent: the generic
    * reading (`extractPrimaryArg`'s priority keys, then the first string). A
-   * key: that argument alone. `null`: the arguments name no target at all —
+   * key: that argument alone; several keys: the first present (a list of
+   * names reads as one list). `null`: the arguments name no target at all —
    * they carry content (working memory's markdown, a canvas's HTML), which is
    * never a target.
    */
-  readonly targetArg?: string | null;
+  readonly targetArg?: string | readonly string[] | null;
 }
 
 interface VerbOptions {
   readonly countsFiles?: ActivityFileCountMode;
   readonly namesTool?: true;
-  readonly targetArg?: string | null;
+  readonly targetArg?: string | readonly string[] | null;
 }
 
 const verb = (
@@ -250,8 +251,9 @@ const HOST_META_VERBS: Readonly<Record<HostMetaToolId, ActivityVerb>> = Object.f
       targetArg: null,
     }
   ),
+  // The exact-selection tool takes one name or, in its batch form, several.
   [HOST_META_TOOL_ID.loadTool]: verb('Loading tool', 'Loaded tool', 'Load tool', 'tools', {
-    targetArg: 'toolName',
+    targetArg: ['toolName', 'toolNames'],
   }),
   [HOST_META_TOOL_ID.searchTools]: verb(
     'Searching tools',

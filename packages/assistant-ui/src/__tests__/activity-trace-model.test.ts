@@ -75,6 +75,8 @@ describe('deriveActivitySteps', () => {
         tool('m', 'updateWorkingMemory', { memory }, complete),
         tool('s', 'search_tools', { limit: 5, query: 'git worktree' }, complete),
         tool('l', 'load_tool', { toolName: 'brainstrike_manageWorktree' }, complete),
+        // Codex review on #3723: load_tool's batch form names several tools.
+        tool('b', 'load_tool', { toolNames: ['brainstrike_lspInspect', 'webSearch'] }, complete),
         tool('t', 'list_available_tools', { cursor: 'page-2' }, complete),
         tool(
           'c',
@@ -95,6 +97,7 @@ describe('deriveActivitySteps', () => {
       ['Updated memory', null, null],
       ['Searched tools', 'git worktree', 'git worktree'],
       ['Loaded tool', 'brainstrike_manageWorktree', 'brainstrike_manageWorktree'],
+      ['Loaded tool', 'brainstrike_lspInspect, webSearch', 'brainstrike_lspInspect, webSearch'],
       ['Listed tools', null, null],
       ['Created canvas', 'Plan', 'Plan'],
       ['Updated canvas', null, null],
