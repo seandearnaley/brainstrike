@@ -9,11 +9,13 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, onTestFinished, test, vi } from 'vitest';
 import { attachAgentHost, type HostClient } from '../src/client.js';
 import type { HostPlatform } from '../src/ports.js';
 import { type AgentHost, startAgentHost } from '../src/runtime.js';
+import { HOST_THREAD_TITLE_TIMEOUT_MS } from '../src/thread-presentation-state.js';
 
 type Chunk =
   Awaited<ReturnType<MockLanguageModelV4['doStream']>>['stream'] extends ReadableStream<infer C>
@@ -29,6 +31,7 @@ const roots: string[] = [];
 const hosts: AgentHost[] = [];
 const clients: HostClient[] = [];
 afterEach(async () => {
+  vi.useRealTimers();
   await Promise.all(clients.splice(0).map((client) => client.close()));
   await Promise.all(hosts.splice(0).map((host) => host.close()));
   await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
@@ -115,6 +118,31 @@ async function completed(client: HostClient, threadId: string, prompt: string): 
         ?.event;
     })
     .toMatchObject({ outcome: 'completed' });
+}
+
+async function finished(client: HostClient, threadId: string, runId: string) {
+  const { rows } = await client.request('thread/read', { fromSeq: 0, threadId });
+  return rows.find(({ event }) => event.type === 'run.finished' && event.runId === runId)?.event;
+}
+
+/** The fields of every `host_thread_title_failed` warning logged from now on. */
+function titleFailures(): readonly object[] {
+  const failures: object[] = [];
+  onTestFinished(
+    addLogListener((record: LogRecord) => {
+      for (const value of record.args) {
+        if (
+          value !== null &&
+          typeof value === 'object' &&
+          'code' in value &&
+          value.code === 'host_thread_title_failed'
+        ) {
+          failures.push({ ...value });
+        }
+      }
+    })
+  );
+  return failures;
 }
 
 test('the first completed run titles an untitled thread once, and the title survives a restart', async () => {
@@ -250,6 +278,77 @@ test("the run's admission closes only after its title request settles", async ()
   await run;
   expect(order).toEqual(['title', 'close']);
   await expect.poll(() => titleOf(client, threadId)).toBe('Release rollback plan');
+});
+
+test('a silent title request holds a completed run only until its bound', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-auto-title-'));
+  roots.push(root);
+  const failures = titleFailures();
+  // The provider never answers the title, and it ignores its abort signal.
+  const model = titledModel(() => new Promise<string>(() => undefined));
+  const client = await open(root, model);
+  const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+  vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['setTimeout', 'clearTimeout'] });
+  const { runId } = await client.request('run/start', {
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Plan a rollback for the release',
+    threadId,
+  });
+  // The answer is committed while its title is outstanding.
+  await expect
+    .poll(async () => {
+      const { rows } = await client.request('thread/read', { fromSeq: 0, threadId });
+      return rows.some(({ event }) => event.type === 'model.step');
+    })
+    .toBe(true);
+  expect(model.doGenerateCalls).toHaveLength(1);
+  expect(await finished(client, threadId, runId)).toBeUndefined();
+
+  await vi.advanceTimersByTimeAsync(HOST_THREAD_TITLE_TIMEOUT_MS);
+  await expect
+    .poll(() => finished(client, threadId, runId))
+    .toMatchObject({ outcome: 'completed' });
+  expect(await titleOf(client, threadId)).toBeUndefined();
+  // The expired title is visible, never silent.
+  expect(failures).toEqual([
+    expect.objectContaining({ runId, timeoutMs: HOST_THREAD_TITLE_TIMEOUT_MS }),
+  ]);
+});
+
+test('a failed run withdraws its silent title request instead of waiting for it', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-auto-title-'));
+  roots.push(root);
+  const failures = titleFailures();
+  const requested = Promise.withResolvers<void>();
+  const model = new MockLanguageModelV4({
+    // The provider never answers the title, and it ignores its abort signal.
+    doGenerate: () => {
+      requested.resolve();
+      return new Promise<never>(() => undefined);
+    },
+    // The answer fails while its title is outstanding.
+    doStream: async () => {
+      await requested.promise;
+      throw new Error('Offline answer failure');
+    },
+  });
+  const client = await open(root, model);
+  const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+  const { runId } = await client.request('run/start', {
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Plan a rollback for the release',
+    threadId,
+  });
+  // Real timers: the failed run finishes well inside the title's bound.
+  await expect
+    .poll(() => finished(client, threadId, runId), { timeout: 5000 })
+    .toMatchObject({ outcome: 'failed' });
+  expect(model.doGenerateCalls).toHaveLength(1);
+  expect(await titleOf(client, threadId)).toBeUndefined();
+  // Withdrawing a title the run can never commit is not a title failure.
+  expect(failures).toEqual([]);
 });
 
 test('a prompt its UserPromptSubmit hook blocks is never sent for a title', async () => {

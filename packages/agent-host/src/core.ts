@@ -934,10 +934,8 @@ export class HostCore {
     detail?: string,
     wakes = true
   ): Promise<void> {
-    // A run recovered after a restart never passed admission: it asks while its admission is live.
-    if (outcome === 'completed') {
-      this.presentations.request(run, this.runs.values());
-    }
+    // While its admission is live: a completed run asks for a title, a failed one withdraws it.
+    this.presentations.finishing(run, outcome, this.runs.values());
     return finishHostRunWithProviderBilling(
       run,
       outcome,
