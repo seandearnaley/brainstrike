@@ -143,25 +143,41 @@ export class FileIngestion {
   /** One pass, once the root is confirmed live: a root deleted or disconnected since retires instead. */
   async #pass(rootId: string, root: RootIngestion): Promise<CanonicalScanReceipt> {
     if (root.retired) {
-      throw new DOMException('File ingestion retired.', 'AbortError');
+      // Retired since this scan was asked for: after a failed pass a fresh runtime answers it,
+      // and a closed index or a root no longer indexed refuses.
+      return this.scan(rootId, root.folder);
     }
     if (!(await this.#isLive(rootId))) {
       this.#roots.delete(rootId);
       await this.#retire(root);
       throw new Error('Only a live workspace root the saved settings index can be scanned.');
     }
-    return new Promise<CanonicalScanReceipt>((resolve, reject) => {
-      root.current = { reject, resolve };
-      if (root.started) {
-        root.runtime.trigger();
-      } else {
-        // A started runtime runs its first full pass.
-        root.started = true;
-        root.runtime.start().catch(reject);
+    try {
+      return await new Promise<CanonicalScanReceipt>((resolve, reject) => {
+        root.current = { reject, resolve };
+        if (root.started) {
+          root.runtime.trigger();
+        } else {
+          // A started runtime runs its first full pass.
+          root.started = true;
+          root.runtime.start().catch(reject);
+        }
+      }).finally(() => {
+        root.current = undefined;
+      });
+    } catch (error) {
+      if (!root.retired) {
+        // A failed pass keeps its scan admission until its sources retire, as desktop's does:
+        // the root's ingestion retires, and the next scan opens it afresh.
+        if ((await this.#roots.get(rootId)) === root) {
+          this.#roots.delete(rootId);
+        }
+        await this.#retire(root).catch((retirement: unknown) =>
+          this.dependencies.onError('failed pass retirement', retirement)
+        );
       }
-    }).finally(() => {
-      root.current = undefined;
-    });
+      throw error;
+    }
   }
 
   /** A live root the saved settings index: a worktree only once it is opted in. */

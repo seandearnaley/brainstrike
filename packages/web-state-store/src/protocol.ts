@@ -59,6 +59,8 @@ export interface WebStateTestHooks {
    * reindexes, leaving its intent for the next open to complete.
    */
   readonly failPurgeAfterTruthOnce?: boolean | undefined;
+  /** The file index's corpus cap, lowered so a test reaches it. */
+  readonly fileIndexChunkCap?: number | undefined;
 }
 
 /** One run-log row to append: the desktop writer's `AppendRow`. */

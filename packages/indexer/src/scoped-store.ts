@@ -84,6 +84,7 @@ interface SyntaxWriter {
 }
 export class ScopedIndex {
   readonly authority: ScopeAuthority;
+  readonly #chunkCap: number | undefined;
   constructor(
     readonly db: Database.Database,
     options: IndexerOptions,
@@ -91,6 +92,7 @@ export class ScopedIndex {
     readonly syntax?: SyntaxWriter
   ) {
     this.authority = new ScopeAuthority(options);
+    this.#chunkCap = options.chunkCap;
   }
   static initialize(db: Database.Database): void {
     db.exec(`CREATE TABLE index_scope_authority(singleton INTEGER PRIMARY KEY CHECK(singleton=1),epoch TEXT NOT NULL);
@@ -247,7 +249,25 @@ export class ScopedIndex {
       this.syntax.validate(syntax, plan.snapshot.fileId);
     }
     const syntaxWriter = this.syntax;
-    return this.db.transaction(() => this.apply(plan, supplied, syntax, syntaxWriter))();
+    return this.db.transaction(() => {
+      const result = this.apply(plan, supplied, syntax, syntaxWriter);
+      this.assertWithinChunkCap();
+      return result;
+    })();
+  }
+  /** Inside the commit's transaction: a commit past the cap rolls back whole. */
+  private assertWithinChunkCap(): void {
+    const cap = this.#chunkCap;
+    if (cap === undefined) {
+      return;
+    }
+    const stored = Number(this.db.prepare('SELECT count(*) FROM file_chunks').pluck().get());
+    if (stored > cap) {
+      throw new IndexerError(
+        'corpus-cap',
+        `The file index holds at most ${cap.toLocaleString('en-US')} chunks; this file would take it to ${stored.toLocaleString('en-US')}.`
+      );
+    }
   }
   private apply(
     plan: ScopedFilePlan,

@@ -8,8 +8,14 @@ import {
   fileIndexFailure,
 } from './file-index-protocol';
 
-/** Version 5: `files.embedQuery`, a semantic search query's vector. */
-export const FILE_INDEX_EXTENSION_ID = 'file-index@5';
+/** Version 6: the corpus cap. */
+export const FILE_INDEX_EXTENSION_ID = 'file-index@6';
+
+/**
+ * The browser corpus cap (BST-1940; owner decision, 16 Oct): a scan that would
+ * take the file index past it refuses visibly, and what is indexed stays.
+ */
+export const WEB_CORPUS_CHUNK_CAP = 25_000;
 
 interface Pending {
   readonly reject: (error: Error) => void;
@@ -114,6 +120,7 @@ export const fileIndexExtension: WebStateExtension = {
     const worker = new FileIndexWorker((op, params) => context.request(op, params));
     try {
       await worker.send({
+        chunkCap: context.config.testHooks?.fileIndexChunkCap ?? WEB_CORPUS_CHUNK_CAP,
         kind: 'open',
         // As desktop's native index scans: the configured file size bound, 64 files a batch.
         scan: { batchSize: 64, maxFileBytes: getFileSizeConfig().maxFileSize },

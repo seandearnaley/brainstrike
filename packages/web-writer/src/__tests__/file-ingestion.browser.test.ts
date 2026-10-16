@@ -494,3 +494,26 @@ describe('vectors in the file index worker', () => {
     await expect(index.embedQuery('one')).rejects.toThrow('no embedder for provider openai');
   });
 });
+
+describe('the corpus cap', () => {
+  it('refuses a scan that would take the index past its cap, visibly, and keeps what it holds', async () => {
+    const { folder, rootId } = await grantedFolder({
+      'a.ts': 'export const a = "lynx";\n',
+      'b.ts': 'export const b = "lynx";\n',
+      'c.ts': 'export const c = "lynx";\n',
+    });
+    // One chunk a file, and room for two.
+    const tab = await openTab({ ...storeConfig(), testHooks: { fileIndexChunkCap: 2 } });
+    await register(tab, rootId);
+    const index = await configuredIndex(tab);
+    await expect(index.scan(rootId, folder)).rejects.toThrow(
+      'The file index holds at most 2 chunks'
+    );
+    expect(
+      (await index.coverageScope({ scope: { kind: 'workspace', rootId } })).counts
+    ).toMatchObject({ chunks: 2, indexedFiles: 2 });
+    expect(await search(index, rootId, 'lynx')).toHaveLength(2);
+    // The next scan refuses the same way: nothing is dropped silently.
+    await expect(index.scan(rootId, folder)).rejects.toThrow('at most 2 chunks');
+  });
+});
