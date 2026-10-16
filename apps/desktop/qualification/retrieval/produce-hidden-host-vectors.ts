@@ -25,6 +25,8 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
+import { resolveTransformersOnnxRuntimeWasmFiles } from '@brainstrike/build-utils';
+import { withOnnxWasmPathsFragment } from '@brainstrike/indexing-contract';
 import { z } from 'zod';
 import { verifyEvidence } from './evidence.ts';
 import type { ModelChoice, QualificationPage } from './hidden-host-page.ts';
@@ -148,6 +150,18 @@ function builtAsset(pattern: RegExp): string {
 }
 const workerAsset = builtAsset(/^embedding\.worker-.*\.js$/u);
 const transformersAsset = builtAsset(/^transformers\.web-.*\.js$/u);
+const onnxMjsAsset = builtAsset(/^ort-wasm-simd-threaded\.asyncify-.*\.mjs$/u);
+const onnxWasmAsset = builtAsset(/^ort-wasm-simd-threaded\.asyncify-.*\.wasm$/u);
+const onnxFiles = resolveTransformersOnnxRuntimeWasmFiles([
+  join(desktop, '../../packages/embedding-worker'),
+  join(desktop, '../../packages/agent'),
+]);
+for (const [subpath, source] of Object.entries(onnxFiles)) {
+  const emitted = subpath.endsWith('.mjs') ? onnxMjsAsset : onnxWasmAsset;
+  if ((await sha256File(source)) !== (await sha256File(join(assets, emitted)))) {
+    throw new Error(`Built ONNX Runtime asset differs from the installed owner: ${emitted}`);
+  }
+}
 
 await mkdir(input.scratch, { recursive: true });
 await mkdir(input.out);
@@ -242,7 +256,10 @@ try {
     {
       pageSource,
       transformersUrl: new URL(`./assets/${transformersAsset}`, page.url()).href,
-      workerUrl: new URL(`./assets/${workerAsset}`, page.url()).href,
+      workerUrl: withOnnxWasmPathsFragment(new URL(`./assets/${workerAsset}`, page.url()).href, {
+        mjs: new URL(`./assets/${onnxMjsAsset}`, page.url()).href,
+        wasm: new URL(`./assets/${onnxWasmAsset}`, page.url()).href,
+      }),
     }
   );
 
