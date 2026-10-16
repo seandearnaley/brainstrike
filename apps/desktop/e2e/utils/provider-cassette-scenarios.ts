@@ -188,15 +188,15 @@ export const PROVIDER_CASSETTE_SCENARIOS: readonly ProviderCassetteScenario[] = 
     },
     id: 'openai-parallel-tool-calls',
     model: 'openai::gpt-6-luna',
-    prompt: `Read alpha.md and beta.md with two read calls in the same step, then say in one sentence what each file holds. ${NO_ROOT}`,
+    prompt: `Issue two read tool calls together in your first response, one for alpha.md and one for beta.md, before you see either result. Do not read them one at a time. Then say in one sentence what each file holds. ${NO_ROOT}`,
   },
   {
     credential: 'recorder',
     exhibits: { behavior: 'a thinking block before a tool call', holds: thinksBeforeCallingATool },
     files: { 'one.md': '# One\n', 'three.txt': 'three\n', 'two.md': '# Two\n' },
     id: 'anthropic-reasoning-tools',
-    // Sonnet 5 thinks by default on the standalone host; Haiku 4.5 does not.
-    model: 'anthropic::claude-sonnet-5',
+    // Haiku 5.5 thinks by default (adaptive); Haiku 4.5 does not.
+    model: 'anthropic::claude-haiku-5-5',
     prompt: `Think about how to answer first, then use the glob tool to find the markdown files in the workspace, and answer with how many there are. ${NO_ROOT}`,
   },
   {
