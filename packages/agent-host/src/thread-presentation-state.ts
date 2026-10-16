@@ -64,12 +64,14 @@ export class HostThreadPresentationState {
   }
 
   /**
-   * At a completed finish, before the run closes its admission: the first
-   * completed run of an untitled thread asks its own model for a title. The
-   * run joins the returned promise, which never rejects, before it closes.
-   * A failed, stopped or interrupted run never asks.
+   * Once an admitted run's prompt passes its hooks to its model (and at a
+   * completed finish, for a run recovered after a restart): a run of an
+   * untitled thread with no completed run asks its own model for a title,
+   * beside its answer. The title depends only on the user's message. The
+   * request uses the run's signal, so a Stop aborts it; the run's admission
+   * joins it (`join`) before closing. Idempotent per run.
    */
-  request(run: HostRunState, runs: Iterable<HostRunState>): Promise<void> {
+  request(run: HostRunState, runs: Iterable<HostRunState>): void {
     const admission = run.admission;
     if (
       !admission?.generatesThreadTitle ||
@@ -83,7 +85,7 @@ export class HostThreadPresentationState {
         (other) => other !== run && other.threadId === run.threadId && other.outcome === 'completed'
       )
     ) {
-      return Promise.resolve();
+      return;
     }
     const title = generateText({
       abortSignal: run.controller.signal,
@@ -106,14 +108,22 @@ export class HostThreadPresentationState {
       }
     );
     this.pending.set(run.id, title);
-    return title.then(() => undefined);
   }
 
-  /** After a run finishes: a completed run commits its title unless a rename came first. */
+  /** The run's title request, which its admission joins before it closes; never rejects. */
+  async join(run: HostRunState): Promise<void> {
+    await this.pending.get(run.id);
+  }
+
+  /**
+   * After a run finishes: a completed or stopped run commits its title unless
+   * a rename came first (a Stop does not withdraw the user's message). A failed
+   * or interrupted run commits none.
+   */
   settle(run: HostRunState): void {
     const title = this.pending.get(run.id);
     this.pending.delete(run.id);
-    if (!title || run.outcome !== 'completed') {
+    if (!title || (run.outcome !== 'completed' && run.outcome !== 'stopped')) {
       return;
     }
     void title

@@ -106,10 +106,14 @@ async function runBudgetCase(
   const failures: unknown[] = [];
   let ownedProcess: ChildProcess | undefined;
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-tool-budget-'));
-  let requestIndex = 0;
-  const provider = await startModelProviderShim(() => {
-    requestIndex += 1;
-    if (requestIndex === 1) {
+  let rootTurns = 0;
+  const provider = await startModelProviderShim(({ toolNames }) => {
+    // The thread's title request, made beside the first turn, advertises no tools.
+    if (toolNames.length === 0) {
+      return { finalText: 'Tool budget' };
+    }
+    rootTurns += 1;
+    if (rootTurns === 1) {
       return {
         finalText: 'finished',
         toolCall: {

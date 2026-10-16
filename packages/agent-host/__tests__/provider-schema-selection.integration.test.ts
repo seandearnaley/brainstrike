@@ -27,6 +27,7 @@ import {
 import type { HostEvent } from '../src/protocol.js';
 import { prepareHostProviderTools } from '../src/provider-schema-selection.js';
 import { scriptedToolSequence } from '../src/test-fixtures/scripted-model.js';
+import { HOST_THREAD_TITLE_INSTRUCTIONS } from '../src/thread-presentation-state.js';
 import { effectAuthoredSlice } from './fixtures/effect-authored-zod-twins.js';
 
 const candidate = join(import.meta.dirname, '../../..');
@@ -56,9 +57,15 @@ test.each([
     const root = await mkdtemp(join(tmpdir(), 'bs-m3-provider-schema-'));
     const configuration: RuntimeData = { model: modelId, provider };
     const bodies: unknown[] = [];
+    let titleRequests = 0;
     const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
-      const request = new Request(input, init);
-      bodies.push(JSON.parse(await request.text()));
+      const body = await new Request(input, init).text();
+      if (body.includes(HOST_THREAD_TITLE_INSTRUCTIONS)) {
+        // The untitled thread's title request, made beside the run's answer.
+        titleRequests += 1;
+      } else {
+        bodies.push(JSON.parse(body));
+      }
       return Response.json(
         {
           error: {
@@ -139,7 +146,10 @@ test.each([
           return terminal !== undefined;
         })
         .toBe(true);
-      expect(fetch).toHaveBeenCalledTimes(1);
+      // One run request, beside the thread's one title request.
+      expect(bodies).toHaveLength(1);
+      expect(titleRequests).toBe(1);
+      expect(fetch).toHaveBeenCalledTimes(2);
       expect(effects).toBe(0);
       expect(terminal?.outcome).toBe('failed');
       const actual = z.object({ tools: z.json() }).parse(bodies[0]);

@@ -211,13 +211,7 @@ async function runAgainstProviderHttp(
     }
     if (options.awaitTitle) {
       await expect
-        .poll(
-          async () =>
-            (await opened.read(threadId, 0)).some(
-              (row) => row.event.type === 'thread.updated' && row.event.title !== undefined
-            ),
-          TERMINAL_POLL
-        )
+        .poll(async () => titleCommitted(await opened.read(threadId, 0)), TERMINAL_POLL)
         .toBe(true);
     }
     return {
@@ -238,6 +232,10 @@ async function runAgainstProviderHttp(
 
 function errorChunks(rows: readonly HostLogRow[]): unknown[] {
   return rows.flatMap((row) => (row.event.type === 'stream.chunk' ? [row.event.chunk] : []));
+}
+
+function titleCommitted(rows: readonly HostLogRow[]): boolean {
+  return rows.some((row) => row.event.type === 'thread.updated' && row.event.title !== undefined);
 }
 
 test.each(cases)('%s HTTP 400 (%s) commits a failed run', async (provider, messageCase) => {
@@ -270,8 +268,9 @@ test.each(cases)('%s HTTP 400 (%s) commits a failed run', async (provider, messa
   expect(rows.some((row) => row.event.type === 'model.step')).toBe(false);
   expect(rows.some((row) => row.event.type === 'effect.started')).toBe(false);
   expect(terminal.outcome).toBe('failed');
-  // A failed run makes no thread title request.
-  expect(titleRequests).toBe(0);
+  // The thread's title is requested beside the answer; a failed run commits none.
+  expect(titleRequests).toBe(1);
+  expect(titleCommitted(rows)).toBe(false);
 });
 
 // The providers' documented rejected-key envelopes.
@@ -299,7 +298,7 @@ test.each(['openai', 'anthropic'] as const)(
   '%s HTTP 401 fails at once with the credential remedy first',
   async (provider) => {
     const expected = rejectedKey[provider];
-    const { runRequests, terminal, titleRequests } = await runAgainstProviderHttp(
+    const { rows, runRequests, terminal, titleRequests } = await runAgainstProviderHttp(
       provider,
       () =>
         new Response(JSON.stringify(expected.body), {
@@ -316,7 +315,8 @@ test.each(['openai', 'anthropic'] as const)(
         'Update the key in Settings → Providers, or verify it in the provider dashboard. ' +
         `Provider response: ${expected.providerMessage}`
     );
-    expect(titleRequests).toBe(0);
+    expect(titleRequests).toBe(1);
+    expect(titleCommitted(rows)).toBe(false);
   }
 );
 
@@ -398,7 +398,8 @@ test('a provider that stays unavailable fails visibly after the bounded retries'
   expect(preparedReceipts(rows)).toBe(3);
   expect(terminal.outcome).toBe('failed');
   expect(terminal.detail).toContain('Service unavailable.');
-  expect(titleRequests).toBe(0);
+  expect(titleRequests).toBe(1);
+  expect(titleCommitted(rows)).toBe(false);
 });
 
 // Exact synthetic response body recorded by the desktop acceptance run on
