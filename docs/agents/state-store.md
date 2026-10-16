@@ -41,6 +41,9 @@ workspace path rules treat it as a root, and registration refuses a key that nam
 another root; the tab keeps the File System Access handle in IndexedDB under
 that id. The root domain is given the host's notion of a
 granted path, so desktop keeps requiring absolute OS paths.
+After each committed append the writer announces every thread's new sequence
+numbers to every tab, the appending one too (`WebStateStore.subscribeLog`);
+a live reader of a thread reads the rows it hears of, and no tab polls the log.
 
 The file index (`fileIndexExtension`) is a worker the writer starts on the lease
 holder, with the scoped store in its own pool, `<pool>--files`
