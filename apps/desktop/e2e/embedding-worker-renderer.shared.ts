@@ -6,6 +6,7 @@
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { Locator, Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
+import type { VisibleEmbeddingHostBridge } from '../src/types/desktop-electron-api';
 import {
   getBufferedElectronOutputInTest,
   isDisposedElectronEvaluateError,
@@ -72,6 +73,8 @@ export interface BufferedLogRecord {
 export interface EmbeddingHostStatus {
   active: boolean;
   commandId?: string;
+  /** Present once an embedding has run; startup loads no model. */
+  embeddingRuntime?: unknown;
   lastError: string | null;
   runtimeId: string;
   state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
@@ -381,6 +384,26 @@ export async function ensureEmbeddingHostStarted(page: Page): Promise<EmbeddingH
       throw new Error('Embedding host bridge is not available');
     }
     return await host.ensureStarted();
+  });
+}
+
+/** A local query with no inference plan, so the host's own device choice applies. */
+export async function requestLocalQueryEmbedding(page: Page): Promise<{ readonly ok: boolean }> {
+  return await page.evaluate(async () => {
+    const host = (window as Window & { readonly embeddingHost?: VisibleEmbeddingHostBridge })
+      .embeddingHost;
+    if (!(host && 'queryEmbedding' in host)) {
+      throw new Error('Hosted query is unavailable.');
+    }
+    return await host.queryEmbedding(
+      {
+        dimensions: 384,
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+        query: 'local query embedding probe',
+      },
+      { requestId: crypto.randomUUID() }
+    );
   });
 }
 
