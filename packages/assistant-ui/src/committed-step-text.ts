@@ -198,9 +198,9 @@ function committedTextPart(entry: unknown): TextPart | undefined {
 }
 
 /** A text part directly after the step's text joins it; anything else is its own part. */
-function appendStepText(pending: TextPart[], part: TextPart): void {
+function appendStepText(pending: TextPart[], part: TextPart, adjacent: boolean): void {
   const previous = pending.at(-1);
-  if (!(part.type === 'text' && previous?.type === 'text')) {
+  if (!(adjacent && part.type === 'text' && previous?.type === 'text')) {
     pending.push(part);
     return;
   }
@@ -228,15 +228,21 @@ export function committedStepParts(
     if (item?.['role'] !== 'assistant' || !Array.isArray(item['content'])) {
       continue;
     }
+    let adjacent = false;
     for (const entry of item['content']) {
       const text = committedTextPart(entry);
       const call = asRecord(entry);
       if (text) {
-        appendStepText(pending, text);
+        appendStepText(pending, text, adjacent);
+        adjacent = true;
       } else if (call?.['type'] === 'tool-call' && typeof call['toolCallId'] === 'string') {
         const anchor = `tool:${call['toolCallId']}`;
         parts.push(...pending.map((part) => ({ anchor, part })));
         pending = [];
+      } else {
+        // A file or any other item separates the texts around it; reasoning
+        // with nothing to show (`isOpaqueReasoning`) draws nothing between them.
+        adjacent &&= call?.['type'] === 'reasoning';
       }
     }
   }

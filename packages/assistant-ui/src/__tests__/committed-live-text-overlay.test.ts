@@ -194,6 +194,22 @@ it('joins a committed step’s adjacent text parts, never across a call', () => 
     { anchor: 'tool:call-1', text: 'contracts, with `research/lab` holding experiment runners' },
     { anchor: undefined, text: '.\n\n### README summary\n\nBeaker is a catalog.' },
   ]);
+  // Codex review on #3725: any other item (a file) separates the texts around
+  // it; reasoning with nothing to show does not.
+  expect(
+    committedStepParts([
+      {
+        content: [
+          { text: 'Here is the chart:', type: 'text' },
+          { data: 'iVBORw0KGgo=', mediaType: 'image/png', type: 'file' },
+          { text: 'It shows the trend.', type: 'text' },
+          { text: '  ', type: 'reasoning' },
+          { text: ' Rising.', type: 'text' },
+        ],
+        role: 'assistant',
+      },
+    ]).map(({ part }) => part.text)
+  ).toEqual(['Here is the chart:', 'It shows the trend. Rising.']);
 });
 
 // October 12 owner export: encrypted reasoning items have no visible summary.
