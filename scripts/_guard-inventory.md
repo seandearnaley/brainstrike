@@ -18,7 +18,6 @@ verify-catalog-references.mjs → wired/paired/armed → pnpm catalog consistenc
 verify-codecov-status-contract.mjs → wired/paired/armed → Codecov status contexts remaining non-gating
 verify-config-load-hash-coverage.mjs → wired/paired/armed → Turbo config-load hash coverage
 verify-mastra-schema-init-order.mjs → wired/paired/armed → lazy initialization of Mastra memory-schema constants
-verify-minimum-release-age-exclusions.mjs → wired/paired/armed → minimumReleaseAgeExclude entries expiring instead of becoming standing exemptions (publish dates recorded in scripts/minimum-release-age-exclusions.json)
 verify-no-cross-chunk-cycles.mjs → wired/paired/armed → acyclic emitted renderer chunk graph
 verify-no-source-cycles.mjs → wired/paired/armed → acyclic renderer source module graph
 verify-no-vitest-worker-mutation.mjs → wired/paired/armed → Vitest worker-global mutation
