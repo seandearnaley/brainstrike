@@ -105,6 +105,23 @@ test('unconfigured indexing contributes no candidates to the existing fresh-file
   );
 });
 
+// A plain Error crosses the Main boundary as an untyped fault, which the tool
+// guard hides behind "did not complete successfully"; explorers then retried
+// grep five to seven times each (2026-10-16 debug pack).
+test('a grep the index cannot serve refuses with a typed reason the model can read', async () => {
+  const unavailable = nativeGrepIndex({
+    grep: vi.fn<IndexSearchCapability['grep']>(),
+    status: async () => ({ kind: 'unavailable', phase: 'blocked', reason: 'Index is unavailable' }),
+  });
+  await expect(unavailable({ pattern: 'needle' })).rejects.toMatchObject({
+    failure: { category: 'availability', kind: 'refusal', message: 'Index is unavailable' },
+  });
+  const f = fixture();
+  await expect(f.search({ embeddingSetId: 'other', pattern: 'needle' })).rejects.toMatchObject({
+    failure: { category: 'input', kind: 'refusal' },
+  });
+});
+
 test.each(['preparing', 'blocked'] as const)(
   'native grep retains the %s index failure rather than hiding it behind live search',
   async (phase) => {
