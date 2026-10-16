@@ -2,7 +2,10 @@ import {
   resolveScaledToolResultBudget,
   TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES,
 } from '@brainstrike/agent/tool-runtime';
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import {
+  NATIVE_TOOL_ID,
+  NON_DURABLE_NATIVE_TOOL_OUTPUT_IDS,
+} from '@brainstrike/assistant-contract';
 import { TOOL_OUTPUT_ARTIFACT_RETENTION_MS } from '@brainstrike/assistant-contract/tool-output-artifact';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
@@ -116,6 +119,39 @@ describe('host tool output artifacts', () => {
       })
     ).toEqual({ status: 'not_found' });
   });
+
+  it.each([...NON_DURABLE_NATIVE_TOOL_OUTPUT_IDS, 'skill'])(
+    'never settles a committed %s output as a durable artifact',
+    async (toolName) => {
+      const owner = run('run-1', 'thread-a', { 'call-1': big }, toolName);
+
+      const settled = settleHostToolOutputs(owner, {
+        reader: tool(NATIVE_TOOL_ID.readToolOutputArtifact),
+        sensitive: tool(toolName),
+      });
+      const output = await settled['sensitive']?.toModelOutput?.({
+        input: {},
+        output: big,
+        toolCallId: 'call-1',
+      });
+
+      // Bounded by the ordinary projection, never handed a durable cursor.
+      expect(JSON.stringify(output)).not.toContain('bsto1.');
+      // And the committed output is not reachable as an artifact at all.
+      const reader = hostArtifactReader(
+        () => [owner],
+        'thread-a',
+        () => committedAt
+      );
+      expect(
+        await reader.readRange({
+          artifactId: hostArtifactId('run-1', 'call-1'),
+          limitBytes: 5,
+          offsetByte: 0,
+        })
+      ).toEqual({ status: 'not_found' });
+    }
+  );
 
   it('settles an oversized output as its first artifact page only when the run can page it', async () => {
     const owner = run('run-1', 'thread-a', { 'call-1': big });

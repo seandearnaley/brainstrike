@@ -16,7 +16,6 @@ import {
 import { toJsonSafe } from '../stream/json';
 import {
   boundToolOutputForModel,
-  CEILING_SCALED_TOOL_RESULT_BUDGET,
   decodedTextModelOutputChars,
   MAX_MODEL_TOOL_RESULT_CHAR_BUDGET,
   MAX_MODEL_TOOL_RESULT_TOKENS,
@@ -36,10 +35,6 @@ import {
   readToolCallTelemetryMetadata,
   transferToolCallTelemetryMetadata,
 } from './tool-call-telemetry';
-import {
-  readSettledToolOutputModelProjection,
-  readSettledToolOutputProjectionSource,
-} from './tool-output-artifact-settlement';
 import { isToolProjectionInputRejected } from './tool-projection-input-rejected';
 
 const logger = createLogger('MastraAgent');
@@ -85,10 +80,6 @@ export function buildDefaultModelProjectionBudget(
     totalTokens: MAX_MODEL_TOOL_RESULT_TOKENS,
   };
 }
-
-const CEILING_DEFAULT_MODEL_PROJECTION_BUDGET = buildDefaultModelProjectionBudget(
-  CEILING_SCALED_TOOL_RESULT_BUDGET
-);
 
 let activeToolResultBudget: ScaledToolResultBudget | undefined;
 
@@ -748,37 +739,15 @@ function projectDefaultModelOutput(
   output: unknown,
   resolvedDefaultBudget: ModelProjectionBudget
 ): Record<string, unknown> {
-  const settled = readSettledToolOutputModelProjection(output);
-  if (settled) {
-    const replayBudget = resolveModelProjectionBudget(
-      toolName,
-      CEILING_DEFAULT_MODEL_PROJECTION_BUDGET
-    );
-    const { isDecodedTextRuler, normalized } = assertDomainProjectionWithinBudget(
-      toolName,
-      settled.output,
-      replayBudget
-    );
-    return settled.hookContext
-      ? composeHookContextWithProjection(
-          toolName,
-          normalized,
-          settled.hookContext,
-          isDecodedTextRuler,
-          replayBudget
-        )
-      : normalized;
+  if (isGuardedToolError(output)) {
+    return createDefaultModelOutput(toolName, output, resolvedDefaultBudget);
   }
-  const projectionSource = readSettledToolOutputProjectionSource(output);
-  if (isGuardedToolError(projectionSource)) {
-    return createDefaultModelOutput(toolName, projectionSource, resolvedDefaultBudget);
-  }
-  const nestedValidationError = readMastraToolValidationError(projectionSource);
+  const nestedValidationError = readMastraToolValidationError(output);
   if (nestedValidationError !== undefined) {
     return createDefaultModelOutput(toolName, nestedValidationError, resolvedDefaultBudget);
   }
-  const envelope = readHookResultEnvelope(projectionSource);
-  const persistedDomainOutput = envelope ? envelope.result : projectionSource;
+  const envelope = readHookResultEnvelope(output);
+  const persistedDomainOutput = envelope ? envelope.result : output;
   const appResult = readMcpAppToolInvocationResult(persistedDomainOutput);
   const domainOutput = appResult ? appResult.result : persistedDomainOutput;
   const hookContext = envelope?.additionalContext;
@@ -852,44 +821,22 @@ function projectExistingModelOutput(
   resolvedDefaultBudget: ModelProjectionBudget,
   resolvedToolResultBudget: ScaledToolResultBudget
 ): unknown {
-  const settled = readSettledToolOutputModelProjection(output);
-  if (settled) {
-    const replayBudget = resolveModelProjectionBudget(
-      toolName,
-      CEILING_DEFAULT_MODEL_PROJECTION_BUDGET
-    );
-    const { isDecodedTextRuler, normalized } = assertDomainProjectionWithinBudget(
-      toolName,
-      settled.output,
-      replayBudget
-    );
-    return settled.hookContext
-      ? composeHookContextWithProjection(
-          toolName,
-          normalized,
-          settled.hookContext,
-          isDecodedTextRuler,
-          replayBudget
-        )
-      : normalized;
+  if (isGuardedToolError(output)) {
+    return projectDefaultModelOutput(toolName, output, resolvedDefaultBudget);
   }
-  const projectionSource = readSettledToolOutputProjectionSource(output);
-  if (isGuardedToolError(projectionSource)) {
-    return projectDefaultModelOutput(toolName, projectionSource, resolvedDefaultBudget);
-  }
-  const validationError = readMastraToolValidationError(projectionSource);
+  const validationError = readMastraToolValidationError(output);
   if (validationError !== undefined) {
     return projectDefaultModelOutput(toolName, validationError, resolvedDefaultBudget);
   }
-  const envelope = readHookResultEnvelope(projectionSource);
-  const persistedDomainOutput = envelope ? envelope.result : projectionSource;
+  const envelope = readHookResultEnvelope(output);
+  const persistedDomainOutput = envelope ? envelope.result : output;
   const appResult = readMcpAppToolInvocationResult(persistedDomainOutput);
   const domainOutput = appResult ? appResult.result : persistedDomainOutput;
   const hookContext = envelope?.additionalContext;
   const freshBudget = resolveModelProjectionBudget(toolName, resolvedDefaultBudget);
   const boundResolvedProjection = (resolved: unknown): unknown => {
     if (resolved === null || resolved === undefined) {
-      return projectDefaultModelOutput(toolName, projectionSource, resolvedDefaultBudget);
+      return projectDefaultModelOutput(toolName, output, resolvedDefaultBudget);
     }
     const { isDecodedTextRuler, normalized } = assertDomainProjectionWithinBudget(
       toolName,
@@ -974,9 +921,8 @@ function observeModelOutput(
 }
 
 function readTelemetrySource(output: unknown): unknown {
-  const projectionSource = readSettledToolOutputProjectionSource(output);
-  const envelope = readHookResultEnvelope(projectionSource);
-  const domainOutput = envelope ? envelope.result : projectionSource;
+  const envelope = readHookResultEnvelope(output);
+  const domainOutput = envelope ? envelope.result : output;
   return readToolCallTelemetryMetadata(domainOutput) ? domainOutput : output;
 }
 
