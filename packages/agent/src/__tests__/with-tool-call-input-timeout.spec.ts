@@ -10,7 +10,7 @@ interface TestPart {
     argsTextDelta?: string;
     toolCallId?: string;
   };
-  toolCallId?: string;
+  toolCallId?: string | undefined;
   type: string;
 }
 
