@@ -9,7 +9,6 @@ import {
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { CHILD_FOLLOWUP_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/child-followup';
 import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
-import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -18,29 +17,13 @@ import {
   getAssistantForegroundActivitySnapshot,
 } from '../assistant-foreground-activity';
 import { useAssistantRequestLifecycle } from '../hooks/use-assistant-request-lifecycle';
+import { createRepositoryStub } from './helpers/assistant-thread-repository-stub';
 
-function createRepositoryStub(
-  overrides: Partial<AssistantThreadRepository> = {}
-): AssistantThreadRepository {
-  return {
-    appendThreadRunEvent: vi.fn(),
-    completeThreadRun: vi.fn(async () => {}),
-    createThread: vi.fn(),
-    createThreadRun: vi.fn(async (input) => ({ ...input, createdAt: 0, status: 'running' })),
-    deleteThread: vi.fn(),
-    getCrossRootUsage: vi.fn(async () => []),
-    getThreadCumulativeUsage: vi.fn(async () => null),
-    getThreadRunTurnMessageId: vi.fn(async () => null),
-    listLatestThreadRuns: vi.fn(async () => []),
-    listMessages: vi.fn(async () => []),
-    listThreadRunEvents: vi.fn(async () => []),
-    listThreads: vi.fn(async () => []),
-    recordRunUsage: vi.fn(),
-    renameThread: vi.fn(),
-    updateThreadMetadata: vi.fn(),
-    ...overrides,
-  };
-}
+// The durable shell: every request carries its memory block (memory-less: see *-memoryless).
+vi.mock('@brainstrike/assistant-data', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/assistant-data')>()),
+  hasDurableAssistantUsageCapability: () => true,
+}));
 
 const baseRequestData = {
   enabledNativeToolIds: ['filesystem.read_file'],
@@ -550,7 +533,7 @@ describe('useAssistantRequestLifecycle', () => {
     expect(getAssistantForegroundActivitySnapshot()).toBe(false);
   });
 
-  it('throws when prepared memory context is missing', async () => {
+  it('throws when a memory backend is present but prepared memory context is missing', async () => {
     const { result } = renderHook(() =>
       useAssistantRequestLifecycle({
         assistantThreadRepository: createRepositoryStub(),

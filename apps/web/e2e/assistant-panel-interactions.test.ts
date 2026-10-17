@@ -14,23 +14,12 @@ import { openAssistantWorkspace } from './utils/assistant-workspace';
  * `AbortSignal` carries and keeps the body each request posted, which is what
  * proves a regenerate re-sent the original prompt.
  *
- * QUARANTINED — web has no sendable composer.
- *
- * These turns are driven through the composer, and on web the composer is
- * disabled for every provider web can offer. `resolveAssistantMemoryDisabledReason`
- * (packages/app-shell/src/assistant-ui-panel-wrapper-runtime.ts) disables it
- * whenever a provider is selected and `resolveHostedMemoryBackendAvailable` is
- * false, and that resolves `selectedProvider === 'local' || desktopAssistantBackendAvailable`.
- * Web's `desktopAssistantBackendAvailable` is `hasDurableAssistantUsageCapability()`,
- * which is false without `window.agentHost` — so before the built-in local
- * provider was retired, `local` was the ONLY provider that cleared this gate on
- * web, which is why the original suites seeded it.
- *
- * The transport itself is fine: with that one gate cleared, a turn streams over
- * `/api/assistant` end to end, tool chunks and all. So these are unquarantined
- * by enabling hosted web chat, not by changing the tests. Faking the capability
- * probe would assert a configuration that cannot exist (web + durable agent
- * host), so it is deliberately not done here.
+ * Web has no durable memory backend, so these hosted turns run WITHOUT memory,
+ * as the panel's notice says (owner decision 2026-10-17): the request omits its
+ * memory block and the run id stays with the prepared request
+ * (`use-assistant-request-lifecycle.ts`). They are driven through the real
+ * composer over the real `/api/assistant` transport; only the provider answer
+ * is held by the mock.
  *
  * Desktop covers the close-while-running case in
  * `apps/desktop/e2e/assistant-thread-tab-close-running.desktop.test.ts`.
@@ -45,12 +34,9 @@ test.describe('Assistant stop/retry @stateful @web-assistant-state', () => {
     });
   });
 
-  test.fixme('stops the owned generation, regenerates the prompt and stops a long response', {
-    annotation: {
-      description: 'Blocked: web composer is disabled for hosted providers',
-      type: 'quarantine',
-    },
-  }, async ({ page }) => {
+  test('stops the owned generation, regenerates the prompt and stops a long response', async ({
+    page,
+  }) => {
     const viewport = page.getByTestId('assistant-ui-viewport');
     const input = page.getByRole('textbox', { name: 'Message input' });
     const send = page.getByRole('button', { exact: true, name: 'Send' });
