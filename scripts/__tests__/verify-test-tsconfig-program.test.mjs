@@ -80,7 +80,9 @@ test('uses the compiler program file list rather than serialized showConfig root
   });
 
   assert.equal(result.ok, true, result.message);
-  assert.deepEqual(calls, [['--listFilesOnly', '--project', '/workspace/app/tsconfig.test.json']]);
+  assert.deepEqual(calls, [
+    ['--noEmit', '--listFilesOnly', '--project', '/workspace/app/tsconfig.test.json'],
+  ]);
   assert.deepEqual(result.testFiles, ['/workspace/app/src/example.test.ts']);
 });
 
