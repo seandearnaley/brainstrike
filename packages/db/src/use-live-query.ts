@@ -62,6 +62,15 @@ export interface LiveQueryHookResult<T> {
   readonly loading: boolean;
   readonly refresh: () => Promise<void>;
   readonly rows: T[];
+  /**
+   * Whether `rows` were delivered for the CURRENT query: the same source,
+   * query, params and window. It stays true while a re-subscribe of that same
+   * query loads (a PGlite leader change keeps the previous rows), and turns
+   * false on the very render that changes the query, before its effect reports
+   * `loading`. False before the first delivery, after an error and while
+   * disabled (BST-1792).
+   */
+  readonly rowsMatchQuery: boolean;
 }
 
 interface LiveSubscription<T> {
@@ -105,6 +114,30 @@ interface ElectronLiveBridge {
 type LiveSource =
   | { kind: 'pglite'; live: LiveNamespace }
   | { kind: 'electron'; bridge: ElectronLiveBridge };
+
+/** What one subscription was opened for. The rows it delivers answer exactly this. */
+interface LiveRowsIdentity {
+  readonly key: string | undefined;
+  readonly limit: number | undefined;
+  readonly mode: 'query' | 'incremental';
+  readonly offset: number | undefined;
+  readonly paramsDep: string | readonly unknown[] | undefined;
+  readonly query: string;
+  readonly source: LiveSource | null;
+}
+
+function sameLiveRowsIdentity(a: LiveRowsIdentity | null, b: LiveRowsIdentity): boolean {
+  return (
+    a !== null &&
+    a.source === b.source &&
+    a.query === b.query &&
+    a.paramsDep === b.paramsDep &&
+    a.mode === b.mode &&
+    a.key === b.key &&
+    a.limit === b.limit &&
+    a.offset === b.offset
+  );
+}
 
 interface LeaderChangeSource {
   offLeaderChange?: (callback: () => void) => void;
@@ -477,6 +510,20 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
   const hasKey = !requiresKey || typeof options.key === 'string';
   const enabled = Boolean(options.enabled ?? true) && Boolean(source) && (!requiresKey || hasKey);
   const select = options.select;
+  // The subscription the current rows came from; see `rowsMatchQuery`.
+  const [rowsIdentity, setRowsIdentity] = useState<LiveRowsIdentity | null>(null);
+  const queryIdentity = useMemo<LiveRowsIdentity>(
+    () => ({
+      key: options.key,
+      limit: options.limit,
+      mode,
+      offset: options.offset,
+      paramsDep,
+      query: options.query,
+      source,
+    }),
+    [mode, options.key, options.limit, options.offset, options.query, paramsDep, source]
+  );
 
   useEffect(() => {
     const leaderSource = getLeaderChangeSource(db);
@@ -514,6 +561,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     if (!enabled) {
       if (options.clearOnDisable) {
         setRawRows([]);
+        setRowsIdentity(null);
       }
       setError(null);
       setLoading(false);
@@ -528,6 +576,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
         return;
       }
       setRawRows(results.rows as T[]);
+      setRowsIdentity(queryIdentity);
     };
 
     setLoading(true);
@@ -565,6 +614,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
           await result.refresh();
         };
         setRawRows(result.initialResults.rows as T[]);
+        setRowsIdentity(queryIdentity);
         setLoading(false);
       })
       .catch((err) => {
@@ -574,6 +624,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
         const normalized = err instanceof Error ? err : new Error(String(err));
         setError(normalized);
         setRawRows([]);
+        setRowsIdentity(null);
         setLoading(false);
         refreshRef.current = noopAsync;
       });
@@ -605,6 +656,8 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     paramsDep,
     drainRegistry,
     options.query,
+    // Derived from the deps above, so it adds no re-subscription of its own.
+    queryIdentity,
     // select intentionally omitted to prevent re-subscription
     source,
   ]);
@@ -614,6 +667,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
   }, []);
 
   const rows = useMemo(() => (select ? select(rawRows) : rawRows) as T[], [select, rawRows]);
+  const rowsMatchQuery = enabled && sameLiveRowsIdentity(rowsIdentity, queryIdentity);
 
   return useMemo(
     () => ({
@@ -621,7 +675,8 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
       loading,
       refresh,
       rows,
+      rowsMatchQuery,
     }),
-    [rows, loading, error, refresh]
+    [rows, loading, error, refresh, rowsMatchQuery]
   );
 }

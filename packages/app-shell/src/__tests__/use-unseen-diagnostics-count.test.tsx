@@ -43,6 +43,7 @@ beforeEach(() => {
     loading: false,
     refresh: vi.fn(),
     rows: [{ errorCount: 0, warningCount: 0 }],
+    rowsMatchQuery: true,
   });
   resetDiagnosticsSeenStore();
 });
@@ -113,6 +114,7 @@ describe('useUnseenDiagnosticsCount', () => {
       loading: false,
       refresh: vi.fn(),
       rows: [],
+      rowsMatchQuery: false,
     });
     const { result } = renderHook(() => useUnseenDiagnosticsCount());
 
@@ -127,6 +129,7 @@ describe('useUnseenDiagnosticsCount', () => {
       loading: false,
       refresh: vi.fn(),
       rows: [{ errorCount: '7', warningCount: '3' }],
+      rowsMatchQuery: true,
     });
 
     const { result } = renderHook(() => useUnseenDiagnosticsCount());
@@ -142,6 +145,7 @@ describe('useUnseenDiagnosticsCount', () => {
       loading: true,
       refresh: vi.fn(),
       rows: [],
+      rowsMatchQuery: false,
     });
 
     const { result } = renderHook(() => useUnseenDiagnosticsCount());
@@ -157,6 +161,7 @@ describe('useUnseenDiagnosticsCount', () => {
       loading: false,
       refresh: vi.fn(),
       rows: [],
+      rowsMatchQuery: false,
     });
 
     const { result } = renderHook(() => useUnseenDiagnosticsCount());
@@ -180,6 +185,7 @@ describe('useUnseenDiagnosticsCount', () => {
       loading: false,
       refresh: vi.fn(),
       rows: [{ errorCount: invalidCount, warningCount: '2' }],
+      rowsMatchQuery: true,
     });
 
     const { result } = renderHook(() => useUnseenDiagnosticsCount());
@@ -196,6 +202,7 @@ describe('useUnseenDiagnosticsCount', () => {
       loading: false,
       refresh: vi.fn(),
       rows: [{ errorCount: 'not-a-number', warningCount: '2' }],
+      rowsMatchQuery: true,
     });
 
     const { result } = renderHook(() => useUnseenDiagnosticsCount());
@@ -205,5 +212,43 @@ describe('useUnseenDiagnosticsCount', () => {
     expect(result.current.error).toEqual(
       new Error('Unseen diagnostics query returned invalid aggregate counts')
     );
+  });
+});
+
+// BST-1792: the count gates on `rowsMatchQuery`, not `loading`. A re-subscribe
+// of the same query (a PGlite leader change, say) reports `loading` while its
+// rows still answer the watermark, and reading "not yet known" as zero hides
+// the chip. Rows from an earlier watermark do not answer it.
+describe('useUnseenDiagnosticsCount across a live-query re-subscribe', () => {
+  function liveQueryReturns(
+    rows: readonly unknown[],
+    state: { readonly loading: boolean; readonly rowsMatchQuery: boolean }
+  ): void {
+    usePGliteLiveQueryMock.mockReturnValue({ error: null, refresh: vi.fn(), rows, ...state });
+  }
+
+  it('keeps the counts while the same query re-subscribes', () => {
+    const settled = [{ errorCount: 3, warningCount: 2 }];
+    liveQueryReturns(settled, { loading: false, rowsMatchQuery: true });
+    const { rerender, result } = renderHook(() => useUnseenDiagnosticsCount());
+    expect(result.current).toEqual({ error: null, errorCount: 3, warningCount: 2 });
+
+    liveQueryReturns(settled, { loading: true, rowsMatchQuery: true });
+    rerender();
+
+    expect(result.current).toEqual({ error: null, errorCount: 3, warningCount: 2 });
+  });
+
+  it('reads rows counted under an earlier watermark as not yet known', () => {
+    // The render after `markAllSeen`: the old rows are still there, and the
+    // live query has not reported `loading` yet.
+    liveQueryReturns([{ errorCount: 3, warningCount: 2 }], {
+      loading: false,
+      rowsMatchQuery: false,
+    });
+
+    const { result } = renderHook(() => useUnseenDiagnosticsCount());
+
+    expect(result.current).toEqual({ error: null, errorCount: 0, warningCount: 0 });
   });
 });
