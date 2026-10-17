@@ -198,7 +198,6 @@ catalog:
   # GHSA-vfpm-58rq-9qcg, GHSA-9jrq-w75r-8gcw); 8.3.4 is the current patch.
   vite: ^8.3.4
   vite-plugin-static-copy: ^4.1.1
-  vite-plugin-top-level-await: ^1.6.0
   vite-plugin-wasm: ^3.6.0
   vitest: ^5.0.5
   workerpool: ^10.0.3
@@ -224,9 +223,6 @@ overrides:
   # Vercel pins the same older tsx copy; include those edges in the full graph.
   '@vercel/backends@19.0.2>tsx': 4.23.12
   '@vercel/node@24.0.2>tsx': 4.23.12
-  # BST-888: v11 keeps the plugin's CommonJS v5 API and patches bounds checks.
-  # v1/v7 state changes are unused here; remove when this owner admits >=11.1.1.
-  'vite-plugin-top-level-await@1.6.0>uuid': 11.1.1
   # BST-874: compatible patches for all installed brace-expansion majors.
   # Remove when every minimatch owner resolves these advisory floors unaided.
   'brace-expansion@1.0.0 - 1.1.20': 1.1.21
@@ -275,48 +271,6 @@ overrides:
   # pins 6.15.1 exactly, so keep that exception scoped to its current owner.
   'qs@': 6.16.0
   'typed-rest-client@2.3.1>qs': 6.16.0
-  # @swc/core 1.16.0 BREAKS the desktop build (BST-1311). vite-plugin-top-level-await
-  # constructs SWC AST nodes in JS, and 1.16.0's Rust-side AST change makes
-  # Compiler.printSync reject them with "missing field `type`". Proven by A/B:
-  # pristine main at 1.15.47 builds green; the same tree with only the swc bump
-  # fails at @brainstrike/desktop#build.
-  #
-  # The plugin owns both SWC dependencies; there are no first-party consumers.
-  # Keep these subtree pins after removing packages/types' unused declaration
-  # and catalog entry (BST-2027). Normal updates must not move the plugin to
-  # the incompatible AST representation.
-  #
-  # @swc/wasm is pinned for the SAME reason, and it is NOT belt-and-braces. The
-  # plugin depends on both packages directly (`@swc/core: ^1.12.14`,
-  # `@swc/wasm: ^1.12.14`) and picks between them at require() time —
-  # dist/swc.js is `try { require("@swc/core") } catch { require("@swc/wasm") }`,
-  # with VITE_TLA_FORCE_WASM=true forcing the fallback and VITE_TLA_FORCE_NATIVE=true
-  # rethrowing instead. So the wasm copy is live code on any tree where the native
-  # binding fails to load — a platform with no prebuilt binary, or an install that
-  # skipped build scripts. `@swc/core: true` in allowBuilds makes the native path
-  # the normal one HERE; it does not make the fallback dead. Measured, not
-  # assumed: with this override removed, `pnpm update -r --depth Infinity
-  # @swc/wasm` resolves 1.16.0 (published 2026-08-14, so the gap was live), and
-  # driving the plugin's own transformModule + printSync over that build throws
-  #
-  #   failed to deserialize program: unknown variant `BlockStatement`
-  #
-  # where @swc/core 1.15.47 prints the very same AST fine. The message DIFFERS
-  # from the native path's "missing field `type`" — same Rust-side AST
-  # deserialization break, different wording — so do not grep for the core error
-  # when diagnosing a wasm-path failure. Left unpinned this reproduces ONLY
-  # where the fallback is taken, which is the worst form of this bug.
-  #
-  # Only apps/desktop still uses topLevelAwait() (renderer plugins and
-  # worker.plugins in apps/desktop/vite.config.mts); apps/web emits native
-  # top-level await, so retiring the desktop usage retires these pins.
-  #
-  # Remove both once vite-plugin-top-level-await ships a release compatible with
-  # swc >= 1.16 (1.6.0 is latest as of 2026-08-15 and is not), and delete
-  # scripts/__tests__/swc-ast-break-block.test.mjs,
-  # which fails until all three are done together.
-  vite-plugin-top-level-await>@swc/core: ~1.15.47
-  vite-plugin-top-level-await>@swc/wasm: ~1.15.43
   # Test-only conformance alpha.12 still declares SDK ^1.29.0. Keep its OAuth
   # issuer-binding fix; first-party code continues to use only the split SDK 2.
   '@modelcontextprotocol/conformance@0.2.0-alpha.12>@modelcontextprotocol/sdk': 1.32.1
