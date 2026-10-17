@@ -327,6 +327,8 @@ export interface ProviderCassetteRequest {
 export interface ProviderCassetteRecording {
   /** Every completed exchange, in request arrival order. */
   readonly exchanges: () => readonly ProviderCassetteExchange[];
+  /** Why each request that never reached its provider, or never streamed back, failed: a cassette without them is incomplete. */
+  readonly failures: () => readonly string[];
   /** Exchanges still streaming; a cassette is only complete once this is zero. */
   readonly inFlight: () => number;
   /** What each exchange still streaming has received so far, as text (a Stop waits on these). */
@@ -455,9 +457,11 @@ export function createProviderCassetteRecording(
     });
   };
 
+  const failures: string[] = [];
   return {
     exchanges: () =>
       exchanges.toSorted((left, right) => left.order - right.order).map(({ exchange }) => exchange),
+    failures: () => [...failures],
     inFlight: () => inFlight,
     inFlightBodies: () =>
       [...streaming.values()].map((parts) => Buffer.concat(parts).toString('utf8')),
@@ -465,6 +469,9 @@ export function createProviderCassetteRecording(
       inFlight += 1;
       try {
         await forward(input, arrivals++);
+      } catch (error) {
+        failures.push(error instanceof Error ? error.message : String(error));
+        throw error;
       } finally {
         inFlight -= 1;
       }

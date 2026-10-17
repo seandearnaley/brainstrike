@@ -75,6 +75,13 @@ async function finish() {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   await recorder.close();
+  const failures = recorder.recording.failures();
+  if (failures.length > 0) {
+    console.error(
+      `${failures.length} request${failures.length === 1 ? '' : 's'} failed while recording (first: ${failures[0]}); no cassette written.`
+    );
+    process.exit(1);
+  }
   const cassette = assembleProviderCassette({
     exchanges: recorder.recording.exchanges(),
     recordedAt: new Date().toISOString(),

@@ -105,3 +105,64 @@ test('the cassette proxy writes nothing when a response holds a secret-looking s
     rmSync(directory, { force: true, recursive: true });
   }
 });
+
+test('the cassette proxy writes nothing when any request failed to record', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'bs-cassette-proxy-'));
+  const out = join(directory, 'capture.json');
+  let requests = 0;
+  // Answers the first request; drops the second's connection, as a failed upstream would.
+  const server = createServer((request, response) => {
+    requests += 1;
+    if (requests > 1) {
+      request.socket.destroy();
+      return;
+    }
+    request.resume();
+    request.on('end', () => {
+      response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      response.end('data: [DONE]\n\n');
+    });
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const proxy = spawn(
+    process.execPath,
+    [
+      proxyPath,
+      '--out',
+      out,
+      '--upstream',
+      `OPENROUTER_BASE_URL=http://127.0.0.1:${server.address().port}/api/v1`,
+    ],
+    { stdio: ['ignore', 'pipe', 'pipe'] }
+  );
+  let stdout = '';
+  let stderr = '';
+  proxy.stdout.on('data', (chunk) => {
+    stdout += chunk;
+  });
+  proxy.stderr.on('data', (chunk) => {
+    stderr += chunk;
+  });
+  try {
+    while (!stdout.includes('Recording.')) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const base = /OPENROUTER_BASE_URL=(\S+)/u.exec(stdout)?.[1];
+    const send = (content) =>
+      fetch(`${base}/chat/completions`, {
+        body: JSON.stringify({ messages: [{ content, role: 'user' }], model: 'm', stream: true }),
+        method: 'POST',
+      });
+    assert.equal((await send('first')).status, 200);
+    assert.equal((await send('second')).status, 502);
+    proxy.kill('SIGINT');
+    const [code] = await once(proxy, 'exit');
+    assert.equal(code, 1);
+    assert.match(stderr, /1 request failed while recording/u);
+    assert.ok(!existsSync(out));
+  } finally {
+    server.close();
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
