@@ -1076,6 +1076,9 @@ importers:
       '@brainstrike/assistant-service':
         specifier: workspace:*
         version: link:../../packages/assistant-service
+      '@brainstrike/assistant-ui':
+        specifier: workspace:*
+        version: link:../../packages/assistant-ui
       '@brainstrike/assistant-wire':
         specifier: workspace:*
         version: link:../../packages/assistant-wire
@@ -1100,6 +1103,9 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../../packages/file-system
+      '@brainstrike/host-conversation':
+        specifier: workspace:*
+        version: link:../../packages/host-conversation
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../../packages/logging
@@ -1127,6 +1133,9 @@ importers:
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../../packages/utils
+      '@brainstrike/web-writer':
+        specifier: workspace:*
+        version: link:../../packages/web-writer
       '@electric-sql/pglite':
         specifier: 'catalog:'
         version: 0.5.10(patch_hash=8ff33ecb3cce6f08630deccde59ecab002578ae4fe5e49d987e48e3b9d7d3da6)
@@ -3252,6 +3261,9 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
+      '@brainstrike/assistant-data':
+        specifier: workspace:*
+        version: link:../assistant-data
       '@brainstrike/assistant-ui':
         specifier: workspace:*
         version: link:../assistant-ui

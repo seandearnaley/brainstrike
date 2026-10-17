@@ -44,6 +44,7 @@ import {
 import { HostTelemetryReplay } from '@brainstrike/agent-host/telemetry-replay';
 import { type HostRowReader, HostThreadCatalog } from '@brainstrike/agent-host/thread-catalog';
 import { HostThreadPresentationState } from '@brainstrike/agent-host/thread-presentation-state';
+import { HostThreadWorkspaceState } from '@brainstrike/agent-host/workspace-state';
 import { createLogger } from '@brainstrike/logging';
 import type { HydrationThread, LogRow, ThreadDamagedError } from '@brainstrike/state-store';
 import {
@@ -72,7 +73,9 @@ type ServedMethod =
   | 'thread/list'
   | 'thread/read'
   | 'thread/start'
-  | 'thread/update';
+  | 'thread/update'
+  | 'thread/workspace/read'
+  | 'thread/workspace/set';
 
 /** A stored row as the run log's reader gives desktop one. */
 function logRow(threadId: string, stored: WebStateStoredRow): LogRow {
@@ -220,6 +223,10 @@ export class WebHostClient implements Pick<HostClient, 'closed' | 'onEvent' | 'o
   readonly #threads = new Set<string>();
   readonly #turn: WebRunTurn | undefined;
   readonly #unsubscribeLog: () => void;
+  /** Core's fold of each thread's workspace snapshot: the shell's tabs and panels for it. */
+  readonly #workspaces = new HostThreadWorkspaceState((method, params, event) =>
+    this.#accept(params.threadId, method, params, { accepted: true }, [event])
+  );
   /** Settles as the client closes; rejects with the reason when it could not follow the log. */
   readonly closed = new Promise<void>((resolve, reject) => {
     this.#settleClosed = (failure) => (failure ? reject(failure) : resolve());
@@ -326,7 +333,15 @@ export class WebHostClient implements Pick<HostClient, 'closed' | 'onEvent' | 'o
 
   async #serve(method: ServedMethod, params: HostParams<ServedMethod>): Promise<unknown> {
     switch (method) {
-      case 'thread/list':
+      case 'thread/list': {
+        // Deletion is not announced to other tabs: the writer's own threads
+        // decide, and one another tab deleted is forgotten here before listing.
+        const stored = new Set((await this.#store.threads()).threads);
+        for (const threadId of [...this.#threads]) {
+          if (!stored.has(threadId)) {
+            this.#forget(threadId);
+          }
+        }
         return {
           threads: this.#catalog.list([...this.#threads], {
             binding: () => ({ binding: null }),
@@ -334,6 +349,7 @@ export class WebHostClient implements Pick<HostClient, 'closed' | 'onEvent' | 'o
             presentation: (threadId) => this.#presentations.read(threadId),
           }),
         };
+      }
       case 'thread/start': {
         const started = params as HostParams<'thread/start'>;
         return this.#commands.perform('thread/start', started, async () => {
@@ -428,6 +444,21 @@ export class WebHostClient implements Pick<HostClient, 'closed' | 'onEvent' | 'o
           stop,
           () => this.#stopRun(stop).then(joined),
           joined
+        );
+      }
+      case 'thread/workspace/read': {
+        const { threadId } = params as HostParams<'thread/workspace/read'>;
+        return this.#workspaces.readSnapshot(this.#threads, threadId);
+      }
+      case 'thread/workspace/set': {
+        const set = params as HostParams<'thread/workspace/set'>;
+        if (!this.#threads.has(set.threadId)) {
+          throw new Error('Unknown thread');
+        }
+        return this.#withThread(set.threadId, () =>
+          this.#commands.perform('thread/workspace/set', set, () =>
+            this.#workspaces.setSnapshot(set, this.#threads)
+          )
         );
       }
       case 'ledger/read':
@@ -582,6 +613,7 @@ export class WebHostClient implements Pick<HostClient, 'closed' | 'onEvent' | 'o
         break;
     }
     this.#presentations.fold(row);
+    this.#workspaces.fold(row);
     this.#ledger.apply(row);
     this.#telemetry.committed(row);
     if (event.type === 'run.finished') {
@@ -796,6 +828,7 @@ export class WebHostClient implements Pick<HostClient, 'closed' | 'onEvent' | 'o
     this.#folded.delete(threadId);
     this.#subscriptions.delete(threadId);
     this.#presentations.forget(threadId);
+    this.#workspaces.forget(threadId);
     this.#ledger.forget(threadId);
     void this.#catalog.forget(threadId);
   }

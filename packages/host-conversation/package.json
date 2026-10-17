@@ -6,6 +6,7 @@
     "@assistant-ui/react": "catalog:",
     "@brainstrike/agent-host": "workspace:*",
     "@brainstrike/assistant-contract": "workspace:*",
+    "@brainstrike/assistant-data": "workspace:*",
     "@brainstrike/assistant-ui": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "zod": "catalog:"

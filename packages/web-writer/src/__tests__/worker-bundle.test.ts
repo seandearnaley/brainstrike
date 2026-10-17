@@ -79,6 +79,7 @@ it('bundles the composed writer worker for the browser, with no Node module and 
     // Its runs: Core's run fold and telemetry replay, and the recorder.
     'agent-host/src/run-branch.ts',
     'agent-host/src/telemetry-replay.ts',
+    'agent-host/src/workspace-state.ts',
     'src/web-run-recorder.ts',
     'src/web-run-turn.ts',
     // VECTOR's profile, inference and embedder.

@@ -61,6 +61,7 @@ function scriptedStore() {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    threads: async () => ({ threads: rows.length > 0 ? [THREAD] : [] }),
   } as unknown as WebStateStore;
   return {
     announce: (...seqs: number[]): void => {

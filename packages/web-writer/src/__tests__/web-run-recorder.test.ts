@@ -12,9 +12,9 @@ import { storedHostEvent } from '@brainstrike/agent-host/host-event-encoding';
 import type { HostEvent, HostLogRow, HostRunTelemetry } from '@brainstrike/agent-host/protocol';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { afterEach, describe, expect, it } from 'vitest';
+import { scriptedWriter } from '../test-fixtures/scripted-writer';
 import { WebHostClient } from '../web-host-client';
 import { hostedWebRunTurn, type WebRunTurn } from '../web-run-turn';
-import { scriptedWriter } from './scripted-writer';
 
 // The v4 provider usage DTO, as the host's own model fixtures declare it.
 const USAGE = {
