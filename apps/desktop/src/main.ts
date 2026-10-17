@@ -165,7 +165,10 @@ import { createDesktopMcpPlatformCapabilities } from './mcp/desktop-host-platfor
 import { getMainMcpHostControl } from './mcp/main-host-control';
 import { createDesktopModelCatalog } from './model-catalog';
 import { createNativeIndexActivation } from './native-index-activation';
-import { reportNativeIndexActivationError as reportNativeIndexFailure } from './native-index-activation-error';
+import {
+  reportAgentHostStartupFailure as reportHostStartupFailure,
+  reportNativeIndexActivationError as reportNativeIndexFailure,
+} from './native-index-activation-error';
 import { NATIVE_INDEX_SETTINGS_KEY } from './native-index-settings';
 import {
   createInitialWindowAfterNativeReader,
@@ -797,7 +800,7 @@ function activateSavedNativeIndexSettings(): Promise<void> {
 }
 
 export function reportAgentHostStartupFailure(error: unknown): void {
-  reportNativeIndexActivationError('Agent host startup failed', error);
+  reportHostStartupFailure(error, isDesktopShuttingDown(), logger);
 }
 function reportNativeIndexActivationError(message: string, error: unknown): void {
   reportNativeIndexFailure(message, error, isDesktopShuttingDown(), logger);
