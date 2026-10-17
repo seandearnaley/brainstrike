@@ -281,6 +281,12 @@ overrides:
   # https://github.com/nodejs/undici/releases/tag/v7.30.1
   'vercel@64.3.1>undici': 7.30.1
   '@vercel/node@24.0.2>undici': 7.30.1
+  # W05 follow-up: Typography 0.5.20 still pins selector-parser 6.0.10.
+  # 7.1.6 fixes flat-selector CPU exhaustion (GHSA-rj75-hqrm-r3gf).
+  # Its 7.0 iteration change is qualified against Typography's actual caller
+  # and generated prose CSS in both apps. Retire when the owner admits >=7.1.6.
+  # https://github.com/postcss/postcss-selector-parser/releases/tag/7.1.6
+  '@tailwindcss/typography@0.5.20>postcss-selector-parser': 7.1.6
   # BST-879: python-analysis 0.15.0 still pins vulnerable minimatch 10.1.1.
   # Use the vendor's patched 10.x API; remove when the owner admits >=10.2.3.
   # https://github.com/isaacs/minimatch/security/advisories/GHSA-23c5-xmqv-rm74
