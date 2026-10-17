@@ -1,19 +1,9 @@
-# Cloud CI is disabled due to cost; repository GitHub Actions is disabled.
-# Preserved workflow definition only: do not enable, dispatch, or rerun it.
-# Test locally with pnpm check and report the commands and results.
-# Tell the user: CI is disabled due to cost; validation must run locally.
+# Runs nightly on main (owner decision 2026-10-17).
+# Per-PR hosted CI is off; merges use the local gate in docs/agents/ci-quality.md.
 
 name: MCP Verification
 
 on:
-  push:
-    branches:
-      - main
-    # Docs-only merges cannot regress client conformance; skip the
-    # Electron-provisioned official jobs for them (BST-1582).
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
   schedule:
     - cron: '23 8 * * *'
   workflow_dispatch:
@@ -34,10 +24,7 @@ env:
 jobs:
   verify:
     name: Exhaustive MCP verification
-    # The exhaustive lane stays schedule/manual only; the PR-lane representative
-    # profile already covers every merge (docs/agents/ci-quality.md). Only the
-    # official conformance jobs below run on main pushes (BST-1582).
-    if: ${{ github.event_name != 'push' }}
+    if: github.repository == 'seandearnaley/brainstrike'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     steps:
@@ -63,6 +50,7 @@ jobs:
 
   official_auth:
     name: Official MCP auth conformance
+    if: github.repository == 'seandearnaley/brainstrike'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 11
     steps:
@@ -123,6 +111,7 @@ jobs:
 
   official_core:
     name: Official MCP core conformance
+    if: github.repository == 'seandearnaley/brainstrike'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 11
     steps:
@@ -177,6 +166,7 @@ jobs:
 
   official_modern_auth:
     name: Official MCP modern auth closeout
+    if: github.repository == 'seandearnaley/brainstrike'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 21
     steps:
@@ -235,7 +225,7 @@ jobs:
   notify-linear:
     name: Notify Linear
     needs: [verify, official_auth, official_core, official_modern_auth]
-    if: ${{ always() && github.event_name == 'schedule' }}
+    if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/nightly-linear-alert.yml
     with:
       workflow_name: ${{ github.workflow }}

@@ -104,8 +104,8 @@ test('unit-only work and dependent test tasks admit a partition', () => {
   );
 });
 
-test('push and manual execution retain all rows and never invoke affected selection', () => {
-  for (const event of ['push', 'workflow_dispatch']) {
+test('push, nightly and manual execution retain all rows and never invoke affected selection', () => {
+  for (const event of ['push', 'schedule', 'workflow_dispatch']) {
     assert.equal(
       selectUnitShards(matrix, event, () => assert.fail('unexpected preview')),
       matrix

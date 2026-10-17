@@ -31,7 +31,7 @@ test('desktop workflow dispatches the full suite or the foreground-latency bench
   const fullRegression = workflow.jobs?.['desktop-full-regression'];
   assert.equal(
     fullRegression?.if,
-    "github.event_name != 'workflow_dispatch' || inputs.suite == 'full'",
+    "github.repository == 'seandearnaley/brainstrike' && (github.event_name != 'workflow_dispatch' || inputs.suite == 'full')",
     'a foreground-latency dispatch must not spend time in the unrelated full regression'
   );
 });

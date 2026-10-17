@@ -1,8 +1,11 @@
 # Validation and delivery
 
-CI is disabled due to cost; validation must run locally. Hosted workflows and
-automated reviews require explicit owner authorization. Their preserved YAML is
-reference material, not a request to dispatch them.
+Per-PR CI is off due to cost; validate locally before merge. Hosted CI runs
+nightly on main and files failures to Linear (`nightly-alert`). Treat an open
+`nightly-alert` issue as a red main: fix main first, before merging other work
+onto it. Enabling or dispatching other workflows, and automated reviews, require
+explicit owner authorization; the disabled per-PR workflows' YAML is reference
+material, not a request to run them.
 
 ## Choose useful checks
 

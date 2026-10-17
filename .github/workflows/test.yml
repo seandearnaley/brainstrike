@@ -1,21 +1,12 @@
-# Cloud CI is disabled due to cost; repository GitHub Actions is disabled.
-# Preserved workflow definition only: do not enable, dispatch, or rerun it.
-# Test locally with pnpm check and report the commands and results.
-# Tell the user: CI is disabled due to cost; validation must run locally.
+# Runs nightly on main (owner decision 2026-10-17).
+# Per-PR hosted CI is off; merges use the local gate in docs/agents/ci-quality.md.
 
 name: Test
 
 on:
-  pull_request:
-    branches:
-      - '**'
-    types:
-      - opened
-      - synchronize
-      - reopened
-  push:
-    branches:
-      - main
+  # 07:03 UTC, ahead of the E2E workflows' crons.
+  schedule:
+    - cron: '3 7 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -40,7 +31,8 @@ jobs:
     # 44 concurrent Linux jobs, while 31.3% of Test runs were ultimately
     # cancelled. Hold the fan-out on GitHub's $0.002/min 1-core runner so a
     # follow-up push can cancel this cheap sleep instead of seven build/test
-    # runners. Push and workflow_dispatch events pass through immediately.
+    # runners. Scheduled and workflow_dispatch events pass through immediately.
+    if: github.repository == 'seandearnaley/brainstrike'
     runs-on: ubuntu-slim
     timeout-minutes: 5
     outputs:
@@ -104,7 +96,7 @@ jobs:
     outputs:
       unit-matrix: ${{ steps.unit-shards.outputs.matrix }}
       unit-shard-count: ${{ steps.unit-shards.outputs.count }}
-    if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
+    if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [admission]
     # Series C R9b: arm64 runners became available for private repos on
     # 2026-01-29, and cost 37% less per minute than ubuntu-latest (x64).
@@ -558,7 +550,7 @@ jobs:
   # nonempty matrix fail Unit instead of silently satisfying branch protection.
   unit:
     name: Unit
-    if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
+    if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [admission, static, unit-shard]
     # This fan-in only checks one dependency result and completes in ~3s. Use
     # GitHub's 1-core slim runner so per-job minute rounding does not charge the
@@ -608,7 +600,7 @@ jobs:
 
   build:
     name: Build
-    if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
+    if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [admission]
     runs-on: ubicloud-standard-4
     timeout-minutes: 25
@@ -940,7 +932,7 @@ jobs:
     # check` gate — while turbo.jsonc's task comment claimed otherwise.
     # Not (yet) a required check: branch protection is Sean's call; this lane
     # must first prove itself deterministic.
-    if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
+    if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [admission]
     # Cost-first runner migration (2026-08-28): this lane used 1,928 rounded
     # GitHub Linux minutes in the 7.76-day audit. The same pinned Playwright
@@ -1042,6 +1034,7 @@ jobs:
   web-e2e:
     name: Web E2E
     if: >-
+      github.repository == 'seandearnaley/brainstrike' &&
       always() &&
       (
         needs.admission.result != 'success' ||
@@ -1066,7 +1059,6 @@ jobs:
       BASE_URL: http://127.0.0.1:8080
       # Browsers are preinstalled here in the image; point Playwright at them.
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
-      BRAINSTRIKE_WEB_CHROMIUM_DIR: ${{ runner.temp }}/web-chromium
       pnpm_config_verify_deps_before_run: error
     steps:
       - name: Require successful admission
@@ -1097,11 +1089,15 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends unzip lsof procps
 
+      # `jobs.<id>.env` cannot read the `runner` context, so the directory is
+      # exported here for every later step (playwright.config.mts reads it).
       - name: Provision qualified web Chromium
         shell: bash
         timeout-minutes: 5
         run: |
           set -euo pipefail
+          BRAINSTRIKE_WEB_CHROMIUM_DIR="$RUNNER_TEMP/web-chromium"
+          echo "BRAINSTRIKE_WEB_CHROMIUM_DIR=$BRAINSTRIKE_WEB_CHROMIUM_DIR" >> "$GITHUB_ENV"
           test "$(node --version)" = "v$(cat .nvmrc)"
           mkdir -p apps/web/test-results
           node scripts/provision-web-chromium.mjs "$BRAINSTRIKE_WEB_CHROMIUM_DIR" > apps/web/test-results/web-chromium-provisioning.json
@@ -1143,6 +1139,7 @@ jobs:
   desktop-e2e-smoke:
     name: Desktop E2E (smoke)
     if: >-
+      github.repository == 'seandearnaley/brainstrike' &&
       always() &&
       (
         needs.admission.result != 'success' ||
@@ -1241,6 +1238,7 @@ jobs:
   desktop-e2e-delegated:
     name: Desktop E2E (delegated smoke)
     if: >-
+      github.repository == 'seandearnaley/brainstrike' &&
       always() &&
       (
         needs.admission.result != 'success' ||
@@ -1319,6 +1317,7 @@ jobs:
   desktop-e2e:
     name: Desktop E2E
     if: >-
+      github.repository == 'seandearnaley/brainstrike' &&
       always() &&
       (
         needs.admission.result != 'success' ||
@@ -1350,254 +1349,16 @@ jobs:
             exit 1
           fi
 
-  # BST-1301: make a red `main` announce itself.
-  #
-  # THE GATE ALREADY EXISTS. This workflow's `on:` block subscribes to
-  # `push: branches: [main]`, so Static/Unit/Build run against every merged
-  # commit, and they fired correctly on all three red-`main` pushes of
-  # 2026-08-15 (runs 31872259629, 31872457744, 31894054632 — each one
-  # `Static` › `Lint`). What did not exist was anyone being TOLD: the red run
-  # sat in the Actions tab, and both incidents were discovered hours later
-  # only when an unrelated PR tripped over the breakage. This job adds the
-  # missing announcement; it adds NO new check and NO new trigger.
-  #
-  # The mechanism it exists to catch is toolchain drift. A PR's CI judges it
-  # under the linter/formatter on ITS BASE at the time that run happened. When
-  # a toolchain bump lands in between (#2447 took biome 2.5.2 -> 2.5.8), the
-  # already-green verdict on a stale-based PR goes quietly out of date, and
-  # nothing re-checks a merged PR against the post-merge toolchain. The
-  # failure therefore materializes for the first time ON `main`, where it
-  # blocks every branch and looks unrelated to whoever hits it next. Both
-  # 08-15 incidents were exactly this: #2437's `noUnsafeOptionalChaining`
-  # violation in app-shell's workspace-snapshot-io.test.ts (the rule narrowed
-  # in 2.5.8) and #2440's formatter drift in file-system's
-  # path-validation.test.ts (fixed by #2452).
-  #
-  # SCOPE — the REQUIRED-CHECK line, minus the two flaky lanes. The ruleset
-  # requires exactly Static, Unit, Build, Web E2E and Desktop E2E, so those
-  # five are the only checks that can block every branch, which is the
-  # everyone-trips-over-it breakage class this job targets. `web-e2e` and
-  # `desktop-e2e` are then excluded on a second, separate ground: they are the
-  # documented flaky-headless class (AGENTS.md), and a canary that cries wolf
-  # gets ignored, which is precisely the failure this job exists to prevent.
-  # Persistent E2E breakage is still caught within 24h by the scheduled Linear
-  # alerts in web-e2e.yml / desktop-e2e.yml.
-  #
-  # `browser-tests`, `native-windows`, and `native-electron` also run
-  # on pushes to `main` and are also NOT notified — not on flakiness grounds,
-  # but because none of them is a required check. A red one of those does not
-  # block anyone else's branch, so it is not this job's class of problem.
-  # (`browser-tests` additionally "must first prove itself deterministic" per
-  # its own header before it could ever be a candidate.)
-  #
-  # WHY `!cancelled()` AND NOT `always()` — this is load-bearing, do not
-  # "simplify" it back. `== 'failure'` alone does NOT mean "the code failed",
-  # because neither `static`/`build`'s admission gate nor `unit` is a leaf
-  # verdict:
-  #   * every gated job opens with a "Require successful admission" step that
-  #     `exit 1`s whenever `needs.admission.result != 'success'`, and
-  #   * `unit` is a fan-in whose check is `[ "$SHARD_RESULT" != "success" ] &&
-  #     exit 1` — the very `!= 'success'` shape this condition avoids.
-  # Both therefore LAUNDER a cancelled upstream into a `failure` result. This
-  # is observed, not theoretical: in runs 31903009051, 31900478128 and
-  # 31900226011 (all 2026-08-15) a cancel landed while `admission` was in its
-  # 120-second sleep, `always()` still dispatched the downstream jobs, and
-  # Static, Unit AND Build all reported `failure` on a run that tested nothing.
-  # Under `always()` this job would have filed "main is red: Static, Unit,
-  # Build failed" for a cancellation. `!cancelled()` is the discriminator:
-  # it still runs when a need FAILED (that is the whole point), but never when
-  # the run was cancelled. Those three runs were `pull_request` events that the
-  # push guard would also have caught; the mechanism is not PR-specific, and
-  # relying on the push guard for it would be an accident, not a design.
-  #
-  # Residual, accepted and deliberately NOT suppressed: if `admission` ever
-  # genuinely FAILS on a push (never observed), all three gated jobs report
-  # `failure` and this job files an issue whose body blames the code. That is
-  # loud rather than silent, "Static, Unit and Build all failed at once" is
-  # itself the tell, and the linked run shows the real cause immediately.
-  # Adding an `admission` success gate here would trade a rare wrong-hypothesis
-  # issue for a silent `main` with no verdict at all — the wrong direction.
-  #
-  # NOT a required status check and NOT a new trigger. See coverage.yml's
-  # header for why adding a trigger to this file is a footgun — this job adds
-  # only a `needs:` fan-in, so PR runs skip it and the required set is
-  # untouched. Detection, not prevention: requiring branches to be up to date
-  # before merge is the complementary fix and is a branch-protection setting,
-  # i.e. the repo owner's call, not this workflow's.
-  notify-main-failure:
-    name: Notify main failure
-    needs: [static, unit, build]
-    if: >-
-      !cancelled() &&
-      github.event_name == 'push' &&
-      (needs.static.result == 'failure' ||
-       needs.unit.result == 'failure' ||
-       needs.build.result == 'failure')
-    runs-on: ubuntu-latest
-    # gh issue create / comment are sub-second under normal conditions; cap at
-    # 5 min so a GitHub API hang can't burn the GHA default 6-hour wall clock.
-    timeout-minutes: 5
-    permissions:
-      issues: write
-      contents: read
-    steps:
-      - name: Ensure tracking label exists
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-
-          # No notifier (this one or its four siblings) uses `2>/dev/null || true`.
-          # That idiom swallows the expected "label already exists" AND a real
-          # failure (token not elevated, API 5xx, org label restrictions)
-          # indistinguishably. The label does not exist until the first red
-          # `main`, so a swallowed failure on that very first run means the
-          # next step's `gh issue create --label` hard-fails (gh does not
-          # create missing labels), `set -euo pipefail` aborts, this job goes
-          # red and NOTHING IS FILED — reproducing one level up the exact "red
-          # run sits unseen in the Actions tab" outcome the job exists to
-          # remove. AGENTS.md: no silent fallbacks.
-          #
-          # `--force` removes the need to suppress anything: it PATCHes the
-          # label when it already exists instead of erroring, so a non-zero
-          # exit now means only a genuine failure and is allowed to be fatal,
-          # loudly and at the step that caused it.
-          if ! gh label create "main-broken" \
-            --repo "$REPO" \
-            --force \
-            --color b60205 \
-            --description "Auto-opened by test.yml when a push to main fails Static, Unit or Build"; then
-            echo "::error::Could not ensure the 'main-broken' label exists, so the tracking issue can be neither filed nor de-duplicated. main IS RED — see the run this job belongs to."
-            exit 1
-          fi
-
-      - name: Open or update tracking issue
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
-          STATIC_RESULT: ${{ needs.static.result }}
-          UNIT_RESULT: ${{ needs.unit.result }}
-          BUILD_RESULT: ${{ needs.build.result }}
-        run: |
-          set -euo pipefail
-
-          # Name the failed checks explicitly. A bare "main is red" makes the
-          # reader open the run to learn anything at all, which is most of the
-          # friction this job removes.
-          failed=""
-          for entry in "Static:$STATIC_RESULT" "Unit:$UNIT_RESULT" "Build:$BUILD_RESULT"; do
-            if [ "${entry#*:}" = "failure" ]; then
-              failed="${failed}${failed:+, }${entry%%:*}"
-            fi
-          done
-
-          body="\`main\` is red: **${failed}** failed on ${COMMIT_URL}.
-
-          Run: ${RUN_URL}
-
-          Every branch cut from or rebased onto \`main\` inherits this, and the PR
-          that trips over it next will see a failure unrelated to its own change.
-
-          If the failing step is Lint or Type check, suspect toolchain drift
-          (BST-1301): a PR that went green under an older linter/formatter on its
-          base can break \`main\` when a toolchain bump merges in between. Check
-          whether a lint/format/toolchain PR landed between the offending PR's
-          last green run and its merge.
-
-          This issue tracks THIS incident only. It gets a new comment on each
-          subsequent failing push, and \`notify-main-recovery\` closes it
-          automatically on the next push where Static, Unit and Build are all
-          green — so the next incident opens a fresh issue with its own title
-          and date instead of being appended to this one."
-
-          existing=$(gh issue list --repo "$REPO" \
-            --label "main-broken" --state open \
-            --json number --jq '.[0].number // empty')
-          if [ -n "$existing" ]; then
-            gh issue comment "$existing" --repo "$REPO" --body "$body"
-          else
-            gh issue create --repo "$REPO" \
-              --title "main is red: ${failed} failed ($(date -u +%Y-%m-%d))" \
-              --label "main-broken" \
-              --body "$body"
-          fi
-
-  # BST-1301, second half: close the loop the label-keyed de-duplication opens.
-  #
-  # `notify-main-failure` above keys de-duplication on an open `main-broken`
-  # issue, which is the same shape the nightly notifiers use — but the
-  # LIFECYCLES DIFFER, and copying the shape without this job would turn the
-  # canary into a stale-issue trap. For `web-e2e`/`nightly-coverage` the
-  # failure recurs on a 24-hour cadence, so the de-duplication window and the
-  # incident window are roughly the same thing. A red `main` is the opposite:
-  # the incident is typically over within the hour (force-fix or revert) while
-  # the issue stays open until a human remembers to close it. Without an
-  # automatic close, incident #2 three weeks later would NOT open an issue —
-  # it would append a comment to a stale issue still titled with incident #1's
-  # failing check and date. It would never surface in triage, and anyone who
-  # unsubscribed from the first incident would hear nothing at all. That is the
-  # canary getting muted: the exact failure the header above argues against for
-  # the E2E lanes.
-  #
-  # So: green `main` closes the issue, and the de-duplication window becomes
-  # the incident window. Push runs on `main` share the concurrency group
-  # `Test-refs/heads/main` with `cancel-in-progress: false`, so they are
-  # serialized and this cannot race the notifier above.
-  #
-  # `!cancelled()` here is belt-and-braces rather than load-bearing (the three
-  # `== 'success'` clauses already cannot hold on a cancelled run), but it
-  # keeps both halves reading the same way. Closing is idempotent: with no open
-  # `main-broken` issue — the overwhelmingly common case, since `main` is
-  # usually green — this job makes one read-only API call and exits.
-  notify-main-recovery:
-    name: Notify main recovery
-    needs: [static, unit, build]
-    if: >-
-      !cancelled() &&
-      github.event_name == 'push' &&
-      needs.static.result == 'success' &&
-      needs.unit.result == 'success' &&
-      needs.build.result == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      issues: write
-      contents: read
-    steps:
-      - name: Close the tracking issue once main is green
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
-        run: |
-          set -euo pipefail
-
-          # Deliberately NOT `.[0]`: the notifier keeps at most one open issue,
-          # so a second one means the invariant already broke somewhere. `main`
-          # is green, therefore nothing carrying this label is still true, and
-          # closing every one of them makes the invariant self-healing instead
-          # of leaving a decoy behind. `gh issue list` on a label that does not
-          # exist yet returns an empty list with exit 0 (verified against this
-          # repo with gh 2.97.0), so no label bootstrapping is needed here.
-          open_issues=$(gh issue list --repo "$REPO" \
-            --label "main-broken" --state open \
-            --json number --jq '.[].number')
-
-          if [ -z "$open_issues" ]; then
-            echo "No open main-broken issue; main was already green."
-            exit 0
-          fi
-
-          for number in $open_issues; do
-            echo "Closing #${number}: main is green again."
-            gh issue close "$number" --repo "$REPO" --reason completed \
-              --comment "\`main\` is green again — Static, Unit and Build all passed on ${COMMIT_URL}.
-
-          Run: ${RUN_URL}
-
-          Closed automatically by \`notify-main-recovery\`. The next red push to \`main\` opens a NEW issue with its own title and date rather than commenting here, so this one stays a record of a single incident."
-          done
+  # A red night must announce itself: nothing else re-checks main after a
+  # merge. Every job's result goes to the shared Linear notifier, which files
+  # one `nightly-alert` issue per red workflow and comments on later nights.
+  notify-linear:
+    name: Notify Linear
+    needs: [admission, static, unit-shard, unit, build, native-windows, native-electron, browser-tests, web-e2e, desktop-e2e-smoke, desktop-e2e-delegated, desktop-e2e]
+    if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
+    uses: ./.github/workflows/nightly-linear-alert.yml
+    with:
+      workflow_name: ${{ github.workflow }}
+      results: admission=${{ needs.admission.result }},static=${{ needs.static.result }},unit-shard=${{ needs.unit-shard.result }},unit=${{ needs.unit.result }},build=${{ needs.build.result }},native-windows=${{ needs.native-windows.result }},native-electron=${{ needs.native-electron.result }},browser-tests=${{ needs.browser-tests.result }},web-e2e=${{ needs.web-e2e.result }},desktop-e2e-smoke=${{ needs.desktop-e2e-smoke.result }},desktop-e2e-delegated=${{ needs.desktop-e2e-delegated.result }},desktop-e2e=${{ needs.desktop-e2e.result }}
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

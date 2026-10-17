@@ -49,7 +49,7 @@ export function selectUnitShards(matrix, eventName, preview) {
   if (!Array.isArray(matrix?.include) || matrix.include.length === 0) {
     throw new Error('Missing full Unit matrix');
   }
-  if (!['pull_request', 'push', 'workflow_dispatch'].includes(eventName)) {
+  if (!['pull_request', 'push', 'schedule', 'workflow_dispatch'].includes(eventName)) {
     throw new Error(`Unsupported Unit event: ${eventName}`);
   }
   if (eventName !== 'pull_request') {
