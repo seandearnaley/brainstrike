@@ -92,7 +92,9 @@ path or key in the cassette (`providerCassetteFindings`), and a clean pass from
 `scripts/secret-scan.mjs`. Finally, it replays the cassette and needs the same
 verdict, with every exchange claimed and no request refused. Only after these
 checks pass does it write `tasks/<id>/cassette.json` and set `cassette` and
-`model` in `task.json`.
+`model` in `task.json`. `record.integration.test.ts` proves this path offline:
+the recorder forwards to a loopback stand-in that replays a committed cassette,
+and the test holds no real key.
 
 ## Not yet
 

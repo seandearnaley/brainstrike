@@ -53,6 +53,8 @@ export async function recordEvalCassette(options: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly model: string;
   readonly taskDir: string;
+  /** A local stand-in for each provider (tests); the real providers otherwise. */
+  readonly upstreams?: Readonly<Record<ProviderCassetteKnob, string>>;
 }): Promise<string> {
   if (options.env['CI']) {
     throw new Error('Recording makes paid provider calls; it never runs in CI');
@@ -71,7 +73,10 @@ export async function recordEvalCassette(options: {
     batch: `record-${loaded.task.id}`,
     credential: { [name]: key },
     egress: async (substitutions) => {
-      const started = await startProviderCassetteRecorder({ substitutions });
+      const started = await startProviderCassetteRecorder({
+        substitutions,
+        ...(options.upstreams ? { upstreams: options.upstreams } : {}),
+      });
       recorder = started;
       return {
         close: started.close,
