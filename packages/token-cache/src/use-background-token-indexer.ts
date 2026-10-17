@@ -473,7 +473,7 @@ export function useBackgroundTokenIndexer({
       return workerRef.current;
     }
 
-    if (workerInitPromiseRef.current) {
+    if (workerInitPromiseRef.current !== null) {
       return workerInitPromiseRef.current;
     }
 

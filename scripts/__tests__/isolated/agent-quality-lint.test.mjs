@@ -33,6 +33,7 @@ const layouts = [
   ['packages/pipeline/__tests__', '.test.ts'],
   ['packages/worker-runtime/src/__tests__', '.test.ts'],
   ['packages/file-tree-worker/src', '.test.ts'],
+  ['packages/token-cache/src/__tests__', '.test.tsx'],
 ];
 
 function lint(t, side) {
@@ -68,6 +69,7 @@ function lint(t, side) {
     'packages/pipeline/__tests__',
     'packages/worker-runtime/src',
     'packages/file-tree-worker/src',
+    'packages/token-cache/src',
   ]) {
     cases.push(
       {
@@ -84,6 +86,12 @@ function lint(t, side) {
       }
     );
   }
+  cases.push({
+    bad: 'export function check(pending: Promise<void> | null) { if (pending) { return pending; } return null; }',
+    good: 'export function check(pending: Promise<void> | null) { if (pending !== null) { return pending; } return null; }',
+    path: `packages/token-cache/src/agent-quality-lint-presence-${token}.ts`,
+    rule: 'nursery/noMisusedPromises',
+  });
   for (const directory of [
     'packages/effect-kit/src',
     'packages/assistant-contract/src/native-tools/schemas',
