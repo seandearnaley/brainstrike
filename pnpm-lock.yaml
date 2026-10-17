@@ -195,8 +195,8 @@ catalogs:
       specifier: ^6.43.14
       version: 6.43.14
     '@effect/tsgo':
-      specifier: 0.53.1
-      version: 0.53.1
+      specifier: 0.53.3
+      version: 0.53.3
     '@electric-sql/pglite':
       specifier: 0.5.10
       version: 0.5.10
@@ -880,7 +880,7 @@ importers:
         version: link:../../packages/vector-management
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@electron/osx-sign':
         specifier: 1.3.3
         version: 1.3.3(supports-color@10.2.2)
@@ -1431,7 +1431,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@electric-sql/pglite':
         specifier: 'catalog:'
         version: 0.5.10(patch_hash=3eab9988cf0009b186838b0521e30eb60aeeac785939a070fd888a6102d9c217)
@@ -1543,7 +1543,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -1682,7 +1682,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@tanstack/react-virtual':
         specifier: 'catalog:'
         version: 3.14.20(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -1807,7 +1807,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -1856,7 +1856,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -1941,7 +1941,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -2038,7 +2038,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.3(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
@@ -2180,7 +2180,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -2232,7 +2232,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -2359,7 +2359,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@stryker-mutator/api':
         specifier: 'catalog:'
         version: 10.0.0
@@ -2541,7 +2541,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -2657,7 +2657,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@electric-sql/pglite':
         specifier: 'catalog:'
         version: 0.5.10(patch_hash=3eab9988cf0009b186838b0521e30eb60aeeac785939a070fd888a6102d9c217)
@@ -3099,7 +3099,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -3257,7 +3257,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -3300,7 +3300,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -3349,7 +3349,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -3395,7 +3395,7 @@ importers:
         version: link:../web-state-store
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@sqlite.org/sqlite-wasm':
         specifier: 'catalog:'
         version: 3.53.4-build2
@@ -3617,7 +3617,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -3943,7 +3943,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -4154,7 +4154,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -4664,7 +4664,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@sqlite.org/sqlite-wasm':
         specifier: 'catalog:'
         version: 3.53.4-build2
@@ -4726,7 +4726,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.1
+        version: 0.53.3
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -5852,43 +5852,43 @@ packages:
     resolution: {integrity: sha512-0dEVyRLM/lG4gp1R/Ik5bfPl/1wX00xFwd5KcNH602tzBa09oF7pbTKETEhR1GjZ75K6OJnYFu8II2dyMhONMw==}
     engines: {node: '>=16'}
 
-  '@effect/tsgo-darwin-arm64@0.53.1':
-    resolution: {integrity: sha512-wje3jvSaN3ttD7sBm9Bw/E8xHq2ZQWMJNg1YAGCj3/tiwUxHDUjKrt1LC/HLju+OnTBSsSvkUE8jXUT3OdQY4A==}
+  '@effect/tsgo-darwin-arm64@0.53.3':
+    resolution: {integrity: sha512-qd34+MHG/AOwm6x/I+ieRVBmrirE7LZ/Jyro+p55PMz/dN4WmgxvJmes+ltYaBUUXP0xtGE5TICufQdZyYjm4Q==}
     cpu: [arm64]
     os: [darwin]
 
-  '@effect/tsgo-darwin-x64@0.53.1':
-    resolution: {integrity: sha512-x4mNzV8WLPZ71Vu7vyOJiJGTNOrfYR0g5+Zg9Q9ZieKCVSJkWJvOIOND+EvT9gUP4qdTYQh4kzGbe/T+kSrilg==}
+  '@effect/tsgo-darwin-x64@0.53.3':
+    resolution: {integrity: sha512-DGYiRXx/GVP0rjQMT+yqROLT35nbgu5ImmI+XerlRhoF5Z/7UBHFiIDjD0df4+2WmF2w0D5vE6XPTyQpdw08Kg==}
     cpu: [x64]
     os: [darwin]
 
-  '@effect/tsgo-linux-arm64@0.53.1':
-    resolution: {integrity: sha512-p2HrEKCh0EAY2G9MYS5vjJy2ZX27UyjZRgy2SUQu8PUVHLq3TAGTsX0d6I7LlNbRsUFxmI4HgypP6IPAUnjUwQ==}
+  '@effect/tsgo-linux-arm64@0.53.3':
+    resolution: {integrity: sha512-qqKa5VYk7N+QnRUaPAkUeKaEOSiWW018ZJN/fGZ9ND9R4llBby6JVtVatUh8MsP+QDr1pavFp0JhOfXjg9S4Ig==}
     cpu: [arm64]
     os: [linux]
 
-  '@effect/tsgo-linux-arm@0.53.1':
-    resolution: {integrity: sha512-y29MekM4Riv1MjnRS0ST49ttmvHoVdPNmpR3aivmNlOWIKXXm4XSGx0F+PEnblq8dESWeSXmAcC0mcETUq880A==}
+  '@effect/tsgo-linux-arm@0.53.3':
+    resolution: {integrity: sha512-NkfXu00rSy9rZa3O5YDmI+vZEsFlO42qOY6NBwtKwLpwOcbtY34JTDtPJAsRHN4ARlbh2CerFc46knIatLDWUw==}
     cpu: [arm]
     os: [linux]
 
-  '@effect/tsgo-linux-x64@0.53.1':
-    resolution: {integrity: sha512-dvvZGUW2DhQGjP+28v7Q977it6CLw44rh+OhP/+3snk0IeoMiRtnmtd6k42ny3/uvexJFAgLc2ch0ttwwGc/LQ==}
+  '@effect/tsgo-linux-x64@0.53.3':
+    resolution: {integrity: sha512-BPy6BVx/HfyzG6SWWTxIdt6ZynSE6OrRPCna2wYvI5EJELiCoFNbkLhzgLWVFOfy8z01eBwXUF6syPB4Y+c1GQ==}
     cpu: [x64]
     os: [linux]
 
-  '@effect/tsgo-win32-arm64@0.53.1':
-    resolution: {integrity: sha512-9AvAoqT6QDhVKSaVx2PpgBxFJNbOP8gjBz+Q9cCJTaiOFFMxpuSvsrU1+ttDh4XuaWn3mJXtdQDSrEHlepuhoQ==}
+  '@effect/tsgo-win32-arm64@0.53.3':
+    resolution: {integrity: sha512-1a/h9nukr/4z9ZjyAe4cCG2XtAH6jqmBmjRTVGpopwqTf3ulyoiXEM7+/eywws+2sgTUl0hcghrvv5ej5E3taA==}
     cpu: [arm64]
     os: [win32]
 
-  '@effect/tsgo-win32-x64@0.53.1':
-    resolution: {integrity: sha512-XTKMzsK3I78oApuTTcOx6orxGOqkGeDZBDHYiJQ6vIlwiKaeyZqCWm2fUtAgkvyxDyY5g4JXm8Qd23RVRSoxmg==}
+  '@effect/tsgo-win32-x64@0.53.3':
+    resolution: {integrity: sha512-tmfVk95IObJm+D0sK1Z416uspK5focwlacZQDzPJK8mzM/Tboqxr4y0MfRuOIfXigxZo0wdH0noiJ0lmoZJXwg==}
     cpu: [x64]
     os: [win32]
 
-  '@effect/tsgo@0.53.1':
-    resolution: {integrity: sha512-0LW8VI1+HvC+S5KOpReuAneN4T93ipcd8aKNXpy2DubBfm6ShWhBtWxtxPSaQ9M25gAtQs6w/D9NEmXqgd8uGg==}
+  '@effect/tsgo@0.53.3':
+    resolution: {integrity: sha512-YqufYyU8aOEwz6wKjYvr8umfhw1JDLiU49y4s6lvApsXioRMg8y1nPc81+Hm2oMWZ2gbUikZW1w8fTDOadNN9w==}
     hasBin: true
 
   '@electric-sql/pglite-pg_textsearch@0.0.12':
@@ -18304,36 +18304,36 @@ snapshots:
     dependencies:
       '@edge-runtime/primitives': 4.1.0
 
-  '@effect/tsgo-darwin-arm64@0.53.1':
+  '@effect/tsgo-darwin-arm64@0.53.3':
     optional: true
 
-  '@effect/tsgo-darwin-x64@0.53.1':
+  '@effect/tsgo-darwin-x64@0.53.3':
     optional: true
 
-  '@effect/tsgo-linux-arm64@0.53.1':
+  '@effect/tsgo-linux-arm64@0.53.3':
     optional: true
 
-  '@effect/tsgo-linux-arm@0.53.1':
+  '@effect/tsgo-linux-arm@0.53.3':
     optional: true
 
-  '@effect/tsgo-linux-x64@0.53.1':
+  '@effect/tsgo-linux-x64@0.53.3':
     optional: true
 
-  '@effect/tsgo-win32-arm64@0.53.1':
+  '@effect/tsgo-win32-arm64@0.53.3':
     optional: true
 
-  '@effect/tsgo-win32-x64@0.53.1':
+  '@effect/tsgo-win32-x64@0.53.3':
     optional: true
 
-  '@effect/tsgo@0.53.1':
+  '@effect/tsgo@0.53.3':
     optionalDependencies:
-      '@effect/tsgo-darwin-arm64': 0.53.1
-      '@effect/tsgo-darwin-x64': 0.53.1
-      '@effect/tsgo-linux-arm': 0.53.1
-      '@effect/tsgo-linux-arm64': 0.53.1
-      '@effect/tsgo-linux-x64': 0.53.1
-      '@effect/tsgo-win32-arm64': 0.53.1
-      '@effect/tsgo-win32-x64': 0.53.1
+      '@effect/tsgo-darwin-arm64': 0.53.3
+      '@effect/tsgo-darwin-x64': 0.53.3
+      '@effect/tsgo-linux-arm': 0.53.3
+      '@effect/tsgo-linux-arm64': 0.53.3
+      '@effect/tsgo-linux-x64': 0.53.3
+      '@effect/tsgo-win32-arm64': 0.53.3
+      '@effect/tsgo-win32-x64': 0.53.3
 
   '@electric-sql/pglite-pg_textsearch@0.0.12(@electric-sql/pglite@0.5.10(patch_hash=3eab9988cf0009b186838b0521e30eb60aeeac785939a070fd888a6102d9c217))':
     dependencies:

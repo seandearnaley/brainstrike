@@ -26,15 +26,23 @@ const DEPENDENCY_FIELDS = [
 const DIAGNOSTICS_COMMAND =
   /effect-tsgo diagnostics --project (tsconfig\.test\.json|tsconfig\.json) --strict$/u;
 const LANGUAGE_SERVICE_PLUGIN = '@effect/language-service';
-// The stability rules, pinned per project rather than left to defaults.
+// Correctness and stability are pinned per project rather than left to defaults.
 // `apiStabilityLeak` ships "off" and the other two ship "warning", and
 // `--strict` only promotes diagnostics that already run — it cannot turn on a
 // rule that is off. Naming all three keeps the stability contract in
 // docs/agents/effect-boundary.md enforced, and keeps an upstream default
 // change from quietly weakening it.
-const STABILITY_SEVERITIES = {
+const REQUIRED_SEVERITIES = {
   apiStabilityLeak: 'error',
   experimentalApiUsage: 'error',
+  floatingEffect: 'error',
+  floatingEffectInVitest: 'error',
+  missingEffectContext: 'error',
+  missingEffectError: 'error',
+  missingStarInYieldEffectGen: 'error',
+  promiseInEffectSuccess: 'error',
+  returnEffectInGen: 'error',
+  unsafeEffectTypeAssertion: 'error',
   unstableApiUsage: 'error',
 };
 // The one package allowed to run effects: it IS the Promise boundary.
@@ -329,9 +337,9 @@ test('every package that depends on effect runs the Effect diagnostics in type-c
     // that exposes an unstable Effect type still type-checks clean.
     assert.deepEqual(
       plugin.diagnosticSeverity,
-      STABILITY_SEVERITIES,
+      REQUIRED_SEVERITIES,
       `${directory}/${project} must set diagnosticSeverity to ` +
-        `${JSON.stringify(STABILITY_SEVERITIES)}; apiStabilityLeak is off by default ` +
+        `${JSON.stringify(REQUIRED_SEVERITIES)}; apiStabilityLeak is off by default ` +
         'and --strict cannot enable it'
     );
   }
