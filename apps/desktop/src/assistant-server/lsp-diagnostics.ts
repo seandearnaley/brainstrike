@@ -13,7 +13,7 @@
  * (non-adopted) Workspace/sandbox model and behind unexported deep paths, so
  * we lift the WIRE PROTOCOL (standard vscode-jsonrpc + LSP), not the class.
  *
- * Servers are Node child processes spawned in Electron MAIN (the renderer-only
+ * Servers are Node child processes spawned in the agent host (the renderer-only
  * rule covers inference, not tooling — mirrors executeCommand's spawner). The
  * pool is keyed by workspace `rootId`; every server MUST be torn down on root
  * switch, factory reset, and app quit — see disposeLspServers /
@@ -28,6 +28,7 @@
  */
 import type { ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type {
@@ -46,7 +47,6 @@ import {
   QUERY_TIMEOUT_MS,
   type RawLocation,
   type RawQueryFailure,
-  resolvesIntoCredentialFile,
   toInspectLocations,
   toQueryFailure,
 } from '@brainstrike/host-capabilities/native-tools';
@@ -60,8 +60,6 @@ import {
 } from 'vscode-jsonrpc/node';
 import type {
   DefinitionParams,
-  DidChangeTextDocumentParams,
-  DidOpenTextDocumentParams,
   HoverParams,
   ImplementationParams,
   InitializeParams,
@@ -69,6 +67,8 @@ import type {
   Position,
   PublishDiagnosticsParams,
 } from 'vscode-languageserver-protocol/node';
+
+import { LspReadPolicyError, withLspDocument } from './lsp-document-session';
 
 // Re-exported so `lsp-diagnostics` stays the single import surface for the
 // inspect tool + its model projection (the split is an internal file boundary,
@@ -80,8 +80,6 @@ export type { InspectLocation, LspInspectionResult, LspInspectQuery, LspQueryFai
 // process's classic module resolution; the wire contract is the same).
 const LSP = {
   definition: 'textDocument/definition',
-  didChange: 'textDocument/didChange',
-  didOpen: 'textDocument/didOpen',
   exit: 'exit',
   hover: 'textDocument/hover',
   implementation: 'textDocument/implementation',
@@ -110,6 +108,7 @@ const MAX_DIAGNOSTIC_MESSAGE_CHARS = 300;
 interface ResolvedServer {
   /** Extra launch args after the CLI path. */
   args: string[];
+  bundledTsserverPath?: string;
   /** Absolute path to the server CLI entry (run via Electron-as-Node). */
   cliPath: string;
   /** initializationOptions sent during the handshake (e.g. bundled tsserver). */
@@ -141,6 +140,11 @@ let cachedServer: ResolvedServer | null | undefined;
 
 type ModuleResolver = (id: string, options?: { paths?: string[] }) => string;
 
+// The host platform is ESM, while Electron main is CJS. The build supplies
+// __filename for both; esbuild's ESM require shim has no .resolve method.
+// biome-ignore lint/correctness/noGlobalDirnameFilename: import.meta is empty in the CJS main bundle; the ESM host build maps __filename explicitly.
+const resolveLspModule: ModuleResolver = createRequire(__filename).resolve;
+
 /**
  * Resolve the JavaScript TypeScript server bundled for LSP use.
  *
@@ -151,7 +155,7 @@ type ModuleResolver = (id: string, options?: { paths?: string[] }) => string;
  * `lib/typescript.js` deliberately has no adjacent `tsserver.js`.
  */
 export function resolveBundledTsserverPath(
-  resolveModule: ModuleResolver = require.resolve,
+  resolveModule: ModuleResolver = resolveLspModule,
   fileExists: (candidate: string) => boolean = existsSync
 ): string {
   const typescriptEntry = resolveModule('typescript');
@@ -180,12 +184,13 @@ function resolveTypescriptServer(): ResolvedServer | null {
     return cachedServer;
   }
   try {
-    const cliPath = require.resolve('typescript-language-server/lib/cli.mjs');
+    const cliPath = resolveLspModule('typescript-language-server/lib/cli.mjs');
     // Pinning the concrete JS server makes analysis deterministic (OUR bundled
     // TS6 compatibility compiler, not whatever the user's project resolves).
     const tsserverPath = resolveBundledTsserverPath();
     cachedServer = {
       args: ['--stdio'],
+      bundledTsserverPath: tsserverPath,
       cliPath,
       initializationOptions: { tsserver: { path: tsserverPath } },
     };
@@ -359,15 +364,14 @@ function boundDiagnostics(raw: RawDiagnostic[]): {
 
 /**
  * A single language-server child process + its JSON-RPC connection. Owns the
- * per-uri diagnostics map fed by textDocument/publishDiagnostics notifications
- * and the document versions for didOpen vs didChange.
+ * per-uri diagnostics map fed by textDocument/publishDiagnostics notifications.
+ * Open documents belong to one operation and are closed before the next.
  */
 class LspServerConnection {
   private readonly child: ChildProcess;
   private readonly childExit: Promise<void>;
   private readonly connection: MessageConnection;
   private readonly diagnostics = new Map<string, RawDiagnostic[]>();
-  private readonly versions = new Map<string, number>();
   private childSpawnError: Error | undefined;
   private childSpawned = false;
   private disposal: Promise<void> | undefined;
@@ -495,32 +499,6 @@ class LspServerConnection {
     return this.initialized;
   }
 
-  /** Open (or re-sync) a document with the given content, bumping its version.
-   * Returns the file URI. Clears the prior publish so a subsequent
-   * waitForDiagnostics observes THIS content's result. */
-  private syncDocument(absolutePath: string, content: string, languageId: string): string {
-    const uri = pathToFileURL(absolutePath).href;
-    const key = diagnosticsKey(absolutePath);
-    this.diagnostics.delete(key);
-    const previousVersion = this.versions.get(key);
-    if (previousVersion === undefined) {
-      this.versions.set(key, 1);
-      const openParams: DidOpenTextDocumentParams = {
-        textDocument: { languageId, text: content, uri, version: 1 },
-      };
-      this.notify(LSP.didOpen, openParams);
-    } else {
-      const nextVersion = previousVersion + 1;
-      this.versions.set(key, nextVersion);
-      const changeParams: DidChangeTextDocumentParams = {
-        contentChanges: [{ text: content }],
-        textDocument: { uri, version: nextVersion },
-      };
-      this.notify(LSP.didChange, changeParams);
-    }
-    return uri;
-  }
-
   /** Open (or re-sync) a document and wait for its diagnostics to settle. */
   async diagnose(
     absolutePath: string,
@@ -528,8 +506,9 @@ class LspServerConnection {
     languageId: string
   ): Promise<DiagnosticsWait> {
     await this.ensureInitialized();
-    this.syncDocument(absolutePath, content, languageId);
-    return this.waitForDiagnostics(diagnosticsKey(absolutePath));
+    return this.withDocument(absolutePath, content, languageId, () =>
+      this.waitForDiagnostics(diagnosticsKey(absolutePath))
+    );
   }
 
   /**
@@ -554,7 +533,37 @@ class LspServerConnection {
     implementation: RawLocation[];
   }> {
     await this.ensureInitialized();
-    const uri = this.syncDocument(absolutePath, content, languageId);
+    return this.withDocument(absolutePath, content, languageId, (uri) =>
+      this.inspectDocument(uri, absolutePath, position)
+    );
+  }
+
+  private async withDocument<T>(
+    absolutePath: string,
+    content: string,
+    languageId: string,
+    task: (uri: string) => Promise<T>
+  ): Promise<T> {
+    const key = diagnosticsKey(absolutePath);
+    this.diagnostics.delete(key);
+    try {
+      return await withLspDocument(
+        {
+          absolutePath,
+          bundledTsserverPath: this.server.bundledTsserverPath,
+          connection: this.connection,
+          content,
+          languageId,
+          rootPath: this.rootPath,
+        },
+        task
+      );
+    } finally {
+      this.diagnostics.delete(key);
+    }
+  }
+
+  private async inspectDocument(uri: string, absolutePath: string, position: Position) {
     // Let the server analyse the freshly-opened document before querying
     // (the same settle rationale as diagnostics — queries on an un-indexed
     // file return empty).
@@ -756,15 +765,8 @@ function acquireLspServer(
   return created;
 }
 
-/**
- * Per-file diagnose serialization. A pooled server's diagnostics map + document
- * versions are keyed by path and shared across callers, so two concurrent edits
- * to the SAME file (Mastra runs tool calls within a step concurrently) racing
- * open/change → wait could cross-attribute one edit's diagnostics to the other.
- * This lock serializes ONLY the diagnose step, keyed by canonical absolute path
- * — deliberately SEPARATE from the edit tools' write lock so a slow
- * language-server round-trip never adds latency back onto the write path.
- */
+/** Root-level serialization keeps each scoped open buffer isolated from other
+ * queries sharing the same project. It does not hold the file mutation lock. */
 const diagnoseLocks = new Map<string, Promise<unknown>>();
 
 function withDiagnoseLock<T>(key: string, task: () => Promise<T>): Promise<T> {
@@ -817,9 +819,8 @@ export async function getEditDiagnostics(
   }
 
   try {
-    // Serialize per file so concurrent same-file edits can't cross-attribute
-    // each other's diagnostics through the shared per-connection state.
-    return await withDiagnoseLock(diagnosticsKey(args.absolutePath), async () => {
+    // Serialize all queries sharing the project, including different files.
+    return await withDiagnoseLock(args.rootId, async () => {
       const connection = await acquireLspServer(args.rootId, args.rootPath, server);
       const wait = await connection.diagnose(args.absolutePath, args.content, language);
       if (!wait.settled) {
@@ -843,6 +844,9 @@ export async function getEditDiagnostics(
       };
     });
   } catch (error) {
+    if (error instanceof LspReadPolicyError) {
+      return { available: false, language, message: error.message, reason: 'read-policy' };
+    }
     logger.error('LSP diagnostics failed; edit still applied', { error });
     return {
       available: false,
@@ -866,7 +870,7 @@ export interface GetLspInspectionArgs {
 /**
  * Semantic inspection at a cursor (report R2 Phase B). Never throws: an
  * unsupported language, an unresolvable server, or query timeouts all resolve
- * to an honest result. Serialized per file (shared connection state).
+ * to an honest result. Serialized per root (shared project state).
  */
 export async function getLspInspection(args: GetLspInspectionArgs): Promise<LspInspectionResult> {
   const language = languageIdForPath(args.absolutePath);
@@ -888,7 +892,7 @@ export async function getLspInspection(args: GetLspInspectionArgs): Promise<LspI
   }
 
   try {
-    return await withDiagnoseLock(diagnosticsKey(args.absolutePath), async () => {
+    return await withDiagnoseLock(args.rootId, async () => {
       const connection = await acquireLspServer(args.rootId, args.rootPath, server);
       const raw = await connection.inspect(
         args.absolutePath,
@@ -896,11 +900,7 @@ export async function getLspInspection(args: GetLspInspectionArgs): Promise<LspI
         language,
         args.position
       );
-      // A symbol defined in a credential file hovers with its literal (ADR-0016).
-      const hover =
-        resolvesIntoCredentialFile(raw.definition) || resolvesIntoCredentialFile(raw.implementation)
-          ? undefined
-          : clipHover(raw.hover);
+      const hover = clipHover(raw.hover);
       const [definition, implementation] = await Promise.all([
         toInspectLocations(raw.definition, args.rootPath),
         toInspectLocations(raw.implementation, args.rootPath),
@@ -927,6 +927,9 @@ export async function getLspInspection(args: GetLspInspectionArgs): Promise<LspI
       };
     });
   } catch (error) {
+    if (error instanceof LspReadPolicyError) {
+      return { available: false, language, message: error.message, reason: 'read-policy' };
+    }
     logger.error('LSP inspection failed', { error });
     return {
       available: false,
