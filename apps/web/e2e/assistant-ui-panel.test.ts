@@ -7,9 +7,8 @@ import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
 // Assistant-UI E2E (web): the panel runs in its hosted-provider shape, with
 // `/api/assistant/status` mocked so a provider and model resolve without a
 // server key. Every test here exercises thread surfaces, identity and tab
-// mechanics, none of which depend on a turn being sent — see the header of
-// `assistant-thread-tab-runs.test.ts` for why the send-driven coverage is
-// quarantined on web.
+// mechanics, none of which depend on a turn being sent. The send-driven
+// coverage lives in `assistant-thread-tab-runs.test.ts`.
 
 const ASSISTANT_UI_PANEL_ROOT_NAME = 'assistant-ui-panel';
 const ASSISTANT_UI_PANEL_TREE = {
@@ -18,6 +17,13 @@ const ASSISTANT_UI_PANEL_TREE = {
 // Report interaction latency separately from functional visibility assertions,
 // so a loaded runner identifies a performance-budget miss rather than disguising
 // it as a missing icon/color regression.
+//
+// The swatches lock while saving, so this budget covers the durable metadata
+// write. On web that write waits its turn in the single PGlite worker queue,
+// behind background polls and live-query refreshes, at about ten
+// BroadcastChannel round trips per query (BST-1961). Locally each step takes
+// 75–200 ms. Under 4–6× CPU throttling it reaches the budget, which is how the
+// GitHub-hosted runs failed.
 const THREAD_CUSTOMIZATION_FEEDBACK_BUDGET_MS = 1000;
 
 interface AssistantThreadStartupEvent {
@@ -156,9 +162,9 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(page.getByText('Memory database unavailable')).toHaveCount(0);
   });
 
-  test.fixme('customizes thread identity and keeps diagnostics out of the primary row', {
-    annotation: { description: 'BST-1961', type: 'quarantine' },
-  }, async ({ page }) => {
+  test('customizes thread identity and keeps diagnostics out of the primary row', async ({
+    page,
+  }) => {
     await expect(page.getByTestId('threads-panel')).toBeVisible();
     const threadRow = page.getByTestId('thread-row').first();
     await expect(threadRow).toBeVisible();
