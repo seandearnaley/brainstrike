@@ -438,8 +438,8 @@ function assertRootTestPhaseParity(rootPackage) {
   assert.equal(commands.length, 2, 'root pnpm test must run unit and integration as two phases');
   assert.match(
     commands[0],
-    /\brun\s+test\s+--concurrency=4\b/,
-    'root pnpm test must run the unit phase at CI concurrency 4'
+    /\brun\s+test\s+--concurrency=1\b/,
+    'root pnpm test must admit one whole-host unit pool at a time'
   );
   assert.doesNotMatch(
     commands[0],
@@ -999,6 +999,26 @@ test('packages/db is tested by a green pnpm check', () => {
   assert.doesNotMatch(unit.command, /--filter/);
 });
 
+test('local test batteries do not stack whole-host unit worker pools', () => {
+  const rootPackage = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+  for (const mode of [[], ['--fast'], ['--full'], ['--routine']]) {
+    const plan = buildPlan(parseFlags(mode));
+    for (const step of plan.filter(({ id }) => id === 'unit-tests' || id === 'coverage')) {
+      assert.match(
+        step.command,
+        /--concurrency=1(?:\s|$)/,
+        `${step.id} must leave package parallelism to its Vitest pool`
+      );
+    }
+  }
+  for (const name of ['test', 'test:affected']) {
+    const [unit] = splitShellCommands(rootPackage.scripts[name]);
+    assert.match(unit, /--concurrency=1(?:\s|$)/, `${name} must not stack unit worker pools`);
+  }
+  const [fastUnit] = splitShellCommands(rootPackage.scripts['test:fast']);
+  assert.match(fastUnit, /--workspace-concurrency=1(?:\s|$)/);
+});
+
 test('the local unit lane mirrors CI selection semantics and cache keys', () => {
   const plan = buildPlan(parseFlags([]));
   const unit = plan.find((step) => step.id === 'unit-tests');
@@ -1008,11 +1028,12 @@ test('the local unit lane mirrors CI selection semantics and cache keys', () => 
     assert.match(step.command, /TURBO_TEST_MODE=unit/, `${step.id} must share CI's test cache key`);
   }
 
-  // CI splits the phases and caps the uncached integration lane at 2 so at
-  // most two real-PGlite suites run at once; mirror both caps.
+  // The task sets and cache keys match CI. Local unit pools can use the whole
+  // host, so package admission is serial; CI keeps its dedicated-runner cap.
+  // Integration pools already bound their real subsystem work separately.
   assert.match(ciRunStep('unit-shard › Push and manual unit tests'), /--concurrency=4/);
   assert.match(ciRunStep('unit-shard › Push and manual integration tests'), /--concurrency=2/);
-  assert.match(unit.command, /--concurrency=4/);
+  assert.match(unit.command, /--concurrency=1/);
   assert.match(integration.command, /--concurrency=2/);
 });
 

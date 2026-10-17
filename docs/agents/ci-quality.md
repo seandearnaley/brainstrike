@@ -59,6 +59,9 @@ when their relevant source, runtime, artifact and environment inputs are unchang
 a different commit SHA alone is not a reason to repeat everything. Broaden testing
 for an identified risk or unresolved failure, then stop when the agreed acceptance
 is demonstrated. Avoid loading a machine beyond its useful test capacity.
+Local unit batteries and the full check's coverage stage admit one package at a
+time because package Vitest pools already size themselves from the whole host;
+their internal parallelism and timeout budgets stay in their package configuration.
 
 Keep failures visible. Investigate missing verdicts, crashes and flaky behavior;
 a passing retry alone does not establish the cause. Never delete a failing test,

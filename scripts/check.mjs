@@ -405,10 +405,13 @@ export function buildPlan(options = {}) {
   // the same two turbo tasks, and their union is the whole workspace. Running
   // unfiltered locally is that union — packages/db very much included.
   // TURBO_TEST_MODE=unit keeps the cache key identical to CI's; the two-phase
-  // split with the same concurrency caps mirrors the CI phase split.
+  // split mirrors CI's task selection. Local Vitest pools size themselves from
+  // the whole host (many use 100% of its CPUs); stacking four package pools
+  // starves cold imports and strict IndexedDB restores. Admit one unit package
+  // at a time and leave file/test parallelism to its existing pool.
   plan.push({
     command:
-      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-test-command.mjs -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test --concurrency=4 --summarize --log-order=grouped',
+      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-test-command.mjs -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test --concurrency=1 --summarize --log-order=grouped',
     id: 'unit-tests',
     label: 'test',
   });
@@ -476,7 +479,7 @@ export function buildPlan(options = {}) {
     // turbo run is the same task set, db included.
     plan.push({
       command:
-        'node scripts/run-env.mjs TURBO_TEST_MODE=coverage COVERAGE=true TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:coverage --concurrency=4 --summarize --log-order=grouped',
+        'node scripts/run-env.mjs TURBO_TEST_MODE=coverage COVERAGE=true TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:coverage --concurrency=1 --summarize --log-order=grouped',
       id: 'coverage',
       label: 'test:coverage',
     });
