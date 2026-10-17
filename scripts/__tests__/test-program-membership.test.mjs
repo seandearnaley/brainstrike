@@ -77,6 +77,7 @@ test('Effect-only test coverage does not earn canonical compiler coverage', (t) 
   f.write('modules/fixture/src/index.ts', 'export {};\n');
   f.config(['src/index.ts']);
   f.write('modules/fixture/tsconfig.test.json', {
+    compilerOptions: { plugins: [{ name: '@effect/language-service' }] },
     extends: './tsconfig.json',
     include: ['src/**/*'],
   });
@@ -91,6 +92,41 @@ test('Effect-only test coverage does not earn canonical compiler coverage', (t) 
     { axis: 'typescript', path: 'modules/fixture/src/seed.spec.ts' },
   ]);
   assert.equal(inventory.projectsInspected, 2);
+});
+
+test('an effect-tsgo step covers nothing unless its resolved tsconfig enables the language service', (t) => {
+  const f = fixture(t);
+  f.write('modules/fixture/package.json', {
+    name: '@fixture/test',
+    scripts: {
+      'type-check': 'tsc --noEmit && effect-tsgo diagnostics --project tsconfig.json --strict',
+    },
+  });
+  // Without the plugin effect-tsgo skips every file of the project and still exits 0.
+  const unplugged = inventoryTestPrograms(f.directory);
+  assert.deepEqual(unplugged.missing, [
+    { axis: 'effect', path: 'modules/fixture/src/seed.spec.ts' },
+  ]);
+  assert.deepEqual(evaluateTestProgramDebt(unplugged, emptyPolicy()), [
+    'Unchecked test: effect:modules/fixture/src/seed.spec.ts',
+  ]);
+  // A plugin inherited through `extends` counts, as it does for effect-tsgo itself.
+  f.write('modules/fixture/tsconfig.base.json', {
+    compilerOptions: { plugins: [{ name: '@effect/language-service' }] },
+  });
+  f.write('modules/fixture/tsconfig.json', {
+    compilerOptions: { module: 'ESNext', moduleResolution: 'Bundler', noEmit: true, types: [] },
+    extends: './tsconfig.base.json',
+    include: ['src/seed.spec.ts'],
+  });
+  assert.deepEqual(inventoryTestPrograms(f.directory).missing, []);
+  // `diagnostics: false` reports every file checked yet emits no Effect diagnostics.
+  f.write('modules/fixture/tsconfig.base.json', {
+    compilerOptions: { plugins: [{ diagnostics: false, name: '@effect/language-service' }] },
+  });
+  assert.deepEqual(inventoryTestPrograms(f.directory).missing, [
+    { axis: 'effect', path: 'modules/fixture/src/seed.spec.ts' },
+  ]);
 });
 
 test('new workspace layouts cannot escape discovery and missing commands are uncovered', (t) => {
