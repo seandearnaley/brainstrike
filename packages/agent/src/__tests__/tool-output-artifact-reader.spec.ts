@@ -3,6 +3,7 @@ import {
   decodeToolOutputArtifactCursor,
   encodeToolOutputArtifactCursor,
   TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES,
+  type ToolOutputArtifactPage,
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
 import { Schema, SchemaIssue } from 'effect';
@@ -115,7 +116,7 @@ describe('tool output artifact reader', () => {
     const content = 'A🙂\r\nB\u0000C🙂tail';
     const artifactRef = referenceFor(content);
     const reader = readerFor(content, artifactRef);
-    const pages = [];
+    const pages: ToolOutputArtifactPage[] = [];
     let input: unknown = {
       artifactRef,
       maxBytes: 4,
@@ -364,7 +365,7 @@ describe('tool output artifact reader', () => {
   it('keeps a fitting terminal page whole even when a shorter cursor-bearing page does not fit', () => {
     const content = 'x'.repeat(5800);
     const artifactRef = referenceFor(content);
-    const rawPage = {
+    const rawPage: ToolOutputArtifactPage = {
       artifactRef,
       content,
       endByte: artifactRef.byteLength,
@@ -388,7 +389,7 @@ describe('tool output artifact reader', () => {
   it('fits an artifact page to a floor-tier resolved domain budget', () => {
     const content = 'x'.repeat(5800);
     const artifactRef = referenceFor(content);
-    const rawPage = {
+    const rawPage: ToolOutputArtifactPage = {
       artifactRef,
       content,
       endByte: artifactRef.byteLength,
@@ -406,7 +407,7 @@ describe('tool output artifact reader', () => {
   it('keeps an anchor-tier artifact page byte-identical to the default projection', () => {
     const content = `head${'\\'.repeat(2000)}tail`;
     const artifactRef = referenceFor(content);
-    const rawPage = {
+    const rawPage: ToolOutputArtifactPage = {
       artifactRef,
       content,
       endByte: artifactRef.byteLength,
