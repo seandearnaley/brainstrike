@@ -224,8 +224,13 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     const publication = createNativeCanonicalPublication(
       {
         ...port,
+        // A scan's proofs are reads: another root's binding replacement joins them
+        // before it retires their query client (BST-2055).
+        coverageScope: (request) => runtime.withWriterRead(port, () => port.coverageScope(request)),
         removeScopedFile: (request) =>
           runtime.mutateAuthority(port, () => port.removeScopedFile(request)),
+        verifyScopedManifest: (request) =>
+          runtime.withWriterRead(port, () => port.verifyScopedManifest(request)),
       },
       authorized.scopes
     );

@@ -123,10 +123,11 @@ function fixture(initial: Authority) {
   const installQueryTarget = vi.fn(() => {
     events.push('reader-installed');
   });
+  const getAuthority = vi.fn(async () => authority);
   const dependencies = {
     closeQueries,
     createIndexOwner,
-    getAuthority: async () => authority,
+    getAuthority,
     getFileInvalidator: () => vi.fn(),
     getRootIds: async () => authority.rootIds,
     installQueryTarget,
@@ -141,6 +142,7 @@ function fixture(initial: Authority) {
     closeWriter,
     createIndexOwner,
     events,
+    getAuthority,
     installQueryTarget,
     port,
     removeScopedFile,
@@ -233,7 +235,7 @@ it('retains failed opening convergence for explicit retry without erasing owned 
   await f.runtime.closeIndex();
 });
 
-it('retains the actual replacement ACK inventory when live authority changes immediately afterward', async () => {
+it('removes a file it acknowledged when the authority drops it again during the same acquisition (BST-2055)', async () => {
   const initial = {
     fileBindings: [],
     rootIds: ['root'],
@@ -252,20 +254,18 @@ it('retains the actual replacement ACK inventory when live authority changes imm
     f.setAuthority(initial);
   });
   f.setAuthority({ ...initial, fileBindings: [rooted] });
-  await expect(f.runtime.acquire()).rejects.toThrow('authority changed');
-  expect(f.runtime.captureAcknowledgedAuthority().readAuthority().fileBindings).toEqual([rooted]);
-  f.setStored([rooted]);
-  await f.runtime.closeIndex();
-  await f.runtime.resume();
-  await f.runtime.acquire();
+  await expect(f.runtime.acquire()).resolves.toBe(f.port);
+  // The writer acknowledged the file, so the next attempt retires it before rebinding.
   expect(f.removeScopedFile).toHaveBeenCalledExactlyOnceWith({
     fileId: rooted.fileId,
     scope: { kind: 'workspace', rootId: 'root' },
   });
+  expect(f.replaceFileBindings).toHaveBeenLastCalledWith([]);
+  expect(f.runtime.captureAcknowledgedAuthority().readAuthority().fileBindings).toEqual([]);
   await f.runtime.closeIndex();
 });
 
-it('restores the prior live inventory before reuse after a replacement ACK and authority drift', async () => {
+it('restores the live inventory after a replacement ACK and authority drift, then reuses it', async () => {
   const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
   const f = fixture(initial);
   await f.runtime.acquire();
@@ -275,16 +275,12 @@ it('restores the prior live inventory before reuse after a replacement ACK and a
     nativeBindings = next;
     f.setAuthority(initial);
   });
-  f.setAuthority({ ...initial, fileBindings: [binding] });
-  await expect(f.runtime.acquire()).rejects.toThrow('authority changed');
-  expect(nativeBindings).toEqual([binding]);
-  expect(captured.readAuthority().fileBindings).toEqual([binding]);
   f.replaceFileBindings.mockImplementation(async (next) => {
     nativeBindings = next;
   });
+  f.setAuthority({ ...initial, fileBindings: [binding] });
   await expect(f.runtime.acquire()).resolves.toBe(f.port);
-  expect(f.replaceFileBindings).toHaveBeenCalledTimes(2);
-  expect(f.replaceFileBindings).toHaveBeenLastCalledWith([]);
+  expect(f.replaceFileBindings.mock.calls).toEqual([[[binding]], [[]]]);
   expect(nativeBindings).toEqual([]);
   expect(captured.readAuthority().fileBindings).toEqual([]);
   await f.runtime.acquire();
@@ -375,7 +371,7 @@ it('retains failed absent-file removal and its ACK for explicit retry before bin
   await f.runtime.closeIndex();
 });
 
-it('refuses authority drift during absent-file removal and revalidates before reusing the original inventory', async () => {
+it('rebinds a file whose authority returns during its absent-file removal', async () => {
   const initial = { fileBindings: [binding], rootIds: [], scopes: [collection] };
   const f = fixture(initial);
   await f.runtime.acquire();
@@ -387,11 +383,10 @@ it('refuses authority drift during absent-file removal and revalidates before re
     return true;
   });
   f.setAuthority({ ...initial, fileBindings: [] });
-  await expect(f.runtime.acquire()).rejects.toThrow('authority changed');
-  expect(f.replaceFileBindings).not.toHaveBeenCalled();
-  expect(captured.readAuthority().fileBindings).toEqual([binding]);
-  await f.runtime.acquire();
+  await expect(f.runtime.acquire()).resolves.toBe(f.port);
+  // The drifted snapshot never reached the writer; the returned file did.
   expect(f.replaceFileBindings).toHaveBeenCalledExactlyOnceWith([binding]);
+  expect(captured.readAuthority().fileBindings).toEqual([binding]);
   await f.runtime.closeIndex();
 });
 
@@ -585,7 +580,7 @@ it('retains the old owner after failed retirement and retries it before replacem
   await f.runtime.closeIndex();
 });
 
-it('refuses authority changed during reader retirement before replacing bindings', async () => {
+it('installs the authority that moved during reader retirement, never the drifted snapshot (BST-2055)', async () => {
   const initial = { fileBindings: [binding], rootIds: ['root'], scopes: [collection] };
   const f = fixture(initial);
   await f.runtime.acquire();
@@ -595,20 +590,19 @@ it('refuses authority changed during reader retirement before replacing bindings
   const readerExit = Promise.withResolvers<void>();
   f.closeQueries.mockReturnValueOnce(readerExit.promise);
   f.setAuthority({ ...initial, fileBindings: [] });
-  const outcome = f.runtime.acquire().catch((error: unknown) => error);
+  const acquired = f.runtime.acquire();
   await vi.waitFor(() => expect(f.closeQueries).toHaveBeenCalledTimes(2));
   f.setAuthority({ ...initial, fileBindings: [{ ...binding, fileId: 'new-file' }] });
   readerExit.resolve();
-  expect(await outcome).toMatchObject({ message: expect.stringContaining('authority changed') });
-  expect(f.replaceFileBindings).not.toHaveBeenCalled();
-  expect(f.events).not.toContain('reader-installed');
-  await f.runtime.acquire();
+  await expect(acquired).resolves.toBe(f.port);
   expect(f.replaceFileBindings).toHaveBeenCalledExactlyOnceWith([
     { ...binding, fileId: 'new-file' },
   ]);
+  expect(f.events.filter((event) => event === 'reader-installed')).toHaveLength(1);
+  expect(f.events.at(-1)).toBe('reader-installed');
 });
 
-it('refuses authority changed during binding acknowledgment before exposing a query target', async () => {
+it('exposes a query target only for the authority that moved during binding acknowledgment', async () => {
   const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
   const f = fixture(initial);
   await f.runtime.acquire();
@@ -616,17 +610,22 @@ it('refuses authority changed during binding acknowledgment before exposing a qu
   const acknowledgment = Promise.withResolvers<void>();
   f.replaceFileBindings.mockReturnValueOnce(acknowledgment.promise);
   f.setAuthority({ ...initial, fileBindings: [binding] });
-  const outcome = f.runtime.acquire().catch((error: unknown) => error);
+  const acquired = f.runtime.acquire();
   await vi.waitFor(() => expect(f.replaceFileBindings).toHaveBeenCalledWith([binding]));
   f.setAuthority({ ...initial, fileBindings: [{ ...binding, fileId: 'new-file' }] });
   acknowledgment.resolve();
-  expect(await outcome).toMatchObject({ message: expect.stringContaining('authority changed') });
-  expect(f.events).not.toContain('reader-installed');
-  await f.runtime.acquire();
+  await expect(acquired).resolves.toBe(f.port);
+  // The writer acknowledged the drifted file, so it is removed before the moved authority binds.
+  expect(f.removeScopedFile).toHaveBeenCalledExactlyOnceWith({
+    fileId: binding.fileId,
+    scope: collection,
+  });
   expect(f.replaceFileBindings).toHaveBeenLastCalledWith([{ ...binding, fileId: 'new-file' }]);
+  expect(f.events.filter((event) => event === 'reader-installed')).toHaveLength(1);
+  expect(f.events.at(-1)).toBe('reader-installed');
 });
 
-it('retains a started owner for joined cleanup when its authority changed during startup', async () => {
+it('closes a started owner whose authority moved during startup before opening its replacement', async () => {
   const initial = { fileBindings: [binding], rootIds: ['root'], scopes: [collection] };
   const f = fixture(initial);
   const started = Promise.withResolvers<IndexerPort & ScopedIndexerPort>();
@@ -635,12 +634,179 @@ it('retains a started owner for joined cleanup when its authority changed during
     databasePath: '/owned/index.sqlite',
     start: () => started.promise,
   });
-  const outcome = f.runtime.acquire().catch((error: unknown) => error);
+  const acquired = f.runtime.acquire();
   await vi.waitFor(() => expect(f.createIndexOwner).toHaveBeenCalledTimes(1));
   f.setAuthority({ ...initial, fileBindings: [] });
   started.resolve(f.port);
-  expect(await outcome).toMatchObject({ message: expect.stringContaining('authority changed') });
+  await expect(acquired).resolves.toBe(f.port);
+  expect(f.createIndexOwner).toHaveBeenCalledTimes(2);
+  expect(f.createIndexOwner).toHaveBeenLastCalledWith({ ...initial, fileBindings: [] });
+  expect(f.events.indexOf('writer-exited')).toBeLessThan(f.events.indexOf('writer-ready'));
+  expect(f.events.filter((event) => event === 'reader-installed')).toHaveLength(1);
+  await f.runtime.closeIndex();
+  expect(f.closeWriter).toHaveBeenCalledTimes(2);
+});
+
+const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 20));
+
+it("joins a scan's writer read before another root's bindings retire its reader (BST-2055)", async () => {
+  // A finishing root's coverage read lost its query client to a sibling root's
+  // first binding replacement, and the whole index stayed blocked.
+  const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
+  const f = fixture(initial);
+  await f.runtime.acquire();
+  f.events.length = 0;
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const reading = f.runtime.withWriterRead(f.port, async () => {
+    entered.resolve();
+    await release.promise;
+    f.events.push('coverage-read');
+  });
+  await entered.promise;
+  f.setAuthority({ ...initial, fileBindings: [binding] });
+  const acquired = f.runtime.acquire();
+  await settle();
+  expect(f.events).toEqual([]);
+  release.resolve();
+  await Promise.all([reading, acquired]);
+  expect(f.events).toEqual(['coverage-read', 'readers-exited', 'bindings-ack', 'reader-installed']);
+  await f.runtime.closeIndex();
+});
+
+it('starts a writer read only after an acquisition in flight installs its reader', async () => {
+  const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
+  const f = fixture(initial);
+  await f.runtime.acquire();
+  f.events.length = 0;
+  const acknowledgment = Promise.withResolvers<void>();
+  f.replaceFileBindings.mockReturnValueOnce(acknowledgment.promise);
+  f.setAuthority({ ...initial, fileBindings: [binding] });
+  const acquired = f.runtime.acquire();
+  await vi.waitFor(() => expect(f.replaceFileBindings).toHaveBeenCalledWith([binding]));
+  const reading = f.runtime.withWriterRead(f.port, async () => {
+    f.events.push('coverage-read');
+  });
+  await settle();
+  expect(f.events).toEqual(['readers-exited']);
+  acknowledgment.resolve();
+  await Promise.all([acquired, reading]);
+  expect(f.events).toEqual(['readers-exited', 'reader-installed', 'coverage-read']);
+  await f.runtime.closeIndex();
+});
+
+it('starts a writer read only after a source removal in flight settles', async () => {
+  const f = fixture({ fileBindings: [], rootIds: ['root'], scopes: [collection] });
+  await f.runtime.acquire();
+  f.events.length = 0;
+  const removed = Promise.withResolvers<void>();
+  const removal = f.runtime.mutateAuthority(f.port, async () => {
+    await removed.promise;
+    f.events.push('removed');
+  });
+  await vi.waitFor(() => expect(f.events).toEqual(['readers-exited']));
+  const reading = f.runtime.withWriterRead(f.port, async () => {
+    f.events.push('coverage-read');
+  });
+  await settle();
+  expect(f.events).toEqual(['readers-exited']);
+  removed.resolve();
+  await Promise.all([removal, reading]);
+  expect(f.events).toEqual(['readers-exited', 'removed', 'coverage-read']);
+  await f.runtime.closeIndex();
+});
+
+it('runs a writer read beside an acquisition that finds its bindings current (BST-2055)', async () => {
+  // Readers validate the writer on every poll; a proof waiting for no acquisition
+  // at all never ran, and the scans hung with every vector committed.
+  const initial = { fileBindings: [binding], rootIds: ['root'], scopes: [collection] };
+  const f = fixture(initial);
+  await f.runtime.acquire();
+  const validation = Promise.withResolvers<Authority>();
+  f.getAuthority.mockReturnValueOnce(validation.promise);
+  const authorityReads = f.getAuthority.mock.calls.length;
+  const validating = f.runtime.acquire();
+  await vi.waitFor(() => expect(f.getAuthority).toHaveBeenCalledTimes(authorityReads + 1));
+  const read = f.runtime.withWriterRead(f.port, async () => 'proof');
+  await expect(read).resolves.toBe('proof');
+  validation.resolve(initial);
+  await expect(validating).resolves.toBe(f.port);
+  await f.runtime.closeIndex();
+});
+
+it('refuses a writer read for a replaced writer or once admission closes', async () => {
+  const f = fixture({ fileBindings: [], rootIds: ['root'], scopes: [collection] });
+  await f.runtime.acquire();
+  const work = vi.fn(async () => undefined);
+  await expect(f.runtime.withWriterRead({ ...f.port }, work)).rejects.toThrow(
+    'retired or replaced'
+  );
+  await f.runtime.closeIndex();
+  await expect(f.runtime.withWriterRead(f.port, work)).rejects.toThrow('read admission is closed');
+  expect(work).not.toHaveBeenCalled();
+});
+
+it('reads the authority again for a caller that joins after the acquisition last read it (BST-2055)', async () => {
+  const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
+  const second = { ...binding, fileId: 'second-file' };
+  const f = fixture(initial);
+  await f.runtime.acquire();
+  const finalRead = Promise.withResolvers<Authority>();
+  f.replaceFileBindings.mockImplementationOnce(async () => {
+    // The acquisition's final authority read begins before the late caller's records exist.
+    f.getAuthority.mockReturnValueOnce(finalRead.promise);
+  });
+  const snapshot = { ...initial, fileBindings: [binding] };
+  f.setAuthority(snapshot);
+  const first = f.runtime.acquire();
+  await vi.waitFor(() => expect(f.replaceFileBindings).toHaveBeenCalledWith([binding]));
+  await settle();
+  f.setAuthority({ ...initial, fileBindings: [binding, second] });
+  const late = f.runtime.acquire();
+  finalRead.resolve(snapshot);
+  await expect(first).resolves.toBe(f.port);
+  await expect(late).resolves.toBe(f.port);
+  expect(f.replaceFileBindings).toHaveBeenLastCalledWith([binding, second]);
+  await f.runtime.closeIndex();
+});
+
+it('settles readers that validate in turn instead of re-acquiring for each other (BST-2055)', async () => {
+  // A reader's own catalog refresh runs before it acquires, so each poll joined
+  // the other's validation late; a fresh acquisition per late joiner spun forever.
+  const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
+  const f = fixture(initial);
+  await f.runtime.acquire();
+  // The catalog read takes longer than a reader's own refresh before it acquires.
+  f.getAuthority.mockImplementation(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    return initial;
+  });
+  const authorityReads = f.getAuthority.mock.calls.length;
+  const acquireRead = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    return f.runtime.acquire();
+  };
+  const read = () => f.runtime.withRead(acquireRead, async () => undefined);
+  const first = read();
+  await vi.waitFor(() => expect(f.getAuthority.mock.calls.length).toBeGreaterThan(authorityReads));
+  await Promise.all([first, read(), read()]);
+  expect(f.getAuthority.mock.calls.length - authorityReads).toBeLessThan(20);
+  await f.runtime.closeIndex();
+});
+
+it('fails visibly when the authority moves during every acquisition attempt', async () => {
+  const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
+  const f = fixture(initial);
+  await f.runtime.acquire();
+  f.events.length = 0;
+  let moves = 0;
+  f.replaceFileBindings.mockImplementation(async () => {
+    moves += 1;
+    f.setAuthority({ ...initial, fileBindings: [{ ...binding, fileId: `moved-${moves}` }] });
+  });
+  f.setAuthority({ ...initial, fileBindings: [binding] });
+  await expect(f.runtime.acquire()).rejects.toThrow('authority changed during acquisition');
+  expect(moves).toBe(10);
   expect(f.events).not.toContain('reader-installed');
   await f.runtime.closeIndex();
-  expect(f.closeWriter).toHaveBeenCalledTimes(1);
 });
