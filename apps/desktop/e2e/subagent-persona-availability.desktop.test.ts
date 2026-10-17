@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
 import { SettingsPage } from './page-objects/settings-page';
-import { readHostRootRecords } from './utils/agent-host-log';
+import { readHostRootRecords, waitForAppHost } from './utils/agent-host-log';
 import { seedRoot } from './utils/seed-root';
 
 test('shows actual host persona issues and refreshes an edited profile @smoke', async ({
@@ -27,6 +27,8 @@ test('shows actual host persona issues and refreshes an edited profile @smoke', 
       reloadReason: 'persona-availability-mounted-workspace',
       rootId: 'bst1727-availability-root',
     });
+    // The fresh app's host publishes its record after the renderer is ready.
+    await waitForAppHost(window);
     await expect
       .poll(
         async () =>

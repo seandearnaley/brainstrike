@@ -5,7 +5,7 @@ import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { expect, test } from './fixtures/electron-fixture';
-import { readHostProcess, withAppHost } from './utils/agent-host-log';
+import { readHostProcess, waitForAppHost, withAppHost } from './utils/agent-host-log';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 const CLOSE_TIMEOUT_MS = 10_000;
@@ -74,6 +74,7 @@ test.describe('Shutdown signals join the profile owner', () => {
   }, testInfo) => {
     const { waitForAppReady } = await loadElectronHelpers();
     await waitForAppReady(window);
+    await waitForAppHost(window);
     const userDataDir = electron.getUserDataDir();
     const threadId = await commitProbe(userDataDir);
     const host = await ownedHost(userDataDir);
@@ -109,7 +110,9 @@ test.describe('Shutdown signals join the profile owner', () => {
     expect(processStartTime(host.pid)).not.toBe(host.start);
     expect(RootLock.isFlockHeld(host.root)).toBe(false);
     expect(RootLock.inspect(host.root)?.owner.released).toBe(true);
-    await waitForAppReady((await electron.restart()).window);
+    const restarted = (await electron.restart()).window;
+    await waitForAppReady(restarted);
+    await waitForAppHost(restarted);
     await assertProbe(userDataDir, threadId);
     const reopened = await ownedHost(userDataDir);
     expect(reopened.pid).not.toBe(host.pid);
@@ -121,6 +124,7 @@ test.describe('Shutdown signals join the profile owner', () => {
   }, testInfo) => {
     const { waitForAppReady } = await loadElectronHelpers();
     await waitForAppReady(window);
+    await waitForAppHost(window);
     const userDataDir = electron.getUserDataDir();
     const threadId = await commitProbe(userDataDir);
     const host = await ownedHost(userDataDir);
@@ -142,7 +146,9 @@ test.describe('Shutdown signals join the profile owner', () => {
       });
     }
     expect(RootLock.isFlockHeld(host.root)).toBe(false);
-    await waitForAppReady((await electron.restart()).window);
+    const restarted = (await electron.restart()).window;
+    await waitForAppReady(restarted);
+    await waitForAppHost(restarted);
     await assertProbe(userDataDir, threadId);
     const recovered = await ownedHost(userDataDir);
     expect(recovered.pid).not.toBe(host.pid);
