@@ -1,5 +1,6 @@
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import type { EmbeddingHostManager } from './embedding-host-manager';
+import { nativeIndexFailureRefusal } from './native-index-lifecycle';
 import type { NativeIndexLifecycle } from './native-index-lifecycle-owner';
 
 /**
@@ -15,7 +16,13 @@ export function createNativeIndexRetry(dependencies: {
   return async () => {
     const lifecycle = await dependencies.lifecycle;
     const state = await lifecycle.state();
-    if (!(state.kind === 'failed' && state.cause.blockedReason === 'embedding-host-unresponsive')) {
+    // Only this cause's remedy is a restart; `rebuild-required` keeps its own (BST-1878).
+    if (
+      !(
+        state.kind === 'failed' &&
+        nativeIndexFailureRefusal(state.cause).kind === 'embedding-host-unresponsive'
+      )
+    ) {
       throw refusalError(
         'conflict',
         'native-index.retry-not-needed',

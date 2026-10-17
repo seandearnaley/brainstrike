@@ -6,6 +6,7 @@ const { once } = require('node:events');
 const { createInterface } = require('node:readline');
 const { test } = require('node:test');
 const { getCurrentProcessIdentity, getProcessCreationTime } = require('..');
+const { commandFixture } = require('./command-job-fixture.cjs');
 const windows = { skip: process.platform !== 'win32' };
 
 test(
@@ -68,11 +69,38 @@ test(
   }
 );
 
-test('process identity refuses invalid PIDs and inaccessible system owners', windows, () => {
+test('process identity refuses invalid PIDs and an inaccessible live owner', windows, async (t) => {
   for (const pid of [0, -1, 1.5, Number.NaN, 2 ** 32, '1']) {
     assert.throws(() => getProcessCreationTime(pid), TypeError);
   }
-  // OpenProcess documents access denial for the System process. A denial is
-  // an error, never evidence that its PID is gone.
-  assert.throws(() => getProcessCreationTime(4));
+  // A denial is an error, never evidence that the PID is gone. The member's
+  // DACL denies the probe's PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE to
+  // Everyone, and the probing actor loses SeDebugPrivilege, so the denial holds
+  // for an elevated runner too. The actor's kill-on-close Job ends the member.
+  const fixture = await commandFixture(t);
+  const actor = fixture.guard(`
+const {spawn}=require('node:child_process');
+job.initialize();
+const member=spawn(process.execPath,['-e','process.send("ready"); setInterval(()=>{},1000);'],{stdio:['ignore','ignore','ignore','ipc']});
+await new Promise(resolve=>member.once('message',resolve));
+process.on('message',(message)=>{
+ if(message.type!=='probe')return;
+ try{process.send({event:'probed',value:job.getProcessCreationTime(member.pid)});}
+ catch(error){process.send({event:'probed',message:error.message});}
+});
+process.send({event:'member',pid:member.pid});
+`);
+  const { pid } = await actor.wait('member');
+  const observer = await fixture.observe([pid]);
+  observer.child.stdin.write('deny 0x101000\n');
+  await observer.wait('denied');
+  observer.child.stdin.write(`restrict ${actor.child.pid}\n`);
+  t.diagnostic(JSON.stringify(await observer.wait('restricted')));
+  actor.child.send({ type: 'probe' });
+  assert.deepEqual(await actor.wait('probed'), {
+    event: 'probed',
+    message: 'OpenProcess failed with Windows error 5.',
+  });
+  observer.child.stdin.write('check\n');
+  assert.deepEqual((await observer.wait('check')).waits, [258]);
 });

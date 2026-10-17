@@ -48,19 +48,25 @@ export interface IndexerPublicationProgress {
     | { readonly kind: 'collection'; readonly embeddingSetId: string };
   readonly storeId: string;
 }
-/** Typed lifecycle refusal; no native objects or failure stacks cross the renderer boundary. */
+/**
+ * Typed lifecycle refusal; no native objects or failure stacks cross the renderer boundary.
+ * `rebuild-required`: the store refused to open its file (damaged, or a layout it does not
+ * support), so only an explicit rebuild serves again (BST-1878).
+ * `embedding-host-unresponsive`: the embedding host stopped responding to a document batch, so
+ * only the person's Retry indexing (which restarts it) serves again; never retried automatically
+ * (BST-2104).
+ */
 export type NativeIndexRefusalCause =
   | { readonly kind: 'transitioning' }
   | { readonly kind: 'closed'; readonly reason: string }
-  | { readonly kind: 'setup-required' | 'settings-invalid'; readonly message: string }
   | {
-      readonly kind: 'source-failure';
+      readonly kind:
+        | 'setup-required'
+        | 'settings-invalid'
+        | 'source-failure'
+        | 'rebuild-required'
+        | 'embedding-host-unresponsive';
       readonly message: string;
-      /**
-       * Set when only a person's Retry indexing recovers the failure: the embedding host stopped
-       * responding, and retrying restarts it (BST-2104). Never retried automatically.
-       */
-      readonly blockedReason?: 'embedding-host-unresponsive';
     };
 
 /** Only the lifecycle/resource owner can refuse admission with this typed cause. */
@@ -302,9 +308,9 @@ export interface IndexRootRegistrationCapability {
 }
 
 /**
- * The remedy for a source failure whose `blockedReason` is `embedding-host-unresponsive`:
- * restarts the embedding host through its owner, then re-opens the failed generation so its
- * pending indexing work is admitted again. Refuses any other state; never runs automatically.
+ * The remedy for the `embedding-host-unresponsive` refusal: restarts the embedding host through
+ * its owner, then re-opens the failed generation so its pending indexing work is admitted again.
+ * Refuses any other state, `rebuild-required` included; never runs automatically.
  */
 export interface IndexRetryCapability {
   retryIndexing(): Promise<void>;

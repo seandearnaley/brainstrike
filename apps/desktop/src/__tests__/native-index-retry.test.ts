@@ -1,5 +1,7 @@
 import { BoundaryFailureError } from '@brainstrike/assistant-contract';
+import { IndexerError } from '@brainstrike/indexer';
 import { expect, it, vi } from 'vitest';
+import { embeddingHostUnresponsiveError } from '../embedding-host-unresponsive';
 import type {
   NativeIndexAction,
   NativeIndexEvent,
@@ -13,10 +15,14 @@ import { readNativeIndexSettings } from '../native-index-settings';
 const VECTOR = readNativeIndexSettings(
   '{"state":{"enabled":true,"indexingPolicyPreset":"balanced","managedCollectionId":"3a48f02c-2c2a-4835-926d-59cbc286513a","mode":"root-folder-cache","nativeIndexMode":"VECTOR","nativeLocalSelection":{"device":"wasm","dimensions":384,"dtype":"q8","modelId":"Xenova/bge-small-en-v1.5"},"paused":false,"worktreeRootIndexingOptInById":{}},"version":6}'
 );
-const message =
-  'The embedding model stopped responding while it was loading. It sent no progress for 1 min (1 min after the batch started).';
+const unresponsive = embeddingHostUnresponsiveError({
+  elapsedMs: 60_000,
+  lastProgress: { stage: 'setup' },
+  texts: 4,
+  windowMs: 60_000,
+});
 const blocked: NativeIndexState = {
-  cause: { blockedReason: 'embedding-host-unresponsive', kind: 'source-failure', message },
+  cause: { error: unresponsive, kind: 'source-failure', message: unresponsive.message },
   generation: 3,
   kind: 'failed',
   settings: VECTOR,
@@ -54,6 +60,15 @@ it('restarts the embedding host first, then re-opens the blocked generation, whi
 it('refuses, restarting nothing, unless the index is blocked on the embedding host', async () => {
   for (const state of [
     { ...blocked, cause: { kind: 'source-failure', message: 'Workspace walk failed.' } },
+    // A damaged index keeps its own remedy, Rebuild (BST-1878), never a host restart.
+    {
+      ...blocked,
+      cause: {
+        error: new IndexerError('rebuild-required', 'SQLite integrity_check refused the index.'),
+        kind: 'source-failure',
+        message: 'SQLite integrity_check refused the index.',
+      },
+    },
     { generation: 3, kind: 'ready', settings: VECTOR },
   ] satisfies NativeIndexState[]) {
     const { destroyAndRestart, execute, retry } = await setup(state);

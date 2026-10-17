@@ -317,11 +317,7 @@ it.each(['status', 'batch'] as const)(
     });
     const reason =
       'The embedding model stopped responding while it was loading. It sent no progress for 1 min (1 min after the batch started).';
-    const cause = {
-      blockedReason: 'embedding-host-unresponsive' as const,
-      kind: 'source-failure' as const,
-      message: reason,
-    };
+    const cause = { kind: 'embedding-host-unresponsive' as const, message: reason };
     let unresponsive = true;
     const capability = {
       coverage: vi.fn(),

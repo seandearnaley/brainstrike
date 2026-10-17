@@ -1,6 +1,5 @@
 import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
-import { findEmbeddingHostUnresponsive } from './embedding-host-unresponsive';
 import type { NativeIndexEvent, NativeIndexReopen } from './native-index-lifecycle';
 
 const logger = createLogger('NativeIndexReopen');
@@ -74,17 +73,12 @@ export function createNativeIndexFailures(options: {
     },
     record(generation: number, error: unknown, startup = false): void {
       const reopen = startup ? plan(error) : undefined;
-      // The one classification of an unresponsive host: its plain cause leads, however wrapped,
-      // and only the person's Retry indexing recovers it (BST-2104).
-      const unresponsive = findEmbeddingHostUnresponsive(error);
       options
         .dispatch({
           error,
           generation,
           kind: 'failure',
-          message:
-            unresponsive?.message ?? (error instanceof Error ? error.message : String(error)),
-          ...(unresponsive ? { blockedReason: 'embedding-host-unresponsive' as const } : {}),
+          message: error instanceof Error ? error.message : String(error),
           ...(reopen ? { reopen } : {}),
         })
         .then(() => {

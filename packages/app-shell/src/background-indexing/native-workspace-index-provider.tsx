@@ -162,13 +162,27 @@ function publishUnavailableProgress(
   });
 }
 
-/** The remedy the native owner named for a blocked index, as the sync store spells it. */
+/**
+ * The one mapping from the native owner's typed refusal to the sync store's blocked reason: only
+ * a cause a person resolves from the status surface names one (BST-2104).
+ */
 function syncBlockedReason(
   cause: NativeIndexRefusalCause | undefined
 ): WorkspaceCollectionSyncBlockedReason | null {
-  return cause?.kind === 'source-failure' && cause.blockedReason !== undefined
-    ? cause.blockedReason
-    : null;
+  if (cause === undefined) {
+    return null;
+  }
+  switch (cause.kind) {
+    case 'embedding-host-unresponsive':
+      return cause.kind;
+    case 'closed':
+    case 'rebuild-required':
+    case 'settings-invalid':
+    case 'setup-required':
+    case 'source-failure':
+    case 'transitioning':
+      return null;
+  }
 }
 
 interface RetainedProgress {

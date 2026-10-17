@@ -29,6 +29,8 @@ const BoundaryFailureCode = Schema.Union([
     'native-index-setup-required',
     'native-index-settings-invalid',
     'native-index-source-failure',
+    'native-index-rebuild-required',
+    'native-index-embedding-host-unresponsive',
   ]),
 ]);
 /** The facts of a lost child process; none of them is a path or a message. */

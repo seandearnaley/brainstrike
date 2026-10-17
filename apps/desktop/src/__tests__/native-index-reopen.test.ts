@@ -81,7 +81,7 @@ it('never re-opens a failure after startup, a refusal, or one not typed as trans
   expect(events.every((event) => event.kind === 'failure' && !event.reopen)).toBe(true);
 });
 
-it('records an unresponsive embedding host once, typed for Retry indexing and never re-opened (BST-2104)', async () => {
+it('never re-opens an unresponsive embedding host on its own, even at startup (BST-2104)', async () => {
   const { events, failures } = recorder();
   const unresponsive = embeddingHostUnresponsiveError({
     elapsedMs: 60_000,
@@ -89,24 +89,20 @@ it('records an unresponsive embedding host once, typed for Retry indexing and ne
     texts: 4,
     windowMs: 60_000,
   });
-  // Retirement and ingestion wrap it on the way here; its plain cause still leads.
+  // Its owner typed it a refusal: only the person's Retry indexing recovers it.
+  failures.record(1, unresponsive, true);
   failures.record(
-    1,
+    2,
     new AggregateError(
       [unresponsive, new Error('Embedding host stop timed out.')],
       'Document embedding interruption required failed host retirement.'
     ),
     true
   );
-  failures.record(2, new Error('Workspace walk failed.'), true);
   await vi.waitFor(() => expect(events).toHaveLength(2));
-  expect(events[0]).toMatchObject({
-    blockedReason: 'embedding-host-unresponsive',
-    generation: 1,
-    kind: 'failure',
-    message: unresponsive.message,
-  });
-  expect(events[0]).not.toHaveProperty('reopen');
-  expect(events[1]).not.toHaveProperty('blockedReason');
-  expect(events[1]).toMatchObject({ message: 'Workspace walk failed.' });
+  expect(events.every((event) => event.kind === 'failure' && !event.reopen)).toBe(true);
+  expect(events.map((event) => (event.kind === 'failure' ? event.error : null))).toEqual([
+    unresponsive,
+    expect.any(AggregateError),
+  ]);
 });

@@ -39,6 +39,7 @@ import {
   type HandleInfo,
   isMissingFileError,
 } from './background-token-indexer-handles';
+import { useIndexingResetRetirement } from './background-token-indexer-reset-retirement';
 import {
   handleSelectionShrink,
   shouldReconcileShrink,
@@ -581,6 +582,7 @@ export function useBackgroundTokenIndexerIntegration({
   // Stable ref for backgroundIndexer to avoid callback instability
   const backgroundIndexerRef = useRef(backgroundIndexer);
   backgroundIndexerRef.current = backgroundIndexer;
+  const resetRetirement = useIndexingResetRetirement(backgroundIndexerRef);
 
   // Stable ref for electronFileReader
   const electronFileReaderRef = useRef(electronFileReader);
@@ -598,7 +600,7 @@ export function useBackgroundTokenIndexerIntegration({
    * For Electron files, reads content via IPC first (async, non-blocking).
    * Uses refs to maintain stable callback identity and avoid re-render loops.
    */
-  const triggerIndexing = useCallback(
+  const runIndexing = useCallback(
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Indexing logic requires branching for handle types and batch processing
     async (compositeKeys: string[]) => {
       const cache = tokenCacheRef.current;
@@ -609,6 +611,12 @@ export function useBackgroundTokenIndexerIntegration({
           backgroundIndexerReady: indexer.isReady,
           requestedFiles: compositeKeys.length,
           tokenCacheOperational: cache?.isOperational ?? false,
+        });
+        return;
+      }
+      if (resetRetirement.isRetired()) {
+        logger.debug('triggerIndexing refused after factory reset retirement', {
+          requestedFiles: compositeKeys.length,
         });
         return;
       }
@@ -791,6 +799,9 @@ export function useBackgroundTokenIndexerIntegration({
         try {
           await dispatchBatches(webFilesToIndex);
         } catch (error) {
+          if (resetRetirement.settledByReset(error, 'web')) {
+            return;
+          }
           logger.error('triggerIndexing web batch dispatch failed', {
             error: error instanceof Error ? error.message : String(error),
           });
@@ -891,6 +902,9 @@ export function useBackgroundTokenIndexerIntegration({
               try {
                 await dispatchBatches(resolvedBatchToIndex);
               } catch (error) {
+                if (resetRetirement.settledByReset(error, 'web-resolver')) {
+                  return;
+                }
                 logger.error('triggerIndexing web resolver batch dispatch failed', {
                   error: error instanceof Error ? error.message : String(error),
                 });
@@ -1025,6 +1039,9 @@ export function useBackgroundTokenIndexerIntegration({
           try {
             await dispatchBatches(electronFilesReady);
           } catch (error) {
+            if (resetRetirement.settledByReset(error, 'electron')) {
+              return;
+            }
             logger.error('triggerIndexing electron batch dispatch failed', {
               error: error instanceof Error ? error.message : String(error),
             });
@@ -1060,7 +1077,12 @@ export function useBackgroundTokenIndexerIntegration({
         });
       }
     },
-    [handleFileError]
+    [handleFileError, resetRetirement]
+  );
+  // Reset preparation joins every run after retiring the indexer.
+  const triggerIndexing = useCallback(
+    (compositeKeys: string[]) => resetRetirement.track(runIndexing(compositeKeys)),
+    [resetRetirement, runIndexing]
   );
 
   // Queue newly selected files for indexing when selection changes
