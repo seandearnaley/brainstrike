@@ -60,10 +60,7 @@ const REQUEST_EXTENSION_CONTRACT = {
   parseServerSettings: EXAMPLE_CONTRACT.parseSettings,
   requests: [EXAMPLE_REQUEST],
 } as const;
-interface FlexibleSettings {
-  mode: 'loose' | 'strict';
-}
-const parseFlexibleSettings = (value: unknown): FlexibleSettings => {
+const parseFlexibleSettings = (value: unknown) => {
   if (
     typeof value !== 'object' ||
     value === null ||
@@ -75,6 +72,8 @@ const parseFlexibleSettings = (value: unknown): FlexibleSettings => {
   }
   return { mode: value.mode };
 };
+type FlexibleSettings = ReturnType<typeof parseFlexibleSettings>;
+
 const FLEXIBLE_REQUEST_EXTENSION_CONTRACT = {
   ...REQUEST_EXTENSION_CONTRACT,
   isServerSettingsCompatible: (client: FlexibleSettings, server: FlexibleSettings) =>
@@ -99,7 +98,7 @@ describe('McpClientExtensionRegistry', () => {
     const registry = new McpClientExtensionRegistry();
     registry.register(EXAMPLE_CONTRACT, {
       implementation: COMPLETE_IMPLEMENTATION,
-      settings: { mode: 'strict' },
+      settings: { mode: 'strict' as const },
       version: '2026-08-29',
     });
 
@@ -112,7 +111,7 @@ describe('McpClientExtensionRegistry', () => {
     const registry = new McpClientExtensionRegistry();
     registry.register(REQUEST_EXTENSION_CONTRACT, {
       implementation: COMPLETE_IMPLEMENTATION,
-      settings: { mode: 'strict' },
+      settings: { mode: 'strict' as const },
       version: '2026-08-29',
     });
 
@@ -145,7 +144,7 @@ describe('McpClientExtensionRegistry', () => {
       { ...REQUEST_EXTENSION_CONTRACT, notifications: [EXAMPLE_NOTIFICATION] },
       {
         implementation: COMPLETE_IMPLEMENTATION,
-        settings: { mode: 'strict' },
+        settings: { mode: 'strict' as const },
         version: '2026-08-29',
       }
     );
@@ -188,7 +187,7 @@ describe('McpClientExtensionRegistry', () => {
         },
         {
           implementation: COMPLETE_IMPLEMENTATION,
-          settings: { mode: 'strict' },
+          settings: { mode: 'strict' as const },
           version: '2026-08-29',
         }
       )
@@ -202,7 +201,7 @@ describe('McpClientExtensionRegistry', () => {
       { ...REQUEST_EXTENSION_CONTRACT, requests: [request] },
       {
         implementation: COMPLETE_IMPLEMENTATION,
-        settings: { mode: 'strict' },
+        settings: { mode: 'strict' as const },
         version: '2026-08-29',
       }
     );
@@ -237,7 +236,7 @@ describe('McpClientExtensionRegistry', () => {
       { ...REQUEST_EXTENSION_CONTRACT, requests: [request] },
       {
         implementation: COMPLETE_IMPLEMENTATION,
-        settings: { mode: 'strict' },
+        settings: { mode: 'strict' as const },
         version: '2026-08-29',
       }
     );
@@ -252,7 +251,7 @@ describe('McpClientExtensionRegistry', () => {
         },
         {
           implementation: COMPLETE_IMPLEMENTATION,
-          settings: { mode: 'strict' },
+          settings: { mode: 'strict' as const },
           version: '2026-08-29',
         }
       )
@@ -263,7 +262,7 @@ describe('McpClientExtensionRegistry', () => {
     const registry = new McpClientExtensionRegistry();
     registry.register(REQUEST_EXTENSION_CONTRACT, {
       implementation: COMPLETE_IMPLEMENTATION,
-      settings: { mode: 'strict' },
+      settings: { mode: 'strict' as const },
       version: '2026-08-29',
     });
 
@@ -345,7 +344,7 @@ describe('McpClientExtensionRegistry', () => {
         },
         {
           implementation: COMPLETE_IMPLEMENTATION,
-          settings: { mode: 'strict' },
+          settings: { mode: 'strict' as const },
           version: '2026-08-29',
         }
       )
@@ -370,7 +369,7 @@ describe('McpClientExtensionRegistry', () => {
           },
           {
             implementation: COMPLETE_IMPLEMENTATION,
-            settings: { mode: 'strict' },
+            settings: { mode: 'strict' as const },
             version: '2026-08-29',
           }
         )
@@ -387,7 +386,7 @@ describe('McpClientExtensionRegistry', () => {
         },
         {
           implementation: COMPLETE_IMPLEMENTATION,
-          settings: { mode: 'strict' },
+          settings: { mode: 'strict' as const },
           version: '2026-08-29',
         }
       )
@@ -414,7 +413,7 @@ describe('McpClientExtensionRegistry', () => {
         { ...REQUEST_EXTENSION_CONTRACT, requests: [request] },
         {
           implementation: COMPLETE_IMPLEMENTATION,
-          settings: { mode: 'strict' },
+          settings: { mode: 'strict' as const },
           version: '2026-08-29',
         }
       )
@@ -424,11 +423,14 @@ describe('McpClientExtensionRegistry', () => {
 
   it('requires an explicit compatibility predicate and rejects valid but incompatible settings', async () => {
     const registry = new McpClientExtensionRegistry();
-    registry.register(FLEXIBLE_REQUEST_EXTENSION_CONTRACT, {
-      implementation: COMPLETE_IMPLEMENTATION,
-      settings: { mode: 'strict' },
-      version: '2026-08-29',
-    });
+    registry.register<'2026-08-29', FlexibleSettings, ExampleImplementation>(
+      FLEXIBLE_REQUEST_EXTENSION_CONTRACT,
+      {
+        implementation: COMPLETE_IMPLEMENTATION,
+        settings: { mode: 'strict' as const },
+        version: '2026-08-29',
+      }
+    );
 
     await expect(
       registry.prepareRequest(
@@ -439,26 +441,32 @@ describe('McpClientExtensionRegistry', () => {
       )
     ).rejects.toThrow('incompatible server settings');
 
+    const { isServerSettingsCompatible: _compatibility, ...withoutCompatibility } =
+      FLEXIBLE_REQUEST_EXTENSION_CONTRACT;
     expect(() =>
-      new McpClientExtensionRegistry().register(
-        { ...FLEXIBLE_REQUEST_EXTENSION_CONTRACT, isServerSettingsCompatible: undefined },
-        {
-          implementation: COMPLETE_IMPLEMENTATION,
-          settings: { mode: 'strict' },
-          version: '2026-08-29',
-        }
-      )
+      new McpClientExtensionRegistry().register<
+        '2026-08-29',
+        FlexibleSettings,
+        ExampleImplementation
+      >(withoutCompatibility, {
+        implementation: COMPLETE_IMPLEMENTATION,
+        settings: { mode: 'strict' as const },
+        version: '2026-08-29',
+      })
     ).toThrow('must define server settings compatibility');
   });
 
   it('seals an immutable capability snapshot before dispatch', async () => {
     const settings: FlexibleSettings = { mode: 'strict' };
     const registry = new McpClientExtensionRegistry();
-    registry.register(FLEXIBLE_REQUEST_EXTENSION_CONTRACT, {
-      implementation: COMPLETE_IMPLEMENTATION,
-      settings,
-      version: '2026-08-29',
-    });
+    registry.register<'2026-08-29', FlexibleSettings, ExampleImplementation>(
+      FLEXIBLE_REQUEST_EXTENSION_CONTRACT,
+      {
+        implementation: COMPLETE_IMPLEMENTATION,
+        settings,
+        version: '2026-08-29',
+      }
+    );
 
     const capabilities = registry.toClientExtensionCapabilities();
     settings.mode = 'loose';
@@ -476,14 +484,14 @@ describe('McpClientExtensionRegistry', () => {
     expect(() =>
       registry.register(EXAMPLE_CONTRACT, {
         implementation: COMPLETE_IMPLEMENTATION,
-        settings: { mode: 'strict' },
+        settings: { mode: 'strict' as const },
         version: '2026-08-29',
       })
     ).toThrow('sealed');
   });
 
   it('rejects cyclic settings with an attributable JSON error', () => {
-    const cyclic: Record<string, never> = {};
+    const cyclic = { mode: 'strict' as const };
     Reflect.set(cyclic, 'self', cyclic);
     const registry = new McpClientExtensionRegistry();
     registry.register(
@@ -504,7 +512,7 @@ describe('McpClientExtensionRegistry', () => {
     const registry = new McpClientExtensionRegistry();
     registry.register(REQUEST_EXTENSION_CONTRACT, {
       implementation: COMPLETE_IMPLEMENTATION,
-      settings: { mode: 'strict' },
+      settings: { mode: 'strict' as const },
       version: '2026-08-29',
     });
 
@@ -541,7 +549,7 @@ describe('McpClientExtensionRegistry', () => {
         },
         {
           implementation: COMPLETE_IMPLEMENTATION,
-          settings: { mode: 'strict' },
+          settings: { mode: 'strict' as const },
           version: '2026-08-29',
         }
       )
@@ -557,7 +565,7 @@ describe('McpClientExtensionRegistry', () => {
           { ...EXAMPLE_CONTRACT, id },
           {
             implementation: COMPLETE_IMPLEMENTATION,
-            settings: { mode: 'strict' },
+            settings: { mode: 'strict' as const },
             version: '2026-08-29',
           }
         )
@@ -567,7 +575,11 @@ describe('McpClientExtensionRegistry', () => {
 
   it.each([
     [
-      { implementation: COMPLETE_IMPLEMENTATION, settings: { mode: 'strict' }, version: 'bad' },
+      {
+        implementation: COMPLETE_IMPLEMENTATION,
+        settings: { mode: 'strict' as const },
+        version: 'bad',
+      },
       'requires version',
     ],
     [
@@ -575,7 +587,7 @@ describe('McpClientExtensionRegistry', () => {
       'settings must be exactly',
     ],
     [
-      { implementation: {}, settings: { mode: 'strict' }, version: '2026-08-29' },
+      { implementation: {}, settings: { mode: 'strict' as const }, version: '2026-08-29' },
       'complete host implementation',
     ],
   ])('rejects an untrusted invalid registration', (registration, message) => {
@@ -588,7 +600,7 @@ describe('McpClientExtensionRegistry', () => {
     const registry = new McpClientExtensionRegistry();
     const registration = {
       implementation: COMPLETE_IMPLEMENTATION,
-      settings: { mode: 'strict' },
+      settings: { mode: 'strict' as const },
       version: '2026-08-29',
     };
     registry.register(EXAMPLE_CONTRACT, registration);
@@ -600,19 +612,19 @@ describe('McpClientExtensionRegistry', () => {
 
   it('revalidates settings and implementation before each projection', () => {
     const registry = new McpClientExtensionRegistry();
-    const implementation: { render?: () => void } = { render: () => undefined };
-    const settings = { mode: 'strict' };
+    const implementation: ExampleImplementation = { render: () => undefined };
+    const settings: { mode: 'strict' } = { mode: 'strict' };
     registry.register(EXAMPLE_CONTRACT, {
       implementation,
       settings,
       version: '2026-08-29',
     });
 
-    settings.mode = 'loose';
+    Reflect.set(settings, 'mode', 'loose');
     expect(() => registry.toClientExtensionCapabilities()).toThrow('settings must be exactly');
 
     settings.mode = 'strict';
-    implementation.render = undefined;
+    Reflect.set(implementation, 'render', undefined);
     expect(() => registry.toClientExtensionCapabilities()).toThrow(
       'does not have a complete host implementation'
     );
@@ -636,7 +648,7 @@ it('accepts callable Standard Schema implementations and uses their validated ou
     },
     {
       implementation: COMPLETE_IMPLEMENTATION,
-      settings: { mode: 'strict' },
+      settings: { mode: 'strict' as const },
       version: '2026-08-29',
     }
   );

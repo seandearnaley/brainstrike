@@ -508,7 +508,7 @@ describe('ExplicitHttpMcpClient validation', () => {
           new ExplicitHttpMcpClient({
             authorizationCallbackTimeoutMs: 60_000,
             name: 'orphan-callback-timeout-canary',
-            protocol: transport === 'sse' ? 'legacy' : undefined,
+            ...(transport === 'sse' ? { protocol: 'legacy' as const } : {}),
             transport,
             url: 'https://example.test/mcp',
           })

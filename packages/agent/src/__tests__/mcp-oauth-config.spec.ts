@@ -17,7 +17,9 @@ describe('agent MCP authentication configuration', () => {
         },
       ],
     });
-    expect(parsed.servers.map((server) => server.auth?.type)).toEqual(['none']);
+    expect(
+      parsed.servers.map((server) => (server.transport === 'stdio' ? undefined : server.auth?.type))
+    ).toEqual(['none']);
   });
   it('accepts OAuth only with explicit user-paced startup', () => {
     const parsed = Schema.decodeUnknownSync(McpConfigSchema, {
