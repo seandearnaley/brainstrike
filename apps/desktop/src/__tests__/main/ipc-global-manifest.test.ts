@@ -397,6 +397,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
   it('registers every contract invoke channel exactly once, as an invoke, and never a push event', () => {
     const contracts = discoverContracts();
     expect([...new Set(contracts.map(({ file }) => file))]).toEqual([
+      'agent-host-recovery.contract.ts',
       'changes.contract.ts',
       'clipboard.contract.ts',
       'collection-catalog.contract.ts',

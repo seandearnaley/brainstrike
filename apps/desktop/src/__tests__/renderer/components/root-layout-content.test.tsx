@@ -65,6 +65,10 @@ vi.mock('../../../renderer/host-mcp-settings', () => ({
   resolveDesktopMcpToolsCapability: () => null,
 }));
 
+// The damaged-store notice's capability reaches the frame's host connection (BST-1880).
+vi.mock('../../../renderer/desktop-state-health', () => ({
+  createDesktopStateHealth: () => null,
+}));
 vi.mock('../../../renderer/desktop-host-thread-provider', () => ({
   DesktopHostThreadProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));

@@ -61,6 +61,7 @@
     "run/steer",
     "run/stop",
     "run/verdict",
+    "state/health/read",
     "thread/children",
     "thread/delete",
     "thread/list",

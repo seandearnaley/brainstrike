@@ -17,6 +17,7 @@ import type { IpcResult } from './platform/ipc-contract';
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 import { getFactoryResetUnavailableReason } from './factory-reset-availability';
+import { agentHostRecoveryContract } from './ipc-domains/agent-host-recovery.contract';
 import { changesContract } from './ipc-domains/changes.contract';
 import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { commandSessionsContract } from './ipc-domains/command-sessions.contract';
@@ -726,6 +727,12 @@ exposeBridge('clipboard', clipboardContract);
 // Web has no preload, so it keeps `document.hasFocus()`.
 if (shouldExposeBridge('windowFocus')) {
   exposeBridge('windowFocus', windowFocusContract);
+}
+
+// A damaged state store's recovery actions (BST-1880): restart the agent host this
+// app launched, and show the profile's data folder. Desktop-only.
+if (shouldExposeBridge('agentHostRecovery')) {
+  exposeBridge('agentHostRecovery', agentHostRecoveryContract);
 }
 
 // Database integrity state (BST-1870, desktop-only): `getState()` reads the

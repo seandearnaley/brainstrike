@@ -41,6 +41,10 @@ export { openHostChildTab } from './open-host-child-tab';
 export * from './page-wrapper';
 export * from './provider-verification-client';
 export * from './root-layout-content';
+export type {
+  StateHealthCapability,
+  StateStoreHealth,
+} from './state-health/state-health-capability';
 export * from './status-items';
 export * from './threads-panel';
 export * from './types';

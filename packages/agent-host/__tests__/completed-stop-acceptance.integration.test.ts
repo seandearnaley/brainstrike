@@ -33,6 +33,7 @@ test.each(['before commit', 'after commit'] as const)(
       },
       deleteSetting: (key) => store.deleteSetting(key),
       getSetting: (key) => store.getSetting(key),
+      health: () => store.health(),
       holdBlobGc: () => store.holdBlobGc(),
       read: (threadId, fromSeq) => store.read(threadId, fromSeq),
       readHydration: () => store.readHydration(),

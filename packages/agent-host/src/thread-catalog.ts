@@ -33,7 +33,10 @@ export class HostThreadDamagedRefusal extends BoundaryFailureError {
 
 /** The Root store Core opens over and commits to. */
 export type HostEventStore = HostHookTrustStore &
-  Pick<StateStore, 'append' | 'holdBlobGc' | 'read' | 'readHydration' | 'root' | 'syncBoundary'> & {
+  Pick<
+    StateStore,
+    'append' | 'health' | 'holdBlobGc' | 'read' | 'readHydration' | 'root' | 'syncBoundary'
+  > & {
     readonly deleteThread?: StateStore['deleteThread'];
   };
 

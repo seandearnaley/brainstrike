@@ -10,6 +10,7 @@ import type { mainDiagnosticEventsReader } from '../assistant-server/query-diagn
 import type { DesktopPlatformDiagnosticsSnapshot } from '../desktop-platform-diagnostics';
 import type { MainLogWindowRequest, MainLogWindowResult } from '../diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from '../diagnostics/process-counter-ring';
+import type { agentHostRecoveryContract } from '../ipc-domains/agent-host-recovery.contract';
 import type { changesContract } from '../ipc-domains/changes.contract';
 import type { clipboardContract } from '../ipc-domains/clipboard.contract';
 import type { collectionCatalogContract } from '../ipc-domains/collection-catalog.contract';
@@ -45,6 +46,8 @@ import type {
 declare global {
   interface Window {
     agentHost?: { connect(requestId: string): Promise<BoundaryResult<void>> };
+    /** Desktop-only recovery actions for a damaged state store (BST-1880). */
+    agentHostRecovery?: TransportBridge<typeof agentHostRecoveryContract>;
     /**
      * Desktop-only subagent persona discovery bridge. Absent on web (no
      * preload) — consumers MUST capability-check `window.assistantPersonas`.

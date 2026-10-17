@@ -14,6 +14,7 @@ import { AccountMenu } from './account-menu';
 import { AppReloadStrip } from './app-reload/app-reload-strip';
 import { DatabaseIntegrityNotice } from './database-integrity/database-integrity-notice';
 import { useModelMigrationNotices } from './hooks/use-model-migration-notices';
+import { StateStoreDamageNotice } from './state-health/state-store-damage-notice';
 import { DatabaseStatusItem } from './status-items/database-status-item';
 import { DiagnosticsStatusItem } from './status-items/diagnostics-status-item';
 import { IndexingStatusItem } from './status-items/indexing-status-item';
@@ -28,6 +29,7 @@ export function AppLayout({
   onOpenSettings,
   nativeIndexRetry,
   nativeIndexSearch,
+  stateHealth,
 }: AppLayoutProps) {
   useDatabaseStatusSync();
   // Session-wide, mounted once: retired-model remap toasts (BST-565).
@@ -53,6 +55,9 @@ export function AppLayout({
               {/* Persistent database integrity notice (containment paused background work).
                   Renders nothing without the desktop integrity capability. */}
               <DatabaseIntegrityNotice />
+              {/* A damaged canonical state store, opened read-only (BST-1880).
+                  Renders nothing without the desktop state-health capability. */}
+              <StateStoreDamageNotice capability={stateHealth ?? null} />
               {/* Main content area */}
               <div className="flex min-h-0 flex-1">
                 <NavigationSidebar

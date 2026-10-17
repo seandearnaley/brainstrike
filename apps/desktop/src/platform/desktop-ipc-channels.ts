@@ -3,6 +3,10 @@ export const DESKTOP_IPC_CHANNELS = {
     hostConnect: 'agent:host-connect',
     hostConnected: 'agent:host-connected',
     hostDisconnected: 'agent:host-disconnected',
+    // A damaged state store's recovery actions (BST-1880): restart the agent host
+    // this app launched, so its store reopens and re-checks; show the data folder.
+    hostRestart: 'agent:host-restart',
+    showDataFolder: 'agent:show-data-folder',
   },
   // Embedded browser pane (BST-1174). Invoke channels drive the main-process
   // BrowserViewManager; `tabsChanged` is a one-way main→renderer push (like
