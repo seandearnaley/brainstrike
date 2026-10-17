@@ -157,6 +157,11 @@ export default defineConfig({
       ...getAssistantOptimizeDepsInclude(),
       ...getDatabaseOptimizeDepsInclude(),
       ...getWorkspaceSourceOptimizeDepsInclude(),
+      // Imported by @brainstrike/chunking-worker, excluded above, which src/renderer/main.tsx
+      // imports. The scan never crawls an excluded package, so a cold server met these only
+      // after its crawl, re-optimized and reloaded the renderer mid-launch (BST-2091).
+      '@brainstrike/chunking-worker > @babel/parser',
+      '@brainstrike/chunking-worker > web-tree-sitter',
     ],
   },
   plugins: [

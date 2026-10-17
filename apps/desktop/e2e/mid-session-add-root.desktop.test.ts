@@ -77,7 +77,7 @@ async function readRoots(page: Page): Promise<Record<string, NativeRootSummary>>
 }
 
 test.describe('Mid-session add root indexing', () => {
-  test('@desktop-mid-session-add-root indexes a root added while another is importing', async ({
+  test('@desktop-mid-session-add-root @desktop-embedding-native-backfill indexes a root added while another is importing', async ({
     electronApp,
     window: page,
   }) => {

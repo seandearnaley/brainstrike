@@ -220,6 +220,9 @@ jobs:
 
       # dbus-run-session wraps Electron so Chromium's D-Bus connect attempts
       # don't fill the log with `[ERROR:dbus/bus.cc:405] Failed to connect`.
+      # The two native-backfill specs embed about 300 real chunks each on WASM:
+      # about 9 minutes on this runner, which a regression shard's 30-minute
+      # budget cannot also hold (BST-2090, run 39062126583).
       - name: Run desktop embedding regression
         working-directory: apps/desktop
         run: |
@@ -228,6 +231,8 @@ jobs:
             e2e/embedding-worker-renderer.smoke.desktop.test.ts \
             e2e/embedding-worker-renderer.search.desktop.test.ts \
             e2e/embedding-worker-renderer.lifecycle.desktop.test.ts \
+            e2e/mid-session-add-root.desktop.test.ts \
+            e2e/native-index-semantic-results.desktop.test.ts \
             --project=regression \
             --workers=1 \
             --retries=0 \
