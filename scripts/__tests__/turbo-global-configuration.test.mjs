@@ -425,17 +425,34 @@ test('the dev script caps concurrency above anything turbo can plan for it', () 
 // (it launches every watcher), so prove the RULE on a two-package fixture at
 // the pinned binary. If a future turbo drops or changes the rule, this goes red
 // instead of the arithmetic quietly guarding nothing.
+/**
+ * The lockfile's first document: pnpm's own locked resolution. With it, an
+ * offline install in a fixture never has to resolve pnpm from a package mirror.
+ */
+function packageManagerLockDocument() {
+  const [leading, document] = readFileSync(path.join(repoRoot, 'pnpm-lock.yaml'), 'utf8').split(
+    /^---\n/mu
+  );
+  assert.equal(leading, '', 'pnpm-lock.yaml must open with its package-manager document');
+  assert.match(document, /packageManagerDependencies:/u, 'the first document must lock pnpm');
+  return `---\n${document}`;
+}
+
 test('MONEY TEST: turbo rejects concurrency equal to the persistent-task count', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'turbo-persistent-floor-'));
   try {
+    // The fixture runs pnpm offline, so it pins and locks the repo's own pnpm.
+    // A hosted runner caches no other pnpm and no mirror entry for this one:
+    // an unlocked pin failed there to resolve pnpm (Test run 39059869809).
     writeFileSync(
       path.join(dir, 'package.json'),
       JSON.stringify({
         name: 'persistent-floor-fixture',
-        packageManager: 'pnpm@11.15.0',
+        packageManager: readRootPackageJson().packageManager,
         private: true,
       })
     );
+    writeFileSync(path.join(dir, 'pnpm-lock.yaml'), packageManagerLockDocument());
     writeFileSync(path.join(dir, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n');
     writeFileSync(
       path.join(dir, 'turbo.json'),
