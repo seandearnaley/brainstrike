@@ -1,14 +1,15 @@
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
-import type { ToolsInput } from '@mastra/core/agent';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition';
+import { parseMcpConfigValue } from '../mcp/config';
 import type { McpRuntimeClient } from '../mcp/mcp-runtime-client';
 import { collectCombinedTools } from '../mcp/mcp-tool-loader';
 import { toolRegistry as mcpToolRegistry } from '../mcp/tool-registry';
 import { MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits';
 
-interface MockMcpClient {
+interface MockMcpClient extends McpRuntimeClient {
   listTools: ReturnType<typeof vi.fn>;
-  listToolsetsWithErrors: ReturnType<typeof vi.fn>;
+  listToolsetsWithErrors: ReturnType<typeof vi.fn<McpRuntimeClient['listToolsetsWithErrors']>>;
 }
 
 function createMockMcpClient(
@@ -16,8 +17,12 @@ function createMockMcpClient(
   errors: Record<string, string> = {}
 ): MockMcpClient {
   return {
+    configuredServers: [],
+    disconnect: vi.fn(async () => undefined),
     listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
-    listToolsetsWithErrors: vi.fn().mockResolvedValue({ errors, toolsets }),
+    listToolsetsWithErrors: vi
+      .fn<McpRuntimeClient['listToolsetsWithErrors']>()
+      .mockResolvedValue({ errors, toolsets }),
   };
 }
 
@@ -51,7 +56,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: { configuredServers: [] } as McpRuntimeClient,
+        mcpClient: createMockMcpClient({}),
         mcpConfig: undefined,
         sanitizedLocalTools: localTools,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
@@ -81,12 +86,13 @@ describe('mcp-tool-loader', () => {
       };
 
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn().mockResolvedValue({}),
       };
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: { servers: [] },
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({ servers: [] }).config,
         sanitizedLocalTools: localTools,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -98,6 +104,7 @@ describe('mcp-tool-loader', () => {
 
     it('loads MCP tools from the official server-grouped toolsets API', async () => {
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
         listToolsetsWithErrors: vi.fn().mockResolvedValue({
           errors: {},
@@ -112,8 +119,8 @@ describe('mcp-tool-loader', () => {
       const toolNameMap = new Map<string, string>();
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -121,7 +128,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -136,6 +143,7 @@ describe('mcp-tool-loader', () => {
 
     it('keeps healthy MCP server tools when another server reports a discovery error', async () => {
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
         listToolsetsWithErrors: vi.fn().mockResolvedValue({
           errors: {
@@ -150,8 +158,8 @@ describe('mcp-tool-loader', () => {
       };
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -164,7 +172,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -186,8 +194,8 @@ describe('mcp-tool-loader', () => {
 
       try {
         const { tools: result } = await collectCombinedTools({
-          mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-          mcpConfig: {
+          mcpClient: mockMcpClient,
+          mcpConfig: parseMcpConfigValue({
             servers: [
               {
                 command: 'echo',
@@ -200,7 +208,7 @@ describe('mcp-tool-loader', () => {
                 transport: 'stdio' as const,
               },
             ],
-          },
+          }).config,
           sanitizedLocalTools: undefined,
           scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
           timeoutOverrideMs: undefined,
@@ -229,6 +237,7 @@ describe('mcp-tool-loader', () => {
 
     it('does not infer server ownership from substring matches', async () => {
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
         listToolsetsWithErrors: vi.fn().mockResolvedValue({
           errors: {},
@@ -241,8 +250,8 @@ describe('mcp-tool-loader', () => {
       };
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -255,7 +264,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -274,6 +283,7 @@ describe('mcp-tool-loader', () => {
       mcpToolRegistry.disableTools(['filesystem.read_file']);
 
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
         listToolsetsWithErrors: vi.fn().mockResolvedValue({
           errors: {},
@@ -287,8 +297,8 @@ describe('mcp-tool-loader', () => {
       };
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -296,7 +306,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -315,6 +325,7 @@ describe('mcp-tool-loader', () => {
       mcpToolRegistry.disableTools(['read_file']);
 
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
         listToolsetsWithErrors: vi.fn().mockResolvedValue({
           errors: {},
@@ -328,8 +339,8 @@ describe('mcp-tool-loader', () => {
       };
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -337,7 +348,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -360,8 +371,8 @@ describe('mcp-tool-loader', () => {
       });
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -369,7 +380,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: localTools,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -384,6 +395,7 @@ describe('mcp-tool-loader', () => {
     it('prefers grouped MCP toolsets to preserve same-name tools across servers', async () => {
       const toolNameMap = new Map<string, string>();
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
         listToolsetsWithErrors: vi.fn().mockResolvedValue({
           errors: {},
@@ -399,8 +411,8 @@ describe('mcp-tool-loader', () => {
       };
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -413,7 +425,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -430,6 +442,7 @@ describe('mcp-tool-loader', () => {
     it('matches grouped MCP toolsets when returned keys use normalized server names', async () => {
       const toolNameMap = new Map<string, string>();
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
         listToolsetsWithErrors: vi.fn().mockResolvedValue({
           errors: {},
@@ -445,8 +458,8 @@ describe('mcp-tool-loader', () => {
       };
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -459,7 +472,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -474,6 +487,7 @@ describe('mcp-tool-loader', () => {
     it('does not fuzzy-match one grouped MCP toolset across multiple configured servers', async () => {
       const toolNameMap = new Map<string, string>();
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
         listToolsetsWithErrors: vi.fn().mockResolvedValue({
           errors: {},
@@ -486,8 +500,8 @@ describe('mcp-tool-loader', () => {
       };
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -500,7 +514,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -516,6 +530,7 @@ describe('mcp-tool-loader', () => {
     it('reserves exact grouped MCP toolset keys for their configured server', async () => {
       const toolNameMap = new Map<string, string>();
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
         listToolsetsWithErrors: vi.fn().mockResolvedValue({
           errors: {},
@@ -528,8 +543,8 @@ describe('mcp-tool-loader', () => {
       };
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -542,7 +557,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -561,6 +576,7 @@ describe('mcp-tool-loader', () => {
         records.push(record);
       });
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
         listToolsetsWithErrors: vi.fn().mockResolvedValue({
           errors: {},
@@ -571,8 +587,8 @@ describe('mcp-tool-loader', () => {
       };
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -585,7 +601,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -618,6 +634,7 @@ describe('mcp-tool-loader', () => {
         records.push(record);
       });
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
         listToolsetsWithErrors: vi.fn().mockResolvedValue({
           errors: {},
@@ -630,8 +647,8 @@ describe('mcp-tool-loader', () => {
       };
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -644,7 +661,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -677,6 +694,7 @@ describe('mcp-tool-loader', () => {
         records.push(record);
       });
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
         listToolsetsWithErrors: vi.fn().mockResolvedValue({
           errors: {},
@@ -689,8 +707,8 @@ describe('mcp-tool-loader', () => {
       };
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -703,7 +721,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -732,6 +750,7 @@ describe('mcp-tool-loader', () => {
     it('keeps grouped MCP tools for a single server when the returned key does not match', async () => {
       const toolNameMap = new Map<string, string>();
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
         listToolsetsWithErrors: vi.fn().mockResolvedValue({
           errors: {},
@@ -744,8 +763,8 @@ describe('mcp-tool-loader', () => {
       };
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -753,7 +772,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -770,6 +789,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
         listToolsetsWithErrors: vi.fn().mockImplementation(
           () =>
@@ -780,8 +800,8 @@ describe('mcp-tool-loader', () => {
       };
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -789,7 +809,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: localTools,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: 100, // Short timeout
@@ -806,13 +826,14 @@ describe('mcp-tool-loader', () => {
       };
 
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
         listToolsetsWithErrors: vi.fn().mockRejectedValue(new Error('Connection failed')),
       };
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -820,7 +841,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: localTools,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -842,8 +863,8 @@ describe('mcp-tool-loader', () => {
       });
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -851,7 +872,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -868,16 +889,20 @@ describe('mcp-tool-loader', () => {
       };
 
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn().mockResolvedValue(mockMcpTools),
       };
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
+        mcpClient: mockMcpClient,
         mcpConfig: {
           servers: [
             {
               command: 'echo',
-              name: undefined as unknown as string,
+              // @ts-expect-error Deliberately bypass config parsing to exercise missing-name defense.
+              name: undefined,
+              protocol: 'legacy',
+              startup: 'automatic',
               transport: 'stdio' as const,
             },
           ],
@@ -901,8 +926,8 @@ describe('mcp-tool-loader', () => {
       });
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -910,7 +935,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -930,8 +955,8 @@ describe('mcp-tool-loader', () => {
       });
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -940,7 +965,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -954,6 +979,7 @@ describe('mcp-tool-loader', () => {
       vi.useFakeTimers();
       let settled = false;
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
         listToolsetsWithErrors: vi.fn().mockImplementation(
           () =>
@@ -964,8 +990,8 @@ describe('mcp-tool-loader', () => {
       };
 
       const resultPromise = collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -973,7 +999,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: 10, // Very short timeout
@@ -1010,8 +1036,8 @@ describe('mcp-tool-loader', () => {
       });
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -1019,7 +1045,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: -1, // Invalid timeout
@@ -1039,8 +1065,8 @@ describe('mcp-tool-loader', () => {
       });
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -1048,7 +1074,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -1066,8 +1092,8 @@ describe('mcp-tool-loader', () => {
       });
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -1075,7 +1101,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -1101,8 +1127,8 @@ describe('mcp-tool-loader', () => {
       });
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -1110,7 +1136,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -1139,8 +1165,8 @@ describe('mcp-tool-loader', () => {
       });
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -1148,7 +1174,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -1168,8 +1194,8 @@ describe('mcp-tool-loader', () => {
       });
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -1178,7 +1204,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -1198,8 +1224,8 @@ describe('mcp-tool-loader', () => {
       });
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -1208,7 +1234,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -1231,8 +1257,8 @@ describe('mcp-tool-loader', () => {
       });
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -1240,7 +1266,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: 1000,
         timeoutOverrideMs: undefined,
@@ -1274,8 +1300,8 @@ describe('mcp-tool-loader', () => {
 
       const { tools: result } = await collectCombinedTools({
         durableArtifactSettlement: true,
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -1283,7 +1309,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -1313,8 +1339,8 @@ describe('mcp-tool-loader', () => {
       });
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -1322,7 +1348,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -1356,8 +1382,8 @@ describe('mcp-tool-loader', () => {
 
         const { tools: result } = await collectCombinedTools({
           durableArtifactSettlement,
-          mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-          mcpConfig: {
+          mcpClient: mockMcpClient,
+          mcpConfig: parseMcpConfigValue({
             servers: [
               {
                 command: 'echo',
@@ -1365,7 +1391,7 @@ describe('mcp-tool-loader', () => {
                 transport: 'stdio' as const,
               },
             ],
-          },
+          }).config,
           sanitizedLocalTools: undefined,
           scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
           timeoutOverrideMs: undefined,
@@ -1396,8 +1422,8 @@ describe('mcp-tool-loader', () => {
       });
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -1405,7 +1431,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -1433,8 +1459,8 @@ describe('mcp-tool-loader', () => {
       });
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -1442,7 +1468,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -1474,8 +1500,8 @@ describe('mcp-tool-loader', () => {
       });
 
       const { tools: result } = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({
           servers: [
             {
               command: 'echo',
@@ -1483,7 +1509,7 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
             },
           ],
-        },
+        }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -1504,6 +1530,7 @@ describe('mcp-tool-loader', () => {
       const logRecords: LogRecord[] = [];
       const removeLogListener = addLogListener((record) => logRecords.push(record));
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn(),
         // "Connection closed" is one of the two reasons the deleted
         // `pickMcpDiscoveryLogMethod` demoted to `debug`.
@@ -1512,8 +1539,9 @@ describe('mcp-tool-loader', () => {
 
       try {
         const result = await collectCombinedTools({
-          mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-          mcpConfig: { servers: [stdioServer('alpha'), stdioServer('beta')] },
+          mcpClient: mockMcpClient,
+          mcpConfig: parseMcpConfigValue({ servers: [stdioServer('alpha'), stdioServer('beta')] })
+            .config,
           sanitizedLocalTools: undefined,
           scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
           timeoutOverrideMs: undefined,
@@ -1546,14 +1574,15 @@ describe('mcp-tool-loader', () => {
       const logRecords: LogRecord[] = [];
       const removeLogListener = addLogListener((record) => logRecords.push(record));
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn(),
         listToolsetsWithErrors: vi.fn().mockReturnValue(new Promise(() => undefined)),
       };
 
       try {
         const resultPromise = collectCombinedTools({
-          mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-          mcpConfig: { servers: [stdioServer('alpha')] },
+          mcpClient: mockMcpClient,
+          mcpConfig: parseMcpConfigValue({ servers: [stdioServer('alpha')] }).config,
           sanitizedLocalTools: undefined,
           scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
           timeoutOverrideMs: undefined,
@@ -1589,8 +1618,9 @@ describe('mcp-tool-loader', () => {
 
       try {
         const result = await collectCombinedTools({
-          mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-          mcpConfig: { servers: [stdioServer('alpha'), stdioServer('beta')] },
+          mcpClient: mockMcpClient,
+          mcpConfig: parseMcpConfigValue({ servers: [stdioServer('alpha'), stdioServer('beta')] })
+            .config,
           sanitizedLocalTools: undefined,
           scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
           timeoutOverrideMs: undefined,
@@ -1618,8 +1648,8 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: { servers: [stdioServer('alpha')] },
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({ servers: [stdioServer('alpha')] }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
@@ -1631,13 +1661,14 @@ describe('mcp-tool-loader', () => {
 
     it('bounds a long reason before it becomes durable metadata', async () => {
       const mockMcpClient = {
+        ...createMockMcpClient({}),
         listTools: vi.fn(),
         listToolsetsWithErrors: vi.fn().mockRejectedValue(new Error('x'.repeat(500))),
       };
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: { servers: [stdioServer('alpha')] },
+        mcpClient: mockMcpClient,
+        mcpConfig: parseMcpConfigValue({ servers: [stdioServer('alpha')] }).config,
         sanitizedLocalTools: undefined,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
