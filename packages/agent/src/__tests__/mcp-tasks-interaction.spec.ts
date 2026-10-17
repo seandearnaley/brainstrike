@@ -1,14 +1,13 @@
+import type { GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import {
   type ElicitRequest,
   type ElicitResult,
-  type JSONObject,
   ProtocolError,
   ProtocolErrorCode,
   SdkError,
   SdkErrorCode,
 } from '@modelcontextprotocol/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { McpClientExtensionRequestContract } from '../mcp/client-extension-registry.js';
 import {
   MCP_TASKS_UPDATE_REQUEST_CONTRACT,
   type McpTasksNotificationHandler,
@@ -22,6 +21,7 @@ import {
   type McpTaskInteractionOptions,
 } from '../mcp/tasks-interaction.js';
 import { McpTaskObservationError, McpTaskObservationPort } from '../mcp/tasks-observation.js';
+import { type TaskRequestResponder, validatedTaskRequest } from './fixtures/mcp-task-request';
 
 const consumerErrorSink = (taskId: string, error: unknown): void => {
   throw new Error(`unexpected consumer error for ${taskId}: ${String(error)}`);
@@ -29,6 +29,7 @@ const consumerErrorSink = (taskId: string, error: unknown): void => {
 
 const CREATED_AT = '2026-09-01T09:00:00.000Z';
 const scope = {
+  authorityEpoch: '00000000-0000-7000-8000-000000000013',
   generation: 13,
   principalId: 'linear:user-42',
   resource: 'https://mcp.linear.app/mcp',
@@ -39,26 +40,33 @@ function deferred<Value>() {
   return Promise.withResolvers<Value>();
 }
 
-function taskStatus(taskId: string, status: 'cancelled' | 'completed' | 'failed' | 'working') {
-  const common = {
+function taskFields(taskId: string) {
+  return {
     createdAt: CREATED_AT,
     lastUpdatedAt: CREATED_AT,
-    status,
+    resultType: 'complete' as const,
     taskId,
     ttlMs: 10_000,
   };
+}
+
+function taskStatus(
+  taskId: string,
+  status: 'cancelled' | 'completed' | 'failed' | 'working'
+): GetTaskResult {
+  const common = taskFields(taskId);
   if (status === 'completed') {
-    return { ...common, result: { content: [] } } as const;
+    return { ...common, result: { content: [] }, status };
   }
   if (status === 'failed') {
-    return { ...common, error: { code: -32_603, message: 'remote failure' } } as const;
+    return { ...common, error: { code: -32_603, message: 'remote failure' }, status };
   }
-  return common;
+  return { ...common, status };
 }
 
 function inputRequiredTask(taskId: string) {
   return {
-    ...taskStatus(taskId, 'working'),
+    ...taskFields(taskId),
     inputRequests: {
       approval: {
         method: 'elicitation/create' as const,
@@ -78,19 +86,21 @@ function inputRequiredTask(taskId: string) {
 }
 
 interface FakeClient {
-  readonly client: McpTaskInteractionClient;
+  readonly client: McpTaskInteractionClient & {
+    listenTasks: ReturnType<typeof vi.fn<McpTaskInteractionClient['listenTasks']>>;
+  };
   readonly endSubscription: () => void;
   readonly failSubscription: (error: unknown) => void;
   readonly handler: () => McpTasksNotificationHandler;
   readonly listenTasks: ReturnType<typeof vi.fn>;
   readonly observationPort: McpTaskObservationPort;
-  readonly requestExtension: ReturnType<typeof vi.fn>;
+  readonly requestExtension: ReturnType<typeof vi.fn<TaskRequestResponder>>;
   readonly wake: ReturnType<typeof vi.fn>;
 }
 
 function createClient(): FakeClient {
   let handler: McpTasksNotificationHandler | undefined;
-  const closed = deferred<unknown>();
+  const closed = deferred<Awaited<McpTasksNotificationLease['closed']>>();
   const observationPort = new McpTaskObservationPort({ onConsumerError: consumerErrorSink });
   const wake = vi.fn();
   observationPort.attachAuthority({ wake });
@@ -101,15 +111,10 @@ function createClient(): FakeClient {
   };
   const close = vi.fn(async () => {
     release();
-    closed.resolve(undefined);
+    closed.resolve('local');
   });
-  const requestExtension = vi.fn(
-    async <Params extends JSONObject, Result>(
-      _contract: McpClientExtensionRequestContract<Params, Result>,
-      _params: Params
-    ): Promise<Result> => ({ resultType: 'complete' }) as Result
-  );
-  const listenTasks = vi.fn(
+  const requestExtension = vi.fn<TaskRequestResponder>(async () => ({ resultType: 'complete' }));
+  const listenTasks = vi.fn<McpTaskInteractionClient['listenTasks']>(
     async (
       taskIds: readonly string[],
       next: McpTasksNotificationHandler
@@ -119,10 +124,10 @@ function createClient(): FakeClient {
     }
   );
   return {
-    client: { listenTasks, requestExtension },
+    client: { listenTasks, requestExtension: validatedTaskRequest(requestExtension) },
     endSubscription: () => {
       release();
-      closed.resolve(undefined);
+      closed.resolve('graceful');
     },
     failSubscription: (error) => {
       release();
@@ -186,7 +191,9 @@ afterEach(() => vi.useRealTimers());
 describe('McpTaskInteraction', () => {
   it('deduplicates task input and preserves exact elicitation and update provenance', async () => {
     const decision = deferred<ElicitResult>();
-    const handle = vi.fn(async () => await decision.promise);
+    const handle = vi.fn<NonNullable<Parameters<typeof createInteraction>[1]>>(
+      async () => await decision.promise
+    );
     const fake = createClient();
     const interaction = createInteraction(fake, handle);
     await interaction.start(['task-1']);
@@ -550,7 +557,9 @@ describe('McpTaskInteraction', () => {
 
   it('rejects changed lifetime-key reuse without presenting the request again', async () => {
     const decision = deferred<ElicitResult>();
-    const handle = vi.fn(async () => await decision.promise);
+    const handle = vi.fn<NonNullable<Parameters<typeof createInteraction>[1]>>(
+      async () => await decision.promise
+    );
     const fake = createClient();
     const interaction = createInteraction(fake, handle);
     await interaction.start(['task-1']);
@@ -593,7 +602,7 @@ describe('McpTaskInteraction', () => {
     const fake = createClient();
     fake.client.listenTasks.mockImplementationOnce(async () => ({
       close: vi.fn(async () => undefined),
-      closed: new Promise<undefined>(() => undefined),
+      closed: new Promise<Awaited<McpTasksNotificationLease['closed']>>(() => undefined),
       honoredTaskIds: [],
     }));
     const interaction = createInteraction(fake);

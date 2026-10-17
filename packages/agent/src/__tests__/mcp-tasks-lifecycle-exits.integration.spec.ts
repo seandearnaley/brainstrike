@@ -12,6 +12,7 @@ import {
   type McpTaskPollingClient,
 } from '../mcp/tasks-lifecycle.js';
 import { McpTaskObservationError, McpTaskObservationPort } from '../mcp/tasks-observation.js';
+import { type TaskRequestResponder, validatedTaskRequest } from './fixtures/mcp-task-request';
 
 const consumerErrorSink = (taskId: string, error: unknown): void => {
   throw new Error(`unexpected consumer error for ${taskId}: ${String(error)}`);
@@ -109,7 +110,9 @@ describe('McpTaskLifecycle exit fencing', () => {
       const lifecycle = new McpTaskLifecycle({
         authority,
         client: {
-          requestExtension: vi.fn(() => Promise.reject(new Error('poll must not start'))),
+          requestExtension: validatedTaskRequest(
+            vi.fn<TaskRequestResponder>(() => Promise.reject(new Error('poll must not start')))
+          ),
         },
         onUpdate: vi.fn(),
         repository,
@@ -130,7 +133,9 @@ describe('McpTaskLifecycle exit fencing', () => {
     const lifecycle = new McpTaskLifecycle({
       authority,
       client: {
-        requestExtension: vi.fn(() => Promise.reject(new Error('poll must not start'))),
+        requestExtension: validatedTaskRequest(
+          vi.fn<TaskRequestResponder>(() => Promise.reject(new Error('poll must not start')))
+        ),
       },
       onUpdate: vi.fn(),
       repository,
@@ -154,14 +159,16 @@ describe('McpTaskLifecycle exit fencing', () => {
     db = await openDatabase();
     let polls = 0;
     const client: McpTaskPollingClient = {
-      requestExtension: vi.fn(async (_contract, params): Promise<GetTaskResult> => {
-        polls += 1;
-        return {
-          ...task(params.taskId, { ttlMs: 250 }),
-          lastUpdatedAt: new Date(Date.now()).toISOString(),
-          resultType: 'complete',
-        };
-      }),
+      requestExtension: validatedTaskRequest(
+        vi.fn<TaskRequestResponder>(async (_contract, params): Promise<GetTaskResult> => {
+          polls += 1;
+          return {
+            ...task(String(params['taskId']), { ttlMs: 250 }),
+            lastUpdatedAt: new Date(Date.now()).toISOString(),
+            resultType: 'complete',
+          };
+        })
+      ),
     };
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
@@ -197,16 +204,18 @@ describe('McpTaskLifecycle exit fencing', () => {
     const lifecycle = new McpTaskLifecycle({
       authority,
       client: {
-        requestExtension: vi.fn(
-          async (): Promise<GetTaskResult> => ({
-            createdAt: CREATED_AT,
-            lastUpdatedAt: '2026-09-01T05:00:00.100Z',
-            result: { answer: 42 },
-            resultType: 'complete',
-            status: 'completed',
-            taskId: 'attacker-task',
-            ttlMs: 10_000,
-          })
+        requestExtension: validatedTaskRequest(
+          vi.fn<TaskRequestResponder>(
+            async (): Promise<GetTaskResult> => ({
+              createdAt: CREATED_AT,
+              lastUpdatedAt: '2026-09-01T05:00:00.100Z',
+              result: { answer: 42 },
+              resultType: 'complete',
+              status: 'completed',
+              taskId: 'attacker-task',
+              ttlMs: 10_000,
+            })
+          )
         ),
       },
       observationPort,
@@ -235,12 +244,12 @@ describe('McpTaskLifecycle exit fencing', () => {
     const publishFailure = vi.fn();
     const observationPort = new McpTaskObservationPort({ onConsumerError: consumerErrorSink });
     observationPort.subscribe({ fail: publishFailure, observe: vi.fn() });
-    const requestExtension = vi.fn(() => Promise.reject(failure));
+    const requestExtension = vi.fn<TaskRequestResponder>(() => Promise.reject(failure));
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
     const lifecycle = new McpTaskLifecycle({
       authority,
-      client: { requestExtension },
+      client: { requestExtension: validatedTaskRequest(requestExtension) },
       limits: {
         ...DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
         initialPollMs: 10,
@@ -271,12 +280,12 @@ describe('McpTaskLifecycle exit fencing', () => {
     vi.setSystemTime(new Date(CREATED_AT));
     db = await openDatabase();
     const transportFailure = new Error('transport unavailable');
-    const requestExtension = vi.fn(() => Promise.reject(transportFailure));
+    const requestExtension = vi.fn<TaskRequestResponder>(() => Promise.reject(transportFailure));
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
     const lifecycle = new McpTaskLifecycle({
       authority,
-      client: { requestExtension },
+      client: { requestExtension: validatedTaskRequest(requestExtension) },
       limits: {
         ...DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
         initialPollMs: 10,
@@ -313,13 +322,13 @@ describe('McpTaskLifecycle exit fencing', () => {
     vi.setSystemTime(new Date(CREATED_AT));
     db = await openDatabase();
     const transportFailure = new Error('transport unavailable');
-    const requestExtension = vi.fn(() => Promise.reject(transportFailure));
+    const requestExtension = vi.fn<TaskRequestResponder>(() => Promise.reject(transportFailure));
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
     const onUpdate = vi.fn();
     const lifecycle = new McpTaskLifecycle({
       authority,
-      client: { requestExtension },
+      client: { requestExtension: validatedTaskRequest(requestExtension) },
       limits: {
         ...DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
         initialPollMs: 25,
@@ -329,10 +338,8 @@ describe('McpTaskLifecycle exit fencing', () => {
       onUpdate,
       repository,
     });
-    const tracked = await lifecycle.track({
-      ...task('task-exhausted'),
-      pollIntervalMs: undefined,
-    });
+    const { pollIntervalMs: _pollInterval, ...withoutPollingHint } = task('task-exhausted');
+    const tracked = await lifecycle.track(withoutPollingHint);
 
     await vi.advanceTimersByTimeAsync(175);
 
@@ -360,7 +367,9 @@ describe('McpTaskLifecycle exit fencing', () => {
     const lifecycle = new McpTaskLifecycle({
       authority,
       client: {
-        requestExtension: vi.fn(() => Promise.reject(new Error('poll must not start'))),
+        requestExtension: validatedTaskRequest(
+          vi.fn<TaskRequestResponder>(() => Promise.reject(new Error('poll must not start')))
+        ),
       },
       onUpdate: vi.fn(),
       repository,
@@ -382,7 +391,7 @@ describe('McpTaskLifecycle exit fencing', () => {
     db = await openDatabase();
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
-    const requestExtension = vi.fn(async () => ({
+    const requestExtension = vi.fn<TaskRequestResponder>(async () => ({
       ...task('seed-terminal'),
       result: { answer: 42 },
       resultType: 'complete',
@@ -390,7 +399,7 @@ describe('McpTaskLifecycle exit fencing', () => {
     }));
     const lifecycle = new McpTaskLifecycle({
       authority,
-      client: { requestExtension },
+      client: { requestExtension: validatedTaskRequest(requestExtension) },
       onUpdate: vi.fn(),
       repository,
     });
@@ -418,15 +427,17 @@ describe('McpTaskLifecycle exit fencing', () => {
     const lifecycle = new McpTaskLifecycle({
       authority,
       client: {
-        requestExtension: vi.fn(
-          async (): Promise<GetTaskResult> => ({
-            ...task('task-time-drift'),
-            createdAt: '2026-09-01T05:00:01.000Z',
-            lastUpdatedAt: '2026-09-01T05:00:01.100Z',
-            result: { answer: 42 },
-            resultType: 'complete',
-            status: 'completed',
-          })
+        requestExtension: validatedTaskRequest(
+          vi.fn<TaskRequestResponder>(
+            async (): Promise<GetTaskResult> => ({
+              ...task('task-time-drift'),
+              createdAt: '2026-09-01T05:00:01.000Z',
+              lastUpdatedAt: '2026-09-01T05:00:01.100Z',
+              result: { answer: 42 },
+              resultType: 'complete',
+              status: 'completed',
+            })
+          )
         ),
       },
       onUpdate,
@@ -460,28 +471,30 @@ describe('McpTaskLifecycle exit fencing', () => {
     const lifecycle = new McpTaskLifecycle({
       authority,
       client: {
-        requestExtension: vi.fn(async (): Promise<GetTaskResult> => {
-          polls += 1;
-          if (polls === 1) {
+        requestExtension: validatedTaskRequest(
+          vi.fn<TaskRequestResponder>(async (): Promise<GetTaskResult> => {
+            polls += 1;
+            if (polls === 1) {
+              return {
+                ...task('task-input'),
+                inputRequests: {},
+                lastUpdatedAt: '2026-09-01T05:00:00.100Z',
+                resultType: 'complete',
+                status: 'input_required',
+                statusMessage: 'waiting for input',
+              };
+            }
             return {
-              ...task('task-input'),
-              inputRequests: {},
-              lastUpdatedAt: '2026-09-01T05:00:00.100Z',
+              createdAt: CREATED_AT,
+              lastUpdatedAt: '2026-09-01T05:00:00.200Z',
+              result: { answer: 42 },
               resultType: 'complete',
-              status: 'input_required',
-              statusMessage: 'waiting for input',
+              status: 'completed',
+              taskId: 'task-input',
+              ttlMs: 10_000,
             };
-          }
-          return {
-            createdAt: CREATED_AT,
-            lastUpdatedAt: '2026-09-01T05:00:00.200Z',
-            result: { answer: 42 },
-            resultType: 'complete',
-            status: 'completed',
-            taskId: 'task-input',
-            ttlMs: 10_000,
-          };
-        }),
+          })
+        ),
       },
       onUpdate: vi.fn(),
       repository,
@@ -509,16 +522,18 @@ describe('McpTaskLifecycle exit fencing', () => {
     const lifecycle = new McpTaskLifecycle({
       authority,
       client: {
-        requestExtension: vi.fn(
-          async (): Promise<GetTaskResult> => ({
-            createdAt: CREATED_AT,
-            lastUpdatedAt: '2026-09-01T05:00:00.100Z',
-            result: { payload: rawSentinel },
-            resultType: 'complete',
-            status: 'completed',
-            taskId: 'task-oversized-result',
-            ttlMs: 10_000,
-          })
+        requestExtension: validatedTaskRequest(
+          vi.fn<TaskRequestResponder>(
+            async (): Promise<GetTaskResult> => ({
+              createdAt: CREATED_AT,
+              lastUpdatedAt: '2026-09-01T05:00:00.100Z',
+              result: { payload: rawSentinel },
+              resultType: 'complete',
+              status: 'completed',
+              taskId: 'task-oversized-result',
+              ttlMs: 10_000,
+            })
+          )
         ),
       },
       onUpdate,
@@ -567,7 +582,6 @@ describe('McpTaskLifecycle exit fencing', () => {
       {
         ...identity,
         blockedDiagnostic,
-        createdAt: new Date(CREATED_AT),
         inputMetadata: null,
         resultMetadata: { omittedState: blockedDiagnostic },
         status: 'completed',
@@ -582,7 +596,6 @@ describe('McpTaskLifecycle exit fencing', () => {
         {
           ...identity,
           blockedDiagnostic: { ...blockedDiagnostic, actualBytes: 1024 },
-          createdAt: new Date(CREATED_AT),
           inputMetadata: null,
           resultMetadata: { omittedState: blockedDiagnostic },
           status: 'completed',
@@ -604,7 +617,7 @@ describe('McpTaskLifecycle exit fencing', () => {
     const observationPort = new McpTaskObservationPort({ onConsumerError: consumerErrorSink });
     const elicitation = vi.fn(async () => ({ action: 'decline' as const }));
     const updateTask = vi.fn(async () => ({ resultType: 'complete' as const }));
-    const neverCloses = Promise.withResolvers<void>();
+    const neverCloses = Promise.withResolvers<'graceful' | 'local' | 'remote'>();
     const interaction = new McpTaskInteraction({
       client: {
         listenTasks: vi.fn(async () => ({
@@ -612,7 +625,7 @@ describe('McpTaskLifecycle exit fencing', () => {
           closed: neverCloses.promise,
           honoredTaskIds: [],
         })),
-        requestExtension: updateTask,
+        requestExtension: validatedTaskRequest(updateTask),
       },
       elicitation: { form: true, handle: elicitation, url: false },
       observationPort,
@@ -627,34 +640,36 @@ describe('McpTaskLifecycle exit fencing', () => {
     const lifecycle = new McpTaskLifecycle({
       authority,
       client: {
-        requestExtension: vi.fn(
-          async (): Promise<GetTaskResult> => ({
-            createdAt: CREATED_AT,
-            inputRequests: {
-              ...Object.fromEntries(
-                Array.from({ length: 10 }, (_, index) => `approval-${index}`).map((inputKey) => [
-                  inputKey,
-                  {
-                    method: 'elicitation/create' as const,
-                    params: {
-                      message: `${inputKey}:${rawSentinel}`,
-                      mode: 'form' as const,
-                      requestedSchema: {
-                        properties: { approved: { type: 'boolean' as const } },
-                        required: ['approved'],
-                        type: 'object' as const,
+        requestExtension: validatedTaskRequest(
+          vi.fn<TaskRequestResponder>(
+            async (): Promise<GetTaskResult> => ({
+              createdAt: CREATED_AT,
+              inputRequests: {
+                ...Object.fromEntries(
+                  Array.from({ length: 10 }, (_, index) => `approval-${index}`).map((inputKey) => [
+                    inputKey,
+                    {
+                      method: 'elicitation/create' as const,
+                      params: {
+                        message: `${inputKey}:${rawSentinel}`,
+                        mode: 'form' as const,
+                        requestedSchema: {
+                          properties: { approved: { type: 'boolean' as const } },
+                          required: ['approved'],
+                          type: 'object' as const,
+                        },
                       },
                     },
-                  },
-                ])
-              ),
-            },
-            lastUpdatedAt: '2026-09-01T05:00:00.100Z',
-            resultType: 'task',
-            status: 'input_required',
-            taskId: 'task-oversized-input',
-            ttlMs: 10_000,
-          })
+                  ])
+                ),
+              },
+              lastUpdatedAt: '2026-09-01T05:00:00.100Z',
+              resultType: 'complete',
+              status: 'input_required',
+              taskId: 'task-oversized-input',
+              ttlMs: 10_000,
+            })
+          )
         ),
       },
       observationPort,
@@ -708,7 +723,9 @@ describe('McpTaskLifecycle exit fencing', () => {
     const lifecycle = new McpTaskLifecycle({
       authority,
       client: {
-        requestExtension: vi.fn(() => Promise.reject(new Error('poll must not start'))),
+        requestExtension: validatedTaskRequest(
+          vi.fn<TaskRequestResponder>(() => Promise.reject(new Error('poll must not start')))
+        ),
       },
       onUpdate: vi.fn(),
       repository,
@@ -772,7 +789,9 @@ describe('McpTaskLifecycle exit fencing', () => {
     const lifecycle = new McpTaskLifecycle({
       authority,
       client: {
-        requestExtension: vi.fn(() => Promise.reject(new Error('poll must not start'))),
+        requestExtension: validatedTaskRequest(
+          vi.fn<TaskRequestResponder>(() => Promise.reject(new Error('poll must not start')))
+        ),
       },
       onUpdate: vi.fn(),
       repository,
@@ -795,7 +814,9 @@ describe('McpTaskLifecycle exit fencing', () => {
     const firstLifecycle = new McpTaskLifecycle({
       authority,
       client: {
-        requestExtension: vi.fn(() => Promise.reject(new Error('poll must not start'))),
+        requestExtension: validatedTaskRequest(
+          vi.fn<TaskRequestResponder>(() => Promise.reject(new Error('poll must not start')))
+        ),
       },
       limits: { ...DEFAULT_MCP_TASK_LIFECYCLE_LIMITS, maxLifetimeMs: 250 },
       onUpdate: vi.fn(),
@@ -806,10 +827,12 @@ describe('McpTaskLifecycle exit fencing', () => {
     await expect(original.settled).rejects.toMatchObject({ reason: 'restart' });
     await vi.advanceTimersByTimeAsync(200);
 
-    const requestExtension = vi.fn(() => Promise.reject(new Error('poll must not start')));
+    const requestExtension = vi.fn<TaskRequestResponder>(() =>
+      Promise.reject(new Error('poll must not start'))
+    );
     const recoveredLifecycle = new McpTaskLifecycle({
       authority,
-      client: { requestExtension },
+      client: { requestExtension: validatedTaskRequest(requestExtension) },
       limits: { ...DEFAULT_MCP_TASK_LIFECYCLE_LIMITS, maxLifetimeMs: 250 },
       onUpdate: vi.fn(),
       repository,

@@ -17,6 +17,7 @@ import {
   type McpTaskPollingClient,
 } from '../mcp/tasks-lifecycle.js';
 import { McpTaskObservationPort } from '../mcp/tasks-observation.js';
+import { type TaskRequestResponder, validatedTaskRequest } from './fixtures/mcp-task-request';
 
 const consumerErrorSink = (taskId: string, error: unknown): void => {
   throw new Error(`unexpected consumer error for ${taskId}: ${String(error)}`);
@@ -109,20 +110,22 @@ describe('McpTaskLifecycle', () => {
     const repository = new McpTaskRepository(db);
     const updates: string[] = [];
     const client: McpTaskPollingClient = {
-      requestExtension: vi.fn(async (contract, params, options): Promise<GetTaskResult> => {
-        expect(contract).toBe(MCP_TASKS_GET_REQUEST_CONTRACT);
-        expect(params).toEqual({ taskId: createdTask.taskId });
-        expect(options?.signal.aborted).toBe(false);
-        return {
-          createdAt: createdTask.createdAt,
-          lastUpdatedAt: '2026-09-01T04:00:00.100Z',
-          result: { answer: 42 },
-          resultType: 'complete',
-          status: 'completed',
-          taskId: createdTask.taskId,
-          ttlMs: 10_000,
-        };
-      }),
+      requestExtension: validatedTaskRequest(
+        vi.fn<TaskRequestResponder>(async (contract, params, options): Promise<GetTaskResult> => {
+          expect(contract).toBe(MCP_TASKS_GET_REQUEST_CONTRACT);
+          expect(params).toEqual({ taskId: createdTask.taskId });
+          expect(options?.signal?.aborted).toBe(false);
+          return {
+            createdAt: createdTask.createdAt,
+            lastUpdatedAt: '2026-09-01T04:00:00.100Z',
+            result: { answer: 42 },
+            resultType: 'complete',
+            status: 'completed',
+            taskId: createdTask.taskId,
+            ttlMs: 10_000,
+          };
+        })
+      ),
     };
     const authority = await repository.openAuthority(authorityInput);
     const lifecycle = new McpTaskLifecycle({
@@ -199,7 +202,11 @@ describe('McpTaskLifecycle', () => {
     };
     const lifecycle = new McpTaskLifecycle({
       authority,
-      client: { requestExtension: vi.fn(async (): Promise<GetTaskResult> => inputRequired) },
+      client: {
+        requestExtension: validatedTaskRequest(
+          vi.fn<TaskRequestResponder>(async (): Promise<GetTaskResult> => inputRequired)
+        ),
+      },
       observationPort,
       onUpdate: async (record) => {
         // Persist before publish still holds: the published record is the durable row.
@@ -238,12 +245,12 @@ describe('McpTaskLifecycle', () => {
       });
     });
     observationPort.subscribe({ fail: vi.fn(), observe: observed });
-    const requestExtension = vi.fn(
+    const requestExtension = vi.fn<TaskRequestResponder>(
       async (): Promise<GetTaskResult> => completedTask('task-wake', '2026-09-01T04:00:00.100Z')
     );
     const lifecycle = new McpTaskLifecycle({
       authority,
-      client: { requestExtension },
+      client: { requestExtension: validatedTaskRequest(requestExtension) },
       observationPort,
       onUpdate: vi.fn(),
       repository,
@@ -280,7 +287,11 @@ describe('McpTaskLifecycle', () => {
     const firstLifecycle = new McpTaskLifecycle({
       authority: firstAuthority,
       client: {
-        requestExtension: vi.fn(() => Promise.reject(new Error('restart happened before poll'))),
+        requestExtension: validatedTaskRequest(
+          vi.fn<TaskRequestResponder>(() =>
+            Promise.reject(new Error('restart happened before poll'))
+          )
+        ),
       },
       onUpdate: vi.fn(),
       repository: firstRepository,
@@ -311,7 +322,7 @@ describe('McpTaskLifecycle', () => {
     await db.close();
 
     db = await openDatabaseAt(dataDir);
-    const requestExtension = vi.fn(
+    const requestExtension = vi.fn<TaskRequestResponder>(
       async (): Promise<GetTaskResult> => ({
         createdAt: createdTask.createdAt,
         lastUpdatedAt: '2026-09-01T04:00:00.100Z',
@@ -331,7 +342,7 @@ describe('McpTaskLifecycle', () => {
     expect(reboundAuthority.authorityEpoch).toBe(firstAuthority.authorityEpoch);
     const recoveredLifecycle = new McpTaskLifecycle({
       authority: reboundAuthority,
-      client: { requestExtension },
+      client: { requestExtension: validatedTaskRequest(requestExtension) },
       onUpdate: vi.fn(),
       repository: restartedRepository,
     });
@@ -361,11 +372,13 @@ describe('McpTaskLifecycle', () => {
     const lifecycle = new McpTaskLifecycle({
       authority,
       client: {
-        requestExtension: vi.fn(async (_contract, params): Promise<GetTaskResult> => {
-          const taskId = String((params as { taskId: string }).taskId);
-          polled.push(taskId);
-          return completedTask(taskId, '2026-09-01T04:00:00.100Z');
-        }),
+        requestExtension: validatedTaskRequest(
+          vi.fn<TaskRequestResponder>(async (_contract, params): Promise<GetTaskResult> => {
+            const taskId = String((params as { taskId: string }).taskId);
+            polled.push(taskId);
+            return completedTask(taskId, '2026-09-01T04:00:00.100Z');
+          })
+        ),
       },
       onUpdate: vi.fn(),
       repository,
@@ -421,23 +434,25 @@ describe('McpTaskLifecycle', () => {
     let nextRequest = 0;
     let inFlight = 0;
     let maxInFlight = 0;
-    const requestExtension = vi.fn((_contract, _params): Promise<GetTaskResult> => {
-      const request = requests[nextRequest];
-      nextRequest += 1;
-      if (!request) {
-        throw new Error('Unexpected extra poll.');
+    const requestExtension = vi.fn<TaskRequestResponder>(
+      (_contract, _params): Promise<GetTaskResult> => {
+        const request = requests[nextRequest];
+        nextRequest += 1;
+        if (!request) {
+          throw new Error('Unexpected extra poll.');
+        }
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        return request.promise.finally(() => {
+          inFlight -= 1;
+        });
       }
-      inFlight += 1;
-      maxInFlight = Math.max(maxInFlight, inFlight);
-      return request.promise.finally(() => {
-        inFlight -= 1;
-      });
-    });
+    );
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
     const lifecycle = new McpTaskLifecycle({
       authority,
-      client: { requestExtension },
+      client: { requestExtension: validatedTaskRequest(requestExtension) },
       limits: {
         ...DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
         maxConcurrentPolls: 2,
@@ -491,25 +506,27 @@ describe('McpTaskLifecycle', () => {
     vi.setSystemTime(new Date(createdTask.createdAt));
     db = await openDatabase();
     const pollTimes: number[] = [];
-    const requestExtension = vi.fn(async (_contract, params): Promise<GetTaskResult> => {
-      pollTimes.push(Date.now());
-      if (pollTimes.length === 3) {
-        return completedTask(String(params.taskId), new Date(Date.now()).toISOString());
+    const requestExtension = vi.fn<TaskRequestResponder>(
+      async (_contract, params): Promise<GetTaskResult> => {
+        pollTimes.push(Date.now());
+        if (pollTimes.length === 3) {
+          return completedTask(String(params['taskId']), new Date(Date.now()).toISOString());
+        }
+        return {
+          createdAt: createdTask.createdAt,
+          lastUpdatedAt: new Date(Date.now()).toISOString(),
+          resultType: 'complete',
+          status: 'working',
+          taskId: String(params['taskId']),
+          ttlMs: createdTask.ttlMs,
+        };
       }
-      return {
-        createdAt: createdTask.createdAt,
-        lastUpdatedAt: new Date(Date.now()).toISOString(),
-        resultType: 'complete',
-        status: 'working',
-        taskId: String(params.taskId),
-        ttlMs: createdTask.ttlMs,
-      };
-    });
+    );
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
     const lifecycle = new McpTaskLifecycle({
       authority,
-      client: { requestExtension },
+      client: { requestExtension: validatedTaskRequest(requestExtension) },
       limits: {
         ...DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
         initialPollMs: 25,
@@ -519,11 +536,8 @@ describe('McpTaskLifecycle', () => {
       onUpdate: vi.fn(),
       repository,
     });
-    const tracked = await lifecycle.track({
-      ...createdTask,
-      pollIntervalMs: undefined,
-      taskId: 'task-backoff',
-    });
+    const { pollIntervalMs: _pollInterval, ...withoutPollingHint } = createdTask;
+    const tracked = await lifecycle.track({ ...withoutPollingHint, taskId: 'task-backoff' });
 
     await vi.advanceTimersByTimeAsync(24);
     expect(requestExtension).not.toHaveBeenCalled();
@@ -555,7 +569,7 @@ describe('McpTaskLifecycle', () => {
     const firstPoll = deferred<GetTaskResult>();
     const secondPoll = deferred<GetTaskResult>();
     const polls = [firstPoll, secondPoll];
-    const requestExtension = vi.fn(() => {
+    const requestExtension = vi.fn<TaskRequestResponder>(() => {
       const poll = polls.shift();
       if (!poll) {
         throw new Error('Unexpected extra lifecycle poll.');
@@ -567,7 +581,7 @@ describe('McpTaskLifecycle', () => {
     const publications: McpTaskRecord[] = [];
     const lifecycle = new McpTaskLifecycle({
       authority,
-      client: { requestExtension },
+      client: { requestExtension: validatedTaskRequest(requestExtension) },
       onUpdate: (record) => {
         publications.push(record);
       },
@@ -627,7 +641,9 @@ describe('McpTaskLifecycle', () => {
     const authority = await repository.openAuthority(authorityInput);
     const lifecycle = new McpTaskLifecycle({
       authority,
-      client: { requestExtension: vi.fn(() => request.promise) },
+      client: {
+        requestExtension: validatedTaskRequest(vi.fn<TaskRequestResponder>(() => request.promise)),
+      },
       onUpdate,
       repository,
     });
