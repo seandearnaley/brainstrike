@@ -17,7 +17,7 @@ import type {
   McpHostTaskOwner,
 } from '@brainstrike/assistant-contract';
 import type { ResolvedMcpConfig } from '@brainstrike/assistant-contract/mcp-config';
-import type { McpTaskStorage } from '@brainstrike/db';
+import type { McpTaskStorage } from '@brainstrike/assistant-contract/mcp-task-store';
 import { createLogger } from '@brainstrike/logging';
 import { callMcpAppTool } from './app-tool-call.js';
 import type { McpBearerCredentialAuthority } from './bearer-credential.js';

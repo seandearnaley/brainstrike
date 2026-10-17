@@ -13,8 +13,6 @@ import {
 import { EmbeddingHostRuntime } from '../../../renderer/components/embedding-host-runtime';
 import {
   commandListenerRef,
-  currentDbRef,
-  dbHandle,
   disposeQueryEmbeddingServiceMock,
   ensureVectorPreferencesHydratedMock,
   generateQueryEmbeddingMock,
@@ -85,18 +83,16 @@ function createConnectedManager(): EmbeddingHostManager {
 describe('embedding host native catalog and runtime readiness', () => {
   installEmbeddingHostRuntimeFixture();
 
-  it('keeps native readiness and inference independent of a disappearing PGlite handle', async () => {
+  it('keeps native readiness and inference running across a host rerender', async () => {
     const manager = createConnectedManager();
     await manager.ensureStarted({ waitForRunning: false });
     const view = render(<EmbeddingHostRuntime />);
     onTestFinished(() => view.unmount());
     await waitFor(() => expect(manager.getStatus().state).toBe('running'));
     const runtimeId = manager.getStatus().runtimeId;
-    currentDbRef.current = null;
     view.rerender(<EmbeddingHostRuntime />);
     await expect(manager.queryEmbedding(QUERY)).resolves.toEqual([0.1, 0.2]);
     expect(manager.getStatus()).toMatchObject({ runtimeId, state: 'running' });
-    expect(dbHandle.query).not.toHaveBeenCalled();
     expect(readModelCatalogMock).toHaveBeenCalledOnce();
     expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
   });
@@ -354,7 +350,6 @@ describe('embedding host native catalog and runtime readiness', () => {
     expect(manager.getStatus().state).toBe('starting');
     oldInference.resolve(generated);
     await expect(resetting).resolves.toMatchObject({ state: 'running' });
-    expect(currentDbRef.current).toBe(dbHandle);
     expect(manager.getStatus().runtimeId).not.toBe(oldRuntimeId);
     expect(await oldResult).toMatchObject({
       message: 'Embedding host query runtime is no longer available.',

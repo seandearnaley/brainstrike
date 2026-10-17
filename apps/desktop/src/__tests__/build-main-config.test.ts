@@ -54,15 +54,14 @@ function readDesktopPackageConfig(): DesktopPackageConfig {
  * - visible BrowserWindow preload → dist/preload.js
  * - hidden renderer host preload → dist/hidden-preload.js
  * - main-thread watchdog worker → dist/main-watchdog-worker.js
- * - utilityProcess.fork sibling lookups → dist/db-host-entry.js,
- *   dist/parser-host-entry.js (resolved through bundled-sibling-path from the
- *   running bundle's __filename, so outputs must stay FLAT in dist/)
+ * - utilityProcess.fork sibling lookups → dist/parser-host-entry.js (resolved
+ *   through bundled-sibling-path from the running bundle's __filename, so
+ *   outputs must stay FLAT in dist/)
  */
 describe('main-process bundle config', () => {
   it('bundles every runtime and logging transport entry point', () => {
     expect(MAIN_PROCESS_ENTRY_POINTS).toEqual({
       'agent-host-entry': 'src/agent-host-entry.ts',
-      'db-host-entry': 'src/db-host-entry.ts',
       'desktop-bootstrap-runtime': 'src/desktop-bootstrap-runtime.ts',
       'desktop-database-location': 'src/desktop-database-location.ts',
       'desktop-env': 'src/desktop-env.ts',

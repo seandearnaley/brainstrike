@@ -176,10 +176,6 @@ vi.mock('@brainstrike/tokenization', () => ({
   countTokensHeuristic: (value: string) => value.length,
 }));
 
-vi.mock('../../db-main', () => ({
-  getDatabase: getDatabaseMock,
-}));
-
 vi.mock('../../secrets', async () => {
   const actual = await vi.importActual<typeof import('../../secrets')>('../../secrets');
   return {
@@ -199,7 +195,7 @@ import {
   type RetrievalToolDependencies,
   runQueryEmbeddingSpaceWith,
 } from '../../assistant-server/retrieval-core';
-import { pgliteRetrievalStore } from '../../assistant-server/retrieval-store-pglite';
+import { pgliteRetrievalStore } from '../fixtures/pglite-retrieval-store';
 import {
   catalogOnly,
   nativeCounts,
@@ -234,7 +230,7 @@ function hostSemantic(
     input,
     runtimeData,
     dependencies,
-    catalogOnly(pgliteRetrievalStore()),
+    catalogOnly(pgliteRetrievalStore(getDatabaseMock)),
     signal
   );
 }

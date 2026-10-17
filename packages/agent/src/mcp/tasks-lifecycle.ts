@@ -4,8 +4,8 @@ import type {
   McpTaskRecord,
   McpTaskScope,
   McpTaskStore,
-} from '@brainstrike/db';
-import { McpTaskMetadataTooLargeError } from '@brainstrike/db';
+} from '@brainstrike/assistant-contract/mcp-task-store';
+import { McpTaskMetadataTooLargeError } from '@brainstrike/assistant-contract/mcp-task-store';
 import type { CreateTaskResult, GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { JSONObject } from '@modelcontextprotocol/client';
 import type { McpClientExtensionRequestContract } from './client-extension-registry';

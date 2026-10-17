@@ -1,4 +1,5 @@
 import { MIND_OPS_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
+import { escapeLikeLiteral } from '@brainstrike/utils/grep-pattern';
 import {
   type CreatePromptItemInput,
   derivePromptItemTitle,
@@ -15,7 +16,6 @@ import {
   type StorePromptItemEmbeddingInput,
   type UpdatePromptItemInput,
 } from '../models/prompt-item.js';
-import { escapeLikeLiteral } from '../search/grep-pattern.js';
 
 export interface PromptItemDatabase {
   query: <T = Record<string, unknown>>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;

@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, vi } from 'vitest';
 import type { DesktopShutdownRunPlan } from '../../main/desktop-graceful-shutdown';
 
-/**
- * Main startup uses the native profile and reader owners. Keep legacy PG
- * acquisition mocks as negative sentinels; they must never run on desktop.
- */
+/** Main startup uses the native profile and reader owners. */
 
 const mockSession = {
   defaultSession: {
@@ -147,50 +144,19 @@ vi.mock('electron-store', () => {
   return { default: MockElectronStore };
 });
 
-const { closeDatabaseMock, getDatabaseMock } = vi.hoisted(() => ({
-  closeDatabaseMock: vi.fn(async (): Promise<void> => undefined),
-  getDatabaseMock: vi.fn(),
+const { applicationDomainCapture } = vi.hoisted(() => ({
+  applicationDomainCapture: {
+    close: null as null | ReturnType<typeof vi.fn<() => Promise<void>>>,
+    options: null as
+      | null
+      | Parameters<typeof import('../../ipc-handlers').createApplicationIpcDomain>[3],
+  },
 }));
-
-vi.mock('../../db-main', async () => {
-  const actual = await vi.importActual<typeof import('../../db-main')>('../../db-main');
-  return {
-    ...actual,
-    closeDatabase: closeDatabaseMock,
-    getDatabase: getDatabaseMock,
-  };
-});
-
-const { recoverInterruptedMaintenanceMock } = vi.hoisted(() => ({
-  recoverInterruptedMaintenanceMock: vi.fn(async (): Promise<number> => 0),
-}));
-
-vi.mock('@brainstrike/db', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/db')>('@brainstrike/db');
-  return {
-    ...actual,
-    recoverInterruptedDimensionIndexMaintenanceAtStartup: recoverInterruptedMaintenanceMock,
-  };
-});
-
-const { applicationDomainCapture, cleanupSubscriptionsMock, waitForDatabaseIdleMock } = vi.hoisted(
-  () => ({
-    applicationDomainCapture: {
-      close: null as null | ReturnType<typeof vi.fn<() => Promise<void>>>,
-      options: null as
-        | null
-        | Parameters<typeof import('../../ipc-handlers').createApplicationIpcDomain>[3],
-    },
-    cleanupSubscriptionsMock: vi.fn(async (): Promise<void> => undefined),
-    waitForDatabaseIdleMock: vi.fn(async (): Promise<void> => undefined),
-  })
-);
 
 vi.mock('../../ipc-handlers', async () => {
   const actual = await vi.importActual<typeof import('../../ipc-handlers')>('../../ipc-handlers');
   return {
     ...actual,
-    cleanupDesktopLiveSubscriptionsForShutdown: cleanupSubscriptionsMock,
     createApplicationIpcDomain: (...args: Parameters<typeof actual.createApplicationIpcDomain>) => {
       const domain = actual.createApplicationIpcDomain(...args);
       const close = vi.fn(() => domain.close());
@@ -198,7 +164,6 @@ vi.mock('../../ipc-handlers', async () => {
       applicationDomainCapture.options = args[3];
       return { ...domain, close };
     },
-    waitForDesktopDatabaseWorkSchedulerIdle: waitForDatabaseIdleMock,
   };
 });
 
@@ -284,24 +249,6 @@ vi.mock('../../main/desktop-graceful-shutdown', () => ({
   ),
 }));
 
-const { probeMock } = vi.hoisted(() => ({
-  probeMock: vi.fn(async () => ({
-    hnswIndexBuild: true,
-    maintenanceSettings: { maintenanceWorkMem: null, maxParallelMaintenanceWorkers: null },
-    progressReporting: true,
-  })),
-}));
-
-vi.mock('../../dimension-index-maintenance-capabilities', async () => {
-  const actual = await vi.importActual<
-    typeof import('../../dimension-index-maintenance-capabilities')
-  >('../../dimension-index-maintenance-capabilities');
-  return {
-    ...actual,
-    probeDimensionIndexRuntimeCapabilities: probeMock,
-  };
-});
-
 const { isDesktopShuttingDownMock } = vi.hoisted(() => ({
   isDesktopShuttingDownMock: vi.fn(() => false),
 }));
@@ -315,28 +262,6 @@ vi.mock('../../desktop-shutdown-state', async () => {
     isDesktopShuttingDown: isDesktopShuttingDownMock,
   };
 });
-
-const { maintenanceCloseMock, maintenanceStartMock, maintenanceStopMock } = vi.hoisted(() => ({
-  maintenanceCloseMock: vi.fn(async (): Promise<void> => undefined),
-  maintenanceStartMock: vi.fn(async (): Promise<void> => undefined),
-  maintenanceStopMock: vi.fn(),
-}));
-
-vi.mock('../../database-maintenance-scheduler', () => ({
-  createDesktopDatabaseMaintenanceScheduler: vi.fn(() => ({})),
-}));
-
-vi.mock('../../dimension-index-maintenance-scheduler', () => ({
-  createDesktopDimensionIndexMaintenanceScheduler: vi.fn(() => ({})),
-}));
-
-vi.mock('../../desktop-maintenance-trigger-graph', () => ({
-  createDesktopMaintenanceTriggerGraph: vi.fn(() => ({
-    close: maintenanceCloseMock,
-    start: maintenanceStartMock,
-    stop: maintenanceStopMock,
-  })),
-}));
 
 /** The logger `main.ts` made for 'DesktopMain'; fails loudly rather than reading the last one. */
 function requireMainLogger() {
@@ -370,12 +295,6 @@ export function installMainBootFixture(): void {
     nativePrepareForPause.mockReset().mockResolvedValue(null);
     publicEmbeddingStop.current = null;
     isDesktopShuttingDownMock.mockReturnValue(false);
-    closeDatabaseMock.mockResolvedValue(undefined);
-    cleanupSubscriptionsMock.mockResolvedValue(undefined);
-    waitForDatabaseIdleMock.mockResolvedValue(undefined);
-    maintenanceCloseMock.mockResolvedValue(undefined);
-    maintenanceStartMock.mockResolvedValue(undefined);
-    recoverInterruptedMaintenanceMock.mockResolvedValue(0);
     mockApp.isPackaged = false;
     existsSyncMock.mockReturnValue(true);
     process.env['CI'] = 'false';
@@ -400,15 +319,9 @@ export function installMainBootFixture(): void {
 
 export {
   applicationDomainCapture,
-  cleanupSubscriptionsMock,
-  closeDatabaseMock,
   createLoggerMock,
   existsSyncMock,
-  getDatabaseMock,
   isDesktopShuttingDownMock,
-  maintenanceCloseMock,
-  maintenanceStartMock,
-  maintenanceStopMock,
   mockApp,
   mockBrowserWindowInstance,
   nativeAcquire,
@@ -418,10 +331,7 @@ export {
   nativeCloseForShutdown,
   nativePrepareForPause,
   nativeReconfigureForReset,
-  probeMock,
   publicEmbeddingStop,
-  recoverInterruptedMaintenanceMock,
   requireMainLogger,
   shutdownPlanCapture,
-  waitForDatabaseIdleMock,
 };

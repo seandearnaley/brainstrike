@@ -8,8 +8,6 @@ import { assertEmbeddingHostStatus } from '../../../embedding-host-shared';
 import { EmbeddingHostRuntime } from '../../../renderer/components/embedding-host-runtime';
 import {
   createHostWindowMock,
-  currentDbRef,
-  dbHandle,
   hostWindow,
   installEmbeddingHostRuntimeFixture,
   reopenEmbeddingQueueMock,
@@ -96,7 +94,7 @@ describe('Embedding host manager and renderer control ownership', () => {
   });
 
   it.each(['before', 'during'] as const)(
-    'settles Stop when the live renderer loses its DB %s the command',
+    'settles Stop when the live renderer rerenders %s the command',
     async (timing) => {
       storeState.hasHydrated = true;
       hostWindow.destroyed = false;
@@ -125,14 +123,13 @@ describe('Embedding host manager and renderer control ownership', () => {
             finishDrain = resolve;
           })
       );
-      const loseDatabase = async () => {
+      const rerenderHost = async () => {
         await act(async () => {
-          currentDbRef.current = null;
           view.rerender(<EmbeddingHostRuntime />);
         });
       };
       if (timing === 'before') {
-        await loseDatabase();
+        await rerenderHost();
       }
       let result: Awaited<ReturnType<typeof manager.stop>> | undefined;
       let failure: unknown;
@@ -145,17 +142,14 @@ describe('Embedding host manager and renderer control ownership', () => {
         }
       );
       if (timing === 'during') {
-        await loseDatabase();
+        await rerenderHost();
       }
       try {
         await waitFor(() => expect(finishDrain).toBeDefined());
         await act(async () => finishDrain?.());
         await waitFor(() => expect(result?.state).toBe('stopped'));
         expect(failure).toBeUndefined();
-        await act(async () => {
-          currentDbRef.current = dbHandle;
-          view.rerender(<EmbeddingHostRuntime />);
-        });
+        await rerenderHost();
         expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
       } finally {
         finishDrain?.();

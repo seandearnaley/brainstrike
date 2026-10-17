@@ -1,4 +1,3 @@
-import { calculateRRFContribution, createGrepLineMatcher, RRF_K_DEFAULT } from '@brainstrike/db';
 import {
   type IndexerCoverage,
   type IndexerCoverageCounts,
@@ -12,6 +11,8 @@ import {
   indexerStatusFailure,
   validIndexerEmbeddingProfile,
 } from '@brainstrike/indexing-contract/indexer-client';
+import { createGrepLineMatcher } from '@brainstrike/utils/grep-line-matcher';
+import { calculateRRFContribution, RRF_K_DEFAULT } from '@brainstrike/utils/rrf';
 import type { NativeWorkspaceSearchDependencies } from './native-workspace-search-context';
 import type {
   WorkspaceSearchChild,

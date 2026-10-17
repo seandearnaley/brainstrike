@@ -8,6 +8,7 @@
  * since pgvector operators aren't natively supported by the query builder.
  */
 
+import type { GrepCandidate, GrepCandidateOptions } from '@brainstrike/utils/grep-search';
 import { count, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { DrizzleDb } from '../../drizzle/database.js';
 import type {
@@ -17,7 +18,6 @@ import type {
   FileChunkInsert,
   FileChunkUpdate,
 } from '../../models/file-chunk.js';
-import type { GrepCandidate, GrepCandidateOptions } from '../../models/grep';
 import {
   embeddingSets,
   fileChunks,

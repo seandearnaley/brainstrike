@@ -1,3 +1,4 @@
+import type { McpTaskStorage } from '@brainstrike/assistant-contract/mcp-task-store';
 import type { McpBearerCredentialAuthority } from '@brainstrike/host-capabilities/mcp/bearer-credential';
 import {
   McpHostRuntime,
@@ -13,6 +14,7 @@ export interface DesktopMcpHostRuntimeDependencies extends McpHostRuntimeDepende
   bearerCredentialAuthority?: McpBearerCredentialAuthority;
   oauthStore?: McpOAuthStore;
   openExternal?: (url: string) => Promise<void>;
+  openTaskStorage?: () => Promise<McpTaskStorage>;
 }
 
 /** The desktop composes the same authority consumed by a plain Node host. */

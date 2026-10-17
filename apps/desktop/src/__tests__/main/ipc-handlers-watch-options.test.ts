@@ -41,14 +41,6 @@ vi.mock('../../ipc-domains/storage-preferences-ipc', () => ({
   registerStoragePreferencesIpcHandlers: vi.fn(() => () => undefined),
 }));
 
-vi.mock('../../ipc-domains/db-ipc', () => ({
-  cleanupDesktopLiveSubscriptionsForShutdown: vi.fn(),
-  flushPendingLiveUpdates: vi.fn(),
-  isDesktopDatabaseBackgrounded: vi.fn(() => false),
-  registerDatabaseIpcHandlers: vi.fn(() => () => undefined),
-  setBackgrounded: vi.fn(),
-}));
-
 import { createApplicationIpcDomain } from '../../ipc-handlers';
 
 async function fixture() {

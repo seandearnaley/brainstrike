@@ -5,7 +5,7 @@ import type {
   HybridSearchResult,
   HybridSearchService,
 } from '@brainstrike/db';
-import { normalizeRRFScores } from '@brainstrike/db';
+import { normalizeRRFScores } from '@brainstrike/utils/rrf';
 import type {
   WorkspaceSearchChunkHit,
   WorkspaceSearchFileResult,

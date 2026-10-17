@@ -19,7 +19,6 @@ vi.mock('../../renderer-host-lifecycle', () => ({
   }),
 }));
 const pg = vi.hoisted(() => ({ files: vi.fn(), fts: vi.fn(), query: vi.fn(), search: vi.fn() }));
-vi.mock('../../db-main', () => ({ getDatabase: async () => ({ query: pg.query }) }));
 vi.mock('@brainstrike/db', async (original) => ({
   ...(await original<typeof import('@brainstrike/db')>()),
   FileChunkRepository: class {
@@ -38,7 +37,6 @@ import {
   type RetrievalToolDependencies,
   runQueryEmbeddingSpaceWith,
 } from '../../assistant-server/retrieval-core';
-import { pgliteRetrievalStore } from '../../assistant-server/retrieval-store-pglite';
 import {
   projectHybridSearchModelOutput,
   projectQueryEmbeddingSpaceModelOutput,
@@ -49,6 +47,7 @@ import {
   createEmbeddingHostQueryCancellationError,
   createEmbeddingHostQueryEmbeddingErrorReport,
 } from '../../embedding-host-shared';
+import { pgliteRetrievalStore } from '../fixtures/pglite-retrieval-store';
 import {
   catalogOnly,
   nativeCounts as counts,
@@ -73,7 +72,7 @@ function hostSemantic(
     input,
     runtimeData,
     dependencies,
-    catalogOnly(pgliteRetrievalStore()),
+    catalogOnly(pgliteRetrievalStore(async () => ({ exec: vi.fn(), query: pg.query }))),
     signal
   );
 }
@@ -87,7 +86,7 @@ function hostHybrid(
     input,
     runtimeData,
     dependencies,
-    catalogOnly(pgliteRetrievalStore()),
+    catalogOnly(pgliteRetrievalStore(async () => ({ exec: vi.fn(), query: pg.query }))),
     signal
   );
 }

@@ -24,7 +24,6 @@ import { EmbeddingHostRuntime } from '../../../renderer/components/embedding-hos
 import {
   commandListenerRef,
   createHostWindowMock,
-  currentDbRef,
   detectDeviceCapabilitiesMock,
   documentEmbeddingsListenerRef,
   ensureVectorPreferencesHydratedMock,
@@ -121,7 +120,6 @@ describe('pinned native hidden-host startup', () => {
   installEmbeddingHostRuntimeFixture();
 
   it('starts native inference readiness without a PGlite handle', async () => {
-    currentDbRef.current = null;
     window.history.replaceState(
       {},
       '',

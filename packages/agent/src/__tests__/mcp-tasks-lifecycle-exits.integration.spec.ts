@@ -1,4 +1,5 @@
-import { type McpTaskAuthorityLease, McpTaskRepository } from '@brainstrike/db';
+import type { McpTaskAuthorityLease } from '@brainstrike/assistant-contract/mcp-task-store';
+import { McpTaskRepository } from '@brainstrike/db';
 import { createMigratedTestDb } from '@brainstrike/db/test-support/migrated-test-db';
 import type { GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { PGlite } from '@electric-sql/pglite';
