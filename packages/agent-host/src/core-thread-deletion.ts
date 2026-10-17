@@ -38,7 +38,7 @@ export interface HostThreadDeletionContext {
  */
 export function deleteHostThread(context: HostThreadDeletionContext, threadId: string): Deletion {
   const existing = context.deletions.get(threadId);
-  if (existing) {
+  if (existing !== undefined) {
     return existing;
   }
   if (context.closing()) {

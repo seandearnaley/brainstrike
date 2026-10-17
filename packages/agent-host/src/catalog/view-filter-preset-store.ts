@@ -50,7 +50,7 @@ export function serveViewFilterPresets(
   let closing: Promise<void> | undefined;
   const pending = new Set<Promise<ViewFilterPresetReply>>();
   const subscription = connection.onRequest(METHOD, async (input: unknown) => {
-    if (closing) {
+    if (closing !== undefined) {
       throw new Error('Preset endpoint is closing');
     }
     const work = store.viewFilterPresets(parseViewFilterPresetRequest(input));

@@ -74,7 +74,7 @@ export function servePromptLibrary(
   let closing: Promise<void> | undefined;
   const pending = new Set<Promise<PromptLibraryReply>>();
   const subscription = connection.onRequest(METHOD, async (input: unknown) => {
-    if (closing) {
+    if (closing !== undefined) {
       throw new Error('Prompt Library endpoint is closing');
     }
     const work = store.promptLibrary(parsePromptLibraryRequest(input));

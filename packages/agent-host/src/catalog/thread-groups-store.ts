@@ -35,7 +35,7 @@ export function serveThreadGroups(
   let closing: Promise<void> | undefined;
   const pending = new Set<Promise<ThreadGroupsReply>>();
   const subscription = connection.onRequest(METHOD, async (input: unknown) => {
-    if (closing) {
+    if (closing !== undefined) {
       throw new Error('Thread groups endpoint is closing');
     }
     const work = store.threadGroups(parseThreadGroupsRequest(input));

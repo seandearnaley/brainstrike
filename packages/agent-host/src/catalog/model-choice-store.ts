@@ -45,7 +45,7 @@ export function serveModelChoiceStore(
   let closing: Promise<void> | undefined;
   const pending = new Set<Promise<ModelChoiceResult>>();
   const subscription = connection.onRequest(METHOD, async (input: unknown) => {
-    if (closing) {
+    if (closing !== undefined) {
       throw new Error('Model choice endpoint is closing');
     }
     const request = Schema.decodeUnknownSync(Request, { errors: 'all', onExcessProperty: 'error' })(

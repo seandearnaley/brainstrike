@@ -352,7 +352,7 @@ export async function createProductionHostPlatform<Configuration extends Product
     });
     try {
       request.signal.throwIfAborted();
-      if (closing) {
+      if (closing !== undefined) {
         throw new Error('Production host is closing');
       }
       return {
@@ -441,7 +441,7 @@ export async function createProductionHostPlatform<Configuration extends Product
       ? { validateWorkspaceBinding: options.validateWorkspaceBinding }
       : {}),
     admitRun: async (request) => {
-      if (closing) {
+      if (closing !== undefined) {
         throw new Error('Production host is closing');
       }
       request.signal.throwIfAborted();
@@ -472,7 +472,7 @@ export async function createProductionHostPlatform<Configuration extends Product
       };
       selections.add(release);
       try {
-        if (closing) {
+        if (closing !== undefined) {
           throw new Error('Production host is closing');
         }
         const provider = selected.configuration.provider ?? '';

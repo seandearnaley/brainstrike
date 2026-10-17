@@ -560,7 +560,7 @@ export async function continueHostRun(run: Run, ports: HostRunContinuationPorts)
     }
     await ports.loop(admission.model);
   } catch (cause) {
-    if (run.completion) {
+    if (run.completion !== undefined) {
       throw cause;
     }
     const failed = hostContinuationFailure(run, cause);

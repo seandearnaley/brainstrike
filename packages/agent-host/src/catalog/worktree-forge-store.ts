@@ -110,7 +110,7 @@ export function serveWorktreeForgeStore(
   let closing: Promise<void> | undefined;
   const pending = new Set<Promise<unknown>>();
   async function admitted<T>(start: () => Promise<T>): Promise<T> {
-    if (closing) {
+    if (closing !== undefined) {
       throw new Error('Worktree/Forge endpoint is closing');
     }
     const work = start();

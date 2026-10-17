@@ -202,7 +202,7 @@ async function gatedHostRun(
   const start = hostTurnStart(run, admission);
   const skips = admission.hookSkips ?? [];
   const recorded: HostEvent[] = [
-    ...(start ? [await start] : []),
+    ...(start === undefined ? [] : [await start]),
     ...(skips.length > 0
       ? [{ files: [...skips], runId: run.id, type: 'hooks.skipped' as const }]
       : []),

@@ -87,7 +87,7 @@ export async function acceptHostRunStop(
   const result = {
     outcome: run.terminal ? ('already-terminal' as const) : ('stopped' as const),
   };
-  if (run.stopAcceptance) {
+  if (run.stopAcceptance !== undefined) {
     await join();
     await run.stopAcceptance;
     return result;
@@ -387,7 +387,7 @@ export function settleHostRunOwner(
   run: HostRunState,
   closeOwner: (run: HostRunState) => Promise<void>
 ): Promise<void> {
-  if (run.settlement) {
+  if (run.settlement !== undefined) {
     return run.settlement;
   }
   const settlement = closeOwner(run).then(() => {
@@ -439,7 +439,7 @@ export function finishHostRun(
     commit: () => void
   ) => Promise<unknown>
 ): Promise<void> {
-  if (run.completion) {
+  if (run.completion !== undefined) {
     return run.completion;
   }
   if (run.terminal) {

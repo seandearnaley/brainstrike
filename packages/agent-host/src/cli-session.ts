@@ -279,7 +279,7 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
         .then(() => finish(), finish);
       return;
     }
-    if (!(pending && runId) || responding) {
+    if (!(pending && runId) || responding !== undefined) {
       process.stderr.write('No unanswered decision is selected.\n');
       return;
     }

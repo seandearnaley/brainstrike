@@ -53,7 +53,7 @@ export function serveWorkspaceRootStore(
   let closing: Promise<void> | undefined;
   const pending = new Set<Promise<WorkspaceRootReply>>();
   const subscription = connection.onRequest(METHOD, async (input: unknown) => {
-    if (closing) {
+    if (closing !== undefined) {
       throw new Error('Workspace root store endpoint is closing');
     }
     const request = Schema.decodeUnknownSync(WorkspaceRootRequestSchema, {
