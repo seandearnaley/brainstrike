@@ -1,0 +1,10 @@
+{
+  "id": "regenerate-with-shell",
+  "model": "openai::gpt-6-luna",
+  "prompt": "Add a farewell command beside greet. Create src/commands/farewell.ts exporting run(name) that returns `Goodbye, <name>!`, and create test/farewell.test.ts with a node:test test that calls commands.farewell from src/registry.generated.ts in the style of test/greet.test.ts. Add the bullet `- Add the farewell command.` under the Unreleased heading of CHANGELOG.md. src/registry.generated.ts is generated: regenerate it by running `node scripts/build-registry.mjs` in the workspace root, never by editing it, then run the tests with `node --test test/greet.test.ts test/farewell.test.ts`. Use workspace-relative paths and do not pass a root.",
+  "timeoutMs": 300000,
+  "title": "Edit several files and regenerate a generated one with a shell command, each write and command approved under the default policy",
+  "verify": {
+    "command": ["node", "--test", "test/greet.test.ts", "test/farewell.test.ts", ".verify/registry.hidden.test.ts"]
+  }
+}

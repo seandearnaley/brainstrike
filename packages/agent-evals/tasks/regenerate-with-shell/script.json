@@ -1,0 +1,46 @@
+{
+  "calls": [
+    {
+      "input": { "path": "src/commands/greet.ts" },
+      "toolId": "brainstrike_readWorkspaceFile"
+    },
+    {
+      "input": { "path": "test/greet.test.ts" },
+      "toolId": "brainstrike_readWorkspaceFile"
+    },
+    {
+      "input": { "path": "CHANGELOG.md" },
+      "toolId": "brainstrike_readWorkspaceFile"
+    },
+    {
+      "input": {
+        "content": "/** Says goodbye to `name`. */\nexport function run(name: string): string {\n  return `Goodbye, ${name}!`;\n}\n",
+        "path": "src/commands/farewell.ts"
+      },
+      "toolId": "brainstrike_writeWorkspaceFile"
+    },
+    {
+      "input": {
+        "content": "import assert from 'node:assert/strict';\nimport { test } from 'node:test';\nimport { commands } from '../src/registry.generated.ts';\n\ntest('the farewell command says goodbye by name', () => {\n  assert.equal(commands.farewell('Ada'), 'Goodbye, Ada!');\n});\n",
+        "path": "test/farewell.test.ts"
+      },
+      "toolId": "brainstrike_writeWorkspaceFile"
+    },
+    {
+      "input": {
+        "newStr": "- Add the greet command.\n- Add the farewell command.",
+        "oldStr": "- Add the greet command.",
+        "path": "CHANGELOG.md"
+      },
+      "toolId": "brainstrike_stringReplaceWorkspaceFile"
+    },
+    {
+      "input": { "command": "node scripts/build-registry.mjs" },
+      "toolId": "brainstrike_executeCommand"
+    },
+    {
+      "input": { "command": "node --test test/greet.test.ts test/farewell.test.ts" },
+      "toolId": "brainstrike_executeCommand"
+    }
+  ]
+}

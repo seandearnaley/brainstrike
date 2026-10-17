@@ -17,7 +17,7 @@ import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 
-/** The canonical human tools plus the shared workspace tools a standalone host runs. */
+/** The canonical human tools plus the workspace tools (and shell) a standalone host runs. */
 const STANDALONE_NATIVE_TOOL_IDS = [
   NATIVE_TOOL_ID.askUser,
   NATIVE_TOOL_ID.submitPlan,
@@ -32,6 +32,7 @@ const STANDALONE_NATIVE_TOOL_IDS = [
   NATIVE_TOOL_ID.globWorkspace,
   NATIVE_TOOL_ID.findWorkspaceSymbol,
   NATIVE_TOOL_ID.readToolOutputArtifact,
+  NATIVE_TOOL_ID.executeCommand,
 ];
 const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
 const httpFixture = new URL('./fixtures/standalone-production-http.mjs', import.meta.url).href;

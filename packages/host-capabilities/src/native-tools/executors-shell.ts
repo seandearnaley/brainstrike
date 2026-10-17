@@ -1,8 +1,8 @@
 /**
- * executeCommand, built over the shared build context so the desktop agent host
- * runs it in its own process. Its worktree/forge correlation comes from the
- * caller: Main's services for a legacy thread, Main's narrow RPCs for a host
- * thread. This module must not import Electron: the host bundle loads it.
+ * executeCommand, built over the shared build context so each agent host
+ * (Desktop's, the standalone CLI's) runs it in its own process. The shell
+ * supplies its own facts: the Windows wrapper it ships, and the worktree/forge
+ * correlation its ledger has (Desktop: Main's narrow RPCs; none on the CLI).
  */
 import {
   type ExecuteCommandInput,
@@ -11,19 +11,27 @@ import {
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import {
+  runExecuteCommandWithShellCorrelation,
+  type ShellCorrelationDependencies,
+} from './execute-command-correlation.js';
+import { projectExecuteCommandModelOutput } from './execute-command-model-projection.js';
+import type { WindowsCommandEntry } from './execute-command-tool.js';
+import type { NativeToolBuildContext } from './executors.js';
+import type { NativeToolExecutor } from './host-tools.js';
+import {
   logToolFailure,
-  type NativeToolBuildContext,
-  type NativeToolExecutor,
   parseToolExecuteInput,
   resolveShellOutputStreamer,
   type ToolExecuteContext,
   type ToolExecuteInput,
-} from '@brainstrike/host-capabilities/native-tools';
-import {
-  runExecuteCommandWithShellCorrelation,
-  type ShellCorrelationDependencies,
-} from './execute-command-correlation';
-import { projectExecuteCommandModelOutput } from './execute-command-model-projection';
+} from './tool-execute-support.js';
+
+/** What a shell composes executeCommand with. */
+export interface ExecuteCommandShell {
+  /** The call's worktree/forge correlation; absent where the shell has no worktree ledger. */
+  readonly correlation?: (context: NativeToolBuildContext) => ShellCorrelationDependencies;
+  readonly windowsCommandEntry: WindowsCommandEntry;
+}
 
 /**
  * Arbitrary shell execution is registered like every other native tool and
@@ -32,9 +40,7 @@ import { projectExecuteCommandModelOutput } from './execute-command-model-projec
  * before the command runs (approve → execute, decline → skip). A user can set
  * execute to 'allow'/yolo to run it unprompted, or 'deny' to omit it.
  */
-export function executeCommandExecutor(
-  correlation: (context: NativeToolBuildContext) => ShellCorrelationDependencies
-): NativeToolExecutor {
+export function executeCommandExecutor(shell: ExecuteCommandShell): NativeToolExecutor {
   return (context) => {
     const { resolveActiveDomainCharBudget, runtimeData } = context;
     return {
@@ -62,8 +68,12 @@ export function executeCommandExecutor(
           return await runExecuteCommandWithShellCorrelation(
             resolvedInput,
             runtimeData,
-            { signal: resolveGuardedToolSignal(options), ...(stream ? { stream } : {}) },
-            correlation(context)
+            {
+              signal: resolveGuardedToolSignal(options),
+              ...(stream ? { stream } : {}),
+              windowsCommandEntry: shell.windowsCommandEntry,
+            },
+            shell.correlation?.(context) ?? {}
           );
         } catch (error) {
           logToolFailure('executeCommand failed', error, resolvedInput);

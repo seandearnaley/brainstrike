@@ -1,5 +1,5 @@
 /**
- * Teardown DIAGNOSTICS for the desktop `brainstrike.executeCommand` tool.
+ * Teardown DIAGNOSTICS for the `brainstrike.executeCommand` tool.
  *
  * Split out of execute-command-tool.integration.test.ts, which owns the
  * no-orphan and process-group-kill proofs themselves. This file owns a narrower
@@ -13,20 +13,24 @@ import fsPromises from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
-import { acquireWorkspaceMutationLease } from '@brainstrike/host-capabilities/native-tools';
+import { createCredentialIsolatedChildEnvironment } from '@brainstrike/assistant-contract/credential-child-environment';
 import type treeKill from 'tree-kill';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  acquireWorkspaceMutationLease,
   disposeLiveChildProcesses,
-  runExecuteCommand,
-} from '../../assistant-server/execute-command-tool';
+} from '../src/native-tools/index.js';
 import {
   createWindowsCommandProcess,
   type WindowsCommandJob,
-} from '../../assistant-server/windows-command-process';
-import { createCredentialIsolatedChildEnvironment } from '../../desktop-env';
-import { readPidWhenWritten, singleRootRuntime, waitForPidDead } from './_tool-test-helpers';
-import { builtWindowsCommandEntry } from './_windows-command-fixture';
+} from '../src/windows-command-process.js';
+import {
+  packageWindowsCommandEntry,
+  readPidWhenWritten,
+  runCommand,
+  singleRootRuntime,
+  waitForPidDead,
+} from './fixtures/execute-command.js';
 
 const { loggerDebugMock, loggerInfoMock, loggerWarnMock } = vi.hoisted(() => ({
   loggerDebugMock: vi.fn(),
@@ -88,7 +92,7 @@ async function windowsJobFixture(
   root: string,
   mode: 'normal' | 'denied-retirement' | 'wrong-identity'
 ) {
-  const entry = builtWindowsCommandEntry();
+  const entry = packageWindowsCommandEntry();
   const native = createRequire(entry)('@brainstrike/windows-job-native') as {
     createCommandJob(): WindowsCommandJob;
   };
@@ -230,7 +234,7 @@ describe('killProcessTree — teardown log diagnostics', () => {
     }
     const pidFile = path.join(root, 'eperm-stub.pid');
     const command = await writeSleepingFixture(root, pidFile);
-    const run = runExecuteCommand({ command, timeoutMs: 30_000 }, singleRootRuntime(root));
+    const run = runCommand({ command, timeoutMs: 30_000 }, singleRootRuntime(root));
     const shellPid = await readPidWhenWritten(pidFile);
     loggerWarnMock.mockReset();
 
@@ -310,7 +314,7 @@ describe('killProcessTree — teardown log diagnostics', () => {
     }
     const pidFile = path.join(root, 'eperm-live.pid');
     const command = await writeSleepingFixture(root, pidFile);
-    const run = runExecuteCommand({ command, timeoutMs: 30_000 }, singleRootRuntime(root));
+    const run = runCommand({ command, timeoutMs: 30_000 }, singleRootRuntime(root));
     const shellPid = await readPidWhenWritten(pidFile);
     loggerWarnMock.mockReset();
 
@@ -363,7 +367,7 @@ describe('killProcessTree — teardown log diagnostics', () => {
     async () => {
       const root = await makeWorkspace();
       const pidFile = path.join(root, 'zombie.pid');
-      const run = runExecuteCommand(
+      const run = runCommand(
         { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 30_000 },
         singleRootRuntime(root)
       );
@@ -427,7 +431,7 @@ describe('killProcessTree — teardown log diagnostics', () => {
     }
     const pidFile = path.join(root, 'realfail.pid');
     const command = await writeSleepingFixture(root, pidFile);
-    const run = runExecuteCommand({ command, timeoutMs: 30_000 }, singleRootRuntime(root));
+    const run = runCommand({ command, timeoutMs: 30_000 }, singleRootRuntime(root));
     const shellPid = await readPidWhenWritten(pidFile);
     loggerWarnMock.mockReset();
 
