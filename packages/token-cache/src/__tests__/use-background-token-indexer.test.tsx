@@ -1795,6 +1795,52 @@ describe('useBackgroundTokenIndexer', () => {
     expect(result.current.isIndexing).toBe(false);
   });
 
+  it('settles a startup still waiting for ready with the retirement and cancels its readiness timeout', async () => {
+    vi.useFakeTimers();
+    const onFileError = vi.fn();
+    const store = {
+      get: vi.fn(async () => null),
+      getBatch: vi.fn(async () => new Map<string, TokenCacheEntry>()),
+      set: vi.fn(async () => {}),
+    };
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({ autoStart: false, mode: 'accurate', onFileError, store })
+    );
+    let settledWith: unknown = 'pending';
+    act(() => {
+      result.current
+        .indexFiles([{ compositeKey: 'folder|@|a.ts', filePath: 'a.ts', folderId: 'folder' }])
+        .then(
+          () => {
+            settledWith = 'resolved';
+          },
+          (error: unknown) => {
+            settledWith = error;
+          }
+        );
+    });
+    expect(mockWorkers).toHaveLength(1);
+    const worker = mockWorkers[0]!;
+
+    const retirement = new Error('owner retired');
+    act(() => {
+      result.current.retire(retirement);
+    });
+    await flushPromises();
+    expect(settledWith).toBe(retirement);
+
+    // The readiness timeout is cancelled: no restart, failure or log follows it.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(worker.terminate).not.toHaveBeenCalled();
+    expect(mockWorkers).toHaveLength(1);
+    expect(worker.postMessage).not.toHaveBeenCalled();
+    expect(mockLogger.warn).not.toHaveBeenCalled();
+    expect(mockLogger.error).not.toHaveBeenCalled();
+    expect(onFileError).not.toHaveBeenCalled();
+  });
+
   it('does not stay stuck when store.set rejects inside handleResult', async () => {
     const onFileIndexed = vi.fn();
     const onFileError = vi.fn();

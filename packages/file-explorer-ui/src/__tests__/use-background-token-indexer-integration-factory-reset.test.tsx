@@ -125,6 +125,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
@@ -253,6 +254,72 @@ describe('background token indexing under a factory reset', () => {
     expect(preparedBeforeRead).toBe(false);
     expect(mockWorkers).toHaveLength(0);
     expect(errors).toEqual([]);
+  });
+
+  it('settles a dispatch still waiting for worker readiness long before the readiness timeout', async () => {
+    vi.useFakeTimers();
+    const { errors, stop } = recordErrors();
+    let preparedPromptly = false;
+    let terminatedByTimeout = true;
+    try {
+      const view = renderIntegration(async () => 'export const value = 1;');
+      let dispatch!: Promise<void>;
+      act(() => {
+        dispatch = view.result.current.triggerIndexing([fileKey]);
+      });
+      // The worker exists but never signals ready.
+      const worker = await vi.waitFor(() => {
+        expect(mockWorkers).toHaveLength(1);
+        return mockWorkers[0] as MockWorker;
+      });
+
+      let prepared = false;
+      const preparation = factoryReset.prepareFactoryReset().then(() => {
+        prepared = true;
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      preparedPromptly = prepared;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+        await preparation;
+        await dispatch;
+      });
+      terminatedByTimeout = worker.terminate.mock.calls.length > 0;
+      view.unmount();
+    } finally {
+      stop();
+      vi.useRealTimers();
+    }
+    expect(errors).toEqual([]);
+    expect(preparedPromptly).toBe(true);
+    // The cancelled readiness timeout never escalates into a restart or failure.
+    expect(terminatedByTimeout).toBe(false);
+  });
+
+  it('still fails loudly when that readiness wait times out without a reset', async () => {
+    vi.useFakeTimers();
+    const { errors, stop } = recordErrors();
+    try {
+      const view = renderIntegration(async () => 'export const value = 1;');
+      let dispatch!: Promise<void>;
+      act(() => {
+        dispatch = view.result.current.triggerIndexing([fileKey]);
+      });
+      await vi.waitFor(() => expect(mockWorkers).toHaveLength(1));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+        await dispatch;
+      });
+      view.unmount();
+    } finally {
+      stop();
+      vi.useRealTimers();
+    }
+    expect(errors).toEqual([
+      '[BackgroundTokenIndexerIntegration] triggerIndexing electron batch dispatch failed',
+    ]);
   });
 
   it('a replacement indexer mounted after preparation began reads and dispatches nothing', async () => {

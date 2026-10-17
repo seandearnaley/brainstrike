@@ -203,6 +203,8 @@ export function useBackgroundTokenIndexer({
   const pendingBatchTrackersRef = useRef<PendingBatchTracker[]>([]);
   // The owner's retirement, once issued. Terminal for this hook instance.
   const retirementRef = useRef<Error | null>(null);
+  // Rejects the startup still waiting for `ready`, so retirement can settle it.
+  const rejectReadinessRef = useRef<((reason: Error) => void) | null>(null);
 
   // Track pending files to enable cancellation
   const pendingFilesRef = useRef<Set<string>>(new Set());
@@ -521,6 +523,7 @@ export function useBackgroundTokenIndexer({
       const transport = runtime.transport;
 
       await new Promise<void>((resolve, reject) => {
+        rejectReadinessRef.current = reject;
         const settleReady = (): void => {
           worker.removeEventListener('messageerror', handleMessageChannelError);
           resolve();
@@ -1015,6 +1018,11 @@ export function useBackgroundTokenIndexer({
       retirementRef.current = retirement;
       pendingFilesRef.current.clear();
       rejectAllPendingBatchTrackers(retirement);
+      // A startup still waiting for `ready` settles with the retirement too, and its
+      // readiness timeout is cancelled so it can never escalate into a worker failure.
+      clearTimerRef(readinessTimerRef);
+      rejectReadinessRef.current?.(retirement);
+      rejectReadinessRef.current = null;
       setIsIndexing(false);
       setProgress(null);
       logger.debug('Background token indexer retired', { reason: retirement.message });
