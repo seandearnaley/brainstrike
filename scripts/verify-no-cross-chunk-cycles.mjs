@@ -74,7 +74,7 @@ const MIN_STATIC_EDGES = 100;
  * would otherwise let the clause walk past the paren to a literal `from`.
  *
  * An optional block comment may sit between the boundary character and the
- * keyword: Terser (apps/web's `minify: 'terser'`) and rolldown preserve
+ * keyword: the minifier (apps/web uses Vite's default, oxc) and rolldown preserve
  * "legal comment" banners, and one of those between two top-level imports
  * would otherwise break the anchor and silently drop the second edge.
  * Terser's default `comments: 'some'` preserves any block comment whose body
@@ -96,8 +96,8 @@ const MIN_STATIC_EDGES = 100;
  * any real banner needs, as a second, independent guard against a
  * pathological match spanning arbitrarily far. A plain, non-preserved
  * comment (one with none of those markers) is deliberately NOT skipped —
- * that is a known, accepted limitation tracked in BST-890, not a bug: Terser
- * strips it, so it never actually appears between two imports in a real
+ * that is a known, accepted limitation tracked in BST-890, not a bug: the
+ * minifier strips it, so it never actually appears between two imports in a real
  * build.
  */
 const STATIC_IMPORT_PATTERN =

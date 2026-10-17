@@ -84,7 +84,7 @@ test('parses several statements sharing one minified line', () => {
 });
 
 test('parses an import preceded by a preserved legal comment banner', () => {
-  // Terser and rolldown preserve `/*! … */` banners. One sitting between two
+  // Minifiers and rolldown preserve `/*! … */` banners. One sitting between two
   // top-level imports must not break the statement-boundary anchor — a
   // dropped edge here could hide a genuine cycle.
   assert.deepEqual(parseStaticChunkSpecifiers('import"./a.js";/*! lic */import"./b.js";'), [
@@ -103,7 +103,7 @@ test('parses a re-export preceded by a preserved legal comment banner', () => {
 test('parses an import preceded by a JSDoc-style @license legal comment', () => {
   // Terser's default `comments: 'some'` preserves ANY block comment matching
   // `/^\**!|@preserve|@license|@cc_on/`, not just the `/*!` banner form.
-  // apps/web/vite.config.mts sets `minify: 'terser'`, so a `/** @license … */`
+  // apps/web's default oxc minifier keeps `@license` blocks too, so a `/** @license … */`
   // banner is a real, reachable shape — not just the `/*!` one.
   assert.deepEqual(
     parseStaticChunkSpecifiers('import"./a.js";/** @license MIT */import"./b.js";'),
@@ -134,7 +134,7 @@ test('parses a re-export preceded by a JSDoc-style @license legal comment', () =
 
 test('does NOT skip a plain, non-preserved comment (known limitation, BST-890)', () => {
   // `/* just a note */` matches none of Terser's preserved-comment markers,
-  // so Terser strips it in a real build and it never actually sits between
+  // so the minifier strips it in a real build and it never actually sits between
   // two top-level imports. This guard intentionally does not treat it as a
   // skippable comment — doing so would mean skipping ANY `/* … */`, which
   // reintroduces the string-content false negative covered below. Accepted

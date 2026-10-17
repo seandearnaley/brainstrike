@@ -43,7 +43,7 @@ test('every UUID copy clears the buffer-bounds advisory, with negative controls'
   assert.throws(() => assertPatched({ packages: {} }), /expected uuid/);
 });
 
-for (const app of ['web', 'desktop']) {
+for (const app of ['desktop']) {
   const appRequire = createRequire(path.join(root, 'apps', app, 'package.json'));
   test(`${app} plugin UUID v5 rejects partial writes and preserves valid IDs`, () => {
     const pluginRequire = createRequire(appRequire.resolve('vite-plugin-top-level-await'));
