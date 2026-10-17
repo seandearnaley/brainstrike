@@ -723,12 +723,20 @@ export interface ProviderCassetteLiteral {
   readonly value: string;
 }
 
+/** As a JSON string holds it: a Windows path's backslashes double. */
+const jsonEscaped = (value: string): string => JSON.stringify(value).slice(1, -1);
+
 function containsLiteral(text: string, { bounded, value }: ProviderCassetteLiteral): boolean {
-  if (!bounded) {
-    return text.includes(value);
-  }
-  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(?<![\\w.-])${escaped}(?![\\w.-])`, 'u').test(text);
+  // Raw, JSON-escaped (a request or an SSE frame), and escaped twice (tool
+  // arguments are JSON inside a request's JSON).
+  const forms = new Set([value, jsonEscaped(value), jsonEscaped(jsonEscaped(value))]);
+  return [...forms].some((form) => {
+    if (!bounded) {
+      return text.includes(form);
+    }
+    const pattern = form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(?<![\\w.-])${pattern}(?![\\w.-])`, 'u').test(text);
+  });
 }
 
 /**

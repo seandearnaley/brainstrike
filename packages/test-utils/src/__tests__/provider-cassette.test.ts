@@ -573,6 +573,36 @@ describe('provider cassette findings', () => {
     ]);
   });
 
+  it('finds a Windows home path however many times JSON escaped it', () => {
+    const home = 'C:\\Users\\fixture';
+    const file = `${home}\\notes.md`;
+    const answer = `data: ${JSON.stringify({ delta: `Read ${file}` })}\n\n`;
+    const cassette = parseProviderCassette(
+      JSON.stringify({
+        exchanges: [
+          {
+            key: {},
+            // A tool call's arguments are JSON inside the request's JSON: escaped twice.
+            request: { body: { arguments: JSON.stringify({ path: file }) }, headers: {} },
+            response: { body: answer, chunks: [{ atMs: 0, bytes: Buffer.byteLength(answer) }] },
+          },
+        ],
+        format: PROVIDER_CASSETTE_FORMAT,
+        recordedAt: '2026-10-16T00:00:00.000Z',
+        scenario: 'fixture',
+        toolSets: { abc: [{ description: `reads ${file}` }] },
+      }),
+      'fixture.json'
+    );
+    expect(
+      providerCassetteFindings(cassette, [{ bounded: true, rule: 'home-directory', value: home }])
+    ).toEqual([
+      { exchange: 0, part: 'request', rule: 'home-directory' },
+      { exchange: 0, part: 'response', rule: 'home-directory' },
+      { exchange: null, part: 'tool-sets', rule: 'home-directory' },
+    ]);
+  });
+
   it('refuses a cassette whose chunks do not cover its body', () => {
     expect(() =>
       parseProviderCassette(
