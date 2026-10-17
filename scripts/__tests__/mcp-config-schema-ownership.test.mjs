@@ -52,6 +52,10 @@ function callCount(sourceFile, name, receiver) {
   ).length;
 }
 
+function identifierCount(sourceFile, name) {
+  return descendants(sourceFile, (node) => ts.isIdentifier(node) && node.text === name).length;
+}
+
 test('shared MCP grammar stays subpath-owned with capability-scoped adapters', () => {
   const owner = parseSource('packages/assistant-contract/src/mcp-config.ts');
   const root = parseSource('packages/assistant-contract/src/index.ts');
@@ -59,8 +63,12 @@ test('shared MCP grammar stays subpath-owned with capability-scoped adapters', (
   const runtime = parseSource('packages/agent/src/mcp/mcp-runtime-client.ts');
   const desktop = parseSource('packages/host-capabilities/src/mcp/config-file.ts');
 
-  assert.ok(callCount(owner, 'strictObject') > 0);
-  assert.ok(callCount(owner, 'discriminatedUnion') > 0);
+  // Effect Schema owns the shared grammar (ADR-0024): object shapes are
+  // `Schema.Struct`, the transport variants a `Schema.Union`.
+  assert.ok(importsFrom(owner, 'effect'));
+  assert.equal(importsFrom(owner, 'zod'), false, 'the shared grammar has one schema library');
+  assert.ok(callCount(owner, 'Struct', 'Schema') > 0);
+  assert.ok(callCount(owner, 'Union', 'Schema') > 0);
   assert.equal(
     root.statements.some(
       (statement) =>
@@ -79,9 +87,14 @@ test('shared MCP grammar stays subpath-owned with capability-scoped adapters', (
     assert.ok(importsFrom(adapter, '@brainstrike/assistant-contract/mcp-config'), name);
     assert.ok(callCount(adapter, 'parseMcpConfigValue') > 0, name);
     assert.equal(importsFrom(adapter, 'zod'), false, `${name} must not own the shared grammar`);
-    assert.equal(callCount(adapter, 'strictObject'), 0, name);
-    assert.equal(callCount(adapter, 'discriminatedUnion'), 0, name);
+    // Adapters may refine the shared schema (`.check`) but never declare shapes.
+    assert.equal(callCount(adapter, 'Struct'), 0, `${name} must not own the shared grammar`);
+    assert.equal(callCount(adapter, 'Union'), 0, `${name} must not own the shared grammar`);
   }
   assert.ok(callCount(runtime, 'parseMcpConfigValue') > 0);
-  assert.equal(callCount(runtime, 'parse', 'McpConfigSchema'), 0);
+  assert.equal(
+    identifierCount(runtime, 'McpConfigSchema'),
+    0,
+    'the runtime client decodes through parseMcpConfigValue, never the schema itself'
+  );
 });
