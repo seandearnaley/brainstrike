@@ -695,7 +695,7 @@ it('starts a writer read only after an acquisition in flight installs its reader
   await f.runtime.closeIndex();
 });
 
-it('starts a writer read only after a source removal in flight settles', async () => {
+it('starts a writer read after a source removal settles and its readers are reinstalled', async () => {
   const f = fixture({ fileBindings: [], rootIds: ['root'], scopes: [collection] });
   await f.runtime.acquire();
   f.events.length = 0;
@@ -712,7 +712,26 @@ it('starts a writer read only after a source removal in flight settles', async (
   expect(f.events).toEqual(['readers-exited']);
   removed.resolve();
   await Promise.all([removal, reading]);
-  expect(f.events).toEqual(['readers-exited', 'removed', 'coverage-read']);
+  // The removal leaves its readers retired; the proof acquires before it reads.
+  expect(f.events).toEqual([
+    'readers-exited',
+    'removed',
+    'readers-exited',
+    'bindings-ack',
+    'reader-installed',
+    'coverage-read',
+  ]);
+  await f.runtime.closeIndex();
+});
+
+it('reinstalls retired readers before a writer read that follows a settled source removal', async () => {
+  const f = fixture({ fileBindings: [], rootIds: ['root'], scopes: [collection] });
+  await f.runtime.acquire();
+  await f.runtime.mutateAuthority(f.port, async () => undefined);
+  expect(f.installQueryTarget).toHaveBeenCalledOnce();
+  await f.runtime.withWriterRead(f.port, async () => {
+    expect(f.installQueryTarget).toHaveBeenCalledTimes(2);
+  });
   await f.runtime.closeIndex();
 });
 
@@ -791,6 +810,25 @@ it('settles readers that validate in turn instead of re-acquiring for each other
   await vi.waitFor(() => expect(f.getAuthority.mock.calls.length).toBeGreaterThan(authorityReads));
   await Promise.all([first, read(), read()]);
   expect(f.getAuthority.mock.calls.length - authorityReads).toBeLessThan(20);
+  await f.runtime.closeIndex();
+});
+
+it('fails only the caller still unobserved after the last acquisition attempt', async () => {
+  const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
+  const f = fixture(initial);
+  await f.runtime.acquire();
+  // Every authority read admits another caller just after it begins.
+  const joiners: Promise<unknown>[] = [];
+  f.getAuthority.mockImplementation(async () => {
+    if (joiners.length < 10) {
+      joiners.push(f.runtime.acquire().catch((error: unknown) => error));
+    }
+    return initial;
+  });
+  await expect(f.runtime.acquire()).resolves.toBe(f.port);
+  const outcomes = await Promise.all(joiners);
+  expect(outcomes.slice(0, 9)).toEqual(Array.from({ length: 9 }, () => f.port));
+  expect(outcomes[9]).toMatchObject({ message: expect.stringContaining('authority changed') });
   await f.runtime.closeIndex();
 });
 

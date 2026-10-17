@@ -107,12 +107,13 @@ for explicit retry. Derived rebuild preserves chats, catalog and choices.
 
 Every root's scan shares one writer (BST-2055). Replacing its bindings or
 removing a file first joins every admitted read, including a scan's own coverage
-and manifest proofs, and a proof waits only for such a change in flight, not for
-an acquisition that finds its bindings current. When another root's discovery
-moves the authority during an acquisition, or a caller joins after its last
-authority read, the shared acquisition reads it again and installs that snapshot;
-after ten attempts a moved authority fails visibly. VECTOR completion reads its
-manifest and coverage again when the revision moved between them.
+and manifest proofs. A proof waits only for such a change in flight, not for an
+acquisition that finds its bindings current, and acquires first when a removal
+left readers retired. When another root's discovery moves the authority during
+an acquisition, or a caller joins after its last authority read, the shared
+acquisition reads it again and installs that snapshot; after ten attempts a
+moved authority, or a caller still unobserved, fails visibly. VECTOR completion
+reads its manifest and coverage again when the revision moved between them.
 
 A request past its deadline retires its indexer process and is never retried.
 The agent host's state index joins a retired worker's exit and starts a new one
