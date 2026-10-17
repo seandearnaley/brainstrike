@@ -36,24 +36,44 @@ export interface SeedRootOptions {
   readonly rootId: string;
 }
 
+/** One workspace root to seed; the first one seeded is Main. */
+export interface SeededRoot {
+  readonly path: string;
+  readonly rootId: string;
+}
+
 interface SeedPayload {
   readonly disableBackgroundIndexing: boolean;
   readonly recentPaths: readonly string[];
-  readonly rootId: string;
-  readonly rootPath: string;
+  readonly roots: readonly SeededRoot[];
 }
 
 export async function seedRoot(
   page: Page,
   rootPath: string,
-  { disableBackgroundIndexing = false, recentPaths = [], reloadReason, rootId }: SeedRootOptions
+  { rootId, ...options }: SeedRootOptions
 ): Promise<void> {
+  await seedRoots(page, [{ path: rootPath, rootId }], options);
+}
+
+/** {@link seedRoot} for several roots, in workspace order. */
+export async function seedRoots(
+  page: Page,
+  roots: readonly SeededRoot[],
+  {
+    disableBackgroundIndexing = false,
+    recentPaths = [],
+    reloadReason,
+  }: Omit<SeedRootOptions, 'rootId'>
+): Promise<void> {
+  if (roots.length === 0) {
+    throw new Error('seedRoots needs at least one root');
+  }
   await page.evaluate(
     async ({
       disableBackgroundIndexing: disableIndexing,
       recentPaths: recents,
-      rootId: id,
-      rootPath: p,
+      roots: seeded,
     }: SeedPayload) => {
       const storage = (
         globalThis as typeof globalThis & {
@@ -63,10 +83,16 @@ export async function seedRoot(
       if (!storage?.setItem) {
         throw new Error('electronAPI.storage.setItem unavailable');
       }
-      await storage.setItem('lastFolderPath', p);
+      await storage.setItem('lastFolderPath', seeded[0]?.path ?? '');
       await storage.setItem(
         'rootsList',
-        JSON.stringify([{ addedAt: 1_800_000_000_000, path: p, rootId: id }])
+        JSON.stringify(
+          seeded.map((root, index) => ({
+            addedAt: 1_800_000_000_000 + index,
+            path: root.path,
+            rootId: root.rootId,
+          }))
+        )
       );
       if (recents.length > 0) {
         await storage.setItem(
@@ -90,7 +116,7 @@ export async function seedRoot(
         );
       }
     },
-    { disableBackgroundIndexing, recentPaths, rootId, rootPath } satisfies SeedPayload
+    { disableBackgroundIndexing, recentPaths, roots } satisfies SeedPayload
   );
   const { reloadRenderer } = await loadElectronHelpers();
   await reloadRenderer(page, reloadReason);

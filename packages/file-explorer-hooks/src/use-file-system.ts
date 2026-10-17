@@ -16,8 +16,8 @@ interface UseFileSystemParams {
    */
   addActiveRoot: FileExplorerState['addActiveRoot'];
   /**
-   * Optional getter for the store's folderAccessOrder array.
-   * Used during restoreRoots boot to determine which root to focus.
+   * Optional getter for the store's folderAccessOrder array (oldest first).
+   * Used during restoreRoots boot to refocus the most recently focused root.
    */
   getFolderAccessOrder?: () => readonly string[];
   /**
@@ -327,8 +327,11 @@ async function runMultiRootRestore({
     );
     const newRootIdByPath = new Map<string, string>(granted.map((d) => [d.handle.path, d.rootId]));
 
-    // Focus: first handle whose identity appears in folderAccessOrder; else
-    // first handle. folderAccessOrder stores currentFolderId — the RootId in v5,
+    // Focus: the most recently focused handle; else the first handle (Main).
+    // folderAccessOrder is OLDEST first (`updateFolderAccessOrder` appends the
+    // root just focused), so it is searched from the end: reading it from the
+    // front reopened the least recently focused root (BST-1897).
+    // folderAccessOrder stores currentFolderId — the RootId in v5,
     // so match by rootKey first. The `h.path === id` arm here is NOT the removed
     // handle-identity path fallback: it matches a legacy (pre-v5) folderAccessOrder
     // STRING entry that stored a path against the handle's path. Those predate
@@ -336,7 +339,7 @@ async function runMultiRootRestore({
     // `handles` are already stamped (line above), so rootKey matching is primary.
     const accessOrder = getFolderAccessOrderRef.current?.() ?? [];
     const focused =
-      accessOrder.reduce<DirectoryHandle | null>((acc, id) => {
+      [...accessOrder].reverse().reduce<DirectoryHandle | null>((acc, id) => {
         if (acc) {
           return acc;
         }

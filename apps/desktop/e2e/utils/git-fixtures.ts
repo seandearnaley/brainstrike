@@ -56,7 +56,11 @@ export interface FreshDirOptions {
 
 /** A real repo with one committed file on `main`. */
 export function freshRepo({ label, prefix, tracker }: FreshDirOptions): string {
-  const dir = tracker.track(mkdtempSync(path.join(tmpdir(), `${prefix}${label}-`)));
+  return initRepo(tracker.track(mkdtempSync(path.join(tmpdir(), `${prefix}${label}-`))));
+}
+
+/** Turn an existing empty directory into {@link freshRepo}'s repo shape. */
+export function initRepo(dir: string): string {
   git(dir, ['init', '-b', 'main']);
   git(dir, ['config', 'user.email', 'e2e@brainstrike.invalid']);
   git(dir, ['config', 'user.name', 'Brainstrike E2E']);
