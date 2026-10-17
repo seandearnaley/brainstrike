@@ -18,7 +18,10 @@ import {
   restoreThreadCatalog,
   serializeThread,
 } from './assistant-thread-catalog';
-import { mergeAssistantThreadMetadata } from './assistant-thread-metadata-merge';
+import {
+  mergeAssistantThreadMetadata,
+  mergeRefreshedThreadMetadata,
+} from './assistant-thread-metadata-merge';
 
 type AssistantThreadModelSettings = RuntimeModelSettings;
 
@@ -851,20 +854,11 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         }
         refreshState.applied = refreshGeneration;
         set((state) => {
-          const currentThreadById = new Map(
-            (state.threadsByResourceId[resourceId] ?? []).map((thread) => [thread.id, thread])
+          const refreshedThreads = mergeRefreshedThreadMetadata(
+            loaded,
+            state.threadsByResourceId[resourceId] ?? [],
+            metadataSnapshotByThreadId
           );
-          const refreshedThreads = loaded.map((thread) => {
-            const currentThread = currentThreadById.get(thread.id);
-            if (
-              !currentThread ||
-              currentThread.metadata === metadataSnapshotByThreadId.get(thread.id) ||
-              currentThread.metadata === undefined
-            ) {
-              return thread;
-            }
-            return { ...thread, metadata: currentThread.metadata };
-          });
           return {
             threadIdsByResourceId: {
               ...state.threadIdsByResourceId,

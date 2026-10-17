@@ -139,3 +139,31 @@ describe('useAssistantThreadStore thread appearance', () => {
     expect(shown()?.metadata).toEqual({ color: 'blue' });
   });
 });
+
+describe('useAssistantThreadStore thread appearance during a refresh', () => {
+  beforeEach(() => {
+    resetAssistantThreadStore();
+  });
+
+  // A refresh that read the repository before a pick still brings that read's
+  // other fields; only the keys changed here meanwhile keep their local value.
+  it('keeps the pending pick and takes the refresh’s other fields', async () => {
+    const repository = await loaded({ color: 'blue', icon: 'message', model: 'gpt-5.2' });
+    const read = Promise.withResolvers<readonly AssistantMemoryThread[]>();
+    vi.mocked(repository.listThreads).mockReturnValueOnce(read.promise);
+    const write = Promise.withResolvers<void>();
+    vi.mocked(repository.updateThreadMetadata).mockReturnValueOnce(write.promise);
+
+    const refresh = useAssistantThreadStore
+      .getState()
+      .refreshResourceThreads(repository, workspaceId);
+    const saved = pick(repository, { color: 'rose' });
+    read.resolve([thread({ color: 'blue', icon: 'message', model: 'gpt-5.5' })]);
+    await refresh;
+
+    expect(shown()?.metadata).toEqual({ color: 'rose', icon: 'message', model: 'gpt-5.5' });
+    write.resolve();
+    await saved;
+    expect(shown()?.metadata).toEqual({ color: 'rose', icon: 'message', model: 'gpt-5.5' });
+  });
+});
