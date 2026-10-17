@@ -100,6 +100,23 @@ Evidence (archived):
 provide `TestClock.layer()` before running Effects. They complement real timer,
 socket and process-exit checks rather than replacing physical cleanup evidence.
 
+## Lifecycle diagnostics
+
+Native-index workflow spans use the existing `NativeIndexWorkflow` logger. Session
+Logs at info level shows admission, settings, action and terminal phases under one
+opaque trace identity; failures also reach the existing warn+ retention path.
+The tracer exports only fixed operation/event names, allowlisted actions, opaque
+span/parent IDs, durations and outcomes. Causes pass through the existing redactor
+and export bounded failure counts, with truncation visible; error text, settings,
+paths, prompts and credentials are not span attributes. Terminal spans close after
+Effect finalizers. This adds no exporter, telemetry store or resource owner.
+
+Effect's documented Tracer and `Logger.tracerLogger` carry nested workflow context.
+A supported Promise edge can pass `tracing: { tracer, parentSpan }` to the existing
+`runAtPromiseBoundary`; cancellation and original failure identity stay intact.
+There is no automatic ambient propagation across arbitrary callbacks or workers,
+and no propagation header or runtime replacement.
+
 ## Schema at the LLM tool boundary
 
 Effect Schema owns tool definitions (ADR-0004, amended 2026-10-15). Declare a
