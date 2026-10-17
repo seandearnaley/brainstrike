@@ -22,6 +22,7 @@ import {
 import type { HostPlatform } from './ports.js';
 import { isProcessEntrypoint } from './process-entrypoint.js';
 import { type AgentHost, type HostStartupContext, startAgentHost } from './runtime.js';
+import { type HostTracing, startHostTracing } from './telemetry/otel.js';
 export type HostPlatformFactory = (
   options: HostStartOptions,
   context: HostStartupContext,
@@ -172,8 +173,11 @@ export async function runAgentHostProcess(
   const publish = parent?.report.bind(parent) ?? report;
   let bridge: Socket | undefined;
   let root: string | undefined;
+  let tracing: HostTracing | undefined;
   const failures: unknown[] = [];
   try {
+    // Before the platform loads: a misconfigured exporter fails startup visibly.
+    tracing = await startHostTracing(process.env);
     const options = decodeStartOptions(JSON.parse(args[0] ?? 'null'));
     appLifetime = options.lifetime === 'app';
     root = options.root;
@@ -232,6 +236,10 @@ export async function runAgentHostProcess(
     } catch (cause) {
       failures.push(cause);
     } finally {
+      // After close joined its runs, so their spans are flushed too.
+      await tracing?.shutdown().catch((cause: unknown) => {
+        failures.push(cause);
+      });
       const owner = root ? RootLock.inspect(root)?.owner : undefined;
       if (!(owner && !owner.released && owner.pid === process.pid)) {
         releaseParent?.();
