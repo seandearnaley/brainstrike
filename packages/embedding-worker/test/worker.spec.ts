@@ -69,20 +69,30 @@ describe('vectorsFromPipelineOutput', () => {
     ];
     const vectors = vectorsFromPipelineOutput(output, 2);
     expect(vectors).toHaveLength(2);
-    expect(Math.abs(vectors[0][0] - 0.2425)).toBeLessThan(0.01);
+    const firstValue = vectors[0]?.[0];
+    if (firstValue === undefined) {
+      throw new Error('Expected first normalized component');
+    }
+    expect(Math.abs(firstValue - 0.2425)).toBeLessThan(0.01);
   });
 
   it('returns a normalized vector for typed arrays', () => {
     const vector = Float32Array.from([0.2, 0.8, 0.6]);
     const [normalized] = vectorsFromPipelineOutput(vector, 3);
+    if (!normalized) {
+      throw new Error('Expected normalized vector');
+    }
     const length = Math.sqrt(normalized.reduce((sum, value) => sum + value * value, 0));
     expect(length).toBeCloseTo(1);
   });
 
   it('handles arrays with undefined values by converting to 0', () => {
     // Sparse array with undefined at index 1
-    const sparseArray = [0.3, undefined, 0.4] as unknown as number[];
+    const sparseArray = [0.3, undefined, 0.4];
     const [normalized] = vectorsFromPipelineOutput(sparseArray, 3);
+    if (!normalized) {
+      throw new Error('Expected normalized sparse vector');
+    }
     // Undefined should be converted to 0, not NaN
     expect(normalized).toBeInstanceOf(Float32Array);
     expect(Number.isNaN(normalized[1])).toBe(false);

@@ -12,6 +12,8 @@
       "packages/agent/src/__tests__/**/*.{ts,tsx,mts,mjs}",
       "packages/chunking-worker/src/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/token-cache/src/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/embedding-worker/{src,test}/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/embedding-worker/bench/**/*.spec.{ts,tsx,mts,cts,mjs}",
       "packages/{worker-runtime,file-tree-worker}/src/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/test-utils/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/queue/{src,test}/**/*.{ts,tsx,mts,cts,mjs}",
@@ -681,6 +683,22 @@
     },
     {
       "includes": ["packages/token-cache/src/**"],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error",
+            "useExhaustiveSwitchCases": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/embedding-worker/src/**",
+        "packages/embedding-worker/test/**",
+        "packages/embedding-worker/bench/**/*.spec.*"
+      ],
       "linter": {
         "rules": {
           "nursery": {
