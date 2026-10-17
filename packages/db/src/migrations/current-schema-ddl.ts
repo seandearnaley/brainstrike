@@ -29,7 +29,7 @@
 // on one line would make a freshly generated file fail `biome check` until a
 // `--fix` pass rewrote it. Regeneration has to be clean on its own.
 export const CURRENT_SCHEMA_LEDGER_KEY =
-  'custom-current-schema-6165dd13b9b3e132c0436dab1ece057af735e98f10e56f3a54f676a0e75df496';
+  'custom-current-schema-ee5f22322ade099c3ecf6e5c0da2d5c8aa65a807c217c5ddcfa21969f5b9c458';
 
 export const CURRENT_SCHEMA_DDL = `-- EXTENSIONS (3)
 CREATE EXTENSION IF NOT EXISTS "vector";
@@ -1061,6 +1061,7 @@ INSERT INTO "models" ("id", "provider_id", "name", "description", "tagline", "be
   ('claude-fable-5'::text, 'anthropic'::text, 'Claude Fable 5'::text, NULL, 'Highest-capability Claude 5 tier'::text, '["Deep research", "Complex agents"]'::jsonb, NULL, 'true'::boolean, '{"type": "llm", "vision": true, "streaming": true}'::jsonb, NULL, '1'::integer),
   ('claude-fable-5-1'::text, 'anthropic'::text, 'Claude Fable 5.1'::text, NULL, 'For demanding reasoning and long-horizon agentic work'::text, '["Long-horizon agentic coding", "Multistep research", "Document, spreadsheet, and slide work"]'::jsonb, NULL, 'false'::boolean, '{"type": "llm", "vision": true, "streaming": true}'::jsonb, NULL, '7'::integer),
   ('claude-haiku-4-5'::text, 'anthropic'::text, 'Claude Haiku 4.5'::text, NULL, 'Fastest Claude model'::text, '["Quick responses", "Data extraction"]'::jsonb, NULL, 'true'::boolean, '{"type": "llm", "vision": true, "streaming": true}'::jsonb, NULL, '6'::integer),
+  ('claude-haiku-5-5'::text, 'anthropic'::text, 'Claude Haiku 5.5'::text, NULL, 'Fastest Claude model for high-volume work'::text, '["Classification", "Extraction", "Routing"]'::jsonb, NULL, 'false'::boolean, '{"type": "llm", "vision": true, "streaming": true}'::jsonb, NULL, '9'::integer),
   ('claude-opus-4-8'::text, 'anthropic'::text, 'Claude Opus 4.8'::text, NULL, 'Most capable Claude model'::text, '["Deep research", "Agentic coding"]'::jsonb, NULL, 'true'::boolean, '{"type": "llm", "vision": true, "streaming": true}'::jsonb, NULL, '3'::integer),
   ('claude-opus-5'::text, 'anthropic'::text, 'Claude Opus 5'::text, NULL, 'For complex agentic coding and enterprise work'::text, '["Agentic coding", "Enterprise work"]'::jsonb, NULL, 'false'::boolean, '{"type": "llm", "vision": true, "streaming": true}'::jsonb, NULL, '2'::integer),
   ('claude-opus-5-5'::text, 'anthropic'::text, 'Claude Opus 5.5'::text, NULL, 'For long-running agentic coding and knowledge work'::text, '["Long-running agentic coding", "Knowledge work"]'::jsonb, NULL, 'false'::boolean, '{"type": "llm", "vision": true, "streaming": true}'::jsonb, NULL, '8'::integer),
