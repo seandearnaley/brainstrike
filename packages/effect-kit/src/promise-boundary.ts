@@ -1,4 +1,4 @@
-import { Cause, Effect, Exit } from 'effect';
+import { Cause, Effect, Exit, type Tracer } from 'effect';
 
 export interface PromiseBoundaryOptions {
   /**
@@ -6,6 +6,11 @@ export interface PromiseBoundaryOptions {
    * returned promise rejects with `signal.reason`.
    */
   readonly signal?: AbortSignal | undefined;
+  /** Explicit tracing across a Promise edge; no ambient context or propagation headers. */
+  readonly tracing?: {
+    readonly tracer: Tracer.Tracer;
+    readonly parentSpan?: Tracer.AnySpan;
+  };
 }
 
 /**
@@ -31,7 +36,14 @@ export async function runAtPromiseBoundary<A, E>(
 ): Promise<A> {
   const { signal } = options;
   signal?.throwIfAborted();
-  const exit = await Effect.runPromiseExit(effect, { signal });
+  let program = effect;
+  if (options.tracing) {
+    program = program.pipe(Effect.withTracer(options.tracing.tracer));
+    if (options.tracing.parentSpan) {
+      program = program.pipe(Effect.withParentSpan(options.tracing.parentSpan));
+    }
+  }
+  const exit = await Effect.runPromiseExit(program, { signal });
   if (Exit.isSuccess(exit)) {
     return exit.value;
   }

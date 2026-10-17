@@ -1,5 +1,6 @@
 import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
-import { Cause, Data, Effect, Semaphore, Stream, SubscriptionRef } from 'effect';
+import { Cause, Data, Effect, Semaphore, Stream, SubscriptionRef, type Tracer } from 'effect';
+import { traceNativeIndexWorkflow } from './native-index-effect-diagnostics';
 import {
   type NativeIndexAction,
   type NativeIndexEvent,
@@ -80,7 +81,11 @@ export async function createNativeIndexLifecycle(
           }),
         try: () => pending,
       });
-    });
+    }).pipe(
+      Effect.withSpan('native-index.action', {
+        attributes: { action: action.kind },
+      })
+    );
   const readSettings = (read: () => Promise<NativeIndexSettings>) =>
     Effect.suspend(() => {
       const pending = read();
@@ -95,8 +100,8 @@ export async function createNativeIndexLifecycle(
           }),
         try: () => pending,
       });
-    });
-  const prepare = Effect.fnUntraced(function* (event: NativeIndexEvent) {
+    }).pipe(Effect.withSpan('native-index.settings'));
+  const prepare = Effect.fn('native-index.admission')(function* (event: NativeIndexEvent) {
     const transition = reduceNativeIndex(yield* SubscriptionRef.get(ref), event);
     if (transition.refused) {
       return yield* new NativeIndexEventRefusedError({
@@ -107,7 +112,7 @@ export async function createNativeIndexLifecycle(
     yield* SubscriptionRef.set(ref, transition.state);
     return transition;
   });
-  const execute = Effect.fnUntraced(function* (
+  const execute = Effect.fn('native-index.execute')(function* (
     event: NativeIndexEvent,
     transition: NativeIndexTransition
   ): Effect.fn.Return<NativeIndexState, NativeIndexWorkflowFailure> {
@@ -138,10 +143,12 @@ export async function createNativeIndexLifecycle(
     }
     return yield* SubscriptionRef.get(ref);
   });
-  const step = Effect.fnUntraced(function* (
+  const step = Effect.fn('native-index.transition')(function* (
     event: NativeIndexEvent
   ): Effect.fn.Return<NativeIndexState, NativeIndexWorkflowFailure> {
-    return yield* execute(event, yield* prepare(event));
+    const transition = yield* prepare(event);
+    yield* Effect.logInfo('native-index.transition');
+    return yield* execute(event, transition);
   });
   const withSettings = Effect.fnUntraced(function* <A>(
     read: () => Promise<NativeIndexSettings>,
@@ -197,7 +204,7 @@ export async function createNativeIndexLifecycle(
     );
     return yield* use(settings);
   });
-  const dispatch = (event: NativeIndexEvent): Promise<NativeIndexState> =>
+  const dispatch = (event: NativeIndexEvent, parent?: Tracer.AnySpan): Promise<NativeIndexState> =>
     runAtPromiseBoundary(
       (event.kind === 'terminal' || event.kind === 'fence' || event.kind === 'stop-sources'
         ? prepare(event).pipe(
@@ -209,7 +216,9 @@ export async function createNativeIndexLifecycle(
             })
           )
         : permit.withPermits(1)(step(event))
-      ).pipe(Effect.mapError(nativeIndexPublicFailure))
+      ).pipe(Effect.mapError(nativeIndexPublicFailure), (effect) =>
+        traceNativeIndexWorkflow(effect, 'native-index.dispatch', parent)
+      )
     );
   const preparePause = (
     read: () => Promise<NativeIndexSettings>,
@@ -220,29 +229,36 @@ export async function createNativeIndexLifecycle(
     finished.promise.catch(() => undefined);
     const use = (
       settings: NativeIndexSettings
-    ): Effect.Effect<NativeIndexState, NativeIndexWorkflowFailure> => {
-      if (saved && !settings.paused) {
-        prepared.resolve(null);
-        return step({ kind: 'settings-unchanged' });
-      }
-      const event = { kind: 'prepare-pause', settings } as const;
-      return prepare(event).pipe(
-        Effect.flatMap((transition) => {
-          if (transition.state.kind !== 'pausing') {
+    ): Effect.Effect<NativeIndexState, NativeIndexWorkflowFailure> =>
+      Effect.currentSpan.pipe(
+        Effect.orDie,
+        Effect.flatMap((parent) => {
+          if (saved && !settings.paused) {
             prepared.resolve(null);
-            return execute(event, transition);
+            return step({ kind: 'settings-unchanged' });
           }
-          prepared.resolve({
-            complete: async () => {
-              await finished.promise;
-              await dispatch({ generation: transition.state.generation, kind: 'complete-pause' });
-            },
-            physical: finished.promise,
-          });
-          return execute(event, transition);
+          const event = { kind: 'prepare-pause', settings } as const;
+          return prepare(event).pipe(
+            Effect.flatMap((transition) => {
+              if (transition.state.kind !== 'pausing') {
+                prepared.resolve(null);
+                return execute(event, transition);
+              }
+              prepared.resolve({
+                complete: async () => {
+                  await finished.promise;
+                  await dispatch(
+                    { generation: transition.state.generation, kind: 'complete-pause' },
+                    parent
+                  );
+                },
+                physical: finished.promise,
+              });
+              return execute(event, transition);
+            })
+          );
         })
       );
-    };
     const operation = runAtPromiseBoundary(
       permit
         .withPermits(1)(
@@ -255,7 +271,9 @@ export async function createNativeIndexLifecycle(
               )
             : Effect.promise(read).pipe(Effect.flatMap(use))
         )
-        .pipe(Effect.mapError(nativeIndexPublicFailure))
+        .pipe(Effect.mapError(nativeIndexPublicFailure), (effect) =>
+          traceNativeIndexWorkflow(effect, 'native-index.pause')
+        )
     );
     operation.then(
       () => finished.resolve(),
@@ -275,7 +293,9 @@ export async function createNativeIndexLifecycle(
               step({ kind: roots ? 'roots-changed' : 'settings-saved', settings })
             )
           )
-          .pipe(Effect.mapError(nativeIndexPublicFailure))
+          .pipe(Effect.mapError(nativeIndexPublicFailure), (effect) =>
+            traceNativeIndexWorkflow(effect, 'native-index.configure')
+          )
       ),
     dispatch,
     observe: (listener, signal) =>
@@ -311,7 +331,9 @@ export async function createNativeIndexLifecycle(
           .withPermits(1)(
             withSettings(read, (settings) => step({ kind: 'rebuild-settings', settings }))
           )
-          .pipe(Effect.mapError(nativeIndexPublicFailure))
+          .pipe(Effect.mapError(nativeIndexPublicFailure), (effect) =>
+            traceNativeIndexWorkflow(effect, 'native-index.rebuild')
+          )
       ),
     settled: () => runAtPromiseBoundary(permit.withPermits(1)(SubscriptionRef.get(ref))),
     start: (settings) =>
@@ -333,7 +355,8 @@ export async function createNativeIndexLifecycle(
                 )
               : Effect.succeed(state)
           ),
-          Effect.mapError(nativeIndexPublicFailure)
+          Effect.mapError(nativeIndexPublicFailure),
+          (effect) => traceNativeIndexWorkflow(effect, 'native-index.start')
         )
       ),
     state: () => runAtPromiseBoundary(SubscriptionRef.get(ref)),
