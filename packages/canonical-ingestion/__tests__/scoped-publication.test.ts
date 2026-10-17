@@ -493,6 +493,30 @@ it('reverifies full workspace manifest and selected-profile coverage after zero-
   expect(f.port.commitScopedFile).toHaveBeenCalledTimes(2);
 });
 
+it.each([
+  { chunks: 0, covered: true, name: 'no chunks has nothing to embed' },
+  { chunks: 1, covered: false, name: 'a chunk without its vector stays uncovered' },
+])('reverifies a complete empty-manifest scope: $name (BST-2053)', async ({ chunks, covered }) => {
+  const { port, publication } = fixture();
+  const ticket = await publication.beginScan({ requestId: 'scan', scope });
+  expect(await publication.finishScan({ ...completion, ticket })).toMatchObject({
+    scanComplete: true,
+  });
+  // The indexer's own answer: a scope with no chunks is never vector readiness.
+  port.coverageScope.mockResolvedValue({
+    authorityEpoch: 'epoch',
+    authorityRevision: 1,
+    counts: { chunks, indexedFiles: 0, missingVectors: chunks, vectors: 0 },
+    profile: localProfile,
+    profileHash: vectorProfileHash(localProfile),
+    scope,
+    storeId,
+    vectorCoverageComplete: false,
+  });
+  expect(await publication.reverifyScope(scope, localProfile)).toBe(covered);
+  expect(publication.getReadiness()).toMatchObject([{ scanComplete: covered, scope }]);
+});
+
 it('cannot reuse a complete source proof after explicit source invalidation', async () => {
   const f = overlappingFixture();
   await f.scan(f.workspace);

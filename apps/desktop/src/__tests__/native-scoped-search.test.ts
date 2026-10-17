@@ -544,6 +544,50 @@ function pairedFixture() {
 }
 const pairedRequests = [{ collectionId: 'selected', rootIds: [] }, { rootIds: ['root'] }];
 it.each([
+  { emptyScanned: true, expected: true, rootIds: ['root', 'empty'] },
+  { emptyScanned: false, expected: false, rootIds: ['root', 'empty'] },
+  { emptyScanned: true, expected: true, rootIds: ['empty'] },
+])(
+  'counts a root with no chunks as vector-covered only with its scan receipt: $rootIds, scanned=$emptyScanned (BST-2053)',
+  async ({ emptyScanned, expected, rootIds }) => {
+    const f = pairedFixture();
+    const empty = { kind: 'workspace', rootId: 'empty' } as const;
+    f.replaceAuthority({
+      ...f.getAuthority(),
+      readiness: [
+        ...f.getAuthority().readiness,
+        { generation: 1, mutationRevision: 0, scanComplete: emptyScanned, scope: empty },
+      ],
+      rootIds: ['root', 'empty'],
+    });
+    const original = f.coverageBatch.getMockImplementation()!;
+    f.coverageBatch.mockImplementation(async (requests) =>
+      (await original(requests)).map((result) =>
+        result.scope.kind === 'workspace' && result.scope.rootId === 'empty'
+          ? {
+              ...result,
+              // The indexer's own answer: alone, an empty scope is never vector readiness.
+              counts: { chunks: 0, indexedFiles: 0, missingVectors: 0, vectors: 0 },
+              vectorCoverageComplete: false,
+            }
+          : result
+      )
+    );
+    const result = await f.capability.coverageBatch([{ rootIds }]);
+    if (result.kind !== 'current') {
+      throw new Error('Expected a current fenced batch.');
+    }
+    expect(result.coverage[0]).toMatchObject({
+      roots: rootIds.map((rootId) => ({ rootId })),
+      vectorCoverageComplete: expected,
+    });
+    expect(result.status.rootReadiness).toContainEqual({
+      rootId: 'empty',
+      scanComplete: emptyScanned,
+    });
+  }
+);
+it.each([
   { commits: 2, complete: false },
   { commits: 0, complete: true },
   { commits: 2, complete: true },

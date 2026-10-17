@@ -27,6 +27,7 @@ import type {
   CanonicalSourceScope,
   CanonicalVectorPublicationPort,
 } from './ports.js';
+import { manifestVectorsComplete } from './scoped-publication.js';
 import {
   assertUniqueWorkspacePaths,
   type CanonicalPreparedRead,
@@ -811,7 +812,7 @@ export class CanonicalIngestionHost {
     if (
       !(
         manifest.complete &&
-        coverage.vectorCoverageComplete &&
+        manifestVectorsComplete(coverage) &&
         manifest.storeId === ticket.storeId &&
         coverage.storeId === ticket.storeId &&
         sameScope(manifest.scope, request.scope) &&

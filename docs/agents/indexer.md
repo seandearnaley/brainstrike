@@ -56,7 +56,12 @@ acknowledged bindings and source revisions authorize publication/removal; a path
 match or partial scan is not authority.
 
 Source-scan completion, committed index coverage and publication progress are
-separate facts. Only acknowledged native commits earn progress. Mutations
+separate facts. Only acknowledged native commits earn progress. The indexer's
+`vectorCoverageComplete` requires a chunk: on its own, an empty scope cannot be
+told from one never scanned, so it is never vector readiness. A scope with no
+chunks counts as covered only alongside its scan proof: VECTOR completion after a
+verified complete manifest (`manifestVectorsComplete`), and the projected
+coverage with a complete-scan receipt from the same observation (BST-2053). Mutations
 invalidate overlapping completion proofs. Catalog observations join an active
 scan's existing completion before replacing its bindings; they must not invalidate
 the same scan. Read status is an observation, not an ingestion command.
