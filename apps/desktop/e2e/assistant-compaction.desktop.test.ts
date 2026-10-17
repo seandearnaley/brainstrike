@@ -1,117 +1,118 @@
-import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import {
-  readAssistantMockRequests,
-  seedCompactionSummaryThread,
-  setupAssistantMock,
-} from './utils/assistant-mock';
+import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
+import type { ModelProviderRequest } from './utils/model-provider-shim';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
-const FOLLOW_UP_PROMPT = 'Continue after the compacted context.';
-const FOLLOW_UP_REPLY = 'Normal reply after compaction.';
+const FIRST = 'Compaction first question';
+const SECOND = 'Compaction second question';
+const OVERFLOW = 'Compaction question that overflows';
+const FOLLOW_UP = 'Continue after the compacted context';
+// The host protects the newest turns up to 20,000 estimated tokens (chars / 4),
+// plus the current turn and its predecessor. This answer fills that window, so
+// the first turn is the one an overflow can drop.
+const SECOND_ANSWER =
+  `Second answer. ${'Context that fills the protected window. '.repeat(2200)}`.trim();
 
-async function waitForAssistantChat(window: Page): Promise<void> {
-  await expect(await ensureAssistantShellVisible(window)).toBeVisible({
-    timeout: E2E_TIMEOUTS.cardVisibility,
-  });
-  const loadingIndicator = window.getByText(/Loading assistant/i);
-  if (await loadingIndicator.isVisible().catch(() => false)) {
-    await loadingIndicator.waitFor({
-      state: 'hidden',
-      timeout: E2E_TIMEOUTS.loadingIndicator,
-    });
-  }
-  await expect(window.getByTestId('chat-panel').filter({ visible: true })).toBeVisible({
-    timeout: E2E_TIMEOUTS.chatPanel,
-  });
+/** The last user message's text in a provider request. */
+function lastUser(request: ModelProviderRequest): string {
+  const users = request.messages.filter(
+    (message) =>
+      typeof message === 'object' &&
+      message !== null &&
+      'role' in message &&
+      message.role === 'user'
+  );
+  return JSON.stringify(users.at(-1) ?? null);
 }
 
-test.describe('assistant compaction summary (desktop)', () => {
-  test.beforeEach(async ({ window }) => {
-    const { mockFileSystemOperations } = await loadElectronHelpers();
-    await mockFileSystemOperations(window);
-    await setupAssistantMock(window, { variant: 'simple' });
-    await ensureMockWorkspaceOpen(window);
-    await waitForAssistantChat(window);
+/** The thread's own run, which carries tools; side calls such as memory observation do not. */
+const threadRun = (request: ModelProviderRequest): boolean =>
+  (request.requestBody as { stream?: unknown }).stream === true && request.toolNames.length > 0;
+
+/**
+ * A host thread compacts after the provider reports a context overflow
+ * (BST-1951). The host drops its oldest droppable turn, commits that as the
+ * thread's compaction and re-attempts, so the reply arrives with the durable
+ * "Conversation compacted" divider. The divider survives a reload, and the
+ * same thread keeps working without resending the dropped turn.
+ */
+test('a context overflow compacts the host thread behind a durable divider and the thread stays usable', async ({
+  modelProvider,
+  window,
+}) => {
+  const { mockFileSystemOperations } = await loadElectronHelpers();
+  await mockFileSystemOperations(window);
+  await ensureMockWorkspaceOpen(window);
+  await configureAssistantProvider(window);
+  let overflowAttempts = 0;
+  modelProvider.setScript((request) => {
+    if (!threadRun(request)) {
+      return { finalText: 'Compaction check' };
+    }
+    const user = lastUser(request);
+    if (user.includes(OVERFLOW)) {
+      overflowAttempts += 1;
+      return overflowAttempts === 1
+        ? { contextOverflow: true, finalText: '' }
+        : { finalText: 'Answer after compaction.' };
+    }
+    if (user.includes(FOLLOW_UP)) {
+      return { finalText: 'Answer to the follow-up.' };
+    }
+    return { finalText: user.includes(SECOND) ? SECOND_ANSWER : 'First answer.' };
   });
-
-  test.fixme('renders the durable divider and keeps the same thread usable afterward', {
-    annotation: { description: 'BST-1951', type: 'quarantine' },
-  }, async ({ window }) => {
-    const seeded = await seedCompactionSummaryThread(window);
-
-    // History adapters load once per thread runtime. Reload after the fixed
-    // durable fixture is inserted, then select that thread for its first mount.
-    await window.reload();
-    const { mockFileSystemOperations } = await loadElectronHelpers();
-    await mockFileSystemOperations(window);
-    await ensureMockWorkspaceOpen(window);
-    await waitForAssistantChat(window);
-
-    await window.getByRole('button', { exact: true, name: seeded.title }).click();
-
-    const activeChat = window.getByTestId('chat-panel').filter({ visible: true });
-    const card = activeChat.getByTestId('compaction-summary-card');
-    await expect(card).toBeVisible({ timeout: E2E_TIMEOUTS.messageVisibility });
-    await expect(card).toContainText('Conversation compacted');
-    await expect(card).toContainText('AI-generated summary');
-    await expect(card).toContainText('Keep the compaction divider visible.');
-    // Select the provider on the hydrated target thread, not the previous tab.
-    await setupAssistantMock(window, { message: FOLLOW_UP_REPLY, variant: 'simple' });
-
-    const input = window.getByRole('textbox', { name: 'Message input' });
-    await input.fill(FOLLOW_UP_PROMPT);
-    await window.getByRole('button', { exact: true, name: 'Send' }).click();
-
-    await expect(window.getByText(FOLLOW_UP_PROMPT).first()).toBeVisible({
+  await ensureAssistantShellVisible(window);
+  const panel = window.getByRole('region', { exact: true, name: 'Assistant' });
+  const input = panel.getByRole('textbox', { name: 'Message input' });
+  await expect(input).toBeVisible({ timeout: E2E_TIMEOUTS.inputVisibility });
+  const send = async (text: string, answer: string | RegExp) => {
+    await input.fill(text);
+    await panel.getByRole('button', { exact: true, name: 'Send' }).click();
+    await expect(panel.getByText(answer, { exact: true }).first()).toBeVisible({
       timeout: E2E_TIMEOUTS.messageVisibility,
     });
-    const normalReply = window
-      .locator('.aui-assistant-message-content')
-      .filter({ hasText: FOLLOW_UP_REPLY });
-    await expect(normalReply).toBeVisible({ timeout: E2E_TIMEOUTS.messageVisibility });
-    await expect(card.getByText(FOLLOW_UP_REPLY)).toHaveCount(0);
+    await expect(panel.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
+    await expect(panel.getByRole('button', { exact: true, name: 'Send' })).toBeVisible();
+  };
+  await send(FIRST, 'First answer.');
+  await send(SECOND, /^Second answer\./u);
+  await send(OVERFLOW, 'Answer after compaction.');
 
-    const [cardBox, replyBox] = await Promise.all([card.boundingBox(), normalReply.boundingBox()]);
-    expect(cardBox).not.toBeNull();
-    expect(replyBox).not.toBeNull();
-    expect(replyBox?.y ?? 0).toBeGreaterThan((cardBox?.y ?? 0) + (cardBox?.height ?? 0));
+  const card = panel.getByTestId('compaction-summary-card');
+  const expectDivider = async () => {
+    await expect(card).toBeVisible({ timeout: E2E_TIMEOUTS.messageVisibility });
+    await expect(card).toHaveAttribute('data-compaction-fallback', 'deterministic');
+    await expect(card).toContainText('Conversation compacted');
+    await expect(card).toContainText('Deterministic compaction (no summarization model ran)');
+    await expect(card).toContainText('after a provider context-overflow error');
+  };
+  await expectDivider();
+  expect(overflowAttempts).toBe(2);
+  // The re-attempt left the dropped oldest turn out of its request.
+  const attempts = modelProvider
+    .requests()
+    .filter((request) => threadRun(request) && lastUser(request).includes(OVERFLOW));
+  expect(attempts).toHaveLength(2);
+  expect(JSON.stringify(attempts[0]?.messages)).toContain(FIRST);
+  expect(JSON.stringify(attempts[1]?.messages)).not.toContain(FIRST);
 
-    const requests = await readAssistantMockRequests(window);
-    expect(requests).toHaveLength(1);
-    // Memory-backed transport sends only the new turn. Mastra recalls the
-    // durable summary by thread ID; replaying it in this POST duplicates history.
-    expect(requests[0]).toMatchObject({
-      data: {
-        memory: { threadId: seeded.threadId },
-        transportCompaction: {
-          originalMessageCount: 2,
-          sentMessageCount: 1,
-          strategy: 'mastra-memory-current-turn',
-        },
-      },
-      messages: [{ content: [{ text: FOLLOW_UP_PROMPT }], role: 'user' }],
-    });
-    expect(JSON.stringify(requests[0])).not.toContain(seeded.summaryText);
-    // The page-local mock disappears on reload. Observe real requests through
-    // hydration so an accidental replay cannot escape the mock's old counter.
-    const reloadedAssistantPosts: string[] = [];
-    window.on('request', (request) => {
-      if (request.method() === 'POST' && new URL(request.url()).pathname.includes('/assistant')) {
-        reloadedAssistantPosts.push(request.url());
-      }
-    });
-    // Verify the complete durable summary remains available after the new turn.
-    await window.reload();
-    await mockFileSystemOperations(window);
-    await ensureMockWorkspaceOpen(window);
-    await waitForAssistantChat(window);
-    await window.getByRole('button', { exact: true, name: seeded.title }).click();
-    await expect(activeChat.getByTestId('compaction-summary-card')).toContainText(
-      seeded.summaryText
-    );
-    expect(reloadedAssistantPosts).toEqual([]);
+  // The divider is durable: the committed thread renders it again after a reload.
+  await window.reload();
+  await ensureAssistantShellVisible(window);
+  await expect(panel.getByText('Answer after compaction.', { exact: true })).toBeVisible({
+    timeout: E2E_TIMEOUTS.messageVisibility,
   });
+  await expectDivider();
+
+  // The same thread keeps working, and the compacted turn stays out of its requests.
+  await send(FOLLOW_UP, 'Answer to the follow-up.');
+  const followUp = modelProvider
+    .requests()
+    .find((request) => threadRun(request) && lastUser(request).includes(FOLLOW_UP));
+  expect(JSON.stringify(followUp?.messages)).not.toContain(FIRST);
+  expect(JSON.stringify(followUp?.messages)).toContain(SECOND);
+  await expect(card).toHaveCount(1);
+  expect(modelProvider.refusals()).toEqual([]);
 });
