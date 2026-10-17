@@ -30,12 +30,8 @@ import {
 import { getBackgroundIndexingPolicyOption } from '@brainstrike/utils';
 import { CirclePause, Database, Loader2, TriangleAlert } from 'lucide-react';
 import { useId, useState } from 'react';
-import {
-  offeredRetryIndexing,
-  RetryIndexingButton,
-  RetryIndexingFailure,
-  useRetryIndexing,
-} from './retry-indexing-control';
+import { RetryIndexingButton, RetryIndexingFailure } from './retry-indexing-control';
+import { offeredRetryIndexing, useRetryIndexing } from './use-retry-indexing';
 
 const EMPTY_METRIC_VALUE = '—';
 
