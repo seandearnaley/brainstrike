@@ -359,8 +359,10 @@ describe('model pricing metadata', () => {
   // overrides), recorded per-MTok from the OpenRouter Models API. Values
   // below were read 2026-09-22 for the pre-refresh rows and read 2026-09-28
   // for the BST-1804 rows (gpt-6-sol, gpt-6-luna, grok-4.7);
-  // anthropic/claude-opus-5.5 publishes no tier and stays flat.
-  it('carries long-context tiers on exactly the fourteen banded gateway rows', () => {
+  // anthropic/claude-opus-5.5 publishes no tier and stays flat. Claude Haiku
+  // 5.5's tier is Anthropic's published over-100K price (pricing page,
+  // retrieved 2026-10-16), pinned in provider-registry-haiku-5-5.test.ts.
+  it('carries long-context tiers on exactly the fourteen banded gateway rows and Claude Haiku 5.5', () => {
     const tiered = new Map<string, unknown>();
     for (const provider of listProviders()) {
       for (const model of provider.models) {
@@ -371,6 +373,7 @@ describe('model pricing metadata', () => {
     }
     expect([...tiered.keys()].sort()).toEqual(
       [
+        'anthropic/claude-haiku-5-5',
         'openrouter/google/gemini-3.1-pro-preview',
         'openrouter/openai/gpt-5.4',
         'openrouter/openai/gpt-5.5',

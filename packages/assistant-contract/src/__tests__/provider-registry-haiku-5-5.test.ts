@@ -23,10 +23,19 @@ describe('Claude Haiku 5.5 catalog row', () => {
       maxOutputTokens: 128_000,
       nativeToolSearch: 'anthropic',
       pricing: {
-        // The prompt-up-to-100K tier; longer prompts bill at five times these.
+        // Prompts up to 100K tokens; a longer prompt bills every category at five times these.
         cacheReadPerMTok: 0.01,
         cacheWritePerMTok: 0.125,
         inputPerMTok: 0.1,
+        longContextTiers: [
+          {
+            cacheReadPerMTok: 0.05,
+            cacheWritePerMTok: 0.625,
+            inputPerMTok: 0.5,
+            minPromptTokens: 100_001,
+            outputPerMTok: 2.5,
+          },
+        ],
         outputPerMTok: 0.5,
       },
       promptCaching: 'anthropic',
