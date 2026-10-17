@@ -237,6 +237,9 @@ describe('MCP Tasks wire adapter', () => {
     });
 
     expect(accepted.issues).toBeUndefined();
+    if (accepted.issues) {
+      throw new Error('Expected a successful task result');
+    }
     expect(accepted.value).toMatchObject({ resultType: 'complete', taskId: 'task-1' });
     expect(rejected.issues).toBeDefined();
   });
