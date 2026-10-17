@@ -77,10 +77,18 @@ function calleeName(call) {
   return ts.isPropertyAccessExpression(call.expression) ? call.expression.name.text : '';
 }
 
-function decodeCalls(sourceFile) {
-  return descendants(
-    sourceFile,
-    (node) => ts.isCallExpression(node) && DECODER.test(calleeName(node))
+function decodeCalls(root) {
+  return descendants(root, (node) => ts.isCallExpression(node) && DECODER.test(calleeName(node)));
+}
+
+function decodesSchema(call, schemaName) {
+  const [schema] = call.arguments;
+  return schema !== undefined && ts.isIdentifier(schema) && schema.text === schemaName;
+}
+
+function functionNamed(sourceFile, name) {
+  return sourceFile.statements.find(
+    (statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === name
   );
 }
 
@@ -159,6 +167,14 @@ test('shared MCP grammar stays subpath-owned with capability-scoped adapters', (
       `${name} decodes must pass onExcessProperty: "error"`
     );
   }
+  // The agent's parseMcpConfigValue must decode its own refined McpConfigSchema
+  // (the bearer gate), not hand back the shared parse unrefined.
+  const agentParse = functionNamed(agent, 'parseMcpConfigValue');
+  assert.ok(
+    agentParse !== undefined &&
+      decodeCalls(agentParse).some((call) => decodesSchema(call, 'McpConfigSchema')),
+    'the agent parseMcpConfigValue applies its capability-refined McpConfigSchema'
+  );
   assert.ok(callCount(runtime, 'parseMcpConfigValue') > 0);
   assert.equal(
     importSourceOf(runtime, 'parseMcpConfigValue'),
