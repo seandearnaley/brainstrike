@@ -1,3 +1,4 @@
+import { resolveGuardedToolSignal } from '@brainstrike/agent/tool-guard-deadline';
 import {
   type McpHostExecution,
   type McpHostPort,
@@ -13,7 +14,6 @@ import type {
 } from '../host-tool-definition';
 import { normalizeProgressPayload } from '../tools/progress-adapter';
 import { readToolCallId } from '../tools/read-tool-call-id';
-import { resolveGuardedToolSignal } from '../tools/tool-guard-deadline';
 import type { StreamChunk } from '../types';
 import { type McpConfigInput, parseMcpConfigValue } from './config';
 import type {

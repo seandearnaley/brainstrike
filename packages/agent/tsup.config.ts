@@ -2,6 +2,7 @@ import { defineConfig } from 'tsup';
 
 const assistantContractExternal = /^@brainstrike\/assistant-contract(?:\/.*)?$/;
 const agentMcpClientExternal = /^@brainstrike\/agent\/mcp-client$/;
+const agentGuardDeadlineExternal = /^@brainstrike\/agent\/tool-guard-deadline$/;
 const modelContextProtocolV2External =
   /^@modelcontextprotocol\/(?:client|core|node|server|server-legacy)(?:\/.*)?$/;
 
@@ -29,6 +30,7 @@ const broadEntries = [
 ];
 const sharedExternal = [
   agentMcpClientExternal,
+  agentGuardDeadlineExternal,
   modelContextProtocolV2External,
   // Node-only: spawns platform sandbox tooling and proxy servers. Bundling it
   // would drag that into every consumer, including browser entries.
@@ -64,6 +66,14 @@ export default defineConfig((_options) => [
     ...sharedConfig,
     entry: broadEntries,
     external: [assistantContractExternal, ...sharedExternal],
+  },
+  {
+    ...sharedConfig,
+    // Both import and require resolve one CJS owner. Independently bundled
+    // entrypoints must not each initialize their own deadline WeakMap.
+    entry: { 'tool-guard-deadline': 'src/tool-guard-deadline.ts' },
+    external: [assistantContractExternal, ...sharedExternal],
+    format: ['cjs'],
   },
   {
     ...sharedConfig,

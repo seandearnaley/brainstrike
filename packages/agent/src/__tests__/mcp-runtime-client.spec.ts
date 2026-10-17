@@ -18,6 +18,7 @@ import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
 import { createMcpRuntimeClient } from '../mcp-client';
 import { resolveScaledToolResultBudget } from '../stream/tool-output-limits';
 import { applyToolModelOutputProjections } from '../tool-projection/tool-model-output';
+import { guardToolExecution } from '../tools/guard-tool-execution';
 import {
   readToolGuardDeadlineSignal,
   registerToolGuardDeadlineSignal,
@@ -500,9 +501,7 @@ describe('MCP runtime client', () => {
     const guard = new AbortController();
     const context = { abortSignal: caller.signal, toolCallId: 'slow-call' };
     const releaseDeadline = registerToolGuardDeadlineSignal([{}, context], guard.signal);
-    // The registry is module-global and keyed by tool-call id, so an assertion
-    // failure below would otherwise leave 'slow-call' registered for the rest
-    // of the file and turn one real failure into cascading ones.
+    // Release this occurrence even when an assertion fails.
     onTestFinished(releaseDeadline);
 
     await tool.execute({}, context);
@@ -778,7 +777,10 @@ describe('MCP runtime client', () => {
           toolTimeoutMs: 60_000,
         });
         const discovered = await runtimeClient?.listToolsetsWithErrors();
-        const tool = requireExecutableTool(discovered?.toolsets['remote']?.['export']);
+        const tool = guardToolExecution(
+          requireExecutableTool(discovered?.toolsets['remote']?.['export']),
+          { timeoutMs: 1000, toolName: 'app-task-export' }
+        );
         const abortController = new AbortController();
 
         await expect(

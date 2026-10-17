@@ -12,7 +12,10 @@ import {
   guardToolExecution,
   isGuardedToolError,
 } from '../tools/guard-tool-execution';
-import { readToolGuardDeadlineSignal } from '../tools/tool-guard-deadline';
+import {
+  readToolGuardDeadlineSignal,
+  resolveGuardedToolSignal,
+} from '../tools/tool-guard-deadline';
 
 function makeTool(execute: (...args: unknown[]) => unknown) {
   return { description: 'd', execute, id: 'demo' };
@@ -171,39 +174,97 @@ describe('guardToolExecution', () => {
     expect(observed?.aborted).toBe(false);
   });
 
-  it('reports two live executions colliding on one provider tool-call id', async () => {
-    // The tool-call id is PROVIDER data, so a collision is a data condition,
-    // not a programming error: the guard must keep both calls working and make
-    // the mis-routed deadline diagnosable rather than invisible (BST-1594
-    // review). Logging, not throwing, is what keeps the call working.
-    const logger = { debug: vi.fn(), error: vi.fn() };
-    const started = Promise.withResolvers<void>();
-    const first = guardToolExecution(
-      makeTool(async () => {
-        started.resolve();
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        return { value: 'first' };
-      }),
-      { logger, timeoutMs: 5000, toolName: 'demo' }
-    );
-    const second = guardToolExecution(
-      makeTool(async () => ({ value: 'second' })),
-      { logger, timeoutMs: 5000, toolName: 'demo' }
-    );
-
-    const firstCall = first.execute({}, { toolCallId: 'shared-call' });
-    await started.promise;
-    expect(logger.error).not.toHaveBeenCalled();
-
-    await expect(second.execute({}, { toolCallId: 'shared-call' })).resolves.toEqual({
-      value: 'second',
-    });
-    expect(logger.error).toHaveBeenCalledWith(
-      'Tool guard deadline id collision',
-      expect.objectContaining({ toolCallId: 'shared-call' })
-    );
-    await expect(firstCall).resolves.toEqual({ value: 'first' });
-  });
+  it.each([false, true])(
+    'owns each invocation when provider IDs repeat (reused context: %s)',
+    async (reuseContext) => {
+      vi.useFakeTimers();
+      const lookup = Promise.withResolvers<void>();
+      const readyA = Promise.withResolvers<void>();
+      const readyB = Promise.withResolvers<void>();
+      const finishA = Promise.withResolvers<void>();
+      const finishB = Promise.withResolvers<void>();
+      const joinedA = Promise.withResolvers<void>();
+      const caller = new AbortController();
+      const contextA = Object.freeze({
+        _meta: { source: 'host' },
+        abortSignal: caller.signal,
+        resumeData: { approved: true },
+        runId: 'run',
+        threadId: 'thread',
+        toolCallId: 'call_1',
+        writer: { custom: async () => undefined },
+      });
+      const contextB = reuseContext ? contextA : { ...contextA };
+      let observedA: unknown;
+      let observedB: unknown;
+      let signalA: AbortSignal | undefined;
+      let signalB: AbortSignal | undefined;
+      const first = guardToolExecution(
+        makeTool(async (_input, context) => {
+          observedA = context;
+          await lookup.promise;
+          signalA = resolveGuardedToolSignal(context);
+          readyA.resolve();
+          await finishA.promise;
+          joinedA.resolve();
+          return 'first';
+        }),
+        { timeoutMs: 50, toolName: 'first' }
+      );
+      const second = guardToolExecution(
+        makeTool(async (_input, context) => {
+          observedB = context;
+          await lookup.promise;
+          signalB = resolveGuardedToolSignal(context);
+          readyB.resolve();
+          await finishB.promise;
+          return 'second';
+        }),
+        { timeoutMs: 5000, toolName: 'second' }
+      );
+      const firstCall = first.execute({}, contextA);
+      const secondCall = second.execute({}, contextB);
+      try {
+        lookup.resolve();
+        await Promise.all([readyA.promise, readyB.promise]);
+        expect(observedA).toEqual(contextA);
+        expect(observedB).toEqual(contextB);
+        expect(observedA).not.toBe(observedB);
+        for (const context of [observedA, observedB]) {
+          if (typeof context !== 'object' || context === null) {
+            throw new Error('Missing forwarded execution context');
+          }
+          expect(Reflect.get(context, 'abortSignal')).toBe(caller.signal);
+          expect(Reflect.get(context, 'writer')).toBe(contextA.writer);
+          expect(Reflect.get(context, '_meta')).toBe(contextA._meta);
+          expect(Reflect.get(context, 'resumeData')).toBe(contextA.resumeData);
+        }
+        await vi.advanceTimersByTimeAsync(50);
+        await expect(firstCall).resolves.toMatchObject({
+          error: { code: 'tool_timeout' },
+          ok: false,
+        });
+        expect(signalA?.aborted).toBe(true);
+        expect(signalB?.aborted).toBe(false);
+        expect(caller.signal.aborted).toBe(false);
+        expect(readToolGuardDeadlineSignal(observedA)).toBeUndefined();
+        expect(readToolGuardDeadlineSignal(observedB)).toBeInstanceOf(AbortSignal);
+        finishA.resolve();
+        await joinedA.promise;
+        expect(readToolGuardDeadlineSignal(observedB)).toBeInstanceOf(AbortSignal);
+        finishB.resolve();
+        await expect(secondCall).resolves.toBe('second');
+        expect(readToolGuardDeadlineSignal(observedB)).toBeUndefined();
+        expect(signalB?.aborted).toBe(false);
+      } finally {
+        lookup.resolve();
+        finishA.resolve();
+        finishB.resolve();
+        await Promise.all([firstCall, secondCall]);
+        vi.useRealTimers();
+      }
+    }
+  );
 
   it('leaves a tool without an execute function untouched', () => {
     const noExec = { description: 'd', id: 'x' } as { id: string; description: string };

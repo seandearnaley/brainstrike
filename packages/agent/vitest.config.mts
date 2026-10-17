@@ -43,6 +43,10 @@ export default defineConfig({
     // See @brainstrike/test-utils/workspace-src-aliases (incident #1066/#1207).
     alias: [
       {
+        find: /^@brainstrike\/agent\/tool-guard-deadline$/,
+        replacement: resolve(import.meta.dirname, 'src/tool-guard-deadline.ts'),
+      },
+      {
         find: '@brainstrike/agent/mcp-client',
         replacement: resolve(import.meta.dirname, 'src/mcp-client.ts'),
       },
