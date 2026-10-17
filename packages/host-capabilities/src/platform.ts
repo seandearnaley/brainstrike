@@ -53,6 +53,7 @@ import {
   ReadWorkspaceFileCursorRegistry,
   selectHostProjectionRewrites,
 } from './native-tools/index.js';
+import { closeStandaloneOwners } from './standalone-close.js';
 import { createStandaloneHumanTools, STANDALONE_HUMAN_TOOL_IDS } from './standalone-human-tools.js';
 
 /** The native tools a standalone host runs over its launch roots: the shared ones and its shell. */
@@ -310,23 +311,8 @@ export async function createHostPlatform(
   };
   return createProductionHostPlatform({
     auth: host.auth,
-    close: async () => {
-      const outcomes = await Promise.allSettled([
-        // The commands this host's runs left live, retired before Root is released.
-        Promise.resolve().then(disposeLiveChildProcesses),
-        (async () => {
-          // MCP cleanup can still write OAuth records through the credential store.
-          await mcp?.close();
-          await host.close();
-        })(),
-      ]);
-      const failures = outcomes.flatMap((outcome) =>
-        outcome.status === 'rejected' ? [outcome.reason] : []
-      );
-      if (failures.length > 0) {
-        throw new AggregateError(failures, 'Standalone platform close failed');
-      }
-    },
+    // Live commands are retired before MCP and the host capabilities close.
+    close: () => closeStandaloneOwners({ commands: disposeLiveChildProcesses, host, mcp }),
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     providers: host.providers,
     ...(mcp ? { mcp: mcp.mcp } : {}),
