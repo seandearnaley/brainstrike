@@ -97,9 +97,11 @@ test('legacy js-yaml CLI preserves help, version, conversion and visible failure
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /--compact/);
   assert.match(help.stdout, /--trace/);
-  const version = run(['--version']);
-  assert.equal(version.status, 0, version.stderr);
-  assert.equal(version.stdout.trim(), manifest.version);
+  for (const flag of ['--version', '-v']) {
+    const version = run([flag]);
+    assert.equal(version.status, 0, version.stderr);
+    assert.equal(version.stdout.trim(), manifest.version);
+  }
   const parsed = run(['--compact', '--to-json', '-'], 'enabled: true\nports: [3000, 3001]\n');
   assert.equal(parsed.status, 0, parsed.stderr);
   assert.deepEqual(JSON.parse(parsed.stdout), { enabled: true, ports: [3000, 3001] });

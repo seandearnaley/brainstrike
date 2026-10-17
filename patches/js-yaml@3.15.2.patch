@@ -1,5 +1,5 @@
 diff --git a/bin/js-yaml.js b/bin/js-yaml.js
-index e79186be6f56f1d92de9bcd4fa4b10fff9564795..012da1ae1def8f3cef2223ffb7ed329a89864a7e 100755
+index e79186be6f56f1d92de9bcd4fa4b10fff9564795..d926161d186d2fa49a0955addb951763b7805952 100755
 --- a/bin/js-yaml.js
 +++ b/bin/js-yaml.js
 @@ -23,42 +23,43 @@ var yaml = require('..');
@@ -13,7 +13,7 @@ index e79186be6f56f1d92de9bcd4fa4b10fff9564795..012da1ae1def8f3cef2223ffb7ed329a
  
  
 -cli.addArgument([ '-c', '--compact' ], {
-+cli.add_argument('--version', { action: 'version', version: require('../package.json').version });
++cli.add_argument('-v', '--version', { action: 'version', version: require('../package.json').version });
 +
 +cli.add_argument('-c', '--compact', {
    help:   'Display errors in compact mode',

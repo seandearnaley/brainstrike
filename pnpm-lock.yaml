@@ -566,7 +566,7 @@ patchedDependencies:
   '@mastra/memory@1.38.0': 35ea84f8ad38fd6e9a2c9952cc4727bafcbe563b01a14832414f84c7a6fea188
   '@stryker-mutator/vitest-runner@10.0.0': 280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c
   app-builder-lib@26.17.0: 9c23dfc27c5d05a82f442223d5ead8d74bf9f06bd15cf0edd5f5df2392ca155e
-  js-yaml@3.15.2: 7c69856e06f266fbb16b0f8045ae29b5e397eeeb6dd0081bcce88cfe504efb9b
+  js-yaml@3.15.2: a6a2881ca0a3277538ef7fbc80ef0fac92ce92b1c44f1a317ef77c96f6f50017
   vscode-jsonrpc@9.0.3: df2075051190294761e76039366b12d72ab41c3ac815f5073d97de7c00806034
 
 importers:
@@ -19196,7 +19196,7 @@ snapshots:
       camelcase: 5.3.1
       find-up: 4.1.0
       get-package-type: 0.1.0
-      js-yaml: 3.15.2(patch_hash=7c69856e06f266fbb16b0f8045ae29b5e397eeeb6dd0081bcce88cfe504efb9b)
+      js-yaml: 3.15.2(patch_hash=a6a2881ca0a3277538ef7fbc80ef0fac92ce92b1c44f1a317ef77c96f6f50017)
       resolve-from: 5.0.0
 
   '@istanbuljs/schema@0.1.6': {}
@@ -25422,7 +25422,7 @@ snapshots:
 
   gray-matter@4.0.3:
     dependencies:
-      js-yaml: 3.15.2(patch_hash=7c69856e06f266fbb16b0f8045ae29b5e397eeeb6dd0081bcce88cfe504efb9b)
+      js-yaml: 3.15.2(patch_hash=a6a2881ca0a3277538ef7fbc80ef0fac92ce92b1c44f1a317ef77c96f6f50017)
       kind-of: 6.0.3
       section-matter: 1.0.0
       strip-bom-string: 1.0.0
@@ -25927,7 +25927,7 @@ snapshots:
 
   js-tokens@4.0.0: {}
 
-  js-yaml@3.15.2(patch_hash=7c69856e06f266fbb16b0f8045ae29b5e397eeeb6dd0081bcce88cfe504efb9b):
+  js-yaml@3.15.2(patch_hash=a6a2881ca0a3277538ef7fbc80ef0fac92ce92b1c44f1a317ef77c96f6f50017):
     dependencies:
       argparse: 3.0.3
       esprima: 4.0.1
