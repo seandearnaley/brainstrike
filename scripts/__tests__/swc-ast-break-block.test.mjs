@@ -14,10 +14,9 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 //   [plugin vite-plugin-top-level-await] Error: missing field `type`
 //       at Compiler.printSync (swc/core/index.js:257:29)
 //
-// Proven by A/B against pristine main (BST-1311). The plugin is used by BOTH
-// apps — apps/web/vite.config.mts:184, apps/desktop/vite.config.mts:134, and
-// desktop's worker.plugins at :267 — so this is not a desktop-only concern;
-// desktop is merely where the build fails first.
+// Proven by A/B against pristine main (BST-1311). Only apps/desktop still uses
+// the plugin (renderer plugins and worker.plugins in apps/desktop/vite.config.mts);
+// apps/web emits native top-level await and no longer depends on it.
 //
 // BOTH swc packages matter. The plugin depends on each directly and chooses at
 // require() time (dist/swc.js: `try { require("@swc/core") } catch {

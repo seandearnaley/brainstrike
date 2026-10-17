@@ -307,10 +307,9 @@ overrides:
   # when diagnosing a wasm-path failure. Left unpinned this reproduces ONLY
   # where the fallback is taken, which is the worst form of this bug.
   #
-  # Blast radius is BOTH apps, not just desktop: topLevelAwait() is used at
-  # apps/web/vite.config.mts:184, apps/desktop/vite.config.mts:134, and desktop's
-  # worker.plugins at :267. Desktop is only where the build happens to fail first,
-  # so retiring the desktop usage alone would NOT retire these pins.
+  # Only apps/desktop still uses topLevelAwait() (renderer plugins and
+  # worker.plugins in apps/desktop/vite.config.mts); apps/web emits native
+  # top-level await, so retiring the desktop usage retires these pins.
   #
   # Remove both once vite-plugin-top-level-await ships a release compatible with
   # swc >= 1.16 (1.6.0 is latest as of 2026-08-15 and is not), and delete

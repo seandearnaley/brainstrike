@@ -7,7 +7,6 @@ import tailwindcss from '@tailwindcss/vite';
 /// <reference types="vitest" />
 import react from '@vitejs/plugin-react';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
-import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
 import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasEntries } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
@@ -84,6 +83,10 @@ function browserWorkerProcessExitCodePlugin() {
 
 export default defineConfig({
   assetsInclude: ['**/*.png'],
+  // Minifier and target stay on Vite's defaults (oxc, baseline-widely-available):
+  // that target supports top-level await natively. Emulating it for es2020 meant a
+  // plugin re-parsing and re-minifying every rendered chunk, which peaked near 8.4 GB
+  // and was OOM-killed on Vercel's 8 GB builder.
   build: {
     assetsDir: 'assets', // Directory for static assets within the build output
     assetsInlineLimit: 0,
@@ -92,7 +95,6 @@ export default defineConfig({
     // workspace-sync entry graph. The 2.3 MB o200k table is a fetch-on-first-
     // accurate-use asset and must never force this ceiling upward.
     chunkSizeWarningLimit: 1300,
-    minify: 'terser', // Use terser for better minification
     outDir: 'dist', // Output directory for the build - cache bust
     rolldownOptions: {
       external: ['electron', '@mastra/core', /^@mastra\//],
@@ -133,13 +135,6 @@ export default defineConfig({
       },
     },
     sourcemap: false, // Disable sourcemaps for production build
-    target: 'es2020',
-    terserOptions: {
-      // biome-ignore lint/style/useNamingConvention: required for terser drop_console target
-      compress: { drop_console: false },
-      // Bound concurrent minifier heaps for the 8 GB build runner.
-      maxWorkers: 1,
-    },
   },
   cacheDir: path.resolve(__dirname, '.vite'),
   define: {
@@ -217,7 +212,6 @@ export default defineConfig({
     canvasFrameShellPlugin(),
     fullReloadOnCompilerHotspots(),
     wasm(),
-    topLevelAwait(),
     react({
       compiler: ReactCompilerConfig,
       exclude: reactTransformExclude,
