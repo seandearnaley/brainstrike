@@ -1,292 +1,152 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { Page } from '@playwright/test';
-import { getRendererLogRecords } from './embedding-worker-renderer.shared';
 import { expect, test } from './fixtures/electron-fixture';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
+import { readHostRootRecords } from './utils/agent-host-log';
+import { seedPausedWorkspace } from './utils/foreground-latency-bench';
+import {
+  closeIndexingPopover,
+  configureNativeIndex,
+  type NativeRootSummary,
+  openResumeControl,
+  readNativeIndexSummary,
+  waitForReadyIndex,
+} from './utils/native-index-build';
 
 /**
- * LIVE REPRODUCTION (issue: "added a new root mid-session and the indexer did
- * not pick up the new files").
+ * A folder added through "Add Folder to Workspace" while the native Workspace
+ * Index is still importing another folder must be indexed too (BST-1955).
  *
- * Boots a workspace with ONE root (root #1) seeded in the desktop rootsList,
- * lets the REAL background-indexing pipeline import it, then adds a SECOND root
- * (root #2) MID-SESSION through the REAL "Add Folder to Workspace" button. The
- * native OS picker is replaced by BRAINSTRIKE_E2E_REAL_ROOT_PATH (a real
- * on-disk directory the real adapter still stats), so nothing in the code path
- * under test — addRootDirectory -> fs:addRoot -> registerRoot -> reconcileRoots
- * -> resolveDbRootId -> sync loop — is mocked.
- *
- * Both roots are real directories with real files, so "0 file_records for
- * root #2" can only mean the new root was dropped, never "the folder was empty".
- *
- * The __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ snapshot triangulates the failure:
- *   - expectedCounts: does the indexer SEE root #2's files? (discovery)
- *   - roots:          did reconcileRoots INSERT a row for root #2? (registration)
- *   - fileRecordsByRoot (root_id): did the sync IMPORT root #2's files? (sync)
+ * Root #1 is seeded with enough real files that its vectors are still being
+ * written when root #2 is added through the real button. The OS picker is
+ * replaced by BRAINSTRIKE_E2E_REAL_ROOT_PATH, a real directory the adapter
+ * still stats, so nothing between the click and the native index is mocked.
+ * Both roots hold real files, so a missing root #2 can only mean the new root
+ * was dropped. Counts and scan receipts come from the renderer's `indexSearch`
+ * capability, the observation the app itself reads. Adding the folder reopens
+ * the sources while root #1's scan is still running, which once failed the
+ * utility's retirement and left the new configuration unactivated.
  */
 
-interface WorkspaceIndexExpectedCount {
-  expectedFileCount: number;
-  rootPath: string;
-}
+const ROOT_ONE_FILE_COUNT = 150;
+const ROOT_TWO_FILE_COUNT = 3;
+const ROOT_ONE_ID = 'mid-session-root-1';
 
-interface WorkspaceIndexDebugSnapshot {
-  accessIssues?: Array<{ reason: string; source: string }>;
-  chunkStatsByRoot: Record<string, unknown>[];
-  expectedCounts: WorkspaceIndexExpectedCount[];
-  fileRecordsByRoot: Record<string, unknown>[];
-  jobQueue: Record<string, unknown>[];
-  roots?: Record<string, unknown>[];
-  syncStatus?: { lastError?: string | null; state?: string };
-}
+let workspaceDir = '';
+let rootOneDir = '';
+let rootTwoDir = '';
 
-function makeRootDir(label: string, fileCount: number): string {
-  const dir = mkdtempSync(path.join(os.tmpdir(), `brainstrike-midsession-${label}-`));
+function writeRoot(dir: string, label: string, fileCount: number): void {
   mkdirSync(path.join(dir, 'nested'), { recursive: true });
-  for (let i = 0; i < fileCount; i += 1) {
-    const sub = i % 3 === 0 ? 'nested' : '.';
-    // Non-trivial content so chunking + embedding takes real work (sustains
-    // DB/pipeline load while a second root is added mid-flight).
+  for (let index = 0; index < fileCount; index += 1) {
+    const folder = index % 3 === 0 ? 'nested' : '.';
+    // Real content, so chunking and embedding keep root #1 busy.
     const body = Array.from(
       { length: 40 },
       (_, line) =>
-        `export const ${label}_${i}_${line} = ${line}; // indexable line ${line} for ${label}`
+        `export const ${label}_${index}_${line} = ${line}; // indexable line ${line} for ${label}`
     ).join('\n');
-    writeFileSync(path.join(dir, sub, `${label}-${i}.ts`), `${body}\n`);
+    writeFileSync(path.join(dir, folder, `${label}-${index}.ts`), `${body}\n`);
   }
-  return dir;
 }
 
-// Created in beforeAll (NOT at module load): the env var must be set before the
-// per-test electron harness launches the app (it reads process.env at launch
-// time), but module-load side effects leak process-wide across every test file
-// that shares this Playwright worker — a leaked BRAINSTRIKE_E2E_REAL_ROOT_PATH
-// hijacked other specs' folder picks to this file's temp dir. afterAll removes
-// it again. root #1 stays actively indexing when root #2 is added — the
-// realistic "added a folder while the indexer was busy" condition (real-stack
-// smoke that the fix keeps mid-session adds working end to end).
-const ROOT_ONE_FILE_COUNT = 150;
-let ROOT_ONE_DIR: string;
-let ROOT_TWO_DIR: string;
-
 test.beforeAll(() => {
-  ROOT_ONE_DIR = makeRootDir('root1', ROOT_ONE_FILE_COUNT);
-  ROOT_TWO_DIR = makeRootDir('root2', 3);
-  // The "Add Folder" pick returns this real directory instead of an OS dialog.
-  process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = ROOT_TWO_DIR;
+  // The host records the picked folder's real path (macOS tmpdir is a symlink).
+  workspaceDir = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'brainstrike-midsession-')));
+  rootOneDir = path.join(workspaceDir, 'root1');
+  rootTwoDir = path.join(workspaceDir, 'root2');
+  writeRoot(rootOneDir, 'root1', ROOT_ONE_FILE_COUNT);
+  writeRoot(rootTwoDir, 'root2', ROOT_TWO_FILE_COUNT);
 });
 
 test.afterAll(() => {
-  // assigning undefined to process.env coerces to the string "undefined"; delete is the only way to actually unset it.
-  delete process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'];
-  // The mkdtempSync roots would otherwise leak into os.tmpdir() every run.
-  rmSync(ROOT_ONE_DIR, { force: true, recursive: true });
-  rmSync(ROOT_TWO_DIR, { force: true, recursive: true });
+  rmSync(workspaceDir, { force: true, recursive: true });
 });
 
-const ADD_FOLDER_LABEL = 'Add Folder to Workspace';
-
-async function readSnapshot(page: Page): Promise<WorkspaceIndexDebugSnapshot> {
-  return await page.evaluate(async () => {
-    const api = (
-      globalThis as typeof globalThis & {
-        __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: {
-          snapshot: () => Promise<WorkspaceIndexDebugSnapshot>;
-        };
-      }
-    ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__;
-    if (!api) {
-      throw new Error('window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ is unavailable');
-    }
-    return await api.snapshot();
-  });
+/** The host's durable id for a mounted folder; absent until the add is accepted. */
+async function rootIdOf(page: Page, rootPath: string): Promise<string | undefined> {
+  const userData = await page.evaluate(() => window.electronAPI!.getUserDataPath());
+  return (await readHostRootRecords(userData)).find((root) => root.path === rootPath)?.id;
 }
 
-async function waitForDebugApi(page: Page): Promise<void> {
-  await page.waitForFunction(
-    () =>
-      typeof (globalThis as typeof globalThis & { __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: unknown })
-        .__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ === 'object',
-    undefined,
-    { timeout: 60_000 }
-  );
-}
-
-function fileCountForRootPath(snapshot: WorkspaceIndexDebugSnapshot, rootDir: string): number {
-  // roots rows map path -> id; file_records group by root_id. Join them so we
-  // can ask "how many file_records does the root at <path> have?".
-  const rootRow = (snapshot.roots ?? []).find((row) => row['path'] === rootDir);
-  const rootId = rootRow?.['id'];
-  if (typeof rootId !== 'string') {
-    return 0;
-  }
-  const fileRow = snapshot.fileRecordsByRoot.find((row) => row['root_id'] === rootId);
-  const count = fileRow?.['file_count'];
-  return typeof count === 'number' ? count : 0;
-}
-
-function expectedFilesForRootPath(snapshot: WorkspaceIndexDebugSnapshot, rootDir: string): number {
-  return snapshot.expectedCounts.find((row) => row.rootPath === rootDir)?.expectedFileCount ?? 0;
-}
-
-async function pollUntil(
-  page: Page,
-  predicate: (snapshot: WorkspaceIndexDebugSnapshot) => boolean,
-  timeoutMs: number,
-  label: string
-): Promise<WorkspaceIndexDebugSnapshot> {
-  const startedAt = Date.now();
-  let last: WorkspaceIndexDebugSnapshot | null = null;
-  while (Date.now() - startedAt < timeoutMs) {
-    last = await readSnapshot(page);
-    if (predicate(last)) {
-      return last;
-    }
-    await page.waitForTimeout(2000);
-  }
-  throw new Error(
-    `Timed out (${timeoutMs}ms) waiting for ${label}. Last snapshot: ${JSON.stringify(last, null, 2)}`
-  );
+async function readRoots(page: Page): Promise<Record<string, NativeRootSummary>> {
+  const summary = await readNativeIndexSummary(page);
+  return Object.fromEntries(summary.roots.map((root) => [root.rootId, root]));
 }
 
 test.describe('Mid-session add root indexing', () => {
-  test.fixme('@desktop-mid-session-add-root indexes a root added after the workspace is running', {
-    annotation: { description: 'BST-1955', type: 'quarantine' },
-  }, async ({ window: page }) => {
+  test('@desktop-mid-session-add-root indexes a root added while another is importing', async ({
+    electronApp,
+    window: page,
+  }) => {
     test.setTimeout(8 * 60 * 1000);
-
-    // 1) Seed an already-running workspace with root #1 (boot/restore path).
-    await page.evaluate(
-      async ({ rootOne }) => {
-        const storage = (
-          globalThis as typeof globalThis & {
-            electronAPI?: { storage?: { setItem?: (k: string, v: string) => Promise<void> } };
-          }
-        ).electronAPI?.storage;
-        if (!storage?.setItem) {
-          throw new Error('electronAPI.storage.setItem is unavailable');
-        }
-        await storage.setItem('lastFolderPath', rootOne);
-        await storage.setItem(
-          'rootsList',
-          JSON.stringify([
-            { addedAt: 1_800_000_000_000, path: rootOne, rootId: 'mid-session-root-1' },
-          ])
-        );
-        localStorage.setItem(
-          'background-indexing-preferences.v1',
-          JSON.stringify({
-            state: {
-              enabled: true,
-              indexingPolicyPreset: 'full-root',
-              managedCollectionId: null,
-              mode: 'root-folder-cache',
-              paused: false,
-            },
-            version: 4,
-          })
-        );
-        localStorage.setItem(
-          'vector-preferences.v1',
-          JSON.stringify({
-            state: {
-              // CI has no WebGPU (ELECTRON_DISABLE_GPU=1); since #1246 the
-              // embedding host refuses to auto-downgrade and errors on a
-              // webgpu preference it cannot honor, which leaves the indexer's
-              // sync loop 'stopped' so root #1 never imports. Seed wasm like
-              // every other embedding spec.
-              devicePref: 'wasm',
-              devicePrefConfigured: true,
-              reinitEveryN: 200,
-              verboseOrtLogs: false,
-            },
-            version: 3,
-          })
-        );
-      },
-      { rootOne: ROOT_ONE_DIR }
-    );
-
-    const { reloadRenderer } = await loadElectronHelpers();
-    await reloadRenderer(page, 'mid-session-add-root-seeded');
-    await waitForDebugApi(page);
-
-    await page.evaluate(async () => {
-      const api = (
-        globalThis as typeof globalThis & {
-          __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: {
-            configure: (o: { policyPreset: 'full-root' }) => void;
-            triggerFullSync: () => void;
-          };
-        }
-      ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__;
-      if (!api) {
-        throw new Error('Workspace Index debug API unavailable after seeding reload');
-      }
-      api.configure({ policyPreset: 'full-root' });
-      api.triggerFullSync();
-    });
-
-    // 2) Wait until root #1 has STARTED importing but is NOT yet done (it has
-    //    ROOT_ONE_FILE_COUNT files) — so root #2 is added while under load.
-    const afterRootOne = await pollUntil(
+    await seedPausedWorkspace(
       page,
-      (snap) => fileCountForRootPath(snap, ROOT_ONE_DIR) >= 5,
-      4 * 60 * 1000,
-      'root #1 to begin importing under load'
+      [{ path: rootOneDir, rootId: ROOT_ONE_ID }],
+      'wasm',
+      'mid-session-add-root-seeded'
     );
-    expect(fileCountForRootPath(afterRootOne, ROOT_ONE_DIR)).toBeGreaterThanOrEqual(5);
-    // eslint-disable-next-line no-console
-    console.log(
-      `[repro] root #1 mid-flight file_count=${fileCountForRootPath(afterRootOne, ROOT_ONE_DIR)} (of ${ROOT_ONE_FILE_COUNT}) — adding root #2 now`
+    await configureNativeIndex(page, 'wasm');
+    await waitForReadyIndex(page, 300_000);
+    const resume = await openResumeControl(page);
+    await resume.click();
+    await closeIndexingPopover(page);
+
+    // Root #1 has published files but still owes vectors, so root #2 arrives under load.
+    await expect
+      .poll(async () => (await readRoots(page))[ROOT_ONE_ID]?.indexedFiles ?? 0, {
+        timeout: 240_000,
+      })
+      .toBeGreaterThan(0);
+    const rootOneAtAdd = (await readRoots(page))[ROOT_ONE_ID];
+    expect(
+      rootOneAtAdd && (!rootOneAtAdd.scanComplete || rootOneAtAdd.missingVectors > 0),
+      `root #1 was still importing when root #2 was added: ${JSON.stringify(rootOneAtAdd)}`
+    ).toBe(true);
+
+    await electronApp.app.evaluate((_electron, next) => {
+      process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = next;
+    }, rootTwoDir);
+    await page.getByRole('button', { name: 'Add Folder to Workspace' }).click();
+    await expect
+      .poll(async () => await rootIdOf(page, rootTwoDir), { timeout: 60_000 })
+      .toBeTruthy();
+    const rootTwoId = (await rootIdOf(page, rootTwoDir)) ?? '';
+
+    await expect
+      .poll(async () => await readNativeIndexSummary(page), { timeout: 240_000 })
+      .toMatchObject({
+        missingVectors: 0,
+        scanComplete: true,
+        status: 'ready',
+        vectorCoverageComplete: true,
+      });
+    expect(await readRoots(page)).toMatchObject({
+      [ROOT_ONE_ID]: { indexedFiles: ROOT_ONE_FILE_COUNT, missingVectors: 0, scanComplete: true },
+      [rootTwoId]: { indexedFiles: ROOT_TWO_FILE_COUNT, missingVectors: 0, scanComplete: true },
+    });
+    await expect(page.getByTestId('indexing-status-trigger')).not.toContainText('Blocked');
+
+    // Root #2's content is searchable, not just counted.
+    const hits = await page.evaluate(
+      async ({ rootId }) => {
+        const capability = (
+          globalThis as typeof globalThis & {
+            readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
+          }
+        ).__brainstrikeTestHooks__?.indexSearch;
+        const result = await capability?.search({
+          limit: 10,
+          mode: 'bm25',
+          rootIds: [rootId],
+          text: 'root2_0_1',
+        });
+        return result?.hits.map((hit) => hit.relativePath) ?? [];
+      },
+      { rootId: rootTwoId }
     );
-
-    // 3) Add root #2 MID-SESSION via the REAL Add Folder button.
-    const addFolderButton = page.getByRole('button', { name: ADD_FOLDER_LABEL });
-    await expect(addFolderButton).toBeVisible({ timeout: 30_000 });
-    await addFolderButton.click();
-
-    // 4) The indexer must IMPORT root #2's files. This is the assertion that
-    //    reproduces the bug: if the new root is dropped, file_count stays 0.
-    let reproSnapshot: WorkspaceIndexDebugSnapshot | null = null;
-    try {
-      reproSnapshot = await pollUntil(
-        page,
-        (snap) => fileCountForRootPath(snap, ROOT_TWO_DIR) >= 3,
-        3 * 60 * 1000,
-        'root #2 (mid-session add) to import its files'
-      );
-    } catch (error) {
-      // Capture the decisive triangulation + renderer warnings before failing.
-      const snap = await readSnapshot(page);
-      const logs = (await getRendererLogRecords(page))
-        .map((r) => (typeof r === 'string' ? r : JSON.stringify(r)))
-        .filter((line) =>
-          /no mapped db root id|Mid-session root registration failed|Root reconciliation failed|coverage|unresolved/i.test(
-            line
-          )
-        );
-      throw new Error(
-        [
-          (error as Error).message,
-          '',
-          `root #2 path: ${ROOT_TWO_DIR}`,
-          `root #2 expectedFileCount (discovery): ${expectedFilesForRootPath(snap, ROOT_TWO_DIR)}`,
-          `root #2 has a roots-table row: ${Boolean(
-            (snap.roots ?? []).find((r) => r['path'] === ROOT_TWO_DIR)
-          )}`,
-          `root #2 file_records: ${fileCountForRootPath(snap, ROOT_TWO_DIR)}`,
-          `root #1 file_records (control): ${fileCountForRootPath(snap, ROOT_ONE_DIR)}`,
-          `syncStatus: ${JSON.stringify(snap.syncStatus)}`,
-          '',
-          'relevant renderer logs:',
-          ...(logs.length > 0 ? logs : ['(none captured)']),
-        ].join('\n')
-      );
-    }
-
-    expect(fileCountForRootPath(reproSnapshot, ROOT_TWO_DIR)).toBeGreaterThanOrEqual(3);
+    expect(hits).toContain('nested/root2-0.ts');
   });
 });

@@ -114,6 +114,10 @@ Enabled is a separate choice. Resume uses the saved pipeline. Fence new source,
 read and inference admission before joining physical owners. Destroy files or
 release a profile only after those joins; independent failures retain ownership
 for explicit retry. Derived rebuild preserves chats, catalog and choices.
+Adding a folder reopens the sources while a scan may be running: Main revokes the
+native authority in the same turn that it stops the utility's attachments, and
+admitted work that fails on that revocation settles as their cancellation
+(BST-1955).
 
 Every root's scan shares one writer (BST-2055). Replacing its bindings or
 removing a file first joins every admitted read, including a scan's own coverage

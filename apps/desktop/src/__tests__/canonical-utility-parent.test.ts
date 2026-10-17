@@ -7,6 +7,7 @@ import {
   CanonicalUtilityParent,
 } from '../canonical-utility-parent';
 import { CANONICAL_CHANNEL, decodeCanonicalFrame } from '../canonical-utility-protocol';
+import { NativeAuthorityTransitionError } from '../native-authority-transition';
 
 const scope = { kind: 'workspace' as const, rootId: 'root' };
 const profile: VectorProfile = {
@@ -698,6 +699,44 @@ it('fences nonterminal retirement until physical IO joins, then admits fresh sou
   await retiring;
   await parent.attachWorkspace(fixture());
   await parent.close();
+});
+
+/**
+ * Main revokes the native graph in the same turn that its retirement stops the
+ * attachment (BST-1955), so admitted catalog work fails on that revocation.
+ */
+async function failAfterRetirement(failure: Error): Promise<object | undefined> {
+  const deps = fixture();
+  const work = Promise.withResolvers<never[]>();
+  deps.source.inventory.loadFiles = vi.fn(() => work.promise);
+  const { parent, owner, frames } = await attached(deps);
+  call(parent, owner, 100, 'load-files', scope);
+  await flush();
+  const retiring = parent.retireAttachments();
+  work.reject(failure);
+  await retiring;
+  await parent.close();
+  return frames.find((input) => {
+    const frame = decodeCanonicalFrame(input);
+    return frame.kind === 'result' && frame.id === 100;
+  });
+}
+
+it('settles admitted work that fails on the revoked authority as its retirement cancellation', async () => {
+  const response = await failAfterRetirement(
+    new NativeAuthorityTransitionError('Native source authority changed.')
+  );
+  expect(response).toMatchObject({
+    cancelled: true,
+    error: { message: 'Canonical attachment retired.', name: 'AbortError' },
+    ok: false,
+  });
+});
+
+it('keeps an independent failure of admitted work visible while retirement stops it', async () => {
+  const response = await failAfterRetirement(new Error('Native catalog read failed.'));
+  expect(response).toMatchObject({ error: { message: 'Native catalog read failed.' }, ok: false });
+  expect(response).not.toHaveProperty('cancelled');
 });
 
 it('retains failed nonterminal cleanup and its admission fence until explicit retry', async () => {

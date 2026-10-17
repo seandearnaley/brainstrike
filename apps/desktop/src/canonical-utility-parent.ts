@@ -27,6 +27,7 @@ import {
   receiptSchema,
 } from './canonical-utility-protocol';
 import { assertCanonicalRequest } from './canonical-utility-request-authority';
+import { NativeAuthorityTransitionError } from './native-authority-transition';
 
 export type {
   CanonicalCollectionDependencies,
@@ -225,7 +226,21 @@ export class CanonicalUtilityParent {
     pending.settled = this.invoke(session, frame, controller)
       .then(
         (value) => this.respond(frame, true, value),
-        (error: unknown) => this.respond(frame, false, error, error === controller.signal.reason)
+        (error: unknown) => {
+          // Main revokes the native authority in the same turn that its retirement
+          // stops this request, so admitted work fails on that revocation instead of
+          // the cancellation reason; it is the same cancellation (BST-1955). An
+          // independent failure, and a cleanup the retirement still owns, stay visible.
+          const revoked =
+            controller.signal.aborted &&
+            error instanceof NativeAuthorityTransitionError &&
+            !isOwnedCleanup(frame);
+          if (revoked || error === controller.signal.reason) {
+            this.respond(frame, false, controller.signal.reason, true);
+            return;
+          }
+          this.respond(frame, false, error);
+        }
       )
       .finally(() => session.pending.delete(frame.id));
     // Sending a terminal response may fail after physical work; preserve it in the join.
