@@ -96,9 +96,16 @@ export interface EmbeddingWorkerRuntimeMetadata {
   readonly revision?: string;
 }
 
+/**
+ * One request's liveness: `setup` heartbeats while its model downloads and loads, then the texts
+ * embedded so far after each completed worker slice.
+ */
+export type EmbeddingRequestProgress =
+  | { readonly stage: 'setup' }
+  | { readonly completed: number; readonly stage: 'inference' };
+
 export interface EmbeddingExecutionOptions {
-  /** Texts embedded so far, after each completed worker slice of this request. */
-  readonly onProgress?: (completed: number) => void;
+  readonly onProgress?: (progress: EmbeddingRequestProgress) => void;
   readonly signal?: AbortSignal;
 }
 

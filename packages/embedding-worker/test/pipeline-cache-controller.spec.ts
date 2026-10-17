@@ -1,6 +1,9 @@
 import type { EmbedWorkerPipelineCacheDiagnostic } from '@brainstrike/indexing-contract';
 import { describe, expect, it, vi } from 'vitest';
-import { createEmbeddingPipelineCacheController } from '../src/pipeline-cache-controller';
+import {
+  createEmbeddingPipelineCacheController,
+  PIPELINE_SETUP_HEARTBEAT_INTERVAL_MS,
+} from '../src/pipeline-cache-controller';
 
 const WASM_MODEL_BYTES = 8 * 1024 * 1024;
 const GPU_MODEL_BYTES = 16 * 1024 * 1024;
@@ -20,6 +23,124 @@ function createDeferred<T>(): Deferred<T> {
   });
   return { promise, reject, resolve };
 }
+
+describe('embedding pipeline cache controller setup liveness (BST-2104)', () => {
+  const request = {
+    device: 'wasm',
+    dtype: 'q8',
+    estimatedModelBytes: null,
+    model: 'granite',
+  } as const;
+
+  function createPendingLoad() {
+    let clock = 0;
+    let reportSetupProgress: (() => void) | undefined;
+    const loaded = createDeferred<{ dispose: () => void }>();
+    const controller = createEmbeddingPipelineCacheController({
+      load: (_model, _device, _dtype, _revision, onSetupProgress) => {
+        reportSetupProgress = onSetupProgress;
+        return loaded.promise;
+      },
+      now: () => clock,
+      publishDiagnostic: vi.fn(),
+      workerInstanceId: 'setup-liveness-worker',
+    });
+    return {
+      advanceTo: (timestamp: number) => {
+        clock = timestamp;
+      },
+      controller,
+      loaded,
+      report: () => {
+        if (!reportSetupProgress) {
+          throw new Error('The vendor load has not started.');
+        }
+        reportSetupProgress();
+      },
+      started: () => reportSetupProgress !== undefined,
+    };
+  }
+
+  it('coalesces vendor setup events into heartbeats for every waiting request, one more on ready, then none', async () => {
+    const load = createPendingLoad();
+    const first = vi.fn();
+    const second = vi.fn();
+    try {
+      const firstLoad = load.controller.load({ ...request, onSetupProgress: first });
+      const secondLoad = load.controller.load({ ...request, onSetupProgress: second });
+      await vi.waitFor(() => expect(load.started()).toBe(true));
+
+      // Transformers.js calls back per downloaded chunk: 1,000 events inside one second.
+      for (let event = 0; event < 1000; event += 1) {
+        load.advanceTo(event);
+        load.report();
+      }
+      expect(first.mock.calls.length).toBeLessThanOrEqual(2);
+      expect(first).toHaveBeenCalledOnce();
+      expect(second).toHaveBeenCalledOnce();
+
+      load.advanceTo(PIPELINE_SETUP_HEARTBEAT_INTERVAL_MS);
+      load.report();
+      expect(first).toHaveBeenCalledTimes(2);
+      expect(second).toHaveBeenCalledTimes(2);
+
+      const resource = { dispose: vi.fn() };
+      load.loaded.resolve(resource);
+      await expect(firstLoad).resolves.toBe(resource);
+      await expect(secondLoad).resolves.toBe(resource);
+      expect(first).toHaveBeenCalledTimes(3);
+      expect(second).toHaveBeenCalledTimes(3);
+
+      load.advanceTo(10 * PIPELINE_SETUP_HEARTBEAT_INTERVAL_MS);
+      load.report();
+      expect(first).toHaveBeenCalledTimes(3);
+      expect(second).toHaveBeenCalledTimes(3);
+    } finally {
+      await load.controller.close();
+    }
+  });
+
+  it('stops heartbeats when the load fails and still fails every waiting request', async () => {
+    const load = createPendingLoad();
+    const first = vi.fn();
+    const second = vi.fn();
+    const failure = new Error('model download failed');
+    try {
+      const firstLoad = load.controller.load({ ...request, onSetupProgress: first });
+      const secondLoad = load.controller.load({ ...request, onSetupProgress: second });
+      await vi.waitFor(() => expect(load.started()).toBe(true));
+      load.report();
+      expect(first).toHaveBeenCalledOnce();
+
+      load.loaded.reject(failure);
+      await expect(firstLoad).rejects.toBe(failure);
+      await expect(secondLoad).rejects.toBe(failure);
+      load.advanceTo(10 * PIPELINE_SETUP_HEARTBEAT_INTERVAL_MS);
+      load.report();
+      expect(first).toHaveBeenCalledOnce();
+      expect(second).toHaveBeenCalledOnce();
+    } finally {
+      await load.controller.close();
+    }
+  });
+
+  it('reports no setup for a request served by an already loaded pipeline', async () => {
+    const load = createPendingLoad();
+    const resource = { dispose: vi.fn() };
+    try {
+      const initial = load.controller.load(request);
+      await vi.waitFor(() => expect(load.started()).toBe(true));
+      load.loaded.resolve(resource);
+      await initial;
+
+      const onSetupProgress = vi.fn();
+      await expect(load.controller.load({ ...request, onSetupProgress })).resolves.toBe(resource);
+      expect(onSetupProgress).not.toHaveBeenCalled();
+    } finally {
+      await load.controller.close();
+    }
+  });
+});
 
 describe('embedding pipeline cache controller', () => {
   it('separates explicitly pinned revisions of the same model and dtype', async () => {
@@ -41,8 +162,22 @@ describe('embedding pipeline cache controller', () => {
       expect(first).not.toBe(second);
       expect(await controller.load({ ...request, revision: 'a'.repeat(40) })).toBe(first);
       expect(load).toHaveBeenCalledTimes(2);
-      expect(load).toHaveBeenNthCalledWith(1, 'minilm', 'wasm', 'q8', 'a'.repeat(40));
-      expect(load).toHaveBeenNthCalledWith(2, 'minilm', 'wasm', 'q8', 'b'.repeat(40));
+      expect(load).toHaveBeenNthCalledWith(
+        1,
+        'minilm',
+        'wasm',
+        'q8',
+        'a'.repeat(40),
+        expect.any(Function)
+      );
+      expect(load).toHaveBeenNthCalledWith(
+        2,
+        'minilm',
+        'wasm',
+        'q8',
+        'b'.repeat(40),
+        expect.any(Function)
+      );
     } finally {
       await controller.close();
     }

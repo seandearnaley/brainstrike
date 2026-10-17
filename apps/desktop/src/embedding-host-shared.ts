@@ -3,6 +3,7 @@ import {
   assertEmbeddingTelemetrySnapshot,
   type EmbeddingTelemetrySnapshot,
 } from '@brainstrike/embedding-worker';
+import type { EmbeddingRequestProgress } from '@brainstrike/embeddings';
 import type { CatalogEmbeddingWorkerPlan } from '@brainstrike/embeddings/inference-plan';
 import type {
   BackgroundRuntimeStatus,
@@ -561,10 +562,10 @@ export type EmbeddingHostDocumentEmbeddingsCancel = RuntimeRequestEnvelope<
   'document-embeddings-cancel',
   Record<string, never>
 >;
-/** Liveness from the hidden host: texts completed so far; it never settles the request. */
+/** Liveness from the hidden host: model setup, then texts completed; it never settles the request. */
 export type EmbeddingHostDocumentEmbeddingsProgressReport = RuntimeProgressEnvelope<
   'document-embeddings-progress',
-  { readonly completed: number }
+  EmbeddingRequestProgress
 >;
 export type EmbeddingHostDocumentEmbeddingsResponseReport =
   | RuntimeResultEnvelope<'document-embeddings-result', { readonly embeddings: number[][] }>
@@ -674,11 +675,11 @@ export function createEmbeddingHostDocumentEmbeddingsResultReport(
 }
 export function createEmbeddingHostDocumentEmbeddingsProgressReport(
   request: EmbeddingHostDocumentEmbeddingsRequest,
-  completed: number
+  progress: EmbeddingRequestProgress
 ): EmbeddingHostDocumentEmbeddingsProgressReport {
   return {
     channel: 'document-embeddings-progress',
-    payload: { completed },
+    payload: progress,
     requestId: request.requestId,
     runtimeId: request.runtimeId,
     type: 'progress',
@@ -746,20 +747,10 @@ export function assertEmbeddingHostDocumentEmbeddingsResponseReport(
     };
   }
   if (envelopeBase.type === 'progress' && envelopeBase.channel === 'document-embeddings-progress') {
-    const completed = payload['completed'];
-    if (
-      !(
-        Number.isSafeInteger(completed) &&
-        (completed as number) >= 0 &&
-        (completed as number) <= MAX_DOCUMENT_EMBEDDING_BATCH_SIZE
-      )
-    ) {
-      throw new Error('Invalid document embeddings progress count.');
-    }
     return {
       ...envelopeBase,
       channel: 'document-embeddings-progress',
-      payload: { completed: completed as number },
+      payload: assertDocumentEmbeddingsProgress(payload),
       type: 'progress',
     };
   }
@@ -772,6 +763,26 @@ export function assertEmbeddingHostDocumentEmbeddingsResponseReport(
     };
   }
   throw new Error('Invalid document embeddings response envelope.');
+}
+
+function assertDocumentEmbeddingsProgress(
+  payload: Record<string, unknown>
+): EmbeddingRequestProgress {
+  if (payload['stage'] === 'setup' && Object.keys(payload).length === 1) {
+    return { stage: 'setup' };
+  }
+  const completed = payload['completed'];
+  if (
+    !(
+      payload['stage'] === 'inference' &&
+      Number.isSafeInteger(completed) &&
+      (completed as number) >= 0 &&
+      (completed as number) <= MAX_DOCUMENT_EMBEDDING_BATCH_SIZE
+    )
+  ) {
+    throw new Error('Invalid document embeddings progress.');
+  }
+  return { completed: completed as number, stage: 'inference' };
 }
 
 export function assertEmbeddingHostErrorPayload(
