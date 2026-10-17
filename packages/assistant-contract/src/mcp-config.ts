@@ -1,4 +1,4 @@
-import { Schema, SchemaGetter, SchemaIssue } from 'effect';
+import { Schema, SchemaGetter, SchemaIssue, SchemaTransformation } from 'effect';
 import {
   type McpExtensionEnablement,
   McpExtensionEnablementSchema,
@@ -186,7 +186,7 @@ const HttpServerSchema = Schema.Struct({
   startup: StartupPolicySchema,
   url: HttpUrlSchema,
 });
-const McpServerInputSchema = Schema.Union(
+const McpServerUnionSchema = Schema.Union(
   [
     StdioServerSchema,
     Schema.Struct({
@@ -245,6 +245,17 @@ const McpServerInputSchema = Schema.Union(
     return issues;
   })
 );
+/**
+ * Two-stage server decode (BST-2084): `transport` is decoded against
+ * McpTransportEnum first, then the member it selects. A union whose sentinel
+ * matches no member fails at the union itself, so without this stage an
+ * unknown or missing transport would not name `transport` in its path.
+ * The encoded side is this probe, so a JSON Schema emitter must build from
+ * McpServerUnionSchema, never McpServerSchema or McpConfigSchema.
+ */
+const McpServerInputSchema = Schema.StructWithRest(Schema.Struct({ transport: McpTransportEnum }), [
+  Schema.Record(Schema.String, Schema.Unknown),
+]).pipe(Schema.decodeTo(McpServerUnionSchema, SchemaTransformation.passthroughSupertype()));
 const ResolvedMcpServerSchema = Schema.Union(
   [
     Schema.Struct({
@@ -313,10 +324,11 @@ export const McpConfigSchema = McpConfigInputSchema.pipe(
     }
   )
 );
-export type McpServerInput = (typeof McpServerSchema)['Encoded'];
+// Input types come from the member union, not the transport probe's encoded side.
+export type McpServerInput = (typeof McpServerUnionSchema)['Encoded'];
 export type McpServer = (typeof McpServerSchema)['Type'];
 export type ResolvedMcpServer = McpServer;
-export type McpConfigInput = (typeof McpConfigSchema)['Encoded'];
+export type McpConfigInput = Readonly<{ servers: McpServerInput[] }>;
 export type McpConfig = (typeof McpConfigSchema)['Type'];
 export type ResolvedMcpConfig = McpConfig;
 export interface McpProtocolMigration {
