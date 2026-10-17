@@ -12,18 +12,19 @@ describe('canonical provided source span validation', () => {
       ['first\r\nsecond', 'first\nsecond'],
       ['before\n\n  after', 'beforeafter'],
       ['literal source', 'literal source'],
-    ]) {
+    ] as const) {
       const range = resolveSourceRanges(source, [{ content: chunk }], 0).ranges[0];
       expect(range).not.toBeNull();
-      const span = source.slice(range!.startOffset, range!.endOffset);
-      expect(matchesChunkSourceRange(source, span, range!.startOffset, range!.endOffset)).toBe(
-        true
-      );
-      expect(matchesChunkSourceRange(source, chunk, range!.startOffset, range!.endOffset)).toBe(
+      if (!range) {
+        throw new Error('Expected the canonical source span');
+      }
+      const span = source.slice(range.startOffset, range.endOffset);
+      expect(matchesChunkSourceRange(source, span, range.startOffset, range.endOffset)).toBe(true);
+      expect(matchesChunkSourceRange(source, chunk, range.startOffset, range.endOffset)).toBe(
         chunk === span
       );
-      expect(findLineForOffset(buildLineStartOffsets(source), range!.endOffset - 1)).toBe(
-        range!.endLine
+      expect(findLineForOffset(buildLineStartOffsets(source), range.endOffset - 1)).toBe(
+        range.endLine
       );
     }
   });
