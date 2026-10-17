@@ -1,23 +1,20 @@
 /**
- * The `packages/agent` test-typecheck RATCHET (BST-1609).
- *
- * `packages/agent` excluded its own tests from typecheck and had no
- * `tsconfig.test.json`, so nothing ever typechecked its ~195 spec files. A test
- * whose value was type-level could not fail. The gate is now on, default-safe:
- * the test project includes everything and names the legacy files that still
- * fail as explicit exclusions.
- *
- * That design rests on one claim — THE EXCLUSION LIST ONLY SHRINKS. Without
- * this file that claim is a social convention, and `tsconfig.test.json` is an
- * ordinary file whose path of least resistance, for anyone whose new spec fails
- * the gate, is to add one more line. Same reasoning and shape as
- * `db-test-discovery-contract.test.mjs`.
- *
- * WHEN YOU DRAIN A FILE: remove it from `exclude` and lower the ceiling here.
- * The ceiling may never go up.
+ * Agent test membership (BST-1782 / BST-2115).
+ * No legacy exclusions remain. Check actual compiler membership against files
+ * on disk as well as the numeric ceiling: include drift can hide a new test
+ * without adding an exclusion. JavaScript lint policy is a separate contract.
  */
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -27,99 +24,85 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const agentRoot = path.join(repoRoot, 'packages/agent');
 const testConfigPath = path.join(agentRoot, 'tsconfig.test.json');
 
-/**
- * Ratchet ceiling: the number of LEGACY SOURCE FILES still excluded from the
- * test project. Lower it as files are drained; never raise it.
- *
- * 68 -> 53 (ADR-0022): the Mastra agent loop's retirement deleted 15 of the
- * excluded specs outright. They were drained by DELETION rather than by fixing
- * their type errors, which is still a drain — the debt is gone either way — but
- * it is worth naming so the drop does not read as 15 files repaired.
- * BST-2095 returns four cancellation regressions to checking after BST-2068's
- * deletion of more legacy specs. The remaining cohort is counted below.
- */
-const MAX_EXCLUDED_LEGACY_FILES = 1;
+/** No legacy test exclusions may return. */
+const MAX_EXCLUDED_LEGACY_FILES = 0;
 
 /** Not legacy debt — the ordinary build-output exclusions every project carries. */
 const NON_LEGACY_EXCLUDES = new Set(['dist', 'node_modules']);
-const REQUIRED_REGRESSIONS = [
-  'src/__tests__/mcp-explicit-http-auth.integration.spec.ts',
-  'src/__tests__/mcp-explicit-http-client.integration.spec.ts',
-  'src/__tests__/mcp-modern-http-extension.integration.spec.ts',
+const TYPESCRIPT_TEST_PATTERN = /(?:^|\/)(?:__tests__\/.*|[^/]+\.(?:test|spec)\.[cm]?tsx?)$/u;
 
-  'src/__tests__/mcp-task-presentation.spec.ts',
-  'src/__tests__/mcp-tasks-interaction.spec.ts',
-  'src/__tests__/mcp-tasks-lifecycle-exits.integration.spec.ts',
-  'src/__tests__/mcp-tasks-lifecycle-handle.integration.spec.ts',
-  'src/__tests__/mcp-tasks-lifecycle.integration.spec.ts',
-
-  'src/__tests__/mcp-client-capabilities.spec.ts',
-  'src/__tests__/mcp-client-extension-registry.spec.ts',
-  'src/__tests__/mcp-explicit-http-client-validation.spec.ts',
-  'src/__tests__/mcp-oauth-config.spec.ts',
-  'src/__tests__/mcp-registered-extension-dispatch.spec.ts',
-
-  'src/__tests__/assistant-messages.spec.ts',
-  'src/__tests__/data-stream-text-continuity.spec.ts',
-  'src/__tests__/token-measurement.spec.ts',
-  'src/__tests__/tool-projection-rewrite-processor.spec.ts',
-  'src/__tests__/usage-metering.spec.ts',
-  'src/__tests__/workspace-root-manifest.spec.ts',
-
-  'src/__tests__/bedrock-prompt-caching.spec.ts',
-  'src/__tests__/native-web-search.spec.ts',
-  'src/__tests__/openai-tool-search-history-compat.spec.ts',
-  'src/__tests__/openrouter-strict-content.spec.ts',
-  'src/__tests__/provider-factory.anthropic-caching.spec.ts',
-  'src/__tests__/provider-factory.auth-input.spec.ts',
-  'src/__tests__/provider-factory.bedrock.spec.ts',
-  'src/__tests__/runtime-configuration.spec.ts',
-
-  'src/__tests__/mcp-tool-loader.spec.ts',
-  'src/__tests__/tool-search-runtime.spec.ts',
-  'src/__tests__/tool-sanitizer.spec.ts',
-
-  'src/__tests__/data-stream-session.spec.ts',
-  'src/__tests__/data-stream-stall.spec.ts',
-  'src/__tests__/with-tool-call-input-timeout.spec.ts',
-
-  'src/__tests__/code-execution.spec.ts',
-  'src/__tests__/fence-spawn.spec.ts',
-
-  'src/__tests__/mcp-host-adapter-core.spec.ts',
-  'src/__tests__/mcp-result-type-compatibility.spec.ts',
-  'src/__tests__/mcp-tasks-extension.spec.ts',
-
-  'src/__tests__/native-tool-input-schema-catalog.spec.ts',
-  'src/__tests__/tool-output-artifact-reader.spec.ts',
-  'src/__tests__/tool-output-artifact-settlement.spec.ts',
-
-  'src/__tests__/mcp-runtime-client.spec.ts',
-  'src/__tests__/run-python-tool.spec.ts',
-  'src/__tests__/tool-execution-durations.spec.ts',
-  'src/__tests__/mcp-tool-guard-cancellation.integration.spec.ts',
-];
-
-function readTestConfig() {
-  return JSON.parse(readFileSync(testConfigPath, 'utf8'));
+function discoverTypeScriptTests(root, relative = '') {
+  return readdirSync(path.join(root, relative), { withFileTypes: true }).flatMap((entry) => {
+    const file = path.posix.join(relative, entry.name);
+    if (entry.name === 'node_modules' || file === 'dist') {
+      return [];
+    }
+    if (entry.isDirectory()) {
+      return discoverTypeScriptTests(root, file);
+    }
+    return entry.isFile() && /\.[cm]?tsx?$/u.test(file) && TYPESCRIPT_TEST_PATTERN.test(file)
+      ? [file]
+      : [];
+  });
 }
 
-test('admitted regression files belong to the actual compiler program', () => {
+function missingTestFiles(root) {
   const result = verifyTestTsconfigProgram({
     checkTypes: false,
-    cwd: agentRoot,
+    cwd: root,
     minTestFiles: 1,
     project: 'tsconfig.test.json',
   });
   assert.equal(result.ok, true, result.message);
   const selected = new Set(
-    result.testFiles.map((file) => path.relative(agentRoot, file).replaceAll('\\', '/'))
+    result.testFiles.map((file) => path.relative(root, file).replaceAll('\\', '/'))
   );
+  return discoverTypeScriptTests(root)
+    .filter((file) => !selected.has(file))
+    .sort();
+}
+
+function readTestConfig() {
+  return JSON.parse(readFileSync(testConfigPath, 'utf8'));
+}
+
+test('every agent TypeScript test belongs to the actual compiler program', () => {
   assert.deepEqual(
-    REQUIRED_REGRESSIONS.filter((file) => !selected.has(file)),
+    missingTestFiles(agentRoot),
     [],
-    'admitted regressions must be checked even when the numeric exclusion ceiling permits them'
+    'real tests must remain checked when include patterns change'
   );
+});
+
+test('complete membership detects new nested tests even with no legacy exclusions', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'agent-test-membership-'));
+  const writeConfig = (include) =>
+    writeFileSync(
+      path.join(root, 'tsconfig.test.json'),
+      JSON.stringify({
+        compilerOptions: { noEmit: true },
+        exclude: [...NON_LEGACY_EXCLUDES],
+        include,
+      })
+    );
+  try {
+    mkdirSync(path.join(root, 'src/nested'), { recursive: true });
+    writeFileSync(path.join(root, 'src/seed.spec.ts'), 'export {};\n');
+    writeConfig(['src/seed.spec.ts']);
+    assert.deepEqual(missingTestFiles(root), []);
+    const added = ['future.spec.ts', 'future.test.tsx', 'future.spec.mts', 'future.test.cts']
+      .map((name) => `src/nested/${name}`)
+      .sort();
+    for (const file of added) {
+      writeFileSync(path.join(root, file), 'export {};\n');
+    }
+    // The old required file still belongs, and the exclusion count is still zero.
+    assert.deepEqual(missingTestFiles(root), added);
+    writeConfig(['src/**/*']);
+    assert.deepEqual(missingTestFiles(root), []);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
 });
 
 test('packages/agent has a test project at all', () => {
