@@ -75,7 +75,14 @@ the sign-code table definitions and the k-nearest candidate subquery. Desktop
 uses sqlite-vec's `vec0`; the browser index (BST-1940) uses ordinary tables and
 a JavaScript Hamming scan. Other vector SQL may use only `vec_quantize_binary`,
 `vec_distance_cosine`, `vec_distance_l2` and `vec_length`, which the binary
-engine implements bit for bit; `vector-engine.test.ts` holds that parity.
+engine computes as sqlite-vec's portable build does (in-order float32 sums).
+Two vendor prebuilds compute differently: sqlite-vec's macOS builds sum L2 in
+SIMD lanes, and the Apple Silicon better-sqlite3 build fuses FTS5 bm25's
+multiply-adds, which sqlite-wasm cannot. So L2 agrees to within float32
+summation error (dims·2⁻²⁴ relative), and bm25 to within 4 ulps. Hits tied
+within that may be ordered differently, and a different tied hit may fill the
+last slot. Everything else is exact. `vector-engine.test.ts` and
+`wasm-index-parity.test.ts` hold this contract.
 Which of several codes tied at the k-th Hamming distance become candidates is
 engine-specific (sqlite-vec's follows its storage layout), so the engines can
 rescore different but equally distant candidates.

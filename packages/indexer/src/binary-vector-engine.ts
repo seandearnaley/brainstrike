@@ -9,11 +9,13 @@ import type { CoarseVectorEngine } from './vector-engine.js';
  * nearest codes are found by a Hamming scan of one partition in JavaScript.
  *
  * It registers sqlite-vec's scalar functions the derived store uses, computed
- * as sqlite-vec computes them (float32 accumulation, least-significant-bit
- * first sign codes), so the shared SQL runs unchanged:
+ * as sqlite-vec's portable build computes them (in-order float32 accumulation,
+ * least-significant-bit first sign codes), so the shared SQL runs unchanged:
  * `vec_quantize_binary`, `vec_distance_cosine`, `vec_distance_l2` and
- * `vec_length`. Only float32 blobs are accepted; sqlite-vec's JSON-text vector
- * form is not used by the derived store and is refused here.
+ * `vec_length`. sqlite-vec's macOS builds sum L2 in SIMD lanes, so there L2
+ * agrees to within float32 summation error rather than bit for bit. Only
+ * float32 blobs are accepted; sqlite-vec's JSON-text vector form is not used
+ * by the derived store and is refused here.
  */
 export const BINARY_VECTOR_ENGINE_VERSION = 'brainstrike-binary-codes-1';
 
