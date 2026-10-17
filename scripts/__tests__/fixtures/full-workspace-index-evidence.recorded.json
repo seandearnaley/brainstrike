@@ -1,0 +1,211 @@
+{
+  "status": "completed",
+  "buildStartedAtMs": 2433,
+  "completedAt": "2026-10-17T02:28:44.344Z",
+  "droppedSampleCount": 11,
+  "durationMs": 184747,
+  "fatalLogMatches": [],
+  "final": {
+    "capturedAt": "2026-10-17T02:28:44.315Z",
+    "elapsedMs": 184718,
+    "index": {
+      "actualDevice": "wasm",
+      "authorizedRootIds": [
+        "workspace-index-e2e-root-1",
+        "workspace-index-e2e-root-2"
+      ],
+      "chunkCount": 820,
+      "chunkedFileCount": 90,
+      "dtype": "q8",
+      "embeddedChunkCount": 820,
+      "fileCount": 90,
+      "missingVectors": 0,
+      "roots": [
+        {
+          "chunks": 644,
+          "indexedFiles": 70,
+          "missingVectors": 0,
+          "rootId": "workspace-index-e2e-root-1",
+          "scanComplete": true,
+          "vectors": 644
+        },
+        {
+          "chunks": 176,
+          "indexedFiles": 20,
+          "missingVectors": 0,
+          "rootId": "workspace-index-e2e-root-2",
+          "scanComplete": true,
+          "vectors": 176
+        }
+      ],
+      "scanComplete": true,
+      "status": "ready",
+      "vectorCoverageComplete": true
+    },
+    "memory": {
+      "embeddingHostWorkingSetMb": 2201,
+      "rendererHeapUsedMb": 50.9
+    },
+    "worker": {
+      "device": "wasm",
+      "dtype": "q8",
+      "fallbackApplied": false
+    }
+  },
+  "requiredDevice": "wasm",
+  "roots": [
+    {
+      "path": "/var/tmp/brainstrike-full-index-roots/vector-management",
+      "rootId": "workspace-index-e2e-root-1"
+    },
+    {
+      "path": "/var/tmp/brainstrike-full-index-roots/indexing-contract",
+      "rootId": "workspace-index-e2e-root-2"
+    }
+  ],
+  "samples": [
+    {
+      "capturedAt": "2026-10-17T02:25:42.466Z",
+      "elapsedMs": 2869,
+      "index": {
+        "actualDevice": "wasm",
+        "authorizedRootIds": [
+          "workspace-index-e2e-root-1",
+          "workspace-index-e2e-root-2"
+        ],
+        "chunkCount": 0,
+        "chunkedFileCount": 0,
+        "dtype": "q8",
+        "embeddedChunkCount": 0,
+        "fileCount": 0,
+        "missingVectors": 0,
+        "roots": [
+          {
+            "chunks": 0,
+            "indexedFiles": 0,
+            "missingVectors": 0,
+            "rootId": "workspace-index-e2e-root-1",
+            "scanComplete": false,
+            "vectors": 0
+          },
+          {
+            "chunks": 0,
+            "indexedFiles": 0,
+            "missingVectors": 0,
+            "rootId": "workspace-index-e2e-root-2",
+            "scanComplete": false,
+            "vectors": 0
+          }
+        ],
+        "scanComplete": false,
+        "status": "ready",
+        "vectorCoverageComplete": false
+      },
+      "memory": {
+        "embeddingHostWorkingSetMb": 228.8,
+        "rendererHeapUsedMb": 90.5
+      },
+      "worker": null
+    },
+    {
+      "capturedAt": "2026-10-17T02:28:38.851Z",
+      "elapsedMs": 179254,
+      "index": {
+        "actualDevice": "wasm",
+        "authorizedRootIds": [
+          "workspace-index-e2e-root-1",
+          "workspace-index-e2e-root-2"
+        ],
+        "chunkCount": 820,
+        "chunkedFileCount": 90,
+        "dtype": "q8",
+        "embeddedChunkCount": 820,
+        "fileCount": 90,
+        "missingVectors": 0,
+        "roots": [
+          {
+            "chunks": 644,
+            "indexedFiles": 70,
+            "missingVectors": 0,
+            "rootId": "workspace-index-e2e-root-1",
+            "scanComplete": true,
+            "vectors": 644
+          },
+          {
+            "chunks": 176,
+            "indexedFiles": 20,
+            "missingVectors": 0,
+            "rootId": "workspace-index-e2e-root-2",
+            "scanComplete": true,
+            "vectors": 176
+          }
+        ],
+        "scanComplete": true,
+        "status": "ready",
+        "vectorCoverageComplete": true
+      },
+      "memory": {
+        "embeddingHostWorkingSetMb": 2259.1,
+        "rendererHeapUsedMb": 51.1
+      },
+      "worker": {
+        "device": "wasm",
+        "dtype": "q8",
+        "fallbackApplied": false
+      }
+    },
+    {
+      "capturedAt": "2026-10-17T02:28:44.315Z",
+      "elapsedMs": 184718,
+      "index": {
+        "actualDevice": "wasm",
+        "authorizedRootIds": [
+          "workspace-index-e2e-root-1",
+          "workspace-index-e2e-root-2"
+        ],
+        "chunkCount": 820,
+        "chunkedFileCount": 90,
+        "dtype": "q8",
+        "embeddedChunkCount": 820,
+        "fileCount": 90,
+        "missingVectors": 0,
+        "roots": [
+          {
+            "chunks": 644,
+            "indexedFiles": 70,
+            "missingVectors": 0,
+            "rootId": "workspace-index-e2e-root-1",
+            "scanComplete": true,
+            "vectors": 644
+          },
+          {
+            "chunks": 176,
+            "indexedFiles": 20,
+            "missingVectors": 0,
+            "rootId": "workspace-index-e2e-root-2",
+            "scanComplete": true,
+            "vectors": 176
+          }
+        ],
+        "scanComplete": true,
+        "status": "ready",
+        "vectorCoverageComplete": true
+      },
+      "memory": {
+        "embeddingHostWorkingSetMb": 2201,
+        "rendererHeapUsedMb": 50.9
+      },
+      "worker": {
+        "device": "wasm",
+        "dtype": "q8",
+        "fallbackApplied": false
+      }
+    }
+  ],
+  "schema": "brainstrike.full-workspace-index.v2",
+  "worker": {
+    "device": "wasm",
+    "dtype": "q8",
+    "fallbackApplied": false
+  }
+}

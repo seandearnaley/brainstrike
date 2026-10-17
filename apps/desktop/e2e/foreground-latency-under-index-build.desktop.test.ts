@@ -2,12 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
-import type { Locator, Page } from '@playwright/test';
-import { expect, test } from './fixtures/electron-fixture';
-import { HomePage } from './page-objects/home-page';
+import { test } from './fixtures/electron-fixture';
 import {
-  type BenchDevice,
   describeEnvironment,
   type EmbeddingHostReading,
   embeddingHostMetrics,
@@ -37,6 +33,14 @@ import {
 } from './utils/foreground-latency-probes';
 import { type IndexBuildCorpus, writeIndexBuildCorpus } from './utils/index-build-corpus';
 import { createIndexProgressWatch } from './utils/index-progress-watch';
+import {
+  closeIndexingPopover,
+  configureNativeIndex,
+  type NativeIndexSummary,
+  openResumeControl,
+  readNativeIndexSummary,
+  waitForReadyIndex,
+} from './utils/native-index-build';
 
 /**
  * Loaded foreground-latency benchmark (BST-1925, BST-2012): the instrument
@@ -83,8 +87,6 @@ const GREP_PATTERN = 'total +=';
 const READY_TIMEOUT_MS = 300_000;
 /** How often the loaded window pauses to read the index counts (unmeasured). */
 const CHECK_EVERY_MS = 2000;
-/** Search & Indexing's execution choice for each benchmark device. */
-const EXECUTION_LABEL = { wasm: 'WASM · Q8', webgpu: 'WebGPU · FP16' } as const;
 /**
  * No change in any index count for this long ends the run as invalid instead of
  * waiting out the test timeout; it is also how often the loop checks. The
@@ -94,20 +96,6 @@ const EXECUTION_LABEL = { wasm: 'WASM · Q8', webgpu: 'WebGPU · FP16' } as cons
  */
 const STALL_WINDOW_MS = 200_000;
 const NO_PROGRESS = { chunkCount: 0, chunkedFileCount: 0, embeddedChunkCount: 0, fileCount: 0 };
-
-interface IndexSummary {
-  /** The native query plan's execution device and dtype; null before the index is ready. */
-  readonly actualDevice: string | null;
-  readonly chunkCount: number;
-  /** The native index publishes whole files: an indexed file is a chunked file. */
-  readonly chunkedFileCount: number;
-  readonly dtype: string | null;
-  readonly embeddedChunkCount: number;
-  readonly fileCount: number;
-  readonly missingVectors: number;
-  readonly scanComplete: boolean;
-  readonly status: string;
-}
 
 function readFiles(): number {
   const raw = process.env[FILES_ENV]?.trim();
@@ -121,59 +109,6 @@ function readFiles(): number {
   return value;
 }
 
-/** The native index's counts and execution plan for every authorized root. */
-async function readIndexSummary(page: Page): Promise<IndexSummary> {
-  return await page.evaluate(async () => {
-    const capability = (
-      globalThis as typeof globalThis & {
-        readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
-      }
-    ).__brainstrikeTestHooks__?.indexSearch;
-    if (!capability) {
-      throw new Error('The native index capability is unavailable.');
-    }
-    const status = await capability.status();
-    const none = {
-      actualDevice: null,
-      chunkCount: 0,
-      chunkedFileCount: 0,
-      dtype: null,
-      embeddedChunkCount: 0,
-      fileCount: 0,
-      missingVectors: 0,
-      scanComplete: false,
-    };
-    if (status.kind !== 'ready') {
-      return { ...none, status: `${status.kind}: ${status.reason}` };
-    }
-    const plan = status.queryPlan?.inferencePlan;
-    const observation = await capability.coverageBatch([{ rootIds: status.authorizedRootIds }]);
-    if (observation.kind === 'blocked') {
-      throw new Error(`Native coverage is blocked: ${observation.reason}`);
-    }
-    if (observation.kind === 'invalidated') {
-      return { ...none, status: 'invalidated' };
-    }
-    const totals = observation.coverage[0]?.totals;
-    if (!totals) {
-      throw new Error('Native coverage omitted the requested roots.');
-    }
-    return {
-      actualDevice: plan?.device ?? null,
-      chunkCount: totals.chunks,
-      chunkedFileCount: totals.indexedFiles,
-      dtype: plan?.dtype ?? null,
-      embeddedChunkCount: totals.vectors,
-      fileCount: totals.indexedFiles,
-      missingVectors: totals.missingVectors,
-      scanComplete:
-        observation.status.rootReadiness.length > 0 &&
-        observation.status.rootReadiness.every((root) => root.scanComplete),
-      status: 'ready',
-    };
-  });
-}
-
 type StageMilestone = 'allFilesChunked' | 'allVectors' | 'firstChunk' | 'firstVector';
 
 /**
@@ -185,7 +120,7 @@ function createStageMilestones() {
   const milestones: Partial<Record<StageMilestone, number>> = {};
   return {
     milestones,
-    observe(summary: IndexSummary, files: number, elapsedMs: number): void {
+    observe(summary: NativeIndexSummary, files: number, elapsedMs: number): void {
       const reached: Record<StageMilestone, boolean> = {
         allFilesChunked: summary.scanComplete && summary.fileCount === files,
         allVectors: isTerminal(summary, files),
@@ -201,7 +136,7 @@ function createStageMilestones() {
   };
 }
 
-function isTerminal(summary: IndexSummary, files: number): boolean {
+function isTerminal(summary: NativeIndexSummary, files: number): boolean {
   return (
     summary.scanComplete &&
     summary.fileCount === files &&
@@ -209,74 +144,6 @@ function isTerminal(summary: IndexSummary, files: number): boolean {
     summary.embeddedChunkCount === summary.chunkCount &&
     summary.missingVectors === 0
   );
-}
-
-/** Chooses BGE Small and the device's execution plan while the index is paused. */
-async function configureNativeIndex(page: Page, device: BenchDevice): Promise<void> {
-  const home = new HomePage(page);
-  await home.openSettings();
-  await page.getByRole('button', { name: 'Search & Indexing' }).click();
-  await page.getByTestId('settings-category-search-indexing').waitFor();
-  await page.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
-  await page.getByRole('option', { name: /BGE Small/ }).click();
-  await page.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
-  await expect(page.getByRole('combobox', { name: 'Managed collection' })).toContainText(
-    'Workspace Index (BGE Small)',
-    { timeout: 30_000 }
-  );
-  await page.getByRole('combobox', { name: 'Search mode' }).click();
-  await page.getByRole('option', { exact: true, name: 'Text and semantic search' }).click();
-  await page.getByRole('combobox', { name: 'Local model execution' }).click();
-  await page.getByRole('option', { exact: true, name: EXECUTION_LABEL[device] }).click();
-  await home.leaveSettings();
-  await expect(page.getByTestId('indexing-status-trigger')).toContainText('Paused');
-}
-
-/**
- * The idle phase needs the paused index activated: until then its reads, and
- * so the grep tool's, refuse as transitioning. Activation embeds on the
- * configured device, so a device too slow for its request deadline fails here.
- */
-async function waitForReadyIndex(page: Page): Promise<void> {
-  let last = '';
-  let lastReadError: unknown;
-  try {
-    await expect
-      .poll(
-        async () => {
-          try {
-            last = (await readIndexSummary(page)).status;
-            lastReadError = undefined;
-          } catch (error) {
-            // A refused read (blocked coverage, say) is retried, and kept as the cause.
-            lastReadError = error;
-            last = `read failed: ${error instanceof Error ? error.message : String(error)}`;
-          }
-          return last;
-        },
-        { intervals: [1000], timeout: READY_TIMEOUT_MS }
-      )
-      .toBe('ready');
-  } catch (error) {
-    throw new Error(`The paused native index never became ready; last status: ${last}`, {
-      cause: lastReadError ?? error,
-    });
-  }
-}
-
-/** Opens the indexing popover and returns its Resume button, ready to click. */
-async function openResumeControl(page: Page): Promise<Locator> {
-  await page.getByTestId('indexing-status-trigger').click();
-  const resume = page
-    .getByTestId('indexing-status-popover')
-    .getByRole('button', { name: 'Resume workspace index' });
-  await expect(resume).toBeVisible();
-  return resume;
-}
-
-async function closeIndexingPopover(page: Page): Promise<void> {
-  await page.keyboard.press('Escape');
-  await expect(page.getByTestId('indexing-status-popover')).toBeHidden();
 }
 
 test.describe('Foreground latency under a full index build', () => {
@@ -300,13 +167,12 @@ test.describe('Foreground latency under a full index build', () => {
         await showAppWindow(electronApp.app, page);
         await seedPausedWorkspace(
           page,
-          corpus.rootPath,
-          BENCH_ROOT_ID,
+          [{ path: corpus.rootPath, rootId: BENCH_ROOT_ID }],
           device,
           'foreground-latency-benchmark-seeded'
         );
         await configureNativeIndex(page, device);
-        await waitForReadyIndex(page);
+        await waitForReadyIndex(page, READY_TIMEOUT_MS);
         const chatThreadId = await startProbeThread(electronApp.app);
 
         await installRendererFrameProbe(page);
@@ -348,7 +214,7 @@ test.describe('Foreground latency under a full index build', () => {
         const hostReadings: EmbeddingHostReading[] = [];
         /** Each unmeasured check's native coverage read: whether index reads wait on the build. */
         const checkReadMs: number[] = [];
-        let finalSummary: IndexSummary;
+        let finalSummary: NativeIndexSummary;
         let buildElapsedMs: number;
         for (let segment = 0; ; segment += 1) {
           await page.waitForTimeout(CHECK_EVERY_MS);
@@ -357,7 +223,7 @@ test.describe('Foreground latency under a full index build', () => {
           await markRendererPhase(page, `loaded-end-${segment}`);
           loadedWindows.push([`loaded-start-${segment}`, `loaded-end-${segment}`]);
           const readStartedAt = performance.now();
-          const summary = await readIndexSummary(page);
+          const summary = await readNativeIndexSummary(page);
           checkReadMs.push(performance.now() - readStartedAt);
           stages.observe(summary, files, wokeAt - buildStartedAt);
           const hostReading = await readEmbeddingHost(electronApp.app);

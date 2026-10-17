@@ -16,7 +16,7 @@ BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_TIMEOUT_MS=21600000 \
 pnpm --filter @brainstrike/desktop exec playwright test e2e/full-workspace-index.desktop.test.ts --workers=1 --reporter=line
 ```
 
-The verifier artifact records timestamped debug snapshots, terminal file/chunk counts, selected device preference, actual embedding worker metadata, memory samples, and fatal log matches.
+The verifier artifact records timestamped samples of the native index's per-root file/chunk/vector counts and scan receipts, the query plan's device, the actual embedding worker metadata, renderer heap and embedding host working set, and fatal log matches.
 The verifier writes the same artifact to Playwright's output directory and to the stable ignored path `apps/desktop/test-results/full-workspace-index-evidence.json` unless `BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_EVIDENCE_PATH` is set.
 
 ## Validation Command
@@ -33,12 +33,12 @@ node apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs \
 
 The analyzer fails if:
 
-- the run did not reach terminal file/chunk/embedding completion,
-- queued, running, or failed `embed_chunk` jobs remain,
-- the actual embedding worker backend is not the required backend,
+- the run did not complete, or a configured root has no complete-scan receipt,
+- a chunk has no vector,
+- the actual embedding worker or the query plan runs on another backend than the required one,
 - `fallbackApplied` is true,
 - fatal log patterns include DB host timeouts, local embedding execution failure, uncaught, or unhandled errors,
-- retained heap exceeds `--max-retained-heap-mb` when provided.
+- the renderer's retained heap exceeds `--max-retained-heap-mb` when provided.
 
 ## Stage Throughput
 
