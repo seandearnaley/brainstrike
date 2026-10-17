@@ -82,12 +82,17 @@ test.describe('Assistant OpenRouter run config (desktop)', () => {
       timeout: E2E_TIMEOUTS.messageVisibility,
     });
 
-    // The run's own provider call, as OpenRouter receives it.
-    const runs = modelProvider
-      .requests()
-      .filter(({ requestBody }) => (requestBody as ProviderRequestBody).stream === true);
-    expect(runs.length).toBeGreaterThan(0);
-    const lastRequest = runs.at(-1)?.requestBody as ProviderRequestBody | undefined;
+    // The run's own provider call, as OpenRouter receives it. The thread's title
+    // request is answered with the same scripted text and can land first (it runs
+    // beside the first answer since #3720), so wait for the streamed run call itself.
+    const runs = () =>
+      modelProvider
+        .requests()
+        .filter(({ requestBody }) => (requestBody as ProviderRequestBody).stream === true);
+    await expect
+      .poll(() => runs().length, { timeout: E2E_TIMEOUTS.messageVisibility })
+      .toBeGreaterThan(0);
+    const lastRequest = runs().at(-1)?.requestBody as ProviderRequestBody | undefined;
     expect(lastRequest?.max_tokens).toBe(131_072);
     expect(lastRequest?.reasoning).toMatchObject({ effort: 'low' });
   });
