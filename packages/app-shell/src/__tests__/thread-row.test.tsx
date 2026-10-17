@@ -1,16 +1,25 @@
 import {
   type AssistantMemoryThread,
+  AssistantThreadAppearanceSaveError,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import type { ForgePrCacheEntry } from '@brainstrike/types';
-import { ActionRegistryProvider, TooltipProvider } from '@brainstrike/ui';
+import { ActionRegistryProvider, TooltipProvider, toast } from '@brainstrike/ui';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ThreadBranchInfo } from '../hooks/use-thread-branch-by-root-path';
 import { ThreadRow, type ThreadRowProps } from '../thread-row';
 import { ThreadMetadataBadges } from '../thread-row-metadata';
+
+vi.mock('@brainstrike/ui', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/ui')>()),
+  toast: vi.fn(),
+}));
+afterEach(() => {
+  vi.mocked(toast).mockClear();
+});
 
 const THREAD: AssistantMemoryThread = {
   createdAt: new Date('2026-09-18T10:00:00Z'),
@@ -31,7 +40,7 @@ function createProps(overrides: Partial<ThreadRowProps> = {}): ThreadRowProps {
     onMoveThreadToGroup: vi.fn().mockResolvedValue(undefined),
     onRenameThread: vi.fn().mockResolvedValue(undefined),
     onSelectThread: vi.fn(),
-    onUpdateThreadMetadata: vi.fn().mockResolvedValue(undefined),
+    onUpdateThreadAppearance: vi.fn().mockResolvedValue(undefined),
     pr: null,
     selected: false,
     status: null,
@@ -200,25 +209,64 @@ describe('ThreadRow', () => {
     });
   });
 
-  it('keeps customization persistence and errors local to the row', async () => {
+  // BST-2116: a pick shows at once; a save that fails and is put back says so,
+  // in the row and in a toast (the panel may already be closed).
+  it('says a failed customization was changed back, in the row and a toast', async () => {
     const user = userEvent.setup();
-    const onUpdateThreadMetadata = vi.fn().mockRejectedValue(new Error('Metadata write failed.'));
-    renderRow(createProps({ onUpdateThreadMetadata }));
+    const onUpdateThreadAppearance = vi
+      .fn()
+      .mockRejectedValue(
+        new AssistantThreadAppearanceSaveError(true, new Error('Metadata write failed.'))
+      );
+    renderRow(createProps({ onUpdateThreadAppearance }));
 
     await user.click(screen.getByRole('button', { name: 'Thread actions Review architecture' }));
     await user.click(screen.getByRole('button', { name: 'Customize' }));
     const customizer = screen.getByRole('dialog');
     await user.click(within(customizer).getByRole('button', { name: 'Use Bug icon' }));
 
-    expect(await screen.findByText('Metadata write failed.')).toBeVisible();
-    expect(onUpdateThreadMetadata).toHaveBeenCalledWith(THREAD.id, { icon: 'bug' });
+    expect(
+      await screen.findByText(
+        'The thread icon was not saved, so it was changed back: Metadata write failed.'
+      )
+    ).toBeVisible();
+    expect(toast).toHaveBeenCalledWith({
+      description: 'It was changed back. Metadata write failed.',
+      title: 'Couldn’t save the thread icon',
+      variant: 'destructive',
+    });
+    expect(onUpdateThreadAppearance).toHaveBeenCalledWith(THREAD.id, { icon: 'bug' });
     expect(screen.getByTestId('thread-row')).toBeVisible();
+  });
+
+  it('keeps the swatches live while a save is in flight, and says nothing when a newer pick decides', async () => {
+    const user = userEvent.setup();
+    const onUpdateThreadAppearance = vi
+      .fn()
+      .mockReturnValueOnce(new Promise(() => undefined))
+      .mockRejectedValueOnce(new AssistantThreadAppearanceSaveError(false, new Error('lost')));
+    renderRow(createProps({ onUpdateThreadAppearance }));
+
+    await user.click(screen.getByRole('button', { name: 'Thread actions Review architecture' }));
+    await user.click(screen.getByRole('button', { name: 'Customize' }));
+    const customizer = screen.getByRole('dialog');
+    await user.click(within(customizer).getByRole('button', { name: 'Use Bug icon' }));
+    const cyan = within(customizer).getByRole('button', { name: 'Use Cyan color' });
+    expect(cyan).toBeEnabled();
+    await user.click(cyan);
+
+    expect(onUpdateThreadAppearance).toHaveBeenNthCalledWith(2, THREAD.id, { color: 'cyan' });
+    await waitFor(() => {
+      expect(onUpdateThreadAppearance).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.queryByText(/was not saved/)).toBeNull();
+    expect(toast).not.toHaveBeenCalled();
   });
 
   it('offers curated color sets and persists a chosen Voltage color', async () => {
     const user = userEvent.setup();
-    const onUpdateThreadMetadata = vi.fn().mockResolvedValue(undefined);
-    renderRow(createProps({ onUpdateThreadMetadata }));
+    const onUpdateThreadAppearance = vi.fn().mockResolvedValue(undefined);
+    renderRow(createProps({ onUpdateThreadAppearance }));
 
     await user.click(screen.getByRole('button', { name: 'Thread actions Review architecture' }));
     await user.click(screen.getByRole('button', { name: 'Customize' }));
@@ -229,7 +277,7 @@ describe('ThreadRow', () => {
     expect(within(customizer).getByTestId('thread-color-family-preview')).toBeVisible();
     await user.click(within(customizer).getByRole('button', { name: 'Use Cyan color' }));
 
-    expect(onUpdateThreadMetadata).toHaveBeenCalledWith(THREAD.id, { color: 'cyan' });
+    expect(onUpdateThreadAppearance).toHaveBeenCalledWith(THREAD.id, { color: 'cyan' });
   });
 
   it('keeps delete confirmation and failures local to the row', async () => {
