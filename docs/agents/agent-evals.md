@@ -17,7 +17,7 @@ A task is a folder, `packages/agent-evals/tasks/<id>/`:
 - `repo/`: the starting workspace.
 - `verify/`: the hidden verifier. The runner copies it to `.verify/` only after
   the run ends, so the agent never sees it.
-- `script.json`: the scripted model's tool calls, one per step.
+- `script.json`: the scripted model's tool calls, one per step; `{ "parallel": [...] }` makes two or more in one step.
 
 `src/task.ts` decodes all of this with Effect Schema and refuses unknown fields.
 
@@ -72,9 +72,13 @@ reason, checked in this order:
 4. A run verdict other than `completed`.
 5. An unserved cassette exchange.
 6. A verifier that did not run or did not exit 0.
+7. A `task.json` `expect` the committed log does not meet.
+   `parallelCalls: { toolId, atLeast }` needs the model to call that tool at
+   least `atLeast` times in one step, so a parallel-read task fails when its
+   reads arrive one step at a time, whatever else shares a step.
 
 Metrics come from the committed log, never from CLI output: steps, tool calls
-by name, input and output tokens, approvals, wall time from `run.started` to
+by name, each tool's most calls in one step, input and output tokens, approvals, wall time from `run.started` to
 `run.finished`, and the verdict. Each run appends one JSON line per task to
 `packages/agent-evals/results/<UTC date>-<mode>.jsonl`, which is gitignored, and
 prints a summary table.
@@ -89,8 +93,9 @@ Recording makes paid provider calls with the key the owner exports in their
 shell. Agents never run it, and it refuses to run in CI. It runs the task live
 through `startProviderCassetteRecorder`. Then it checks the recording: no home
 path or key in the cassette (`providerCassetteFindings`), and a clean pass from
-`scripts/secret-scan.mjs`. Finally, it replays the cassette and needs the same
-verdict, with every exchange claimed and no request refused. Only after these
+`scripts/secret-scan.mjs`. Finally, it replays the cassette. Only a run that passes,
+live and on replay, is kept, with the same verdict, every exchange claimed and
+no request refused; a failing run is never a task's canonical replay. Only after these
 checks pass does it write `tasks/<id>/cassette.json` and set `cassette` and
 `model` in `task.json`. `record.integration.test.ts` proves this path offline:
 the recorder forwards to a loopback stand-in that replays a committed cassette,

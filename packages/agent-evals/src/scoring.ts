@@ -10,6 +10,8 @@ export interface EvalRunMetrics {
   readonly approvals: number;
   /** Summed over the run's steps; null when any step reported none. */
   readonly inputTokens: number | null;
+  /** Per tool name, the most calls of it the model made in one step: 2 or more is a parallel call. */
+  readonly maxStepCallsByTool: Readonly<Record<string, number>>;
   readonly outputTokens: number | null;
   readonly steps: number;
   /** The model's tool calls, by the tool name it called. */
@@ -63,6 +65,21 @@ function toolCallNames(messages: readonly unknown[]): string[] {
   );
 }
 
+/** Per tool name, its largest count among the steps' tool calls. */
+function maxCallsInOneStep(steps: readonly (readonly string[])[]): Record<string, number> {
+  const most: Record<string, number> = {};
+  for (const names of steps) {
+    const inStep: Record<string, number> = {};
+    for (const name of names) {
+      inStep[name] = (inStep[name] ?? 0) + 1;
+    }
+    for (const [name, count] of Object.entries(inStep)) {
+      most[name] = Math.max(most[name] ?? 0, count);
+    }
+  }
+  return most;
+}
+
 /** One run's metrics and verdict, from its thread's committed rows. */
 export function readRunFromLog(rows: readonly HostLogRow[], runId: string): EvalRunSummary {
   const started = rows.find((row) => row.event.type === 'run.started' && row.event.runId === runId);
@@ -96,6 +113,7 @@ export function readRunFromLog(rows: readonly HostLogRow[], runId: string): Eval
     metrics: {
       approvals,
       inputTokens: sum(steps.map((step) => tokens(step.usage, 'inputTokens'))),
+      maxStepCallsByTool: maxCallsInOneStep(steps.map((step) => toolCallNames(step.messages))),
       outputTokens: sum(steps.map((step) => tokens(step.usage, 'outputTokens'))),
       steps: steps.length,
       toolCalls,
@@ -116,8 +134,12 @@ export interface EvalAttempt {
     readonly unserved: readonly string[];
   };
   /** Starting, driving or stopping the host failed. */
+  /** The task's `expect` block, checked against the run's committed metrics. */
+  readonly expect?: {
+    readonly parallelCalls: { readonly atLeast: number; readonly toolId: string };
+  };
   readonly hostError?: string;
-  readonly run?: Pick<EvalRunSummary, 'verdict'>;
+  readonly run?: Pick<EvalRunSummary, 'verdict'> & { readonly metrics?: EvalRunMetrics };
   /** The run did not finish within the task's `timeoutMs`. */
   readonly timedOut?: number;
   readonly verifier?: { readonly exitCode: number | null; readonly output: string };
@@ -170,5 +192,22 @@ export function scoreEvalAttempt(attempt: EvalAttempt): EvalScore {
       `The verifier exited ${attempt.verifier.exitCode ?? 'by signal'}: ${attempt.verifier.output.trim()}`
     );
   }
-  return { pass: true };
+  const unmet = unmetExpectation(attempt);
+  return unmet === undefined ? { pass: true } : fail(unmet);
+}
+
+/** Why the run's committed metrics fall short of the task's `expect` block, if they do. */
+function unmetExpectation(attempt: EvalAttempt): string | undefined {
+  const expected = attempt.expect?.parallelCalls;
+  if (expected === undefined) {
+    return;
+  }
+  const metrics = attempt.run?.metrics;
+  if (metrics === undefined) {
+    return 'The task expects parallel tool calls, but the run reported no metrics';
+  }
+  const seen = metrics.maxStepCallsByTool[expected.toolId] ?? 0;
+  return seen < expected.atLeast
+    ? `The task expects at least ${expected.atLeast} ${expected.toolId} calls in one step; the run made at most ${seen}`
+    : undefined;
 }

@@ -6,12 +6,12 @@
  * that names the model names the script that ran.
  */
 import type { HostPlatformFactory } from '@brainstrike/agent-host';
-import { scriptedToolSequence } from '@brainstrike/agent-host/test-fixtures/scripted-model';
+import { scriptedToolSteps } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import {
   createHostPlatform,
   type StandaloneTrustedModel,
 } from '@brainstrike/host-capabilities/platform';
-import type { EvalScript } from './task.js';
+import { type EvalScript, scriptSteps } from './task.js';
 
 export const SCRIPTED_PROVIDER = 'scripted';
 
@@ -29,7 +29,7 @@ export function scriptedModelId(taskId: string): string {
 
 /** The fixture's model, named for its task rather than the fixture's mock identity. */
 function scriptedModel({ script, taskId }: ScriptedEvalModel): StandaloneTrustedModel['model'] {
-  const scripted = scriptedToolSequence(script.calls);
+  const scripted = scriptedToolSteps(scriptSteps(script));
   return {
     doGenerate: (options) => scripted.doGenerate(options),
     doStream: (options) => scripted.doStream(options),

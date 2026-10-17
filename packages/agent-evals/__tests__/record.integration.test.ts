@@ -50,7 +50,7 @@ test('records a task through the recorder, checks it, writes it and replays it',
       upstreams: standIn.env,
     });
     expect(summary).toMatch(
-      /^Recorded parallel-read on openai::gpt-6-luna: \d+ exchange\(s\); the recorded run passed\.$/u
+      /^Recorded parallel-read on openai::gpt-6-luna: \d+ exchange\(s\); the recorded run passed and replays to a pass\.$/u
     );
     expect(standIn.refusals()).toEqual([]);
     expect(standIn.unserved()).toEqual([]);
@@ -66,6 +66,35 @@ test('records a task through the recorder, checks it, writes it and replays it',
   );
   const replayed = await runEvalTask(await loadEvalTask(dir), { batch: 'record', mode: 'replay' });
   expect(replayed).toMatchObject({ pass: true, reason: null });
+});
+
+test('never saves a recording whose run fails, even when its replay fails the same way', {
+  timeout: 300_000,
+}, async () => {
+  const dir = await uncassettedTask();
+  // A verifier that always fails: the live run and its replay agree, and both fail.
+  await writeFile(
+    join(dir, 'verify', 'read-only.hidden.test.ts'),
+    "import { test } from 'node:test';\ntest('always fails', () => { throw new Error('planted failure'); });\n"
+  );
+  const standIn = await startProviderBoundary({
+    cassette: await readTaskCassette(await loadEvalTask(TASK)),
+    substitutions: [],
+  });
+  try {
+    await expect(
+      recordEvalCassette({
+        env: { ['BRAINSTRIKE_OPENAI_API_KEY']: OFFLINE_KEY },
+        model: 'openai::gpt-6-luna',
+        taskDir: dir,
+        upstreams: standIn.env,
+      })
+    ).rejects.toThrow(/Only a passing run is recorded; not saved/u);
+  } finally {
+    await standIn.close();
+  }
+  await expect(readFile(join(dir, 'cassette.json'), 'utf8')).rejects.toThrow(/ENOENT/u);
+  expect(JSON.parse(await readFile(join(dir, 'task.json'), 'utf8'))).not.toHaveProperty('cassette');
 });
 
 test('never records in CI or without the provider key in the shell', async () => {

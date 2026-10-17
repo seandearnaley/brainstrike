@@ -31,6 +31,7 @@ describe('readRunFromLog', () => {
       metrics: {
         approvals: 1,
         inputTokens: 2,
+        maxStepCallsByTool: { write_file: 1 },
         outputTokens: 2,
         steps: 2,
         toolCalls: { write_file: 1 },
@@ -123,6 +124,42 @@ describe('scoreEvalAttempt', () => {
   ])('fails %s, with its reason', (_name, attempt, reason) => {
     expect(scoreEvalAttempt(attempt).pass).toBe(false);
     expect(reasonOf(attempt)).toMatch(reason);
+  });
+
+  test('an expect block holds the run to parallel calls of the named tool', () => {
+    const run = (maxStepCallsByTool: Record<string, number>) => ({
+      metrics: {
+        approvals: 0,
+        inputTokens: 1,
+        maxStepCallsByTool,
+        outputTokens: 1,
+        steps: 2,
+        toolCalls: {},
+        wallMs: 1,
+      },
+      verdict: completed.run!.verdict,
+    });
+    const expecting = {
+      expect: { parallelCalls: { atLeast: 2, toolId: 'brainstrike_readWorkspaceFile' } },
+    };
+    expect(
+      scoreEvalAttempt({
+        ...completed,
+        ...expecting,
+        run: run({ brainstrike_readWorkspaceFile: 2 }),
+      })
+    ).toEqual({ pass: true });
+    // Two calls in one step, but of different tools, then the reads one at a time.
+    expect(
+      reasonOf({
+        ...completed,
+        ...expecting,
+        run: run({ brainstrike_readWorkspaceFile: 1, updateWorkingMemory: 1 }),
+      })
+    ).toMatch(
+      /at least 2 brainstrike_readWorkspaceFile calls in one step; the run made at most 1/u
+    );
+    expect(reasonOf({ ...completed, ...expecting })).toMatch(/reported no metrics/u);
   });
 
   test('a refused provider request outranks the failed run it caused', () => {
