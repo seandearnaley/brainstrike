@@ -59,12 +59,18 @@ jobs:
       - name: Drop unused apt sources
         uses: ./.github/actions/apt-drop-unused-sources
 
+      # build-essential and python3 are node-gyp's toolchain. Since #3754 the
+      # web build graph reaches agent-host and state-store (web -> web-writer),
+      # whose `^build` edges compile @brainstrike/secure-fs-native and
+      # @brainstrike/windows-job-native, so `Build web` needs a C++ toolchain
+      # (run 39032893237 died at `not found: make`). BST-2080 tracks whether
+      # the browser app's graph should compile Node addons at all.
       - name: Install web test system tools
         shell: bash
         run: |
           set -euo pipefail
           apt-get update
-          apt-get install -y --no-install-recommends unzip lsof procps
+          apt-get install -y --no-install-recommends unzip lsof procps build-essential python3
 
       # `jobs.<id>.env` cannot read the `runner` context, so the directory is
       # exported here for every later step (playwright.config.mts reads it).
@@ -93,10 +99,10 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-turbo-
 
       - name: Install dependencies
-        # Exclude both desktop-only native projects: this container has no
-        # C toolchain or sudo, and web regression loads neither native surface.
-        # See the matching note in test.yml's web-e2e job.
-        run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop' --filter '!@brainstrike/secure-fs-native'
+        # Desktop stays out: the web build never reaches it. The native addons
+        # stay IN: `Build web` compiles them (see the system tools step), and
+        # an excluded project would build without its node-gyp dependencies.
+        run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop'
 
       - name: Build web
         run: pnpm run build --filter @brainstrike/web
