@@ -7,7 +7,6 @@ import type {
 import { beforeEach, expect, it, vi } from 'vitest';
 
 const { list } = vi.hoisted(() => ({ list: vi.fn() }));
-vi.mock('../../db-main', () => ({ getDatabase: async () => ({}) }));
 vi.mock('@brainstrike/db', () => ({
   EmbeddingSetsRepository: class {
     listEmbeddingSpaces = list;
@@ -16,7 +15,7 @@ vi.mock('@brainstrike/db', () => ({
 
 import type { ListEmbeddingSetsInput } from '@brainstrike/agent';
 import { runListEmbeddingSpacesWith } from '../../assistant-server/list-embedding-spaces-core';
-import { pgliteRetrievalStore } from '../../assistant-server/retrieval-store-pglite';
+import { pgliteRetrievalStore } from '../fixtures/pglite-retrieval-store';
 import { catalogOnly } from './_c1-a-helpers';
 
 /** The host's listEmbeddingSpaces: the shared core over Main's catalog reads. */
@@ -24,7 +23,13 @@ function runListEmbeddingSpaces(
   input: ListEmbeddingSetsInput,
   nativeIndexSearch: IndexSearchCapability
 ) {
-  return runListEmbeddingSpacesWith(input, nativeIndexSearch, catalogOnly(pgliteRetrievalStore()));
+  // The mocked repository lists spaces without querying.
+  const database = async () => ({ exec: vi.fn(), query: vi.fn() });
+  return runListEmbeddingSpacesWith(
+    input,
+    nativeIndexSearch,
+    catalogOnly(pgliteRetrievalStore(database))
+  );
 }
 
 const setId = '3a1a8c0b-01ee-4d13-9936-d8cc24edbd18';

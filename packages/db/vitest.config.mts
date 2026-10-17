@@ -77,6 +77,10 @@ const unitAliases: Record<string, string> = {
     __dirname,
     '../assistant-contract/src/mastra-memory-schema.ts'
   ),
+  '@brainstrike/assistant-contract/mcp-task-store': path.resolve(
+    __dirname,
+    '../assistant-contract/src/mcp-task-store.ts'
+  ),
   '@brainstrike/assistant-contract/run-events': path.resolve(
     __dirname,
     '../assistant-contract/src/run-events.ts'

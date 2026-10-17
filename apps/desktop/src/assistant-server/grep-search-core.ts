@@ -5,8 +5,6 @@ import {
   type RuntimeWorkspaceRoot,
 } from '@brainstrike/agent';
 import { isBoundaryRefusal, NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
-import type { GrepMatch, GrepSearchOptions, GrepSearchResult, LineMatcher } from '@brainstrike/db';
-import { createGrepLineMatcher } from '@brainstrike/db';
 import {
   type GrepContentToolResult,
   type GrepFileSummary,
@@ -18,6 +16,12 @@ import {
   parseGrepToolResult,
 } from '@brainstrike/host-capabilities/grep-search-result-contract';
 import { createLogger } from '@brainstrike/logging';
+import { createGrepLineMatcher, type LineMatcher } from '@brainstrike/utils/grep-line-matcher';
+import type {
+  GrepMatch,
+  GrepSearchOptions,
+  GrepSearchResult,
+} from '@brainstrike/utils/grep-search';
 import { resolveGrepFilePaths } from './grep-file-paths';
 import { resolveZeroMatchProbeNote, type ZeroMatchProbeCount } from './grep-zero-match-probes';
 import { type LiveGrepResult, probeExcludedPathMatches, runLiveGrep } from './live-grep';

@@ -30,7 +30,7 @@ import {
   parseMcpElicitationSettlement,
   readMcpTaskToolInvocationResult,
 } from '@brainstrike/assistant-contract';
-import { type McpTaskStorage, McpTaskStore } from '@brainstrike/db';
+import { type McpTaskStorage, McpTaskStore } from '@brainstrike/assistant-contract/mcp-task-store';
 import {
   type ComposedAgentHostAdapterServices,
   createAgentHostAdapterServicesFactory,

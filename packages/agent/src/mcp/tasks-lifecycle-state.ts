@@ -1,4 +1,7 @@
-import type { McpTaskRecord, UpdateMcpTaskInput } from '@brainstrike/db';
+import type {
+  McpTaskRecord,
+  UpdateMcpTaskInput,
+} from '@brainstrike/assistant-contract/mcp-task-store';
 import type { CreateTaskResult, GetTaskResult, TaskStatus } from '@brainstrike/mcp-tasks-extension';
 
 export const TERMINAL_TASK_STATUSES: ReadonlySet<TaskStatus> = new Set([

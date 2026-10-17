@@ -108,10 +108,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   };
 });
 
-vi.mock('../../db-main', () => ({
-  getDatabase: getDatabaseMock,
-}));
-
 vi.mock('../../secrets', () => ({
   getSecretsService: () => ({
     getKey: getKeyMock,
@@ -124,7 +120,7 @@ import type {
 } from '@brainstrike/indexing-contract/indexer-client';
 import { runHybridSearchWith } from '../../assistant-server/hybrid-search-core';
 import type { RetrievalToolDependencies } from '../../assistant-server/retrieval-core';
-import { pgliteRetrievalStore } from '../../assistant-server/retrieval-store-pglite';
+import { pgliteRetrievalStore } from '../fixtures/pglite-retrieval-store';
 import {
   catalogOnly,
   nativeCounts,
@@ -151,7 +147,12 @@ function hostHybrid(
   runtimeData: RuntimeData | undefined,
   dependencies: RetrievalToolDependencies
 ) {
-  return runHybridSearchWith(input, runtimeData, dependencies, catalogOnly(pgliteRetrievalStore()));
+  return runHybridSearchWith(
+    input,
+    runtimeData,
+    dependencies,
+    catalogOnly(pgliteRetrievalStore(getDatabaseMock))
+  );
 }
 
 function nativeChunk(id: string, content: string, score: number): IndexerSearchHit {

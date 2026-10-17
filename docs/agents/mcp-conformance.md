@@ -59,7 +59,8 @@ Owner: [official client](../../apps/desktop/src/mcp/official-conformance-client.
 
 ## Cleanup and process ownership
 
-Every path closes its runtime, listener, sockets, OAuth state and subprocesses.
+Every path closes its runtime, listener, sockets, OAuth state, its temporary MCP
+Tasks StateStore and subprocesses.
 Timeouts, failed starts/exits and cleanup failures retain their original errors.
 The runner reserves cleanup inside its existing deadline and emits no success
 without settlement. Windows descendants share the kill-on-close Job Object;

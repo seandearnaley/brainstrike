@@ -25,8 +25,6 @@ const broadEntries = [
   'src/context-packer.ts',
   'src/memory-settings.ts',
   'src/run-events.ts',
-  'src/pglite-mastra-memory/index.ts',
-  'src/pglite-mastra-memory/schema.ts',
 ];
 const sharedExternal = [
   agentMcpClientExternal,
@@ -43,7 +41,6 @@ const sharedExternal = [
   // import discipline alone.
   '@aws-sdk/credential-providers',
   '@brainstrike/types',
-  '@electric-sql/pglite',
   '@mastra/core',
   '@mastra/memory',
 ];

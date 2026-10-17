@@ -9,9 +9,9 @@ import { Schema } from 'effect';
 
 import { SecretReadError } from '@brainstrike/agent-host/credential-contract';
 import { ToolInputError } from '@brainstrike/assistant-contract';
-import type { GrepSearchOptions, GrepSearchResult } from '@brainstrike/db';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { GitResult } from '@brainstrike/types';
+import type { GrepSearchOptions, GrepSearchResult } from '@brainstrike/utils/grep-search';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import type { BrowserToolRunner } from '../assistant-server/native-tool-executors-browser';
 import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';

@@ -62,12 +62,6 @@ export function createActivation(
     }),
   });
 }
-
-vi.mock('../db-main', () => ({
-  getDatabase: async () => {
-    throw new Error('Retired PG owner is unavailable.');
-  },
-}));
 vi.mock('../desktop-database-location', () => ({
   resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
 }));

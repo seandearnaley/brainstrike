@@ -59,13 +59,6 @@
     "src/__tests__/tool-search-runtime.spec.ts",
     "src/__tests__/usage-metering.spec.ts",
     "src/__tests__/with-tool-call-input-timeout.spec.ts",
-    "src/__tests__/workspace-root-manifest.spec.ts",
-    "src/pglite-mastra-memory/__tests__/memory-query-helpers.spec.ts",
-    "src/pglite-mastra-memory/__tests__/memory-row-mapping.spec.ts",
-    "src/pglite-mastra-memory/__tests__/pglite-memory-store.integration.spec.ts",
-    "src/pglite-mastra-memory/__tests__/pglite-vector-store-hnsw-build-memory.spec.ts",
-    "src/pglite-mastra-memory/__tests__/pglite-vector-store-hnsw.integration.spec.ts",
-    "src/pglite-mastra-memory/__tests__/pglite-vector-store.integration.spec.ts",
-    "src/pglite-mastra-memory/__tests__/transcript-projection.spec.ts"
+    "src/__tests__/workspace-root-manifest.spec.ts"
   ]
 }

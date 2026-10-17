@@ -1,6 +1,7 @@
 # ADR-0024: Effect adoption keeps explicit resource and protocol owners
 
-- **Status:** Accepted for the completed adoption; future replacements remain deferred
+- **Status:** Accepted for the completed adoption; future replacements remain deferred.
+  Amended 2026-10-17 (BST-2068): the maintenance trigger owner was deleted.
 - **Date:** 2026-10-17
 - **Ticket:** BST-2052
 - **Follows:** [ADR-0004](0004-effect-at-runtime-boundaries.md), [ADR-0017](0017-cli-first-agent-host.md), [ADR-0023](0023-host-owns-its-tool-representation.md)
@@ -12,8 +13,7 @@ Effect Schema owns the migrated native-tool, shared host/MCP and non-preload des
 boundaries. Typed expected failures, named lifecycle spans and owned deadlines use
 stable Effect APIs at existing seams. Retain explicit physical joins, durable writers
 and Promise-facing APIs where they serve their callers. The current native-index
-executor stays constructor-injected; the existing maintenance trigger pair keeps its
-Context.Service/Layer acquisition. SQLite keeps its simpler correlation/process owner.
+executor stays constructor-injected. SQLite keeps its simpler correlation/process owner.
 A repository-wide service graph, ManagedRuntime or RPC engine replacement is deferred.
 
 Completeness means every wave's accepted behavior is demonstrated and every residual
@@ -22,8 +22,10 @@ boundary or unrelated web owner to make an import counter zero.
 
 ## One real service comparison
 
-The owning implementations are `native-index-lifecycle-owner.ts` and
-`desktop-maintenance-trigger-graph.ts` in desktop source.
+The compared implementations were `native-index-lifecycle-owner.ts` and
+`desktop-maintenance-trigger-graph.ts` in desktop source. The second no longer exists
+(see the amendment), so its column is evidence for when a paired Layer earns its place,
+not a live owner.
 
 | Concern | Native executor constructor | Maintenance Context.Service/Layer |
 | --- | --- | --- |
@@ -32,9 +34,9 @@ The owning implementations are `native-index-lifecycle-owner.ts` and
 | Acquisition rollback | The lifecycle calls the already-owned physical executor; it acquires no second resource graph | Layer build joins rollback of both subscription/timer groups on partial failure |
 | Shutdown | Reducer, permit, immediate fence and physical retirement retain their explicit order | The existing group Scope joins both trigger releases; the pre-build fence also handles synchronous reentrancy |
 
-Keep both. A service wrapper around the single executor adds context plumbing without
-removing its permit, reducer or physical owner. The paired trigger Layer already solves
-a real rollback problem. Any broader graph must first demonstrate simpler acquisition
+Keep the executor. A service wrapper around the single executor adds context plumbing
+without removing its permit, reducer or physical owner. The paired trigger Layer solved
+a real rollback problem while its PGlite maintenance timers existed. Any broader graph must first demonstrate simpler acquisition
 and the existing reset/shutdown order with fakes and actual resource joins; its runtime
 belongs at effect-kit's sanctioned seam and requires an owner decision before production.
 
@@ -92,6 +94,13 @@ exceptions was added, and this decision does not authorize that implementation.
 The accepted host-tool representation work in ADR-0023 remains separate from this
 adoption. Its future producer-type change can simplify current Mastra seams under its
 own acceptance; existing SDK adapters are retained until their consumers actually move.
+
+## Amendment · 2026-10-17 (BST-2068)
+
+#3595 unwired desktop PGlite, and BST-2068 deleted `desktop-maintenance-trigger-graph.ts`
+with the PGlite maintenance schedulers it acquired. Desktop source therefore holds no
+production Context.Service/Layer acquisition. The native-index executor decision and the
+RPC recommendation are unchanged.
 
 ## Continuation
 

@@ -1,9 +1,8 @@
 /**
  * Multi-root assistant tools — REAL end-to-end integration.
  *
- * Unlike the per-tool unit specs (which mock the DB query layer), this harness
- * drives the actual tool execute() functions against a REAL PGlite database and
- * REAL on-disk workspace roots, simulating the assistant calling its tools in a
+ * Unlike the per-tool unit specs, this harness drives the actual tool execute()
+ * functions against REAL on-disk workspace roots, simulating the assistant calling its tools in a
  * two-root workspace where both roots share a relative path (README.md). It is
  * the "put the tools through their paces" pass for the multi-root work.
  */
@@ -12,15 +11,7 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
-import { FileChunkRepository, migrate, wasmLoader } from '@brainstrike/db';
-import type { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const { dbHolder } = vi.hoisted(() => ({ dbHolder: { db: null as unknown } }));
-
-vi.mock('../../db-main', () => ({
-  getDatabase: vi.fn(async () => dbHolder.db),
-}));
 
 vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
@@ -35,18 +26,6 @@ import { requireToolExecute } from './_tool-test-helpers';
 
 const ROOT_A = { displayName: 'ProjectA', rootId: 'root-a' };
 const ROOT_B = { displayName: 'ProjectB', rootId: 'root-b' };
-const EMBED_DIM = 768;
-
-function makeVector(entries: [number, number][]): number[] {
-  const v = new Array(EMBED_DIM).fill(0);
-  for (const [idx, val] of entries) {
-    v[idx] = val;
-  }
-  return v;
-}
-const QUERY_VECTOR = makeVector([[0, 1]]);
-
-let db: PGlite;
 let rootAPath: string;
 let rootBPath: string;
 
@@ -64,8 +43,7 @@ function twoRootRuntime(): RuntimeData {
 
 /**
  * The host's grep: the live ripgrep pass over both roots plus Main's native
- * grep index (`nativeGrepIndex`) serving the same indexed README chunks the
- * PGlite fixture below seeds for the legacy retrieval cases.
+ * grep index (`nativeGrepIndex`) serving the indexed README chunks.
  */
 function hostGrepTools() {
   // The native index authorizes the runtime's workspace-index collection and both roots.
@@ -93,7 +71,7 @@ function hostGrepTools() {
   });
 }
 
-describe('multi-root assistant tools (real PGlite + real roots)', () => {
+describe('multi-root assistant tools (real roots)', () => {
   beforeEach(() => {
     resetToolCallLoopGuards();
   });
@@ -112,118 +90,9 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
       '# Project B\nexport function fromB() { return 2; }\nconst sharedMarker = "beta";\n',
       'utf8'
     );
-
-    // 2. Real PGlite with the full extension set + migrations.
-    db = await wasmLoader.createPGlite('memory://multiroot-tools-integration');
-    await migrate(db);
-    dbHolder.db = db;
-
-    const now = new Date().toISOString();
-    await db.query(
-      `INSERT INTO roots (id, kind, display_name, path, status, created_at)
-       VALUES ($1, 'path', $2, $3, 'live', $4), ($5, 'path', $6, $7, 'live', $8)`,
-      [
-        ROOT_A.rootId,
-        ROOT_A.displayName,
-        rootAPath,
-        now,
-        ROOT_B.rootId,
-        ROOT_B.displayName,
-        rootBPath,
-        now,
-      ]
-    );
-    await db.query(
-      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
-       VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)`,
-      ['set-1', 'local::test-embed', 'test-embed', 768, 'cosine']
-    );
-    // Same relative path 'README.md' in BOTH roots (the disambiguation case),
-    // plus a root-unique file in each.
-    await db.query(
-      `INSERT INTO file_records (id, name, path, root_id, embedding_set_id, size, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8), ($9,$10,$11,$12,$13,$14,$15,$16),
-              ($17,$18,$19,$20,$21,$22,$23,$24), ($25,$26,$27,$28,$29,$30,$31,$32)`,
-      [
-        'fr-a-readme',
-        'README.md',
-        'README.md',
-        ROOT_A.rootId,
-        'set-1',
-        100,
-        now,
-        now,
-        'fr-b-readme',
-        'README.md',
-        'README.md',
-        ROOT_B.rootId,
-        'set-1',
-        100,
-        now,
-        now,
-        'fr-a-only',
-        'only-a.ts',
-        'src/only-a.ts',
-        ROOT_A.rootId,
-        'set-1',
-        50,
-        now,
-        now,
-        'fr-b-only',
-        'only-b.ts',
-        'src/only-b.ts',
-        ROOT_B.rootId,
-        'set-1',
-        50,
-        now,
-        now,
-      ]
-    );
-
-    const repo = new FileChunkRepository(db);
-    const baseChunk = {
-      chunkSize: 50,
-      chunkType: 'code' as const,
-      createdAt: now,
-      embeddingSetId: 'set-1',
-      tokenCount: 10,
-      updatedAt: now,
-    };
-    // Embeddings + full source ranges so the SAME chunks serve both grep
-    // (content) and queryEmbeddingSpace (vector + line/offset ranges; the
-    // retrieval path skips chunks missing startOffset/endOffset).
-    await repo.insertMany([
-      {
-        ...baseChunk,
-        chunkIndex: 0,
-        content: 'const sharedMarker = "alpha";',
-        contentHash: 'h1',
-        embedding: QUERY_VECTOR,
-        endLine: 3,
-        endOffset: 89,
-        fileRecordId: 'fr-a-readme',
-        id: 'c-a-readme',
-        startLine: 3,
-        startOffset: 60,
-      },
-      {
-        ...baseChunk,
-        chunkIndex: 0,
-        content: 'const sharedMarker = "beta";',
-        contentHash: 'h2',
-        embedding: QUERY_VECTOR,
-        endLine: 3,
-        endOffset: 88,
-        fileRecordId: 'fr-b-readme',
-        id: 'c-b-readme',
-        startLine: 3,
-        startOffset: 60,
-      },
-    ]);
   }, 60_000);
 
   afterAll(async () => {
-    await db.close();
     await fsPromises.rm(rootAPath, { force: true, recursive: true });
     await fsPromises.rm(rootBPath, { force: true, recursive: true });
   });

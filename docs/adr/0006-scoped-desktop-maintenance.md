@@ -1,6 +1,7 @@
 # ADR-0006: Scope desktop maintenance triggers with Effect
 
-- **Status:** Accepted by owner for implementation (2026-09-25)
+- **Status:** Retired 2026-10-17 (BST-2068). Desktop PGlite and the maintenance triggers
+  this decision scoped were deleted; it governs no current code.
 - **Ticket:** BST-1824
 - **Amends:** ADR-0005 for the isolated maintenance subsystem only.
 

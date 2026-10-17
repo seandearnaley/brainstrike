@@ -164,7 +164,6 @@ function isFunctionLike(node) {
  *
  * - `direct`: `import { MASTRA_VECTOR_TABLE as T }` → local name -> constant.
  *   Matched on the IMPORTED name, never the module specifier, so a re-export hop
- *   (`packages/agent/src/pglite-mastra-memory/sql.ts` re-exports the whole set)
  *   is covered without teaching this guard every alias path.
  * - `namespaces`: `import * as schema` / `import schema from`. There is no
  *   imported name to match, so these are matched at the USE site instead — a
@@ -220,10 +219,9 @@ function collectGuardedLocalNames(sourceFile, guarded) {
  *
  * Tests for the GUARDED NAMES themselves, never a `'mastra'` substring. The
  * substring version silently skipped real violations twice over: it was
- * case-sensitive while every guarded name is upper-case (so
- * `packages/agent/src/pglite-mastra-memory/schema.ts`, which re-exports four of
- * them and contains no lower-case `mastra` at all, was never parsed — the
- * directory name is in the PATH, not the text), and three guarded constants
+ * case-sensitive while every guarded name is upper-case (so a module that
+ * re-exported four of them and contained no lower-case `mastra` at all was
+ * never parsed — the directory name was in the PATH, not the text), and three guarded constants
  * (`DEFAULT_THREAD_TITLE`, `THREAD_TITLE_SOURCE_*`) contain no `mastra` in any
  * case. Matching the names is both exact and cheaper than a parse.
  *

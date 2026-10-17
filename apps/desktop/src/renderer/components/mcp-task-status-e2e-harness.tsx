@@ -15,8 +15,8 @@ import type {
   McpTaskPresentation,
   McpTaskPresentationControllerPort,
 } from '@brainstrike/assistant-contract/mcp-task-presentation';
+import type { McpTaskAuthorityLease } from '@brainstrike/assistant-contract/mcp-task-store';
 import { McpTaskStatusCard } from '@brainstrike/assistant-ui/mcp-task-status-card';
-import type { McpTaskAuthorityLease } from '@brainstrike/db';
 import { McpTaskRepository, MigrationRunner, migrations, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import type { JSONObject } from '@modelcontextprotocol/client';

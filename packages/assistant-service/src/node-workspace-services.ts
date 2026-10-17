@@ -234,16 +234,11 @@ class NodeWorkspaceBorrower<TDatabase> implements NodeWorkspaceServices<TDatabas
   }
 }
 
-export * from './node-workspace/database-corruption-classifier.js';
 export * from './node-workspace/database-location.js';
-export { DatabaseCloseError, isWasmAbortError } from './node-workspace/database-owner-errors.js';
-export * from './node-workspace/db-clean-shutdown-marker.js';
 export * from './node-workspace/db-runtime-env.js';
 export * from './node-workspace/existing-profile-services.js';
 export * from './node-workspace/file-not-found-error.js';
 export { createNodeFsScanDeps } from './node-workspace/node-fs-scan-deps.js';
-export * from './node-workspace/pg-data-version.js';
-export * from './node-workspace/profile-database-owner.js';
 export * from './node-workspace/read-denial-diagnostic.js';
 export * from './node-workspace/user-personas-loader.js';
 export * from './node-workspace/user-slash-commands-loader.js';
@@ -258,4 +253,3 @@ export * from './node-workspace/workspace-root-source-lease.js';
 export * from './node-workspace/workspace-root-store.js';
 export * from './node-workspace/workspace-root-types.js';
 export * from './node-workspace/workspace-roots.js';
-export * from './node-workspace/write-file-atomically.js';

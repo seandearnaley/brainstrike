@@ -68,8 +68,12 @@ import {
   parseMcpTaskActionRequest,
 } from '@brainstrike/assistant-contract';
 import type { ResolvedMcpServer } from '@brainstrike/assistant-contract/mcp-config';
-import type { McpTaskAuthorityLease, McpTaskRecord, McpTaskStorage } from '@brainstrike/db';
-import { McpTaskStore } from '@brainstrike/db';
+import type {
+  McpTaskAuthorityLease,
+  McpTaskRecord,
+  McpTaskStorage,
+} from '@brainstrike/assistant-contract/mcp-task-store';
+import { McpTaskStore } from '@brainstrike/assistant-contract/mcp-task-store';
 import { createLogger } from '@brainstrike/logging';
 import type { JSONObject } from '@modelcontextprotocol/client';
 import type {

@@ -160,7 +160,7 @@ only reader.
 
 ## Remaining PGlite consumers
 
-Web and explicit test/conformance paths retain PGlite. Each construction loads the
+Web and explicit test paths retain PGlite. Each construction loads the
 shared qualified engine extensions, with live-query support only where required.
 Keep the engine family compatible through its existing package catalog and
 compatibility check; a partial version change must not bypass that check.

@@ -134,6 +134,14 @@
       "types": "./dist/window-focus-bridge.d.ts",
       "default": "./dist/window-focus-bridge.js"
     },
+    "./grep-pattern": {
+      "types": "./dist/grep-pattern.d.ts",
+      "default": "./dist/grep-pattern.js"
+    },
+    "./grep-search": {
+      "types": "./dist/grep-search.d.ts",
+      "default": "./dist/grep-search.js"
+    },
     "./grep-line-matcher": {
       "types": "./dist/grep-line-matcher.d.ts",
       "default": "./dist/grep-line-matcher.js"

@@ -2,12 +2,9 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { captureProcessSignalHandlers } from '../helpers/process-signal-capture';
 import {
   applicationDomainCapture,
-  closeDatabaseMock,
   createLoggerMock,
-  getDatabaseMock,
   installMainBootFixture,
   isDesktopShuttingDownMock,
-  maintenanceStartMock,
   mockApp,
   mockBrowserWindowInstance,
   nativeAcquire,
@@ -16,8 +13,6 @@ import {
   nativeCloseForShutdown,
   nativePrepareForPause,
   nativeReconfigureForReset,
-  probeMock,
-  recoverInterruptedMaintenanceMock,
   requireMainLogger,
   shutdownPlanCapture,
 } from './boot-order-fixture';
@@ -27,7 +22,6 @@ describe('main boot order', () => {
   it.each([false, true])(
     'starts and retains hidden disposal beside native close with independent failure=%s',
     async (fail) => {
-      getDatabaseMock.mockResolvedValue({});
       const native = Promise.withResolvers<void>();
       const physical = Promise.withResolvers<void>();
       nativeCloseForShutdown.mockReturnValue(native.promise);
@@ -80,7 +74,6 @@ describe('main boot order', () => {
   );
 
   it('joins an accepted reset before quit while an earlier native transition is held', async () => {
-    getDatabaseMock.mockResolvedValue({});
     const held = Promise.withResolvers<void>();
     const entered = Promise.withResolvers<void>();
     nativeReconfigureForReset.current = () => {
@@ -141,7 +134,6 @@ describe('main boot order', () => {
   it.each(['completed', 'replacement-failed', 'resume-failed', 'quit'] as const)(
     'defers a reset renderer native-settings notification through replacement and reopen: %s',
     async (outcome) => {
-      getDatabaseMock.mockResolvedValue({});
       const notified = Promise.withResolvers<void>();
       const replacement = Promise.withResolvers<void>();
       const resuming = Promise.withResolvers<void>();
@@ -258,7 +250,6 @@ describe('main boot order', () => {
   it.each(['none', 'typed', 'independent'] as const)(
     'prepares saved settings synchronously outside reset and preserves failure=%s',
     async (kind) => {
-      getDatabaseMock.mockResolvedValue({});
       const { NativeAuthorityTransitionError } = await import('../../native-authority-transition');
       const failure =
         kind === 'typed'
@@ -299,10 +290,6 @@ describe('main boot order', () => {
     expect(mockBrowserWindowInstance.show).not.toHaveBeenCalled();
     reader.resolve();
     await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalledOnce());
-    expect(getDatabaseMock).not.toHaveBeenCalled();
-    expect(probeMock).not.toHaveBeenCalled();
-    expect(maintenanceStartMock).not.toHaveBeenCalled();
-    expect(recoverInterruptedMaintenanceMock).not.toHaveBeenCalled();
   });
 
   it('shows the failure-capable shell when native reader startup fails', async () => {
@@ -316,7 +303,6 @@ describe('main boot order', () => {
           details?.error === failure
       )
     ).toBe(true);
-    expect(getDatabaseMock).not.toHaveBeenCalled();
   });
 
   it('keeps owned native startup retirement informational during terminal shutdown', async () => {
@@ -375,8 +361,6 @@ describe('main boot order', () => {
           details?.error === failure
       )
     ).toBe(true);
-    expect(getDatabaseMock).not.toHaveBeenCalled();
-    expect(maintenanceStartMock).not.toHaveBeenCalled();
   });
 
   it('reports one shared acquisition failure once across writer and reader startup', async () => {
@@ -419,7 +403,6 @@ describe('main boot order', () => {
     reader.resolve();
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(mockBrowserWindowInstance.show).not.toHaveBeenCalled();
-    expect(maintenanceStartMock).not.toHaveBeenCalled();
   });
 
   it('joins native retirement before acknowledging the native shutdown step', async () => {
@@ -441,11 +424,9 @@ describe('main boot order', () => {
     held.resolve();
     await step;
     expect(settled).toBe(true);
-    expect(closeDatabaseMock).not.toHaveBeenCalled();
   });
 
   it('joins the actual application IPC resource from its filesystem shutdown step', async () => {
-    getDatabaseMock.mockResolvedValue({});
     await import('../../main');
     const planRun = shutdownPlanCapture.current;
     const close = applicationDomainCapture.close;
@@ -479,7 +460,6 @@ describe('main boot order', () => {
     const failure = new Error('Native physical close failed');
     nativeCloseForShutdown.mockRejectedValueOnce(failure);
     await expect(plan.closeDatabase()).rejects.toBe(failure);
-    expect(closeDatabaseMock).not.toHaveBeenCalled();
   });
 
   it('retains undefined IPC cleanup failure while reserved native retirement remains available', async () => {
@@ -503,15 +483,12 @@ describe('main boot order', () => {
     }
     nativeCloseForShutdown.mockRejectedValueOnce(undefined);
     await expect(plan.closeDatabase()).rejects.toBeUndefined();
-    expect(getDatabaseMock).not.toHaveBeenCalled();
-    expect(closeDatabaseMock).not.toHaveBeenCalled();
   });
 
   describe('shutdown signal registration', () => {
     let capture: ReturnType<typeof captureProcessSignalHandlers>;
 
     beforeEach(() => {
-      getDatabaseMock.mockResolvedValue({});
       capture = captureProcessSignalHandlers();
     });
 

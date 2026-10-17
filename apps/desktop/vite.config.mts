@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url';
 import {
   buildIdPlugin,
   createCspQualifiedEvalWarningFilter,
-  findPGliteWasm,
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
   getCoreAppOptimizeDepsInclude,
@@ -56,7 +55,6 @@ const require = createRequire(import.meta.url);
 const pinoBrowserPath = require.resolve('pino/browser.js');
 const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);
 
-const wasmPath = findPGliteWasm(__dirname);
 const desktopPackage: { readonly version?: string } = require('./package.json');
 
 // React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles.
@@ -185,8 +183,6 @@ export default defineConfig({
     tailwindcss(),
     viteStaticCopy({
       targets: [
-        // PGlite WASM (existing).
-        ...(wasmPath ? [{ dest: 'assets', src: wasmPath }] : []),
         // Tree-sitter grammar files (Phase 4 of #998). Vendored under
         // packages/chunking-worker/grammars/, copied to dist/renderer/
         // assets/grammars/. The chunking worker fetches them at runtime

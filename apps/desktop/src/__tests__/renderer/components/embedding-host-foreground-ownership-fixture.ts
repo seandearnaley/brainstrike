@@ -7,8 +7,6 @@ const {
   readModelCatalogMock,
   reopenEmbeddingQueueMock,
   queryEmbeddingCancelListenerRef,
-  currentDbRef,
-  dbHandle,
   embeddingCacheRepository,
   embeddingQueueBootstrapMock,
   getEmbeddingQueueMock,
@@ -31,10 +29,6 @@ const {
     current: null as null | ((command: unknown) => void),
   },
   createEmbeddingCacheRepositoryMock: vi.fn(),
-  currentDbRef: {
-    current: null as null | { query: ReturnType<typeof vi.fn> },
-  },
-  dbHandle: { query: vi.fn() },
   detectDeviceCapabilitiesMock: vi.fn(),
   embeddingCacheRepository: {
     get: vi.fn(),
@@ -167,12 +161,6 @@ vi.mock('../../../renderer/create-embedding-queue', () => ({
   })(),
 }));
 
-vi.mock('../../../renderer/components/embedding-worker-config', () => ({
-  createEmbeddingWorkerConfig: () => ({
-    db: dbHandle,
-  }),
-}));
-
 export function installEmbeddingHostRuntimeFixture(): void {
   beforeEach(() => {
     hostWindow.removeAllListeners();
@@ -192,7 +180,6 @@ export function installEmbeddingHostRuntimeFixture(): void {
     reportStatusMock.mockReset();
     stopMock.mockResolvedValue(undefined);
     resetEmbeddingTelemetryForTests();
-    currentDbRef.current = dbHandle;
     storeState.hasHydrated = false;
     storeState.devicePref = 'webgpu';
     storeState.devicePrefConfigured = true;
@@ -261,8 +248,6 @@ export {
   commandListenerRef,
   createEmbeddingCacheRepositoryMock,
   createHostWindowMock,
-  currentDbRef,
-  dbHandle,
   detectDeviceCapabilitiesMock,
   embeddingCacheRepository,
   embeddingQueueBootstrapMock,
