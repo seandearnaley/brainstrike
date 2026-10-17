@@ -163,7 +163,11 @@ export interface IndexerCoverage {
   readonly roots: readonly (IndexerCoverageCounts & { readonly rootId: string })[];
   readonly storeId: string;
   readonly totals: IndexerCoverageCounts;
-  /** Complete vector coverage of nonempty indexed rows; does not establish complete root scans. */
+  /**
+   * Every chunk of the requested scopes has its vector; does not establish complete root
+   * scans. A scope with no chunks counts only with its complete-scan receipt, since alone
+   * it cannot be told from a scope never scanned.
+   */
   readonly vectorCoverageComplete: boolean;
 }
 export type IndexerSearchRequest = {

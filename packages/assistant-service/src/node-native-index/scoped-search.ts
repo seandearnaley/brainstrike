@@ -242,10 +242,29 @@ function assertCoverageBatch(
     }
   }
 }
+/**
+ * A scope's vectors are complete when every chunk has its vector. The indexer
+ * also requires a chunk, since alone it cannot tell an empty scope from one never
+ * scanned; a scope whose complete-scan receipt this same observation holds and
+ * that has no chunks has nothing to embed (BST-2053).
+ */
+function scopeVectorsComplete(
+  result: ScopedCoverage,
+  readiness: readonly NativeScopeReadiness[]
+): boolean {
+  return (
+    result.vectorCoverageComplete ||
+    (result.profile !== null &&
+      result.counts.chunks === 0 &&
+      result.counts.vectors === 0 &&
+      completeSourceScopes([result.scope], readiness))
+  );
+}
 function projectCoverage(
   coverage: readonly ScopedCoverage[],
   storeId: string,
-  embedding: IndexerEmbeddingState
+  embedding: IndexerEmbeddingState,
+  readiness: readonly NativeScopeReadiness[]
 ): IndexerCoverage {
   const totals = { chunks: 0, indexedFiles: 0, missingVectors: 0, vectors: 0 };
   for (const result of coverage) {
@@ -265,7 +284,7 @@ function projectCoverage(
     ),
     storeId,
     totals,
-    vectorCoverageComplete: coverage.every((result) => result.vectorCoverageComplete),
+    vectorCoverageComplete: coverage.every((result) => scopeVectorsComplete(result, readiness)),
   };
 }
 function projectSourceObservation(authority: NativeSearchAuthority): IndexerSourceObservation {
@@ -458,7 +477,8 @@ export function createNativeScopedSearchCapability(
             const result = projectCoverage(
               coverage.slice(offset, offset + group.length),
               snapshot.storeId,
-              snapshot.embedding
+              snapshot.embedding,
+              observed.readiness
             );
             offset += group.length;
             return result;

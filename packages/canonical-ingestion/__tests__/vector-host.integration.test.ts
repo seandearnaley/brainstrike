@@ -322,3 +322,130 @@ it.each([
     }
   }
 );
+
+it.each([
+  { content: null, name: 'no files' },
+  { content: '', name: 'only a file with no chunks' },
+] as const)(
+  'completes a VECTOR scan of a scope with $name through the public native scoped writer',
+  async ({ content }) => {
+    // A new project folder, or one whose only files are empty: nothing to embed (BST-2053).
+    const scope: CanonicalSourceScope = { kind: 'workspace', rootId: 'empty-root' };
+    const file: CanonicalSourceFile = {
+      embeddingSetId: 'managed-set',
+      fileId: 'empty-file',
+      fileName: '__init__.py',
+      relativePath: '__init__.py',
+      rootId: 'empty-root',
+      sourcePath: '/retained/__init__.py',
+      stat: { mtimeMs: 123, size: 0 },
+    };
+    const files = content === null ? [] : [file];
+    const { fileName: _name, stat: _stat, ...identity } = file;
+    const bindings = files.map(() => ({ ...identity, profile }));
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-canonical-empty-'));
+    const port: IndexerPort & ScopedIndexerPort = await openIndexer(
+      {
+        dbPath: path.join(directory, 'index.sqlite'),
+        embedding: { indexMode: 'text-only' },
+        fileBindings: bindings,
+        rootIds: ['empty-root'],
+        scopes: [{ embeddingSetId: 'managed-set', kind: 'collection' }],
+      },
+      deadlines
+    );
+    const storeId = (await port.info()).storeId;
+    const publication: CanonicalVectorPublicationPort = {
+      abortScan: vi.fn(async () => {}),
+      beginScan: async (request) => ({ ...request, generation: 1, storeId }),
+      commitTextFile: async () => {
+        throw new Error('A VECTOR scan commits through commitVectorFile.');
+      },
+      commitVectorFile: async ({ plan, embeddings, profile: selected, syntax }) => {
+        await port.commitScopedFile({ embeddings, plan, profile: selected, syntax });
+      },
+      finishScan: async (request) => ({
+        reason: request.aborted ? 'aborted' : request.errors.length ? 'scan-errors' : 'complete',
+        scanComplete: !(request.aborted || request.errors.length) && request.full,
+        ticket: request.ticket,
+      }),
+      prepareVectorFile: async ({ payload, profile: selected }) =>
+        port.prepareScopedFile({
+          profile: selected,
+          snapshot: {
+            ...identity,
+            content: payload.content,
+            providedChunks: payload.providedChunks,
+          },
+        }),
+      removeFile: async ({ file: removed }) => {
+        await port.removeScopedFile({ fileId: removed.fileId, scope });
+      },
+      vectorCoverage: async (request) => port.coverageScope(request),
+      verifyManifest: async ({ files: requested }) => ({
+        changed: [],
+        complete: false,
+        missing: requested,
+        storeId,
+        unexpected: [],
+      }),
+      verifyVectorManifest: async (request) => port.verifyScopedManifest(request),
+    };
+    const catalog: CanonicalCatalogPort<VectorProfile> = {
+      applyManagedCacheBatch: async () => {},
+      completeFiles: vi.fn(async () => {}),
+      loadAuthorizedBatch: async ({ files: requested }) =>
+        requested.map(() => ({
+          ...file,
+          chunksProcessed: true,
+          contentHash: createHash('sha256').update('').digest('hex'),
+        })),
+      prepareManagedSourcesBatch: async () => [],
+      removeFiles: async () => {},
+      resolveProfile: async () => profile,
+    };
+    const inference: CanonicalInferencePort<VectorProfile> = {
+      cancel: vi.fn(async () => {}),
+      generate: vi.fn<CanonicalInferencePort<VectorProfile>['generate']>(async (input) => ({
+        ...input,
+        vectors: [],
+      })),
+      join: vi.fn(async () => {}),
+    };
+    const vectorHost = new CanonicalIngestionHost({
+      catalog,
+      chunker,
+      inference,
+      mode: 'VECTOR',
+      publication,
+      source: {
+        close: async () => {},
+        async *discover() {
+          yield { files, removed: [] };
+          return { errors: [], full: true, truncatedDirectories: [] };
+        },
+        read: async () => ({ content: content ?? '', stat: file.stat }),
+      },
+    });
+    try {
+      const receipt = await vectorHost.scan({
+        batchSize: 64,
+        chunkingOptions: { maxTokens: 64, strategy: 'auto', tokenTrueSizing: true },
+        maxFileBytes: 1_000_000,
+        requestId: 'empty-vector-scan',
+        scope,
+      });
+      expect(receipt.scanComplete).toBe(true);
+      expect(inference.generate).not.toHaveBeenCalled();
+      // The indexer's own readiness flag is unchanged: an empty scope is not vector readiness.
+      expect(await port.coverageScope({ profile, scope })).toMatchObject({
+        counts: { chunks: 0, indexedFiles: files.length, missingVectors: 0, vectors: 0 },
+        vectorCoverageComplete: false,
+      });
+    } finally {
+      await vectorHost.close();
+      await port.close();
+      await rm(directory, { force: true, recursive: true });
+    }
+  }
+);

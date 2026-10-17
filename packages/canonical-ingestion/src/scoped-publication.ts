@@ -2,6 +2,7 @@
 // browser's index worker (BST-1940) publish through the same owner.
 import type {
   IndexerPort,
+  ScopedCoverage,
   ScopedFilePlan,
   ScopedIndexerPort,
   ScopedManifestFile,
@@ -61,6 +62,20 @@ interface ScanState {
     | undefined;
   ticket: CanonicalScanTicket | undefined;
   writeFailed: boolean;
+}
+/**
+ * Every chunk of a scope whose complete manifest was just verified has its
+ * vector. The indexer's `vectorCoverageComplete` also requires a chunk, since on
+ * its own an empty scope cannot be told from one never scanned, and so is not
+ * vector readiness. A verified complete manifest proves the scan, and a scope
+ * whose files have no chunks (none, or only empty ones) has nothing to embed
+ * (BST-2053).
+ */
+export function manifestVectorsComplete(coverage: ScopedCoverage): boolean {
+  return (
+    coverage.vectorCoverageComplete ||
+    (coverage.profile !== null && coverage.counts.chunks === 0 && coverage.counts.vectors === 0)
+  );
 }
 const scopeKey = (scope: CanonicalSourceScope): string =>
   JSON.stringify(
@@ -525,5 +540,5 @@ async function reverifiedCoverage(
   ) {
     throw new Error('Reverified native coverage changed scope, profile or authority.');
   }
-  return coverage.vectorCoverageComplete;
+  return manifestVectorsComplete(coverage);
 }
