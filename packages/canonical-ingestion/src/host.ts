@@ -1,8 +1,10 @@
 import type { CanonicalChunker } from '@brainstrike/chunking-worker/canonical';
 import type { CanonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
 import {
+  type ScopedCoverage,
   type ScopedFilePlan,
   type ScopedManifestFile,
+  type ScopedManifestResult,
   type VectorProfile,
   vectorProfileHash,
 } from '@brainstrike/indexer/browser';
@@ -35,6 +37,13 @@ import {
   prepareDiscoveredSources,
   readCanonicalSource,
 } from './source-preparation.js';
+
+/**
+ * VECTOR completion reads its manifest and coverage separately, and another
+ * root's binding replacement between them moves the writer's authority revision
+ * (BST-2055). This many reads of the pair that all straddled a move fail.
+ */
+const VECTOR_PROOF_READS = 5;
 
 /** An owned, physically settled scan whose source proof is incomplete. */
 export class CanonicalScanIncompleteError extends Error {
@@ -799,16 +808,27 @@ export class CanonicalIngestionHost {
       throw new Error('VECTOR completion is not admitted.');
     }
     await this.assertCurrentProfile(profile, context, request.scope);
-    const manifest = await dependencies.publication.verifyVectorManifest({
-      files,
-      scope: request.scope,
-    });
-    context.signal.throwIfAborted();
-    const coverage = await dependencies.publication.vectorCoverage({
-      profile,
-      scope: request.scope,
-    });
-    context.signal.throwIfAborted();
+    let manifest: ScopedManifestResult;
+    let coverage: ScopedCoverage;
+    for (let read = 1; ; read += 1) {
+      manifest = await dependencies.publication.verifyVectorManifest({
+        files,
+        scope: request.scope,
+      });
+      context.signal.throwIfAborted();
+      coverage = await dependencies.publication.vectorCoverage({
+        profile,
+        scope: request.scope,
+      });
+      context.signal.throwIfAborted();
+      const moved =
+        coverage.storeId === manifest.storeId &&
+        coverage.authorityEpoch === manifest.authorityEpoch &&
+        coverage.authorityRevision > manifest.authorityRevision;
+      if (!moved || read >= VECTOR_PROOF_READS) {
+        break;
+      }
+    }
     if (
       !(
         manifest.complete &&

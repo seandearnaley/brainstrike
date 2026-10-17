@@ -18,7 +18,8 @@ import {
  * With semantic search on, an empty workspace root (a new project folder, or
  * one whose only files are empty) must not block the native Workspace Index
  * (BST-2053). Its scan completes with no chunks to embed and its coverage
- * counts as complete.
+ * counts as complete. It finishes at once, while a real root beside it is still
+ * installing its first bindings (BST-2055).
  */
 
 const SOURCE_FILES = 3;
@@ -89,9 +90,9 @@ test.describe('Native Workspace Index with an empty root', () => {
     });
   }
 
-  test.fixme('an empty root beside a real one does not block semantic indexing', {
-    annotation: { description: 'BST-2055', type: 'quarantine' },
-  }, async ({ window: page }) => {
+  test('an empty root beside a real one does not block semantic indexing', async ({
+    window: page,
+  }) => {
     test.setTimeout(8 * 60 * 1000);
     await indexRoots(
       page,

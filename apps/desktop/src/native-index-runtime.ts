@@ -12,6 +12,16 @@ import type { DesktopProfileRuntime } from './desktop-profile-runtime';
 
 type NativePort = IndexerPort & ScopedIndexerPort;
 
+/**
+ * Another root's discovery can move the authority while an acquisition installs
+ * it, and callers can join after its last authority read (BST-2055). Each attempt
+ * installs one exact snapshot; after this many, a moved authority fails visibly.
+ */
+const ACQUISITION_ATTEMPTS = 10;
+
+/** The authority moved between an acquisition's snapshot and a later check. */
+class NativeAuthorityMovedError extends NativeAuthorityTransitionError {}
+
 export interface NativeIndexAuthority {
   readonly fileBindings: readonly IndexFileBinding[];
   readonly rootIds: readonly string[];
@@ -67,6 +77,13 @@ export interface NativeIndexRuntime<Attachment = unknown> {
     acquireRead: () => Promise<NativePort>,
     work: (captured: CapturedNativeIndexAuthority) => Promise<T>
   ): Promise<T>;
+  /**
+   * A scan's own read through its writer (coverage and manifest proofs). It waits
+   * out a binding replacement or mutation in flight, and those join it before
+   * retiring readers, so another root's bindings never close its query client
+   * (BST-2055).
+   */
+  withWriterRead<T>(expected: NativePort, work: () => Promise<T>): Promise<T>;
 }
 
 /**
@@ -132,8 +149,15 @@ export function createNativeIndexRuntime<Attachment>(
   let bindings = '';
   let port: NativePort | undefined;
   let acquisition: Promise<NativePort> | undefined;
+  // Acquisition calls so far, how many had arrived when the latest authority
+  // read began, and how many the acknowledged authority covers.
+  let acquireCalls = 0;
+  let observedCalls = 0;
+  let validatedCalls = 0;
   let queryRetirement: Promise<void> | undefined;
   let authorityMutation: Promise<unknown> | undefined;
+  // A binding replacement or mutation, from joining reads until it settles.
+  let bindingChange: Promise<void> | undefined;
   const reads = new Set<Promise<void>>();
   let readsClosed = false;
   let acknowledgedAuthority: NativeIndexAuthority | undefined;
@@ -205,15 +229,60 @@ export function createNativeIndexRuntime<Attachment>(
     queryRetirement = dependencies.closeQueries();
     return queryRetirement;
   };
+  /** Holds writer reads off until the change settles; returns its release. */
+  const beginBindingChange = (): (() => void) => {
+    const change = Promise.withResolvers<void>();
+    bindingChange = change.promise;
+    return () => {
+      if (bindingChange === change.promise) {
+        bindingChange = undefined;
+      }
+      change.resolve();
+    };
+  };
   const acquire = async (priorMutation: Promise<unknown> | undefined): Promise<NativePort> => {
+    // One change spans every attempt: a failed attempt may leave readers retired.
+    let endChange: (() => void) | undefined;
+    const enterChange = (): void => {
+      endChange ??= beginBindingChange();
+    };
+    try {
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          const ready = await acquireSnapshot(priorMutation, enterChange);
+          validatedCalls = observedCalls;
+          // A caller that joined after the last authority read may have committed
+          // records it did not see: read again for every caller (BST-2055).
+          if (validatedCalls === acquireCalls || attempt >= ACQUISITION_ATTEMPTS) {
+            return ready;
+          }
+        } catch (error) {
+          if (!(error instanceof NativeAuthorityMovedError) || attempt >= ACQUISITION_ATTEMPTS) {
+            throw error;
+          }
+        }
+      }
+    } finally {
+      endChange?.();
+    }
+  };
+  const acquireSnapshot = async (
+    priorMutation: Promise<unknown> | undefined,
+    enterChange: () => void
+  ): Promise<NativePort> => {
     await priorMutation;
     await queryRetirement;
     await acquireProfile();
-    const requested = retainAuthority(await dependencies.getAuthority());
+    const readAuthority = async (): Promise<NativeIndexAuthority> => {
+      // Every caller so far had committed its records before this read began.
+      observedCalls = acquireCalls;
+      return retainAuthority(await dependencies.getAuthority());
+    };
+    const requested = await readAuthority();
     const requestedScopes = scopeIdentity(requested);
     const requestedBindings = bindingIdentity(requested);
     const assertAuthorityCurrent = async (): Promise<void> => {
-      const current = retainAuthority(await dependencies.getAuthority());
+      const current = await readAuthority();
       if (closed) {
         throw new NativeAuthorityTransitionError(
           'Native index admission closed during authority validation.'
@@ -223,9 +292,7 @@ export function createNativeIndexRuntime<Attachment>(
         scopeIdentity(current) !== requestedScopes ||
         bindingIdentity(current) !== requestedBindings
       ) {
-        throw new NativeAuthorityTransitionError(
-          'Native index authority changed during acquisition.'
-        );
+        throw new NativeAuthorityMovedError('Native index authority changed during acquisition.');
       }
     };
     if (closed) {
@@ -242,6 +309,7 @@ export function createNativeIndexRuntime<Attachment>(
       return port;
     }
     // Retire query snapshots before changing either membership or immutable scopes.
+    enterChange();
     await joinReads();
     await closeQueries();
     if (closed) {
@@ -406,10 +474,18 @@ export function createNativeIndexRuntime<Attachment>(
         new NativeAuthorityTransitionError('Native index admission is closed.')
       );
     }
+    acquireCalls += 1;
+    const call = acquireCalls;
     acquisition ??= acquire(authorityMutation).finally(() => {
       acquisition = undefined;
     });
-    return acquisition;
+    return acquisition.then((ready) => {
+      // Still unobserved after the last attempt: its records may be missing.
+      if (validatedCalls < call) {
+        throw new NativeAuthorityMovedError('Native index authority changed during acquisition.');
+      }
+      return ready;
+    });
   };
   const captureAcknowledgedAuthority = (): CapturedNativeIndexAuthority => {
     const owner = indexOwner;
@@ -453,15 +529,20 @@ export function createNativeIndexRuntime<Attachment>(
       const operation = (async () => {
         await priorAcquisition;
         await priorMutation;
-        await joinReads();
-        if (closed || port !== expected) {
-          throw new Error('Native mutation writer was retired or replaced.');
+        const endChange = beginBindingChange();
+        try {
+          await joinReads();
+          if (closed || port !== expected) {
+            throw new Error('Native mutation writer was retired or replaced.');
+          }
+          await closeQueries();
+          if (closed || port !== expected) {
+            throw new Error('Native mutation writer was retired or replaced.');
+          }
+          return await work();
+        } finally {
+          endChange();
         }
-        await closeQueries();
-        if (closed || port !== expected) {
-          throw new Error('Native mutation writer was retired or replaced.');
-        }
-        return work();
       })();
       authorityMutation = operation;
       operation.then(
@@ -525,6 +606,35 @@ export function createNativeIndexRuntime<Attachment>(
           reads.delete(settled.promise);
           settled.resolve();
         }
+      }
+    },
+    withWriterRead: async <T>(expected: NativePort, work: () => Promise<T>): Promise<T> => {
+      while (true) {
+        // Only a change retiring readers excludes a proof; an acquisition that finds
+        // its bindings current retires nothing, and readers start one per poll.
+        while (bindingChange) {
+          await bindingChange;
+        }
+        if (closed || readsClosed) {
+          throw new NativeAuthorityTransitionError('Native read admission is closed.');
+        }
+        if (bindings) {
+          break;
+        }
+        // A file removal retires readers and leaves reinstalling them to the next
+        // acquisition, as `withRead` acquires before it reads.
+        await acquireCurrent();
+      }
+      if (port !== expected) {
+        throw new NativeAuthorityTransitionError('Native writer was retired or replaced.');
+      }
+      const settled = Promise.withResolvers<void>();
+      reads.add(settled.promise);
+      try {
+        return await work();
+      } finally {
+        reads.delete(settled.promise);
+        settled.resolve();
       }
     },
   };

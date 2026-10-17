@@ -432,6 +432,22 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
       await f.host.close();
     }
   );
+  it('reads its proofs again when another root moved the authority between them (BST-2055)', async () => {
+    const f = await fixture();
+    const manifest = vi.mocked(f.publication.verifyVectorManifest);
+    const coverage = vi.mocked(f.publication.vectorCoverage);
+    const before = await manifest({ files: [], scope: f.request.scope });
+    const after = await coverage({ profile, scope: f.request.scope });
+    // A sibling root's binding replacement lands between the first manifest and coverage reads.
+    manifest.mockResolvedValueOnce(before).mockResolvedValue({ ...before, authorityRevision: 2 });
+    coverage.mockResolvedValue({ ...after, authorityRevision: 2 });
+    manifest.mockClear();
+    coverage.mockClear();
+    expect((await f.host.scan(f.request)).scanComplete).toBe(true);
+    expect(manifest).toHaveBeenCalledTimes(2);
+    expect(coverage).toHaveBeenCalledTimes(2);
+    await f.host.close();
+  });
   it('rejects a saved profile change after inference before native commit', async () => {
     const f = await fixture();
     vi.mocked(f.catalog.resolveProfile)

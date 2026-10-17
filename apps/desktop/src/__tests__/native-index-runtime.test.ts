@@ -680,7 +680,7 @@ it('admits coverage only with an installed query target after a successful sourc
   await f.runtime.retireProfile();
 });
 
-it('does not admit coverage through a cached port after catalog change interrupts query retirement', async () => {
+it('admits coverage only through a reinstalled target after catalog change interrupts query retirement', async () => {
   const f = fixture();
   await f.runtime.acquire();
   f.setBindings();
@@ -692,7 +692,9 @@ it('does not admit coverage through a cached port after catalog change interrupt
     await closeQueries();
     f.resetBindings();
   });
-  await expect(f.runtime.acquire()).rejects.toThrow('authority changed during acquisition');
+  await expect(f.runtime.acquire()).resolves.toBe(f.port);
+  expect(f.port.replaceFileBindings).toHaveBeenCalledExactlyOnceWith([]);
+  expect(f.installQueryTarget).toHaveBeenCalledTimes(2);
   await f.runtime.withRead(f.runtime.acquire, async () => {
     expect(f.queryTargetInstalled()).toBe(true);
   });
