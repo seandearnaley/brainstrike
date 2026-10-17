@@ -1,6 +1,8 @@
 import {
   EMBEDDING_DEVICE_LOST_CODE,
   EmbeddingDeviceLostError,
+  embedWorkerFailure,
+  isEmbedWorkerErrorCode,
 } from '@brainstrike/indexing-contract';
 import type { QueueErrorEvent, QueueProgressEvent } from '../types.js';
 
@@ -37,7 +39,7 @@ export function readWorkerEvent(value: unknown): WorkerEvent | null {
         typeof record['message'] === 'string' &&
         record['message'].length > 0 &&
         (record['cause'] === undefined || typeof record['cause'] === 'string') &&
-        (record['code'] === undefined || record['code'] === EMBEDDING_DEVICE_LOST_CODE)
+        (record['code'] === undefined || isEmbedWorkerErrorCode(record['code']))
       )
     ) {
       throw new Error('Embedding worker request error event is malformed.');
@@ -62,6 +64,8 @@ export function readDeviceLoss(workerEvent: WorkerEvent): EmbeddingDeviceLostErr
 
 export function throwIfWorkerError(workerEvent: WorkerEvent): void {
   if (workerEvent.type === 'error') {
-    throw new Error(workerEvent.message, { cause: workerEvent.cause });
+    // A typed device failure keeps its code, so the host can refuse it with its
+    // remedy instead of reporting an internal fault (BST-2058).
+    throw embedWorkerFailure(workerEvent);
   }
 }

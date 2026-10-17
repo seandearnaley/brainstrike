@@ -29,7 +29,8 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { WEB_SEARCH_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
-import type { ToolsInput } from '@mastra/core/agent';
+import type { Tool } from 'ai';
+import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition';
 import {
   type ProviderAuthInput,
   type ProviderFetchOptions,
@@ -85,12 +86,12 @@ export function providerSupportsNativeWebSearch(
 export function createProviderNativeWebSearchTool(
   provider: string,
   auth: ProviderAuthInput | undefined
-): ToolsInput[string] | undefined {
+): Tool | undefined {
   if (provider === 'anthropic') {
     const anthropicProvider = createAnthropic(
       webSearchClientSettings(providerFetchOptions(auth, provider))
     );
-    return anthropicProvider.tools.webSearch_20250305() as unknown as ToolsInput[string];
+    return anthropicProvider.tools.webSearch_20250305();
   }
   if (provider === 'openai') {
     // INVARIANT: `openai.tools.webSearch()` only executes on the Responses API
@@ -106,7 +107,10 @@ export function createProviderNativeWebSearchTool(
     const openaiProvider = createOpenAI(
       webSearchClientSettings(providerFetchOptions(auth, provider))
     );
-    return openaiProvider.tools.webSearch() as unknown as ToolsInput[string];
+    // The held OpenAI pin carries the same Symbol.for('vercel.ai.schema')
+    // contract from a second provider-utils installation (a nominal TS brand).
+    // Keep the provider tool intact; real AI SDK consumption is regression tested.
+    return openaiProvider.tools.webSearch() as Tool;
   }
   return;
 }

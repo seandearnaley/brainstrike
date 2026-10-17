@@ -4,8 +4,8 @@ import {
   getAccurateTokenCountingFailureReason,
   type SyncAccurateCounter,
 } from '@brainstrike/tokenization/token-utils-accurate-lite';
-import type { ToolsInput } from '@mastra/core/agent';
 import { standardSchemaToJSONSchema, toStandardSchema } from '@mastra/core/schema';
+import type { HostToolDefinitions as ToolsInput } from './host-tool-definition';
 import type { ScaledToolResultBudget } from './stream/tool-output-limits';
 import { TOOL_RESULT_TRUNCATED_CODE } from './stream/tool-output-limits';
 import { readToolCallTelemetryMetadata } from './tool-projection/tool-call-telemetry';

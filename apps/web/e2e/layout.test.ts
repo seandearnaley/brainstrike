@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { HomePage } from './page-objects/home-page';
 import { resetAppState } from './utils/app-state';
+import { HOSTED_ASSISTANT_STATUS, mockAssistantApi } from './utils/assistant-mocks';
 import {
   AGENT_MAIN_PANEL_SELECTOR,
   AGENT_MIDDLE_PANEL_SELECTOR,
@@ -84,6 +85,10 @@ test.describe('Application Layout', () => {
 
   test.describe('Panel Layout Basics', () => {
     test.beforeEach(async ({ page }) => {
+      // Web's assistant is enabled only by a configured hosted provider since the
+      // built-in local chat model retired (#3679); its thread strip, whose header
+      // the alignment test measures, mounts only then.
+      await mockAssistantApi(page, HOSTED_ASSISTANT_STATUS);
       await page.goto('/');
       await waitForAppLoad(page, { waitForDatabase: false });
       await resetAppState(page);

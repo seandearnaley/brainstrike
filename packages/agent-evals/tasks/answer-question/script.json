@@ -1,0 +1,16 @@
+{
+  "calls": [
+    {
+      "input": { "path": "src/server.ts" },
+      "toolId": "brainstrike_readWorkspaceFile"
+    },
+    {
+      "input": { "path": "src/settings.ts" },
+      "toolId": "brainstrike_readWorkspaceFile"
+    },
+    {
+      "input": { "content": "8417\n", "path": "answer.txt" },
+      "toolId": "brainstrike_writeWorkspaceFile"
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import { createLogger } from '@brainstrike/logging';
 import { generateText } from 'ai';
 import type { HostRunState } from './core-state.js';
 import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
+import { hostTelemetry } from './telemetry/host-telemetry.js';
 
 const logger = createLogger('AgentHost');
 
@@ -138,6 +139,7 @@ export class HostThreadPresentationState {
       model: admission.model,
       prompt: hostThreadTitlePrompt(run.branch.prompt),
       system: HOST_THREAD_TITLE_INSTRUCTIONS,
+      ...hostTelemetry('brainstrike.thread-title', run),
     });
     const title = Promise.race([generated, aborted])
       .then(

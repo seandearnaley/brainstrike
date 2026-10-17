@@ -110,7 +110,7 @@ describe('multi-root assistant tools (real roots)', () => {
       }),
       'brainstrike.listWorkspaceContext'
     );
-    const result = await executeTool({ context: {} });
+    const result = await executeTool({});
     expect(result.workspaceRoots).toEqual([
       { displayName: ROOT_A.displayName, path: rootAPath, rootId: ROOT_A.rootId },
       { displayName: ROOT_B.displayName, path: rootBPath, rootId: ROOT_B.rootId },
@@ -119,9 +119,7 @@ describe('multi-root assistant tools (real roots)', () => {
 
   it('Task: grep a shared term — content matches are labelled and same-path roots stay distinct', async () => {
     const executeTool = requireToolExecute(hostGrepTools(), 'brainstrike.grepSearch');
-    const result = await executeTool({
-      context: { outputMode: 'content', pattern: 'sharedMarker' },
-    });
+    const result = await executeTool({ outputMode: 'content', pattern: 'sharedMarker' });
     if (result.outputMode !== 'content') {
       throw new Error('expected content mode');
     }
@@ -138,7 +136,9 @@ describe('multi-root assistant tools (real roots)', () => {
   it('Task: grep scoped to one folder via `root` — only that root matches', async () => {
     const executeTool = requireToolExecute(hostGrepTools(), 'brainstrike.grepSearch');
     const result = await executeTool({
-      context: { outputMode: 'content', pattern: 'sharedMarker', root: 'ProjectB' },
+      outputMode: 'content',
+      pattern: 'sharedMarker',
+      root: 'ProjectB',
     });
     if (result.outputMode !== 'content') {
       throw new Error('expected content mode');
@@ -153,7 +153,7 @@ describe('multi-root assistant tools (real roots)', () => {
       buildHostNativeTools(twoRootRuntime()),
       'brainstrike.readWorkspaceFile'
     );
-    await expect(executeTool({ context: { path: '/README.md' } })).rejects.toThrow(
+    await expect(executeTool({ path: '/README.md' })).rejects.toThrow(
       /multiple folders.*ProjectA.*ProjectB/is
     );
   });
@@ -161,16 +161,12 @@ describe('multi-root assistant tools (real roots)', () => {
   it("Task: read README.md qualified by root — returns the correct root's file", async () => {
     const tools = buildHostNativeTools(twoRootRuntime());
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
-    const a = await executeTool({
-      context: { path: '/README.md', root: 'ProjectA' },
-    });
+    const a = await executeTool({ path: '/README.md', root: 'ProjectA' });
     expect(a.rootName).toBe('ProjectA');
     expect(a.content).toContain('Project A');
     expect(a.content).not.toContain('Project B');
 
-    const b = await executeTool({
-      context: { path: '/README.md', root: ROOT_B.rootId },
-    });
+    const b = await executeTool({ path: '/README.md', root: ROOT_B.rootId });
     expect(b.rootName).toBe('ProjectB');
     expect(b.content).toContain('Project B');
   });
@@ -180,7 +176,7 @@ describe('multi-root assistant tools (real roots)', () => {
       buildHostNativeTools(twoRootRuntime()),
       'brainstrike.readWorkspaceDirectory'
     );
-    const result = await executeTool({ context: { path: '/', root: 'ProjectA' } });
+    const result = await executeTool({ path: '/', root: 'ProjectA' });
     expect(result.rootName).toBe('ProjectA');
     expect(result.entries.some((e: { path: string }) => e.path === '/README.md')).toBe(true);
   });
@@ -190,9 +186,7 @@ describe('multi-root assistant tools (real roots)', () => {
       buildHostNativeTools(twoRootRuntime()),
       'brainstrike.findWorkspaceSymbol'
     );
-    const result = await executeTool({
-      context: { path: '/README.md', query: 'fromB', root: 'ProjectB' },
-    });
+    const result = await executeTool({ path: '/README.md', query: 'fromB', root: 'ProjectB' });
     expect(result.rootName).toBe('ProjectB');
     expect(result.totalMatches).toBeGreaterThan(0);
   });
@@ -202,9 +196,7 @@ describe('multi-root assistant tools (real roots)', () => {
       buildHostNativeTools(twoRootRuntime()),
       'brainstrike.readWorkspaceContext'
     );
-    const result = await executeTool({
-      context: { filePaths: ['/README.md'], root: 'ProjectB' },
-    });
+    const result = await executeTool({ filePaths: ['/README.md'], root: 'ProjectB' });
     expect(result.rootName).toBe('ProjectB');
     expect(result.files[0]?.content).toContain('Project B');
   });
@@ -214,7 +206,7 @@ describe('multi-root assistant tools (real roots)', () => {
       buildHostNativeTools(twoRootRuntime()),
       'brainstrike.readWorkspaceContext'
     );
-    await expect(executeTool({ context: { filePaths: ['/README.md'] } })).rejects.toThrow(
+    await expect(executeTool({ filePaths: ['/README.md'] })).rejects.toThrow(
       /multiple folders.*ProjectA.*ProjectB/is
     );
   });

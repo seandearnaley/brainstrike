@@ -111,7 +111,8 @@ const DESKTOP_FULL_REGRESSION_COMMAND = [
   DESKTOP_FULL_REGRESSION_SHARD_COMMAND,
   '&& pnpm run test:e2e:lane:tools-settings-nightly',
 ].join(' ');
-const REQUIRED_PR_E2E_JOB_CONDITION = [
+const SMOKE_E2E_JOB_CONDITION = [
+  "github.repository == 'seandearnaley/brainstrike' &&",
   'always() &&',
   '(',
   "needs.admission.result != 'success' ||",
@@ -173,7 +174,7 @@ function assertDesktopE2eFanIn(job, laneJobIds) {
   );
   assert.equal(
     normalizeExpression(job.if),
-    REQUIRED_PR_E2E_JOB_CONDITION,
+    SMOKE_E2E_JOB_CONDITION,
     'Desktop E2E must skip exactly when its smoke lanes skip'
   );
   const checks = job.steps.filter((step) => step.name === 'Check lane results');
@@ -374,9 +375,9 @@ test('MONEY TEST: the Desktop E2E fan-in rejects a lane it does not wait for or 
   assert.throws(() => assertDesktopE2eFanIn(unchecked, laneJobIds), /unless every smoke lane/);
 });
 
-test('REAL REPO: pull-request E2E jobs invoke every smoke lane script', () => {
+test('REAL REPO: nightly E2E jobs invoke every smoke lane script', () => {
   const workflow = parseYaml(read('.github/workflows/test.yml'));
-  assert.ok(workflow.on?.pull_request, 'test.yml must run on pull requests');
+  assert.ok(workflow.on?.schedule, 'test.yml must run nightly');
 
   const assertRequiredSmokeStep = (jobId, expectedCommand, expectedWorkingDirectory) => {
     const job = workflow.jobs[jobId];
@@ -387,8 +388,8 @@ test('REAL REPO: pull-request E2E jobs invoke every smoke lane script', () => {
     );
     assert.equal(
       normalizeExpression(job.if),
-      REQUIRED_PR_E2E_JOB_CONDITION,
-      `${jobId} must retain the PR-admitting job condition`
+      SMOKE_E2E_JOB_CONDITION,
+      `${jobId} must retain the admitted job condition`
     );
     const matchingSteps = job.steps.filter((step) => stepRunsExactCommand(step, expectedCommand));
     assert.equal(matchingSteps.length, 1, `${jobId} must have one exact smoke invocation`);

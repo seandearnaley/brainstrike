@@ -3,7 +3,7 @@ import { applyToolGuards, guardToolExecution } from '../tools/guard-tool-executi
 import { applyToolHooks } from '../tools/hook-tool-wrap';
 import { createToolExecutionDurations } from '../tools/tool-execution-durations';
 
-/** Mastra passes the tool input first and a context carrying the call id second. */
+/** The host passes the tool input first and a context carrying the call id second. */
 const ctx = (toolCallId: string) => [{ q: 1 }, { toolCallId }] as const;
 
 describe('tool execution durations', () => {
@@ -21,9 +21,9 @@ describe('tool execution durations', () => {
       { durations, timeoutMs: 5000, toolName: 't' }
     );
     try {
-      await guarded.execute(11, { agent: { threadId: 'child-a', toolCallId: 'same' } });
-      await guarded.execute(29, { agent: { threadId: 'child-b', toolCallId: 'same' } });
-      await guarded.execute(7, { agent: { threadId: 'root', toolCallId: 'same' } });
+      await guarded.execute(11, { threadId: 'child-a', toolCallId: 'same' });
+      await guarded.execute(29, { threadId: 'child-b', toolCallId: 'same' });
+      await guarded.execute(7, { threadId: 'root', toolCallId: 'same' });
       expect(durations.read('same', 'child-a')).toBe(11);
       expect(durations.read('same', 'child-b')).toBe(29);
       expect(durations.read('same', 'root')).toBe(7);
@@ -53,18 +53,14 @@ describe('tool execution durations', () => {
     expect(recorded).toBeLessThan(5000);
   });
 
-  it('reads the toolCallId from the nested agent context too', async () => {
-    // Mirrors readToolCallId in tools/read-tool-call-id.ts: Mastra has
-    // put the id in both places across versions.
+  it('ignores obsolete nested identity instead of borrowing it', async () => {
     const durations = createToolExecutionDurations();
     const guarded = guardToolExecution(
       { execute: async () => ({ ok: true }) },
       { durations, timeoutMs: 5000, toolName: 't' }
     );
-
-    await guarded.execute({ q: 1 }, { agent: { toolCallId: 'call-nested' } });
-
-    expect(durations.read('call-nested')).toBeDefined();
+    await guarded.execute({}, { agent: { toolCallId: 'call-nested' } });
+    expect(durations.read('call-nested')).toBeUndefined();
   });
 
   it('records a FAILED call, because its terminal event needs a number too', async () => {

@@ -1,8 +1,7 @@
 import { HOST_META_TOOL_ID } from '@brainstrike/assistant-contract';
 import { standardInputSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
-import type { ToolsInput } from '@mastra/core/agent';
-import { createTool, type Tool } from '@mastra/core/tools';
 import { Schema } from 'effect';
+import type { HostToolDefinition } from './host-tool-definition';
 import { createMastraAgentError } from './mastra-boundary/mastra-agent-error';
 
 export const LIST_AVAILABLE_TOOLS_ID = HOST_META_TOOL_ID.listAvailableTools;
@@ -55,9 +54,9 @@ const catalogOutputSchema = Schema.Struct({
 
 /** A per-runtime view of the post-gate catalog, never a second eligibility source. */
 export function createDeferredToolCatalog(
-  tools: ToolsInput,
+  tools: Readonly<Record<string, object>>,
   toolNameMap: ReadonlyMap<string, string>
-): Tool<(typeof catalogInputSchema)['Type'], (typeof catalogOutputSchema)['Type']> {
+) {
   const entries = Object.entries(tools)
     .map(([name, tool]) => {
       const originalName = toolNameMap.get(name);
@@ -68,7 +67,9 @@ export function createDeferredToolCatalog(
         });
       }
       return {
-        ...summarizeDescription('description' in tool ? (tool.description ?? '') : ''),
+        ...summarizeDescription(
+          'description' in tool && typeof tool.description === 'string' ? tool.description : ''
+        ),
         name,
         originalName,
       };
@@ -80,7 +81,7 @@ export function createDeferredToolCatalog(
       return left.name > right.name ? 1 : 0;
     });
 
-  return createTool({
+  return {
     description:
       'List eligible deferred tools, including MCP tools, without loading their schemas. Use for questions about what tools are available. Filter by name prefix (for example linear). Follow nextOffset until null for the complete inventory. To use a listed tool, call load_tool with its exact name first.',
     execute: async ({ prefix, offset = 0 }) => {
@@ -116,9 +117,8 @@ export function createDeferredToolCatalog(
       jsonSchemaOnExcessProperty: 'error',
       onExcessProperty: 'ignore',
     }),
-    outputSchema: standardInputSchema(catalogOutputSchema, {
-      jsonSchemaOnExcessProperty: 'error',
-      onExcessProperty: 'ignore',
-    }),
-  });
+  } satisfies HostToolDefinition<
+    (typeof catalogInputSchema)['Type'],
+    (typeof catalogOutputSchema)['Type']
+  >;
 }

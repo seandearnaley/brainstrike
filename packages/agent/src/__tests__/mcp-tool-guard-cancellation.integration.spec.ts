@@ -4,11 +4,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type McpHostPort, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
+import type { HostToolExecutionContext } from '../host-tool-definition';
 import { ExplicitStdioMcpClient } from '../mcp/explicit-stdio-client';
 import { createMcpRuntimeClient } from '../mcp/mcp-runtime-client';
 import {
   applyToolGuards,
   type GuardedToolError,
+  guardToolExecution,
   isGuardedToolError,
 } from '../tools/guard-tool-execution';
 
@@ -25,9 +27,8 @@ import {
  * This spec spawns a real stdio child that streams progress until it is
  * cancelled and records whether it observed the client's
  * `notifications/cancelled`. The tool is driven through the production path
- * (`createMcpRuntimeClient` → Mastra `createTool` → `applyToolGuards`), so the
- * guard's deadline has to survive Mastra's execution-context reconstruction to
- * reach the in-flight request.
+ * (`createMcpRuntimeClient` → host producer → `applyToolGuards`), retaining
+ * the host context's identity and physical cancellation signal.
  */
 const progressServerEntrypoint = fileURLToPath(
   new URL('../../test-fixtures/mcp-stdio-progress-cancellation-server.mjs', import.meta.url)
@@ -123,6 +124,101 @@ function createStdioMcpHost(
 }
 
 describe('MCP tool guard cancellation over a real stdio transport', () => {
+  it('cancels only the timed-out occurrence when concurrent runs reuse a provider ID', async () => {
+    const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'agent-mcp-concurrent-cancel-'));
+    const stateFile = path.join(directory, 'state.json');
+    const host = createStdioMcpHost('progress', [progressServerEntrypoint], {
+      BRAINSTRIKE_STDIO_PROGRESS_INTERVAL_MS: '25',
+      BRAINSTRIKE_STDIO_PROGRESS_STATE_FILE: stateFile,
+    });
+    const callerA = new AbortController();
+    const callerB = new AbortController();
+    const lookup = Promise.withResolvers<void>();
+    const progressA = Promise.withResolvers<void>();
+    const progressB = Promise.withResolvers<void>();
+    let writesB = 0;
+    const runtimeClient = await createMcpRuntimeClient({ config: undefined, host });
+    let first: Promise<unknown> | undefined;
+    let second: Promise<unknown> | undefined;
+    try {
+      const discovered = await runtimeClient?.listToolsetsWithErrors();
+      expect(discovered?.errors).toEqual({});
+      const source = discovered?.toolsets['progress']?.['progress_forever'];
+      if (!source || typeof source.execute !== 'function') {
+        throw new Error('Progress fixture has no executable producer');
+      }
+      const execute = source.execute;
+      const delayed = {
+        ...source,
+        execute: async (input: unknown, context?: HostToolExecutionContext): Promise<unknown> => {
+          await lookup.promise;
+          return await Reflect.apply(execute, source, [input, context]);
+        },
+      };
+      const toolA = guardToolExecution(delayed, {
+        timeoutMs: GUARD_TIMEOUT_MS,
+        toolName: 'progress-a',
+      });
+      const toolB = guardToolExecution(delayed, { timeoutMs: 5000, toolName: 'progress-b' });
+      first = toolA.execute(
+        {},
+        {
+          abortSignal: callerA.signal,
+          runId: 'root-run',
+          threadId: 'root-thread',
+          toolCallId: 'call_1',
+          writer: {
+            custom: async () => {
+              progressA.resolve();
+            },
+          },
+        }
+      );
+      second = toolB.execute(
+        {},
+        {
+          abortSignal: callerB.signal,
+          runId: 'child-run',
+          threadId: 'child-thread',
+          toolCallId: 'call_1',
+          writer: {
+            custom: async () => {
+              writesB += 1;
+              progressB.resolve();
+            },
+          },
+        }
+      );
+      lookup.resolve();
+      await Promise.all([progressA.promise, progressB.promise]);
+      await expect(first).resolves.toMatchObject({ error: { code: 'tool_timeout' }, ok: false });
+      await expect.poll(async () => (await readFixtureState(stateFile)).cancelled).toBe(true);
+      const before = writesB;
+      await expect.poll(() => writesB).toBeGreaterThan(before);
+      expect(callerA.signal.aborted).toBe(false);
+      expect(callerB.signal.aborted).toBe(false);
+      const listed = await host.invoke({
+        configuredServerId: parseConfiguredMcpServerId('progress'),
+        type: 'tools/list',
+      });
+      expect(listed.type).toBe('tools/list');
+      // The fixture publishes one terminal receipt into an absent destination.
+      // Remove the first before independently stopping the still-active sibling.
+      await fsp.unlink(stateFile);
+      callerB.abort(new Error('Stop only the sibling'));
+      await expect(second).resolves.toMatchObject({ error: { code: 'tool_failed' }, ok: false });
+      await expect.poll(async () => (await readFixtureState(stateFile)).cancelled).toBe(true);
+    } finally {
+      lookup.resolve();
+      callerA.abort();
+      callerB.abort();
+      await runtimeClient?.disconnect();
+      await host.close();
+      await Promise.all([first, second]);
+      await fsp.rm(directory, { force: true, recursive: true });
+    }
+  }, 30_000);
+
   it('cancels the progress-deferred request on the wire when the guard gives up', async () => {
     const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'agent-mcp-progress-cancel-'));
     const stateFile = path.join(directory, 'state.json');
@@ -146,7 +242,7 @@ describe('MCP tool guard cancellation over a real stdio transport', () => {
         {},
         {
           abortSignal: run.signal,
-          agent: { toolCallId: 'guard-cancellation-call' },
+          toolCallId: 'guard-cancellation-call',
           writer: { custom: async () => undefined },
         }
       )) as GuardedToolError;

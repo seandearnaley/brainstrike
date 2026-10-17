@@ -1,8 +1,9 @@
 import { NATIVE_TOOLS } from '@brainstrike/assistant-contract';
 import { toToolInputJsonSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { toStandardSchema } from '@mastra/core/schema';
-import { asSchema, type JSONSchema7 } from 'ai';
+import { asSchema, type JSONSchema7, jsonSchema } from 'ai';
 import { expect, test } from 'vitest';
+import { approvalRuntimeSchema } from '../src/approval-input.js';
 import { executableInputSchema } from '../src/executable-input-schema.js';
 
 // Recorded tools/list shape from the shipped MCP runtime-client fixture.
@@ -70,3 +71,9 @@ test.each(['draft-07', 'draft-2020-12'] as const)(
     expect(await mutant.validate?.(invalid)).toMatchObject({ success: true });
   }
 );
+
+test('ordinary and resumed SDK schemas refuse a missing executable validator', () => {
+  expect(() => approvalRuntimeSchema(jsonSchema({ type: 'object' }), () => undefined)).toThrow(
+    'Executable tool has no input validator'
+  );
+});

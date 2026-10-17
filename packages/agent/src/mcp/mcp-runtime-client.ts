@@ -1,3 +1,4 @@
+import { resolveGuardedToolSignal } from '@brainstrike/agent/tool-guard-deadline';
 import {
   type McpHostExecution,
   type McpHostPort,
@@ -6,12 +7,13 @@ import {
 } from '@brainstrike/assistant-contract';
 import { MCP_PROGRESS_STREAM_PART_TYPE } from '@brainstrike/assistant-contract/tool-telemetry';
 import { createLogger } from '@brainstrike/logging';
-import type { ToolsInput } from '@mastra/core/agent';
-import { type StandardSchemaWithJSON, toStandardSchema } from '@mastra/core/schema';
-import { createTool, type MCPToolProperties, type ToolExecutionContext } from '@mastra/core/tools';
+import { toStandardSchema } from '@mastra/schema-compat/schema';
+import type {
+  HostToolExecutionContext,
+  HostToolDefinitions as ToolsInput,
+} from '../host-tool-definition';
 import { normalizeProgressPayload } from '../tools/progress-adapter';
 import { readToolCallId } from '../tools/read-tool-call-id';
-import { resolveGuardedToolSignal } from '../tools/tool-guard-deadline';
 import type { StreamChunk } from '../types';
 import { type McpConfigInput, parseMcpConfigValue } from './config';
 import type {
@@ -321,18 +323,10 @@ function createMcpTool(
   tool: ExplicitHttpMcpTool
 ): ToolsInput[string] {
   const toolMeta = stampServerIdInMeta(tool._meta, server.name);
-  const annotations = normalizeToolAnnotations(tool.annotations);
-  const mcp: MCPToolProperties | undefined =
-    toolMeta || annotations
-      ? {
-          ...(toolMeta ? { _meta: toolMeta } : {}),
-          ...(annotations ? { annotations } : {}),
-        }
-      : undefined;
   const strict = readStrictMeta(toolMeta);
   const hasAppMeta = hasMcpAppToolMeta(tool._meta);
 
-  return createTool({
+  return {
     description: tool.description ?? '',
     id: `${server.name}_${tool.name}`,
     // Mastra's JSON-schema standard adapter delegates validation to its JSON
@@ -340,10 +334,6 @@ function createMcpTool(
     // (`$defs`/`$ref`/`oneOf`/conditionals) instead of narrowing it through
     // zod's intentionally smaller fromJSONSchema converter.
     inputSchema: toStandardSchema(tool.inputSchema as Parameters<typeof toStandardSchema>[0]),
-    ...(tool.outputSchema
-      ? { outputSchema: createDocumentationOnlyMcpOutputSchema(tool.outputSchema) }
-      : {}),
-    ...(mcp ? { mcp } : {}),
     // Preserve the server's optional-input semantics. OpenAI Responses may
     // normalize an omitted strict flag by requiring every property, forcing
     // the model to invent filters such as Linear priority=0. Runtime JSON
@@ -353,7 +343,7 @@ function createMcpTool(
     // while Apps project the inner ordinary result. Definitions carrying
     // neither contract keep the generic pipeline path without a custom seam.
     ...(taskTracking || hasAppMeta ? { toModelOutput: projectMcpAppOrTaskToolModelOutput } : {}),
-    execute: async (input, context) =>
+    execute: async (input: unknown, context?: HostToolExecutionContext) =>
       executeMcpTool(
         { client, server, taskTracking },
         tool.name,
@@ -361,60 +351,14 @@ function createMcpTool(
         tool._meta,
         context
       ),
-    // `appCapable` is the same marker predicate as the Apps projector above:
-    // the Apps admission gate registers a run only when at least one is present.
-    mcpMetadata: { serverName: server.name, ...(hasAppMeta ? { appCapable: true } : {}) },
-  });
-}
-
-/**
- * The official MCP SDK has already validated structuredContent against the
- * advertised output schema. Mastra still needs that JSON schema for
- * discovery/documentation, but must not re-validate the complete CallToolResult
- * envelope against the inner schema.
- */
-function createDocumentationOnlyMcpOutputSchema(
-  outputSchema: NonNullable<ExplicitHttpMcpTool['outputSchema']>
-): StandardSchemaWithJSON<unknown> {
-  const standardSchema = toStandardSchema(outputSchema)['~standard'];
-  return {
-    '~standard': {
-      ...standardSchema,
-      validate: (value: unknown) => ({ value }),
-    },
   };
 }
 
-/**
- * The slice of Mastra's ToolExecutionContext this client actually reads.
- * @mastra/core 1.55 made `observe` a required member of the full interface,
- * while the value createTool's execute callback receives is statically typed
- * as only `{ requestContext }` — so the full interface can no longer describe
- * the inbound context. `requestContext` stays in the slice so the callback's
- * context type shares a property with this weak type.
- *
- * VERSION-COUPLED: every member here is optional, so nothing type-checks that
- * Mastra still passes `agent`/`writer`/`abortSignal` at these positions — if
- * an upgrade relocates one (e.g. `writer` under `agent`), progress streaming
- * or cancellation degrades silently. Re-verify these three field paths against
- * the installed `tools/types.d.ts` on every @mastra/core bump (they were
- * verified at 1.55.0), alongside the doc's per-version surface checks.
- */
-type McpExecuteContext = Pick<ToolExecutionContext, 'agent' | 'writer' | 'abortSignal'> & {
-  /** The agent host's canonical tool context names its MCP execution capability here. */
-  brainstrikeMcp?: unknown;
-  requestContext?: unknown;
-};
-
-/**
- * The admitting agent-host tool call's MCP execution capability, read only
- * from the host's canonical tool context (`brainstrikeMcp`). Absent outside an
- * agent-host run; a present but malformed value fails the call.
- */
-function readHostExecution(context: McpExecuteContext): {
+/** The host supplies this one execution capability; model arguments cannot construct it. */
+function readHostExecution(context: HostToolExecutionContext | undefined): {
   readonly execution?: McpHostExecution;
 } {
-  const value = context.brainstrikeMcp;
+  const value = context?.brainstrikeMcp;
   if (value === undefined) {
     return {};
   }
@@ -435,7 +379,7 @@ async function executeMcpTool(
   toolName: string,
   input: Record<string, unknown>,
   definitionMeta: Record<string, unknown> | undefined,
-  context: McpExecuteContext
+  context: HostToolExecutionContext | undefined
 ): Promise<unknown> {
   const serverName = server.name;
   const host = readHostExecution(context);
@@ -491,7 +435,7 @@ async function executeMcpTool(
   let result: ExplicitHttpMcpCallToolResult;
   const requestMeta = readToolCallMeta(context);
   // The tool guard's deadline is folded in HERE rather than replacing
-  // `context.abortSignal`: the execution signal's identity carries meaning
+  // `context?.abortSignal`: the execution signal's identity carries meaning
   // (`retainRawMcpCallToolResult`), and the host request is the thing that has
   // to stop when the guard gives up. Without it the SDK's
   // `resetTimeoutOnProgress` lets a progress-emitting server hold the request
@@ -521,7 +465,7 @@ async function executeMcpTool(
   // authorities and the tool settles on the bounded presentation instead.
   const createdTask = readMcpCreatedTaskResult(result);
   let ordinaryResult: unknown;
-  if (createdTask && shouldRetainRawMcpCallToolResult(context.abortSignal)) {
+  if (createdTask && shouldRetainRawMcpCallToolResult(context?.abortSignal)) {
     // App-originated call: the MCP App client expects the canonical
     // CreateTaskResult (its frame bridge bounds inbound requests at 10 s, far
     // under the settlement wait). The host still takes ownership of the task
@@ -535,7 +479,7 @@ async function executeMcpTool(
     }
     await taskTracking.capability.track(
       { configuredServerId: serverName, result: createdTask, toolName },
-      context.abortSignal
+      context?.abortSignal
     );
     return createdTask;
   }
@@ -547,11 +491,11 @@ async function executeMcpTool(
       configuredServerId: serverName,
       ...host,
       result: createdTask,
-      ...(context.abortSignal ? { signal: context.abortSignal } : {}),
+      ...(context?.abortSignal ? { signal: context?.abortSignal } : {}),
       toolName,
       tracking: taskTracking,
     });
-  } else if (shouldRetainRawMcpCallToolResult(context.abortSignal)) {
+  } else if (shouldRetainRawMcpCallToolResult(context?.abortSignal)) {
     return result;
   } else if (result.isError) {
     throw failMcpToolResult(serverName, toolName, extractMcpToolError(result));
@@ -586,8 +530,10 @@ function failMcpToolResult(serverName: string, toolName: string, reason: string)
   throw new McpToolResultError(serverName, toolName, reason);
 }
 
-function readToolCallMeta(context: McpExecuteContext): Record<string, unknown> | undefined {
-  const meta = (context as McpExecuteContext & { _meta?: unknown })._meta;
+function readToolCallMeta(
+  context: HostToolExecutionContext | undefined
+): Record<string, unknown> | undefined {
+  const meta = context?._meta;
   if (!(meta && typeof meta === 'object' && !Array.isArray(meta))) {
     return;
   }
@@ -619,31 +565,6 @@ function requireToolArguments(input: unknown): Record<string, unknown> {
     throw new Error('MCP tool arguments must be an object');
   }
   return input as Record<string, unknown>;
-}
-
-function normalizeToolAnnotations(
-  annotations: ExplicitHttpMcpTool['annotations']
-): MCPToolProperties['annotations'] | undefined {
-  if (!annotations) {
-    return;
-  }
-  const normalized: NonNullable<MCPToolProperties['annotations']> = {};
-  if (typeof annotations.title === 'string') {
-    normalized.title = annotations.title;
-  }
-  if (typeof annotations.readOnlyHint === 'boolean') {
-    normalized.readOnlyHint = annotations.readOnlyHint;
-  }
-  if (typeof annotations.destructiveHint === 'boolean') {
-    normalized.destructiveHint = annotations.destructiveHint;
-  }
-  if (typeof annotations.idempotentHint === 'boolean') {
-    normalized.idempotentHint = annotations.idempotentHint;
-  }
-  if (typeof annotations.openWorldHint === 'boolean') {
-    normalized.openWorldHint = annotations.openWorldHint;
-  }
-  return normalized;
 }
 
 function stampServerIdInMeta(

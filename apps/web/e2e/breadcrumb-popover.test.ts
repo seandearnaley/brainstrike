@@ -30,7 +30,11 @@ test.describe('Breadcrumb popover mini-tree', () => {
     await seedWorkspaceFocusedShellLayout(page);
     await page.reload();
     await waitForAppLoad(page, { waitForDatabase: false });
-    await page.getByRole('tab', { name: 'New Thread' }).click();
+    // The default thread is a row in the Threads library, not a tab.
+    await page
+      .getByRole('treegrid', { name: 'Workspace threads' })
+      .getByRole('button', { exact: true, name: 'New Thread' })
+      .click();
 
     // Connect the root and open src/app.ts as a file tab.
     await page.getByTestId('select-root-button').click();

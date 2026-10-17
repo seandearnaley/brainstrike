@@ -1,6 +1,6 @@
 /**
  * Shared execute-time scaffolding for the desktop native tools (BST-743):
- * Mastra input unwrapping/parsing, tool-call-id reading, the shell-output
+ * Direct input parsing, host tool-call-id reading, the shell-output
  * streamer bridge, and the redacted failure logging every tool family reuses.
  * Extracted from `assistant-tools.ts` so each per-family module can import one
  * cohesive support surface instead of re-deriving the boilerplate.
@@ -35,66 +35,15 @@ export interface ShellOutputStreamPart {
  */
 export type ShellOutputStreamer = (part: ShellOutputStreamPart) => void;
 
-export type ToolExecuteInput<T> = { context: T } | T;
+export type ToolExecuteInput<T> = T;
 
-/**
- * Minimal structural view of Mastra's 2nd `execute` argument
- * (`ToolExecutionContext`, verified against @mastra/core@1.55.0 `tools/types.d.ts`).
- * Mastra exposes the tool-call id in TWO documented locations, depending on how
- * the tool was registered: a `createTool` instance running under an agent gets
- * `agent.toolCallId` (`agent?: AgentToolExecutionContext`), while a plain tool
- * OBJECT — what the desktop registry passes (`assistant-tools.ts`) — receives a
- * TOP-LEVEL `toolCallId`. Typed loosely so it stays assignable from the concrete
- * Mastra context by contravariance; the mutation tools read the id to key each
- * edit's journal entry (`tool_call_id`), which is what binds the renderer's
- * checkpoint-undo affordances (`entriesByToolCallId`).
- */
+/** The host supplies one tool-call identity independently of model input. */
 export interface ToolExecuteRunContext {
-  agent?: { toolCallId?: string };
-  toolCallId?: string;
+  toolCallId?: string | undefined;
 }
 
-/**
- * The tool-call id from whichever documented location the context carries —
- * agent-scoped for agent-context tools, top-level for plain tool objects (the
- * same dual location {@link resolveShellOutputStreamer} already reads). This is
- * field selection between two documented Mastra shapes, not a fallback: a
- * context can only ever populate the location matching how its tool was
- * registered (BST-1164 review — the plain-tool path journaled NULL
- * `tool_call_id`, so the checkpoint-undo UI never rendered).
- */
 export function readToolCallId(context: ToolExecuteRunContext | undefined): string | undefined {
-  return context?.agent?.toolCallId ?? context?.toolCallId;
-}
-
-export function resolveToolExecuteInputCandidate<T>(
-  schema: unknown,
-  input: ToolExecuteInput<T>
-): unknown {
-  const directResult = validateToolInputValue(schema, input);
-  if (directResult.success) {
-    return directResult.value;
-  }
-
-  // Mastra sometimes wraps tool args as { context: T } for compatibility. Try
-  // direct schema parsing first so a future tool with a legitimate top-level
-  // `context` field is not silently unwrapped by this compatibility bridge.
-  const maybeWrapped = input as { context?: T };
-  if (
-    typeof input === 'object' &&
-    input !== null &&
-    Object.keys(input).length === 1 &&
-    'context' in input &&
-    maybeWrapped.context !== undefined
-  ) {
-    const wrappedResult = validateToolInputValue(schema, maybeWrapped.context);
-    if (wrappedResult.success) {
-      return wrappedResult.value;
-    }
-    return input;
-  }
-
-  return input;
+  return context?.toolCallId;
 }
 
 /** Hard cap so a pathological many-issue error can't flood the model context. */
@@ -117,7 +66,7 @@ export class ToolInputValidationError extends Error {
 }
 
 export function parseToolExecuteInput<T>(schema: unknown, input: ToolExecuteInput<T>): T {
-  const result = validateToolInputValue(schema, resolveToolExecuteInputCandidate(schema, input));
+  const result = validateToolInputValue(schema, input);
   if (result.success) {
     return result.value as T;
   }
@@ -140,37 +89,21 @@ export function parseToolExecuteInput<T>(schema: unknown, input: ToolExecuteInpu
   );
 }
 
-/** A verbatim-chunk stream writer, in either shape Mastra exposes. */
-type StreamWriterLike = (chunk: { type: string } & Record<string, unknown>) => unknown;
-
-/**
- * The subset of the Mastra tool-execution context executeCommand reads. Mastra
- * passes a `createTool` instance the `writer` (ToolStream) + `agent.toolCallId`,
- * but a plain tool OBJECT (what the desktop registry uses) gets the raw
- * `outputWriter` fn + a top-level `toolCallId`. Both are accepted.
- */
+/** Structural writer supplied by the canonical host context. */
+type StreamWriterLike = (chunk: unknown) => Promise<void>;
 export interface ToolExecuteContext {
-  abortSignal?: AbortSignal;
-  agent?: { toolCallId?: string };
-  outputWriter?: StreamWriterLike;
-  toolCallId?: string;
-  writer?: { custom: StreamWriterLike };
+  abortSignal?: AbortSignal | undefined;
+  toolCallId?: string | undefined;
+  writer?: { custom: StreamWriterLike } | undefined;
 }
 
-/**
- * Build a {@link ShellOutputStreamer} from whichever writer shape the context
- * carries, or `undefined` when neither a writer nor a tool-call id is present
- * (streaming is best-effort observability — its absence never blocks the run).
- * Writes are fire-and-forget: `custom`/`outputWriter` enqueue synchronously so
- * call order is emission order; a rejected enqueue is reported, never swallowed.
- */
+/** Preserve emission order; rejected writes are reported by the caller. */
 export function resolveShellOutputStreamer(
   options: ToolExecuteContext | undefined,
   onError: (error: unknown) => void
 ): ShellOutputStreamer | undefined {
-  const custom: StreamWriterLike | undefined =
-    options?.writer?.custom.bind(options.writer) ?? options?.outputWriter;
-  const toolCallId = options?.agent?.toolCallId ?? options?.toolCallId;
+  const custom = options?.writer?.custom.bind(options.writer);
+  const toolCallId = options?.toolCallId;
   if (!(custom && toolCallId)) {
     return;
   }

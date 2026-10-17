@@ -491,20 +491,17 @@ describe('assistant-tools multi-root read tools', () => {
   });
 
   describe('suspending tool registration (submitPlan / askUser)', () => {
-    it('registers the factory Tool objects directly so they keep suspendSchema', () => {
-      // Re-wrapping in the registry's { description, execute, id, inputSchema }
-      // literal shape would DROP suspendSchema and break suspension. The built
-      // entries must carry it.
+    it('registers host producer input, resume and execution contracts', () => {
+      // HostCore needs the resume schema and plain executor; vendor suspension is absent.
       const tools = buildHostNativeTools({ provider: 'anthropic' } as RuntimeData);
-      expect(
-        (tools['brainstrike.submitPlan'] as { suspendSchema?: unknown }).suspendSchema
-      ).toBeDefined();
+      expect(tools['brainstrike.submitPlan']).not.toHaveProperty('suspendSchema');
       expect(
         (tools['brainstrike.submitPlan'] as { resumeSchema?: unknown }).resumeSchema
       ).toBeDefined();
-      expect(
-        (tools['brainstrike.askUser'] as { suspendSchema?: unknown }).suspendSchema
-      ).toBeDefined();
+      expect(tools['brainstrike.askUser']).not.toHaveProperty('suspendSchema');
+      expect(tools['brainstrike.askUser']).toHaveProperty('resumeSchema');
+      expect(tools['brainstrike.askUser']).toHaveProperty('execute', expect.any(Function));
+      expect(tools['brainstrike.submitPlan']).toHaveProperty('execute', expect.any(Function));
     });
   });
 
@@ -602,16 +599,12 @@ describe('assistant-tools multi-root read tools', () => {
           'brainstrike.stringReplaceWorkspaceFile'
         );
         // Read first so the R8 staleness guard has a fresh observation.
-        await executeReadTool({
-          context: { path: '/src/typed.ts' },
-        });
+        await executeReadTool({ path: '/src/typed.ts' });
 
         const result = await executeReplaceTool({
-          context: {
-            newStr: 'export const value: number = "not a number";',
-            oldStr: 'export const value: number = 1;',
-            path: '/src/typed.ts',
-          },
+          newStr: 'export const value: number = "not a number";',
+          oldStr: 'export const value: number = 1;',
+          path: '/src/typed.ts',
         });
 
         expect(result.replaced).toBe(true);
@@ -631,9 +624,7 @@ describe('assistant-tools multi-root read tools', () => {
         const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-thread-2'));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
-        const result = await executeTool({
-          context: { content: '# Notes\n', path: '/notes.md' },
-        });
+        const result = await executeTool({ content: '# Notes\n', path: '/notes.md' });
 
         expect(result.created).toBe(true);
         expect(result.lsp).toBeUndefined();
@@ -655,11 +646,9 @@ describe('assistant-tools multi-root read tools', () => {
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         const result = await executeTool({
-          context: {
-            line: 2,
-            match: 'export const echo = <<<greeting;',
-            path: '/src/sym.ts',
-          },
+          line: 2,
+          match: 'export const echo = <<<greeting;',
+          path: '/src/sym.ts',
         });
 
         expect(result.available).toBe(true);
@@ -688,11 +677,9 @@ describe('assistant-tools multi-root read tools', () => {
         // SECOND `greeting`. Raw indexOf on the fragment would yield column 3
         // (mid-"export") and silently inspect nothing.
         const result = await executeTool({
-          context: {
-            line: 2,
-            match: 'b: <<<greeting',
-            path: '/src/sym.ts',
-          },
+          line: 2,
+          match: 'b: <<<greeting',
+          path: '/src/sym.ts',
         });
 
         expect(result.available).toBe(true);
@@ -716,9 +703,7 @@ describe('assistant-tools multi-root read tools', () => {
         const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-markerless'));
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
-        const result = await executeTool({
-          context: { line: 2, match: 'greeting', path: '/src/sym.ts' },
-        });
+        const result = await executeTool({ line: 2, match: 'greeting', path: '/src/sym.ts' });
 
         expect(result.available).toBe(true);
         expect(result.hover).toMatch(/string/);
@@ -743,9 +728,7 @@ describe('assistant-tools multi-root read tools', () => {
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         await expect(
-          executeTool({
-            context: { line: 1, match: 'greeting', path: '/src/sym.ts' },
-          })
+          executeTool({ line: 1, match: 'greeting', path: '/src/sym.ts' })
         ).rejects.toThrow(/pass a unique line fragment with exactly one "<<<"/i);
       } finally {
         await disposeLspServers();
@@ -767,9 +750,7 @@ describe('assistant-tools multi-root read tools', () => {
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         await expect(
-          executeTool({
-            context: { line: 1, match: 'greeting', path: '/src/sym.ts' },
-          })
+          executeTool({ line: 1, match: 'greeting', path: '/src/sym.ts' })
         ).rejects.toThrow(/identifier occurs on line 2; retry with line 2/i);
       } finally {
         await disposeLspServers();
@@ -789,15 +770,11 @@ describe('assistant-tools multi-root read tools', () => {
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         await expect(
-          executeTool({
-            context: { line: 1, match: 'export const x', path: '/src/sym.ts' },
-          })
+          executeTool({ line: 1, match: 'export const x', path: '/src/sym.ts' })
         ).rejects.toThrow(/must be one JavaScript\/TypeScript identifier/i);
 
         await expect(
-          executeTool({
-            context: { line: 1, match: 'inspectTarget', path: '/src/sym.ts' },
-          })
+          executeTool({ line: 1, match: 'inspectTarget', path: '/src/sym.ts' })
         ).rejects.toThrow(/occurs on line 2.*retry with line 2/i);
       } finally {
         await disposeLspServers();
@@ -817,9 +794,9 @@ describe('assistant-tools multi-root read tools', () => {
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         const inspection = executeTool({
-          // Model quoted a line that isn't the real line 1 → must refuse with
-          // the actual line text, never inspect a wrong column.
-          context: { line: 1, match: 'const nonexistent = <<<thing;', path: '/src/x.ts' },
+          line: 1,
+          match: 'const nonexistent = <<<thing;',
+          path: '/src/x.ts',
         });
 
         await expect(inspection).rejects.toBeInstanceOf(ToolInputError);
@@ -842,10 +819,7 @@ describe('assistant-tools multi-root read tools', () => {
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         await expect(
-          executeTool({
-            // "value" appears twice on line 1 → the column is ambiguous.
-            context: { line: 1, match: '<<<value', path: '/src/dup.ts' },
-          })
+          executeTool({ line: 1, match: '<<<value', path: '/src/dup.ts' })
         ).rejects.toThrow(/more than once/i);
       } finally {
         await disposeLspServers();
@@ -874,11 +848,9 @@ describe('assistant-tools multi-root read tools', () => {
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         const result = await executeTool({
-          context: {
-            line: 2,
-            match: 'export const use = <<<bigSym;',
-            path: '/src/use.ts',
-          },
+          line: 2,
+          match: 'export const use = <<<bigSym;',
+          path: '/src/use.ts',
         });
 
         expect(result.available).toBe(true);
@@ -903,10 +875,7 @@ describe('assistant-tools multi-root read tools', () => {
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         await expect(
-          executeTool({
-            // Two markers → invalid.
-            context: { line: 1, match: 'export <<<const <<<x = 1;', path: '/src/x.ts' },
-          })
+          executeTool({ line: 1, match: 'export <<<const <<<x = 1;', path: '/src/x.ts' })
         ).rejects.toThrow(/exactly one/i);
       } finally {
         await disposeLspServers();

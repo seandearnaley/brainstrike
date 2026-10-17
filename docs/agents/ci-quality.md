@@ -1,8 +1,11 @@
 # Validation and delivery
 
-CI is disabled due to cost; validation must run locally. Hosted workflows and
-automated reviews require explicit owner authorization. Their preserved YAML is
-reference material, not a request to dispatch them.
+Per-PR CI is off due to cost; validate locally before merge. Hosted CI runs
+nightly on main and files failures to Linear (`nightly-alert`). Treat an open
+`nightly-alert` issue as a red main: fix main first, before merging other work
+onto it. Enabling or dispatching other workflows, and automated reviews, require
+explicit owner authorization; the disabled per-PR workflows' YAML is reference
+material, not a request to run them.
 
 ## Choose useful checks
 
@@ -31,8 +34,17 @@ biome check <affected paths>` while editing; package lint scripts currently run
 the root lane. Preserve real rejection ownership rather than adding `void` to
 silence a finding. Narrow cause/import/boolean rules follow the scanner's proved
 scope; TypeScript, Effect diagnostics and React Compiler checks remain separate.
-Run `pnpm exec node --test scripts/__tests__/agent-quality-lint.test.mjs` when
+Run `pnpm exec node --test scripts/__tests__/isolated/agent-quality-lint.test.mjs` when
 changing these overrides: real new-file fixtures verify inclusion and semantics.
+`test:scripts` runs these checkout-mutating fixtures to completion first, then
+runs the other script files in parallel. Keep repository scans out of the fixture
+phase so they cannot observe temporary bad files or race their cleanup.
+All agent `src/__tests__` layouts, including nested `.spec.ts`, `.test.ts`, `.mts`
+and `.mjs` files, enforce async assertions, Promise predicates and exhaustive
+switches. The scoped rejection rule rejects literal non-Error failures while
+allowing original unknown errors and abort reasons; preserve their identity.
+Biome accepts explicit `void` disposal and cannot prove resource joins or lazy
+Effect execution. Keep those ownership proofs in focused behavior tests.
 
 ## Finish without an endless campaign
 

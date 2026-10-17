@@ -1,3 +1,4 @@
+import type { HostToolDefinitions } from '@brainstrike/agent/tool-runtime';
 import './_windows-command-fixture';
 /**
  * Safety coverage for the desktop `brainstrike.executeCommand` tool.
@@ -87,7 +88,7 @@ function singleRoot(rootPath: string): RuntimeData {
 }
 
 function requireExecuteCommandModelOutput(
-  tools: NonNullable<RuntimeData['mastraTools']>
+  tools: HostToolDefinitions
 ): (output: unknown) => { type: 'text'; value: string } {
   const tool = requireTool(tools, 'brainstrike.executeCommand');
   const toModelOutput = (tool as { toModelOutput?: (output: unknown) => unknown }).toModelOutput;

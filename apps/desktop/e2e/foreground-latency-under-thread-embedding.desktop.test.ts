@@ -44,8 +44,9 @@ import { createThreadMessageCorpus, type ThreadMessageCorpus } from './utils/thr
  * renderer embedder), and the same probes as the index-build benchmark measure
  * the foreground idle and while every seeded message is embedded.
  *
- * Agent-host threads hold the corpus, seeded through the host's own runs and
- * enabled through the model catalog's owner.
+ * The corpus is agent-host threads, seeded through the host's own runs. The
+ * legacy PGlite thread history this once compared against was retired with
+ * desktop PGlite (#3595), so only the host's threads are measured (BST-2024).
  *
  * The search embedder is the renderer's local model on the preferred device
  * (`createLocalEmbedder`'s runtime is that preference; it has no fallback), so
@@ -246,7 +247,10 @@ async function seedHostCorpus(
     const seedNext = async (): Promise<void> => {
       for (let thread = queue.shift(); thread; thread = queue.shift()) {
         const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
-        rows += await runs(threadId, thread.messages, 0);
+        // Read the count first: `rows += await …` captures `rows` before the await, so
+        // concurrent seeders would overwrite each other's counts.
+        const committed = await runs(threadId, thread.messages, 0);
+        rows += committed;
       }
     };
     await Promise.all(Array.from({ length: SEED_CONCURRENCY }, seedNext));
@@ -317,7 +321,7 @@ test.describe('Foreground latency under thread message embedding', () => {
           corpus,
           modelProvider
         );
-        // A fresh app measures the backlog: the seeding runs' process state is not the load.
+        // A fresh app is measured: the seeding runs' process state is not the load.
         const restarted = await electron.restart();
         const app = restarted.app;
         const view = restarted.window;

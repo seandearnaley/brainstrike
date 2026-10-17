@@ -255,7 +255,7 @@ it('composes production tools with the scoped SQLite writer and real separate qu
       throw new Error('Missing hybrid model projection');
     }
     const project = entry.toModelOutput;
-    expect(() => project(hybrid)).not.toThrow();
+    expect(() => Reflect.apply(project, entry, [hybrid])).not.toThrow();
     expect(queryEmbedding).toHaveBeenCalledWith(
       {
         dimensions: 384,

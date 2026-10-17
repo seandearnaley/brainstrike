@@ -1,4 +1,7 @@
-import { EmbeddingDeviceLostError } from '@brainstrike/indexing-contract';
+import {
+  EmbeddingDeviceLostError,
+  EmbeddingDeviceUnavailableError,
+} from '@brainstrike/indexing-contract';
 
 export interface GpuDeviceHandle {
   createCommandEncoder: () => { finish: () => unknown };
@@ -34,11 +37,11 @@ export function createWebGpuDeviceOwner(onLost: (error: EmbeddingDeviceLostError
         }
       ).gpu;
       if (!gpu) {
-        throw new Error('WebGPU is not available in this environment.');
+        throw new EmbeddingDeviceUnavailableError('WebGPU is not available in this environment.');
       }
       const adapter = await gpu.requestAdapter();
       if (!adapter) {
-        throw new Error('WebGPU adapter is unavailable.');
+        throw new EmbeddingDeviceUnavailableError('WebGPU adapter is unavailable.');
       }
       // WebIDL limits live on the prototype, so object spread drops them.
       const requiredLimits: Record<string, number> = {};

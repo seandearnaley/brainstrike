@@ -7,41 +7,9 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 /**
- * A tool that can `suspend()` (declares a Mastra `suspendSchema`) but has no
- * REGISTERED typed resume UI pauses a run this build cannot answer. That
- * direction has no compile-time guard — `REGISTERED_SUSPEND_RESUME_TOOL_IDS`
- * only guarantees registry → UI — so this source scan is the only thing catching
- * it. Its blind spots therefore matter more than usual, and the control tests
- * below prove it actually catches what its failure message promises:
- *
- * - RECURSIVE: a suspending tool in a subdirectory must not be invisible.
- * - BOTH ROOTS: suspending tools are DEFINED in packages/agent/src/tools but
- *   REGISTERED in apps/desktop/src/assistant-server, which also defines tools of
- *   its own (retrieval-tool.ts, hybrid-search-tool.ts). Scanning one root only
- *   would miss a suspending tool defined in the other.
- * - LOOSE TOKEN: `/\bsuspendSchema\b/`, not `/\bsuspendSchema\s*:/`, so the
- *   property shorthand `{ suspendSchema }` and a spread of a shared config
- *   object are both caught.
- * - COMMENTS STRIPPED: prose mentioning suspendSchema (assistant-tools.ts has
- *   one) must not read as a declaration, or the guard turns into noise and gets
- *   silenced.
- * - ROOTS GUARDED: the root list itself was the fifth blind spot of the same
- *   shape (review of PR #1977). `walkTypeScriptFiles` swallows a missing
- *   directory, so renaming a declaration root would have silently dropped that
- *   whole root while the deep-equal still passed on the other one. Two defences
- *   now: the declaration roots are asserted to exist and be non-empty, AND a
- *   REPO-WIDE sweep (`REPO_SWEEP_ROOTS`) means a suspending tool defined in a
- *   brand-new package is caught even though it is under no declaration root.
- *
- * KNOWN LIMITATION (deliberate, harmless today): `stripComments` has no
- * string-literal awareness, so a line containing a URL has everything after the
- * `//` removed. A `suspendSchema` token AFTER a `//` inside a string on the same
- * line would therefore be missed. Documented so a future false negative is
- * debuggable rather than mysterious.
- *
- * Lives here rather than in a package test because it reads across packages —
- * a package-scoped vitest reading a foreign package's source is an unhashed
- * turbo input (stale-green cache landmine). `pnpm test:scripts` is uncached.
+ * HostCore owns interaction and consent. Producer-side vendor suspensions are
+ * forbidden: this recursive cross-root scan rejects a new suspendSchema even
+ * when declared in a new package. Negative controls below keep the scan honest.
  */
 
 /**
@@ -62,26 +30,9 @@ const SUSPENDING_TOOL_SOURCE_ROOTS = [
  */
 const REPO_SWEEP_ROOTS = ['apps', 'packages'];
 
-/** The only modules allowed to declare a `suspendSchema`, repo-relative. */
-const REGISTERED_SUSPENDING_TOOL_MODULES = [
-  'packages/agent/src/tools/ask-user-tool.ts',
-  'packages/agent/src/tools/run-python-tool.ts',
-  'packages/agent/src/tools/submit-plan-tool.ts',
-];
-
-/**
- * Modules that mention `suspendSchema` in code without declaring one — they READ
- * the property to detect suspending tools structurally. Listed explicitly so the
- * repo-wide sweep stays exact: a new entry here is a deliberate human decision,
- * never a silent widening.
- */
-const ACKNOWLEDGED_NON_DECLARING_MODULES = [
-  // (permission-tool-gate.ts left this list at the @mastra/core 1.56 idiom
-  // adoption: the self-approving exception it read hasSuspendSchema for is
-  // gone — every ask tool takes the requireApproval clone. plan-mode-tool-gate.ts
-  // left it when ADR-0022 retired the engine: its only reader of the property,
-  // the suspend-storage fail-safe, had no caller left and was deleted.)
-];
+/** No host producer may reintroduce vendor suspension ownership (ADR-0023). */
+const REGISTERED_SUSPENDING_TOOL_MODULES = [];
+const ACKNOWLEDGED_NON_DECLARING_MODULES = [];
 
 const SUSPEND_SCHEMA_TOKEN = /\bsuspendSchema\b/;
 
@@ -189,7 +140,7 @@ test('the repo-wide sweep finds no suspendSchema outside the known modules', () 
   );
 });
 
-test('every suspendSchema-declaring module under the tool roots has a registered resume UI', () => {
+test('host producers have no vendor suspendSchema', () => {
   assert.deepEqual(
     findSuspendingToolModules(repoRoot),
     REGISTERED_SUSPENDING_TOOL_MODULES,

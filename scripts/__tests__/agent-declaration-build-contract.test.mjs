@@ -24,8 +24,8 @@ test('agent declarations are emitted by tsc before the JavaScript bundle', () =>
   );
   assert.equal(
     [...agentTsupConfig.matchAll(/\.\.\.sharedConfig,/g)].length,
-    2,
-    'both the broad and Hosted Web build configs must inherit sharedConfig'
+    3,
+    'the broad, shared deadline owner and Hosted Web build configs must inherit sharedConfig'
   );
   assert.doesNotMatch(
     agentTsupConfig,

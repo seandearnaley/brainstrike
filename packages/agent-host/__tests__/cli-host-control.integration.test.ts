@@ -5,16 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createAskUserTool, createSubmitPlanTool } from '@brainstrike/agent';
-import type { RuntimeData } from '@brainstrike/agent/tool-runtime';
+import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import { DEFAULT_PERMISSION_POLICIES, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { processStartTime, RootLock, RootLockedError, StateStore } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import { afterEach, beforeAll, expect, test, vi } from 'vitest';
-import {
-  canonicalToolInputSchema,
-  canonicalToolModelOutput,
-  createCanonicalToolContext,
-} from '../src/adapters/canonical-context.js';
+import { createAgentHostToolBindings } from '../src/adapters/canonical-tool-bindings.js';
 import { attachAgentHost, type HostClient } from '../src/client.js';
 import type { HostTool } from '../src/ports.js';
 import { loadHostPlatform } from '../src/process-entry.js';
@@ -202,42 +198,16 @@ test('host stop returns only after canonical platform and root cleanup', async (
 });
 function canonicalInteractionTool(kind: 'question' | 'plan'): HostTool {
   const id = kind === 'question' ? NATIVE_TOOL_ID.askUser : NATIVE_TOOL_ID.submitPlan;
-  const selected: NonNullable<RuntimeData['mastraTools']> = {
-    [id]: kind === 'question' ? createAskUserTool() : createSubmitPlanTool(),
-  };
-  const source = selected[id];
-  if (
-    !(
-      source &&
-      'description' in source &&
-      typeof source.description === 'string' &&
-      source.execute &&
-      'inputSchema' in source &&
-      source.inputSchema &&
-      'resumeSchema' in source &&
-      source.resumeSchema
-    )
-  ) {
-    throw new Error('Shipped canonical interaction has no executable schemas');
+  const bindings = createAgentHostToolBindings({
+    bindings: { [id]: { identity: id, risk: 'read' } },
+    resolvedToolResultBudget: resolveScaledToolResultBudget(128_000),
+    tools: { [id]: kind === 'question' ? createAskUserTool() : createSubmitPlanTool() },
+  });
+  const [result] = Object.values(bindings.tools);
+  if (!result) {
+    throw new Error('Shipped interaction has no binding');
   }
-  const execute = source.execute;
-  const project = source.toModelOutput;
-  return {
-    description: source.description,
-    execute: async (input, context) =>
-      await execute.call(source, input, createCanonicalToolContext(context, id)),
-    identity: id,
-    inputSchema: canonicalToolInputSchema(source.inputSchema),
-    interaction: { kind, resumeSchema: canonicalToolInputSchema(source.resumeSchema) },
-    permissionToolId: id,
-    risk: 'read',
-    ...(project
-      ? {
-          toModelOutput: async ({ output, toolCallId }) =>
-            canonicalToolModelOutput(await project.call(source, output), toolCallId, id),
-        }
-      : {}),
-  };
+  return result;
 }
 test.each(
   [

@@ -1,7 +1,6 @@
-import type { ToolsInput } from '@mastra/core/agent';
-import { createTool } from '@mastra/core/tools';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition';
 import { ToolRegistry } from '../mcp/tool-registry';
 
 describe('MCP ToolRegistry', () => {
@@ -11,13 +10,12 @@ describe('MCP ToolRegistry', () => {
     registry = new ToolRegistry();
   });
 
-  const createMockTool = (id: string, description: string) =>
-    createTool({
-      description,
-      execute: async () => ({ result: 'test' }),
-      id,
-      inputSchema: z.object({ query: z.string() }),
-    });
+  const createMockTool = (id: string, description: string) => ({
+    description,
+    execute: async () => ({ result: 'test' }),
+    id,
+    inputSchema: z.object({ query: z.string() }),
+  });
 
   const mockTools = {
     'tool.read': createMockTool('tool.read', 'Read a document'),

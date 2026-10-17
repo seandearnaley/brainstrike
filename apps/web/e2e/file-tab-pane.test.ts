@@ -31,9 +31,13 @@ test.describe('Per-file explorer pane', () => {
     await page.reload();
     await waitForAppLoad(page, { waitForDatabase: false });
 
-    // Activate the default thread tab so the thread store registers it as the
-    // ACTIVE thread — per-thread workspace saves key off that identity.
-    await page.getByRole('tab', { name: 'New Thread' }).click();
+    // Activate the default thread, a row in the Threads library, so the thread
+    // store registers it as the ACTIVE thread — per-thread workspace saves key
+    // off that identity.
+    await page
+      .getByRole('treegrid', { name: 'Workspace threads' })
+      .getByRole('button', { exact: true, name: 'New Thread' })
+      .click();
 
     // Connect the root and open src/app.ts as a file tab.
     await page.getByTestId('select-root-button').click();
@@ -82,9 +86,7 @@ test.describe('Per-file explorer pane', () => {
     await expect(page.getByTestId('file-tab-explorer-pane')).toHaveCount(0);
   });
 
-  test.fixme('manual close sticks per file across reload; the toggle reopens', {
-    annotation: { description: 'BST-1965', type: 'quarantine' },
-  }, async ({ page }) => {
+  test('manual close sticks per file across reload; the toggle reopens', async ({ page }) => {
     // Close the auto-opened pane — this records an EXPLICIT open: false that
     // must survive through the per-thread workspace snapshot.
     await page.getByRole('button', { name: 'Toggle explorer pane' }).click();

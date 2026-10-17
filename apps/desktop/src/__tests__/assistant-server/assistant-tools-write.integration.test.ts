@@ -61,7 +61,8 @@ describe('assistant-tools write tools', () => {
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         const result = await executeTool({
-          context: { content: 'export const created = true;\n', path: '/src/new-file.ts' },
+          content: 'export const created = true;\n',
+          path: '/src/new-file.ts',
         });
 
         expect(result.path).toBe('/src/new-file.ts');
@@ -84,9 +85,7 @@ describe('assistant-tools write tools', () => {
         const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
-        const result = await executeTool({
-          context: { content: 'hello', path: '/deeply/nested/dir/file.txt' },
-        });
+        const result = await executeTool({ content: 'hello', path: '/deeply/nested/dir/file.txt' });
 
         expect(result.created).toBe(true);
         const onDisk = await fsPromises.readFile(
@@ -105,9 +104,7 @@ describe('assistant-tools write tools', () => {
         const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
-        const result = await executeTool({
-          context: { content: '# Overwritten\n', path: '/README.md' },
-        });
+        const result = await executeTool({ content: '# Overwritten\n', path: '/README.md' });
 
         expect(result.created).toBe(false);
         const onDisk = await fsPromises.readFile(path.join(workspaceRootPath, 'README.md'), 'utf8');
@@ -126,7 +123,7 @@ describe('assistant-tools write tools', () => {
 
         // "../" is clamped at the root by normalizeWorkspacePath, so this normalizes
         // to "/escaped.txt" INSIDE the root — it must NOT land in the sibling dir.
-        await executeTool({ context: { content: 'nope', path: '../escaped.txt' } });
+        await executeTool({ content: 'nope', path: '../escaped.txt' });
 
         await expect(
           fsPromises.access(path.join(path.dirname(workspaceRootPath), 'escaped.txt'))
@@ -163,7 +160,7 @@ describe('assistant-tools write tools', () => {
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         await expect(
-          executeTool({ context: { content: 'escape', path: '/src/linked/pwned.txt' } })
+          executeTool({ content: 'escape', path: '/src/linked/pwned.txt' })
         ).rejects.toThrow('is outside the selected workspace root');
         // Nothing was written through the symlink into the outside dir.
         await expect(fsPromises.access(path.join(outsideRoot, 'pwned.txt'))).rejects.toThrow();
@@ -195,9 +192,9 @@ describe('assistant-tools write tools', () => {
         const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
-        await expect(
-          executeTool({ context: { content: 'PWNED', path: '/src/evil.txt' } })
-        ).rejects.toThrow('is outside the selected workspace root');
+        await expect(executeTool({ content: 'PWNED', path: '/src/evil.txt' })).rejects.toThrow(
+          'is outside the selected workspace root'
+        );
         // The bytes never escaped through the dangling symlink.
         await expect(fsPromises.access(outsideTarget)).rejects.toThrow();
       } finally {
@@ -228,9 +225,9 @@ describe('assistant-tools write tools', () => {
         const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
-        await expect(
-          executeTool({ context: { content: 'PWNED', path: '/src/evil.txt' } })
-        ).rejects.toThrow('is outside the selected workspace root');
+        await expect(executeTool({ content: 'PWNED', path: '/src/evil.txt' })).rejects.toThrow(
+          'is outside the selected workspace root'
+        );
         // The outside file was NOT overwritten through the symlink.
         expect(await fsPromises.readFile(outsideTarget, 'utf8')).toBe('original');
       } finally {
@@ -261,7 +258,7 @@ describe('assistant-tools write tools', () => {
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         await expect(
-          executeTool({ context: { content: 'PWNED', path: '/src/linkdir/pwned.txt' } })
+          executeTool({ content: 'PWNED', path: '/src/linkdir/pwned.txt' })
         ).rejects.toThrow('outside the selected workspace root');
         // Nothing was created under the dangling intermediate symlink.
         await expect(fsPromises.access(path.join(outsideDir, 'pwned.txt'))).rejects.toThrow();
@@ -278,9 +275,9 @@ describe('assistant-tools write tools', () => {
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
         // 2 MB + 1 byte exceeds MAX_WRITE_WORKSPACE_FILE_BYTES.
         const oversized = 'a'.repeat(2_000_001);
-        await expect(
-          executeTool({ context: { content: oversized, path: '/big.txt' } })
-        ).rejects.toThrow(/exceeding the .* byte write limit/i);
+        await expect(executeTool({ content: oversized, path: '/big.txt' })).rejects.toThrow(
+          /exceeding the .* byte write limit/i
+        );
         // No partial/empty file was created.
         await expect(fsPromises.access(path.join(workspaceRootPath, 'big.txt'))).rejects.toThrow();
       } finally {
@@ -297,10 +294,8 @@ describe('assistant-tools write tools', () => {
 
         await expect(
           executeTool({
-            context: {
-              content: '10: import x\n11: const value = x;\n12: export default value;\n',
-              path: '/guttered.ts',
-            },
+            content: '10: import x\n11: const value = x;\n12: export default value;\n',
+            path: '/guttered.ts',
           })
         ).rejects.toMatchObject({
           code: 'tool_input_invalid',
@@ -317,9 +312,7 @@ describe('assistant-tools write tools', () => {
       try {
         const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
-        await expect(executeTool({ context: { content: 'x', path: '/' } })).rejects.toThrow(
-          /workspace root/i
-        );
+        await expect(executeTool({ content: 'x', path: '/' })).rejects.toThrow(/workspace root/i);
       } finally {
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
@@ -330,7 +323,7 @@ describe('assistant-tools write tools', () => {
       try {
         const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
-        await expect(executeTool({ context: { content: 'x', path: '/src' } })).rejects.toThrow(
+        await expect(executeTool({ content: 'x', path: '/src' })).rejects.toThrow(
           /is a directory/i
         );
       } finally {
@@ -353,7 +346,9 @@ describe('assistant-tools write tools', () => {
         );
 
         const result = await executeTool({
-          context: { content: 'into B', path: '/note.txt', root: 'ProjectB' },
+          content: 'into B',
+          path: '/note.txt',
+          root: 'ProjectB',
         });
 
         expect(result.rootName).toBe('ProjectB');
@@ -370,7 +365,7 @@ describe('assistant-tools write tools', () => {
         buildHostNativeTools({ workspaceRoots: [] } as unknown as RuntimeData),
         'brainstrike.writeWorkspaceFile'
       );
-      await expect(executeTool({ context: { content: 'x', path: '/x.txt' } })).rejects.toThrow(
+      await expect(executeTool({ content: 'x', path: '/x.txt' })).rejects.toThrow(
         /No folder is open/i
       );
     });
@@ -385,11 +380,9 @@ describe('assistant-tools write tools', () => {
 
         await expect(
           executeTool({
-            context: {
-              newStr: '<main>Created</main>',
-              oldStr: '<main>Missing</main>',
-              path: '/index.html',
-            },
+            newStr: '<main>Created</main>',
+            oldStr: '<main>Missing</main>',
+            path: '/index.html',
           })
         ).rejects.toMatchObject({
           code: 'tool_input_invalid',
@@ -407,11 +400,9 @@ describe('assistant-tools write tools', () => {
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         const result = await executeTool({
-          context: {
-            newStr: 'export const add = () => 2;',
-            oldStr: 'export const add = () => 1;',
-            path: '/src/lib/math.ts',
-          },
+          newStr: 'export const add = () => 2;',
+          oldStr: 'export const add = () => 1;',
+          path: '/src/lib/math.ts',
         });
 
         expect(result.replaced).toBe(true);
@@ -440,11 +431,9 @@ describe('assistant-tools write tools', () => {
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         const result = await executeTool({
-          context: {
-            newStr: '  return 2;',
-            oldStr: 'return 1 ;',
-            path: '/src/ws.ts',
-          },
+          newStr: '  return 2;',
+          oldStr: 'return 1 ;',
+          path: '/src/ws.ts',
         });
 
         expect(result.matchType).toBe('whitespace-normalized');
@@ -471,11 +460,9 @@ describe('assistant-tools write tools', () => {
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         await executeTool({
-          context: {
-            newStr: 'const config = {\n  enabled: false,\n  retries: 5,\n};',
-            oldStr: 'const config = {\n  enabled: true,\n  retries: 3,\n};',
-            path: '/src/cfg.ts',
-          },
+          newStr: 'const config = {\n  enabled: false,\n  retries: 5,\n};',
+          oldStr: 'const config = {\n  enabled: true,\n  retries: 3,\n};',
+          path: '/src/cfg.ts',
         });
 
         const onDisk = await fsPromises.readFile(filePath, 'utf8');
@@ -498,9 +485,7 @@ describe('assistant-tools write tools', () => {
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         await expect(
-          executeTool({
-            context: { newStr: 'count--;', oldStr: 'count++;', path: '/src/dup.ts' },
-          })
+          executeTool({ newStr: 'count--;', oldStr: 'count++;', path: '/src/dup.ts' })
         ).rejects.toThrow(/locations|matches|surrounding/i);
         // The file is untouched — no partial / wrong-location edit.
         expect(await fsPromises.readFile(filePath, 'utf8')).toBe(original);
@@ -523,9 +508,7 @@ describe('assistant-tools write tools', () => {
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         await expect(
-          executeTool({
-            context: { newStr: 'disable();', oldStr: block, path: '/src/dupblock.ts' },
-          })
+          executeTool({ newStr: 'disable();', oldStr: block, path: '/src/dupblock.ts' })
         ).rejects.toThrow(/2 locations|surrounding/i);
         // BOTH blocks intact — nothing was replace-all'd.
         expect(await fsPromises.readFile(filePath, 'utf8')).toBe(original);
@@ -544,11 +527,9 @@ describe('assistant-tools write tools', () => {
 
         await expect(
           executeTool({
-            context: {
-              newStr: 'x',
-              oldStr: 'this string is absolutely nowhere in the file content',
-              path: '/src/lib/math.ts',
-            },
+            newStr: 'x',
+            oldStr: 'this string is absolutely nowhere in the file content',
+            path: '/src/lib/math.ts',
           })
         ).rejects.toThrow(/no sufficiently close match|not\s|Re-read/i);
         expect(await fsPromises.readFile(filePath, 'utf8')).toBe(original);
@@ -566,11 +547,9 @@ describe('assistant-tools write tools', () => {
 
         await expect(
           executeTool({
-            context: {
-              newStr: '10: import x\n11: const value = x;\n12: export default value;',
-              oldStr: 'export const add = () => 1;',
-              path,
-            },
+            newStr: '10: import x\n11: const value = x;\n12: export default value;',
+            oldStr: 'export const add = () => 1;',
+            path,
           })
         ).rejects.toMatchObject({
           code: 'tool_input_invalid',
@@ -579,11 +558,9 @@ describe('assistant-tools write tools', () => {
 
         const runRealFailure = async (): Promise<unknown> =>
           executeTool({
-            context: {
-              newStr: 'export const add = () => 2;',
-              oldStr: 'this string is absolutely nowhere in the file content',
-              path,
-            },
+            newStr: 'export const add = () => 2;',
+            oldStr: 'this string is absolutely nowhere in the file content',
+            path,
           }).catch((error: unknown) => error);
 
         const firstRealFailure = await runRealFailure();
@@ -611,10 +588,14 @@ describe('assistant-tools write tools', () => {
         // read-modify-write cycles so neither clobbers the other's edit.
         const [r1, r2] = await Promise.all([
           executeTool({
-            context: { newStr: 'const a = 10;', oldStr: 'const a = 1;', path: '/src/lib/math.ts' },
+            newStr: 'const a = 10;',
+            oldStr: 'const a = 1;',
+            path: '/src/lib/math.ts',
           }),
           executeTool({
-            context: { newStr: 'const b = 20;', oldStr: 'const b = 2;', path: '/src/lib/math.ts' },
+            newStr: 'const b = 20;',
+            oldStr: 'const b = 2;',
+            path: '/src/lib/math.ts',
           }),
         ]);
 
@@ -657,9 +638,7 @@ describe('assistant-tools write tools', () => {
         // the write-back must then REFUSE the symlink leaf. Either way no bytes
         // escape through the link.
         await expect(
-          executeTool({
-            context: { newStr: 'PWNED', oldStr: 'original', path: '/src/evil.ts' },
-          })
+          executeTool({ newStr: 'PWNED', oldStr: 'original', path: '/src/evil.ts' })
         ).rejects.toThrow(/outside the selected workspace root/i);
         // The outside file was NOT modified through the symlink.
         expect(await fsPromises.readFile(outsideTarget, 'utf8')).toBe('original\n');
@@ -674,9 +653,9 @@ describe('assistant-tools write tools', () => {
         buildHostNativeTools({ workspaceRoots: [] } as unknown as RuntimeData),
         'brainstrike.stringReplaceWorkspaceFile'
       );
-      await expect(
-        executeTool({ context: { newStr: 'b', oldStr: 'a', path: '/x.ts' } })
-      ).rejects.toThrow(/No folder is open/i);
+      await expect(executeTool({ newStr: 'b', oldStr: 'a', path: '/x.ts' })).rejects.toThrow(
+        /No folder is open/i
+      );
     });
   });
 });

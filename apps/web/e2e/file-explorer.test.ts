@@ -779,9 +779,9 @@ test.describe('File Explorer', () => {
       }
     });
 
-    test.fixme('keeps root Select All and single-click expansion aligned with the TypeScript/JavaScript preset', {
-      annotation: { description: 'BST-1953', type: 'quarantine' },
-    }, async ({ page }) => {
+    test('keeps root Select All and single-click expansion aligned with the TypeScript/JavaScript preset', async ({
+      page,
+    }) => {
       const presetTree: FileTree = {
         assets: {
           'logo.png': null,

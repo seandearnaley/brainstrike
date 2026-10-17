@@ -1,3 +1,6 @@
+# Runs nightly on main (owner decision 2026-10-17).
+# Per-PR hosted CI is off; merges use the local gate in docs/agents/ci-quality.md.
+
 name: Native Package Matrix
 
 # BST-1920 / BST-1923: better-sqlite3 and sqlite-vec are shipped as PREBUILT
@@ -8,9 +11,8 @@ name: Native Package Matrix
 # `vec0.*` from `app.asar.unpacked`, the packaged tree has no node-gyp output,
 # and a vec0 table round-trips.
 #
-# Adapted from the native-index-sqlite spike. NOT a required check: it proves
-# itself on the PRs that touch its paths, and failures on the nightly run go to
-# Linear (rule 7).
+# Adapted from the native-index-sqlite spike. NOT a required check: failures on
+# the nightly run go to Linear (rule 7).
 #
 # Linux arm64 uses the same checksum-pinned Python derivation and packaging
 # path as x64; no packaging step or addon smoke is skipped for that target.
@@ -19,17 +21,6 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '41 9 * * *'
-  pull_request:
-    branches: ['**']
-    types: [opened, synchronize, reopened]
-    paths:
-      - pnpm-lock.yaml
-      - pnpm-workspace.yaml
-      - apps/desktop/package.json
-      - packages/sqlite-native/**
-      - packages/state-store/**
-      - packages/indexer/**
-      - .github/workflows/native-package-matrix.yml
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.event.pull_request.head.repo.full_name, github.head_ref) || github.ref }}
@@ -49,6 +40,7 @@ env:
 jobs:
   smoke:
     name: ${{ matrix.os }} (${{ matrix.arch }})
+    if: github.repository == 'seandearnaley/brainstrike'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -177,7 +169,7 @@ jobs:
   notify-linear:
     name: Notify Linear
     needs: [smoke]
-    if: ${{ always() && github.event_name == 'schedule' }}
+    if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/nightly-linear-alert.yml
     with:
       workflow_name: ${{ github.workflow }}

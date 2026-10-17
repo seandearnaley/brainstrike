@@ -1,0 +1,12 @@
+{
+  "calls": [
+    {
+      "input": { "path": "alpha.md" },
+      "toolId": "brainstrike_readWorkspaceFile"
+    },
+    {
+      "input": { "path": "beta.md" },
+      "toolId": "brainstrike_readWorkspaceFile"
+    }
+  ]
+}

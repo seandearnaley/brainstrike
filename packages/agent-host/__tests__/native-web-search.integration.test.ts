@@ -9,7 +9,6 @@ import {
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { WEB_SEARCH_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { StateStore } from '@brainstrike/state-store';
-import type { Tool } from 'ai';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { expect, test, vi } from 'vitest';
 import { z } from 'zod';
@@ -73,7 +72,10 @@ test('an allowed provider search runs in one step with no host decision or dispa
   const nativeWebSearch = createProviderNativeWebSearchTool(
     'anthropic',
     apiKeyAuthInput('fixture-provider-key')
-  ) as unknown as Tool;
+  );
+  if (!nativeWebSearch) {
+    throw new Error('Provider-native search is missing');
+  }
   const platform: HostPlatform = {
     admitRun: async () => ({
       configuration: { provider: 'anthropic' },
@@ -159,7 +161,10 @@ test('a PreToolUse hook matching web search keeps the catalog tool, so the hook 
   const nativeWebSearch = createProviderNativeWebSearchTool(
     'anthropic',
     apiKeyAuthInput('fixture-provider-key')
-  ) as unknown as Tool;
+  );
+  if (!nativeWebSearch) {
+    throw new Error('Provider-native search is missing');
+  }
   const preToolUse = vi.fn(async () => ({ blocked: true as const, reason }));
   const platform: HostPlatform = {
     admitRun: async () => ({

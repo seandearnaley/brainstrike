@@ -315,6 +315,44 @@ describe('workerpool request error events', () => {
     );
   });
 
+  it('keeps an unavailable device typed, so its owner can refuse it with the remedy (BST-2058)', async () => {
+    const { promise, resolve } = createCancelablePromise<QueueResult>();
+    const workerError = {
+      cause: 'WebGPU adapter is unavailable.',
+      code: 'EMBEDDING_DEVICE_UNAVAILABLE',
+      id: 'task-no-adapter',
+      message:
+        'WebGPU is not available on this device. Choose WASM in Settings → Search & Indexing.',
+      type: 'error',
+    } as const;
+    poolExecMock.mockImplementation(
+      (_method, _args, options?: { on?: (workerEvent: unknown) => void }) => {
+        options?.on?.(workerError);
+        return promise;
+      }
+    );
+
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
+    const adapter = createWorkerpoolAdapter({
+      telemetry: {
+        recordBatch: vi.fn(),
+        recordFailure: vi.fn(),
+        recordPipelineCache: vi.fn(),
+        removeSource: vi.fn(),
+      },
+      workerUrl: '/worker.js',
+    });
+    const addPromise = adapter.add(createTask('task-no-adapter'));
+    resolve(createResult('task-no-adapter'));
+
+    await expect(addPromise).rejects.toMatchObject({
+      cause: workerError.cause,
+      code: workerError.code,
+      message: workerError.message,
+      name: 'DeviceUnavailable',
+    });
+  });
+
   it('preserves an in-flight worker failure after control channels close', async () => {
     const { promise, reject } = createCancelablePromise<QueueResult>();
     poolExecMock.mockReturnValue(promise);

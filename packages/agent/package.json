@@ -24,6 +24,7 @@
     "@huggingface/transformers": "catalog:",
     "@mastra/core": "1.71.0",
     "@mastra/memory": "1.32.1",
+    "@mastra/schema-compat": "catalog:",
     "@modelcontextprotocol/client": "catalog:",
     "@modelcontextprotocol/core": "catalog:",
     "@openrouter/ai-sdk-provider": "catalog:",
@@ -62,6 +63,11 @@
       "types": "./dist/tool-runtime.d.ts",
       "import": "./dist/tool-runtime.mjs",
       "require": "./dist/tool-runtime.js"
+    },
+    "./tool-guard-deadline": {
+      "types": "./dist/tool-guard-deadline.d.ts",
+      "import": "./dist/tool-guard-deadline.js",
+      "require": "./dist/tool-guard-deadline.js"
     },
     ".": {
       "types": "./dist/index.d.ts",

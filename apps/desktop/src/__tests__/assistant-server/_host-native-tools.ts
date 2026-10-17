@@ -17,6 +17,7 @@ import {
   type RuntimeData,
   type ScaledToolResultBudget,
 } from '@brainstrike/agent';
+import type { HostToolDefinitions } from '@brainstrike/agent/tool-runtime';
 import { CEILING_SCALED_TOOL_RESULT_BUDGET } from '@brainstrike/agent/tool-runtime';
 import type {
   HostToolState,
@@ -42,7 +43,7 @@ import {
 import type { PlatformSelection } from '../../agent-host-platform/platform-wire';
 import { getEditDiagnostics } from '../../assistant-server/lsp-diagnostics';
 
-type MastraTools = NonNullable<RuntimeData['mastraTools']>;
+type NativeToolDefinitions = HostToolDefinitions;
 export type HostMainRequest = (
   method: string,
   input: unknown,
@@ -144,7 +145,7 @@ export function hostExecutionPorts(overrides: Partial<NativeToolPorts> = {}): Na
 export function buildHostNativeTools(
   runtimeData: RuntimeData,
   options: HostNativeToolsOptions = {}
-): MastraTools {
+): NativeToolDefinitions {
   const threadId = options.threadId ?? runtimeData.memory?.threadId ?? 'host-thread';
   const executors: Readonly<Record<string, NativeToolExecutor>> = {
     ...SHARED_NATIVE_TOOL_EXECUTORS,
@@ -170,7 +171,7 @@ export function buildHostNativeTools(
     webExtract: options.webExtract,
     webSearch: options.webSearch,
   };
-  const tools: MastraTools = {};
+  const tools: NativeToolDefinitions = {};
   for (const id of options.ids ?? Object.keys(executors)) {
     if (context.isLocalProvider && LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS.has(id)) {
       continue;

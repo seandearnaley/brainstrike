@@ -1,0 +1,10 @@
+{
+  "id": "multi-file-feature",
+  "model": "openai::gpt-6-luna",
+  "prompt": "Add a farewell feature beside greet. Create src/farewell.ts exporting farewell(name) that returns `Goodbye, <name>!`, and create test/farewell.test.ts with a node:test test for it in the style of test/greet.test.ts. Export farewell from src/index.ts, and add the bullet `- Add farewell(name).` under the Unreleased heading of CHANGELOG.md. Use workspace-relative paths and do not pass a root.",
+  "timeoutMs": 300000,
+  "title": "Create and edit several files, each write approved under the default policy",
+  "verify": {
+    "command": ["node", "--test", "test/greet.test.ts", "test/farewell.test.ts", ".verify/farewell.hidden.test.ts"]
+  }
+}

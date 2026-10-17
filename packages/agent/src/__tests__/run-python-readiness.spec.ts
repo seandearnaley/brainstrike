@@ -1,5 +1,4 @@
 import fsPromises from 'node:fs/promises';
-import { noopObserve } from '@mastra/core/tools';
 import { describe, expect, it, vi } from 'vitest';
 import type {
   CodeExecutor,
@@ -48,13 +47,12 @@ async function runTool(
   context?: { abortSignal?: AbortSignal }
 ) {
   const tool = createRunPythonTool({
-    resolveApprovalDecision: () => 'allow',
     resolveHost: () => Promise.resolve(host),
   });
   if (!tool.execute) {
     throw new Error('run_python has no execute handler');
   }
-  return await tool.execute(input, { ...context, observe: noopObserve });
+  return await tool.execute(input, context);
 }
 
 describe('run_python sandbox construction', () => {

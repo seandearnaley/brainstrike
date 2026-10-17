@@ -1,7 +1,5 @@
-# Cloud CI is disabled due to cost; repository GitHub Actions is disabled.
-# Preserved workflow definition only: do not enable, dispatch, or rerun it.
-# Test locally with pnpm check and report the commands and results.
-# Tell the user: CI is disabled due to cost; validation must run locally.
+# Runs nightly on main (owner decision 2026-10-17).
+# Per-PR hosted CI is off; merges use the local gate in docs/agents/ci-quality.md.
 
 name: Actions Storage Cleanup
 
@@ -17,6 +15,7 @@ permissions:
 jobs:
   prune:
     name: Prune Actions Storage
+    if: github.repository == 'seandearnaley/brainstrike'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -38,3 +37,14 @@ jobs:
             --max-deletions 4000
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify-linear:
+    name: Notify Linear
+    needs: [prune]
+    if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
+    uses: ./.github/workflows/nightly-linear-alert.yml
+    with:
+      workflow_name: ${{ github.workflow }}
+      results: prune=${{ needs.prune.result }}
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

@@ -4,20 +4,31 @@ import {
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { parseMcpHostOperationResult } from '@brainstrike/assistant-contract/mcp-host-runtime';
-import type { ToolsInput } from '@mastra/core/agent';
+import type { StandardSchemaWithJSON } from '@mastra/schema-compat/schema';
 import { vi } from 'vitest';
+import type {
+  HostToolDefinition,
+  HostToolDefinitions,
+  HostToolExecutionContext,
+} from '../../host-tool-definition';
 import type { ExplicitHttpMcpCallToolResult } from '../../mcp/explicit-http-client';
 
-export type ExecutableTool = ToolsInput[string] & {
-  execute: (input: unknown, context?: unknown) => Promise<unknown>;
-  inputSchema?: unknown;
-  outputSchema?: unknown;
-  toModelOutput?: (output: unknown) => unknown;
+export type ExecutableTool = HostToolDefinition & {
+  execute: (input: unknown, context?: HostToolExecutionContext) => Promise<unknown>;
+  inputSchema: StandardSchemaWithJSON<unknown>;
 };
 
-export function requireExecutableTool(tool: ToolsInput[string] | undefined): ExecutableTool {
-  if (!tool || typeof (tool as { execute?: unknown }).execute !== 'function') {
-    throw new Error('Expected an executable MCP tool');
+export function requireExecutableTool(
+  tool: HostToolDefinitions[string] | undefined
+): ExecutableTool {
+  if (
+    !tool ||
+    typeof tool.execute !== 'function' ||
+    !tool.inputSchema ||
+    typeof tool.inputSchema !== 'object' ||
+    !('~standard' in tool.inputSchema)
+  ) {
+    throw new Error('Expected an executable MCP tool with a Standard Schema');
   }
   return tool as ExecutableTool;
 }

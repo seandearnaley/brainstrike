@@ -14,8 +14,11 @@
 import type { EffectToolInputSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
+import { RequestContext } from '@mastra/core/request-context';
 import type { WorkspaceSkills } from '@mastra/core/skills';
+import { noopObserve, type ToolExecutionContext } from '@mastra/core/tools';
 import { createSkillTools } from '@mastra/core/workspace';
+import type { HostToolDefinition, HostToolExecutionContext } from '../host-tool-definition';
 import {
   NATIVE_TOOL_RESULT_TOKEN_BUDGET,
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
@@ -62,21 +65,36 @@ type AnyToolExecute = (input: unknown, context: unknown) => Promise<unknown>;
  * + `inputSchema`), so the wire schema and the settings inspector share one
  * source.
  */
-function withProviderContract<
-  TTool extends { readonly inputSchema?: unknown; readonly description?: string },
->(
-  tool: TTool,
+function withProviderContract<Input>(
+  tool: {
+    readonly id: string;
+    readonly execute?:
+      | ((input: Input, context: ToolExecutionContext) => Promise<unknown>)
+      | undefined;
+  },
   definition: {
-    readonly inputSchema: EffectToolInputSchema<unknown>;
+    readonly inputSchema: EffectToolInputSchema<Input>;
     readonly providerDescription: string;
   }
 ) {
-  const { inputSchema: _inputSchema, description: _description, ...rest } = tool;
+  const execute = tool.execute;
+  if (!execute) {
+    throw new Error(`Skill tool ${tool.id} has no executor`);
+  }
   return {
-    ...rest,
     description: definition.providerDescription,
+    // Vendor context stays inside the retained skills adapter. Scans are already
+    // admitted by the host; this preserves the previous empty request context.
+    execute: async (input: Input, context?: HostToolExecutionContext) =>
+      await execute.call(tool, input, {
+        ...(context?.abortSignal ? { abortSignal: context.abortSignal } : {}),
+        ...(context?.runId ? { runId: context.runId } : {}),
+        observe: noopObserve,
+        requestContext: new RequestContext(),
+      }),
+    id: tool.id,
     inputSchema: definition.inputSchema,
-  };
+  } satisfies HostToolDefinition<Input>;
 }
 
 /**
@@ -171,6 +189,22 @@ function withBoundedActivationAndGuidance<TTool extends object>(
  */
 export function createAssistantSkillTools(skills: WorkspaceSkills) {
   const tools = createSkillTools(skills);
+  const search = tools.skill_search.execute;
+  if (!search) {
+    throw new Error('Skill search has no executor');
+  }
+  type SearchInput = NonNullable<
+    (typeof NATIVE_TOOL_REGISTRIES.byId.skill_search.inputSchema)['~standard']['types']
+  >['output'];
+  const skillSearch = {
+    execute: async ({ skillNames, ...input }: SearchInput, context: ToolExecutionContext) =>
+      await search.call(
+        tools.skill_search,
+        { ...input, ...(skillNames === undefined ? {} : { skillNames: [...skillNames] }) },
+        context
+      ),
+    id: tools.skill_search.id,
+  };
   return {
     skill: withBoundedActivationAndGuidance(
       withProviderContract(tools.skill, NATIVE_TOOL_REGISTRIES.byId.skill),
@@ -192,7 +226,7 @@ export function createAssistantSkillTools(skills: WorkspaceSkills) {
     ),
     // biome-ignore lint/style/useNamingConvention: Mastra's canonical skill tool id.
     skill_search: withBoundedStringOutput(
-      withProviderContract(tools.skill_search, NATIVE_TOOL_REGISTRIES.byId.skill_search),
+      withProviderContract(skillSearch, NATIVE_TOOL_REGISTRIES.byId.skill_search),
       NATIVE_TOOL_RESULT_TOKEN_BUDGET,
       (originalChars) =>
         `\n\n[Results truncated at ~${NATIVE_TOOL_RESULT_TOKEN_BUDGET} tokens ` +

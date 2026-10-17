@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page, test } from '@playwright/test';
+import { HOSTED_ASSISTANT_STATUS, mockAssistantApi } from './utils/assistant-mocks';
 import { openAssistantWorkspace } from './utils/assistant-workspace';
 import { getFileTree } from './utils/file-tree-locators';
 import { getPanelElements } from './utils/layout-helpers';
@@ -35,6 +36,10 @@ async function pressAndReadDefaultPrevented(page: Page, keys: string): Promise<b
 
 test.describe('Tab chords by focus scope @stateful @web-assistant-state', () => {
   test.beforeEach(async ({ page }) => {
+    // Web's assistant is enabled only by a configured hosted provider since the
+    // built-in local chat model retired (#3679); its thread strip and workspace bar
+    // mount only then.
+    await mockAssistantApi(page, HOSTED_ASSISTANT_STATUS);
     await openAssistantWorkspace(page);
     const elements = getPanelElements(page);
     if (await elements.showRightPanelShim.isVisible()) {

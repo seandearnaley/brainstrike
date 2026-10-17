@@ -6,6 +6,13 @@ import {
   assertEmbedWorkerPipelineCacheDiagnostic,
   assertEmbedWorkerPipelineCacheMemoryDiagnostic,
   assertEmbedWorkerTelemetrySourceClosed,
+  EMBEDDING_DEVICE_LOST_CODE,
+  EMBEDDING_DEVICE_UNAVAILABLE_CODE,
+  EmbeddingDeviceLostError,
+  EmbeddingDeviceUnavailableError,
+  embedWorkerFailure,
+  isEmbeddingDeviceUnavailable,
+  isEmbedWorkerErrorCode,
 } from '../embedding-worker-protocol.js';
 
 const MEMORY_PATH = 'test.memory';
@@ -630,5 +637,37 @@ describe('assertEmbedWorkerPipelineCacheDiagnostic', () => {
         makeCacheDiagnostic({ entries: [makeEntry()], event: 'load-failed', reason: 'device-lost' })
       )
     ).toThrow('load-failed requires reason "load-failure"');
+  });
+});
+
+describe('embedWorkerFailure (BST-2058)', () => {
+  it('rebuilds each typed device failure from its code, keeping the worker cause', () => {
+    const unavailable = embedWorkerFailure({
+      cause: 'WebGPU adapter is unavailable.',
+      code: EMBEDDING_DEVICE_UNAVAILABLE_CODE,
+      message: 'ignored for a typed failure',
+    });
+    expect(unavailable).toBeInstanceOf(EmbeddingDeviceUnavailableError);
+    expect(unavailable.message).toContain('Choose WASM in Settings → Search & Indexing.');
+    expect(unavailable.cause).toBe('WebGPU adapter is unavailable.');
+    expect(isEmbeddingDeviceUnavailable(unavailable)).toBe(true);
+
+    const lost = embedWorkerFailure({ code: EMBEDDING_DEVICE_LOST_CODE, message: 'lost' });
+    expect(lost).toBeInstanceOf(EmbeddingDeviceLostError);
+    expect(isEmbeddingDeviceUnavailable(lost)).toBe(false);
+  });
+
+  it('keeps an uncoded failure plain, and matches a rebuilt one only by its code', () => {
+    const plain = embedWorkerFailure({ cause: 'oom', message: 'Embedding failed' });
+    expect(plain).not.toBeInstanceOf(EmbeddingDeviceUnavailableError);
+    expect(plain).toMatchObject({ cause: 'oom', message: 'Embedding failed' });
+    expect(isEmbeddingDeviceUnavailable(plain)).toBe(false);
+    // An error rebuilt across a process boundary is a plain Error carrying the code.
+    const rebuilt = Object.assign(new Error('rebuilt'), {
+      code: EMBEDDING_DEVICE_UNAVAILABLE_CODE,
+    });
+    expect(isEmbeddingDeviceUnavailable(rebuilt)).toBe(true);
+    expect(isEmbedWorkerErrorCode(EMBEDDING_DEVICE_UNAVAILABLE_CODE)).toBe(true);
+    expect(isEmbedWorkerErrorCode('SOMETHING_ELSE')).toBe(false);
   });
 });

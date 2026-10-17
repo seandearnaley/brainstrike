@@ -30,7 +30,6 @@ afterEach(async () => {
 function runPythonTools() {
   const reached: (readonly string[])[] = [];
   const runPython = createRunPythonTool({
-    resolveApprovalDecision: () => 'allow',
     resolveHost: async () => ({
       fence: () => ({
         capabilities: () => ({

@@ -1,0 +1,10 @@
+{
+  "id": "implement-from-docstring",
+  "model": "openai::gpt-6-luna",
+  "prompt": "src/slug.ts declares slugify but does not implement it. Implement it exactly as its doc comment specifies. Use workspace-relative paths and do not pass a root.",
+  "timeoutMs": 300000,
+  "title": "Implement a function from its docstring spec",
+  "verify": {
+    "command": ["node", "--test", ".verify/slug.hidden.test.ts"]
+  }
+}

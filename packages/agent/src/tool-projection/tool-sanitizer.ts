@@ -1,4 +1,4 @@
-import type { ToolsInput } from '@mastra/core/agent';
+import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition';
 
 export function sanitizeToolName(name: string): string {
   const sanitized = name.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -94,4 +94,4 @@ export function sanitizeTools(
   return sanitized;
 }
 
-export type { ToolsInput } from '@mastra/core/agent';
+export type { HostToolDefinitions as ToolsInput } from '../host-tool-definition';

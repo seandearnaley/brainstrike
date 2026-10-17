@@ -4,12 +4,13 @@ import { test } from 'node:test';
 
 const workflow = readFileSync('.github/workflows/test.yml', 'utf8');
 
-test('drafts already run CI; ready-for-review must not rerun the same head', () => {
+test('test.yml runs on its nightly schedule and dispatch, never per PR or per push', () => {
+  // BST-2066: per-PR hosted CI is off, so admission now only ever sees
+  // schedule and workflow_dispatch events, which it admits immediately.
   const triggers = workflow.slice(0, workflow.indexOf('\nconcurrency:'));
-  assert.match(triggers, /- opened/);
-  assert.match(triggers, /- synchronize/);
-  assert.match(triggers, /- reopened/);
-  assert.doesNotMatch(triggers, /ready_for_review/);
+  assert.match(triggers, /^ {2}schedule:$/m);
+  assert.match(triggers, /^ {2}workflow_dispatch:$/m);
+  assert.doesNotMatch(triggers, /pull_request|^ {2}push:|ready_for_review/m);
 });
 
 const REQUIRED_JOBS = new Map([
