@@ -44,6 +44,7 @@ import { hostRunAncestors, hostRunContext } from './run-branch.js';
 import { resolveHostApprovalInput } from './run-continuation.js';
 import { HostRunOutcome } from './run-outcome.js';
 import { stopHostStreamAttempt, watchHostStream } from './run-stream-watchdog.js';
+import { hostTelemetry } from './telemetry/host-telemetry.js';
 import { hostArtifactReader } from './tool-artifacts.js';
 import type { HostToolRecords } from './tool-records.js';
 
@@ -378,7 +379,7 @@ async function prepareRunContext(
     messages: rewritten,
     signal: run.controller.signal,
     summarize: (transcript) =>
-      summarizeHostContext(admission.model, run.modelId, transcript, run.controller.signal),
+      summarizeHostContext(admission.model, run, transcript, run.controller.signal),
   });
 }
 
@@ -610,6 +611,7 @@ async function runHostSdkAttempt(
       stopWhen: [stepCountIs(admission.snapshot.maxSteps - run.steps), () => run.steered],
       toolApproval: ({ toolCall }) => decideHostSdkApproval(run, ports.platform, toolCall),
       tools: createAdmittedHostSdkTools(run, (action, input) => ports.dispatch(run, action, input)),
+      ...hostTelemetry('brainstrike.host-run', run),
     });
     const tools = hostRunTools(run);
     const watched = watchHostStream(
