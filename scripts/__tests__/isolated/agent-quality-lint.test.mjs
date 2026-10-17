@@ -34,6 +34,7 @@ const layouts = [
   ['packages/worker-runtime/src/__tests__', '.test.ts'],
   ['packages/file-tree-worker/src', '.test.ts'],
   ['packages/token-cache/src/__tests__', '.test.tsx'],
+  ['packages/chunking-worker/src/__tests__', '.test.ts'],
 ];
 
 function lint(t, side) {
@@ -70,6 +71,7 @@ function lint(t, side) {
     'packages/worker-runtime/src',
     'packages/file-tree-worker/src',
     'packages/token-cache/src',
+    'packages/chunking-worker/src',
   ]) {
     cases.push(
       {

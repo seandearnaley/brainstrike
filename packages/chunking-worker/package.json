@@ -57,7 +57,7 @@
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:watch": "vitest --watch",
-    "type-check": "tsc --noEmit && effect-tsgo diagnostics --project tsconfig.json --strict",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
   },
   "sideEffects": false,
