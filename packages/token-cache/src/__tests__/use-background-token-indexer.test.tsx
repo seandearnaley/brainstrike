@@ -1758,6 +1758,43 @@ describe('useBackgroundTokenIndexer', () => {
     expect(result.current.progress).toBeNull();
   });
 
+  it('settles a batch retired during its cache read as that retirement and dispatches nothing', async () => {
+    const onFileError = vi.fn();
+    const cacheRead = Promise.withResolvers<Map<string, TokenCacheEntry>>();
+    const store = {
+      get: vi.fn(async () => null),
+      getBatch: vi.fn(() => cacheRead.promise),
+      set: vi.fn(async () => {}),
+    };
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({ mode: 'accurate', onFileError, store })
+    );
+    const worker = await markWorkerReady();
+    const file = { compositeKey: 'folder|@|a.ts', filePath: 'a.ts', folderId: 'folder' };
+    let indexing!: Promise<void>;
+    act(() => {
+      indexing = result.current.indexFiles([file]);
+    });
+    await waitFor(() => expect(store.getBatch).toHaveBeenCalledOnce());
+
+    const retirement = new Error('owner retired');
+    act(() => {
+      result.current.retire(retirement);
+    });
+    await act(async () => {
+      cacheRead.resolve(new Map());
+      await expect(indexing).rejects.toBe(retirement);
+    });
+    // Later work is refused with the same retirement before any worker work.
+    await expect(result.current.indexFiles([file])).rejects.toBe(retirement);
+
+    expect(worker.postMessage).not.toHaveBeenCalled();
+    expect(mockWorkers).toHaveLength(1);
+    expect(onFileError).not.toHaveBeenCalled();
+    expect(mockLogger.error).not.toHaveBeenCalled();
+    expect(result.current.isIndexing).toBe(false);
+  });
+
   it('does not stay stuck when store.set rejects inside handleResult', async () => {
     const onFileIndexed = vi.fn();
     const onFileError = vi.fn();
