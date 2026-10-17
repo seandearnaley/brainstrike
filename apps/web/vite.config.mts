@@ -48,6 +48,7 @@ const {
   getLazySurfaceOptimizeDepsEntries,
   getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
+  getWorkspaceSourceOptimizeDepsInclude,
   gitHeadBuildIdSource,
   isBrowserEventsModule,
   isContextActionSystemModule,
@@ -188,6 +189,7 @@ export default defineConfig({
       ...getCoreAppOptimizeDepsInclude(),
       ...getAssistantOptimizeDepsInclude(),
       ...getDatabaseOptimizeDepsInclude(),
+      ...getWorkspaceSourceOptimizeDepsInclude(),
     ],
     rolldownOptions: {
       transform: {

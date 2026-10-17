@@ -42,9 +42,14 @@ describe('build-utils architecture boundaries', () => {
         readFileSync(filePath, 'utf8'),
       ]);
 
-    const violatingFiles = [...packageFiles, ...sourceFiles]
-      .filter(([, text]) => text.includes('@brainstrike/utils'))
-      .map(([relativePath]) => relativePath);
+    // Source is checked for module specifiers, not mentions: the dev-server
+    // dependency lists name workspace packages as strings without importing them.
+    const importsUtils =
+      /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|^\s*import\s+)['"]@brainstrike\/utils(?:\/[^'"]*)?['"]/m;
+    const violatingFiles = [
+      ...packageFiles.filter(([, text]) => text.includes('@brainstrike/utils')),
+      ...sourceFiles.filter(([, text]) => importsUtils.test(text)),
+    ].map(([relativePath]) => relativePath);
 
     expect(violatingFiles).toEqual([]);
   });
