@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState, seedWorkspaceFocusedShellLayout } from './utils/app-state';
+import { HOSTED_ASSISTANT_STATUS, mockAssistantApi } from './utils/assistant-mocks';
 import { waitForAppLoad, waitForDatabaseReady } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
@@ -24,6 +25,10 @@ const TREE: FileTree = { 'alpha.ts': null };
 test.describe('Workspace bar (web)', () => {
   test.beforeEach(async ({ page }) => {
     await mockBrowserApis(page, ROOT_NAME, TREE);
+    // Web's assistant is enabled only by a configured hosted provider since the
+    // built-in local chat model retired (#3679); its thread strip and workspace bar
+    // mount only then.
+    await mockAssistantApi(page, HOSTED_ASSISTANT_STATUS);
     await page.goto('/');
     await waitForAppLoad(page, { waitForDatabase: false });
     await resetAppState(page);

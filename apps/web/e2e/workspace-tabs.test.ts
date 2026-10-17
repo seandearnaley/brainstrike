@@ -173,11 +173,10 @@ test.describe('Unified workspace tab panel', () => {
     await expect(addButton).toBeVisible();
     await addButton.click();
 
-    // Web registers Files only — capability gating by omission, so no
-    // Changes/Canvas/Terminal items and no disabled stubs.
+    // Web registers Files and Logs (BST-1791) — capability gating by omission,
+    // so no Changes/Canvas/Terminal items and no disabled stubs.
     const menu = page.getByRole('menu');
-    await expect(menu.getByRole('menuitem', { name: /Files/ })).toBeVisible();
-    await expect(menu.getByRole('menuitem')).toHaveCount(1);
+    await expect(menu.getByRole('menuitem')).toHaveText([/Files/, /Logs/]);
 
     await menu.getByRole('menuitem', { name: /Files/ }).click();
     await expect(page.getByTestId('workspace-app-tab-context-explorer')).toHaveAttribute(
