@@ -146,14 +146,20 @@ test.describe('Logs workspace tab (BST-1791)', () => {
       expect(geometry.listBottom).toBeLessThanOrEqual(geometry.viewportHeight);
       expect(geometry.listScrollHeight).toBeGreaterThan(geometry.listClientHeight);
 
+      // Rows re-measure at the new width after a resize, so the bottom can move under a
+      // single scroll; scroll again until a check finds it still at the bottom (BST-2040).
       await page
         .getByTestId('log-list-scroll-container')
         .evaluate((list) => list.scrollTo({ top: list.scrollHeight }));
       await expect
         .poll(() =>
-          page
-            .getByTestId('log-list-scroll-container')
-            .evaluate((list) => list.scrollTop + list.clientHeight >= list.scrollHeight - 1)
+          page.getByTestId('log-list-scroll-container').evaluate((list) => {
+            if (list.scrollTop + list.clientHeight >= list.scrollHeight - 1) {
+              return true;
+            }
+            list.scrollTo({ top: list.scrollHeight });
+            return false;
+          })
         )
         .toBe(true);
       const longRow = viewer.getByRole('row').filter({ hasText: LONG_PAYLOAD_MESSAGE });

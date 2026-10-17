@@ -372,6 +372,28 @@ describe('createWindow', () => {
       expect(mockBrowserWindow.show).not.toHaveBeenCalled();
     });
 
+    it('shows a test-mode window unfocused only when the E2E harness opts in (BST-2040)', async () => {
+      existsSyncMock.mockReturnValue(true);
+      const showInactive = vi.fn();
+      MockBrowserWindow.mockImplementation(function (this: Record<string, unknown>) {
+        Object.assign(this, mockBrowserWindow, { showInactive });
+      });
+      process.argv = [...process.argv, '--test-mode'];
+      process.env['BRAINSTRIKE_E2E_SHOW_INACTIVE'] = '1';
+      try {
+        await createWindow();
+      } finally {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_E2E_SHOW_INACTIVE');
+      }
+
+      expect(showInactive).toHaveBeenCalledTimes(1);
+      expect(mockBrowserWindow.show).not.toHaveBeenCalled();
+
+      showInactive.mockClear();
+      await createWindow();
+      expect(showInactive).not.toHaveBeenCalled();
+    });
+
     it('should not show window in test mode', async () => {
       existsSyncMock.mockReturnValue(true);
       const originalArgv = process.argv;
