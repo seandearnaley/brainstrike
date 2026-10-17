@@ -521,10 +521,41 @@ export function nativeIndexObservation(state: NativeIndexState): NativeIndexLife
         ? { kind: cause.kind }
         : cause.kind === 'closed'
           ? { kind: cause.kind, reason: cause.reason }
-          : { kind: cause.kind, message: describeCause(cause) },
+          : nativeIndexFailureRefusal(cause),
     generation: state.generation,
     kind: readiness.kind,
   };
+}
+
+/**
+ * What a damaged or unsupported index file tells the user (BST-1878). The
+ * engine's own wording ("SQLite integrity_check refused…") stays in the log.
+ */
+export const NATIVE_INDEX_REBUILD_REQUIRED_MESSAGE =
+  'The search index needs a rebuild: its file is damaged or from an unsupported version. ' +
+  'Rebuild it in Settings, Search & Indexing. Chats, folders and settings are kept.';
+
+/** The store refused to open its file, so only an explicit rebuild serves again. */
+function requiresRebuild(error: unknown): boolean {
+  for (let current = error; current instanceof Error; current = current.cause) {
+    if (current.name === 'IndexerError' && Reflect.get(current, 'code') === 'rebuild-required') {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** A failed or unconfigured state's refusal, as readers and the boundary see it. */
+export function nativeIndexFailureRefusal(
+  cause: Exclude<NativeIndexCause, { readonly kind: 'transitioning' | 'closed' }>
+): {
+  readonly kind: 'setup-required' | 'settings-invalid' | 'source-failure' | 'rebuild-required';
+  readonly message: string;
+} {
+  if (cause.kind === 'source-failure' && requiresRebuild(cause.error)) {
+    return { kind: 'rebuild-required', message: NATIVE_INDEX_REBUILD_REQUIRED_MESSAGE };
+  }
+  return { kind: cause.kind, message: describeCause(cause) };
 }
 
 function describeCause(

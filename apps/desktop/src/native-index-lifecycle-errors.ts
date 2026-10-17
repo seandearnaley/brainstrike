@@ -1,6 +1,6 @@
 import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
 import { NativeAuthorityTransitionError as TransitionError } from './native-authority-transition';
-import type { NativeIndexState } from './native-index-lifecycle';
+import { type NativeIndexState, nativeIndexFailureRefusal } from './native-index-lifecycle';
 
 export function nativeIndexStateError(state: NativeIndexState): Error {
   if (state.kind === 'failed' || state.kind === 'unconfigured') {
@@ -10,6 +10,11 @@ export function nativeIndexStateError(state: NativeIndexState): Error {
       state.cause.error instanceof NativeIndexRefusalError
     ) {
       return state.cause.error;
+    }
+    // A store that refused its file says so in words a person can act on (BST-1878).
+    const refusal = nativeIndexFailureRefusal(state.cause);
+    if (refusal.kind === 'rebuild-required') {
+      return new NativeIndexRefusalError(refusal, refusal.message, { cause: state.cause.error });
     }
     return new NativeIndexRefusalError(
       { kind: state.cause.kind, message: state.cause.message },

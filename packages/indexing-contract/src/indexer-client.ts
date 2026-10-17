@@ -48,12 +48,16 @@ export interface IndexerPublicationProgress {
     | { readonly kind: 'collection'; readonly embeddingSetId: string };
   readonly storeId: string;
 }
-/** Typed lifecycle refusal; no native objects or failure stacks cross the renderer boundary. */
+/**
+ * Typed lifecycle refusal; no native objects or failure stacks cross the renderer boundary.
+ * `rebuild-required`: the store refused to open its file (damaged, or a layout it does not
+ * support), so only an explicit rebuild serves again (BST-1878).
+ */
 export type NativeIndexRefusalCause =
   | { readonly kind: 'transitioning' }
   | { readonly kind: 'closed'; readonly reason: string }
   | {
-      readonly kind: 'setup-required' | 'settings-invalid' | 'source-failure';
+      readonly kind: 'setup-required' | 'settings-invalid' | 'source-failure' | 'rebuild-required';
       readonly message: string;
     };
 
