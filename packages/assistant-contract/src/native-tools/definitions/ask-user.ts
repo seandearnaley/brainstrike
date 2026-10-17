@@ -22,7 +22,7 @@ export const askUser = defineNativeTool({
     options: 'Optional choices; each has a label and optional description. Omit for free-text.',
   },
   id: 'brainstrike.askUser',
-  // Already wrapped in providerCompatibleInputSchema at its declaration: the
+  // Already wrapped in effectToolInputSchema at its declaration: the
   // suspending-tool factory (`createAskUserTool`) registers this exact object.
   inputSchema: AskUserInputSchema,
   kind: 'desktop',

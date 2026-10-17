@@ -13,23 +13,12 @@
  * risk resolver, and the schema wrappers. Execution stays in the desktop
  * executor map and Mastra.
  */
-import type { z } from 'zod';
 import { resolveToolRiskCategory } from '../tool-risk.js';
 import type { EffectToolInputSchema } from './schemas/effect-tool-input.js';
-import type { ProviderCompatibleInputSchema } from './schemas/provider-compatible-input.js';
 import type { NativeToolDefaultMetadata } from './taxonomy.js';
 
-/**
- * A tool's registered input schema, from either authoring library.
- *
- * ADR-0004 (amended 2026-10-15) makes Effect Schema the single boundary owner;
- * `ProviderCompatibleInputSchema` is the zod producer the remaining tools are
- * still declared with. Each tool has exactly ONE producer — this union is the
- * staging seam, not a choice a consumer makes at runtime. Read a definition's
- * model-facing JSON Schema through `toDefinitionJsonSchema` so neither
- * producer is special-cased at a call site.
- */
-export type NativeToolInputSchema = EffectToolInputSchema<unknown> | ProviderCompatibleInputSchema;
+/** One Effect-authored boundary per native tool. */
+export type NativeToolInputSchema = EffectToolInputSchema<unknown>;
 
 /** Where a desktop native tool is advertised and registered. */
 export type NativeToolSurface =
@@ -145,10 +134,7 @@ export interface NativeToolExecutionBudget {
   readonly maxMs: number;
 }
 
-interface NativeToolDefinitionBase<
-  Id extends string,
-  In extends NativeToolInputSchema | z.ZodType,
-> {
+interface NativeToolDefinitionBase<Id extends string, In extends NativeToolInputSchema> {
   /** Load-ordering/UI taxonomy, prompt-budget estimate, approval flag, and explicit risk bucket. */
   readonly defaults: NativeToolDefaultMetadata;
   /** ONE prose source: the model-facing tool description AND the settings inspector text. */
@@ -193,7 +179,7 @@ interface NativeToolDefinitionBase<
 
 /**
  * A Brainstrike-owned tool: `brainstrike.*` id, executed by the desktop
- * executor map, wrapped once in `providerCompatibleInputSchema`.
+ * executor map, registered with its Effect-authored schema.
  */
 export interface DesktopNativeToolDefinition<
   Id extends `brainstrike.${string}` = `brainstrike.${string}`,
@@ -217,7 +203,7 @@ export type SkillNativeToolIdLiteral = 'skill' | 'skill_read' | 'skill_search';
  */
 export interface SkillNativeToolDefinition<
   Id extends SkillNativeToolIdLiteral = SkillNativeToolIdLiteral,
-  In extends z.ZodType = z.ZodType,
+  In extends NativeToolInputSchema = NativeToolInputSchema,
 > extends NativeToolDefinitionBase<Id, In> {
   readonly kind: 'skill';
   /** The compact description sent on the wire (the catalog `description` is the fuller UI text). */

@@ -1,5 +1,5 @@
 import { prepareProviderToolInputSchema } from '@brainstrike/agent/provider-request';
-import { providerCompatibleInputSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
+import { normalizeProviderNulls } from '@brainstrike/assistant-contract/native-tool-schemas';
 import type { StandardSchemaWithJSON } from '@mastra/core/schema';
 import {
   AnthropicSchemaCompatLayer,
@@ -59,15 +59,19 @@ export async function prepareHostProviderTools(
           // Use the canonical native omission preprocessor on the raw input.
           // The vendor's null-to-undefined validator would create an own
           // undefined property, changing JSON approval/restart runtime meaning.
-          const authored = asSchema(providerCompatibleInputSchema(tool.inputSchema));
-          if (!authored.validate) {
+          const authored = asSchema(tool.inputSchema);
+          const authoredJson = await authored.jsonSchema;
+          const validate = authored.validate;
+          if (!validate) {
             throw new Error('Host tool has no authored input validator');
           }
           return [
             name,
             {
               ...tool,
-              inputSchema: jsonSchema(prepared.jsonSchema, { validate: authored.validate }),
+              inputSchema: jsonSchema(prepared.jsonSchema, {
+                validate: (value) => validate(normalizeProviderNulls(value, authoredJson)),
+              }),
             },
           ];
         }

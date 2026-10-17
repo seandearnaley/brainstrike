@@ -2,11 +2,15 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
-import { validateToolInputValue } from '@brainstrike/assistant-contract/native-tool-schemas';
+import {
+  standardInputSchema,
+  validateToolInputValue,
+} from '@brainstrike/assistant-contract/native-tool-schemas';
 import { TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract/tool-metadata';
 import type { RunPythonNetworkSuspendPayload } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger } from '@brainstrike/logging';
 import { createTool } from '@mastra/core/tools';
+import { Schema } from 'effect';
 import { z } from 'zod';
 import {
   type CodeExecutorHostCapabilities,
@@ -427,20 +431,23 @@ async function removeScratchDir(scratchDir: string): Promise<RunPythonScratchCle
  *   `createToolResumeTurnAttempt`); it is a statement of fact — the call WAS
  *   approved at its pre-execution gate.
  */
-const RunPythonNetworkSuspendSchema = z
-  .object({
-    allowedDomains: z.array(z.string().min(1)).min(1),
-    kind: z.literal('network'),
-  })
-  .strict();
+const RunPythonSuspendSchema = standardInputSchema(
+  Schema.Struct({
+    allowedDomains: Schema.Array(Schema.String.check(Schema.isMinCodePoints(1))).check(
+      Schema.isMinLength(1)
+    ),
+    kind: Schema.Literal('network'),
+  }),
+  { onExcessProperty: 'error' }
+);
 
-const RunPythonSuspendSchema = RunPythonNetworkSuspendSchema;
-
-const RunPythonNetworkResumeSchema = z
-  .object({ action: z.enum(['allow', 'deny']), approved: z.literal(true).optional() })
-  .strict();
-
-const RunPythonResumeSchema = RunPythonNetworkResumeSchema;
+const RunPythonResumeSchema = standardInputSchema(
+  Schema.Struct({
+    action: Schema.Literals(['allow', 'deny']),
+    approved: Schema.optionalKey(Schema.Literal(true)),
+  }),
+  { onExcessProperty: 'error' }
+);
 
 /** The narrowed resume shapes execute() dispatches on. */
 type RunPythonResume =

@@ -48,7 +48,7 @@ export {
   type SkillNativeToolDefinition,
   toNativeToolKey,
 } from './native-tools/index.js';
-export { providerCompatibleInputSchema } from './native-tools/schemas/provider-compatible-input.js';
+
 export {
   DEFAULT_PERMISSION_POLICIES,
   InvalidPermissionPolicyError,

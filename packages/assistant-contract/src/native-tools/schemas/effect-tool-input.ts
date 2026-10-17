@@ -1,5 +1,5 @@
 import { JsonSchema, Schema } from 'effect';
-import { normalizeProviderNulls } from './provider-compatible-input.js';
+import { normalizeProviderNulls } from './provider-null-normalization.js';
 
 /** A decode failure, with the path Standard Schema reports it at. */
 export interface EffectToolInputIssue {
@@ -83,8 +83,12 @@ const EXCESS_PROPERTY = { onExcessProperty: 'error' } as const;
  * provider looking plausible. `toDocumentDraft07` likewise throws rather than
  * dropping a keyword it cannot lower.
  */
-function toProviderJsonSchema(schema: Schema.Constraint, target: string): Record<string, unknown> {
-  const document2020 = Schema.toJsonSchemaDocument(schema, EXCESS_PROPERTY);
+export function toEffectInputJsonSchema(
+  schema: Schema.Constraint,
+  target: string,
+  options: { readonly onExcessProperty: 'error' | 'ignore' } = EXCESS_PROPERTY
+): Record<string, unknown> {
+  const document2020 = Schema.toJsonSchemaDocument(schema, options);
   if (target === 'draft-2020-12') {
     return withDefinitions(document2020.schema, document2020.definitions, {
       key: '$defs',
@@ -107,6 +111,10 @@ function withDefinitions(
   dialect: { readonly key: '$defs' | 'definitions'; readonly uri: string }
 ): Record<string, unknown> {
   const root: Record<string, unknown> = { $schema: dialect.uri, ...schema };
+  // Tool providers retain an explicit property map even for a no-argument object.
+  if (root['type'] === 'object' && !Object.hasOwn(root, 'properties')) {
+    root['properties'] = {};
+  }
   if (Object.keys(definitions).length > 0) {
     root[dialect.key] = definitions;
   }
@@ -116,11 +124,8 @@ function withDefinitions(
 /**
  * Admit an Effect Schema as a native tool's input schema.
  *
- * This is the one producer for an Effect-authored tool boundary; the zod twin
- * is {@link providerCompatibleInputSchema}, which this replaces for new tools.
- * Both share `normalizeProviderNulls`, so provider `null` means the same thing
- * whichever library authored the schema: omission of a declared optional
- * property, decided from the authored JSON Schema and nothing else.
+ * This is the single producer for strict native tool inputs. The shared
+ * normalizer drops provider null only from declared optional fields.
  *
  * `Schema.toStandardSchemaV1` annotates the schema it is given and is
  * first-call-wins on `~standard.validate`, so the parse options must be fixed
@@ -137,7 +142,7 @@ export function effectToolInputSchema<S extends Schema.ConstraintDecoder<unknown
     if (existing) {
       return existing;
     }
-    const fresh = toProviderJsonSchema(schema, target);
+    const fresh = toEffectInputJsonSchema(schema, target);
     derived.set(target, fresh);
     return fresh;
   };

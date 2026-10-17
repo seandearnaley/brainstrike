@@ -1,10 +1,10 @@
+import { normalizeProviderNulls } from '@brainstrike/assistant-contract/native-tool-schemas';
 import {
   type PublicSchema,
   type StandardSchemaWithJSON,
   toStandardSchema,
 } from '@mastra/core/schema';
 import type { z } from 'zod';
-import { providerCompatibleInputSchema } from '../tools/provider-compatible-input';
 
 /** Structural view of the installed @mastra/schema-compat layer, supplied by composition. */
 export interface CanonicalProviderSchemaLayer {
@@ -27,7 +27,15 @@ export function prepareProviderToolInputSchema<Schema extends z.ZodType>(
     value: unknown
   ): Promise<{ success: true; value: z.output<Schema> } | { success: false; error: Error }>;
 } {
-  const input = providerCompatibleInputSchema(original);
+  const authored = toStandardSchema(original);
+  const json = authored['~standard'].jsonSchema.input({ target: 'draft-07' });
+  const input = {
+    '~standard': {
+      ...authored['~standard'],
+      validate: (value: unknown) =>
+        authored['~standard'].validate(normalizeProviderNulls(value, json)),
+    },
+  };
   const compatible = layer.shouldApply()
     ? layer.processToCompatSchema(input)
     : toStandardSchema(input);

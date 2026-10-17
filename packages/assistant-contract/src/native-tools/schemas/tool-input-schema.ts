@@ -1,38 +1,6 @@
-import { z } from 'zod';
 import { isEffectToolInputSchema, type ToolJsonSchemaTarget } from './effect-tool-input.js';
 
-/**
- * Reading a native tool's registered input schema without caring which library
- * authored it.
- *
- * ADR-0004 (amended 2026-10-15) makes Effect Schema the single boundary owner
- * and the remaining zod tool schemas are being converted behind it. Every tool
- * has exactly ONE producer; these accessors narrow to it. They are not a
- * fallback chain — a value neither producer made throws, because a tool whose
- * schema cannot be read must fail where it is declared rather than reach a
- * provider or an executor degraded.
- */
-
-/**
- * The zod producer's JSON Schema options. `io: 'input'` unwraps the
- * `z.preprocess` every zod tool schema is wrapped in, so the result describes
- * what the model sends rather than what the executor receives.
- */
-const ZOD_JSON_SCHEMA_OPTIONS = {
-  cycles: 'throw',
-  io: 'input',
-  reused: 'inline',
-  unrepresentable: 'any',
-} as const;
-
-/**
- * The dialect the inspector and the catalog sweeps read. It is stated rather
- * than defaulted: the two producers pick different dialects when asked for
- * none, and a comparison across them would then be between documents in
- * different drafts. The provider wire is draft-07 — that is what
- * `prepareHostProviderTools` requests and what the recorded provider payloads
- * carry — so a caller reasoning about the wire passes that explicitly.
- */
+/** Inspector uses 2020-12; provider callers explicitly request draft-07. */
 export const TOOL_DISPLAY_JSON_SCHEMA_TARGET = 'draft-2020-12' satisfies ToolJsonSchemaTarget;
 
 /** Standard Schema reports a path segment either bare or wrapped in `{ key }`. */
@@ -48,7 +16,7 @@ function toToolInputIssue(issue: {
   };
 }
 
-/** One issue in the shape both producers' failures are reported in. */
+/** One issue in the shape native input failures are reported in. */
 export interface ToolInputIssue {
   readonly message: string;
   readonly path: readonly PropertyKey[];
@@ -60,7 +28,7 @@ export type ToolInputValidation<Value = unknown> =
 
 /**
  * The model-facing JSON Schema of a tool's registered input schema, in the
- * dialect the caller names. Both producers answer in that dialect or throw.
+ * dialect the caller names. The producer answers in that dialect or throws.
  */
 export function toToolInputJsonSchema(
   schema: unknown,
@@ -69,13 +37,7 @@ export function toToolInputJsonSchema(
   if (isEffectToolInputSchema(schema)) {
     return schema['~standard'].jsonSchema.input({ target });
   }
-  if (schema instanceof z.ZodType) {
-    return z.toJSONSchema(schema, { ...ZOD_JSON_SCHEMA_OPTIONS, target }) as Record<
-      string,
-      unknown
-    >;
-  }
-  throw new TypeError('Tool input schema was authored by neither the zod nor the Effect producer');
+  throw new TypeError('Tool input schema was not authored by the Effect producer');
 }
 
 /**
@@ -95,17 +57,5 @@ export function validateToolInputValue(schema: unknown, value: unknown): ToolInp
       ? { issues: result.issues.map(toToolInputIssue), success: false }
       : { success: true, value: result.value };
   }
-  if (schema instanceof z.ZodType) {
-    const result = schema.safeParse(value);
-    return result.success
-      ? { success: true, value: result.data }
-      : {
-          issues: result.error.issues.map((issue) => ({
-            message: issue.message,
-            path: [...issue.path],
-          })),
-          success: false,
-        };
-  }
-  throw new TypeError('Tool input schema was authored by neither the zod nor the Effect producer');
+  throw new TypeError('Tool input schema was not authored by the Effect producer');
 }

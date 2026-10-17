@@ -5,7 +5,6 @@ import {
   isDesktopNativeToolId,
 } from '@brainstrike/assistant-contract/tool-metadata';
 
-export * from './provider-compatible-input';
 export * from './schemas-artifacts';
 export * from './schemas-browser';
 export * from './schemas-diagnostics';
@@ -19,9 +18,7 @@ export * from './schemas-worktrees';
  * The exact registered input schema per desktop native tool, DERIVED from the
  * `inputSchema` each `defineNativeTool` declaration carries (BST-1646). The
  * desktop registry hands these very objects to Mastra and `validateToolInput`
- * parses with them. Each carries exactly ONE producer's output — the Effect
- * `effectToolInputSchema` or, for the tools not yet converted, the zod
- * `providerCompatibleInputSchema` (ADR-0004, amended 2026-10-15).
+ * parses with them. Each carries one Effect-authored input boundary.
  */
 export const NATIVE_TOOL_INPUT_SCHEMAS = Object.freeze(
   Object.fromEntries(DESKTOP_NATIVE_TOOLS.map((tool) => [tool.id, tool.inputSchema]))

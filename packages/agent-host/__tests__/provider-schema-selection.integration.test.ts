@@ -9,10 +9,7 @@ import {
   NATIVE_TOOL_ID,
   NATIVE_TOOLS,
 } from '@brainstrike/assistant-contract';
-import {
-  isEffectToolInputSchema,
-  providerCompatibleInputSchema,
-} from '@brainstrike/assistant-contract/native-tool-schemas';
+import { isEffectToolInputSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { RootLock, StateStore } from '@brainstrike/state-store';
 import { asSchema, jsonSchema } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
@@ -29,6 +26,7 @@ import { prepareHostProviderTools } from '../src/provider-schema-selection.js';
 import { scriptedToolSequence } from '../src/test-fixtures/scripted-model.js';
 import { HOST_THREAD_TITLE_INSTRUCTIONS } from '../src/thread-presentation-state.js';
 import { effectAuthoredSlice } from './fixtures/effect-authored-zod-twins.js';
+import { providerCompatibleInputSchema } from './fixtures/legacy-tool-input.js';
 
 const candidate = join(import.meta.dirname, '../../..');
 const recorded = z
@@ -244,7 +242,7 @@ test.each([
  * which the existing non-zod path already accepts by spec.
  */
 /** The registered input schema of one native tool, from its own definition. */
-function registeredInputSchema(toolId: string): unknown {
+function registeredInputSchema(toolId: string) {
   const definition = NATIVE_TOOLS.find((tool) => tool.id === toolId);
   if (!definition) {
     throw new Error(`No native tool definition for ${toolId}`);
@@ -285,7 +283,7 @@ test.each([
         {
           effect: {
             ...base,
-            inputSchema: registeredInputSchema(toolId) as HostTool['inputSchema'],
+            inputSchema: registeredInputSchema(toolId),
           },
           zod: { ...base, inputSchema: providerCompatibleInputSchema(zodEquivalent) },
         }
@@ -295,9 +293,29 @@ test.each([
       if (!(effect && zodPrepared)) {
         throw new Error('Missing prepared worktree tool');
       }
-      expect
-        .soft(await asSchema(effect.inputSchema).jsonSchema, toolId)
-        .toEqual(await asSchema(zodPrepared.inputSchema).jsonSchema);
+      const zodJson = await asSchema(zodPrepared.inputSchema).jsonSchema;
+      let expected: unknown = zodJson;
+      if (
+        toolId === NATIVE_TOOL_ID.readWorkspaceFile &&
+        resolvedProvider === 'anthropic.messages'
+      ) {
+        // Both are the same nullable scalar. Pin the intentional library spelling
+        // difference while comparing every other property/constraint unchanged.
+        const root = zodJson.properties?.['root'];
+        if (!root || typeof root !== 'object') {
+          throw new Error('Missing read-file root schema');
+        }
+        const { type, ...facets } = root;
+        expect(type).toEqual(['string', 'null']);
+        expected = {
+          ...zodJson,
+          properties: {
+            ...zodJson.properties,
+            root: { ...facets, anyOf: [{ type: 'string' }, { type: 'null' }] },
+          },
+        };
+      }
+      expect.soft(await asSchema(effect.inputSchema).jsonSchema, toolId).toEqual(expected);
       expect(execute).not.toHaveBeenCalled();
     }
   }

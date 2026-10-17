@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { ManageCanvasInputSchema } from '../schemas/schemas-workspace.js';
 
 // Like manageTaskList, this is DB-backed, versioned, and reversible rather
@@ -23,7 +23,7 @@ export const manageCanvas = defineNativeTool({
     'Create, list, or version-update a persisted HTML Canvas document for the current thread. create needs a title and a document with content: the write IS the deliverable, so never create an empty or placeholder canvas — call create once, when the content is ready. update replaces oldString only when it occurs exactly once; rewrite replaces the whole HTML. Every change creates a new reversible version',
   discovery: { family: 'canvas documents', namespace: 'workspace' },
   id: 'brainstrike.manageCanvas',
-  inputSchema: providerCompatibleInputSchema(ManageCanvasInputSchema),
+  inputSchema: effectToolInputSchema(ManageCanvasInputSchema),
   kind: 'desktop',
   localProvider: 'unregistered',
   returns:

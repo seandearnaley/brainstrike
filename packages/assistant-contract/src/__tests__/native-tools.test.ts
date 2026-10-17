@@ -1,5 +1,5 @@
+import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
 import {
   DESKTOP_NATIVE_TOOL_IDS,
   LOCAL_DESKTOP_NATIVE_TOOL_IDS,
@@ -23,8 +23,10 @@ const CATALOG: readonly NativeToolDefinition[] = NATIVE_TOOLS;
 const DESKTOP_CATALOG: readonly DesktopNativeToolDefinition[] = DESKTOP_NATIVE_TOOLS;
 
 import { deriveNativeToolRegistries } from '../native-tools/registries';
-import { isEffectToolInputSchema } from '../native-tools/schemas/effect-tool-input';
-import { providerCompatibleInputSchema } from '../native-tools/schemas/provider-compatible-input';
+import {
+  effectToolInputSchema,
+  isEffectToolInputSchema,
+} from '../native-tools/schemas/effect-tool-input';
 import { NATIVE_TOOL_DEFAULTS } from '../tool-categories';
 import { TOOL_DESCRIPTIONS } from '../tool-descriptions';
 import { NATIVE_TOOL_DISCOVERY_NAMESPACES } from '../tool-discovery';
@@ -214,8 +216,8 @@ const throwawayTool = defineNativeTool({
   discovery: { family: 'diagnostics', namespace: 'database' },
   history: { recencyPrunable: true, staleReplayable: true },
   id: 'brainstrike.throwawayProbe',
-  inputSchema: providerCompatibleInputSchema(
-    z.object({ probe: z.string().describe('Probe input') }).strict()
+  inputSchema: effectToolInputSchema(
+    Schema.Struct({ probe: Schema.String.annotate({ description: 'Probe input' }) })
   ),
   kind: 'desktop',
   localProvider: 'offered',
@@ -263,7 +265,7 @@ describe('defineNativeTool fail-loud checks', () => {
   const base = {
     description: 'probe',
     id: 'brainstrike.probe',
-    inputSchema: providerCompatibleInputSchema(z.object({}).strict()),
+    inputSchema: effectToolInputSchema(Schema.Struct({})),
     kind: 'desktop',
     returns: 'probe',
     surfaces: ['desktop'],

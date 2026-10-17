@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { ReadWorkspaceFileInputSchema } from '../schemas/schemas-workspace.js';
 
 // Core workspace reading tools
@@ -18,7 +18,7 @@ export const readWorkspaceFile = defineNativeTool({
   },
   history: { recencyPrunable: true, staleReplayable: true },
   id: 'brainstrike.readWorkspaceFile',
-  inputSchema: providerCompatibleInputSchema(ReadWorkspaceFileInputSchema),
+  inputSchema: effectToolInputSchema(ReadWorkspaceFileInputSchema),
   kind: 'desktop',
   localProvider: 'offered',
   returns:

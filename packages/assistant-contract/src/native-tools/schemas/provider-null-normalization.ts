@@ -1,8 +1,3 @@
-import { z } from 'zod';
-
-export type ProviderCompatibleInputSchema<Schema extends z.ZodType = z.ZodType> =
-  z.ZodPreprocess<Schema>;
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -139,10 +134,8 @@ function normalizeDeclaredProperties(
  * optional/defaulted object property. Required, unknown, dynamic-record and
  * ambiguous-union values are left for the authored schema to validate.
  *
- * This is the ONE normalizer for both tool-schema producers — the zod
- * {@link providerCompatibleInputSchema} below and the Effect
- * `effectToolInputSchema`. It reads a JSON Schema and a value, so it is not
- * specific to either library; do not write a second one.
+ * Shared by the native Effect producer and external vendor schema adapters.
+ * It reads JSON Schema and values without owning another schema grammar.
  */
 export function normalizeProviderNulls(value: unknown, schema: unknown): unknown {
   if (!isRecord(schema)) {
@@ -159,24 +152,4 @@ export function normalizeProviderNulls(value: unknown, schema: unknown): unknown
     return normalizeArrayItems(value, schema);
   }
   return isRecord(value) ? normalizeDeclaredProperties(value, schema) : value;
-}
-
-/**
- * Admit a zod schema as a native tool's input schema, normalizing provider
- * `null` to omission on the way in. Retained for the tool schemas not yet
- * moved to Effect Schema (ADR-0004, amended 2026-10-15); new tools use
- * `effectToolInputSchema`.
- */
-export function providerCompatibleInputSchema<Schema extends z.ZodType>(
-  schema: Schema
-): ProviderCompatibleInputSchema<Schema> {
-  let jsonSchema: unknown;
-  return z.preprocess((rawInput) => {
-    jsonSchema ??= z.toJSONSchema(schema, {
-      cycles: 'throw',
-      io: 'input',
-      reused: 'inline',
-    });
-    return normalizeProviderNulls(rawInput, jsonSchema);
-  }, schema);
 }

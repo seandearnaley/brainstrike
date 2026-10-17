@@ -6,12 +6,12 @@ import {
   effectToolInputSchema,
   isEffectToolInputSchema,
 } from '../native-tools/schemas/effect-tool-input.js';
-import { providerCompatibleInputSchema } from '../native-tools/schemas/provider-compatible-input.js';
 import {
   toToolInputJsonSchema,
   validateToolInputValue,
 } from '../native-tools/schemas/tool-input-schema.js';
 import { encodeToolOutputArtifactCursor } from '../tool-output-artifact.js';
+import { legacyJsonSchema, providerCompatibleInputSchema } from './fixtures/legacy-tool-input.js';
 
 /**
  * The derivation step ADR-0004's 2026-10-15 amendment adopts, one case per hard
@@ -110,7 +110,7 @@ describe('effectToolInputSchema derivation', () => {
   it.each(identical)('matches zod exactly for $name', ({ effect, zod }) => {
     for (const target of TARGETS) {
       expect(toToolInputJsonSchema(effectToolInputSchema(effect), target), target).toEqual(
-        toToolInputJsonSchema(providerCompatibleInputSchema(zod), target)
+        legacyJsonSchema(providerCompatibleInputSchema(zod), target)
       );
     }
   });
@@ -135,7 +135,7 @@ describe('effectToolInputSchema derivation', () => {
       toToolInputJsonSchema(effectToolInputSchema(Schema.Struct({ line: Schema.Int })), 'draft-07')
     ).toMatchObject({ properties: { line: { type: 'integer' } } });
     expect(
-      toToolInputJsonSchema(
+      legacyJsonSchema(
         providerCompatibleInputSchema(z.object({ line: z.number().int() }).strict()),
         'draft-07'
       )
@@ -208,7 +208,10 @@ describe('effectToolInputSchema derivation', () => {
     const providerInput = { operation: { action: 'list', offset: null } };
     const expected = { success: true, value: { operation: { action: 'list' } } };
     expect(validateToolInputValue(effect, structuredClone(providerInput))).toEqual(expected);
-    expect(validateToolInputValue(zod, structuredClone(providerInput))).toEqual(expected);
+    expect(zod.safeParse(structuredClone(providerInput))).toEqual({
+      data: expected.value,
+      success: true,
+    });
   });
 
   it('keeps a multi-value enum a constrained field, not a discriminant', () => {
@@ -433,5 +436,16 @@ describe('registered search/artifact boundary parity', () => {
     expect(
       validateToolInputValue(registeredSchema('webSearch'), { query: '🙂'.repeat(401) }).success
     ).toBe(false);
+  });
+});
+
+describe('completed native tool schema ownership', () => {
+  it('registers every catalog input with the single Effect producer', () => {
+    expect(NATIVE_TOOLS.length).toBeGreaterThan(0);
+    expect(
+      NATIVE_TOOLS.filter((tool) => !isEffectToolInputSchema(tool.inputSchema)).map(
+        (tool) => tool.id
+      )
+    ).toEqual([]);
   });
 });

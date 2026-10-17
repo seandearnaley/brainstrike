@@ -15,6 +15,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import {
   AskUserResumeSchema,
+  type EffectToolInputSchema,
   SubmitPlanResumeSchema,
 } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
@@ -41,7 +42,10 @@ const WORKTREE_TOOL_IDS: ReadonlySet<string> = new Set([
 
 /** The two suspending tools answer with a person's resume, as Core's question and plan. */
 const INTERACTIONS: Readonly<
-  Record<string, { readonly kind: 'question' | 'plan'; readonly resumeSchema: z.ZodType }>
+  Record<
+    string,
+    { readonly kind: 'question' | 'plan'; readonly resumeSchema: EffectToolInputSchema<unknown> }
+  >
 > = {
   [NATIVE_TOOL_ID.askUser]: { kind: 'question', resumeSchema: AskUserResumeSchema },
   [NATIVE_TOOL_ID.submitPlan]: { kind: 'plan', resumeSchema: SubmitPlanResumeSchema },

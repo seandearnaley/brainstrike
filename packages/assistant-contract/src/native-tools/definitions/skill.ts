@@ -1,5 +1,6 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { defineNativeTool } from '../define.js';
+import { standardInputSchema } from '../schemas/standard-input-schema.js';
 
 // Agent Skills tools (https://agentskills.io). These are Mastra's OWN
 // canonical tool ids (`skill`/`skill_read`/`skill_search`, deliberately NOT
@@ -26,8 +27,12 @@ export const skill = defineNativeTool({
     name: 'The skill name from the available-skills list (or its directory path when two skills share a name).',
   },
   id: 'skill',
-  // The provider contract `skill-tools.ts` imposes over Mastra's own schema.
-  inputSchema: z.object({ name: z.string() }),
+  // Mastra's prior skill inputs advertised closed objects while stripping extras.
+  // Preserve both policies; execution stays with Mastra.
+  inputSchema: standardInputSchema(Schema.Struct({ name: Schema.String }), {
+    jsonSchemaOnExcessProperty: 'error',
+    onExcessProperty: 'ignore',
+  }),
   kind: 'skill',
   providerDescription: 'Activate a skill by name or path.',
   returns:

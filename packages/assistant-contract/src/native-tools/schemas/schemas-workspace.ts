@@ -1,309 +1,258 @@
-import { z } from 'zod';
+import { Schema, SchemaIssue } from 'effect';
 import { CANVAS_HTML_MAX_BYTES, canvasHtmlWithinByteCeiling } from '../../mastra-memory-schema.js';
-
-// ============================================================================
-// Workspace Tool Schemas
-// ============================================================================
 
 const ROOT_QUALIFIER_DESCRIPTION =
   "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.";
-
-/**
- * A canvas HTML field, bounded by UTF-8 BYTES rather than by whatever unit the
- * installed Zod happens to count.
- *
- * The workspace-file fields below deliberately do NOT do this, and the
- * difference is the point: they sit above an authoritative ~2 MB byte cap in
- * the desktop tool, so their `.max()` is an outer guard well above the real
- * limit and its unit is irrelevant. `manage-canvas-tool.ts` has no size
- * enforcement of its own, so for canvas the only ceilings are this schema and
- * the composed-result check in the desktop canvas repository.
- *
- * `.max()` alone does not deliver a byte bound. Zod counts CODE POINTS (4.5;
- * UTF-16 code units before that), so `.max(8_000_000)` admits eight million
- * astral characters — 31 MB of UTF-8, four times the documented limit, and
- * double what the same line admitted under Zod 4.4. It is kept because it is
- * what puts `maxLength` in the emitted JSON Schema, NOT as a short-circuit:
- * measured on Zod 4.5, a string failing `.max()` still reaches the refinement,
- * because 4 runs checks non-abortively. The refinement is the authority and is
- * always reached.
- *
- * `minLength` is a PARAMETER rather than something a caller chains on for one
- * empirical reason: expressing the non-empty constraint as a second refinement
- * drops `minLength: 1` from the emitted JSON Schema — refinements are not
- * representable there — which silently narrows what the MODEL is told while
- * leaving parsing unchanged. That moved the recorded native-tool prompt budget
- * and failed `native-tool-prompt-budget.test.ts`. (It is NOT because `.refine()`
- * blocks chaining: under Zod 4 it returns the same ZodString and `.min()`
- * chains fine. Zod 3's ZodEffects behaviour no longer applies.)
- */
-function canvasHtml(options?: { readonly minLength?: number }) {
-  const bounded =
-    options?.minLength === undefined
-      ? z.string().max(CANVAS_HTML_MAX_BYTES)
-      : z.string().min(options.minLength).max(CANVAS_HTML_MAX_BYTES);
-  return bounded.refine(canvasHtmlWithinByteCeiling, {
-    message: `canvas HTML exceeds ${CANVAS_HTML_MAX_BYTES} UTF-8 bytes`,
-  });
-}
 const CANVAS_TITLE_MAX = 500;
 
-// Branches deliberately STRIP (zod default) rather than `.strict()`:
-// `action` fully determines semantics, and real models bundle fields from
-// other actions (observed live with gpt-5.6, 2026-08-07 — a valid `create`
-// carrying redundant canvasId/oldString/newString was rejected, breaking the
-// feature and burning retry tokens). Cross-action extras among the six
-// DECLARED envelope keys are harmless; genuinely unknown keys (hallucinated
-// API) are still rejected by the `.strict()` provider envelope below.
-const ManageCanvasActionInputSchema = z.discriminatedUnion('action', [
-  z.object({
-    action: z.literal('create'),
-    html: canvasHtml().describe('Initial HTML content for version 1 (max 8 MB of UTF-8)'),
-    title: z.string().min(1).max(CANVAS_TITLE_MAX).describe('Canvas document title'),
-  }),
-  z.object({
-    action: z.literal('update'),
-    canvasId: z.string().min(1).describe('Canvas document id'),
-    newString: canvasHtml().describe(
-      'Replacement HTML substring; empty deletes the match (max 8 MB of UTF-8)'
-    ),
-    oldString: canvasHtml({ minLength: 1 }).describe(
-      'Exact HTML substring that must occur exactly once in the latest version'
-    ),
-  }),
-  z.object({
-    action: z.literal('rewrite'),
-    canvasId: z.string().min(1).describe('Canvas document id'),
-    html: canvasHtml().describe('Complete HTML content for the new version (max 8 MB of UTF-8)'),
-  }),
-  z.object({ action: z.literal('list') }),
-]);
-
-export type ManageCanvasInput = z.infer<typeof ManageCanvasActionInputSchema>;
-
-/**
- * Narrow an envelope-validated input to its clean action-branch shape,
- * STRIPPING tolerated cross-action extras so the executor and repository
- * receive exactly the union type they're written against — no `as` cast, no
- * extras flowing into repository inputs. The envelope's superRefine already
- * proved this parse succeeds; a failure here is a wiring bug and throws.
- */
-export function normalizeManageCanvasInput(input: unknown): ManageCanvasInput {
-  return ManageCanvasActionInputSchema.parse(input);
+// Character bounds preserve Zod 4.6.7 code points; the UTF-8 byte bound is authoritative.
+function canvasHtml(description: string, options?: { readonly minLength?: number }) {
+  const bounded =
+    options?.minLength === undefined
+      ? Schema.String
+      : Schema.String.check(Schema.isMinCodePoints(options.minLength));
+  return bounded.annotate({ description }).check(
+    Schema.isMaxCodePoints(CANVAS_HTML_MAX_BYTES),
+    Schema.makeFilter((value) =>
+      canvasHtmlWithinByteCeiling(value)
+        ? undefined
+        : `canvas HTML exceeds ${CANVAS_HTML_MAX_BYTES} UTF-8 bytes`
+    )
+  );
 }
 
-/**
- * Provider schemas must be root JSON objects; a raw Zod discriminated union
- * serializes as a root `oneOf` and is rejected by the native-tool prompt
- * contract. Keep the provider envelope strict and delegate its conditional
- * field validation to the canonical action union above.
- */
-export const ManageCanvasInputSchema = z
-  .object({
-    action: z.enum(['create', 'update', 'rewrite', 'list']).describe('Canvas operation'),
-    canvasId: z.string().min(1).optional().describe('Required for update and rewrite'),
-    html: canvasHtml()
-      .optional()
-      .describe('Complete HTML; required for create and rewrite (max 8 MB of UTF-8)'),
-    newString: canvasHtml()
-      .optional()
-      .describe('Update replacement; may be empty (max 8 MB of UTF-8)'),
-    oldString: canvasHtml({ minLength: 1 })
-      .optional()
-      .describe('Update target; must occur exactly once'),
-    title: z.string().min(1).max(CANVAS_TITLE_MAX).optional().describe('Required for create'),
-  })
-  .strict()
-  .superRefine((input, context) => {
-    const parsed = ManageCanvasActionInputSchema.safeParse(input);
-    if (parsed.success) {
-      return;
-    }
-    for (const issue of parsed.error.issues) {
-      context.addIssue({ code: 'custom', message: issue.message, path: issue.path });
-    }
-  });
+const ManageCanvasActionInputSchema = Schema.Union(
+  [
+    Schema.Struct({
+      action: Schema.Literal('create'),
+      html: canvasHtml('Initial HTML content for version 1 (max 8 MB of UTF-8)'),
+      title: Schema.String.check(Schema.isMinCodePoints(1))
+        .check(Schema.isMaxCodePoints(CANVAS_TITLE_MAX))
+        .annotate({ description: 'Canvas document title' }),
+    }),
+    Schema.Struct({
+      action: Schema.Literal('update'),
+      canvasId: Schema.String.check(Schema.isMinCodePoints(1)).annotate({
+        description: 'Canvas document id',
+      }),
+      newString: canvasHtml(
+        'Replacement HTML substring; empty deletes the match (max 8 MB of UTF-8)'
+      ),
+      oldString: canvasHtml(
+        'Exact HTML substring that must occur exactly once in the latest version',
+        { minLength: 1 }
+      ),
+    }),
+    Schema.Struct({
+      action: Schema.Literal('rewrite'),
+      canvasId: Schema.String.check(Schema.isMinCodePoints(1)).annotate({
+        description: 'Canvas document id',
+      }),
+      html: canvasHtml('Complete HTML content for the new version (max 8 MB of UTF-8)'),
+    }),
+    Schema.Struct({ action: Schema.Literal('list') }),
+  ],
+  { mode: 'oneOf' }
+);
 
-export const ReadWorkspaceFileInputSchema = z
-  .object({
-    cursor: z
-      .string()
-      .regex(/^rfh_[A-Za-z0-9_-]{22}$/)
-      .nullish()
-      .describe(
-        'Short nextCursor handle from the previous page. Pass it unchanged with optional maxChars and omit every other field'
-      ),
-    endLine: z
-      .number()
-      .int()
-      .positive()
-      .nullish()
-      .describe(
-        'Last 1-based line; omit with cursor unless replaying the original value unchanged'
-      ),
-    maxChars: z.number().int().positive().max(50_000).nullish().describe('Output character cap'),
-    path: z
-      .string()
-      .min(1)
-      .nullish()
-      .describe('Workspace-relative file path; required only when starting a new read'),
-    root: z.string().nullish().describe(ROOT_QUALIFIER_DESCRIPTION),
-    startLine: z
-      .number()
-      .int()
-      .positive()
-      .nullish()
-      .describe(
-        'First 1-based line; omit with cursor unless replaying the original value unchanged'
-      ),
-  })
-  .strict()
-  .superRefine((input, context) => {
-    if (input.cursor) {
-      for (const field of ['path', 'root'] as const) {
-        if (input[field] !== null && input[field] !== undefined) {
-          context.addIssue({
-            code: 'custom',
-            message: `Omit ${field} when continuing with cursor`,
-            path: [field],
-          });
-        }
-      }
+export const ManageCanvasInputSchema = Schema.Struct({
+  action: Schema.Literals(['create', 'update', 'rewrite', 'list']).annotate({
+    description: 'Canvas operation',
+  }),
+  canvasId: Schema.optionalKey(Schema.String.check(Schema.isMinCodePoints(1))).annotate({
+    description: 'Required for update and rewrite',
+  }),
+  html: Schema.optionalKey(
+    canvasHtml('Complete HTML; required for create and rewrite (max 8 MB of UTF-8)')
+  ),
+  newString: Schema.optionalKey(canvasHtml('Update replacement; may be empty (max 8 MB of UTF-8)')),
+  oldString: Schema.optionalKey(
+    canvasHtml('Update target; must occur exactly once', { minLength: 1 })
+  ),
+  title: Schema.optionalKey(
+    Schema.String.check(Schema.isMinCodePoints(1)).check(Schema.isMaxCodePoints(CANVAS_TITLE_MAX))
+  ).annotate({ description: 'Required for create' }),
+}).check(
+  Schema.makeFilter((input) => {
+    const parsed = Schema.decodeUnknownResult(ManageCanvasActionInputSchema)(input);
+    if (parsed._tag === 'Success') {
       return;
+    }
+    return SchemaIssue.makeFormatterStandardSchemaV1()(parsed.failure.issue).issues.map(
+      (issue) => ({
+        issue: issue.message,
+        path: (issue.path ?? []).map((segment) =>
+          typeof segment === 'object' ? segment.key : segment
+        ),
+      })
+    );
+  })
+);
+
+export const ReadWorkspaceFileInputSchema = Schema.Struct({
+  cursor: Schema.optionalKey(
+    Schema.NullOr(Schema.String.check(Schema.isPattern(/^rfh_[A-Za-z0-9_-]{22}$/u)))
+  ).annotate({
+    description:
+      'Short nextCursor handle from the previous page. Pass it unchanged with optional maxChars and omit every other field',
+  }),
+  endLine: Schema.optionalKey(Schema.NullOr(Schema.Int.check(Schema.isGreaterThan(0)))).annotate({
+    description:
+      'Last 1-based line; omit with cursor unless replaying the original value unchanged',
+  }),
+  maxChars: Schema.optionalKey(
+    Schema.NullOr(
+      Schema.Int.check(Schema.isGreaterThan(0)).check(Schema.isLessThanOrEqualTo(50_000))
+    )
+  ).annotate({ description: 'Output character cap' }),
+  path: Schema.optionalKey(Schema.NullOr(Schema.String.check(Schema.isMinCodePoints(1)))).annotate({
+    description: 'Workspace-relative file path; required only when starting a new read',
+  }),
+  root: Schema.optionalKey(Schema.NullOr(Schema.String)).annotate({
+    description: ROOT_QUALIFIER_DESCRIPTION,
+  }),
+  startLine: Schema.optionalKey(Schema.NullOr(Schema.Int.check(Schema.isGreaterThan(0)))).annotate({
+    description:
+      'First 1-based line; omit with cursor unless replaying the original value unchanged',
+  }),
+}).check(
+  Schema.makeFilter((input) => {
+    if (input.cursor) {
+      return (['path', 'root'] as const)
+        .filter((field) => input[field] !== null && input[field] !== undefined)
+        .map((field) => ({ issue: `Omit ${field} when continuing with cursor`, path: [field] }));
     }
     if (!input.path) {
-      context.addIssue({
-        code: 'custom',
-        message: 'path is required when starting a new read',
-        path: ['path'],
-      });
+      return { issue: 'path is required when starting a new read', path: ['path'] };
     }
-  });
-
-export type ReadWorkspaceFileInput = z.infer<typeof ReadWorkspaceFileInputSchema>;
-
-export const WriteWorkspaceFileInputSchema = z
-  .object({
-    content: z
-      // Outer DoS guard only; the desktop tool enforces the authoritative ~2 MB
-      // UTF-8 BYTE cap. This counts CODE POINTS (Zod 4.5; UTF-16 code units
-      // before that) and sits well above the real cap either way, which is why
-      // the unit does not matter HERE the way it does for canvas above.
-      .string()
-      .max(8_000_000)
-      .describe('Full UTF-8 content (up to ~2 MB); overwrites an existing file'),
-    path: z.string().min(1).describe('Workspace-relative path; creates missing parent directories'),
-    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
+    return;
   })
-  .strict();
+);
 
-export type WriteWorkspaceFileInput = z.infer<typeof WriteWorkspaceFileInputSchema>;
+export type ReadWorkspaceFileInput = typeof ReadWorkspaceFileInputSchema.Type;
 
-export const StringReplaceWorkspaceFileInputSchema = z
-  .object({
-    newStr: z.string().max(8_000_000).describe('Replacement text; empty deletes the matched block'),
-    oldStr: z
-      // Outer DoS guard only; the desktop tool reads the file under the same
-      // ~2 MB BYTE cap as readWorkspaceFile. This counts CODE POINTS (Zod 4.5;
-      // UTF-16 code units before that), well above that cap either way.
-      .string()
-      .min(1)
-      .max(8_000_000)
-      .describe(
-        'Existing text block. Use whole lines and enough context to identify one location; ambiguous matches are refused.'
-      ),
-    path: z.string().min(1).describe('Existing workspace-relative file path'),
-    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
-  })
-  .strict();
+export const WriteWorkspaceFileInputSchema = Schema.Struct({
+  content: Schema.String.check(Schema.isMaxCodePoints(8_000_000)).annotate({
+    description: 'Full UTF-8 content (up to ~2 MB); overwrites an existing file',
+  }),
+  path: Schema.String.check(Schema.isMinCodePoints(1)).annotate({
+    description: 'Workspace-relative path; creates missing parent directories',
+  }),
+  root: Schema.optionalKey(Schema.String).annotate({ description: ROOT_QUALIFIER_DESCRIPTION }),
+});
 
-export type StringReplaceWorkspaceFileInput = z.infer<typeof StringReplaceWorkspaceFileInputSchema>;
+export type WriteWorkspaceFileInput = typeof WriteWorkspaceFileInputSchema.Type;
 
-export const DeleteWorkspaceFileInputSchema = z
-  .object({
-    path: z.string().min(1).describe('Workspace-relative file path; directories are refused'),
-    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
-  })
-  .strict();
+export const StringReplaceWorkspaceFileInputSchema = Schema.Struct({
+  newStr: Schema.String.check(Schema.isMaxCodePoints(8_000_000)).annotate({
+    description: 'Replacement text; empty deletes the matched block',
+  }),
+  oldStr: Schema.String.check(Schema.isMinCodePoints(1))
+    .check(Schema.isMaxCodePoints(8_000_000))
+    .annotate({
+      description:
+        'Existing text block. Use whole lines and enough context to identify one location; ambiguous matches are refused.',
+    }),
+  path: Schema.String.check(Schema.isMinCodePoints(1)).annotate({
+    description: 'Existing workspace-relative file path',
+  }),
+  root: Schema.optionalKey(Schema.String).annotate({ description: ROOT_QUALIFIER_DESCRIPTION }),
+});
 
-export type DeleteWorkspaceFileInput = z.infer<typeof DeleteWorkspaceFileInputSchema>;
+export type StringReplaceWorkspaceFileInput = typeof StringReplaceWorkspaceFileInputSchema.Type;
 
-export const RenameWorkspaceFileInputSchema = z
-  .object({
-    fromPath: z.string().min(1).describe('Existing workspace-relative source file'),
-    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
-    toPath: z
-      .string()
-      .min(1)
-      .describe('Destination path in the same root; no overwrite; creates missing parents'),
-  })
-  .strict();
+export const DeleteWorkspaceFileInputSchema = Schema.Struct({
+  path: Schema.String.check(Schema.isMinCodePoints(1)).annotate({
+    description: 'Workspace-relative file path; directories are refused',
+  }),
+  root: Schema.optionalKey(Schema.String).annotate({ description: ROOT_QUALIFIER_DESCRIPTION }),
+});
 
-export type RenameWorkspaceFileInput = z.infer<typeof RenameWorkspaceFileInputSchema>;
+export type DeleteWorkspaceFileInput = typeof DeleteWorkspaceFileInputSchema.Type;
 
-export const ReadWorkspaceDirectoryInputSchema = z
-  .object({
-    depth: z.number().int().min(0).max(5).optional().describe('Traversal depth (max 5)'),
-    detail: z.boolean().optional().describe('Include entry size/depth (default false)'),
-    includeDirectories: z.boolean().optional().describe('Include directories'),
-    includeFiles: z.boolean().optional().describe('Include files'),
-    includeHidden: z.boolean().optional().describe('Include hidden entries'),
-    maxEntries: z.number().int().positive().max(500).optional().describe('Entry cap'),
-    offset: z.number().int().min(0).max(5000).optional().describe('Pagination offset'),
-    path: z.string().optional().describe('Directory path (default root)'),
-    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
-  })
-  .strict();
+export const RenameWorkspaceFileInputSchema = Schema.Struct({
+  fromPath: Schema.String.check(Schema.isMinCodePoints(1)).annotate({
+    description: 'Existing workspace-relative source file',
+  }),
+  root: Schema.optionalKey(Schema.String).annotate({ description: ROOT_QUALIFIER_DESCRIPTION }),
+  toPath: Schema.String.check(Schema.isMinCodePoints(1)).annotate({
+    description: 'Destination path in the same root; no overwrite; creates missing parents',
+  }),
+});
 
-export type ReadWorkspaceDirectoryInput = z.infer<typeof ReadWorkspaceDirectoryInputSchema>;
+export type RenameWorkspaceFileInput = typeof RenameWorkspaceFileInputSchema.Type;
 
-export const FindWorkspaceSymbolInputSchema = z
-  .object({
-    contextLines: z
-      .number()
-      .int()
-      .min(0)
-      .max(10)
-      .optional()
-      .describe('Preview lines before/after each match (default 2)'),
-    maxMatches: z.number().int().positive().max(20).optional().describe('Max matches (default 5)'),
-    path: z.string().min(1).describe('Workspace-relative file path'),
-    query: z.string().min(1).describe('Symbol name or substring to find'),
-    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
-  })
-  .strict();
+export const ReadWorkspaceDirectoryInputSchema = Schema.Struct({
+  depth: Schema.optionalKey(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).check(Schema.isLessThanOrEqualTo(5))
+  ).annotate({ description: 'Traversal depth (max 5)' }),
+  detail: Schema.optionalKey(Schema.Boolean).annotate({
+    description: 'Include entry size/depth (default false)',
+  }),
+  includeDirectories: Schema.optionalKey(Schema.Boolean).annotate({
+    description: 'Include directories',
+  }),
+  includeFiles: Schema.optionalKey(Schema.Boolean).annotate({ description: 'Include files' }),
+  includeHidden: Schema.optionalKey(Schema.Boolean).annotate({
+    description: 'Include hidden entries',
+  }),
+  maxEntries: Schema.optionalKey(
+    Schema.Int.check(Schema.isGreaterThan(0)).check(Schema.isLessThanOrEqualTo(500))
+  ).annotate({ description: 'Entry cap' }),
+  offset: Schema.optionalKey(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).check(Schema.isLessThanOrEqualTo(5000))
+  ).annotate({ description: 'Pagination offset' }),
+  path: Schema.optionalKey(Schema.String).annotate({
+    description: 'Directory path (default root)',
+  }),
+  root: Schema.optionalKey(Schema.String).annotate({ description: ROOT_QUALIFIER_DESCRIPTION }),
+});
 
-export type FindWorkspaceSymbolInput = z.infer<typeof FindWorkspaceSymbolInputSchema>;
+export type ReadWorkspaceDirectoryInput = typeof ReadWorkspaceDirectoryInputSchema.Type;
 
-/** The listing takes no input: it reports the open roots and the index. */
-export const ListWorkspaceContextInputSchema = z.object({}).strict();
+export const FindWorkspaceSymbolInputSchema = Schema.Struct({
+  contextLines: Schema.optionalKey(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).check(Schema.isLessThanOrEqualTo(10))
+  ).annotate({ description: 'Preview lines before/after each match (default 2)' }),
+  maxMatches: Schema.optionalKey(
+    Schema.Int.check(Schema.isGreaterThan(0)).check(Schema.isLessThanOrEqualTo(20))
+  ).annotate({ description: 'Max matches (default 5)' }),
+  path: Schema.String.check(Schema.isMinCodePoints(1)).annotate({
+    description: 'Workspace-relative file path',
+  }),
+  query: Schema.String.check(Schema.isMinCodePoints(1)).annotate({
+    description: 'Symbol name or substring to find',
+  }),
+  root: Schema.optionalKey(Schema.String).annotate({ description: ROOT_QUALIFIER_DESCRIPTION }),
+});
 
-export type ListWorkspaceContextInput = z.infer<typeof ListWorkspaceContextInputSchema>;
+export type FindWorkspaceSymbolInput = typeof FindWorkspaceSymbolInputSchema.Type;
 
-export const ReadWorkspaceContextInputSchema = z
-  .object({
-    filePaths: z
-      .array(z.string().min(1))
-      .min(1)
-      .max(5000)
-      .describe('Workspace-relative file paths to read'),
-    maxCharsPerFile: z
-      .number()
-      .int()
-      .positive()
-      .max(50_000)
-      .optional()
-      .describe('Per-file character cap'),
-    maxFiles: z.number().int().positive().max(500).optional().describe('File count cap'),
-    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
-    tokenBudget: z
-      .number()
-      .int()
-      .positive()
-      .max(200_000)
-      .optional()
-      .describe('Total output token cap'),
-  })
-  .strict();
+export const ListWorkspaceContextInputSchema = Schema.Record(Schema.String, Schema.Never);
 
-export type ReadWorkspaceContextInput = z.infer<typeof ReadWorkspaceContextInputSchema>;
+export type ListWorkspaceContextInput = typeof ListWorkspaceContextInputSchema.Type;
+
+export const ReadWorkspaceContextInputSchema = Schema.Struct({
+  filePaths: Schema.Array(Schema.String.check(Schema.isMinCodePoints(1)))
+    .check(Schema.isMinLength(1))
+    .check(Schema.isMaxLength(5000))
+    .annotate({ description: 'Workspace-relative file paths to read' }),
+  maxCharsPerFile: Schema.optionalKey(
+    Schema.Int.check(Schema.isGreaterThan(0)).check(Schema.isLessThanOrEqualTo(50_000))
+  ).annotate({ description: 'Per-file character cap' }),
+  maxFiles: Schema.optionalKey(
+    Schema.Int.check(Schema.isGreaterThan(0)).check(Schema.isLessThanOrEqualTo(500))
+  ).annotate({ description: 'File count cap' }),
+  root: Schema.optionalKey(Schema.String).annotate({ description: ROOT_QUALIFIER_DESCRIPTION }),
+  tokenBudget: Schema.optionalKey(
+    Schema.Int.check(Schema.isGreaterThan(0)).check(Schema.isLessThanOrEqualTo(200_000))
+  ).annotate({ description: 'Total output token cap' }),
+});
+
+export type ReadWorkspaceContextInput = typeof ReadWorkspaceContextInputSchema.Type;
+
+// Branches strip declared cross-action extras; the provider envelope above stays closed.
+export type ManageCanvasInput = typeof ManageCanvasActionInputSchema.Type;
+export function normalizeManageCanvasInput(input: unknown): ManageCanvasInput {
+  return Schema.decodeUnknownSync(ManageCanvasActionInputSchema)(input);
+}

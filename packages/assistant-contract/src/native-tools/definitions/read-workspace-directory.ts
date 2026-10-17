@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { ReadWorkspaceDirectoryInputSchema } from '../schemas/schemas-workspace.js';
 
 export const readWorkspaceDirectory = defineNativeTool({
@@ -13,7 +13,7 @@ export const readWorkspaceDirectory = defineNativeTool({
   discovery: { family: 'directory listings', namespace: 'context' },
   history: { recencyPrunable: true, staleReplayable: true },
   id: 'brainstrike.readWorkspaceDirectory',
-  inputSchema: providerCompatibleInputSchema(ReadWorkspaceDirectoryInputSchema),
+  inputSchema: effectToolInputSchema(ReadWorkspaceDirectoryInputSchema),
   kind: 'desktop',
   returns:
     'Compact entries (self-bounded to the tool output budget) with totals, truncation flag, and a continuation hint',
