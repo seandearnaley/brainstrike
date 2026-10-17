@@ -1,6 +1,7 @@
 import { DropdownMenuItem } from '@brainstrike/ui';
 import { Folder, FolderGit2 } from 'lucide-react';
 import { type ReactElement, useId } from 'react';
+import { summarizeGitFailure } from '../git-failure-summary';
 import type { GitResult, GitStatus } from './git-bridge';
 import { type GitFolderProbe, useGitFolderProbe } from './use-git-folder-probe';
 import type { GitWorkspaceFolder } from './use-git-panel';
@@ -47,7 +48,7 @@ function presentProbe(probe: GitFolderProbe): ProbePresentation {
     case 'error':
       return {
         className: 'text-destructive',
-        label: `Could not check Git: ${probe.error}`,
+        label: `Could not check Git: ${summarizeGitFailure(probe.error)}`,
         selectable: true,
       };
     default: {

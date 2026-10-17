@@ -77,6 +77,7 @@ function renderComposition() {
   return renderHook(() =>
     useWorkspaceBarMode({
       checkout: { ahead: 0, behind: 0, branch: 'main', dirty: true },
+      checkoutFailure: null,
       checkoutSettled: true,
       foldersPending: false,
       onHandOffToLocal: vi.fn(),
@@ -106,6 +107,7 @@ describe('useWorkspaceBarMode branch escape', () => {
     renderHook(() =>
       useWorkspaceBarMode({
         checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+        checkoutFailure: null,
         checkoutSettled: true,
         foldersPending: false,
         onHandOffToLocal: vi.fn(),
@@ -134,6 +136,7 @@ describe('useWorkspaceBarMode branch escape', () => {
     renderHook(() =>
       useWorkspaceBarMode({
         checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+        checkoutFailure: null,
         checkoutSettled: true,
         foldersPending: false,
         onHandOffToLocal: vi.fn(),
@@ -192,6 +195,7 @@ describe('useWorkspaceBarMode branch escape', () => {
 describe('useWorkspaceBarMode checkout readiness (BST-2129)', () => {
   const args: UseWorkspaceBarModeArgs = {
     checkout: undefined,
+    checkoutFailure: null,
     checkoutSettled: false,
     foldersPending: false,
     onHandOffToLocal: vi.fn(),
@@ -229,11 +233,23 @@ describe('useWorkspaceBarMode checkout readiness (BST-2129)', () => {
     rerender({
       ...args,
       checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+      checkoutFailure: null,
       checkoutSettled: true,
     });
     expect(result.current.mode?.disabledReason).toBeNull();
     expect(branchSwitcherSpy.mock.calls.at(-1)?.[0]?.onSwitchInNewWorktree).toEqual(
       expect.any(Function)
+    );
+  });
+
+  it('hands a failed status read to the mode, so it is not called a non-repository', () => {
+    worktreeModeSpy.mockReturnValue(mode({ disabledReason: 'Git status could not be read: boom' }));
+    renderHook(() =>
+      useWorkspaceBarMode({ ...args, checkoutFailure: 'boom', checkoutSettled: true })
+    );
+
+    expect(worktreeModeSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ isRepository: false, statusFailure: 'boom' })
     );
   });
 
@@ -253,6 +269,7 @@ describe('useWorkspaceBarMode worktree map checkout intent', () => {
   const onSelectWorktree = vi.fn(() => Promise.resolve());
   const args = {
     checkout: { ahead: 0, behind: 0, branch: 'main', dirty: true },
+    checkoutFailure: null,
     checkoutSettled: true,
     foldersPending: false,
     onHandOffToLocal,

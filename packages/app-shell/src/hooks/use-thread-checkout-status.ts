@@ -38,6 +38,12 @@ export interface ThreadCheckoutStatusResult {
   /** Read-only git state for the Branch chip; see the function doc for `undefined`'s meanings. */
   readonly checkout: WorkspaceBarCheckout | undefined;
   /**
+   * Why the CURRENT root's last status read failed, or null. A failure leaves
+   * `checkout` undefined like a non-repository does; this is what tells the two
+   * apart, so a git failure is never reported as "not a repository" (BST-2133).
+   */
+  readonly failure: string | null;
+  /**
    * True once the async `window.git.status` round-trip for the CURRENT root
    * has settled at least once (resolved, failed, or was never needed — no
    * bridge, no root). False only while that FIRST round-trip for this root is
@@ -105,6 +111,11 @@ export function useThreadCheckoutStatus(
   // dbRootId change — reading `settledForDbRootId === dbRootId` already
   // handles that without an extra clearing effect.
   const [settledForDbRootId, setSettledForDbRootId] = useState<string | null>(null);
+  // Root-tagged like `checkout`, for the same reason.
+  const [failure, setFailure] = useState<{
+    readonly dbRootId: string;
+    readonly message: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!(bridge && dbRootId)) {
@@ -123,9 +134,11 @@ export function useThreadCheckoutStatus(
             error: result.error,
           });
           setCheckout(null);
+          setFailure({ dbRootId, message: result.error });
           setSettledForDbRootId(dbRootId);
           return;
         }
+        setFailure(null);
         if (!result.value.isRepository) {
           setCheckout(null);
           setSettledForDbRootId(dbRootId);
@@ -146,6 +159,10 @@ export function useThreadCheckoutStatus(
         if (!cancelled) {
           logger.warn('git status for the workspace bar threw', { dbRootId, error });
           setCheckout(null);
+          setFailure({
+            dbRootId,
+            message: error instanceof Error ? error.message : String(error),
+          });
           setSettledForDbRootId(dbRootId);
         }
       });
@@ -156,6 +173,7 @@ export function useThreadCheckoutStatus(
 
   return {
     checkout: checkout?.dbRootId === dbRootId ? checkout.value : undefined,
+    failure: failure?.dbRootId === dbRootId ? failure.message : null,
     // Nothing to await when there is no bridge (web) or no root at all — that
     // is trivially settled, not perpetually pending.
     settled: !(bridge && dbRootId) || settledForDbRootId === dbRootId,
