@@ -189,9 +189,8 @@ describe('file-tree.worker', () => {
     } as MessageEvent<MainToWorkerMessage>);
     expect(engine.flattenTree).toHaveBeenCalledWith(['/root']);
 
-    await onMessage({
-      data: { type: 'unknown-type' as never },
-    } as MessageEvent<MainToWorkerMessage>);
+    // @ts-expect-error -- exercise refusal of an unrecognized wire message at the typed handler.
+    await onMessage(new MessageEvent('message', { data: { type: 'unknown-type' } }));
     expect(selfMock.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         payload: expect.objectContaining({ message: 'Unknown message type: unknown-type' }),

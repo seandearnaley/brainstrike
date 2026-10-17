@@ -31,6 +31,8 @@ const layouts = [
   ['packages/test-utils/__tests__', '.spec.mts'],
   ['packages/queue/test', '.spec.ts'],
   ['packages/pipeline/__tests__', '.test.ts'],
+  ['packages/worker-runtime/src/__tests__', '.test.ts'],
+  ['packages/file-tree-worker/src', '.test.ts'],
 ];
 
 function lint(t, side) {
@@ -64,6 +66,8 @@ function lint(t, side) {
     'packages/test-utils/src',
     'packages/queue/test',
     'packages/pipeline/__tests__',
+    'packages/worker-runtime/src',
+    'packages/file-tree-worker/src',
   ]) {
     cases.push(
       {

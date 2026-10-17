@@ -316,15 +316,6 @@
         "packages/embedding-worker/test/vite-entry-contract.spec.ts",
         "packages/embedding-worker/test/webgpu-memory-growth.browser.test.ts",
         "packages/embedding-worker/test/worker.spec.ts",
-        "packages/file-tree-worker/src/bfs-engine.expanded-path-index.test.ts",
-        "packages/file-tree-worker/src/bfs-engine.perf-budget.test.ts",
-        "packages/file-tree-worker/src/bfs-engine.test.ts",
-        "packages/file-tree-worker/src/file-tree.worker.test.ts",
-        "packages/file-tree-worker/src/generic-tree-operations.test.ts",
-        "packages/file-tree-worker/src/port.test.ts",
-        "packages/file-tree-worker/src/resolve-file-tree-worker-url.test.ts",
-        "packages/file-tree-worker/src/tree-operations.test.ts",
-        "packages/file-tree-worker/src/vite-entry-contract.test.ts",
         "packages/token-cache/src/__tests__/background-indexer-worker.test.ts",
         "packages/token-cache/src/__tests__/binary-content.test.ts",
         "packages/token-cache/src/__tests__/cache-runtime.test.ts",
@@ -335,9 +326,7 @@
         "packages/token-cache/src/__tests__/token-cache-store.test.ts",
         "packages/token-cache/src/__tests__/token-counting-runtime.test.ts",
         "packages/token-cache/src/__tests__/worker-error-recovery.test.ts",
-        "packages/web-state-store/src/__tests__/held-extension-worker.ts",
-        "packages/worker-runtime/src/__tests__/index.test.ts",
-        "packages/worker-runtime/src/__tests__/validation.test.ts"
+        "packages/web-state-store/src/__tests__/held-extension-worker.ts"
       ]
     },
     {
@@ -778,9 +767,7 @@
         "packages/token-cache/src/__tests__/token-cache-retry-clock.test.ts",
         "packages/token-cache/src/__tests__/token-cache-store.test.ts",
         "packages/token-cache/src/__tests__/token-counting-runtime.test.ts",
-        "packages/token-cache/src/__tests__/worker-error-recovery.test.ts",
-        "packages/worker-runtime/src/__tests__/index.test.ts",
-        "packages/worker-runtime/src/__tests__/validation.test.ts"
+        "packages/token-cache/src/__tests__/worker-error-recovery.test.ts"
       ]
     }
   ]

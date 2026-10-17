@@ -34,7 +34,7 @@ function createDirectoryNode(overrides: Partial<WorkerFileNode> = {}): WorkerFil
 
 describe('BFSEngine', () => {
   let engine: BFSEngine;
-  let postMessageMock: ReturnType<typeof vi.fn<[WorkerToMainMessage], void>>;
+  let postMessageMock: ReturnType<typeof vi.fn<(message: WorkerToMainMessage) => void>>;
   let messages: WorkerToMainMessage[];
 
   beforeEach(() => {
@@ -180,12 +180,7 @@ describe('BFSEngine', () => {
         engine.setTree([createDirectoryNode({ children: [], loadState: 'loaded' })], 'root');
         messages = [];
 
-        expect(
-          engine.setTree(
-            [createDirectoryNode({ children: undefined, loadState: 'loaded' })],
-            'root'
-          )
-        ).toBe(true);
+        expect(engine.setTree([createDirectoryNode({ loadState: 'loaded' })], 'root')).toBe(true);
       });
 
       it('replaces when the folder id changes even though the nodes are identical', () => {
@@ -795,7 +790,7 @@ describe('BFSEngine', () => {
     it('should send complete message for empty paths', async () => {
       engine.setTree([], 'root');
 
-      await engine.loadPaths([]);
+      await engine.loadPaths([], 1);
 
       const completeMsg = messages.find((m) => m.type === 'complete');
       expect(completeMsg).toBeDefined();
@@ -806,7 +801,7 @@ describe('BFSEngine', () => {
       engine.setTree(tree, 'root');
 
       // Start loadPaths - it will skip already loaded dirs and complete
-      await engine.loadPaths(['/root/dir']);
+      await engine.loadPaths(['/root/dir'], 1);
 
       // Should have sent progress update (skipped count)
       const progressMsg = messages.find((m) => m.type === 'progress');
@@ -821,7 +816,7 @@ describe('BFSEngine', () => {
       const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
-      const loadPromise = engine.loadPaths(['/root/dir']);
+      const loadPromise = engine.loadPaths(['/root/dir'], 1);
 
       // Wait for request and simulate response
       await vi.waitFor(() => {
@@ -843,7 +838,7 @@ describe('BFSEngine', () => {
       engine.setTree(tree, 'root');
 
       // Start expandAll but abort immediately to prevent hanging
-      const expandPromise = engine.expandAll();
+      const expandPromise = engine.expandAll(1);
 
       // Wait a tick for the async operation to start
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -862,7 +857,7 @@ describe('BFSEngine', () => {
       const tree = [createDirectoryNode({ children: [], loadState: 'loaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
-      await engine.expandAll();
+      await engine.expandAll(1);
 
       const completeMsg = messages.find((m) => m.type === 'complete');
       expect(completeMsg).toBeDefined();
@@ -877,7 +872,7 @@ describe('BFSEngine', () => {
       engine.setTree(tree, 'root');
 
       // Start expandAll
-      const expandPromise = engine.expandAll();
+      const expandPromise = engine.expandAll(1);
 
       // Wait for request to be sent
       await vi.waitFor(() => {
@@ -898,7 +893,7 @@ describe('BFSEngine', () => {
       const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/parent' })];
       engine.setTree(tree, 'root');
 
-      const expandPromise = engine.expandAll();
+      const expandPromise = engine.expandAll(1);
 
       // Wait for first request
       await vi.waitFor(() => {
@@ -930,7 +925,7 @@ describe('BFSEngine', () => {
       const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
-      const expandPromise = engine.expandAll();
+      const expandPromise = engine.expandAll(1);
 
       // Wait for request to be sent
       await vi.waitFor(() => {
@@ -965,7 +960,7 @@ describe('BFSEngine', () => {
       ];
       engine.setTree(tree, 'root');
 
-      await engine.expandAll();
+      await engine.expandAll(1);
 
       const completeMsg = messages.find((m) => m.type === 'complete');
       expect(completeMsg).toBeDefined();
@@ -978,7 +973,7 @@ describe('BFSEngine', () => {
       const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
-      const expandPromise = engine.expandAll();
+      const expandPromise = engine.expandAll(1);
 
       // Wait for request to be sent
       await vi.waitFor(() => {
@@ -1025,7 +1020,7 @@ describe('BFSEngine', () => {
     it('should include loadedCount=0 in complete message for empty paths', async () => {
       engine.setTree([], 'root');
 
-      await engine.loadPaths([]);
+      await engine.loadPaths([], 1);
 
       const completeMsg = messages.find((m) => m.type === 'complete');
       expect(completeMsg).toBeDefined();
@@ -1038,7 +1033,7 @@ describe('BFSEngine', () => {
       const tree = [createDirectoryNode({ children: [], loadState: 'loaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
-      await engine.loadPaths(['/root/dir']);
+      await engine.loadPaths(['/root/dir'], 1);
 
       const completeMsg = messages.find((m) => m.type === 'complete');
       expect(completeMsg).toBeDefined();
@@ -1051,7 +1046,7 @@ describe('BFSEngine', () => {
       const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
-      const loadPromise = engine.loadPaths(['/root/dir']);
+      const loadPromise = engine.loadPaths(['/root/dir'], 1);
 
       // Wait for request and simulate response
       await vi.waitFor(() => {
@@ -1077,7 +1072,7 @@ describe('BFSEngine', () => {
       engine.setTree(tree, 'root');
 
       // Request loading a nested path that doesn't exist yet (child path before parent loaded)
-      const loadPromise = engine.loadPaths(['/root/parent', '/root/parent/child']);
+      const loadPromise = engine.loadPaths(['/root/parent', '/root/parent/child'], 1);
 
       // Wait for request to load the parent first (shallowest first by depth sorting)
       await vi.waitFor(() => {
@@ -1191,7 +1186,7 @@ describe('BFSEngine', () => {
     it('should send complete with 0 count when start path not found', async () => {
       engine.setTree([], 'root');
 
-      await engine.loadSubtree('/root/nonexistent');
+      await engine.loadSubtree('/root/nonexistent', 1);
 
       const completeMsg = messages.find((m) => m.type === 'complete');
       expect(completeMsg).toBeDefined();
@@ -1204,7 +1199,7 @@ describe('BFSEngine', () => {
       const tree = [createFileNode({ path: '/root/file.txt' })];
       engine.setTree(tree, 'root');
 
-      await engine.loadSubtree('/root/file.txt');
+      await engine.loadSubtree('/root/file.txt', 1);
 
       const completeMsg = messages.find((m) => m.type === 'complete');
       expect(completeMsg).toBeDefined();
@@ -1223,7 +1218,7 @@ describe('BFSEngine', () => {
       ];
       engine.setTree(tree, 'root');
 
-      await engine.loadSubtree('/root/dir');
+      await engine.loadSubtree('/root/dir', 1);
 
       const completeMsg = messages.find((m) => m.type === 'complete');
       expect(completeMsg).toBeDefined();
@@ -1236,7 +1231,7 @@ describe('BFSEngine', () => {
       const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
-      const loadPromise = engine.loadSubtree('/root/dir');
+      const loadPromise = engine.loadSubtree('/root/dir', 1);
 
       // Wait for request
       await vi.waitFor(() => {
@@ -1260,7 +1255,7 @@ describe('BFSEngine', () => {
       const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/parent' })];
       engine.setTree(tree, 'root');
 
-      const loadPromise = engine.loadSubtree('/root/parent');
+      const loadPromise = engine.loadSubtree('/root/parent', 1);
 
       // Wait for first request
       await vi.waitFor(() => {
@@ -1305,7 +1300,7 @@ describe('BFSEngine', () => {
       ];
       engine.setTree(tree, 'root');
 
-      const loadPromise = engine.loadSubtree('/root/parent');
+      const loadPromise = engine.loadSubtree('/root/parent', 1);
 
       // Wait for request to load the unloaded child
       await vi.waitFor(() => {
@@ -1351,7 +1346,7 @@ describe('BFSEngine', () => {
       ];
       engine.setTree(tree, 'root');
 
-      const loadPromise = engine.loadSubtree('/root/level1');
+      const loadPromise = engine.loadSubtree('/root/level1', 1);
 
       // Wait for request to load the deeply nested unloaded directory
       await vi.waitFor(() => {
@@ -1378,7 +1373,7 @@ describe('BFSEngine', () => {
       const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
-      const loadPromise = engine.loadSubtree('/root/dir');
+      const loadPromise = engine.loadSubtree('/root/dir', 1);
 
       // Wait for request
       await vi.waitFor(() => {
@@ -1403,7 +1398,7 @@ describe('BFSEngine', () => {
       const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
-      const loadPromise = engine.loadSubtree('/root/dir');
+      const loadPromise = engine.loadSubtree('/root/dir', 1);
 
       // Wait for initial progress
       await vi.waitFor(() => {
