@@ -596,7 +596,7 @@ describe('embedding pipeline cache controller', () => {
       await Promise.all([replacementFailure, closeFailure]);
     } finally {
       releaseDisposal.resolve();
-      await Promise.allSettled([replacement, ...(close ? [close] : [])]);
+      await Promise.allSettled([replacement, ...(close === null ? [] : [close])]);
     }
   });
 

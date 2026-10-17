@@ -1,0 +1,27 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "incremental": false,
+    "declaration": false,
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
+    "rootDir": ".",
+    "types": [
+      "node",
+      "vite/client",
+      "vitest/globals",
+      "@vitest/browser-playwright"
+    ]
+  },
+  "include": [
+    "src/**/*",
+    "test/**/*",
+    "bench/*.spec.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules"
+  ]
+}
