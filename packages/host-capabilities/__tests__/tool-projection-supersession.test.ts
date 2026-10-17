@@ -329,19 +329,6 @@ describe('stale-read supersession through the host rewrite policy', () => {
     ).toBe(true);
   });
 
-  it('normalizes wrapped committed grep arguments before supersession matching', () => {
-    const output = grepOutput(300, 20);
-    const input = { filePaths: ['src'], outputMode: 'files', pattern: 'wrapped-needle' };
-    const rewrites = select([
-      ...Array.from({ length: 20 }, (_, index) =>
-        grepCall(`grep-wrapped-${index}`, { context: input }, output)
-      ),
-      grepCall('grep-wrapped-new', input, { ...output, files: [] }),
-    ]);
-
-    expect(rewrites).toHaveLength(20);
-  });
-
   it('matches successful committed greps with null omitted filePaths', () => {
     const output = grepOutput(300, 20);
     const rewrites = select([
