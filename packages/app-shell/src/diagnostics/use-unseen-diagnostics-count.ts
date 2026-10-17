@@ -66,16 +66,21 @@ export function useUnseenDiagnosticsCount(): UnseenDiagnosticsCountResult {
   const params = useMemo(() => [lastSeenAtIso] as const, [lastSeenAtIso]);
   const queryEnabled = database !== null;
 
-  const { error, loading, rows } = usePGliteLiveQuery<UnseenDiagnosticsCountRow>({
+  const { error, rows, rowsMatchQuery } = usePGliteLiveQuery<UnseenDiagnosticsCountRow>({
     cacheKey: makeLiveQueryKey('diagnostics-unseen', lastSeenAtIso),
     enabled: queryEnabled,
     params,
     query: UNSEEN_DIAGNOSTICS_QUERY,
   });
 
+  // Gate on rows that answer THIS watermark, not on `loading` (BST-1792). A
+  // re-subscribe of the same query (a PGlite leader change, say) reports
+  // `loading` while its rows still hold the answer, and reading "not yet known"
+  // as zero hides the chip. Rows counted under an earlier watermark are not the
+  // answer, so `markAllSeen` still clears the chip.
   const counts = useMemo(() => {
     const row = rows[0];
-    if (!queryEnabled || loading || row === undefined) {
+    if (!rowsMatchQuery || row === undefined) {
       return { aggregateError: null, errorCount: 0, warningCount: 0 };
     }
     const errorCount = parseAggregateCount(row.errorCount);
@@ -88,7 +93,7 @@ export function useUnseenDiagnosticsCount(): UnseenDiagnosticsCountResult {
       };
     }
     return { aggregateError: null, errorCount, warningCount };
-  }, [loading, queryEnabled, rows]);
+  }, [rows, rowsMatchQuery]);
 
   if (native) {
     return nativeCounts;

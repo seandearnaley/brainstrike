@@ -38,6 +38,8 @@ function mockLiveQueryResult(
     loading: false,
     refresh: vi.fn(),
     rows,
+    // A delivered answer to the current watermark, as the live query reports it.
+    rowsMatchQuery: error === null,
   });
 }
 
