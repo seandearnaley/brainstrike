@@ -1,5 +1,9 @@
 import { type EmbeddingDType, StreamingEmbeddingWorkerClient } from '@brainstrike/embedding-worker';
-import { type EmbeddingPooling, requestedEmbeddingPooling } from '@brainstrike/indexing-contract';
+import {
+  type EmbeddingPooling,
+  isEmbeddingDeviceUnavailable,
+  requestedEmbeddingPooling,
+} from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
@@ -463,11 +467,15 @@ export class TransformersBackend {
         };
       });
     } catch (error) {
-      logger.error('Embedding worker queue failed', {
-        batchSize: texts.length,
-        error,
-        modelId,
-      });
+      // An unavailable device is an expected condition with a remedy; the hidden
+      // runtime logs it once where it crosses to its owner (BST-2058).
+      if (!isEmbeddingDeviceUnavailable(error)) {
+        logger.error('Embedding worker queue failed', {
+          batchSize: texts.length,
+          error,
+          modelId,
+        });
+      }
       throw error;
     }
   }

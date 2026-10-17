@@ -2,6 +2,8 @@ import {
   EMBED_WORKER_INSTANCE_NAME_PREFIX,
   EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
+  EMBEDDING_DEVICE_UNAVAILABLE_CODE,
+  EmbeddingDeviceUnavailableError,
   withOnnxWasmPathsFragment,
 } from '@brainstrike/indexing-contract';
 import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
@@ -1692,6 +1694,7 @@ describe('embedding worker runtime', () => {
       Object.assign(async () => new Float32Array([0.2, 0.8]), { dispose: disposeMock })
     );
     const runEmbedding = await loadWorker();
+    // The worker module is reloaded per test, so match the class by its identity fields.
     await expect(
       runEmbedding({
         deviceHint: 'webgpu',
@@ -1700,7 +1703,21 @@ describe('embedding worker runtime', () => {
         texts: ['hello'],
         type: 'embed',
       })
-    ).rejects.toThrow('WebGPU adapter is unavailable.');
+    ).rejects.toMatchObject({
+      code: EMBEDDING_DEVICE_UNAVAILABLE_CODE,
+      message: new EmbeddingDeviceUnavailableError(undefined).message,
+      name: 'DeviceUnavailable',
+    });
+    // The request's error event names the condition, so its owner can refuse it
+    // with the remedy rather than report a fault (BST-2058).
+    expect(workerEmitMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cause: expect.stringContaining('WebGPU adapter is unavailable.'),
+        code: EMBEDDING_DEVICE_UNAVAILABLE_CODE,
+        id: 'guard-missing-env',
+        type: 'error',
+      })
+    );
     expect(pipelineMock).not.toHaveBeenCalled();
     expect(disposeMock).not.toHaveBeenCalled();
     expect(disposeCatchMock).not.toHaveBeenCalled();

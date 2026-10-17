@@ -10,6 +10,7 @@ import {
   POWER_BROADCAST_CHANNEL,
   runCoordinatedQueryEmbedding,
 } from '@brainstrike/embeddings/worker';
+import { isEmbeddingDeviceUnavailable } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import { type MutableRefObject, useEffect, useRef } from 'react';
 import {
@@ -147,6 +148,19 @@ async function getQueryEmbeddingService(
   serviceStateRef.current = state;
   signal.throwIfAborted();
   return state;
+}
+
+/** An unavailable device is logged once, as its report crosses to Main (BST-2058). */
+function logInferenceRequestFailure(request: EmbeddingHostInferenceRequest, error: unknown): void {
+  if (isEmbeddingDeviceUnavailable(error)) {
+    return;
+  }
+  logger.error('Embedding host query embedding request failed', {
+    error: error instanceof Error ? error.message : String(error),
+    modelKey: request.payload.modelKey,
+    requestId: request.requestId,
+    runtimeId: request.runtimeId,
+  });
 }
 
 async function handleQueryEmbeddingRequest(options: {
@@ -303,12 +317,7 @@ async function handleQueryEmbeddingRequest(options: {
     }
   } catch (requestError) {
     const error = await joinQueryEmbeddingFailure(queryOwner, requestError);
-    logger.error('Embedding host query embedding request failed', {
-      error: error instanceof Error ? error.message : String(error),
-      modelKey: request.payload.modelKey,
-      requestId: request.requestId,
-      runtimeId: request.runtimeId,
-    });
+    logInferenceRequestFailure(request, error);
     if (request.channel === 'document-embeddings') {
       reportDocumentEmbeddingsResponse(
         createEmbeddingHostDocumentEmbeddingsErrorReport(request, error)

@@ -7,6 +7,7 @@ import {
   EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
   EmbeddingDeviceLostError,
+  EmbeddingDeviceUnavailableError,
   type EmbedWorkerRequestControl,
   readOnnxWasmPathsFragment,
   requestedEmbeddingPooling,
@@ -1326,7 +1327,10 @@ function emitErrorEvent(id: string, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   const event: EmbedWorkerError = {
     cause: serializeErrorCause(error),
-    ...(error instanceof EmbeddingDeviceLostError ? { code: error.code } : {}),
+    ...(error instanceof EmbeddingDeviceLostError ||
+    error instanceof EmbeddingDeviceUnavailableError
+      ? { code: error.code }
+      : {}),
     id,
     message,
     type: 'error',
@@ -1387,7 +1391,10 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
         const failure = await joinDeviceRetirement(error);
         postStreamEvent({
           cause: serializeErrorCause(failure),
-          ...(failure instanceof EmbeddingDeviceLostError ? { code: failure.code } : {}),
+          ...(failure instanceof EmbeddingDeviceLostError ||
+          failure instanceof EmbeddingDeviceUnavailableError
+            ? { code: failure.code }
+            : {}),
           id: context?.id ?? requestId,
           message: failure instanceof Error ? failure.message : String(failure),
           type: 'error',

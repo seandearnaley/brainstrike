@@ -1,4 +1,5 @@
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
+import { isEmbeddingDeviceUnavailable } from '@brainstrike/indexing-contract';
 import { ipcMain, type WebContents } from 'electron';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import {
@@ -223,6 +224,15 @@ function registerQueryEmbeddingRequests(
         try {
           const outcome = await completion;
           if (outcome.kind !== 'result') {
+            // An unavailable device is the user's setting to change, not a fault (BST-2058).
+            if (isEmbeddingDeviceUnavailable(outcome.error)) {
+              throw refusalError(
+                'configuration',
+                'embedding.webgpu-unavailable',
+                'WebGPU is not available on this device.',
+                'Choose WASM in Settings → Search & Indexing.'
+              );
+            }
             throw outcome.error;
           }
           return outcome.embedding;
