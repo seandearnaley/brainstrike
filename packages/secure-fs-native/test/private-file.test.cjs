@@ -44,8 +44,7 @@ switch ($env:BS_PRIVATE_TEST_MUTATION) {
 }
 if ($env:BS_PRIVATE_TEST_MUTATION) { $info.SetAccessControl($acl); $acl = $info.GetAccessControl($sections) }
 $rules = @($acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]) | ForEach-Object { [ordered]@{ sid=$_.IdentityReference.Value; rights=[int]$_.FileSystemRights; inherited=$_.IsInherited; inheritance=[int]$_.InheritanceFlags; propagation=[int]$_.PropagationFlags; type=$_.AccessControlType.ToString() } })
-$principal = [System.Security.Principal.WindowsPrincipal]::new([System.Security.Principal.WindowsIdentity]::GetCurrent())
-[ordered]@{ owner=$acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value; current=$sid.Value; protected=$acl.AreAccessRulesProtected; rules=@($rules); elevated=$principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator) } | ConvertTo-Json -Depth 4 -Compress
+[ordered]@{ owner=$acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value; current=$sid.Value; protected=$acl.AreAccessRulesProtected; rules=@($rules) } | ConvertTo-Json -Depth 4 -Compress
 `;
 function inspectAcl(file, mutation = '') {
   return JSON.parse(
@@ -65,10 +64,13 @@ function assertPrivate(file) {
     assert.equal(statSync(file).mode & 0o777, 0o600);
     return;
   }
+  // Assert the file's ACL, not the test process's token. Hosted Windows
+  // runners are always elevated, and that is the stricter case: an elevated
+  // token's default owner for new objects is BUILTIN\Administrators, so
+  // `owner == current` there proves the native code sets the owner explicitly.
   const actual = inspectAcl(file);
   assert.deepEqual(actual, {
     current: actual.current,
-    elevated: false,
     owner: actual.current,
     protected: true,
     rules: [

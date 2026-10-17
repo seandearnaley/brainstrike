@@ -621,6 +621,7 @@
     "@vitejs/plugin-react", // Only used in Vite config
     "babel-plugin-react-compiler", // Resolved indirectly by reactCompilerPreset in Vite config
     "@mermaid-js/mermaid-cli", // Used in .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
+    "yauzl", // Satisfies @puppeteer/browsers' optional yauzl peer (reached only via @mermaid-js/mermaid-cli -> puppeteer) so Chrome extraction without `unzip` doesn't fall back to the hoisted yauzl@2.10.0, whose read streams never close (thejoshwolfe/yauzl#169)
     "mermaid", // Used in .claude/skills/mermaid-diagrams/scripts/ (validate-mermaid.mjs and test-one-diagram.mjs)
     "@jacobwolf/biome-unnecessary-effect", // Biome plugin used in biome.json for React useEffect linting
     "react-doctor" // CI/lint tool run via `pnpm run react-doctor` + the react-doctor.yml workflow, never imported
