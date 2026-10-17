@@ -97,6 +97,16 @@ caller SQL, attachments or unregistered scope. Preserve sandbox limits and the
 shared line matcher; deadline/overflow is a visible refusal, not partial success.
 A closed reader stays closed; replacement is a new owned acquisition.
 
+The query client's correlation Map owns a request until reply validation can no
+longer throw; terminal protocol faults must reject that request along with the
+others. Late replies never replace the first terminal error. Process listeners
+remain attached until actual exit and detach once. Repeated close joins that
+exit; a failed kill retains the owner for an explicit retry. Keep these states
+with the query client, distinct from desktop's progress-based host request channel.
+Its deadlines already use the shared Effect timeout boundary; adding per-request
+Scope/Deferred wrappers would retain the same correlation and retryable physical
+owner, so this seam keeps its simpler Promise-facing acquisition.
+
 ## Lifecycle
 
 Pause fences and joins ingestion while retaining the authorized reader/profile;

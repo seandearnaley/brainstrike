@@ -8,25 +8,32 @@ function reader(ready = true) {
   let message: (value: unknown) => void = () => undefined;
   let exit: () => void = () => undefined;
   const requests: QueryRequest[] = [];
+  const detach = { error: vi.fn(), exit: vi.fn(), message: vi.fn() };
   const process: QueryProcess = {
     kill: vi.fn(),
-    onError: () => () => undefined,
+    onError: () => detach.error,
     onExit: (listener) => {
       exit = listener;
-      return vi.fn();
+      return detach.exit;
     },
     onMessage: (listener) => {
       message = listener;
-      return vi.fn();
+      return detach.message;
     },
-    postMessage: (request) => {
+    postMessage: vi.fn((request: QueryRequest) => {
       requests.push(request);
       if ((request.kind === 'open' || request.kind === 'open-native-coverage') && ready) {
         queueMicrotask(() => message({ id: request.id, kind: 'ready' }));
       }
-    },
+    }),
   };
-  return { exit: () => exit(), message: (value: unknown) => message(value), process, requests };
+  return {
+    detach,
+    exit: () => exit(),
+    message: (value: unknown) => message(value),
+    process,
+    requests,
+  };
 }
 function open(owner: ReturnType<typeof reader>, deadlineMs = 1000) {
   return SqliteQueryClient.open({
@@ -207,3 +214,144 @@ it.each(['store', 'revision'] as const)(
     await closing;
   }
 );
+
+it('fails a wrong-kind fault before the query deadline and retains listeners until physical exit', async () => {
+  vi.useFakeTimers();
+  const owner = reader();
+  let client: SqliteQueryClient | undefined;
+  let outcome: Promise<unknown> | undefined;
+  try {
+    const opening = open(owner);
+    await vi.advanceTimersByTimeAsync(0);
+    client = await opening;
+    let settled = false;
+    outcome = client.grep(options).catch((error: unknown) => {
+      settled = true;
+      return error;
+    });
+    owner.message({
+      error: fault(new Error('wrong request kind')),
+      id: 2,
+      kind: 'nativeCoverageError',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(owner.process.kill).toHaveBeenCalledOnce();
+    expect(
+      settled,
+      'a terminal protocol fault must settle the correlated request without its timer'
+    ).toBe(true);
+    expect(await outcome).toMatchObject({
+      message: 'Native coverage error replied to a grep request.',
+    });
+    for (const detach of Object.values(owner.detach)) {
+      expect(detach).not.toHaveBeenCalled();
+    }
+  } finally {
+    owner.exit();
+    await vi.advanceTimersByTimeAsync(1000);
+    await outcome;
+    await client?.close();
+    vi.useRealTimers();
+  }
+  for (const detach of Object.values(owner.detach)) {
+    expect(detach).toHaveBeenCalledOnce();
+  }
+});
+
+it.each([
+  ['malformed rows', { id: 2, kind: 'grepRows', result: 'invalid' }],
+  ['unknown correlation', grepRows(999)],
+  ['wrong success kind', { id: 2, kind: 'ready' }],
+] as const)('settles %s once and detaches only on exit', async (_name, reply) => {
+  const owner = reader();
+  const client = await open(owner);
+  const outcome = client.grep(options).catch((error: unknown) => error);
+  await posted(owner, 2);
+  owner.message(reply);
+  const error = await outcome;
+  expect(error).toBeInstanceOf(Error);
+  expect(owner.process.kill).toHaveBeenCalledOnce();
+  owner.message(grepRows(2));
+  await expect(client.grep(options)).rejects.toBe(error);
+  for (const detach of Object.values(owner.detach)) {
+    expect(detach).not.toHaveBeenCalled();
+  }
+  const closing = client.close();
+  owner.exit();
+  await closing;
+  for (const detach of Object.values(owner.detach)) {
+    expect(detach).toHaveBeenCalledOnce();
+  }
+});
+it('a synchronous post failure rejects the request and keeps its original error through joined close', async () => {
+  const owner = reader();
+  const client = await open(owner);
+  const refusal = new Error('IPC send refused');
+  vi.mocked(owner.process.postMessage).mockImplementationOnce(() => {
+    throw refusal;
+  });
+  await expect(client.grep(options)).rejects.toBe(refusal);
+  expect(owner.process.kill).toHaveBeenCalledOnce();
+  await expect(client.grep(options)).rejects.toBe(refusal);
+  const closing = client.close();
+  owner.exit();
+  await closing;
+  for (const detach of Object.values(owner.detach)) {
+    expect(detach).toHaveBeenCalledOnce();
+  }
+});
+it('repeated close joins the same physical exit without duplicate kills or detached listeners', async () => {
+  const owner = reader();
+  const client = await open(owner);
+  let first = false,
+    second = false;
+  const a = client.close().then(() => {
+      first = true;
+    }),
+    b = client.close().then(() => {
+      second = true;
+    });
+  await Promise.resolve();
+  expect(first).toBe(false);
+  expect(second).toBe(false);
+  expect(owner.process.kill).toHaveBeenCalledOnce();
+  for (const detach of Object.values(owner.detach)) {
+    expect(detach).not.toHaveBeenCalled();
+  }
+  owner.exit();
+  await Promise.all([a, b]);
+  await client.close();
+  expect(first).toBe(true);
+  expect(second).toBe(true);
+  expect(owner.process.kill).toHaveBeenCalledOnce();
+  for (const detach of Object.values(owner.detach)) {
+    expect(detach).toHaveBeenCalledOnce();
+  }
+});
+it('a late old-generation reply cannot settle a replacement with the same request id', async () => {
+  const old = reader();
+  const first = await open(old);
+  const closed = first.close();
+  old.exit();
+  await closed;
+  const replacement = reader();
+  const second = await open(replacement);
+  let settled = false;
+  const result = second.grep(options).then((value) => {
+    settled = true;
+    return value;
+  });
+  await posted(replacement, 2);
+  old.message({
+    ...grepRows(2),
+    result: { ...grepRows(2).result, rows: [['stale-old-generation']] },
+  });
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  replacement.message(grepRows(2));
+  expect(await result).toMatchObject({ rows: [['chunk-2']] });
+  expect(replacement.process.kill).not.toHaveBeenCalled();
+  const closing = second.close();
+  replacement.exit();
+  await closing;
+});

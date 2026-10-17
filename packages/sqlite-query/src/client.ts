@@ -78,11 +78,17 @@ export class SqliteQueryClient {
           if (!pending) {
             throw new TypeError('SQLite query process replied with an unknown request id.');
           }
+          // Keep the correlation owned until protocol checks that may throw
+          // finish, so a terminal refusal rejects this request too.
+          if (
+            response.kind === 'nativeCoverageError' &&
+            pending.kind !== 'native-coverage' &&
+            pending.kind !== 'open-native-coverage'
+          ) {
+            throw new TypeError('Native coverage error replied to a grep request.');
+          }
           this.#pending.delete(response.id);
           if (response.kind === 'nativeCoverageError') {
-            if (pending.kind !== 'native-coverage' && pending.kind !== 'open-native-coverage') {
-              throw new TypeError('Native coverage error replied to a grep request.');
-            }
             pending.reject(new IndexerError(response.error.code, response.error.message));
             return;
           }
