@@ -466,6 +466,10 @@
     // Vitest configs (apps/desktop, apps/web, embedding-worker, web-writer),
     // and those import @brainstrike/build-utils, which exports only dist.
     // Script tests read the whole repository, so a cached green is never sound.
+    // They also spawn the toolchain with the caller's environment, so
+    // `pnpm test:scripts` runs this task with --env-mode=loose. In strict mode
+    // the Static job's nested offline `pnpm install` fixture could not resolve
+    // its packageManager (Test run 39056797712).
     "//#test:scripts:run": {
       "cache": false,
       "dependsOn": [

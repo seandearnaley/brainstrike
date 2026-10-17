@@ -34,8 +34,13 @@ export default defineConfig({
         },
       },
       {
-        // The engine resolves its wasm next to its own module; pre-bundling would move it.
-        optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
+        optimizeDeps: {
+          // The engine resolves its wasm next to its own module; pre-bundling would move it.
+          exclude: ['@sqlite.org/sqlite-wasm'],
+          // Found only once a test loads utils' browser hashing, it would be optimized
+          // mid-run, and Vite's reload would end that file's tester on a cold cache.
+          include: ['@brainstrike/utils > @noble/hashes/sha2.js'],
+        },
         resolve: { alias: aliases },
         test: {
           ...browserProject.test,

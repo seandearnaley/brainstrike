@@ -19,7 +19,21 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 // #1066/#1207 (test lane silently executing built dist) — extended to apps/*
 // for Series C R6 (task 5): an app alias that drifts from source-resolution
 // fails this guard exactly like a package's would.
-test('real tree: no package or app test lane resolves workspace imports from dist', async () => {
+test('real tree: no package or app test lane resolves workspace imports from dist', async (t) => {
+  // Judge the test lanes as CI's Unit lane and `pnpm check` run them, with
+  // COVERAGE=false. Under CI=true alone the configs evaluate their coverage
+  // branch, where desktop deliberately runs native-process children from dist
+  // (NATIVE_PROCESS_ALIASES) behind its test:coverage build edge, and the
+  // verdict would depend on the caller's environment (Test run 39056797712).
+  const coverage = process.env['COVERAGE'];
+  process.env['COVERAGE'] = 'false';
+  t.after(() => {
+    if (coverage === undefined) {
+      Reflect.deleteProperty(process.env, 'COVERAGE');
+    } else {
+      process.env['COVERAGE'] = coverage;
+    }
+  });
   const violations = await findWorkspaceSrcAliasViolations({
     appsRoot: path.join(REPO_ROOT, 'apps'),
   });
