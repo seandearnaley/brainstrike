@@ -43,6 +43,7 @@ const mockLiveQueryResult = {
   loading: false,
   refresh: vi.fn(),
   rows: mockCollectionRows,
+  rowsMatchQuery: true,
 };
 
 // Mock store state with proper typing
@@ -266,6 +267,7 @@ describe('useCollections', () => {
       vi.mocked(usePGliteLiveQuery).mockReturnValue({
         ...mockLiveQueryResult,
         loading: true,
+        rowsMatchQuery: false,
       });
 
       const { result } = renderHook(() => useCollections(mockDb as any));
@@ -294,6 +296,7 @@ describe('useCollections', () => {
       vi.mocked(usePGliteLiveQuery).mockReturnValue({
         ...mockLiveQueryResult,
         loading: true,
+        rowsMatchQuery: false,
       });
 
       const { result } = renderHook(() => useCollections(mockDb as any));
@@ -314,6 +317,7 @@ describe('useCollections', () => {
       vi.mocked(usePGliteLiveQuery).mockReturnValue({
         ...mockLiveQueryResult,
         error: testError,
+        rowsMatchQuery: false,
       });
 
       const { result } = renderHook(() => useCollections(mockDb as any));

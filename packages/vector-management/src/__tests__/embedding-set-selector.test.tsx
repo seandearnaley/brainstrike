@@ -36,6 +36,7 @@ const mockLiveQueryResult = {
   loading: false,
   refresh: vi.fn(),
   rows: mockCollections.map((c) => ({ ...c, fileCount: String(c.fileCount) })),
+  rowsMatchQuery: true,
 };
 
 vi.mock('@brainstrike/db', () => ({
@@ -198,6 +199,7 @@ describe('EmbeddingSetSelector', () => {
     vi.mocked(usePGliteLiveQuery).mockReturnValue({
       ...mockLiveQueryResult,
       loading: true,
+      rowsMatchQuery: false,
     });
 
     render(
@@ -265,6 +267,7 @@ describe('EmbeddingSetSelector', () => {
       loading: false,
       refresh: vi.fn(),
       rows: [],
+      rowsMatchQuery: true,
     });
 
     render(
@@ -302,6 +305,7 @@ describe('EmbeddingSetSelector', () => {
           fileCount: '1',
         },
       ],
+      rowsMatchQuery: true,
     });
 
     render(
@@ -327,6 +331,7 @@ describe('EmbeddingSetSelector', () => {
           fileCount: '1234567',
         },
       ],
+      rowsMatchQuery: true,
     });
 
     render(
