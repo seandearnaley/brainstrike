@@ -287,6 +287,16 @@ overrides:
   # and generated prose CSS in both apps. Retire when the owner admits >=7.1.6.
   # https://github.com/postcss/postcss-selector-parser/releases/tag/7.1.6
   '@tailwindcss/typography@0.5.20>postcss-selector-parser': 7.1.6
+  # BST-2031 follow-up: align KaTeX CSS, Markdown and diagram renderers on
+  # the vendor-recommended 0.19.0 release (0.18.11 is deprecated). 0.18.2
+  # fixes inherited trust; 0.18 renamed CSS classes. Qualify these older
+  # parent ranges with real browser/CLI rendering and security regressions.
+  # Retire each exception when the owner admits the matched patched release.
+  # https://github.com/KaTeX/KaTeX/releases/tag/v0.19.0
+  'mermaid@12.2.0>katex': 0.19.0
+  'rehype-katex@7.0.1>katex': 0.19.0
+  'micromark-extension-math@3.1.0>katex': 0.19.0
+  '@mermaid-js/mermaid-cli@12.0.0>katex': 0.19.0
   # BST-879: python-analysis 0.15.0 still pins vulnerable minimatch 10.1.1.
   # Use the vendor's patched 10.x API; remove when the owner admits >=10.2.3.
   # https://github.com/isaacs/minimatch/security/advisories/GHSA-23c5-xmqv-rm74

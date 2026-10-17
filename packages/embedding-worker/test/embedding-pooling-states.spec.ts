@@ -1,7 +1,9 @@
-import { FeatureExtractionPipeline, Tensor } from '@huggingface/transformers';
-import { describe, expect, it } from 'vitest';
+import { BertTokenizer, FeatureExtractionPipeline, Tensor } from '@huggingface/transformers';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { extractEmbeddingBatch } from '../src/embedding-input-plan';
 import recorded from './fixtures/minilm-token-states.json';
+import tokenizerJson from './fixtures/minilm-tokenizer.json';
+import { fixtureEmbeddingModel } from './helpers/fixture-embedding-model';
 
 /**
  * BST-1939: pooling over real ONNX token states. The fixture is the control
@@ -11,23 +13,33 @@ import recorded from './fixtures/minilm-token-states.json';
 const [texts, tokens, width] = [recorded.texts, recorded.dims[1] ?? 0, recorded.dims[2] ?? 0];
 const ids = (rows: readonly (readonly number[])[]): Tensor =>
   new Tensor('int64', BigInt64Array.from(rows.flat().map(BigInt)), [rows.length, tokens]);
-/** The recorded tokenizer output: the pipeline pools with its attention mask. */
-const tokenizer = Object.assign(
-  (input: readonly string[]) => {
+let pipeline: FeatureExtractionPipeline;
+beforeEach(() => {
+  /** The recorded tokenizer output: the pipeline pools with its attention mask. */
+  const tokenizer = new BertTokenizer(tokenizerJson, {
+    cls_token: '[CLS]',
+    mask_token: '[MASK]',
+    model_max_length: 512,
+    pad_token: '[PAD]',
+    sep_token: '[SEP]',
+    unk_token: '[UNK]',
+  });
+  vi.spyOn(tokenizer, '_call').mockImplementation((input) => {
     expect(input).toEqual(texts);
     return { attention_mask: ids(recorded.attentionMask), input_ids: ids(recorded.inputIds) };
-  },
-  { model_max_length: 512 }
-) as unknown as ConstructorParameters<typeof FeatureExtractionPipeline>[0]['tokenizer'];
-const pipeline = new FeatureExtractionPipeline({
-  model: async () => ({
-    last_hidden_state: new Tensor(
-      'float32',
-      Float32Array.from(recorded.lastHiddenState),
-      recorded.dims
-    ),
-  }),
-  tokenizer,
+  });
+
+  pipeline = new FeatureExtractionPipeline({
+    model: fixtureEmbeddingModel(async () => ({
+      last_hidden_state: new Tensor(
+        'float32',
+        Float32Array.from(recorded.lastHiddenState),
+        recorded.dims
+      ),
+    })),
+    task: 'feature-extraction',
+    tokenizer,
+  });
 });
 const state = (text: number, token: number): number[] =>
   recorded.lastHiddenState.slice(

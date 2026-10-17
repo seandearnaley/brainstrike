@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { runExecuteCommandWithShellCorrelation } from '../../assistant-server/execute-command-correlation';
-import type { ExecuteCommandToolResult } from '../../assistant-server/execute-command-tool';
-import { runExecuteCommand } from '../../assistant-server/execute-command-tool';
+import { runExecuteCommandWithShellCorrelation } from '../src/native-tools/execute-command-correlation.js';
+import type { ExecuteCommandToolResult } from '../src/native-tools/execute-command-tool.js';
+import { runExecuteCommand } from '../src/native-tools/execute-command-tool.js';
 
-vi.mock('../../assistant-server/execute-command-tool', async () => {
+vi.mock('../src/native-tools/execute-command-tool.js', async () => {
   const actual = await vi.importActual<
-    typeof import('../../assistant-server/execute-command-tool')
-  >('../../assistant-server/execute-command-tool');
+    typeof import('../src/native-tools/execute-command-tool.js')
+  >('../src/native-tools/execute-command-tool.js');
   return { ...actual, runExecuteCommand: vi.fn() };
 });
+
+/** The command runner is mocked: the shell's wrapper is only forwarded. */
+const OPTIONS = { windowsCommandEntry: () => '/unused/windows-command-entry.mjs' };
 
 const COMMAND_RESULT: ExecuteCommandToolResult = {
   command: 'git worktree add ../wt -b x',
@@ -48,7 +51,7 @@ describe('runExecuteCommandWithShellCorrelation', () => {
     await runExecuteCommandWithShellCorrelation(
       { command: 'git worktree add ../wt -b x' },
       undefined,
-      {},
+      OPTIONS,
       dependencies
     );
 
@@ -65,7 +68,7 @@ describe('runExecuteCommandWithShellCorrelation', () => {
     await runExecuteCommandWithShellCorrelation(
       { command: 'git worktree add ../wt -b x' },
       undefined,
-      {},
+      OPTIONS,
       dependencies
     );
 
@@ -82,7 +85,7 @@ describe('runExecuteCommandWithShellCorrelation', () => {
     await runExecuteCommandWithShellCorrelation(
       { command: 'pnpm test' },
       undefined,
-      {},
+      OPTIONS,
       dependencies
     );
 
@@ -92,5 +95,21 @@ describe('runExecuteCommandWithShellCorrelation', () => {
       precedingWorktreePaths: undefined,
       rootId: 'root-1',
     });
+  });
+
+  it('a shell with no worktree ledger runs a worktree-shaped command and correlates nothing', async () => {
+    const result = await runExecuteCommandWithShellCorrelation(
+      { command: 'git worktree add ../wt -b x' },
+      undefined,
+      OPTIONS,
+      {}
+    );
+
+    expect(result).toBe(COMMAND_RESULT);
+    expect(runExecuteCommand).toHaveBeenCalledWith(
+      { command: 'git worktree add ../wt -b x' },
+      undefined,
+      OPTIONS
+    );
   });
 });

@@ -3,11 +3,12 @@ import type { HostToolContext } from '@brainstrike/agent-host';
 import { NATIVE_TOOL_ID, scanShellCommandForGitSignals } from '@brainstrike/assistant-contract';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import {
+  executeCommandExecutor,
   isSharedNativeToolId,
   type NativeToolExecutor,
+  type ShellCorrelationDependencies,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
-import type { ShellCorrelationDependencies } from '../assistant-server/execute-command-correlation';
 import type { GrepIndexSearch } from '../assistant-server/grep-search-core';
 import {
   type BrowserToolRunner,
@@ -26,7 +27,6 @@ import {
 import { retrievalToolExecutors } from '../assistant-server/native-tool-executors-retrieval';
 import { selfInspectionExecutors } from '../assistant-server/native-tool-executors-self';
 import { commandSessionExecutors } from '../assistant-server/native-tool-executors-sessions';
-import { executeCommandExecutor } from '../assistant-server/native-tool-executors-shell';
 import {
   runSkillScriptExecutor,
   skillToolExecutors,
@@ -37,6 +37,7 @@ import { admittedWorkspaceSkills } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import { nativeWorkspaceIndexSummary } from '../assistant-server/workspace-index-summary';
 import type { WorktreeToolCapability } from '../assistant-server/worktree-tools';
+import { resolveBundledSiblingPath } from '../bundled-sibling-path';
 import { resolvePythonBinary } from '../python-runtime/resolve-python-binary';
 import { resolveDesktopPythonRuntimeResourcesDir } from '../python-runtime/resources-dir';
 import { resolveDesktopSeccompApplyPath } from '../sandbox-runtime-path';
@@ -314,8 +315,12 @@ export function desktopHostToolExecutors(
       ? { [NATIVE_TOOL_ID.runPython]: runPythonExecutor(hostCodeExecution(appPaths)) }
       : {}),
     ...hostSkillExecutors(native, appPaths),
-    [NATIVE_TOOL_ID.executeCommand]: executeCommandExecutor(({ ports, runtimeData }) =>
-      hostShellCorrelation(request, threadId, runtimeData?.memory?.runId, ports.shellWorktrees)
-    ),
+    [NATIVE_TOOL_ID.executeCommand]: executeCommandExecutor({
+      correlation: ({ ports, runtimeData }) =>
+        hostShellCorrelation(request, threadId, runtimeData?.memory?.runId, ports.shellWorktrees),
+      // Desktop's own bundled wrapper, emitted beside this host bundle.
+      windowsCommandEntry: () =>
+        resolveBundledSiblingPath('Windows command', 'windows-command-entry.js'),
+    }),
   };
 }

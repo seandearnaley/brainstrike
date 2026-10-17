@@ -22,6 +22,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { workspacePackages } from './workspace-packages.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIAGNOSTIC_RE = /error TS\d+/;
@@ -119,31 +120,7 @@ function resolveTs7Bin(explicit) {
 
 // Reads a package.json's scripts map, keyed by package directory (relative to repo root).
 function loadPackageManifests() {
-  const manifests = [];
-  const roots = ['apps', 'packages', 'packages/config'];
-  for (const root of roots) {
-    const rootDir = path.join(REPO_ROOT, root);
-    if (!fs.existsSync(rootDir)) {
-      continue;
-    }
-    for (const entry of fs.readdirSync(rootDir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) {
-        continue;
-      }
-      const pkgDir = path.join(rootDir, entry.name);
-      const pkgJsonPath = path.join(pkgDir, 'package.json');
-      if (!fs.existsSync(pkgJsonPath)) {
-        continue;
-      }
-      const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
-      manifests.push({
-        dir: pkgDir,
-        name: pkgJson.name ?? entry.name,
-        scripts: pkgJson.scripts ?? {},
-      });
-    }
-  }
-  return manifests;
+  return workspacePackages(REPO_ROOT);
 }
 
 // Splits a package.json script command on top-level "&&" (no nested subshells

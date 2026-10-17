@@ -7,6 +7,7 @@ import {
   planAttentionBoundedBatchEnds,
 } from '../src/embedding-input-plan';
 import tokenizerJson from './fixtures/minilm-tokenizer.json';
+import { fixtureEmbeddingModel } from './helpers/fixture-embedding-model';
 
 describe('vendor model input ownership', () => {
   it.each([512, 8192])(
@@ -22,16 +23,19 @@ describe('vendor model input ownership', () => {
       });
       let observedTokens = 0;
       const pipeline = new FeatureExtractionPipeline({
-        model: async (inputs: { input_ids: Tensor; attention_mask: Tensor }) => {
-          observedTokens = inputs.input_ids.dims[1] ?? 0;
-          return {
-            last_hidden_state: new Tensor('float32', new Float32Array(observedTokens * 2).fill(2), [
-              1,
-              observedTokens,
-              2,
-            ]),
-          };
-        },
+        model: fixtureEmbeddingModel(
+          async (inputs: { input_ids: Tensor; attention_mask: Tensor }) => {
+            observedTokens = inputs.input_ids.dims[1] ?? 0;
+            return {
+              last_hidden_state: new Tensor(
+                'float32',
+                new Float32Array(observedTokens * 2).fill(2),
+                [1, observedTokens, 2]
+              ),
+            };
+          }
+        ),
+        task: 'feature-extraction',
         tokenizer,
       });
       const output = await extractEmbeddingBatch(pipeline, ['hello '.repeat(600)], 'mean');
@@ -57,15 +61,18 @@ describe('vendor model input ownership', () => {
     });
     const calls: number[][] = [];
     const pipeline = new FeatureExtractionPipeline({
-      model: async (inputs: { input_ids: Tensor; attention_mask: Tensor }) => {
-        const [batch = 0, tokens = 0] = inputs.input_ids.dims;
-        calls.push([batch, tokens]);
-        const hidden = new Float32Array(batch * tokens * 2);
-        for (let row = 0; row < batch; row += 1) {
-          hidden.fill(row, row * tokens * 2, (row + 1) * tokens * 2);
+      model: fixtureEmbeddingModel(
+        async (inputs: { input_ids: Tensor; attention_mask: Tensor }) => {
+          const [batch = 0, tokens = 0] = inputs.input_ids.dims;
+          calls.push([batch, tokens]);
+          const hidden = new Float32Array(batch * tokens * 2);
+          for (let row = 0; row < batch; row += 1) {
+            hidden.fill(row, row * tokens * 2, (row + 1) * tokens * 2);
+          }
+          return { last_hidden_state: new Tensor('float32', hidden, [batch, tokens, 2]) };
         }
-        return { last_hidden_state: new Tensor('float32', hidden, [batch, tokens, 2]) };
-      },
+      ),
+      task: 'feature-extraction',
       tokenizer,
     });
     const texts = Array.from({ length: 64 }, (_, index) =>

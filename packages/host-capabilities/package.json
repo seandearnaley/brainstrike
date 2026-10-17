@@ -92,6 +92,7 @@
     "@brainstrike/host-lease": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
+    "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/windows-job-native": "workspace:*",
     "@modelcontextprotocol/client": "catalog:",
@@ -99,6 +100,7 @@
     "jsonc-parser": "^3.3.1",
     "minimatch": "catalog:",
     "strip-ansi": "7.2.0",
+    "tree-kill": "1.2.2",
     "vscode-jsonrpc": "catalog:",
     "zod": "catalog:"
   },

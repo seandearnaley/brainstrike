@@ -53,7 +53,7 @@ class MockTensor {
     this.dims = dims;
   }
 
-  tolist() {
+  tolist(): number[] | number[][][] {
     return Array.from(this.data);
   }
 }
@@ -115,7 +115,7 @@ describe('embedding worker runtime', () => {
     workerEmitMock.mockReset();
     pipelineMock.mockReset();
     transferMock.mockClear();
-    registeredHandlers.runEmbedding = undefined;
+    Reflect.deleteProperty(registeredHandlers, 'runEmbedding');
     transformersImportState.error = null;
     transformersImportState.env = { allowRemoteModels: false };
     vi.unstubAllGlobals();
@@ -701,7 +701,12 @@ describe('embedding worker runtime', () => {
       // Together these two force transferList to be exactly a permutation of
       // the vectors' actual backing stores.
       expect(transferList).toHaveLength(uniqueVectorBuffers.size);
-      expect(batch.vectors.every((vector) => transferList.includes(vector.buffer))).toBe(true);
+      for (const vector of batch.vectors) {
+        if (!(vector.buffer instanceof ArrayBuffer)) {
+          throw new Error('Expected transferable ArrayBuffer');
+        }
+        expect(transferList.includes(vector.buffer)).toBe(true);
+      }
       expect(transferList.reduce((sum, buffer) => sum + buffer.byteLength, 0)).toBe(
         expectedBytesPerBatch
       );
@@ -780,12 +785,10 @@ describe('embedding worker runtime', () => {
       postMessage,
     });
 
-    let resolveLost: ((info: { message: string; reason?: string }) => void) | null = null;
+    const deviceLoss = Promise.withResolvers<{ message: string; reason?: string }>();
     await setWebGpuDevice({
       createCommandEncoder: () => ({ finish: () => ({}) }),
-      lost: new Promise((resolve) => {
-        resolveLost = resolve;
-      }),
+      lost: deviceLoss.promise,
       queue: {
         submit: vi.fn(),
       },
@@ -822,7 +825,7 @@ describe('embedding worker runtime', () => {
       )
     );
 
-    resolveLost?.({ message: 'device was lost', reason: 'destroyed' });
+    deviceLoss.resolve({ message: 'device was lost', reason: 'destroyed' });
     await flushMicrotasks();
     expect(telemetryPostMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: 'worker-lifetime-error' })
@@ -1025,7 +1028,7 @@ describe('embedding worker runtime', () => {
 
     vi.resetModules();
     Reflect.deleteProperty(globalThis, EMBEDDING_WORKER_TEST_RUNTIME_PHASE_KEY);
-    registeredHandlers.runEmbedding = undefined;
+    Reflect.deleteProperty(registeredHandlers, 'runEmbedding');
     vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}peer-worker-b`);
     pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0]));
     const runPeerEmbedding = await loadWorker();
@@ -1256,6 +1259,9 @@ describe('embedding worker runtime', () => {
 
       expect(result.vectors).toHaveLength(4);
       const firstBuffer = result.vectors[0]?.buffer;
+      if (!firstBuffer) {
+        throw new Error('Expected packed vector buffer');
+      }
       for (const vector of result.vectors) {
         expect(vector.buffer).toBe(firstBuffer);
       }
@@ -1458,12 +1464,10 @@ describe('embedding worker runtime', () => {
       postMessage,
     });
 
-    let resolveLost:
-      | ((info: { readonly reason?: string; readonly message: string }) => void)
-      | undefined;
-    const lost = new Promise<{ readonly reason?: string; readonly message: string }>((resolve) => {
-      resolveLost = resolve;
-    });
+    const deviceLoss = Promise.withResolvers<{
+      readonly reason?: string;
+      readonly message: string;
+    }>();
 
     const submitMock = vi.fn();
     const finishMock = vi.fn<() => unknown>(() => ({ kind: 'command-buffer' }));
@@ -1473,7 +1477,7 @@ describe('embedding worker runtime', () => {
 
     await setWebGpuDevice({
       createCommandEncoder: createCommandEncoderMock,
-      lost,
+      lost: deviceLoss.promise,
       queue: {
         submit: submitMock,
       },
@@ -1495,7 +1499,7 @@ describe('embedding worker runtime', () => {
     expect(createCommandEncoderMock).toHaveBeenCalled();
     expect(submitMock).toHaveBeenCalled();
 
-    resolveLost?.({ message: 'device was lost', reason: 'destroyed' });
+    deviceLoss.resolve({ message: 'device was lost', reason: 'destroyed' });
     await flushMicrotasks();
     expect(closeMock).not.toHaveBeenCalled();
 
@@ -1869,7 +1873,11 @@ describe('embedding worker runtime', () => {
       type: 'embed',
     });
     expect(result.metadata.dimensions).toBe(1024);
-    expect(Array.from(result.vectors[0])).toHaveLength(1024);
+    const firstVector = result.vectors[0];
+    if (!firstVector) {
+      throw new Error('Expected requested-dimension vector');
+    }
+    expect(Array.from(firstVector)).toHaveLength(1024);
   });
 
   it('validates dimension parameter hints for provider-specific requests', async () => {
@@ -2257,8 +2265,12 @@ describe('embedding worker runtime', () => {
       type: 'embed',
     });
     expect(result.vectors).toHaveLength(9);
-    expect(Array.from(result.vectors[0])).toHaveLength(3);
-    const length = Math.sqrt(result.vectors[0].reduce((sum, value) => sum + value * value, 0));
+    const firstVector = result.vectors[0];
+    if (!firstVector) {
+      throw new Error('Expected tensor vector');
+    }
+    expect(Array.from(firstVector)).toHaveLength(3);
+    const length = Math.sqrt(firstVector.reduce((sum, value) => sum + value * value, 0));
     expect(length).toBeCloseTo(1, 5);
   });
 });

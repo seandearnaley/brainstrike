@@ -49,7 +49,7 @@ export function resetMocks(): void {
   workerEmitMock.mockReset();
   pipelineMock.mockReset();
   transferMock.mockClear();
-  registeredHandlers.runEmbedding = undefined;
+  Reflect.deleteProperty(registeredHandlers, 'runEmbedding');
   vi.unstubAllGlobals();
 }
 

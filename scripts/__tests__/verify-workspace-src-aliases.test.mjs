@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-
+import { workspaceSrcAliases } from '../../packages/test-utils/workspace-src-aliases.mjs';
 import {
   findWorkspaceSrcAliasViolations,
   loadConfigProjects,
@@ -279,6 +279,74 @@ test('BLIND SPOT: transitive src-graph deps are closed to a fixpoint', async () 
   assert.equal(violations[0].specifier, '@brainstrike/gamma');
   assert.match(violations[0].problem, /falls through to built dist/);
   assert.match(violations[0].problem, /via @brainstrike\/beta \[@brainstrike\/beta src\]/);
+});
+
+test("BLIND SPOT: a dep's own-name subpath import from its src must be aliased too", async () => {
+  // BST-2128: agent's src imports `@brainstrike/agent/tool-guard-deadline`.
+  // agent-host aliased agent's root to src but not that subpath, so on a clean
+  // checkout 8 suites failed at import while this guard reported OK, because
+  // it dropped every self-import from the specifier set.
+  const packagesRoot = await writeFixture({
+    'alpha/src/index.ts': "import { thing } from '@brainstrike/beta';\nexport const x = thing;\n",
+  });
+  await writeFile(
+    path.join(packagesRoot, 'beta/src/index.ts'),
+    "import { extra } from '@brainstrike/beta/extra';\nexport const thing = extra;\n"
+  );
+  await writeFile(path.join(packagesRoot, 'alpha/vitest.config.mjs'), srcAliasConfig(packagesRoot));
+  const violations = await findWorkspaceSrcAliasViolations({ allowlist: {}, packagesRoot });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].specifier, '@brainstrike/beta/extra');
+  assert.match(violations[0].problem, /falls through to built dist via exports/);
+  assert.match(violations[0].problem, /via @brainstrike\/beta \[@brainstrike\/beta src\]/);
+});
+
+test("BLIND SPOT: a package's own lane must alias its own-name subpath imports", async () => {
+  const packagesRoot = await writeFixture({
+    'alpha/package.json': JSON.stringify({
+      exports: { './sub': { import: './dist/sub.js' } },
+      name: '@brainstrike/alpha',
+    }),
+    'alpha/src/index.ts': "import { sub } from '@brainstrike/alpha/sub';\nexport const x = sub;\n",
+    'alpha/src/sub.ts': 'export const sub = 1;\n',
+    'alpha/vitest.config.mjs': 'export default { test: {} };\n',
+  });
+  const violations = await findWorkspaceSrcAliasViolations({ allowlist: {}, packagesRoot });
+  assert.deepEqual(
+    violations.map(({ problem, specifier }) => [specifier, problem]),
+    [
+      [
+        '@brainstrike/alpha/sub',
+        'falls through to built dist via exports: @brainstrike/alpha ./sub -> ./dist/sub.js',
+      ],
+    ]
+  );
+});
+
+test('the registry keeps agent excluded except for the subpaths its own src imports', () => {
+  const packagesRoot = path.join(REPO_ROOT, 'packages');
+  const aliases = workspaceSrcAliases(packagesRoot);
+  assert.equal(
+    resolveThroughAliases('@brainstrike/agent/tool-guard-deadline', aliases),
+    path.join(packagesRoot, 'agent', 'src', 'tool-guard-deadline.ts')
+  );
+  for (const specifier of ['@brainstrike/agent', '@brainstrike/agent/tool-runtime']) {
+    assert.equal(resolveThroughAliases(specifier, aliases), null, specifier);
+  }
+});
+
+test('a self-reference that is not a dist code export throws instead of being skipped', async () => {
+  const packagesRoot = await writeFixture({
+    'agent/package.json': JSON.stringify({
+      exports: { '.': { import: './dist/index.js' } },
+      name: '@brainstrike/agent',
+    }),
+    'agent/src/index.ts': 'export const agent = 1;\n',
+  });
+  assert.throws(
+    () => workspaceSrcAliases(packagesRoot),
+    /@brainstrike\/agent self-reference '\.\/tool-guard-deadline' is not a dist code export/
+  );
 });
 
 test('transitive contributions exclude the dep package test files', async () => {

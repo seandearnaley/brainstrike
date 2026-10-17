@@ -18,6 +18,7 @@
  * into `electronAPI.storage`, then reload — main restores the root and the
  * renderer reconciles the durable `roots` row the bar resolves against.
  */
+import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
@@ -136,6 +137,33 @@ test.describe('Workspace bar (desktop)', () => {
     await expect(page.getByTestId('workspace-bar')).toHaveAttribute(
       'data-checkout-state',
       'resolved',
+      { timeout: 30_000 }
+    );
+    await expect(page.getByTestId('workspace-bar-branch-chip')).toHaveCount(0);
+    await expect(page.getByTestId('workspace-bar-mode-chip')).toHaveAttribute(
+      'title',
+      'Not a git repository'
+    );
+  });
+
+  test('names a failed git status on the mode chip instead of calling the repo a non-repository', async ({
+    window: page,
+  }) => {
+    // BST-2133: a corrupt index makes `git status` fail outright. The chip used
+    // to report that as "Not a git repository".
+    const repo = freshRepo('corrupt-index');
+    writeFileSync(path.join(repo, '.git', 'index'), 'not an index\n');
+    await seedRoot(page, repo);
+    await openComposer(page);
+
+    await expect(page.getByTestId('workspace-bar')).toHaveAttribute(
+      'data-checkout-state',
+      'resolved',
+      { timeout: 30_000 }
+    );
+    await expect(page.getByTestId('workspace-bar-mode-chip')).toHaveAttribute(
+      'title',
+      /^Git status could not be read: .*index/u,
       { timeout: 30_000 }
     );
     await expect(page.getByTestId('workspace-bar-branch-chip')).toHaveCount(0);

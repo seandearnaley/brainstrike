@@ -20,7 +20,8 @@
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:",
-    "playwright": "catalog:"
+    "playwright": "catalog:",
+    "@vitest/browser-playwright": "catalog:"
   },
   "exports": {
     ".": {
@@ -67,7 +68,7 @@
     "test:browser": "vitest run --project browser",
     "test:webgpu-memory": "VITEST_RUN_WEBGPU_MEMORY=true vitest run --project browser test/webgpu-memory-growth.browser.test.ts",
     "test:watch": "vitest --watch",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
   },
   "sideEffects": [

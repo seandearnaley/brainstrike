@@ -1,3 +1,4 @@
+import { render, screen } from '@testing-library/react';
 import type React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -21,11 +22,14 @@ describe('render-with-providers helpers', () => {
     );
 
     const Combined = composeWrappers(WrapperA, WrapperB);
-    const output = Combined({ children: <span data-leaf="leaf" /> });
-
-    expect(output.props['data-wrapper']).toBe('A');
-    expect(output.props.children.props['data-wrapper']).toBe('B');
-    expect(output.props.children.props.children.props['data-leaf']).toBe('leaf');
+    const { container } = render(
+      <Combined>
+        <span data-leaf="leaf" />
+      </Combined>
+    );
+    expect(
+      container.querySelector('[data-wrapper="A"] > [data-wrapper="B"] > [data-leaf="leaf"]')
+    ).not.toBeNull();
   });
 
   it('makeRenderWithProviders renders content via Testing Library', async () => {
@@ -40,11 +44,15 @@ describe('render-with-providers helpers', () => {
     expect(result).toMatchObject({
       container: expect.any(HTMLElement),
     });
-    expect(result.container.querySelector('[data-wrapper]')).not.toBeNull();
-    expect(result.getByText('hello world')).toBeInstanceOf(HTMLElement);
+    expect(document.querySelector('[data-wrapper]')).not.toBeNull();
+    expect(screen.getByText('hello world')).toBeInstanceOf(HTMLElement);
 
     // NoopWrapper should simply return its child
-    const noopResult = NoopWrapper({ children: <p data-test="noop" /> });
-    expect(noopResult?.props['data-test']).toBe('noop');
+    const { container } = render(
+      <NoopWrapper>
+        <p data-test="noop" />
+      </NoopWrapper>
+    );
+    expect(container.querySelector('p[data-test="noop"]')).not.toBeNull();
   });
 });

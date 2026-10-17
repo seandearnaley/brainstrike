@@ -30,6 +30,18 @@ async function getJsHeapMB(): Promise<number> {
 }
 
 describe('WebGPU embedding memory growth', () => {
+  it('reads JavaScript heap metrics through the typed Chromium CDP session', async () => {
+    const session = cdp();
+    await session.send('Performance.enable');
+    try {
+      const heapMB = await getJsHeapMB();
+      expect(Number.isFinite(heapMB)).toBe(true);
+      expect(heapMB).toBeGreaterThan(0);
+    } finally {
+      await session.send('Performance.disable');
+    }
+  });
+
   it('should have WebGPU available in real browser', () => {
     expect(hasWebGPU).toBe(true);
   });

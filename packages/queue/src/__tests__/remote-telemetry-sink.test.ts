@@ -890,7 +890,7 @@ describe('initializeQueueTelemetrySink', () => {
     await sink?.dispose();
   });
 
-  it('should detect browser runtime correctly', () => {
+  it('should detect browser runtime correctly', async () => {
     vi.stubGlobal('window', {});
     vi.stubGlobal('navigator', {});
 
@@ -916,10 +916,10 @@ describe('initializeQueueTelemetrySink', () => {
 
     expect(body.runtime).toBe('browser');
 
-    sink?.dispose();
+    await sink?.dispose();
   });
 
-  it('should detect electron-renderer runtime correctly', () => {
+  it('should detect electron-renderer runtime correctly', async () => {
     vi.stubGlobal('window', { electronAPI: {} });
 
     const sink = initializeQueueTelemetrySink({
@@ -944,10 +944,10 @@ describe('initializeQueueTelemetrySink', () => {
 
     expect(body.runtime).toBe('electron-renderer');
 
-    sink?.dispose();
+    await sink?.dispose();
   });
 
-  it('should detect electron-main runtime correctly', () => {
+  it('should detect electron-main runtime correctly', async () => {
     vi.stubGlobal('window', undefined);
 
     const sink = initializeQueueTelemetrySink({
@@ -972,7 +972,7 @@ describe('initializeQueueTelemetrySink', () => {
 
     expect(body.runtime).toBe('electron-main');
 
-    sink?.dispose();
+    await sink?.dispose();
   });
 
   it('should use fetch with timeout', async () => {

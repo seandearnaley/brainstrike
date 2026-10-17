@@ -961,7 +961,7 @@ describe('StreamingEmbeddingWorkerClient', () => {
     class ConstructableMockWorker extends MockWorker {
       constructor(url: string | URL, options?: WorkerOptions) {
         super();
-        createdWorkers.push({ options, url });
+        createdWorkers.push({ ...(options === undefined ? {} : { options }), url });
       }
     }
     vi.stubGlobal('Worker', ConstructableMockWorker as unknown as typeof Worker);

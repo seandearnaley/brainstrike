@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const parserInitMock = vi.fn(async () => {});
 const languageLoadMock = vi.fn(async () => ({ language: 'python' }));
-const fetchMock = vi.fn(
+const fetchMock = vi.fn<typeof fetch>(
   async () => new Response(new Uint8Array([0, 97, 115, 109]), { status: 200 })
 );
 

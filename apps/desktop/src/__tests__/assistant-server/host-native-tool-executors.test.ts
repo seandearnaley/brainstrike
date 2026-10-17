@@ -18,12 +18,6 @@ import {
 } from './_host-native-tools';
 import { requireToolExecute } from './_tool-test-helpers';
 
-const runExecuteCommandWithShellCorrelation = vi.fn().mockResolvedValue({});
-vi.mock('../../assistant-server/execute-command-correlation', () => ({
-  runExecuteCommandWithShellCorrelation: (...args: unknown[]) =>
-    runExecuteCommandWithShellCorrelation(...args),
-}));
-
 const runSkillScript = vi.fn().mockResolvedValue({});
 vi.mock('../../assistant-server/run-skill-script-tool', () => ({
   runSkillScript: (...args: unknown[]) => runSkillScript(...args),
@@ -67,45 +61,15 @@ describe('host-executed native tools', () => {
 });
 
 /**
- * BST-1777 Task 5: executeCommand and runSkillScript must cancel their
- * underlying process when the per-tool execution guard gives up, not only
- * when the run's own abort signal fires — otherwise the model is told the
- * call failed while the child process (and any orphaned retry race) keeps
- * running.
+ * BST-1777 Task 5: runSkillScript must cancel its underlying process when the
+ * per-tool execution guard gives up, not only when the run's own abort signal
+ * fires — otherwise the model is told the call failed while the child process
+ * (and any orphaned retry race) keeps running. executeCommand's half lives
+ * with its executor (host-capabilities `execute-command-guard-deadline.test.ts`).
  */
 describe('native execution executors honour the guard deadline', () => {
   beforeEach(() => {
-    runExecuteCommandWithShellCorrelation.mockClear();
     runSkillScript.mockClear();
-  });
-
-  it('executeCommand aborts on the guard deadline even though the run signal never fires', async () => {
-    const runController = new AbortController();
-    const guardController = new AbortController();
-    const context = { abortSignal: runController.signal, toolCallId: 'call-x' };
-    const release = registerToolGuardDeadlineSignal([{}, context], guardController.signal);
-
-    try {
-      const execute = requireToolExecute(
-        buildHostNativeTools(runtime, { ids: [NATIVE_TOOL_ID.executeCommand] }),
-        NATIVE_TOOL_ID.executeCommand
-      );
-      await execute({ command: 'echo hi' }, context);
-
-      const [, , options] = runExecuteCommandWithShellCorrelation.mock.calls.at(-1) as [
-        unknown,
-        unknown,
-        { signal?: AbortSignal },
-      ];
-      expect(options.signal?.aborted).toBe(false);
-      guardController.abort(new Error('guard'));
-      expect(options.signal?.aborted).toBe(true);
-      expect(runController.signal.aborted).toBe(false);
-    } finally {
-      // The deadline registry is module-global and keyed by tool-call id:
-      // a failed expectation must not leak this id into later cases.
-      release();
-    }
   });
 
   it('runSkillScript aborts on the guard deadline even though the run signal never fires', async () => {

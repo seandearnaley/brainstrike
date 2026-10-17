@@ -77,6 +77,12 @@ export const WORKSPACE_SRC_ALIAS_ALLOWLIST = Object.freeze({
       'Native integration and coverage execute the same real compiled index process; source aliasing cannot launch its emitted JavaScript sibling.',
     specifiers: ['@brainstrike/indexer'],
   },
+  '@brainstrike/db': {
+    configs: ['vitest.config.mts'],
+    reason:
+      "The source-only `./test-support/migrated-test-db` helper imports db by package name for OTHER packages' suites, whose configs alias db to source; db's own lane imports db internals by relative path and never loads that helper.",
+    specifiers: ['@brainstrike/db', '@brainstrike/db/pglite-factory'],
+  },
   '@brainstrike/desktop': {
     configs: ['vitest.config.mts', 'vitest.integration.config.mts'],
     reason:
@@ -213,20 +219,22 @@ export function collectFileRuntimeSpecifiers(filePath, text) {
 }
 
 /**
- * Full runtime @brainstrike/* specifiers imported by a package (excluding self).
+ * Full runtime @brainstrike/* specifiers imported by a package, INCLUDING its
+ * own name. A self-reference (`@brainstrike/agent/tool-guard-deadline` inside
+ * packages/agent) resolves through the package's own `exports` to dist exactly
+ * like a cross-package import, and every lane that runs that source, the
+ * package's own and any consumer's, must alias it (BST-2128: agent-host's 8
+ * suites failed at import on a clean checkout while this guard was green).
  * `includeTests: false` restricts to non-test sources — used for TRANSITIVE
  * contributions, where only the dep's shipped source (not its own test files)
  * enters the consumer's module graph.
  */
-export function collectRuntimeWorkspaceSpecifiers(pkgDir, selfName, options = {}) {
+export function collectRuntimeWorkspaceSpecifiers(pkgDir, options = {}) {
   const includeTests = options.includeTests ?? true;
   const specifiers = new Set();
   for (const file of collectSourceFiles(pkgDir, [], { includeTests })) {
     for (const specifier of collectFileRuntimeSpecifiers(file, readFileSync(file, 'utf8'))) {
-      if (
-        specifier.startsWith('@brainstrike/') &&
-        specifier.split('/').slice(0, 2).join('/') !== selfName
-      ) {
+      if (specifier.startsWith('@brainstrike/')) {
         specifiers.add(specifier);
       }
     }
@@ -560,7 +568,7 @@ export async function findWorkspaceSrcAliasViolations(options = {}) {
       const entry = packageIndex.get(name);
       transitiveCache.set(
         name,
-        entry ? collectRuntimeWorkspaceSpecifiers(entry.dir, name, { includeTests: false }) : []
+        entry ? collectRuntimeWorkspaceSpecifiers(entry.dir, { includeTests: false }) : []
       );
     }
     return transitiveCache.get(name);
@@ -576,7 +584,7 @@ export async function findWorkspaceSrcAliasViolations(options = {}) {
     if (allowEntry && !allowEntry.specifiers && !allowEntry.configs) {
       continue; // whole package exempt (reason recorded in the allowlist)
     }
-    const allSpecifiers = collectRuntimeWorkspaceSpecifiers(pkgDir, selfName);
+    const allSpecifiers = collectRuntimeWorkspaceSpecifiers(pkgDir);
     if (allSpecifiers.length === 0) {
       continue;
     }

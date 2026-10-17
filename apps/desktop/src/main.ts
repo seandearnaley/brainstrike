@@ -7,7 +7,10 @@ import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
-import { clearReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
+import {
+  clearReadWorkspaceFileCursorRegistry,
+  disposeLiveChildProcesses,
+} from '@brainstrike/host-capabilities/native-tools';
 import {
   addLogListener,
   createLogger,
@@ -33,7 +36,6 @@ import {
   configureDesktopCommandSessionManager,
   disposeDesktopCommandSessions,
 } from './assistant-server/command-session-manager';
-import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
 import type { ForgeService } from './assistant-server/forge-service';
 import type { GitInventoryService } from './assistant-server/git-inventory-service';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';

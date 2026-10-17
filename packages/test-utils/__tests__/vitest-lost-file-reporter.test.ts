@@ -4,7 +4,6 @@
 // unhandled-errors path, which `dangerouslyIgnoreUnhandledErrors` switches off.
 // These tests pin the detection that makes a lost file fail on its own merits.
 import { describe, expect, it } from 'vitest';
-// @ts-expect-error -- plain .mjs config-time module, no declaration file.
 import { findLostTestFiles } from '../vitest-lost-file-reporter.mjs';
 
 interface FakeModule {

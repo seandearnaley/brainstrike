@@ -80,6 +80,7 @@ describe('useThreadCheckoutStatus', () => {
     await waitFor(() =>
       expect(result.current).toEqual({
         checkout: { ahead: 2, behind: 0, branch: 'main', dirty: false },
+        failure: null,
         settled: true,
       })
     );
@@ -106,6 +107,7 @@ describe('useThreadCheckoutStatus', () => {
     await waitFor(() =>
       expect(result.current).toEqual({
         checkout: { ahead: null, behind: null, branch: null, dirty: true },
+        failure: null,
         settled: true,
       })
     );
@@ -182,6 +184,7 @@ describe('useThreadCheckoutStatus', () => {
     );
     await waitFor(() => expect(status).toHaveBeenCalledTimes(1));
     expect(result.current.checkout).toBeUndefined();
+    expect(result.current.failure).toBeNull();
     // Confirmed non-repository IS a settled outcome, not a perpetual pending —
     // this is the exact case BST-1400's `data-checkout-state` needed to
     // distinguish from "still loading".
@@ -189,7 +192,7 @@ describe('useThreadCheckoutStatus', () => {
 
     // No root at all: nothing to await, so settled immediately.
     const { result: nullRoot } = renderHook(() => useThreadCheckoutStatus(null));
-    expect(nullRoot.current).toEqual({ checkout: undefined, settled: true });
+    expect(nullRoot.current).toEqual({ checkout: undefined, failure: null, settled: true });
 
     (window as Window & { git?: unknown }).git = undefined;
     const { result: noBridge } = renderHook(() =>
@@ -200,7 +203,7 @@ describe('useThreadCheckoutStatus', () => {
       })
     );
     // No bridge: also nothing to await.
-    expect(noBridge.current).toEqual({ checkout: undefined, settled: true });
+    expect(noBridge.current).toEqual({ checkout: undefined, failure: null, settled: true });
     expect(status).toHaveBeenCalledTimes(1);
   });
 
@@ -221,6 +224,59 @@ describe('useThreadCheckoutStatus', () => {
       'git status for the workspace bar failed',
       expect.objectContaining({ dbRootId: DB_ROOT_ID, error: 'boom' })
     );
+    // Kept apart from "not a repository" (BST-2133).
+    expect(result.current.failure).toBe('boom');
+  });
+
+  it('reports a thrown status call, and clears the failure once a read succeeds', async () => {
+    status.mockRejectedValueOnce(new Error('git binary missing'));
+    status.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        ahead: 0,
+        behind: 0,
+        branch: 'main',
+        clean: true,
+        files: [],
+        isRepository: true,
+        upstream: null,
+      },
+    });
+    const { result } = renderHook(() =>
+      useThreadCheckoutStatus({
+        adapterRootId: ADAPTER_ROOT_ID,
+        dbRootId: DB_ROOT_ID,
+        path: '/ws/a',
+      })
+    );
+    await waitFor(() => expect(result.current.failure).toBe('git binary missing'));
+    expect(result.current.checkout).toBeUndefined();
+
+    act(() => {
+      useChangesLiveRefreshStore.getState().ingestInvalidation({
+        generation: 1,
+        gitCommonDir: '/ws/a/.git',
+        repositoryRoot: '/ws/a',
+      });
+    });
+    await waitFor(() => expect(result.current.checkout?.branch).toBe('main'));
+    expect(result.current.failure).toBeNull();
+  });
+
+  it('never shows one root failure under another root', async () => {
+    status.mockResolvedValueOnce({ error: 'boom', ok: false });
+    const pending = Promise.withResolvers<unknown>();
+    status.mockReturnValueOnce(pending.promise);
+    const { rerender, result } = renderHook(
+      ({ dbRootId }: { dbRootId: string }) =>
+        useThreadCheckoutStatus({ adapterRootId: ADAPTER_ROOT_ID, dbRootId, path: '/ws/a' }),
+      { initialProps: { dbRootId: DB_ROOT_ID } }
+    );
+    await waitFor(() => expect(result.current.failure).toBe('boom'));
+
+    rerender({ dbRootId: 'db-b' });
+    expect(result.current.failure).toBeNull();
+    expect(result.current.settled).toBe(false);
   });
 
   it('asks git with the DB root id but registers the working-tree scope under the ADAPTER id', async () => {
@@ -391,6 +447,7 @@ describe('useThreadCheckoutStatus', () => {
     await waitFor(() =>
       expect(result.current).toEqual({
         checkout: { ahead: 0, behind: 1, branch: 'root-b-branch', dirty: true },
+        failure: null,
         settled: true,
       })
     );
