@@ -97,7 +97,7 @@ jobs:
     name: Coverage packages (${{ matrix.shard }})
     if: github.repository == 'seandearnaley/brainstrike'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: ${{ matrix.job_timeout || 40 }}
     strategy:
       fail-fast: false
       matrix:
@@ -111,9 +111,14 @@ jobs:
           - shard: app-shell
             concurrency: 2
             filters: '--filter=@brainstrike/assistant-data --filter=@brainstrike/app-shell --filter=@brainstrike/web'
+          # Desktop also builds itself and its runtime graph, then runs every
+          # real-app proof under Electron: 25 min of tests on main run
+          # 39029257042 with those proofs failing at launch, plus the build.
           - shard: desktop
             concurrency: 1
             filters: '--filter=@brainstrike/desktop'
+            job_timeout: 75
+            step_timeout: 60
           - shard: embeddings-preferences
             concurrency: 2
             filters: '--filter=@brainstrike/embeddings --filter=@brainstrike/app-state --filter=@brainstrike/settings-ui'
@@ -179,7 +184,7 @@ jobs:
       # Streamed, not grouped: a shard stopped by its timeout must still show
       # the results it reached (grouped logs print only when a task ends).
       - name: Run package shard coverage
-        timeout-minutes: 30
+        timeout-minutes: ${{ matrix.step_timeout || 30 }}
         env:
           COVERAGE: "true"
           NODE_ENV: test
