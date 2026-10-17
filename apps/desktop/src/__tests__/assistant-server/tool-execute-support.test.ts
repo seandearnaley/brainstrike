@@ -1,12 +1,4 @@
-/**
- * Pins for `readToolCallId`'s dual documented location (BST-1164 review,
- * finding: the plain-tool execute path journaled NULL `tool_call_id`).
- * Mastra hands a `createTool` instance the id under `agent.toolCallId`, and a
- * plain tool OBJECT (the desktop registry path) a TOP-LEVEL `toolCallId` —
- * both must resolve, mirroring `resolveShellOutputStreamer`'s existing dual
- * read in the same module. The end-to-end journal assertion lives in
- * `capture-on-edit.integration.test.ts`.
- */
+/** The producer consumes one host execution identity and structural writer. */
 import { createCanonicalToolContext } from '@brainstrike/agent-host';
 import { effectToolInputSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import {
@@ -18,20 +10,17 @@ import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 
 describe('resolveShellOutputStreamer', () => {
-  it('writes a canonical ToolStream slice with its actual receiver', async () => {
+  it('writes a canonical host slice with its actual receiver', async () => {
     const emitted = Promise.withResolvers<{ chunk: unknown } | { error: unknown }>();
-    const context = createCanonicalToolContext(
-      {
-        runId: 'run-shell-stream',
-        signal: new AbortController().signal,
-        threadId: 'thread-shell-stream',
-        toolCallId: 'call-shell-stream',
-        write: async (chunk) => {
-          emitted.resolve({ chunk });
-        },
+    const context = createCanonicalToolContext({
+      runId: 'run-shell-stream',
+      signal: new AbortController().signal,
+      threadId: 'thread-shell-stream',
+      toolCallId: 'call-shell-stream',
+      write: async (chunk) => {
+        emitted.resolve({ chunk });
       },
-      'brainstrike.executeCommand'
-    );
+    });
     const stream = resolveShellOutputStreamer(context, (error) => emitted.resolve({ error }));
     expect(stream).toBeDefined();
     stream?.({ chunk: 'ordinary shell output\n', stream: 'stdout' });
@@ -45,10 +34,17 @@ describe('resolveShellOutputStreamer', () => {
     });
   });
 
-  it('keeps the plain outputWriter shape and tool-call identity', async () => {
+  it('keeps the structural writer and tool-call identity', async () => {
     const emitted = Promise.withResolvers<unknown>();
     const stream = resolveShellOutputStreamer(
-      { outputWriter: (chunk) => emitted.resolve(chunk), toolCallId: 'call-plain' },
+      {
+        toolCallId: 'call-plain',
+        writer: {
+          custom: async (chunk) => {
+            emitted.resolve(chunk);
+          },
+        },
+      },
       (error) => emitted.reject(error)
     );
     expect(stream).toBeDefined();
@@ -67,10 +63,12 @@ describe('resolveShellOutputStreamer', () => {
     const failure = new Error('Synthetic stream writer failure');
     const stream = resolveShellOutputStreamer(
       {
-        outputWriter: () => {
-          throw failure;
-        },
         toolCallId: 'call-failed-stream',
+        writer: {
+          custom: async () => {
+            throw failure;
+          },
+        },
       },
       (error) => reported.resolve(error)
     );
@@ -87,6 +85,12 @@ describe('parseToolExecuteInput', () => {
 
   it('returns the parsed value for valid input', () => {
     expect(parseToolExecuteInput(schema, { id: 'a', n: 1 })).toEqual({ id: 'a', n: 1 });
+  });
+
+  it('refuses obsolete wrapped inputs instead of reinterpreting model data', () => {
+    expect(() => parseToolExecuteInput(schema, { context: { id: 'a', n: 1 } } as never)).toThrow(
+      'invalid tool input'
+    );
   });
 
   it('throws a compact SINGLE-LINE message on invalid input (token-efficient model feedback)', () => {
@@ -127,23 +131,10 @@ describe('parseToolExecuteInput', () => {
 });
 
 describe('readToolCallId', () => {
-  it('resolves the agent-scoped location (createTool under an agent)', () => {
-    expect(readToolCallId({ agent: { toolCallId: 'call-agent' } })).toBe('call-agent');
-  });
-
-  it('resolves the top-level location (plain tool object — the desktop registry path)', () => {
-    expect(readToolCallId({ toolCallId: 'call-plain' })).toBe('call-plain');
-  });
-
-  it('prefers the agent-scoped id when both locations are present', () => {
-    expect(readToolCallId({ agent: { toolCallId: 'call-agent' }, toolCallId: 'call-plain' })).toBe(
-      'call-agent'
-    );
-  });
-
-  it('is undefined with no context or no id in either location', () => {
+  it('reads only the host-owned location', () => {
+    expect(readToolCallId({ toolCallId: 'call-host' })).toBe('call-host');
+    expect(readToolCallId({ agent: { toolCallId: 'untrusted' } } as never)).toBeUndefined();
     expect(readToolCallId(undefined)).toBeUndefined();
     expect(readToolCallId({})).toBeUndefined();
-    expect(readToolCallId({ agent: {} })).toBeUndefined();
   });
 });

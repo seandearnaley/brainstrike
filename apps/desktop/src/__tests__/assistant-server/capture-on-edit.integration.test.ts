@@ -50,7 +50,7 @@ function runtime(): RuntimeData {
   } as unknown as RuntimeData;
 }
 
-const runContext = (toolCallId: string) => ({ agent: { toolCallId } });
+const runContext = (toolCallId: string) => ({ toolCallId });
 
 /** The host fold with Desktop's diagnostics and a recording attribution port. */
 function hostTools(): {

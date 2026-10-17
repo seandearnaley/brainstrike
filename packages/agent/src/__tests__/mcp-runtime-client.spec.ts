@@ -132,103 +132,168 @@ describe('MCP runtime client', () => {
     }
   });
 
-  it.each(['agent', 'host'] as const)(
-    'converts explicit HTTP tools without losing schemas, metadata, cancellation, or progress through %s context',
-    async (contextShape) => {
-      const abortController = new AbortController();
-      const progressWrites: unknown[] = [];
-      const callTool = vi.fn(
-        async (
-          _params: ExplicitHttpMcpCallToolParams,
-          options?: ExplicitHttpMcpRequestOptions
-        ): Promise<ExplicitHttpMcpCallToolResult> => {
-          options?.onprogress?.({ message: 'Halfway', progress: 1, total: 2 });
-          return {
-            content: [{ text: 'fallback text', type: 'text' }],
-            structuredContent: { echoed: 'hello' },
-          };
-        }
-      );
-      const explicitClient = {
-        callTool,
-        close: vi.fn().mockResolvedValue(undefined),
-        listTools: vi.fn().mockResolvedValue({
-          tools: [
-            {
-              _meta: {
-                mastra: { strict: true },
-                ui: { resourceUri: 'ui://echo/card' },
-              },
-              annotations: { readOnlyHint: true, title: 'Echo' },
-              description: 'Echo a value',
-              inputSchema: {
-                properties: { value: { type: 'string' } },
-                required: ['value'],
-                type: 'object',
-              },
-              name: 'echo',
-              outputSchema: {
-                properties: { echoed: { type: 'string' } },
-                required: ['echoed'],
-                type: 'object',
-              },
+  it('converts explicit HTTP tools without losing schemas, cancellation, or ordered progress through host context', async () => {
+    const abortController = new AbortController();
+    const progressWrites: unknown[] = [];
+    const callTool = vi.fn(
+      async (
+        _params: ExplicitHttpMcpCallToolParams,
+        options?: ExplicitHttpMcpRequestOptions
+      ): Promise<ExplicitHttpMcpCallToolResult> => {
+        options?.onprogress?.({ message: 'Halfway', progress: 1, total: 2 });
+        return {
+          content: [{ text: 'fallback text', type: 'text' }],
+          structuredContent: { echoed: 'hello' },
+        };
+      }
+    );
+    const explicitClient = {
+      callTool,
+      close: vi.fn().mockResolvedValue(undefined),
+      listTools: vi.fn().mockResolvedValue({
+        tools: [
+          {
+            _meta: {
+              mastra: { strict: true },
+              ui: { resourceUri: 'ui://echo/card' },
             },
-          ],
-        }),
-      };
-      const { host } = createTestHost({ remote: explicitClient });
-      const runtimeClient = await createMcpRuntimeClient({
-        config: undefined,
-        host,
-      });
-
-      const discovered = await runtimeClient?.listToolsetsWithErrors();
-      expect(discovered?.errors).toEqual({});
-      const tool = requireExecutableTool(discovered?.toolsets['remote']?.['echo']);
-      expect(tool).toMatchObject({
-        description: 'Echo a value',
-        id: 'remote_echo',
-        mcp: {
-          _meta: {
-            mastra: { strict: true },
-            ui: { resourceUri: 'ui://echo/card', serverId: 'remote' },
+            annotations: { readOnlyHint: true, title: 'Echo' },
+            description: 'Echo a value',
+            inputSchema: {
+              properties: { value: { type: 'string' } },
+              required: ['value'],
+              type: 'object',
+            },
+            name: 'echo',
+            outputSchema: {
+              properties: { echoed: { type: 'string' } },
+              required: ['echoed'],
+              type: 'object',
+            },
           },
-          annotations: { readOnlyHint: true, title: 'Echo' },
-        },
-        mcpMetadata: { serverName: 'remote' },
-        strict: true,
-      });
-      expect(
-        standardSchemaToJSONSchema(tool.inputSchema as StandardSchemaWithJSON, { io: 'input' })
-      ).toMatchObject({
-        properties: { value: { type: 'string' } },
-        required: ['value'],
-        type: 'object',
-      });
-      expect((tool.inputSchema as StandardSchemaWithJSON)['~standard'].validate({})).toMatchObject({
-        issues: expect.any(Array),
-      });
-      expect(standardSchemaToJSONSchema(tool.outputSchema as StandardSchemaWithJSON)).toMatchObject(
-        {
-          properties: { echoed: { type: 'string' } },
-          required: ['echoed'],
-          type: 'object',
-        }
-      );
+        ],
+      }),
+    };
+    const { host } = createTestHost({ remote: explicitClient });
+    const runtimeClient = await createMcpRuntimeClient({
+      config: undefined,
+      host,
+    });
 
+    const discovered = await runtimeClient?.listToolsetsWithErrors();
+    expect(discovered?.errors).toEqual({});
+    const tool = requireExecutableTool(discovered?.toolsets['remote']?.['echo']);
+    expect(tool).toMatchObject({
+      description: 'Echo a value',
+      id: 'remote_echo',
+      strict: true,
+    });
+    expect(
+      standardSchemaToJSONSchema(tool.inputSchema as StandardSchemaWithJSON, { io: 'input' })
+    ).toMatchObject({
+      properties: { value: { type: 'string' } },
+      required: ['value'],
+      type: 'object',
+    });
+    expect((tool.inputSchema as StandardSchemaWithJSON)['~standard'].validate({})).toMatchObject({
+      issues: expect.any(Array),
+    });
+    expect(tool).not.toHaveProperty('outputSchema');
+    expect(tool).not.toHaveProperty('mcp');
+    expect(tool).not.toHaveProperty('mcpMetadata');
+
+    await expect(
+      tool.execute(
+        { value: 'hello' },
+        {
+          _meta: { traceId: 'trace-1' },
+          abortSignal: abortController.signal,
+          toolCallId: 'call-1',
+          writer: {
+            custom: async (part: unknown) => {
+              progressWrites.push(part);
+            },
+          },
+        }
+      )
+    ).resolves.toEqual({
+      app: {
+        mimeType: 'text/html;profile=mcp-app',
+        resourceUri: 'ui://echo/card',
+        serverId: 'remote',
+        toolName: 'echo',
+      },
+      kind: 'mcp-app',
+      result: { echoed: 'hello' },
+    });
+    expect(callTool).toHaveBeenCalledWith(
+      {
+        _meta: { traceId: 'trace-1' },
+        arguments: { value: 'hello' },
+        name: 'echo',
+      },
+      expect.objectContaining({
+        onprogress: expect.any(Function),
+        signal: expect.any(AbortSignal),
+      })
+    );
+    const forwardedSignal = callTool.mock.calls[0]?.[1]?.signal;
+    expect(forwardedSignal?.aborted).toBe(false);
+    abortController.abort();
+    expect(forwardedSignal?.aborted).toBe(true);
+    expect(progressWrites).toEqual([
+      {
+        message: 'Halfway',
+        progress: 1,
+        toolCallId: 'call-1',
+        toolName: 'remote.echo',
+        total: 2,
+        type: MCP_PROGRESS_STREAM_PART_TYPE,
+      },
+    ]);
+    expect(mapMcpProgressStreamPart(progressWrites[0])).toEqual({
+      name: 'remote.echo',
+      payload: {
+        callId: 'call-1',
+        note: 'Halfway',
+        percent: 50,
+        raw: { done: 1, message: 'Halfway', total: 2 },
+        toolCallId: 'call-1',
+      },
+      status: 'progress',
+      type: 'tool-event',
+    });
+
+    const mixedStructuredMediaResult: ExplicitHttpMcpCallToolResult = {
+      content: [
+        { text: 'A bounded caption.', type: 'text' },
+        { data: 'aGVsbG8=', mimeType: 'image/png', type: 'image' },
+        { data: 'UklGRg==', mimeType: 'audio/wav', type: 'audio' },
+      ],
+      structuredContent: { echoed: 'hello' },
+    };
+    callTool.mockResolvedValueOnce(mixedStructuredMediaResult);
+    await expect(tool.execute({ value: 'hello' })).resolves.toEqual({
+      app: {
+        mimeType: 'text/html;profile=mcp-app',
+        resourceUri: 'ui://echo/card',
+        serverId: 'remote',
+        toolName: 'echo',
+      },
+      kind: 'mcp-app',
+      result: mixedStructuredMediaResult,
+    });
+
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    try {
       await expect(
         tool.execute(
           { value: 'hello' },
           {
-            _meta: { traceId: 'trace-1' },
-            abortSignal: abortController.signal,
-            ...(contextShape === 'agent'
-              ? { agent: { toolCallId: 'call-1' } }
-              : { toolCallId: 'call-1' }),
+            toolCallId: 'call-progress-failure',
             writer: {
-              custom: async (part: unknown) => {
-                progressWrites.push(part);
-              },
+              custom: vi.fn().mockRejectedValue(new Error('progress channel closed')),
             },
           }
         )
@@ -242,102 +307,20 @@ describe('MCP runtime client', () => {
         kind: 'mcp-app',
         result: { echoed: 'hello' },
       });
-      expect(callTool).toHaveBeenCalledWith(
-        {
-          _meta: { traceId: 'trace-1' },
-          arguments: { value: 'hello' },
-          name: 'echo',
-        },
+      expect(logRecords).toContainEqual(
         expect.objectContaining({
-          onprogress: expect.any(Function),
-          signal: expect.any(AbortSignal),
+          args: [
+            'MCP progress delivery failed',
+            expect.objectContaining({ serverName: 'remote', toolName: 'echo' }),
+          ],
+          level: 'warn',
+          scope: 'MastraAgentMcpRuntimeClient',
         })
       );
-      const forwardedSignal = callTool.mock.calls[0]?.[1]?.signal;
-      expect(forwardedSignal?.aborted).toBe(false);
-      abortController.abort();
-      expect(forwardedSignal?.aborted).toBe(true);
-      expect(progressWrites).toEqual([
-        {
-          message: 'Halfway',
-          progress: 1,
-          toolCallId: 'call-1',
-          toolName: 'remote.echo',
-          total: 2,
-          type: MCP_PROGRESS_STREAM_PART_TYPE,
-        },
-      ]);
-      expect(mapMcpProgressStreamPart(progressWrites[0])).toEqual({
-        name: 'remote.echo',
-        payload: {
-          callId: 'call-1',
-          note: 'Halfway',
-          percent: 50,
-          raw: { done: 1, message: 'Halfway', total: 2 },
-          toolCallId: 'call-1',
-        },
-        status: 'progress',
-        type: 'tool-event',
-      });
-
-      const mixedStructuredMediaResult: ExplicitHttpMcpCallToolResult = {
-        content: [
-          { text: 'A bounded caption.', type: 'text' },
-          { data: 'aGVsbG8=', mimeType: 'image/png', type: 'image' },
-          { data: 'UklGRg==', mimeType: 'audio/wav', type: 'audio' },
-        ],
-        structuredContent: { echoed: 'hello' },
-      };
-      callTool.mockResolvedValueOnce(mixedStructuredMediaResult);
-      await expect(tool.execute({ value: 'hello' })).resolves.toEqual({
-        app: {
-          mimeType: 'text/html;profile=mcp-app',
-          resourceUri: 'ui://echo/card',
-          serverId: 'remote',
-          toolName: 'echo',
-        },
-        kind: 'mcp-app',
-        result: mixedStructuredMediaResult,
-      });
-
-      const logRecords: LogRecord[] = [];
-      const removeLogListener = addLogListener((record) => logRecords.push(record));
-      try {
-        await expect(
-          tool.execute(
-            { value: 'hello' },
-            {
-              agent: { toolCallId: 'call-progress-failure' },
-              writer: {
-                custom: vi.fn().mockRejectedValue(new Error('progress channel closed')),
-              },
-            }
-          )
-        ).resolves.toEqual({
-          app: {
-            mimeType: 'text/html;profile=mcp-app',
-            resourceUri: 'ui://echo/card',
-            serverId: 'remote',
-            toolName: 'echo',
-          },
-          kind: 'mcp-app',
-          result: { echoed: 'hello' },
-        });
-        expect(logRecords).toContainEqual(
-          expect.objectContaining({
-            args: [
-              'MCP progress delivery failed',
-              expect.objectContaining({ serverName: 'remote', toolName: 'echo' }),
-            ],
-            level: 'warn',
-            scope: 'MastraAgentMcpRuntimeClient',
-          })
-        );
-      } finally {
-        removeLogListener();
-      }
+    } finally {
+      removeLogListener();
     }
-  );
+  });
 
   it('isolates explicit HTTP discovery failures and throws in-band tool errors', async () => {
     const healthyClient = {
@@ -387,7 +370,7 @@ describe('MCP runtime client', () => {
         tool.execute(
           {},
           {
-            agent: { toolCallId: 'call-error' },
+            toolCallId: 'call-error',
             writer: {
               custom: vi.fn().mockRejectedValue(new Error('progress channel closed')),
             },
@@ -482,7 +465,7 @@ describe('MCP runtime client', () => {
     await tool.execute(
       {},
       {
-        agent: { toolCallId: 'progress-call' },
+        toolCallId: 'progress-call',
         writer: { custom: async (part: unknown) => writes.push(part) },
       }
     );
@@ -515,7 +498,7 @@ describe('MCP runtime client', () => {
     const tool = requireExecutableTool(discovered?.toolsets['remote']?.['slow']);
     const caller = new AbortController();
     const guard = new AbortController();
-    const context = { abortSignal: caller.signal, agent: { toolCallId: 'slow-call' } };
+    const context = { abortSignal: caller.signal, toolCallId: 'slow-call' };
     const releaseDeadline = registerToolGuardDeadlineSignal([{}, context], guard.signal);
     // The registry is module-global and keyed by tool-call id, so an assertion
     // failure below would otherwise leave 'slow-call' registered for the rest
@@ -559,7 +542,7 @@ describe('MCP runtime client', () => {
     const tool = requireExecutableTool(discovered?.toolsets['remote']?.['plain']);
     const caller = new AbortController();
 
-    await tool.execute({}, { abortSignal: caller.signal, agent: { toolCallId: 'plain-call' } });
+    await tool.execute({}, { abortSignal: caller.signal, toolCallId: 'plain-call' });
 
     const forwarded = callTool.mock.calls[0]?.[1]?.signal;
     expect(forwarded?.aborted).toBe(false);
@@ -598,7 +581,7 @@ describe('MCP runtime client', () => {
       const discovered = await runtimeClient?.listToolsetsWithErrors();
       const tool = requireExecutableTool(discovered?.toolsets['remote']?.['show_issue']);
 
-      const raw = await tool.execute({}, { agent: { toolCallId: 'app-call' } });
+      const raw = await tool.execute({}, { toolCallId: 'app-call' });
       expect(raw).toEqual({
         app: {
           mimeType: 'text/html;profile=mcp-app',
@@ -642,7 +625,7 @@ describe('MCP runtime client', () => {
       const discovered = await runtimeClient?.listToolsetsWithErrors();
       const tool = requireExecutableTool(discovered?.toolsets['remote']?.['show_issue']);
 
-      await expect(tool.execute({}, { agent: { toolCallId: 'app-call' } })).resolves.toEqual({
+      await expect(tool.execute({}, { toolCallId: 'app-call' })).resolves.toEqual({
         app: {
           mimeType: 'text/html;profile=mcp-app',
           resourceUri: 'ui://issues/detail',
@@ -668,7 +651,7 @@ describe('MCP runtime client', () => {
       const discovered = await runtimeClient?.listToolsetsWithErrors();
       const tool = requireExecutableTool(discovered?.toolsets['remote']?.['show_issue']);
 
-      await expect(tool.execute({}, { agent: { toolCallId: 'ordinary-call' } })).resolves.toEqual(
+      await expect(tool.execute({}, { toolCallId: 'ordinary-call' })).resolves.toEqual(
         ordinaryResult
       );
       expect(tool.toModelOutput).toBeUndefined();
@@ -684,7 +667,7 @@ describe('MCP runtime client', () => {
       const discovered = await runtimeClient?.listToolsetsWithErrors();
       const tool = requireExecutableTool(discovered?.toolsets['remote']?.['show_issue']);
 
-      await expect(tool.execute({}, { agent: { toolCallId: 'malformed-call' } })).rejects.toThrow(
+      await expect(tool.execute({}, { toolCallId: 'malformed-call' })).rejects.toThrow(
         'MCP Apps tool metadata.resourceUri must use the ui:// scheme'
       );
       expect(remote.callTool).not.toHaveBeenCalled();
@@ -700,7 +683,7 @@ describe('MCP runtime client', () => {
       const discovered = await runtimeClient?.listToolsetsWithErrors();
       const tool = requireExecutableTool(discovered?.toolsets['remote']?.['show_issue']);
 
-      await expect(tool.execute({}, { agent: { toolCallId: 'error-call' } })).rejects.toThrow(
+      await expect(tool.execute({}, { toolCallId: 'error-call' })).rejects.toThrow(
         'remote app failure'
       );
     });
@@ -763,7 +746,7 @@ describe('MCP runtime client', () => {
       const discovered = await runtimeClient?.listToolsetsWithErrors();
       const tool = requireExecutableTool(discovered?.toolsets['remote']?.['export']);
 
-      await expect(tool.execute({}, { agent: { toolCallId: 'task-call' } })).rejects.toThrow(
+      await expect(tool.execute({}, { toolCallId: 'task-call' })).rejects.toThrow(
         'MCP tool "remote.export" returned a task but this host has no task tracking capability'
       );
       expect(tool.toModelOutput).toBeUndefined();
@@ -799,10 +782,7 @@ describe('MCP runtime client', () => {
         const abortController = new AbortController();
 
         await expect(
-          tool.execute(
-            {},
-            { abortSignal: abortController.signal, agent: { toolCallId: 'task-call' } }
-          )
+          tool.execute({}, { abortSignal: abortController.signal, toolCallId: 'task-call' })
         ).resolves.toEqual({ kind: 'mcp-task', task: settled });
         expect(mcpTaskTracking.track).toHaveBeenCalledWith(
           { configuredServerId: 'remote', result: createdTask, toolName: 'export' },
@@ -845,7 +825,7 @@ describe('MCP runtime client', () => {
         const abortSignal = retainRawMcpCallToolResult(new AbortController().signal);
 
         await expect(
-          tool.execute({}, { abortSignal, agent: { toolCallId: 'app-task-call' } })
+          tool.execute({}, { abortSignal, toolCallId: 'app-task-call' })
         ).resolves.toEqual(createdTask);
         expect(mcpTaskTracking.track).toHaveBeenCalledWith(
           { configuredServerId: 'remote', result: createdTask, toolName: 'export' },
@@ -904,9 +884,7 @@ describe('MCP runtime client', () => {
       const tool = requireExecutableTool(discovered?.toolsets['remote']?.['export']);
       const abortSignal = retainRawMcpCallToolResult(new AbortController().signal);
 
-      await expect(
-        tool.execute({}, { abortSignal, agent: { toolCallId: 'app-task-call' } })
-      ).rejects.toThrow(
+      await expect(tool.execute({}, { abortSignal, toolCallId: 'app-task-call' })).rejects.toThrow(
         'MCP tool "remote.export" returned a task but this host has no task tracking capability'
       );
     });
@@ -931,7 +909,7 @@ describe('MCP runtime client', () => {
       const discovered = await runtimeClient?.listToolsetsWithErrors();
       const tool = requireExecutableTool(discovered?.toolsets['remote']?.['export']);
 
-      const raw = await tool.execute({}, { agent: { toolCallId: 'task-call' } });
+      const raw = await tool.execute({}, { toolCallId: 'task-call' });
       expect(raw).toEqual({ kind: 'mcp-task', task: live });
       const projector = tool.toModelOutput;
       if (typeof projector !== 'function') {

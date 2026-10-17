@@ -66,11 +66,10 @@ describe('suspending tools vs the resume-UI registry', () => {
 
   it('every REAL suspending tool factory has a registered resume UI', () => {
     const runPythonTool = createRunPythonTool({
-      resolveApprovalDecision: () => 'allow',
       resolveHost: () => Promise.reject(new Error('unused in this test')),
     });
     for (const tool of [createAskUserTool(), runPythonTool, createSubmitPlanTool()]) {
-      expect(tool.suspendSchema).toBeTruthy();
+      expect(tool).not.toHaveProperty('suspendSchema');
       expect(hasRegisteredSuspendResumeUi(tool.id)).toBe(true);
     }
   });

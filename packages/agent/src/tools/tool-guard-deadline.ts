@@ -19,14 +19,8 @@ import type { ToolLogger } from './types';
  * client does exactly that, so the SDK cancels the in-flight request
  * (`notifications/cancelled`) instead of leaving it dangling.
  *
- * KEYED BY TOOL-CALL ID, deliberately. Mastra RECONSTRUCTS the execution
- * context between the guarded `execute` and the tool's own callback (verified
- * against @mastra/core 1.55: the object identity differs, only its members are
- * carried over), so a context-identity WeakMap would silently read empty. The
- * tool-call id survives that reconstruction and already has exactly one reader
- * (`readToolCallId`), which is reused here so a future Mastra relocation
- * breaks in one place rather than three. Registration hands back an explicit
- * release the guard runs in its `finally`, so the map never outlives the call.
+ * Keyed by the host tool-call identity, with an explicit release in the
+ * guard's finally so the deadline never outlives the call.
  *
  * A call with no tool-call id publishes nothing and `readToolGuardDeadlineSignal`
  * returns `undefined`: that is the pre-guard behaviour (the caller's own signal
@@ -54,7 +48,7 @@ const deadlineSignals = new Map<string, AbortSignal>();
  * cancellation landing on the wrong request, or a deadline that never fires)
  * is otherwise unattributable.
  *
- * @param args the arguments Mastra passed to `execute` (input first, execution
+ * @param args the arguments the host passed to `execute` (input first, execution
  *   context second — the position {@link readToolCallId} documents).
  * @returns the release the guard must run once the call has settled.
  */

@@ -14,7 +14,6 @@ import {
   type HostClient,
   type HostLogRow,
   type HostPlatform,
-  type HostRunAdmission,
   type HostTool,
   startAgentHost,
 } from '@brainstrike/agent-host';
@@ -91,7 +90,7 @@ async function startWebSearchHost(options: WebSearchHostOptions) {
       const nativeWebSearch = createProviderNativeWebSearchTool(
         options.provider,
         apiKeyAuthInput('fixture-provider-key')
-      ) as unknown as HostRunAdmission['nativeWebSearch'];
+      );
       return {
         admitRun: async () => ({
           configuration: { model: 'scripted', provider: options.provider },

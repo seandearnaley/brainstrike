@@ -1,11 +1,13 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { HostRunTelemetry } from '@brainstrike/agent-host/protocol';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { readHostThreadTree } from './utils/agent-host-log';
+import { attachAppHost, readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
@@ -23,11 +25,12 @@ const PYTHON = 'brainstrike_runPython';
 test.use({ electronEnv: { BRAINSTRIKE_E2E_REAL_ROOT_PATH: root } });
 test.afterAll(() => rmSync(root, { force: true, recursive: true }));
 
-test('Effect workspace inputs, refusal and resumed decisions complete through the app', async ({
+test('Effect workspace and MCP producers retain validation, decisions, progress, Stop and reopen', async ({
   electron,
   modelProvider,
   window,
 }) => {
+  test.setTimeout(240_000);
   await writeFile(join(root, 'evidence.txt'), 'E02_EVIDENCE\n');
   await ensureMockWorkspaceOpen(window);
   await configureAssistantProvider(window);
@@ -38,6 +41,7 @@ test('Effect workspace inputs, refusal and resumed decisions complete through th
   await settings();
   await window.getByTestId('permission-policy-edit').selectOption('allow');
   await window.getByTestId('permission-policy-execute').selectOption('allow');
+  await window.getByTestId('permission-policy-mcp').selectOption('ask');
   const panel = window.getByRole('region', { exact: true, name: 'Assistant' });
   const send = async (prompt: string) => {
     await ensureAssistantShellVisible(window);
@@ -130,6 +134,98 @@ test('Effect workspace inputs, refusal and resumed decisions complete through th
     .find((request) => request.toolNames.length > 0);
   expect(denied?.toolNames).toContain(READ);
   expect(denied?.toolNames).not.toContain(WRITE);
+  // The same disposable app now drives the real MCP producer and stdio SDK.
+  const stateFile = join(root, 'mcp-cancelled.json');
+  const serverId = 'effect-progress';
+  const toolName = 'effect-progress_progress_forever';
+  await new HomePage(window).openSettings();
+  await new SettingsPage(window).openCategory(/AI Tools/i, 'ai-tools');
+  await window.getByRole('tab', { name: 'MCP Config' }).click();
+  await window.getByTestId('mcp-config-editor').fill(
+    JSON.stringify({
+      servers: [
+        {
+          args: [
+            fileURLToPath(
+              import.meta.resolve(
+                '@brainstrike/agent/test-fixtures/mcp-stdio-progress-cancellation-server.mjs'
+              )
+            ),
+          ],
+          command: process.execPath,
+          env: { BRAINSTRIKE_STDIO_PROGRESS_STATE_FILE: stateFile },
+          name: serverId,
+          protocol: 'legacy',
+          transport: 'stdio',
+        },
+      ],
+    })
+  );
+  await window.getByTestId('mcp-config-save').click();
+  await expect(window.getByTestId('mcp-config-status')).toHaveText('MCP config saved.');
+  await window.getByRole('tab', { exact: true, name: 'Tools' }).click();
+  await expect(window.getByTestId(`mcp-server-row-${serverId}`)).toContainText(/connected/i, {
+    timeout: 60_000,
+  });
+  modelProvider.setScript(({ requestBody }) =>
+    streaming(requestBody)
+      ? {
+          deferredTool: true,
+          finalText: 'MCP permission refusal checked.',
+          toolCall: { arguments: {}, name: toolName },
+        }
+      : { finalText: 'Effect workspace qualification' }
+  );
+  await send('Start the MCP progress tool.');
+  const approval = panel.getByRole('button', {
+    exact: true,
+    name: `Approve ${serverId}.progress_forever`,
+  });
+  await expect(approval).toBeVisible({ timeout: 30_000 });
+  await panel
+    .getByRole('button', { exact: true, name: `Decline ${serverId}.progress_forever` })
+    .click();
+  await expect(panel.getByText('MCP permission refusal checked.', { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
+  expect(existsSync(stateFile)).toBe(false);
+  const observer = await attachAppHost(electron.getUserDataDir());
+  const telemetry: HostRunTelemetry[] = [];
+  const release = observer.onTelemetry((item) => telemetry.push(item));
+  try {
+    for (const thread of await readHostThreadTree(electron.getUserDataDir())) {
+      await observer.request('log/subscribe', { fromSeq: 0, threadId: thread.threadId });
+    }
+    await send('Start it again; I will approve and then stop it.');
+    await expect(approval).toBeVisible({ timeout: 30_000 });
+    await approval.click();
+    await expect
+      .poll(
+        () =>
+          telemetry.filter(
+            (item) =>
+              typeof item.chunk === 'object' &&
+              item.chunk !== null &&
+              'type' in item.chunk &&
+              item.chunk['type'] === 'brainstrike.mcp-progress.chunk'
+          ).length
+      )
+      .toBeGreaterThan(0);
+    await panel.getByRole('button', { exact: true, name: 'Stop' }).click();
+    await expect(panel.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0, {
+      timeout: 30_000,
+    });
+    await expect.poll(() => existsSync(stateFile)).toBe(true);
+    const receipt: unknown = JSON.parse(await readFile(stateFile, 'utf8'));
+    expect(receipt).toMatchObject({ cancelled: true, progressSent: expect.any(Number) });
+    await test.info().attach('mcp-progress-telemetry', {
+      body: JSON.stringify(telemetry),
+      contentType: 'application/json',
+    });
+  } finally {
+    release();
+    await observer.close();
+  }
   const tree = await readHostThreadTree(electron.getUserDataDir());
   const events = tree.flatMap((thread) => thread.rows.map(({ event }) => event));
   expect(

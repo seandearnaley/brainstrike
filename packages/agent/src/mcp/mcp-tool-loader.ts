@@ -1,6 +1,6 @@
 import { ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
-import type { ToolsInput } from '@mastra/core/agent';
+import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition';
 import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import { boundToolOutputForModel, MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits';
 import { sanitizeTools } from '../tool-projection/tool-sanitizer';

@@ -1,8 +1,9 @@
 import fsPromises from 'node:fs/promises';
 import type { RuntimeData } from '@brainstrike/agent';
+import type { HostToolDefinitions } from '@brainstrike/agent/tool-runtime';
 
-type MastraTools = NonNullable<RuntimeData['mastraTools']>;
-type MastraTool = MastraTools[string];
+type NativeToolDefinitions = HostToolDefinitions;
+type NativeToolDefinition = NativeToolDefinitions[string];
 
 /**
  * Models the authoritative server-side root enrichment for direct tool tests.
@@ -35,7 +36,7 @@ type ErasedExecute = (params: any, options: unknown) => Promise<any>;
  * (execute is optional on Mastra's tool union), instead of letting the
  * assertion fail later with an unrelated TypeError.
  */
-export function requireTool(tools: MastraTools, id: string): MastraTool {
+export function requireTool(tools: NativeToolDefinitions, id: string): NativeToolDefinition {
   const tool = tools[id];
   if (!tool) {
     throw new Error(`Expected tool '${id}' to be registered`);
@@ -55,7 +56,7 @@ export function requireTool(tools: MastraTools, id: string): MastraTool {
  * argument to get a typed result where a test wants real checking.
  */
 export function requireToolExecute<TResult = Awaited<ReturnType<ErasedExecute>>>(
-  tools: MastraTools,
+  tools: NativeToolDefinitions,
   id: string
 ): (params: unknown, options?: unknown) => Promise<TResult> {
   const tool = requireTool(tools, id);

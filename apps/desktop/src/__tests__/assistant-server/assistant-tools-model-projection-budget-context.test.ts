@@ -6,19 +6,34 @@ import {
   resolveScaledToolResultBudget,
   type ScaledToolResultBudget,
 } from '@brainstrike/agent';
+import type { HostToolDefinition } from '@brainstrike/agent/tool-runtime';
 import { describe, expect, it } from 'vitest';
 import { buildHostNativeTools } from './_host-native-tools';
 
 type ProjectionTools = Parameters<typeof applyToolModelOutputProjections>[0];
-type ProjectableTool = ProjectionTools[string] & {
-  toModelOutput?: (output: unknown) => unknown;
-};
+type ProjectableTool = HostToolDefinition;
 
-function requireProjection(tool: ProjectableTool | undefined): (output: unknown) => unknown {
-  if (!tool || typeof tool.toModelOutput !== 'function') {
+function requireProducer(tool: ProjectionTools[string] | undefined): HostToolDefinition {
+  if (
+    !(tool && 'id' in tool) ||
+    typeof tool.id !== 'string' ||
+    ('type' in tool && tool.type === 'provider')
+  ) {
+    throw new TypeError('Expected a host-owned producer');
+  }
+  return tool as HostToolDefinition;
+}
+function requireProjection(tool: unknown): (output: unknown) => unknown {
+  if (
+    !tool ||
+    typeof tool !== 'object' ||
+    !('toModelOutput' in tool) ||
+    typeof tool.toModelOutput !== 'function'
+  ) {
     throw new TypeError('Expected a projectable desktop tool');
   }
-  return (output: unknown) => tool.toModelOutput?.call(tool, output);
+  const project = tool.toModelOutput;
+  return (output: unknown) => Reflect.apply(project, tool, [output]);
 }
 
 function projectWithBudget(
@@ -108,9 +123,7 @@ describe('desktop projector per-call budget context', () => {
       },
       resolvedToolResultBudget: anchorBudget,
     });
-    const artifactTool = tools[NATIVE_TOOL_ID.readToolOutputArtifact] as
-      | ProjectableTool
-      | undefined;
+    const artifactTool = requireProducer(tools[NATIVE_TOOL_ID.readToolOutputArtifact]);
     if (!artifactTool) {
       throw new TypeError('Expected readToolOutputArtifact host tool');
     }

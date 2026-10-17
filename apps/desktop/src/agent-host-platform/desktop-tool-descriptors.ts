@@ -4,7 +4,7 @@
  * one of them from these descriptors (b74a3a77c).
  */
 import { createSanitizedToolNameMap } from '@brainstrike/agent/tool-runtime';
-import { canonicalToolInputJsonSchema, canonicalToolInputSchema } from '@brainstrike/agent-host';
+import { canonicalToolInputJsonSchema, type HostTool } from '@brainstrike/agent-host';
 import {
   DESKTOP_NATIVE_TOOLS,
   isDesktopNativeToolId,
@@ -64,15 +64,11 @@ function admitted(id: string, admission: DesktopToolAdmission): boolean {
 
 const JsonSchemaSchema = Schema.Record(Schema.String, Schema.MutableJson);
 
-/**
- * `unknown`, matching `canonicalToolInputSchema`: a tool's registered input
- * schema is authored in Effect Schema or zod (ADR-0004, amended 2026-10-15)
- * and Mastra's `toStandardSchema` admits either. Naming zod here would be a
- * false type for the converted tools.
- */
-async function jsonSchema(schema: unknown): Promise<(typeof JsonSchemaSchema)['Type']> {
+async function jsonSchema(
+  schema: HostTool['inputSchema']
+): Promise<(typeof JsonSchemaSchema)['Type']> {
   return wireDecoder(JsonSchemaSchema, { errors: 'all', onExcessProperty: 'error' })(
-    await canonicalToolInputJsonSchema(canonicalToolInputSchema(schema))
+    await canonicalToolInputJsonSchema(schema)
   );
 }
 

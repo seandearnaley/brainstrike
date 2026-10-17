@@ -1,8 +1,8 @@
+import type { HostToolDefinition, HostToolDefinitions } from '@brainstrike/agent/tool-runtime';
 import {
   applyToolGuards,
   applyToolModelOutputProjections,
   createSanitizedToolNameMap,
-  type RuntimeData,
   resolveAssistantResilienceConfig,
   resolveRunPythonExecutionContext,
   resolveToolGuardBudget,
@@ -17,13 +17,9 @@ import {
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { HostTool, HostToolContext } from '../ports.js';
-import {
-  canonicalToolInputSchema,
-  canonicalToolModelOutput,
-  createCanonicalToolContext,
-} from './canonical-context.js';
+import { canonicalToolModelOutput, createCanonicalToolContext } from './canonical-context.js';
 
-type CanonicalTools = NonNullable<RuntimeData['mastraTools']>;
+type CanonicalTools = HostToolDefinitions;
 
 const guardLogger = createLogger('AgentHostToolGuard');
 
@@ -47,7 +43,7 @@ function guardNativeTools(tools: CanonicalTools, defaultGuardMs: number): Canoni
   });
   return { ...tools, ...guarded };
 }
-type CanonicalTool = Extract<CanonicalTools[string], { id: string; description: string }>;
+type CanonicalTool = HostToolDefinition & { id: string; description: string };
 
 function isCanonicalTool(source: CanonicalTools[string]): source is CanonicalTool {
   return (
@@ -90,7 +86,7 @@ function canonicalInteraction(
   if (!('resumeSchema' in source && source.resumeSchema)) {
     throw new Error('Canonical human interaction has no resume schema');
   }
-  return Object.freeze({ kind, resumeSchema: canonicalToolInputSchema(source.resumeSchema) });
+  return Object.freeze({ kind, resumeSchema: source.resumeSchema });
 }
 
 /** run_python's requested domains need a person per call (legacy Gate B). */
@@ -147,9 +143,9 @@ export function createAgentHostToolBindings(options: {
       ...(consent ? { consent } : {}),
       description: source.description,
       execute: async (input: unknown, context: HostToolContext): Promise<unknown> =>
-        await execute.call(source, input, createCanonicalToolContext(context, canonicalId)),
+        await execute.call(source, input, createCanonicalToolContext(context)),
       identity: binding.identity,
-      inputSchema: canonicalToolInputSchema(source.inputSchema),
+      inputSchema: source.inputSchema,
       ...(interaction ? { interaction } : {}),
       permissionToolId: canonicalId,
       risk: binding.risk,

@@ -134,7 +134,7 @@ describe('guardToolExecution', () => {
 
   it('aborts the deadline the running tool can observe before reporting the timeout', async () => {
     vi.useFakeTimers();
-    const context = { agent: { toolCallId: 'call-1' } };
+    const context = { toolCallId: 'call-1' };
     let observed: AbortSignal | undefined;
     const tool = guardToolExecution(
       makeTool((...args: unknown[]) => {
@@ -157,7 +157,7 @@ describe('guardToolExecution', () => {
   });
 
   it('leaves the deadline unaborted when the tool settles inside its budget', async () => {
-    const context = { agent: { toolCallId: 'call-2' } };
+    const context = { toolCallId: 'call-2' };
     let observed: AbortSignal | undefined;
     const tool = guardToolExecution(
       makeTool(async (...args: unknown[]) => {
@@ -191,11 +191,11 @@ describe('guardToolExecution', () => {
       { logger, timeoutMs: 5000, toolName: 'demo' }
     );
 
-    const firstCall = first.execute({}, { agent: { toolCallId: 'shared-call' } });
+    const firstCall = first.execute({}, { toolCallId: 'shared-call' });
     await started.promise;
     expect(logger.error).not.toHaveBeenCalled();
 
-    await expect(second.execute({}, { agent: { toolCallId: 'shared-call' } })).resolves.toEqual({
+    await expect(second.execute({}, { toolCallId: 'shared-call' })).resolves.toEqual({
       value: 'second',
     });
     expect(logger.error).toHaveBeenCalledWith(

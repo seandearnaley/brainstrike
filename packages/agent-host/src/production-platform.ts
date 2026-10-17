@@ -167,7 +167,7 @@ function admittedNativeWebSearch(
   if (!providerSupportsNativeWebSearch(provider)) {
     return {};
   }
-  const tool = createProviderNativeWebSearchTool(provider, auth) as unknown as Tool | undefined;
+  const tool = createProviderNativeWebSearchTool(provider, auth);
   return tool ? { nativeWebSearch: tool } : {};
 }
 /** The provider's auth: the admission's own resolver when it brings one, else the host's. */

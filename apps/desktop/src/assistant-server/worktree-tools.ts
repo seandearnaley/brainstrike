@@ -1,3 +1,4 @@
+import type { HostToolDefinition } from '@brainstrike/agent/tool-runtime';
 /**
  * The two worktree agent tools (BST-1392, spec §6.4).
  *
@@ -239,12 +240,7 @@ export async function runManageWorktree(
  */
 export type WorktreeMastraTools = Record<
   typeof NATIVE_TOOL_ID.listWorktrees | typeof NATIVE_TOOL_ID.manageWorktree,
-  {
-    readonly description: string;
-    readonly execute: (input: never) => Promise<unknown>;
-    readonly id: string;
-    readonly inputSchema: unknown;
-  }
+  HostToolDefinition
 >;
 
 /**

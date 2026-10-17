@@ -12,7 +12,7 @@
  */
 
 import { createSkill, resolveAgentSkills } from '@mastra/core/skills';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE,
   createAssistantSkillTools,
@@ -48,6 +48,21 @@ describe('createAssistantSkillTools', () => {
     const tools = createAssistantSkillTools(inlineEngine('Short instructions.'));
     expect(Object.keys(tools).sort()).toEqual([...SKILL_TOOL_IDS].sort());
     expect(SKILL_TOOL_IDS).toEqual(['skill', 'skill_read', 'skill_search']);
+  });
+
+  it('adapts Effect readonly skill filters to the retained vendor search API', async () => {
+    const engine = inlineEngine('Short.');
+    const search = vi.spyOn(engine, 'search').mockResolvedValue([]);
+    const tools = createAssistantSkillTools(engine);
+    const names = Object.freeze(['test-skill']);
+    await expect(
+      tools.skill_search.execute({ query: 'needle', skillNames: names, topK: 2 })
+    ).resolves.toBe('No results found.');
+    expect(search).toHaveBeenCalledExactlyOnceWith('needle', {
+      skillNames: ['test-skill'],
+      topK: 2,
+    });
+    expect(names).toEqual(['test-skill']);
   });
 
   it('activates a skill and returns its instructions plus reference listing verbatim when small', async () => {

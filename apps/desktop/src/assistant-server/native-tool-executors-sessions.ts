@@ -12,8 +12,8 @@ import {
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import {
   logToolFailure,
-  type MastraTool,
   type NativeToolBuildContext,
+  type NativeToolDefinition,
   parseToolExecuteInput,
   type ToolExecuteContext,
   type ToolExecuteInput,
@@ -29,8 +29,12 @@ import {
 export function commandSessionExecutors<Context extends NativeToolBuildContext>(
   dependencies: (context: Context) => CommandSessionToolDependencies
 ): {
-  readonly [NATIVE_TOOL_ID.inspectCommandSessions]: (context: Context) => MastraTool | undefined;
-  readonly [NATIVE_TOOL_ID.manageCommandSession]: (context: Context) => MastraTool | undefined;
+  readonly [NATIVE_TOOL_ID.inspectCommandSessions]: (
+    context: Context
+  ) => NativeToolDefinition | undefined;
+  readonly [NATIVE_TOOL_ID.manageCommandSession]: (
+    context: Context
+  ) => NativeToolDefinition | undefined;
 } {
   return {
     // Both are `localProvider: 'unregistered'` in the catalog, so every fold

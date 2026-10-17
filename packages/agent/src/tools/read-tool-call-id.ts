@@ -1,50 +1,11 @@
-import { parseMemoryRequestContext } from '@mastra/core/memory';
-import type { RequestContext } from '@mastra/core/request-context';
-
-/**
- * Read the tool-call id Mastra passes alongside a tool's input.
- *
- * ONE reader, deliberately. Mastra has carried this id in two places across
- * versions (`agent.toolCallId` and a bare `toolCallId`), and it had drifted
- * into three byte-identical copies — in the artifact-settlement wrapper, the
- * execution guard, and the hook wrapper. When Mastra moves it again, three
- * copies means one gets fixed and the others quietly start returning
- * `undefined`, which for the duration recorder degrades to "no measurement" —
- * the one failure mode that looks exactly like working correctly.
- *
- * The argument position is Mastra's: input first, execution context second.
- */
+/** Read the host's single execution identity shape, separate from model arguments. */
 export function readToolCallId(args: readonly unknown[]): string | undefined {
   return readExecutionIdentity(args, 'toolCallId');
 }
 
 /** Native thread IDs are globally unique; never substitute persona or root identity. */
 export function readToolExecutionThreadId(args: readonly unknown[]): string | undefined {
-  const explicit = readExecutionIdentity(args, 'threadId');
-  if (explicit) {
-    return explicit;
-  }
-  const context = args[1];
-  if (!(context && typeof context === 'object' && 'requestContext' in context)) {
-    return;
-  }
-  // Native ToolsInput functions receive the AI SDK execution context; Mastra
-  // carries memory scope there through RequestContext, not context.agent.
-  const requestContext = context.requestContext;
-  if (
-    !(
-      requestContext &&
-      typeof requestContext === 'object' &&
-      'get' in requestContext &&
-      typeof requestContext.get === 'function'
-    )
-  ) {
-    return;
-  }
-  // The public parser uses only get(); ESM and CJS expose distinct constructors.
-  // Malformed memory still throws. Never normalize a valid native identity.
-  const threadId = parseMemoryRequestContext(requestContext as RequestContext)?.thread?.id;
-  return threadId?.trim() ? threadId : undefined;
+  return readExecutionIdentity(args, 'threadId');
 }
 
 function readExecutionIdentity(
@@ -52,12 +13,9 @@ function readExecutionIdentity(
   key: 'toolCallId' | 'threadId'
 ): string | undefined {
   const context = args[1];
-  if (!(context && typeof context === 'object')) {
+  if (!(context && typeof context === 'object' && key in context)) {
     return;
   }
-  const record = context as { agent?: Partial<Record<typeof key, unknown>> } & Partial<
-    Record<typeof key, unknown>
-  >;
-  const candidate = record.agent?.[key] ?? record[key];
+  const candidate: unknown = Reflect.get(context, key);
   return typeof candidate === 'string' && candidate.trim().length > 0 ? candidate : undefined;
 }

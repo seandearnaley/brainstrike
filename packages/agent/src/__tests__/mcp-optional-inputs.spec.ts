@@ -1,6 +1,6 @@
 import { createOpenAI } from '@ai-sdk/openai';
-import { Agent } from '@mastra/core/agent';
 import { type StandardSchemaWithJSON, standardSchemaToJSONSchema } from '@mastra/core/schema';
+import { generateText, tool as sdkTool, stepCountIs } from 'ai';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { createMcpRuntimeClient } from '../mcp/mcp-runtime-client';
 import { createTestHost, requireExecutableTool } from './fixtures/mcp-runtime';
@@ -86,14 +86,18 @@ describe('MCP optional input semantics', () => {
         });
       },
     });
-    const agent = new Agent({
-      id: 'mcp-optional-inputs',
-      instructions: 'Inspect tools.',
+    await generateText({
       model: provider.responses('gpt-5.6-terra'),
-      name: 'MCP optional inputs',
-      tools: { linear_list_issues: tool },
+      prompt: 'List the latest five BST issues.',
+      stopWhen: stepCountIs(2),
+      tools: {
+        linear_list_issues: sdkTool({
+          execute: (input) => tool.execute(input),
+          inputSchema: schema,
+          strict: false,
+        }),
+      },
     });
-    await agent.generate('List the latest five BST issues.');
     expect(requests).toHaveLength(2);
     expect(callTool).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(requests[1])).toMatch(/validation/i);

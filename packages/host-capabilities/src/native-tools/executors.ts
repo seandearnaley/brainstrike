@@ -2,7 +2,7 @@
  * The native tools every host executes in its own process (desktop host,
  * standalone CLI) — and that Desktop's legacy assistant server still runs for
  * legacy threads. Each entry builds one catalog definition's request-scoped
- * Mastra registry object from the shell-supplied ports; the shells fold these
+ * host producer definition from the shell-supplied ports; the shells fold these
  * entries into their own executor maps.
  */
 import {
@@ -24,6 +24,7 @@ import {
   type WebSearchInput,
   type WriteWorkspaceFileInput,
 } from '@brainstrike/agent';
+import type { HostToolDefinitions } from '@brainstrike/agent/tool-runtime';
 import {
   readToolOutputArtifact,
   type ScopedToolOutputArtifactReader,
@@ -58,8 +59,8 @@ import { projectWebSearchModelOutput } from './web-search-model-projection.js';
 import { runWebSearch, type WebSearchToolDependencies } from './web-search-tool.js';
 import { readStateScope } from './workspace-file-staleness.js';
 
-export type MastraTools = NonNullable<RuntimeData['mastraTools']>;
-export type MastraTool = MastraTools[string];
+export type NativeToolDefinitions = HostToolDefinitions;
+export type NativeToolDefinition = NativeToolDefinitions[string];
 
 /** The thread-scoped stores and edit owner one request's shared tools write through. */
 export interface NativeToolPorts {
@@ -117,7 +118,9 @@ export const SHARED_NATIVE_TOOL_IDS = [
 export type SharedNativeToolId = (typeof SHARED_NATIVE_TOOL_IDS)[number];
 
 export type SharedNativeToolExecutors = {
-  readonly [Id in SharedNativeToolId]: (context: NativeToolBuildContext) => MastraTool | undefined;
+  readonly [Id in SharedNativeToolId]: (
+    context: NativeToolBuildContext
+  ) => NativeToolDefinition | undefined;
 };
 
 export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {

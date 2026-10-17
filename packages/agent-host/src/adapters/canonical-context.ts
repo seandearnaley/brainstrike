@@ -1,6 +1,4 @@
-import { RequestContext } from '@mastra/core/request-context';
-import { type PublicSchema, toStandardSchema } from '@mastra/core/schema';
-import { noopObserve, type ToolExecutionContext, ToolStream } from '@mastra/core/tools';
+import type { HostToolExecutionContext } from '@brainstrike/agent/tool-runtime';
 import {
   asSchema,
   type FlexibleSchema,
@@ -12,40 +10,17 @@ import {
 import { Schema } from 'effect';
 import { executableInputSchema } from '../executable-input-schema.js';
 import type { HostToolContext } from '../ports.js';
-/** Actual public library context, with the existing plain-tool provenance. */
-export function createCanonicalToolContext(
-  context: HostToolContext,
-  toolName: string
-): ToolExecutionContext &
-  Pick<HostToolContext, 'runId' | 'threadId' | 'toolCallId'> & {
-    readonly brainstrikeMcp?: HostToolContext['mcp'];
-  } {
+/** One structural context; execution authority never comes from model arguments. */
+export function createCanonicalToolContext(context: HostToolContext): HostToolExecutionContext {
   return {
     abortSignal: context.signal,
-    observe: noopObserve,
-    requestContext: new RequestContext(),
     runId: context.runId,
-    // Mastra already owns `mcp`; preserve its native execution context unchanged.
     ...(context.mcp ? { brainstrikeMcp: context.mcp } : {}),
     ...(context.resumeData === undefined ? {} : { resumeData: context.resumeData }),
     threadId: context.threadId,
     toolCallId: context.toolCallId,
-    ...(context.write
-      ? {
-          writer: new ToolStream(
-            { callId: context.toolCallId, name: toolName, prefix: 'tool', runId: context.runId },
-            context.write
-          ),
-        }
-      : {}),
+    ...(context.write ? { writer: { custom: context.write } } : {}),
   };
-}
-/** Preserve the catalog's public validator and model JSON Schema. */
-export function canonicalToolInputSchema(schema: unknown): FlexibleSchema<unknown> {
-  if (!(schema && typeof schema === 'object')) {
-    throw new TypeError('Canonical executable tool has no public input schema');
-  }
-  return toStandardSchema(schema as PublicSchema<unknown>);
 }
 export function canonicalToolModelOutput(
   output: unknown,

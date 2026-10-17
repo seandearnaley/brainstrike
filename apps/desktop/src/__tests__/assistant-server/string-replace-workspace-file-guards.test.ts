@@ -43,11 +43,9 @@ describe('stringReplaceWorkspaceFile (real tool execute)', () => {
       } as RuntimeData);
       const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
       const missingInput = {
-        context: {
-          newStr: 'missing=true',
-          oldStr: 'missing=false',
-          path: '/config.txt',
-        },
+        newStr: 'missing=true',
+        oldStr: 'missing=false',
+        path: '/config.txt',
       };
 
       await expect(executeTool(missingInput)).rejects.toMatchObject({
@@ -60,11 +58,9 @@ describe('stringReplaceWorkspaceFile (real tool execute)', () => {
       });
       await expect(
         executeTool({
-          context: {
-            newStr: 'enabled=true',
-            oldStr: 'enabled=true',
-            path: '/config.txt',
-          },
+          newStr: 'enabled=true',
+          oldStr: 'enabled=true',
+          path: '/config.txt',
         })
       ).rejects.toMatchObject({ reason: 'no_op' });
       // The escalated message APPENDS the hint rather than replacing the
@@ -84,11 +80,9 @@ describe('stringReplaceWorkspaceFile (real tool execute)', () => {
       expect((escalatedError as Error).message).toContain(EDIT_FAILURE_HINT_MESSAGE);
 
       await executeTool({
-        context: {
-          newStr: 'enabled=false',
-          oldStr: 'enabled=true',
-          path: '/config.txt',
-        },
+        newStr: 'enabled=false',
+        oldStr: 'enabled=true',
+        path: '/config.txt',
       });
       await expect(executeTool(missingInput)).rejects.toMatchObject({
         message: expect.not.stringContaining('Repeated string replacement failures'),
@@ -126,19 +120,15 @@ describe('stringReplaceWorkspaceFile (real tool execute)', () => {
       const executeReplace = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
       const executeWrite = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
       const missingInput = {
-        context: {
-          newStr: 'missing=true',
-          oldStr: 'missing=false',
-          path: '/config.txt',
-        },
+        newStr: 'missing=true',
+        oldStr: 'missing=false',
+        path: '/config.txt',
       };
 
       await expect(executeReplace(missingInput)).rejects.toMatchObject({ reason: 'not_found' });
       await expect(executeReplace(missingInput)).rejects.toMatchObject({ reason: 'not_found' });
 
-      await executeWrite({
-        context: { content: 'enabled=false\nother=1\n', path: '/config.txt' },
-      });
+      await executeWrite({ content: 'enabled=false\nother=1\n', path: '/config.txt' });
 
       await expect(executeReplace(missingInput)).rejects.toMatchObject({
         message: expect.not.stringContaining(EDIT_FAILURE_HINT_MESSAGE),
