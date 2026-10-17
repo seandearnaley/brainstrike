@@ -557,7 +557,7 @@ patchedDependencies:
   '@electric-sql/pglite@0.5.10': 3eab9988cf0009b186838b0521e30eb60aeeac785939a070fd888a6102d9c217
   '@huggingface/transformers@4.3.1': c72e645938ae767c79a557fa85c3a9f3d71e197a3b45203693aadea57c5d017b
   '@mastra/core@1.78.0': bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53
-  '@mastra/memory@1.38.0': 93fbaf5da2290dc3b270f44f203f2671cebd54371f58cd84098ea46c04e8c3f4
+  '@mastra/memory@1.38.0': 35ea84f8ad38fd6e9a2c9952cc4727bafcbe563b01a14832414f84c7a6fea188
   '@stryker-mutator/vitest-runner@10.0.0': 280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c
   app-builder-lib@26.17.0: 9c23dfc27c5d05a82f442223d5ead8d74bf9f06bd15cf0edd5f5df2392ca155e
   vscode-jsonrpc@9.0.3: df2075051190294761e76039366b12d72ab41c3ac815f5073d97de7c00806034
@@ -1404,7 +1404,7 @@ importers:
         version: 1.78.0(patch_hash=bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53)(ai@7.0.142(zod@4.6.7))(effect@4.0.5)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7)
       '@mastra/memory':
         specifier: 1.38.0
-        version: 1.38.0(patch_hash=93fbaf5da2290dc3b270f44f203f2671cebd54371f58cd84098ea46c04e8c3f4)(@mastra/core@1.78.0(patch_hash=bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53)(ai@7.0.142(zod@4.6.7))(effect@4.0.5)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7))(supports-color@10.2.2)
+        version: 1.38.0(patch_hash=35ea84f8ad38fd6e9a2c9952cc4727bafcbe563b01a14832414f84c7a6fea188)(@mastra/core@1.78.0(patch_hash=bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53)(ai@7.0.142(zod@4.6.7))(effect@4.0.5)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7))(supports-color@10.2.2)
       '@mastra/schema-compat':
         specifier: 'catalog:'
         version: 1.3.15(zod@4.6.7)
@@ -1577,7 +1577,7 @@ importers:
         version: 1.78.0(patch_hash=bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53)(ai@7.0.142(zod@4.6.7))(effect@4.0.5)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7)
       '@mastra/memory':
         specifier: 1.38.0
-        version: 1.38.0(patch_hash=93fbaf5da2290dc3b270f44f203f2671cebd54371f58cd84098ea46c04e8c3f4)(@mastra/core@1.78.0(patch_hash=bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53)(ai@7.0.142(zod@4.6.7))(effect@4.0.5)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7))(supports-color@10.2.2)
+        version: 1.38.0(patch_hash=35ea84f8ad38fd6e9a2c9952cc4727bafcbe563b01a14832414f84c7a6fea188)(@mastra/core@1.78.0(patch_hash=bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53)(ai@7.0.142(zod@4.6.7))(effect@4.0.5)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7))(supports-color@10.2.2)
       '@mastra/schema-compat':
         specifier: 'catalog:'
         version: 1.3.15(zod@4.6.7)
@@ -4118,7 +4118,7 @@ importers:
         version: 1.78.0(patch_hash=bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53)(ai@7.0.142(zod@4.6.7))(effect@4.0.5)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7)
       '@mastra/memory':
         specifier: 1.38.0
-        version: 1.38.0(patch_hash=93fbaf5da2290dc3b270f44f203f2671cebd54371f58cd84098ea46c04e8c3f4)(@mastra/core@1.78.0(patch_hash=bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53)(ai@7.0.142(zod@4.6.7))(effect@4.0.5)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7))(supports-color@10.2.2)
+        version: 1.38.0(patch_hash=35ea84f8ad38fd6e9a2c9952cc4727bafcbe563b01a14832414f84c7a6fea188)(@mastra/core@1.78.0(patch_hash=bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53)(ai@7.0.142(zod@4.6.7))(effect@4.0.5)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7))(supports-color@10.2.2)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.64.1
@@ -19450,7 +19450,7 @@ snapshots:
       - zod-openapi
       - zod-to-json-schema
 
-  '@mastra/memory@1.38.0(patch_hash=93fbaf5da2290dc3b270f44f203f2671cebd54371f58cd84098ea46c04e8c3f4)(@mastra/core@1.78.0(patch_hash=bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53)(ai@7.0.142(zod@4.6.7))(effect@4.0.5)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7))(supports-color@10.2.2)':
+  '@mastra/memory@1.38.0(patch_hash=35ea84f8ad38fd6e9a2c9952cc4727bafcbe563b01a14832414f84c7a6fea188)(@mastra/core@1.78.0(patch_hash=bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53)(ai@7.0.142(zod@4.6.7))(effect@4.0.5)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7))(supports-color@10.2.2)':
     dependencies:
       '@mastra/core': 1.78.0(patch_hash=bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53)(ai@7.0.142(zod@4.6.7))(effect@4.0.5)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7)
       '@mastra/schema-compat': 1.3.15(zod@4.6.7)

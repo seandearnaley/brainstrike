@@ -81,7 +81,7 @@ internal observer/reflector streams.
 Owner: the M3 memory leaf worker, integrated by Studio under the parent M3 work.
 Pinned versions: Memory 1.38.0 and Core 1.78.0, both patched; this closure must
 not be described as patch-free.
-Memory patch SHA-256: `93fbaf5da2290dc3b270f44f203f2671cebd54371f58cd84098ea46c04e8c3f4`.
+Memory patch SHA-256: `35ea84f8ad38fd6e9a2c9952cc4727bafcbe563b01a14832414f84c7a6fea188`.
 Core patch SHA-256: `bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53`.
 
 The pnpm patch map registers `@mastra/memory@1.38.0` and `@mastra/core@1.78.0`;
