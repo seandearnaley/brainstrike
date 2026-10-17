@@ -38,11 +38,15 @@ const testConfigPath = path.join(agentRoot, 'tsconfig.test.json');
  * BST-2095 returns four cancellation regressions to checking after BST-2068's
  * deletion of more legacy specs. The remaining cohort is counted below.
  */
-const MAX_EXCLUDED_LEGACY_FILES = 42;
+const MAX_EXCLUDED_LEGACY_FILES = 39;
 
 /** Not legacy debt — the ordinary build-output exclusions every project carries. */
 const NON_LEGACY_EXCLUDES = new Set(['dist', 'node_modules']);
-const CANCELLATION_REGRESSIONS = [
+const REQUIRED_REGRESSIONS = [
+  'src/__tests__/native-tool-input-schema-catalog.spec.ts',
+  'src/__tests__/tool-output-artifact-reader.spec.ts',
+  'src/__tests__/tool-output-artifact-settlement.spec.ts',
+
   'src/__tests__/mcp-runtime-client.spec.ts',
   'src/__tests__/run-python-tool.spec.ts',
   'src/__tests__/tool-execution-durations.spec.ts',
@@ -53,7 +57,7 @@ function readTestConfig() {
   return JSON.parse(readFileSync(testConfigPath, 'utf8'));
 }
 
-test('cancellation regression files belong to the actual compiler program', () => {
+test('admitted regression files belong to the actual compiler program', () => {
   const result = verifyTestTsconfigProgram({
     checkTypes: false,
     cwd: agentRoot,
@@ -65,9 +69,9 @@ test('cancellation regression files belong to the actual compiler program', () =
     result.testFiles.map((file) => path.relative(agentRoot, file).replaceAll('\\', '/'))
   );
   assert.deepEqual(
-    CANCELLATION_REGRESSIONS.filter((file) => !selected.has(file)),
+    REQUIRED_REGRESSIONS.filter((file) => !selected.has(file)),
     [],
-    'cancellation regressions must be checked even when the numeric exclusion ceiling permits them'
+    'admitted regressions must be checked even when the numeric exclusion ceiling permits them'
   );
 });
 
