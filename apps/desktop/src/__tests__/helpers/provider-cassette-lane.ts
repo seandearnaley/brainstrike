@@ -4,19 +4,12 @@
  * recorded through the cassette recorder. Both derive the settled
  * conversation's shape and invariant violations (./conversation-shape.ts).
  */
-import { execFile } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { homedir, tmpdir, userInfo } from 'node:os';
-import { join, resolve } from 'node:path';
-import { providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
 import {
   assembleProviderCassette,
-  encodeProviderCassette,
   PROVIDER_CASSETTE_UPSTREAMS,
   type ProviderCassette,
   type ProviderCassetteFinding,
   type ProviderCassetteKnob,
-  providerCassetteFindings,
   startProviderCassetteRecorder,
 } from '@brainstrike/test-utils/provider-cassette';
 import { isSettledConversation } from '../../../e2e/utils/conversation-invariants';
@@ -25,9 +18,10 @@ import {
   resolveProviderEgressEnvironment,
   startModelProviderShim,
 } from '../../../e2e/utils/model-provider-shim';
+import { recordingFindings, secretScan } from '../../../e2e/utils/provider-cassette-recording';
 import {
+  credentialEnvNames,
   type ProviderCassetteScenario,
-  providerOf,
 } from '../../../e2e/utils/provider-cassette-scenarios';
 import { type ConversationShape, conversationShape } from './conversation-shape';
 import {
@@ -39,8 +33,6 @@ import {
 const WORKSPACE_NAME = 'cassette-workspace';
 const WORKSPACE_PLACEHOLDER = '<workspace>';
 const KNOBS = Object.keys(PROVIDER_CASSETTE_UPSTREAMS) as ProviderCassetteKnob[];
-/** A provider refuses this as it refuses any unknown key; it is no key's format. */
-const INVALID_KEY = 'provider-cassette-invalid-key';
 /** The key a replayed host holds: the shim never reads it. */
 const REPLAY_KEY = 'provider-cassette-replay';
 /** A provider stream has sent answer text, on any of the three wires: a Stop now cuts it off. */
@@ -65,24 +57,11 @@ function credentialEnvironment(
   scenario: ProviderCassetteScenario,
   key: string
 ): Record<string, string> {
-  const [override] = providerEnvKeys(providerOf(scenario));
+  const [override] = credentialEnvNames(scenario);
   if (!override) {
     throw new Error(`${scenario.id}: its provider has no credential env name`);
   }
   return { [override]: key };
-}
-
-/** The recorder's own key for the scenario's provider, read from this process's shell only. */
-export function recorderKey(scenario: ProviderCassetteScenario): string {
-  if (scenario.credential === 'invalid') {
-    return INVALID_KEY;
-  }
-  const names = providerEnvKeys(providerOf(scenario));
-  const key = names.map((name) => process.env[name]).find((value) => value?.trim());
-  if (!key) {
-    throw new Error(`Recording ${scenario.id} needs ${names.join(' or ')} in this shell.`);
-  }
-  return key;
 }
 
 /**
@@ -173,30 +152,6 @@ export interface RecordedScenario extends ScenarioResult {
   readonly secretScan: string;
 }
 
-/** The repository's own secret scanner (`--files`), run over the encoded cassette outside the repo. */
-const SECRET_SCAN = resolve(import.meta.dirname, '../../../../../scripts/secret-scan.mjs');
-
-async function secretScan(cassette: ProviderCassette): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), 'bs-cassette-scan-'));
-  const file = join(directory, `${cassette.scenario}.json`);
-  try {
-    await writeFile(file, encodeProviderCassette(cassette));
-    return await new Promise((done, fail) => {
-      execFile(process.execPath, [SECRET_SCAN, '--files', file], (cause, stdout, stderr) => {
-        if (!cause) {
-          done('');
-        } else if (typeof cause.code === 'number') {
-          done(`${stdout}${stderr}`.trim() || `secret scan exited ${cause.code}`);
-        } else {
-          fail(cause);
-        }
-      });
-    });
-  } finally {
-    await rm(directory, { force: true, recursive: true });
-  }
-}
-
 /**
  * Runs the scenario against real providers (or `upstreams`) through the
  * recorder, holding `key`. Nothing is written here: the caller keeps the
@@ -231,14 +186,12 @@ export async function recordScenario(
       recordedAt: new Date().toISOString(),
       scenario: scenario.id,
     });
-    // A disposable workspace path a model echoes is not private; whether the
-    // recording still replays is the replay-shape check's to say.
-    const findings = providerCassetteFindings(cassette, [
-      { rule: 'home-directory', value: homedir() },
-      { rule: 'user-name', value: userInfo().username },
-      { rule: 'recorder-credential', value: key },
-    ]);
-    return { ...result, cassette, findings, secretScan: await secretScan(cassette) };
+    return {
+      ...result,
+      cassette,
+      findings: recordingFindings(cassette, key),
+      secretScan: await secretScan(cassette),
+    };
   } finally {
     await recorder.close();
     await remove();

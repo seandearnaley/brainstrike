@@ -18,7 +18,8 @@ all lived in that gap.
 | Shape plus projection invariants | [`conversation-shape.ts`](../../apps/desktop/src/__tests__/helpers/conversation-shape.ts) |
 | Host lane, standalone host | `pnpm --filter @brainstrike/desktop test:provider-cassettes` |
 | Desktop E2E | `apps/desktop/e2e/provider-cassettes.desktop.test.ts` |
-| Record scenarios (host lane) | `pnpm cassettes:record <scenario id\|all>` |
+| Recording checks: findings, secret scan, key, upstreams | [`provider-cassette-recording.ts`](../../apps/desktop/e2e/utils/provider-cassette-recording.ts) |
+| Record scenarios (host lane, or the desktop app) | `pnpm cassettes:record <scenario id\|all>` |
 | Ad-hoc capture from any client | `pnpm cassettes:proxy --out <file.json>` |
 
 The model-provider shim serves a cassette when its script is
@@ -61,9 +62,25 @@ approves it for that task. Choose one route:
 
 1. **Keys the owner exports.** Export only the scenario's provider key in your
    shell (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`), then
-   run `pnpm cassettes:record <scenario id|all>`. This runs the host lane in
-   record mode. `openrouter-provider-error` records with a deliberately invalid
-   key.
+   run `pnpm cassettes:record <scenario id|all>`. It records one scenario at a
+   time and stops at the first failure. Most scenarios record in the host lane.
+   `openrouter-provider-error` records with a deliberately invalid key.
+
+   A scenario marked `recordedIn: 'desktop'` records in the desktop app
+   instead, because the app sends what the standalone host never does: thinking
+   disabled and its own tool set. The wrapper builds the app and runs the
+   desktop E2E in record mode with only the shell's basics and that one key,
+   under `BRAINSTRIKE_PROVIDER_CASSETTE_RECORDER_KEY`: E2E global setup strips
+   every inherited provider credential (BST-1931). The test takes the key out of
+   its environment before the app launches, so only the disposable profile's
+   credential store holds it. The recording must replay in the app to the same
+   committed shape. The host lane
+   then replays it for the projection checks and writes its shape file. If
+   either replay fails, the wrapper puts the old cassette back.
+
+   To try a recording route offline, set `BRAINSTRIKE_PROVIDER_CASSETTE_UPSTREAMS`
+   to a JSON object of knob to local stand-in base URL, as
+   `cassettes:proxy --upstream` does.
 2. **The app's own credentials.** Start the recorder with
    `pnpm cassettes:proxy --out <file.json>`, which prints the three base-URL
    knobs. Start the dev app with those knobs set, on a profile that holds keys
@@ -72,7 +89,7 @@ approves it for that task. Choose one route:
    for ad-hoc and desktop-only captures. A lane scenario replays reliably only
    when the app called the same tools the standalone host offers.
 
-The host lane writes a cassette only if it passes four checks:
+Either route writes a cassette only if it passes four checks:
 
 1. Neither the requests nor the responses trip the secret scanner
    (`scripts/secret-scan.mjs`), and nothing holds the home directory, user name
@@ -81,7 +98,8 @@ The host lane writes a cassette only if it passes four checks:
 2. It shows the behavior its scenario exists for (`exhibits`), for example
    GLM's empty-arguments tool frame.
 3. It keeps every invariant.
-4. It replays to the same shape.
+4. It replays to the same shape: the host lane's shape for a host recording,
+   or the committed shape in the app for a desktop recording.
 
 The proxy applies check 1. Each scenario's shape is a file,
 `apps/desktop/src/__tests__/__snapshots__/provider-cassettes/<id>.shape.json`;
@@ -95,8 +113,8 @@ its prompt.
 
 ## Phase 2
 
-- A cheap-model live canary: Gemini Flash, GLM/Qwen Flash via OpenRouter, Haiku
-  and a GPT mini. It asserts invariants only and saves new shapes as cassettes.
+- A cheap-model live canary: Gemini Flash, GLM/Qwen Flash via OpenRouter,
+  Claude Haiku 5.5 and GPT-6 Luna. It asserts invariants only and saves new shapes as cassettes.
 - A debug-pack-to-fixture converter.
 - A deterministic not-ready native index in an Electron lane, so the grep
   refusal path (#3727) runs with real provider bytes.

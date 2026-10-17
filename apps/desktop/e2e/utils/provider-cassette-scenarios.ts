@@ -2,12 +2,14 @@
  * The recorded provider scenarios: what each asks a real model, and what its
  * cassette must show for the scenario to mean anything. The host-level lane
  * (src/__tests__/provider-cassettes.integration.test.ts) records and replays
- * every scenario on the standalone host; the desktop E2E replays the ones it
- * names through the real app. Prompts name workspace-relative paths and no
- * root, so a recording never carries the recording machine's paths.
+ * every scenario on the standalone host, except one recorded in the desktop
+ * app; the desktop E2E replays the ones it names through the real app. Prompts
+ * name workspace-relative paths and no root, so a recording never carries the
+ * recording machine's paths.
  */
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
 import {
   type ProviderCassette,
   type ProviderCassetteKnob,
@@ -38,6 +40,12 @@ export interface ProviderCassetteScenario {
   /** Replay pacing (`ProviderCassetteReplayOptions.pace`): concurrent children keep their recorded order. */
   readonly pace?: number;
   readonly prompt: string;
+  /**
+   * Recorded through the desktop app (provider-cassettes.desktop.test.ts), which
+   * sends what the standalone host never does: thinking disabled and its own
+   * tool set. The host lane replays the cassette but never records it.
+   */
+  readonly recordedIn?: 'desktop';
   /** Stop the run once its answer is streaming. */
   readonly stop?: true;
 }
@@ -218,6 +226,8 @@ export const PROVIDER_CASSETTE_SCENARIOS: readonly ProviderCassetteScenario[] = 
     id: 'anthropic-long-multiblock-answer',
     model: 'anthropic::claude-sonnet-5',
     prompt: `Read README.md, docs/guide.md and CHANGELOG.md, then write a detailed summary of the project of about 500 words: what it is, how recording and replay work, how matching works, and its version history, with headings and bullet lists. ${NO_ROOT}`,
+    // The standalone host lets Sonnet 5 think, and then it answers in one block.
+    recordedIn: 'desktop',
   },
   {
     credential: 'recorder',
@@ -226,7 +236,8 @@ export const PROVIDER_CASSETTE_SCENARIOS: readonly ProviderCassetteScenario[] = 
       holds: opensToolCallWithEmptyArguments,
     },
     files: { 'notes.md': '# Notes\n\nThe cassette harness replays recorded provider streams.\n' },
-    guards: '#3713',
+    // Not a #3713 guard: this recording's tool step streams too fast to reach
+    // that freeze, and it passes on #3713's parent (checked 2026-10-16).
     id: 'openrouter-empty-args-tool-call',
     model: 'openrouter::z-ai/glm-5.3-flash',
     // At the provider's own pace the call's input deltas commit before the call
@@ -271,6 +282,27 @@ export function providerOf(scenario: ProviderCassetteScenario): CassetteProvider
     throw new Error(`${scenario.id} names a provider with no base-URL knob: ${provider}`);
   }
   return provider;
+}
+
+/** The env names that may hold the recorder's key for the scenario's provider, in precedence order. */
+export function credentialEnvNames(scenario: ProviderCassetteScenario): readonly string[] {
+  return providerEnvKeys(providerOf(scenario));
+}
+
+/** A provider refuses this as it refuses any unknown key; it is no key's format. */
+const INVALID_KEY = 'provider-cassette-invalid-key';
+
+/** The key the scenario records with: the recorder's own, read from this process's shell only. */
+export function recorderKey(scenario: ProviderCassetteScenario): string {
+  if (scenario.credential === 'invalid') {
+    return INVALID_KEY;
+  }
+  const names = credentialEnvNames(scenario);
+  const key = names.map((name) => process.env[name]).find((value) => value?.trim());
+  if (!key) {
+    throw new Error(`Recording ${scenario.id} needs ${names.join(' or ')} in this shell.`);
+  }
+  return key;
 }
 
 export const KNOB_OF_PROVIDER: Readonly<Record<CassetteProvider, ProviderCassetteKnob>> = {

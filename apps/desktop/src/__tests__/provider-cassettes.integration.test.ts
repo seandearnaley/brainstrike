@@ -9,7 +9,8 @@
  * against the real provider through the cassette recorder, with the key the
  * person recording exports in their own shell, and keeps the cassette only if
  * it leaks nothing, shows the behavior the scenario exists for, keeps every
- * invariant and replays to the conversation it recorded.
+ * invariant and replays to the conversation it recorded. A scenario recorded
+ * in the desktop app is only ever replayed here.
  */
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
@@ -18,24 +19,26 @@ import {
   type ProviderCassette,
 } from '@brainstrike/test-utils/provider-cassette';
 import { describe, expect, test } from 'vitest';
+import { recordingUpstreams } from '../../e2e/utils/provider-cassette-recording';
 import {
   cassetteFile,
   describeRecording,
   PROVIDER_CASSETTE_SCENARIOS,
   type ProviderCassetteScenario,
   readScenarioCassette,
+  recorderKey,
 } from '../../e2e/utils/provider-cassette-scenarios';
-import { recorderKey, recordScenario, replayScenario } from './helpers/provider-cassette-lane';
+import { recordScenario, replayScenario } from './helpers/provider-cassette-lane';
 
 /** A scenario id, or `all`: record instead of replay. */
 const RECORD = process.env['BRAINSTRIKE_PROVIDER_CASSETTE_RECORD'];
 
 function recording(scenario: ProviderCassetteScenario): boolean {
-  return RECORD === 'all' || RECORD === scenario.id;
+  return scenario.recordedIn !== 'desktop' && (RECORD === 'all' || RECORD === scenario.id);
 }
 
 async function record(scenario: ProviderCassetteScenario): Promise<ProviderCassette> {
-  const recorded = await recordScenario(scenario, recorderKey(scenario));
+  const recorded = await recordScenario(scenario, recorderKey(scenario), recordingUpstreams());
   expect(
     recorded.findings,
     'a recording that holds a local path or the key is never saved'
