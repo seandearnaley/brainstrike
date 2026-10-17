@@ -17,7 +17,9 @@
  * byte-identical — OpenRouter normalizes for Anthropic-style upstreams where
  * an empty text block is itself invalid.
  */
-import type { LanguageModelV2CallOptions, LanguageModelV2Prompt } from '@ai-sdk/provider';
+type LanguageModelV2CallOptions = Parameters<ModelRouterLanguageModel['doStream']>[0];
+type LanguageModelV2Prompt = LanguageModelV2CallOptions['prompt'];
+
 import { ModelRouterLanguageModel } from '@mastra/core/llm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -103,7 +105,7 @@ const TOOL_CALL_ONLY_HISTORY: LanguageModelV2Prompt = [
 async function drainDoStream(model: ModelRouterLanguageModel): Promise<void> {
   const { stream } = await model.doStream({
     prompt: TOOL_CALL_ONLY_HISTORY,
-  } as LanguageModelV2CallOptions);
+  });
   const reader = stream.getReader();
   while (!(await reader.read()).done) {
     // drain so the fake SSE response is fully consumed
@@ -238,15 +240,15 @@ describe('OpenRouterStrictContentGateway', () => {
       apiKey: 'test-key',
       modelId: 'openai/gpt-3.5-turbo-instruct',
       providerId: 'openrouter',
-    }) as { doStream: (options: LanguageModelV2CallOptions) => Promise<unknown> };
+    });
 
-    await model
-      .doStream({
+    await Promise.resolve(
+      model.doStream({
         prompt: [{ content: [{ text: 'hello', type: 'text' }], role: 'user' }],
-      } as LanguageModelV2CallOptions)
-      .catch(() => {
-        // The fake SSE body is chat-shaped; only the request URL matters here.
-      });
+      })
+    ).catch(() => {
+      // The fake SSE body is chat-shaped; only the request URL matters here.
+    });
 
     expect(captures).toHaveLength(1);
     expect(captures[0]?.url.endsWith('/completions')).toBe(true);

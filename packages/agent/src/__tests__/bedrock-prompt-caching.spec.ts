@@ -4,11 +4,9 @@ import {
   wrapBedrockModelWithPromptCaching,
 } from '../providers/bedrock-prompt-caching';
 
-interface Message {
-  content: unknown;
-  providerOptions?: Record<string, Record<string, unknown>>;
-  role: string;
-}
+import type { PromptMessageLike } from '../providers/prompt-transform-proxy';
+
+type Message = PromptMessageLike & { content: unknown; role: string };
 
 const CACHE_POINT = { type: 'default' };
 
@@ -33,7 +31,7 @@ describe('applyBedrockPromptCacheBreakpoints', () => {
       message('user', 'turn two'),
     ];
 
-    const result = applyBedrockPromptCacheBreakpoints({ prompt });
+    const result = applyBedrockPromptCacheBreakpoints<{ prompt: Message[] }>({ prompt });
 
     expect(cachePointsOf(result.prompt)).toEqual([
       'system',
@@ -49,14 +47,14 @@ describe('applyBedrockPromptCacheBreakpoints', () => {
   });
 
   it('writes the documented Converse cache-point shape', () => {
-    const result = applyBedrockPromptCacheBreakpoints({
+    const result = applyBedrockPromptCacheBreakpoints<{ prompt: Message[] }>({
       prompt: [message('user', 'only turn')],
     });
     expect(result.prompt.at(-1)?.providerOptions).toEqual({ bedrock: { cachePoint: CACHE_POINT } });
   });
 
   it('preserves unrelated provider-option namespaces on a decorated message', () => {
-    const result = applyBedrockPromptCacheBreakpoints({
+    const result = applyBedrockPromptCacheBreakpoints<{ prompt: Message[] }>({
       prompt: [{ ...message('user', 'hi'), providerOptions: { anthropic: { ttl: '1h' } } }],
     });
     expect(result.prompt[0]?.providerOptions).toEqual({
@@ -67,7 +65,7 @@ describe('applyBedrockPromptCacheBreakpoints', () => {
 
   it('honors a pre-existing explicit cachePoint instead of overwriting it', () => {
     const explicit = { ttl: '1h', type: 'default' };
-    const result = applyBedrockPromptCacheBreakpoints({
+    const result = applyBedrockPromptCacheBreakpoints<{ prompt: Message[] }>({
       prompt: [
         { ...message('system', 'sys'), providerOptions: { bedrock: { cachePoint: explicit } } },
         message('user', 'hi'),
@@ -80,7 +78,7 @@ describe('applyBedrockPromptCacheBreakpoints', () => {
     // The SDK reads `amazonBedrock` in preference to `bedrock`; adding our own
     // `bedrock` breakpoint alongside it would silently double-count against
     // the four-checkpoint ceiling.
-    const result = applyBedrockPromptCacheBreakpoints({
+    const result = applyBedrockPromptCacheBreakpoints<{ prompt: Message[] }>({
       prompt: [
         {
           ...message('user', 'hi'),
@@ -95,7 +93,7 @@ describe('applyBedrockPromptCacheBreakpoints', () => {
     // The SDK reads part-level provider metadata too, so a part-level point is
     // a real checkpoint that must count against the ceiling — adding ours to
     // the same message would spend two of the four on one boundary.
-    const result = applyBedrockPromptCacheBreakpoints({
+    const result = applyBedrockPromptCacheBreakpoints<{ prompt: Message[] }>({
       prompt: [
         {
           content: [
@@ -109,7 +107,7 @@ describe('applyBedrockPromptCacheBreakpoints', () => {
   });
 
   it('honors a part-level explicit point under the amazonBedrock alias', () => {
-    const result = applyBedrockPromptCacheBreakpoints({
+    const result = applyBedrockPromptCacheBreakpoints<{ prompt: Message[] }>({
       prompt: [
         {
           content: [
@@ -129,7 +127,7 @@ describe('applyBedrockPromptCacheBreakpoints', () => {
   it('never exceeds the four-checkpoint ceiling when explicit points exist mid-history', () => {
     // Two explicit points buried in history leave room for only two of ours.
     const explicit = { bedrock: { cachePoint: CACHE_POINT } };
-    const result = applyBedrockPromptCacheBreakpoints({
+    const result = applyBedrockPromptCacheBreakpoints<{ prompt: Message[] }>({
       prompt: [
         message('system', 'a'),
         message('system', 'b'),
@@ -166,7 +164,7 @@ describe('applyBedrockPromptCacheBreakpoints', () => {
       { ...message('assistant', 'd'), providerOptions: explicit },
       message('user', 'newest'),
     ];
-    const result = applyBedrockPromptCacheBreakpoints({ prompt });
+    const result = applyBedrockPromptCacheBreakpoints<{ prompt: Message[] }>({ prompt });
     expect(result.prompt.at(-1)?.providerOptions).toBeUndefined();
     expect(result).toEqual({ prompt });
   });
@@ -175,7 +173,7 @@ describe('applyBedrockPromptCacheBreakpoints', () => {
     // Three explicit points leave budget for exactly one of ours: the newest
     // boundary, which is what the NEXT step reads back.
     const explicit = { bedrock: { cachePoint: CACHE_POINT } };
-    const result = applyBedrockPromptCacheBreakpoints({
+    const result = applyBedrockPromptCacheBreakpoints<{ prompt: Message[] }>({
       prompt: [
         { ...message('system', 'a'), providerOptions: explicit },
         { ...message('system', 'b'), providerOptions: explicit },
@@ -190,7 +188,7 @@ describe('applyBedrockPromptCacheBreakpoints', () => {
   it('never mutates the input prompt', () => {
     const original = message('user', 'hi');
     const prompt = [original];
-    applyBedrockPromptCacheBreakpoints({ prompt });
+    applyBedrockPromptCacheBreakpoints<{ prompt: Message[] }>({ prompt });
     expect(original.providerOptions).toBeUndefined();
     expect(prompt[0]).toBe(original);
   });
@@ -201,7 +199,7 @@ describe('applyBedrockPromptCacheBreakpoints', () => {
   });
 
   it('marks a system-only prompt without inventing a non-system tail', () => {
-    const result = applyBedrockPromptCacheBreakpoints({
+    const result = applyBedrockPromptCacheBreakpoints<{ prompt: Message[] }>({
       prompt: [message('system', 'a'), message('system', 'b'), message('system', 'c')],
     });
     expect(cachePointsOf(result.prompt)).toEqual(['system', 'system', undefined]);

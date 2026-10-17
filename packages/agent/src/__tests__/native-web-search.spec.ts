@@ -5,9 +5,9 @@ import {
   type PermissionToolGateSnapshot,
   WEB_SEARCH_TOOL_ID,
 } from '@brainstrike/assistant-contract/tool-metadata';
-import type { ToolsInput } from '@mastra/core/agent';
 import { asSchema, generateText } from 'ai';
 import { describe, expect, it, vi } from 'vitest';
+import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition';
 import { filterToolsByPermissionWithMetadata } from '../permissions/permission-tool-gate';
 import {
   applyProviderNativeWebSearch,
@@ -38,7 +38,7 @@ const SANITIZED_ID = 'brainstrike_webSearch';
 
 function baseParams(overrides: Partial<Parameters<typeof applyProviderNativeWebSearch>[0]> = {}) {
   const tools: ToolsInput = {
-    [SANITIZED_ID]: makeTavilyToolStub() as unknown as ToolsInput[string],
+    [SANITIZED_ID]: makeTavilyToolStub(),
   };
   return {
     askTools: new Map<string, unknown>(),
@@ -248,7 +248,7 @@ describe('applyProviderNativeWebSearch — driven by the real permission gate', 
 
   it('non-native provider (openrouter) + real ask gate → Tavily selected, native never injected', () => {
     const tools: ToolsInput = {
-      [SANITIZED_ID]: makeTavilyToolStub() as unknown as ToolsInput[string],
+      [SANITIZED_ID]: makeTavilyToolStub(),
     };
     const toolNameMap = new Map<string, string>([[SANITIZED_ID, WEB_SEARCH_TOOL_ID]]);
     const gateResult = filterToolsByPermissionWithMetadata(
@@ -281,7 +281,7 @@ describe('applyProviderNativeWebSearch — driven by the real permission gate', 
 
   it('native-capable provider (anthropic) + real deny gate → web search omitted, native never injected', () => {
     const tools: ToolsInput = {
-      [SANITIZED_ID]: makeTavilyToolStub() as unknown as ToolsInput[string],
+      [SANITIZED_ID]: makeTavilyToolStub(),
     };
     const toolNameMap = new Map<string, string>([[SANITIZED_ID, WEB_SEARCH_TOOL_ID]]);
     const gateResult = filterToolsByPermissionWithMetadata(
