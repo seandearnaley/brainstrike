@@ -11,7 +11,6 @@ import {
 describe('MCP config contract', () => {
   it.each([
     [' \thttps://exa\nmple.test/mcp\r ', 'https://example.test/mcp'],
-    ['mailto:user@example.test', 'mailto:user@example.test'],
     ['https://EXAMPLE.test/a', 'https://EXAMPLE.test/a'],
     ['\0https://example.test/mcp\0', '\0https://example.test/mcp\0'],
   ])('preserves URL normalization for %j', (url, expected) => {
@@ -23,6 +22,17 @@ describe('MCP config contract', () => {
       url: expected,
     });
   });
+
+  it.each(['mailto:user@example.test', 'file:///tmp/example', 'ftp://example.test/mcp'])(
+    'rejects non-HTTP remote URLs before transport construction: %s',
+    (url) => {
+      for (const transport of ['streamable-http', 'sse']) {
+        expect(() => parseMcpServerValue({ name: 'remote', transport, url })).toThrow(
+          McpConfigValidationError
+        );
+      }
+    }
+  );
 
   it.each(['stdio', 'sse'] as const)(
     'rejects oauth-user on %s at every config entrypoint',

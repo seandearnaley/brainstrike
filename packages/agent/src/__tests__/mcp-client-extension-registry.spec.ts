@@ -1,3 +1,4 @@
+import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
@@ -616,4 +617,47 @@ describe('McpClientExtensionRegistry', () => {
       'does not have a complete host implementation'
     );
   });
+});
+
+it('accepts callable Standard Schema implementations and uses their validated output', async () => {
+  const paramsSchema = Schema.toStandardSchemaV1(
+    Schema.Struct({
+      taskId: Schema.Trim.check(Schema.isMinCodePoints(1)),
+    }),
+    { parseOptions: { onExcessProperty: 'error' } }
+  );
+  const request = { ...EXAMPLE_REQUEST, paramsSchema };
+  const registry = new McpClientExtensionRegistry();
+  registry.register(
+    {
+      ...REQUEST_EXTENSION_CONTRACT,
+      notifications: [{ ...EXAMPLE_NOTIFICATION, paramsSchema }],
+      requests: [request],
+    },
+    {
+      implementation: COMPLETE_IMPLEMENTATION,
+      settings: { mode: 'strict' },
+      version: '2026-08-29',
+    }
+  );
+  await expect(
+    registry.prepareRequest(
+      request,
+      { taskId: ' task ' },
+      {
+        [EXAMPLE_CONTRACT.id]: { mode: 'strict' },
+      },
+      '2026-07-28'
+    )
+  ).resolves.toMatchObject({ params: { taskId: 'task' } });
+  await expect(
+    registry.prepareRequest(
+      request,
+      { taskId: ' ' },
+      {
+        [EXAMPLE_CONTRACT.id]: { mode: 'strict' },
+      },
+      '2026-07-28'
+    )
+  ).rejects.toThrow('failed schema validation');
 });

@@ -1,7 +1,6 @@
 import { Result, Schema } from 'effect';
 import { expect, test } from 'vitest';
-import { opaqueWireSchema } from '../src/opaque-wire-schema.js';
-import { wireDecoder, wireResultDecoder } from '../src/wire-decoder.js';
+import { opaqueWireSchema, wireDecoder, wireResultDecoder } from '../schema-boundary.js';
 
 test('schema refusals remain typed failures with receiving strictness', () => {
   const schema = Schema.Struct({ value: Schema.String });

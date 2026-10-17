@@ -1,3 +1,4 @@
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import {
   MCP_STORE_METHODS,
   McpDiagnosticEventSchema,
@@ -28,7 +29,10 @@ export function serveMainMcpStores(
   const handlers = [
     connection.onRequest(MCP_STORE_METHODS.diagnostics, (input: unknown) =>
       respond(() => {
-        const event = McpDiagnosticEventSchema.parse(input);
+        const event = wireDecoder(McpDiagnosticEventSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input);
         if (event.type === 'record') {
           const { args, level, scope } = event.record;
           createLogger(scope)[level](...args);

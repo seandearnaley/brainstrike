@@ -1,5 +1,5 @@
+import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
-import { z } from 'zod';
 import { MCP_RUNTIME_METHODS, respond } from './mcp-runtime-wire.js';
 import type { McpSettingsAuthority } from './settings-authority.js';
 
@@ -15,19 +15,28 @@ export function serveMcpRuntimeToMain(
 ): { close(): void } {
   const handlers = [
     connection.onRequest(MCP_RUNTIME_METHODS.configPathPick, (input: unknown) =>
-      respond(() => settings.pickConfigPath(z.strictObject({ path: z.string() }).parse(input).path))
+      respond(() =>
+        settings.pickConfigPath(
+          Schema.decodeUnknownSync(Schema.Struct({ path: Schema.String }), {
+            onExcessProperty: 'error',
+          })(input).path
+        )
+      )
     ),
     connection.onRequest(MCP_RUNTIME_METHODS.settingsReset, () => respond(() => settings.reset())),
     connection.onRequest(MCP_RUNTIME_METHODS.settingsResume, (input: unknown) =>
       respond(() =>
         settings.resume(
-          z.strictObject({ outcome: z.enum(['failed', 'succeeded']) }).parse(input).outcome
+          Schema.decodeUnknownSync(
+            Schema.Struct({ outcome: Schema.Literals(['failed', 'succeeded']) }),
+            { onExcessProperty: 'error' }
+          )(input).outcome
         )
       )
     ),
     connection.onRequest(MCP_RUNTIME_METHODS.toolsRead, (input: unknown) =>
       respond(() => {
-        z.strictObject({}).parse(input);
+        Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Never))(input);
         return settings.tools();
       })
     ),

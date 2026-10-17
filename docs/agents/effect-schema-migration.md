@@ -263,3 +263,18 @@ An `effect/rpc` or service/runtime ownership change still needs a separate owner
 decision. The allowed imports remain exactly `effect` and `effect/testing`;
 stability checks apply to each selected API on the installed pin. Preload value
 imports remain outside the Effect graph.
+
+## MCP task and capability adoption
+
+Task envelopes and first-party MCP runtime adapters use Effect Schema. Registrations
+use the SDK's Standard Schema V1 interface through `Schema.toStandardSchemaV1`;
+a compliant schema can be callable. The registry validates the `~standard`
+interface and uses its decoded output.
+
+Task extension fields retain arbitrary JSON values. `jsonObject` composes the
+owned fields with a JSON record whose key filter excludes those declared fields;
+this preserves ordinary optional `undefined` without admitting it in extensions.
+The core-free `task` entry imports no MCP SDK values. SDK sampling, roots,
+elicitation and tool-result payloads keep their SDK validators through
+`sdkSchema`. Revision negotiation, subscription and persistence owners remain
+unchanged.

@@ -11,6 +11,11 @@ import {
 } from '@brainstrike/assistant-contract';
 import { ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE } from '@brainstrike/assistant-contract/assistant-attachments';
 import { McpTaskHandleSchema } from '@brainstrike/assistant-contract/mcp-task-presentation';
+import {
+  opaqueWireSchema,
+  wireDecoder,
+  wireResultDecoder,
+} from '@brainstrike/assistant-contract/schema-boundary';
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { Schema } from 'effect';
@@ -18,7 +23,6 @@ import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 import type { JsonSchemaFactory } from './json-value.js';
 import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.js';
 import { McpToolAuthoritySchema } from './mcp-authority-wire.js';
-import { opaqueWireSchema } from './opaque-wire-schema.js';
 import { MCP_CONTENT_METHOD_SCHEMAS, MCP_CONTENT_RESULT_SCHEMAS } from './protocol-mcp-content.js';
 import {
   MCP_PRESENTATION_METHOD_SCHEMAS,
@@ -49,7 +53,6 @@ import {
   RunVerdictSourceSchema,
 } from './run-verdict-wire.js';
 import { HostHookSkipSchema, HostImageAttachmentSchema } from './run-wire.js';
-import { wireDecoder, wireResultDecoder } from './wire-decoder.js';
 import {
   HostEditBaselineSchema,
   HostEditRevertOutcomeSchema,

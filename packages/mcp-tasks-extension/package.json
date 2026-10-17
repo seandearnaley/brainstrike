@@ -4,14 +4,17 @@
   "version": "0.1.0",
   "dependencies": {
     "@modelcontextprotocol/core": "catalog:",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "effect": "catalog:",
+    "@brainstrike/assistant-contract": "workspace:*"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "@effect/tsgo": "catalog:"
   },
   "engines": {
     "node": ">=22"
@@ -37,7 +40,7 @@
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },
   "sideEffects": false,
   "type": "module",

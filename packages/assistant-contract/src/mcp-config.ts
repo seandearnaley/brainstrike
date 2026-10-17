@@ -97,7 +97,11 @@ const HttpUrlSchema = Schema.Trim.pipe(
     encode: SchemaGetter.passthrough(),
   })
 )
-  .check(Schema.makeFilter((value) => (URL.canParse(value) ? undefined : 'Invalid URL')))
+  .check(
+    Schema.makeFilter((value) =>
+      URL.canParse(value) && /^https?:$/u.test(new URL(value).protocol) ? undefined : 'Invalid URL'
+    )
+  )
   .check(
     Schema.makeFilter((value) =>
       ((value) => {

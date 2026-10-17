@@ -1,3 +1,4 @@
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import {
   MCP_STORE_METHODS,
   type McpDiagnosticEvent,
@@ -21,7 +22,9 @@ export function serveInProcessDesktopPlatform(
   // Keep the same wire validation/acknowledgement, and retain every actual record.
   const sink = connection.onRequest(MCP_STORE_METHODS.diagnostics, (input: unknown) =>
     respond(() => {
-      diagnostics.push(McpDiagnosticEventSchema.parse(input));
+      diagnostics.push(
+        wireDecoder(McpDiagnosticEventSchema, { errors: 'all', onExcessProperty: 'error' })(input)
+      );
     })
   );
   return {
