@@ -252,6 +252,7 @@ describe('production MCP conformance client contract', () => {
               context: JSON.stringify({
                 client_id: 'pre-registered-client',
                 client_secret: 'pre-registered-secret',
+                issuer: 'http://127.0.0.1:4001',
                 name: scenario,
               }),
             }
@@ -750,6 +751,7 @@ describe('production MCP conformance client contract', () => {
     const context = JSON.stringify({
       client_id: 'pre-registered-client',
       client_secret: 'super-secret-client-value',
+      issuer: 'https://auth.example.test',
       name: 'auth/pre-registration',
     });
     const writeError = vi.fn();
