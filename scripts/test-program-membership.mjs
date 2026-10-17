@@ -16,6 +16,7 @@ const GENERATED = new Set([
   'test-results',
   'playwright-report',
 ]);
+const LANGUAGE_SERVICE_PLUGIN = '@effect/language-service';
 
 export function discoverTypeScriptTests(directory, relative = '') {
   return readdirSync(path.join(directory, relative), { withFileTypes: true }).flatMap((entry) => {
@@ -50,6 +51,27 @@ function referencedProjects(project, selected = new Set()) {
     );
   }
   return selected;
+}
+
+/**
+ * effect-tsgo skips every file of a project whose effective options, `extends`
+ * chain included, lack the language-service plugin, and still exits 0.
+ */
+export function enablesEffectLanguageService(project) {
+  const failures = [];
+  const parsed = ts.getParsedCommandLineOfConfigFile(
+    project,
+    {},
+    { ...ts.sys, onUnRecoverableConfigFileDiagnostic: (diagnostic) => failures.push(diagnostic) }
+  );
+  failures.push(...(parsed?.errors ?? []));
+  if (!parsed || failures.length > 0) {
+    const reasons = failures.map((diagnostic) =>
+      ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')
+    );
+    throw new Error(`Cannot resolve Effect diagnostics project ${project}: ${reasons.join('; ')}`);
+  }
+  return (parsed.options.plugins ?? []).some((plugin) => plugin?.name === LANGUAGE_SERVICE_PLUGIN);
 }
 
 export function canonicalTestPrograms(pkg) {
@@ -115,7 +137,9 @@ export function inventoryTestPrograms(repoRoot, inspect = inspectTsconfigProgram
   for (const pkg of packages) {
     const programs = canonicalTestPrograms(pkg);
     const compiler = selectedFiles(programs.compiler);
-    const effect = selectedFiles(programs.effect);
+    // The step still puts the package on the Effect axis; only a project that
+    // enables the plugin covers its files.
+    const effect = selectedFiles([...programs.effect].filter(enablesEffectLanguageService));
     const files = discoverTypeScriptTests(pkg.dir);
     for (const file of files) {
       const absolute = path.join(pkg.dir, file);
