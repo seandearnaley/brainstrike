@@ -2,7 +2,7 @@ import '@testing-library/jest-dom/vitest';
 // Must evaluate before anything that loads React DOM (React DevTools hook).
 import './committed-assistant-browser-support';
 import recording from '@brainstrike/test-utils/fixtures/committed-host-ended-runs.json';
-import { render } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import { describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { CommittedAssistantLogRow } from '../committed-assistant-log-projection';
 import {
@@ -100,7 +100,11 @@ describe('a reply that ends early keeps its text and shows one end marker', () =
     const { runId, surface } = await mountThread(prompt);
     const message = messageOf(surface, runId);
     if (kept) {
-      expect(message).toHaveTextContent(kept);
+      // Assistant text renders through a lazily loaded markdown chunk, with a
+      // "Loading message…" placeholder until it lands; whichever row runs first
+      // meets it cold. Plain user text renders at once (#3736), so finding the
+      // prompt no longer implies the chunk has loaded: await the kept text.
+      await waitFor(() => expect(message).toHaveTextContent(kept));
     }
     expect(endMarkers(message)).toEqual(markers);
   });
