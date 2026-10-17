@@ -4,6 +4,7 @@ import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-work
 import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { NativeChildObserver } from '@brainstrike/state-store/native-children';
+import { Schema } from 'effect';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
@@ -39,7 +40,6 @@ const PLATFORM_CLOSING = fault({
   code: 'platform.closing',
   message: 'The desktop is closing this agent host.',
 });
-
 export interface DesktopPlatformCapabilities {
   /**
    * BST-1930 stage e: the facts the agent host composes each run's admission
@@ -67,12 +67,10 @@ export interface DesktopPlatformCapabilities {
   /** Legacy turns' shadow-git owner, which also snapshots each host run's turn. */
   readonly workspaceSnapshots?: DesktopWorkspaceSnapshots;
 }
-
 type Execute = <T>(
   token: CancellationToken,
   work: (signal: AbortSignal) => Promise<T>
 ) => Promise<T>;
-
 /**
  * BST-1930 stage e: the reads a host-composed admission makes of Main's facts.
  * A workspace borrow is held under the lease id the host chose, until the host
@@ -85,7 +83,12 @@ function serveAdmissionReads(
   leases: Map<string, DesktopWorkspaceBindingBorrow>
 ): void {
   const lease = (input: unknown): DesktopWorkspaceBindingBorrow => {
-    const borrowed = leases.get(PlatformWorkspaceLeaseSchema.parse(input).leaseId);
+    const borrowed = leases.get(
+      Schema.decodeUnknownSync(PlatformWorkspaceLeaseSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input).leaseId
+    );
     if (!borrowed) {
       throw new Error('The workspace lease is not held');
     }
@@ -95,16 +98,31 @@ function serveAdmissionReads(
     'platform/admission/catalog-model',
     (input: unknown, token: CancellationToken) =>
       execute(token, async (signal) =>
-        PlatformCatalogModelResultSchema.parse(
-          await reads.catalogModel(PlatformCatalogModelSchema.parse(input), signal)
+        Schema.decodeUnknownSync(PlatformCatalogModelResultSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(
+          await reads.catalogModel(
+            Schema.decodeUnknownSync(PlatformCatalogModelSchema, {
+              errors: 'all',
+              onExcessProperty: 'error',
+            })(input),
+            signal
+          )
         )
       )
   );
   connection.onRequest('platform/admission/observers', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) =>
-      PlatformObserverCandidatesResultSchema.parse(
+      Schema.decodeUnknownSync(PlatformObserverCandidatesResultSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(
         await reads.enabledObservers(
-          PlatformObserverCandidatesSchema.parse(input).candidates,
+          Schema.decodeUnknownSync(PlatformObserverCandidatesSchema, {
+            errors: 'all',
+            onExcessProperty: 'error',
+          })(input).candidates,
           signal
         )
       )
@@ -114,16 +132,27 @@ function serveAdmissionReads(
     'platform/admission/memory-vectors',
     (input: unknown, token: CancellationToken) =>
       execute(token, async (signal) =>
-        PlatformMemoryVectorsResultSchema.parse(
-          (await reads.memoryVectors(PlatformMemoryVectorsSchema.parse(input).settings, signal)) ??
-            null
+        Schema.decodeUnknownSync(PlatformMemoryVectorsResultSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(
+          (await reads.memoryVectors(
+            Schema.decodeUnknownSync(PlatformMemoryVectorsSchema, {
+              errors: 'all',
+              onExcessProperty: 'error',
+            })(input).settings,
+            signal
+          )) ?? null
         )
       )
   );
   connection.onRequest('platform/admission/roots', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
       z.strictObject({}).parse(input);
-      return CliWorkspaceRootsSchema.parse(await reads.liveWorkspaceRoots(signal));
+      return Schema.decodeUnknownSync(CliWorkspaceRootsSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(await reads.liveWorkspaceRoots(signal));
     })
   );
   connection.onRequest(
@@ -139,7 +168,10 @@ function serveAdmissionReads(
     'platform/admission/workspace/acquire',
     (input: unknown, token: CancellationToken) =>
       execute(token, async (signal) => {
-        const { binding, leaseId, threadId } = PlatformWorkspaceAcquireSchema.parse(input);
+        const { binding, leaseId, threadId } = Schema.decodeUnknownSync(
+          PlatformWorkspaceAcquireSchema,
+          { errors: 'all', onExcessProperty: 'error' }
+        )(input);
         if (leases.has(leaseId)) {
           throw new Error('The workspace lease is already held');
         }
@@ -147,7 +179,10 @@ function serveAdmissionReads(
         try {
           // A borrow the host stopped waiting for, or whose roots cannot cross, is returned.
           signal.throwIfAborted();
-          const acquired = PlatformWorkspaceAcquireResultSchema.parse({
+          const acquired = Schema.decodeUnknownSync(PlatformWorkspaceAcquireResultSchema, {
+            errors: 'all',
+            onExcessProperty: 'error',
+          })({
             roots: [...borrowed.roots],
           });
           leases.set(leaseId, borrowed);
@@ -174,7 +209,10 @@ function serveAdmissionReads(
     'platform/admission/workspace/release',
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { leaseId } = PlatformWorkspaceLeaseSchema.parse(input);
+        const { leaseId } = Schema.decodeUnknownSync(PlatformWorkspaceLeaseSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input);
         const borrowed = leases.get(leaseId);
         leases.delete(leaseId);
         await borrowed?.close();
@@ -182,12 +220,13 @@ function serveAdmissionReads(
       })
   );
 }
-
 /** One private connection borrows existing owners; it constructs no platform store. */
 export function serveDesktopPlatform(
   connection: MessageConnection,
   capabilities: DesktopPlatformCapabilities
-): { close(): Promise<void> } {
+): {
+  close(): Promise<void>;
+} {
   // The host's workspace borrows for its admitted runs, by the lease id it chose.
   const leases = new Map<string, DesktopWorkspaceBindingBorrow>();
   const controllers = new Set<AbortController>();
@@ -196,10 +235,20 @@ export function serveDesktopPlatform(
   const nativeChildren = capabilities.nativeChildren;
   if (nativeChildren) {
     connection.onNotification('platform/native-child/started', (input: unknown) =>
-      nativeChildren.started(PlatformNativeChildSchema.parse(input))
+      nativeChildren.started(
+        Schema.decodeUnknownSync(PlatformNativeChildSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input)
+      )
     );
     connection.onNotification('platform/native-child/exited', (input: unknown) =>
-      nativeChildren.exited(PlatformNativeChildSchema.parse(input))
+      nativeChildren.exited(
+        Schema.decodeUnknownSync(PlatformNativeChildSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input)
+      )
     );
   }
   let closing: Promise<void> | undefined;
@@ -252,7 +301,10 @@ export function serveDesktopPlatform(
   connection.onRequest('platform/embedding/query', (input: unknown, token: CancellationToken) =>
     // The outcome union crosses as JSON; the host parses it (RefusableOutcomeSchema).
     execute(token, async (signal): Promise<unknown> => {
-      const { request } = PlatformEmbeddingQuerySchema.parse(input);
+      const { request } = Schema.decodeUnknownSync(PlatformEmbeddingQuerySchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input);
       const embeddings = capabilities.localEmbedding;
       if (!embeddings) {
         throw new Error('This desktop has no embedding host for host threads');
@@ -264,7 +316,10 @@ export function serveDesktopPlatform(
   serveAdmissionReads(connection, execute, capabilities.admission, leases);
   connection.onRequest('platform/workspace/validate', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
-      const request = PlatformWorkspaceBindingRequestSchema.parse(input);
+      const request = Schema.decodeUnknownSync(PlatformWorkspaceBindingRequestSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input);
       if (!capabilities.validateWorkspaceBinding) {
         throw new Error('Desktop has no live workspace binding owner');
       }

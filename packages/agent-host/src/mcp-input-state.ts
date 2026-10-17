@@ -3,6 +3,7 @@ import {
   type McpTaskHandle,
   McpTaskHandleSchema,
 } from '@brainstrike/assistant-contract/mcp-task-presentation';
+import { Schema } from 'effect';
 import type { HostRunState } from './core-state.js';
 import { canonical, jsonValue } from './json-value.js';
 import type {
@@ -19,14 +20,38 @@ import {
   type HostResults,
 } from './protocol.js';
 
-type Origin = Extract<HostEvent, { type: 'effect.started' }>;
-type Request = Extract<HostEvent, { type: 'mcp.input.requested' }>;
-type TaskBinding = Extract<HostEvent, { type: 'mcp.task.bound' }>;
-type Intent = Extract<HostEvent, { type: 'mcp.input.intent' }>;
-type Settled = Extract<HostEvent, { type: 'mcp.input.settled' }>;
+type Origin = Extract<
+  HostEvent,
+  {
+    type: 'effect.started';
+  }
+>;
+type Request = Extract<
+  HostEvent,
+  {
+    type: 'mcp.input.requested';
+  }
+>;
+type TaskBinding = Extract<
+  HostEvent,
+  {
+    type: 'mcp.task.bound';
+  }
+>;
+type Intent = Extract<
+  HostEvent,
+  {
+    type: 'mcp.input.intent';
+  }
+>;
+type Settled = Extract<
+  HostEvent,
+  {
+    type: 'mcp.input.settled';
+  }
+>;
 type Status = HostResults['mcp/input/read']['status'];
 type Content = HostParams<'mcp/input/stage'>['content'];
-
 /** A delivery joined, but its final phase is not a committed fact. */
 export class HostMcpInputPersistenceError extends Error {
   constructor(cause: unknown) {
@@ -34,7 +59,6 @@ export class HostMcpInputPersistenceError extends Error {
     super('MCP input settlement could not be committed', { cause });
   }
 }
-
 /** Identity belongs to the authenticated transport closure, never a client-supplied ID. */
 export interface HostMcpInputClient {
   readonly closed: boolean;
@@ -60,7 +84,6 @@ interface OwnedTask {
   live?: HostMcpTaskCapability | undefined;
   readonly threadId: string;
 }
-
 /** All callbacks are the existing Core writer/queue/run owner, not another actor. */
 export interface HostMcpExecutionOwner {
   admit<T>(perform: () => Promise<T>): Promise<T>;
@@ -68,7 +91,6 @@ export interface HostMcpExecutionOwner {
   assertCurrent(): void;
   retain(work: Promise<unknown>): void;
 }
-
 function refused(): Error {
   // Never echo server schema keys, form values, URL capabilities or validator errors.
   return new Error('MCP input authority is unavailable, stale or incompatible');
@@ -77,26 +99,32 @@ function taskKey(handle: McpTaskHandle): string {
   return canonical(jsonValue(handle));
 }
 function safeEvent<T extends HostEvent>(event: T): T {
-  const parsed = HostEventSchema.safeParse(event);
-  if (!parsed.success) {
+  const parsed = Schema.decodeUnknownResult(HostEventSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(event);
+  if (!(parsed._tag === 'Success')) {
     throw refused();
   }
-  return parsed.data as T;
+  return parsed.success as T;
 }
 function safeTask(handle: McpTaskHandle, tool: HostTool): McpTaskHandle {
-  const parsed = McpTaskHandleSchema.safeParse(handle);
+  const parsed = Schema.decodeUnknownResult(McpTaskHandleSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(handle);
   const authority = tool.mcpAuthority;
   if (
-    !(parsed.success && authority) ||
+    !(parsed._tag === 'Success' && authority) ||
     authority.kind === 'unavailable' ||
-    parsed.data.serverId !== tool.mcpBinding?.configuredServerId
+    parsed.success.serverId !== tool.mcpBinding?.configuredServerId
   ) {
     throw refused();
   }
   // Native owns principal identity. Core additionally refuses capability-bearing destinations.
   let resource: URL;
   try {
-    resource = new URL(parsed.data.resource);
+    resource = new URL(parsed.success.resource);
   } catch {
     throw refused();
   }
@@ -113,10 +141,10 @@ function safeTask(handle: McpTaskHandle, tool: HostTool): McpTaskHandle {
   if (authority.kind === 'http' && resource.href !== authority.destination) {
     throw refused();
   }
-  if (!/^(none|local-process|bearer:[a-f0-9-]{36})$/u.test(parsed.data.principalId)) {
+  if (!/^(none|local-process|bearer:[a-f0-9-]{36})$/u.test(parsed.success.principalId)) {
     throw refused();
   }
-  return parsed.data;
+  return parsed.success;
 }
 function settlement(
   pending: PendingInput,
@@ -133,12 +161,10 @@ function settlement(
     ...(action === 'accept' && content !== undefined ? { content: structuredClone(content) } : {}),
   };
 }
-
 /** Process-local capabilities and stages; every durable fact is folded from Core's log. */
 export class HostMcpInputState {
   private readonly inputs = new Map<string, PendingInput>();
   private readonly tasks = new Map<string, OwnedTask>();
-
   fold(row: HostLogRow): void {
     const { event, threadId } = row;
     if (event.type === 'mcp.task.bound') {
@@ -170,7 +196,6 @@ export class HostMcpInputState {
       this.retireRun(threadId, event.runId);
     }
   }
-
   private retireRun(threadId: string, runId: string): void {
     for (const task of this.tasks.values()) {
       if (task.threadId === threadId && task.event.runId === runId) {
@@ -188,7 +213,6 @@ export class HostMcpInputState {
       }
     }
   }
-
   private pending(params: HostParams<'mcp/input/read'>): PendingInput {
     const pending = this.inputs.get(params.interactionId);
     if (!pending || pending.threadId !== params.threadId || pending.event.runId !== params.runId) {
@@ -196,7 +220,6 @@ export class HostMcpInputState {
     }
     return pending;
   }
-
   async read(params: HostParams<'mcp/input/read'>): Promise<HostResults['mcp/input/read']> {
     const pending = this.pending(params);
     if (pending.live && pending.status === 'requested' && !pending.reserved) {
@@ -218,7 +241,6 @@ export class HostMcpInputState {
         : {}),
     };
   }
-
   releaseClient(client: HostMcpInputClient): void {
     for (const pending of this.inputs.values()) {
       if (pending.staged?.client === client) {
@@ -226,7 +248,6 @@ export class HostMcpInputState {
       }
     }
   }
-
   forgetThread(threadId: string): void {
     for (const [id, input] of this.inputs) {
       if (input.threadId === threadId) {
@@ -240,7 +261,6 @@ export class HostMcpInputState {
       }
     }
   }
-
   private async current(pending: PendingInput): Promise<HostMcpInputCapability> {
     const live = pending.live;
     if (!live || live.signal.aborted || pending.status !== 'requested' || pending.reserved) {
@@ -256,11 +276,12 @@ export class HostMcpInputState {
     }
     return live;
   }
-
   async stage(
     params: HostParams<'mcp/input/stage'>,
     client: HostMcpInputClient
-  ): Promise<{ staged: true }> {
+  ): Promise<{
+    staged: true;
+  }> {
     const pending = this.pending(params);
     if (client.closed) {
       throw refused();
@@ -286,7 +307,6 @@ export class HostMcpInputState {
     pending.staged = { client, comparison, content };
     return { staged: true };
   }
-
   assertSender(params: HostParams<'mcp/input/settle'>, client: HostMcpInputClient): void {
     const pending = this.pending(params);
     if (
@@ -297,14 +317,16 @@ export class HostMcpInputState {
       throw refused();
     }
   }
-
   async prepareSettlement(
     params: HostParams<'mcp/input/settle'>,
     client: HostMcpInputClient,
     commit: (event: Intent) => Promise<void>,
     append: (event: HostEvent) => Promise<unknown>,
     retain: (work: Promise<unknown>) => void
-  ): Promise<{ accepted: true; status: 'accepted' }> {
+  ): Promise<{
+    accepted: true;
+    status: 'accepted';
+  }> {
     this.assertSender(params, client);
     const pending = this.pending(params);
     const live = await this.current(pending);
@@ -376,7 +398,6 @@ export class HostMcpInputState {
     delivery.catch(() => undefined);
     return { accepted: true, status: 'accepted' };
   }
-
   result(params: HostParams<'mcp/input/settle'>): HostResults['mcp/input/settle'] {
     const pending = this.pending(params);
     if (pending.intent?.commandId !== params.commandId || pending.intent.action !== params.action) {
@@ -384,7 +405,6 @@ export class HostMcpInputState {
     }
     return { accepted: true, status: pending.status };
   }
-
   private async assertBoundTask(
     handle: McpTaskHandle | undefined,
     run: HostRunState,
@@ -410,16 +430,18 @@ export class HostMcpInputState {
       throw refused();
     }
   }
-
   /**
    * The committed outcome of the latest answer accepted for a bound task's
    * input (BST-1930 c3): only the server's ack is `acknowledged`; an intent
    * without it is `unknown` and is never resent. No intent: nothing was sent.
    */
   inputOutcome(handle: McpTaskHandle, inputKey: string): 'acknowledged' | 'unknown' | undefined {
-    const parsed = McpTaskHandleSchema.safeParse(handle);
-    const owned = parsed.success ? this.tasks.get(taskKey(parsed.data)) : undefined;
-    if (!(parsed.success && owned)) {
+    const parsed = Schema.decodeUnknownResult(McpTaskHandleSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(handle);
+    const owned = parsed._tag === 'Success' ? this.tasks.get(taskKey(parsed.success)) : undefined;
+    if (!(parsed._tag === 'Success' && owned)) {
       return undefined;
     }
     let latest: PendingInput | undefined;
@@ -427,7 +449,7 @@ export class HostMcpInputState {
       if (
         pending.threadId === owned.threadId &&
         pending.event.runId === owned.event.runId &&
-        pending.event.taskId === parsed.data.taskId &&
+        pending.event.taskId === parsed.success.taskId &&
         String(pending.event.requestId) === inputKey
       ) {
         latest = pending;
@@ -438,7 +460,6 @@ export class HostMcpInputState {
     }
     return latest.status === 'remote-acknowledged' ? 'acknowledged' : 'unknown';
   }
-
   /**
    * Core's execution for a durable task its run bound, after a host restart
    * (BST-1930 c3). The committed `mcp.task.bound` is the ownership; a new input
@@ -449,8 +470,11 @@ export class HostMcpInputState {
     handle: McpTaskHandle,
     ownerOf: (threadId: string, runId: string) => HostMcpExecutionOwner | undefined
   ): HostMcpExecution | undefined {
-    const parsed = McpTaskHandleSchema.safeParse(handle);
-    const key = parsed.success ? taskKey(parsed.data) : undefined;
+    const parsed = Schema.decodeUnknownResult(McpTaskHandleSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(handle);
+    const key = parsed._tag === 'Success' ? taskKey(parsed.success) : undefined;
     const owned = key === undefined ? undefined : this.tasks.get(key);
     const owner = owned && ownerOf(owned.threadId, owned.event.runId);
     if (!(key && owned && owner)) {
@@ -466,8 +490,11 @@ export class HostMcpInputState {
       bindTask: (task) =>
         owner.admit(async (): Promise<void> => {
           current();
-          const bound = McpTaskHandleSchema.safeParse(task.handle);
-          if (!bound.success || taskKey(bound.data) !== key) {
+          const bound = Schema.decodeUnknownResult(McpTaskHandleSchema, {
+            errors: 'all',
+            onExcessProperty: 'error',
+          })(task.handle);
+          if (!(bound._tag === 'Success') || taskKey(bound.success) !== key) {
             throw refused();
           }
           try {
@@ -483,7 +510,6 @@ export class HostMcpInputState {
       threadId: owned.threadId,
     };
   }
-
   private async requestRecoveredInput(
     owned: OwnedTask,
     key: string,
@@ -582,7 +608,6 @@ export class HostMcpInputState {
       throw refused();
     }
   }
-
   execution(
     run: HostRunState,
     action: Origin,

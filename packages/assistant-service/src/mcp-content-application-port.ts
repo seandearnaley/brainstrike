@@ -10,6 +10,7 @@ import {
   parseMcpHostOperation,
 } from '@brainstrike/assistant-contract';
 import { parseMcpHostOperationResult } from '@brainstrike/assistant-contract/mcp-host-runtime';
+import { Schema } from 'effect';
 
 const TEXT_ENCODER = new TextEncoder();
 const CONTENT_OPERATION_DESCRIPTORS = [
@@ -19,10 +20,17 @@ const CONTENT_OPERATION_DESCRIPTORS = [
 ] as const;
 type McpContentOperationDescriptor = (typeof CONTENT_OPERATION_DESCRIPTORS)[number];
 type McpContentOperationType = McpContentOperationDescriptor['type'];
-type McpContentHostOperation = Extract<McpHostOperation, { type: McpContentOperationType }>;
+type McpContentHostOperation = Extract<
+  McpHostOperation,
+  {
+    type: McpContentOperationType;
+  }
+>;
 export type McpContentApplicationResult = Extract<
   McpHostOperationResult,
-  { type: McpContentOperationType }
+  {
+    type: McpContentOperationType;
+  }
 >;
 export interface McpContentAuthority {
   readonly configuredServerId: ConfiguredMcpServerId;
@@ -30,7 +38,12 @@ export interface McpContentAuthority {
 }
 export type McpContentApplicationRequest = {
   [Type in McpContentOperationType]: Omit<
-    Extract<McpContentHostOperation, { type: Type }>,
+    Extract<
+      McpContentHostOperation,
+      {
+        type: Type;
+      }
+    >,
     'configuredServerId'
   > & {
     readonly authority: McpContentAuthority;
@@ -50,12 +63,13 @@ export interface McpContentApplicationPortOptions {
 export interface McpContentApplicationPort {
   execute(
     request: McpContentApplicationRequest,
-    options?: Readonly<{ signal?: AbortSignal }>
+    options?: Readonly<{
+      signal?: AbortSignal;
+    }>
   ): Promise<McpContentApplicationResult>;
 }
 export const MCP_CONTENT_APPLICATION_MAX_REQUEST_BYTES = 256 * 1024;
 export const MCP_CONTENT_APPLICATION_MAX_RESULT_BYTES = 4 * 1024 * 1024;
-
 const ERROR_VALUES = {
   cancelled: ['cancelled', 'mcp_content_cancelled'],
   hostFailed: ['host', 'mcp_content_host_operation_failed'],
@@ -90,12 +104,10 @@ const ERROR_MESSAGES = {
 } as const;
 type McpContentApplicationErrorKind = keyof typeof ERROR_VALUES;
 type McpContentApplicationErrorTuple = (typeof ERROR_VALUES)[McpContentApplicationErrorKind];
-
 export class McpContentApplicationError extends Error {
   readonly category: McpContentApplicationErrorTuple[0];
   readonly code: McpContentApplicationErrorTuple[1];
   readonly hostError?: McpHostError;
-
   constructor(kind: McpContentApplicationErrorKind, hostError?: McpHostError) {
     const [category, code] = ERROR_VALUES[kind];
     super(ERROR_MESSAGES[kind]);
@@ -215,7 +227,10 @@ function isContentOperation(
 function parseOperation(
   request: unknown,
   authority: McpContentAuthority
-): { descriptor: McpContentOperationDescriptor; operation: McpContentHostOperation } {
+): {
+  descriptor: McpContentOperationDescriptor;
+  operation: McpContentHostOperation;
+} {
   if (!isRecord(request) || Object.hasOwn(request, 'configuredServerId')) {
     throw applicationError('invalidRequest');
   }
@@ -241,12 +256,15 @@ function parseOperation(
 }
 function readHostError(error: unknown): McpHostError | undefined {
   try {
-    const parsed = McpHostErrorSchema.safeParse(
+    const parsed = Schema.decodeUnknownResult(McpHostErrorSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(
       isRecord(error)
         ? { category: error['category'], code: error['code'], message: error['message'] }
         : error
     );
-    return parsed.success ? parsed.data : undefined;
+    return parsed._tag === 'Success' ? parsed.success : undefined;
   } catch {
     return;
   }
@@ -376,8 +394,14 @@ export function createMcpContentApplicationPort(
       }
       let unwatch: (() => void) | undefined;
       let outcome:
-        | { readonly error: unknown; readonly ok: false }
-        | { readonly ok: true; readonly value: McpContentApplicationResult };
+        | {
+            readonly error: unknown;
+            readonly ok: false;
+          }
+        | {
+            readonly ok: true;
+            readonly value: McpContentApplicationResult;
+          };
       try {
         assertNotTerminated(termination);
         const initialError = authorityError(snapshot(), authority, descriptor, false);

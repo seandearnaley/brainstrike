@@ -1,3 +1,4 @@
+import { Schema } from 'effect';
 import { describe, expect, test } from 'vitest';
 import { ThreadLedgerFold } from '../src/ledger-projection.js';
 import { HostLedgerThreadSchema } from '../src/ledger-wire.js';
@@ -6,15 +7,18 @@ import recording from './fixtures/recorded-undo-ledger.json' with { type: 'json'
 
 // Actual 54debb storage acceptance F2/F3 committed rows (13 Oct 2026).
 // Only start/finish/verdict rows are retained; unrelated admission snapshots omitted.
-const rows = recording.map((row) => HostLogRowSchema.parse(row));
+const rows = recording.map((row) =>
+  Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)
+);
 const threadId = '9ba3c8e9-847e-4118-8a1f-758ec9aa4fd7';
 const fullRun = '64263838-b201-4d03-b6d2-4d245a92c684';
 const partialRun = 'f9745466-0b46-469e-b131-eeb96cd7ebaa';
-
 function read(fold: ThreadLedgerFold) {
-  return HostLedgerThreadSchema.parse({ ...fold.read(), threadId });
+  return Schema.decodeUnknownSync(HostLedgerThreadSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({ ...fold.read(), threadId });
 }
-
 function replay(log: readonly HostLogRow[]): ThreadLedgerFold {
   const fold = new ThreadLedgerFold();
   for (const row of log) {
@@ -22,7 +26,6 @@ function replay(log: readonly HostLogRow[]): ThreadLedgerFold {
   }
   return fold;
 }
-
 describe('committed verdicts in the host ledger', () => {
   test('recorded full and partial undo labels survive ledger wire transport and replay', () => {
     const fold = replay(rows);
@@ -44,10 +47,12 @@ describe('committed verdicts in the host ledger', () => {
     ]);
     expect(read(replay(rows))).toEqual(read(fold));
   });
-
   test('an explicit user verdict survives later derived updates across incremental reads', () => {
     const fold = replay(rows);
-    const user = HostLogRowSchema.parse({
+    const user = Schema.decodeUnknownSync(HostLogRowSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })({
       event: { runId: fullRun, source: 'user', type: 'run.verdict', verdict: 'succeeded' },
       seq: 93,
       threadId,

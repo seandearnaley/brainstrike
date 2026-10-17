@@ -17,6 +17,7 @@ import {
   deriveSkillPreferenceKey,
 } from '@brainstrike/assistant-contract';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
+import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 
@@ -37,9 +38,12 @@ async function receipts(root: string) {
     .split('\n')
     .map((line) => ReceiptSchema.parse(JSON.parse(line)));
 }
-
 function command(root: string, args: readonly string[]) {
-  return new Promise<{ code: number; stderr: string; stdout: string }>((resolve, reject) => {
+  return new Promise<{
+    code: number;
+    stderr: string;
+    stdout: string;
+  }>((resolve, reject) => {
     execFile(
       process.execPath,
       [bin, '--data-root', root, ...args],
@@ -70,7 +74,6 @@ function command(root: string, args: readonly string[]) {
     );
   });
 }
-
 afterEach(async () => {
   for (const host of hosts.splice(0)) {
     await host.close();
@@ -86,7 +89,6 @@ afterEach(async () => {
     await removeFixtureRoot(root);
   }
 });
-
 test.each(['run', 'run start'])(
   'tracked bin submits workspace input to its existing owner (%s)',
   async (operation) => {
@@ -145,7 +147,6 @@ test.each(['run', 'run start'])(
     ]);
   }
 );
-
 test('cold production bin refuses workspace admission before credentials or HTTP', async () => {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-workspace-input-'));
   roots.push(root);
@@ -178,7 +179,6 @@ test('cold production bin refuses workspace admission before credentials or HTTP
     }))
   );
 });
-
 test.each(
   [
     ['--workspace-root', 'owned-root', '--workspace-root', 'owned-root'],
@@ -199,7 +199,6 @@ test.each(
   expect(result.code).toBe(1);
   expect(RootLock.inspect(root)).toBeNull();
 });
-
 const selected = {
   instructions: 'inherit' as const,
   rootIds: ['owned-root'],
@@ -239,7 +238,6 @@ const ownerIntent = {
     oversizedOptInByRootId: { 'other-owned-root': true, 'owned-root': true },
   },
 };
-
 test('per-run materialization reduces owner context while preserving model and denial policy, and drops retired checked files', () => {
   const materialized = materializeCliWorkspaceIntent(ownerIntent, selected);
   expect(materialized).toMatchObject({
@@ -273,7 +271,6 @@ test('per-run materialization reduces owner context while preserving model and d
   expect(optionalOwner).not.toHaveProperty('selectionFolderId');
   expect(optionalOwner.skillsPreference?.masterEnabled).toBe(false);
 });
-
 test('live canonical roots authorize selection; captured observations only restrict fresh reads', () => {
   const captured = selectCliWorkspaceRoots(ownerRoots, selected);
   expect(captured).toEqual([firstRoot]);
@@ -300,7 +297,6 @@ test('live canonical roots authorize selection; captured observations only restr
     )
   ).toThrow();
 });
-
 test.each([
   'workspaceRootPath',
   'homeDir',
@@ -311,18 +307,24 @@ test.each([
   'snapshot',
 ])('strict envelope refuses client authority field %s', (field) => {
   expect(
-    CliWorkspaceRunInputSchema.safeParse({
+    Schema.decodeUnknownResult(CliWorkspaceRunInputSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })({
       kind: 'cli-workspace',
       version: 1,
       workspace: selected,
       [field]: 'untrusted',
-    }).success
+    })._tag === 'Success'
   ).toBe(false);
   expect(
-    CliWorkspaceRunInputSchema.safeParse({
+    Schema.decodeUnknownResult(CliWorkspaceRunInputSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })({
       kind: 'cli-workspace',
       version: 1,
       workspace: { ...selected, [field]: 'untrusted' },
-    }).success
+    })._tag === 'Success'
   ).toBe(false);
 });

@@ -7,8 +7,8 @@ import { StateStore } from '@brainstrike/state-store';
 import recording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json' with {
   type: 'json',
 };
+import { Schema } from 'effect';
 import { expect, test } from 'vitest';
-import { z } from 'zod';
 import { attachAgentHost, type HostClient } from '../dist/client.js';
 import { projectRunVerdicts } from '../dist/run-verdicts.js';
 import { type AgentHost, startAgentHost } from '../dist/runtime.js';
@@ -28,7 +28,10 @@ test('run/verdict commits one user verdict per command for a committed run and s
   let host: AgentHost | undefined;
   let client: HostClient | undefined;
   try {
-    const captured = z.array(HostLogRowSchema).parse(recording);
+    const captured = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(recording);
     const threadId = captured[0]?.threadId;
     const started = captured.find((row) => row.event.type === 'run.started');
     if (!(threadId && started && started.event.type === 'run.started')) {

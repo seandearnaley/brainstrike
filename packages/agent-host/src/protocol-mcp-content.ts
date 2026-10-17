@@ -1,6 +1,6 @@
 import type { McpHostOperationResult } from '@brainstrike/assistant-contract';
 import { parseMcpHostOperationResultWire } from '@brainstrike/assistant-contract/mcp-host-status';
-import { z } from 'zod';
+import { Effect, Schema, SchemaIssue } from 'effect';
 
 /**
  * The desktop's MCP content browsing (BST-1930 c5d): a resource's body, a
@@ -10,7 +10,7 @@ import { z } from 'zod';
  * server's own text.
  */
 /** The content application port's refusal categories, all it lets cross. */
-const ContentErrorCategory = z.enum([
+const ContentErrorCategory = Schema.Literals([
   'cancelled',
   'configuration',
   'generation-retired',
@@ -21,54 +21,61 @@ const ContentErrorCategory = z.enum([
   'result-too-large',
   'unsupported',
 ]);
-const Authority = z.strictObject({
-  configuredServerId: z.string().min(1),
-  generation: z.number().int().nonnegative(),
+const Authority = Schema.Struct({
+  configuredServerId: Schema.String.check(Schema.isMinCodePoints(1)),
+  generation: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 });
-
 /** One verb's outcome: its operation result, or the taxonomy's refusal. */
 function contentOutcome<Type extends McpHostOperationResult['type']>(type: Type) {
-  const result: z.ZodType<Extract<McpHostOperationResult, { type: Type }>> = z
-    .unknown()
-    .transform((value, context): Extract<McpHostOperationResult, { type: Type }> => {
-      const parsed = parseMcpHostOperationResultWire(value);
-      if (parsed.type !== type) {
-        context.addIssue({ code: 'custom', message: `expected a ${type} result` });
-        return z.NEVER;
-      }
-      return parsed as Extract<McpHostOperationResult, { type: Type }>;
-    });
-  return z.discriminatedUnion('ok', [
-    z.strictObject({ ok: z.literal(true), result }),
-    z.strictObject({
-      error: z.strictObject({
-        category: ContentErrorCategory,
-        code: z.string().min(1),
-        message: z.string().min(1),
+  const result = Schema.declareConstructor<
+    Extract<McpHostOperationResult, { type: Type }>,
+    unknown
+  >()([], () => (value, _ast, options) => {
+    const parsed = parseMcpHostOperationResultWire(value);
+    if (parsed.type !== type) {
+      return Effect.fail(
+        new SchemaIssue.InvalidValue({ message: `expected a ${type} result` }, undefined, options)
+      );
+    }
+    return Effect.succeed(parsed as Extract<McpHostOperationResult, { type: Type }>);
+  });
+  return Schema.Union(
+    [
+      Schema.Struct({ ok: Schema.Literal(true), result }),
+      Schema.Struct({
+        error: Schema.Struct({
+          category: ContentErrorCategory,
+          code: Schema.String.check(Schema.isMinCodePoints(1)),
+          message: Schema.String.check(Schema.isMinCodePoints(1)),
+        }),
+        ok: Schema.Literal(false),
       }),
-      ok: z.literal(false),
-    }),
-  ]);
+    ],
+    { mode: 'oneOf' }
+  );
 }
-
 export const MCP_CONTENT_METHOD_SCHEMAS = {
-  'mcp/content/complete': z.strictObject({
-    argument: z.strictObject({ name: z.string(), value: z.string() }),
+  'mcp/content/complete': Schema.Struct({
+    argument: Schema.Struct({ name: Schema.String, value: Schema.String }),
     authority: Authority,
-    context: z.strictObject({ arguments: z.record(z.string(), z.string()) }).optional(),
-    ref: z.discriminatedUnion('type', [
-      z.strictObject({ name: z.string(), type: z.literal('ref/prompt') }),
-      z.strictObject({ type: z.literal('ref/resource'), uri: z.string() }),
-    ]),
+    context: Schema.optional(
+      Schema.Struct({ arguments: Schema.Record(Schema.String, Schema.String) })
+    ),
+    ref: Schema.Union(
+      [
+        Schema.Struct({ name: Schema.String, type: Schema.Literal('ref/prompt') }),
+        Schema.Struct({ type: Schema.Literal('ref/resource'), uri: Schema.String }),
+      ],
+      { mode: 'oneOf' }
+    ),
   }),
-  'mcp/content/prompt': z.strictObject({
-    arguments: z.record(z.string(), z.string()).optional(),
+  'mcp/content/prompt': Schema.Struct({
+    arguments: Schema.optional(Schema.Record(Schema.String, Schema.String)),
     authority: Authority,
-    name: z.string(),
+    name: Schema.String,
   }),
-  'mcp/content/read': z.strictObject({ authority: Authority, uri: z.string() }),
+  'mcp/content/read': Schema.Struct({ authority: Authority, uri: Schema.String }),
 } as const;
-
 export const MCP_CONTENT_RESULT_SCHEMAS = {
   'mcp/content/complete': contentOutcome('completion/complete'),
   'mcp/content/prompt': contentOutcome('prompts/get'),

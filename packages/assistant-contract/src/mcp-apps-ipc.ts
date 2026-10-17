@@ -1,5 +1,4 @@
-import { z } from 'zod';
-
+import { Schema } from 'effect';
 /**
  * Production MCP Apps contract (BST-1572 enablement). The renderer owns the
  * sandbox policy, provenance, frame bridge, and the tool-call authority's
@@ -15,95 +14,88 @@ export const MCP_APP_SHELL_URL_SCHEME = 'brainstrike-mcp-app';
 export const MCP_APP_SHELL_TOKEN_PATTERN = /^[0-9a-f]{32}$/u;
 /** Upper bound for one shell document (the renderer owner enforces a tighter budget). */
 export const MCP_APP_SHELL_DOCUMENT_MAX_BYTES = 4 * 1024 * 1024;
-
 export const MCP_APPS_MIME_TYPE = 'text/html;profile=mcp-app';
 export const MCP_APPS_PREPARATION_ID_MAX_LENGTH = 256;
-
-const IdentifierSchema = z.string().min(1).max(512);
-const PreparationIdSchema = z.string().min(1).max(MCP_APPS_PREPARATION_ID_MAX_LENGTH);
-const JsonObjectSchema = z.record(z.string(), z.json());
-
+const IdentifierSchema = Schema.String.check(Schema.isMinCodePoints(1)).check(
+  Schema.isMaxCodePoints(512)
+);
+const PreparationIdSchema = Schema.String.check(Schema.isMinCodePoints(1)).check(
+  Schema.isMaxCodePoints(MCP_APPS_PREPARATION_ID_MAX_LENGTH)
+);
+const JsonObjectSchema = Schema.Record(Schema.String, Schema.MutableJson);
 /** Where an app came from: the same-server tool and resource that own it. */
-export const McpAppOriginSchema = z.strictObject({
-  mimeType: z.literal(MCP_APPS_MIME_TYPE),
-  resourceUri: z.string().min(1).max(2048).startsWith('ui://'),
+export const McpAppOriginSchema = Schema.Struct({
+  mimeType: Schema.Literal(MCP_APPS_MIME_TYPE),
+  resourceUri: Schema.String.check(Schema.isMinCodePoints(1))
+    .check(Schema.isMaxCodePoints(2048))
+    .check(Schema.isStartingWith('ui://')),
   serverId: IdentifierSchema,
   toolName: IdentifierSchema,
 });
-export type McpAppOrigin = z.infer<typeof McpAppOriginSchema>;
-
-export const McpAppPrepareRequestSchema = z.strictObject({
+export type McpAppOrigin = (typeof McpAppOriginSchema)['Type'];
+export const McpAppPrepareRequestSchema = Schema.Struct({
   arguments: JsonObjectSchema,
   origin: McpAppOriginSchema,
   preparationId: PreparationIdSchema,
-  /**
-   * The persisted thread whose tool result mounted the app. Admission resolves
-   * the live run of exactly this thread, never another thread's run that
-   * happens to know the same server.
-   */
   threadId: IdentifierSchema,
-  /** The tool the app is calling; may differ from the tool that opened it. */
   toolName: IdentifierSchema,
 });
-export type McpAppPrepareRequest = z.infer<typeof McpAppPrepareRequestSchema>;
-
-export const McpAppPrepareResultSchema = z.strictObject({
-  decision: z.enum(['allow', 'ask']),
-  riskCategory: z.string().min(1).max(128),
+export type McpAppPrepareRequest = (typeof McpAppPrepareRequestSchema)['Type'];
+export const McpAppPrepareResultSchema = Schema.Struct({
+  decision: Schema.Literals(['allow', 'ask']),
+  riskCategory: Schema.String.check(Schema.isMinCodePoints(1)).check(Schema.isMaxCodePoints(128)),
 });
-export type McpAppPrepareResult = z.infer<typeof McpAppPrepareResultSchema>;
-
-export const McpAppExecuteRequestSchema = z.strictObject({ preparationId: PreparationIdSchema });
-export type McpAppExecuteRequest = z.infer<typeof McpAppExecuteRequestSchema>;
-
-export const McpAppExecuteResultSchema = z.strictObject({ result: z.json() });
-export type McpAppExecuteResult = z.infer<typeof McpAppExecuteResultSchema>;
-
+export type McpAppPrepareResult = (typeof McpAppPrepareResultSchema)['Type'];
+export const McpAppExecuteRequestSchema = Schema.Struct({ preparationId: PreparationIdSchema });
+export type McpAppExecuteRequest = (typeof McpAppExecuteRequestSchema)['Type'];
+export const McpAppExecuteResultSchema = Schema.Struct({ result: Schema.MutableJson });
+export type McpAppExecuteResult = (typeof McpAppExecuteResultSchema)['Type'];
 export const McpAppReleaseRequestSchema = McpAppExecuteRequestSchema;
-export type McpAppReleaseRequest = z.infer<typeof McpAppReleaseRequestSchema>;
-
+export type McpAppReleaseRequest = (typeof McpAppReleaseRequestSchema)['Type'];
 /**
  * The raw domain result a tool call persists when the tool definition carried
  * `_meta.ui.resourceUri`. The thread correlates an app mount to the tool call
  * through this marker; `result` is the ordinary tool result the model saw.
  */
 export const MCP_APP_TOOL_RESULT_KIND = 'mcp-app';
-
-export const McpAppToolInvocationResultSchema = z.strictObject({
+export const McpAppToolInvocationResultSchema = Schema.Struct({
   app: McpAppOriginSchema,
-  kind: z.literal(MCP_APP_TOOL_RESULT_KIND),
-  result: z.json(),
+  kind: Schema.Literal(MCP_APP_TOOL_RESULT_KIND),
+  result: Schema.MutableJson,
 });
-export type McpAppToolInvocationResult = z.infer<typeof McpAppToolInvocationResultSchema>;
-
+export type McpAppToolInvocationResult = (typeof McpAppToolInvocationResultSchema)['Type'];
 /**
  * A rendered sandbox shell the renderer asks main to serve. The policies are
  * delivered as RESPONSE HEADERS by the shell protocol (a meta tag cannot
  * carry Permissions-Policy, and the nested srcdoc app frame inherits only a
  * header CSP), so they travel beside the document rather than inside it.
  */
-export const McpAppShellPrepareRequestSchema = z.strictObject({
-  contentSecurityPolicy: z.string().min(1).max(16_384),
-  document: z.string().min(1).max(MCP_APP_SHELL_DOCUMENT_MAX_BYTES),
-  permissionsPolicy: z.string().min(1).max(4096),
+export const McpAppShellPrepareRequestSchema = Schema.Struct({
+  contentSecurityPolicy: Schema.String.check(Schema.isMinCodePoints(1)).check(
+    Schema.isMaxCodePoints(16_384)
+  ),
+  document: Schema.String.check(Schema.isMinCodePoints(1)).check(
+    Schema.isMaxCodePoints(MCP_APP_SHELL_DOCUMENT_MAX_BYTES)
+  ),
+  permissionsPolicy: Schema.String.check(Schema.isMinCodePoints(1)).check(
+    Schema.isMaxCodePoints(4096)
+  ),
 });
-export type McpAppShellPrepareRequest = z.infer<typeof McpAppShellPrepareRequestSchema>;
-
-const ShellTokenSchema = z.string().regex(MCP_APP_SHELL_TOKEN_PATTERN);
-
-export const McpAppShellPrepareResultSchema = z
-  .strictObject({
-    shellUrl: z.string().min(1).max(256),
-    token: ShellTokenSchema,
-  })
-  .refine((value) => value.shellUrl === `${MCP_APP_SHELL_URL_SCHEME}://${value.token}/`, {
-    message: 'MCP App shell URL must be the token root on the shell scheme',
-  });
-export type McpAppShellPrepareResult = z.infer<typeof McpAppShellPrepareResultSchema>;
-
-export const McpAppShellReleaseRequestSchema = z.strictObject({ token: ShellTokenSchema });
-export type McpAppShellReleaseRequest = z.infer<typeof McpAppShellReleaseRequestSchema>;
-
+export type McpAppShellPrepareRequest = (typeof McpAppShellPrepareRequestSchema)['Type'];
+const ShellTokenSchema = Schema.String.check(Schema.isPattern(MCP_APP_SHELL_TOKEN_PATTERN));
+export const McpAppShellPrepareResultSchema = Schema.Struct({
+  shellUrl: Schema.String.check(Schema.isMinCodePoints(1)).check(Schema.isMaxCodePoints(256)),
+  token: ShellTokenSchema,
+}).check(
+  Schema.makeFilter((value) =>
+    value.shellUrl === `${MCP_APP_SHELL_URL_SCHEME}://${value.token}/`
+      ? undefined
+      : { issue: 'MCP App shell URL must be the token root on the shell scheme', path: [] }
+  )
+);
+export type McpAppShellPrepareResult = (typeof McpAppShellPrepareResultSchema)['Type'];
+export const McpAppShellReleaseRequestSchema = Schema.Struct({ token: ShellTokenSchema });
+export type McpAppShellReleaseRequest = (typeof McpAppShellReleaseRequestSchema)['Type'];
 /** What an app mount needs from its host: its shell and document, and its tool calls' admission. */
 export interface McpAppBridge {
   execute(request: McpAppExecuteRequest): Promise<McpAppExecuteResult>;
@@ -116,14 +108,12 @@ export interface McpAppBridge {
   /** Unregisters a shell; its URL answers 404 from this point on. */
   releaseShell(request: McpAppShellReleaseRequest): Promise<void>;
 }
-
 /**
  * The part of the bridge the visible-UI preload exposes, the app's shell;
  * absent on web and hidden hosts. The app's document is read from the agent
  * host (BST-1930 c5d).
  */
 export type McpAppShellBridge = Pick<McpAppBridge, 'prepareShell' | 'releaseShell'>;
-
 /** Cheap discriminator probe shared by the persisted tool-result marker readers. */
 export function hasToolResultKind(value: unknown, kind: string): boolean {
   return (
@@ -134,35 +124,48 @@ export function hasToolResultKind(value: unknown, kind: string): boolean {
     value.kind === kind
   );
 }
-
 export function parseMcpAppPrepareRequest(value: unknown): McpAppPrepareRequest {
-  return McpAppPrepareRequestSchema.parse(value);
+  return Schema.decodeUnknownSync(McpAppPrepareRequestSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value);
 }
-
 export function parseMcpAppPrepareResult(value: unknown): McpAppPrepareResult {
-  return McpAppPrepareResultSchema.parse(value);
+  return Schema.decodeUnknownSync(McpAppPrepareResultSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value);
 }
-
 export function parseMcpAppExecuteRequest(value: unknown): McpAppExecuteRequest {
-  return McpAppExecuteRequestSchema.parse(value);
+  return Schema.decodeUnknownSync(McpAppExecuteRequestSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value);
 }
-
 export function parseMcpAppExecuteResult(value: unknown): McpAppExecuteResult {
-  return McpAppExecuteResultSchema.parse(value);
+  return Schema.decodeUnknownSync(McpAppExecuteResultSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value);
 }
-
 export function parseMcpAppShellPrepareRequest(value: unknown): McpAppShellPrepareRequest {
-  return McpAppShellPrepareRequestSchema.parse(value);
+  return Schema.decodeUnknownSync(McpAppShellPrepareRequestSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value);
 }
-
 export function parseMcpAppShellPrepareResult(value: unknown): McpAppShellPrepareResult {
-  return McpAppShellPrepareResultSchema.parse(value);
+  return Schema.decodeUnknownSync(McpAppShellPrepareResultSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value);
 }
-
 export function parseMcpAppShellReleaseRequest(value: unknown): McpAppShellReleaseRequest {
-  return McpAppShellReleaseRequestSchema.parse(value);
+  return Schema.decodeUnknownSync(McpAppShellReleaseRequestSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value);
 }
-
 /**
  * Exact-shape reader: anything that is not a complete marker is an ordinary
  * result. This sits on per-render and per-projection hot paths, so a result
@@ -175,13 +178,18 @@ export function readMcpAppToolInvocationResult(
   if (!hasToolResultKind(value, MCP_APP_TOOL_RESULT_KIND)) {
     return undefined;
   }
-  const parsed = McpAppToolInvocationResultSchema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
+  const parsed = Schema.decodeUnknownResult(McpAppToolInvocationResultSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value);
+  return parsed._tag === 'Success' ? parsed.success : undefined;
 }
-
 export function createMcpAppToolInvocationResult(
   app: McpAppOrigin,
   result: unknown
 ): McpAppToolInvocationResult {
-  return McpAppToolInvocationResultSchema.parse({ app, kind: MCP_APP_TOOL_RESULT_KIND, result });
+  return Schema.decodeUnknownSync(McpAppToolInvocationResultSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({ app, kind: MCP_APP_TOOL_RESULT_KIND, result });
 }

@@ -275,6 +275,10 @@
     "./boundary-failure": {
       "types": "./dist/boundary-failure.d.ts",
       "default": "./dist/boundary-failure.js"
+    },
+    "./schema-boundary": {
+      "types": "./dist/schema-boundary.d.ts",
+      "default": "./dist/schema-boundary.js"
     }
   },
   "files": [

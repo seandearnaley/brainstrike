@@ -8,6 +8,7 @@ import { createAskUserTool, createSubmitPlanTool } from '@brainstrike/agent';
 import type { RuntimeData } from '@brainstrike/agent/tool-runtime';
 import { DEFAULT_PERMISSION_POLICIES, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { processStartTime, RootLock, RootLockedError, StateStore } from '@brainstrike/state-store';
+import { Schema } from 'effect';
 import { afterEach, beforeAll, expect, test, vi } from 'vitest';
 import {
   canonicalToolInputSchema,
@@ -54,7 +55,6 @@ const roots: string[] = [];
 const hosts: AgentHost[] = [];
 const clients: HostClient[] = [];
 const childPids: number[] = [];
-
 afterEach(async () => {
   vi.unstubAllEnvs();
   for (const client of clients.splice(0)) {
@@ -70,20 +70,21 @@ afterEach(async () => {
     await removeFixtureRoot(root);
   }
 });
-
 async function root(): Promise<string> {
   const value = await mkdtemp(join(tmpdir(), 'bs-m3-cli-control-'));
   roots.push(value);
   return value;
 }
-
 function command(
   dataRoot: string,
   name: 'status' | 'stop'
-): Promise<{ readonly code: number; readonly stdout: string; readonly stderr: string }> {
+): Promise<{
+  readonly code: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}> {
   return cliCommand(dataRoot, ['--platform', platform, 'host', name]);
 }
-
 function windowsBatchArguments(executable: string, args: readonly string[]): string[] {
   // Preserve argv through the installed pnpm .cmd and its second CMD parse:
   // https://github.com/moxystudio/node-cross-spawn/blob/v7.0.6/lib/parse.js
@@ -94,12 +95,15 @@ function windowsBatchArguments(executable: string, args: readonly string[]): str
   });
   return ['/d', '/s', '/c', `"${escapeMeta(executable)} ${quoted.join(' ')}"`];
 }
-
 function cliCommand(
   dataRoot: string,
   args: readonly string[],
   alias: 'tracked' | 'brainstrike' | 'brainstrike-host' = 'tracked'
-): Promise<{ readonly code: number; readonly stdout: string; readonly stderr: string }> {
+): Promise<{
+  readonly code: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}> {
   const values = ['--data-root', dataRoot, ...args];
   const installed = fileURLToPath(
     new URL(`../../../apps/desktop/node_modules/.bin/${alias}`, import.meta.url)
@@ -149,7 +153,6 @@ function cliCommand(
     );
   });
 }
-
 async function host(dataRoot: string, child = false): Promise<AgentHost> {
   if (child) {
     vi.stubEnv('BRAINSTRIKE_M3_TEST_TOOL', 'child');
@@ -165,7 +168,6 @@ async function host(dataRoot: string, child = false): Promise<AgentHost> {
     vi.unstubAllEnvs();
   }
 }
-
 test.each(['status', 'stop'] as const)(
   'cold host %s never starts the supplied platform or acquires the root',
   async (name) => {
@@ -181,7 +183,6 @@ test.each(['status', 'stop'] as const)(
     });
   }
 );
-
 test('host stop returns only after canonical platform and root cleanup', async () => {
   const dataRoot = await root();
   const owner = await host(dataRoot);
@@ -199,7 +200,6 @@ test('host stop returns only after canonical platform and root cleanup', async (
   const contender = await StateStore.open(dataRoot);
   await contender.close();
 });
-
 function canonicalInteractionTool(kind: 'question' | 'plan'): HostTool {
   const id = kind === 'question' ? NATIVE_TOOL_ID.askUser : NATIVE_TOOL_ID.submitPlan;
   const selected: NonNullable<RuntimeData['mastraTools']> = {
@@ -239,7 +239,6 @@ function canonicalInteractionTool(kind: 'question' | 'plan'): HostTool {
       : {}),
   };
 }
-
 test.each(
   [
     { kind: 'question' as const, output: { answer: 'Local' }, resumeData: { answer: 'Local' } },
@@ -274,7 +273,10 @@ test.each(
   async (fixture) => {
     const dataRoot = await root();
     const execute = (args: readonly string[]) => cliCommand(dataRoot, args, fixture.alias);
-    const recordedRows = HostLogRowSchema.array().parse(
+    const recordedRows = Schema.decodeUnknownSync(Schema.Array(HostLogRowSchema), {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(
       JSON.parse(
         await readFile(
           new URL(
@@ -325,14 +327,20 @@ test.each(
       .split('\n')
       .flatMap((line) => {
         const value: unknown = JSON.parse(line);
-        const row = HostLogRowSchema.safeParse(value);
-        if (row.success) {
-          return [row.data];
+        const row = Schema.decodeUnknownResult(HostLogRowSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(value);
+        if (row._tag === 'Success') {
+          return [row.success];
         }
         if (!(value && typeof value === 'object' && 'runId' in value)) {
           throw new Error('CLI JSON output has neither a committed row nor a run receipt');
         }
-        const { runId } = HOST_RESULT_SCHEMAS['run/start'].parse({ runId: value.runId });
+        const { runId } = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['run/start'], {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })({ runId: value.runId });
         expect(value).toEqual({ runId, threadId });
         initialized.push(runId);
         return [];
@@ -438,7 +446,6 @@ test.each(
     expect(stale.stdout).toBe('');
   }
 );
-
 test('live host status reports the authenticated owner without stopping it', async () => {
   const dataRoot = await root();
   const owner = await host(dataRoot);
@@ -453,7 +460,6 @@ test('live host status reports the authenticated owner without stopping it', asy
     code: 'ENOENT',
   });
 });
-
 test('host stop remains pending while its platform join still owns Root', async () => {
   const dataRoot = await root();
   const entered = Promise.withResolvers<void>();
@@ -487,7 +493,6 @@ test('host stop remains pending while its platform join still owns Root', async 
   await owner.closed;
   expect(RootLock.inspect(dataRoot)?.owner.released).toBe(true);
 });
-
 test('host stop reports failed platform cleanup without claiming Root release', async () => {
   const dataRoot = await root();
   const options = { lifetime: 'persistent' as const, root: dataRoot };
@@ -517,7 +522,6 @@ test('host stop reports failed platform cleanup without claiming Root release', 
     hosts.splice(hosts.indexOf(owner), 1);
   }
 });
-
 test('host stop joins the existing scripted native tool before reporting success', async () => {
   const dataRoot = await root();
   const owner = await host(dataRoot, true);
@@ -530,14 +534,27 @@ test('host stop joins the existing scripted native tool before reporting success
     prompt: 'Run the existing owned native child fixture.',
     threadId,
   });
-  let requested: Extract<HostEvent, { type: 'interaction.requested' }> | undefined;
+  let requested:
+    | Extract<
+        HostEvent,
+        {
+          type: 'interaction.requested';
+        }
+      >
+    | undefined;
   await expect
     .poll(async () => {
       requested = (await client.request('thread/read', { fromSeq: 0, threadId })).rows
         .map((row) => row.event)
         .find(
-          (event): event is Extract<HostEvent, { type: 'interaction.requested' }> =>
-            event.type === 'interaction.requested' && event.runId === runId
+          (
+            event
+          ): event is Extract<
+            HostEvent,
+            {
+              type: 'interaction.requested';
+            }
+          > => event.type === 'interaction.requested' && event.runId === runId
         );
       return requested !== undefined;
     })

@@ -1,6 +1,6 @@
 import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
 import { createLogger } from '@brainstrike/logging';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { readDesktopRunConfiguration } from './desktop-run-configuration.js';
 import type { HostLatestRun, HostLedgerThread } from './ledger-wire.js';
 import type { HostEvent, HostLogRow } from './protocol.js';
@@ -9,42 +9,47 @@ import { type HostRunVerdict, projectRunVerdicts } from './run-verdicts.js';
 export type { HostLatestRun, HostLedgerThread } from './ledger-wire.js';
 
 const logger = createLogger('HostLedgerProjection');
-
 type LedgerRun = HostLedgerThread['runs'][number];
 type LedgerUsage = HostLedgerThread['usage'][number];
 type LedgerRootUsage = HostLedgerThread['rootUsage'][number];
 type LedgerModelUsage = HostLedgerThread['perModel'][number];
-type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
-
+type Mutable<T> = {
+  -readonly [Key in keyof T]: T[Key];
+};
 /**
  * Host outcomes read as the legacy run statuses the badges already know: a
  * user's Stop is `cancelled`, and a run interrupted by shutdown is `failed`, as
  * the legacy startup reaper records an interrupted run.
  */
 export const STATUS_BY_OUTCOME: Readonly<
-  Record<Extract<HostEvent, { type: 'run.finished' }>['outcome'], HostLatestRun['status']>
+  Record<
+    Extract<
+      HostEvent,
+      {
+        type: 'run.finished';
+      }
+    >['outcome'],
+    HostLatestRun['status']
+  >
 > = { completed: 'completed', failed: 'failed', interrupted: 'failed', stopped: 'cancelled' };
-
 /** The AI SDK step usage Core commits on model.step and memory.usage. */
-const CommittedUsageSchema = z.object({
-  inputTokenDetails: z
-    .object({
-      cacheReadTokens: z.number().int().nonnegative().optional(),
-      cacheWriteTokens: z.number().int().nonnegative().optional(),
+const CommittedUsageSchema = Schema.Struct({
+  inputTokenDetails: Schema.optional(
+    Schema.Struct({
+      cacheReadTokens: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+      cacheWriteTokens: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
     })
-    .optional(),
-  inputTokens: z.number().int().nonnegative().optional(),
-  outputTokens: z.number().int().nonnegative().optional(),
+  ),
+  inputTokens: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  outputTokens: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
 });
-
 type Tokens = Pick<
   LedgerUsage,
   'cacheReadTokens' | 'cacheWriteTokens' | 'inputTokens' | 'outputTokens'
 >;
-
 /** Unreported token counts are counted as none, as the legacy usage writer does. */
 export function tokensOf(usage: unknown): Tokens {
-  const parsed = CommittedUsageSchema.parse(usage);
+  const parsed = Schema.decodeUnknownSync(CommittedUsageSchema)(usage);
   return {
     cacheReadTokens: parsed.inputTokenDetails?.cacheReadTokens ?? 0,
     cacheWriteTokens: parsed.inputTokenDetails?.cacheWriteTokens ?? 0,
@@ -52,12 +57,10 @@ export function tokensOf(usage: unknown): Tokens {
     outputTokens: parsed.outputTokens ?? 0,
   };
 }
-
 interface CatalogModel {
   readonly model: string;
   readonly provider: string;
 }
-
 /** A host run's `provider::model` catalog id, as desktop and the CLI admit it. */
 export function catalogModel(modelId: string): CatalogModel | undefined {
   const separator = modelId.indexOf('::');
@@ -65,7 +68,6 @@ export function catalogModel(modelId: string): CatalogModel | undefined {
     ? { model: modelId.slice(separator + 2), provider: modelId.slice(0, separator) }
     : undefined;
 }
-
 /**
  * An observer call's model: the catalog id Core commits it under (BST-1929).
  * The built-in local observer bills nothing.
@@ -78,7 +80,6 @@ export function observerUsageModel(modelId: string): CatalogModel | undefined {
   }
   return committed.provider === 'local' ? undefined : committed;
 }
-
 const uncostedModelIds = new Set<string>();
 /**
  * An observer call that names no catalog model (a row committed before
@@ -92,10 +93,8 @@ function warnUncosted(modelId: string): void {
   uncostedModelIds.add(modelId);
   logger.warn('Observer usage without a catalog model is not costed', { modelId });
 }
-
 /** The run's bound workspace root at Send; null for a run bound to none (unattributed). */
 type RunRoot = Pick<LedgerRootUsage, 'rootDisplayName' | 'rootId'>;
-
 interface RunFold {
   cacheReadTokens: number;
   cacheWriteTokens: number;
@@ -114,37 +113,32 @@ interface RunFold {
   readonly threadId: string;
   toolCallCount: number;
 }
-
 /** The observer's calls are one source each; the observer names its own model. */
 const MEMORY_USAGE_KIND = {
   observation: 'om-observation',
   reflection: 'om-reflection',
 } as const satisfies Record<string, AssistantRunUsageKind>;
-
 /** A streamed chunk's kind; every committed chunk passes here, so the schema is built once. */
-const StreamedChunkSchema = z.object({ type: z.string() });
-
+const StreamedChunkSchema = Schema.Struct({ type: Schema.String });
 /**
  * Whether a committed `stream.chunk` is one of the model's tool calls: the one
  * rule a run's `toolCallCount` follows, wherever its log is folded.
  */
 export function isHostToolCallChunk(streamed: unknown): boolean {
-  const chunk = StreamedChunkSchema.safeParse(streamed);
-  return chunk.success && chunk.data.type === 'tool-call';
+  const chunk = Schema.decodeUnknownResult(StreamedChunkSchema)(streamed);
+  return chunk._tag === 'Success' && chunk.success.type === 'tool-call';
 }
-
 /** A streamed tool call or tool error counts toward its run's tool totals. */
 function countToolChunk(run: RunFold, streamed: unknown): void {
   if (isHostToolCallChunk(streamed)) {
     run.toolCallCount += 1;
     return;
   }
-  const chunk = StreamedChunkSchema.safeParse(streamed);
-  if (chunk.success && chunk.data.type === 'tool-error') {
+  const chunk = Schema.decodeUnknownResult(StreamedChunkSchema)(streamed);
+  if (chunk._tag === 'Success' && chunk.success.type === 'tool-error') {
     run.failedToolCallCount += 1;
   }
 }
-
 /**
  * One thread's cost-view share, folded incrementally from its first committed
  * row at O(1) per row: its runs, costed provider calls and their subtotals.
@@ -163,7 +157,6 @@ export class ThreadLedgerFold {
   private readonly editRuns = new Map<string, string>();
   private readonly revertedEdits = new Set<string>();
   private perModelSnapshot: LedgerModelUsage[] | undefined;
-
   apply(row: HostLogRow): void {
     this.seq = row.seq;
     const { event } = row;
@@ -201,7 +194,6 @@ export class ThreadLedgerFold {
       this.revert(event);
     }
   }
-
   /**
    * The thread's per-(provider, model, source) subtotals, as one value per
    * change: only a costed call replaces it, so a streamed row never re-renders
@@ -211,7 +203,6 @@ export class ThreadLedgerFold {
     this.perModelSnapshot ??= [...this.bySource.values()].map((subtotal) => ({ ...subtotal }));
     return this.perModelSnapshot;
   }
-
   /** This thread's share of the cost views, as of its last folded row. */
   read(): Omit<HostLedgerThread, 'threadId'> {
     return {
@@ -222,9 +213,15 @@ export class ThreadLedgerFold {
       usage: [...this.usage],
     };
   }
-
   /** An entry reverted once counts once, against the run that made the edit. */
-  private revert(event: Extract<HostEvent, { type: 'workspace.edit.reverted' }>): void {
+  private revert(
+    event: Extract<
+      HostEvent,
+      {
+        type: 'workspace.edit.reverted';
+      }
+    >
+  ): void {
     for (const outcome of event.outcomes) {
       if (outcome.status !== 'reverted' || this.revertedEdits.has(outcome.entryId)) {
         continue;
@@ -236,8 +233,15 @@ export class ThreadLedgerFold {
       }
     }
   }
-
-  private start(row: HostLogRow, event: Extract<HostEvent, { type: 'run.started' }>): void {
+  private start(
+    row: HostLogRow,
+    event: Extract<
+      HostEvent,
+      {
+        type: 'run.started';
+      }
+    >
+  ): void {
     const model = catalogModel(event.modelId);
     if (!model || row.ts === undefined) {
       logger.warn('A host run without a catalog model or commit time is not costed', {
@@ -273,7 +277,6 @@ export class ThreadLedgerFold {
       toolCallCount: 0,
     });
   }
-
   private count(
     run: RunFold,
     row: HostLogRow,
@@ -314,11 +317,9 @@ export class ThreadLedgerFold {
     this.byRoot.set(rootKey, rootUsage);
   }
 }
-
 function rootUsageKey(root: RunRoot, model: CatalogModel): string {
   return JSON.stringify([root.rootId, root.rootDisplayName, model.provider, model.model]);
 }
-
 function emptyRootUsage(root: RunRoot, model: CatalogModel): Mutable<LedgerRootUsage> {
   return {
     estimatedCacheCreationTokens: 0,
@@ -332,7 +333,6 @@ function emptyRootUsage(root: RunRoot, model: CatalogModel): Mutable<LedgerRootU
     ...root,
   };
 }
-
 function emptySubtotal(
   model: CatalogModel,
   runKind: AssistantRunUsageKind
@@ -351,7 +351,6 @@ function emptySubtotal(
     runKind,
   };
 }
-
 /** The cross-root aggregation's order: unattributed first, then root, provider and model. */
 function compareRootUsage(left: LedgerRootUsage, right: LedgerRootUsage): number {
   const keys = (row: LedgerRootUsage) => [row.rootId, row.provider, row.model] as const;
@@ -368,7 +367,6 @@ function compareRootUsage(left: LedgerRootUsage, right: LedgerRootUsage): number
   }
   return 0;
 }
-
 /** Threads' per-root subtotals, summed per (root, provider, model), in the aggregation's order. */
 export function mergeRootUsage(
   threads: readonly (readonly LedgerRootUsage[])[]
@@ -390,7 +388,6 @@ export function mergeRootUsage(
   }
   return [...merged.values()].sort(compareRootUsage);
 }
-
 function ledgerRun(run: RunFold, verdict: HostRunVerdict | undefined): LedgerRun {
   return {
     completedAt: run.completedAt,
@@ -417,7 +414,6 @@ function ledgerRun(run: RunFold, verdict: HostRunVerdict | undefined): LedgerRun
     toolCallCount: run.toolCallCount,
   };
 }
-
 /** A thread's latest root run, with what it still waits on (Core starts one at a time). */
 export interface LatestRunFold {
   /** Interactions (approval, question, plan, network) the run waits on its user for. */
@@ -425,7 +421,6 @@ export interface LatestRunFold {
   readonly run: HostLatestRun;
   readonly runId: string;
 }
-
 function withPending(
   latest: LatestRunFold,
   pending: ReadonlySet<string>,
@@ -433,7 +428,6 @@ function withPending(
 ): LatestRunFold {
   return { ...latest, pending, run: { ...latest.run, needsInput: pending.size > 0, seq } };
 }
-
 /** Fold one committed row into the thread's latest root run. */
 export function foldLatestRun(
   latest: LatestRunFold | undefined,
@@ -472,7 +466,6 @@ export function foldLatestRun(
     runId: latest.runId,
   };
 }
-
 /**
  * Core's projection of every thread's committed log for the cost views and
  * the thread list: fed each row once, as it commits or as Core hydrates it.
@@ -482,12 +475,14 @@ export class HostLedgerProjection {
     string,
     {
       /** The row this thread's ledger could not fold; its cost views stay unread. */
-      failure?: { readonly cause: unknown; readonly seq: number };
+      failure?: {
+        readonly cause: unknown;
+        readonly seq: number;
+      };
       readonly ledger: ThreadLedgerFold;
       latest: LatestRunFold | undefined;
     }
   >();
-
   /**
    * A row the ledger cannot fold fails that thread's cost views on every read,
    * never the commit or the hydration that carried it.
@@ -513,17 +508,16 @@ export class HostLedgerProjection {
       });
     }
   }
-
   forget(threadId: string): void {
     this.threads.delete(threadId);
   }
-
   /** The thread's latest root run; undefined before its first run starts. */
   readLatestRun(threadId: string): HostLatestRun | undefined {
     return this.threads.get(threadId)?.latest?.run;
   }
-
-  read(): { readonly threads: HostLedgerThread[] } {
+  read(): {
+    readonly threads: HostLedgerThread[];
+  } {
     for (const [threadId, { failure }] of this.threads) {
       if (failure) {
         throw new Error(`Thread ${threadId} row ${failure.seq} cannot be costed`, {

@@ -8,8 +8,8 @@ import { RootLock, StateStore } from '@brainstrike/state-store';
 import recording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json' with {
   type: 'json',
 };
+import { Schema } from 'effect';
 import { expect, test } from 'vitest';
-import { z } from 'zod';
 import { attachAgentHost, type HostClient } from '../src/client.js';
 import { storedHostEvent } from '../src/event-storage.js';
 import { HostLogRowSchema } from '../src/protocol.js';
@@ -32,7 +32,10 @@ test('authenticated Root deletion removes only its recorded thread and preserves
   let host: AgentHost | undefined;
   let client: HostClient | undefined;
   try {
-    const captured = z.array(HostLogRowSchema).parse(recording);
+    const captured = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(recording);
     const target = captured[0]?.threadId;
     if (!target) {
       throw new Error('Core recording requires a thread');

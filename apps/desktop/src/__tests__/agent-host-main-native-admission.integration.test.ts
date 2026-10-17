@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { HostRunAdmissionRequest } from '@brainstrike/agent-host';
 import { DEFAULT_PERMISSION_POLICIES, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW } from '@brainstrike/assistant-contract/context-budget';
+import { Schema } from 'effect';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 
@@ -27,8 +28,11 @@ vi.mock('../db-main', () => ({
 }));
 vi.mock('../provider-api-key', () => ({ readProviderCredential: owner.credential }));
 vi.mock('../ipc-mcp', () => ({
-  readDesktopMcpHostSnapshot: async (runtime: { host: { snapshot(): unknown } }) =>
-    structuredClone(runtime.host.snapshot()),
+  readDesktopMcpHostSnapshot: async (runtime: {
+    host: {
+      snapshot(): unknown;
+    };
+  }) => structuredClone(runtime.host.snapshot()),
 }));
 
 import { PlatformClientConfigurationSchema } from '../agent-host-platform/platform-wire';
@@ -48,7 +52,6 @@ function desktopAdmission(
 ) {
   return createDesktopAdmission({ ...catalog.services, ...dependencies }, ...rest);
 }
-
 beforeEach(async () => {
   catalog.modelRead.mockImplementation(async () => admissionModelSnapshot());
   directory = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'bs-m3-worktree-tools-')));
@@ -61,16 +64,21 @@ afterEach(async () => {
   await fs.rm(directory, { force: true, recursive: true });
   expect(owner.credential).not.toHaveBeenCalled();
 });
-
 function request(
   enabledNativeToolIds: readonly string[],
   selection: Record<string, unknown> = {},
-  model: { readonly model: string; readonly provider: string } = {
+  model: {
+    readonly model: string;
+    readonly provider: string;
+  } = {
     model: 'gpt-6-sol',
     provider: 'openai',
   }
 ): HostRunAdmissionRequest {
-  const configuration = PlatformClientConfigurationSchema.parse({
+  const configuration = Schema.decodeUnknownSync(PlatformClientConfigurationSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({
     ...selection,
     agentLoop: { inputTokenLimit: 7000, maxSteps: 3 },
     enabledNativeToolIds,
@@ -109,7 +117,6 @@ function request(
     threadId: 'host-thread',
   };
 }
-
 test('Main serves a host run’s worktree calls through its worktree service under the host run identity', async () => {
   const service = {
     archive: vi.fn(),
@@ -144,7 +151,6 @@ test('Main serves a host run’s worktree calls through its worktree service und
     threadId: 'host-thread',
   });
 });
-
 test('a host thread is not offered worktree tools while Main has no worktree service', async () => {
   const captured = await desktopAdmission({
     resolveWorktreeService: () => null,
@@ -158,7 +164,6 @@ test('a host thread is not offered worktree tools while Main has no worktree ser
     await captured.close();
   }
 });
-
 test('Main admits the focused folder, and no checked files, to the host’s native runtime (BST-2019)', async () => {
   const workspaceContext = {
     files: [
@@ -193,7 +198,6 @@ test('Main admits the focused folder, and no checked files, to the host’s nati
     await captured.close();
   }
 });
-
 test('Main reconciles a host command’s worktrees under the host run’s identity', async () => {
   const service = {
     list: vi.fn(async () => ({ ok: true as const, value: [{ path: '/repo/.worktrees/fox' }] })),
@@ -231,7 +235,6 @@ test('Main reconciles a host command’s worktrees under the host run’s identi
   );
   expect(service.repositoryContextForRoot).toHaveBeenCalledWith('root-a');
 });
-
 test('Main admits one scan’s enabled skills to a host run', async () => {
   const skill = join(directory, 'a', '.brainstrike', 'skills', 'demo-skill');
   await fs.mkdir(skill, { recursive: true });
@@ -251,12 +254,10 @@ test('Main admits one scan’s enabled skills to a host run', async () => {
       await captured.close();
     }
   };
-
   const hosted = await admit({ model: 'gpt-6-sol', provider: 'openai' });
   expect(hosted.admitted).toEqual(['demo-skill']);
   expect(hosted.tools).toEqual(expect.arrayContaining(['skill', 'skill_read', 'skill_search']));
 });
-
 // Recorded 2026-10-08 from a local Ollama 0.32.14 (`GET /api/tags`) and LM Studio (`GET /v1/models`).
 const OLLAMA_CHAT_MODELS = ollamaTags.models
   .filter((model) => model.capabilities.includes('completion'))
@@ -264,10 +265,8 @@ const OLLAMA_CHAT_MODELS = ollamaTags.models
 const LM_STUDIO_CHAT_MODELS = lmStudioModels.data
   .map((model) => model.id)
   .filter((id) => !id.startsWith('text-embedding-'));
-
 test('a model the local Ollama or LM Studio runtime lists is admitted without a catalog row', async () => {
   // Runtime-discovered models live in neither the models table nor the static catalog.
-
   catalog.modelRead.mockRejectedValue(
     new Error('A local runtime model has no catalog row to read')
   );
@@ -292,11 +291,14 @@ test('a model the local Ollama or LM Studio runtime lists is admitted without a 
     }
   }
 });
-
 test('the auto observer is the first auto candidate the model catalog has enabled', async () => {
   const eligible =
-    vi.fn<(pairs: readonly unknown[]) => { providerId: string; modelId: string }[]>();
-
+    vi.fn<
+      (pairs: readonly unknown[]) => {
+        providerId: string;
+        modelId: string;
+      }[]
+    >();
   catalog.modelRead.mockImplementation(async () => {
     const snapshot = admissionModelSnapshot();
     const enabled = new Set(eligible([]).map((pair) => `${pair.providerId}/${pair.modelId}`));
@@ -350,7 +352,6 @@ test('the auto observer is the first auto candidate the model catalog has enable
   const observer = async () =>
     (await memory({ model: 'anthropic/claude-sonnet-4.6', provider: 'openrouter' })).settings
       .observationalMemory;
-
   // OpenRouter's first auto candidate ships catalog-disabled; the enabled one after it observes.
   eligible.mockReturnValue([{ modelId: 'google/gemini-3.5-flash-lite', providerId: 'openrouter' }]);
   await expect(observer()).resolves.toMatchObject({

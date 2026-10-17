@@ -1,5 +1,4 @@
 // @vitest-environment node
-
 import { execFile } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -17,6 +16,7 @@ import { parseGrepToolResult } from '@brainstrike/host-capabilities/grep-search-
 import { decodeHostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
+import { Schema } from 'effect';
 import { _electron, type ElectronApplication } from 'playwright';
 import { expect, onTestFinished } from 'vitest';
 import { z } from 'zod';
@@ -44,11 +44,9 @@ const recordedModelMetadata = parseOpenRouterModelMetadata(
   'anthropic/claude-sonnet-4.6',
   Date.parse('2026-10-07T05:07:09.516Z')
 );
-
 // A graceful step that outlives these bounds is a leak and fails the proof.
 const CLOSE_STEP_MS = 30_000;
 const RELEASE_HOOK_MS = 120_000;
-
 async function within<T>(step: Promise<T>, label: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   try {
@@ -65,7 +63,6 @@ async function within<T>(step: Promise<T>, label: string): Promise<T> {
     clearTimeout(timer);
   }
 }
-
 async function providerPortRefused(baseUrl: string): Promise<boolean> {
   const url = new URL(baseUrl);
   return await new Promise<boolean>((resolve, reject) => {
@@ -84,7 +81,6 @@ async function providerPortRefused(baseUrl: string): Promise<boolean> {
     });
   });
 }
-
 export async function qualifyOrdinaryAppIndexedText(
   options: { readonly cliGrep?: boolean; readonly stopHost?: boolean } = {}
 ): Promise<void> {
@@ -146,7 +142,10 @@ export async function qualifyOrdinaryAppIndexedText(
     };
   });
   let providerClosed = false;
-  let remaining: { pid: number; start: string }[] = [];
+  let remaining: {
+    pid: number;
+    start: string;
+  }[] = [];
   let released: Promise<void> | undefined;
   /**
    * Closes everything this proof started, once. It runs when the proof returns
@@ -599,9 +598,10 @@ export async function qualifyOrdinaryAppIndexedText(
       for (const mode of ['bm25', 'trigram']) {
         const response = await search(mode, mountedRootId);
         await writeFile(join(evidence, `cli-${mode}.json`), response.stdout);
-        const textResult = HOST_RESULT_SCHEMAS['workspace/search'].parse(
-          JSON.parse(response.stdout)
-        );
+        const textResult = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['workspace/search'], {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(JSON.parse(response.stdout));
         expect(textResult.hits.length).toBeGreaterThan(0);
         expect(textResult.hits.every((hit) => hit.rootId === mountedRootId)).toBe(true);
         expect(textResult.hits.find((hit) => hit.path === 'indexed-proof.md')).toMatchObject({

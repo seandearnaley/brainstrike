@@ -10,8 +10,8 @@ import answered from '@brainstrike/test-utils/fixtures/committed-host-incrementa
   type: 'json',
 };
 import { type ModelMessage, modelMessageSchema } from 'ai';
+import { Schema } from 'effect';
 import { expect, test } from 'vitest';
-import { z } from 'zod';
 import { hostAnswerText } from '../src/child-answer.js';
 import { hostChildResult } from '../src/child-runs.js';
 import { HostLogRowSchema } from '../src/protocol.js';
@@ -29,7 +29,10 @@ const persona: AssistantPersonaDefinition = {
 function completedRuns(recording: unknown): ModelMessage[][] {
   const messages = new Map<string, ModelMessage[]>();
   const completed: ModelMessage[][] = [];
-  for (const { event } of z.array(HostLogRowSchema).parse(recording)) {
+  for (const { event } of Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(recording)) {
     if (event.type === 'model.step' || event.type === 'model.messages') {
       const run = messages.get(event.runId) ?? [];
       run.push(...event.messages.map((message) => modelMessageSchema.parse(message)));

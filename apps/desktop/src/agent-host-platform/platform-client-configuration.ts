@@ -1,24 +1,29 @@
 import { CliWorkspaceSelectionSchema } from '@brainstrike/agent-host/standalone-workspace-input';
-import type { RuntimeData } from '@brainstrike/assistant-contract';
 import {
   PERMISSION_DECISIONS,
   type PermissionToolGateSnapshot,
   runtimeSubagentSettingsSchema,
   TOOL_RISK_CATEGORIES,
 } from '@brainstrike/assistant-contract';
-import { z } from 'zod';
+import { omitUndefinedOptional } from '@brainstrike/assistant-contract/schema-boundary';
+import { Schema } from 'effect';
 
 // Shared by renderer Send capture and Main admission; native platform owners stay in platform-wire.
-const Id = z.string().min(1);
-const Decision = z.enum(PERMISSION_DECISIONS);
-export const PlatformPolicySchema = z.strictObject({
-  perToolOverrides: z.record(z.string(), Decision).optional(),
-  policies: z.strictObject({ edit: Decision, execute: Decision, mcp: Decision, read: Decision }),
-  sessionGrants: z.array(z.enum(TOOL_RISK_CATEGORIES)).optional(),
-  yolo: z.boolean(),
+const Id = Schema.String.check(Schema.isMinCodePoints(1));
+const Decision = Schema.Literals(PERMISSION_DECISIONS);
+export const PlatformPolicySchema = Schema.Struct({
+  perToolOverrides: Schema.optional(Schema.Record(Schema.String, Decision)),
+  policies: Schema.Struct({ edit: Decision, execute: Decision, mcp: Decision, read: Decision }),
+  sessionGrants: Schema.optional(
+    Schema.mutable(Schema.Array(Schema.Literals(TOOL_RISK_CATEGORIES)))
+  ),
+  yolo: Schema.Boolean,
 });
 export function platformPermissionPolicy(input: unknown): PermissionToolGateSnapshot {
-  const policy = PlatformPolicySchema.parse(input);
+  const policy = Schema.decodeUnknownSync(PlatformPolicySchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(input);
   return {
     policies: policy.policies,
     yolo: policy.yolo,
@@ -26,98 +31,79 @@ export function platformPermissionPolicy(input: unknown): PermissionToolGateSnap
     ...(policy.sessionGrants ? { sessionGrants: policy.sessionGrants } : {}),
   };
 }
-export const PlatformModelConfigurationSchema = z.strictObject({
+export const PlatformModelConfigurationSchema = Schema.Struct({
   model: Id,
-  modelSettings: z
-    .strictObject({
-      frequencyPenalty: z.number().optional(),
-      maxOutputTokens: z.number().optional(),
-      presencePenalty: z.number().optional(),
-      temperature: z.number().optional(),
-      topP: z.number().optional(),
+  modelSettings: Schema.optional(
+    Schema.Struct({
+      frequencyPenalty: omitUndefinedOptional(Schema.Finite),
+      maxOutputTokens: omitUndefinedOptional(Schema.Finite),
+      presencePenalty: omitUndefinedOptional(Schema.Finite),
+      temperature: omitUndefinedOptional(Schema.Finite),
+      topP: omitUndefinedOptional(Schema.Finite),
     })
-    .transform(
-      (settings): NonNullable<RuntimeData['modelSettings']> => ({
-        ...(settings.frequencyPenalty === undefined
-          ? {}
-          : { frequencyPenalty: settings.frequencyPenalty }),
-        ...(settings.maxOutputTokens === undefined
-          ? {}
-          : { maxOutputTokens: settings.maxOutputTokens }),
-        ...(settings.presencePenalty === undefined
-          ? {}
-          : { presencePenalty: settings.presencePenalty }),
-        ...(settings.temperature === undefined ? {} : { temperature: settings.temperature }),
-        ...(settings.topP === undefined ? {} : { topP: settings.topP }),
-      })
-    )
-    .optional(),
+  ),
   provider: Id,
-  providerOptions: z.record(z.string(), z.record(z.string(), z.json())).optional(),
+  providerOptions: Schema.optional(
+    Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.MutableJson))
+  ),
 });
-export const PlatformMemoryOptionsSchema = z.strictObject({
-  lastMessages: z.union([z.literal(false), z.number().int().positive()]),
-  workingMemory: z.strictObject({
-    enabled: z.boolean(),
-    scope: z.enum(['thread', 'resource']),
-    template: z.string(),
+export const PlatformMemoryOptionsSchema = Schema.Struct({
+  lastMessages: Schema.Union([Schema.Literal(false), Schema.Int.check(Schema.isGreaterThan(0))]),
+  workingMemory: Schema.Struct({
+    enabled: Schema.Boolean,
+    scope: Schema.Literals(['thread', 'resource']),
+    template: Schema.String,
   }),
 });
-export const PlatformMemorySettingsSchema = z.strictObject({
-  observationalMemory: z.strictObject({
-    enabled: z.boolean(),
-    messageTokens: z.number().positive(),
+export const PlatformMemorySettingsSchema = Schema.Struct({
+  observationalMemory: Schema.Struct({
+    enabled: Schema.Boolean,
+    messageTokens: Schema.Finite.check(Schema.isGreaterThan(0)),
     modelTarget: Id,
-    observationTokens: z.number().positive(),
-    retrievalMode: z.enum(['off', 'messages', 'vector']),
-    scope: z.enum(['thread', 'resource']),
+    observationTokens: Schema.Finite.check(Schema.isGreaterThan(0)),
+    retrievalMode: Schema.Literals(['off', 'messages', 'vector']),
+    scope: Schema.Literals(['thread', 'resource']),
   }),
-  semanticRecall: z.strictObject({
-    embeddingModelTarget: z.string().nullable(),
-    enabled: z.boolean(),
-    messageRange: z.number().int().nonnegative(),
-    scope: z.enum(['thread', 'resource']),
-    topK: z.number().int().positive(),
+  semanticRecall: Schema.Struct({
+    embeddingModelTarget: Schema.NullOr(Schema.String),
+    enabled: Schema.Boolean,
+    messageRange: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+    scope: Schema.Literals(['thread', 'resource']),
+    topK: Schema.Int.check(Schema.isGreaterThan(0)),
   }),
 });
 /** BST-1932: the renderer's subagent preferences, captured with each run's input. */
-export const PlatformSubagentsIntentSchema = z.strictObject({
-  delegationEnabled: z.boolean(),
-  disabledPersonaIds: z.array(Id),
+export const PlatformSubagentsIntentSchema = Schema.Struct({
+  delegationEnabled: Schema.Boolean,
+  disabledPersonaIds: Schema.mutable(Schema.Array(Id)),
   settings: runtimeSubagentSettingsSchema,
 });
-export type PlatformSubagentsIntent = z.infer<typeof PlatformSubagentsIntentSchema>;
+export type PlatformSubagentsIntent = (typeof PlatformSubagentsIntentSchema)['Type'];
 /** Existing UI preference owners supply only non-secret intent; roots remain Main-owned. */
-export const PlatformClientConfigurationSchema = z.strictObject({
-  agentLoop: z
-    .strictObject({
-      inputTokenLimit: z.number().int().positive().optional(),
-      maxSteps: z.number().int().positive().optional(),
+export const PlatformClientConfigurationSchema = Schema.Struct({
+  agentLoop: Schema.optional(
+    Schema.Struct({
+      inputTokenLimit: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
+      maxSteps: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
     })
-    .optional(),
-  cliWorkspace: CliWorkspaceSelectionSchema.optional(),
-  enabledNativeToolIds: z.array(Id),
+  ),
+  cliWorkspace: Schema.optional(CliWorkspaceSelectionSchema),
+  enabledNativeToolIds: Schema.mutable(Schema.Array(Id)),
   memoryOptions: PlatformMemoryOptionsSchema,
   memorySettings: PlatformMemorySettingsSchema,
   modelConfiguration: PlatformModelConfigurationSchema,
   permissionPolicy: PlatformPolicySchema,
-  selectionFolderId: Id.optional(),
-  skillsPreference: z
-    .strictObject({
-      disabledSkillKeys: z.array(z.string()),
-      masterEnabled: z.boolean(),
+  selectionFolderId: Schema.optional(Id),
+  skillsPreference: Schema.optional(
+    Schema.Struct({
+      disabledSkillKeys: Schema.mutable(Schema.Array(Schema.String)),
+      masterEnabled: Schema.Boolean,
     })
-    .optional(),
-  subagents: PlatformSubagentsIntentSchema.optional(),
-  /**
-   * Checked files as context, retired (BST-2019). A run committed before then
-   * carries it in its captured intent. It is accepted and read as nothing, so
-   * that intent still parses. A run whose tools have since changed still cannot
-   * resume: a reopen refuses a changed tool catalog.
-   */
-  workspaceContext: z.json().optional(),
-  workspaceInstructionsPreference: z.strictObject({
-    masterEnabled: z.boolean(),
-    oversizedOptInByRootId: z.record(z.string(), z.boolean()),
+  ),
+  subagents: Schema.optional(PlatformSubagentsIntentSchema),
+  workspaceContext: Schema.optional(Schema.MutableJson),
+  workspaceInstructionsPreference: Schema.Struct({
+    masterEnabled: Schema.Boolean,
+    oversizedOptInByRootId: Schema.Record(Schema.String, Schema.Boolean),
   }),
 });

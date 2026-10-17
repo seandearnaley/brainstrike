@@ -1,3 +1,4 @@
+import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { bindHostAuthMethods, type HostMethodHandler } from '../src/auth-connection.js';
@@ -15,15 +16,21 @@ describe('no legacy credential import', () => {
       methods.push(method);
     };
     bindHostAuthMethods(handle, {} as MessageConnection, undefined, 'desktop-ui');
-
     expect(methods).toContain('auth/credential/set');
     expect(methods.filter((method) => method.includes('legacy'))).toEqual([]);
   });
-
   it('refuses a launch that declares a pending import', () => {
-    expect(HostPlatformLaunchOptionsSchema.safeParse({}).success).toBe(true);
-    expect(HostPlatformLaunchOptionsSchema.safeParse({ legacyImportPending: true }).success).toBe(
-      false
-    );
+    expect(
+      Schema.decodeUnknownResult(HostPlatformLaunchOptionsSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })({})._tag === 'Success'
+    ).toBe(true);
+    expect(
+      Schema.decodeUnknownResult(HostPlatformLaunchOptionsSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })({ legacyImportPending: true })._tag === 'Success'
+    ).toBe(false);
   });
 });

@@ -16,6 +16,7 @@ import { pathToFileURL } from 'node:url';
 import { HOST_RESULT_SCHEMAS, type HostLogRow } from '@brainstrike/agent-host/protocol';
 import { decodeHostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
+import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import {
@@ -41,16 +42,17 @@ const SERVER_ID = 'pending-input';
 const MODEL = 'openai::gpt-6-sol';
 const EDIT = { content: 'written by the standalone CLI\n', path: 'notes.txt' };
 const FINAL = 'The note is written and the MCP task completed.';
-
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) {
     await close();
   }
 });
-
-type Cli = (args: readonly string[]) => Promise<{ code: number; stderr: string; stdout: string }>;
-
+type Cli = (args: readonly string[]) => Promise<{
+  code: number;
+  stderr: string;
+  stdout: string;
+}>;
 function cli(dataRoot: string, environment: Record<string, string>): Cli {
   return (args) =>
     new Promise((resolve, reject) => {
@@ -81,13 +83,14 @@ function cli(dataRoot: string, environment: Record<string, string>): Cli {
       );
     });
 }
-
 async function rows(run: Cli, threadId: string): Promise<HostLogRow[]> {
   const shown = await run(['threads', 'show', '--thread', threadId]);
   expect(shown).toMatchObject({ code: 0, stderr: '' });
-  return HOST_RESULT_SCHEMAS['thread/read'].parse(JSON.parse(shown.stdout)).rows;
+  return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/read'], {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(JSON.parse(shown.stdout)).rows;
 }
-
 async function until(
   run: Cli,
   threadId: string,
@@ -105,7 +108,6 @@ async function until(
     .toBe(true);
   return latest;
 }
-
 // Several CLI processes and one host, each recording its module loads.
 test('the standalone CLI runs a native write and an MCP task, answering its input, with no Electron', {
   timeout: 120_000,
@@ -164,12 +166,10 @@ test('the standalone CLI runs a native write and an MCP task, answering its inpu
       ],
     })
   );
-
   // 1. A standalone host over the launch workspace, with the configured MCP server.
   expect(
     await run(['host', 'start', '--workspace', workspace, '--mcp-config', mcpConfig])
   ).toMatchObject({ code: 0, stderr: '' });
-
   // 2. The native write pauses for its approval, answered on the CLI.
   const paused = await run([
     'run',
@@ -209,7 +209,6 @@ test('the standalone CLI runs a native write and an MCP task, answering its inpu
       'approve',
     ])
   ).toMatchObject({ code: 0 });
-
   // 3. The MCP task asks for input; the CLI answers it.
   const asked = await until(run, threadId, (current) =>
     current.some((row) => row.event.type === 'mcp.input.requested')
@@ -235,7 +234,6 @@ test('the standalone CLI runs a native write and an MCP task, answering its inpu
       JSON.stringify({ approved: true }),
     ])
   ).toMatchObject({ code: 0 });
-
   // 4. The committed log holds both tools' effects and the input exchange.
   const finished = await until(run, threadId, (current) =>
     current.some((row) => row.event.type === 'run.finished')
@@ -271,7 +269,6 @@ test('the standalone CLI runs a native write and an MCP task, answering its inpu
     1
   );
   expect(shim.refusals()).toEqual([]);
-
   // 5. Every CLI and host process ran the agent host's code, and none loaded Electron.
   const loads = (await readFile(moduleLog, 'utf8')).trim().split('\n');
   expect(loads.some((line) => line.includes('/agent-host/'))).toBe(true);

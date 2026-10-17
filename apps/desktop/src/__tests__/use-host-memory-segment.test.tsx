@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import {
   HOST_METHOD_SCHEMAS,
@@ -14,6 +13,7 @@ import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/store
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract';
 import richRecording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
+import { Schema } from 'effect';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   type HostMemoryRowSource,
@@ -30,7 +30,9 @@ const REQUEST: HostParams<'thread/memory/read'> = {
 };
 /** Stable, as the thread view's callback is: a new identity is a new request to read. */
 const readRequest = (): HostParams<'thread/memory/read'> => REQUEST;
-const rows = richRecording.map((row) => HostLogRowSchema.parse(row));
+const rows = richRecording.map((row) =>
+  Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)
+);
 const finished = rows.find(({ event }) => event.type === 'run.finished');
 const chunk = rows.find(({ event }) => event.type === 'stream.chunk');
 const started = rows.find(({ event }) => event.type === 'run.started');
@@ -38,7 +40,10 @@ if (!(finished && chunk && started && started.event.type === 'run.started')) {
   throw new Error('The recorded run must start, stream and finish');
 }
 // Core commits an observer call in memory.usage's shape (see host-thread-ledger.test.ts).
-const observerCall = HostLogRowSchema.parse({
+const observerCall = Schema.decodeUnknownSync(HostLogRowSchema, {
+  errors: 'all',
+  onExcessProperty: 'error',
+})({
   event: {
     kind: 'observation',
     modelId: 'openai::gpt-5-mini',
@@ -49,9 +54,10 @@ const observerCall = HostLogRowSchema.parse({
   seq: 1000,
   threadId: started.threadId,
 });
-
 class RowSource implements HostMemoryRowSource {
-  private snapshot: { readonly rows: readonly HostLogRow[] } = { rows: [] };
+  private snapshot: {
+    readonly rows: readonly HostLogRow[];
+  } = { rows: [] };
   private readonly listeners = new Set<() => void>();
   readonly getSnapshot = () => this.snapshot;
   readonly subscribe = (listener: () => void) => {
@@ -65,7 +71,6 @@ class RowSource implements HostMemoryRowSource {
     }
   }
 }
-
 /** A host client that answers `thread/memory/read` through the wire schema, in order. */
 function memoryClient(
   answer: (params: HostParams<'thread/memory/read'>) => Promise<MemoryRead>
@@ -78,14 +83,21 @@ function memoryClient(
       if (method !== 'thread/memory/read') {
         throw new Error(`Unexpected host request ${method}`);
       }
-      const read: MemoryRead = HOST_RESULT_SCHEMAS['thread/memory/read'].parse(
-        await answer(HOST_METHOD_SCHEMAS['thread/memory/read'].parse(params))
+      const read: MemoryRead = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/memory/read'], {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(
+        await answer(
+          Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS['thread/memory/read'], {
+            errors: 'all',
+            onExcessProperty: 'error',
+          })(params)
+        )
       );
       return read as HostResults[Method];
     },
   };
 }
-
 function hostClient(...answers: MemoryRead[]) {
   const request = vi.fn(async (_params: HostParams<'thread/memory/read'>) => {
     const answer = answers.shift();
@@ -96,7 +108,6 @@ function hostClient(...answers: MemoryRead[]) {
   });
   return { client: memoryClient(request), request };
 }
-
 const ACTIVE: MemoryRead = {
   admission: { ready: true },
   observational: {
@@ -113,12 +124,10 @@ const ACTIVE: MemoryRead = {
 const NOT_READY: MemoryRead = {
   admission: { ready: false, reason: 'Semantic recall needs its embedding model downloaded.' },
 };
-
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
-
 describe('the meter reads the host memory state the next send would admit', () => {
   test('each observational state maps onto the meter segment', () => {
     expect(hostOmMeterState({ state: 'off' })).toEqual({ kind: 'inactive' });
@@ -139,7 +148,6 @@ describe('the meter reads the host memory state the next send would admit', () =
       pendingMessageTokens: 4000,
     });
   });
-
   test('a memory precondition gates the send after any notice that already gates it', () => {
     const refused = { admissionReason: 'Semantic recall needs its embedding model downloaded.' };
     const provider = { disabledReason: 'Add an OpenAI key to send', isComposerDisabled: true };
@@ -150,7 +158,6 @@ describe('the meter reads the host memory state the next send would admit', () =
     });
     expect(withMemoryGate({}, { omSegment: { kind: 'empty' } })).toEqual({});
   });
-
   test('a ready read fills the segment, and a not-ready read names why the send is refused', async () => {
     const { client, request } = hostClient(ACTIVE);
     const ready = renderHook(() =>
@@ -175,7 +182,6 @@ describe('the meter reads the host memory state the next send would admit', () =
       })
     );
   });
-
   test('while another notice gates the send, nothing is read', () => {
     const { client, request } = hostClient();
     const buildRequest = vi.fn(readRequest);
@@ -192,7 +198,6 @@ describe('the meter reads the host memory state the next send would admit', () =
     expect(buildRequest).not.toHaveBeenCalled();
     expect(request).not.toHaveBeenCalled();
   });
-
   test('a committed memory call or run end re-reads; a streamed chunk does not', async () => {
     const { client, request } = hostClient(ACTIVE, ACTIVE, ACTIVE);
     const source = new RowSource();
@@ -206,7 +211,6 @@ describe('the meter reads the host memory state the next send would admit', () =
     act(() => source.commit(finished));
     await waitFor(() => expect(request).toHaveBeenCalledTimes(3));
   });
-
   test('a re-render that builds an equal request reads nothing more', async () => {
     const { client, request } = hostClient(ACTIVE, ACTIVE);
     // The thread view's request callback changes identity on every render.
@@ -227,7 +231,6 @@ describe('the meter reads the host memory state the next send would admit', () =
     expect(result.current.omSegment).toMatchObject({ kind: 'stats' });
     expect(request).toHaveBeenCalledTimes(1);
   });
-
   test('enabling the selected model re-reads the same request, so its gate clears', async () => {
     const disabled: MemoryRead = {
       admission: { ready: false, reason: 'The selected catalog model is disabled' },
@@ -247,7 +250,6 @@ describe('the meter reads the host memory state the next send would admit', () =
     expect(result.current.admissionReason).toBeUndefined();
     expect(request).toHaveBeenCalledTimes(2);
   });
-
   test('a new request or a memory-settings change re-reads', async () => {
     const { client, request } = hostClient(ACTIVE, ACTIVE, ACTIVE);
     const planned = { ...REQUEST, planMode: true as const };
@@ -272,7 +274,6 @@ describe('the meter reads the host memory state the next send would admit', () =
     await waitFor(() => expect(request).toHaveBeenCalledTimes(3));
     await waitFor(() => expect(result.current.omSegment).toMatchObject({ kind: 'stats' }));
   });
-
   test('only the latest read publishes, and a rejected read is the segment error', async () => {
     let answerFirst: (value: MemoryRead) => void = () => undefined;
     const request = vi

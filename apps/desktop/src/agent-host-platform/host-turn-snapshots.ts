@@ -1,4 +1,5 @@
 import type { HostTurnSnapshot } from '@brainstrike/agent-host';
+import { Schema } from 'effect';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { FAILED_SNAPSHOT_CAPTURE_OID } from '../assistant-server/snapshot-repository';
 import type { SnapshotService } from '../assistant-server/snapshot-service';
@@ -7,15 +8,12 @@ import {
   PlatformTurnSnapshotRequestSchema,
   PlatformTurnSnapshotResultSchema,
 } from './platform-wire';
-
 /** Main's one shadow-git snapshot owner; null until the app is ready to construct it. */
 export type DesktopWorkspaceSnapshots = () => SnapshotService | null;
-
 type Execute = <T>(
   token: CancellationToken,
   work: (signal: AbortSignal) => Promise<T>
 ) => Promise<T>;
-
 /**
  * Serve a host run's turn-boundary snapshots over the same shadow-git owner as
  * legacy turns, under the host thread's own snapshot ref. The host's log is
@@ -29,7 +27,10 @@ export function serveHostTurnSnapshots(
 ): void {
   connection.onRequest('platform/snapshot/capture', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const request = PlatformTurnSnapshotRequestSchema.parse(input);
+      const request = Schema.decodeUnknownSync(PlatformTurnSnapshotRequestSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input);
       const service = snapshots?.();
       if (!service) {
         throw new Error('This desktop has no workspace snapshot owner');
@@ -50,7 +51,10 @@ export function serveHostTurnSnapshots(
           rootPath: outcome.rootPath,
         });
       }
-      return PlatformTurnSnapshotResultSchema.parse(captured);
+      return Schema.decodeUnknownSync(PlatformTurnSnapshotResultSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(captured);
     })
   );
 }

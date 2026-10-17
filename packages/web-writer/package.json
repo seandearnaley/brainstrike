@@ -33,7 +33,9 @@
     "esbuild": "catalog:",
     "playwright": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "effect": "catalog:",
+    "@effect/tsgo": "catalog:"
   },
   "exports": {
     ".": {
@@ -64,7 +66,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },
   "sideEffects": false,
   "type": "module",

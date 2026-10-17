@@ -1,10 +1,8 @@
 import type { RuntimeData } from '@brainstrike/assistant-contract';
 import type { AssistantThreadDraftRuntime } from '@brainstrike/assistant-data';
-import type { z } from 'zod';
+import { Schema } from 'effect';
 import { PlatformClientConfigurationSchema } from './platform-client-configuration';
-
-export type DesktopHostIntent = z.output<typeof PlatformClientConfigurationSchema>;
-
+export type DesktopHostIntent = (typeof PlatformClientConfigurationSchema)['Type'];
 export interface DesktopHostModelProjection {
   readonly agentLoop: RuntimeData['agentLoop'];
   readonly model: RuntimeData['model'];
@@ -12,7 +10,6 @@ export interface DesktopHostModelProjection {
   readonly provider: RuntimeData['provider'];
   readonly providerOptions: RuntimeData['providerOptions'];
 }
-
 /** Existing owners prepare these inputs; this composition reads no settings or credentials. */
 export interface DesktopHostIntentCapture {
   readonly agentLoop: RuntimeData['agentLoop'];
@@ -23,7 +20,9 @@ export interface DesktopHostIntentCapture {
     RuntimeData,
     'model' | 'modelSettings' | 'provider' | 'providerOptions'
   >;
-  readonly permission: DesktopHostIntent['permissionPolicy'] & { readonly enforce: boolean };
+  readonly permission: DesktopHostIntent['permissionPolicy'] & {
+    readonly enforce: boolean;
+  };
   readonly projection?: DesktopHostModelProjection | undefined;
   readonly selectionFolderId: string | null;
   readonly skillsPreference: RuntimeData['skillsPreference'];
@@ -34,12 +33,14 @@ export interface DesktopHostIntentCapture {
     | undefined;
   readonly workspaceInstructionsPreference: DesktopHostIntent['workspaceInstructionsPreference'];
 }
-
 /** Keep the existing Send capture's precedence and strict non-secret wire shape. */
 export function captureDesktopHostIntent(input: DesktopHostIntentCapture): DesktopHostIntent {
   const { enforce, ...policy } = input.permission;
   const { projection, threadDraft } = input;
-  return PlatformClientConfigurationSchema.parse({
+  return Schema.decodeUnknownSync(PlatformClientConfigurationSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({
     agentLoop: input.agentLoop,
     enabledNativeToolIds: input.enabledNativeToolIds,
     memoryOptions: input.memoryOptions,

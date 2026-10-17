@@ -9,6 +9,7 @@ import {
   ListToolsResultSchema,
   ReadResourceResultSchema,
 } from '@modelcontextprotocol/core';
+import { Schema } from 'effect';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import {
   type ConfiguredMcpServerId,
@@ -52,9 +53,18 @@ const LIST_ENVELOPE =
   '{"_meta":{"io.modelcontextprotocol/serverInfo":{"name":"linear","version":"1"}},"nextCursor":"next","tools":[{"_meta":{"vendor":"linear"},"annotations":{"readOnlyHint":true},"description":"Get issue","execution":{"taskSupport":"optional"},"icons":[{"mimeType":"image/svg+xml","sizes":["any"],"src":"https://linear.app/icon.svg","theme":"dark"}],"inputSchema":{"properties":{"id":{"type":"string"}},"type":"object"},"name":"issue.get","outputSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema"},"title":"Get issue"}]}';
 const CALL_ENVELOPE =
   '{"_meta":{"trace":"secret-looking-reference-not-a-credential"},"content":[{"_meta":{"source":"linear"},"annotations":{"audience":["user"],"lastModified":"2026-08-29T00:00:00Z","priority":1},"text":"sk-like tool output is data","type":"text"},{"data":"base64","mimeType":"image/png","type":"image"},{"data":"base64","mimeType":"audio/wav","type":"audio"},{"icons":[{"src":"https://linear.app/icon.svg"}],"name":"issue","type":"resource_link","uri":"linear://issue/1"},{"resource":{"text":"issue","uri":"linear://issue/1"},"type":"resource"}],"isError":false,"structuredContent":{"issue":"BST-1502"}}';
-type ListResult = Extract<McpHostOperationResult, { type: 'tools/list' }>['result'];
-type CallResult = Extract<McpHostOperationResult, { type: 'tools/call' }>['result'];
-
+type ListResult = Extract<
+  McpHostOperationResult,
+  {
+    type: 'tools/list';
+  }
+>['result'];
+type CallResult = Extract<
+  McpHostOperationResult,
+  {
+    type: 'tools/call';
+  }
+>['result'];
 const CORE_FEATURE_RESULTS = {
   'completion/complete': {
     completion: { hasMore: true, total: 3, values: ['formal', 'friendly'] },
@@ -150,7 +160,6 @@ const CORE_FEATURE_RESULTS = {
   },
   'resources/unsubscribe': {},
 } as const;
-
 describe('MCP host contract', () => {
   it('bounds configured server ids with specific diagnostics', () => {
     const invalidIds = [
@@ -160,16 +169,15 @@ describe('MCP host contract', () => {
       ['prototype', /reserved server name/u],
       ['linear\u202Eproduction', /Unicode control or format character/u],
     ] as const;
-
     for (const [value, diagnostic] of invalidIds) {
       expect(() => parseConfiguredMcpServerId(value)).toThrow(diagnostic);
     }
   });
-
   it('allows only legacy protocol on SSE transports', () => {
-    const config = JSON.parse(SAFE_CONFIG) as { servers: Record<string, unknown>[] };
+    const config = JSON.parse(SAFE_CONFIG) as {
+      servers: Record<string, unknown>[];
+    };
     const sse = config.servers[2]!;
-
     for (const configuredProtocol of ['auto', '2026-07-28']) {
       expect(() =>
         parseMcpHostConfig({
@@ -178,11 +186,11 @@ describe('MCP host contract', () => {
       ).toThrow('SSE transport requires legacy protocol');
     }
   });
-
   it('rejects OAuth on stdio before host composition', () => {
-    const config = JSON.parse(SAFE_CONFIG) as { servers: Record<string, unknown>[] };
+    const config = JSON.parse(SAFE_CONFIG) as {
+      servers: Record<string, unknown>[];
+    };
     const stdio = config.servers[0]!;
-
     expect(() =>
       parseMcpHostConfig({
         servers: [
@@ -195,24 +203,34 @@ describe('MCP host contract', () => {
       })
     ).toThrow('OAuth user authentication requires an HTTP transport');
   });
-
   it('keeps runtime transport and stable-error vocabularies aligned with their types', () => {
     expectTypeOf(
-      McpConfiguredProtocolSchema.parse('legacy')
+      Schema.decodeUnknownSync(McpConfiguredProtocolSchema)('legacy')
     ).toEqualTypeOf<McpConfiguredProtocol>();
-    expectTypeOf(McpStatusTransportSchema.parse('stdio')).toEqualTypeOf<McpStatusTransport>();
+    expectTypeOf(
+      Schema.decodeUnknownSync(McpStatusTransportSchema)('stdio')
+    ).toEqualTypeOf<McpStatusTransport>();
     for (const category of MCP_STABLE_ERROR_CATEGORIES) {
-      expect(McpHostErrorSchema.parse({ category, code: 'stable_code', message: 'Safe' })).toEqual({
+      expect(
+        Schema.decodeUnknownSync(McpHostErrorSchema, { errors: 'all', onExcessProperty: 'error' })({
+          category,
+          code: 'stable_code',
+          message: 'Safe',
+        })
+      ).toEqual({
         category,
         code: 'stable_code',
         message: 'Safe',
       });
     }
     expect(() =>
-      McpHostErrorSchema.parse({ category: 'sdk-private', code: 'bad', message: 'Unsafe' })
+      Schema.decodeUnknownSync(McpHostErrorSchema, { errors: 'all', onExcessProperty: 'error' })({
+        category: 'sdk-private',
+        code: 'bad',
+        message: 'Unsafe',
+      })
     ).toThrow();
   });
-
   it('centralizes identity and strictly parses cloned operation/config DTOs', () => {
     for (const value of ['', ' linear', 'linear ', '__proto__', 'linear\nproduction', 42]) {
       expect(() => parseConfiguredMcpServerId(value)).toThrow('Invalid configured MCP server id');
@@ -222,7 +240,6 @@ describe('MCP host contract', () => {
     // @ts-expect-error plain strings must cross the configured-server parser.
     const unbranded: ConfiguredMcpServerId = 'configured-linear';
     expect([missing, unbranded]).toHaveLength(2);
-
     const operation = parseMcpHostOperation(
       structuredClone({
         arguments: { issueId: 'BST-1502' },
@@ -242,7 +259,6 @@ describe('MCP host contract', () => {
     expect(() => parseMcpHostConfig({ servers: [config.servers[0], config.servers[0]] })).toThrow(
       'duplicate configured server id'
     );
-
     const first = config.servers[0]!;
     const unsafe = [
       { settings: { Authorization: 'Bearer secret' } },
@@ -259,7 +275,6 @@ describe('MCP host contract', () => {
     expect(() => parseMcpHostOperation({ toolName: 'x', type: 'tools/call' })).toThrow();
     expect(() => parseMcpHostOperation({ method: 'resources/read', type: 'request' })).toThrow();
   });
-
   it('preserves complete browser-safe SDK tool envelopes', () => {
     const listEnvelope = ListToolsResultSchema.parse(JSON.parse(LIST_ENVELOPE));
     const callEnvelope = CallToolResultSchema.parse(JSON.parse(CALL_ENVELOPE));
@@ -294,7 +309,6 @@ describe('MCP host contract', () => {
         .join()
     ).toBe('text,image,audio,resource_link,resource');
   });
-
   it('strictly parses the complete closed core-server operation projection', () => {
     const operations = [
       { configuredServerId: id, cursor: 'resources-page-2', type: 'resources/list' },
@@ -324,13 +338,11 @@ describe('MCP host contract', () => {
         uri: 'linear://issue/BST-1471',
       },
     ] as const;
-
     expect(operations.map((operation) => parseMcpHostOperation(operation))).toEqual(operations);
     for (const operation of operations) {
       expect(() => parseMcpHostOperation({ ...operation, unsupported: true })).toThrow();
     }
   });
-
   it('rejects blank or whitespace-padded resource URIs at every host boundary', () => {
     const resourceOperations: readonly ((uri: string) => unknown)[] = [
       (uri) => ({ configuredServerId: id, type: 'resources/read', uri }),
@@ -343,7 +355,6 @@ describe('MCP host contract', () => {
       (uri) => ({ configuredServerId: id, type: 'resources/subscribe', uri }),
       (uri) => ({ configuredServerId: id, type: 'resources/unsubscribe', uri }),
     ];
-
     for (const uri of ['', ' ', ' linear://issue/BST-1471', 'linear://issue/BST-1471 ']) {
       for (const operation of resourceOperations) {
         expect(() => parseMcpHostOperation(operation(uri))).toThrow();
@@ -370,7 +381,6 @@ describe('MCP host contract', () => {
       ).toThrow();
     }
   });
-
   it('preserves exact resources, templates, prompts, completion, media, and cache fields', () => {
     const schemas = {
       'completion/complete': CompleteResultSchema,
@@ -382,7 +392,6 @@ describe('MCP host contract', () => {
       'resources/templates/list': ListResourceTemplatesResultSchema,
       'resources/unsubscribe': EmptyResultSchema,
     } as const;
-
     for (const [type, fixture] of Object.entries(CORE_FEATURE_RESULTS)) {
       const schema = schemas[type as keyof typeof schemas];
       const parsed = schema.parse(structuredClone(fixture));
@@ -392,7 +401,6 @@ describe('MCP host contract', () => {
       });
     }
   });
-
   it('projects catalog support, independent list errors, and modern listen state without content injection', () => {
     const catalogError = {
       category: 'operation',
@@ -427,7 +435,6 @@ describe('MCP host contract', () => {
       },
       tools: JSON.parse(LIST_ENVELOPE),
     } as const;
-
     expect(parseMcpHostCatalog(structuredClone(catalog))).toEqual(catalog);
     expect(Object.keys(catalog.errors).sort()).toEqual([...MCP_HOST_CATALOG_SECTIONS].sort());
     expect(MCP_CORE_SERVER_PROJECTION).toEqual({
@@ -454,27 +461,23 @@ describe('MCP host contract', () => {
       })
     ).toThrow();
   });
-
   it('rejects SDK-accepted non-JSON operation results', () => {
     const sdkAccepted = [
       { _meta: { callback: () => undefined }, content: [] },
       { content: [], structuredContent: { createdAt: new Date() } },
       { content: [], structuredContent: { count: Number.NaN } },
     ];
-
     for (const result of sdkAccepted) {
       expect(CallToolResultSchema.safeParse(result).success).toBe(true);
       expect(() => parseMcpHostOperationResult({ result, type: 'tools/call' })).toThrow(
         '$["result"]'
       );
     }
-
     const listResult = {
       tools: [{ inputSchema: { callback: () => undefined, type: 'object' }, name: 'unsafe' }],
     };
     expect(ListToolsResultSchema.safeParse(listResult).success).toBe(true);
     expect(() => parseMcpHostOperationResult({ result: listResult, type: 'tools/list' })).toThrow();
-
     const hostileResults = [
       JSON.parse('{"content":[],"__proto__":{"sentinel":true}}'),
       Object.defineProperty({ content: [] }, 'hidden', { get: () => true }),
@@ -484,7 +487,6 @@ describe('MCP host contract', () => {
       expect(() => parseMcpHostOperationResult({ result, type: 'tools/call' })).toThrow();
     }
   });
-
   it('exhaustively clones every lifecycle and remaining DTO family', () => {
     const base = {
       configuredProtocol: '2026-07-28' as const,
@@ -534,7 +536,6 @@ describe('MCP host contract', () => {
       parseMcpHostControlRequest({ action: 'clear-all', configuredServerId: id })
     ).toThrow();
   });
-
   it('derives OAuth controls from authoritative state, error category, and credentials', () => {
     const base = {
       auth: {
@@ -575,7 +576,6 @@ describe('MCP host contract', () => {
       })
     ).toEqual(['disconnect']);
   });
-
   it('strictly parses negotiated status and close proof DTOs', () => {
     const identity = {
       description: 'Issue tracker',
@@ -597,7 +597,6 @@ describe('MCP host contract', () => {
       revision: '2026-07-28',
       serverIdentity: identity,
     });
-
     const close = {
       callbacksClosed: 0,
       childProcessesClosed: 1,
@@ -609,7 +608,6 @@ describe('MCP host contract', () => {
       subscriptionsClosed: 0,
     };
     expect(parseMcpHostCloseReport(close)).toEqual(close);
-
     const malformedStatuses = [
       { advertisedCapabilityIds: {}, era: 'modern', revision: '2026-07-28' },
       { era: 'future', revision: '2026-07-28' },
@@ -622,7 +620,6 @@ describe('MCP host contract', () => {
     for (const status of malformedStatuses) {
       expect(() => parseMcpNegotiatedStatus(status)).toThrow();
     }
-
     for (const malformedClose of [
       { ...close, clientsClosed: -1 },
       { ...close, clientsClosed: 0.5 },
@@ -634,7 +631,6 @@ describe('MCP host contract', () => {
     }
   });
 });
-
 describe('MCP host status at a process boundary (BST-1930 c5b)', () => {
   const base = {
     auth: { credentialState: 'stored', type: 'bearer' },
@@ -643,7 +639,6 @@ describe('MCP host status at a process boundary (BST-1930 c5b)', () => {
     generation: 2,
     transport: 'streamable-http',
   } as const;
-
   it('keeps each server state with the fields that state carries', () => {
     const status = {
       revision: 4,
@@ -665,7 +660,6 @@ describe('MCP host status at a process boundary (BST-1930 c5b)', () => {
     };
     expect(parseMcpHostSnapshot(status)).toEqual(status);
   });
-
   it('refuses a server whose state lacks its facts, or a generation the host never mints', () => {
     expect(() => parseMcpHostServerSnapshot({ ...base, state: 'connected' })).toThrow();
     expect(() => parseMcpHostServerSnapshot({ ...base, state: 'error' })).toThrow();
@@ -677,7 +671,6 @@ describe('MCP host status at a process boundary (BST-1930 c5b)', () => {
     ).toThrow();
   });
 });
-
 describe('MCP operation results in a browser (BST-1930 c5d)', () => {
   it('keeps an envelope whose result is strict JSON, as the host validated it', () => {
     const read = {
@@ -686,7 +679,6 @@ describe('MCP operation results in a browser (BST-1930 c5d)', () => {
     };
     expect(parseMcpHostOperationResultWire(read)).toEqual(read);
   });
-
   it('refuses an unknown operation, a non-object result, or non-JSON data', () => {
     expect(() => parseMcpHostOperationResultWire({ result: {}, type: 'tools/explode' })).toThrow();
     expect(() => parseMcpHostOperationResultWire({ result: [], type: 'tools/list' })).toThrow();

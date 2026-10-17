@@ -1,25 +1,40 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-const Id = z.number().int().positive();
-const Account = z.string().min(1);
+const Id = Schema.Int.check(Schema.isGreaterThan(0));
+const Account = Schema.String.check(Schema.isMinCodePoints(1));
 /** Private worker messages only: never client JSON-RPC, events or diagnostic logs. */
-export const KeyringNativeRequestSchema = z.discriminatedUnion('operation', [
-  z.strictObject({ account: Account, id: Id, operation: z.literal('read') }),
-  z.strictObject({ account: Account, id: Id, operation: z.literal('write'), value: z.string() }),
-  z.strictObject({ account: Account, id: Id, operation: z.literal('delete') }),
-  z.strictObject({ id: Id, operation: z.literal('listAccounts') }),
-  z.strictObject({ id: Id, operation: z.literal('close') }),
-]);
-export type KeyringNativeRequest = z.infer<typeof KeyringNativeRequestSchema>;
-export const KeyringNativeResponseSchema = z.discriminatedUnion('ok', [
-  z.strictObject({
-    id: Id,
-    ok: z.literal(true),
-    value: z.union([z.string(), z.boolean(), z.array(z.string()), z.null()]),
-  }),
-  z.strictObject({ id: Id, ok: z.literal(false) }),
-]);
-
+export const KeyringNativeRequestSchema = Schema.Union(
+  [
+    Schema.Struct({ account: Account, id: Id, operation: Schema.Literal('read') }),
+    Schema.Struct({
+      account: Account,
+      id: Id,
+      operation: Schema.Literal('write'),
+      value: Schema.String,
+    }),
+    Schema.Struct({ account: Account, id: Id, operation: Schema.Literal('delete') }),
+    Schema.Struct({ id: Id, operation: Schema.Literal('listAccounts') }),
+    Schema.Struct({ id: Id, operation: Schema.Literal('close') }),
+  ],
+  { mode: 'oneOf' }
+);
+export type KeyringNativeRequest = (typeof KeyringNativeRequestSchema)['Type'];
+export const KeyringNativeResponseSchema = Schema.Union(
+  [
+    Schema.Struct({
+      id: Id,
+      ok: Schema.Literal(true),
+      value: Schema.Union([
+        Schema.String,
+        Schema.Boolean,
+        Schema.mutable(Schema.Array(Schema.String)),
+        Schema.Null,
+      ]),
+    }),
+    Schema.Struct({ id: Id, ok: Schema.Literal(false) }),
+  ],
+  { mode: 'oneOf' }
+);
 export interface KeyringNativeBackend {
   close(): Promise<void>;
   delete(account: string): Promise<boolean>;

@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { decodeHostRecord, type HostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock, StateStore } from '@brainstrike/state-store';
+import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { attachAgentHost } from '../src/client.js';
 import { HOST_RESULT_SCHEMAS, type HostLogRow } from '../src/protocol.js';
@@ -39,7 +40,6 @@ const exec = promisify(execFile);
 const STALE = /is stale or belongs to another run/u;
 const roots = new Map<string, FixtureCloseControl | undefined>();
 const closers: (() => Promise<void>)[] = [];
-
 const CASES = {
   answer: {
     args: ['interaction', 'resume', '--resume-data', '{"answer":"App, Docs"}'],
@@ -80,13 +80,11 @@ const CASES = {
   },
 } as const;
 type Decision = keyof typeof CASES;
-
 async function freshRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-at13-child-restart-'));
   roots.set(root, process.platform === 'win32' ? createFixtureCloseControl(root) : undefined);
   return root;
 }
-
 function cli(root: string, tool: string, args: readonly string[]): Promise<unknown> {
   const control = roots.get(root);
   return exec(process.execPath, [cliPath, '--root', root, '--platform', platformPath, ...args], {
@@ -98,27 +96,30 @@ function cli(root: string, tool: string, args: readonly string[]): Promise<unkno
     windowsHide: true,
   }).then(({ stdout }) => JSON.parse(stdout));
 }
-
 /** The CLI's refusal text; an accepted command fails the test. */
 async function refused(root: string, tool: string, args: readonly string[]): Promise<string> {
   const outcome = await cli(root, tool, args).then(
     () => undefined,
-    (error: unknown) => String((error as { stderr?: unknown }).stderr)
+    (error: unknown) =>
+      String(
+        (
+          error as {
+            stderr?: unknown;
+          }
+        ).stderr
+      )
   );
   if (outcome === undefined) {
     throw new Error('The host accepted a decision for an interrupted child');
   }
   return outcome;
 }
-
 async function owner(root: string): Promise<HostRecord> {
   return decodeHostRecord(JSON.parse(await readFile(join(root, 'host.json'), 'utf8')));
 }
-
 async function released(root: string): Promise<void> {
   await expect.poll(() => RootLock.inspect(root)?.owner.released, { timeout: 30_000 }).toBe(true);
 }
-
 async function stop(root: string, host: HostRecord): Promise<void> {
   if (processStartTime(host.pid) === host.start) {
     const control = roots.get(root);
@@ -131,18 +132,15 @@ async function stop(root: string, host: HostRecord): Promise<void> {
   await expect.poll(() => processStartTime(host.pid)).not.toBe(host.start);
   await released(root);
 }
-
 async function rowsOf(root: string): Promise<(threadId: string) => Promise<HostLogRow[]>> {
   const store = await StateStore.open(root);
   const read = async (threadId: string) => (await store.read(threadId)) as HostLogRow[];
   closers.push(() => store.close());
   return read;
 }
-
 async function lines(root: string, name: string): Promise<string[]> {
   return (await readFile(join(root, name), 'utf8').catch(() => '')).split('\n').filter(Boolean);
 }
-
 afterEach(async (context) => {
   for (const close of closers.splice(0)) {
     await close();
@@ -158,10 +156,8 @@ afterEach(async (context) => {
   }
   roots.clear();
 });
-
 const finishedOutcomes = (rows: readonly HostLogRow[]) =>
   rows.flatMap(({ event }) => (event.type === 'run.finished' ? [event.outcome] : []));
-
 /** The committed child threads, read with no host running, by the tool call that started each. */
 async function childThreads(root: string): Promise<Map<string, string>> {
   const store = await StateStore.open(root);
@@ -178,9 +174,11 @@ async function childThreads(root: string): Promise<Map<string, string>> {
     await store.close();
   }
 }
-
 async function startRun(root: string, tool: string, threadId: string, prompt: string) {
-  return HOST_RESULT_SCHEMAS['run/start'].parse(
+  return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['run/start'], {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(
     await cli(root, tool, [
       'run',
       'start',
@@ -193,7 +191,6 @@ async function startRun(root: string, tool: string, threadId: string, prompt: st
     ])
   ).runId;
 }
-
 /** The interaction `runId` pauses on, read from the live host. */
 async function pauseOf(root: string, threadId: string, runId: string) {
   const client = await attachAgentHost(await owner(root));
@@ -218,17 +215,16 @@ async function pauseOf(root: string, threadId: string, runId: string) {
     await client.close();
   }
 }
-
 test.for(Object.keys(CASES) as Decision[])(
   'a paused grandchild is interrupted by a real host restart; its decision is refused and the parent reads it once (%s)',
   async (decision) => {
     const { args, kind, tool } = CASES[decision];
     const root = await freshRoot();
-
     // Process A: the grandchild pauses on its interaction; nothing has run.
-    const { threadId } = HOST_RESULT_SCHEMAS['thread/start'].parse(
-      await cli(root, tool, ['thread', 'start'])
-    );
+    const { threadId } = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/start'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(await cli(root, tool, ['thread', 'start']));
     await released(root);
     await cli(root, tool, [
       'run',
@@ -293,7 +289,6 @@ test.for(Object.keys(CASES) as Decision[])(
       pause.interactionId,
     ];
     await stop(root, first);
-
     // Process B: the decision reaches an interrupted child and is refused.
     if (args) {
       expect(await refused(root, tool, [...args, ...target])).toMatch(STALE);
@@ -302,7 +297,10 @@ test.for(Object.keys(CASES) as Decision[])(
     }
     await released(root);
     // A later process: the parent's next turn reads the child's outcome.
-    const { runId: next } = HOST_RESULT_SCHEMAS['run/start'].parse(
+    const { runId: next } = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['run/start'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(
       await cli(root, tool, [
         'run',
         'start',
@@ -315,11 +313,13 @@ test.for(Object.keys(CASES) as Decision[])(
       ])
     );
     await released(root);
-
     // A third phase: the same decision is refused again, and the outcome is not redelivered.
     expect(await refused(root, tool, [...(args ?? CASES.approve.args), ...target])).toMatch(STALE);
     await released(root);
-    const { runId: after } = HOST_RESULT_SCHEMAS['run/start'].parse(
+    const { runId: after } = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['run/start'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(
       await cli(root, tool, [
         'run',
         'start',
@@ -332,7 +332,6 @@ test.for(Object.keys(CASES) as Decision[])(
       ])
     );
     await released(root);
-
     const read = await rowsOf(root);
     const grandchildRows = await read(grandchildThreadId);
     expect(grandchildRows.filter(({ event }) => event.type === 'interaction.responded')).toEqual(
@@ -359,7 +358,6 @@ test.for(Object.keys(CASES) as Decision[])(
       { delivery: null, states: [] },
     ]);
     expect(finishedOutcomes(await read(threadId))).toEqual(['completed', 'completed', 'completed']);
-
     // Nothing was written, and no host called the model while it recovered.
     await expect(readFile(join(root, 'fixture-effect-count'), 'utf8')).rejects.toMatchObject({
       code: 'ENOENT',
@@ -368,7 +366,12 @@ test.for(Object.keys(CASES) as Decision[])(
       code: 'ENOENT',
     });
     const calls = (await lines(root, 'fixture-model-calls')).map(
-      (line) => JSON.parse(line) as { ledgers: number; pid: number; task: string }
+      (line) =>
+        JSON.parse(line) as {
+          ledgers: number;
+          pid: number;
+          task: string;
+        }
     );
     expect(
       calls.filter(({ pid }) => pid !== first.pid).map(({ ledgers, task }) => ({ ledgers, task }))
@@ -389,7 +392,6 @@ test.for(Object.keys(CASES) as Decision[])(
     expect(pids.length).toBeGreaterThanOrEqual(5);
   }
 );
-
 /**
  * AT-13's idle-grandchild-restart, ported to ADR-0010: a follow-up typed into
  * an idle grandchild pauses on its write, and the host restarts. The follow-up
@@ -407,9 +409,10 @@ test.for(['single', 'stop-sibling'] as const)(
   async (mode) => {
     const scenario = mode === 'single' ? 'idle' : 'idle-sibling';
     const root = await freshRoot();
-    const threadId = HOST_RESULT_SCHEMAS['thread/start'].parse(
-      await cli(root, scenario, ['thread', 'start'])
-    ).threadId;
+    const threadId = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/start'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(await cli(root, scenario, ['thread', 'start'])).threadId;
     await released(root);
     // The whole tree runs and settles; its host exits idle.
     await startRun(root, scenario, threadId, 'Delegate the tree.');
@@ -419,7 +422,6 @@ test.for(['single', 'stop-sibling'] as const)(
     const grandchild = children.get('2:agent-worker-call-0') ?? '';
     const sibling = children.get('2:agent-worker-call-1');
     expect(children.size).toBe(mode === 'single' ? 2 : 3);
-
     // A fresh process: the follow-up typed into the idle grandchild pauses on its write.
     const FOLLOW_UP = 'Continue the saved grandchild task.';
     const followUp = await startRun(root, scenario, grandchild, FOLLOW_UP);
@@ -437,7 +439,6 @@ test.for(['single', 'stop-sibling'] as const)(
       await cli(root, scenario, ['run', 'stop', '--thread', grandchild, '--run', followUp]);
     }
     await stop(root, host);
-
     // Later processes: every decision is refused, before and after the parent's next turn.
     const approve = [...CASES.approve.args];
     expect(await refused(root, scenario, [...approve, ...selected.target])).toMatch(STALE);
@@ -450,7 +451,6 @@ test.for(['single', 'stop-sibling'] as const)(
     await released(root);
     expect(await refused(root, scenario, [...approve, ...selected.target])).toMatch(STALE);
     await released(root);
-
     const read = await rowsOf(root);
     const runFinished = async (thread: string, runId: string) =>
       (await read(thread)).find(
@@ -481,13 +481,16 @@ test.for(['single', 'stop-sibling'] as const)(
     )?.event;
     expect(parentStart).toMatchObject({ type: 'run.started' });
     expect(parentStart).not.toHaveProperty('delivery');
-
     // Nothing was written, and no host re-ran a follow-up after the restart.
     await expect(readFile(join(root, 'fixture-effect-count'), 'utf8')).rejects.toMatchObject({
       code: 'ENOENT',
     });
     const calls = (await lines(root, 'fixture-model-calls')).map(
-      (line) => JSON.parse(line) as { pid: number; task: string }
+      (line) =>
+        JSON.parse(line) as {
+          pid: number;
+          task: string;
+        }
     );
     expect(calls.filter(({ task }) => task === FOLLOW_UP).map(({ pid }) => pid)).toEqual(
       sibling ? [host.pid, host.pid] : [host.pid]

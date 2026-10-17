@@ -1,6 +1,7 @@
 import { type HostLedgerThread, ThreadLedgerFold } from '@brainstrike/agent-host/ledger-projection';
 import { type HostLogRow, HostLogRowSchema } from '@brainstrike/agent-host/protocol';
 import richRecording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json';
+import { Schema } from 'effect';
 import { expect, test } from 'vitest';
 import { z } from 'zod';
 import { HostThreadLedger } from '../renderer/host-thread-ledger';
@@ -11,13 +12,15 @@ import type { CommittedHostRunSource } from '../renderer/host-thread-runs';
 const MODEL = 'openrouter::anthropic/claude-sonnet-4.6';
 const BASE = Date.parse('2026-10-08T12:00:00Z');
 const rows: HostLogRow[] = richRecording.map((raw) => {
-  const row = HostLogRowSchema.parse(raw);
+  const row = Schema.decodeUnknownSync(HostLogRowSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(raw);
   const event = row.event.type === 'run.started' ? { ...row.event, modelId: MODEL } : row.event;
   return { ...row, event, ts: BASE + row.seq * 1000 };
 });
 const threadId = rows[0]?.threadId ?? '';
 const started = rows.filter((row) => row.event.type === 'run.started');
-
 /** Core's `ledger/read` entry for a thread whose committed log is `log`. */
 function ledgerRead(id: string, log: readonly HostLogRow[]): HostLedgerThread {
   const fold = new ThreadLedgerFold();
@@ -26,7 +29,6 @@ function ledgerRead(id: string, log: readonly HostLogRow[]): HostLedgerThread {
   }
   return { threadId: id, ...fold.read() };
 }
-
 /** The session's published view, driven explicitly. */
 class Source implements CommittedHostRunSource {
   private snapshot: ReturnType<CommittedHostRunSource['getSnapshot']> = {
@@ -47,7 +49,6 @@ class Source implements CommittedHostRunSource {
     }
   }
 }
-
 test("Core's ledger reads as the cost views' runs, provider calls and per-root usage", () => {
   const ledger = new HostThreadLedger();
   const other = 'other-thread';
@@ -103,7 +104,6 @@ test("Core's ledger reads as the cost views' runs, provider calls and per-root u
     },
   ]);
 });
-
 test("a thread's meter total reads stable until a costed call, and empty before one", () => {
   const ledger = new HostThreadLedger();
   expect(ledger.getThreadUsage(threadId)).toBeUndefined();
@@ -125,7 +125,6 @@ test("a thread's meter total reads stable until a costed call, and empty before 
   ledger.seed([ledgerRead(threadId, rows), ledgerRead('another-thread', [])]);
   expect(ledger.getThreadUsage(threadId)).toBe(usage);
 });
-
 test("a mounted view's fold and Core's read reconcile by the later committed row", () => {
   const ledger = new HostThreadLedger();
   const second = started[1];
@@ -162,7 +161,6 @@ test("a mounted view's fold and Core's read reconcile by the later committed row
   expect(toolCalls()).toBe(3);
   release();
 });
-
 test('a thread Core no longer lists, or one this window deleted, leaves the ledger', () => {
   const ledger = new HostThreadLedger();
   ledger.seed([ledgerRead(threadId, rows), ledgerRead('other-thread', rows)]);

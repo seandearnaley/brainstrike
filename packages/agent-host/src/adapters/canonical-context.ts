@@ -9,10 +9,9 @@ import {
   type ToolContent,
   TypeValidationError,
 } from 'ai';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { executableInputSchema } from '../executable-input-schema.js';
 import type { HostToolContext } from '../ports.js';
-
 /** Actual public library context, with the existing plain-tool provenance. */
 export function createCanonicalToolContext(
   context: HostToolContext,
@@ -41,7 +40,6 @@ export function createCanonicalToolContext(
       : {}),
   };
 }
-
 /** Preserve the catalog's public validator and model JSON Schema. */
 export function canonicalToolInputSchema(schema: unknown): FlexibleSchema<unknown> {
   if (!(schema && typeof schema === 'object')) {
@@ -49,12 +47,16 @@ export function canonicalToolInputSchema(schema: unknown): FlexibleSchema<unknow
   }
   return toStandardSchema(schema as PublicSchema<unknown>);
 }
-
 export function canonicalToolModelOutput(
   output: unknown,
   toolCallId: string,
   toolName: string
-): Extract<ToolContent[number], { type: 'tool-result' }>['output'] {
+): Extract<
+  ToolContent[number],
+  {
+    type: 'tool-result';
+  }
+>['output'] {
   const message = modelMessageSchema.parse({
     content: [{ output, toolCallId, toolName, type: 'tool-result' }],
     role: 'tool',
@@ -65,17 +67,28 @@ export function canonicalToolModelOutput(
   }
   return part.output;
 }
-
 /** Public SDK schema projection for the private platform capability transport. */
 export async function canonicalToolInputJsonSchema(
   schema: FlexibleSchema<unknown>
 ): Promise<Record<string, unknown>> {
-  return z.record(z.string(), z.json()).parse(await asSchema(schema).jsonSchema);
+  return Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.MutableJson), {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(await asSchema(schema).jsonSchema);
 }
 export async function validateCanonicalToolInput(
   schema: FlexibleSchema<unknown>,
   value: unknown
-): Promise<{ success: true; value: unknown } | { success: false; error: string }> {
+): Promise<
+  | {
+      success: true;
+      value: unknown;
+    }
+  | {
+      success: false;
+      error: string;
+    }
+> {
   const validator = asSchema(executableInputSchema(schema)).validate;
   if (!validator) {
     throw new Error('Canonical tool has no executable validator');
@@ -87,9 +100,16 @@ export async function validateCanonicalToolInput(
 }
 export function platformToolInputSchema(
   schema: Parameters<typeof jsonSchema>[0],
-  validate: (
-    value: unknown
-  ) => Promise<{ success: true; value: unknown } | { success: false; error: string }>
+  validate: (value: unknown) => Promise<
+    | {
+        success: true;
+        value: unknown;
+      }
+    | {
+        success: false;
+        error: string;
+      }
+  >
 ): FlexibleSchema<unknown> {
   return jsonSchema(schema, {
     validate: async (value) => {

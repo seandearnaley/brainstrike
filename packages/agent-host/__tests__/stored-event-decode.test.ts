@@ -26,8 +26,8 @@ import attempts from '@brainstrike/test-utils/fixtures/committed-host-run-attemp
 import rich from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json' with {
   type: 'json',
 };
+import { Schema } from 'effect';
 import { expect, test } from 'vitest';
-import { z } from 'zod';
 import { decodeStoredHostEvent } from '../src/event-storage.js';
 import { HOST_METHOD_SCHEMAS, HostEventSchema, HostLogRowSchema } from '../src/protocol.js';
 import { foldHostRunAdmission, type HostRunAdmissionCommand } from '../src/run-branch.js';
@@ -45,9 +45,13 @@ const recordings = [
   attempts,
   rich,
 ];
-
 /** Counts every property read and key listing of a JSON value, however deep. */
-function watched(value: unknown, reads: { count: number }): unknown {
+function watched(
+  value: unknown,
+  reads: {
+    count: number;
+  }
+): unknown {
   if (value === null || typeof value !== 'object') {
     return value;
   }
@@ -65,15 +69,14 @@ function watched(value: unknown, reads: { count: number }): unknown {
     },
   });
 }
-
 test("a stored row's JSON values are accepted as JSON.parse produced them, never walked again", () => {
   const reads = { count: 0 };
-  const accepted = z
-    .array(HostLogRowSchema)
-    .parse(approved)
-    .find(
-      (row) => row.event.type === 'command.accepted' && row.event.method === 'run/start'
-    )?.event;
+  const accepted = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(approved).find(
+    (row) => row.event.type === 'command.accepted' && row.event.method === 'run/start'
+  )?.event;
   if (accepted?.type !== 'command.accepted') {
     throw new Error('The recorded run has no run/start command');
   }
@@ -87,7 +90,6 @@ test("a stored row's JSON values are accepted as JSON.parse produced them, never
   expect(decoded).toMatchObject({ commandId: accepted.commandId, type: 'command.accepted' });
   expect(reads.count).toBe(0);
 });
-
 test('committed run admission preserves recorded configuration values without walking them again', () => {
   const reads = { count: 0 };
   const { seq: _seq, ...event } = configured.row;
@@ -103,9 +105,7 @@ test('committed run admission preserves recorded configuration values without wa
   }
   const admitted = new Map<string, HostRunAdmissionCommand>();
   const conversationIds = new Set<string>();
-
   foldHostRunAdmission(admitted, conversationIds, accepted);
-
   expect(reads.count).toBe(0);
   expect(conversationIds.has(event.commandId)).toBe(true);
   const admission = admitted.get(event.result.runId);
@@ -118,26 +118,48 @@ test('committed run admission preserves recorded configuration values without wa
     expect(admission?.input?.configuration?.[key]).toBe(value);
   }
 });
-
 test('producer and wire decoding still validate nested run configuration JSON', () => {
   const { seq: _seq, ...event } = configured.row;
-  expect(HostEventSchema.parse(event)).toEqual(event);
-  expect(HOST_METHOD_SCHEMAS['run/start'].parse(event.payload)).toEqual(event.payload);
+  expect(
+    Schema.decodeUnknownSync(HostEventSchema, { errors: 'all', onExcessProperty: 'error' })(event)
+  ).toEqual(event);
+  expect(
+    Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS['run/start'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(event.payload)
+  ).toEqual(event.payload);
   const { parentMessageId: _parent, prompt: _prompt, ...regenerate } = event.payload;
   const regenerateParams = { ...regenerate, userMessageId: event.commandId };
-  expect(HOST_METHOD_SCHEMAS['run/regenerate'].parse(regenerateParams)).toEqual(regenerateParams);
-
+  expect(
+    Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS['run/regenerate'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(regenerateParams)
+  ).toEqual(regenerateParams);
   for (const invalid of [undefined, Number.NaN, () => null]) {
     const configuration = { ...event.payload.configuration, invalid: { nested: invalid } };
     const payload = { ...event.payload, configuration };
-    expect(() => HostEventSchema.parse({ ...event, payload })).toThrow();
-    expect(() => HOST_METHOD_SCHEMAS['run/start'].parse(payload)).toThrow();
     expect(() =>
-      HOST_METHOD_SCHEMAS['run/regenerate'].parse({ ...regenerateParams, configuration })
+      Schema.decodeUnknownSync(HostEventSchema, { errors: 'all', onExcessProperty: 'error' })({
+        ...event,
+        payload,
+      })
+    ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS['run/start'], {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(payload)
+    ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS['run/regenerate'], {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })({ ...regenerateParams, configuration })
     ).toThrow();
   }
 });
-
 test('committed run admission still refuses malformed configuration and result structure', () => {
   const { seq: _seq, ...event } = configured.row;
   const malformed = [
@@ -157,18 +179,26 @@ test('committed run admission still refuses malformed configuration and result s
     expect(() => foldHostRunAdmission(new Map(), new Set(), accepted)).toThrow();
   }
 });
-
 test('stored-row decoding equals the full producer decode on every recorded event', () => {
   for (const recording of recordings) {
-    for (const row of z.array(HostLogRowSchema).parse(recording)) {
+    for (const row of Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(recording)) {
       const stored = JSON.parse(JSON.stringify(row.event)) as Record<string, unknown>;
-      expect(decodeStoredHostEvent(stored)).toEqual(HostEventSchema.parse(stored));
+      expect(decodeStoredHostEvent(stored)).toEqual(
+        Schema.decodeUnknownSync(HostEventSchema, { errors: 'all', onExcessProperty: 'error' })(
+          stored
+        )
+      );
     }
   }
 });
-
 test('stored-row decoding still refuses a row whose structure is wrong', () => {
-  const accepted = z.array(HostLogRowSchema).parse(approved)[0]?.event;
+  const accepted = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(approved)[0]?.event;
   expect(() => decodeStoredHostEvent({ ...accepted, commandId: 7 })).toThrow();
   expect(() => decodeStoredHostEvent({ ...accepted, unexpected: true })).toThrow();
   const { payload: _payload, ...missing } = accepted as Record<string, unknown>;

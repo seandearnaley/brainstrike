@@ -3,10 +3,16 @@ import {
   DEFAULT_PERMISSION_POLICIES,
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
 } from '@brainstrike/assistant-contract';
+import { Schema } from 'effect';
 import { PlatformClientConfigurationSchema } from '../../agent-host-platform/platform-wire';
-
-export function desktopHostIntentFixture() {
-  return PlatformClientConfigurationSchema.parse({
+import type { MutableFixture } from './mutable-schema-fixture';
+export function desktopHostIntentFixture(): MutableFixture<
+  typeof PlatformClientConfigurationSchema.Type
+> {
+  return Schema.decodeUnknownSync(PlatformClientConfigurationSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({
     agentLoop: { inputTokenLimit: 7000, maxSteps: 3 },
     enabledNativeToolIds: [],
     memoryOptions: {

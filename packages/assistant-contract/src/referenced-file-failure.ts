@@ -1,13 +1,12 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { BoundaryFailureSchema, describeBoundaryFailure } from './boundary-failure.js';
-
 /** One failed attachment read, captured once by its run admission. No content or host path. */
-export const ReferencedFileFailureSchema = z.strictObject({
+export const ReferencedFileFailureSchema = Schema.Struct({
   failure: BoundaryFailureSchema,
-  path: z.string().min(1),
-  rootId: z.string().min(1),
+  path: Schema.String.check(Schema.isMinCodePoints(1)),
+  rootId: Schema.String.check(Schema.isMinCodePoints(1)),
 });
-export type ReferencedFileFailure = z.infer<typeof ReferencedFileFailureSchema>;
+export type ReferencedFileFailure = (typeof ReferencedFileFailureSchema)['Type'];
 export function describeReferencedFileFailure(file: ReferencedFileFailure): {
   label: string;
   detail: string;

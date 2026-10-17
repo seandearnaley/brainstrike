@@ -3,9 +3,12 @@ import { CommittedThreadView } from '@brainstrike/agent-host/thread-view';
 import { CommittedAssistantLogProjection } from '@brainstrike/assistant-ui';
 // Actual HostCore, native SQLite and public SDK approved-run capture, unchanged.
 import recording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json';
+import { Schema } from 'effect';
 import { expect, it } from 'vitest';
 
-const rows = recording.map((row) => HostLogRowSchema.parse(row));
+const rows = recording.map((row) =>
+  Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)
+);
 const start = rows.find(({ event }) => event.type === 'run.started');
 const accepted = rows.find(
   ({ event }) => event.type === 'command.accepted' && event.method === 'run/start'
@@ -28,9 +31,10 @@ function projector(): CommittedAssistantLogProjection {
     threadId,
   });
 }
-
 it('reuses the public owner gap fold and equals a fresh fold after reconnect overlap', () => {
-  const committedRows = recording.map((row) => HostLogRowSchema.parse(row));
+  const committedRows = recording.map((row) =>
+    Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)
+  );
   const owner = new CommittedThreadView(threadId);
   const projection = projector();
   let publications = 0;

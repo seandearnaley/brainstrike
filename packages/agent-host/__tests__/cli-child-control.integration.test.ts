@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RootLock } from '@brainstrike/state-store';
 import { MockLanguageModelV4 } from 'ai/test';
+import { Schema } from 'effect';
 import { expect, test } from 'vitest';
 import { runHostCli } from '../src/cli.js';
 import { HOST_RESULT_SCHEMAS, type HostLogRow } from '../src/protocol.js';
@@ -23,7 +24,6 @@ const started = (rows: readonly HostLogRow[]) =>
   rows.flatMap(({ event }) => (event.type === 'run.started' ? [event] : []));
 const finished = (rows: readonly HostLogRow[]) =>
   rows.flatMap(({ event }) => (event.type === 'run.finished' ? [event] : []));
-
 test('named CLI child controls queue input, stop only its sibling, and continue the idle child', async () => {
   const root = await mkdtemp(join(tmpdir(), 'bs-m4-cli-child-'));
   const entered = Promise.withResolvers<void>();
@@ -78,9 +78,10 @@ test('named CLI child controls queue input, stop only its sibling, and continue 
       threadId,
     });
     await entered.promise;
-    const { children } = HOST_RESULT_SCHEMAS['thread/children'].parse(
-      await cli(['children', 'list', '--thread', threadId])
-    );
+    const { children } = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/children'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(await cli(['children', 'list', '--thread', threadId]));
     expect(children).toHaveLength(2);
     const tasks = await Promise.all(
       children.map(async (child) => ({
@@ -158,7 +159,10 @@ test('named CLI child controls queue input, stop only its sibling, and continue 
         .map(({ runId }) => runId)
         .sort()
     );
-    const sent = HOST_RESULT_SCHEMAS['run/start'].parse(
+    const sent = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['run/start'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(
       await cli([
         'child',
         'send',

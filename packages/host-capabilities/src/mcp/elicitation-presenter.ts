@@ -23,6 +23,7 @@ import type {
   ElicitRequestFormParams,
   ElicitResult,
 } from '@modelcontextprotocol/client';
+import { Schema } from 'effect';
 
 const FINALIZED_OBSERVER_LIMIT = 4;
 const FINALIZED_PRESENTATION_LIMIT = 128;
@@ -186,7 +187,6 @@ const SENSITIVE_URL_PARAMETER =
   /^(?:(?:access|authorization|id|refresh|session)[_.-]?token|api[_.-]?key|authorization|authorization[_.-]?code|client[_.-]?secret|code|code[_.-]?verifier|credential|password|secret|token)$/iu;
 const clip = (value: string, limit: number): string =>
   value.length <= limit ? value : `${value.slice(0, limit - 12)}…[truncated]`;
-
 function projectServerIdentity(
   identity: McpServerIdentity | undefined
 ): McpElicitationProvenance['serverIdentity'] {
@@ -247,7 +247,6 @@ export class McpElicitationPresenterAuthority {
   private readonly processNonce = randomUUID();
   private readonly urlGrants = new WeakMap<InvocationAuthority, Map<number | string, string>>();
   readonly presenter: McpElicitationPresenter;
-
   constructor(private readonly options: McpElicitationPresenterAuthorityOptions) {
     this.createPresentationId = options.createPresentationId ?? randomUUID;
     this.presenter = {
@@ -273,7 +272,6 @@ export class McpElicitationPresenterAuthority {
       }
     };
   }
-
   /**
    * Observes every pending presentation finalization (settlement, abort,
    * retirement, detach, close) so a renderer surface can retire its dialog.
@@ -291,7 +289,6 @@ export class McpElicitationPresenterAuthority {
       this.finalizedObservers.delete(observer);
     };
   }
-
   async runWithOperation<T>(
     operation: McpHostOperation,
     run: () => Promise<T>,
@@ -311,12 +308,14 @@ export class McpElicitationPresenterAuthority {
       this.urlGrants.delete(authority);
     }
   }
-
   bindTaskPresenter(binding: McpTaskElicitationBinding): McpBoundTaskElicitationPresenter {
     if (this.closed) {
       throw new McpElicitationPresenterError('mcp-elicitation-presenter-closed');
     }
-    const taskHandle = McpTaskHandleSchema.parse(binding.taskHandle);
+    const taskHandle = Schema.decodeUnknownSync(McpTaskHandleSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(binding.taskHandle);
     if (taskHandle.serverId !== binding.configuredServerId) {
       throw new McpElicitationPresenterError('mcp-elicitation-stale-authority');
     }
@@ -349,7 +348,6 @@ export class McpElicitationPresenterAuthority {
       },
     };
   }
-
   settle(input: McpElicitationSettlementInput): void {
     const prepared = this.prepare(input);
     if (prepared.pending.hostOwned) {
@@ -357,7 +355,6 @@ export class McpElicitationPresenterAuthority {
     }
     this.complete(input, prepared);
   }
-
   /** Every settlement check, with no side effect: nothing resolves, finishes or is sent. */
   private prepare(input: McpElicitationSettlementInput): {
     readonly pending: PendingPresentation;
@@ -404,10 +401,15 @@ export class McpElicitationPresenterAuthority {
     }
     return { pending, result };
   }
-
   private complete(
     input: McpElicitationSettlementInput,
-    { pending, result }: { readonly pending: PendingPresentation; readonly result: ElicitResult }
+    {
+      pending,
+      result,
+    }: {
+      readonly pending: PendingPresentation;
+      readonly result: ElicitResult;
+    }
   ): void {
     if (pending.presentation.mode === 'url' && input.action === 'accept') {
       const grants = this.urlGrants.get(pending.invocation) ?? new Map();
@@ -418,7 +420,6 @@ export class McpElicitationPresenterAuthority {
       pending.resolve(result)
     );
   }
-
   /**
    * Core's capability for one host-owned presentation. Validation is pure; settle
    * finalizes locally, and for task input waits for the server's ack of the update
@@ -464,7 +465,6 @@ export class McpElicitationPresenterAuthority {
       },
     };
   }
-
   retireServer(configuredServerId: ConfiguredMcpServerId, generation: number): void {
     for (const [id, pending] of this.pending) {
       const provenance = pending.presentation.provenance;
@@ -478,7 +478,6 @@ export class McpElicitationPresenterAuthority {
       }
     }
   }
-
   close(): void {
     if (this.closed) {
       return;
@@ -488,7 +487,6 @@ export class McpElicitationPresenterAuthority {
     this.finishAll('mcp-elicitation-presenter-closed');
     this.finalizedObservers.clear();
   }
-
   private async present(
     request: ElicitRequest,
     context: McpClientHandlerContext,
@@ -565,7 +563,6 @@ export class McpElicitationPresenterAuthority {
     );
     return deferred.promise;
   }
-
   /** Host-owned input goes only to Core; otherwise the single local listener sees it. */
   private deliver(
     pending: PendingPresentation,
@@ -592,7 +589,6 @@ export class McpElicitationPresenterAuthority {
       })
       .catch(refuse);
   }
-
   private async openUrl(
     url: URL,
     context: McpClientHandlerContext,
@@ -618,7 +614,6 @@ export class McpElicitationPresenterAuthority {
     }
     await this.options.openExternal(url);
   }
-
   private publish(
     presentation: McpElicitationPresentation,
     request: ElicitRequest,
@@ -671,7 +666,6 @@ export class McpElicitationPresenterAuthority {
       );
     }
   }
-
   private resolveOperationInvocation(context: McpClientHandlerContext): InvocationAuthority {
     const matches = [...this.invocations].filter(
       ({ configuredServerId }) => configuredServerId === context.serverName
@@ -682,7 +676,6 @@ export class McpElicitationPresenterAuthority {
     }
     return invocation;
   }
-
   private resolveAuthority(
     context: McpClientHandlerContext,
     resolveInvocation: (context: McpClientHandlerContext) => InvocationAuthority
@@ -723,7 +716,6 @@ export class McpElicitationPresenterAuthority {
       },
     };
   }
-
   private finish(
     id: string,
     finalCode: McpElicitationPresenterErrorCode,
@@ -745,13 +737,11 @@ export class McpElicitationPresenterAuthority {
       }
     }
   }
-
   private finishAll(code: McpElicitationPresenterErrorCode): void {
     for (const [id, pending] of this.pending) {
       this.finish(id, code, () => pending.reject(new McpElicitationPresenterError(code)));
     }
   }
-
   private recordFinalized(id: string, code: McpElicitationPresenterErrorCode): void {
     this.finalized.set(id, code);
     while (this.finalized.size > FINALIZED_PRESENTATION_LIMIT) {

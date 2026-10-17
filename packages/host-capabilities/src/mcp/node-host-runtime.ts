@@ -34,6 +34,7 @@ import type {
 import { applyMcpExtensionPreferences } from '@brainstrike/assistant-contract/mcp-config';
 import type { McpTaskStorage } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
+import { Schema } from 'effect';
 import type { McpBearerCredentialAuthority } from './bearer-credential.js';
 import { McpElicitationPresenterAuthority } from './elicitation-presenter.js';
 import {
@@ -78,7 +79,12 @@ export type { ExplicitClient } from './host-connection.js';
 type ActorContext = Parameters<McpServerActorClientFactory>[0];
 type ConfiguredServer = McpHostConfig['servers'][number];
 const MCP_OAUTH_MAX_STEP_UP_RETRIES = 3;
-type UnavailableAuthorityReason = Extract<McpToolAuthority, { kind: 'unavailable' }>['reason'];
+type UnavailableAuthorityReason = Extract<
+  McpToolAuthority,
+  {
+    kind: 'unavailable';
+  }
+>['reason'];
 function unavailableAuthority(reason: UnavailableAuthorityReason): McpToolAuthority {
   return Object.freeze({ kind: 'unavailable', reason, version: 1 });
 }
@@ -90,7 +96,12 @@ function authorityBase(server: ResolvedMcpServer) {
   };
 }
 function captureHttpToolAuthority(
-  server: Exclude<ResolvedMcpServer, { transport: 'stdio' }>
+  server: Exclude<
+    ResolvedMcpServer,
+    {
+      transport: 'stdio';
+    }
+  >
 ): McpToolAuthority {
   const destination = new URL(server.url);
   // BST-1977: a real synthetic path-capability endpoint leaked its token into
@@ -112,7 +123,10 @@ function captureHttpToolAuthority(
   if (server.auth?.type === 'oauth-user') {
     return unavailableAuthority('oauth-principal-not-comparable');
   }
-  return McpToolAuthoritySchema.parse({
+  return Schema.decodeUnknownSync(McpToolAuthoritySchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({
     ...authorityBase(server),
     auth:
       server.auth?.type === 'bearer'
@@ -124,7 +138,12 @@ function captureHttpToolAuthority(
   });
 }
 function captureStdioToolAuthority(
-  server: Extract<ResolvedMcpServer, { transport: 'stdio' }>
+  server: Extract<
+    ResolvedMcpServer,
+    {
+      transport: 'stdio';
+    }
+  >
 ): McpToolAuthority {
   // No existing non-secret declaration covers private arguments or environment.
   // Keep the live capability, never copy or hash these fields for restart.
@@ -139,7 +158,10 @@ function captureStdioToolAuthority(
   if (!isAbsolute(server.command)) {
     return unavailableAuthority('unresolved-stdio-command');
   }
-  return McpToolAuthoritySchema.parse({
+  return Schema.decodeUnknownSync(McpToolAuthoritySchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({
     ...authorityBase(server),
     args: [],
     command: server.command,
@@ -178,7 +200,6 @@ export interface McpHostRuntimePlatform {
   /** Core's ownership of the tasks its runs bound, once Core opens (BST-1930 c3). */
   readonly taskOwner?: Promise<McpHostTaskOwner>;
 }
-
 export interface McpHostRuntimeDependencies {
   clientName?: string;
   createActorClient?: (
@@ -211,13 +232,11 @@ export interface McpHostRuntimeDependencies {
    */
   unattendedConnectTimeoutMs?: number;
 }
-
 interface PrivateConfigEntry {
   auth: McpHostAuthSnapshot;
   configRef: string;
   server: ResolvedMcpServer;
 }
-
 interface StagedResolvedConfig {
   readonly nextById: Map<ConfiguredMcpServerId, PrivateConfigEntry>;
   readonly nextByRef: Map<string, PrivateConfigEntry>;
@@ -235,11 +254,9 @@ class ConfigRefError extends Error {
     this.name = 'McpConfigRefError';
   }
 }
-
 const logger = createLogger('McpHostRuntime');
 const samePrivateConfig = (left: ResolvedMcpServer, right: ResolvedMcpServer): boolean =>
   isDeepStrictEqual({ ...left, enabledTools: undefined }, { ...right, enabledTools: undefined });
-
 export class McpHostRuntime {
   private readonly bearerCredentialAuthority: McpBearerCredentialAuthority;
   private committedByRef = new Map<string, PrivateConfigEntry>();
@@ -280,7 +297,6 @@ export class McpHostRuntime {
     McpHostRuntimeDependencies['createStdioTransportClient']
   >;
   private readonly unattendedConnectTimeoutMs: number | undefined;
-
   constructor(
     private readonly platform: McpHostRuntimePlatform,
     dependencies: McpHostRuntimeDependencies = {}
@@ -429,14 +445,12 @@ export class McpHostRuntime {
       watch: (filter, listener) => this.service.watch(filter, listener),
     };
   }
-
   replaceResolvedConfig(config: ResolvedMcpConfig): Promise<McpHostSnapshot> {
     const snapshot = structuredClone(config);
     return this.enqueueReplacement(() =>
       this.applyConfiguration(snapshot, this.extensionPreferences)
     );
   }
-
   /** Existing configured definition, without a private-value hash or replacement ID. */
   describeToolAuthority(
     configuredServerId: ConfiguredMcpServerId,
@@ -451,12 +465,10 @@ export class McpHostRuntime {
     }
     return captureConfiguredToolAuthority(entry.server);
   }
-
   /** Effective global dials the next connection generation would advertise. */
   get mcpExtensionPreferences(): McpExtensionEnablement {
     return this.extensionPreferences;
   }
-
   /**
    * Global extension off switch (BST-1604). The dials are folded into every
    * server's private definition, so a flipped dial changes each affected
@@ -473,7 +485,6 @@ export class McpHostRuntime {
         await this.applyConfiguration(this.declaredConfig, parseMcpExtensionEnablement(preferences))
     );
   }
-
   private async applyConfiguration(
     declared: ResolvedMcpConfig,
     preferences: McpExtensionEnablement
@@ -513,7 +524,6 @@ export class McpHostRuntime {
     this.extensionPreferences = preferences;
     return committed;
   }
-
   private retirePresentations(configuredServerId: ConfiguredMcpServerId): void {
     const current = this.service
       .snapshot()
@@ -522,11 +532,9 @@ export class McpHostRuntime {
       this.elicitationPresenter.retireServer(configuredServerId, current.generation);
     }
   }
-
   retiredCleanupReport(): McpHostCloseReport {
     return this.service.retiredCleanupReport();
   }
-
   private enqueueReplacement<T>(operation: () => Promise<T>): Promise<T> {
     const replacement = this.replacementTail.then(operation);
     this.replacementTail = replacement.then(
@@ -535,7 +543,6 @@ export class McpHostRuntime {
     );
     return replacement;
   }
-
   /** Projects auth for every server; rejects before any live state changes. */
   private async stageResolvedConfig(config: ResolvedMcpConfig): Promise<StagedResolvedConfig> {
     const nextById = new Map<ConfiguredMcpServerId, PrivateConfigEntry>();
@@ -571,7 +578,6 @@ export class McpHostRuntime {
     );
     return { nextById, nextByRef, servers };
   }
-
   private async commitResolvedConfig({
     nextById,
     nextByRef,
@@ -622,7 +628,6 @@ export class McpHostRuntime {
       this.stagedByRef = undefined;
     }
   }
-
   private resolveEntry(config: ConfiguredServer): PrivateConfigEntry {
     // A reused ref can differ only by enabledTools, which stays in the public config.
     const entry =
@@ -643,7 +648,6 @@ export class McpHostRuntime {
     }
     return entry;
   }
-
   private reportInternalError(code: string, cause: unknown): void {
     try {
       const pending = this.onInternalError(code, cause);
@@ -656,7 +660,6 @@ export class McpHostRuntime {
       logger.error('MCP host diagnostic sink threw', { cause: diagnosticCause, code });
     }
   }
-
   private async projectAuth(server: ResolvedMcpServer): Promise<McpHostAuthSnapshot> {
     if (server.transport === 'stdio' || server.auth === undefined || server.auth.type === 'none') {
       return { type: 'none' };
@@ -683,13 +686,11 @@ export class McpHostRuntime {
       };
     }
   }
-
   private oauthIdentity(server: ResolvedMcpServer) {
     return server.transport !== 'stdio' && server.auth?.type === 'oauth-user'
       ? createMcpOAuthStoreIdentity(server.name, server.url, server.auth.scopes)
       : undefined;
   }
-
   private async createExplicitActorClient(
     server: ResolvedMcpServer,
     context: ActorContext,
@@ -722,7 +723,6 @@ export class McpHostRuntime {
       server,
     });
   }
-
   /**
    * Hands a negotiated connection to the task authorities; the actor client
    * closes the task session before the transport so no poller outlives it.
@@ -772,7 +772,6 @@ export class McpHostRuntime {
       },
     };
   }
-
   private commonClientOptions(
     server: ResolvedMcpServer,
     context: ActorContext,
@@ -788,7 +787,6 @@ export class McpHostRuntime {
       protocol: server.protocol,
     };
   }
-
   private async createTransportActorClient(
     server: ResolvedMcpServer,
     context: ActorContext,
@@ -903,7 +901,6 @@ export class McpHostRuntime {
       this.publishOAuthSnapshot(provider, updateAuth);
     }
   }
-
   private publishOAuthSnapshot(
     provider: McpOAuthClientProvider | undefined,
     publish: (auth: McpHostAuthSnapshot) => void
@@ -913,7 +910,6 @@ export class McpHostRuntime {
     }
     publish(provider.authSnapshot());
   }
-
   private async recordOAuthConnection(
     provider: McpOAuthClientProvider,
     updateAuth: (auth: McpHostAuthSnapshot) => void
@@ -925,7 +921,6 @@ export class McpHostRuntime {
       this.reportInternalError('mcp-oauth-connection-record-failed', cause);
     }
   }
-
   private async clearOAuthCredentials(
     entry: PrivateConfigEntry,
     updateAuth: (auth: McpHostAuthSnapshot) => void
@@ -940,7 +935,6 @@ export class McpHostRuntime {
     updateAuth(await this.projectAuth(server));
   }
 }
-
 export const createMcpHostRuntime = (
   platform: McpHostRuntimePlatform,
   dependencies?: McpHostRuntimeDependencies

@@ -1,65 +1,76 @@
 import { parsePromptLibraryRequest } from '@brainstrike/types/catalog-args';
 import type { PromptLibraryReply, PromptLibraryRequest } from '@brainstrike/types/prompt-item';
+import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import { sendCatalogRequest } from './request.js';
 export interface PromptLibraryPort {
   promptLibrary(request: PromptLibraryRequest): Promise<PromptLibraryReply>;
 }
-const Id = z.string().regex(/\S/u);
-const DateString = z.string().datetime();
+const Id = Schema.String.check(Schema.isPattern(/\S/u));
+const DateString = Schema.String.check(Schema.isPattern(z.regexes.datetime({})));
 const Common = {
-  content: z.string(),
+  content: Schema.String,
   createdAt: DateString,
-  description: z.string().nullable(),
+  description: Schema.NullOr(Schema.String),
   id: Id,
-  modelKey: z.string().nullable(),
-  modelSettings: z.record(z.string(), z.unknown()).nullable(),
-  revision: z.number().int().positive(),
-  tags: z.array(z.string()),
-  title: z.string(),
+  modelKey: Schema.NullOr(Schema.String),
+  modelSettings: Schema.NullOr(Schema.Record(Schema.String, Schema.Unknown)),
+  revision: Schema.Int.check(Schema.isGreaterThan(0)),
+  tags: Schema.mutable(Schema.Array(Schema.String)),
+  title: Schema.String,
 };
-const Item = z.strictObject({
+const Item = Schema.Struct({
   ...Common,
-  archivedAt: DateString.nullable(),
-  embeddingError: z.string().nullable(),
-  embeddingProfileId: z.string().nullable(),
-  embeddingRevision: z.number().int().positive().nullable(),
-  embeddingStatus: z.enum(['pending', 'ready', 'error']),
-  embeddingUpdatedAt: DateString.nullable(),
-  isFavorite: z.boolean(),
-  kind: z.enum(['prompt', 'snippet', 'fragment']),
-  lastUsedAction: z.enum(['compose', 'insert', 'new-thread']).nullable(),
-  lastUsedAt: DateString.nullable(),
-  rating: z.number().int().min(0).max(5).nullable(),
-  sourceUrl: z.string().nullable(),
+  archivedAt: Schema.NullOr(DateString),
+  embeddingError: Schema.NullOr(Schema.String),
+  embeddingProfileId: Schema.NullOr(Schema.String),
+  embeddingRevision: Schema.NullOr(Schema.Int.check(Schema.isGreaterThan(0))),
+  embeddingStatus: Schema.Literals(['pending', 'ready', 'error']),
+  embeddingUpdatedAt: Schema.NullOr(DateString),
+  isFavorite: Schema.Boolean,
+  kind: Schema.Literals(['prompt', 'snippet', 'fragment']),
+  lastUsedAction: Schema.NullOr(Schema.Literals(['compose', 'insert', 'new-thread'])),
+  lastUsedAt: Schema.NullOr(DateString),
+  rating: Schema.NullOr(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).check(Schema.isLessThanOrEqualTo(5))
+  ),
+  sourceUrl: Schema.NullOr(Schema.String),
   updatedAt: DateString,
-  useCount: z.number().int().nonnegative(),
+  useCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 });
-const Reply = z.strictObject({
-  accepted: z.boolean(),
-  items: z.array(Item),
-  profile: z.strictObject({
-    dimensions: z.literal(384),
-    distance: z.literal('cosine'),
-    id: z.literal('default'),
-    modelId: z.literal('Xenova/all-MiniLM-L6-v2'),
-    modelKey: z.literal('local::Xenova/all-MiniLM-L6-v2'),
+const Reply = Schema.Struct({
+  accepted: Schema.Boolean,
+  items: Schema.mutable(Schema.Array(Item)),
+  profile: Schema.Struct({
+    dimensions: Schema.Literal(384),
+    distance: Schema.Literal('cosine'),
+    id: Schema.Literal('default'),
+    modelId: Schema.Literal('Xenova/all-MiniLM-L6-v2'),
+    modelKey: Schema.Literal('local::Xenova/all-MiniLM-L6-v2'),
   }),
-  revisions: z.array(z.strictObject({ ...Common, note: z.string().nullable(), promptItemId: Id })),
-  similarities: z.array(
-    z.strictObject({
-      id: Id,
-      revision: z.number().int().positive(),
-      similarity: z.number().finite().min(-1).max(1),
-    })
+  revisions: Schema.mutable(
+    Schema.Array(Schema.Struct({ ...Common, note: Schema.NullOr(Schema.String), promptItemId: Id }))
+  ),
+  similarities: Schema.mutable(
+    Schema.Array(
+      Schema.Struct({
+        id: Id,
+        revision: Schema.Int.check(Schema.isGreaterThan(0)),
+        similarity: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(-1)).check(
+          Schema.isLessThanOrEqualTo(1)
+        ),
+      })
+    )
   ),
 });
 const METHOD = 'host/prompt-library';
 export function servePromptLibrary(
   connection: Pick<MessageConnection, 'onRequest'>,
   store: PromptLibraryPort
-): { close(): Promise<void> } {
+): {
+  close(): Promise<void>;
+} {
   let closing: Promise<void> | undefined;
   const pending = new Set<Promise<PromptLibraryReply>>();
   const subscription = connection.onRequest(METHOD, async (input: unknown) => {
@@ -89,6 +100,8 @@ export function servePromptLibrary(
 export function createPromptLibraryClient(connection: MessageConnection): PromptLibraryPort {
   return {
     promptLibrary: async (request) =>
-      Reply.parse(await sendCatalogRequest(connection, METHOD, parsePromptLibraryRequest(request))),
+      Schema.decodeUnknownSync(Reply, { errors: 'all', onExcessProperty: 'error' })(
+        await sendCatalogRequest(connection, METHOD, parsePromptLibraryRequest(request))
+      ),
   };
 }

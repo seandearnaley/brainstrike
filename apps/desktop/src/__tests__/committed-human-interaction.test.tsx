@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-
 import { committedRunIdentity } from '@brainstrike/agent-host/committed-identities';
 import { HostLogRowSchema } from '@brainstrike/agent-host/protocol';
 import { CommittedThreadView } from '@brainstrike/agent-host/thread-view';
@@ -13,6 +12,7 @@ import recordedPlan from '@brainstrike/test-utils/fixtures/committed-host-plan.j
 import recordedQuestion from '@brainstrike/test-utils/fixtures/committed-host-question.json';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { Schema } from 'effect';
 import { afterEach, expect, test, vi } from 'vitest';
 // HostCore with the canonical run_python binding (network-consent.integration.test.ts).
 import recordedNetwork from './fixtures/committed-host-network.json';
@@ -24,7 +24,9 @@ test.each([
 ])(
   'replays the committed $kind and retries rejected dispatch without inventing a response',
   async ({ kind, recording }) => {
-    const rows = recording.map((row) => HostLogRowSchema.parse(row));
+    const rows = recording.map((row) =>
+      Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)
+    );
     const started = rows.find(({ event }) => event.type === 'run.started');
     const admitted = rows.find(
       ({ event }) => event.type === 'command.accepted' && event.method === 'run/start'
@@ -110,9 +112,10 @@ test.each([
     }
   }
 );
-
 test('replays a run_python network card: facts, ticked domains, the approval grant, then a per-call ask', async () => {
-  const rows = recordedNetwork.map((row) => HostLogRowSchema.parse(row));
+  const rows = recordedNetwork.map((row) =>
+    Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)
+  );
   const started = rows.find(({ event }) => event.type === 'run.started');
   const cards = rows.flatMap(({ event }, index) =>
     event.type === 'interaction.requested' ? [index] : []
@@ -163,7 +166,6 @@ test('replays a run_python network card: facts, ticked domains, the approval gra
       optionId: 'grant-session',
       text: JSON.stringify({ action: 'allow' }),
     });
-
     await act(async () => {
       view.accept(rows.slice(first + 1, second + 1));
     });
@@ -179,7 +181,6 @@ test('replays a run_python network card: facts, ticked domains, the approval gra
       text: JSON.stringify({ action: 'allow' }),
     });
     expect(dispatch.mock.calls[1]?.[0]).not.toHaveProperty('optionId');
-
     await act(async () => {
       view.accept(rows.slice(second + 1));
     });

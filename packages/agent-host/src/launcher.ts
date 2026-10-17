@@ -1,10 +1,10 @@
 import { fileURLToPath } from 'node:url';
 import { createNodeHostSpawner, type HostSpawner } from '@brainstrike/host-lease';
+import { Schema } from 'effect';
 import {
   type HostPlatformLaunchOptions,
   HostPlatformLaunchOptionsSchema,
 } from './platform-launch-options.js';
-
 export function createAgentHostSpawner(
   platformModule: string,
   platformOptions?: HostPlatformLaunchOptions
@@ -15,7 +15,12 @@ export function createAgentHostSpawner(
       ...(platformOptions
         ? [
             '--platform-options',
-            JSON.stringify(HostPlatformLaunchOptionsSchema.parse(platformOptions)),
+            JSON.stringify(
+              Schema.decodeUnknownSync(HostPlatformLaunchOptionsSchema, {
+                errors: 'all',
+                onExcessProperty: 'error',
+              })(platformOptions)
+            ),
           ]
         : []),
     ],

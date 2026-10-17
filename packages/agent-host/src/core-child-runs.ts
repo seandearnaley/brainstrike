@@ -10,6 +10,7 @@ import {
 } from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
 import type { LanguageModel } from 'ai';
+import { Schema } from 'effect';
 import { borrowHostAdmission } from './admission-lease.js';
 import {
   describeHostChildContinuation,
@@ -47,11 +48,19 @@ import type {
 } from './protocol.js';
 import { delegatedHostRunAdmission, type HostRunPosition, startedHostRun } from './run-branch.js';
 
-type Action = Extract<HostEvent, { type: 'effect.started' }>;
-type Started = Extract<HostEvent, { type: 'run.started' }>;
-
+type Action = Extract<
+  HostEvent,
+  {
+    type: 'effect.started';
+  }
+>;
+type Started = Extract<
+  HostEvent,
+  {
+    type: 'run.started';
+  }
+>;
 const logger = createLogger('AgentHost');
-
 /** HostCore's writer, loop and stop, lent to one delegation. */
 export interface HostChildRunPort {
   /** Commit `items` in one transaction, then register the child thread and run. */
@@ -66,7 +75,6 @@ export interface HostChildRunPort {
   /** Whether an ID is already a committed thread or conversation identity. */
   taken(id: string): boolean;
 }
-
 export interface HostDelegationRequest {
   readonly action: Action;
   /** The parent run's admission; the called tool names the persona. */
@@ -74,12 +82,14 @@ export interface HostDelegationRequest {
   readonly input: unknown;
   readonly run: HostRunState;
 }
-
 /** A delegation's child, prepared but not yet committed. */
 export interface HostPreparedChild {
   readonly child: HostRunState;
   /** The parent's effect and the child's origin and first run: one transaction. */
-  readonly items: readonly { readonly event: HostEvent; readonly threadId: string }[];
+  readonly items: readonly {
+    readonly event: HostEvent;
+    readonly threadId: string;
+  }[];
   readonly model: LanguageModel;
   readonly origin: HostChildOrigin;
   readonly persona: AssistantPersonaDefinition;
@@ -87,9 +97,7 @@ export interface HostPreparedChild {
   readonly settled: Promise<void>;
   readonly threadId: string;
 }
-
 type Pending = ReturnType<HostChildRuns['pending']>;
-
 /** A new run's position with the child results it delivers (BST-1932). */
 export function hostDeliveryPosition(
   method: string,
@@ -120,7 +128,6 @@ export function hostDeliveryPosition(
     },
   };
 }
-
 /** A policy answer that did not commit leaves its approval for a person. */
 export function reportHostGrantFailure(run: HostRunState, cause: unknown): void {
   logger.warn('Host policy answer was not committed', {
@@ -130,7 +137,6 @@ export function reportHostGrantFailure(run: HostRunState, cause: unknown): void 
     threadId: run.threadId,
   });
 }
-
 /** A wake that was not admitted leaves its results for the next user turn. */
 export function reportHostChildWakeFailure(threadId: string, cause: unknown): void {
   logger.warn('Host child wake was not admitted', {
@@ -139,7 +145,6 @@ export function reportHostChildWakeFailure(threadId: string, cause: unknown): vo
     threadId,
   });
 }
-
 /** The root turn a run belongs to: children and wakes keep their turn's ID. */
 export function hostRunTurnId(run: HostRunState): string {
   return (
@@ -148,26 +153,21 @@ export function hostRunTurnId(run: HostRunState): string {
     hostRootRunTurnId({ delivery: run.branch.delivery, runId: run.id })
   );
 }
-
 type Outcome = NonNullable<HostRunState['outcome']>;
-
 function settledState(outcome: Outcome): HostChildDeliveryEntry['state'] {
   if (outcome === 'completed') {
     return 'returned';
   }
   return outcome === 'stopped' ? 'cancelled' : 'failed';
 }
-
 function ledgerState(outcome: HostRunState['outcome']): HostChildLedgerState {
   return outcome === undefined ? 'running' : settledState(outcome);
 }
-
 interface Invocation {
   readonly origin: HostChildOrigin;
   readonly run: HostRunState;
   readonly threadId: string;
 }
-
 /**
  * BST-1932: HostCore's child-thread registry, folded from the committed log.
  * HostCore remains the only writer; this owns no store, queue or loop.
@@ -179,12 +179,10 @@ const CHILD_STATUS_EVENTS = new Set<HostEvent['type']>([
   'interaction.requested',
   'interaction.responded',
 ]);
-
 /** True when a committed row may change its child thread's status. */
 export function hostChildStatusChanged(row: HostLogRow): boolean {
   return CHILD_STATUS_EVENTS.has(row.event.type);
 }
-
 /** A child's status, derived from its runs: never stored. */
 function hostChildStatus(
   threadId: string,
@@ -200,7 +198,6 @@ function hostChildStatus(
     ? 'needs-input'
     : 'working';
 }
-
 export class HostChildRuns {
   private readonly grantsByRoot = new Map<string, HostThreadGrants>();
   private readonly origins = new Map<string, HostChildOrigin>();
@@ -213,11 +210,9 @@ export class HostChildRuns {
   private readonly runtimeLimits = new Map<string, number | null>();
   /** C4: one work queue per root turn, shared by every descendant. */
   private readonly queues = new Map<string, HostChildWorkQueue>();
-
   isChild(threadId: string): boolean {
     return this.origins.has(threadId);
   }
-
   /** `threadId` and every descendant child thread, deepest first: deletion takes them all. */
   subtree(threadId: string): string[] {
     const children = [...this.origins]
@@ -225,13 +220,11 @@ export class HostChildRuns {
       .flatMap(([child]) => this.subtree(child));
     return [...children, threadId];
   }
-
   forget(threadId: string): void {
     this.origins.delete(threadId);
     this.invocations.delete(threadId);
     this.grantsByRoot.delete(threadId);
   }
-
   /**
    * The grants every run of `threadId`'s tree shares: its root thread's
    * (ADR-0010), kept for this process only; replay never restores them.
@@ -242,7 +235,6 @@ export class HostChildRuns {
     this.grantsByRoot.set(root, grants);
     return grants;
   }
-
   /** Folds after HostCore's own fold, so a started run already exists. */
   fold(row: HostLogRow, runs: ReadonlyMap<string, HostRunState>): void {
     const event = row.event;
@@ -260,7 +252,6 @@ export class HostChildRuns {
       this.settlements.delete(event.runId);
     }
   }
-
   /**
    * A run on a child thread: its first run is the delegated invocation; any
    * later run is a follow-up typed into the idle child, which keeps the
@@ -277,7 +268,6 @@ export class HostChildRuns {
       run.turnId = run.id;
     }
   }
-
   /**
    * The admission of a run typed into an idle child (Retry and Edit included):
    * the platform's selection for the root thread, narrowed by the child's
@@ -290,7 +280,10 @@ export class HostChildRuns {
     selected: HostRunAdmission,
     runs: ReadonlyMap<string, HostRunState>,
     platform: Pick<HostPlatform, 'readPermissionPolicy'>
-  ): Promise<{ admission: HostRunAdmission; adopt: (run: HostRunState) => void }> {
+  ): Promise<{
+    admission: HostRunAdmission;
+    adopt: (run: HostRunState) => void;
+  }> {
     const origin = this.origins.get(threadId);
     if (!origin) {
       return { admission: selected, adopt: () => undefined };
@@ -332,7 +325,6 @@ export class HostChildRuns {
       },
     };
   }
-
   /** The turn's shared work queue, created at its first child. */
   private queue(turnId: string, settings: HostDelegation['settings']): HostChildWorkQueue {
     let queue = this.queues.get(turnId);
@@ -342,7 +334,6 @@ export class HostChildRuns {
     }
     return queue;
   }
-
   /** The root thread of `threadId`'s delegation tree. */
   rootThread(threadId: string): string {
     let root = threadId;
@@ -351,7 +342,6 @@ export class HostChildRuns {
     }
     return root;
   }
-
   /**
    * After a decision on `threadId`, offers every unanswered approval in its
    * whole delegation tree to `approve`, which answers it only when the root's
@@ -381,7 +371,6 @@ export class HostChildRuns {
       }
     }
   }
-
   /** Non-terminal runs of a root run's turn, at any depth (report section 4 root Stop). */
   turnChildren(run: HostRunState, runs: ReadonlyMap<string, HostRunState>): HostRunState[] {
     if (run.origin) {
@@ -392,7 +381,6 @@ export class HostChildRuns {
       (child) => !child.terminal && child.origin !== undefined && hostRunTurnId(child) === turn
     );
   }
-
   /**
    * B10/B14: a wake follows an idle thread's tip only when no run there is
    * active or parked and an unstopped turn has undelivered results. It admits
@@ -401,7 +389,9 @@ export class HostChildRuns {
   wakeParams(
     threadId: string,
     runs: ReadonlyMap<string, HostRunState>,
-    selections: { forWake(threadId: string): HostRunSelection }
+    selections: {
+      forWake(threadId: string): HostRunSelection;
+    }
   ) {
     const own = [...runs.values()].filter((run) => run.threadId === threadId);
     const tip = own.at(-1);
@@ -421,22 +411,23 @@ export class HostChildRuns {
       },
     };
   }
-
   /** The thread that delegated `threadId`; undefined for a top-level thread. */
   parentOf(threadId: string): string | undefined {
     return this.origins.get(threadId)?.parentThreadId;
   }
-
   /** A thread's direct children, in the order their origins were committed. */
   /** Child threads are reached through their parent, never listed as top-level threads. */
   topLevel(threads: ReadonlySet<string>): string[] {
     return [...threads].filter((threadId) => !this.isChild(threadId));
   }
-
   listed(
     threadId: string,
     threads: ReadonlySet<string>,
-    presentations: { read(threadId: string): { readonly color?: string | undefined } },
+    presentations: {
+      read(threadId: string): {
+        readonly color?: string | undefined;
+      };
+    },
     runs: ReadonlyMap<string, HostRunState>
   ): HostResults['thread/children']['children'] {
     if (!threads.has(threadId)) {
@@ -475,14 +466,12 @@ export class HostChildRuns {
       ];
     });
   }
-
   /** A committed run.started's delivery advances the watermark. */
   recordDelivery(delivery: HostChildDelivery | undefined): void {
     for (const entry of delivery?.entries ?? []) {
       this.delivered.add(entry.childRunId);
     }
   }
-
   /**
    * The parent thread a settled child run reports to: a background invocation
    * in any outcome, a follow-up only when it completed (a pause or a stop never
@@ -498,7 +487,6 @@ export class HostChildRuns {
       ? origin.parentThreadId
       : undefined;
   }
-
   /**
    * A delegation. The child thread's origin and first run commit with the
    * parent's effect in one transaction, and the child runs its own loop and
@@ -543,7 +531,6 @@ export class HostChildRuns {
       port.stop(prepared.child, reason)
     );
   }
-
   /**
    * Arms one child execution leg's `maxChildRuntimeMs` deadline: the initial
    * leg and every approval or answer resume (G19). Expiry fails that child
@@ -560,7 +547,6 @@ export class HostChildRuns {
       run.controller.abort(new Error(detail));
     }, limit);
   }
-
   /**
    * Settled background invocations of `threadId` not yet delivered, with the
    * ledger of every background invocation of their turns. A stopped turn's
@@ -572,7 +558,11 @@ export class HostChildRuns {
     delegation: HostDelegation | undefined,
     includeStopped: boolean
   ):
-    | { readonly entries: HostChildDeliveryEntry[]; readonly ledger: string; turnId: string }
+    | {
+        readonly entries: HostChildDeliveryEntry[];
+        readonly ledger: string;
+        turnId: string;
+      }
     | undefined {
     const { all, followUps } = this.reports(threadId, runs);
     const stopped = (turnId: string): boolean =>
@@ -640,7 +630,6 @@ export class HostChildRuns {
       turnId: followUps.at(-1)?.run.id ?? due.at(-1)?.origin.turnId ?? threadId,
     };
   }
-
   /**
    * What `threadId`'s children report to it: its background invocations, and
    * the completed follow-ups typed into any of its children not yet delivered.
@@ -648,7 +637,10 @@ export class HostChildRuns {
   private reports(
     threadId: string,
     runs: ReadonlyMap<string, HostRunState>
-  ): { readonly all: Invocation[]; readonly followUps: Invocation[] } {
+  ): {
+    readonly all: Invocation[];
+    readonly followUps: Invocation[];
+  } {
     const all: Invocation[] = [];
     const followUps: Invocation[] = [];
     for (const run of runs.values()) {
@@ -667,7 +659,6 @@ export class HostChildRuns {
     }
     return { all, followUps };
   }
-
   /** The child's identity, its admission narrowed from the parent's, and its committed rows. */
   private prepare(
     { action, admission, input, run }: HostDelegationRequest,
@@ -688,7 +679,10 @@ export class HostChildRuns {
         `Persona "${persona.id}" pins a model, which host threads cannot run yet`
       );
     }
-    const parsed = HostDelegationInputSchema.parse(input);
+    const parsed = Schema.decodeUnknownSync(HostDelegationInputSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(input);
     const turnId = hostRunTurnId(run);
     // Counted before any await, so parallel calls in one step cannot overshoot.
     const invoked = [...this.origins.values()].filter((origin) => origin.turnId === turnId);
@@ -770,7 +764,6 @@ export class HostChildRuns {
       threadId,
     };
   }
-
   /**
    * Runs a foreground child to its committed terminal. The parent's abort
    * stops the child (report section 4) and ends this wait; the child's own

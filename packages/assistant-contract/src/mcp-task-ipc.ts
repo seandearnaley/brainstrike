@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { hasToolResultKind } from './mcp-apps-ipc.js';
 import {
   type McpTaskActionRequest,
@@ -6,7 +6,6 @@ import {
   type McpTaskPresentation,
   McpTaskPresentationSchema,
 } from './mcp-task-presentation.js';
-
 /**
  * Renderer ↔ desktop-main contract for production MCP Tasks (BST-1566
  * enablement). The main process owns every task authority (repository,
@@ -16,20 +15,18 @@ import {
  * and authorization.
  */
 export const MCP_TASK_LIST_LIMIT = 64;
-
-export const McpTaskListRequestSchema = z.strictObject({});
-export type McpTaskListRequest = z.infer<typeof McpTaskListRequestSchema>;
-
-export const McpTaskListResultSchema = z.strictObject({
-  tasks: z.array(McpTaskPresentationSchema).max(MCP_TASK_LIST_LIMIT),
+export const McpTaskListRequestSchema = Schema.Record(Schema.String, Schema.Never);
+export type McpTaskListRequest = (typeof McpTaskListRequestSchema)['Type'];
+export const McpTaskListResultSchema = Schema.Struct({
+  tasks: Schema.mutable(Schema.Array(McpTaskPresentationSchema)).check(
+    Schema.isMaxLength(MCP_TASK_LIST_LIMIT)
+  ),
 });
-export type McpTaskListResult = z.infer<typeof McpTaskListResultSchema>;
-
-export const McpTaskStatusChangedEventSchema = z.strictObject({
+export type McpTaskListResult = (typeof McpTaskListResultSchema)['Type'];
+export const McpTaskStatusChangedEventSchema = Schema.Struct({
   task: McpTaskPresentationSchema,
 });
-export type McpTaskStatusChangedEvent = z.infer<typeof McpTaskStatusChangedEventSchema>;
-
+export type McpTaskStatusChangedEvent = (typeof McpTaskStatusChangedEventSchema)['Type'];
 /**
  * The raw domain result a task-producing MCP tool call persists on its tool
  * invocation. The thread correlates a status card to a tool call through
@@ -37,28 +34,29 @@ export type McpTaskStatusChangedEvent = z.infer<typeof McpTaskStatusChangedEvent
  * the persisted snapshot.
  */
 export const MCP_TASK_TOOL_RESULT_KIND = 'mcp-task';
-
-export const McpTaskToolInvocationResultSchema = z.strictObject({
-  kind: z.literal(MCP_TASK_TOOL_RESULT_KIND),
+export const McpTaskToolInvocationResultSchema = Schema.Struct({
+  kind: Schema.Literal(MCP_TASK_TOOL_RESULT_KIND),
   task: McpTaskPresentationSchema,
 });
-export type McpTaskToolInvocationResult = z.infer<typeof McpTaskToolInvocationResultSchema>;
-
+export type McpTaskToolInvocationResult = (typeof McpTaskToolInvocationResultSchema)['Type'];
 /** Capability the visible-UI preload exposes; absent on web and hidden hosts. */
 export interface McpTaskBridge {
   act(request: McpTaskActionRequest): Promise<McpTaskActionResult>;
   list(): Promise<McpTaskListResult>;
   onStatusChanged(listener: (event: McpTaskStatusChangedEvent) => void): () => void;
 }
-
 export function parseMcpTaskListResult(value: unknown): McpTaskListResult {
-  return McpTaskListResultSchema.parse(value);
+  return Schema.decodeUnknownSync(McpTaskListResultSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value);
 }
-
 export function parseMcpTaskStatusChangedEvent(value: unknown): McpTaskStatusChangedEvent {
-  return McpTaskStatusChangedEventSchema.parse(value);
+  return Schema.decodeUnknownSync(McpTaskStatusChangedEventSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value);
 }
-
 /**
  * Exact-shape reader: a persisted tool result is a task marker only when it
  * matches the schema completely. Anything else is an ordinary tool result.
@@ -69,12 +67,20 @@ export function readMcpTaskToolInvocationResult(value: unknown): McpTaskPresenta
   if (!hasToolResultKind(value, MCP_TASK_TOOL_RESULT_KIND)) {
     return undefined;
   }
-  const parsed = McpTaskToolInvocationResultSchema.safeParse(value);
-  return parsed.success ? parsed.data.task : undefined;
+  const parsed = Schema.decodeUnknownResult(McpTaskToolInvocationResultSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value);
+  return parsed._tag === 'Success' ? parsed.success.task : undefined;
 }
-
 export function createMcpTaskToolInvocationResult(
   task: McpTaskPresentation
 ): McpTaskToolInvocationResult {
-  return { kind: MCP_TASK_TOOL_RESULT_KIND, task: McpTaskPresentationSchema.parse(task) };
+  return {
+    kind: MCP_TASK_TOOL_RESULT_KIND,
+    task: Schema.decodeUnknownSync(McpTaskPresentationSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(task),
+  };
 }

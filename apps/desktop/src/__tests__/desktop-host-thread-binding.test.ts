@@ -10,6 +10,7 @@ import {
 } from '@brainstrike/agent-host/protocol';
 import { DEFAULT_THREAD_TITLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
+import { Schema } from 'effect';
 import { afterEach, expect, test, vi } from 'vitest';
 import { createWindowThreadCapability } from '../renderer/desktop-host-thread-capability';
 // Original thread creation rows from the ordinary app-owned SQLite GUI receipt.
@@ -17,8 +18,9 @@ import recording from './fixtures/committed-app-owned-host-thread.json';
 
 const connect = vi.hoisted(() => vi.fn<() => Promise<HostClient>>());
 vi.mock('../renderer/agent-host-client', () => ({ connectDesktopAgentHost: connect }));
-
-const startedRows = recording.map((row) => HostLogRowSchema.parse(row));
+const startedRows = recording.map((row) =>
+  Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)
+);
 const thread = startedRows[0]?.threadId;
 const startedAt = startedRows.findLast((row) => row.event.type === 'thread.started')?.ts;
 if (!(thread && startedAt !== undefined)) {
@@ -31,7 +33,6 @@ const BINDING = {
   operatingRootPath: '/ws/repo',
   secondaryRootIds: ['root-other'],
 };
-
 /** A `thread/list` entry as Core serves it: the store's times and the committed binding. */
 function catalogEntry(
   threadId: string,
@@ -42,7 +43,6 @@ function catalogEntry(
 }
 /** Core's ledger of no costed thread. */
 const NO_COSTS = { threads: [] };
-
 function fixture() {
   const request = vi.fn<(method: HostMethod, params: HostParams<HostMethod>) => Promise<unknown>>();
   const client: HostClient = {
@@ -69,7 +69,10 @@ function fixture() {
       method: Method,
       params: HostParams<Method>
     ): Promise<HostResults[Method]> =>
-      HOST_RESULT_SCHEMAS[method].parse(await request(method, params)) as HostResults[Method],
+      Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS[method], {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(await request(method, params)) as HostResults[Method],
   };
   connect.mockResolvedValue(client);
   return {
@@ -79,13 +82,11 @@ function fixture() {
     request,
   };
 }
-
 afterEach(async () => {
   window.dispatchEvent(new Event('beforeunload'));
   await Promise.resolve();
   vi.clearAllMocks();
 });
-
 test('a host thread commits its workspace binding keys through the host, exactly once', async () => {
   const { capability, request } = fixture();
   request
@@ -100,7 +101,6 @@ test('a host thread commits its workspace binding keys through the host, exactly
   expect(updates).toHaveLength(1);
   expect(updates[0]?.[1]).toMatchObject({ patch: BINDING, threadId: thread });
 });
-
 test('a key the host does not own is refused visibly before any request', async () => {
   const { capability, request } = fixture();
   request
@@ -116,7 +116,6 @@ test('a key the host does not own is refused visibly before any request', async 
   ).rejects.toThrow();
   expect(request).toHaveBeenCalledTimes(calls);
 });
-
 test('a thread outside the host catalog is not host-owned', async () => {
   const { capability, request } = fixture();
   request
@@ -132,7 +131,6 @@ test('a thread outside the host catalog is not host-owned', async () => {
     'thread/list',
   ]);
 });
-
 test('a failed owner read rejects instead of classifying the thread as historical', async () => {
   const { capability, request } = fixture();
   const unreachable = new Error('The agent host connection closed');
@@ -143,7 +141,6 @@ test('a failed owner read rejects instead of classifying the thread as historica
   await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
   await expect(capability.ownsThread(thread)).rejects.toBe(unreachable);
 });
-
 test('a thread created after the catalog loaded is host-owned without another catalog read', async () => {
   const { capability, request } = fixture();
   request
@@ -167,7 +164,6 @@ test('a thread created after the catalog loaded is host-owned without another ca
     'thread/read',
   ]);
 });
-
 test('the thread list is the catalog and one ledger read, never a thread log', async () => {
   const { capability, request } = fixture();
   request.mockImplementation(async (method) => {
@@ -185,7 +181,6 @@ test('the thread list is the catalog and one ledger read, never a thread log', a
     'thread/list',
   ]);
 });
-
 test("the catalog entry's binding, colour and times are the thread's metadata and dates", async () => {
   const { capability, request } = fixture();
   const updatedAt = startedAt + 60_000;
@@ -201,7 +196,6 @@ test("the catalog entry's binding, colour and times are the thread's metadata an
     updatedAt: new Date(updatedAt),
   });
 });
-
 test('an unbound host thread projects no metadata', async () => {
   const { capability, request } = fixture();
   request
@@ -210,7 +204,6 @@ test('an unbound host thread projects no metadata', async () => {
   const [projected] = await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
   expect(projected && 'metadata' in projected).toBe(false);
 });
-
 test('a damaged thread stays listed with its catalog dates and its read failure', async () => {
   const { capability, request } = fixture();
   const damage = 'missing seq 7';

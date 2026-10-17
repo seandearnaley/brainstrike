@@ -1,8 +1,8 @@
+import { Schema } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createMcpTaskToolInvocationResult,
   McpTaskListResultSchema,
-  McpTaskToolInvocationResultSchema,
   parseMcpTaskStatusChangedEvent,
   readMcpTaskToolInvocationResult,
 } from '../mcp-task-ipc.js';
@@ -25,33 +25,44 @@ const presentation: McpTaskPresentation = {
   statusMessage: null,
   updatedAt: '2026-09-02T00:00:00.000Z',
 };
-
 afterEach(() => {
   vi.restoreAllMocks();
 });
-
 describe('MCP task IPC contract', () => {
   it('never schema-walks a result that does not carry the task marker kind', () => {
-    const safeParse = vi.spyOn(McpTaskToolInvocationResultSchema, 'safeParse');
+    let payloadReads = 0;
     const large = {
       content: Array.from({ length: 5000 }, (_, index) => ({ text: `row ${index}`, type: 'text' })),
       structuredContent: { rows: Array.from({ length: 5000 }, (_, index) => ({ index })) },
     };
+    Object.defineProperty(large, 'task', {
+      get: () => {
+        payloadReads += 1;
+        return {};
+      },
+    });
     expect(readMcpTaskToolInvocationResult(large)).toBeUndefined();
     expect(readMcpTaskToolInvocationResult({ ...large, kind: 'mcp-app' })).toBeUndefined();
     expect(readMcpTaskToolInvocationResult('mcp-task')).toBeUndefined();
     expect(readMcpTaskToolInvocationResult(null)).toBeUndefined();
     expect(readMcpTaskToolInvocationResult(presentation)).toBeUndefined();
-    expect(safeParse).not.toHaveBeenCalled();
-
-    expect(readMcpTaskToolInvocationResult({ kind: 'mcp-task' })).toBeUndefined();
-    expect(safeParse).toHaveBeenCalledTimes(1);
+    expect(payloadReads).toBe(0);
+    expect(
+      readMcpTaskToolInvocationResult(
+        Object.defineProperty({ kind: 'mcp-task' }, 'task', {
+          get: () => {
+            payloadReads += 1;
+            return {};
+          },
+        })
+      )
+    ).toBeUndefined();
+    expect(payloadReads).toBe(1);
     expect(
       readMcpTaskToolInvocationResult(createMcpTaskToolInvocationResult(presentation))
     ).toEqual(presentation);
-    expect(safeParse).toHaveBeenCalledTimes(2);
+    expect(payloadReads).toBe(1);
   });
-
   it('round-trips a persisted task tool result exactly and rejects near misses', () => {
     const result = createMcpTaskToolInvocationResult(presentation);
     expect(readMcpTaskToolInvocationResult(result)).toEqual(presentation);
@@ -60,10 +71,19 @@ describe('MCP task IPC contract', () => {
     expect(readMcpTaskToolInvocationResult({ content: [], structuredContent: {} })).toBeUndefined();
     expect(readMcpTaskToolInvocationResult(presentation)).toBeUndefined();
   });
-
   it('validates list results and status events strictly', () => {
-    expect(McpTaskListResultSchema.parse({ tasks: [presentation] }).tasks).toHaveLength(1);
-    expect(() => McpTaskListResultSchema.parse({ cursor: 1, tasks: [presentation] })).toThrow();
+    expect(
+      Schema.decodeUnknownSync(McpTaskListResultSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })({ tasks: [presentation] }).tasks
+    ).toHaveLength(1);
+    expect(() =>
+      Schema.decodeUnknownSync(McpTaskListResultSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })({ cursor: 1, tasks: [presentation] })
+    ).toThrow();
     expect(parseMcpTaskStatusChangedEvent({ task: presentation }).task.status).toBe('working');
     expect(() =>
       parseMcpTaskStatusChangedEvent({ task: { ...presentation, status: 'x' } })

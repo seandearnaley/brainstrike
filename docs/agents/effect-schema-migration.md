@@ -1,9 +1,9 @@
 # Effect Schema migration order
 
 [ADR-0004](../adr/0004-effect-at-runtime-boundaries.md), amended 2026-10-15,
-makes Effect Schema the single boundary owner. The derivation step for LLM tool
-definitions is built and proven, and `listWorktrees` / `manageWorktree` are
-converted. This is the order for the rest.
+makes Effect Schema the single boundary owner. Native tool inputs and the host
+wire now use Effect. The sections below record the remaining boundaries and
+the acceptance rules their conversions must preserve.
 
 Counts are exported `*Schema` constants in non-test source, measured at
 `58689c3fa`. Sizes are a review-cost signal, not a schedule. The catalog is on
@@ -151,10 +151,10 @@ the output cap silently stop applying. The pair is
 `schema.annotate({ default: v }).pipe(Schema.withDecodingDefaultKey(Effect.succeed(v)))`,
 taking the literal once (`withDefault` in `schemas-browser.ts`). Three traps:
 
-- `withDecodingDefaultKey`, not `withDecodingDefault`. Only the key-level
-  variant fills on an absent key alone, as zod did; the value-level twin also
-  treats an explicit `undefined` as absent and emits an `anyOf: [T, null]`
-  property, changing the advertised schema.
+- For provider JSON inputs, `withDecodingDefaultKey` fills an absent key;
+  JSON cannot carry an own `undefined`. The value-level twin also treats an
+  explicit `undefined` as absent and changes the advertised property shape.
+  Ordinary host wire defaults use that value-level behavior to match Zod.
 - It takes an `Effect`, not a thunk. A bare `() => v` compiles and fails at
   runtime with `Fiber.runLoop: Not a valid effect`.
 - `.annotate()` must come BEFORE the `.pipe(…)`, or the emitter never sees the
@@ -223,32 +223,34 @@ Phase 2 position), or that constraint is revisited on its own — which is a
 decision, not a conversion. Do the non-contract desktop schemas first and leave
 the IPC seam until that is answered.
 
-## What has to move before `effect/rpc`
+## Host wire adoption
 
-The ~60-method host protocol lives in `packages/agent-host`: 58 constants
-across 42 files, with `src/protocol.ts` (1,074 lines) plus a 13-module
-`protocol-*` / `*-wire` family (~1,160 lines). Putting it on a schema-derived
-contract needs, in order:
+The host protocol's first-party grammars and their composition consumers use
+Effect Schema. JSON-RPC version 11, method names, IDs, admission, persistence,
+cryptographic snapshot checks and shutdown owners retain their existing contracts.
+This conversion does not introduce an RPC engine or an Effect run loop.
 
-1. **This PR.** Done: the derivation is proven and the tool boundary no longer
-   forces zod. The question that blocked a schema-derived contract is answered.
-2. **`packages/agent-host`'s own wire schemas converted** (step 2 above is the
-   warm-up, not a prerequisite). The protocol modules are the contract — an RPC
-   definition cannot be derived from schemas that are still zod. This is the
-   real prerequisite and the largest single piece.
-3. **An `effect/rpc` availability decision.** `rpc` ships inside the `effect`
-   package in 4.0, so it is a root import rather than a separate dependency —
-   but ADR-0004's import contract is an **allowlist** of exactly `effect` and
-   `effect/testing`, so `effect/rpc` needs a contract change before a single
-   line imports it. Stability is a separate axis: check the `@stability` tag on
-   the `rpc` APIs the protocol would use, because an unstable one may break in a
-   minor and an experimental one in a patch. The catalog is on `effect` 4.0.4 GA
-   (#3628), so the version itself is no longer a blocker.
-4. **A decision on the client side.** `packages/agent-host`'s protocol is
-   consumed by `apps/desktop` main AND by the renderer through IPC. The
-   preload constraint in step 5 above applies here too, so the protocol's
-   schema ownership and the IPC seam have to be settled together rather than
-   discovered halfway through.
+Shared workspace, boundary-failure and MCP DTO leaves move with the host schemas.
+Desktop admission composes those leaves, so its platform/configuration/retrieval
+schemas and the subagent-settings leaf move in the same change. Other desktop,
+agent, host-capability and MCP extension boundaries remain separate waves.
 
-Steps 1 and 2 are mechanical-plus-careful; 3 and 4 are owner decisions and
-should be raised before the protocol PR is scoped, not during it.
+Decode with the receiving boundary's established excess-property policy. Ordinary
+wire optionals retain an own `undefined`; only fields whose existing normalizer
+omits it use `omitUndefinedOptional`. Ordinary Zod defaults accept absent and
+explicit `undefined`, matched by `withDecodingDefault`; the provider JSON-only
+key-default rule above is a separate boundary. Empty strict objects use
+`Schema.Record(Schema.String, Schema.Never)`.
+
+Retrieval results strip unknown fields while their nested prompt objects remain
+strict. `strictWireSchema` delegates to the same authored grammar with that nested
+policy, preserving its result and Effect issues. SDK-owned MCP schemas remain the
+vendor authority through `sdkSchema`; the adapter returns the SDK's validated
+value. Date-time filters use the pinned vendor's format pattern, and MCP URL
+normalization preserves trimming and removal of ASCII tabs/newlines. No second
+production grammar or schema-shape assertion supplies those values.
+
+An `effect/rpc` or service/runtime ownership change still needs a separate owner
+decision. The allowed imports remain exactly `effect` and `effect/testing`;
+stability checks apply to each selected API on the installed pin. Preload value
+imports remain outside the Effect graph.

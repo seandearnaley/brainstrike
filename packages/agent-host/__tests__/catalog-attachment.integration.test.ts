@@ -22,6 +22,16 @@ const platform = () => ({
   tools: {},
 });
 const models = [{ enabled: true, modelId: 'gpt-5.4', providerId: 'openai' }];
+const collection = {
+  createdAt: '2026-10-17T00:00:00Z',
+  dimensions: 3,
+  distance: 'cosine',
+  id: 'effect-host-collection',
+  modelId: 'fake-embedding',
+  modelKey: 'fake::fake-embedding',
+  name: 'Effect catalog',
+} as const;
+
 test('authenticated CLI-first catalog writes use the existing writer and survive reopen', async () => {
   const root = await mkdtemp(join(tmpdir(), 'host-catalog-'));
   let host = await startAgentHost({ lifetime: 'persistent', root }, platform());
@@ -65,12 +75,31 @@ test('authenticated CLI-first catalog writes use the existing writer and survive
     expect(
       await connection.sendRequest('host/model-choices', { models, operation: 'models' })
     ).toEqual({ models, previous: { models: [], providers: [] }, providers: [] });
+    await expect(
+      connection.sendRequest('host/collections', {
+        collection: { ...collection, injectedSecret: 'must-never-cross' },
+        operation: 'create',
+      })
+    ).rejects.toMatchObject({ data: { ...INTERNAL_FAULT, correlationId: expect.any(String) } });
+    expect(
+      await connection.sendRequest('host/collections', { collection, operation: 'create' })
+    ).toEqual({ collections: [collection] });
+    await expect(
+      connection.sendRequest('host/collections', {
+        id: collection.id,
+        metadata: { fallback: true },
+        operation: 'update',
+      })
+    ).rejects.toMatchObject({ data: { ...INTERNAL_FAULT, correlationId: expect.any(String) } });
     connection.dispose();
     socket.destroy();
     await host.close();
     host = await startAgentHost({ lifetime: 'persistent', root }, platform());
     const client = await attachAgentHost(host.record);
     try {
+      expect(await client.catalog.collections({ operation: 'list' })).toEqual({
+        collections: [collection],
+      });
       expect(await client.catalog.modelChoices({ operation: 'snapshot' })).toEqual({
         models,
         providers: [],

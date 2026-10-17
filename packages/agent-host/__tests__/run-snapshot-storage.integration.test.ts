@@ -34,8 +34,8 @@ import fixture8 from '@brainstrike/test-utils/fixtures/committed-host-run-attemp
 import fixture9 from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json' with {
   type: 'json',
 };
+import { Schema } from 'effect';
 import { afterEach, expect, test, vi } from 'vitest';
-import { z } from 'zod';
 import { HostCore } from '../src/core.js';
 import { readHostRow, storedHostEvent } from '../src/event-storage.js';
 import type { HostPlatform } from '../src/ports.js';
@@ -197,7 +197,10 @@ test('every recorded run reads back exactly as committed, its snapshot resolved 
   ];
   let referenced = 0;
   for (const recording of recordings) {
-    const rows = z.array(HostLogRowSchema).parse(recording);
+    const rows = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(recording);
     await store.append(rows.map((row) => storedHostEvent(row.threadId, row.event)));
     for (const threadId of new Set(rows.map((row) => row.threadId))) {
       const stored = await store.read(threadId, 1);

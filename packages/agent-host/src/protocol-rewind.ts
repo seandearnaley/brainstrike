@@ -1,24 +1,19 @@
-/**
- * Restore to before a message: the rewind methods, their results and the
- * committed rewind events. protocol.ts spreads each into its tables.
- */
-import { z } from 'zod';
+import { Schema } from 'effect';
 import {
   HostRewindConflictSchema,
   HostRewindFileOutcomeSchema,
   HostTurnSnapshotSchema,
 } from './workspace-wire.js';
 
-const Id = z.string().min(1);
+const Id = Schema.String.check(Schema.isMinCodePoints(1));
 const Command = { commandId: Id };
 const Thread = { threadId: Id };
-const RewindMode = z.enum(['conversation-and-files', 'conversation-only']);
+const RewindMode = Schema.Literals(['conversation-and-files', 'conversation-only']);
 const RewindTarget = {
   ...Thread,
   /** The committed user message to restore to before: its run/start command ID. */
   messageId: Id,
 };
-
 export const REWIND_METHOD_SCHEMAS = {
   /**
    * Restore to before a committed user message: the conversation returns to
@@ -26,109 +21,113 @@ export const REWIND_METHOD_SCHEMAS = {
    * message's turn start. Refused while the thread has an active run; a host
    * with no snapshot owner refuses files mode.
    */
-  'thread/rewind': z.strictObject({
+  'thread/rewind': Schema.Struct({
     ...Command,
     ...RewindTarget,
-    /** Restore even the paths that changed after the preview. */
-    acknowledgeConflicts: z.boolean().optional(),
+    acknowledgeConflicts: Schema.optional(Schema.Boolean),
     mode: RewindMode,
-    /** The files preview this rewind binds to; required in files mode. */
-    previewId: Id.optional(),
+    previewId: Schema.optional(Id),
   }),
   /** What a rewind to before a message would change; nothing is committed. */
-  'thread/rewind/preview': z.strictObject(RewindTarget),
+  'thread/rewind/preview': Schema.Struct(RewindTarget),
   /** Undo the thread's newest rewind while no run has started since it. */
-  'thread/rewind/redo': z.strictObject({
+  'thread/rewind/redo': Schema.Struct({
     ...Command,
     ...Thread,
-    acknowledgeConflicts: z.boolean().optional(),
+    acknowledgeConflicts: Schema.optional(Schema.Boolean),
     rewindId: Id,
   }),
 } as const;
-
 export const REWIND_EVENT_SCHEMAS = [
-  /**
-   * A rewind's intent, committed before any file changes: the conversation
-   * returns to `headId` (the run the target message followed; null is the
-   * thread root), and files mode restores every root to the target's turn.
-   */
-  z.strictObject({
+  Schema.Struct({
     commandId: Id,
-    headId: Id.nullable(),
+    headId: Schema.NullOr(Id),
     messageId: Id,
     mode: RewindMode,
     rewindId: Id,
     runId: Id,
-    type: z.literal('thread.rewind.started'),
+    type: Schema.Literal('thread.rewind.started'),
   }),
-  /** The rewind's outcome; files mode lists each path's restore. */
-  z.strictObject({
-    outcomes: z.array(HostRewindFileOutcomeSchema),
+  Schema.Struct({
+    outcomes: Schema.mutable(Schema.Array(HostRewindFileOutcomeSchema)),
     rewindId: Id,
-    type: z.literal('thread.rewound'),
+    type: Schema.Literal('thread.rewound'),
   }),
-  /** A redo's intent, committed before any file changes. */
-  z.strictObject({ commandId: Id, rewindId: Id, type: z.literal('thread.rewind.redo.started') }),
-  /** The redo's outcome: the conversation and files return to before the rewind. */
-  z.strictObject({
-    outcomes: z.array(HostRewindFileOutcomeSchema),
+  Schema.Struct({
+    commandId: Id,
     rewindId: Id,
-    type: z.literal('thread.rewind.redone'),
+    type: Schema.Literal('thread.rewind.redo.started'),
   }),
-  /**
-   * A started rewind or redo with no outcome: files may be partly restored.
-   * A rewind still counts as applied, and its redo stays available.
-   */
-  z.strictObject({
-    detail: z.string().min(1).optional(),
-    phase: z.enum(['rewind', 'redo']),
+  Schema.Struct({
+    outcomes: Schema.mutable(Schema.Array(HostRewindFileOutcomeSchema)),
     rewindId: Id,
-    type: z.literal('thread.rewind.interrupted'),
+    type: Schema.Literal('thread.rewind.redone'),
+  }),
+  Schema.Struct({
+    detail: Schema.optional(Schema.String.check(Schema.isMinCodePoints(1))),
+    phase: Schema.Literals(['rewind', 'redo']),
+    rewindId: Id,
+    type: Schema.Literal('thread.rewind.interrupted'),
   }),
 ] as const;
-
 export const REWIND_RESULT_SCHEMAS = {
-  'thread/rewind': z.discriminatedUnion('status', [
-    z.strictObject({
-      outcomes: z.array(HostRewindFileOutcomeSchema),
-      rewindId: Id,
-      status: z.literal('rewound'),
-    }),
-    z.strictObject({ detail: z.string().min(1), rewindId: Id, status: z.literal('interrupted') }),
-    /** Nothing was committed: these paths changed after the preview. */
-    z.strictObject({
-      conflicts: z.array(HostRewindConflictSchema).min(1),
-      status: z.literal('conflicts'),
-    }),
-  ]),
-  'thread/rewind/preview': z.strictObject({
-    files: z.discriminatedUnion('available', [
-      z.strictObject({
-        available: z.literal(true),
-        /**
-         * The run whose turn start the restore points begin at: the earliest
-         * run answering the target message. A root first seen later restores
-         * to its first turn start after it.
-         */
-        fromRunId: Id,
-        previewId: Id,
-        /** Each root and the snapshot it is restored to. */
-        roots: z.array(HostTurnSnapshotSchema),
+  'thread/rewind': Schema.Union(
+    [
+      Schema.Struct({
+        outcomes: Schema.mutable(Schema.Array(HostRewindFileOutcomeSchema)),
+        rewindId: Id,
+        status: Schema.Literal('rewound'),
       }),
-      z.strictObject({ available: z.literal(false), reason: z.string().min(1) }),
-    ]),
-    /** The run the conversation returns to; null is the thread root. */
-    headId: Id.nullable(),
-    /** The runs leaving the conversation, oldest first: the target message's run first. */
-    runIds: z.array(Id).min(1),
+      Schema.Struct({
+        detail: Schema.String.check(Schema.isMinCodePoints(1)),
+        rewindId: Id,
+        status: Schema.Literal('interrupted'),
+      }),
+      Schema.Struct({
+        conflicts: Schema.mutable(Schema.Array(HostRewindConflictSchema)).check(
+          Schema.isMinLength(1)
+        ),
+        status: Schema.Literal('conflicts'),
+      }),
+    ],
+    { mode: 'oneOf' }
+  ),
+  'thread/rewind/preview': Schema.Struct({
+    files: Schema.Union(
+      [
+        Schema.Struct({
+          available: Schema.Literal(true),
+          fromRunId: Id,
+          previewId: Id,
+          roots: Schema.mutable(Schema.Array(HostTurnSnapshotSchema)),
+        }),
+        Schema.Struct({
+          available: Schema.Literal(false),
+          reason: Schema.String.check(Schema.isMinCodePoints(1)),
+        }),
+      ],
+      { mode: 'oneOf' }
+    ),
+    headId: Schema.NullOr(Id),
+    runIds: Schema.mutable(Schema.Array(Id)).check(Schema.isMinLength(1)),
   }),
-  'thread/rewind/redo': z.discriminatedUnion('status', [
-    z.strictObject({ outcomes: z.array(HostRewindFileOutcomeSchema), status: z.literal('redone') }),
-    z.strictObject({ detail: z.string().min(1), status: z.literal('interrupted') }),
-    /** Nothing was committed: these paths changed after the rewind. */
-    z.strictObject({
-      conflicts: z.array(HostRewindConflictSchema).min(1),
-      status: z.literal('conflicts'),
-    }),
-  ]),
+  'thread/rewind/redo': Schema.Union(
+    [
+      Schema.Struct({
+        outcomes: Schema.mutable(Schema.Array(HostRewindFileOutcomeSchema)),
+        status: Schema.Literal('redone'),
+      }),
+      Schema.Struct({
+        detail: Schema.String.check(Schema.isMinCodePoints(1)),
+        status: Schema.Literal('interrupted'),
+      }),
+      Schema.Struct({
+        conflicts: Schema.mutable(Schema.Array(HostRewindConflictSchema)).check(
+          Schema.isMinLength(1)
+        ),
+        status: Schema.Literal('conflicts'),
+      }),
+    ],
+    { mode: 'oneOf' }
+  ),
 } as const;

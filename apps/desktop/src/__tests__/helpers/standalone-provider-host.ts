@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path';
 import { HOST_RESULT_SCHEMAS, type HostLogRow } from '@brainstrike/agent-host/protocol';
 import { decodeHostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
+import { Schema } from 'effect';
 import { z } from 'zod';
 
 const require = createRequire(import.meta.url);
@@ -20,13 +21,11 @@ const bin = join(
   dirname(require.resolve('@brainstrike/host-capabilities')),
   '../bin/brainstrike.mjs'
 );
-
 export interface CliResult {
   readonly code: number;
   readonly stderr: string;
   readonly stdout: string;
 }
-
 export interface StandaloneProviderHost {
   /** Child thread ids of `threadId`, in the host's order. */
   readonly children: (threadId: string) => Promise<readonly string[]>;
@@ -37,22 +36,30 @@ export interface StandaloneProviderHost {
   readonly run: (
     prompt: string,
     model: string
-  ) => Promise<{ readonly result: CliResult; readonly runId: string; readonly threadId: string }>;
+  ) => Promise<{
+    readonly result: CliResult;
+    readonly runId: string;
+    readonly threadId: string;
+  }>;
   /** `thread start` then `run start`: the run proceeds in the host while the caller watches. */
   readonly startRun: (
     prompt: string,
     model: string
-  ) => Promise<{ readonly runId: string; readonly threadId: string }>;
+  ) => Promise<{
+    readonly runId: string;
+    readonly threadId: string;
+  }>;
   readonly workspace: string;
 }
-
 const RunIdentity = z.object({ runId: z.string(), threadId: z.string() });
-
 /** A disposable workspace directory, canonical, named `name` (its basename is all a prompt sees). */
 export async function createStandaloneWorkspace(
   name: string,
   files: Readonly<Record<string, string>> = {}
-): Promise<{ readonly remove: () => Promise<void>; readonly workspace: string }> {
+): Promise<{
+  readonly remove: () => Promise<void>;
+  readonly workspace: string;
+}> {
   const parent = await realpath(await mkdtemp(join(tmpdir(), 'bs-cassette-ws-')));
   const workspace = join(parent, name);
   await mkdir(workspace);
@@ -62,7 +69,6 @@ export async function createStandaloneWorkspace(
   }
   return { remove: () => rm(parent, { force: true, recursive: true }), workspace };
 }
-
 /**
  * `environment` is the host's whole provider environment: base-URL knobs and
  * credentials. Nothing else from this process's environment reaches the host.
@@ -106,7 +112,10 @@ export async function startStandaloneProviderHost(options: {
     if (shown.code !== 0) {
       throw new Error(`threads show failed: ${shown.stderr}`);
     }
-    return HOST_RESULT_SCHEMAS['thread/read'].parse(JSON.parse(shown.stdout)).rows;
+    return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/read'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(JSON.parse(shown.stdout)).rows;
   };
   return {
     children: async (threadId) => {
@@ -114,9 +123,10 @@ export async function startStandaloneProviderHost(options: {
       if (listed.code !== 0) {
         throw new Error(`children list failed: ${listed.stderr}`);
       }
-      return HOST_RESULT_SCHEMAS['thread/children']
-        .parse(JSON.parse(listed.stdout))
-        .children.map((child) => child.threadId);
+      return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/children'], {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(JSON.parse(listed.stdout)).children.map((child) => child.threadId);
     },
     cli,
     async close() {
@@ -166,7 +176,6 @@ export async function startStandaloneProviderHost(options: {
     workspace,
   };
 }
-
 /** Polls `read` until `found` holds, failing after `timeoutMs` with the last value. */
 export async function pollUntil<T>(
   read: () => Promise<T>,

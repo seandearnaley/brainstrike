@@ -7,6 +7,7 @@
  * `changeset-diff-service.integration.test.ts` / `changeset-git-scope.test.ts`).
  */
 import { HostLogRowSchema } from '@brainstrike/agent-host/protocol';
+import { Schema } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import { createChangesetDiffService } from '../../assistant-server/changeset-diff-service';
 import { createHostThreadTurns } from '../../assistant-server/changeset-host-turns';
@@ -20,7 +21,10 @@ const baseDeps = {
 } as const;
 function hostTurns(owned = true) {
   // Same committed turn-start shape as the real host Changes integration.
-  const row = HostLogRowSchema.parse({
+  const row = Schema.decodeUnknownSync(HostLogRowSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({
     event: {
       boundary: 'turn-start',
       roots: [{ commitOid: 'a'.repeat(40), rootId: 'root-a', rootPath: '/ws/a' }],
@@ -39,7 +43,6 @@ function hostTurns(owned = true) {
     readRows,
   };
 }
-
 function fakeSnapshotService(): SnapshotService {
   const notUnderTest = (name: string) => () => {
     throw new Error(`${name} is not under test`);
@@ -72,11 +75,9 @@ function fakeSnapshotService(): SnapshotService {
     sweepOrphans: notUnderTest('sweepOrphans'),
   } as unknown as SnapshotService;
 }
-
 describe('ChangesetDiffService — W7 snapshot routing', () => {
   it('WITHOUT snapshot deps, agent-run and run-range resolve to the typed snapshot-engine-unavailable error (no journal fallback)', async () => {
     const service = createChangesetDiffService({ ...baseDeps });
-
     const view = await service.resolveView('root-a', AGENT_RUN);
     expect(view.ok).toBe(false);
     if (!view.ok) {
@@ -93,14 +94,12 @@ describe('ChangesetDiffService — W7 snapshot routing', () => {
       expect(diff.error).toMatch(/^snapshot-engine-unavailable:/);
     }
   });
-
   it('WITH snapshot deps, agent-run resolves through the committed host turn', async () => {
     const { hostThreads, readRows } = hostTurns();
     const service = createChangesetDiffService({
       ...baseDeps,
       snapshots: { hostThreads, resolveService: () => fakeSnapshotService() },
     });
-
     const view = await service.resolveView('root-a', AGENT_RUN);
     expect(view.ok).toBe(true);
     if (!view.ok) {
@@ -119,7 +118,6 @@ describe('ChangesetDiffService — W7 snapshot routing', () => {
     expect(view.value.totalDeletions).toBe(0);
     expect(readRows).toHaveBeenCalledExactlyOnceWith('thread-1', 0);
   });
-
   it('a lazily-null SnapshotService (before app-ready) is the typed unavailability error, not a throw', async () => {
     const service = createChangesetDiffService({
       ...baseDeps,
@@ -134,7 +132,6 @@ describe('ChangesetDiffService — W7 snapshot routing', () => {
       expect(view.error).toMatch(/^snapshot-engine-unavailable:/);
     }
   });
-
   it('an unknown host thread refuses without attempting a row read or fabricating an empty view', async () => {
     const { hostThreads, readRows } = hostTurns(false);
     const service = createChangesetDiffService({

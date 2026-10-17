@@ -1,5 +1,4 @@
 // @vitest-environment node
-
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -13,6 +12,7 @@ import type {
   IndexerStatus,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
+import { Schema } from 'effect';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import type {
@@ -119,8 +119,11 @@ vi.mock('../provider-api-key', () => ({
   readProviderCredential: owner.credential,
 }));
 vi.mock('../ipc-mcp', () => ({
-  readDesktopMcpHostSnapshot: async (runtime: { host: { snapshot(): unknown } }) =>
-    structuredClone(runtime.host.snapshot()),
+  readDesktopMcpHostSnapshot: async (runtime: {
+    host: {
+      snapshot(): unknown;
+    };
+  }) => structuredClone(runtime.host.snapshot()),
 }));
 vi.mock('@brainstrike/db', async (original) => ({
   ...(await original<typeof import('@brainstrike/db')>()),
@@ -141,8 +144,16 @@ import { desktopAdmission as createDesktopAdmission } from './fixtures/desktop-a
 import { desktopHostIntentFixture as intent } from './fixtures/desktop-host-intent';
 
 const directories: string[] = [];
-let roots: { id: string; displayName: string; path: string }[] = [];
-let fileOwners: { id: string; rootId: string; rootName: string }[] = [];
+let roots: {
+  id: string;
+  displayName: string;
+  path: string;
+}[] = [];
+let fileOwners: {
+  id: string;
+  rootId: string;
+  rootName: string;
+}[] = [];
 const catalog = admissionCatalogFixture(() => roots);
 function desktopAdmission(
   dependencies: Partial<Parameters<typeof createDesktopAdmission>[0]>,
@@ -194,7 +205,6 @@ const embedding = {
   // The indexer's own identity rule, never a copy of its formula.
   profileHash: embeddingProfileHash(profile),
 } as const;
-
 beforeEach(() => {
   catalog.modelRead.mockImplementation(async () => admissionModelSnapshot());
   vi.clearAllMocks();
@@ -225,7 +235,6 @@ afterEach(async () => {
   expect(owner.credential).not.toHaveBeenCalled();
   expect(owner.fetch).not.toHaveBeenCalled();
 });
-
 async function workspace() {
   const directory = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'bs-m3-adapter-roots-')));
   directories.push(directory);
@@ -249,7 +258,6 @@ function request(configuration: unknown): HostRunAdmissionRequest {
     threadId: 'owner-thread',
   };
 }
-
 function admittedRetrieval(tools: Record<string, HostTool>, toolId: string): HostTool {
   const tool = Object.values(tools).find((candidate) => candidate.permissionToolId === toolId);
   if (!tool) {
@@ -268,7 +276,6 @@ function execution(): HostToolContext {
     toolCallId: 'scope-call',
   };
 }
-
 function cliInput(rootIds = ['root-a']) {
   return {
     kind: 'cli-workspace',
@@ -276,7 +283,6 @@ function cliInput(rootIds = ['root-a']) {
     workspace: { instructions: 'off', rootIds, skills: 'off' },
   };
 }
-
 test.for([false, true])(
   'actual renderer capture retains every field and option precedence (projection=%s)',
   (projected) => {
@@ -319,7 +325,6 @@ test.for([false, true])(
     expect(JSON.stringify(captured)).not.toContain('synthetic-private-projection-marker');
   }
 );
-
 test.for([{ rootIds: ['root-a'] }, { rootIds: [] }])(
   'actual Main trusted full intent owner preserves all settings when reducing to $rootIds',
   async ({ rootIds }) => {
@@ -361,7 +366,6 @@ test.for([{ rootIds: ['root-a'] }, { rootIds: [] }])(
     }
   }
 );
-
 test.for([undefined, null, { modelConfiguration: { model: 'gpt-6-sol', provider: 'openai' } }])(
   'actual Main refuses absent or incomplete trusted owner output without substituting defaults (%j)',
   async (output) => {
@@ -373,7 +377,6 @@ test.for([undefined, null, { modelConfiguration: { model: 'gpt-6-sol', provider:
     expect(catalog.workspaceRoots).not.toHaveBeenCalled();
   }
 );
-
 test('actual Main refuses a trusted owner model mismatch before root acquisition', async () => {
   await workspace();
   const original = intent();
@@ -388,7 +391,6 @@ test('actual Main refuses a trusted owner model mismatch before root acquisition
   });
   expect(catalog.workspaceRoots).not.toHaveBeenCalled();
 });
-
 test('actual Main rejects caller-supplied owner intent in the strict CLI envelope', async () => {
   await workspace();
   const readOwner = vi.fn(async () => intent());
@@ -398,7 +400,6 @@ test('actual Main rejects caller-supplied owner intent in the strict CLI envelop
   ).rejects.toThrow();
   expect(readOwner).not.toHaveBeenCalled();
 });
-
 test('actual Main joins a held owner read and refuses after admission is aborted', async () => {
   await workspace();
   const entered = Promise.withResolvers<void>();
@@ -429,14 +430,16 @@ test('actual Main joins a held owner read and refuses after admission is aborted
   expect(await settled).toEqual(new Error('Owner capture aborted'));
   expect(catalog.workspaceRoots).not.toHaveBeenCalled();
 });
-
 test('actual Main recovery retains committed full intent without rereading current preferences', async () => {
   await workspace();
   const readOwner = vi.fn(async () => intent());
   const capabilities = desktopAdmission({}, undefined, readOwner);
   const input = request(cliInput());
   const admitted = await capabilities.readConfiguration(input);
-  const snapshot = HostRunSnapshotSchema.parse({
+  const snapshot = Schema.decodeUnknownSync(HostRunSnapshotSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({
     configuration: admitted.durableConfiguration,
     maxSteps: admitted.maxSteps,
     toolIdentities: {},
@@ -457,7 +460,6 @@ test('actual Main recovery retains committed full intent without rereading curre
   ).rejects.toThrow('CLI workspace recovery does not match its committed selection');
   expect(readOwner).toHaveBeenCalledOnce();
 });
-
 test('actual Main preserves a nondefault full intent and refuses CLI reduction without its intent owner', async () => {
   await workspace();
   const original = intent();
@@ -488,7 +490,6 @@ test('actual Main preserves a nondefault full intent and refuses CLI reduction w
     await unexpected?.close();
   }
 });
-
 test('actual Main context reads never begin B after revocation while A is held', async () => {
   const { a, b } = await workspace();
   const read = fs.readFile.bind(fs);
@@ -533,7 +534,6 @@ test('actual Main context reads never begin B after revocation while A is held',
   expect(await settled).toBeInstanceOf(Error);
   expect(observed).toEqual([]);
 });
-
 function native() {
   const counts = { chunks: 1, indexedFiles: 1, missingVectors: 0, vectors: 1 };
   const status: IndexerStatus = {
@@ -675,7 +675,6 @@ test.each([
     }
   }
 );
-
 test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
   'actual %s adapter rejects unselected content returned by its query capability',
   async (toolId) => {
@@ -707,7 +706,6 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
     }
   }
 );
-
 test.each([
   { selected: ['root-a'], toolId: NATIVE_TOOL_ID.queryEmbeddingSpace },
   { selected: ['root-a'], toolId: NATIVE_TOOL_ID.hybridSearch },
@@ -750,7 +748,6 @@ test.each([
     }
   }
 );
-
 test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
   'a host %s without Main’s index refuses before PG could return an unselected root’s file',
   async (toolId) => {
@@ -797,7 +794,6 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
     }
   }
 );
-
 test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
   'actual %s ordinary Desktop adapter retains its original collection query',
   async (toolId) => {
@@ -826,7 +822,6 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
     }
   }
 );
-
 test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
   'actual %s native adapter rejects a hit whose catalog file belongs to an unselected root',
   async (toolId) => {
@@ -868,7 +863,6 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
     }
   }
 );
-
 test.each([
   { backend: 'native', toolId: NATIVE_TOOL_ID.queryEmbeddingSpace },
   { backend: 'native', toolId: NATIVE_TOOL_ID.hybridSearch },

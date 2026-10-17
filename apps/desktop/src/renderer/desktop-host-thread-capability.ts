@@ -17,6 +17,7 @@ import {
   projectStartedHostThread,
 } from '@brainstrike/host-conversation';
 import { createLogger } from '@brainstrike/logging';
+import { Schema, SchemaIssue } from 'effect';
 import { connectDesktopAgentHost } from './agent-host-client';
 import { createDesktopHostConnection, type DesktopHostConnection } from './desktop-host-connection';
 import { createHostRewindPort } from './host-rewind-port';
@@ -26,7 +27,6 @@ import { HostThreadLedger } from './host-thread-ledger';
 import { HostThreadRuns } from './host-thread-runs';
 
 const logger = createLogger('DesktopHostThreads');
-
 /**
  * The host owns the thread workspace binding keys (and colour and icon, through
  * `thread/update`). Any other key (model…) has no host owner yet and is refused
@@ -34,26 +34,43 @@ const logger = createLogger('DesktopHostThreads');
  * no row for this thread.
  */
 function bindingPatch(metadata: AssistantThreadMetadata): ThreadWorkspaceBinding {
-  const parsed = ThreadWorkspaceBindingSchema.safeParse(metadata);
-  if (parsed.success) {
-    return parsed.data;
+  const parsed = Schema.decodeUnknownResult(ThreadWorkspaceBindingSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(metadata);
+  if (parsed._tag === 'Success') {
+    return parsed.success;
   }
-  const unowned = parsed.error.issues.flatMap((issue) =>
-    issue.code === 'unrecognized_keys' ? issue.keys : []
-  );
+  const issues = SchemaIssue.makeFormatterStandardSchemaV1({
+    leafHook: (issue) =>
+      issue._tag === 'UnexpectedKey' ? 'Unrecognized key' : SchemaIssue.defaultLeafHook(issue),
+  })(parsed.failure.issue).issues;
+  const unowned = issues.flatMap((issue) => {
+    if (issue.message !== 'Unrecognized key') {
+      return [];
+    }
+    return (issue.path ?? []).map((segment) =>
+      typeof segment === 'object' ? segment.key : segment
+    );
+  });
   throw new Error(
     unowned.length > 0
       ? `Agent host threads do not store ${unowned.join(', ')} yet; nothing was changed.`
-      : (parsed.error.issues[0]?.message ?? 'Invalid thread workspace binding')
+      : (SchemaIssue.makeFormatterStandardSchemaV1()(parsed.failure.issue).issues[0]?.message ??
+          'Invalid thread workspace binding')
   );
 }
-
 export function createWindowThreadCapability(
   renderThread: (view: {
     readonly canvases: HostThreadCanvases;
     readonly catalogLoaded: boolean;
     /** BST-1932: a child thread's call sign and family colour; absent for a top-level thread. */
-    readonly child: { readonly callSign: string; readonly color: string } | undefined;
+    readonly child:
+      | {
+          readonly callSign: string;
+          readonly color: string;
+        }
+      | undefined;
     /** BST-2004: the frame's host connection, whose current client serves the thread. */
     readonly connection: DesktopHostConnection;
     readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
@@ -83,7 +100,13 @@ export function createWindowThreadCapability(
   let seededBy: HostClient | undefined;
   // Host-owned thread IDs; every request goes to the connection's current client.
   const threads = new Set<string>();
-  const childViews = new Map<string, { readonly callSign: string; readonly color: string }>();
+  const childViews = new Map<
+    string,
+    {
+      readonly callSign: string;
+      readonly color: string;
+    }
+  >();
   const client = (): Promise<HostClient> => connection.current();
   // The catalog and Core's ledger: two reads, whatever the threads' lengths.
   const listThreads = async (resourceId: string): Promise<readonly AssistantMemoryThread[]> => {

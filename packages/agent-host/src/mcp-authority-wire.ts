@@ -1,49 +1,56 @@
-/**
- * An MCP tool's server authority on the host protocol: what a configured
- * server's tools may run under. protocol.ts re-exports every name here.
- */
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-const Id = z.string().min(1);
+const Id = Schema.String.check(Schema.isMinCodePoints(1));
 const McpAuthorityBase = {
-  extensions: z.strictObject({ apps: z.boolean(), tasks: z.boolean() }),
-  protocol: z.enum(['legacy', 'auto', '2026-07-28']),
-  version: z.literal(1),
+  extensions: Schema.Struct({ apps: Schema.Boolean, tasks: Schema.Boolean }),
+  protocol: Schema.Literals(['legacy', 'auto', '2026-07-28']),
+  version: Schema.Literal(1),
 };
 /** Supplied by the configured-server owner; private values have no durable surrogate. */
-export const McpToolAuthoritySchema = z.discriminatedUnion('kind', [
-  z.strictObject({
-    ...McpAuthorityBase,
-    auth: z.discriminatedUnion('type', [
-      z.strictObject({ type: z.literal('none') }),
-      z.strictObject({
-        credential: z.strictObject({ id: z.uuid(), store: z.literal('mcp-credentials') }),
-        principalComparison: z.literal('unavailable'),
-        type: z.literal('bearer'),
-      }),
-    ]),
-    destination: z.url(),
-    kind: z.literal('http'),
-    transport: z.enum(['streamable-http', 'sse']),
-  }),
-  z.strictObject({
-    ...McpAuthorityBase,
-    args: z.tuple([]),
-    command: Id,
-    cwd: Id,
-    kind: z.literal('stdio'),
-  }),
-  z.strictObject({
-    kind: z.literal('unavailable'),
-    reason: z.enum([
-      'private-stdio-arguments',
-      'private-stdio-environment',
-      'unresolved-stdio-command',
-      'private-http-headers',
-      'private-http-destination',
-      'oauth-principal-not-comparable',
-    ]),
-    version: z.literal(1),
-  }),
-]);
-export type McpToolAuthority = z.infer<typeof McpToolAuthoritySchema>;
+export const McpToolAuthoritySchema = Schema.Union(
+  [
+    Schema.Struct({
+      ...McpAuthorityBase,
+      auth: Schema.Union(
+        [
+          Schema.Struct({ type: Schema.Literal('none') }),
+          Schema.Struct({
+            credential: Schema.Struct({
+              id: Schema.String.check(Schema.isUUID()),
+              store: Schema.Literal('mcp-credentials'),
+            }),
+            principalComparison: Schema.Literal('unavailable'),
+            type: Schema.Literal('bearer'),
+          }),
+        ],
+        { mode: 'oneOf' }
+      ),
+      destination: Schema.Trim.check(
+        Schema.makeFilter((value) => (URL.canParse(value) ? undefined : 'Invalid URL'))
+      ),
+      kind: Schema.Literal('http'),
+      transport: Schema.Literals(['streamable-http', 'sse']),
+    }),
+    Schema.Struct({
+      ...McpAuthorityBase,
+      args: Schema.mutable(Schema.Tuple([])),
+      command: Id,
+      cwd: Id,
+      kind: Schema.Literal('stdio'),
+    }),
+    Schema.Struct({
+      kind: Schema.Literal('unavailable'),
+      reason: Schema.Literals([
+        'private-stdio-arguments',
+        'private-stdio-environment',
+        'unresolved-stdio-command',
+        'private-http-headers',
+        'private-http-destination',
+        'oauth-principal-not-comparable',
+      ]),
+      version: Schema.Literal(1),
+    }),
+  ],
+  { mode: 'oneOf' }
+);
+export type McpToolAuthority = (typeof McpToolAuthoritySchema)['Type'];

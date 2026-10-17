@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { HostLogRowSchema } from '@brainstrike/agent-host/protocol';
+import { Schema } from 'effect';
 import { afterEach, expect, test, vi } from 'vitest';
 import { createHostThreadTurns } from '../../assistant-server/changeset-host-turns';
 import { createSnapshotChangesetResolver } from '../../assistant-server/changeset-snapshot-view';
@@ -37,7 +38,7 @@ async function fixture() {
     threadId: 'thread-1',
   });
   const rows = [start, end].map((capture, index) =>
-    HostLogRowSchema.parse({
+    Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
       event: {
         boundary: index === 0 ? 'turn-start' : 'turn-end',
         roots: [{ commitOid: capture.commitOid, rootId, rootPath }],
@@ -57,7 +58,6 @@ async function fixture() {
 const forbidden = (): never => {
   throw new Error('PGlite is absent from desktop');
 };
-
 test('cold Changes resolves a current host turn with no legacy database owner', async () => {
   const f = await fixture();
   const dependencies = {
@@ -79,7 +79,6 @@ test('cold Changes resolves a current host turn with no legacy database owner', 
     ]);
   }
 });
-
 test('startup snapshot retention uses host ownership without any SQL query', async () => {
   const f = await fixture();
   const query = vi.fn(forbidden);

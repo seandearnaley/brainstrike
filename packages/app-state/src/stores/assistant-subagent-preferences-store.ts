@@ -16,7 +16,7 @@ import {
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
   parseRuntimeSubagentSettings,
   type RuntimeSubagentSettings,
-  runtimeSubagentSettingsSchema,
+  RuntimeSubagentSettingsError,
 } from '@brainstrike/assistant-contract/subagent-settings';
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -58,8 +58,14 @@ function sanitizePersistedData(persistedState: unknown): AssistantSubagentPrefer
     return defaultData();
   }
   const candidate = (persistedState as { settings?: unknown }).settings;
-  const parsed = runtimeSubagentSettingsSchema.safeParse(candidate);
-  return parsed.success ? { settings: parsed.data } : defaultData();
+  try {
+    return { settings: parseRuntimeSubagentSettings(candidate) };
+  } catch (error) {
+    if (error instanceof RuntimeSubagentSettingsError) {
+      return defaultData();
+    }
+    throw error;
+  }
 }
 
 /**

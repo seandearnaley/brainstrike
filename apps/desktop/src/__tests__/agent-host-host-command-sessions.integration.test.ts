@@ -7,6 +7,7 @@ import { MessageChannel, type MessagePort } from 'node:worker_threads';
 import type { HostToolContext } from '@brainstrike/agent-host';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
+import { Schema } from 'effect';
 import { afterEach, expect, test, vi } from 'vitest';
 import {
   mainPlatformConnection,
@@ -46,16 +47,17 @@ class UtilityPort extends EventEmitter implements PlatformMessagePort {
     this.port.close();
   }
 }
-
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) {
     await cleanup();
   }
 });
-
 function selection(root: string) {
-  return PlatformSelectionSchema.parse({
+  return Schema.decodeUnknownSync(PlatformSelectionSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({
     configuration: { model: 'gpt-6-sol', provider: 'openai' },
     contextWindow: 32_000,
     durableConfiguration: {},
@@ -101,7 +103,6 @@ function selection(root: string) {
     toolTimeoutMs: 5000,
   });
 }
-
 const execution: HostToolContext = {
   edits: { track: async () => Promise.reject(new Error('A command session never edits')) },
   runId: 'host-run',
@@ -110,7 +111,6 @@ const execution: HostToolContext = {
   threadId: 'host-thread',
   toolCallId: 'session-call',
 };
-
 test('a host run’s command session lives in the agent host and Main’s Terminal panel lists and stops it', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-session-')));
   cleanups.push(() => rm(root, { force: true, recursive: true }));
@@ -128,7 +128,6 @@ test('a host run’s command session lives in the agent host and Main’s Termin
     channel.port2.close();
   });
   cleanups.push(() => disposeHostTools());
-
   // The host starts the session in its own process, inside the run's admitted root.
   const request = vi.fn(async (method: string) => {
     if (method !== 'admission/fresh-roots') {
@@ -150,9 +149,12 @@ test('a host run’s command session lives in the agent host and Main’s Termin
   const started = (await manage.execute(
     { operation: { action: 'start', command: 'sleep 30' } },
     execution
-  )) as { readonly cwd: string; readonly id: string; readonly status: string };
+  )) as {
+    readonly cwd: string;
+    readonly id: string;
+    readonly status: string;
+  };
   expect(started).toMatchObject({ cwd: root, rootId: 'root-a', status: 'running' });
-
   // Main holds no session of its own; its panel reaches the host's over the connection.
   const panel = withHostCommandSessions(
     createCommandSessionIpcHandlers({
@@ -179,7 +181,6 @@ test('a host run’s command session lives in the agent host and Main’s Termin
     'admission/fresh-roots',
   ]);
 });
-
 test('disconnecting a root in Main stops and forgets the host run sessions there', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-session-root-')));
   cleanups.push(() => rm(root, { force: true, recursive: true }));
@@ -218,7 +219,6 @@ test('disconnecting a root in Main stops and forgets the host run sessions there
   await expect(panel.list({ rootId: 'root-a' })).resolves.toMatchObject({
     value: { sessions: [expect.objectContaining({ status: 'running' })] },
   });
-
   // The disconnect path Main's root registry and fs:removeRoot take.
   await expect(disposeDesktopAndHostCommandSessionsForRoot('root-a')).resolves.toBe(1);
   await expect(panel.list({ rootId: 'root-a' })).resolves.toEqual({

@@ -6,9 +6,8 @@
 import type { AppendItem, BlobContent } from '@brainstrike/state-store';
 import { largeText } from '@brainstrike/state-store/large-text';
 import { sha256Hex } from '@brainstrike/utils/crypto';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { type HostEvent, HostEventSchema } from './protocol.js';
-
 /**
  * ADR-0011 amendment: a committed run.started keeps its run snapshot (the run
  * configuration: system prompt, child system, captured intent, tool
@@ -19,7 +18,9 @@ import { type HostEvent, HostEventSchema } from './protocol.js';
  */
 export function storedRunSnapshot(event: HostEvent): {
   readonly blobs: readonly BlobContent[];
-  readonly body: Readonly<Record<string, unknown>> & { readonly type: string };
+  readonly body: Readonly<Record<string, unknown>> & {
+    readonly type: string;
+  };
 } {
   if (event.type !== 'run.started' || event.snapshot === undefined) {
     return { blobs: [], body: event };
@@ -29,13 +30,11 @@ export function storedRunSnapshot(event: HostEvent): {
   const hash = sha256Hex(content);
   return { blobs: [{ content, hash }], body: { ...started, blobRefs: [hash], snapshotRef: hash } };
 }
-
 /**
  * The streamed chunk kinds Core's open folds: the ledger's tool-call and tool-error counts
  * (ledger-projection.ts countToolChunk). Every other chunk is the thread view's alone.
  */
 const HYDRATED_CHUNK_TYPES: ReadonlySet<unknown> = new Set(['tool-call', 'tool-error']);
-
 /** `false` when no fold of Core's open reads the event, so the hydration read skips its row. */
 export function hydratesHostEvent(event: HostEvent): boolean {
   if (event.type !== 'stream.chunk') {
@@ -49,7 +48,6 @@ export function hydratesHostEvent(event: HostEvent): boolean {
     HYDRATED_CHUNK_TYPES.has(chunk['type'])
   );
 }
-
 /**
  * Keep the existing event kind/run ID; StateStore owns blob durability and reference counting.
  * `referenced` are the blobs the event names in `blobRefs`; a spooled row keeps those names.
@@ -59,7 +57,10 @@ export function storedHostEvent(
   input: HostEvent,
   referenced: readonly BlobContent[] = []
 ): AppendItem {
-  const event = HostEventSchema.parse(input);
+  const event = Schema.decodeUnknownSync(HostEventSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(input);
   const refs = 'blobRefs' in event ? (event.blobRefs ?? []) : [];
   const supplied = new Set(referenced.map((blob) => blob.hash));
   if (refs.length !== supplied.size || refs.some((hash) => !supplied.has(hash))) {
@@ -68,7 +69,10 @@ export function storedHostEvent(
   const mark = hydratesHostEvent(event) ? {} : { hydrate: false as const };
   const { blobs: snapshot, body } = storedRunSnapshot(event);
   const blobs = [...snapshot, ...referenced];
-  const bodyRefs = z.array(z.string()).parse(body['blobRefs'] ?? []);
+  const bodyRefs = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(Schema.String)), {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(body['blobRefs'] ?? []);
   const stored = largeText(JSON.stringify(body));
   if (!stored.blob) {
     return { ...(blobs.length > 0 ? { blobs } : {}), event: body, ...mark, threadId };

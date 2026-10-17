@@ -14,6 +14,7 @@ import question from '@brainstrike/test-utils/fixtures/committed-host-question.j
 import rich from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json' with {
   type: 'json',
 };
+import { Schema } from 'effect';
 import { expect, test } from 'vitest';
 import { z } from 'zod';
 import { committedMemoryTranscript } from '../src/adapters/committed-memory-transcript.js';
@@ -44,7 +45,10 @@ test('native indexer consumes the actual Core producer and preserves committed t
   let port: Awaited<ReturnType<typeof openIndexer>> | undefined;
   let store: StateStore | undefined;
   try {
-    const captured = z.array(HostLogRowSchema).parse(rich);
+    const captured = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(rich);
     const threads = [...new Set(captured.map((row) => row.threadId))];
     port = await openIndexer(options, deadlines);
     store = await StateStore.open(root, { indexer: createStateStoreIndexer(port) });
@@ -88,7 +92,10 @@ test.each(Object.entries(recordings))(
     const root = await mkdtemp(join(tmpdir(), 'bs-core-projection-'));
     let store: StateStore | undefined;
     try {
-      const captured = z.array(HostLogRowSchema).parse(recording);
+      const captured = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(recording);
       store = await StateStore.open(root);
       await store.append(captured.map((row) => storedHostEvent(row.threadId, row.event)));
       await store.close();
@@ -135,7 +142,10 @@ test.each(Object.entries(recordings))(
 );
 
 test('purged, unreadable and metadata rows have no searchable content or message identity', () => {
-  const rows = z.array(HostLogRowSchema).parse(approved);
+  const rows = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(approved);
   const tombstone = decode('{"seq":1,"type":"purged"}', 'dev');
   const unreadable = decode('{"seq":2,"type":"unknown-producer-event"}', 'prod');
   expect(text(tombstone)).toBeNull();
@@ -157,7 +167,10 @@ test('purged, unreadable and metadata rows have no searchable content or message
 });
 
 test('message eligibility follows original run/thread binding and refuses a missing accepted command', () => {
-  const rows = z.array(HostLogRowSchema).parse(rich);
+  const rows = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(rich);
   const original = messages(rows);
   const segments = rows.filter(
     (row) => row.event.type === 'model.step' || row.event.type === 'model.messages'
@@ -182,7 +195,10 @@ test('producer and Core decode the same owned blob and expose damage without cha
   const root = await mkdtemp(join(tmpdir(), 'bs-core-projection-blob-'));
   const store = await StateStore.open(root);
   try {
-    const rows = z.array(HostLogRowSchema).parse(approved);
+    const rows = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(approved);
     const captured = rows.find((row) => row.event.type === 'effect.finished');
     if (captured?.event.type !== 'effect.finished') {
       throw new Error('Recorded Core tool result is missing');
@@ -231,7 +247,10 @@ test('recorded tool and decision history searches retain addresses through rebui
   const store = await StateStore.open(root, { indexer: createStateStoreIndexer(port) });
   let core: HostCore | undefined;
   try {
-    const captured = z.array(HostLogRowSchema).parse([...approved, ...question, ...plan]);
+    const captured = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })([...approved, ...question, ...plan]);
     await store.append(captured.map((row) => storedHostEvent(row.threadId, row.event)));
     const threads = [...new Set(captured.map(({ threadId }) => threadId))];
     await port.catchUpState(threads);
@@ -253,10 +272,10 @@ test('recorded tool and decision history searches retain addresses through rebui
     ] as const;
     const assertSearch = async () => {
       for (const scenario of cases) {
-        const source = z
-          .array(HostLogRowSchema)
-          .parse(scenario.rows)
-          .find(({ seq }) => seq === scenario.seq);
+        const source = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(scenario.rows).find(({ seq }) => seq === scenario.seq);
         if (!(source && 'runId' in source.event && core)) {
           throw new Error('Runtime recording must contain the original run address');
         }
@@ -305,7 +324,10 @@ test('recorded tool and decision history searches retain addresses through rebui
     }
     await assertSearch();
     expect(await store.readAll()).toEqual(original);
-    const deleted = z.array(HostLogRowSchema).parse(plan)[0]?.threadId;
+    const deleted = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(plan)[0]?.threadId;
     if (!deleted) {
       throw new Error('Recorded plan thread is missing');
     }
@@ -328,7 +350,10 @@ function recordedNotes(event: unknown): string {
 }
 
 test('recorded multi-line tool output searches by each of its words, not JSON escapes', async () => {
-  const rows = z.array(HostLogRowSchema).parse(history);
+  const rows = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(history);
   const results = rows.filter((row) => row.event.type === 'effect.finished');
   expect(results.length).toBeGreaterThan(0);
   for (const row of results) {

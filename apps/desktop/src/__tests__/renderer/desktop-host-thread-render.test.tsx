@@ -13,6 +13,7 @@ import {
 } from '@brainstrike/app-shell/assistant-thread-host-context';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import { render, screen } from '@testing-library/react';
+import { Schema } from 'effect';
 import type { ReactElement } from 'react';
 import { expect, test, vi } from 'vitest';
 
@@ -54,11 +55,13 @@ function emptyCatalogHost(): HostClient {
       if (!(method in answers)) {
         throw new Error(`Unexpected host request ${method}`);
       }
-      return HOST_RESULT_SCHEMAS[method].parse(answers[method]) as HostResults[Method];
+      return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS[method], {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(answers[method]) as HostResults[Method];
     },
   };
 }
-
 test('a thread the loaded host catalog does not own renders an explicit not-hosted failure', async () => {
   connect.mockResolvedValue(emptyCatalogHost());
   let host: AssistantThreadHostCapability | undefined;

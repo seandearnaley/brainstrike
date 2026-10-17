@@ -9,7 +9,6 @@
  * assistant-contract. This fold never re-derives rewrite, compaction or branch
  * rules; the displayed branch comes from the conversation projection's head.
  */
-
 import type { ExportedMessageRepository } from '@assistant-ui/react';
 import {
   parseFileMentionDirectives,
@@ -33,10 +32,9 @@ import {
   WriteDeliverySchema,
 } from '@brainstrike/assistant-contract/context-provenance';
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
+import { Schema } from 'effect';
 import type { CommittedAssistantLogRow } from './committed-assistant-log-projection';
-
 export type ContextSpanKind = 'edit' | 'grep' | 'pinned' | 'read' | 'semantic';
-
 /** One stretch of one file a tool call (or an attachment) delivered. */
 export interface ContextSpan {
   /** Index chunk the span names, when the tool reported one. */
@@ -58,7 +56,6 @@ export interface ContextSpan {
   readonly startLine?: number;
   readonly wholeFile?: boolean;
 }
-
 export interface ContextCall {
   /** An attachment (`@file`) rather than a tool call: in the window for its own run only. */
   readonly attachment: boolean;
@@ -71,7 +68,6 @@ export interface ContextCall {
   /** Why a content-bearing result has no spans; absent when mapped or not content-bearing. */
   readonly unmapped?: string;
 }
-
 export interface ContextRun {
   /** Runs this run's committed compactions replaced with a summary. */
   readonly compactedRunIds: readonly string[];
@@ -84,13 +80,11 @@ export interface ContextRun {
   /** The tool calls the run's last committed request carried; null before its first. */
   readonly window: ReadonlyMap<string, PromptToolCall> | null;
 }
-
 export interface ThreadContextSnapshot {
   readonly calls: ReadonlyMap<string, ContextCall>;
   /** Every committed run, in commit order (all branches). */
   readonly runs: ReadonlyMap<string, ContextRun>;
 }
-
 interface MutableCall {
   attachment: boolean;
   /** The last snapshot's view of this call; cleared on any change. */
@@ -104,7 +98,6 @@ interface MutableCall {
   toolName: string;
   unmapped?: string | undefined;
 }
-
 interface MutableRun {
   compactedRunIds: string[];
   /** The last snapshot's view of this run; cleared on any change. */
@@ -116,30 +109,23 @@ interface MutableRun {
   runId: string;
   window: Map<string, PromptToolCall> | null;
 }
-
 function record(value: unknown): Readonly<Record<string, unknown>> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Readonly<Record<string, unknown>>)
     : undefined;
 }
-
 function string(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
-
 const READ_GUTTER = /^\d+: ?/u;
-
 interface Extracted {
   readonly spans: readonly ContextSpan[];
   readonly unmapped?: string;
 }
-
 const NONE: Extracted = { spans: [] };
-
 function unmapped(reason: string): Extracted {
   return { spans: [], unmapped: reason };
 }
-
 function extractRead(call: MutableCall): Extracted {
   const read = ReadDeliverySchema.safeParse(call.output);
   if (!read.success) {
@@ -166,7 +152,6 @@ function extractRead(call: MutableCall): Extracted {
     ],
   };
 }
-
 function extractGrep(call: MutableCall): Extracted {
   if (GrepFilesDeliverySchema.safeParse(call.output).success) {
     return NONE;
@@ -193,7 +178,6 @@ function extractGrep(call: MutableCall): Extracted {
     })),
   };
 }
-
 function extractSemantic(call: MutableCall): Extracted {
   const semantic = SemanticDeliverySchema.safeParse(call.output);
   if (!semantic.success) {
@@ -225,7 +209,6 @@ function extractSemantic(call: MutableCall): Extracted {
     }),
   };
 }
-
 function extractHybrid(call: MutableCall): Extracted {
   const hybrid = HybridDeliverySchema.safeParse(call.output);
   if (!hybrid.success) {
@@ -255,7 +238,6 @@ function extractHybrid(call: MutableCall): Extracted {
     ),
   };
 }
-
 function extractStringReplace(call: MutableCall): Extracted {
   const edit = StringReplaceDeliverySchema.safeParse(call.output);
   if (!edit.success) {
@@ -273,7 +255,6 @@ function extractStringReplace(call: MutableCall): Extracted {
     ],
   };
 }
-
 function extractWrite(call: MutableCall): Extracted {
   const write = WriteDeliverySchema.safeParse(call.output);
   if (!write.success) {
@@ -283,7 +264,6 @@ function extractWrite(call: MutableCall): Extracted {
     spans: [{ kind: 'edit', path: write.data.path, rootId: write.data.rootId, wholeFile: true }],
   };
 }
-
 /** Content-bearing tools; every other tool delivers no file lines. */
 const EXTRACTORS: Readonly<Record<string, (call: MutableCall) => Extracted>> = {
   'brainstrike.grepSearch': extractGrep,
@@ -293,12 +273,10 @@ const EXTRACTORS: Readonly<Record<string, (call: MutableCall) => Extracted>> = {
   'brainstrike.stringReplaceWorkspaceFile': extractStringReplace,
   'brainstrike.writeWorkspaceFile': extractWrite,
 };
-
 /** The spans a settled result delivered, or why it has none. */
 function extractSpans(call: MutableCall): Extracted {
   return EXTRACTORS[call.toolName]?.(call) ?? NONE;
 }
-
 function modelOutputText(output: unknown): string | undefined {
   const value = record(output);
   if (value?.['type'] === 'text' || value?.['type'] === 'error-text') {
@@ -306,7 +284,6 @@ function modelOutputText(output: unknown): string | undefined {
   }
   return;
 }
-
 /**
  * Folds one thread's committed rows into its context snapshot. Rows arrive
  * append-only; each is folded once, in commit order.
@@ -316,7 +293,6 @@ export class ThreadContextFold {
   private readonly runs = new Map<string, MutableRun>();
   private lastSeq = Number.NEGATIVE_INFINITY;
   private snapshot: ThreadContextSnapshot | undefined;
-
   accept(rows: readonly CommittedAssistantLogRow[]): ThreadContextSnapshot {
     let changed = false;
     for (const row of rows) {
@@ -331,7 +307,6 @@ export class ThreadContextFold {
     }
     return this.snapshot;
   }
-
   private call(runId: string, toolCallId: string, toolName: string): MutableCall {
     let call = this.calls.get(toolCallId);
     if (!call) {
@@ -340,14 +315,12 @@ export class ThreadContextFold {
     }
     return call;
   }
-
   private settle(call: MutableCall, output: unknown): void {
     call.output = output;
     call.status = 'done';
     call.spans = undefined;
     call.frozen = undefined;
   }
-
   private fold(event: Readonly<Record<string, unknown>>): boolean {
     const runId = string(event['runId']);
     if (!runId) {
@@ -374,7 +347,6 @@ export class ThreadContextFold {
         return false;
     }
   }
-
   private effectStarted(runId: string, event: Readonly<Record<string, unknown>>): boolean {
     const toolCallId = string(event['toolCallId']);
     if (!toolCallId) {
@@ -388,7 +360,6 @@ export class ThreadContextFold {
     call.frozen = undefined;
     return true;
   }
-
   private effectFinished(event: Readonly<Record<string, unknown>>): boolean {
     const call = this.calls.get(string(event['toolCallId']) ?? '');
     if (!call) {
@@ -397,7 +368,6 @@ export class ThreadContextFold {
     this.settle(call, event['output']);
     return true;
   }
-
   private compacted(runId: string, compactedRunIds: unknown): boolean {
     const run = this.runs.get(runId);
     if (!(run && Array.isArray(compactedRunIds))) {
@@ -409,7 +379,6 @@ export class ThreadContextFold {
     run.frozen = undefined;
     return true;
   }
-
   private started(runId: string, event: Readonly<Record<string, unknown>>): boolean {
     const prompt = typeof event['prompt'] === 'string' ? event['prompt'] : '';
     const run: MutableRun = {
@@ -436,11 +405,16 @@ export class ThreadContextFold {
     this.runs.set(runId, run);
     return true;
   }
-
   private failedPins(runId: string, files: unknown): boolean {
     const run = this.runs.get(runId);
-    const failures = ReferencedFileFailureSchema.array().safeParse(files);
-    if (!(run && failures.success)) {
+    const failures = Schema.decodeUnknownResult(
+      Schema.mutable(Schema.Array(ReferencedFileFailureSchema)),
+      {
+        errors: 'all',
+        onExcessProperty: 'error',
+      }
+    )(files);
+    if (!(run && failures._tag === 'Success')) {
       return false;
     }
     for (const id of run.pinIds) {
@@ -449,7 +423,7 @@ export class ThreadContextFold {
       if (
         pin &&
         span &&
-        failures.data.some((file) => file.path === span.path && file.rootId === span.rootId)
+        failures.success.some((file) => file.path === span.path && file.rootId === span.rootId)
       ) {
         pin.status = 'failed';
         pin.spans = [];
@@ -458,7 +432,6 @@ export class ThreadContextFold {
     }
     return true;
   }
-
   private chunk(runId: string, chunk: Readonly<Record<string, unknown>> | undefined): boolean {
     const toolCallId = string(chunk?.['toolCallId']);
     if (!(chunk && toolCallId)) {
@@ -494,7 +467,6 @@ export class ThreadContextFold {
     }
     return false;
   }
-
   /** The model's text for each result, as its step committed it (the first wins). */
   private step(messages: unknown): boolean {
     if (!Array.isArray(messages)) {
@@ -523,7 +495,6 @@ export class ThreadContextFold {
     }
     return changed;
   }
-
   private prepared(runId: string, event: Readonly<Record<string, unknown>>): boolean {
     const run = this.runs.get(runId);
     if (!run) {
@@ -544,7 +515,6 @@ export class ThreadContextFold {
     );
     return true;
   }
-
   private read(): ThreadContextSnapshot {
     const calls = new Map<string, ContextCall>();
     for (const call of this.calls.values()) {
@@ -579,9 +549,7 @@ export class ThreadContextFold {
     return { calls, runs };
   }
 }
-
 // --- Views -------------------------------------------------------------------
-
 /**
  * The runs on the displayed branch, root first: the projection's head and its
  * ancestors. Host conversations name each assistant message by its run id.
@@ -603,9 +571,7 @@ export function displayedBranchRunIds(
   }
   return branch.reverse();
 }
-
 export type ContextCallState = 'collapsed' | 'compacted' | 'dropped' | 'in-window' | 'unknown';
-
 export interface ContextCallAtTurn {
   readonly call: ContextCall;
   /**
@@ -619,18 +585,15 @@ export interface ContextCallAtTurn {
   /** Tokens the call takes in the selected turn's window: its marker when collapsed, 0 when gone. */
   readonly windowTokens: number | null;
 }
-
 export interface ThreadContextAtTurn {
   readonly branch: readonly ContextRun[];
   readonly calls: readonly ContextCallAtTurn[];
   /** The selected turn (1-based); 0 when the branch has no runs. */
   readonly turn: number;
 }
-
 function callTokens(call: PromptToolCall): number {
   return call.inputTokens + call.outputTokens;
 }
-
 /** The first full appearance of each call across the given runs' windows. */
 function firstDeliveredTokens(runs: readonly ContextRun[]): Map<string, number> {
   const delivered = new Map<string, number>();
@@ -643,7 +606,6 @@ function firstDeliveredTokens(runs: readonly ContextRun[]): Map<string, number> 
   }
   return delivered;
 }
-
 /** An attachment is in the window for its own run only; its tokens sit in the system text. */
 function attachmentAt(call: ContextCall, callTurn: number, selected: number): ContextCallAtTurn {
   const own = callTurn === selected;
@@ -655,13 +617,15 @@ function attachmentAt(call: ContextCall, callTurn: number, selected: number): Co
     windowTokens: own ? null : 0,
   };
 }
-
 /** A tool call's state from the selected turn's window: the host's record, never re-derived. */
 function toolCallState(
   call: ContextCall,
   window: ReadonlyMap<string, PromptToolCall> | null,
   compacted: ReadonlySet<string>
-): { readonly state: ContextCallState; readonly windowTokens: number | null } {
+): {
+  readonly state: ContextCallState;
+  readonly windowTokens: number | null;
+} {
   if (window === null) {
     return { state: 'unknown', windowTokens: null };
   }
@@ -674,7 +638,6 @@ function toolCallState(
   }
   return { state: compacted.has(call.runId) ? 'compacted' : 'dropped', windowTokens: 0 };
 }
-
 /**
  * Every call on the branch up to `turn` (default: the latest), with its state
  * and tokens as of that turn's last committed request.
@@ -715,7 +678,6 @@ export function threadContextAt(
   }
   return { branch, calls, turn: selected };
 }
-
 /**
  * Tokens the selected turn's window holds for tool calls that delivered file
  * lines: the one figure the composer popover and the Context tab both show.

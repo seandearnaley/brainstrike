@@ -1,5 +1,6 @@
 /** Host-log ownership and real shadow-Git payloads replace retired SQL fixtures. */
 import { type HostLogRow, HostLogRowSchema } from '@brainstrike/agent-host/protocol';
+import { Schema } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import type { SnapshotChainEntry } from '../../assistant-server/snapshot-chains';
 import type { SnapshotService } from '../../assistant-server/snapshot-service';
@@ -21,7 +22,7 @@ function pendingRows(chain: readonly SnapshotChainEntry[]): HostLogRow[] {
     .reverse()
     .filter((entry) => entry.kind === 'turn-start')
     .map((entry, index) =>
-      HostLogRowSchema.parse({
+      Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
         event: {
           boundary: 'turn-start',
           roots: [{ commitOid: entry.commitOid, rootId: ROOT.rootId, rootPath: ROOT.path }],
@@ -33,7 +34,7 @@ function pendingRows(chain: readonly SnapshotChainEntry[]): HostLogRow[] {
       })
     );
   rows.push(
-    HostLogRowSchema.parse({
+    Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
       event: {
         commandId: 'command-1',
         headId: null,
@@ -57,8 +58,14 @@ interface FixtureOptions {
 }
 function fixture(options: FixtureOptions = {}) {
   const events: string[] = [];
-  const pruned: { rootId: string; threadId: string }[] = [];
-  const histories: { rootId: string; boundaries: readonly string[] }[] = [];
+  const pruned: {
+    rootId: string;
+    threadId: string;
+  }[] = [];
+  const histories: {
+    rootId: string;
+    boundaries: readonly string[];
+  }[] = [];
   const service = {
     ensureShadowRepo: vi.fn(async (root: typeof ROOT) => ({
       gitDir: `/shadow/${root.rootId}`,
@@ -72,15 +79,29 @@ function fixture(options: FixtureOptions = {}) {
       }
       return value;
     }),
-    pruneHistory: vi.fn(async (handle: { rootId: string }, boundaries: readonly string[]) => {
-      events.push('prune-history');
-      histories.push({ boundaries, rootId: handle.rootId });
-    }),
-    pruneThread: vi.fn(async (handle: { rootId: string }, threadId: string) => {
-      events.push('prune-ref');
-      pruned.push({ rootId: handle.rootId, threadId });
-      return { deleted: true };
-    }),
+    pruneHistory: vi.fn(
+      async (
+        handle: {
+          rootId: string;
+        },
+        boundaries: readonly string[]
+      ) => {
+        events.push('prune-history');
+        histories.push({ boundaries, rootId: handle.rootId });
+      }
+    ),
+    pruneThread: vi.fn(
+      async (
+        handle: {
+          rootId: string;
+        },
+        threadId: string
+      ) => {
+        events.push('prune-ref');
+        pruned.push({ rootId: handle.rootId, threadId });
+        return { deleted: true };
+      }
+    ),
   };
   const readHostThreadIds = vi.fn(async () => {
     events.push('read-host');
@@ -113,7 +134,6 @@ function fixture(options: FixtureOptions = {}) {
   };
   return { deps, events, histories, pruned, readHostThreadIds, readHostThreadRows, service };
 }
-
 describe('host-owned startup snapshot retention', () => {
   it('deletes nothing when the host inventory is unavailable', async () => {
     const f = fixture({
@@ -170,7 +190,7 @@ describe('host-owned startup snapshot retention', () => {
     expect((await runSnapshotStartupGc(f.deps)).failures).toEqual([]);
     expect(f.histories).toEqual([]);
     rows.push(
-      HostLogRowSchema.parse({
+      Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
         event: { outcomes: [], rewindId: 'rewind-1', type: 'thread.rewind.redone' },
         seq: rows.length + 1,
         threadId: 'thread-1',

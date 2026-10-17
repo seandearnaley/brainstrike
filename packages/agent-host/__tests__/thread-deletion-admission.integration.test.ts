@@ -9,8 +9,8 @@ import { RootLock, RootLockedError, StateStore } from '@brainstrike/state-store'
 import recording from '@brainstrike/test-utils/fixtures/committed-host-question.json' with {
   type: 'json',
 };
+import { Schema } from 'effect';
 import { expect, test, vi } from 'vitest';
-import { z } from 'zod';
 import { HostCore } from '../src/core.js';
 import type { HostPlatform } from '../src/ports.js';
 import { HostLogRowSchema } from '../src/protocol.js';
@@ -38,9 +38,10 @@ test.for([
       { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
     );
     const store = await StateStore.open(root, { indexer: createStateStoreIndexer(native) });
-    const snapshot = z
-      .array(HostLogRowSchema)
-      .parse(recording)
+    const snapshot = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(recording)
       .map((row) => row.event)
       .find((event) => event.type === 'run.started')?.snapshot;
     if (!snapshot) {

@@ -1,6 +1,7 @@
 import type { PermissionToolGateSnapshot, ToolRiskCategory } from '@brainstrike/assistant-contract';
 import { refusalError } from '@brainstrike/assistant-contract';
 import type { ModelMessage, Tool } from 'ai';
+import { Schema } from 'effect';
 import { recordRawToolInputs } from './approval-input.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import type { HostMcpInputPersistenceError } from './mcp-input-state.js';
@@ -17,7 +18,6 @@ import {
   HostPromptToolCallWindowSchema,
   type HostRunSnapshot,
 } from './protocol.js';
-
 /**
  * HostCore alone folds and writes accepted command records. The committed
  * payload is canonicalized only when its command ID is submitted again, never
@@ -29,7 +29,6 @@ export interface AcceptedCommand {
   readonly result: Json;
   readonly threadId: string;
 }
-
 /** Process-local attempts retain uncertainty; restart uses only committed records. */
 export interface AttemptedCommand {
   readonly method: string;
@@ -37,17 +36,14 @@ export interface AttemptedCommand {
   readonly settlement: Promise<Json>;
   readonly threadId?: string;
 }
-
 /** Owned exclusively by HostCore, with no independent writer or admission queue. */
 export class HostCommandLedger {
   private readonly accepted = new Map<string, AcceptedCommand>();
   private readonly attempts = new Map<string, AttemptedCommand>();
-
   /** A command this host has attempted or committed: `perform` replays it. */
   known(commandId: string): boolean {
     return this.attempts.has(commandId) || this.accepted.has(commandId);
   }
-
   commit(commandId: string, command: AcceptedCommand): void {
     this.accepted.set(commandId, command);
     const attempt = this.attempts.get(commandId);
@@ -55,7 +51,6 @@ export class HostCommandLedger {
       this.attempts.set(commandId, { ...attempt, threadId: command.threadId });
     }
   }
-
   /** Erase process-local payloads only after their canonical thread deletion joined. */
   forgetThread(threadId: string): readonly string[] {
     const conversationCommands: string[] = [];
@@ -74,10 +69,12 @@ export class HostCommandLedger {
     }
     return conversationCommands;
   }
-
   async perform<T extends Json>(
     method: string,
-    params: { commandId: string; threadId?: string },
+    params: {
+      commandId: string;
+      threadId?: string;
+    },
     perform: () => Promise<T>,
     repeat?: (result: T) => Promise<T>
   ): Promise<T> {
@@ -118,28 +115,36 @@ export class HostCommandLedger {
     }
   }
 }
-
-type Action = Extract<HostEvent, { type: 'effect.started' }>;
-type Interaction = Extract<HostEvent, { type: 'interaction.requested' }>;
+type Action = Extract<
+  HostEvent,
+  {
+    type: 'effect.started';
+  }
+>;
+type Interaction = Extract<
+  HostEvent,
+  {
+    type: 'interaction.requested';
+  }
+>;
 export interface PendingInteraction {
   decision?: 'approve' | 'deny';
   readonly event: Interaction;
   resumeData?: Json;
-  runtimeInput?: { readonly value: unknown };
+  runtimeInput?: {
+    readonly value: unknown;
+  };
 }
-
 export function hasHostInteractionResponse(pending: PendingInteraction): boolean {
   return pending.event.kind === 'approval'
     ? pending.decision !== undefined
     : Object.hasOwn(pending, 'resumeData');
 }
-
 /** What a run was started with that its plan's follow-up run starts with again. */
 export interface HostRunInput {
   readonly configuration?: HostParams<'run/start'>['configuration'];
   readonly origin?: HostClientOrigin;
 }
-
 /**
  * A thread's grants, kept by Core for its process lifetime. Only live
  * acceptance adds to them; replay after a restart never restores a grant.
@@ -148,7 +153,6 @@ export interface HostThreadGrants {
   readonly categories: Set<ToolRiskCategory>;
   readonly tools: Set<string>;
 }
-
 export function applyHostPermissionGrant(run: HostRunState, grant: HostPermissionGrant): void {
   if (grant.scope === 'session') {
     run.grants.categories.add(grant.category);
@@ -156,11 +160,15 @@ export function applyHostPermissionGrant(run: HostRunState, grant: HostPermissio
     run.grants.tools.add(grant.toolId);
   }
 }
-
 /** Folds a committed interaction request or response into its run's pending set. */
 export function foldHostInteraction(
   runs: ReadonlyMap<string, HostRunState>,
-  event: Extract<HostEvent, { type: 'interaction.requested' | 'interaction.responded' }>
+  event: Extract<
+    HostEvent,
+    {
+      type: 'interaction.requested' | 'interaction.responded';
+    }
+  >
 ): void {
   const run = runs.get(event.runId);
   if (event.type === 'interaction.requested') {
@@ -218,7 +226,6 @@ export function foldHostRunEffect(
     }
   }
 }
-
 /** A run's committed position in the thread's conversation tree. */
 export interface HostRunBranch {
   /** Images on the user message, beside its prompt. */
@@ -231,7 +238,6 @@ export interface HostRunBranch {
   /** The run/start command that committed the user message (a regeneration reuses it). */
   readonly userMessageId: string;
 }
-
 export interface HostRunState {
   admission?: HostRunAdmission;
   admissionTask?: Promise<HostRunAdmission>;
@@ -252,7 +258,12 @@ export interface HostRunState {
   childInput?: HostParams<'run/start'> | undefined;
   completion?: Promise<void>;
   /** Calls awaiting network consent this step, and whether the policy also asked to approve them. */
-  readonly consents: Map<string, { readonly approval: boolean }>;
+  readonly consents: Map<
+    string,
+    {
+      readonly approval: boolean;
+    }
+  >;
   readonly controller: AbortController;
   /** Set when a child's execution deadline expired; it ends failed, not stopped. */
   deadline?: string;
@@ -269,7 +280,12 @@ export interface HostRunState {
    * approved: the admitting configuration, and the live client's origin.
    */
   input?: HostRunInput;
-  readonly liveInputs: Map<string, { readonly value: unknown }>;
+  readonly liveInputs: Map<
+    string,
+    {
+      readonly value: unknown;
+    }
+  >;
   mcpInputPersistenceFailures?: HostMcpInputPersistenceError[];
   /** Positions of this run's own messages in its selected-path context. */
   readonly messageIndexes: Set<number>;
@@ -281,10 +297,20 @@ export interface HostRunState {
    * run was admitted: only when that tool resolved to `allow` and no approval
    * of it is in flight. It has no execute, so steps re-check the live policy.
    */
-  nativeWebSearch?: { readonly tool: Tool; readonly toolId: string } | undefined;
+  nativeWebSearch?:
+    | {
+        readonly tool: Tool;
+        readonly toolId: string;
+      }
+    | undefined;
   /** BST-1932: present on every run of a child thread. */
   origin?: HostChildOrigin;
-  outcome?: Extract<HostEvent, { type: 'run.finished' }>['outcome'];
+  outcome?: Extract<
+    HostEvent,
+    {
+      type: 'run.finished';
+    }
+  >['outcome'];
   /** When each output committed (its row time), for artifact retention. */
   readonly outputCommittedAt: Map<string, number>;
   readonly outputs: Map<string, Json>;
@@ -326,9 +352,13 @@ export interface HostRunState {
   /** A follow-up typed into an idle child starts its own turn: its ID. */
   turnId?: string;
   /** The run's committed turn-start snapshots: the roots its turn end snapshots. */
-  turnStart?: Extract<HostEvent, { type: 'workspace.snapshot.recorded' }>;
+  turnStart?: Extract<
+    HostEvent,
+    {
+      type: 'workspace.snapshot.recorded';
+    }
+  >;
 }
-
 /**
  * Core's runs by run ID, which also keeps each thread's runs in the order they
  * were folded, so a run's branch reads its thread's earlier runs without
@@ -342,9 +372,7 @@ export class HostRunMap extends Map<string, HostRunState> {
     }
     return run;
   }
-
   private readonly byThread = new Map<string, HostRunState[]>();
-
   override set(runId: string, run: HostRunState): this {
     const previous = this.get(runId);
     super.set(runId, run);
@@ -364,7 +392,6 @@ export class HostRunMap extends Map<string, HostRunState> {
     }
     return this;
   }
-
   override delete(runId: string): boolean {
     const run = this.get(runId);
     if (run) {
@@ -372,17 +399,14 @@ export class HostRunMap extends Map<string, HostRunState> {
     }
     return super.delete(runId);
   }
-
   override clear(): void {
     this.byThread.clear();
     super.clear();
   }
-
   /** The thread's runs, in the order they were folded. */
   ofThread(threadId: string): readonly HostRunState[] {
     return this.byThread.get(threadId) ?? [];
   }
-
   private unlist(run: HostRunState): void {
     const list = this.listed(run);
     list.splice(list.indexOf(run), 1);
@@ -390,7 +414,6 @@ export class HostRunMap extends Map<string, HostRunState> {
       this.byThread.delete(run.threadId);
     }
   }
-
   /** The thread list holding a run this map holds; both views change together. */
   private listed(run: HostRunState): HostRunState[] {
     const list = this.byThread.get(run.threadId);
@@ -400,7 +423,6 @@ export class HostRunMap extends Map<string, HostRunState> {
     return list;
   }
 }
-
 export function createHostRunState(
   threadId: string,
   id: string,
@@ -441,11 +463,15 @@ export function createHostRunState(
     toolContexts: new Map(),
   };
 }
-
 export function foldHostAcceptedCommand(
   commands: HostCommandLedger,
   runs: ReadonlyMap<string, HostRunState>,
-  event: Extract<HostEvent, { type: 'command.accepted' }>,
+  event: Extract<
+    HostEvent,
+    {
+      type: 'command.accepted';
+    }
+  >,
   threadId: string
 ): void {
   commands.commit(event.commandId, {
@@ -457,7 +483,10 @@ export function foldHostAcceptedCommand(
   if (event.method !== 'run/stop' && event.method !== 'run/steer' && event.method !== 'run/input') {
     return;
   }
-  const params = HOST_METHOD_SCHEMAS[event.method].parse(event.payload);
+  const params = Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS[event.method], {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(event.payload);
   const run = runs.get(params.runId);
   if (!run) {
     return;
@@ -468,11 +497,15 @@ export function foldHostAcceptedCommand(
     run.steered = true;
   }
 }
-
 /** HostCore supplies already-validated committed messages; no independent fold or writer. */
 export function foldHostRunMessages(
   run: HostRunState,
-  event: Extract<HostEvent, { type: 'model.step' | 'model.messages' }>,
+  event: Extract<
+    HostEvent,
+    {
+      type: 'model.step' | 'model.messages';
+    }
+  >,
   messages: readonly ModelMessage[],
   previousLength: number
 ): void {
@@ -497,7 +530,6 @@ export function foldHostRunMessages(
     }
   }
 }
-
 /** Receipts use the caller's existing FULL publisher, with no queue/store of their own. */
 export function createHostRunContext(
   run: HostRunState,
@@ -531,11 +563,17 @@ export function createHostRunContext(
       await publish(run.threadId, [
         {
           accounting: jsonValue(receipt.accounting),
-          breakdown: HostPromptBreakdownSchema.parse(receipt.breakdown),
+          breakdown: Schema.decodeUnknownSync(HostPromptBreakdownSchema, {
+            errors: 'all',
+            onExcessProperty: 'error',
+          })(receipt.breakdown),
           modelId: receipt.modelId,
           provider: receipt.provider,
           runId: run.id,
-          toolCallWindow: HostPromptToolCallWindowSchema.parse(receipt.toolCallWindow),
+          toolCallWindow: Schema.decodeUnknownSync(HostPromptToolCallWindowSchema, {
+            errors: 'all',
+            onExcessProperty: 'error',
+          })(receipt.toolCallWindow),
           type: 'provider.request.prepared',
         },
       ]);
@@ -545,32 +583,40 @@ export function createHostRunContext(
     threadId: run.threadId,
   };
 }
-
 /** The workspace read is a clone of the existing host-owned committed projection. */
 export function readHostWorkspaceSnapshot(
   threads: ReadonlySet<string>,
   workspaces: ReadonlyMap<string, HostParams<'thread/workspace/set'>['snapshot']>,
   threadId: string
-): { snapshot: HostParams<'thread/workspace/set'>['snapshot'] | null } {
+): {
+  snapshot: HostParams<'thread/workspace/set'>['snapshot'] | null;
+} {
   if (!threads.has(threadId)) {
     throw refusalError('input', 'thread.unknown', 'Unknown thread');
   }
   return { snapshot: structuredClone(workspaces.get(threadId) ?? null) };
 }
-
 /** Prepare validated data; HostCore supplies its sole command acceptance writer. */
 export async function acceptHostWorkspaceSnapshot(
   params: HostParams<'thread/workspace/set'>,
   threads: ReadonlySet<string>,
-  accept: (event: Extract<HostEvent, { type: 'workspace.updated' }>) => Promise<void>
-): Promise<{ accepted: true }> {
+  accept: (
+    event: Extract<
+      HostEvent,
+      {
+        type: 'workspace.updated';
+      }
+    >
+  ) => Promise<void>
+): Promise<{
+  accepted: true;
+}> {
   if (!threads.has(params.threadId)) {
     throw refusalError('input', 'thread.unknown', 'Unknown thread');
   }
   await accept({ snapshot: structuredClone(params.snapshot), type: 'workspace.updated' });
   return { accepted: true };
 }
-
 /** Existing conversation collision invariant, folded into HostCore's supplied set. */
 export function recordHostConversationId(ids: Set<string>, id: string): void {
   if (ids.has(id)) {

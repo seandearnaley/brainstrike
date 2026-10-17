@@ -30,6 +30,7 @@ import attempts from '@brainstrike/test-utils/fixtures/committed-host-run-attemp
 import rich from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json' with {
   type: 'json',
 };
+import { Schema } from 'effect';
 import { describe, expect, test } from 'vitest';
 import { z } from 'zod';
 import { HostEventSchema } from '../src/protocol.js';
@@ -52,7 +53,6 @@ const recordedEvents = Object.entries(RECORDINGS).flatMap(([name, rows]) =>
     .parse(rows)
     .map(({ event }, index) => ({ event, name: `${name}[${index}] ${String(event['type'])}` }))
 );
-
 describe('the committed host event schema', () => {
   // A child's origin-shaped thread.started is recorded by no fixture; the
   // child-run integration suites commit and read it back through this schema.
@@ -63,11 +63,11 @@ describe('the committed host event schema', () => {
     expect(keys.some((shape) => shape.includes('decision'))).toBe(true);
     expect(keys.some((shape) => shape.includes('resumeData'))).toBe(true);
   });
-
   test.each(recordedEvents)('$name parses to itself', ({ event }) => {
-    expect(HostEventSchema.parse(event)).toEqual(event);
+    expect(
+      Schema.decodeUnknownSync(HostEventSchema, { errors: 'all', onExcessProperty: 'error' })(event)
+    ).toEqual(event);
   });
-
   const runId = 'run-1';
   const breakdown = {
     attachmentsCount: 0,
@@ -102,7 +102,6 @@ describe('the committed host event schema', () => {
       },
     ],
   };
-
   test.each([
     ['a prepared request measured before tool calls were attributed', prepared],
     [
@@ -110,9 +109,10 @@ describe('the committed host event schema', () => {
       { ...prepared, breakdown: { ...breakdown, ...toolCalls }, toolCallWindow },
     ],
   ])('%s parses to itself', (_, event) => {
-    expect(HostEventSchema.parse(event)).toEqual(event);
+    expect(
+      Schema.decodeUnknownSync(HostEventSchema, { errors: 'all', onExcessProperty: 'error' })(event)
+    ).toEqual(event);
   });
-
   test.each([
     [
       'a tool-call total without its per-tool rows',
@@ -153,6 +153,10 @@ describe('the committed host event schema', () => {
     ['a value outside its enum', { outcome: 'done', runId, type: 'run.finished' }],
     ['a non-object', 'run.finished'],
   ])('%s rejects', (_, event) => {
-    expect(HostEventSchema.safeParse(event).success).toBe(false);
+    expect(
+      Schema.decodeUnknownResult(HostEventSchema, { errors: 'all', onExcessProperty: 'error' })(
+        event
+      )._tag === 'Success'
+    ).toBe(false);
   });
 });

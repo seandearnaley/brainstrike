@@ -1,3 +1,4 @@
+import { Schema } from 'effect';
 /**
  * Restore to before a message (gap 2): the rewind module over real run state
  * and committed rows. Its ports record what Core would commit, folding each
@@ -11,9 +12,11 @@ import { HostThreadRewinds } from '../src/thread-rewind.js';
 
 const THREAD = 'thread-1';
 const oid = (digit: string) => digit.repeat(40);
-
 function turnStart(runId: string, roots: readonly HostTurnSnapshot[], failure?: string) {
-  const row = HostLogRowSchema.parse({
+  const row = Schema.decodeUnknownSync(HostLogRowSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({
     event: {
       boundary: 'turn-start',
       ...(failure ? { failure } : {}),
@@ -29,7 +32,6 @@ function turnStart(runId: string, roots: readonly HostTurnSnapshot[], failure?: 
   }
   return row.event;
 }
-
 /** A finished run answering `messageId`, after `parent`. */
 function run(
   id: string,
@@ -50,10 +52,8 @@ function run(
   }
   return state;
 }
-
 const ROOT_A = { rootId: 'root-a', rootPath: '/work/a' };
 const ROOT_B = { rootId: 'root-b', rootPath: '/work/b' };
-
 function harness(options: { readonly files?: Partial<HostRewindFiles> | false } = {}) {
   const runs = new Map<string, HostRunState>();
   const committed: HostEvent[] = [];
@@ -81,7 +81,13 @@ function harness(options: { readonly files?: Partial<HostRewindFiles> | false } 
       seq += 1;
       order.push(event.type);
       committed.push(event);
-      rewinds.fold(HostLogRowSchema.parse({ event, seq, threadId: THREAD }));
+      rewinds.fold(
+        Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+          event,
+          seq,
+          threadId: THREAD,
+        })
+      );
     }
   };
   const rewinds: HostThreadRewinds = new HostThreadRewinds({
@@ -93,7 +99,7 @@ function harness(options: { readonly files?: Partial<HostRewindFiles> | false } 
   const add = (state: HostRunState): void => {
     runs.set(state.id, state);
     rewinds.fold(
-      HostLogRowSchema.parse({
+      Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
         event: {
           modelId: 'model',
           parentMessageId: state.branch.parentMessageId,
@@ -108,7 +114,6 @@ function harness(options: { readonly files?: Partial<HostRewindFiles> | false } 
   };
   return { add, committed, files, order, rewinds, runs };
 }
-
 /** Three runs in a row; the second message's turn starts with root A, the third adds root B. */
 function threeTurns(h: ReturnType<typeof harness>): void {
   h.add(run('run-1', 'msg-1', null, [{ ...ROOT_A, commitOid: oid('1') }]));
@@ -120,7 +125,6 @@ function threeTurns(h: ReturnType<typeof harness>): void {
     ])
   );
 }
-
 describe('restore to before a message', () => {
   it('previews the runs leaving the conversation and each root restore point', async () => {
     const h = harness();
@@ -142,7 +146,6 @@ describe('restore to before a message', () => {
     });
     expect(h.committed).toEqual([]);
   });
-
   it('commits a files rewind as intent, restore, then outcome, and moves the tip back', async () => {
     const h = harness();
     threeTurns(h);
@@ -166,7 +169,6 @@ describe('restore to before a message', () => {
       parentMessageId: 'run-3',
     });
   });
-
   it('answers conflicts without committing anything until they are acknowledged', async () => {
     const h = harness({ files: { drift: async () => [{ path: 'a.txt', rootId: 'root-a' }] } });
     threeTurns(h);
@@ -185,7 +187,6 @@ describe('restore to before a message', () => {
     await h.rewinds.rewind({ ...params, acknowledgeConflicts: true });
     expect(h.order).toEqual(['thread.rewind.started', 'apply', 'thread.rewound']);
   });
-
   it('commits a failed restore as interrupted, and keeps the rewind redoable', async () => {
     const h = harness({
       files: {
@@ -214,12 +215,11 @@ describe('restore to before a message', () => {
       h.rewinds.redo({ commandId: 'cmd-2', rewindId, threadId: THREAD })
     ).resolves.toMatchObject({ status: 'redone' });
   });
-
   it('commits interrupted for a started rewind the host never finished, on recovery', async () => {
     const h = harness();
     threeTurns(h);
     h.rewinds.fold(
-      HostLogRowSchema.parse({
+      Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
         event: {
           commandId: 'cmd-1',
           headId: 'run-1',
@@ -246,7 +246,6 @@ describe('restore to before a message', () => {
     await h.rewinds.recover();
     expect(h.committed).toHaveLength(1);
   });
-
   it('redoes the newest rewind as intent, restore, then outcome; a new run ends redo', async () => {
     const h = harness();
     threeTurns(h);
@@ -262,7 +261,6 @@ describe('restore to before a message', () => {
     await h.rewinds.redo({ commandId: 'cmd-2', rewindId, threadId: THREAD });
     expect(h.order).toEqual(['thread.rewind.redo.started', 'redo', 'thread.rewind.redone']);
     expect(h.rewinds.tip(THREAD)).toBeUndefined();
-
     const second = await h.rewinds.rewind({
       commandId: 'cmd-3',
       messageId: 'msg-3',
@@ -279,7 +277,6 @@ describe('restore to before a message', () => {
     ).rejects.toThrow("Only the thread's newest rewind can be redone");
     expect(h.rewinds.tip(THREAD)).toBeUndefined();
   });
-
   it('refuses visibly: an active run, a target off the branch, no snapshot owner, a failed capture', async () => {
     const active = harness();
     threeTurns(active);
@@ -289,7 +286,6 @@ describe('restore to before a message', () => {
     await expect(active.rewinds.preview({ messageId: 'msg-2', threadId: THREAD })).rejects.toThrow(
       'active run'
     );
-
     const branched = harness();
     threeTurns(branched);
     // An edit of message 2 branches from run 1; run 3 is now off the tip's branch.
@@ -297,7 +293,6 @@ describe('restore to before a message', () => {
     await expect(
       branched.rewinds.preview({ messageId: 'msg-3', threadId: THREAD })
     ).rejects.toThrow("not on the thread's current branch");
-
     const cli = harness({ files: false });
     threeTurns(cli);
     expect(await cli.rewinds.preview({ messageId: 'msg-2', threadId: THREAD })).toMatchObject({
@@ -313,7 +308,6 @@ describe('restore to before a message', () => {
       })
     ).rejects.toThrow('no workspace snapshot owner');
     expect(cli.committed).toEqual([]);
-
     const failed = harness();
     failed.add(run('run-1', 'msg-1', null, [{ ...ROOT_A, commitOid: oid('0') }]));
     expect(await failed.rewinds.preview({ messageId: 'msg-1', threadId: THREAD })).toMatchObject({

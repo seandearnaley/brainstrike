@@ -1,5 +1,4 @@
 // @vitest-environment node
-
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -23,6 +22,7 @@ import {
 import { scriptedToolSequence } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import { DEFAULT_PERMISSION_POLICIES, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { processStartTime } from '@brainstrike/state-store';
+import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 
@@ -34,7 +34,6 @@ afterEach(async () => {
   await Promise.all(hosts.splice(0).map((host) => host.close()));
   await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
 });
-
 test.for(
   [
     {
@@ -213,7 +212,12 @@ test.for(
           .stdout()
           .trim()
           .split('\n')
-          .map((line) => HostLogRowSchema.parse(JSON.parse(line)));
+          .map((line) =>
+            Schema.decodeUnknownSync(HostLogRowSchema, {
+              errors: 'all',
+              onExcessProperty: 'error',
+            })(JSON.parse(line))
+          );
         expect(liveRows.at(-1)?.event).toMatchObject({
           outcome: 'completed',
           type: 'run.finished',

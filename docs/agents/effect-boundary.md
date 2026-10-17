@@ -26,7 +26,8 @@ already run, so a bare plugin entry lets a stable export expose an unstable
 Effect type and still type-check.
 
 Effect stays out of preloads and their value-import graph. Shared IPC contracts
-remain pure; main/worker-side validation may use Schema. Do not move a stream,
+retain their pure preload parser surface; host, renderer, main and worker
+receiving boundaries may use Schema without importing Effect into preload. Do not move a stream,
 watchdog, persistence drain or ordering-sensitive queue to fibers merely because
 another subsystem uses them.
 

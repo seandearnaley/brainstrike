@@ -31,10 +31,13 @@ import type { ToolResultRenderer } from '@brainstrike/assistant-ui/tool-result-r
 import recording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
+import { Schema } from 'effect';
 import { memo } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const rows = recording.map((row) => HostLogRowSchema.parse(row));
+const rows = recording.map((row) =>
+  Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)
+);
 const threadId = rows[0]?.threadId;
 if (!threadId) {
   throw new Error('Missing recorded thread.');
@@ -76,7 +79,6 @@ function identifyRun(row: CommittedAssistantLogRow): CommittedAssistantRunIdenti
   }
   return identity;
 }
-
 /** Connection publication double around the REAL public committed gap fold. */
 class OwnerSource {
   readonly fold = new CommittedThreadView(threadId ?? '');
@@ -114,7 +116,6 @@ afterEach(() => {
     value.dispose();
   }
 });
-
 describe('real committed owner fold to production ExternalStore bridge', () => {
   it('records the thread context fold for the displayed branch and clears it with its view', () => {
     const source = new OwnerSource();
@@ -129,7 +130,6 @@ describe('real committed owner fold to production ExternalStore bridge', () => {
     bridge.dispose();
     expect(useThreadContextStore.getState().byThread[threadId]).toBeUndefined();
   });
-
   it('displays only the latest committed provider step as context through replay and reopen', async () => {
     const firstStep = rows.findIndex(({ event }) => event.type === 'model.step');
     const source = new OwnerSource();
@@ -182,7 +182,6 @@ describe('real committed owner fold to production ExternalStore bridge', () => {
       outputTokens: 25,
     });
   });
-
   it('answers a recorded host approval through visible vendor controls and waits for committed resolution', async () => {
     const request = rows.findIndex(({ event }) => event.type === 'interaction.requested');
     const requested = rows[request];
@@ -299,7 +298,6 @@ describe('real committed owner fold to production ExternalStore bridge', () => {
     bridge.dispose();
     expect(source.listeners.size).toBe(0);
   });
-
   it('keeps unrelated vendor rows and the shipped tool card stable across 24 actual live text deltas', async () => {
     const second = starts[1];
     if (second?.event.type !== 'run.started') {
@@ -460,7 +458,6 @@ describe('real committed owner fold to production ExternalStore bridge', () => {
     expect(document.activeElement).toBe(input);
     expect(commands.onNew).not.toHaveBeenCalled();
   });
-
   it('reconnects a pending captured approval without optimistic settlement or transcript mutation', async () => {
     const request = rows.findIndex(({ event }) => event.type === 'interaction.requested');
     const requested = rows[request];

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { HOST_VERSION, type HostRecord } from '@brainstrike/host-lease';
+import { Schema } from 'effect';
 import { expect, test } from 'vitest';
 import {
   createMessageConnection,
@@ -25,19 +26,19 @@ import { AGENT_HOST_PROTOCOL_VERSION, HostLogRowSchema } from '../src/protocol.j
 const stopResponse: unknown = JSON.parse(
   await readFile(new URL('./fixtures/recorded-host-stop-response.json', import.meta.url), 'utf8')
 );
-const rows = HostLogRowSchema.array()
-  .parse(
-    JSON.parse(
-      await readFile(
-        new URL(
-          import.meta.resolve('@brainstrike/test-utils/fixtures/committed-approved-host-run.json')
-        ),
-        'utf8'
-      )
+const rows = Schema.decodeUnknownSync(Schema.Array(HostLogRowSchema), {
+  errors: 'all',
+  onExcessProperty: 'error',
+})(
+  JSON.parse(
+    await readFile(
+      new URL(
+        import.meta.resolve('@brainstrike/test-utils/fixtures/committed-approved-host-run.json')
+      ),
+      'utf8'
     )
   )
-  .slice(0, 3);
-
+).slice(0, 3);
 type Fault =
   | 'complete'
   | 'multiple'
@@ -52,7 +53,6 @@ type Fault =
   | 'decoder-dispose-error'
   | 'concurrent-close'
   | 'dispose-error';
-
 async function encodedFrame(message: Message): Promise<Buffer> {
   const stream = new PassThrough();
   const chunks: Buffer[] = [];
@@ -66,7 +66,6 @@ async function encodedFrame(message: Message): Promise<Buffer> {
     stream.destroy();
   }
 }
-
 test.each(['decoder', 'dispatch'] as const)(
   'joins complete received Stop frames held in %s before physical-close disposal',
   async (stage) => {
@@ -91,7 +90,6 @@ test.each([
 test('joins a registered dispatch drain when explicit close discards its queued response', async () => {
   await exercise('concurrent-close', 'decoder');
 });
-
 async function exercise(fault: Fault, stage?: 'decoder' | 'dispatch'): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-receive-'));
   const endpoint =

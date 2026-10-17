@@ -5,6 +5,7 @@
  * after it; a failed capture fails the whole range.
  */
 import { type HostLogRow, HostLogRowSchema } from '@brainstrike/agent-host/protocol';
+import { Schema } from 'effect';
 import { expect, test } from 'vitest';
 import { createHostThreadTurns } from '../assistant-server/changeset-host-turns';
 
@@ -12,26 +13,27 @@ const THREAD = 'thread-1';
 const oid = (digit: string) => digit.repeat(40);
 const ROOT_A = { rootId: 'root-a', rootPath: '/workspace/a' };
 const ROOT_B = { rootId: 'root-b', rootPath: '/workspace/b' };
-
 function turnStart(
   seq: number,
   runId: string,
-  roots: readonly { commitOid: string; rootId: string; rootPath: string }[]
+  roots: readonly {
+    commitOid: string;
+    rootId: string;
+    rootPath: string;
+  }[]
 ): HostLogRow {
-  return HostLogRowSchema.parse({
+  return Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
     event: { boundary: 'turn-start', roots, runId, type: 'workspace.snapshot.recorded' },
     seq,
     threadId: THREAD,
   });
 }
-
 function turns(rows: readonly HostLogRow[]) {
   return createHostThreadTurns({
     listThreads: async () => new Set([THREAD]),
     readRows: async (_threadId, fromSeq) => rows.filter((row) => row.seq > fromSeq),
   });
 }
-
 test('each root restores to the FROM run’s turn start, or to its first turn start after it', async () => {
   const rows = [
     turnStart(1, 'run-1', [{ ...ROOT_A, commitOid: oid('1') }]),
@@ -52,7 +54,6 @@ test('each root restores to the FROM run’s turn start, or to its first turn st
     },
   });
 });
-
 test('a range whose FROM run has no turn start, or crosses a failed capture, is refused', async () => {
   const failed = [
     turnStart(1, 'run-1', [{ ...ROOT_A, commitOid: oid('1') }]),

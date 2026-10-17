@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { RootLock } from '@brainstrike/state-store';
+import { Schema } from 'effect';
 import { expect, test } from 'vitest';
 import { attachAgentHost, type HostClient } from '../src/client.js';
 import type { HostPlatform } from '../src/ports.js';
@@ -17,8 +18,14 @@ test('the committed ordinary workspace uses the root writer and survives host re
   const recorded: unknown = JSON.parse(
     await readFile(new URL('./fixtures/ordinary-workspace-snapshot.json', import.meta.url), 'utf8')
   );
-  const snapshot = WorkspaceSnapshotSchema.parse(
-    HOST_RESULT_SCHEMAS['thread/workspace/read'].parse(recorded).snapshot
+  const snapshot = Schema.decodeUnknownSync(WorkspaceSnapshotSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(
+    Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/workspace/read'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(recorded).snapshot
   );
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-workspace-'));
   const platform: HostPlatform = {

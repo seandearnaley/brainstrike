@@ -1,5 +1,4 @@
-import { z } from 'zod';
-
+import { Schema, SchemaIssue } from 'effect';
 /**
  * Subagent limits the USER sets (Settings → Subagents → Subagent limits). They ride
  * every request as `runtimeData.subagentSettings`; no constant stands in for
@@ -33,13 +32,11 @@ export interface RuntimeSubagentSettings {
   maxTreeOutputTokens: number;
   synthesisOutputTokens: number;
 }
-
 /**
  * The longest delay Node's `setTimeout` arms: anything above it (Infinity
  * included) or below 1 is clamped to 1 ms and fires IMMEDIATELY.
  */
 export const NODE_TIMER_MAX_MS = 2_147_483_647;
-
 /*
  * Tree ranges and defaults follow the long-horizon agents surveyed in
  * docs/superpowers/research/2026-09-22-agent-timeout-and-budget-standards.md
@@ -52,7 +49,6 @@ const MAX_CHILD_OUTPUT_TOKENS = 131_072;
  * needs a high one.
  */
 const MAX_INVOCATIONS = 1000;
-
 export const SUBAGENT_SETTINGS_LIMITS = Object.freeze({
   maxChildOutputTokens: Object.freeze({ max: MAX_CHILD_OUTPUT_TOKENS, min: 1024 }),
   maxChildRuntimeMs: Object.freeze({ max: NODE_TIMER_MAX_MS, min: 1000 }),
@@ -84,7 +80,6 @@ export const SUBAGENT_SETTINGS_LIMITS = Object.freeze({
   }),
   synthesisOutputTokens: Object.freeze({ max: 8192, min: 256 }),
 });
-
 const DEFAULT_MAX_CHILD_OUTPUT_TOKENS = 32_768;
 /**
  * 200 per turn: Claude Code's per-session subagent total before it removed
@@ -93,7 +88,6 @@ const DEFAULT_MAX_CHILD_OUTPUT_TOKENS = 32_768;
  * background children may wake the parent in one leg.
  */
 const DEFAULT_MAX_INVOCATIONS = 200;
-
 export const DEFAULT_RUNTIME_SUBAGENT_SETTINGS: RuntimeSubagentSettings = Object.freeze({
   maxChildOutputTokens: DEFAULT_MAX_CHILD_OUTPUT_TOKENS,
   maxChildRuntimeMs: null,
@@ -116,47 +110,48 @@ export const DEFAULT_RUNTIME_SUBAGENT_SETTINGS: RuntimeSubagentSettings = Object
   maxTreeOutputTokens: DEFAULT_MAX_INVOCATIONS * DEFAULT_MAX_CHILD_OUTPUT_TOKENS,
   synthesisOutputTokens: 2048,
 });
-
 function bounded(limit: { readonly max: number; readonly min: number }) {
-  return z.number().int().min(limit.min).max(limit.max);
+  return Schema.Int.check(Schema.isGreaterThanOrEqualTo(limit.min)).check(
+    Schema.isLessThanOrEqualTo(limit.max)
+  );
 }
-
-export const runtimeSubagentSettingsSchema = z
-  .strictObject({
-    maxChildOutputTokens: bounded(SUBAGENT_SETTINGS_LIMITS.maxChildOutputTokens),
-    maxChildRuntimeMs: bounded(SUBAGENT_SETTINGS_LIMITS.maxChildRuntimeMs).nullable(),
-    maxChildSteps: bounded(SUBAGENT_SETTINGS_LIMITS.maxChildSteps),
-    maxConcurrentWork: bounded(SUBAGENT_SETTINGS_LIMITS.maxConcurrentWork),
-    maxDepth: bounded(SUBAGENT_SETTINGS_LIMITS.maxDepth),
-    maxInvocations: bounded(SUBAGENT_SETTINGS_LIMITS.maxInvocations),
-    maxStepOutputTokens: bounded(SUBAGENT_SETTINGS_LIMITS.maxStepOutputTokens),
-    maxTreeOutputTokens: bounded(SUBAGENT_SETTINGS_LIMITS.maxTreeOutputTokens),
-    synthesisOutputTokens: bounded(SUBAGENT_SETTINGS_LIMITS.synthesisOutputTokens),
-  })
-  .superRefine((value, context) => {
+export const runtimeSubagentSettingsSchema = Schema.Struct({
+  maxChildOutputTokens: bounded(SUBAGENT_SETTINGS_LIMITS.maxChildOutputTokens),
+  maxChildRuntimeMs: Schema.NullOr(bounded(SUBAGENT_SETTINGS_LIMITS.maxChildRuntimeMs)),
+  maxChildSteps: bounded(SUBAGENT_SETTINGS_LIMITS.maxChildSteps),
+  maxConcurrentWork: bounded(SUBAGENT_SETTINGS_LIMITS.maxConcurrentWork),
+  maxDepth: bounded(SUBAGENT_SETTINGS_LIMITS.maxDepth),
+  maxInvocations: bounded(SUBAGENT_SETTINGS_LIMITS.maxInvocations),
+  maxStepOutputTokens: bounded(SUBAGENT_SETTINGS_LIMITS.maxStepOutputTokens),
+  maxTreeOutputTokens: bounded(SUBAGENT_SETTINGS_LIMITS.maxTreeOutputTokens),
+  synthesisOutputTokens: bounded(SUBAGENT_SETTINGS_LIMITS.synthesisOutputTokens),
+}).check(
+  Schema.makeFilter((value) => {
+    const issues: {
+      issue: string;
+      path: readonly PropertyKey[];
+    }[] = [];
     if (value.maxChildOutputTokens > value.maxTreeOutputTokens) {
-      context.addIssue({
-        code: 'custom',
-        message: 'maxChildOutputTokens must not exceed maxTreeOutputTokens',
+      issues.push({
+        issue: 'maxChildOutputTokens must not exceed maxTreeOutputTokens',
         path: ['maxChildOutputTokens'],
       });
     }
     if (value.synthesisOutputTokens > value.maxChildOutputTokens) {
-      context.addIssue({
-        code: 'custom',
-        message: 'synthesisOutputTokens must not exceed maxChildOutputTokens',
+      issues.push({
+        issue: 'synthesisOutputTokens must not exceed maxChildOutputTokens',
         path: ['synthesisOutputTokens'],
       });
     }
     if (value.maxStepOutputTokens > value.maxChildOutputTokens) {
-      context.addIssue({
-        code: 'custom',
-        message: 'maxStepOutputTokens must not exceed maxChildOutputTokens',
+      issues.push({
+        issue: 'maxStepOutputTokens must not exceed maxChildOutputTokens',
         path: ['maxStepOutputTokens'],
       });
     }
-  });
-
+    return issues;
+  })
+);
 /** The limits one original root turn freezes into its budget row at first admission. */
 export type TurnSubagentLimits = Pick<
   RuntimeSubagentSettings,
@@ -168,11 +163,9 @@ export type TurnSubagentLimits = Pick<
   | 'maxTreeOutputTokens'
   | 'synthesisOutputTokens'
 >;
-
 export class RuntimeSubagentSettingsError extends Error {
   override readonly name = 'RuntimeSubagentSettingsError';
 }
-
 /**
  * `undefined` (field absent: older clients, web) → the defaults. ANY present
  * value is validated strictly and a malformed one THROWS — the host never
@@ -182,16 +175,21 @@ export function parseRuntimeSubagentSettings(value: unknown): RuntimeSubagentSet
   if (value === undefined) {
     return DEFAULT_RUNTIME_SUBAGENT_SETTINGS;
   }
-  const parsed = runtimeSubagentSettingsSchema.safeParse(value);
-  if (!parsed.success) {
-    const issues = parsed.error.issues
-      .map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
+  const parsed = Schema.decodeUnknownResult(runtimeSubagentSettingsSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value);
+  if (!(parsed._tag === 'Success')) {
+    const issues = SchemaIssue.makeFormatterStandardSchemaV1()(parsed.failure.issue)
+      .issues.map(
+        (issue) =>
+          `${(issue.path ?? []).map((segment) => (typeof segment === 'object' ? segment.key : segment)).join('.') || '<root>'}: ${issue.message}`
+      )
       .join('; ');
     throw new RuntimeSubagentSettingsError(`Subagent settings are malformed: ${issues}`);
   }
-  return parsed.data;
+  return parsed.success;
 }
-
 /**
  * The settings one leg runs under: the turn's stored limits when its budget
  * row exists (`turn`), the request's per-request knobs always. `undefined`
@@ -207,7 +205,6 @@ export function applyTurnSubagentLimits(
   }
   return parseRuntimeSubagentSettings({ ...request, ...turn });
 }
-
 /**
  * The deadline the host hands Mastra for one background child execution.
  * Mastra 1.64 arms `setTimeout(task.timeoutMs)` for EVERY task and has no

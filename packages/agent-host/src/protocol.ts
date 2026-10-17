@@ -13,11 +13,12 @@ import { ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE } from '@brainstrike/assistant-co
 import { McpTaskHandleSchema } from '@brainstrike/assistant-contract/mcp-task-presentation';
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 import type { JsonSchemaFactory } from './json-value.js';
 import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.js';
 import { McpToolAuthoritySchema } from './mcp-authority-wire.js';
+import { opaqueWireSchema } from './opaque-wire-schema.js';
 import { MCP_CONTENT_METHOD_SCHEMAS, MCP_CONTENT_RESULT_SCHEMAS } from './protocol-mcp-content.js';
 import {
   MCP_PRESENTATION_METHOD_SCHEMAS,
@@ -58,6 +59,7 @@ import {
   WorkspaceRelativePath,
 } from './workspace-wire.js';
 
+export * from './client-open-external-wire.js';
 export * from './mcp-authority-wire.js';
 export * from './protocol-mcp-content.js';
 export * from './protocol-mcp-presentation.js';
@@ -68,7 +70,6 @@ export * from './protocol-search.js';
 export * from './protocol-selection.js';
 export * from './run-wire.js';
 export * from './workspace-wire.js';
-
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
 // and the explicit branch links they commit on `run.started`), thread
 // presentation (`thread/update`, `thread.updated`: title, colour and icon, also
@@ -112,14 +113,13 @@ export * from './workspace-wire.js';
 // variants and new methods, so a v11 reader that uses none of them sees
 // nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
-
 // ADR-0017: transport request IDs never serve as durable command identities.
-const Id = z.string().min(1);
+const Id = Schema.String.check(Schema.isMinCodePoints(1));
 /**
  * A user message's text: empty only beside its images (an image sent alone,
  * as the composer allows), never a message of nothing.
  */
-const Prompt = z.string();
+const Prompt = Schema.String;
 const hasMessage = (message: {
   readonly attachments?: readonly unknown[] | undefined;
   readonly prompt: string;
@@ -128,22 +128,24 @@ const NO_MESSAGE = { message: 'A message needs text or an image', path: ['prompt
 const Command = { commandId: Id };
 const Thread = { threadId: Id };
 /** A time the state store recorded, in ms since the epoch. */
-const StoredTime = z.number().int().nonnegative();
+const StoredTime = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 /** A committed thread title: trimmed, never blank. */
-const ThreadTitle = z.string().trim().min(1);
+const ThreadTitle = Schema.String.pipe(Schema.decodeTo(Schema.Trim)).check(
+  Schema.isMinCodePoints(1)
+);
 /** A thread's committed presentation; each field is optional and set independently. */
 const ThreadPresentation = {
-  color: Id.optional(),
-  icon: Id.optional(),
-  title: ThreadTitle.optional(),
+  color: Schema.optional(Id),
+  icon: Schema.optional(Id),
+  title: Schema.optional(ThreadTitle),
 };
 const Run = { ...Thread, runId: Id };
 /**
  * Plan mode: the run may only read and propose a plan. Approving its plan ends
  * it and starts the thread's next run without plan mode.
  */
-const PlanMode = { planMode: z.literal(true).optional() };
-const RiskCategory = z.enum(TOOL_RISK_CATEGORIES);
+const PlanMode = { planMode: Schema.optional(Schema.Literal(true)) };
+const RiskCategory = Schema.Literals(TOOL_RISK_CATEGORIES);
 /**
  * BST-1990 (D4): the JSON-RPC error code of a run command the host refused
  * before it admitted the run. Nothing was committed, so a client may hand the
@@ -154,36 +156,40 @@ export const HOST_RUN_NOT_ADMITTED_CODE = -32_010;
  * BST-1990 (D4): the workspace folder a tool resolved for one call, so its
  * approval names the folder even when the call gave no `root`.
  */
-export const HostApprovalTargetRootSchema = z.strictObject({
-  displayName: z.string().min(1),
+export const HostApprovalTargetRootSchema = Schema.Struct({
+  displayName: Schema.String.check(Schema.isMinCodePoints(1)),
   rootId: Id,
 });
-export type HostApprovalTargetRoot = z.infer<typeof HostApprovalTargetRootSchema>;
+export type HostApprovalTargetRoot = (typeof HostApprovalTargetRootSchema)['Type'];
 /**
  * A grant answered with an approval: the rest of that run allows the call's
  * risk category (`session`; the client keeps it for its later runs) or the
  * call's tool. Core accepts only the approved call's own category or tool.
  */
-const PermissionGrant = z.discriminatedUnion('scope', [
-  z.strictObject({ category: RiskCategory, scope: z.literal('session') }),
-  z.strictObject({ scope: z.literal('tool'), toolId: Id }),
-]);
-export type HostPermissionGrant = z.infer<typeof PermissionGrant>;
-
+const PermissionGrant = Schema.Union(
+  [
+    Schema.Struct({ category: RiskCategory, scope: Schema.Literal('session') }),
+    Schema.Struct({ scope: Schema.Literal('tool'), toolId: Id }),
+  ],
+  { mode: 'oneOf' }
+);
+export type HostPermissionGrant = (typeof PermissionGrant)['Type'];
 /**
  * The answer to a `network` interaction: allow lets this one call reach its
  * requested domains; deny settles it unrun (run_python's `network_denied`).
  */
-export const HostNetworkConsentSchema = z.strictObject({ action: z.enum(['allow', 'deny']) });
+export const HostNetworkConsentSchema = Schema.Struct({
+  action: Schema.Literals(['allow', 'deny']),
+});
 const McpInput = { ...Run, interactionId: Id };
 /** An MCP App's own tool call: the app a committed tool result of the thread mounted. */
 const McpAppCall = {
   ...Thread,
   app: McpAppOriginSchema,
-  arguments: z.record(z.string(), z.json()),
+  arguments: Schema.Record(Schema.String, Schema.MutableJson),
   toolName: Id,
 };
-export const HostMcpInputStatusSchema = z.enum([
+export const HostMcpInputStatusSchema = Schema.Literals([
   'requested',
   'accepted',
   'local-finalized',
@@ -191,51 +197,54 @@ export const HostMcpInputStatusSchema = z.enum([
   'unknown',
   'retired',
 ]);
-const McpContent = z.record(
-  z.string(),
-  z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])
+const McpContent = Schema.Record(
+  Schema.String,
+  Schema.Union([
+    Schema.String,
+    Schema.Finite,
+    Schema.Boolean,
+    Schema.mutable(Schema.Array(Schema.String)),
+  ])
 );
-const Seq = z.number().int().nonnegative();
-const Attachments = z
-  .array(HostImageAttachmentSchema)
-  .min(1)
-  .max(ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE);
+const Seq = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+const Attachments = Schema.mutable(Schema.Array(HostImageAttachmentSchema))
+  .check(Schema.isMinLength(1))
+  .check(Schema.isMaxLength(ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE));
 /**
  * BST-1932: a child thread's durable invocation identity, ancestry and owner.
  * The child threadId is the invocation ID; this origin commits in the same
  * transaction as the parent's delegation effect. `turnId` is the root run
  * whose user turn admitted the whole subtree.
  */
-export const HostChildOriginSchema = z.strictObject({
-  background: z.boolean(),
-  depth: z.number().int().positive(),
+export const HostChildOriginSchema = Schema.Struct({
+  background: Schema.Boolean,
+  depth: Schema.Int.check(Schema.isGreaterThan(0)),
   parentRunId: Id,
   parentThreadId: Id,
   persona: Id,
-  /**
-   * The persona as it was admitted: what the child's toolbar names, never the
-   * current persona list. Children committed before it carry none.
-   */
-  profile: z
-    .strictObject({ label: z.string().min(1), mode: z.enum(['read-only', 'worker']) })
-    .optional(),
+  profile: Schema.optional(
+    Schema.Struct({
+      label: Schema.String.check(Schema.isMinCodePoints(1)),
+      mode: Schema.Literals(['read-only', 'worker']),
+    })
+  ),
   toolCallId: Id,
   turnId: Id,
 });
-export type HostChildOrigin = z.infer<typeof HostChildOriginSchema>;
+export type HostChildOrigin = (typeof HostChildOriginSchema)['Type'];
 /**
  * BST-1932: a child as its parent's sidebar shows it: a run in progress, a run
  * waiting on a person's answer, or no run in progress.
  */
-export const HostChildStatusSchema = z.enum(['working', 'needs-input', 'idle']);
-export type HostChildStatus = z.infer<typeof HostChildStatusSchema>;
+export const HostChildStatusSchema = Schema.Literals(['working', 'needs-input', 'idle']);
+export type HostChildStatus = (typeof HostChildStatusSchema)['Type'];
 /**
  * BST-1932: the host's notice that a thread's children changed status (a child
  * run started, paused for a person, was answered or ended). A client re-reads
  * `thread/children` for `threadId` only when told.
  */
 export const HOST_CHILDREN_CHANGED = 'thread/children/changed';
-export const HostChildrenChangedSchema = z.strictObject(Thread);
+export const HostChildrenChangedSchema = Schema.Struct(Thread);
 /**
  * A run's live telemetry, sent to the thread's log subscribers and never
  * committed (ADR-0011 amendment): a tool's shell-output slice or MCP progress,
@@ -249,63 +258,73 @@ export const HostChildrenChangedSchema = z.strictObject(Thread);
  * missed and skips any ordinal it already applied.
  */
 export const HOST_RUN_TELEMETRY = 'run/telemetry';
-export const HostRunTelemetrySchema = z.strictObject({
+export const HostRunTelemetrySchema = Schema.Struct({
   ...Thread,
-  chunk: z.json(),
-  ordinal: z.number().int().nonnegative().optional(),
+  chunk: Schema.MutableJson,
+  ordinal: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
   runId: Id,
-  toolCallId: Id.optional(),
+  toolCallId: Schema.optional(Id),
 });
-export type HostRunTelemetry = z.infer<typeof HostRunTelemetrySchema>;
+export type HostRunTelemetry = (typeof HostRunTelemetrySchema)['Type'];
 /** One settled background invocation delivered to its parent (BST-1932). */
-export const HostChildDeliveryEntrySchema = z.strictObject({
+export const HostChildDeliveryEntrySchema = Schema.Struct({
   childRunId: Id,
   childThreadId: Id,
-  /** A completed run typed into an idle child, not its delegated invocation. */
-  followUp: z.literal(true).optional(),
-  /** What the parent's model reads in place of the dispatch acknowledgement. */
-  outcome: z.string(),
+  followUp: Schema.optional(Schema.Literal(true)),
+  outcome: Schema.String,
   parentRunId: Id,
-  state: z.enum(['returned', 'failed', 'cancelled']),
+  state: Schema.Literals(['returned', 'failed', 'cancelled']),
   toolCallId: Id,
 });
-export type HostChildDeliveryEntry = z.infer<typeof HostChildDeliveryEntrySchema>;
+export type HostChildDeliveryEntry = (typeof HostChildDeliveryEntrySchema)['Type'];
 /**
  * The durable delivery watermark: these entries reached the parent's model
  * input on the run that records them, as an automated message that the user
  * did not write. A wake run's prompt is that message; a user turn carries it
  * ahead of its own message.
  */
-export const HostChildDeliverySchema = z.discriminatedUnion('via', [
-  z.strictObject({
-    entries: z.array(HostChildDeliveryEntrySchema).min(1),
-    messageId: Id,
-    turnId: Id,
-    via: z.literal('wake'),
-  }),
-  z.strictObject({
-    entries: z.array(HostChildDeliveryEntrySchema).min(1),
-    ledger: Id,
-    messageId: Id,
-    via: z.literal('next-turn'),
-  }),
-]);
-export type HostChildDelivery = z.infer<typeof HostChildDeliverySchema>;
+export const HostChildDeliverySchema = Schema.Union(
+  [
+    Schema.Struct({
+      entries: Schema.mutable(Schema.Array(HostChildDeliveryEntrySchema)).check(
+        Schema.isMinLength(1)
+      ),
+      messageId: Id,
+      turnId: Id,
+      via: Schema.Literal('wake'),
+    }),
+    Schema.Struct({
+      entries: Schema.mutable(Schema.Array(HostChildDeliveryEntrySchema)).check(
+        Schema.isMinLength(1)
+      ),
+      ledger: Id,
+      messageId: Id,
+      via: Schema.Literal('next-turn'),
+    }),
+  ],
+  { mode: 'oneOf' }
+);
+export type HostChildDelivery = (typeof HostChildDeliverySchema)['Type'];
 /** Credentials and executable capabilities remain process-local. */
 export function hostRunSnapshotSchema(json: JsonSchemaFactory) {
-  return z.strictObject({
-    configuration: z.record(z.string(), json()),
-    maxSteps: z.number().int().positive(),
-    mcpAuthorities: z.record(z.string(), McpToolAuthoritySchema).optional(),
-    toolIdentities: z.record(z.string(), Id),
-    workspaceBinding: ThreadWorkspaceBindingSchema.optional(),
+  return Schema.Struct({
+    configuration: Schema.Record(Schema.String, json()),
+    maxSteps: Schema.Int.check(Schema.isGreaterThan(0)),
+    mcpAuthorities: Schema.optional(Schema.Record(Schema.String, McpToolAuthoritySchema)),
+    toolIdentities: Schema.Record(Schema.String, Id),
+    workspaceBinding: Schema.optional(ThreadWorkspaceBindingSchema),
   });
 }
-export const HostRunSnapshotSchema = hostRunSnapshotSchema(z.json);
-export type HostRunSnapshot = z.infer<typeof HostRunSnapshotSchema>;
+export const HostRunSnapshotSchema = hostRunSnapshotSchema(() => Schema.MutableJson);
+export type HostRunSnapshot = (typeof HostRunSnapshotSchema)['Type'];
 /** A key a user supplies directly. Subscription OAuth is never a login payload. */
-export type HostLoginCredential = Exclude<ProviderCredential, { readonly type: 'oauth' }>;
-const LoginCredential = z.custom<HostLoginCredential>(
+export type HostLoginCredential = Exclude<
+  ProviderCredential,
+  {
+    readonly type: 'oauth';
+  }
+>;
+const LoginCredential = Schema.declare<HostLoginCredential>(
   (value) => isProviderCredential(value) && value.type !== 'oauth'
 );
 const Provider = { provider: Id };
@@ -315,12 +334,11 @@ const HookRoot = { rootId: Id };
  * A root's trusted project hooks: its absolute path and the SHA-256 of
  * `<path>/.brainstrike/hooks.json`'s raw bytes. The host is the only writer.
  */
-export const HostHookTrustSchema = z.strictObject({
-  path: z.string().min(1),
-  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+export const HostHookTrustSchema = Schema.Struct({
+  path: Schema.String.check(Schema.isMinCodePoints(1)),
+  sha256: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
 });
-export type HostHookTrust = z.infer<typeof HostHookTrustSchema>;
-
+export type HostHookTrust = (typeof HostHookTrustSchema)['Type'];
 /** Why observational memory waits for an observer it can run. */
 export const HOST_OBSERVER_AWAITING_REASONS = [
   'keys-unknown',
@@ -329,40 +347,34 @@ export const HOST_OBSERVER_AWAITING_REASONS = [
   'no-hosted-chat-provider',
 ] as const;
 export type HostObserverAwaitingReason = (typeof HOST_OBSERVER_AWAITING_REASONS)[number];
-const ObservationTokens = z.number().int().nonnegative();
+const ObservationTokens = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 /**
  * Observational memory as a run admission configures it. `active` carries the
  * thread's committed observation record, or null before the first observation.
  */
-export const HostObservationalMemoryStateSchema = z.discriminatedUnion('state', [
-  z.strictObject({ state: z.literal('off') }),
-  z.strictObject({
-    reason: z.enum(HOST_OBSERVER_AWAITING_REASONS),
-    state: z.literal('awaiting-observer'),
-  }),
-  z.strictObject({
-    record: z
-      .strictObject({
-        bufferedObservationTokens: ObservationTokens,
-        messageTokenThreshold: z.number().int().positive(),
-        observationTokenCount: ObservationTokens,
-        pendingMessageTokens: ObservationTokens,
-        totalTokensObserved: ObservationTokens,
-      })
-      .nullable(),
-    state: z.literal('active'),
-  }),
-]);
-export type HostObservationalMemoryState = z.infer<typeof HostObservationalMemoryStateSchema>;
-
-/**
- * Host -> client: a UI action only the connected desktop client performs. The
- * one external opener for every host feature (OAuth sign-in, MCP authorization).
- */
-export const CLIENT_OPEN_EXTERNAL = 'client/open-external';
-export const ClientOpenExternalParamsSchema = z.strictObject({ url: z.url() });
-export const ClientOpenExternalResultSchema = z.strictObject({ opened: z.literal(true) });
-
+export const HostObservationalMemoryStateSchema = Schema.Union(
+  [
+    Schema.Struct({ state: Schema.Literal('off') }),
+    Schema.Struct({
+      reason: Schema.Literals(HOST_OBSERVER_AWAITING_REASONS),
+      state: Schema.Literal('awaiting-observer'),
+    }),
+    Schema.Struct({
+      record: Schema.NullOr(
+        Schema.Struct({
+          bufferedObservationTokens: ObservationTokens,
+          messageTokenThreshold: Schema.Int.check(Schema.isGreaterThan(0)),
+          observationTokenCount: ObservationTokens,
+          pendingMessageTokens: ObservationTokens,
+          totalTokensObserved: ObservationTokens,
+        })
+      ),
+      state: Schema.Literal('active'),
+    }),
+  ],
+  { mode: 'oneOf' }
+);
+export type HostObservationalMemoryState = (typeof HostObservationalMemoryStateSchema)['Type'];
 export const HOST_METHOD_SCHEMAS = {
   ...MCP_CONTENT_METHOD_SCHEMAS,
   ...MCP_PRESENTATION_METHOD_SCHEMAS,
@@ -370,252 +382,261 @@ export const HOST_METHOD_SCHEMAS = {
   ...PERMISSION_POLICY_METHOD_SCHEMAS,
   // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
   // or diagnostics. The host is the single writer and token holder.
-  'auth/cancel': z.strictObject(Provider),
-  'auth/clear': z.strictObject({}),
-  'auth/connect': z.strictObject({
+  'auth/cancel': Schema.Struct(Provider),
+  'auth/clear': Schema.Record(Schema.String, Schema.Never),
+  'auth/connect': Schema.Struct({
     ...Provider,
-    method: z.enum(['device', 'loopback']).optional(),
+    method: Schema.optional(Schema.Literals(['device', 'loopback'])),
   }),
-  'auth/credential/delete': z.strictObject({ account: Id }),
-  'auth/credential/set': z.strictObject({ account: Id, credential: LoginCredential }),
-  'auth/disconnect': z.strictObject(Provider),
-  'auth/login': z.strictObject({ ...Provider, credential: LoginCredential }),
-  'auth/status': z.strictObject(Provider),
-  'auth/verify': z.strictObject(Provider),
+  'auth/credential/delete': Schema.Struct({ account: Id }),
+  'auth/credential/set': Schema.Struct({ account: Id, credential: LoginCredential }),
+  'auth/disconnect': Schema.Struct(Provider),
+  'auth/login': Schema.Struct({ ...Provider, credential: LoginCredential }),
+  'auth/status': Schema.Struct(Provider),
+  'auth/verify': Schema.Struct(Provider),
   /**
    * Restore a finished run's edited paths to their state before the run first
    * changed them (one entry, or every unreverted entry of the run). Refused
    * while the thread has an active run; `force` skips the conflict gate.
    */
-  'checkpoint/revert': z.strictObject({
+  'checkpoint/revert': Schema.Struct({
     ...Command,
     ...Run,
-    entryId: Id.optional(),
-    force: z.boolean().optional(),
+    entryId: Schema.optional(Id),
+    force: Schema.optional(Schema.Boolean),
   }),
   /**
    * Trust a root's project hooks at the hash its reviewer saw. The host
    * re-hashes the file and refuses a mismatch; a later edit needs a new trust.
    */
-  'hooks/trust': z.strictObject({ ...HookRoot, ...HostHookTrustSchema.shape }),
-  'hooks/trust/read': z.strictObject(HookRoot),
+  'hooks/trust': Schema.Struct({ ...HookRoot, ...HostHookTrustSchema.fields }),
+  'hooks/trust/read': Schema.Struct(HookRoot),
   /** Revoke a root's trust; removing the root revokes it too. */
-  'hooks/untrust': z.strictObject(HookRoot),
+  'hooks/untrust': Schema.Struct(HookRoot),
   /** Provider availability: the host's configured keys, unreadable entries and env-file failures. */
-  'host/status': z.strictObject({}),
-  'host/stop': z.strictObject({}),
-  initialize: z.strictObject({
+  'host/status': Schema.Record(Schema.String, Schema.Never),
+  'host/stop': Schema.Record(Schema.String, Schema.Never),
+  initialize: Schema.Struct({
     hostVersion: Id,
-    protocolVersion: z.number().int().positive(),
-    token: z.string().regex(/^[a-f0-9]{64}$/),
+    protocolVersion: Schema.Int.check(Schema.isGreaterThan(0)),
+    token: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
   }),
-  'interaction/respond': z.strictObject({
+  'interaction/respond': Schema.Struct({
     ...Command,
     ...Run,
-    decision: z.enum(['approve', 'deny']),
-    grant: PermissionGrant.optional(),
+    decision: Schema.Literals(['approve', 'deny']),
+    grant: Schema.optional(PermissionGrant),
     interactionId: Id,
   }),
-  'interaction/resume': z.strictObject({
+  'interaction/resume': Schema.Struct({
     ...Command,
     ...Run,
-    /** Only a network consent that also stood in for an approval carries one. */
-    grant: PermissionGrant.optional(),
+    grant: Schema.optional(PermissionGrant),
     interactionId: Id,
-    resumeData: z.json(),
+    resumeData: Schema.MutableJson,
   }),
   /** Every thread's runs and costed provider calls, as Core folds its committed log. */
-  'ledger/read': z.strictObject({}),
-  'log/subscribe': z.strictObject({ ...Thread, fromSeq: Seq }),
-  'log/unsubscribe': z.strictObject(Thread),
+  'ledger/read': Schema.Record(Schema.String, Schema.Never),
+  'log/subscribe': Schema.Struct({ ...Thread, fromSeq: Seq }),
+  'log/unsubscribe': Schema.Struct(Thread),
   /** Core's decision on an app's call under the thread's live policy; nothing runs. */
-  'mcp/app/admit': z.strictObject(McpAppCall),
+  'mcp/app/admit': Schema.Struct(McpAppCall),
   /** Decided afresh, an asked call runs only `approved`, on the app's own server. */
-  'mcp/app/call': z.strictObject({ ...McpAppCall, approved: z.boolean() }),
-  'mcp/input/read': z.strictObject(McpInput),
-  'mcp/input/settle': z.strictObject({
+  'mcp/app/call': Schema.Struct({ ...McpAppCall, approved: Schema.Boolean }),
+  'mcp/input/read': Schema.Struct(McpInput),
+  'mcp/input/settle': Schema.Struct({
     ...Command,
     ...McpInput,
-    action: z.enum(['accept', 'decline', 'cancel']),
+    action: Schema.Literals(['accept', 'decline', 'cancel']),
   }),
   // Values are process-local and never enter HostCommandLedger.
-  'mcp/input/stage': z.strictObject({ ...McpInput, content: McpContent.optional() }),
+  'mcp/input/stage': Schema.Struct({ ...McpInput, content: Schema.optional(McpContent) }),
   /** Model metadata through the host's OpenRouter key; the client sends only the model id. */
-  'providers/openrouter-model': z.strictObject({ model: Id }),
+  'providers/openrouter-model': Schema.Struct({ model: Id }),
   /** The cheapest authenticated probe of one provider's stored or env credential. */
-  'providers/verify': z.strictObject(Provider),
+  'providers/verify': Schema.Struct(Provider),
   /**
    * BST-1932: human input for a running child. The active run ends after its
    * step in flight, and the input starts the child's next run under these run
    * settings; only that run's end reports to the parent.
    */
-  'run/input': z
-    .strictObject({
-      ...Command,
-      ...Run,
-      attachments: Attachments.optional(),
-      configuration: z.record(z.string(), z.json()).optional(),
-      modelId: Id,
-      ...PlanMode,
-      prompt: Prompt,
-    })
-    .refine(hasMessage, NO_MESSAGE),
-  'run/regenerate': z.strictObject({
+  'run/input': Schema.Struct({
     ...Command,
-    ...Thread,
-    configuration: z.record(z.string(), z.json()).optional(),
+    ...Run,
+    attachments: Schema.optional(Attachments),
+    configuration: Schema.optional(Schema.Record(Schema.String, Schema.MutableJson)),
     modelId: Id,
     ...PlanMode,
-    /** The original committed user message: its run/start command ID. */
+    prompt: Prompt,
+  }).check(
+    Schema.makeFilter((value) =>
+      hasMessage(value) ? undefined : { issue: NO_MESSAGE.message, path: NO_MESSAGE.path ?? [] }
+    )
+  ),
+  'run/regenerate': Schema.Struct({
+    ...Command,
+    ...Thread,
+    configuration: Schema.optional(Schema.Record(Schema.String, Schema.MutableJson)),
+    modelId: Id,
+    ...PlanMode,
     userMessageId: Id,
   }),
-  'run/start': z
-    .strictObject({
-      ...Command,
-      ...Thread,
-      /** Images on the new user message, beside its prompt. */
-      attachments: Attachments.optional(),
-      configuration: z.record(z.string(), z.json()).optional(),
-      modelId: Id,
-      /** A committed run ID to follow, null for the thread root; omitted is the current tip. */
-      parentMessageId: Id.nullable().optional(),
-      ...PlanMode,
-      prompt: Prompt,
-    })
-    .refine(hasMessage, NO_MESSAGE),
+  'run/start': Schema.Struct({
+    ...Command,
+    ...Thread,
+    attachments: Schema.optional(Attachments),
+    configuration: Schema.optional(Schema.Record(Schema.String, Schema.MutableJson)),
+    modelId: Id,
+    parentMessageId: Schema.optional(Schema.NullOr(Id)),
+    ...PlanMode,
+    prompt: Prompt,
+  }).check(
+    Schema.makeFilter((value) =>
+      hasMessage(value) ? undefined : { issue: NO_MESSAGE.message, path: NO_MESSAGE.path ?? [] }
+    )
+  ),
   /**
    * End the active run gracefully at its next step boundary, after the step in
    * flight, so the user's steering message can start the next turn (BST-588).
    */
-  'run/steer': z.strictObject({ ...Command, ...Run }),
-  'run/stop': z.strictObject({ ...Command, ...Run }),
+  'run/steer': Schema.Struct({ ...Command, ...Run }),
+  'run/stop': Schema.Struct({ ...Command, ...Run }),
   /** A client verdict is always the user's; hook and revert labels are host-committed. */
-  'run/verdict': z.strictObject({
+  'run/verdict': Schema.Struct({
     ...Command,
     ...Run,
-    detail: RunVerdictDetailSchema.optional(),
-    source: z.literal('user'),
+    detail: Schema.optional(RunVerdictDetailSchema),
+    source: Schema.Literal('user'),
     verdict: RunVerdictSchema,
   }),
   /** BST-1932: a thread's direct child threads; they are never in `thread/list`. */
-  'thread/children': z.strictObject(Thread),
+  'thread/children': Schema.Struct(Thread),
   /** Destructive Root lifecycle; the existing StateStore intent owns recovery. */
-  'thread/delete': z.strictObject(Thread),
-  'thread/list': z.strictObject({}),
+  'thread/delete': Schema.Struct(Thread),
+  'thread/list': Schema.Record(Schema.String, Schema.Never),
   /**
    * Memory readiness for the thread's next run: the admission `run/start`
    * makes with these fields, released at once. Nothing is committed.
    */
-  'thread/memory/read': z.strictObject({
+  'thread/memory/read': Schema.Struct({
     ...Thread,
-    configuration: z.record(z.string(), z.json()).optional(),
+    configuration: Schema.optional(Schema.Record(Schema.String, Schema.MutableJson)),
     modelId: Id,
     ...PlanMode,
   }),
-  'thread/read': z.strictObject({ ...Thread, fromSeq: Seq }),
+  'thread/read': Schema.Struct({ ...Thread, fromSeq: Seq }),
   ...REWIND_METHOD_SCHEMAS,
   ...SEARCH_METHOD_SCHEMAS,
   ...SELECTION_METHOD_SCHEMAS,
-  'thread/start': z.strictObject(Command),
-  'thread/update': z
-    .strictObject({ ...Command, ...Thread, ...ThreadPresentation })
-    .refine((params) => Object.keys(params).length > 2, 'A thread update changes no field'),
-  'thread/workspace/binding/read': z.strictObject(Thread),
-  'thread/workspace/binding/update': z.strictObject({
+  'thread/start': Schema.Struct(Command),
+  'thread/update': Schema.Struct({ ...Command, ...Thread, ...ThreadPresentation }).check(
+    Schema.makeFilter((params) =>
+      Object.keys(params).length > 2
+        ? undefined
+        : { issue: 'A thread update changes no field', path: [] }
+    )
+  ),
+  'thread/workspace/binding/read': Schema.Struct(Thread),
+  'thread/workspace/binding/update': Schema.Struct({
     ...Command,
     ...Thread,
     patch: ThreadWorkspaceBindingSchema,
   }),
-  'thread/workspace/read': z.strictObject(Thread),
-  'thread/workspace/set': z.strictObject({
+  'thread/workspace/read': Schema.Struct(Thread),
+  'thread/workspace/set': Schema.Struct({
     ...Command,
     ...Thread,
     snapshot: WorkspaceSnapshotSchema,
   }),
 } as const;
 export type HostMethod = keyof typeof HOST_METHOD_SCHEMAS;
-export type HostParams<M extends HostMethod> = z.infer<(typeof HOST_METHOD_SCHEMAS)[M]>;
+export type HostParams<M extends HostMethod> = (typeof HOST_METHOD_SCHEMAS)[M]['Type'];
 /** Private input diagnostics must not quote schema paths or unknown secret-bearing keys. */
 export function parseHostParams<M extends HostMethod>(method: M, input: unknown): HostParams<M> {
   if (!(method.startsWith('mcp/') || method.startsWith('auth/'))) {
-    return HOST_METHOD_SCHEMAS[method].parse(input) as HostParams<M>;
+    return Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS[method], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(input) as HostParams<M>;
   }
-  const parsed = HOST_METHOD_SCHEMAS[method].safeParse(input);
-  if (!parsed.success) {
+  const parsed = Schema.decodeUnknownResult(HOST_METHOD_SCHEMAS[method], {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(input);
+  if (!(parsed._tag === 'Success')) {
     throw new Error('Invalid MCP host request');
   }
-  return parsed.data as HostParams<M>;
+  return parsed.success as HostParams<M>;
 }
-
 const RunFields = { runId: Id };
 const action = (json: JsonSchemaFactory) => ({
   ...RunFields,
   input: json(),
   toolCallId: Id,
   /** The user-facing catalog ID (`brainstrike.readWorkspaceFile`), not the provider-sanitized name. */
-  toolCatalogId: Id.optional(),
+  toolCatalogId: Schema.optional(Id),
   toolId: Id,
   toolIdentity: Id,
 });
 const McpOrigin = {
   ...RunFields,
   configuredServerId: Id,
-  generation: z.number().int().positive().safe(),
+  generation: Schema.Int.check(Schema.isGreaterThan(0)),
   toolCallId: Id,
   toolId: Id,
   toolIdentity: Id,
 };
-export const HostMcpInputRequestSchema = z.strictObject({
+export const HostMcpInputRequestSchema = Schema.Struct({
   ...McpOrigin,
   interactionId: Id,
   invocationId: Id,
-  mode: z.enum(['form', 'url']),
-  requestId: z.union([Id, z.number().int().safe()]),
-  taskId: Id.optional(),
-  type: z.literal('mcp.input.requested'),
+  mode: Schema.Literals(['form', 'url']),
+  requestId: Schema.Union([Id, Schema.Int]),
+  taskId: Schema.optional(Id),
+  type: Schema.Literal('mcp.input.requested'),
 });
-const Tokens = z.number().int().nonnegative();
+const Tokens = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 /**
  * A prepared provider prompt's composition (the context popover's breakdown).
  * The tool-call total and its per-tool rows are optional together: a receipt
  * without them did not measure tool calls, which is not the same as none.
  */
-export const HostPromptBreakdownSchema = z
-  .strictObject({
-    attachmentsCount: Tokens,
-    historyMessagesTokens: Tokens,
-    provenance: z.literal('heuristic'),
-    systemInstructionsTokens: Tokens,
-    toolCallsByTool: z
-      .array(z.strictObject({ calls: Tokens, tokens: Tokens, toolName: Id }))
-      .optional(),
-    toolCallsTokens: Tokens.optional(),
-    toolDefinitionsProvenance: z.enum(['heuristic', 'measured']),
-    toolDefinitionsTokens: Tokens,
-  })
-  .refine(
-    (breakdown) =>
-      (breakdown.toolCallsTokens === undefined) === (breakdown.toolCallsByTool === undefined),
-    {
-      message: 'toolCallsTokens and toolCallsByTool are committed together',
-    }
-  );
+export const HostPromptBreakdownSchema = Schema.Struct({
+  attachmentsCount: Tokens,
+  historyMessagesTokens: Tokens,
+  provenance: Schema.Literal('heuristic'),
+  systemInstructionsTokens: Tokens,
+  toolCallsByTool: Schema.optional(
+    Schema.mutable(Schema.Array(Schema.Struct({ calls: Tokens, tokens: Tokens, toolName: Id })))
+  ),
+  toolCallsTokens: Schema.optional(Tokens),
+  toolDefinitionsProvenance: Schema.Literals(['heuristic', 'measured']),
+  toolDefinitionsTokens: Tokens,
+}).check(
+  Schema.makeFilter((breakdown) =>
+    (breakdown.toolCallsTokens === undefined) === (breakdown.toolCallsByTool === undefined)
+      ? undefined
+      : { issue: 'toolCallsTokens and toolCallsByTool are committed together', path: [] }
+  )
+);
 /**
  * The tool calls one provider request carried, as a change from the run's
  * previous request (assistant-contract `PromptToolCallWindow`): `run-start`
  * lists every call, `previous` only what entered, changed or left.
  */
-export const HostPromptToolCallWindowSchema = z.strictObject({
-  base: z.enum(['previous', 'run-start']),
-  removed: z.array(Id),
-  upserted: z.array(
-    z.strictObject({
-      inputTokens: Tokens,
-      output: z.enum(['absent', 'full', 'marker']),
-      outputTokens: Tokens,
-      toolCallId: Id,
-      toolName: Id,
-    })
+export const HostPromptToolCallWindowSchema = Schema.Struct({
+  base: Schema.Literals(['previous', 'run-start']),
+  removed: Schema.mutable(Schema.Array(Id)),
+  upserted: Schema.mutable(
+    Schema.Array(
+      Schema.Struct({
+        inputTokens: Tokens,
+        output: Schema.Literals(['absent', 'full', 'marker']),
+        outputTokens: Tokens,
+        toolCallId: Id,
+        toolName: Id,
+      })
+    )
   ),
 });
 /**
@@ -624,469 +645,431 @@ export const HostPromptToolCallWindowSchema = z.strictObject({
  * carries the `type` the union routes on, and its output union picks the shape.
  */
 export function hostEventSchema(json: JsonSchemaFactory) {
-  return z.discriminatedUnion('type', [
-    z.strictObject({
-      binding: ThreadWorkspaceBindingSchema,
-      type: z.literal('workspace.binding.updated'),
-    }),
-    z.strictObject({
-      ...McpOrigin,
-      handle: McpTaskHandleSchema,
-      type: z.literal('mcp.task.bound'),
-    }),
-    HostMcpInputRequestSchema,
-    z.strictObject({
-      ...RunFields,
-      action: z.enum(['accept', 'decline', 'cancel']),
-      commandId: Id,
-      interactionId: Id,
-      type: z.literal('mcp.input.intent'),
-    }),
-    z.strictObject({
-      ...RunFields,
-      interactionId: Id,
-      status: z.enum(['local-finalized', 'remote-acknowledged', 'unknown', 'retired']),
-      type: z.literal('mcp.input.settled'),
-    }),
-    z.strictObject({
-      ...RunFields,
-      // Already redacted and bounded by the MCP discovery diagnostics.
-      reason: z.string().min(1),
-      serverId: Id,
-      type: z.literal('mcp.tools.unavailable'),
-    }),
-    z
-      .looseObject({ type: z.literal('thread.started') })
-      .pipe(
-        z.union([
-          z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
-          z.strictObject({ origin: HostChildOriginSchema, type: z.literal('thread.started') }),
-        ])
-      ),
-    z.strictObject({ ...ThreadPresentation, type: z.literal('thread.updated') }),
-    z.strictObject({ snapshot: WorkspaceSnapshotSchema, type: z.literal('workspace.updated') }),
-    ...selectionEventSchemas(json),
-    z.strictObject({
-      commandId: Id,
-      method: Id,
-      payload: json(),
-      result: json(),
-      type: z.literal('command.accepted'),
-    }),
-    z.strictObject({
-      type: z.literal('run.started'),
-      ...RunFields,
-      /** The user message's images; a regeneration repeats its message's. */
-      attachments: Attachments.optional(),
-      /** BST-1932: background child results this run delivers to its model. */
-      delivery: HostChildDeliverySchema.optional(),
-      modelId: Id,
-      /**
-       * The committed message this run's new user message follows (a run ID;
-       * null is the thread root). Rows committed before branch history omit
-       * it: their parent is the previous run.
-       */
-      parentMessageId: Id.nullable().optional(),
-      parentRunId: Id.optional(),
-      ...PlanMode,
-      /** Empty only for a user message of images alone (the run/start refinement). */
-      prompt: Prompt,
-      snapshot: hostRunSnapshotSchema(json).optional(),
-      /** Regenerate only: the existing committed user message this run answers again. */
-      userMessageId: Id.optional(),
-    }),
-    z.strictObject({ type: z.literal('stream.chunk'), ...RunFields, chunk: json() }),
-    z.strictObject({
-      type: z.literal('model.step'),
-      ...RunFields,
-      messages: z.array(json()),
-      model: json(),
-      stepNumber: Seq,
-      usage: json(),
-    }),
-    z.strictObject({ type: z.literal('model.messages'), ...RunFields, messages: z.array(json()) }),
-    z.strictObject({
-      type: z.literal('memory.usage'),
-      ...RunFields,
-      kind: z.enum(['observation', 'reflection']),
-      modelId: Id,
-      usage: json(),
-    }),
-    /** OM keeps one merged text per thread, so a branched thread's run receives none. */
-    z.strictObject({
-      type: z.literal('memory.observation.withheld'),
-      ...RunFields,
-      reason: z.literal('branched-thread'),
-    }),
-    /**
-     * Memory the run launched (Mastra's buffered observation) failed after its
-     * `run.finished`; the run's outcome stands. Its cause is in the host log.
-     */
-    z.strictObject({
-      type: z.literal('memory.settlement.failed'),
-      ...RunFields,
-      detail: z.string().min(1),
-    }),
-    z.strictObject({
-      type: z.literal('provider.request.prepared'),
-      ...RunFields,
-      accounting: json(),
-      /** The prepared prompt's composition, for the context popover. */
-      breakdown: HostPromptBreakdownSchema.optional(),
-      modelId: Id,
-      provider: Id,
-      /** The tool calls this request carried, as a change from the run's previous request. */
-      toolCallWindow: HostPromptToolCallWindowSchema.optional(),
-    }),
-    z.strictObject({
-      type: z.literal('interaction.requested'),
-      ...action(json),
-      /**
-       * A code-execution approval's host-computed sandbox facts (reach, scratch
-       * folder, reads, timeout), which the tool's arguments cannot carry. Shape:
-       * assistant-contract's CodeExecutionApprovalContext; a consumer validates
-       * it with isCodeExecutionApprovalContext before showing it.
-       */
-      executionContext: json().optional(),
-      interactionId: Id,
-      kind: z.enum(['approval', 'question', 'plan', 'network']),
-      /** A permission approval's risk category, which its session grant names. */
-      risk: RiskCategory.optional(),
-      /** The folder the tool resolved for this call (`HostTool.approvalTarget`). */
-      targetRoot: HostApprovalTargetRootSchema.optional(),
-    }),
-    z.looseObject({ type: z.literal('interaction.responded') }).pipe(
-      z.union([
-        z.strictObject({
-          type: z.literal('interaction.responded'),
-          ...RunFields,
-          /** BST-1932: the root's live policy, not a person, answered this approval. */
-          by: z.literal('policy').optional(),
-          decision: z.enum(['approve', 'deny']),
-          interactionId: Id,
-        }),
-        z.strictObject({
-          type: z.literal('interaction.responded'),
-          ...RunFields,
-          interactionId: Id,
-          resumeData: json(),
-        }),
-      ])
-    ),
-    z.strictObject({ type: z.literal('effect.started'), ...action(json) }),
-    z.strictObject({
-      type: z.literal('effect.finished'),
-      ...RunFields,
-      output: json(),
-      /**
-       * This output's own bounded model projection would have clipped it, so
-       * it settles as a durable artifact although its size alone keeps it
-       * inline (an MCP result between the projection budget and the inline
-       * ceiling). Committed because settlement and artifact reads must agree
-       * after a replay, which rebuilds outputs from these events; absent for
-       * every output whose settlement its size already decides.
-       */
-      projectionClipped: z.literal(true).optional(),
-      toolCallId: Id,
-    }),
-    z.strictObject({
-      type: z.literal('run.finished'),
-      ...RunFields,
-      detail: z.string().optional(),
-      outcome: z.enum(['completed', 'failed', 'stopped', 'interrupted']),
-    }),
-    /**
-     * One provider attempt of a run leg ended in a recoverable class of failure.
-     * `recovered` means a fresh attempt over the committed branch follows;
-     * otherwise `refusal` says why not, and `run.finished` follows.
-     */
-    z.strictObject({
-      type: z.literal('run.attempt'),
-      ...RunFields,
-      /** The attempt that ended, from 1, within this leg's `maxAttempts`. */
-      attempt: z.number().int().positive(),
-      detail: z.string().min(1),
-      maxAttempts: z.number().int().positive(),
-      reason: z.enum(['stalled', 'provider-error', 'empty-response', 'context-overflow']),
-      recovered: z.boolean(),
-      refusal: z.enum(['budget-exhausted', 'tool-parts', 'committed-output']).optional(),
-      /** A stall's breadcrumb: which silence fired and how far the stream got. */
-      stall: z
-        .strictObject({
-          lastPartType: Id.optional(),
-          partsSeen: Seq,
-          phase: z.enum(['awaiting-output', 'reasoning', 'streaming', 'tool-executing']),
-        })
-        .optional(),
-    }),
-    /**
-     * Host-committed tool-output overlay (the legacy ToolProjectionRewriteEntry):
-     * a later request replaces each call's result with its marker. A supersession
-     * applies only while its superseding call is in the same request.
-     */
-    z.strictObject({
-      type: z.literal('tool.projection.rewritten'),
-      ...RunFields,
-      rewrites: z
-        .array(
-          z.union([
-            z.strictObject({
-              kind: z.literal('prune'),
-              markerText: z.string().regex(/\S/),
-              supersededByToolCallId: z.null(),
-              toolCallId: Id,
-            }),
-            z.strictObject({
-              kind: z.literal('supersession'),
-              markerText: z.string().regex(/\S/),
-              supersededByToolCallId: Id,
-              toolCallId: Id,
+  return Schema.Union(
+    [
+      Schema.Struct({
+        binding: ThreadWorkspaceBindingSchema,
+        type: Schema.Literal('workspace.binding.updated'),
+      }),
+      Schema.Struct({
+        ...McpOrigin,
+        handle: McpTaskHandleSchema,
+        type: Schema.Literal('mcp.task.bound'),
+      }),
+      HostMcpInputRequestSchema,
+      Schema.Struct({
+        ...RunFields,
+        action: Schema.Literals(['accept', 'decline', 'cancel']),
+        commandId: Id,
+        interactionId: Id,
+        type: Schema.Literal('mcp.input.intent'),
+      }),
+      Schema.Struct({
+        ...RunFields,
+        interactionId: Id,
+        status: Schema.Literals(['local-finalized', 'remote-acknowledged', 'unknown', 'retired']),
+        type: Schema.Literal('mcp.input.settled'),
+      }),
+      Schema.Struct({
+        ...RunFields,
+        reason: Schema.String.check(Schema.isMinCodePoints(1)),
+        serverId: Id,
+        type: Schema.Literal('mcp.tools.unavailable'),
+      }),
+      Schema.StructWithRest(Schema.Struct({ type: Schema.Literal('thread.started') }), [
+        Schema.Record(Schema.String, Schema.Unknown),
+      ]).pipe(
+        Schema.decodeTo(
+          Schema.Union([
+            Schema.Struct({ commandId: Id, type: Schema.Literal('thread.started') }),
+            Schema.Struct({
+              origin: HostChildOriginSchema,
+              type: Schema.Literal('thread.started'),
             }),
           ])
         )
-        .min(1),
-    }),
-    /**
-     * Host-committed overlay from the run that made it: later requests replace
-     * these turns with `summary`. When a summarizer model ran, `modelId` and
-     * `usage` are its side-call receipt, in `memory.usage`'s shape.
-     */
-    z.strictObject({
-      type: z.literal('context.compacted'),
-      ...RunFields,
-      compactedRunIds: z.array(Id).min(1),
-      kind: z.enum(['agentic', 'deterministic']),
-      modelId: Id.optional(),
-      reason: z.enum(['pre-request', 'context-overflow']),
-      summary: z.string().min(1),
-      usage: json().optional(),
-    }),
-    z.strictObject({
-      type: z.literal('workspace.edit.recorded'),
-      ...RunFields,
-      after: HostFileIdentitySchema,
-      /** First-touch baselines this edit captured for its run; later edits reuse them. */
-      baselines: z.array(HostEditBaselineSchema),
-      before: HostFileIdentitySchema,
-      blobRefs: z.array(Sha256).optional(),
-      entryId: Id,
-      /** Rename source; `before` observes it, `after` observes the destination. */
-      fromPath: WorkspaceRelativePath.optional(),
-      op: HostWorkspaceEditOpSchema,
-      path: WorkspaceRelativePath,
-      rootId: Id,
-      /** The admitted absolute root; revert revalidates it with the live root owner. */
-      rootPath: Id,
-      toolCallId: Id,
-      toolId: Id,
-    }),
-    z.strictObject({
-      type: z.literal('tool.state.updated'),
-      ...RunFields,
-      /** Tool-owned key, e.g. the task list or one canvas; the latest value per key wins. */
-      key: Id,
-      toolCallId: Id,
-      value: json(),
-    }),
-    z.strictObject({
-      type: z.literal('workspace.edit.reverted'),
-      ...RunFields,
-      commandId: Id,
-      outcomes: z.array(HostEditRevertOutcomeSchema),
-    }),
-    /**
-     * The run's workspace at a turn boundary, for its Changes review: its roots'
-     * snapshots at the turn's start, and the same roots' at its end. `failure`
-     * records a capture that failed as a whole (no roots were snapshotted).
-     */
-    z.strictObject({
-      type: z.literal('workspace.snapshot.recorded'),
-      ...RunFields,
-      boundary: z.enum(['turn-start', 'turn-end']),
-      failure: z.string().min(1).optional(),
-      roots: z.array(HostTurnSnapshotSchema),
-    }),
-    ...REWIND_EVENT_SCHEMAS,
-    /** Failed @file reads captured at admission; Core is their sole durable writer. */
-    z.strictObject({
-      type: z.literal('references.unavailable'),
-      ...RunFields,
-      files: z.array(ReferencedFileFailureSchema).min(1),
-    }),
-    /** The hook files this run did not load, committed before any hook runs. */
-    z.strictObject({
-      type: z.literal('hooks.skipped'),
-      ...RunFields,
-      files: z.array(HostHookSkipSchema).min(1),
-    }),
-    /** Committed with the approval that granted it; the run's later decisions include it. */
-    z.strictObject({ type: z.literal('permission.granted'), ...RunFields, grant: PermissionGrant }),
-    /**
-     * A worktree this call's shell command made, which the desktop's worktree
-     * ledger adopted: the host observed it, it did not perform it.
-     */
-    z.strictObject({
-      type: z.literal('worktree.created'),
-      ...RunFields,
-      branch: z.string().min(1).nullable(),
-      path: z.string().min(1),
-      toolCallId: Id,
-      via: z.literal('shell'),
-      worktreeId: Id,
-    }),
-    /**
-     * Context a lifecycle hook added for the model: a UserPromptSubmit hook's
-     * for its run's instructions, or a PostToolUse hook's for one tool result.
-     */
-    z.strictObject({
-      type: z.literal('hook.context'),
-      ...RunFields,
-      context: z.string().min(1),
-      toolCallId: Id.optional(),
-    }),
-    /** Only the host commits labels; precedence is applied by projectRunVerdicts. */
-    z.strictObject({
-      type: z.literal('run.verdict'),
-      ...RunFields,
-      detail: RunVerdictDetailSchema.optional(),
-      source: RunVerdictSourceSchema,
-      verdict: RunVerdictSchema,
-    }),
-  ]);
+      ),
+      Schema.Struct({ ...ThreadPresentation, type: Schema.Literal('thread.updated') }),
+      Schema.Struct({
+        snapshot: WorkspaceSnapshotSchema,
+        type: Schema.Literal('workspace.updated'),
+      }),
+      ...selectionEventSchemas(json),
+      Schema.Struct({
+        commandId: Id,
+        method: Id,
+        payload: json(),
+        result: json(),
+        type: Schema.Literal('command.accepted'),
+      }),
+      Schema.Struct({
+        type: Schema.Literal('run.started'),
+        ...RunFields,
+        attachments: Schema.optional(Attachments),
+        delivery: Schema.optional(HostChildDeliverySchema),
+        modelId: Id,
+        parentMessageId: Schema.optional(Schema.NullOr(Id)),
+        parentRunId: Schema.optional(Id),
+        ...PlanMode,
+        prompt: Prompt,
+        snapshot: Schema.optional(hostRunSnapshotSchema(json)),
+        userMessageId: Schema.optional(Id),
+      }),
+      Schema.Struct({ type: Schema.Literal('stream.chunk'), ...RunFields, chunk: json() }),
+      Schema.Struct({
+        type: Schema.Literal('model.step'),
+        ...RunFields,
+        messages: Schema.mutable(Schema.Array(json())),
+        model: json(),
+        stepNumber: Seq,
+        usage: json(),
+      }),
+      Schema.Struct({
+        type: Schema.Literal('model.messages'),
+        ...RunFields,
+        messages: Schema.mutable(Schema.Array(json())),
+      }),
+      Schema.Struct({
+        type: Schema.Literal('memory.usage'),
+        ...RunFields,
+        kind: Schema.Literals(['observation', 'reflection']),
+        modelId: Id,
+        usage: json(),
+      }),
+      Schema.Struct({
+        type: Schema.Literal('memory.observation.withheld'),
+        ...RunFields,
+        reason: Schema.Literal('branched-thread'),
+      }),
+      Schema.Struct({
+        type: Schema.Literal('memory.settlement.failed'),
+        ...RunFields,
+        detail: Schema.String.check(Schema.isMinCodePoints(1)),
+      }),
+      Schema.Struct({
+        type: Schema.Literal('provider.request.prepared'),
+        ...RunFields,
+        accounting: json(),
+        breakdown: Schema.optional(HostPromptBreakdownSchema),
+        modelId: Id,
+        provider: Id,
+        toolCallWindow: Schema.optional(HostPromptToolCallWindowSchema),
+      }),
+      Schema.Struct({
+        type: Schema.Literal('interaction.requested'),
+        ...action(json),
+        executionContext: Schema.optional(json()),
+        interactionId: Id,
+        kind: Schema.Literals(['approval', 'question', 'plan', 'network']),
+        risk: Schema.optional(RiskCategory),
+        targetRoot: Schema.optional(HostApprovalTargetRootSchema),
+      }),
+      Schema.StructWithRest(Schema.Struct({ type: Schema.Literal('interaction.responded') }), [
+        Schema.Record(Schema.String, Schema.Unknown),
+      ]).pipe(
+        Schema.decodeTo(
+          Schema.Union([
+            Schema.Struct({
+              type: Schema.Literal('interaction.responded'),
+              ...RunFields,
+              by: Schema.optional(Schema.Literal('policy')),
+              decision: Schema.Literals(['approve', 'deny']),
+              interactionId: Id,
+            }),
+            Schema.Struct({
+              type: Schema.Literal('interaction.responded'),
+              ...RunFields,
+              interactionId: Id,
+              resumeData: json(),
+            }),
+          ])
+        )
+      ),
+      Schema.Struct({ type: Schema.Literal('effect.started'), ...action(json) }),
+      Schema.Struct({
+        type: Schema.Literal('effect.finished'),
+        ...RunFields,
+        output: json(),
+        projectionClipped: Schema.optional(Schema.Literal(true)),
+        toolCallId: Id,
+      }),
+      Schema.Struct({
+        type: Schema.Literal('run.finished'),
+        ...RunFields,
+        detail: Schema.optional(Schema.String),
+        outcome: Schema.Literals(['completed', 'failed', 'stopped', 'interrupted']),
+      }),
+      Schema.Struct({
+        type: Schema.Literal('run.attempt'),
+        ...RunFields,
+        attempt: Schema.Int.check(Schema.isGreaterThan(0)),
+        detail: Schema.String.check(Schema.isMinCodePoints(1)),
+        maxAttempts: Schema.Int.check(Schema.isGreaterThan(0)),
+        reason: Schema.Literals([
+          'stalled',
+          'provider-error',
+          'empty-response',
+          'context-overflow',
+        ]),
+        recovered: Schema.Boolean,
+        refusal: Schema.optional(
+          Schema.Literals(['budget-exhausted', 'tool-parts', 'committed-output'])
+        ),
+        stall: Schema.optional(
+          Schema.Struct({
+            lastPartType: Schema.optional(Id),
+            partsSeen: Seq,
+            phase: Schema.Literals(['awaiting-output', 'reasoning', 'streaming', 'tool-executing']),
+          })
+        ),
+      }),
+      Schema.Struct({
+        type: Schema.Literal('tool.projection.rewritten'),
+        ...RunFields,
+        rewrites: Schema.mutable(
+          Schema.Array(
+            Schema.Union([
+              Schema.Struct({
+                kind: Schema.Literal('prune'),
+                markerText: Schema.String.check(Schema.isPattern(/\S/)),
+                supersededByToolCallId: Schema.Null,
+                toolCallId: Id,
+              }),
+              Schema.Struct({
+                kind: Schema.Literal('supersession'),
+                markerText: Schema.String.check(Schema.isPattern(/\S/)),
+                supersededByToolCallId: Id,
+                toolCallId: Id,
+              }),
+            ])
+          )
+        ).check(Schema.isMinLength(1)),
+      }),
+      Schema.Struct({
+        type: Schema.Literal('context.compacted'),
+        ...RunFields,
+        compactedRunIds: Schema.mutable(Schema.Array(Id)).check(Schema.isMinLength(1)),
+        kind: Schema.Literals(['agentic', 'deterministic']),
+        modelId: Schema.optional(Id),
+        reason: Schema.Literals(['pre-request', 'context-overflow']),
+        summary: Schema.String.check(Schema.isMinCodePoints(1)),
+        usage: Schema.optional(json()),
+      }),
+      Schema.Struct({
+        type: Schema.Literal('workspace.edit.recorded'),
+        ...RunFields,
+        after: HostFileIdentitySchema,
+        baselines: Schema.mutable(Schema.Array(HostEditBaselineSchema)),
+        before: HostFileIdentitySchema,
+        blobRefs: Schema.optional(Schema.mutable(Schema.Array(Sha256))),
+        entryId: Id,
+        fromPath: Schema.optional(WorkspaceRelativePath),
+        op: HostWorkspaceEditOpSchema,
+        path: WorkspaceRelativePath,
+        rootId: Id,
+        rootPath: Id,
+        toolCallId: Id,
+        toolId: Id,
+      }),
+      Schema.Struct({
+        type: Schema.Literal('tool.state.updated'),
+        ...RunFields,
+        key: Id,
+        toolCallId: Id,
+        value: json(),
+      }),
+      Schema.Struct({
+        type: Schema.Literal('workspace.edit.reverted'),
+        ...RunFields,
+        commandId: Id,
+        outcomes: Schema.mutable(Schema.Array(HostEditRevertOutcomeSchema)),
+      }),
+      Schema.Struct({
+        type: Schema.Literal('workspace.snapshot.recorded'),
+        ...RunFields,
+        boundary: Schema.Literals(['turn-start', 'turn-end']),
+        failure: Schema.optional(Schema.String.check(Schema.isMinCodePoints(1))),
+        roots: Schema.mutable(Schema.Array(HostTurnSnapshotSchema)),
+      }),
+      ...REWIND_EVENT_SCHEMAS,
+      Schema.Struct({
+        type: Schema.Literal('references.unavailable'),
+        ...RunFields,
+        files: Schema.mutable(Schema.Array(ReferencedFileFailureSchema)).check(
+          Schema.isMinLength(1)
+        ),
+      }),
+      Schema.Struct({
+        type: Schema.Literal('hooks.skipped'),
+        ...RunFields,
+        files: Schema.mutable(Schema.Array(HostHookSkipSchema)).check(Schema.isMinLength(1)),
+      }),
+      Schema.Struct({
+        type: Schema.Literal('permission.granted'),
+        ...RunFields,
+        grant: PermissionGrant,
+      }),
+      Schema.Struct({
+        type: Schema.Literal('worktree.created'),
+        ...RunFields,
+        branch: Schema.NullOr(Schema.String.check(Schema.isMinCodePoints(1))),
+        path: Schema.String.check(Schema.isMinCodePoints(1)),
+        toolCallId: Id,
+        via: Schema.Literal('shell'),
+        worktreeId: Id,
+      }),
+      Schema.Struct({
+        type: Schema.Literal('hook.context'),
+        ...RunFields,
+        context: Schema.String.check(Schema.isMinCodePoints(1)),
+        toolCallId: Schema.optional(Id),
+      }),
+      Schema.Struct({
+        type: Schema.Literal('run.verdict'),
+        ...RunFields,
+        detail: Schema.optional(RunVerdictDetailSchema),
+        source: RunVerdictSourceSchema,
+        verdict: RunVerdictSchema,
+      }),
+    ],
+    { mode: 'oneOf' }
+  );
 }
-export const HostEventSchema = hostEventSchema(z.json);
-export type HostEvent = z.infer<typeof HostEventSchema>;
-export const HostLogRowSchema = z.strictObject({
+export const HostEventSchema = hostEventSchema(() => Schema.MutableJson);
+export type HostEvent = (typeof HostEventSchema)['Type'];
+export const HostLogRowSchema = Schema.Struct({
   event: HostEventSchema,
-  seq: z.number().int().positive(),
+  seq: Schema.Int.check(Schema.isGreaterThan(0)),
   threadId: Id,
-  /** Existing run_events.created_at, including live publication and replay. */
-  ts: z.number().int().nonnegative().optional(),
+  ts: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
 });
-export type HostLogRow = z.infer<typeof HostLogRowSchema>;
+export type HostLogRow = (typeof HostLogRowSchema)['Type'];
 export const HOST_RESULT_SCHEMAS = {
   ...MCP_CONTENT_RESULT_SCHEMAS,
   ...MCP_PRESENTATION_RESULT_SCHEMAS,
   ...MCP_SETTINGS_RESULT_SCHEMAS,
   ...PERMISSION_POLICY_RESULT_SCHEMAS,
   'auth/cancel': HostAuthStatusSchema,
-  'auth/clear': z.strictObject({ cleared: z.boolean() }),
+  'auth/clear': Schema.Struct({ cleared: Schema.Boolean }),
   'auth/connect': HostAuthStatusSchema,
-  'auth/credential/delete': z.strictObject({ deleted: z.boolean() }),
-  'auth/credential/set': z.strictObject({ stored: z.literal(true) }),
+  'auth/credential/delete': Schema.Struct({ deleted: Schema.Boolean }),
+  'auth/credential/set': Schema.Struct({ stored: Schema.Literal(true) }),
   'auth/disconnect': HostAuthStatusSchema,
-  'auth/login': z.strictObject({ stored: z.literal(true) }),
+  'auth/login': Schema.Struct({ stored: Schema.Literal(true) }),
   'auth/status': HostAuthStatusSchema,
   'auth/verify': HostAuthVerdictSchema,
-  'checkpoint/revert': z.strictObject({ outcomes: z.array(HostEditRevertOutcomeSchema) }),
-  'hooks/trust': z.strictObject({ trusted: z.literal(true) }),
-  'hooks/trust/read': z.strictObject({ trust: HostHookTrustSchema.nullable() }),
+  'checkpoint/revert': Schema.Struct({
+    outcomes: Schema.mutable(Schema.Array(HostEditRevertOutcomeSchema)),
+  }),
+  'hooks/trust': Schema.Struct({ trusted: Schema.Literal(true) }),
+  'hooks/trust/read': Schema.Struct({ trust: Schema.NullOr(HostHookTrustSchema) }),
   /** Whether a trust was revoked; false when the root had none. */
-  'hooks/untrust': z.strictObject({ untrusted: z.boolean() }),
+  'hooks/untrust': Schema.Struct({ untrusted: Schema.Boolean }),
   // The renderer validates the availability payload strictly (use-assistant-availability).
-  'host/status': z.record(z.string(), z.json()),
-  'host/stop': z.strictObject({ outcome: z.literal('stopped'), rootReleased: z.literal(true) }),
-  initialize: z.strictObject({
+  'host/status': Schema.Record(Schema.String, Schema.MutableJson),
+  'host/stop': Schema.Struct({
+    outcome: Schema.Literal('stopped'),
+    rootReleased: Schema.Literal(true),
+  }),
+  initialize: Schema.Struct({
     hostVersion: Id,
-    pid: z.number().int().positive(),
-    protocolVersion: z.number().int().positive(),
+    pid: Schema.Int.check(Schema.isGreaterThan(0)),
+    protocolVersion: Schema.Int.check(Schema.isGreaterThan(0)),
     start: Id,
   }),
-  'interaction/respond': z.strictObject({ accepted: z.literal(true) }),
-  'interaction/resume': z.strictObject({ accepted: z.literal(true) }),
-  'ledger/read': z.strictObject({ threads: z.array(HostLedgerThreadSchema) }),
-  'log/subscribe': z.strictObject({
-    rows: z.array(HostLogRowSchema),
-    /** The thread's running calls and open steps, replayed over `rows` (ADR-0011 amendment). */
-    telemetry: z.array(HostRunTelemetrySchema),
+  'interaction/respond': Schema.Struct({ accepted: Schema.Literal(true) }),
+  'interaction/resume': Schema.Struct({ accepted: Schema.Literal(true) }),
+  'ledger/read': Schema.Struct({ threads: Schema.mutable(Schema.Array(HostLedgerThreadSchema)) }),
+  'log/subscribe': Schema.Struct({
+    rows: Schema.mutable(Schema.Array(HostLogRowSchema)),
+    telemetry: Schema.mutable(Schema.Array(HostRunTelemetrySchema)),
   }),
-  'log/unsubscribe': z.strictObject({ unsubscribed: z.literal(true) }),
-  'mcp/app/admit': z.strictObject({
-    decision: z.enum(['allow', 'ask']),
+  'log/unsubscribe': Schema.Struct({ unsubscribed: Schema.Literal(true) }),
+  'mcp/app/admit': Schema.Struct({
+    decision: Schema.Literals(['allow', 'ask']),
     riskCategory: RiskCategory,
   }),
-  'mcp/app/call': z.strictObject({ result: z.json() }),
-  'mcp/input/read': z.strictObject({
-    // Only a current private capability can supply this ephemeral presentation.
-    presentation: z.json().optional(),
+  'mcp/app/call': Schema.Struct({ result: Schema.MutableJson }),
+  'mcp/input/read': Schema.Struct({
+    presentation: Schema.optional(Schema.MutableJson),
     request: HostMcpInputRequestSchema,
     status: HostMcpInputStatusSchema,
   }),
-  'mcp/input/settle': z.strictObject({
-    accepted: z.literal(true),
+  'mcp/input/settle': Schema.Struct({
+    accepted: Schema.Literal(true),
     status: HostMcpInputStatusSchema,
   }),
-  'mcp/input/stage': z.strictObject({ staged: z.literal(true) }),
-  'providers/openrouter-model': z
-    .unknown()
-    .transform(
-      (value): OpenRouterModelMetadataSnapshot => parseOpenRouterModelMetadataSnapshot(value)
-    ),
-  'providers/verify': z
-    .unknown()
-    .transform((value): ProviderVerificationSnapshot => parseProviderVerificationSnapshot(value)),
-  'run/input': z.strictObject({ accepted: z.literal(true) }),
-  'run/regenerate': z.strictObject({ runId: Id }),
-  'run/start': z.strictObject({ runId: Id }),
-  'run/steer': z.strictObject({ outcome: z.enum(['steering', 'already-terminal']) }),
-  'run/stop': z.strictObject({ outcome: z.enum(['stopped', 'already-terminal']) }),
-  'run/verdict': z.strictObject({ accepted: z.literal(true) }),
-  'thread/children': z.strictObject({
-    // Delegation order: each child with the origin its thread.started committed,
-    // and its call sign, family colour and status, derived on every read.
-    children: z.array(
-      z.strictObject({
-        ...Thread,
-        callSign: z.string().min(1),
-        color: z.string().min(1),
-        origin: HostChildOriginSchema,
-        status: HostChildStatusSchema,
-      })
+  'mcp/input/stage': Schema.Struct({ staged: Schema.Literal(true) }),
+  'providers/openrouter-model': opaqueWireSchema(
+    (value): OpenRouterModelMetadataSnapshot => parseOpenRouterModelMetadataSnapshot(value)
+  ),
+  'providers/verify': opaqueWireSchema(
+    (value): ProviderVerificationSnapshot => parseProviderVerificationSnapshot(value)
+  ),
+  'run/input': Schema.Struct({ accepted: Schema.Literal(true) }),
+  'run/regenerate': Schema.Struct({ runId: Id }),
+  'run/start': Schema.Struct({ runId: Id }),
+  'run/steer': Schema.Struct({ outcome: Schema.Literals(['steering', 'already-terminal']) }),
+  'run/stop': Schema.Struct({ outcome: Schema.Literals(['stopped', 'already-terminal']) }),
+  'run/verdict': Schema.Struct({ accepted: Schema.Literal(true) }),
+  'thread/children': Schema.Struct({
+    children: Schema.mutable(
+      Schema.Array(
+        Schema.Struct({
+          ...Thread,
+          callSign: Schema.String.check(Schema.isMinCodePoints(1)),
+          color: Schema.String.check(Schema.isMinCodePoints(1)),
+          origin: HostChildOriginSchema,
+          status: HostChildStatusSchema,
+        })
+      )
     ),
   }),
-  'thread/delete': z.strictObject({
-    deleted: z.literal(true),
-    /** The thread and every child thread under it (BST-1932), all deleted. */
-    threadIds: z.array(Id).min(1),
+  'thread/delete': Schema.Struct({
+    deleted: Schema.Literal(true),
+    threadIds: Schema.mutable(Schema.Array(Id)).check(Schema.isMinLength(1)),
   }),
-  'thread/list': z.strictObject({
-    // Presentation fields never committed are absent.
-    threads: z.array(
-      z.strictObject({
-        ...Thread,
-        ...ThreadPresentation,
-        binding: ThreadWorkspaceBindingSchema.nullable(),
-        /** The store's first and latest append to the thread, in ms since the epoch. */
-        createdAt: StoredTime,
-        /** Why the thread's history cannot be read; such a thread never runs, but still deletes. */
-        damage: z.string().min(1).optional(),
-        /** Absent before the thread's first root run. */
-        latestRun: HostLatestRunSchema.optional(),
-        updatedAt: StoredTime,
-      })
+  'thread/list': Schema.Struct({
+    threads: Schema.mutable(
+      Schema.Array(
+        Schema.Struct({
+          ...Thread,
+          ...ThreadPresentation,
+          binding: Schema.NullOr(ThreadWorkspaceBindingSchema),
+          createdAt: StoredTime,
+          damage: Schema.optional(Schema.String.check(Schema.isMinCodePoints(1))),
+          latestRun: Schema.optional(HostLatestRunSchema),
+          updatedAt: StoredTime,
+        })
+      )
     ),
   }),
   // Not ready: the reason `run/start` would fail with; the observation needs an admission.
-  'thread/memory/read': z.union([
-    z.strictObject({
-      admission: z.strictObject({ ready: z.literal(true) }),
+  'thread/memory/read': Schema.Union([
+    Schema.Struct({
+      admission: Schema.Struct({ ready: Schema.Literal(true) }),
       observational: HostObservationalMemoryStateSchema,
     }),
-    z.strictObject({
-      admission: z.strictObject({ ready: z.literal(false), reason: z.string().min(1) }),
+    Schema.Struct({
+      admission: Schema.Struct({
+        ready: Schema.Literal(false),
+        reason: Schema.String.check(Schema.isMinCodePoints(1)),
+      }),
     }),
   ]),
-  'thread/read': z.strictObject({ rows: z.array(HostLogRowSchema) }),
+  'thread/read': Schema.Struct({ rows: Schema.mutable(Schema.Array(HostLogRowSchema)) }),
   ...REWIND_RESULT_SCHEMAS,
   ...SEARCH_RESULT_SCHEMAS,
   ...SELECTION_RESULT_SCHEMAS,
-  'thread/start': z.strictObject(Thread),
-  'thread/update': z.strictObject({ accepted: z.literal(true) }),
-  'thread/workspace/binding/read': z.strictObject({
-    binding: ThreadWorkspaceBindingSchema.nullable(),
+  'thread/start': Schema.Struct(Thread),
+  'thread/update': Schema.Struct({ accepted: Schema.Literal(true) }),
+  'thread/workspace/binding/read': Schema.Struct({
+    binding: Schema.NullOr(ThreadWorkspaceBindingSchema),
   }),
-  'thread/workspace/binding/update': z.strictObject({ accepted: z.literal(true) }),
-  'thread/workspace/read': z.strictObject({ snapshot: WorkspaceSnapshotSchema.nullable() }),
-  'thread/workspace/set': z.strictObject({ accepted: z.literal(true) }),
+  'thread/workspace/binding/update': Schema.Struct({ accepted: Schema.Literal(true) }),
+  'thread/workspace/read': Schema.Struct({ snapshot: Schema.NullOr(WorkspaceSnapshotSchema) }),
+  'thread/workspace/set': Schema.Struct({ accepted: Schema.Literal(true) }),
 } as const;
-export type HostResults = { [M in HostMethod]: z.infer<(typeof HOST_RESULT_SCHEMAS)[M]> };
+export type HostResults = {
+  [M in HostMethod]: (typeof HOST_RESULT_SCHEMAS)[M]['Type'];
+};

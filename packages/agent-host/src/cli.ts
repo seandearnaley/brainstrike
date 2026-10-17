@@ -1,9 +1,11 @@
 #!/usr/bin/env node
+
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { BoundaryFailureError, describeBoundaryFailure } from '@brainstrike/assistant-contract';
 import { launchHost } from '@brainstrike/host-lease';
+import { Schema } from 'effect';
 import { trustCliProjectHooks } from './cli-hooks-trust.js';
 import { readCliMcpInput, settleCliMcpInput } from './cli-mcp-input.js';
 import { HostCliExitError, runHostCliSession } from './cli-session.js';
@@ -16,7 +18,6 @@ import {
   type CliWorkspaceRunInput,
   CliWorkspaceRunInputSchema,
 } from './standalone-workspace-input.js';
-
 export interface HostCliOutput {
   write(value: string): void;
 }
@@ -30,7 +31,6 @@ function required<T>(value: T | undefined, name: string): T {
   }
   return value;
 }
-
 type CliStringOption =
   | 'action'
   | 'aws-profile'
@@ -69,11 +69,13 @@ interface HostCliArguments {
   readonly positionals: readonly string[];
   readonly values: Partial<
     Record<CliStringOption, string> &
-      Record<CliBooleanOption, boolean> & { workspace: string[]; 'workspace-root': string[] }
+      Record<CliBooleanOption, boolean> & {
+        workspace: string[];
+        'workspace-root': string[];
+      }
   >;
   readonly workspaceInput?: CliWorkspaceRunInput;
 }
-
 /** The command the positionals name; `run "prompt"` and `hooks trust [dir]` carry an argument. */
 function cliCommand(positionals: readonly string[], help: boolean | undefined): string {
   if (help) {
@@ -88,7 +90,6 @@ function cliCommand(positionals: readonly string[], help: boolean | undefined): 
   }
   return positionals.join(' ');
 }
-
 function parseHostCliArgs(args: string[]): HostCliArguments {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
@@ -179,7 +180,10 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
     throw new Error('Workspace selectors and preferences apply only to run or run start');
   }
   const workspaceInput = hasWorkspaceInput
-    ? CliWorkspaceRunInputSchema.parse({
+    ? Schema.decodeUnknownSync(CliWorkspaceRunInputSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })({
         kind: 'cli-workspace',
         version: 1,
         workspace: {
@@ -197,7 +201,6 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
     ...(workspaceInput ? { workspaceInput } : {}),
   };
 }
-
 /** A newly started standalone host's trusted launch selection. */
 function launchSelection(values: HostCliArguments['values']): HostPlatformLaunchOptions {
   const mcpConfig = values['mcp-config'];
@@ -207,7 +210,6 @@ function launchSelection(values: HostCliArguments['values']): HostPlatformLaunch
     workspaceRoots: (values.workspace ?? [process.cwd()]).map((root) => resolve(root)),
   };
 }
-
 function credentialSelection(
   values: HostCliArguments['values']
 ): Pick<HostPlatformLaunchOptions, 'credentialStore'> | undefined {
@@ -227,7 +229,6 @@ function credentialSelection(
     'Select --credential-store keyring --credential-service <existing service>, or --credential-store file --credential-file <absolute path>'
   );
 }
-
 function assertCredentialAuthority(spawned: boolean, values: HostCliArguments['values']): void {
   if (
     !spawned &&
@@ -248,7 +249,6 @@ function assertCredentialAuthority(spawned: boolean, values: HostCliArguments['v
     );
   }
 }
-
 async function readCliSecret(input: NodeJS.ReadableStream): Promise<string> {
   let text = '';
   for await (const chunk of input) {
@@ -260,7 +260,6 @@ async function readCliSecret(input: NodeJS.ReadableStream): Promise<string> {
   }
   return secret;
 }
-
 async function readCliLogin(
   command: string,
   values: HostCliArguments['values'],
@@ -272,7 +271,6 @@ async function readCliLogin(
   const provider = required(values.provider, 'provider');
   return { credential: await readCliLoginCredential(values, input), provider };
 }
-
 async function readCliLoginCredential(
   values: HostCliArguments['values'],
   input: NodeJS.ReadableStream
@@ -291,13 +289,11 @@ async function readCliLoginCredential(
     ? { bearerKey: secret, mode: 'bearer', region, type: 'aws' }
     : { key: secret, type: 'api_key' };
 }
-
 function cliWorkspaceConfiguration(input: CliWorkspaceRunInput | undefined): {
   configuration?: CliWorkspaceRunInput;
 } {
   return input ? { configuration: input } : {};
 }
-
 /** Named child controls refuse a top-level thread before issuing a mutation. */
 async function assertChildCommand(
   client: HostClient,
@@ -316,12 +312,10 @@ async function assertChildCommand(
     throw new Error(`${command} requires a child thread`);
   }
 }
-
 /** An ISO 8601 date (UTC midnight) or date-time, in ms since the epoch; NaN when it is neither. */
 function cliTime(value: string): number {
   return /^\d{4}-\d{2}-\d{2}(T.+)?$/u.test(value) ? Date.parse(value) : Number.NaN;
 }
-
 /**
  * BST-1939: `threads search` asks for the lexical and title arms only; it
  * embeds no query. Invalid input is refused before any host starts, one
@@ -341,7 +335,10 @@ function threadSearchParams(values: HostCliArguments['values']): HostParams<'thr
   if (values['scope-root'] !== undefined && !values['scope-root'].trim()) {
     problems.push('--scope-root must name a workspace root');
   }
-  const window: { since?: number; until?: number } = {};
+  const window: {
+    since?: number;
+    until?: number;
+  } = {};
   for (const name of ['since', 'until'] as const) {
     const value = values[name];
     if (value === undefined) {
@@ -360,14 +357,16 @@ function threadSearchParams(values: HostCliArguments['values']): HostParams<'thr
   if (problems.length > 0) {
     throw new Error(problems.join('\n'));
   }
-  return HOST_METHOD_SCHEMAS['thread/search'].parse({
+  return Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS['thread/search'], {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({
     query,
     ...(limit === undefined ? {} : { limit }),
     ...(values['scope-root'] === undefined ? {} : { rootId: values['scope-root'] }),
     ...window,
   });
 }
-
 /** The `threads search` request, refused before any host starts when its input is invalid. */
 function cliThreadSearch(
   command: string,
@@ -375,7 +374,6 @@ function cliThreadSearch(
 ): HostParams<'thread/search'> | undefined {
   return command === 'threads search' ? threadSearchParams(values) : undefined;
 }
-
 async function searchWorkspaceCli(client: HostClient, values: HostCliArguments['values']) {
   const controller = new AbortController();
   const abort = (): void => controller.abort(new Error('Workspace search interrupted'));
@@ -384,7 +382,10 @@ async function searchWorkspaceCli(client: HostClient, values: HostCliArguments['
   try {
     return await client.request(
       'workspace/search',
-      HOST_METHOD_SCHEMAS['workspace/search'].parse({
+      Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS['workspace/search'], {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })({
         limit: Number(values.limit ?? 20),
         mode: required(values.mode, 'mode'),
         query: required(values.query, 'query'),
@@ -398,7 +399,6 @@ async function searchWorkspaceCli(client: HostClient, values: HostCliArguments['
     process.off('SIGTERM', abort);
   }
 }
-
 /** CLI is a client of the root owner; it never runs a second model/tool loop. */
 export async function runHostCli(
   args: string[],
@@ -635,7 +635,10 @@ Run signals stop and join its execution; attach signals detach.
       }
       case 'interaction resume': {
         const resumeData: unknown = JSON.parse(required(values['resume-data'], 'resume-data'));
-        const params = HOST_METHOD_SCHEMAS['interaction/resume'].parse({
+        const params = Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS['interaction/resume'], {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })({
           commandId,
           interactionId: required(values.interaction, 'interaction'),
           resumeData,
@@ -711,7 +714,6 @@ Run signals stop and join its execution; attach signals detach.
     await client.close();
   }
 }
-
 /** Both installed executable names and the direct Node entry share exit semantics. */
 export async function runHostCliProcess(
   args: string[],
@@ -730,7 +732,6 @@ export async function runHostCliProcess(
     process.exitCode = cause instanceof HostCliExitError ? cause.exitCode : 1;
   }
 }
-
 if (isProcessEntrypoint(import.meta.url)) {
   void runHostCliProcess(process.argv.slice(2));
 }

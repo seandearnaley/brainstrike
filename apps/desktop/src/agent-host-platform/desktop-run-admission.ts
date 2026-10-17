@@ -21,6 +21,7 @@ import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thr
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/ports';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
+import { Schema } from 'effect';
 import { z } from 'zod';
 import type { AttachedMentionFolders } from '../assistant-server/referenced-files-context';
 import {
@@ -56,7 +57,6 @@ import {
 } from './platform-wire';
 
 type RuntimeWorkspaceRoots = NonNullable<RuntimeData['workspaceRoots']>;
-
 /**
  * What a desktop run's admission reads from the facts Main owns (BST-1930
  * stage e): the model catalog, live roots and their binding leases, the
@@ -72,9 +72,15 @@ export interface DesktopAdmissionReads {
   }): Promise<DesktopWorkspaceBindingBorrow>;
   /** The selected model's catalog row; null when the catalog has no such model. */
   catalogModel(
-    target: { readonly model: string; readonly provider: string },
+    target: {
+      readonly model: string;
+      readonly provider: string;
+    },
     signal: AbortSignal
-  ): Promise<{ readonly isEnabled: boolean; readonly providerId: string } | null>;
+  ): Promise<{
+    readonly isEnabled: boolean;
+    readonly providerId: string;
+  } | null>;
   /** The full intent a CLI workspace selection reduces; absent where no owner supplies one. */
   cliOwnerIntent?(request: HostRunIntentRequest): Promise<unknown>;
   /** The candidates whose provider and model rows are enabled and whose model is an LLM. */
@@ -89,7 +95,6 @@ export interface DesktopAdmissionReads {
   /** Whether the desktop's worktree service is running. */
   worktreesAvailable(signal: AbortSignal): Promise<boolean>;
 }
-
 /** One admitted desktop run: the selection, its live roots and its release. */
 export interface DesktopRunSelection extends Omit<PlatformSelection, 'delegation'> {
   close(): Promise<void>;
@@ -101,27 +106,27 @@ export interface DesktopRunSelection extends Omit<PlatformSelection, 'delegation
   readonly localEmbedding?: DesktopMemoryVectorSelection['local'];
   revalidateWorkspace?(signal: AbortSignal): Promise<void>;
 }
-
 export interface DesktopRunAdmission {
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopRunSelection>;
   /** thread/memory/read: the preconditions an admission starts with, nothing acquired. */
   readMemoryReadiness(
     request: HostRunIntentRequest
-  ): Promise<z.input<typeof PlatformMemoryReadinessSchema>>;
+  ): Promise<(typeof PlatformMemoryReadinessSchema)['Encoded']>;
   readPermissionPolicy(threadId?: string): Promise<PermissionToolGateSnapshot>;
 }
-
-function desktopSystemFields(system: string | undefined): { readonly system?: string } {
+function desktopSystemFields(system: string | undefined): {
+  readonly system?: string;
+} {
   return system === undefined ? {} : { system };
 }
-
 function desktopContextReaderFields(
   restricted: boolean,
   readWorkspaceFile: WorkspaceFileReader
-): { readonly readWorkspaceFile?: WorkspaceFileReader } {
+): {
+  readonly readWorkspaceFile?: WorkspaceFileReader;
+} {
   return restricted ? { readWorkspaceFile } : {};
 }
-
 function desktopWorkspaceSelectionFields(
   request: HostRunAdmissionRequest,
   workspace: DesktopWorkspaceBindingBorrow | undefined
@@ -135,15 +140,13 @@ function desktopWorkspaceSelectionFields(
       }
     : {};
 }
-
 function desktopWorkspaceRootObservation(
   workspace: DesktopWorkspaceBindingBorrow | undefined
 ): RuntimeData['workspaceRoots'] {
   return workspace ? [...workspace.roots] : undefined;
 }
-
 function desktopDurableConfiguration(
-  intent: z.output<typeof PlatformClientConfigurationSchema>,
+  intent: (typeof PlatformClientConfigurationSchema)['Type'],
   observerTarget: string | null,
   { childSystem, system }: DesktopHostSystemContext,
   cliWorkspaceRoots?: RuntimeData['workspaceRoots'],
@@ -168,7 +171,6 @@ function desktopDurableConfiguration(
     )
   );
 }
-
 function desktopObservationResolution(enabled: boolean, observerTarget: string | null): string {
   if (!enabled) {
     return 'disabled';
@@ -199,11 +201,10 @@ function desktopContextReader(
     return result;
   };
 }
-
 async function readDesktopNativeAdmission(
   reads: DesktopAdmissionReads,
-  configuration: z.output<typeof PlatformModelConfigurationSchema>,
-  intent: z.output<typeof PlatformClientConfigurationSchema>,
+  configuration: (typeof PlatformModelConfigurationSchema)['Type'],
+  intent: (typeof PlatformClientConfigurationSchema)['Type'],
   worktrees: boolean,
   request: HostRunAdmissionRequest,
   workspace?: DesktopWorkspaceBindingBorrow
@@ -229,9 +230,10 @@ async function readDesktopNativeAdmission(
   const bindingRoots = workspace ? [...workspace.roots] : liveRoots;
   const roots = selection ? selectCliWorkspaceRoots(bindingRoots, selection) : bindingRoots;
   if (selection && request.snapshot) {
-    const capturedRoots = CliWorkspaceRootsSchema.parse(
-      request.snapshot.configuration['cliWorkspaceRoots']
-    );
+    const capturedRoots = Schema.decodeUnknownSync(CliWorkspaceRootsSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(request.snapshot.configuration['cliWorkspaceRoots']);
     revalidateCliWorkspaceRoots(capturedRoots, liveRoots, selection);
   }
   const freshRoots = async (): Promise<typeof roots> => {
@@ -315,13 +317,14 @@ async function readDesktopNativeAdmission(
     ...(workspaceSkills ? { workspaceSkills } : {}),
   };
 }
-
 /** A CLI selection runs without skills; otherwise one scan feeds the prompt and the host's skill tools. */
 function desktopRunSkills(
   cliSelection: boolean,
-  intent: z.output<typeof PlatformClientConfigurationSchema>,
+  intent: (typeof PlatformClientConfigurationSchema)['Type'],
   runtime: RuntimeData,
-  roots: readonly { readonly path: string }[]
+  roots: readonly {
+    readonly path: string;
+  }[]
 ): PreparedAdmittedSkills {
   if (!cliSelection) {
     return prepareAdmittedSkills({
@@ -340,7 +343,6 @@ function desktopRunSkills(
   }
   return {};
 }
-
 /** Plan mode admits only the plan-mode tool set; the built-in local provider has no plan mode. */
 function desktopRunTools(
   tools: Readonly<Record<string, DesktopToolDescriptor>>,
@@ -359,14 +361,12 @@ function desktopRunTools(
   }
   return desktopPlanModeTools(tools);
 }
-
 /** BST-1932: the supervisor instructions name only the personas this run may delegate to. */
 function desktopPersonaFields(delegation: HostDelegation | undefined): {
   readonly personas?: HostDelegation['personas'];
 } {
   return delegation ? { personas: delegation.personas } : {};
 }
-
 /** BST-1932: the child context and personas a run delegates with, when it may delegate. */
 function desktopDelegationFields(
   childSystem: string | undefined,
@@ -377,7 +377,6 @@ function desktopDelegationFields(
     ...(delegation ? { delegation } : {}),
   };
 }
-
 /** What the host's shared native tools need from this admission; roots come back per call. */
 function desktopNativeRuntime(
   runtime: RuntimeData,
@@ -392,7 +391,14 @@ function desktopNativeRuntime(
     provider: runtime.provider,
     ...(retrievalRootsOnly ? { retrievalRootsOnly: true as const } : {}),
     ...(runtime.selectionFolderId ? { selectionFolderId: runtime.selectionFolderId } : {}),
-    ...(skills ? { skills: z.array(PlatformAdmittedSkillSchema).parse(skills) } : {}),
+    ...(skills
+      ? {
+          skills: Schema.decodeUnknownSync(
+            Schema.mutable(Schema.Array(PlatformAdmittedSkillSchema)),
+            { errors: 'all', onExcessProperty: 'error' }
+          )(skills),
+        }
+      : {}),
     ...(runtime.workspaceRootPath ? { workspaceRootPath: runtime.workspaceRootPath } : {}),
     workspaceRoots: runtime.workspaceRoots.map(({ displayName, path, rootId }) => ({
       displayName,
@@ -401,7 +407,6 @@ function desktopNativeRuntime(
     })),
   };
 }
-
 /** The desktop run admission the agent host composes from Main's reads. */
 export function createDesktopRunAdmission(
   reads: DesktopAdmissionReads,
@@ -428,7 +433,10 @@ export function createDesktopRunAdmission(
     request.signal.throwIfAborted();
     const catalog = await readDesktopCatalogSelection(reads, request.modelId, request.signal);
     const intent = await readDesktopIntent(request, catalog, savedPolicy, reads.cliOwnerIntent);
-    const configuration = PlatformModelConfigurationSchema.parse(intent.modelConfiguration);
+    const configuration = Schema.decodeUnknownSync(PlatformModelConfigurationSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(intent.modelConfiguration);
     if (configuration.provider !== catalog.provider || configuration.model !== catalog.model) {
       throw refusalError(
         'conflict',
@@ -573,9 +581,10 @@ export function createDesktopRunAdmission(
       }
       try {
         if (workspace && request.snapshot) {
-          const captured = CliWorkspaceRootsSchema.parse(
-            request.snapshot.configuration['boundWorkspaceRoots']
-          );
+          const captured = Schema.decodeUnknownSync(CliWorkspaceRootsSchema, {
+            errors: 'all',
+            onExcessProperty: 'error',
+          })(request.snapshot.configuration['boundWorkspaceRoots']);
           revalidateCliWorkspaceRoots(captured, [...workspace.roots], {
             instructions: 'off',
             rootIds: captured.map((root) => root.rootId),

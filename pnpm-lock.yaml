@@ -1531,6 +1531,9 @@ importers:
       ai:
         specifier: 'catalog:'
         version: 7.0.142(zod@4.6.7)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.5
       vscode-jsonrpc:
         specifier: 'catalog:'
         version: 9.0.3(patch_hash=df2075051190294761e76039366b12d72ab41c3ac815f5073d97de7c00806034)
@@ -1541,6 +1544,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@effect/tsgo':
+        specifier: 'catalog:'
+        version: 0.53.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -1987,6 +1993,9 @@ importers:
       cmdk:
         specifier: ^1.1.1
         version: 1.1.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.5
       lucide-react:
         specifier: 'catalog:'
         version: 1.58.0(@types/react@19.3.0)(react@19.3.1)
@@ -2018,6 +2027,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@effect/tsgo':
+        specifier: 'catalog:'
+        version: 0.53.1
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.3(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.1))
@@ -3270,6 +3282,9 @@ importers:
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.5
       zod:
         specifier: 'catalog:'
         version: 4.6.7
@@ -3277,6 +3292,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@effect/tsgo':
+        specifier: 'catalog:'
+        version: 0.53.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -4626,6 +4644,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@effect/tsgo':
+        specifier: 'catalog:'
+        version: 0.53.1
       '@sqlite.org/sqlite-wasm':
         specifier: 'catalog:'
         version: 3.53.4-build2
@@ -4644,6 +4665,9 @@ importers:
       ai:
         specifier: 'catalog:'
         version: 7.0.142(zod@4.6.7)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.5
       esbuild:
         specifier: 'catalog:'
         version: 0.28.2

@@ -1,47 +1,51 @@
 import type { ForgeCachePort, WorktreeLedgerPort } from '@brainstrike/state-store';
+import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import { sendCatalogRequest } from './request.js';
 
-const Text = z.string();
-const Id = Text.min(1);
-const SetupStatus = z.enum(['failed', 'none', 'skipped', 'succeeded']);
-const Worktree = z.strictObject({
-  archivedAt: z.iso.datetime().nullable(),
-  archiveSnapshotRef: Text.nullable(),
+const Text = Schema.String;
+const Id = Text.check(Schema.isMinCodePoints(1));
+const SetupStatus = Schema.Literals(['failed', 'none', 'skipped', 'succeeded']);
+const Worktree = Schema.Struct({
+  archivedAt: Schema.NullOr(Schema.String.check(Schema.isPattern(z.regexes.datetime({})))),
+  archiveSnapshotRef: Schema.NullOr(Text),
   baseRef: Text,
-  branch: Text.nullable(),
-  createdAt: z.iso.datetime(),
-  createdBy: z.enum(['agent', 'user']),
+  branch: Schema.NullOr(Text),
+  createdAt: Schema.String.check(Schema.isPattern(z.regexes.datetime({}))),
+  createdBy: Schema.Literals(['agent', 'user']),
   id: Id,
   path: Id,
   repoCommonDir: Id,
-  runId: Text.nullable(),
-  setupOutput: Text.nullable(),
-  setupReason: Text.nullable(),
+  runId: Schema.NullOr(Text),
+  setupOutput: Schema.NullOr(Text),
+  setupReason: Schema.NullOr(Text),
   setupStatus: SetupStatus,
-  threadId: Text.nullable(),
+  threadId: Schema.NullOr(Text),
 });
-const WorktreeRequest = z.discriminatedUnion('operation', [
-  z.strictObject({ id: Id, operation: z.literal('get') }),
-  z.strictObject({ operation: z.literal('by-path'), path: Id }),
-  z.strictObject({ operation: z.literal('list-active') }),
-  z.strictObject({ operation: z.literal('list-repository'), repoCommonDir: Id }),
-  z.strictObject({ operation: z.literal('insert'), row: Worktree }),
-  z.strictObject({ id: Id, operation: z.literal('archive'), snapshotRef: Id }),
-  z.strictObject({ id: Id, operation: z.literal('restore') }),
-  z.strictObject({
-    id: Id,
-    operation: z.literal('setup'),
-    output: Text.nullable(),
-    reason: Text.nullable(),
-    status: SetupStatus,
-  }),
-  z.strictObject({ branch: Text, id: Id, operation: z.literal('branch') }),
-]);
-const WorktreeReply = z.strictObject({ rows: z.array(Worktree) });
-const Check = z.strictObject({
-  conclusion: z.enum([
+const WorktreeRequest = Schema.Union(
+  [
+    Schema.Struct({ id: Id, operation: Schema.Literal('get') }),
+    Schema.Struct({ operation: Schema.Literal('by-path'), path: Id }),
+    Schema.Struct({ operation: Schema.Literal('list-active') }),
+    Schema.Struct({ operation: Schema.Literal('list-repository'), repoCommonDir: Id }),
+    Schema.Struct({ operation: Schema.Literal('insert'), row: Worktree }),
+    Schema.Struct({ id: Id, operation: Schema.Literal('archive'), snapshotRef: Id }),
+    Schema.Struct({ id: Id, operation: Schema.Literal('restore') }),
+    Schema.Struct({
+      id: Id,
+      operation: Schema.Literal('setup'),
+      output: Schema.NullOr(Text),
+      reason: Schema.NullOr(Text),
+      status: SetupStatus,
+    }),
+    Schema.Struct({ branch: Text, id: Id, operation: Schema.Literal('branch') }),
+  ],
+  { mode: 'oneOf' }
+);
+const WorktreeReply = Schema.Struct({ rows: Schema.mutable(Schema.Array(Worktree)) });
+const Check = Schema.Struct({
+  conclusion: Schema.Literals([
     'action_required',
     'cancelled',
     'failure',
@@ -52,46 +56,57 @@ const Check = z.strictObject({
     'timed_out',
   ]),
   name: Id,
-  url: Text.nullable(),
+  url: Schema.NullOr(Text),
 });
-const PullRequest = z.strictObject({
-  checks: z.array(Check),
-  checksRollup: z.enum(['failing', 'none', 'passing', 'pending']),
+const PullRequest = Schema.Struct({
+  checks: Schema.mutable(Schema.Array(Check)),
+  checksRollup: Schema.Literals(['failing', 'none', 'passing', 'pending']),
   headSha: Id,
-  isDraft: z.boolean(),
-  number: z.number().int(),
-  reviewDecision: z.enum(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED']).nullable(),
-  state: z.enum(['open', 'closed', 'merged']),
+  isDraft: Schema.Boolean,
+  number: Schema.Int,
+  reviewDecision: Schema.NullOr(
+    Schema.Literals(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED'])
+  ),
+  state: Schema.Literals(['open', 'closed', 'merged']),
   title: Text,
   url: Id,
 });
-const Entry = z.strictObject({ observedAt: z.iso.datetime(), pullRequest: PullRequest.nullable() });
+const Entry = Schema.Struct({
+  observedAt: Schema.String.check(Schema.isPattern(z.regexes.datetime({}))),
+  pullRequest: Schema.NullOr(PullRequest),
+});
 const CacheKey = { branch: Id, repoCommonDir: Id };
-const ForgeRequest = z.discriminatedUnion('operation', [
-  z.strictObject({ operation: z.literal('get'), ...CacheKey }),
-  z.strictObject({ operation: z.literal('write'), ...CacheKey, ...Entry.shape }),
-]);
-export const ForgeCacheReplySchema = z.strictObject({ entry: Entry.nullable() });
+const ForgeRequest = Schema.Union(
+  [
+    Schema.Struct({ operation: Schema.Literal('get'), ...CacheKey }),
+    Schema.Struct({ operation: Schema.Literal('write'), ...CacheKey, ...Entry.fields }),
+  ],
+  { mode: 'oneOf' }
+);
+export const ForgeCacheReplySchema = Schema.Struct({ entry: Schema.NullOr(Entry) });
 const WORKTREE_METHOD = 'host/worktree-ledger';
 const FORGE_METHOD = 'host/forge-cache';
 const SNAPSHOT_METHOD = 'host/forge-cache-snapshot';
-const Snapshot = z.array(
-  z.strictObject({
-    branch: Id,
-    checksRollup: z.enum(['failing', 'none', 'passing', 'pending']),
-    isDraft: z.boolean(),
-    number: z.number().int(),
-    repoCommonDir: Id,
-    state: z.enum(['open', 'closed', 'merged']),
-    url: Id,
-  })
+const Snapshot = Schema.mutable(
+  Schema.Array(
+    Schema.Struct({
+      branch: Id,
+      checksRollup: Schema.Literals(['failing', 'none', 'passing', 'pending']),
+      isDraft: Schema.Boolean,
+      number: Schema.Int,
+      repoCommonDir: Id,
+      state: Schema.Literals(['open', 'closed', 'merged']),
+      url: Id,
+    })
+  )
 );
-
 /** Private Main transport; each operation remains owned by the profile's SQLite writer. */
 export function serveWorktreeForgeStore(
   connection: Pick<MessageConnection, 'onRequest'>,
   store: WorktreeLedgerPort & ForgeCachePort
-): { close(): Promise<void> } {
+): {
+  close(): Promise<void>;
+} {
   let closing: Promise<void> | undefined;
   const pending = new Set<Promise<unknown>>();
   async function admitted<T>(start: () => Promise<T>): Promise<T> {
@@ -109,15 +124,30 @@ export function serveWorktreeForgeStore(
   const subscriptions = [
     connection.onRequest(SNAPSHOT_METHOD, (input: unknown) =>
       admitted(() => {
-        z.strictObject({}).parse(input);
+        Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Never), {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input);
         return store.forgeCacheSnapshot();
       })
     ),
     connection.onRequest(WORKTREE_METHOD, (input: unknown) =>
-      admitted(() => store.worktreeLedger(WorktreeRequest.parse(input)))
+      admitted(() =>
+        store.worktreeLedger(
+          Schema.decodeUnknownSync(WorktreeRequest, { errors: 'all', onExcessProperty: 'error' })(
+            input
+          )
+        )
+      )
     ),
     connection.onRequest(FORGE_METHOD, (input: unknown) =>
-      admitted(() => store.forgeCache(ForgeRequest.parse(input)))
+      admitted(() =>
+        store.forgeCache(
+          Schema.decodeUnknownSync(ForgeRequest, { errors: 'all', onExcessProperty: 'error' })(
+            input
+          )
+        )
+      )
     ),
   ];
   return {
@@ -139,14 +169,28 @@ export function createWorktreeForgeClient(
 ): WorktreeLedgerPort & ForgeCachePort {
   return {
     forgeCache: async (request) =>
-      ForgeCacheReplySchema.parse(
-        await sendCatalogRequest(connection, FORGE_METHOD, ForgeRequest.parse(request))
+      Schema.decodeUnknownSync(ForgeCacheReplySchema, { errors: 'all', onExcessProperty: 'error' })(
+        await sendCatalogRequest(
+          connection,
+          FORGE_METHOD,
+          Schema.decodeUnknownSync(ForgeRequest, { errors: 'all', onExcessProperty: 'error' })(
+            request
+          )
+        )
       ),
     forgeCacheSnapshot: async () =>
-      Snapshot.parse(await sendCatalogRequest(connection, SNAPSHOT_METHOD, {})),
+      Schema.decodeUnknownSync(Snapshot, { errors: 'all', onExcessProperty: 'error' })(
+        await sendCatalogRequest(connection, SNAPSHOT_METHOD, {})
+      ),
     worktreeLedger: async (request) =>
-      WorktreeReply.parse(
-        await sendCatalogRequest(connection, WORKTREE_METHOD, WorktreeRequest.parse(request))
+      Schema.decodeUnknownSync(WorktreeReply, { errors: 'all', onExcessProperty: 'error' })(
+        await sendCatalogRequest(
+          connection,
+          WORKTREE_METHOD,
+          Schema.decodeUnknownSync(WorktreeRequest, { errors: 'all', onExcessProperty: 'error' })(
+            request
+          )
+        )
       ),
   };
 }

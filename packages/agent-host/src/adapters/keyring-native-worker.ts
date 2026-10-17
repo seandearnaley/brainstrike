@@ -1,5 +1,5 @@
 import { Worker, type WorkerOptions } from 'node:worker_threads';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import type { KeyringCredentialBackend, KeyringEntryRequest } from './credential-contract.js';
 import {
   type KeyringNativeBackend,
@@ -8,22 +8,28 @@ import {
 } from './keyring-native-protocol.js';
 
 export type { KeyringNativeBackend } from './keyring-native-protocol.js';
-
 export interface KeyringNativeWorkerOptions {
   /** Trusted fixture/composition seam; never accepted through the client protocol. */
   readonly createWorker?: (entry: URL, options: WorkerOptions) => Worker;
 }
-
 /** One retained worker per root credential owner; closing never terminates native work. */
 export function createKeyringNativeBackend(
   service: string,
   options: KeyringNativeWorkerOptions = {}
 ): KeyringNativeBackend {
-  z.string().min(1).parse(service);
+  Schema.decodeUnknownSync(Schema.String.check(Schema.isMinCodePoints(1)), {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(service);
   const worker = (
     options.createWorker ?? ((entry, workerOptions) => new Worker(entry, workerOptions))
   )(new URL('./keyring-native-entry.js', import.meta.url), { workerData: { service } });
-  type Value = Extract<z.infer<typeof KeyringNativeResponseSchema>, { ok: true }>['value'];
+  type Value = Extract<
+    (typeof KeyringNativeResponseSchema)['Type'],
+    {
+      ok: true;
+    }
+  >['value'];
   const pending = new Map<number, ReturnType<typeof Promise.withResolvers<Value>>>();
   const exited = Promise.withResolvers<void>();
   let nextId = 0;
@@ -49,12 +55,15 @@ export function createKeyringNativeBackend(
     }
   });
   worker.on('message', (input: unknown) => {
-    const parsed = KeyringNativeResponseSchema.safeParse(input);
-    if (!parsed.success) {
+    const parsed = Schema.decodeUnknownResult(KeyringNativeResponseSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(input);
+    if (!(parsed._tag === 'Success')) {
       fail();
       return;
     }
-    const response = parsed.data;
+    const response = parsed.success;
     const operation = pending.get(response.id);
     if (!operation) {
       fail();
@@ -101,20 +110,27 @@ export function createKeyringNativeBackend(
       });
       return closing;
     },
-    delete: async (account) => z.boolean().parse(await perform({ account, operation: 'delete' })),
+    delete: async (account) =>
+      Schema.decodeUnknownSync(Schema.Boolean, { errors: 'all', onExcessProperty: 'error' })(
+        await perform({ account, operation: 'delete' })
+      ),
     listAccounts: async () =>
-      z.array(z.string()).parse(await perform({ operation: 'listAccounts' })),
+      Schema.decodeUnknownSync(Schema.mutable(Schema.Array(Schema.String)), {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(await perform({ operation: 'listAccounts' })),
     read: async (account) =>
-      z
-        .string()
-        .nullable()
-        .parse(await perform({ account, operation: 'read' })) ?? undefined,
+      Schema.decodeUnknownSync(Schema.NullOr(Schema.String), {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(await perform({ account, operation: 'read' })) ?? undefined,
     write: async (account, value) => {
-      z.null().parse(await perform({ account, operation: 'write', value }));
+      Schema.decodeUnknownSync(Schema.Null, { errors: 'all', onExcessProperty: 'error' })(
+        await perform({ account, operation: 'write', value })
+      );
     },
   };
 }
-
 /** Borrow the same native completion lane through the credential owner's entry contract. */
 export function createKeyringCredentialBackend(
   service: string,

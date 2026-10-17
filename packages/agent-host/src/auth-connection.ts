@@ -1,3 +1,4 @@
+import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import type { HostAuthService, HostClientOrigin } from './ports.js';
 import {
@@ -7,12 +8,10 @@ import {
   type HostMethod,
   type HostParams,
 } from './protocol.js';
-
 export type HostMethodHandler = <M extends HostMethod>(
   method: M,
   request: (params: HostParams<M>) => unknown
 ) => void;
-
 /**
  * The host's credential methods on one authenticated connection. Writes other
  * than a validated provider login, and refresh-aware verification, belong to
@@ -43,10 +42,16 @@ export function bindHostAuthMethods(
   handle('auth/status', ({ provider }) => service().status(provider));
   // The requesting client opens the sign-in page: a UI action, never the host's.
   const openOnClient = async (url: string): Promise<void> => {
-    ClientOpenExternalResultSchema.parse(
+    Schema.decodeUnknownSync(ClientOpenExternalResultSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(
       await connection.sendRequest(
         CLIENT_OPEN_EXTERNAL,
-        ClientOpenExternalParamsSchema.parse({ url })
+        Schema.decodeUnknownSync(ClientOpenExternalParamsSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })({ url })
       )
     );
   };

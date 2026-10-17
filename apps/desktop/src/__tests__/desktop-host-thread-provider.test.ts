@@ -13,6 +13,7 @@ import {
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import questionRecording from '@brainstrike/test-utils/fixtures/committed-host-question.json';
 import costedRecording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json';
+import { Schema } from 'effect';
 import { afterEach, expect, test, vi } from 'vitest';
 import { createWindowThreadCapability } from '../renderer/desktop-host-thread-capability';
 // Original thread creation rows from the ordinary app-owned SQLite GUI receipt.
@@ -20,12 +21,18 @@ import richRecording from './fixtures/committed-app-owned-host-thread.json';
 
 const connect = vi.hoisted(() => vi.fn<() => Promise<HostClient>>());
 vi.mock('../renderer/agent-host-client', () => ({ connectDesktopAgentHost: connect }));
-
-const richRows = richRecording.map((row) => HostLogRowSchema.parse(row));
-const questionRows = questionRecording.map((row) => HostLogRowSchema.parse(row));
+const richRows = richRecording.map((row) =>
+  Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)
+);
+const questionRows = questionRecording.map((row) =>
+  Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)
+);
 // Two recorded runs, committed with a catalog model and a commit time on every row.
 const costedRows = costedRecording.map((raw, index) => {
-  const row = HostLogRowSchema.parse(raw);
+  const row = Schema.decodeUnknownSync(HostLogRowSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(raw);
   const event =
     row.event.type === 'run.started'
       ? { ...row.event, modelId: 'openrouter::anthropic/claude-sonnet-4.6' }
@@ -37,7 +44,6 @@ const laterThread = questionRows[0]?.threadId;
 if (!(firstThread && laterThread && firstThread !== laterThread)) {
   throw new Error('Recorded independent Core threads are required');
 }
-
 function fixture() {
   const request = vi.fn<(method: HostMethod, params: HostParams<HostMethod>) => Promise<unknown>>();
   const client: HostClient = {
@@ -64,7 +70,10 @@ function fixture() {
       method: Method,
       params: HostParams<Method>
     ): Promise<HostResults[Method]> =>
-      HOST_RESULT_SCHEMAS[method].parse(await request(method, params)) as HostResults[Method],
+      Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS[method], {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(await request(method, params)) as HostResults[Method],
   };
   connect.mockResolvedValue(client);
   return {
@@ -74,19 +83,16 @@ function fixture() {
     request,
   };
 }
-
 afterEach(async () => {
   window.dispatchEvent(new Event('beforeunload'));
   await Promise.resolve();
   vi.clearAllMocks();
 });
-
 /** A `thread/list` entry as Core serves it, from a thread's recorded creation time. */
 function catalogEntry(threadId: string, rows: readonly HostLogRow[]) {
   const createdAt = rows.find((row) => row.event.type === 'thread.started')?.ts ?? 0;
   return { binding: null, createdAt, threadId, updatedAt: createdAt };
 }
-
 /** Core's `ledger/read` entry for a thread whose committed log is `rows`, under `threadId`. */
 function ledgerEntry(threadId: string, rows: readonly HostLogRow[]): HostLedgerThread {
   const fold = new ThreadLedgerFold();
@@ -95,7 +101,6 @@ function ledgerEntry(threadId: string, rows: readonly HostLogRow[]): HostLedgerT
   }
   return { threadId, ...fold.read() };
 }
-
 test('deletion recognizes a Core thread committed after the visible catalog was hydrated', async () => {
   const { capability, request } = fixture();
   request
@@ -110,7 +115,6 @@ test('deletion recognizes a Core thread committed after the visible catalog was 
   expect(await capability.deleteThread(laterThread)).toEqual([laterThread]);
   expect(request).toHaveBeenLastCalledWith('thread/delete', { threadId: laterThread });
 });
-
 test('a failed Core-owned deletion retains the visible owner and rejects', async () => {
   const { capability, request } = fixture();
   const failure = new Error('The native deletion owner did not join');
@@ -123,7 +127,6 @@ test('a failed Core-owned deletion retains the visible owner and rejects', async
   await expect(capability.deleteThread(firstThread)).rejects.toBe(failure);
   expect(capability.renderThread(firstThread, true)).toBeDefined();
 });
-
 test('deleting a thread drops every thread Core deleted with it from the runs and the ledger', async () => {
   const { capability, request } = fixture();
   // A delegating thread and its child, each with its own costed runs.

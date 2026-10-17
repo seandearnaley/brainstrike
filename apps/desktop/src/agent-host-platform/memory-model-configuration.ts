@@ -9,7 +9,6 @@ import {
   type ProductionHostRunConfiguration,
 } from '@brainstrike/agent-host';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
-import type { z } from 'zod';
 import { requireMemoryApiKey } from './memory-readiness';
 import { createDesktopHostMemoryVectorConfiguration } from './memory-vector-configuration';
 import type { PlatformSelectionSchema } from './platform-wire';
@@ -51,7 +50,7 @@ async function createObserverModel(
 
 /** Materialize public Memory options from the admitted, non-secret selection. */
 export async function createDesktopHostMemoryConfiguration(
-  selection: Pick<z.output<typeof PlatformSelectionSchema>, 'memory' | 'resourceId'>,
+  selection: Pick<(typeof PlatformSelectionSchema)['Type'], 'memory' | 'resourceId'>,
   resolveProviderAuth: (provider: string) => Promise<ProviderAuthInput | undefined>,
   local?: DesktopHostLocalInference
 ): Promise<ProductionHostRunConfiguration['memory']> {

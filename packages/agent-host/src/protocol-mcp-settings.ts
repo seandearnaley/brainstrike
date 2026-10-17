@@ -8,7 +8,8 @@ import {
   parseMcpHostServerSnapshot,
   parseMcpHostSnapshot,
 } from '@brainstrike/assistant-contract/mcp-host-status';
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { opaqueWireSchema } from './opaque-wire-schema.js';
 
 /**
  * The desktop host's MCP settings (BST-1930 c5a): the config file, the global
@@ -17,108 +18,109 @@ import { z } from 'zod';
  * methods and hears changes through `mcp/settings/event`. The same stream
  * carries the runtime's server status (c5b), which lifecycle control changes.
  */
-const Id = z.string().min(1);
-
-export const McpConfigStatusSchema = z.strictObject({
-  error: z.string().optional(),
-  exists: z.boolean(),
-  loadedAt: z.number().int().nonnegative().optional(),
-  migrations: z
-    .array(
-      z.strictObject({
-        code: z.literal('mcp_protocol_defaulted_to_legacy'),
-        serverIndex: z.number().int().nonnegative(),
-        serverName: z.string(),
-      })
+const Id = Schema.String.check(Schema.isMinCodePoints(1));
+export const McpConfigStatusSchema = Schema.Struct({
+  error: Schema.optional(Schema.String),
+  exists: Schema.Boolean,
+  loadedAt: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  migrations: Schema.optional(
+    Schema.mutable(
+      Schema.Array(
+        Schema.Struct({
+          code: Schema.Literal('mcp_protocol_defaulted_to_legacy'),
+          serverIndex: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+          serverName: Schema.String,
+        })
+      )
     )
-    .optional(),
-  path: z.string(),
-  servers: z
-    .array(
-      z.strictObject({
-        name: z.string(),
-        protocol: z.enum(['legacy', 'auto', '2026-07-28']),
-        transport: z.enum(['stdio', 'sse', 'streamable-http']),
-      })
+  ),
+  path: Schema.String,
+  servers: Schema.optional(
+    Schema.mutable(
+      Schema.Array(
+        Schema.Struct({
+          name: Schema.String,
+          protocol: Schema.Literals(['legacy', 'auto', '2026-07-28']),
+          transport: Schema.Literals(['stdio', 'sse', 'streamable-http']),
+        })
+      )
     )
-    .optional(),
+  ),
 });
-export type McpConfigStatus = z.infer<typeof McpConfigStatusSchema>;
-
-export const McpConfigTextSchema = z.strictObject({
-  content: z.string(),
-  created: z.boolean(),
-  error: z.string().optional(),
-  exists: z.boolean(),
-  path: z.string(),
+export type McpConfigStatus = (typeof McpConfigStatusSchema)['Type'];
+export const McpConfigTextSchema = Schema.Struct({
+  content: Schema.String,
+  created: Schema.Boolean,
+  error: Schema.optional(Schema.String),
+  exists: Schema.Boolean,
+  path: Schema.String,
 });
-
-export const McpToolMetadataSchema = z.strictObject({
-  description: z.string().optional(),
-  discoveredAt: z.number(),
-  enabled: z.boolean(),
+export const McpToolMetadataSchema = Schema.Struct({
+  description: Schema.optional(Schema.String),
+  discoveredAt: Schema.Finite,
+  enabled: Schema.Boolean,
   id: Id,
-  inputSchema: z.json().optional(),
-  serverName: z.string(),
+  inputSchema: Schema.optional(Schema.MutableJson),
+  serverName: Schema.String,
 });
 /** Every discovered tool, grouped by its configured server's name. */
-export const McpToolsByServerSchema = z.record(z.string(), z.array(McpToolMetadataSchema));
-export type McpToolsByServer = z.infer<typeof McpToolsByServerSchema>;
-
-export const McpToolStatsSchema = z.strictObject({
-  disabled: z.number().int().nonnegative(),
-  enabled: z.number().int().nonnegative(),
-  preferencesFault: z
-    .strictObject({
-      kind: z.enum(['invalid', 'unreadable']),
-      message: z.string(),
-      path: z.string(),
+export const McpToolsByServerSchema = Schema.Record(
+  Schema.String,
+  Schema.mutable(Schema.Array(McpToolMetadataSchema))
+);
+export type McpToolsByServer = (typeof McpToolsByServerSchema)['Type'];
+export const McpToolStatsSchema = Schema.Struct({
+  disabled: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  enabled: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  preferencesFault: Schema.optional(
+    Schema.Struct({
+      kind: Schema.Literals(['invalid', 'unreadable']),
+      message: Schema.String,
+      path: Schema.String,
     })
-    .optional(),
-  servers: z.number().int().nonnegative(),
-  total: z.number().int().nonnegative(),
+  ),
+  servers: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  total: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 });
-export type McpToolStats = z.infer<typeof McpToolStatsSchema>;
-
+export type McpToolStats = (typeof McpToolStatsSchema)['Type'];
 /** The runtime's server status: a whole revision, as a read or a watch event. */
-export const McpHostStatusSchema: z.ZodType<McpHostSnapshot> = z
-  .unknown()
-  .transform((value): McpHostSnapshot => parseMcpHostSnapshot(value));
+export const McpHostStatusSchema: Schema.ConstraintDecoder<McpHostSnapshot> = opaqueWireSchema(
+  (value): McpHostSnapshot => parseMcpHostSnapshot(value)
+);
 // Annotated so declarations name the contract's type, not its unexported parts.
-const McpHostServerStatusSchema: z.ZodType<McpHostServerSnapshot> = z
-  .unknown()
-  .transform((value): McpHostServerSnapshot => parseMcpHostServerSnapshot(value));
-
+const McpHostServerStatusSchema: Schema.ConstraintDecoder<McpHostServerSnapshot> = opaqueWireSchema(
+  (value): McpHostServerSnapshot => parseMcpHostServerSnapshot(value)
+);
 /** What a settings subscriber holds, and each change pushed to it. */
-export const McpSettingsSnapshotSchema = z.strictObject({
+export const McpSettingsSnapshotSchema = Schema.Struct({
   config: McpConfigStatusSchema,
   extensions: McpExtensionEnablementSchema,
   status: McpHostStatusSchema,
   tools: McpToolsByServerSchema,
 });
-export type McpSettingsSnapshot = z.infer<typeof McpSettingsSnapshotSchema>;
-
+export type McpSettingsSnapshot = (typeof McpSettingsSnapshotSchema)['Type'];
 /** Host -> subscribed client: one MCP settings fact changed. */
 export const MCP_SETTINGS_EVENT = 'mcp/settings/event';
-export const McpSettingsEventSchema = z.discriminatedUnion('type', [
-  z.strictObject({ config: McpConfigStatusSchema, type: z.literal('config') }),
-  z.strictObject({ extensions: McpExtensionEnablementSchema, type: z.literal('extensions') }),
-  z.strictObject({ status: McpHostStatusSchema, type: z.literal('status') }),
-  z.strictObject({ tools: McpToolsByServerSchema, type: z.literal('tools') }),
-]);
-export type McpSettingsEvent = z.infer<typeof McpSettingsEventSchema>;
-
-const Applied = z.strictObject({ applied: z.literal(true) });
-const None = z.strictObject({});
-
+export const McpSettingsEventSchema = Schema.Union(
+  [
+    Schema.Struct({ config: McpConfigStatusSchema, type: Schema.Literal('config') }),
+    Schema.Struct({ extensions: McpExtensionEnablementSchema, type: Schema.Literal('extensions') }),
+    Schema.Struct({ status: McpHostStatusSchema, type: Schema.Literal('status') }),
+    Schema.Struct({ tools: McpToolsByServerSchema, type: Schema.Literal('tools') }),
+  ],
+  { mode: 'oneOf' }
+);
+export type McpSettingsEvent = (typeof McpSettingsEventSchema)['Type'];
+const Applied = Schema.Struct({ applied: Schema.Literal(true) });
+const None = Schema.Record(Schema.String, Schema.Never);
 export const MCP_SETTINGS_METHOD_SCHEMAS = {
   'mcp/config/path': None,
   /** `null` restores the profile's default path; any other path must be picker-selected. */
-  'mcp/config/path/set': z.strictObject({ path: z.string().nullable() }),
+  'mcp/config/path/set': Schema.Struct({ path: Schema.NullOr(Schema.String) }),
   'mcp/config/read': None,
   'mcp/config/sample': None,
   'mcp/config/status': None,
-  'mcp/config/write': z.strictObject({ content: z.string() }),
+  'mcp/config/write': Schema.Struct({ content: Schema.String }),
   'mcp/extensions/read': None,
   'mcp/extensions/set': McpExtensionEnablementSchema,
   /** connect, retry, cancel, disconnect or reauthorize one configured server. */
@@ -128,25 +130,30 @@ export const MCP_SETTINGS_METHOD_SCHEMAS = {
   'mcp/tools/list': None,
   'mcp/tools/reload': None,
   'mcp/tools/reset': None,
-  'mcp/tools/server/set': z.strictObject({ enabled: z.boolean(), serverName: Id }),
-  'mcp/tools/set': z.strictObject({ enabled: z.boolean(), toolIds: z.array(Id) }),
+  'mcp/tools/server/set': Schema.Struct({ enabled: Schema.Boolean, serverName: Id }),
+  'mcp/tools/set': Schema.Struct({
+    enabled: Schema.Boolean,
+    toolIds: Schema.mutable(Schema.Array(Id)),
+  }),
   'mcp/tools/stats': None,
 } as const;
-
 export const MCP_SETTINGS_RESULT_SCHEMAS = {
-  'mcp/config/path': z.strictObject({ path: z.string() }),
-  'mcp/config/path/set': z.strictObject({ path: z.string(), success: z.literal(true) }),
+  'mcp/config/path': Schema.Struct({ path: Schema.String }),
+  'mcp/config/path/set': Schema.Struct({ path: Schema.String, success: Schema.Literal(true) }),
   'mcp/config/read': McpConfigTextSchema,
-  'mcp/config/sample': z.strictObject({
-    error: z.string().optional(),
-    path: z.string(),
-    success: z.boolean(),
+  'mcp/config/sample': Schema.Struct({
+    error: Schema.optional(Schema.String),
+    path: Schema.String,
+    success: Schema.Boolean,
   }),
   'mcp/config/status': McpConfigStatusSchema,
-  'mcp/config/write': z.discriminatedUnion('success', [
-    z.strictObject({ path: z.string(), success: z.literal(true) }),
-    z.strictObject({ error: z.string(), path: z.string(), success: z.literal(false) }),
-  ]),
+  'mcp/config/write': Schema.Union(
+    [
+      Schema.Struct({ path: Schema.String, success: Schema.Literal(true) }),
+      Schema.Struct({ error: Schema.String, path: Schema.String, success: Schema.Literal(false) }),
+    ],
+    { mode: 'oneOf' }
+  ),
   'mcp/extensions/read': McpExtensionEnablementSchema,
   'mcp/extensions/set': McpExtensionEnablementSchema,
   'mcp/server/control': McpHostServerStatusSchema,

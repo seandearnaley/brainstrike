@@ -1,12 +1,14 @@
 // @vitest-environment node
 import * as providerRuntime from '@brainstrike/agent/provider-runtime';
 import type { ProductionHostRunConfiguration } from '@brainstrike/agent-host';
+import { Schema } from 'effect';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopHostMemoryConfiguration } from '../agent-host-platform/memory-model-configuration';
 import {
   type PlatformSelection,
   PlatformSelectionSchema,
 } from '../agent-host-platform/platform-wire';
+import type { MutableFixture } from './fixtures/mutable-schema-fixture';
 
 const providers = ['openai', 'anthropic', 'google', 'openrouter'] as const;
 const syntheticCredential = 'synthetic-memory-fixture';
@@ -16,10 +18,12 @@ type ObserverOptions = Exclude<
   NonNullable<MemoryConfiguration['native']['options']>['observationalMemory'],
   boolean | undefined
 >;
-
 /** The admitted platform payload shape, parsed by its existing schema. */
-function selection(modelTarget = 'openai/observer-fixture'): PlatformSelection {
-  return PlatformSelectionSchema.parse({
+function selection(modelTarget = 'openai/observer-fixture'): MutableFixture<PlatformSelection> {
+  return Schema.decodeUnknownSync(PlatformSelectionSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({
     configuration: { model: 'chat-fixture', provider: 'anthropic' },
     contextWindow: 32_000,
     durableConfiguration: {},
@@ -54,7 +58,6 @@ function selection(modelTarget = 'openai/observer-fixture'): PlatformSelection {
     toolTimeoutMs: 5000,
   });
 }
-
 function observerOptions(memory: MemoryConfiguration): ObserverOptions {
   const observation = memory.native.options?.observationalMemory;
   if (!observation || typeof observation !== 'object') {
@@ -62,7 +65,6 @@ function observerOptions(memory: MemoryConfiguration): ObserverOptions {
   }
   return observation;
 }
-
 /** Inspect only public model identity/capabilities, never credential-bearing objects. */
 function modelMetadata(memory: MemoryConfiguration): {
   generate: string;
@@ -90,12 +92,10 @@ function modelMetadata(memory: MemoryConfiguration): {
     stream: typeof model.doStream,
   };
 }
-
 describe('admitted Memory model configuration', () => {
   const fetch = vi.fn(async () => {
     throw new Error('Provider requests are outside this fixture');
   });
-
   beforeEach(() => {
     fetch.mockClear();
     vi.stubGlobal('fetch', fetch);
@@ -109,7 +109,6 @@ describe('admitted Memory model configuration', () => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });
-
   it.each(providers)(
     'materializes %s through the public provider factory with explicit auth',
     async (provider) => {
@@ -143,7 +142,6 @@ describe('admitted Memory model configuration', () => {
       expect(memory.native.options?.semanticRecall).toBe(false);
     }
   );
-
   it.each(['thread', 'resource'] as const)(
     'preserves %s scope, retrieval, and token thresholds',
     async (scope) => {
@@ -167,7 +165,6 @@ describe('admitted Memory model configuration', () => {
       expect(memory.native.options?.workingMemory).toEqual(selected.memory.options.workingMemory);
     }
   );
-
   it('normalizes the explicit target and preserves nested OpenRouter model IDs', async () => {
     const factory = vi.spyOn(providerRuntime, 'createProvider');
     const resolveAuth = vi.fn(
@@ -187,7 +184,6 @@ describe('admitted Memory model configuration', () => {
     expect(modelMetadata(memory).modelId).toBe('vendor/observer-fixture');
     expect(observerOptions(memory).retrieval).toBeUndefined();
   });
-
   it.each(['auto', 'unknown/fixture', 'local/fixture'])(
     'does no auth or model work when OM is disabled (%s)',
     async (target) => {
@@ -204,7 +200,6 @@ describe('admitted Memory model configuration', () => {
       expect(factory.mock.calls.length).toBe(0);
     }
   );
-
   it.each([
     'auto',
     'openai',
@@ -224,7 +219,6 @@ describe('admitted Memory model configuration', () => {
     expect(resolver.mock.calls.length).toBe(0);
     expect(factory.mock.calls.length).toBe(0);
   });
-
   it.each(['semanticRecall', 'vector'] as const)(
     'preserves a visible failure for missing %s capability',
     async (feature) => {
@@ -244,8 +238,10 @@ describe('admitted Memory model configuration', () => {
       expect(resolver.mock.calls.length).toBe(0);
     }
   );
-
-  const missingAuth: readonly { label: string; value: Auth }[] = [
+  const missingAuth: readonly {
+    label: string;
+    value: Auth;
+  }[] = [
     { label: 'undefined', value: undefined },
     {
       label: 'custom fetch',
@@ -278,7 +274,6 @@ describe('admitted Memory model configuration', () => {
       }
     );
   }
-
   it('propagates private credential resolver failures without replacement or model work', async () => {
     const cause = new Error('Synthetic credential owner failure');
     const factory = vi.spyOn(providerRuntime, 'createProvider');

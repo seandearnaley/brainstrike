@@ -1,9 +1,13 @@
+import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { McpConfigSchema } from '../mcp/config';
 
 describe('agent MCP authentication configuration', () => {
   it('accepts explicit unauthenticated HTTP configuration', () => {
-    const parsed = McpConfigSchema.parse({
+    const parsed = Schema.decodeUnknownSync(McpConfigSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })({
       servers: [
         {
           auth: { type: 'none' },
@@ -13,12 +17,13 @@ describe('agent MCP authentication configuration', () => {
         },
       ],
     });
-
     expect(parsed.servers.map((server) => server.auth?.type)).toEqual(['none']);
   });
-
   it('accepts OAuth only with explicit user-paced startup', () => {
-    const parsed = McpConfigSchema.parse({
+    const parsed = Schema.decodeUnknownSync(McpConfigSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })({
       servers: [
         {
           auth: { scopes: ['read'], type: 'oauth-user' },
@@ -33,10 +38,9 @@ describe('agent MCP authentication configuration', () => {
       startup: 'authentication-required',
     });
   });
-
   it('keeps bearer references gated until a credential resolver exists', () => {
     expect(() =>
-      McpConfigSchema.parse({
+      Schema.decodeUnknownSync(McpConfigSchema, { errors: 'all', onExcessProperty: 'error' })({
         servers: [
           {
             auth: {
@@ -54,10 +58,9 @@ describe('agent MCP authentication configuration', () => {
       })
     ).toThrow('MCP bearer authentication requires a production credential resolver');
   });
-
   it('rejects selecting HTTP OAuth for stdio', () => {
     expect(() =>
-      McpConfigSchema.parse({
+      Schema.decodeUnknownSync(McpConfigSchema, { errors: 'all', onExcessProperty: 'error' })({
         servers: [
           {
             auth: { type: 'oauth-user' },

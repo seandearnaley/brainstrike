@@ -1,6 +1,7 @@
 import granted from '@brainstrike/test-utils/fixtures/committed-host-granted-run.json' with {
   type: 'json',
 };
+import { Schema } from 'effect';
 import { expect, test } from 'vitest';
 import { z } from 'zod';
 import { committedMemoryTranscript } from '../src/adapters/committed-memory-transcript.js';
@@ -37,7 +38,10 @@ function invocations(rows: readonly HostLogRow[], toolCallId: string): unknown[]
 }
 
 test('a call the policy allowed converts as its result; a user-answered approval keeps its answer', () => {
-  const rows = z.array(HostLogRowSchema).parse(granted);
+  const rows = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(granted);
   const requests = [...approvalRequests(rows)];
   const allowed = requests.find(([, automatic]) => automatic)?.[0];
   const answered = requests.find(([, automatic]) => !automatic)?.[0];

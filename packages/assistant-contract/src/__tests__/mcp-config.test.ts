@@ -1,3 +1,4 @@
+import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import {
   McpConfigSchema,
@@ -8,6 +9,21 @@ import {
 } from '../mcp-config.js';
 
 describe('MCP config contract', () => {
+  it.each([
+    [' \thttps://exa\nmple.test/mcp\r ', 'https://example.test/mcp'],
+    ['mailto:user@example.test', 'mailto:user@example.test'],
+    ['https://EXAMPLE.test/a', 'https://EXAMPLE.test/a'],
+    ['\0https://example.test/mcp\0', '\0https://example.test/mcp\0'],
+  ])('preserves URL normalization for %j', (url, expected) => {
+    expect(
+      parseMcpServerValue({ name: 'remote', transport: 'streamable-http', url })
+    ).toMatchObject({
+      protocol: 'legacy',
+      startup: 'automatic',
+      url: expected,
+    });
+  });
+
   it.each(['stdio', 'sse'] as const)(
     'rejects oauth-user on %s at every config entrypoint',
     (transport) => {
@@ -17,8 +33,16 @@ describe('MCP config contract', () => {
         transport,
         ...(transport === 'stdio' ? { command: 'node' } : { url: 'https://example.test/sse' }),
       };
-      expect(McpServerSchema.safeParse(server).success).toBe(false);
-      expect(McpConfigSchema.safeParse({ servers: [server] }).success).toBe(false);
+      expect(
+        Schema.decodeUnknownResult(McpServerSchema, { errors: 'all', onExcessProperty: 'error' })(
+          server
+        )._tag === 'Success'
+      ).toBe(false);
+      expect(
+        Schema.decodeUnknownResult(McpConfigSchema, { errors: 'all', onExcessProperty: 'error' })({
+          servers: [server],
+        })._tag === 'Success'
+      ).toBe(false);
       expect(() => parseMcpServerValue(server)).toThrow(McpConfigValidationError);
       expect(() => parseMcpConfigValue({ servers: [server] })).toThrow(McpConfigValidationError);
       if (transport === 'sse') {
@@ -37,7 +61,6 @@ describe('MCP config contract', () => {
       }
     }
   );
-
   it.each(['legacy', 'auto', '2026-07-28'] as const)(
     'keeps oauth-user supported on streamable-http with %s protocol',
     (protocol) => {
@@ -56,7 +79,6 @@ describe('MCP config contract', () => {
       });
     }
   );
-
   it.each([
     undefined,
     { type: 'none' },
@@ -74,7 +96,6 @@ describe('MCP config contract', () => {
       })
     ).toMatchObject({ protocol: 'legacy', startup: 'automatic', transport: 'sse' });
   });
-
   it('normalizes every supported transport through one strict validator', () => {
     const parsed = parseMcpConfigValue({
       servers: [
@@ -98,7 +119,6 @@ describe('MCP config contract', () => {
         },
       ],
     });
-
     expect(parsed.config.servers.map(({ protocol, startup }) => ({ protocol, startup }))).toEqual([
       { protocol: 'legacy', startup: 'automatic' },
       { protocol: 'auto', startup: 'authentication-required' },
@@ -109,14 +129,12 @@ describe('MCP config contract', () => {
       { code: 'mcp_protocol_defaulted_to_legacy', serverIndex: 2, serverName: 'legacy' },
     ]);
   });
-
   it('accepts the explicit empty authority without inventing a server', () => {
     expect(parseMcpConfigValue({ servers: [] })).toEqual({
       config: { servers: [] },
       migrations: [],
     });
   });
-
   it('accepts a canonical bearer reference for capability-owning consumers', () => {
     expect(
       parseMcpConfigValue({
@@ -140,8 +158,12 @@ describe('MCP config contract', () => {
       startup: 'automatic',
     });
   });
-
   it.each([
+    [
+      'multiple unknown root fields',
+      { debug: true, fallback: true, servers: [] },
+      [{ message: 'Unrecognized keys: "debug", "fallback"', path: '' }],
+    ],
     [
       'unknown root field',
       { debug: true, servers: [] },

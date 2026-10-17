@@ -1,8 +1,8 @@
 import { BoundaryFailureError, INTERNAL_FAULT } from '@brainstrike/assistant-contract';
 import type { HostAttachment, HostRecord } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
+import { Schema, SchemaIssue } from 'effect';
 import { CancellationTokenSource, type MessageConnection } from 'vscode-jsonrpc';
-import type { ZodType } from 'zod';
 import { fromBoundaryResponseError } from './boundary-wire.js';
 import { createHostCatalogClient, type HostCatalog } from './catalog/transport.js';
 import {
@@ -26,7 +26,6 @@ import {
   McpSettingsEventSchema,
   parseHostParams,
 } from './protocol.js';
-
 export interface HostClient extends HostAttachment {
   readonly catalog: HostCatalog;
   /** BST-1932: told the thread whose children changed status; re-read `thread/children`. */
@@ -46,7 +45,6 @@ export interface HostClient extends HostAttachment {
   ): Promise<HostResults[M]>;
 }
 const logger = createLogger('AgentHostClient');
-
 /** A failed response becomes the host's typed failure (or the internal fault), never raw text. */
 async function sendTyped(method: string, send: () => Promise<unknown>): Promise<unknown> {
   try {
@@ -57,24 +55,24 @@ async function sendTyped(method: string, send: () => Promise<unknown>): Promise<
     );
   }
 }
-
 /** A result this client cannot read is logged, and its user sees the internal fault. */
 function readResult<M extends HostMethod>(method: M, result: unknown): HostResults[M] {
   // Widened once: indexing the result map by a generic method is too deep for tsc.
-  const schema: ZodType<unknown> = HOST_RESULT_SCHEMAS[method];
-  const parsed = schema.safeParse(result);
-  if (parsed.success) {
-    return parsed.data as HostResults[M];
+  const schema: Schema.ConstraintDecoder<unknown> = HOST_RESULT_SCHEMAS[method];
+  const parsed = Schema.decodeUnknownResult(schema, { errors: 'all', onExcessProperty: 'error' })(
+    result
+  );
+  if (parsed._tag === 'Success') {
+    return parsed.success as HostResults[M];
   }
   const correlationId = crypto.randomUUID();
   logger.error('The agent host sent a result this client cannot read', {
     correlationId,
-    issues: parsed.error.issues,
+    issues: SchemaIssue.makeFormatterStandardSchemaV1()(parsed.failure.issue).issues,
     method,
   });
-  throw new BoundaryFailureError({ ...INTERNAL_FAULT, correlationId }, { cause: parsed.error });
+  throw new BoundaryFailureError({ ...INTERNAL_FAULT, correlationId }, { cause: parsed.failure });
 }
-
 /** Browser-safe connection; the private lease record comes from the owning launcher. */
 export async function authenticateHostClient(
   connection: MessageConnection,
@@ -112,38 +110,56 @@ export async function authenticateHostClient(
     }
   };
   connection.onNotification('log/event', (input: unknown) => {
-    const row = HostLogRowSchema.parse(input);
+    const row = Schema.decodeUnknownSync(HostLogRowSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(input);
     for (const listener of listeners) {
       listener(row);
     }
   });
   connection.onNotification(HOST_CHILDREN_CHANGED, (input: unknown) => {
-    const { threadId } = HostChildrenChangedSchema.parse(input);
+    const { threadId } = Schema.decodeUnknownSync(HostChildrenChangedSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(input);
     for (const listener of childListeners) {
       listener(threadId);
     }
   });
   connection.onNotification(MCP_SETTINGS_EVENT, (input: unknown) => {
-    const event = McpSettingsEventSchema.parse(input);
+    const event = Schema.decodeUnknownSync(McpSettingsEventSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(input);
     for (const listener of settingsListeners) {
       listener(event);
     }
   });
   connection.onNotification(MCP_PRESENTATION_EVENT, (input: unknown) => {
-    const event = McpPresentationEventSchema.parse(input);
+    const event = Schema.decodeUnknownSync(McpPresentationEventSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(input);
     for (const listener of presentationListeners) {
       listener(event);
     }
   });
   connection.onNotification(HOST_RUN_TELEMETRY, (input: unknown) => {
-    const telemetry = HostRunTelemetrySchema.parse(input);
+    const telemetry = Schema.decodeUnknownSync(HostRunTelemetrySchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(input);
     for (const listener of telemetryListeners) {
       listener(telemetry);
     }
   });
   connection.listen();
   try {
-    const reply = HOST_RESULT_SCHEMAS.initialize.parse(
+    const reply = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS.initialize, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(
       await connection.sendRequest('initialize', {
         hostVersion: record.hostVersion,
         protocolVersion: AGENT_HOST_PROTOCOL_VERSION,
