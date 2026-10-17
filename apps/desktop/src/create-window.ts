@@ -571,7 +571,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
   ) {
     // E2E keeps windows hidden so runs never pop up on a developer's desktop. On
     // Linux, Chromium renders a window X11 never mapped at one frame per second,
-    // so the harness opts in to an unfocused show under Xvfb (BST-2040).
+    // so the harness opts in to an unfocused show for Linux CI under Xvfb (BST-2040).
     win.showInactive();
   }
 

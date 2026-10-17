@@ -369,11 +369,15 @@ export async function getBufferedElectronOutput(
 
 /**
  * BST-2040: Chromium renders a window X11 never mapped at one frame per second, so
- * Linux runs show the test-mode window unfocused (Xvfb has no user to disturb);
- * elsewhere it stays hidden. An explicit value wins, `''` included, to keep it hidden.
+ * Linux CI runs (an isolated Xvfb with no user to disturb) show the test-mode window
+ * unfocused. A Linux workstation with a real display keeps it hidden, as do other
+ * platforms. An explicit value wins either way: `1` to show it, `''` to keep it hidden.
  */
 function e2eShowInactive(baseEnv: NodeJS.ProcessEnv): string {
-  return baseEnv['BRAINSTRIKE_E2E_SHOW_INACTIVE'] ?? (process.platform === 'linux' ? '1' : '');
+  return (
+    baseEnv['BRAINSTRIKE_E2E_SHOW_INACTIVE'] ??
+    (process.platform === 'linux' && baseEnv['CI'] === 'true' ? '1' : '')
+  );
 }
 
 function createLaunchOptions(
