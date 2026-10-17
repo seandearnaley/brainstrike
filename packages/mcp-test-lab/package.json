@@ -61,7 +61,7 @@
     "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
-    "verify": "pnpm --filter @brainstrike/mcp-tasks-extension build && pnpm run build && node dist/runner-cli.js"
+    "verify": "pnpm --filter @brainstrike/mcp-test-lab... build && node dist/runner-cli.js"
   },
   "sideEffects": false,
   "type": "module",
