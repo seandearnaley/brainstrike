@@ -156,6 +156,18 @@ Use the existing effect-kit helpers and package diagnostics. Do not patch the
 shared TypeScript compiler as part of a library adoption. Versions, import paths
 and diagnostic commands are owned by installed packages and configuration.
 
+Before writing Effect code, resolve `node_modules/effect/src` from the consuming
+package, read the installed symbol's implementation and stability tags, and use
+that exact release's upstream tests when needed. The root has no Effect runtime
+dependency. Local examples are `effect-tool-input.ts` in assistant-contract and
+`promise-boundary.ts` / `__tests__/timeout-clock.test.ts` in effect-kit.
+Run `pnpm --filter <consumer> exec effect-tsgo diagnostics --project
+<its-widest-tsconfig> --strict --format json` for actionable locations, including
+related service/declaration locations. The consumer's type-check script selects
+its widest project; ordinary Vitest callbacks must return a joined Promise.
+The executable checker controls run with
+`pnpm exec node --test scripts/__tests__/effect-diagnostics-execution.test.mjs`.
+
 Effect consumers run compiler checks and `effect-tsgo diagnostics --strict` on
 the widest configured project. Preserve a nonempty checked program and the three
 stability severities; the executable scripts own compiler versions and pass count.

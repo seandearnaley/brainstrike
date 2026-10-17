@@ -14,6 +14,14 @@
         "name": "@effect/language-service",
         "diagnosticSeverity": {
           "apiStabilityLeak": "error",
+          "floatingEffect": "error",
+          "floatingEffectInVitest": "error",
+          "missingEffectContext": "error",
+          "missingEffectError": "error",
+          "missingStarInYieldEffectGen": "error",
+          "promiseInEffectSuccess": "error",
+          "returnEffectInGen": "error",
+          "unsafeEffectTypeAssertion": "error",
           "experimentalApiUsage": "error",
           "unstableApiUsage": "error"
         }
