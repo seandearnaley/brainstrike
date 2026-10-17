@@ -1,7 +1,10 @@
 {
   "cassette": "../../../test-utils/fixtures/provider-cassettes/openai-parallel-tool-calls.json",
   "expect": {
-    "maxStepToolCalls": 2
+    "parallelCalls": {
+      "atLeast": 2,
+      "toolId": "brainstrike_readWorkspaceFile"
+    }
   },
   "id": "parallel-read",
   "model": "openai::gpt-6-luna",

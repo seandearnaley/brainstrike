@@ -31,7 +31,7 @@ describe('readRunFromLog', () => {
       metrics: {
         approvals: 1,
         inputTokens: 2,
-        maxStepToolCalls: 1,
+        maxStepCallsByTool: { write_file: 1 },
         outputTokens: 2,
         steps: 2,
         toolCalls: { write_file: 1 },
@@ -126,21 +126,38 @@ describe('scoreEvalAttempt', () => {
     expect(reasonOf(attempt)).toMatch(reason);
   });
 
-  test('an expect block holds the run to the parallel tool calls its log committed', () => {
-    const metrics = (maxStepToolCalls: number) => ({
-      approvals: 0,
-      inputTokens: 1,
-      maxStepToolCalls,
-      outputTokens: 1,
-      steps: 2,
-      toolCalls: {},
-      wallMs: 1,
+  test('an expect block holds the run to parallel calls of the named tool', () => {
+    const run = (maxStepCallsByTool: Record<string, number>) => ({
+      metrics: {
+        approvals: 0,
+        inputTokens: 1,
+        maxStepCallsByTool,
+        outputTokens: 1,
+        steps: 2,
+        toolCalls: {},
+        wallMs: 1,
+      },
+      verdict: completed.run!.verdict,
     });
-    const run = (calls: number) => ({ metrics: metrics(calls), verdict: completed.run!.verdict });
-    const expecting = { expect: { maxStepToolCalls: 2 } };
-    expect(scoreEvalAttempt({ ...completed, ...expecting, run: run(2) })).toEqual({ pass: true });
-    expect(reasonOf({ ...completed, ...expecting, run: run(1) })).toMatch(
-      /expects at least 2 tool calls in one step; the run made at most 1/u
+    const expecting = {
+      expect: { parallelCalls: { atLeast: 2, toolId: 'brainstrike_readWorkspaceFile' } },
+    };
+    expect(
+      scoreEvalAttempt({
+        ...completed,
+        ...expecting,
+        run: run({ brainstrike_readWorkspaceFile: 2 }),
+      })
+    ).toEqual({ pass: true });
+    // Two calls in one step, but of different tools, then the reads one at a time.
+    expect(
+      reasonOf({
+        ...completed,
+        ...expecting,
+        run: run({ brainstrike_readWorkspaceFile: 1, updateWorkingMemory: 1 }),
+      })
+    ).toMatch(
+      /at least 2 brainstrike_readWorkspaceFile calls in one step; the run made at most 1/u
     );
     expect(reasonOf({ ...completed, ...expecting })).toMatch(/reported no metrics/u);
   });

@@ -72,12 +72,13 @@ reason, checked in this order:
 4. A run verdict other than `completed`.
 5. An unserved cassette exchange.
 6. A verifier that did not run or did not exit 0.
-7. A `task.json` `expect` the committed log does not meet. `maxStepToolCalls`
-   is the least number of tool calls the model must make in one step, so a
-   parallel-call task fails when its calls arrive one step at a time.
+7. A `task.json` `expect` the committed log does not meet.
+   `parallelCalls: { toolId, atLeast }` needs the model to call that tool at
+   least `atLeast` times in one step, so a parallel-read task fails when its
+   reads arrive one step at a time, whatever else shares a step.
 
 Metrics come from the committed log, never from CLI output: steps, tool calls
-by name, the most tool calls in one step, input and output tokens, approvals, wall time from `run.started` to
+by name, each tool's most calls in one step, input and output tokens, approvals, wall time from `run.started` to
 `run.finished`, and the verdict. Each run appends one JSON line per task to
 `packages/agent-evals/results/<UTC date>-<mode>.jsonl`, which is gitignored, and
 prints a summary table.

@@ -16,11 +16,16 @@ export const EvalTaskSchema = Schema.Struct({
   cassette: Schema.optionalKey(Text),
   /**
    * Behaviour the committed log must show beyond the verifier's file checks:
-   * `maxStepToolCalls` is the least number of tool calls the model must make
-   * in one step, so a parallel-call task sets 2.
+   * `parallelCalls` names a tool the model must call at least `atLeast` times
+   * in one step, so a parallel-read task fails when the reads arrive apart.
    */
   expect: Schema.optionalKey(
-    Schema.Struct({ maxStepToolCalls: Schema.Int.check(Schema.isGreaterThan(0)) })
+    Schema.Struct({
+      parallelCalls: Schema.Struct({
+        atLeast: Schema.Int.check(Schema.isGreaterThan(1)),
+        toolId: Text,
+      }),
+    })
   ),
   id: Schema.String.check(Schema.isPattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u)),
   /** The canonical `provider::model` replay and live modes run. */
