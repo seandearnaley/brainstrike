@@ -1047,6 +1047,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   });
   const { branchSwitcher, mode } = useWorkspaceBarMode({
     checkout,
+    checkoutSettled,
     foldersPending,
     onHandOffToLocal,
     onSelectWorktree,

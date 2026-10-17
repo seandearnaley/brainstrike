@@ -77,6 +77,7 @@ function renderComposition() {
   return renderHook(() =>
     useWorkspaceBarMode({
       checkout: { ahead: 0, behind: 0, branch: 'main', dirty: true },
+      checkoutSettled: true,
       foldersPending: false,
       onHandOffToLocal: vi.fn(),
       onSelectWorktree: vi.fn(),
@@ -105,6 +106,7 @@ describe('useWorkspaceBarMode branch escape', () => {
     renderHook(() =>
       useWorkspaceBarMode({
         checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+        checkoutSettled: true,
         foldersPending: false,
         onHandOffToLocal: vi.fn(),
         onSelectWorktree: vi.fn(),
@@ -132,6 +134,7 @@ describe('useWorkspaceBarMode branch escape', () => {
     renderHook(() =>
       useWorkspaceBarMode({
         checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+        checkoutSettled: true,
         foldersPending: false,
         onHandOffToLocal: vi.fn(),
         onSelectWorktree: vi.fn(),
@@ -186,11 +189,71 @@ describe('useWorkspaceBarMode branch escape', () => {
   });
 });
 
+describe('useWorkspaceBarMode checkout readiness (BST-2129)', () => {
+  const args: UseWorkspaceBarModeArgs = {
+    checkout: undefined,
+    checkoutSettled: false,
+    foldersPending: false,
+    onHandOffToLocal: vi.fn(),
+    onSelectWorktree: vi.fn(),
+    primaryRootId: 'r-1',
+    primaryRootPath: '/work/app',
+    selectedMemoryThreadId: thread.id,
+    selectedThread: thread,
+    worktreeCheckout: {
+      branch: null,
+      mode: 'local',
+      worktreeId: null,
+      worktreePath: null,
+    },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    branchSwitcherSpy.mockReturnValue(undefined);
+  });
+
+  it('offers no mode chip while the root is unknown, then the real one once it settles', () => {
+    // useWorktreeMode reads a still-loading checkout as "Not a git repository".
+    worktreeModeSpy.mockImplementation(({ isRepository }: { isRepository: boolean }) =>
+      isRepository ? mode() : mode({ disabledReason: 'Not a git repository' })
+    );
+    const { rerender, result } = renderHook(
+      (props: UseWorkspaceBarModeArgs) => useWorkspaceBarMode(props),
+      { initialProps: args }
+    );
+
+    expect(result.current.mode).toBeUndefined();
+    expect(branchSwitcherSpy.mock.calls.at(-1)?.[0]?.onSwitchInNewWorktree).toBeUndefined();
+
+    rerender({
+      ...args,
+      checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+      checkoutSettled: true,
+    });
+    expect(result.current.mode?.disabledReason).toBeNull();
+    expect(branchSwitcherSpy.mock.calls.at(-1)?.[0]?.onSwitchInNewWorktree).toEqual(
+      expect.any(Function)
+    );
+  });
+
+  it('still explains a settled root that is not a repository', () => {
+    worktreeModeSpy.mockReturnValue(mode({ disabledReason: 'Not a git repository' }));
+    const { result } = renderHook(() => useWorkspaceBarMode({ ...args, checkoutSettled: true }));
+
+    expect(worktreeModeSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ isRepository: false })
+    );
+    expect(result.current.mode?.disabledReason).toBe('Not a git repository');
+  });
+});
+
 describe('useWorkspaceBarMode worktree map checkout intent', () => {
   const onHandOffToLocal = vi.fn(() => Promise.resolve());
   const onSelectWorktree = vi.fn(() => Promise.resolve());
   const args = {
     checkout: { ahead: 0, behind: 0, branch: 'main', dirty: true },
+    checkoutSettled: true,
     foldersPending: false,
     onHandOffToLocal,
     onSelectWorktree,
