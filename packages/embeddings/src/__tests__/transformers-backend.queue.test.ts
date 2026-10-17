@@ -549,6 +549,78 @@ describe('TransformersBackend queue integration', () => {
     resetEmbeddingQueueFactory();
   });
 
+  it.each([
+    ['wasm', 'q8'],
+    ['webgpu', 'fp16'],
+  ] as const)(
+    'slices a 64-text %s request with no stream batch size and reports every completed slice',
+    async (device, dtype) => {
+      // BST-2090: a whole 64-text request ran as one slice, so the embedding host's
+      // liveness window heard nothing until it finished and expired on a 2-vCPU WASM host.
+      vi.stubGlobal('window', {});
+      vi.stubGlobal('navigator', { gpu: {} });
+      vi.stubGlobal('Worker', class {});
+      const { queue, add } = createQueueStub();
+      const listeners = new Set<Parameters<QueueAdapter['onProgress']>[0]>();
+      vi.mocked(queue.onProgress).mockImplementation((listener) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      });
+      const model = 'Xenova/bge-small-en-v1.5';
+      const texts = Array.from({ length: 64 }, (_, index) => `chunk ${index}`);
+      add.mockImplementationOnce(async (request) => {
+        const { id, maxBatchSize } = request as QueueAddCall & { id: string; maxBatchSize: number };
+        // The worker reports each completed slice as endIndex / total (embedding.worker.ts runBatches).
+        for (let end = maxBatchSize; end - maxBatchSize < texts.length; end += maxBatchSize) {
+          for (const listener of listeners) {
+            listener({
+              id,
+              phase: 'embedding',
+              progress: Math.min(end, texts.length) / texts.length,
+              type: 'progress',
+            });
+          }
+        }
+        const result = createQueueResult(id, [0.4, 0.6]);
+        return {
+          ...result,
+          metadata: { ...result.metadata, batchSize: maxBatchSize, device, dtype, model },
+          vectors: texts.map(() => Float32Array.from([0.4, 0.6])),
+        };
+      });
+      const { DEFAULT_WORKER_SLICE_SIZE, TransformersBackend } = await import(
+        '../transformers-backend.js'
+      );
+      const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+        '../runtime-config.js'
+      );
+      registerEmbeddingQueueFactory(() => queue);
+      const backend = new TransformersBackend();
+      try {
+        backend.setTargetDimensions(2);
+        await backend.initialize({ device, dtype, modelId: model, quantized: false });
+        const onProgress = vi.fn();
+        await expect(
+          backend.generateEmbeddings(texts, model, { onProgress })
+        ).resolves.toHaveLength(texts.length);
+        const sliceSize = DEFAULT_WORKER_SLICE_SIZE[device];
+        const call = add.mock.calls[0]![0] as QueueAddCall;
+        expect(call.maxBatchSize).toBe(sliceSize);
+        expect(onProgress.mock.calls.map(([completed]) => completed)).toEqual(
+          Array.from({ length: Math.ceil(texts.length / sliceSize) }, (_, slice) =>
+            Math.min(texts.length, (slice + 1) * sliceSize)
+          )
+        );
+        expect(onProgress.mock.calls.length).toBeGreaterThan(1);
+      } finally {
+        await backend.dispose();
+        resetEmbeddingQueueFactory();
+      }
+    }
+  );
+
   it('uses configured stream batch size as the worker max batch size', async () => {
     vi.stubGlobal('window', {});
     vi.stubGlobal('navigator', { gpu: {} });

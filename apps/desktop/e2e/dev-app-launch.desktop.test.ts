@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { createServer } from 'vite';
+import { createLogger, createServer } from 'vite';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { launchElectronAppWithOptions } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
@@ -27,8 +27,23 @@ test('dev renderer sends Luna cache usage and reloads without losing the thread'
     },
   });
   let joined = false;
+  // A hosted runner starts with no optimized-dependency cache. On its 2 vCPUs the optimizer
+  // committed before its crawl reached every import, and each dependency it met later
+  // re-optimized and reloaded the renderer mid-launch (BST-2091). This server optimizes
+  // cold and commits the scan's result at once, as that runner did, recording each late one.
+  const lateOptimizations: string[] = [];
+  const logger = createLogger();
+  const logInfo = logger.info;
+  logger.info = (message, options) => {
+    if (/optimized dependencies changed|dependenc(?:y|ies) optimized:/u.test(message)) {
+      lateOptimizations.push(message);
+    }
+    logInfo(message, options);
+  };
   const server = await createServer({
     configFile: path.resolve('vite.config.mts'),
+    customLogger: logger,
+    optimizeDeps: { force: true, holdUntilCrawlEnd: false },
     server: { host: '127.0.0.1', port: 0 },
   });
   try {
@@ -73,6 +88,7 @@ test('dev renderer sends Luna cache usage and reloads without losing the thread'
       expect(provider.refusals()).toEqual([]);
       await expect(context.window.getByTestId('new-agent-button')).toBeVisible();
       expect(errors).toEqual([]);
+      expect(lateOptimizations).toEqual([]);
     } finally {
       await context.app.close();
       joined = true;
