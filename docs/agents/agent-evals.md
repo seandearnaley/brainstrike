@@ -101,8 +101,15 @@ checks pass does it write `tasks/<id>/cassette.json` and set `cassette` and
 the recorder forwards to a loopback stand-in that replays a committed cassette,
 and the test holds no real key.
 
+## Nightly
+
+`.github/workflows/agent-evals.yml` runs every night on main (08:13 UTC) and on
+`workflow_dispatch`: replay mode for tasks with a cassette, then scripted mode
+for every task. It uploads the results JSONL as the `agent-evals-results`
+artifact, and a red scheduled run files a `nightly-alert` issue in Linear.
+
 ## Not yet
 
-- The nightly workflow (BST-2069 step 10) waits on BST-2066.
-- The standalone host has no shell tool, so no task runs a command. A separate
-  ticket covers that capability.
+- The standalone host has no shell tool, so no task runs a command (BST-2073).
+- Only `parallel-read` has a cassette; the owner records the rest with
+  `record`.
