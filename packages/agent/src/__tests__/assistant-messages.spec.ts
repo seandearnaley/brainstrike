@@ -13,6 +13,7 @@ import {
   MAX_ASSISTANT_MESSAGE_STRING_CHARS,
   MAX_ASSISTANT_MESSAGES,
 } from '../assistant-message-boundary';
+import type { AssistantUiNodeObject } from '../types';
 
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAA=';
 
@@ -407,7 +408,7 @@ describe('convertAssistantUiMessages', () => {
   });
 
   it('rejects deeply nested message graphs before recursive normalization', () => {
-    let nested: Record<string, unknown> = { text: 'hello' };
+    let nested: AssistantUiNodeObject = { text: 'hello' };
     for (let depth = 0; depth < 3000; depth += 1) {
       nested = { content: nested };
     }

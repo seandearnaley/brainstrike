@@ -1,7 +1,7 @@
 import type { TokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
-import { createTool } from '@mastra/core/tools';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import type { HostToolDefinition } from '../host-tool-definition';
 import { createProviderNativeWebSearchTool } from '../providers/native-web-search';
 import { resolveScaledToolResultBudget } from '../stream/tool-output-limits';
 import {
@@ -97,12 +97,12 @@ describe('prepared token measurement', () => {
 describe('run token diagnostics', () => {
   it('records bounded counts without retaining tool schemas or projected content', async () => {
     const secret = 'sk-test-never-log-this';
-    const tool = createTool({
+    const tool = {
       description: `Look up ${secret}`,
       execute: async () => ({ secret }),
       id: 'lookup',
       inputSchema: z.object({ query: z.string().describe(secret) }),
-    });
+    } satisfies HostToolDefinition;
     const diagnostics = await createRunTokenDiagnostics({
       capability: EXACT_O200K,
       tools: { lookup: tool },
@@ -124,8 +124,8 @@ describe('run token diagnostics', () => {
       tokenizer: 'o200k_base',
       toolDefinitionCount: 1,
     });
-    expect(fields.toolDefinitionTokens).toBeGreaterThan(0);
-    expect(fields.modelVisibleProjectionTokens).toBeGreaterThan(0);
+    expect(fields['toolDefinitionTokens']).toBeGreaterThan(0);
+    expect(fields['modelVisibleProjectionTokens']).toBeGreaterThan(0);
     expect(JSON.stringify(fields)).not.toContain(secret);
   });
 
@@ -143,18 +143,18 @@ describe('run token diagnostics', () => {
   });
 
   it('adds newly loaded tool definitions with the same aggregate measurement shape', async () => {
-    const initialTool = createTool({
+    const initialTool = {
       description: 'Initially visible tool.',
       execute: async () => ({}),
       id: 'initial_tool',
       inputSchema: z.object({ query: z.string() }),
-    });
-    const deferredTool = createTool({
+    } satisfies HostToolDefinition;
+    const deferredTool = {
       description: 'Deferred workspace tool with a distinct schema.',
       execute: async () => ({}),
       id: 'deferred_tool',
       inputSchema: z.object({ path: z.string(), startLine: z.number().optional() }),
-    });
+    } satisfies HostToolDefinition;
     const diagnostics = await createRunTokenDiagnostics({
       capability: EXACT_O200K,
       tools: { initial_tool: initialTool },
@@ -165,14 +165,14 @@ describe('run token diagnostics', () => {
     diagnostics.recordAdditionalToolDefinitions({});
     const after = diagnostics.toLogFields();
 
-    expect(after.toolDefinitionCount).toBe(2);
-    expect(after.toolDefinitionBackstopTokens).toBeGreaterThan(
-      Number(before.toolDefinitionBackstopTokens)
+    expect(after['toolDefinitionCount']).toBe(2);
+    expect(after['toolDefinitionBackstopTokens']).toBeGreaterThan(
+      Number(before['toolDefinitionBackstopTokens'])
     );
-    expect(after.toolDefinitionSerializedCharacters).toBeGreaterThan(
-      Number(before.toolDefinitionSerializedCharacters)
+    expect(after['toolDefinitionSerializedCharacters']).toBeGreaterThan(
+      Number(before['toolDefinitionSerializedCharacters'])
     );
-    expect(after.toolDefinitionTokens).toBeGreaterThan(Number(before.toolDefinitionTokens));
+    expect(after['toolDefinitionTokens']).toBeGreaterThan(Number(before['toolDefinitionTokens']));
     expect(diagnostics.toolDefinitionContextBreakdown()?.byTool).toHaveLength(1);
   });
 
@@ -269,8 +269,8 @@ describe('run token diagnostics', () => {
     });
 
     const fieldsAfterSubagentOnly = diagnostics.toLogFields();
-    expect(fieldsAfterSubagentOnly.modelVisibleProjectionCount).toBe(0);
-    expect(fieldsAfterSubagentOnly.modelVisibleProjectionTokens).toBe(0);
+    expect(fieldsAfterSubagentOnly['modelVisibleProjectionCount']).toBe(0);
+    expect(fieldsAfterSubagentOnly['modelVisibleProjectionTokens']).toBe(0);
 
     // A subsequent PRIMARY tool call still accumulates into the projection
     // aggregate as before — the split is additive, not a regression of the
@@ -288,8 +288,8 @@ describe('run token diagnostics', () => {
     ]);
 
     const fieldsAfterBoth = diagnostics.toLogFields();
-    expect(fieldsAfterBoth.modelVisibleProjectionCount).toBe(1);
-    expect(fieldsAfterBoth.modelVisibleProjectionTokens).toBeGreaterThan(0);
+    expect(fieldsAfterBoth['modelVisibleProjectionCount']).toBe(1);
+    expect(fieldsAfterBoth['modelVisibleProjectionTokens']).toBeGreaterThan(0);
   });
 
   it.each(['anthropic', 'openai'])(
@@ -308,7 +308,7 @@ describe('run token diagnostics', () => {
         measurementStatus: 'measured',
         toolDefinitionCount: 1,
       });
-      expect(fields.toolDefinitionTokens).toBeGreaterThan(0);
+      expect(fields['toolDefinitionTokens']).toBeGreaterThan(0);
     }
   );
 
@@ -412,9 +412,9 @@ describe('run token diagnostics', () => {
     // ...but the pre-existing, already-shipped token measurement still ran
     // (best-effort telemetry failure must not degrade it — review fix).
     const fields = diagnostics.toLogFields();
-    expect(fields.measurementStatus).toBe('measured');
-    expect(fields.modelVisibleProjectionCount).toBe(1);
-    expect(fields.modelVisibleProjectionTokens).toBeGreaterThan(0);
+    expect(fields['measurementStatus']).toBe('measured');
+    expect(fields['modelVisibleProjectionCount']).toBe(1);
+    expect(fields['modelVisibleProjectionTokens']).toBeGreaterThan(0);
   });
 
   it('keeps deterministic backstop totals when the optional counter fails', async () => {
@@ -447,13 +447,13 @@ describe('run token diagnostics', () => {
   });
 
   it('exposes a per-tool definition breakdown for the context popover (BST-940)', async () => {
-    const small = createTool({
+    const small = {
       description: 'Tiny helper.',
       execute: async () => ({}),
       id: 'small_tool',
       inputSchema: z.object({ a: z.string() }),
-    });
-    const big = createTool({
+    } satisfies HostToolDefinition;
+    const big = {
       description: `Large tool. ${'schema detail '.repeat(50)}`,
       execute: async () => ({}),
       id: 'big_tool',
@@ -462,7 +462,7 @@ describe('run token diagnostics', () => {
         beta: z.number().describe('second field with a long description'),
         gamma: z.boolean().describe('third field with a long description'),
       }),
-    });
+    } satisfies HostToolDefinition;
     const diagnostics = await createRunTokenDiagnostics({
       capability: EXACT_O200K,
       tools: { big_tool: big, small_tool: small },
@@ -484,12 +484,12 @@ describe('run token diagnostics', () => {
   });
 
   it('reports the backstop provenance as heuristic in the per-tool breakdown', async () => {
-    const tool = createTool({
+    const tool = {
       description: 'Backstop-counted tool.',
       execute: async () => ({}),
       id: 'plain_tool',
       inputSchema: z.object({ q: z.string() }),
-    });
+    } satisfies HostToolDefinition;
     const diagnostics = await createRunTokenDiagnostics({
       capability: { charactersPerToken: 4, mode: 'deterministic-serialized-character-backstop' },
       tools: { plain_tool: tool },
@@ -500,12 +500,12 @@ describe('run token diagnostics', () => {
   });
 
   it('returns undefined from the per-tool breakdown when measurement failed (never zero-faked)', async () => {
-    const tool = createTool({
+    const tool = {
       description: 'Unmeasurable under a broken counter.',
       execute: async () => ({}),
       id: 'any_tool',
       inputSchema: z.object({}),
-    });
+    } satisfies HostToolDefinition;
     const diagnostics = await createRunTokenDiagnostics(
       { capability: EXACT_O200K, tools: { any_tool: tool } },
       {

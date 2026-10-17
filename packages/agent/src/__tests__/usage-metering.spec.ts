@@ -35,6 +35,7 @@ describe('readStreamPartUsage', () => {
     expect(
       readStreamPartUsage({
         payload: { output: { usage: { inputTokens: 900, outputTokens: 40 } } },
+        // @ts-expect-error External SDK payload deliberately contains present undefined counts.
         usage: { completionTokens: undefined, promptTokens: undefined },
       })
     ).toEqual({ inputTokens: 900, outputTokens: 40 });
