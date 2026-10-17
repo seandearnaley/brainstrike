@@ -303,6 +303,8 @@ export class StateEventStore {
   readonly messages: StateMessageVectors;
   readonly observations: StateObservationVectors;
   private readonly searchVectors: StateSearchVectors;
+  /** Where the last bounded catch-up over this exact thread list stopped. */
+  private resume: { readonly index: number; readonly key: string } | undefined;
 
   /** `truth` reads the state DB this store projects; its host owns the connection under it. */
   constructor(
@@ -369,8 +371,18 @@ export class StateEventStore {
   }
 
   private project(threads: readonly string[], maxEvents: number): boolean {
+    const ordered = [...new Set(threads)];
+    const key = JSON.stringify(ordered);
+    // A step over the same threads resumes at the one the last step stopped on, so
+    // a late thread's backlog costs a visit per step rather than a pass over every
+    // thread already current before it. A step reports current only after visiting
+    // every thread within itself, so a thread that gained events behind the resume
+    // point is still caught up (BST-2042).
+    const start = this.resume?.key === key ? this.resume.index : 0;
+    this.resume = undefined;
     let budget = maxEvents;
-    for (const threadId of new Set(threads)) {
+    const rotated = [...ordered.slice(start), ...ordered.slice(0, start)];
+    for (const [offset, threadId] of rotated.entries()) {
       const tail = this.truth.watermark(threadId);
       let next =
         decodeCount(
@@ -384,6 +396,7 @@ export class StateEventStore {
       }
       while (next <= tail) {
         if (budget <= 0) {
+          this.resume = { index: (start + offset) % ordered.length, key };
           return false;
         }
         const rows = [...this.truth.read(threadId, next, Math.min(tail, next + budget - 1))];
