@@ -437,9 +437,12 @@ test('sends human input to the active child and reloads its rich conversation', 
     await child.getByRole('button', { exact: true, name: 'Send to child' }).click();
     await expect(input).toHaveValue('');
     release.resolve();
-    // A user message renders as typed, one plain-text paragraph (#3736): the prompt
-    // shares it with the expanded `:file[context.txt]` directive, so match a substring.
+    // A user message renders as typed, one plain-text paragraph (#3736), except that
+    // the mentioned file shows as a chip naming it, never its directive (BST-2043).
+    const mention = child.getByTestId('user-message-file-mention');
     await expect(child.getByText('HUMAN_FOLLOWUP_1723')).toBeVisible();
+    await expect(mention).toHaveText('context.txt');
+    await expect(child.getByText(/:file\[context\.txt\]/u)).toHaveCount(0);
     await expect(child.getByText('CHILD_FOLLOWUP_RECEIVED', { exact: true })).toBeVisible();
     await expect(root.getByText('PARENT_FOLLOWUP_OUTCOME', { exact: true })).toBeVisible();
     expect(receivedInput).toBe(true);
@@ -462,6 +465,7 @@ test('sends human input to the active child and reloads its rich conversation', 
     await window.reload();
     await ensureAssistantShellVisible(window);
     await expect(child.getByText('HUMAN_FOLLOWUP_1723')).toBeVisible();
+    await expect(mention).toHaveText('context.txt');
     await expect(child.getByText('CHILD_FOLLOWUP_RECEIVED', { exact: true })).toBeVisible();
     expect(modelCalls()).toBe(completedRequests);
     // Evidence for what a reload asks the provider, beside the model calls it must not make.
