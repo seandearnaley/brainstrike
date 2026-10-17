@@ -70,7 +70,6 @@ export async function readNativeIndexSummary(page: Page): Promise<NativeIndexSum
     if (status.kind !== 'ready') {
       return { ...none, status: `${status.kind}: ${status.reason}` };
     }
-    const plan = status.queryPlan?.inferencePlan;
     const observation = await capability.coverageBatch([{ rootIds: status.authorizedRootIds }]);
     if (observation.kind === 'blocked') {
       throw new Error(`Native coverage is blocked: ${observation.reason}`);
@@ -78,22 +77,32 @@ export async function readNativeIndexSummary(page: Page): Promise<NativeIndexSum
     if (observation.kind === 'invalidated') {
       return { ...none, status: 'invalidated' };
     }
+    // The plan, readiness and roots all come from the coverage's own fenced
+    // status; when its roots are not the ones requested, the counts answer
+    // another authority, so the caller reads again.
+    const fenced = observation.status;
+    const sameRoots = (left: readonly string[], right: readonly string[]): boolean =>
+      left.length === right.length && left.every((rootId) => right.includes(rootId));
+    if (!sameRoots(fenced.authorizedRootIds, status.authorizedRootIds)) {
+      return { ...none, status: 'invalidated' };
+    }
     const coverage = observation.coverage[0];
     if (!coverage) {
       throw new Error('Native coverage omitted the requested roots.');
     }
+    const plan = fenced.queryPlan?.inferencePlan;
     const { totals } = coverage;
-    const readiness = observation.status.rootReadiness;
+    const readiness = fenced.rootReadiness;
     return {
       actualDevice: plan?.device ?? null,
-      authorizedRootIds: observation.status.authorizedRootIds,
+      authorizedRootIds: fenced.authorizedRootIds,
       chunkCount: totals.chunks,
       chunkedFileCount: totals.indexedFiles,
       dtype: plan?.dtype ?? null,
       embeddedChunkCount: totals.vectors,
       fileCount: totals.indexedFiles,
       missingVectors: totals.missingVectors,
-      roots: observation.status.authorizedRootIds.map((rootId) => {
+      roots: fenced.authorizedRootIds.map((rootId) => {
         const counts = coverage.roots.find((root) => root.rootId === rootId);
         return {
           chunks: counts?.chunks ?? 0,
