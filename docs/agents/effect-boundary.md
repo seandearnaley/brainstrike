@@ -76,6 +76,11 @@ guarded by `scripts/__tests__/effect-boundary-contract.test.mjs`.
   settlement, preserve synchronous posting and first terminal outcome, and clean
   failed sends before replacement.
 - Renderer startup adopts `Effect.retry` and always finalizes readiness waits.
+- Native-index lifecycle workflows type expected settings, action and event
+  refusals until their existing Promise edges. Synchronous capability throws
+  remain defects; settings and cleanup failures stay independently visible.
+  The reducer, admission permit, immediate fence and physical-retirement owner
+  remain authoritative.
 
 Evidence (archived):
 [provider-auth-lifetimes](../archive/agent-contract-history/effect-boundary/provider-auth-lifetimes.md),
@@ -88,6 +93,11 @@ Evidence (archived):
 [python-resource-scopes](../archive/agent-contract-history/effect-boundary/python-resource-scopes.md),
 [file-tree-operation-scopes](../archive/agent-contract-history/effect-boundary/file-tree-operation-scopes.md),
 [renderer-startup](../archive/agent-contract-history/effect-boundary/renderer-startup.md).
+
+`withTimeout` composes the existing owned deadline before its Promise edge;
+`runWithTimeout` keeps the Promise/AbortSignal contract. Timing-policy tests
+provide `TestClock.layer()` before running Effects. They complement real timer,
+socket and process-exit checks rather than replacing physical cleanup evidence.
 
 ## Schema at the LLM tool boundary
 

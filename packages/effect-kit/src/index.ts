@@ -13,4 +13,4 @@ export {
   type ShutdownStepOutcome,
 } from './shutdown-sequence.js';
 export { makeThrowingDecoder } from './throwing-decoder.js';
-export { runWithTimeout, type TimeoutOptions } from './timeout.js';
+export { runWithTimeout, type TimeoutOptions, withTimeout } from './timeout.js';

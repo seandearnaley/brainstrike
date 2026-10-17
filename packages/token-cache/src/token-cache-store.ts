@@ -93,6 +93,31 @@ function isTransientTransactionError(error: unknown): boolean {
   return TRANSIENT_TRANSACTION_MESSAGE_PATTERNS.some((pattern) => message.includes(pattern));
 }
 
+/** The store's bounded policy; Effect clock services are provided before its Promise edge. */
+export function tokenCacheTransactionRetrySchedule(options: {
+  readonly baseDelayMs: number;
+  readonly maxAttempts: number;
+}): Schedule.Schedule<Duration.Duration, { readonly original: unknown }> {
+  const exponential: Schedule.Schedule<Duration.Duration, { readonly original: unknown }> =
+    Schedule.exponential(options.baseDelayMs);
+  return exponential.pipe(
+    Schedule.upTo({ times: options.maxAttempts - 1 }),
+    Schedule.while(({ input }) => isTransientTransactionError(input.original)),
+    Schedule.tap(({ attempt, duration, input }) =>
+      Effect.sync(() => {
+        const retryDelayMs = Duration.toMillis(duration);
+        logger.warn('Retrying token cache batch transaction after transient failure', {
+          attempt,
+          code: getErrorCode(input.original),
+          delayMs: retryDelayMs,
+          maxAttempts: options.maxAttempts,
+          reason: getErrorMessage(input.original),
+        });
+      })
+    )
+  );
+}
+
 /**
  * Convert database row to TokenCacheEntry
  */
@@ -387,24 +412,10 @@ export class TokenCacheStore {
   private async runBatchTransactionWithRetry(
     entries: readonly ValidatedTokenCacheEntry[]
   ): Promise<void> {
-    const exponential: Schedule.Schedule<Duration.Duration, { readonly original: unknown }> =
-      Schedule.exponential(this.transactionRetryBaseDelayMs);
-    const retrySchedule = exponential.pipe(
-      Schedule.upTo({ times: this.transactionRetryMaxAttempts - 1 }),
-      Schedule.while(({ input }) => isTransientTransactionError(input.original)),
-      Schedule.tap(({ attempt, duration, input }) =>
-        Effect.sync(() => {
-          const retryDelayMs = Duration.toMillis(duration);
-          logger.warn('Retrying token cache batch transaction after transient failure', {
-            attempt,
-            code: getErrorCode(input.original),
-            delayMs: retryDelayMs,
-            maxAttempts: this.transactionRetryMaxAttempts,
-            reason: getErrorMessage(input.original),
-          });
-        })
-      )
-    );
+    const retrySchedule = tokenCacheTransactionRetrySchedule({
+      baseDelayMs: this.transactionRetryBaseDelayMs,
+      maxAttempts: this.transactionRetryMaxAttempts,
+    });
     await runAtPromiseBoundary(
       Effect.retry(
         Effect.tryPromise({
