@@ -62,7 +62,7 @@ test.afterAll(() => {
   rmSync(rootDir, { force: true, recursive: true });
 });
 
-test('semantic search renders results for a folder after its native build', async ({
+test('@desktop-embedding-native-backfill semantic search renders results for a folder after its native build', async ({
   window: page,
 }) => {
   test.setTimeout(8 * 60 * 1000);
