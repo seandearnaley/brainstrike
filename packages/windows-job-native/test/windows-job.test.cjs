@@ -435,7 +435,19 @@ ${drainCommands}
   assert.equal(ready.count, 2);
   const observer = await fixture.observe(ready.pids);
   guard.child.send({ exitCode: 91 });
-  const { count, message, outcome } = await guard.wait('settled');
+  let settled;
+  try {
+    settled = await guard.wait('settled');
+  } catch (error) {
+    // An unsettled drain is a product hang, not a slow runner. Record whether
+    // the pinned orphan was terminated so the failure names the stuck step.
+    observer.child.stdin.write('check\n');
+    const { codes, waits } = await observer.wait('check');
+    throw new Error(`${error.message} Orphan: ${JSON.stringify({ codes, waits })}`, {
+      cause: error,
+    });
+  }
+  const { count, message, outcome } = settled;
   assert.deepEqual(
     { count, message, outcome },
     { count: 1, message: undefined, outcome: 'drained' }
