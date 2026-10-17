@@ -333,7 +333,15 @@ export class WebHostClient implements Pick<HostClient, 'closed' | 'onEvent' | 'o
 
   async #serve(method: ServedMethod, params: HostParams<ServedMethod>): Promise<unknown> {
     switch (method) {
-      case 'thread/list':
+      case 'thread/list': {
+        // Deletion is not announced to other tabs: the writer's own threads
+        // decide, and one another tab deleted is forgotten here before listing.
+        const stored = new Set((await this.#store.threads()).threads);
+        for (const threadId of [...this.#threads]) {
+          if (!stored.has(threadId)) {
+            this.#forget(threadId);
+          }
+        }
         return {
           threads: this.#catalog.list([...this.#threads], {
             binding: () => ({ binding: null }),
@@ -341,6 +349,7 @@ export class WebHostClient implements Pick<HostClient, 'closed' | 'onEvent' | 'o
             presentation: (threadId) => this.#presentations.read(threadId),
           }),
         };
+      }
       case 'thread/start': {
         const started = params as HostParams<'thread/start'>;
         return this.#commands.perform('thread/start', started, async () => {

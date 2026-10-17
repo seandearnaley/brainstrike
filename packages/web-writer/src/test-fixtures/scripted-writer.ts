@@ -86,6 +86,7 @@ export function scriptedWriter(): ScriptedWriter {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    threads: async () => ({ threads: [...logs.keys()] }),
   } as unknown as WebStateStore;
   return {
     append: async (rows) => {

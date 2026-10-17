@@ -105,6 +105,19 @@ describe("the web shell's thread host (BST-1940)", () => {
     expect(await threads.deleteThread(started.id)).toBeUndefined();
   });
 
+  it('lists no thread another tab deleted, and owns none, though deletion is never announced', async () => {
+    const { threads, writer } = await host();
+    const other = await WebHostClient.open(writer.store);
+    clients.push(other);
+    const { id } = await threads.createThread(WORKSPACE_MEMORY_RESOURCE_ID);
+    await expect.poll(async () => (await other.request('thread/list', {})).threads.length).toBe(1);
+
+    await createWebThreadHost({ client: other, readModelId: () => 'openai' }).deleteThread(id);
+
+    expect(await threads.listThreads(WORKSPACE_MEMORY_RESOURCE_ID)).toEqual([]);
+    expect(await threads.ownsThread(id)).toBe(false);
+  });
+
   it("keeps each thread's workspace snapshot through the host, as desktop's does", async () => {
     const { threads } = await host();
     const { id } = await threads.createThread(WORKSPACE_MEMORY_RESOURCE_ID);
