@@ -742,7 +742,12 @@ describe('desktop native tool provider prompt budget', () => {
       // drift, not this change). The band is deliberately NOT raised:
       // `docs/agents/assistant-providers.md` (2026-09-04) keeps the ceilings
       // pending BST-1633 and raises only when the ceiling fires, after a trim.
-      manageCanvasDefinitionTokens: 290,
+      //
+      // 290 → 291 (BST-2056) is #3761's, not a text change: once the canvas
+      // input became Effect-authored, each field's `description` serializes
+      // after its constraints instead of before them. The keywords and prose
+      // are identical (diffed against 8dddbf7d1).
+      manageCanvasDefinitionTokens: 291,
       // 278 → 282 and 359 → 365 are PR #3666's, not this change's: those two
       // tools became Effect-authored there and the serialized document grew
       // (measured by reverting only this PR's schema files — the two figures
