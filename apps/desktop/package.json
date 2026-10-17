@@ -267,7 +267,7 @@
     "test:e2e:mcp-packaged": "pnpm --filter @brainstrike/mcp-test-lab build && pnpm run pack && pnpm run test:e2e:lane:packaged-mcp-core",
     "test:e2e:persistence": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test --grep=\"Database Persistence\" --workers=1",
     "test:e2e:ui": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test --ui",
-    "type-check": "pnpm type-check:main && pnpm type-check:test && pnpm type-check:e2e && effect-tsgo diagnostics --project tsconfig.test.json --strict",
+    "type-check": "pnpm type-check:main && pnpm type-check:test && pnpm type-check:e2e && effect-tsgo diagnostics --project tsconfig.test.json --strict && effect-tsgo diagnostics --project tsconfig.e2e.json --strict",
     "type-check:e2e": "tsc --noEmit --project tsconfig.e2e.json",
     "type-check:main": "tsc --noEmit && tsc --noEmit --project tsconfig.main.json",
     "type-check:test": "node ../../scripts/verify-test-tsconfig-program.mjs --project tsconfig.test.json --min-test-files 400"
