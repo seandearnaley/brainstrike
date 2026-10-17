@@ -151,24 +151,62 @@ describe('usePGliteLiveQuery rowsMatchQuery (BST-1792)', () => {
     });
   });
 
-  it('is false while disabled and after a subscription error', async () => {
-    mockQuery
-      .mockReturnValueOnce(liveHandle([{ count: 3 }]))
-      .mockRejectedValueOnce(new Error('subscribe failed'));
+  // Nothing observes changes while the query is disabled, so the rows it kept
+  // do not answer the re-enabled query until a new subscription delivers.
+  it('is false while disabled and after re-enabling, until the new subscription delivers', async () => {
+    let deliverSecond: (handle: ReturnType<typeof liveHandle>) => void = () => undefined;
+    mockQuery.mockReturnValueOnce(liveHandle([{ count: 3 }])).mockReturnValueOnce(
+      new Promise((resolve) => {
+        deliverSecond = resolve;
+      })
+    );
+    const renders: Array<{ readonly enabled: boolean; readonly matches: boolean }> = [];
     const { rerender, result } = renderHook(
-      ({ enabled, query }: { enabled: boolean; query: string }) =>
-        usePGliteLiveQuery({ enabled, query }),
-      { initialProps: { enabled: true, query: 'SELECT 1' } }
+      ({ enabled }: { enabled: boolean }) => {
+        const live = usePGliteLiveQuery({ enabled, query: 'SELECT 1' });
+        renders.push({ enabled, matches: live.rowsMatchQuery });
+        return live;
+      },
+      { initialProps: { enabled: true } }
     );
     await vi.waitFor(() => {
       expect(result.current.rowsMatchQuery).toBe(true);
     });
 
-    rerender({ enabled: false, query: 'SELECT 1' });
+    rerender({ enabled: false });
+    // Including the render before the disabling effect runs.
+    expect(renders.filter((render) => !render.enabled)).not.toContainEqual({
+      enabled: false,
+      matches: true,
+    });
+
+    rerender({ enabled: true });
+    await vi.waitFor(() => {
+      expect(mockQuery).toHaveBeenCalledTimes(2);
+    });
+    expect(result.current.rows).toEqual([{ count: 3 }]);
     expect(result.current.rowsMatchQuery).toBe(false);
 
-    // The same query again, so only the error can make the held rows stale.
-    rerender({ enabled: true, query: 'SELECT 1' });
+    await act(async () => {
+      deliverSecond(liveHandle([{ count: 4 }]));
+    });
+    await vi.waitFor(() => {
+      expect(result.current.rowsMatchQuery).toBe(true);
+    });
+  });
+
+  it('is false after a same-query re-subscribe fails', async () => {
+    mockQuery
+      .mockReturnValueOnce(liveHandle([{ count: 3 }]))
+      .mockRejectedValueOnce(new Error('subscribe failed'));
+    const { result } = renderHook(() => usePGliteLiveQuery({ query: 'SELECT 1' }));
+    await vi.waitFor(() => {
+      expect(result.current.rowsMatchQuery).toBe(true);
+    });
+
+    act(() => {
+      leaderChangeListener?.();
+    });
     await vi.waitFor(() => {
       expect(result.current.error?.message).toBe('subscribe failed');
     });

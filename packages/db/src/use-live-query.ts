@@ -561,8 +561,10 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     if (!enabled) {
       if (options.clearOnDisable) {
         setRawRows([]);
-        setRowsIdentity(null);
       }
+      // Nothing observes changes while disabled, so rows kept through it stop
+      // answering the query until a re-enabled subscription delivers again.
+      setRowsIdentity(null);
       setError(null);
       setLoading(false);
       refreshRef.current = noopAsync;
