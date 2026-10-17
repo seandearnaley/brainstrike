@@ -163,6 +163,49 @@ test('a skipped buffered chunk reports persisted false and is never stored', asy
   ).toEqual(['- A buffered fact.']);
 });
 
+test('a buffered chunk the cursor already covers is skipped; a later one persists', async () => {
+  const { adapter, record, store } = await fixture();
+  await adapter.updateActiveObservations({
+    id: record.id,
+    lastObservedAt: at,
+    observations: '- An observed fact.',
+    tokenCount: 4,
+  });
+  const chunk = (cycleId: string, offsetMs: number) => ({
+    chunk: {
+      cycleId,
+      lastObservedAt: new Date(at.getTime() + offsetMs),
+      messageIds: [committed.id],
+      messageTokens: 100,
+      observations: `- Buffered by ${cycleId}.`,
+      tokenCount: 4,
+    },
+    id: record.id,
+  });
+  const observed = store.state.snapshot;
+  // Core's rule: a chunk stores max message time + 1 ms, so cursor >= lastObservedAt - 1 ms
+  // means every message it holds is already observed.
+  for (const [cycleId, offsetMs] of [
+    ['at-cursor', 0],
+    ['within-tolerance', 1],
+  ] as const) {
+    expect(await adapter.appendBufferedObservations(chunk(cycleId, offsetMs))).toEqual({
+      persisted: false,
+      recordId: record.id,
+    });
+  }
+  expect(store.state.snapshot).toEqual(observed);
+  expect(await adapter.appendBufferedObservations(chunk('after-cursor', 2))).toEqual({
+    persisted: true,
+    recordId: record.id,
+  });
+  expect(
+    storedRecord(store.state.snapshot, record.id).bufferedObservationChunks?.map(
+      (c) => c.observations
+    )
+  ).toEqual(['- Buffered by after-cursor.']);
+});
+
 test('a conflicting observation commit takes the vendor retry against the head', async () => {
   const concurrent = '- Another writer committed this first.';
   let injected = false;
