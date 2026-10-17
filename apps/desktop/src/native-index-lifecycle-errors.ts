@@ -3,6 +3,19 @@ import { NativeAuthorityTransitionError as TransitionError } from './native-auth
 import type { NativeIndexState } from './native-index-lifecycle';
 
 export function nativeIndexStateError(state: NativeIndexState): Error {
+  if (state.kind === 'failed' && state.cause.blockedReason !== undefined) {
+    // A failure only Retry indexing recovers stays that typed refusal, even when retirement also
+    // failed; the full failure rides as its cause.
+    return new NativeIndexRefusalError(
+      {
+        blockedReason: state.cause.blockedReason,
+        kind: 'source-failure',
+        message: state.cause.message,
+      },
+      state.cause.message,
+      { cause: state.cause.error }
+    );
+  }
   if (state.kind === 'failed' || state.kind === 'unconfigured') {
     // An independent cleanup failure remains a failure of that exact operation.
     if (

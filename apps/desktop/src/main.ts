@@ -927,7 +927,11 @@ ipcDisposers.add(
       reconfigureRoots: () => nativeIndexActivation.reconfigureRoots(),
       reportError: reportNativeIndexActivationError,
       transition: (operation) => nativeRootDataDeletion.transition(operation),
-    })
+    }),
+    {
+      retryIndexing: () =>
+        nativeRootDataDeletion.transition(() => nativeIndexActivation.retryIndexing()),
+    }
   )
 );
 ipcDisposers.add('main', () => {

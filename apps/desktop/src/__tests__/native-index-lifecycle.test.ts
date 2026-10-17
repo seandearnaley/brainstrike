@@ -1,4 +1,6 @@
+import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
 import { describe, expect, it } from 'vitest';
+import { embeddingHostUnresponsiveError } from '../embedding-host-unresponsive';
 import {
   type NativeIndexEvent,
   type NativeIndexState,
@@ -6,6 +8,7 @@ import {
   nativeIndexReadiness,
   reduceNativeIndex,
 } from '../native-index-lifecycle';
+import { nativeIndexStateError } from '../native-index-lifecycle-errors';
 import { readNativeIndexSettings } from '../native-index-settings';
 
 // Recorded from Main's storage reads while the desktop app chose Text search,
@@ -319,6 +322,91 @@ describe('automatic re-open', () => {
     expect(nativeIndexObservation(failed)).toEqual({
       cause: { kind: 'source-failure', message: 'Initial native workspace scan was aborted.' },
       generation: 3,
+      kind: 'refused',
+    });
+  });
+});
+
+describe('an unresponsive embedding host (BST-2104)', () => {
+  const message =
+    'The embedding model stopped responding while it was loading. It sent no progress for 1 min (1 min after the batch started).';
+  const unresponsive = embeddingHostUnresponsiveError({
+    elapsedMs: 60_000,
+    lastProgress: { stage: 'setup' },
+    texts: 4,
+    windowMs: 60_000,
+  });
+  // Retirement also failed: the typed cause must still lead what readers see.
+  const error = new AggregateError(
+    [unresponsive, new Error('Embedding host stop timed out.')],
+    'Document embedding interruption required failed host retirement.'
+  );
+
+  it('blocks with its cause and Retry indexing as the remedy, for observers and readers alike', () => {
+    const next = reduceNativeIndex(ready, {
+      blockedReason: 'embedding-host-unresponsive',
+      error,
+      generation: 3,
+      kind: 'failure',
+      message,
+    });
+    expect(next).toEqual({
+      actions: [],
+      state: {
+        cause: {
+          blockedReason: 'embedding-host-unresponsive',
+          error,
+          kind: 'source-failure',
+          message,
+        },
+        generation: 3,
+        kind: 'failed',
+        settings: VECTOR,
+      },
+    });
+    const refusal = {
+      blockedReason: 'embedding-host-unresponsive',
+      kind: 'source-failure',
+      message,
+    };
+    expect(nativeIndexObservation(next.state)).toEqual({
+      cause: refusal,
+      generation: 3,
+      kind: 'refused',
+    });
+    const read = nativeIndexStateError(next.state);
+    expect(read).toBeInstanceOf(NativeIndexRefusalError);
+    expect((read as NativeIndexRefusalError).refusal).toEqual(refusal);
+    expect(read.message).toBe(message);
+    expect(read.cause).toBe(error);
+  });
+
+  it('Retry indexing re-opens the failed generation, and a second hang blocks it again the same way', () => {
+    const blocked = reduceNativeIndex(ready, {
+      blockedReason: 'embedding-host-unresponsive',
+      error,
+      generation: 3,
+      kind: 'failure',
+      message,
+    }).state;
+    const retried = reduceNativeIndex(blocked, { generation: 3, kind: 'reopen' });
+    expect(retried).toEqual({
+      actions: [openAction(4)],
+      state: { from: 3, generation: 4, kind: 'transitioning', settings: VECTOR },
+    });
+    const again = reduceNativeIndex(
+      reduceNativeIndex(retried.state, { generation: 4, kind: 'opened' }).state,
+      {
+        blockedReason: 'embedding-host-unresponsive',
+        error,
+        generation: 4,
+        kind: 'failure',
+        message,
+      }
+    );
+    expect(nativeIndexObservation(again.state)).toEqual({
+      cause: { blockedReason: 'embedding-host-unresponsive', kind: 'source-failure', message },
+      generation: 4,
       kind: 'refused',
     });
   });

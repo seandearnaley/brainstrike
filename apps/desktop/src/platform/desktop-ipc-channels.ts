@@ -174,6 +174,7 @@ export const DESKTOP_IPC_CHANNELS = {
     grep: 'index-search:grep',
     lifecycleChanged: 'index-search:lifecycle-changed',
     rebuild: 'index-search:rebuild',
+    retryIndexing: 'index-search:retry-indexing',
     rootsRegistered: 'index-search:roots-registered',
     search: 'index-search:search',
     status: 'index-search:status',

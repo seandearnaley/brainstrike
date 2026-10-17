@@ -1,4 +1,7 @@
-import type { NativeIndexLifecycleObservation } from '@brainstrike/indexing-contract/indexer-client';
+import type {
+  NativeIndexLifecycleObservation,
+  NativeIndexRefusalCause,
+} from '@brainstrike/indexing-contract/indexer-client';
 import {
   type NativeIndexSettings,
   nativeIndexConfigurationIdentity,
@@ -14,6 +17,14 @@ export type NativeIndexCloseReason =
   | 'root-data-deletion'
   | 'shutdown'
   | 'host-released';
+
+/**
+ * Why a source failure needs a person's explicit Retry indexing, which restarts the embedding host
+ * and re-opens the failed generation: the host stopped responding (BST-2104).
+ */
+export type NativeIndexBlockedReason = NonNullable<
+  Extract<NativeIndexRefusalCause, { readonly kind: 'source-failure' }>['blockedReason']
+>;
 
 /** An automatic re-open scheduled after a transient startup failure: which, of how many. */
 export interface NativeIndexReopen {
@@ -36,6 +47,7 @@ export type NativeIndexCause =
   | {
       readonly kind: 'source-failure';
       readonly message: string;
+      readonly blockedReason?: NativeIndexBlockedReason;
       readonly error?: unknown;
       readonly recovery?: 'sources';
       /** Set while an automatic re-open of these settings is scheduled. */
@@ -118,11 +130,15 @@ export type NativeIndexEvent =
       readonly kind: 'failure';
       readonly generation: number;
       readonly message: string;
+      readonly blockedReason?: NativeIndexBlockedReason;
       readonly error?: unknown;
       readonly recovery?: 'sources';
       readonly reopen?: NativeIndexReopen;
     }
-  /** Open the failed generation's own settings again: a scheduled automatic re-open. */
+  /**
+   * Open the failed generation's own settings again: a scheduled automatic re-open, or the
+   * person's Retry indexing after the embedding host was restarted.
+   */
   | { readonly kind: 'reopen'; readonly generation: number }
   /** Rebuild the derived index from the catalog. */
   | { readonly kind: 'rebuild' }
@@ -241,7 +257,14 @@ function rootsChanged(
 
 function failure(
   state: NativeIndexState,
-  { error, generation, message, recovery, reopen }: Extract<NativeIndexEvent, { kind: 'failure' }>
+  {
+    blockedReason,
+    error,
+    generation,
+    message,
+    recovery,
+    reopen,
+  }: Extract<NativeIndexEvent, { kind: 'failure' }>
 ): NativeIndexTransition {
   if (
     generation !== state.generation ||
@@ -259,6 +282,7 @@ function failure(
       cause: {
         kind: 'source-failure',
         message,
+        ...(blockedReason === undefined ? {} : { blockedReason }),
         ...(error === undefined ? {} : { error }),
         ...(recovery ? { recovery } : {}),
         ...(reopen ? { reopen } : {}),
@@ -521,7 +545,13 @@ export function nativeIndexObservation(state: NativeIndexState): NativeIndexLife
         ? { kind: cause.kind }
         : cause.kind === 'closed'
           ? { kind: cause.kind, reason: cause.reason }
-          : { kind: cause.kind, message: describeCause(cause) },
+          : cause.kind === 'source-failure' && cause.blockedReason !== undefined
+            ? {
+                blockedReason: cause.blockedReason,
+                kind: cause.kind,
+                message: describeCause(cause),
+              }
+            : { kind: cause.kind, message: describeCause(cause) },
     generation: state.generation,
     kind: readiness.kind,
   };

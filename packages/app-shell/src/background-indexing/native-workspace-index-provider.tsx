@@ -5,6 +5,7 @@ import {
 } from '@brainstrike/app-state/stores/indexing-activity-store';
 import {
   useWorkspaceCollectionSyncStatusStore,
+  type WorkspaceCollectionSyncBlockedReason,
   type WorkspaceCollectionSyncStatusPatch,
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import {
@@ -17,6 +18,7 @@ import type {
   IndexerCoverage,
   IndexerStatus,
   IndexSearchCapability,
+  NativeIndexRefusalCause,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { type ReactNode, useEffect, useRef } from 'react';
 import { RootIdentityProvider } from '../roots/root-identity-context';
@@ -72,7 +74,12 @@ async function readNativeProgress(
     },
   ]);
   if (observation.kind === 'blocked') {
-    return { kind: 'unavailable', phase: 'blocked', reason: observation.reason };
+    return {
+      ...(observation.cause ? { cause: observation.cause } : {}),
+      kind: 'unavailable',
+      phase: 'blocked',
+      reason: observation.reason,
+    };
   }
   if (observation.kind === 'invalidated') {
     return { identity: progressIdentity(status, collectionId), kind: 'invalidated' };
@@ -122,6 +129,7 @@ function resetNativeProgress(collectionId: string | null): void {
     .setManagedCollectionStats({ collectionId, error: null, stats: null, status: 'loading' });
   useWorkspaceCollectionSyncStatusStore.getState().setStatus({
     activeRootPath: null,
+    blockedReason: null,
     currentFilePath: null,
     lastError: null,
     managedCollectionId: collectionId,
@@ -147,10 +155,20 @@ function publishUnavailableProgress(
     return;
   }
   useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+    blockedReason: progress.phase === 'blocked' ? syncBlockedReason(progress.cause) : null,
     lastError: progress.reason,
     managedCollectionId: collectionId,
     state: progress.phase === 'blocked' ? 'blocked' : 'unconfigured',
   });
+}
+
+/** The remedy the native owner named for a blocked index, as the sync store spells it. */
+function syncBlockedReason(
+  cause: NativeIndexRefusalCause | undefined
+): WorkspaceCollectionSyncBlockedReason | null {
+  return cause?.kind === 'source-failure' && cause.blockedReason !== undefined
+    ? cause.blockedReason
+    : null;
 }
 
 interface RetainedProgress {
@@ -300,6 +318,7 @@ export function NativeWorkspaceIndexProvider({
     const setupMessage = getNativeSetupMessage(mode, collectionId);
     if (!enabled || paused || mode === null || setupMessage !== null) {
       publish({
+        blockedReason: null,
         lastError: enabled && !paused ? setupMessage : null,
         managedCollectionId: collectionId,
         state: enabled ? (paused ? 'paused' : 'unconfigured') : 'disabled',
@@ -330,6 +349,7 @@ export function NativeWorkspaceIndexProvider({
       } catch (error) {
         if (!disposed) {
           publish({
+            blockedReason: null,
             lastError: nativeProgressError(error),
             state: 'error',
           });

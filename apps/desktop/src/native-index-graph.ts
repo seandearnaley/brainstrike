@@ -92,7 +92,7 @@ export async function loadNativeGraphRecords(
 export interface NativeIndexActivationDependencies {
   readonly application: ApplicationIpcDomain;
   readonly catalog: SourceCatalogPort & WorkspaceRootPort & CollectionPort;
-  readonly embedding: Pick<EmbeddingHostManager, 'documentEmbeddings'>;
+  readonly embedding: Pick<EmbeddingHostManager, 'destroyAndRestart' | 'documentEmbeddings'>;
   readonly modelCatalog: Pick<ModelCatalogCapability, 'read'>;
   readonly onError: (operation: string, error: unknown) => void;
   readonly onReceipt?: (receipt: CanonicalScanReceipt) => void;

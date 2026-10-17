@@ -113,7 +113,7 @@ function startup(syncs: readonly Sync[]) {
   const observed: NativeIndexLifecycleObservation[] = [];
   const activation = createActivation({
     application,
-    embedding: { documentEmbeddings: vi.fn(unused) },
+    embedding: { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) },
     onError: vi.fn(),
     reopenDelaysMs: [0, 0, 0],
     storage: {

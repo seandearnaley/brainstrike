@@ -52,9 +52,15 @@ export interface IndexerPublicationProgress {
 export type NativeIndexRefusalCause =
   | { readonly kind: 'transitioning' }
   | { readonly kind: 'closed'; readonly reason: string }
+  | { readonly kind: 'setup-required' | 'settings-invalid'; readonly message: string }
   | {
-      readonly kind: 'setup-required' | 'settings-invalid' | 'source-failure';
+      readonly kind: 'source-failure';
       readonly message: string;
+      /**
+       * Set when only a person's Retry indexing recovers the failure: the embedding host stopped
+       * responding, and retrying restarts it (BST-2104). Never retried automatically.
+       */
+      readonly blockedReason?: 'embedding-host-unresponsive';
     };
 
 /** Only the lifecycle/resource owner can refuse admission with this typed cause. */
@@ -293,6 +299,15 @@ export type IndexerCoverageBatch =
 /** Desktop notification after canonical roots commit; Main alone resolves grants and IDs. */
 export interface IndexRootRegistrationCapability {
   rootsRegistered(): Promise<void>;
+}
+
+/**
+ * The remedy for a source failure whose `blockedReason` is `embedding-host-unresponsive`:
+ * restarts the embedding host through its owner, then re-opens the failed generation so its
+ * pending indexing work is admitted again. Refuses any other state; never runs automatically.
+ */
+export interface IndexRetryCapability {
+  retryIndexing(): Promise<void>;
 }
 
 export interface IndexSearchCapability {

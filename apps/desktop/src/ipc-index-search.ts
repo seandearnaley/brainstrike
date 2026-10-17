@@ -1,5 +1,6 @@
 import type {
   IndexChunkBoundsCapability,
+  IndexRetryCapability,
   IndexRootRegistrationCapability,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
@@ -14,7 +15,8 @@ import {
 /** Root composes the authoritative runtime, complete-scan receipts and separate read-only grep host. */
 export function registerIndexSearchIpcHandlers(
   capability: IndexSearchCapability & IndexChunkBoundsCapability,
-  registration: IndexRootRegistrationCapability
+  registration: IndexRootRegistrationCapability,
+  retry: IndexRetryCapability
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
   const failure = { category: 'native-index', code: 'native-index-failed' };
@@ -24,6 +26,7 @@ export function registerIndexSearchIpcHandlers(
     fileChunks: (request) => settleIpcResult(failure, () => capability.fileChunks(request)),
     grep: (request) => settleIpcResult(failure, () => capability.grep(request)),
     rebuild: () => settleIpcResult(failure, () => capability.rebuild()),
+    retryIndexing: () => settleIpcResult(failure, () => retry.retryIndexing()),
     rootsRegistered: () => settleIpcResult(failure, () => registration.rootsRegistered()),
     search: (request) => settleIpcResult(failure, () => capability.search(request)),
     status: () => settleIpcResult(failure, () => capability.status()),

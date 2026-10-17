@@ -144,7 +144,7 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
     roots: { restoreRoots: async () => [] },
     watches: {},
   } as unknown as ApplicationIpcDomain;
-  const transport = { documentEmbeddings: vi.fn(unused) };
+  const transport = { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) };
   const onReceipt = vi.fn();
   const activation = createNativeIndexActivation({
     application: applicationOverride ?? application,
@@ -312,11 +312,19 @@ it('keeps the real persisted TEXT write and IPC status connected through seriali
     rebuild: f.activation.rebuild,
     withRead: f.activation.withRead,
   });
-  const unregisterSearch = registerIndexSearchIpcHandlers(capability, {
-    rootsRegistered: async () => {
-      throw new Error('Unexpected root registration in read-only test');
+  const unregisterSearch = registerIndexSearchIpcHandlers(
+    capability,
+    {
+      rootsRegistered: async () => {
+        throw new Error('Unexpected root registration in read-only test');
+      },
     },
-  });
+    {
+      retryIndexing: async () => {
+        throw new Error('Unexpected Retry indexing in read-only test');
+      },
+    }
+  );
   const senderId = 9498;
   assignWindowRole(
     { isDestroyed: () => false, once: vi.fn(), webContents: { id: senderId } } as never,

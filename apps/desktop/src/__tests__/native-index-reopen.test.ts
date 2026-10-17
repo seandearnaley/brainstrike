@@ -2,6 +2,7 @@
 
 import { BoundaryFailureError, fault, refusal } from '@brainstrike/assistant-contract';
 import { expect, it, vi } from 'vitest';
+import { embeddingHostUnresponsiveError } from '../embedding-host-unresponsive';
 import type { NativeIndexEvent } from '../native-index-lifecycle';
 import { createNativeIndexFailures } from '../native-index-reopen';
 
@@ -78,4 +79,34 @@ it('never re-opens a failure after startup, a refusal, or one not typed as trans
   );
   await vi.waitFor(() => expect(events).toHaveLength(4));
   expect(events.every((event) => event.kind === 'failure' && !event.reopen)).toBe(true);
+});
+
+it('records an unresponsive embedding host once, typed for Retry indexing and never re-opened (BST-2104)', async () => {
+  const { events, failures } = recorder();
+  const unresponsive = embeddingHostUnresponsiveError({
+    elapsedMs: 60_000,
+    lastProgress: { stage: 'setup' },
+    texts: 4,
+    windowMs: 60_000,
+  });
+  // Retirement and ingestion wrap it on the way here; its plain cause still leads.
+  failures.record(
+    1,
+    new AggregateError(
+      [unresponsive, new Error('Embedding host stop timed out.')],
+      'Document embedding interruption required failed host retirement.'
+    ),
+    true
+  );
+  failures.record(2, new Error('Workspace walk failed.'), true);
+  await vi.waitFor(() => expect(events).toHaveLength(2));
+  expect(events[0]).toMatchObject({
+    blockedReason: 'embedding-host-unresponsive',
+    generation: 1,
+    kind: 'failure',
+    message: unresponsive.message,
+  });
+  expect(events[0]).not.toHaveProperty('reopen');
+  expect(events[1]).not.toHaveProperty('blockedReason');
+  expect(events[1]).toMatchObject({ message: 'Workspace walk failed.' });
 });

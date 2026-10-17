@@ -673,6 +673,22 @@ describe('SearchIndexingSettingsSection', () => {
     expect(screen.getByText('OpenAI API key not configured.')).not.toBeNull();
   });
 
+  it('names an unresponsive embedding model as the blocked state, with its cause (BST-2104)', async () => {
+    const cause =
+      'The embedding model stopped responding while it was loading. It sent no progress for 1 min (1 min after the batch started).';
+    useWorkspaceCollectionSyncStatusStore.setState({
+      blockedReason: 'embedding-host-unresponsive',
+      lastError: cause,
+      managedCollectionName: 'Workspace Index',
+      state: 'blocked',
+    });
+
+    render(<SearchIndexingSettingsSection />);
+
+    expect(await screen.findByText('Embedding model stopped')).not.toBeNull();
+    expect(screen.getByText(cause)).not.toBeNull();
+  });
+
   it('shows "No root selected" (not Blocked) when unconfigured (BST-1335)', async () => {
     useWorkspaceCollectionSyncStatusStore.setState({
       activeRootPath: null,

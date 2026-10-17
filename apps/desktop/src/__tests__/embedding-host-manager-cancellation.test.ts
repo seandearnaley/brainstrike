@@ -33,6 +33,7 @@ vi.mock('../renderer-host-lifecycle', () => ({
   }),
 }));
 
+import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import { EmbeddingHostManager } from '../embedding-host-manager';
 import {
   createEmbeddingHostDocumentCancellationError,
@@ -43,6 +44,7 @@ import {
   type EmbeddingHostDocumentEmbeddingsRequest,
   type EmbeddingHostQueryEmbeddingRequest,
 } from '../embedding-host-shared';
+import { EMBEDDING_HOST_UNRESPONSIVE_CODE } from '../embedding-host-unresponsive';
 
 const QUERY = {
   dimensions: 2,
@@ -317,8 +319,52 @@ describe('document batch manager cancellation', () => {
       // The timeout leads; this fixture's host cannot acknowledge the Stop that retires it.
       const error = await failure;
       const timeout = error instanceof AggregateError ? error.errors[0] : error;
-      expect(timeout).toBeInstanceOf(Error);
-      expect((timeout as Error).message).toContain('timed out after 60000ms');
+      // The blocked state's cause: the stage the batch went silent in and its elapsed time, in
+      // plain words; the request identity stays in the log (BST-2104 part 2).
+      expect(timeout).toBeInstanceOf(BoundaryFailureError);
+      expect((timeout as BoundaryFailureError).failure).toMatchObject({
+        code: EMBEDDING_HOST_UNRESPONSIVE_CODE,
+        kind: 'refusal',
+        message:
+          'The embedding model stopped responding while it was loading. It sent no progress for 1 min (1 min 30 s after the batch started).',
+        remedy: 'Retry indexing restarts the embedding model and resumes indexing.',
+      });
+      expect((timeout as Error).message).not.toContain(request.requestId);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('names how far inference got when a batch goes silent between slices (BST-2104)', async () => {
+    vi.useFakeTimers();
+    try {
+      const manager = new EmbeddingHostManager();
+      const failure = manager.documentEmbeddings(DOCUMENT).then(
+        () => {
+          throw new Error('The silent batch resolved.');
+        },
+        (error: unknown) => error
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      const request = windowMock.webContents.send.mock
+        .calls[0]?.[1] as EmbeddingHostDocumentEmbeddingsRequest;
+      manager.acceptDocumentEmbeddingsResponseReport(
+        91,
+        createEmbeddingHostDocumentEmbeddingsProgressReport(request, { stage: 'setup' })
+      );
+      await vi.advanceTimersByTimeAsync(10_000);
+      manager.acceptDocumentEmbeddingsResponseReport(
+        91,
+        createEmbeddingHostDocumentEmbeddingsProgressReport(request, {
+          completed: 1,
+          stage: 'inference',
+        })
+      );
+      await vi.advanceTimersByTimeAsync(60_000);
+      const error = await failure;
+      const timeout = error instanceof AggregateError ? error.errors[0] : error;
+      expect((timeout as BoundaryFailureError).failure.message).toBe(
+        'The embedding model stopped responding after 1 of 2 chunks in a batch. It sent no progress for 1 min (1 min 10 s after the batch started).'
+      );
     } finally {
       vi.useRealTimers();
     }

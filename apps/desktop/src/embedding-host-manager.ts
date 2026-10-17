@@ -2,12 +2,14 @@ import {
   createEmptyEmbeddingTelemetrySnapshot,
   type EmbeddingTelemetrySnapshot,
 } from '@brainstrike/embedding-worker';
+import type { EmbeddingRequestProgress } from '@brainstrike/embeddings';
 import { isHostedProvider, parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
 import type { WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import { createRuntimeId } from '@brainstrike/worker-runtime';
 import { type BrowserWindow, powerSaveBlocker } from 'electron';
 import { EmbeddingHostStartup } from './embedding-host-background-startup';
+import { documentBatchTimeout } from './embedding-host-document-timeout';
 import {
   documentResponseFailure,
   joinDocumentEmbeddingInterruption,
@@ -41,6 +43,7 @@ import {
   type EmbeddingHostStatusReport,
   reportedHostFields,
 } from './embedding-host-shared';
+import { createEmbeddingHostStallSeam } from './embedding-host-stall-seam';
 import { waitForHostStartup } from './embedding-host-startup';
 import {
   createEmbeddingHostWebGpuAdapterRequest,
@@ -104,6 +107,12 @@ export class EmbeddingHostManager {
     EmbeddingHostDocumentEmbeddingsRequest,
     EmbeddingHostDocumentEmbeddingsResponseReport
   >;
+  /** The progress that last re-armed each document batch's window: its stage when it went silent. */
+  private readonly documentProgress = new WeakMap<
+    EmbeddingHostDocumentEmbeddingsRequest,
+    EmbeddingRequestProgress
+  >();
+  private readonly stallDocumentBatch = createEmbeddingHostStallSeam();
 
   constructor(options: EmbeddingHostManagerOptions = {}) {
     this.hostedRequests = new HostedEmbeddingRequests(options.storage);
@@ -186,38 +195,18 @@ export class EmbeddingHostManager {
           );
         }
       },
-      onTimeout: (request, context) => {
-        logger.warn('Embedding host document batch timed out', {
-          elapsedMs: Math.max(0, context.timedOutAt - context.startedAt),
-          pendingCount: context.pendingCount,
-          provider: 'local',
-          stage: 'host-response',
-          timeoutMs: context.timeoutMs,
-        });
-        let error: Error = new Error(
-          `Embedding host request ${context.requestId} timed out after ${context.timeoutMs}ms.`
-        );
-        try {
-          this.cancelDocumentEmbeddingsRequest(request);
-        } catch (deliveryError) {
-          error = new AggregateError(
-            [error, deliveryError],
-            'Document embedding timeout cancellation failed.'
-          );
-        }
-        return {
-          error,
-          policy: 'abandon',
-        };
-      },
+      onTimeout: (request, context) =>
+        documentBatchTimeout(request, context, this.documentProgress.get(request), () =>
+          this.cancelDocumentEmbeddingsRequest(request)
+        ),
       requestId: (request) => `${request.runtimeId}:${request.requestId}`,
       responseId: (report) => `${report.runtimeId}:${report.requestId}`,
       role: 'Embedding host',
       send: (request) => {
-        this.requireHostWindow().webContents.send(
-          EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_REQUEST_EVENT,
-          request
-        );
+        const window = this.requireHostWindow();
+        if (!this.stallDocumentBatch(request.requestId)) {
+          window.webContents.send(EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_REQUEST_EVENT, request);
+        }
       },
       timeoutMs: () => QUERY_EMBEDDING_TIMEOUT_MS,
     });
@@ -667,7 +656,14 @@ export class EmbeddingHostManager {
     }
 
     const request = createEmbeddingHostDocumentEmbeddingsRequest(status.runtimeId, payload);
-    const report = await this.documentRequests.request(request, options);
+    const report = await this.documentRequests.request(request, {
+      onProgress: (progress) => {
+        if (progress.type === 'progress') {
+          this.documentProgress.set(request, progress.payload);
+        }
+      },
+      signal: options?.signal,
+    });
     const failure = documentResponseFailure(payload, report);
     if (failure) {
       throw failure;

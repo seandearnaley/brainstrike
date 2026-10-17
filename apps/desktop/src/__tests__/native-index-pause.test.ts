@@ -142,6 +142,7 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
     watches: {},
   } as unknown as ApplicationIpcDomain;
   const transport = {
+    destroyAndRestart: vi.fn(unused),
     documentEmbeddings: vi.fn<EmbeddingHostManager['documentEmbeddings']>(unused),
   };
   const onReceipt = vi.fn();
