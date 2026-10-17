@@ -16,6 +16,7 @@ import {
   type HostPlatformLaunchOptions,
   type HostStartupContext,
   hostToolDiscoveryEnabled,
+  type ProductionHostPlatformOptions,
   type ProductionHostRunConfiguration,
 } from '@brainstrike/agent-host';
 import {
@@ -179,15 +180,83 @@ function standaloneRunSystem(
   return `${system}\n\n${buildToolDiscoveryNote(names)}`;
 }
 
-/** Root and its canonical writer have already been acquired by startAgentHost. */
+/**
+ * A model a trusted `--platform` module runs instead of a hosted one (an eval's
+ * scripted model). A run selects it by its own `provider::modelId`, so the
+ * committed run names the model that ran; `budgets` names the catalog model
+ * whose context window and output cap it runs under. It reads no credential.
+ */
+export interface StandaloneTrustedModel {
+  readonly budgets: string;
+  readonly model: Awaited<ReturnType<NonNullable<ProductionHostPlatformOptions['resolveModel']>>>;
+}
+
+/** Trusted models by `provider::modelId`, each with its own identity and catalog budgets. */
+function trustedModelIndex(
+  models: readonly StandaloneTrustedModel[]
+): ReadonlyMap<string, StandaloneTrustedModel> {
+  const index = new Map(
+    models.map((entry) => [`${entry.model.provider}::${entry.model.modelId}`, entry])
+  );
+  if (models.length === 0 || index.size !== models.length) {
+    throw new Error('A trusted composition supplies one or more models, each under its own id');
+  }
+  for (const [id, entry] of index) {
+    // A trusted model never answers for a catalog model, so no log names a model that did not run.
+    if (isSupportedProvider(entry.model.provider)) {
+      throw new Error(`Trusted model ${id} must not claim a catalog provider's identity`);
+    }
+    selection(entry.budgets);
+  }
+  return index;
+}
+
+/**
+ * A run's selection: the catalog model it names, or (on a trusted host, which
+ * runs only its own) a trusted model under its catalog budgets.
+ */
+function runSelection(
+  modelId: string,
+  trusted: ReadonlyMap<string, StandaloneTrustedModel> | undefined
+) {
+  const trustedModel = trusted?.get(modelId);
+  if (trusted && !trustedModel) {
+    throw refusalError(
+      'configuration',
+      'model.selection-invalid',
+      'This host runs only the models its trusted composition supplies',
+      'Select one of the trusted provider::model ids this host was composed with.'
+    );
+  }
+  const catalog = selection(trustedModel?.budgets ?? modelId);
+  const provider = trustedModel ? trustedModel.model.provider : catalog.provider;
+  const selected: RuntimeData = {
+    model: trustedModel ? trustedModel.model.modelId : catalog.model,
+    provider,
+  };
+  // A trusted model holds no provider credential, so none is read for it.
+  const auth: Pick<ProductionHostRunConfiguration, 'resolveProviderAuth'> = trustedModel
+    ? { resolveProviderAuth: async () => undefined }
+    : {};
+  return { auth, catalog, provider, selected };
+}
+
+/**
+ * Root and its canonical writer have already been acquired by startAgentHost.
+ * `trusted` is reachable only from a module composing this function: the CLI's
+ * process entry passes three arguments, and no flag, env var or run input
+ * names a trusted model. With trusted models, the host runs only those.
+ */
 export async function createHostPlatform(
   options: HostStartOptions,
   startup: HostStartupContext,
-  platformOptions?: HostPlatformLaunchOptions
+  platformOptions?: HostPlatformLaunchOptions,
+  trusted?: { readonly models: readonly StandaloneTrustedModel[] }
 ): Promise<HostPlatform> {
   if (options.root !== startup.store.root) {
     throw new Error('Standalone platform must borrow its acquired canonical Root');
   }
+  const trustedModels = trusted && trustedModelIndex(trusted.models);
   const workspaceRoots = await standaloneWorkspaceRoots(platformOptions?.workspaceRoots);
   // One host-lifetime registry; its handles are scoped to their thread.
   const readFileCursorRegistry = new ReadWorkspaceFileCursorRegistry();
@@ -244,8 +313,7 @@ export async function createHostPlatform(
           'Attach to the desktop host that owns the selected workspace.'
         );
       }
-      const catalog = selection(request.modelId);
-      const selected: RuntimeData = { model: catalog.model, provider: catalog.provider };
+      const { auth, catalog, provider, selected } = runSelection(request.modelId, trustedModels);
       const modelSettings = buildModelSettingsOption(selected).modelSettings;
       const configuration: RuntimeData = {
         ...selected,
@@ -253,7 +321,7 @@ export async function createHostPlatform(
       };
       const inputTokenLimit = deriveAgentLoopInputTokenLimit(
         catalog.definition,
-        catalog.provider,
+        provider,
         configuration.modelSettings?.maxOutputTokens
       );
       if (!inputTokenLimit) {
@@ -322,7 +390,7 @@ export async function createHostPlatform(
       });
       return {
         configuration,
-        delegation: resolveHostDelegation({ subagents }, catalog.provider, workspaceRoots, false),
+        delegation: resolveHostDelegation({ subagents }, provider, workspaceRoots, false),
         durableConfiguration: {
           capabilities,
           intent,
@@ -349,12 +417,14 @@ export async function createHostPlatform(
           recordPrompt: async () => undefined,
           resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         },
+        // A trusted model's request is shaped as its budgets model's provider shapes it.
         providerRequestContext: {
           inputTokenLimit,
           provider: catalog.provider,
           runtimeData: configuration,
         },
         resolvedToolResultBudget,
+        ...auth,
         system: standaloneRunSystem(system, {
           modelId: request.modelId,
           provider: catalog.provider,
@@ -365,6 +435,17 @@ export async function createHostPlatform(
       };
     },
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
+    ...(trustedModels
+      ? {
+          resolveModel: async ({ model, provider }: RuntimeData) => {
+            const entry = trustedModels.get(`${provider}::${model}`);
+            if (!entry) {
+              throw new Error(`No trusted model ${provider}::${model} on this host`);
+            }
+            return entry.model;
+          },
+        }
+      : {}),
     // The standalone host has no private desktop client: subscription auth refuses.
     resolveProviderAuth: (provider) => host.auth.resolveProviderAuth(provider, undefined),
     resolveWorkspaceRoot: async ({ rootId }) => {

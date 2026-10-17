@@ -1,0 +1,10 @@
+{
+  "id": "fix-failing-test",
+  "model": "openai::gpt-6-luna",
+  "prompt": "The unit test in test/price.test.ts fails. Find the bug in src/price.ts and fix it so the test passes. Do not change the test. Use workspace-relative paths and do not pass a root.",
+  "timeoutMs": 300000,
+  "title": "Fix a failing unit test in a small TS module",
+  "verify": {
+    "command": ["node", "--test", "test/price.test.ts", ".verify/price.hidden.test.ts"]
+  }
+}

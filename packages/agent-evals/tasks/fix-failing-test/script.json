@@ -1,0 +1,16 @@
+{
+  "calls": [
+    {
+      "input": { "path": "src/price.ts" },
+      "toolId": "brainstrike_readWorkspaceFile"
+    },
+    {
+      "input": {
+        "newStr": "  return Math.round((subtotal * (100 - discountPercent)) / 100);",
+        "oldStr": "  return Math.round((subtotal * discountPercent) / 100);",
+        "path": "src/price.ts"
+      },
+      "toolId": "brainstrike_stringReplaceWorkspaceFile"
+    }
+  ]
+}

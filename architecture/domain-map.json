@@ -173,6 +173,20 @@
       ]
     },
     {
+      "id": "evaluation",
+      "title": "Agent quality evals over the standalone host; no domain may depend on it",
+      "owner": "tooling",
+      "packages": [
+        "@brainstrike/agent-evals"
+      ],
+      "mayDependOn": [
+        "assistant-experience",
+        "data-platform",
+        "shared-foundation",
+        "tooling"
+      ]
+    },
+    {
       "id": "test-infrastructure",
       "title": "Production-independent test infrastructure",
       "owner": "tooling",

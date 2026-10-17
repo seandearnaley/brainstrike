@@ -1,0 +1,12 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test:integration": {
+      // The scripted eval spawns the emitted CLI bin and this package's platform module.
+      "dependsOn": ["$TURBO_EXTENDS$", "build"]
+    },
+    "test:coverage": {
+      "dependsOn": ["$TURBO_EXTENDS$", "build"]
+    }
+  }
+}

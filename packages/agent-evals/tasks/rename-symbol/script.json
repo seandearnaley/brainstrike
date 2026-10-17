@@ -1,0 +1,48 @@
+{
+  "calls": [
+    {
+      "input": { "path": "src/geometry.ts" },
+      "toolId": "brainstrike_readWorkspaceFile"
+    },
+    {
+      "input": { "path": "src/report.ts" },
+      "toolId": "brainstrike_readWorkspaceFile"
+    },
+    {
+      "input": { "path": "src/index.ts" },
+      "toolId": "brainstrike_readWorkspaceFile"
+    },
+    {
+      "input": {
+        "newStr": "export function rectangleArea(width: number, height: number): number {",
+        "oldStr": "export function calcArea(width: number, height: number): number {",
+        "path": "src/geometry.ts"
+      },
+      "toolId": "brainstrike_stringReplaceWorkspaceFile"
+    },
+    {
+      "input": {
+        "newStr": "import { rectangleArea } from './geometry.ts';",
+        "oldStr": "import { calcArea } from './geometry.ts';",
+        "path": "src/report.ts"
+      },
+      "toolId": "brainstrike_stringReplaceWorkspaceFile"
+    },
+    {
+      "input": {
+        "newStr": "${rectangleArea(room.width, room.depth)}",
+        "oldStr": "${calcArea(room.width, room.depth)}",
+        "path": "src/report.ts"
+      },
+      "toolId": "brainstrike_stringReplaceWorkspaceFile"
+    },
+    {
+      "input": {
+        "newStr": "export { rectangleArea } from './geometry.ts';",
+        "oldStr": "export { calcArea } from './geometry.ts';",
+        "path": "src/index.ts"
+      },
+      "toolId": "brainstrike_stringReplaceWorkspaceFile"
+    }
+  ]
+}

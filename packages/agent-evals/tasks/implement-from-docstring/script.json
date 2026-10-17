@@ -1,0 +1,16 @@
+{
+  "calls": [
+    {
+      "input": { "path": "src/slug.ts" },
+      "toolId": "brainstrike_readWorkspaceFile"
+    },
+    {
+      "input": {
+        "newStr": "  return title\n    .toLowerCase()\n    .replace(/[^a-z0-9]+/gu, '-')\n    .replace(/^-|-$/gu, '');",
+        "oldStr": "  throw new Error(`slugify is not implemented: ${title}`);",
+        "path": "src/slug.ts"
+      },
+      "toolId": "brainstrike_stringReplaceWorkspaceFile"
+    }
+  ]
+}
