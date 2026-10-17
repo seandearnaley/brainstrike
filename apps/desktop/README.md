@@ -31,6 +31,28 @@ Vite hot reload; restart Electron after changing main or preload code.
 [`package.json`](package.json) owns the complete command list. Packaging, signing
 and distribution are separate from ordinary development and need owner authorization.
 
+### macOS Keychain prompts
+
+Ordinary dev launches from every worktree share one Keychain credential service.
+Electron's dev binary is ad-hoc signed, so macOS ties each "Always Allow" to that
+exact build: an Electron upgrade, or a worktree on another Electron version, asks
+again for every stored credential. To make grants last, opt in to signing the
+installed `Electron.app` with your own code-signing identity:
+
+```sh
+export BRAINSTRIKE_DEV_ELECTRON_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+pnpm install
+```
+
+Export it from a file every shell reads (for zsh, `~/.zshenv`) so worktree installs
+see it. The desktop `postinstall` then signs Electron for local use (no hardened
+runtime, no timestamp), skips a bundle already signed by that identity, and fails
+the install if the identity cannot sign. pnpm skips lifecycle scripts when an
+install is already up to date, so in an existing checkout run
+`node apps/desktop/scripts/sign-dev-electron.mjs` once instead. Restart a running
+dev app after signing, then choose "Always Allow" once per prompt; those grants
+survive later Electron upgrades.
+
 ## Runtime boundaries
 
 - Electron main owns windows, authorized IPC and platform lifecycle. The visible
