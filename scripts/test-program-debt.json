@@ -316,16 +316,6 @@
         "packages/embedding-worker/test/vite-entry-contract.spec.ts",
         "packages/embedding-worker/test/webgpu-memory-growth.browser.test.ts",
         "packages/embedding-worker/test/worker.spec.ts",
-        "packages/token-cache/src/__tests__/background-indexer-worker.test.ts",
-        "packages/token-cache/src/__tests__/binary-content.test.ts",
-        "packages/token-cache/src/__tests__/cache-runtime.test.ts",
-        "packages/token-cache/src/__tests__/file-hasher.test.ts",
-        "packages/token-cache/src/__tests__/resolve-worker-url.test.ts",
-        "packages/token-cache/src/__tests__/telemetry.test.ts",
-        "packages/token-cache/src/__tests__/token-cache-retry-clock.test.ts",
-        "packages/token-cache/src/__tests__/token-cache-store.test.ts",
-        "packages/token-cache/src/__tests__/token-counting-runtime.test.ts",
-        "packages/token-cache/src/__tests__/worker-error-recovery.test.ts",
         "packages/web-state-store/src/__tests__/held-extension-worker.ts"
       ]
     },
@@ -757,17 +747,7 @@
         "packages/db/__tests__/wasm-loader.test.ts",
         "packages/db/__tests__/workspace-search-scoping.test.ts",
         "packages/db/__tests__/workspace-snapshots-schema.test.ts",
-        "packages/db/__tests__/worktree-ledger-schema.test.ts",
-        "packages/token-cache/src/__tests__/background-indexer-worker.test.ts",
-        "packages/token-cache/src/__tests__/binary-content.test.ts",
-        "packages/token-cache/src/__tests__/cache-runtime.test.ts",
-        "packages/token-cache/src/__tests__/file-hasher.test.ts",
-        "packages/token-cache/src/__tests__/resolve-worker-url.test.ts",
-        "packages/token-cache/src/__tests__/telemetry.test.ts",
-        "packages/token-cache/src/__tests__/token-cache-retry-clock.test.ts",
-        "packages/token-cache/src/__tests__/token-cache-store.test.ts",
-        "packages/token-cache/src/__tests__/token-counting-runtime.test.ts",
-        "packages/token-cache/src/__tests__/worker-error-recovery.test.ts"
+        "packages/db/__tests__/worktree-ledger-schema.test.ts"
       ]
     }
   ]

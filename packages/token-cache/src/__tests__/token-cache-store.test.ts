@@ -107,7 +107,7 @@ function createMockDb() {
             if (count >= limit) {
               break;
             }
-            if (key.startsWith(`${folderId}::`) && row.counting_mode === mode) {
+            if (key.startsWith(`${folderId}::`) && row['counting_mode'] === mode) {
               rows.push(row as T);
               count++;
             }
@@ -129,8 +129,8 @@ function createMockDb() {
               continue;
             }
             entryCount++;
-            totalTokens += row.token_count as number;
-            if (row.counting_mode === 'accurate') {
+            totalTokens += row['token_count'] as number;
+            if (row['counting_mode'] === 'accurate') {
               accurateCount++;
             } else {
               heuristicCount++;
@@ -158,7 +158,7 @@ function createMockDb() {
             const key = `${folderId}::${filePath}`;
             const row = mockRows.get(key);
             if (row) {
-              total += row.token_count as number;
+              total += row['token_count'] as number;
             }
           }
           return { rows: [{ total: String(total) }] as T[] };
