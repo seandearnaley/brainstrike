@@ -10,7 +10,7 @@ import { getContentSecurityPolicy } from '../content-security-policy.js';
  */
 const WEB_DEV_CSP =
   "base-uri 'self'; " +
-  "connect-src 'self' ws://localhost:* http://localhost:* ws://127.0.0.1:* wss://localhost:* https://huggingface.co https://*.hf.co; " +
+  "connect-src 'self' ws://localhost:* http://localhost:* http://127.0.0.1:* ws://127.0.0.1:* wss://localhost:* https://huggingface.co https://*.hf.co; " +
   "default-src 'self' http://localhost:* ws://localhost:*; " +
   "font-src 'self' data: http://localhost:*; " +
   "form-action 'self'; " +
@@ -174,6 +174,11 @@ describe('getContentSecurityPolicy', () => {
         expect(directiveOf(webDev, 'connect-src')).not.toContain(origin);
         expect(directiveOf(webProd, 'connect-src')).not.toContain(origin);
       }
+    });
+
+    it('development reaches local runtimes on 127.0.0.1 on both targets', () => {
+      expect(directiveOf(webDev, 'connect-src')).toContain('http://127.0.0.1:*');
+      expect(directiveOf(electronDev, 'connect-src')).toContain('http://127.0.0.1:*');
     });
 
     it('only Electron reaches the local assistant-server (127.0.0.1) in production', () => {

@@ -15,7 +15,7 @@ describe('CSP Utils', () => {
       expect(devCSP).toContain("img-src 'self' data: blob: http://localhost:*");
       expect(devCSP).toContain("font-src 'self' data: http://localhost:*");
       expect(devCSP).toContain(
-        "connect-src 'self' ws://localhost:* http://localhost:* ws://127.0.0.1:* wss://localhost:* https://huggingface.co https://*.hf.co;"
+        "connect-src 'self' ws://localhost:* http://localhost:* http://127.0.0.1:* ws://127.0.0.1:* wss://localhost:* https://huggingface.co https://*.hf.co;"
       );
       expect(devCSP).toContain("object-src 'none'");
       expect(devCSP).toContain("base-uri 'self'");
