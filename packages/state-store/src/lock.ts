@@ -107,12 +107,19 @@ function psEnv(): NodeJS.ProcessEnv {
 
 function posixStartTime(pid: number): string | null {
   try {
-    const out = execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], {
+    const out = execFileSync('ps', ['-o', 'stat=,lstart=', '-p', String(pid)], {
       encoding: 'utf8',
       env: psEnv(),
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
-    return out.length > 0 ? out : null;
+    const row = /^(\S+)\s+(.+)$/.exec(out);
+    if (!row) {
+      return null;
+    }
+    // A zombie has exited and holds nothing; only its parent's reap is pending,
+    // which Electron does asynchronously for a utility process (BST-2106).
+    // The start text is the same `lstart` column as before, so recorded starts still match.
+    return row[1]?.startsWith('Z') ? null : (row[2] ?? null);
   } catch (e) {
     if (e !== null && typeof e === 'object' && 'status' in e && e.status === 1) {
       return null; // ps exits 1 when the pid does not exist
@@ -281,14 +288,12 @@ async function judgeHeld(
     }
     return cur;
   }
-  if (pidExists(cur.pid)) {
-    const observed = processStartTime(cur.pid);
-    if (observed === null) {
-      throw new Error(`lock: cannot verify process start time for live pid ${cur.pid}`);
-    }
-    if (observed === cur.start) {
-      throw new RootLockedError(cur);
-    }
+  // A pid that still answers signals but has no start time exited: it is a zombie
+  // awaiting its parent's reap, or it exited between the two reads (BST-2106). An
+  // unavailable identity source throws from `processStartTime`, never null. The
+  // Root's flock still refuses while any inheriting native process survives.
+  if (pidExists(cur.pid) && processStartTime(cur.pid) === cur.start) {
+    throw new RootLockedError(cur);
   }
   return cur;
 }
