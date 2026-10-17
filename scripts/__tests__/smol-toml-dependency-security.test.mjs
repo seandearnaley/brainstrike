@@ -9,16 +9,20 @@ import { fileURLToPath } from 'node:url';
 import { parsePnpmLockfile } from '../pnpm-lockfile.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
-const rootRequire = createRequire(path.join(root, 'package.json'));
-const vercelRequire = createRequire(rootRequire.resolve('vercel/package.json'));
-const buildRequire = createRequire(vercelRequire.resolve('@vercel/build-utils'));
-const owners = [
-  ['vercel', vercelRequire],
-  ['python-analysis', createRequire(buildRequire.resolve('@vercel/python-analysis'))],
-  ['rust', createRequire(vercelRequire.resolve('@vercel/rust'))],
-];
+function getOwnerRequire(name) {
+  const rootRequire = createRequire(path.join(root, 'package.json'));
+  const vercelRequire = createRequire(rootRequire.resolve('vercel/package.json'));
+  if (name === 'vercel') {
+    return vercelRequire;
+  }
+  if (name === 'python-analysis') {
+    const buildRequire = createRequire(vercelRequire.resolve('@vercel/build-utils'));
+    return createRequire(buildRequire.resolve('@vercel/python-analysis'));
+  }
+  return createRequire(vercelRequire.resolve(`@vercel/${name}`));
+}
 
-// GHSA-v3rj-xjv7-4jmq and GHSA-7w5x-hrqm-74c2: 1.7.1 clears both.
+// 1.9.0 also clears GHSA-r4xh-jqrq-34v2's quadratic key parsing.
 function assertPatched(lock) {
   const versions = Object.keys(lock.packages)
     .filter((key) => key.startsWith('smol-toml@'))
@@ -26,25 +30,26 @@ function assertPatched(lock) {
   assert.ok(versions.length > 0, 'expected smol-toml in the graph');
   for (const version of versions) {
     assert.match(version, /^1\.\d+\.\d+$/, 'review an unknown smol-toml release line');
-    const [, minor, patch] = version.split('.').map(Number);
-    assert.ok(minor > 7 || (minor === 7 && patch >= 1), `vulnerable smol-toml@${version}`);
+    const [, minor] = version.split('.').map(Number);
+    assert.ok(minor >= 9, `vulnerable smol-toml@${version}`);
   }
 }
 
-test('the full graph excludes both TOML advisory ranges, with negative controls', async () => {
+test('the full graph excludes TOML advisory ranges, with negative controls', async () => {
   assertPatched(parsePnpmLockfile(await readFile(path.join(root, 'pnpm-lock.yaml'), 'utf8')));
-  for (const version of ['1.5.2', '1.6.1', '1.7.0']) {
+  for (const version of ['1.5.2', '1.6.1', '1.7.0', '1.7.1', '1.8.0']) {
     assert.throws(
       () => assertPatched({ packages: { [`smol-toml@${version}`]: {} } }),
       /vulnerable/
     );
   }
-  assertPatched({ packages: { 'smol-toml@1.7.1': {}, 'smol-toml@1.8.0': {} } });
+  assertPatched({ packages: { 'smol-toml@1.9.0': {}, 'smol-toml@1.9.1': {} } });
   assert.throws(() => assertPatched({ packages: {} }), /expected smol-toml/);
 });
 
-for (const [name, ownerRequire] of owners) {
-  test(`${name}'s installed parser handles comment runs and rejects unterminated arrays`, () => {
+for (const name of ['vercel', 'python-analysis', 'rust', 'container']) {
+  test(`${name}'s installed parser handles config values and hostile input`, () => {
+    const ownerRequire = getOwnerRequire(name);
     const entry = ownerRequire.resolve('smol-toml');
     const result = spawnSync(
       process.execPath,
@@ -54,9 +59,17 @@ for (const [name, ownerRequire] of owners) {
       const assert = require('node:assert/strict');
       const { parse, stringify, TomlError } = require(${JSON.stringify(entry)});
       const value = { project: { name: 'api', version: '1.0.0' } };
-      assert.deepEqual(parse(stringify(value)), value);
-      assert.deepEqual(parse('# comment\\n'.repeat(20000) + 'key = "value"'), { key: 'value' });
+      const parsed = parse(stringify(value));
+      // Since 1.9, parsed tables have null prototypes; callers read own fields.
+      assert.equal(Object.getPrototypeOf(parsed), null);
+      assert.equal(Object.getPrototypeOf(parsed.project), null);
+      assert.deepEqual({ ...parsed, project: { ...parsed.project } }, value);
+      assert.deepEqual({ ...parse('# comment\\n'.repeat(20000) + 'key = "value"') }, { key: 'value' });
+      const flat = parse(Array.from({ length: 32000 }, (_, i) => 'k' + i + ' = 1').join('\\n'));
+      assert.equal(Object.keys(flat).length, 32000);
+      assert.equal(flat.k31999, 1);
       assert.throws(() => parse('a=[1 #'), TomlError);
+      assert.throws(() => parse('a = 1e+-2'), TomlError);
     `,
       ],
       { encoding: 'utf8', timeout: 3000 }
@@ -73,6 +86,8 @@ test('Vercel Python discovery reads a comment-heavy pyproject through its public
       path.join(fixture, 'pyproject.toml'),
       `${'# comment\n'.repeat(20_000)}[project]\nname = "api"\nversion = "1.0.0"\n`
     );
+    const vercelRequire = getOwnerRequire('vercel');
+    const buildRequire = createRequire(vercelRequire.resolve('@vercel/build-utils'));
     const { discoverPythonPackage } = buildRequire('@vercel/python-analysis');
     const result = await discoverPythonPackage({ entrypointDir: fixture, rootDir: fixture });
     assert.equal(result.manifest.path, 'pyproject.toml');
