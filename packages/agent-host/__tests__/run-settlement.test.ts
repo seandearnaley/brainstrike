@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import { joinHostThreadSettlements, settleHostRunOwner } from '../src/core-run-lifecycle.js';
 import { createHostRunState, type HostRunState } from '../src/core-state.js';
-import { assertHostRunStartAvailable } from '../src/run-admission.js';
+import { assertHostRunStartAvailable } from '../src/run-branch.js';
 
 const run = (threadId: string, runId: string): HostRunState => ({
   ...createHostRunState(

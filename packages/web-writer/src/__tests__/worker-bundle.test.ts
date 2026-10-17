@@ -76,6 +76,11 @@ it('bundles the composed writer worker for the browser, with no Node module and 
     'agent-host/src/host-event-encoding.ts',
     'agent-host/src/ledger-projection.ts',
     'state-store/src/large-text.ts',
+    // Its runs: Core's run fold and telemetry replay, and the recorder.
+    'agent-host/src/run-branch.ts',
+    'agent-host/src/telemetry-replay.ts',
+    'src/web-run-recorder.ts',
+    'src/web-run-turn.ts',
     // VECTOR's profile, inference and embedder.
     'canonical-ingestion/src/canonical-profile.ts',
     'src/file-embeddings.ts',
