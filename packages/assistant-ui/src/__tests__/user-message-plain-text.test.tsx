@@ -76,6 +76,9 @@ describe('UserMessageText', () => {
 
     expect(chip.textContent).toBe('context.txt');
     expect(chip.getAttribute('title')).toBe('docs/context.txt');
+    // A long name truncates inside the bubble rather than overflowing it.
+    expect(chip.className).toContain('max-w-full');
+    expect(chip.querySelector('span')?.className).toContain('truncate');
     const paragraph = chip.closest('p');
     expect(paragraph?.textContent).toBe('HUMAN_FOLLOWUP_1723\n\ncontext.txt **as is**');
     expect(paragraph?.textContent).not.toContain(':file[');
