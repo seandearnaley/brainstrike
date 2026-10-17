@@ -9,6 +9,7 @@
       "**/*.config.{ts,mts}",
       "**/*.test.{ts,tsx}",
       "packages/{effect-kit,assistant-contract,agent-host}/**/*.{ts,tsx,mts,mjs}",
+      "packages/agent/src/__tests__/**/*.{ts,tsx,mts,mjs}",
       "scripts/__tests__/agent-quality-lint*.{mts,mjs}",
       "**/e2e/**/*.{ts,tsx}",
       "!!spikes/m0-a1-qualification/original",
@@ -606,6 +607,33 @@
         "rules": {
           "nursery": {
             "useStrictBooleanExpressions": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/effect-kit/**",
+        "packages/assistant-contract/src/native-tools/schemas/**",
+        "packages/agent/src/tools/**",
+        "packages/agent-host/src/**"
+      ],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "usePromiseRejectErrors": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/agent/src/__tests__/**"],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error",
+            "useExhaustiveSwitchCases": "error"
           }
         }
       }
