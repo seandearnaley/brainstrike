@@ -16,11 +16,38 @@ export function scriptedModel(toolId?: string): MockLanguageModelV4 {
   );
 }
 
+export interface ScriptedToolCall {
+  readonly input: unknown;
+  readonly toolId: string;
+}
+
+type ScriptedPrompts = Parameters<MockLanguageModelV4['doStream']>[0]['prompt'][];
+
+/** One tool call per model step, then a final answer. */
 export function scriptedToolSequence(
-  calls: readonly { readonly toolId: string; readonly input: unknown }[],
+  calls: readonly ScriptedToolCall[],
   /** Every request, as the provider received it, when the test reads them. */
-  prompts?: Parameters<MockLanguageModelV4['doStream']>[0]['prompt'][]
+  prompts?: ScriptedPrompts
 ): MockLanguageModelV4 {
+  return scriptedToolSteps(
+    calls.map((call) => [call]),
+    prompts
+  );
+}
+
+/**
+ * Each step's tool calls in one model response (a step of two is a parallel
+ * call), then a final answer. Call ids count across steps: `recorded-call-N`.
+ */
+export function scriptedToolSteps(
+  steps: readonly (readonly ScriptedToolCall[])[],
+  /** Every request, as the provider received it, when the test reads them. */
+  prompts?: ScriptedPrompts
+): MockLanguageModelV4 {
+  let issued = 0;
+  const scripted = steps.map((step) =>
+    step.map((call) => ({ call, id: `recorded-call-${++issued}` }))
+  );
   return new MockLanguageModelV4({
     doStream: async (options) => {
       prompts?.push(options.prompt);
@@ -36,17 +63,18 @@ export function scriptedToolSequence(
               : []
           )
       );
-      const step = calls.findIndex((_call, index) => !completed.has(`recorded-call-${index + 1}`));
-      const call = calls[step];
-      const chunks: Chunk[] = call
+      const next = scripted.find((step) => step.some(({ id }) => !completed.has(id)));
+      const chunks: Chunk[] = next
         ? [
             { type: 'stream-start', warnings: [] },
-            {
-              input: JSON.stringify(call.input),
-              toolCallId: `recorded-call-${step + 1}`,
-              toolName: call.toolId,
-              type: 'tool-call',
-            },
+            ...next.map(
+              ({ call, id }): Chunk => ({
+                input: JSON.stringify(call.input),
+                toolCallId: id,
+                toolName: call.toolId,
+                type: 'tool-call',
+              })
+            ),
             { finishReason: { raw: 'tool_calls', unified: 'tool-calls' }, type: 'finish', usage },
           ]
         : [

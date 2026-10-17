@@ -10,6 +10,8 @@ export interface EvalRunMetrics {
   readonly approvals: number;
   /** Summed over the run's steps; null when any step reported none. */
   readonly inputTokens: number | null;
+  /** The most tool calls the model made in one step (parallel calls); 0 when it made none. */
+  readonly maxStepToolCalls: number;
   readonly outputTokens: number | null;
   readonly steps: number;
   /** The model's tool calls, by the tool name it called. */
@@ -96,6 +98,7 @@ export function readRunFromLog(rows: readonly HostLogRow[], runId: string): Eval
     metrics: {
       approvals,
       inputTokens: sum(steps.map((step) => tokens(step.usage, 'inputTokens'))),
+      maxStepToolCalls: Math.max(0, ...steps.map((step) => toolCallNames(step.messages).length)),
       outputTokens: sum(steps.map((step) => tokens(step.usage, 'outputTokens'))),
       steps: steps.length,
       toolCalls,
@@ -116,8 +119,10 @@ export interface EvalAttempt {
     readonly unserved: readonly string[];
   };
   /** Starting, driving or stopping the host failed. */
+  /** The task's `expect` block, checked against the run's committed metrics. */
+  readonly expect?: { readonly maxStepToolCalls: number };
   readonly hostError?: string;
-  readonly run?: Pick<EvalRunSummary, 'verdict'>;
+  readonly run?: Pick<EvalRunSummary, 'verdict'> & { readonly metrics?: EvalRunMetrics };
   /** The run did not finish within the task's `timeoutMs`. */
   readonly timedOut?: number;
   readonly verifier?: { readonly exitCode: number | null; readonly output: string };
@@ -170,5 +175,21 @@ export function scoreEvalAttempt(attempt: EvalAttempt): EvalScore {
       `The verifier exited ${attempt.verifier.exitCode ?? 'by signal'}: ${attempt.verifier.output.trim()}`
     );
   }
-  return { pass: true };
+  const unmet = unmetExpectation(attempt);
+  return unmet === undefined ? { pass: true } : fail(unmet);
+}
+
+/** Why the run's committed metrics fall short of the task's `expect` block, if they do. */
+function unmetExpectation(attempt: EvalAttempt): string | undefined {
+  const expected = attempt.expect?.maxStepToolCalls;
+  if (expected === undefined) {
+    return;
+  }
+  const seen = attempt.run?.metrics?.maxStepToolCalls;
+  if (seen === undefined) {
+    return 'The task expects parallel tool calls, but the run reported no metrics';
+  }
+  return seen < expected
+    ? `The task expects at least ${expected} tool calls in one step; the run made at most ${seen}`
+    : undefined;
 }

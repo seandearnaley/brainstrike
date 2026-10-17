@@ -15,6 +15,7 @@ const PASSED: EvalResult = {
   metrics: {
     approvals: 2,
     inputTokens: 4,
+    maxStepToolCalls: 1,
     outputTokens: 4,
     steps: 4,
     toolCalls: { brainstrike_readWorkspaceFile: 1, brainstrike_stringReplaceWorkspaceFile: 2 },

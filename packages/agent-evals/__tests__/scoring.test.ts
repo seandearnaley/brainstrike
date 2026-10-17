@@ -31,6 +31,7 @@ describe('readRunFromLog', () => {
       metrics: {
         approvals: 1,
         inputTokens: 2,
+        maxStepToolCalls: 1,
         outputTokens: 2,
         steps: 2,
         toolCalls: { write_file: 1 },
@@ -123,6 +124,25 @@ describe('scoreEvalAttempt', () => {
   ])('fails %s, with its reason', (_name, attempt, reason) => {
     expect(scoreEvalAttempt(attempt).pass).toBe(false);
     expect(reasonOf(attempt)).toMatch(reason);
+  });
+
+  test('an expect block holds the run to the parallel tool calls its log committed', () => {
+    const metrics = (maxStepToolCalls: number) => ({
+      approvals: 0,
+      inputTokens: 1,
+      maxStepToolCalls,
+      outputTokens: 1,
+      steps: 2,
+      toolCalls: {},
+      wallMs: 1,
+    });
+    const run = (calls: number) => ({ metrics: metrics(calls), verdict: completed.run!.verdict });
+    const expecting = { expect: { maxStepToolCalls: 2 } };
+    expect(scoreEvalAttempt({ ...completed, ...expecting, run: run(2) })).toEqual({ pass: true });
+    expect(reasonOf({ ...completed, ...expecting, run: run(1) })).toMatch(
+      /expects at least 2 tool calls in one step; the run made at most 1/u
+    );
+    expect(reasonOf({ ...completed, ...expecting })).toMatch(/reported no metrics/u);
   });
 
   test('a refused provider request outranks the failed run it caused', () => {

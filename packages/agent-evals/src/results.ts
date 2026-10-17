@@ -21,6 +21,7 @@ export const EvalResultSchema = Schema.Struct({
     Schema.Struct({
       approvals: Count,
       inputTokens: Schema.NullOr(Count),
+      maxStepToolCalls: Count,
       outputTokens: Schema.NullOr(Count),
       steps: Count,
       toolCalls: Schema.Record(Schema.String, Count),

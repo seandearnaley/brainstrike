@@ -14,6 +14,14 @@ const Text = Schema.String.check(Schema.isMinCodePoints(1));
 export const EvalTaskSchema = Schema.Struct({
   /** A provider cassette, relative to the task folder: replay mode serves it. */
   cassette: Schema.optionalKey(Text),
+  /**
+   * Behaviour the committed log must show beyond the verifier's file checks:
+   * `maxStepToolCalls` is the least number of tool calls the model must make
+   * in one step, so a parallel-call task sets 2.
+   */
+  expect: Schema.optionalKey(
+    Schema.Struct({ maxStepToolCalls: Schema.Int.check(Schema.isGreaterThan(0)) })
+  ),
   id: Schema.String.check(Schema.isPattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u)),
   /** The canonical `provider::model` replay and live modes run. */
   model: Schema.String.check(Schema.isPattern(/^[a-z0-9-]+::\S+$/u)),
@@ -26,13 +34,26 @@ export const EvalTaskSchema = Schema.Struct({
 });
 export type EvalTask = typeof EvalTaskSchema.Type;
 
-/** Scripted mode: the tool calls the scripted model makes, one per step, before it answers. */
+const EvalScriptCall = Schema.Struct({ input: Schema.MutableJson, toolId: Text });
+
+/**
+ * Scripted mode: the model's steps before it answers. Each entry is one step:
+ * a single call, or `{ parallel: [...] }` for calls made in one response.
+ */
 export const EvalScriptSchema = Schema.Struct({
-  calls: Schema.Array(Schema.Struct({ input: Schema.MutableJson, toolId: Text })).check(
-    Schema.isMinLength(1)
-  ),
+  calls: Schema.Array(
+    Schema.Union([
+      EvalScriptCall,
+      Schema.Struct({ parallel: Schema.Array(EvalScriptCall).check(Schema.isMinLength(2)) }),
+    ])
+  ).check(Schema.isMinLength(1)),
 });
 export type EvalScript = typeof EvalScriptSchema.Type;
+
+/** A script's steps, each the calls made in one model response. */
+export function scriptSteps(script: EvalScript): (typeof EvalScriptCall.Type)[][] {
+  return script.calls.map((entry) => ('parallel' in entry ? [...entry.parallel] : [entry]));
+}
 
 /** A strict decoder whose refusal names the file it read. */
 export function fileDecoder<S extends Schema.ConstraintDecoder<unknown>>(schema: S, kind: string) {

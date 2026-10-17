@@ -2,7 +2,13 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
-import { decodeEvalScript, decodeEvalTask, loadEvalTask, loadEvalTasks } from '../src/task.js';
+import {
+  decodeEvalScript,
+  decodeEvalTask,
+  loadEvalTask,
+  loadEvalTasks,
+  scriptSteps,
+} from '../src/task.js';
 
 const VALID = {
   id: 'fix-failing-test',
@@ -57,6 +63,24 @@ describe('decodeEvalScript', () => {
       calls: [{ input: { path: 'a.ts' }, toolId: 'brainstrike_readWorkspaceFile' }],
     };
     expect(decodeEvalScript(script, 'script.json')).toEqual(script);
+  });
+
+  test('a parallel group is one step whose calls the model makes in one response', () => {
+    const read = (path: string) => ({ input: { path }, toolId: 'brainstrike_readWorkspaceFile' });
+    const script = decodeEvalScript(
+      { calls: [{ parallel: [read('a.md'), read('b.md')] }, read('c.md')] },
+      'script.json'
+    );
+    expect(scriptSteps(script)).toEqual([[read('a.md'), read('b.md')], [read('c.md')]]);
+  });
+
+  test('refuses a parallel group of fewer than two calls', () => {
+    expect(() =>
+      decodeEvalScript(
+        { calls: [{ parallel: [{ input: {}, toolId: 'brainstrike_readWorkspaceFile' }] }] },
+        'script.json'
+      )
+    ).toThrow(/script\.json/u);
   });
 
   test('refuses a script with no calls or a nameless call', () => {

@@ -287,6 +287,7 @@ export async function attemptEvalTask(
   return outcome(
     {
       ...(stage.boundary ? { boundary: stage.boundary } : {}),
+      ...(loaded.task.expect ? { expect: loaded.task.expect } : {}),
       ...(failures.length > 0 ? { hostError: failures.join('; ') } : {}),
       ...(stage.summary ? { run: stage.summary } : {}),
       ...(stage.timedOut === undefined ? {} : { timedOut: stage.timedOut }),

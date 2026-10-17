@@ -121,12 +121,17 @@ export async function recordEvalCassette(options: {
     mode: 'replay',
   });
   const boundary = replayed.attempt.boundary;
+  if (!(recorded.result.pass && replayed.result.pass)) {
+    // A recording is a task's canonical replay, so only a clean pass is kept.
+    throw new Error(
+      `Only a passing run is recorded; not saved. Recorded: ${JSON.stringify(recorded.result)} Replayed: ${JSON.stringify(replayed.result)}`
+    );
+  }
   if (
     !boundary ||
     boundary.refusals.length > 0 ||
     boundary.unserved.length > 0 ||
-    replayed.result.verdict !== recorded.result.verdict ||
-    replayed.result.pass !== recorded.result.pass
+    replayed.result.verdict !== recorded.result.verdict
   ) {
     throw new Error(
       `The recording does not replay to what it recorded; not saved. Recorded: ${JSON.stringify(recorded.result)} Replayed: ${JSON.stringify(replayed.result)}`
@@ -137,5 +142,5 @@ export async function recordEvalCassette(options: {
     join(loaded.dir, 'task.json'),
     `${JSON.stringify({ ...recordedTask, cassette: 'cassette.json' }, null, 2)}\n`
   );
-  return `Recorded ${loaded.task.id} on ${options.model}: ${cassette.exchanges.length} exchange(s); the recorded run ${recorded.result.pass ? 'passed' : `failed (${recorded.result.reason})`}.`;
+  return `Recorded ${loaded.task.id} on ${options.model}: ${cassette.exchanges.length} exchange(s); the recorded run passed and replays to a pass.`;
 }

@@ -1,11 +1,18 @@
 {
   "cassette": "../../../test-utils/fixtures/provider-cassettes/openai-parallel-tool-calls.json",
+  "expect": {
+    "maxStepToolCalls": 2
+  },
   "id": "parallel-read",
   "model": "openai::gpt-6-luna",
   "prompt": "Issue two read tool calls together in your first response, one for alpha.md and one for beta.md, before you see either result. Do not read them one at a time. Then say in one sentence what each file holds. Use workspace-relative paths and do not pass a root.",
   "timeoutMs": 300000,
   "title": "Read two files in parallel and leave the workspace untouched",
   "verify": {
-    "command": ["node", "--test", ".verify/read-only.hidden.test.ts"]
+    "command": [
+      "node",
+      "--test",
+      ".verify/read-only.hidden.test.ts"
+    ]
   }
 }
