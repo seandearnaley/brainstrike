@@ -43,6 +43,10 @@ its explicit dependency order, attempts later steps after failure and joins thei
 cleanup. Reset is restartable and keeps its existing admission barrier rather
 than pretending to be an ordinary scope close.
 
+Tool guard deadlines belong to the forwarded execution occurrence, never a
+provider call ID. The guard creates a distinct context even when callers reuse
+one object; capability and caller AbortSignal references retain their identity.
+
 Concurrency limits do not imply FIFO. Preserve existing promise-chain owners
 where order matters. Partial acquisition rolls back its resources; stale
 callbacks cannot settle a replacement. Keep independent errors and failed owners

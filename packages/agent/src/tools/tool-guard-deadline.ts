@@ -1,86 +1,40 @@
 import { readToolCallId } from './read-tool-call-id';
-import type { ToolLogger } from './types';
 
 /**
- * The per-tool execution guard's cancellation seam (BST-1594).
- *
- * `guardToolExecution` resolves a `tool_timeout` when a tool overruns its
- * budget, which unblocks the model — but winning a race only stops the WAIT,
- * it never stops the work. An MCP `tools/call` abandoned that way keeps its
- * host request open: the SDK re-arms its 60s request timeout on every progress
- * notification (`resetTimeoutOnProgress`), so a progress-emitting server can
- * hold the request for the full 10 minute `maxTotalTimeout` and is never told
- * the caller left. The eventual `RequestTimeout` then surfaced as a whole
- * server generation failing over one slow call.
- *
- * The guard therefore publishes a deadline signal for the call it is guarding
- * and aborts it at the moment it gives up. A cancellable tool reads the signal
- * here and folds it into whatever signal it already honours; the MCP runtime
- * client does exactly that, so the SDK cancels the in-flight request
- * (`notifications/cancelled`) instead of leaving it dangling.
- *
- * Keyed by the host tool-call identity, with an explicit release in the
- * guard's finally so the deadline never outlives the call.
- *
- * A call with no tool-call id publishes nothing and `readToolGuardDeadlineSignal`
- * returns `undefined`: that is the pre-guard behaviour (the caller's own signal
- * and the SDK's request bounds still apply), never a fabricated deadline.
- *
- * The id is PROVIDER DATA, so two live executions can collide on it — a
- * provider that restarts its `call_1`/`call_2` sequence for a subagent run, or
- * a replayed call. The registry cannot tell the two apart, so the later
- * registration wins (it is the call the model is still waiting on) and the
- * earlier one then reads the wrong deadline until the later call releases.
- * That is REPORTED, never absorbed: see
- * {@link registerToolGuardDeadlineSignal}.
+ * A guard deadline belongs to one forwarded execution context, not its provider
+ * call ID. Different runs, replays and concurrent invocations may share IDs.
+ * The guard creates a fresh context per invocation, aborts the physical operation
+ * before answering a timeout, and releases this entry in finally. The caller's
+ * abortSignal stays untouched because raw MCP result retention uses its identity.
  */
-const deadlineSignals = new Map<string, AbortSignal>();
+const deadlineSignals = new WeakMap<object, AbortSignal>();
 
-/**
- * Publish the guard's deadline for one tool execution.
- *
- * A collision on `toolCallId` is LOGGED, not thrown. Throwing would be the
- * louder signal, but the id arrives as provider data rather than from a
- * programming error on our side, and this function runs on the only path into
- * `execute`: rejecting here would take a working tool call down over an id the
- * provider chose. Logging keeps the call working and makes the mis-routing a
- * diagnosable event instead of an invisible one — the failure it precedes (a
- * cancellation landing on the wrong request, or a deadline that never fires)
- * is otherwise unattributable.
- *
- * @param args the arguments the host passed to `execute` (input first, execution
- *   context second — the position {@link readToolCallId} documents).
- * @returns the release the guard must run once the call has settled.
- */
+/** Publish one invocation's deadline; calls without host identity publish nothing. */
 export function registerToolGuardDeadlineSignal(
   args: readonly unknown[],
-  signal: AbortSignal,
-  logger?: ToolLogger
+  signal: AbortSignal
 ): () => void {
-  const toolCallId = readToolCallId(args);
-  if (!toolCallId) {
+  const context = args[1];
+  if (typeof context !== 'object' || context === null || !readToolCallId(args)) {
     return () => undefined;
   }
-  const existing = deadlineSignals.get(toolCallId);
+  const existing = deadlineSignals.get(context);
   if (existing && existing !== signal) {
-    logger?.error('Tool guard deadline id collision', {
-      detail:
-        'Two live guarded executions share one tool-call id; the earlier call reads the later deadline until the later call releases.',
-      toolCallId,
-    });
+    throw new Error('Tool execution context already owns a guard deadline');
   }
-  deadlineSignals.set(toolCallId, signal);
+  deadlineSignals.set(context, signal);
   return (): void => {
-    if (deadlineSignals.get(toolCallId) === signal) {
-      deadlineSignals.delete(toolCallId);
+    if (deadlineSignals.get(context) === signal) {
+      deadlineSignals.delete(context);
     }
   };
 }
 
-/** The guard deadline for the execution this context belongs to, if any. */
+/** The guard deadline for this exact invocation, never a lookup by provider ID. */
 export function readToolGuardDeadlineSignal(executionContext: unknown): AbortSignal | undefined {
-  const toolCallId = readToolCallId([undefined, executionContext]);
-  return toolCallId === undefined ? undefined : deadlineSignals.get(toolCallId);
+  return typeof executionContext === 'object' && executionContext !== null
+    ? deadlineSignals.get(executionContext)
+    : undefined;
 }
 
 /**

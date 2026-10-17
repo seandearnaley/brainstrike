@@ -128,13 +128,23 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
   Object.defineProperties(cloned, Object.getOwnPropertyDescriptors(tool));
 
   cloned.execute = async (...args: unknown[]): Promise<unknown> => {
+    // Callers may reuse even a frozen context concurrently. Forward a fresh
+    // occurrence while preserving descriptors, prototype and capability references.
+    const executionArgs = [...args];
+    const context = args[1];
+    if (typeof context === 'object' && context !== null) {
+      executionArgs[1] = Object.create(
+        Object.getPrototypeOf(context),
+        Object.getOwnPropertyDescriptors(context)
+      );
+    }
     let timer: ReturnType<typeof setTimeout> | undefined;
     // Giving up on the race must also CANCEL the work, not merely stop waiting
     // for it: a cancellable tool (the MCP client's in-flight `tools/call`)
     // folds this signal into its own so the peer is told instead of being left
     // holding a request the run has already abandoned (BST-1594).
     const deadline = new AbortController();
-    const releaseDeadline = registerToolGuardDeadlineSignal(args, deadline.signal, logger);
+    const releaseDeadline = registerToolGuardDeadlineSignal(executionArgs, deadline.signal);
     // Measured around the REAL execution, so a suspended-then-approved call is
     // billed for the work rather than the wait. Started here, before budget
     // resolution or the call, so the duration is honest even when resolving
@@ -151,7 +161,7 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
     // tool.started → terminal delta even without an approval.
     const startedAt = performance.now();
     try {
-      const { grantedMs, guardMs } = resolveCallBudget(options.timeoutMs, args);
+      const { grantedMs, guardMs } = resolveCallBudget(options.timeoutMs, executionArgs);
       const timeout = new Promise<GuardedToolError>((resolve) => {
         timer = setTimeout(() => {
           // Abort BEFORE resolving so cancellation is ordered ahead of the
@@ -170,7 +180,7 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
         (timer as { unref?: () => void }).unref?.();
       });
 
-      const run = (async () => Reflect.apply(original, cloned, args))();
+      const run = (async () => Reflect.apply(original, cloned, executionArgs))();
       // If the timeout already won the race, the original may still reject later.
       // Log it instead of letting it become an unhandled rejection (no silent swallow).
       run.catch((error) => {
