@@ -1085,7 +1085,9 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
       const client = trackClient({
         lifecycle: testCase.lifecycle,
         name: `${testCase.lifecycle}-expired-session-canary`,
-        onUnexpectedClose: () => (unexpectedCloses += 1),
+        onUnexpectedClose: () => {
+          unexpectedCloses += 1;
+        },
         transport: 'streamable-http',
         url: server.url,
       });

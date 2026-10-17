@@ -104,6 +104,9 @@ function createRequestExtensionServer(): ReturnType<typeof createMcpHandler> {
           result: TEST_EXTENSION_REQUEST.resultSchema,
         },
         ({ taskId }) => {
+          if (typeof taskId !== 'string') {
+            throw new Error('Expected a string taskId');
+          }
           if (taskId === 'missing') {
             throw new Error('Task not found');
           }

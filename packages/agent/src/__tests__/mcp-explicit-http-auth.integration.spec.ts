@@ -9,10 +9,8 @@ import {
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  type ExplicitHttpMcpAuthorizationCallbackSource,
-  ExplicitHttpMcpClient,
-} from '../mcp/explicit-http-client';
+import { ExplicitHttpMcpClient } from '../mcp/explicit-http-client';
+import type { ExplicitHttpMcpAuthorizationCallbackSource } from '../mcp/interactive-oauth-completion';
 
 const cleanupTasks: Array<() => Promise<void>> = [];
 
