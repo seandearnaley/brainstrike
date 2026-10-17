@@ -1,0 +1,23 @@
+{
+  "children": [],
+  "projection": "folded",
+  "runs": [
+    {
+      "groups": [
+        "text",
+        "notice:run.cancelled"
+      ],
+      "message": "incomplete:cancelled",
+      "outcome": "stopped",
+      "rows": [],
+      "steps": [
+        {
+          "calls": 0,
+          "paragraphs": 1,
+          "reasoning": 0
+        }
+      ]
+    }
+  ],
+  "title": "untitled"
+}

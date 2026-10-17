@@ -1,0 +1,26 @@
+{
+  "children": [],
+  "projection": "folded",
+  "runs": [
+    {
+      "groups": [
+        "activity×1",
+        "text",
+        "notice:run.finished"
+      ],
+      "message": "complete:stop",
+      "outcome": "completed",
+      "rows": [
+        "Thought done"
+      ],
+      "steps": [
+        {
+          "calls": 0,
+          "paragraphs": 1,
+          "reasoning": 1
+        }
+      ]
+    }
+  ],
+  "title": "before-first-run-finished"
+}

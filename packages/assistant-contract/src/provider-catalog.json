@@ -788,6 +788,49 @@
         "vision": "supported"
       },
       {
+        "_note": "Vendor model page, pricing, effort and tool search pages; retrieved 2026-10-16:\nhttps://platform.claude.com/docs/en/about-claude/models/overview\nhttps://platform.claude.com/docs/en/about-claude/pricing\nhttps://platform.claude.com/docs/en/build-with-claude/effort\nhttps://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool\nAdaptive thinking only, on by default; the DEFAULT effort is MEDIUM (all five\nlevels offered). Thinking can be disabled only at effort high or below\n(400 at xhigh/max), so `mandatory: false`. The catalog cannot express that\nbound; @ai-sdk/anthropic 4.0.81 lowers xhigh/max to high, with a warning,\nwhen thinking is off.\nBase pricing is for prompts up to 100K tokens ($0.10 in, $0.50 out, $0.01\ncache read, $0.125 5-minute cache write; 1-hour write $0.20). A prompt over\n100K tokens bills every category at five times these, carried as\n`longContextTiers` from 100,001 prompt tokens: direct Anthropic rows get no\nprovider-reported cost to correct the estimate.",
+        "anthropicReasoning": {
+          "defaultEffort": "medium",
+          "mandatory": false,
+          "supportedEfforts": ["low", "medium", "high", "xhigh", "max"]
+        },
+        "catalog": {
+          "bestFor": ["Classification", "Extraction", "Routing"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Haiku 5.5",
+          "parameters": null,
+          "sortOrder": 9,
+          "tagline": "Fastest Claude model for high-volume work"
+        },
+        "contextWindow": 1000000,
+        "id": "claude-haiku-5-5",
+        "label": "Claude Haiku 5.5",
+        "maxOutputTokens": 128000,
+        "nativeToolSearch": "anthropic",
+        "pricing": {
+          "cacheReadPerMTok": 0.01,
+          "cacheWritePerMTok": 0.125,
+          "inputPerMTok": 0.1,
+          "longContextTiers": [
+            {
+              "cacheReadPerMTok": 0.05,
+              "cacheWritePerMTok": 0.625,
+              "inputPerMTok": 0.5,
+              "minPromptTokens": 100001,
+              "outputPerMTok": 2.5
+            }
+          ],
+          "outputPerMTok": 0.5
+        },
+        "promptCaching": "anthropic",
+        "supportsStreaming": true,
+        "tagline": "For high-volume, latency-sensitive tasks",
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
         "_note": "No effort ladder: the overview table says effort is unsupported;\nthinking uses the legacy enabled + budget_tokens form. Retrieved 2026-09-04:\nhttps://platform.claude.com/docs/en/build-with-claude/effort\nhttps://platform.claude.com/docs/en/about-claude/models/overview",
         "catalog": {
           "bestFor": ["Quick responses", "Data extraction"],

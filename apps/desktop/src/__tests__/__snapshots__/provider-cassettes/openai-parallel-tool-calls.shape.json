@@ -1,0 +1,38 @@
+{
+  "children": [],
+  "projection": "folded",
+  "runs": [
+    {
+      "groups": [
+        "activity×3",
+        "text",
+        "notice:run.finished"
+      ],
+      "message": "complete:stop",
+      "outcome": "completed",
+      "rows": [
+        "Updated memory done",
+        "Read done",
+        "Read done"
+      ],
+      "steps": [
+        {
+          "calls": 1,
+          "paragraphs": 0,
+          "reasoning": 0
+        },
+        {
+          "calls": 2,
+          "paragraphs": 0,
+          "reasoning": 0
+        },
+        {
+          "calls": 0,
+          "paragraphs": 1,
+          "reasoning": 0
+        }
+      ]
+    }
+  ],
+  "title": "before-first-run-finished"
+}

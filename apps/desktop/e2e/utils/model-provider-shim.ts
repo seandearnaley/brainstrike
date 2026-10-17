@@ -30,7 +30,6 @@
  */
 import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { json } from 'node:stream/consumers';
 import { AWS_CHAIN_ACTIVATION_ENV_NAMES } from '@brainstrike/assistant-contract';
@@ -40,6 +39,17 @@ import {
   providerEnvKeys,
 } from '@brainstrike/assistant-contract/provider-metadata';
 import { TAVILY_ENV_KEYS } from '@brainstrike/assistant-contract/tavily-env-keys';
+import type {
+  ProviderCassetteExchange,
+  ProviderCassetteReplay,
+} from '@brainstrike/test-utils/provider-cassette';
+import {
+  type CassetteRouteScript,
+  cassetteReplayFor,
+  isCassetteRouteScript,
+  serveCassetteRoute,
+} from './model-provider-cassette-route';
+import { recordedOpenRouterMetadata } from './model-provider-metadata';
 
 export interface ScriptedToolCall {
   readonly arguments: Record<string, unknown>;
@@ -129,6 +139,8 @@ export interface ModelProviderRequest {
 
 export type ModelProviderScriptSelector = (request: ModelProviderRequest) => ModelProviderScript;
 
+type ShimScript = ModelProviderScript | ModelProviderScriptSelector | CassetteRouteScript;
+
 /** The host provider base-URL knobs and the provider whose SDK reads each one. */
 const PROVIDER_BASE_URL_KNOBS = {
   ['ANTHROPIC_BASE_URL']: 'anthropic',
@@ -142,14 +154,21 @@ const PROVIDER_BASE_URL_KNOB_NAMES = Object.keys(PROVIDER_BASE_URL_KNOBS) as Pro
 
 /** A provider request the shim refused instead of answering. */
 export interface ModelProviderRefusal {
+  /** For `unrecorded-exchange`: the request's key and the keys the cassette still held. */
+  readonly cassette?: { readonly key: string; readonly unserved: readonly string[] };
   /** The knob whose boundary path received it, when it arrived through one. */
   readonly knob: ProviderBaseUrlKnob | null;
   readonly method: string;
   /**
    * `unscripted`: no script is set. `unsupported-route`: no scripted wire serves
    * it. `unrecorded-model-metadata`: model metadata with no recorded fixture.
+   * `unrecorded-exchange`: the active cassette holds no unserved exchange for it.
    */
-  readonly reason: 'unscripted' | 'unsupported-route' | 'unrecorded-model-metadata';
+  readonly reason:
+    | 'unscripted'
+    | 'unsupported-route'
+    | 'unrecorded-model-metadata'
+    | 'unrecorded-exchange';
   readonly requestIndex: number;
   readonly route: string;
   /** Whether its JSON body asks to stream (runs do, titles do not); `null` without one. */
@@ -161,6 +180,8 @@ export interface ModelProviderShim {
   /** The base URL the launch fixture assigns to one knob; refusals name the knob. */
   readonly baseUrlFor: (knob: ProviderBaseUrlKnob) => string;
   readonly close: () => Promise<void>;
+  /** Client-aborted cassette exchanges fully served and held open (a Stop scenario waits on one). */
+  readonly heldExchanges: () => number;
   /** Every refused request, oldest first by arrival (`requestIndex`). */
   readonly refusals: () => readonly ModelProviderRefusal[];
   readonly requestCount: () => number;
@@ -168,10 +189,12 @@ export interface ModelProviderShim {
   readonly requests: () => readonly ModelProviderRequest[];
   /** Model identities whose recorded OpenRouter metadata was served, oldest first. */
   readonly servedMetadata: () => readonly string[];
-  /** Configure what the next tool-call/follow-up cycle returns. */
-  readonly setScript: (script: ModelProviderScript | ModelProviderScriptSelector) => void;
+  /** Configure what the next tool-call/follow-up cycle returns, or the cassette to replay. */
+  readonly setScript: (script: ShimScript) => void;
   /** Every decided request, oldest first — failure diagnostics only. */
   readonly transcript: () => readonly ModelProviderTurnRecord[];
+  /** The active cassette's exchanges no request has claimed yet; empty without a cassette. */
+  readonly unservedExchanges: () => readonly ProviderCassetteExchange[];
 }
 
 interface ParsedRequestBody {
@@ -839,76 +862,6 @@ function parseRequestPath(url: string | undefined): {
   return { knob, route: `/${(knob ? rest : segments).join('/')}` };
 }
 
-/**
- * Recorded public OpenRouter Models API responses, fetched without credentials:
- * Claude Sonnet 4.6 (G1, #3543 6054095971) and GPT-5.6 Terra, one of the
- * recommended coding models a new OpenRouter key enables.
- */
-const RECORDED_OPENROUTER_METADATA = [
-  new URL(
-    '../../src/__tests__/fixtures/openrouter-sonnet-4-6-model-metadata.json',
-    import.meta.url
-  ),
-  new URL(
-    '../../src/__tests__/fixtures/openrouter-gpt-5-6-terra-model-metadata.json',
-    import.meta.url
-  ),
-];
-let recordedMetadata: ReadonlyMap<string, Buffer> | undefined;
-
-/** Each fixture's own `data.id` is its only identity: none is ever relabelled. */
-function readRecordedMetadata(): ReadonlyMap<string, Buffer> {
-  if (recordedMetadata) {
-    return recordedMetadata;
-  }
-  const byId = new Map<string, Buffer>();
-  for (const fixture of RECORDED_OPENROUTER_METADATA) {
-    const body = readFileSync(fixture);
-    const parsed: unknown = JSON.parse(body.toString('utf8'));
-    const id = isRecord(parsed) && isRecord(parsed['data']) ? parsed['data']['id'] : undefined;
-    if (typeof id !== 'string') {
-      throw new Error(
-        `The recorded OpenRouter metadata fixture ${fixture.pathname} has no data.id.`
-      );
-    }
-    byId.set(id, body);
-  }
-  recordedMetadata = byId;
-  return recordedMetadata;
-}
-
-/**
- * The model a `GET /model/<provider>/<model>` metadata request names, through
- * the OpenRouter knob or a spec shim root; `null` when malformed, `undefined`
- * when the request is not a metadata lookup.
- */
-function openRouterMetadataIdentity(
-  method: string | undefined,
-  knob: ProviderBaseUrlKnob | null,
-  route: string
-): string | null | undefined {
-  const segments = route.split('/').filter(Boolean);
-  if (
-    method !== 'GET' ||
-    segments[0] !== 'model' ||
-    !(knob === null || knob === 'OPENROUTER_BASE_URL')
-  ) {
-    return;
-  }
-  if (segments.length !== 3) {
-    return null;
-  }
-  try {
-    return segments
-      .slice(1)
-      .map((segment) => decodeURIComponent(segment))
-      .join('/');
-  } catch {
-    // A malformed escape names no model; the caller refuses and records it.
-    return null;
-  }
-}
-
 function wireForRoute(method: string | undefined, route: string): ModelProviderWire | null {
   if (method !== 'POST') {
     return null;
@@ -928,6 +881,8 @@ function refusalMessage(refusal: ModelProviderRefusal): string {
       return `E2E egress boundary refused OpenRouter model metadata with no recorded fixture: ${request}.`;
     case 'unsupported-route':
       return `E2E egress boundary refused a provider request no scripted wire serves: ${request}.`;
+    case 'unrecorded-exchange':
+      return `E2E egress boundary refused a provider request its cassette never recorded: ${refusal.cassette?.key ?? request}. Unserved: ${refusal.cassette?.unserved.join(' | ') || 'none'}. Re-record the scenario if the host's conversation shape changed.`;
   }
 }
 
@@ -950,9 +905,10 @@ function writeRefusal(response: ServerResponse, refusal: ModelProviderRefusal): 
 }
 
 export async function startModelProviderShim(
-  initialScript?: ModelProviderScript | ModelProviderScriptSelector
+  initialScript?: ShimScript
 ): Promise<ModelProviderShim> {
   let script = initialScript;
+  let replay: ProviderCassetteReplay | undefined = cassetteReplayFor(initialScript);
   let requestCount = 0;
   const transcript: ModelProviderTurnRecord[] = [];
   const refusals: ModelProviderRefusal[] = [];
@@ -978,12 +934,43 @@ export async function startModelProviderShim(
       refusals.push(refusal);
       writeRefusal(response, refusal);
     };
+    // Read once: a later setScript must not change how this request is served.
+    const recordedScript = script;
+    if (isCassetteRouteScript(recordedScript)) {
+      if (!knob) {
+        void refuse('unsupported-route');
+        return;
+      }
+      void serveCassetteRoute({
+        knob,
+        replay,
+        request,
+        response,
+        route,
+        script: recordedScript,
+      }).then((cassette) => {
+        if (cassette) {
+          const unrecorded: ModelProviderRefusal = {
+            cassette: { key: cassette.key, unserved: cassette.unserved },
+            knob,
+            method: request.method ?? 'GET',
+            reason: 'unrecorded-exchange',
+            requestIndex: requestOrdinal,
+            route,
+            stream: cassette.stream,
+          };
+          refusals.push(unrecorded);
+          writeRefusal(response, unrecorded);
+        }
+      });
+      return;
+    }
     if (
       request.method === 'GET' &&
       knob === 'OPENROUTER_BASE_URL' &&
       route === '/key' &&
-      typeof script === 'object' &&
-      script.verifyOpenRouterKey
+      typeof recordedScript === 'object' &&
+      recordedScript.verifyOpenRouterKey
     ) {
       request.resume();
       response.writeHead(200, { 'Content-Type': 'application/json' });
@@ -995,22 +982,20 @@ export async function startModelProviderShim(
       );
       return;
     }
-    const metadataIdentity = openRouterMetadataIdentity(request.method, knob, route);
-    if (metadataIdentity !== undefined) {
-      const body =
-        metadataIdentity === null ? undefined : readRecordedMetadata().get(metadataIdentity);
-      if (!(metadataIdentity && body)) {
-        void refuse('unrecorded-model-metadata');
-        return;
-      }
-      servedMetadata.push(metadataIdentity);
+    const metadata = recordedOpenRouterMetadata(request.method, knob, route);
+    if (metadata === 'unrecorded') {
+      void refuse('unrecorded-model-metadata');
+      return;
+    }
+    if (metadata) {
+      servedMetadata.push(metadata.identity);
       request.resume();
       response.writeHead(200, { 'Content-Type': 'application/json' });
-      response.end(body);
+      response.end(metadata.body);
       return;
     }
     const wire = wireForRoute(request.method, route);
-    const activeScript = script;
+    const activeScript = recordedScript;
     if (!(wire && activeScript)) {
       void refuse(activeScript ? 'unsupported-route' : 'unscripted');
       return;
@@ -1094,13 +1079,16 @@ export async function startModelProviderShim(
         server.close((error) => (error ? reject(error) : resolve()));
       });
     },
+    heldExchanges: () => replay?.holding() ?? 0,
     refusals: () => [...refusals].sort((a, b) => a.requestIndex - b.requestIndex),
     requestCount: () => requestCount,
     requests: () => [...requests],
     servedMetadata: () => [...servedMetadata],
     setScript: (nextScript) => {
       script = nextScript;
+      replay = cassetteReplayFor(nextScript);
     },
     transcript: () => [...transcript],
+    unservedExchanges: () => replay?.unserved() ?? [],
   };
 }

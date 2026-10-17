@@ -244,6 +244,7 @@
     "test": "vitest run --config vitest.unit.config.mts --exclude \"**/*.integration.test.*\"",
     "test:packaged-python-layout": "node scripts/packaged-python-smoke.mjs --layout-only",
     "test:packaged-python": "node scripts/packaged-python-smoke.mjs",
+    "test:provider-cassettes": "vitest run --config vitest.integration.config.mts --maxWorkers=1 --no-file-parallelism src/__tests__/provider-cassettes.integration.test.ts src/__tests__/provider-cassette-pipeline.integration.test.ts",
     "test:integration": "node scripts/run-integration.mjs",
     "test:integration:routine": "vitest run --config vitest.integration.config.mts --maxWorkers=1 --no-file-parallelism src/__tests__/ordinary-app-owned-host.integration.test.ts src/__tests__/ordinary-app-owned-host-stop.integration.test.ts src/__tests__/main/host-lease-electron.integration.test.ts src/__tests__/factory-reset-quit.integration.test.ts",
     "test:coverage": "node scripts/run-integration.mjs --coverage",

@@ -26,6 +26,10 @@ const SECRET_RULES = [
     pattern: /\bsk-(?:(?:proj|svcacct)-[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{20,})\b/g,
   },
   {
+    id: 'openrouter-api-key',
+    pattern: /\bsk-or-v1-[A-Fa-f0-9]{64}\b/g,
+  },
+  {
     id: 'anthropic-api-key',
     pattern: /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g,
   },

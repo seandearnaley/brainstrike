@@ -1,0 +1,77 @@
+{
+  "children": [
+    {
+      "outcome": "completed",
+      "toolCalls": 1
+    },
+    {
+      "outcome": "completed",
+      "toolCalls": 1
+    }
+  ],
+  "projection": "folded",
+  "runs": [
+    {
+      "groups": [
+        "activity×4",
+        "text",
+        "notice:run.finished"
+      ],
+      "message": "complete:stop",
+      "outcome": "completed",
+      "rows": [
+        "Updated memory done",
+        "Delegated to Explorer done",
+        "Delegated to Explorer done",
+        "Updated memory done"
+      ],
+      "steps": [
+        {
+          "calls": 1,
+          "paragraphs": 0,
+          "reasoning": 0
+        },
+        {
+          "calls": 2,
+          "paragraphs": 0,
+          "reasoning": 0
+        },
+        {
+          "calls": 1,
+          "paragraphs": 0,
+          "reasoning": 0
+        },
+        {
+          "calls": 0,
+          "paragraphs": 1,
+          "reasoning": 0
+        }
+      ]
+    },
+    {
+      "groups": [
+        "activity×1",
+        "text",
+        "notice:run.finished"
+      ],
+      "message": "complete:stop",
+      "outcome": "completed",
+      "rows": [
+        "Updated memory done"
+      ],
+      "steps": [
+        {
+          "calls": 1,
+          "paragraphs": 0,
+          "reasoning": 0
+        },
+        {
+          "calls": 0,
+          "paragraphs": 1,
+          "reasoning": 0
+        }
+      ]
+    }
+  ],
+  "title": "before-first-run-finished"
+}

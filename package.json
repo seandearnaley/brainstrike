@@ -52,6 +52,8 @@
     "boundaries": "node scripts/turbo-boundaries.mjs",
     "build": "node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run build --summarize --log-order=grouped",
     "build:web": "node scripts/run-turbo-command.mjs -- run build --filter @brainstrike/web --summarize --log-order=grouped",
+    "cassettes:proxy": "node scripts/provider-cassette-proxy.mjs",
+    "cassettes:record": "node scripts/record-provider-cassette.mjs",
     "check": "node scripts/check.mjs",
     "check-just-errors": "pnpm check 2>&1 | grep -iE '(error|failed|\u2717|\u2716|FAIL)' | sed 's#^@brainstrike/##'",
     "check:fast": "node scripts/check.mjs --fast",
