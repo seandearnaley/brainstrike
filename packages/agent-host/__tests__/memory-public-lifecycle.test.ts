@@ -887,10 +887,10 @@ describe.each(entrypoints)(
       owner.abort(new DOMException('Expected provider cancellation', 'AbortError'));
       await expect(f.engine.settled()).rejects.toBe(cleanupFailure);
     });
-
     it('rejects the existing 100-wave guard without forgetting still-owned work', async () => {
       const f = await fixture();
       const waves = Array.from({ length: 102 }, () => gate());
+      const background: Promise<unknown>[] = [];
       function launch(index: number): Promise<void> {
         const wave = waves[index];
         if (!wave) {
@@ -898,11 +898,11 @@ describe.each(entrypoints)(
         }
         return wave.promise.then(() => {
           if (index + 1 < waves.length) {
-            f.engine.trackBackgroundWork(launch(index + 1));
+            background.push(f.engine.trackBackgroundWork(launch(index + 1)));
           }
         });
       }
-      f.engine.trackBackgroundWork(launch(0));
+      background.push(f.engine.trackBackgroundWork(launch(0)));
       const joined = watch(f.engine.settled());
       for (const wave of waves.slice(0, 100)) {
         wave.resolve();
@@ -922,8 +922,8 @@ describe.each(entrypoints)(
         await nextTurn();
       }
       expect((await retained.result).status).toBe('fulfilled');
+      await Promise.all(background);
     });
-
     it('preserves an uncancelled public turn round trip and admits a fresh next-run owner signal', async () => {
       const stopped = new AbortController();
       stopped.abort(new DOMException('Previous run stopped', 'AbortError'));

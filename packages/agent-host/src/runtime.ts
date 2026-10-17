@@ -370,7 +370,7 @@ export async function startAgentHost(
       });
     },
     clearAndRetireContent: () => {
-      if (clearing) {
+      if (clearing !== undefined) {
         return clearing;
       }
       if (closing) {

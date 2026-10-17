@@ -53,7 +53,8 @@ describe("a finished run's memory settlement", () => {
 
   test("another thread's settlement never holds an admission", async () => {
     const settling = run('b', 'b1');
-    settleHostRunOwner(settling, () => new Promise<void>(() => undefined));
+    const otherSettlement = settleHostRunOwner(settling, () => new Promise<void>(() => undefined));
+    expect(otherSettlement).toBe(settling.settlement);
     await expect(joinHostThreadSettlements([settling], 'a')).resolves.toBeUndefined();
     expect(() => assertHostRunStartAvailable([settling], 'a')).not.toThrow();
   });

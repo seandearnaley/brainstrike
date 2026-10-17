@@ -130,7 +130,7 @@ export class MemoryProviderLifetime {
     if (this.signal.aborted) {
       throw this.cancellation();
     }
-    if (this.closing) {
+    if (this.closing !== undefined) {
       throw new Error('Memory provider admission is closed');
     }
   }
@@ -236,7 +236,7 @@ export class MemoryProviderLifetime {
         wrapGenerate: async ({ doGenerate }) => {
           this.observeAbort();
           this.signal.throwIfAborted();
-          if (this.closing) {
+          if (this.closing !== undefined) {
             throw new Error('Memory provider admission is closed');
           }
           const result = await this.capture(
@@ -255,7 +255,7 @@ export class MemoryProviderLifetime {
         wrapStream: async ({ doStream }) => {
           this.observeAbort();
           this.signal.throwIfAborted();
-          if (this.closing) {
+          if (this.closing !== undefined) {
             throw new Error('Memory provider admission is closed');
           }
           const result = await this.capture(

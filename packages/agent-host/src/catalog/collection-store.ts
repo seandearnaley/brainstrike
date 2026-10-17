@@ -61,7 +61,7 @@ export function serveCollectionStore(
   let closing: Promise<void> | undefined;
   const pending = new Set<Promise<CollectionReply>>();
   const subscription = connection.onRequest(METHOD, async (input: unknown) => {
-    if (closing) {
+    if (closing !== undefined) {
       throw new Error('Collection endpoint is closing');
     }
     const request = Schema.decodeUnknownSync(Request, { errors: 'all', onExcessProperty: 'error' })(

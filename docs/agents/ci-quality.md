@@ -25,6 +25,15 @@ Biome's dependency rule checks actual workspace manifests. The module-format-onl
 manifests under web/desktop E2E and desktop qualification do not own installs;
 their four scoped exceptions preserve the parent app's dependency ownership.
 
+The agent/tool quality overrides in `biome.json` enforce joined async work in
+tests and explicit Promise-presence checks in lifecycle code. Use `pnpm exec
+biome check <affected paths>` while editing; package lint scripts currently run
+the root lane. Preserve real rejection ownership rather than adding `void` to
+silence a finding. Narrow cause/import/boolean rules follow the scanner's proved
+scope; TypeScript, Effect diagnostics and React Compiler checks remain separate.
+Run `pnpm exec node --test scripts/__tests__/agent-quality-lint.test.mjs` when
+changing these overrides: real new-file fixtures verify inclusion and semantics.
+
 ## Finish without an endless campaign
 
 Batch related corrections and retest the affected behavior. Reuse passing checks

@@ -119,7 +119,7 @@ test('a session is loading until its replay arrives, and names the replayed boun
     replayedThrough: replayed.at(-1)?.seq,
     rows,
   });
-  disconnect();
+  await disconnect();
 });
 
 test('a refused replay ends loading with its error and no replayed boundary', async () => {
@@ -190,7 +190,7 @@ test("a session applies its subscription's replayed telemetry over the rows, the
       rows: rows.length,
     }))
   );
-  disconnect();
+  await disconnect();
 });
 
 test('an untyped replay error never exposes its private path', async () => {

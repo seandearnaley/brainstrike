@@ -304,7 +304,7 @@ export function openHostRunOwner(
   append: Parameters<typeof createHostRunContext>[1],
   readCommittedRows: Parameters<typeof createHostRunContext>[2]
 ): Promise<HostRunOwner | undefined> {
-  if (run.ownerClose) {
+  if (run.ownerClose !== undefined) {
     return Promise.reject(new Error('The run owner is already closed'));
   }
   run.owner ??= ensureHostRunAdmission(platform, run).then((admission) => {

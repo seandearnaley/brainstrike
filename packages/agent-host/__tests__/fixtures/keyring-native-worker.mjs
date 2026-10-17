@@ -38,12 +38,18 @@ port.on('message', (request) => {
   if (request.operation !== 'close') {
     pending.add(operation);
   }
-  operation.then((value) => {
-    pending.delete(operation);
-    port.postMessage({ id: request.id, ok: true, value });
-    if (request.operation === 'close') {
-      workerData.observationPort.close();
-      port.close();
+  operation.then(
+    (value) => {
+      pending.delete(operation);
+      port.postMessage({ id: request.id, ok: true, value });
+      if (request.operation === 'close') {
+        workerData.observationPort.close();
+        port.close();
+      }
+    },
+    () => {
+      pending.delete(operation);
+      port.postMessage({ id: request.id, ok: false });
     }
-  });
+  );
 });

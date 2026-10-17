@@ -23,7 +23,7 @@ function closeLease(lease: HostAdmissionLease): Promise<void> {
 }
 
 function hold(lease: HostAdmissionLease): () => Promise<void> {
-  if (lease.closing) {
+  if (lease.closing !== undefined) {
     throw new Error('A released admission cannot be borrowed');
   }
   lease.holders += 1;

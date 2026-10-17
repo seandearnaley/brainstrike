@@ -51,7 +51,7 @@ export class StateStoreMemoryStorage extends MemoryStorage {
   }
 
   private admit<Value>(operation: () => Promise<Value>): Promise<Value> {
-    if (this.closing) {
+    if (this.closing !== undefined) {
       return Promise.reject(new Error('Memory storage admission is closed'));
     }
     const work = Promise.resolve().then(operation);

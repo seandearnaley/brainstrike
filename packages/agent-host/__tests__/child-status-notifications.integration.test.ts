@@ -93,17 +93,26 @@ test('a collapsed parent’s child goes Working, Needs input, then idle, told on
   // The sidebar of a collapsed parent: it re-reads only when the host tells it.
   const seen: HostChildStatus[] = [];
   let notices = 0;
-  client.onChildrenChanged((changed) => {
+  const reads: Promise<void>[] = [];
+  const readFailures: unknown[] = [];
+  const unsubscribe = client.onChildrenChanged((changed) => {
     if (changed !== threadId) {
       return;
     }
     notices += 1;
-    client.request('thread/children', { threadId }).then(({ children }) => {
-      const status = children[0]?.status;
-      if (status && seen.at(-1) !== status) {
-        seen.push(status);
-      }
-    });
+    reads.push(
+      client
+        .request('thread/children', { threadId })
+        .then(({ children }) => {
+          const status = children[0]?.status;
+          if (status && seen.at(-1) !== status) {
+            seen.push(status);
+          }
+        })
+        .catch((cause: unknown) => {
+          readFailures.push(cause);
+        })
+    );
   });
   await client.request('run/start', {
     commandId: randomUUID(),
@@ -137,4 +146,7 @@ test('a collapsed parent’s child goes Working, Needs input, then idle, told on
   await expect.poll(() => seen.at(-1)).toBe('idle');
   expect(seen).toEqual(['working', 'needs-input', 'working', 'idle']);
   expect(notices).toBeGreaterThanOrEqual(4);
+  unsubscribe();
+  await Promise.all(reads);
+  expect(readFailures).toEqual([]);
 });
