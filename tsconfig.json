@@ -245,6 +245,12 @@
       "@brainstrike/agent-host/*": [
         "./packages/agent-host/src/*"
       ],
+      "@brainstrike/agent-evals": [
+        "./packages/agent-evals/src/index.ts"
+      ],
+      "@brainstrike/agent-evals/*": [
+        "./packages/agent-evals/src/*"
+      ],
       "@brainstrike/host-capabilities": [
         "./packages/host-capabilities/src/index.ts"
       ],

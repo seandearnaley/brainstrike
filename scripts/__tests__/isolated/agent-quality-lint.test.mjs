@@ -1,25 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readlinkSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
-import os from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-const repo = fileURLToPath(new URL('../..', import.meta.url));
-const biome = path.join(repo, 'node_modules/@biomejs/biome/bin/biome');
+const root = fileURLToPath(new URL('../../..', import.meta.url));
+const biome = path.join(root, 'node_modules/@biomejs/biome/bin/biome');
 const assertion =
   "import { expect } from 'vitest'; export function check() { expect(Promise.reject(new Error('failure'))).rejects.toThrow('failure'); }";
 const joinedAssertion =
@@ -27,12 +15,6 @@ const joinedAssertion =
 
 // Real new files exercise the repository's inclusion/override rules and scanner.
 // A separate synthetic config or --only would enable rules behind our backs.
-// They are written to a copy of the workspace layout under the OS temp
-// directory, never into the checkout: sibling suites read the real tree, and a
-// file created and deleted there fails those reads with ENOENT (BST-2076). The
-// copy carries the repository's own biome.json and each enclosing package
-// manifest, and links that package's installed dependencies, so includes,
-// overrides and module resolution see the same relative paths as the checkout.
 const layouts = [
   ['packages/effect-kit/src/__tests__', '.test.ts'],
   ['packages/effect-kit/src/__tests__', '.spec.ts'],
@@ -47,59 +29,17 @@ const layouts = [
   ['packages/agent/src/__tests__', '.mjs'],
 ];
 
-function packageDirectory(relativePath) {
-  for (let directory = path.dirname(relativePath); ; directory = path.dirname(directory)) {
-    if (existsSync(path.join(repo, directory, 'package.json'))) {
-      return directory;
-    }
-    if (directory === '.') {
-      throw new Error(`no package encloses ${relativePath}`);
-    }
-  }
-}
-
-// pnpm links a package's dependencies relatively into the root store
-// (`../../node_modules/.pnpm/...`). Recreating each link, instead of linking
-// the node_modules directory itself, keeps the resolved paths inside the copy;
-// Biome reads no dependency types from outside its project root, so
-// `expect(...).rejects` would otherwise never be seen as a Promise.
-function linkDependencies(from, to) {
-  mkdirSync(to);
-  for (const entry of readdirSync(from, { withFileTypes: true })) {
-    const source = path.join(from, entry.name);
-    const target = path.join(to, entry.name);
-    if (entry.isSymbolicLink()) {
-      symlinkSync(readlinkSync(source), target);
-    } else if (entry.name.startsWith('@')) {
-      linkDependencies(source, target);
-    } else {
-      symlinkSync(source, target);
-    }
-  }
-}
-
-function workspaceCopy(t, relativePaths) {
-  // The real path: below macOS's symlinked /var, Biome finds no package manifest.
-  const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'agent-quality-lint-')));
-  t.after(() => rmSync(root, { force: true, recursive: true }));
-  copyFileSync(path.join(repo, 'biome.json'), path.join(root, 'biome.json'));
-  for (const directory of new Set(['.', ...relativePaths.map(packageDirectory)])) {
-    mkdirSync(path.join(root, directory), { recursive: true });
-    copyFileSync(
-      path.join(repo, directory, 'package.json'),
-      path.join(root, directory, 'package.json')
-    );
-    linkDependencies(
-      path.join(repo, directory, 'node_modules'),
-      path.join(root, directory, 'node_modules')
-    );
-  }
-  return root;
-}
-
 function lint(t, side) {
   const token = randomUUID();
-  const declaration = `packages/effect-kit/src/agent-quality-lint-declaration-${token}.ts`;
+  const declaration = path.join(
+    root,
+    `packages/effect-kit/src/agent-quality-lint-declaration-${token}.ts`
+  );
+  t.after(() => rmSync(declaration, { force: true }));
+  writeFileSync(
+    declaration,
+    `/** @${side === 'bad' ? 'private' : 'public'} */\nexport const internalValue = 1;\n`
+  );
   const cases = layouts.map(([directory, suffix]) => ({
     bad: assertion,
     good: joinedAssertion,
@@ -107,6 +47,7 @@ function lint(t, side) {
     rule: 'nursery/noFloatingPromises',
   }));
   const nested = `packages/agent/src/__tests__/agent-quality-lint-${token}`;
+  t.after(() => rmSync(path.join(root, nested), { force: true, recursive: true }));
   cases.push({
     bad: assertion,
     good: joinedAssertion,
@@ -176,17 +117,17 @@ function lint(t, side) {
       rule: 'correctness/noUnresolvedImports',
     }
   );
-  const root = workspaceCopy(t, [declaration, ...cases.map((entry) => entry.path)]);
   const files = cases.map((entry) => path.join(root, entry.path));
+  t.after(() => {
+    for (const file of files) {
+      rmSync(file, { force: true });
+    }
+  });
   for (const entry of cases) {
     const file = path.join(root, entry.path);
     mkdirSync(path.dirname(file), { recursive: true });
     writeFileSync(file, `${entry[side]}\n`);
   }
-  writeFileSync(
-    path.join(root, declaration),
-    `/** @${side === 'bad' ? 'private' : 'public'} */\nexport const internalValue = 1;\n`
-  );
   const result = spawnSync(process.execPath, [biome, 'lint', ...files, '--reporter=json'], {
     cwd: root,
     encoding: 'utf8',

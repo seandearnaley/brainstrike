@@ -167,6 +167,7 @@ apps/desktop/resources/python-runtime/*
 # Vitest 5 generated reports and attachments; visual baselines remain trackable.
 .vitest/
 packages/mcp-test-lab/artifacts/
+packages/agent-evals/results/
 
 .claude
 .impeccable/

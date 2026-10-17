@@ -668,9 +668,58 @@ export class EmbeddingDeviceLostError extends Error {
   }
 }
 
+export const EMBEDDING_DEVICE_UNAVAILABLE_CODE = 'EMBEDDING_DEVICE_UNAVAILABLE';
+
+/**
+ * The chosen WebGPU device has no adapter, or the environment has no WebGPU: an
+ * expected condition with a remedy, not a fault. The device is never switched
+ * to WASM automatically (BST-2058).
+ */
+export class EmbeddingDeviceUnavailableError extends Error {
+  readonly code = EMBEDDING_DEVICE_UNAVAILABLE_CODE;
+  constructor(cause: unknown) {
+    super('WebGPU is not available on this device. Choose WASM in Settings → Search & Indexing.', {
+      cause,
+    });
+    this.name = 'DeviceUnavailable';
+  }
+}
+
+/** An unavailable device by its code, so an error rebuilt across a boundary still matches. */
+export function isEmbeddingDeviceUnavailable(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error as Error & { readonly code?: unknown }).code === EMBEDDING_DEVICE_UNAVAILABLE_CODE
+  );
+}
+
+/** The worker error event codes a request failure may carry. */
+export type EmbedWorkerErrorCode =
+  | typeof EMBEDDING_DEVICE_LOST_CODE
+  | typeof EMBEDDING_DEVICE_UNAVAILABLE_CODE;
+
+export function isEmbedWorkerErrorCode(value: unknown): value is EmbedWorkerErrorCode {
+  return value === EMBEDDING_DEVICE_LOST_CODE || value === EMBEDDING_DEVICE_UNAVAILABLE_CODE;
+}
+
+/** The typed device failure a worker error event names, or a plain error with its cause. */
+export function embedWorkerFailure(event: {
+  readonly cause?: string | undefined;
+  readonly code?: EmbedWorkerErrorCode | undefined;
+  readonly message: string;
+}): Error {
+  if (event.code === EMBEDDING_DEVICE_LOST_CODE) {
+    return new EmbeddingDeviceLostError(event.cause ?? event.message);
+  }
+  if (event.code === EMBEDDING_DEVICE_UNAVAILABLE_CODE) {
+    return new EmbeddingDeviceUnavailableError(event.cause ?? event.message);
+  }
+  return new Error(event.message, { cause: event.cause });
+}
+
 export interface EmbedWorkerError {
   readonly cause?: string | undefined;
-  readonly code?: typeof EMBEDDING_DEVICE_LOST_CODE;
+  readonly code?: EmbedWorkerErrorCode;
   readonly id: string;
   readonly message: string;
   readonly type: 'error';

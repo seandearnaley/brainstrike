@@ -1,0 +1,46 @@
+{
+  "calls": [
+    {
+      "input": { "path": "src/index.ts" },
+      "toolId": "brainstrike_readWorkspaceFile"
+    },
+    {
+      "input": { "path": "test/greet.test.ts" },
+      "toolId": "brainstrike_readWorkspaceFile"
+    },
+    {
+      "input": { "path": "CHANGELOG.md" },
+      "toolId": "brainstrike_readWorkspaceFile"
+    },
+    {
+      "input": {
+        "content": "/** A farewell for `name`. */\nexport function farewell(name: string): string {\n  return `Goodbye, ${name}!`;\n}\n",
+        "path": "src/farewell.ts"
+      },
+      "toolId": "brainstrike_writeWorkspaceFile"
+    },
+    {
+      "input": {
+        "content": "import assert from 'node:assert/strict';\nimport { test } from 'node:test';\nimport { farewell } from '../src/farewell.ts';\n\ntest('farewell says goodbye by name', () => {\n  assert.equal(farewell('Ada'), 'Goodbye, Ada!');\n});\n",
+        "path": "test/farewell.test.ts"
+      },
+      "toolId": "brainstrike_writeWorkspaceFile"
+    },
+    {
+      "input": {
+        "newStr": "export { farewell } from './farewell.ts';\nexport { greet } from './greet.ts';",
+        "oldStr": "export { greet } from './greet.ts';",
+        "path": "src/index.ts"
+      },
+      "toolId": "brainstrike_stringReplaceWorkspaceFile"
+    },
+    {
+      "input": {
+        "newStr": "- Add greet(name).\n- Add farewell(name).",
+        "oldStr": "- Add greet(name).",
+        "path": "CHANGELOG.md"
+      },
+      "toolId": "brainstrike_stringReplaceWorkspaceFile"
+    }
+  ]
+}

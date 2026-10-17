@@ -1,4 +1,8 @@
 import {
+  BoundaryFailureError,
+  describeBoundaryFailure,
+} from '@brainstrike/assistant-contract/boundary-failure';
+import {
   createThreadSearchService,
   THREAD_SEARCH_VECTOR_THRESHOLD,
   type ThreadSearchExtraArms,
@@ -101,6 +105,10 @@ export interface ThreadSearchController {
 }
 
 function toThreadSearchErrorMessage(error: unknown): string {
+  // A refusal carries its remedy, such as the device setting to change (BST-2058).
+  if (error instanceof BoundaryFailureError) {
+    return describeBoundaryFailure(error.failure);
+  }
   return error instanceof Error && error.message.trim()
     ? error.message
     : `Unexpected thread search failure: ${String(error)}`;

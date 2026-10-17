@@ -7,6 +7,7 @@ import {
   EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
   EmbeddingDeviceLostError,
+  EmbeddingDeviceUnavailableError,
   type EmbedWorkerRequestControl,
   readOnnxWasmPathsFragment,
   requestedEmbeddingPooling,
@@ -654,11 +655,27 @@ function inferDevice(hint: EmbeddingDeviceHint | undefined): EmbeddingDevice {
   }
   if (hint === 'webgpu') {
     if (!hasWebGPU()) {
-      throw new Error('WebGPU is not available in this environment.');
+      throw new EmbeddingDeviceUnavailableError('WebGPU is not available in this environment.');
     }
     return 'webgpu';
   }
   return 'wasm';
+}
+
+/**
+ * The request's device, checked before inference starts. A workerpool request's
+ * typed failures reach its owner only as error events, so an unavailable device
+ * found here is emitted too (BST-2058).
+ */
+function inferRequestDevice(id: string, hint: EmbeddingDeviceHint | undefined): EmbeddingDevice {
+  try {
+    return inferDevice(hint);
+  } catch (error) {
+    if (error instanceof EmbeddingDeviceUnavailableError) {
+      emitErrorEvent(id, error);
+    }
+    throw error;
+  }
 }
 
 async function createFeatureExtractor(
@@ -923,11 +940,12 @@ function createContext(payload: EmbedWorkerRequest): EmbeddingContext {
 function createInitialState(
   context: EmbeddingContext,
   deviceHint: EmbeddingDeviceHint,
-  maxBatchSize: number | undefined
+  maxBatchSize: number | undefined,
+  device: EmbeddingDevice = inferDevice(deviceHint)
 ): EmbeddingState {
   return {
     batchSize: computeInitialBatchSize(context.total, maxBatchSize),
-    device: inferDevice(deviceHint),
+    device,
     fallbackApplied: false,
     ...(maxBatchSize === undefined ? {} : { maxBatchSize }),
   };
@@ -951,7 +969,7 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
       id,
       metadata: {
         batchSize: 0,
-        device: inferDevice(deviceHint),
+        device: inferRequestDevice(id, deviceHint),
         dimensions: context.truncateDim ?? 0,
         dtype: context.dtype,
         elapsedMs: 0,
@@ -972,7 +990,12 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
     type: 'progress',
   });
 
-  const state = createInitialState(context, deviceHint, payload.maxBatchSize);
+  const state = createInitialState(
+    context,
+    deviceHint,
+    payload.maxBatchSize,
+    inferRequestDevice(context.id, deviceHint)
+  );
   isInferenceActive = true;
   activeWorkerpoolRequestId = context.id;
   try {
@@ -1326,7 +1349,10 @@ function emitErrorEvent(id: string, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   const event: EmbedWorkerError = {
     cause: serializeErrorCause(error),
-    ...(error instanceof EmbeddingDeviceLostError ? { code: error.code } : {}),
+    ...(error instanceof EmbeddingDeviceLostError ||
+    error instanceof EmbeddingDeviceUnavailableError
+      ? { code: error.code }
+      : {}),
     id,
     message,
     type: 'error',
@@ -1387,7 +1413,10 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
         const failure = await joinDeviceRetirement(error);
         postStreamEvent({
           cause: serializeErrorCause(failure),
-          ...(failure instanceof EmbeddingDeviceLostError ? { code: failure.code } : {}),
+          ...(failure instanceof EmbeddingDeviceLostError ||
+          failure instanceof EmbeddingDeviceUnavailableError
+            ? { code: failure.code }
+            : {}),
           id: context?.id ?? requestId,
           message: failure instanceof Error ? failure.message : String(failure),
           type: 'error',
