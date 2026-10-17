@@ -78,15 +78,18 @@ test('browser artifact uploads include the resolved Vitest attachment directorie
     true,
     'dot-directory artifacts must be included'
   );
-  const uploadPaths = upload.with.path.trim().split(/\s+/u);
-  for (const packageName of [
-    'db',
-    'assistant-ui',
-    'embedding-worker',
-    'ui',
-    'storage',
-    'mcp-app-host',
-  ]) {
+  const uploadPaths = upload.with.path
+    .trim()
+    .split(/\s+/u)
+    .map((entry) => path.resolve(repoRoot, entry));
+  // Every package the lane runs, as its own --filter list names them, so a
+  // package added to the lane cannot fail with nothing uploaded.
+  const run = browserJob.steps.find((step) => step.name === 'Run browser tests')?.run ?? '';
+  const packageNames = [...run.matchAll(/--filter=@brainstrike\/([\w-]+)/gu)].map(
+    (match) => match[1]
+  );
+  assert.ok(packageNames.length > 0, 'the Run browser tests step must filter its packages');
+  for (const packageName of packageNames) {
     const root = path.join(repoRoot, 'packages', packageName);
     const { test: config } = await resolveConfig({
       config: path.join(root, 'vitest.config.mts'),
@@ -94,8 +97,10 @@ test('browser artifact uploads include the resolved Vitest attachment directorie
     });
     const captures = path.join(config.attachmentsDir, 'failure-screenshots');
     assert.ok(
-      uploadPaths.some((entry) => path.resolve(repoRoot, entry) === captures),
+      uploadPaths.includes(captures),
       `missing resolved failure screenshots for ${packageName}: ${captures}`
     );
+    const results = path.join(root, 'test-results');
+    assert.ok(uploadPaths.includes(results), `missing test results for ${packageName}: ${results}`);
   }
 });
