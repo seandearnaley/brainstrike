@@ -264,12 +264,16 @@ overrides:
   # BST-878: keep YAML on its owner's major; 4.3.2 also fixes empty merge
   # sources. Retire when every 4.x owner resolves >=4.3.2 without this floor.
   'js-yaml@4.0.0 - 4.3.1': 4.3.2
-  # BST-884: current Vercel owners still pin TOML 1.5.2; 1.8.0 fixes both parser DoS
-  # advisories. Retire each edge when its owner admits smol-toml >=1.7.1.
-  'vercel@64.3.1>smol-toml': 1.8.0
-  '@vercel/python-analysis@0.15.0>smol-toml': 1.8.0
-  '@vercel/rust@20.0.2>smol-toml': 1.8.0
-  '@vercel/container@19.1.2>smol-toml': 1.8.0
+  # serve pins 1.8.1; 1.8.2 releases streams on client disconnect (GHSA-vc2v-76pw-4v95).
+  # Retire when serve resolves >=1.8.2 unaided; keep the HTTP abort regression.
+  'serve@14.2.6>compression': 1.8.2
+  # BST-884 follow-up: Vercel still pins TOML 1.5.2; 1.9.0 also fixes quadratic
+  # key parsing (GHSA-r4xh-jqrq-34v2). 1.9.1 rejects invalid exponent signs.
+  # Retire each edge when its owner admits >=1.9.1; parsed tables now have null prototypes.
+  'vercel@64.3.1>smol-toml': 1.9.1
+  '@vercel/python-analysis@0.15.0>smol-toml': 1.9.1
+  '@vercel/rust@20.0.2>smol-toml': 1.9.1
+  '@vercel/container@19.1.2>smol-toml': 1.9.1
   # BST-879: python-analysis 0.15.0 still pins vulnerable minimatch 10.1.1.
   # Use the vendor's patched 10.x API; remove when the owner admits >=10.2.3.
   # https://github.com/isaacs/minimatch/security/advisories/GHSA-23c5-xmqv-rm74

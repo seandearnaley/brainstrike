@@ -532,10 +532,11 @@ overrides:
   '@vercel/express@19.0.2>path-to-regexp': 8.4.2
   '@vercel/hono@19.0.2>path-to-regexp': 8.4.2
   js-yaml@4.0.0 - 4.3.1: 4.3.2
-  vercel@64.3.1>smol-toml: 1.8.0
-  '@vercel/python-analysis@0.15.0>smol-toml': 1.8.0
-  '@vercel/rust@20.0.2>smol-toml': 1.8.0
-  '@vercel/container@19.1.2>smol-toml': 1.8.0
+  serve@14.2.6>compression: 1.8.2
+  vercel@64.3.1>smol-toml: 1.9.1
+  '@vercel/python-analysis@0.15.0>smol-toml': 1.9.1
+  '@vercel/rust@20.0.2>smol-toml': 1.9.1
+  '@vercel/container@19.1.2>smol-toml': 1.9.1
   '@vercel/python-analysis@0.15.0>minimatch': 10.2.6
   react: ^19.3.1
   react-dom: ^19.3.1
@@ -12253,8 +12254,8 @@ packages:
     resolution: {integrity: sha512-AF3r7P5dWxL8MxyITRMlORQNaOA2IkAFaTr4k7BUumjPtRpGDTZpl0Pb1XCO6JeDCBdp126Cgs9sMxqSjgYyRg==}
     engines: {node: '>= 0.6'}
 
-  compression@1.8.1:
-    resolution: {integrity: sha512-9mAqGPHLakhCLeNyxPkK4xVo746zQ/czLH1Ky+vkitMnWfWZps8r0qXuwhwizagCRttsL4lfG4pIOvaWLpAP0w==}
+  compression@1.8.2:
+    resolution: {integrity: sha512-o8vI5RE5A6EVVOd9o41jKp41aJom+QTEO/Bx8MYNjexMo/Bv2WOjUfZr+aL0WnYSgymUy6zeguqLTsIhV0gMvQ==}
     engines: {node: '>= 0.8.0'}
 
   concat-map@0.0.1:
@@ -12664,6 +12665,10 @@ packages:
 
   des.js@1.1.0:
     resolution: {integrity: sha512-r17GxjhUCjSRy8aiJpr8/UadFIzMzJGexI3Nmz4ADi9LYSFx4gTBp80+NaX/YsXWWLhpZ7v/v/ubEc/bCNfKwg==}
+
+  destroy@1.2.0:
+    resolution: {integrity: sha512-2sJGJTaXIIaR1w4iJSNoN0hnMY7Gpc/n8D4qSCJw8QqFWXf7cuAgnEHxBpweaVcPevC2l3KpjYCx3NypQQgaJg==}
+    engines: {node: '>= 0.8', npm: 1.2.8000 || >= 1.4.16}
 
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
@@ -15937,10 +15942,6 @@ packages:
   slice-ansi@9.0.1:
     resolution: {integrity: sha512-aBY19bn/XA+hKOKX0qL7Z0UfdBsbQvc9hn993U8ALUjzxCvDcuZqLoRXjGJrUARWAlwMnsRVD9sw2AFNOYvalA==}
     engines: {node: '>=22'}
-
-  smol-toml@1.8.0:
-    resolution: {integrity: sha512-kCZr2V3ch9i00x8zXRhjUNVcjG9ijES5dDudkXvUVCT5QlJNQWElSJdZqyPemffHoLNUYwOcou0Fy+ojN0uHSQ==}
-    engines: {node: '>= 18'}
 
   smol-toml@1.9.1:
     resolution: {integrity: sha512-j7WyPdf0CJoutMzMoPLF/bVXHtKZIT9Rb4eGeEbWw8X2t5oirjPgpL+OpaENZrILYaXqYwnVH+qgUwVbl+pUJQ==}
@@ -23043,7 +23044,7 @@ snapshots:
   '@vercel/container@19.1.2(@vercel/build-utils@14.21.2)':
     dependencies:
       '@vercel/build-utils': 14.21.2
-      smol-toml: 1.8.0
+      smol-toml: 1.9.1
       tar: 7.5.22
 
   '@vercel/detect-agent@1.2.7': {}
@@ -23268,7 +23269,7 @@ snapshots:
       fs-extra: 11.1.1
       js-yaml: 4.3.2
       minimatch: 10.2.6
-      smol-toml: 1.8.0
+      smol-toml: 1.9.1
       zod: 3.22.4
 
   '@vercel/python@25.1.2(@vercel/build-utils@14.21.2)':
@@ -23315,7 +23316,7 @@ snapshots:
       '@vercel/build-utils': 14.21.2
       execa: 5.1.1
       get-port: 5.1.1
-      smol-toml: 1.8.0
+      smol-toml: 1.9.1
 
   '@vercel/sandbox@3.3.0':
     dependencies:
@@ -24207,11 +24208,12 @@ snapshots:
     dependencies:
       mime-db: 1.54.0
 
-  compression@1.8.1(supports-color@10.2.2):
+  compression@1.8.2(supports-color@10.2.2):
     dependencies:
       bytes: 3.1.2
       compressible: 2.0.18
       debug: 2.6.9(supports-color@10.2.2)
+      destroy: 1.2.0
       negotiator: 0.6.4
       on-headers: 1.1.0
       safe-buffer: 5.2.1
@@ -24625,6 +24627,8 @@ snapshots:
     dependencies:
       inherits: 2.0.4
       minimalistic-assert: 1.0.1
+
+  destroy@1.2.0: {}
 
   detect-libc@2.1.2: {}
 
@@ -28410,7 +28414,7 @@ snapshots:
       chalk: 5.0.1
       chalk-template: 0.4.0
       clipboardy: 3.0.0
-      compression: 1.8.1(supports-color@10.2.2)
+      compression: 1.8.2(supports-color@10.2.2)
       is-port-reachable: 4.0.0
       serve-handler: 6.1.7
       update-check: 1.5.4
@@ -28529,8 +28533,6 @@ snapshots:
     dependencies:
       ansi-styles: 6.2.3
       is-fullwidth-code-point: 5.1.0
-
-  smol-toml@1.8.0: {}
 
   smol-toml@1.9.1: {}
 
@@ -29238,7 +29240,7 @@ snapshots:
       jsonc-parser: 3.3.1
       luxon: 3.7.2
       sandbox: 4.4.0(supports-color@10.2.2)
-      smol-toml: 1.8.0
+      smol-toml: 1.9.1
       undici: 5.29.0
       uuid: 14.0.1
       zod: 4.1.11
