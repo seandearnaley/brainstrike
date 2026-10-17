@@ -166,18 +166,21 @@ const setupLiveQueries = (
     loading: recordsLoading,
     refresh: recordRefresh,
     rows: records,
+    rowsMatchQuery: !recordsLoading && recordError === null,
   };
   const totalRecordsResult = {
     error: null,
     loading: totalRecordsLoading,
     refresh: totalRecordsRefresh,
     rows: totalRecords,
+    rowsMatchQuery: !totalRecordsLoading,
   };
   const collectionCountsResult = {
     error: null,
     loading: collectionCountsLoading,
     refresh: collectionCountsRefresh,
     rows: collectionCounts,
+    rowsMatchQuery: !collectionCountsLoading,
   };
 
   const disabledResult = {
@@ -185,6 +188,8 @@ const setupLiveQueries = (
     loading: false,
     refresh: vi.fn().mockResolvedValue(undefined),
     rows: [],
+    // A disabled query has delivered nothing for itself.
+    rowsMatchQuery: false,
   };
 
   mockedUsePGliteLiveQuery.mockImplementation(
