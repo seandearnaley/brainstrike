@@ -5,6 +5,7 @@ import {
 } from 'assistant-stream';
 import { describe, expect, it, vi } from 'vitest';
 import type { StreamChunk } from '..';
+import type { OutputLimitContext } from '../stream/abnormal-finish';
 import {
   AssistantDataStreamSession,
   AssistantDataStreamSessionManager,
@@ -175,7 +176,7 @@ describe('AssistantDataStreamSession', () => {
         personaId: 'explore',
       };
       const scoped = (
-        chunk: Exclude<StreamChunk, { type: 'delegated-conversation-chunk' }>,
+        chunk: Extract<StreamChunk, { type: 'delegated-conversation-chunk' }>['chunk'],
         messageId = 'native-child-message'
       ): StreamChunk => ({
         chunk,
@@ -1050,10 +1051,10 @@ describe('AssistantDataStreamSession', () => {
     }
   );
 
-  it.each([
-    { model: 'moonshotai/kimi-k3', reasoningEffort: 'low' as const },
-    { model: 'moonshotai/kimi-k3', reasoningEffort: undefined },
-    { model: 'z-ai/glm-5.2', reasoningEffort: 'high' as const },
+  it.each<Pick<OutputLimitContext, 'model' | 'reasoningEffort'>>([
+    { model: 'moonshotai/kimi-k3', reasoningEffort: 'low' },
+    { model: 'moonshotai/kimi-k3' },
+    { model: 'z-ai/glm-5.2', reasoningEffort: 'high' },
   ])(
     'keeps generic output-limit guidance for $model at $reasoningEffort effort',
     async (context) => {

@@ -16,8 +16,6 @@
     "node_modules",
     "src/__tests__/assistant-messages.spec.ts",
     "src/__tests__/bedrock-prompt-caching.spec.ts",
-    "src/__tests__/data-stream-session.spec.ts",
-    "src/__tests__/data-stream-stall.spec.ts",
     "src/__tests__/data-stream-text-continuity.spec.ts",
     "src/__tests__/mcp-client-capabilities.spec.ts",
     "src/__tests__/mcp-client-extension-registry.spec.ts",
@@ -46,7 +44,6 @@
     "src/__tests__/tool-sanitizer.spec.ts",
     "src/__tests__/tool-search-runtime.spec.ts",
     "src/__tests__/usage-metering.spec.ts",
-    "src/__tests__/with-tool-call-input-timeout.spec.ts",
     "src/__tests__/workspace-root-manifest.spec.ts"
   ]
 }
