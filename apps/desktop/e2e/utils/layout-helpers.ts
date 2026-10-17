@@ -16,6 +16,21 @@ export async function ensureActivityExpanded(region: Locator): Promise<void> {
   await expect(collapse).toBeVisible();
 }
 
+/**
+ * Expands every collapsed activity group in `region`: a conversation with
+ * several runs (a delegation and the wake that reads its results) draws one
+ * group per run.
+ */
+export async function expandEveryActivity(region: Locator): Promise<void> {
+  const expand = region.getByRole('button', { exact: true, name: 'Expand activity' });
+  const collapse = region.getByRole('button', { exact: true, name: 'Collapse activity' });
+  await expect(expand.or(collapse).first()).toBeVisible();
+  for (let remaining = await expand.count(); remaining > 0; remaining = await expand.count()) {
+    await expand.first().click();
+    await expect(expand).toHaveCount(remaining - 1);
+  }
+}
+
 const isVerboseE2eLoggingEnabled = process.env['BRAINSTRIKE_E2E_VERBOSE'] === '1';
 
 function verboseLog(...args: unknown[]): void {

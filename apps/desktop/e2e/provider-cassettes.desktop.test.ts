@@ -19,7 +19,7 @@ import {
   type RenderedDelegationCard,
 } from './utils/conversation-invariants';
 import { launchElectronAppWithOptions } from './utils/electron-helpers.mts';
-import { ensureActivityExpanded, ensureAssistantShellVisible } from './utils/layout-helpers';
+import { ensureAssistantShellVisible, expandEveryActivity } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
 import {
   PROVIDER_CASSETTE_SCENARIOS,
@@ -116,7 +116,7 @@ test('provider cassette openai-background-delegation replays through the desktop
     const conversation = await read();
     // A collapsed activity group keeps its cards' last render in hidden DOM
     // (#3740): only cards the user can see are read.
-    await ensureActivityExpanded(region);
+    await expandEveryActivity(region);
     const cards = region.getByTestId('subagent-execution-card');
     const childThreadIds = delegatedChildThreadIds(conversation.parent.rows);
     await expect(cards).toHaveCount(childThreadIds.length);
