@@ -17,12 +17,7 @@ import { loadElectronHelpers } from './load-electron-helpers';
 
 export type BenchDevice = 'wasm' | 'webgpu';
 
-export const WORKSPACE_RESOURCE_ID = 'brainstrike:workspace';
 const LONG_FRAME_MS = 50;
-
-interface DbBridgeRow {
-  readonly [column: string]: unknown;
-}
 
 export function readBenchDevice(env: string): BenchDevice {
   const raw = process.env[env]?.trim() || 'webgpu';
@@ -30,34 +25,6 @@ export function readBenchDevice(env: string): BenchDevice {
     throw new Error(`${env} must be "wasm" or "webgpu", got "${raw}".`);
   }
   return raw;
-}
-
-export async function queryDb(
-  page: Page,
-  sql: string,
-  params: readonly unknown[] = []
-): Promise<readonly DbBridgeRow[]> {
-  return await page.evaluate(
-    async ({ statement, values }) => {
-      const query = (
-        window as Window & {
-          electronAPI?: {
-            db?: {
-              query?: (
-                sql: string,
-                params?: readonly unknown[]
-              ) => Promise<{ rows?: readonly DbBridgeRow[] }>;
-            };
-          };
-        }
-      ).electronAPI?.db?.query;
-      if (typeof query !== 'function') {
-        throw new Error('electronAPI.db.query is unavailable.');
-      }
-      return (await query(statement, values)).rows ?? [];
-    },
-    { statement: sql, values: params }
-  );
 }
 
 /**

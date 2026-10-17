@@ -6,19 +6,17 @@ import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { readHostSearchVectorCounts, withAppHost } from './utils/agent-host-log';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import {
   describeEnvironment,
   formatSummary,
   mainMetrics,
-  queryDb,
   readBenchDevice,
   rendererMetrics,
   round3,
   seedPausedWorkspace,
   showAppWindow,
   startProbeThread,
-  WORKSPACE_RESOURCE_ID,
 } from './utils/foreground-latency-bench';
 import {
   calibrateRendererFrameProbe,
@@ -46,10 +44,9 @@ import { createThreadMessageCorpus, type ThreadMessageCorpus } from './utils/thr
  * renderer embedder), and the same probes as the index-build benchmark measure
  * the foreground idle and while every seeded message is embedded.
  *
- * `BRAINSTRIKE_THREAD_EMBEDDING_BENCHMARK_OWNER` picks whose threads hold the
- * corpus: `history` (the legacy PGlite threads, BEFORE) or `host` (agent-host
- * threads, seeded through the host's own runs, AFTER). The same search and
- * drain embed either backlog; only the store differs.
+ * The corpus is agent-host threads, seeded through the host's own runs. The
+ * legacy PGlite thread history this once compared against was retired with
+ * desktop PGlite (#3595), so only the host's threads are measured (BST-2024).
  *
  * The search embedder is the renderer's local model on the preferred device
  * (`createLocalEmbedder`'s runtime is that preference; it has no fallback), so
@@ -62,7 +59,6 @@ import { createThreadMessageCorpus, type ThreadMessageCorpus } from './utils/thr
 
 const DEVICE_ENV = 'BRAINSTRIKE_THREAD_EMBEDDING_BENCHMARK_DEVICE';
 const EVIDENCE_PATH_ENV = 'BRAINSTRIKE_THREAD_EMBEDDING_BENCHMARK_EVIDENCE_PATH';
-const OWNER_ENV = 'BRAINSTRIKE_THREAD_EMBEDDING_BENCHMARK_OWNER';
 const API_KEY = 'test-key-thread-embedding-benchmark';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
 const MODEL = 'anthropic/claude-sonnet-4.6';
@@ -70,16 +66,6 @@ const MODEL = 'anthropic/claude-sonnet-4.6';
 const SEED_CONCURRENCY = 16;
 
 test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
-
-type Owner = 'history' | 'host';
-
-function readOwner(): Owner {
-  const raw = process.env[OWNER_ENV]?.trim() || 'history';
-  if (raw !== 'history' && raw !== 'host') {
-    throw new Error(`${OWNER_ENV} must be "history" or "host", got "${raw}".`);
-  }
-  return raw;
-}
 
 const CORPUS_SEED = 1937;
 /**
@@ -107,50 +93,12 @@ const NEVER_INDEXED_GREP_PATH = 'packages/foreground-latency-probe/never-indexed
 const GREP_PATTERN = 'total +=';
 /** Each check's search differs, so the debounced controller runs every one. */
 const SEARCH_QUERIES = ['vector latency', 'latency vector', 'search tokens', 'tokens search'];
-const INDEX_TABLE = 'brainstrike_thread_message_index';
 
 interface EmbeddingCounts {
   readonly embeddable: number;
   readonly embedded: number;
   readonly errored: number;
   readonly indexed: number;
-}
-
-/** History threads and their messages, in the shape Mastra persists, under the workspace resource. */
-async function seedHistoryCorpus(page: Page, corpus: ThreadMessageCorpus): Promise<number> {
-  const base = Date.now() - 3_600_000;
-  let messages = 0;
-  for (const [threadIndex, thread] of corpus.threads.entries()) {
-    const threadId = `thread-embedding-benchmark-${threadIndex}`;
-    const at = new Date(base + threadIndex * 60_000).toISOString();
-    await queryDb(
-      page,
-      `INSERT INTO mastra_threads (id, "resourceId", title, metadata, "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, '{}'::jsonb, $4, $4)`,
-      [threadId, WORKSPACE_RESOURCE_ID, thread.title, at]
-    );
-    for (const [index, message] of thread.messages.entries()) {
-      await queryDb(
-        page,
-        `INSERT INTO mastra_messages (id, thread_id, content, role, type, "createdAt", "resourceId")
-         VALUES ($1, $2, $3::jsonb, $4, 'v2', $5, $6)`,
-        [
-          `${threadId}-message-${index}`,
-          threadId,
-          JSON.stringify({
-            content: message.text,
-            format: 2,
-            parts: [{ text: message.text, type: 'text' }],
-          }),
-          message.role,
-          new Date(base + threadIndex * 60_000 + index * 1000).toISOString(),
-          WORKSPACE_RESOURCE_ID,
-        ]
-      );
-      messages += 1;
-    }
-  }
-  return messages;
 }
 
 /** The text of the request's last user message, as the provider received it. */
@@ -299,7 +247,10 @@ async function seedHostCorpus(
     const seedNext = async (): Promise<void> => {
       for (let thread = queue.shift(); thread; thread = queue.shift()) {
         const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
-        rows += await runs(threadId, thread.messages, 0);
+        // Read the count first: `rows += await …` captures `rows` before the await, so
+        // concurrent seeders would overwrite each other's counts.
+        const committed = await runs(threadId, thread.messages, 0);
+        rows += committed;
       }
     };
     await Promise.all(Array.from({ length: SEED_CONCURRENCY }, seedNext));
@@ -314,34 +265,13 @@ async function enableBenchmarkModel(page: Page): Promise<void> {
     compositeModelKey: `openrouter::${MODEL}`,
     provider: 'openrouter',
   });
-  await queryDb(page, 'UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2', [
-    MODEL,
-    'openrouter',
-  ]);
+  await enableAssistantCatalogModel(page, `openrouter::${MODEL}`);
 }
 
 /** The host's rows and stored search vectors; the host keeps no per-row embedding error. */
 async function readHostEmbeddingCounts(userDataDir: string): Promise<EmbeddingCounts> {
   const { rows, vectors } = await readHostSearchVectorCounts(userDataDir);
   return { embeddable: rows, embedded: vectors, errored: 0, indexed: rows };
-}
-
-async function readEmbeddingCounts(page: Page): Promise<EmbeddingCounts> {
-  const [row] = await queryDb(
-    page,
-    `SELECT COUNT(*)::int AS indexed,
-            COUNT(*) FILTER (WHERE content_text <> '')::int AS embeddable,
-            COUNT(*) FILTER (WHERE embedding IS NOT NULL)::int AS embedded,
-            COUNT(*) FILTER (WHERE embedding_error IS NOT NULL)::int AS errored
-     FROM ${INDEX_TABLE} WHERE resource_id = $1`,
-    [WORKSPACE_RESOURCE_ID]
-  );
-  return {
-    embeddable: Number(row?.['embeddable'] ?? 0),
-    embedded: Number(row?.['embedded'] ?? 0),
-    errored: Number(row?.['errored'] ?? 0),
-    indexed: Number(row?.['indexed'] ?? 0),
-  };
 }
 
 async function openThreadsPanel(page: Page): Promise<void> {
@@ -358,9 +288,8 @@ test.describe('Foreground latency under thread message embedding', () => {
     'measures foreground latency while the Threads panel embeds its message backlog',
     { tag: '@perf' },
     async ({ electron, electronApp, modelProvider, window: page }, testInfo) => {
-      const owner = readOwner();
-      // Seeding 800 host runs takes most of an hour; the history corpus is rows in a table.
-      test.setTimeout((owner === 'host' ? 90 : 30) * 60 * 1000);
+      // Seeding 800 host runs takes most of an hour.
+      test.setTimeout(90 * 60 * 1000);
       const device = readBenchDevice(DEVICE_ENV);
       const evidencePath =
         process.env[EVIDENCE_PATH_ENV]?.trim() ||
@@ -378,9 +307,7 @@ test.describe('Foreground latency under thread message embedding', () => {
 
       try {
         await showAppWindow(electronApp.app, page);
-        if (owner === 'host') {
-          await enableBenchmarkModel(page);
-        }
+        await enableBenchmarkModel(page);
         await seedPausedWorkspace(
           page,
           [{ path: probeRoot.rootPath, rootId: BENCH_ROOT_ID }],
@@ -388,28 +315,23 @@ test.describe('Foreground latency under thread message embedding', () => {
           'thread-embedding-benchmark-seeded'
         );
         const chatThreadId = await startProbeThread(electronApp.app);
-        const seededMessages =
-          owner === 'history'
-            ? await seedHistoryCorpus(page, corpus)
-            : await seedHostCorpus(page, electron.getUserDataDir(), corpus, modelProvider);
-        // A fresh app measures the host owner, as the history owner is measured
-        // with no runs behind it: the seeding runs' process state is not the load.
-        let app = electronApp.app;
-        let view = page;
-        if (owner === 'host') {
-          const restarted = await electron.restart();
-          app = restarted.app;
-          view = restarted.window;
-          await (await loadElectronHelpers()).waitForAppReady(view);
-          await showAppWindow(app, view);
-          await expect(view.getByTestId('indexing-status-trigger')).toContainText('Paused', {
-            timeout: 60_000,
-          });
-        }
+        const seededMessages = await seedHostCorpus(
+          page,
+          electron.getUserDataDir(),
+          corpus,
+          modelProvider
+        );
+        // A fresh app is measured: the seeding runs' process state is not the load.
+        const restarted = await electron.restart();
+        const app = restarted.app;
+        const view = restarted.window;
+        await (await loadElectronHelpers()).waitForAppReady(view);
+        await showAppWindow(app, view);
+        await expect(view.getByTestId('indexing-status-trigger')).toContainText('Paused', {
+          timeout: 60_000,
+        });
         const counted = (): Promise<EmbeddingCounts> =>
-          owner === 'history'
-            ? readEmbeddingCounts(view)
-            : readHostEmbeddingCounts(electron.getUserDataDir());
+          readHostEmbeddingCounts(electron.getUserDataDir());
         await openThreadsPanel(view);
 
         await installRendererFrameProbe(view);
@@ -526,7 +448,7 @@ test.describe('Foreground latency under thread message embedding', () => {
             idleSamplesPerProbe: IDLE_SAMPLES,
             loadedWindowSegments: loadedWindows.length,
             minLoadedSamplesPerProbe: MIN_LOADED_SAMPLES,
-            owner,
+            owner: 'host',
             probePeriodMs: PROBE_PERIOD_MS,
             rendererCalibration: { blockMs: CALIBRATION_BLOCK_MS, observed: rendererCalibration },
             rowsPerPass: 16,
