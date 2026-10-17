@@ -109,7 +109,7 @@ describe("the browser host client's ordering", () => {
     const live = commit({ title: 'Live', type: 'thread.updated' });
     announce(live);
     await expect.poll(() => seen).toEqual([live]);
-    host.close();
+    await host.close();
   });
 
   it("gives a thread's first subscriber the rows a second subscriber's replay read first", async () => {
@@ -134,7 +134,7 @@ describe("the browser host client's ordering", () => {
     announce(live);
     await expect.poll(seqs).toEqual([1, raced, live]);
     await disconnect();
-    host.close();
+    await host.close();
   });
 
   it("folds another tab's row before this tab's own commit that overtook its announcement", async () => {
@@ -151,7 +151,7 @@ describe("the browser host client's ordering", () => {
 
     const { threads } = await host.request('thread/list', {});
     expect(threads).toEqual([expect.objectContaining({ icon: 'kestrel', title: 'Mine' })]);
-    host.close();
+    await host.close();
   });
 
   it('folds a row committed after its hydration read once, after the hydration folds', async () => {
@@ -173,8 +173,8 @@ describe("the browser host client's ordering", () => {
     expect((await raced.request('thread/list', {})).threads).toEqual(
       (await calm.request('thread/list', {})).threads
     );
-    raced.close();
-    calm.close();
+    await raced.close();
+    await calm.close();
   });
 
   it('refuses to open over a delegated child thread, which a web turn never commits', async () => {

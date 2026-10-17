@@ -16,9 +16,11 @@
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/state-store": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@brainstrike/web-state-store": "workspace:*"
+    "@brainstrike/web-state-store": "workspace:*",
+    "zod": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/agent": "workspace:*",
     "@brainstrike/build-utils": "workspace:*",
     "@brainstrike/config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
@@ -27,6 +29,7 @@
     "@types/node": "catalog:",
     "@vitest/browser-playwright": "catalog:",
     "@vitest/coverage-v8": "catalog:",
+    "ai": "catalog:",
     "esbuild": "catalog:",
     "playwright": "catalog:",
     "typescript": "catalog:",

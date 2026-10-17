@@ -12,6 +12,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./model-stream-telemetry": {
+      "types": "./dist/model-stream-telemetry.d.ts",
+      "default": "./dist/model-stream-telemetry.js"
+    },
     "./protocol": {
       "types": "./dist/protocol.d.ts",
       "default": "./dist/protocol.js"
@@ -59,6 +63,14 @@
     "./host-event-decoding": {
       "types": "./dist/host-event-decoding.d.ts",
       "default": "./dist/host-event-decoding.js"
+    },
+    "./run-branch": {
+      "types": "./dist/run-branch.d.ts",
+      "default": "./dist/run-branch.js"
+    },
+    "./telemetry-replay": {
+      "types": "./dist/telemetry-replay.d.ts",
+      "default": "./dist/telemetry-replay.js"
     },
     "./thread-catalog": {
       "types": "./dist/thread-catalog.d.ts",

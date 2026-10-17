@@ -1,4 +1,5 @@
 import { TOOL_TELEMETRY_OMITTED_TYPE } from '@brainstrike/assistant-contract/tool-telemetry';
+import { utf8ByteLength } from '@brainstrike/utils/utf8';
 import type { HostLogRow, HostRunTelemetry } from './protocol.js';
 
 /**
@@ -23,7 +24,7 @@ class ReplayRing {
   constructor(private readonly limit: number) {}
 
   push(telemetry: HostRunTelemetry): void {
-    const bytes = Buffer.byteLength(JSON.stringify(telemetry.chunk), 'utf8');
+    const bytes = utf8ByteLength(JSON.stringify(telemetry.chunk));
     this.kept.push({ bytes, telemetry });
     this.bytes += bytes;
     while (this.bytes > this.limit && this.first < this.kept.length) {
