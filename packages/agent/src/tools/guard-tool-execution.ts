@@ -1,3 +1,4 @@
+import { registerToolGuardDeadlineSignal } from '@brainstrike/agent/tool-guard-deadline';
 import {
   BoundaryFailureError,
   describeBoundaryFailure,
@@ -7,7 +8,6 @@ import {
 import { readToolCallId, readToolExecutionThreadId } from './read-tool-call-id';
 import type { ToolGuardBudget } from './resolve-tool-guard-budget';
 import type { ToolExecutionDurations } from './tool-execution-durations';
-import { registerToolGuardDeadlineSignal } from './tool-guard-deadline';
 import type { ToolLogger } from './types';
 
 export type { GuardedToolError } from '@brainstrike/assistant-contract';

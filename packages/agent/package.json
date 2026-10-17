@@ -65,6 +65,11 @@
       "import": "./dist/tool-runtime.mjs",
       "require": "./dist/tool-runtime.js"
     },
+    "./tool-guard-deadline": {
+      "types": "./dist/tool-guard-deadline.d.ts",
+      "import": "./dist/tool-guard-deadline.js",
+      "require": "./dist/tool-guard-deadline.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",

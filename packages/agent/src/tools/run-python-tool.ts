@@ -1,6 +1,7 @@
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { resolveGuardedToolSignal } from '@brainstrike/agent/tool-guard-deadline';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { validateToolInputValue } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract/tool-metadata';
@@ -25,7 +26,6 @@ import { NATIVE_TOOL_RESULT_CHAR_BUDGET } from '../stream/tool-output-limits';
 // constant, or the approval card would state terms the run does not honour.
 import { RUN_PYTHON_DEFAULT_TIMEOUT_MS } from './run-python-approval-context';
 import { type RunPythonInput, RunPythonInputSchema } from './schemas';
-import { resolveGuardedToolSignal } from './tool-guard-deadline';
 
 const logger = createLogger('RunPythonTool');
 
