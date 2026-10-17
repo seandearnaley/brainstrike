@@ -22,7 +22,9 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   TURBO_CACHE_DIR: .turbo
   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-  TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+  # A variable, not a secret: the team slug appears in every package name, and a
+  # secret value makes GitHub drop any job output containing it (BST-2105).
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
 
 jobs:
   admission:
