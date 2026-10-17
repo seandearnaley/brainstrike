@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { parse } from 'yaml';
+import { parsePnpmLockfile } from '../pnpm-lockfile.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const floors = new Map([
@@ -33,7 +33,7 @@ function assertPatched(lock) {
 }
 
 test('every brace-expansion copy clears the current advisory floors', async () => {
-  assertPatched(parse(await readFile(path.join(root, 'pnpm-lock.yaml'), 'utf8')));
+  assertPatched(parsePnpmLockfile(await readFile(path.join(root, 'pnpm-lock.yaml'), 'utf8')));
 });
 
 test('brace-expansion graph guard rejects vulnerable and empty controls', () => {

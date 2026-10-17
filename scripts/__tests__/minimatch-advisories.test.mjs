@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { parse } from 'yaml';
+import { parsePnpmLockfile } from '../pnpm-lockfile.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const requireRoot = createRequire(path.join(root, 'package.json'));
@@ -35,7 +35,7 @@ function isPatched(raw) {
 }
 
 test('all resolved minimatch versions clear the three advisory ranges', async () => {
-  const lock = parse(await readFile(path.join(root, 'pnpm-lock.yaml'), 'utf8'));
+  const lock = parsePnpmLockfile(await readFile(path.join(root, 'pnpm-lock.yaml'), 'utf8'));
   const versions = [
     ...new Set(
       Object.keys(lock.packages)
@@ -48,7 +48,7 @@ test('all resolved minimatch versions clear the three advisory ranges', async ()
     versions.filter((version) => !isPatched(version)),
     []
   );
-  assert.equal(lock.snapshots['@vercel/python-analysis@0.12.0'].dependencies.minimatch, '10.2.6');
+  assert.equal(lock.snapshots['@vercel/python-analysis@0.15.0'].dependencies.minimatch, '10.2.6');
   assert.equal(requireOwner('minimatch/package.json').version, '10.2.6');
 });
 

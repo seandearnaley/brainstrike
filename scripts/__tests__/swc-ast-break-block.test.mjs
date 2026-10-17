@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { parse as parseYaml } from 'yaml';
+import { parsePnpmLockfile } from '../pnpm-lockfile.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -93,7 +93,7 @@ export function collectViolations(snapshots) {
 }
 
 function loadSnapshots() {
-  return parseYaml(readFileSync(path.join(repoRoot, 'pnpm-lock.yaml'), 'utf8')).snapshots;
+  return parsePnpmLockfile(readFileSync(path.join(repoRoot, 'pnpm-lock.yaml'), 'utf8')).snapshots;
 }
 
 test('real tree: the TLA plugin resolves no swc version that breaks it', () => {

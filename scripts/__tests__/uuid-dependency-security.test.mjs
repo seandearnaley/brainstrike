@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { parse } from 'yaml';
+import { parsePnpmLockfile } from '../pnpm-lockfile.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const namespace = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
@@ -27,7 +27,7 @@ function assertPatched(lock) {
 }
 
 test('every UUID copy clears the buffer-bounds advisory, with negative controls', async () => {
-  assertPatched(parse(await readFile(path.join(root, 'pnpm-lock.yaml'), 'utf8')));
+  assertPatched(parsePnpmLockfile(await readFile(path.join(root, 'pnpm-lock.yaml'), 'utf8')));
   for (const version of ['10.0.0', '11.1.0', '12.0.0', '13.0.0']) {
     assert.throws(() => assertPatched({ packages: { [`uuid@${version}`]: {} } }));
   }

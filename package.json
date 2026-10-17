@@ -34,7 +34,7 @@
     "turbo": "2.11.2",
     "typescript": "catalog:",
     "ultracite": "8.0.1",
-    "vercel": "58.4.4",
+    "vercel": "64.3.1",
     "vite": "catalog:",
     "vitest": "catalog:",
     "yaml": "catalog:"
@@ -45,7 +45,7 @@
   "keywords": [],
   "license": "ISC",
   "main": "index.js",
-  "packageManager": "pnpm@11.28.5+sha512.484563d30b4c2ad27cb48aa94ff2b302dbcebc8ff6bf28816c2589886e146ce7f76f354f3bc1a438e6f5e9768c302aa0a6f7add8232903cd4cf81426cbc14d9e",
+  "packageManager": "pnpm@12.11.2+sha512.25a51652a196785af5f28bda6dfe8dc582ebefa4ac1d180221ce1390231c5fb76637822ea4b6e4633ce74acdcb0a77f725af11bad38177fdeddaee818a955cb9",
   "scripts": {
     "audit:openrouter-pricing": "node scripts/openrouter-pricing-audit.mjs",
     "bench:chunking": "pnpm -w build --filter @brainstrike/db && node scripts/chunking-benchmark.mjs",
@@ -130,7 +130,8 @@
   "type": "module",
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "packages/config/*"
   ],
   "devEngines": {
     "runtime": {

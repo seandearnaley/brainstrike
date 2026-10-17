@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { parse } from 'yaml';
+import { parsePnpmLockfile } from '../pnpm-lockfile.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 
@@ -26,7 +26,7 @@ function assertPatched(lock) {
 }
 
 test('every esbuild copy clears both development-server advisories', async () => {
-  assertPatched(parse(await readFile(path.join(root, 'pnpm-lock.yaml'), 'utf8')));
+  assertPatched(parsePnpmLockfile(await readFile(path.join(root, 'pnpm-lock.yaml'), 'utf8')));
   for (const version of ['0.18.20', '0.24.2', '0.27.3', '0.27.7', '0.28.0']) {
     assert.throws(() => assertPatched({ packages: { [`esbuild@${version}`]: {} } }), /vulnerable/);
   }
@@ -39,7 +39,7 @@ test('every esbuild copy clears both development-server advisories', async () =>
 test('Drizzle omits its unused deprecated loader and retains its TypeScript APIs', async () => {
   const dbRequire = createRequire(path.join(root, 'packages/db/package.json'));
   const kitRequire = createRequire(dbRequire.resolve('drizzle-kit'));
-  const lock = parse(await readFile(path.join(root, 'pnpm-lock.yaml'), 'utf8'));
+  const lock = parsePnpmLockfile(await readFile(path.join(root, 'pnpm-lock.yaml'), 'utf8'));
   const snapshot = lock.snapshots['drizzle-kit@0.31.11'];
   assert.ok(
     snapshot?.dependencies,

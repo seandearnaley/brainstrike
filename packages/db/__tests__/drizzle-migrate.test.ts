@@ -25,7 +25,7 @@ describe('Drizzle Migration Runner', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    db = new PGlite({
+    db = await PGlite.create({
       extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector },
     });
   });

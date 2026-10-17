@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { parse } from 'yaml';
+import { parsePnpmLockfile } from '../pnpm-lockfile.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const rootRequire = createRequire(path.join(root, 'package.json'));
@@ -32,7 +32,7 @@ function assertPatched(lock) {
 }
 
 test('the full graph excludes both TOML advisory ranges, with negative controls', async () => {
-  assertPatched(parse(await readFile(path.join(root, 'pnpm-lock.yaml'), 'utf8')));
+  assertPatched(parsePnpmLockfile(await readFile(path.join(root, 'pnpm-lock.yaml'), 'utf8')));
   for (const version of ['1.5.2', '1.6.1', '1.7.0']) {
     assert.throws(
       () => assertPatched({ packages: { [`smol-toml@${version}`]: {} } }),
