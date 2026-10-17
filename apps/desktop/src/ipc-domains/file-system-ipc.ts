@@ -5,7 +5,10 @@ import {
   fault,
   refusalError,
 } from '@brainstrike/assistant-contract/boundary-failure';
-import { isFileNotFoundError } from '@brainstrike/assistant-service/node-workspace-services';
+import {
+  isFileNotFoundError,
+  isWorkspaceRootRegistryDisposed,
+} from '@brainstrike/assistant-service/node-workspace-services';
 import type { DirectoryHandle, FileHandle, SerializableFileNode } from '@brainstrike/file-system';
 import {
   AccessError,
@@ -24,7 +27,7 @@ import type { IFileNode, RootDescriptor } from '@brainstrike/types';
 import { ipcMain } from 'electron';
 import { disposeDesktopAndHostCommandSessionsForRoot } from '../agent-host-platform/host-command-session-client';
 import { evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
-import { isExpectedShutdownRefusal } from '../desktop-shutdown-state';
+import { isDesktopShuttingDown, isExpectedShutdownRefusal } from '../desktop-shutdown-state';
 import {
   createFileReadErrorPayload,
   FILE_READ_ERROR_CODE_NOT_FOUND,
@@ -35,6 +38,7 @@ import {
   registerDomain,
   settleIpcResult,
 } from '../platform/desktop-ipc-registry';
+import type { IpcResult } from '../platform/ipc-contract';
 import { fileSystemContract } from './file-system.contract';
 import type { ManagedWorktreeAuthorizer } from './workspace-recent-roots';
 import { type SecureWorkspaceRoot, WorkspaceRootRegistry } from './workspace-root-registry';
@@ -103,6 +107,36 @@ const MOCK_ROOT_PATH = '/mock/test/directory' as const;
 const E2E_REAL_ROOT_PATH_ENV = 'BRAINSTRIKE_E2E_REAL_ROOT_PATH' as const;
 const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
 const logger = createLogger('FileSystemIpc');
+
+/**
+ * BST-2118: a disposed workspace root registry refuses with a typed refusal, which
+ * crosses IPC unlogged. The app's own shutdown is its only disposer, so a refusal
+ * while quitting is expected (info, ADR-0015); at any other time it is an error.
+ */
+function settleFileSystemResult<T>(
+  failure: { readonly category: string; readonly code: string },
+  run: () => T | Promise<T>
+): Promise<IpcResult<T>> {
+  return settleIpcResult(failure, async () => {
+    try {
+      return await run();
+    } catch (error) {
+      if (isWorkspaceRootRegistryDisposed(error)) {
+        if (isDesktopShuttingDown()) {
+          logger.info('Workspace root registry refused work: the app is quitting', {
+            operation: failure,
+          });
+        } else {
+          logger.error('Workspace root registry refused work after it was disposed', {
+            error,
+            operation: failure,
+          });
+        }
+      }
+      throw error;
+    }
+  });
+}
 
 function isWindowsAbsolutePath(value: string): boolean {
   return /^[a-zA-Z]:[\\/]/.test(value) || /^\\\\[^\\]+\\[^\\]+/.test(value);
@@ -549,7 +583,7 @@ export function createFileSystemIpcDomain({
 
   registerDomain(registry, 'files', fileSystemContract, {
     addRoot: async () =>
-      settleIpcResult({ category: 'files', code: 'files.add-root-failed' }, async () =>
+      settleFileSystemResult({ category: 'files', code: 'files.add-root-failed' }, async () =>
         addSelectedRoot()
       ),
 
@@ -562,61 +596,71 @@ export function createFileSystemIpcDomain({
     // see onRootGranted on the `roots` construction above — so this handler
     // does not need to call it itself.
     addRootByPath: async (requestedPath: string) =>
-      settleIpcResult({ category: 'files', code: 'files.add-root-by-path-failed' }, async () => {
-        if (requestedPath.length === 0) {
-          throw refusalError(
-            'input',
-            'workspace.path-invalid',
-            'The folder path is empty.',
-            'Choose a folder.'
-          );
+      settleFileSystemResult(
+        { category: 'files', code: 'files.add-root-by-path-failed' },
+        async () => {
+          if (requestedPath.length === 0) {
+            throw refusalError(
+              'input',
+              'workspace.path-invalid',
+              'The folder path is empty.',
+              'Choose a folder.'
+            );
+          }
+          return roots.addRootByPath(requestedPath);
         }
-        return roots.addRootByPath(requestedPath);
-      }),
+      ),
 
     deleteRootData: async (rootId: string) =>
-      settleIpcResult({ category: 'files', code: 'files.delete-root-data-failed' }, async () => {
-        if (!onDeleteRootData) {
-          throw new Error('The main-owned root data deletion capability is unavailable.');
+      settleFileSystemResult(
+        { category: 'files', code: 'files.delete-root-data-failed' },
+        async () => {
+          if (!onDeleteRootData) {
+            throw new Error('The main-owned root data deletion capability is unavailable.');
+          }
+          await onDeleteRootData(rootId);
         }
-        await onDeleteRootData(rootId);
-      }),
+      ),
 
     exists: async (requestedPath: string) =>
-      settleIpcResult({ category: 'files', code: 'files.exists-failed' }, async () =>
+      settleFileSystemResult({ category: 'files', code: 'files.exists-failed' }, async () =>
         ipcPathExists(fileSystem, requestedPath)
       ),
 
     listRecentRoots: async () =>
-      settleIpcResult({ category: 'files', code: 'files.list-recent-roots-failed' }, async () =>
-        roots.listRecentRoots()
+      settleFileSystemResult(
+        { category: 'files', code: 'files.list-recent-roots-failed' },
+        async () => roots.listRecentRoots()
       ),
 
     readDirectory: async (handle: DirectoryHandle) =>
-      settleIpcResult({ category: 'files', code: 'files.read-directory-failed' }, async () => {
-        const fixture = getElectronE2eFileSystemFixture();
-        if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
-          fixture.readDirectoryCalls.push(handle.path);
-          await waitForFixtureDirectoryReadDelay(resolveFixtureDirectoryReadDelayMs(fixture));
-          const entries = fixture.directoriesByPath[handle.path];
-          if (!entries) {
-            throw new AccessError(
-              `Failed to read directory: no E2E fixture registered for ${handle.path}`,
-              handle.path,
-              'read'
-            );
+      settleFileSystemResult(
+        { category: 'files', code: 'files.read-directory-failed' },
+        async () => {
+          const fixture = getElectronE2eFileSystemFixture();
+          if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
+            fixture.readDirectoryCalls.push(handle.path);
+            await waitForFixtureDirectoryReadDelay(resolveFixtureDirectoryReadDelayMs(fixture));
+            const entries = fixture.directoriesByPath[handle.path];
+            if (!entries) {
+              throw new AccessError(
+                `Failed to read directory: no E2E fixture registered for ${handle.path}`,
+                handle.path,
+                'read'
+              );
+            }
+            return entries as unknown as IFileNode[];
           }
-          return entries as unknown as IFileNode[];
-        }
 
-        if (isMockFileSystemIpcPath(handle.path) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
-          return getTestDirectoryStructure(MOCK_ROOT_PATH) as unknown as IFileNode[];
+          if (isMockFileSystemIpcPath(handle.path) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
+            return getTestDirectoryStructure(MOCK_ROOT_PATH) as unknown as IFileNode[];
+          }
+          return roots.readDirectory(await resolveDirectoryHandle(handle));
         }
-        return roots.readDirectory(await resolveDirectoryHandle(handle));
-      }),
+      ),
 
     readFile: async (handle: FileHandle) =>
-      settleIpcResult({ category: 'files', code: 'files.read-file-failed' }, async () => {
+      settleFileSystemResult({ category: 'files', code: 'files.read-file-failed' }, async () => {
         const fixture = getElectronE2eFileSystemFixture();
         if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
           fixture.readFileCalls.push(handle.path);
@@ -651,7 +695,7 @@ export function createFileSystemIpcDomain({
       claimedRootPath: unknown,
       claimedRootId: unknown
     ) =>
-      settleIpcResult(
+      settleFileSystemResult(
         { category: 'files', code: 'files.read-file-by-absolute-path-failed' },
         async () => {
           const diagnosticPath = typeof absolutePath === 'string' ? absolutePath : '';
@@ -668,58 +712,66 @@ export function createFileSystemIpcDomain({
       ),
 
     readFileByPath: async (absolutePath: string) =>
-      settleIpcResult({ category: 'files', code: 'files.read-file-by-path-failed' }, async () => {
-        const fixture = getElectronE2eFileSystemFixture();
-        if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
-          fixture.readFileByPathCalls.push(absolutePath);
-          const content = fixture.fileContentsByPath[absolutePath];
-          if (content === undefined) {
-            throw new AccessError(
-              `Failed to read file by path: no E2E fixture registered for ${absolutePath}`,
-              absolutePath,
-              'read'
-            );
+      settleFileSystemResult(
+        { category: 'files', code: 'files.read-file-by-path-failed' },
+        async () => {
+          const fixture = getElectronE2eFileSystemFixture();
+          if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
+            fixture.readFileByPathCalls.push(absolutePath);
+            const content = fixture.fileContentsByPath[absolutePath];
+            if (content === undefined) {
+              throw new AccessError(
+                `Failed to read file by path: no E2E fixture registered for ${absolutePath}`,
+                absolutePath,
+                'read'
+              );
+            }
+            return content;
           }
-          return content;
-        }
 
-        if (absolutePath.startsWith(MOCK_PATH_PREFIX) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
-          return 'Mock file content for testing purposes\nThis is a test file.\n';
-        }
-
-        try {
-          return await roots.readFile(absolutePath);
-        } catch (error) {
-          const payload = toFileReadErrorPayload(error, absolutePath);
-          if (payload) {
-            return payload;
+          if (
+            absolutePath.startsWith(MOCK_PATH_PREFIX) &&
+            usesSyntheticFileSystem(MOCK_ROOT_PATH)
+          ) {
+            return 'Mock file content for testing purposes\nThis is a test file.\n';
           }
-          throw error;
+
+          try {
+            return await roots.readFile(absolutePath);
+          } catch (error) {
+            const payload = toFileReadErrorPayload(error, absolutePath);
+            if (payload) {
+              return payload;
+            }
+            throw error;
+          }
         }
-      }),
+      ),
     removeRoot: async (rootId: string) =>
-      settleIpcResult({ category: 'files', code: 'files.remove-root-failed' }, async () =>
+      settleFileSystemResult({ category: 'files', code: 'files.remove-root-failed' }, async () =>
         roots.removeRoot(rootId)
       ),
     requestDirectoryAccess: async () =>
-      settleIpcResult(
+      settleFileSystemResult(
         { category: 'files', code: 'files.request-directory-access-failed' },
         async () => (await addSelectedRoot()).handle
       ),
 
     restoreLastFolder: async () =>
-      settleIpcResult({ category: 'files', code: 'files.restore-last-folder-failed' }, async () =>
-        roots.restoreLastFolder()
+      settleFileSystemResult(
+        { category: 'files', code: 'files.restore-last-folder-failed' },
+        async () => roots.restoreLastFolder()
       ),
 
     restoreRoots: async () =>
-      settleIpcResult({ category: 'files', code: 'files.restore-roots-failed' }, async () =>
+      settleFileSystemResult({ category: 'files', code: 'files.restore-roots-failed' }, async () =>
         roots.restoreRoots()
       ),
 
     saveLastFolder: async (folderPath: string) =>
-      settleIpcResult({ category: 'files', code: 'files.save-last-folder-failed' }, async () =>
-        roots.setLastFolder(folderPath)
+      settleFileSystemResult(
+        { category: 'files', code: 'files.save-last-folder-failed' },
+        async () => roots.setLastFolder(folderPath)
       ),
   });
   return {

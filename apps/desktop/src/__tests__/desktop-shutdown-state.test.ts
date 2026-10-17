@@ -2,6 +2,7 @@ import { BoundaryFailureError, fault, refusal } from '@brainstrike/assistant-con
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { describe, expect, it } from 'vitest';
 import {
+  HOST_LEASE_CLOSED,
   isDesktopShuttingDown,
   isExpectedShutdownRefusal,
   isRetirementRefusal,
@@ -15,6 +16,7 @@ const retirements = {
     { kind: 'closed', reason: 'root-data-deletion' },
     'Native index activation is closed for terminal retirement.'
   ),
+  'a host lease owner that closed': new BoundaryFailureError(HOST_LEASE_CLOSED),
   'a lost host connection': new BoundaryFailureError(
     fault({ category: 'availability', code: 'host.connection-lost', message: 'Lost.' })
   ),
@@ -22,6 +24,7 @@ const retirements = {
 };
 const unrelated = {
   'a plain failure': new Error('Native index activation is closed for terminal retirement.'),
+  'a plain failure with the closing message': new Error('Desktop host lease owner is closing'),
   'an indexer still transitioning': new NativeIndexRefusalError(
     { kind: 'transitioning' },
     'Native index is transitioning.'

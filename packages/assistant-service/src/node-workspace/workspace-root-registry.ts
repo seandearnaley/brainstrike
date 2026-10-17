@@ -42,6 +42,7 @@ import {
   readResolvedWorkspaceFile,
   resolveReadAgainstMountedRoot,
 } from './workspace-root-read.js';
+import { workspaceRootRegistryDisposed } from './workspace-root-registry-disposed.js';
 import {
   createNativeSecureRoot,
   resolveCanonicalRootPath,
@@ -67,6 +68,7 @@ import type {
   WorkspaceRootStorage,
 } from './workspace-root-types.js';
 
+export * from './workspace-root-registry-disposed.js';
 export type {
   SecureWorkspaceRoot,
   StoredWorkspaceRoot,
@@ -158,9 +160,8 @@ export class WorkspaceRootRegistry {
       const probe = await this.createSecureRoot(presentationPath);
       let probeAdopted = false;
       try {
-        // A dispose that lands while the probe was opening must fail this
-        // call the same way mount() does, rather than returning a granted
-        // descriptor for a registry that's already torn down.
+        // A dispose that lands while the probe was opening must fail this call the same way
+        // mount() does, rather than returning a granted descriptor for a torn-down registry.
         this.assertActive();
         const canonicalPath = path.normalize(probe.canonicalPath);
         const mountedMatch = this.mounts.findByCanonicalPath(canonicalPath);
@@ -680,8 +681,7 @@ export class WorkspaceRootRegistry {
           await this.unmountSourceRoot(entry.rootId);
           continue;
         }
-        // A session mint of the same canonical path is superseded by the
-        // persisted identity.
+        // A session mint of the same canonical path is superseded by the persisted identity.
         await this.supersedeSessionMountsFor(entry, canonicalPath, retainedRootIds);
         retainedCanonicalPaths.add(pathKey(canonicalPath));
         retainedRootIds.add(entry.rootId);
@@ -994,7 +994,7 @@ export class WorkspaceRootRegistry {
 
   private assertActive(): void {
     if (this.disposed) {
-      throw new Error('The workspace root registry has been disposed.');
+      throw workspaceRootRegistryDisposed();
     }
   }
 }

@@ -1,4 +1,4 @@
-import { isRetirementRefusal } from './desktop-shutdown-state';
+import { isHostLeaseClosed, isRetirementRefusal } from './desktop-shutdown-state';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
 import { NativeIndexSetupRequiredError } from './native-index-setup-required';
 
@@ -61,4 +61,20 @@ export function reportNativeIndexActivationError(
       ? { error, innerErrors: (error.errors as unknown[]).map(innerError) }
       : { error }
   );
+}
+
+/**
+ * BST-2118: the profile's boot acquisition. A close of its own lease owner cancels
+ * a startup still in flight; that typed outcome is a cancellation, not a failure.
+ */
+export function reportAgentHostStartupFailure(
+  error: unknown,
+  shuttingDown: boolean,
+  logger: ActivationLogger & { debug(message: string): void }
+): void {
+  if (isHostLeaseClosed(error)) {
+    logger.debug('Agent host startup cancelled: its lease owner closed');
+    return;
+  }
+  reportNativeIndexActivationError('Agent host startup failed', error, shuttingDown, logger);
 }

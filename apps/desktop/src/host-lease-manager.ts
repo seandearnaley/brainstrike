@@ -1,6 +1,7 @@
 import type { HostPlatformLaunchOptions } from '@brainstrike/agent-host';
 import { attachAgentHost } from '@brainstrike/agent-host/client';
 import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host/protocol';
+import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
 import { runAtPromiseBoundary, runWithTimeout } from '@brainstrike/effect-kit';
 import {
   attachHost,
@@ -23,6 +24,7 @@ import {
   type HostNativeChildren,
 } from './agent-host-platform/host-native-children';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
+import { HOST_LEASE_CLOSED } from './desktop-shutdown-state';
 import { decodeHostContentCleared, type HostLeaseControl } from './host-lease-control';
 
 export interface HostLeaseUtilityProcess {
@@ -344,7 +346,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
   return {
     acquire: () => {
       if (retired) {
-        return Promise.reject(new Error('Desktop host lease owner is closing'));
+        return Promise.reject(new BoundaryFailureError(HOST_LEASE_CLOSED));
       }
       acquiring ??= acquire();
       return acquiring;
@@ -385,7 +387,8 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
       });
       return clearing;
     },
-    close: (reason = new Error('Desktop host lease owner is closing')) => {
+    // A startup this close cancels settles with the typed closing outcome (BST-2118).
+    close: (reason = new BoundaryFailureError(HOST_LEASE_CLOSED)) => {
       retired = true;
       abort.abort(reason);
       // The acquire path owns failure rollback; close still joins every finalizer.
