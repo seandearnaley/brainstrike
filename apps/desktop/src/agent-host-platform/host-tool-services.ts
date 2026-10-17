@@ -1,3 +1,4 @@
+import { Schema } from 'effect';
 /**
  * Main's side of the agent host's own tools: narrow typed reads of Main-owned
  * stores (`desktop-read/*`) and the worktree/forge correlation of host
@@ -11,7 +12,7 @@ import type { GrepSearchOptions, GrepSearchResult } from '@brainstrike/db';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { GitResult } from '@brainstrike/types';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
-import { z } from 'zod';
+import type { z } from 'zod';
 import type { BrowserToolRunner } from '../assistant-server/native-tool-executors-browser';
 import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';
 import type { RetrievalStore } from '../assistant-server/retrieval-store';
@@ -261,27 +262,49 @@ function serveIndexReads(
   };
   read(
     'desktop-read/index/status',
-    (input) => threadScoped(z.strictObject({})).parse(input),
+    (input) =>
+      Schema.decodeUnknownSync(threadScoped(Schema.Record(Schema.String, Schema.Never)), {
+        onExcessProperty: 'error',
+      })(input),
     () => index().status()
   );
   read(
     'desktop-read/index/search',
-    (input) => threadScoped(IndexSearchRequestSchema).parse(input),
+    (input) =>
+      Schema.decodeUnknownSync(threadScoped(IndexSearchRequestSchema), {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input),
     (request) => index().search(request)
   );
   read(
     'desktop-read/index/grep',
-    (input) => threadScoped(IndexGrepRequestSchema).parse(input),
+    (input) =>
+      Schema.decodeUnknownSync(threadScoped(IndexGrepRequestSchema), {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input),
     (request) => index().grep(request)
   );
   read(
     'desktop-read/index/coverage',
-    (input) => threadScoped(IndexCoverageRequestSchema).parse(input),
+    (input) =>
+      Schema.decodeUnknownSync(threadScoped(IndexCoverageRequestSchema), {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input),
     (request) => index().coverage(request)
   );
   read(
     'desktop-read/index/coverage-batch',
-    (input) => threadScoped(z.array(IndexCoverageRequestSchema)).parse(input),
+    (input) =>
+      Schema.decodeUnknownSync(
+        threadScoped(Schema.mutable(Schema.Array(IndexCoverageRequestSchema))),
+        {
+          errors: 'all',
+          onExcessProperty: 'error',
+        }
+      )(input),
     (requests) => index().coverageBatch(requests)
   );
 }
@@ -297,9 +320,12 @@ function serveRetrievalReads(
     'desktop-read/retrieval/embedding-set',
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { request } = threadScoped(
-          z.strictObject({ embeddingSetId: z.string().min(1) })
-        ).parse(input);
+        const { request } = Schema.decodeUnknownSync(
+          threadScoped(
+            Schema.Struct({ embeddingSetId: Schema.String.check(Schema.isMinCodePoints(1)) })
+          ),
+          { onExcessProperty: 'error' }
+        )(input);
         return await refusalOutcome(() => store().embeddingSet(request.embeddingSetId));
       })
   );
@@ -307,9 +333,14 @@ function serveRetrievalReads(
     'desktop-read/retrieval/file-records',
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { request } = threadScoped(z.strictObject({ ids: z.array(z.string().min(1)) })).parse(
-          input
-        );
+        const { request } = Schema.decodeUnknownSync(
+          threadScoped(
+            Schema.Struct({
+              ids: Schema.mutable(Schema.Array(Schema.String.check(Schema.isMinCodePoints(1)))),
+            })
+          ),
+          { onExcessProperty: 'error' }
+        )(input);
         return await refusalOutcome(async () => [
           ...(await store().fileRecords(request.ids)).values(),
         ]);
@@ -319,9 +350,10 @@ function serveRetrievalReads(
     'desktop-read/retrieval/embedding-spaces',
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { request } = threadScoped(z.strictObject({ includeStats: z.boolean() })).parse(
-          input
-        );
+        const { request } = Schema.decodeUnknownSync(
+          threadScoped(Schema.Struct({ includeStats: Schema.Boolean })),
+          { onExcessProperty: 'error' }
+        )(input);
         return await refusalOutcome(() => store().embeddingSpaces(request));
       })
   );

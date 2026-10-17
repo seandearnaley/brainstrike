@@ -30,6 +30,7 @@ import {
 import { scriptedModel } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
+import { Schema } from 'effect';
 import { afterEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { createHostThreadTurns } from '../assistant-server/changeset-host-turns';
@@ -45,17 +46,14 @@ afterEach(async () => {
     await step();
   }
 });
-
 const ORIGINAL = 'turn-start content\n';
 const ROOT_ID = 'fixture-root';
 const TOOL_IDENTITY = 'native-fixture-generation-1';
-
 async function temporaryDirectory(prefix: string): Promise<string> {
   const directory = await realpath(await mkdtemp(join(tmpdir(), prefix)));
   cleanup.push(() => rm(directory, { force: true, recursive: true }));
   return directory;
 }
-
 /** Main's capture over the shared shadow-git owner, as `platform/snapshot/capture` serves it. */
 function captureWith(
   service: SnapshotService,
@@ -91,7 +89,6 @@ function captureWith(
     return snapshots;
   };
 }
-
 const forbiddenPg = vi.hoisted(() =>
   vi.fn(() => {
     throw new Error('Changes must not acquire PG');
@@ -101,7 +98,6 @@ vi.mock('@brainstrike/db/pglite-factory', async (original) => ({
   ...(await original<typeof import('@brainstrike/db/pglite-factory')>()),
   createBrainstrikePglite: forbiddenPg,
 }));
-
 function mainResolver(
   service: SnapshotService,
   source: Parameters<typeof createHostThreadTurns>[0]
@@ -112,7 +108,6 @@ function mainResolver(
   });
   return { resolver };
 }
-
 function clientSource(client: HostClient): Parameters<typeof createHostThreadTurns>[0] {
   return {
     listThreads: async () =>
@@ -121,7 +116,6 @@ function clientSource(client: HostClient): Parameters<typeof createHostThreadTur
       (await client.request('thread/read', { fromSeq, threadId })).rows,
   };
 }
-
 async function rowsUntil(
   client: HostClient,
   threadId: string,
@@ -154,13 +148,11 @@ async function rowsUntil(
     await close();
   }
 }
-
 interface HostRunOptions {
   readonly failStart?: boolean;
   /** Holds the run's turn-start capture until it settles. */
   readonly startGate?: Promise<void>;
 }
-
 /** A host thread whose first run has started; its turn may still be capturing. */
 async function startedHostRun(options: HostRunOptions = {}) {
   const hostRoot = await temporaryDirectory('bs-m3-host-changes-host-');
@@ -217,7 +209,6 @@ async function startedHostRun(options: HostRunOptions = {}) {
   });
   return { client, runId, service, threadId, workspace };
 }
-
 /** A host thread whose first run is paused on the default `edit:ask` approval of a tracked write. */
 async function pausedHostRun(options: HostRunOptions = {}) {
   const started = await startedHostRun(options);
@@ -232,12 +223,10 @@ async function pausedHostRun(options: HostRunOptions = {}) {
   }
   return { ...started, requested };
 }
-
 test('a host run is reviewed live against the work-tree, then start against end with its tool edit attributed', async () => {
   const paused = await pausedHostRun();
   const { resolver } = mainResolver(paused.service, clientSource(paused.client));
   const changeset = { kind: 'agent-run' as const, runId: paused.runId, threadId: paused.threadId };
-
   // A side effect no tool tracked, while the run waits on approval.
   await writeFile(join(paused.workspace, 'shell-made.txt'), 'made by a shell\n');
   const live = await resolver.resolveView(changeset);
@@ -254,7 +243,6 @@ test('a host run is reviewed live against the work-tree, then start against end 
   });
   expect(live.ok && live.value.files[0]).not.toHaveProperty('toolAttributed');
   expect(forbiddenPg).not.toHaveBeenCalled();
-
   await paused.client.request('interaction/respond', {
     commandId: randomUUID(),
     decision: 'approve',
@@ -273,7 +261,6 @@ test('a host run is reviewed live against the work-tree, then start against end 
     expect.objectContaining({ boundary: 'turn-start', runId: paused.runId }),
     expect.objectContaining({ boundary: 'turn-end', runId: paused.runId }),
   ]);
-
   const settled = await resolver.resolveView(changeset);
   expect(settled).toEqual({
     ok: true,
@@ -297,7 +284,6 @@ test('a host run is reviewed live against the work-tree, then start against end 
   // Once the host owns the thread, its turns are read from the host's log alone.
   expect(forbiddenPg).not.toHaveBeenCalled();
 });
-
 test('a rewind preview’s host run range is each root’s restore point against the live work-tree', async () => {
   const paused = await pausedHostRun();
   await paused.client.request('interaction/respond', {
@@ -320,7 +306,6 @@ test('a rewind preview’s host run range is each root’s restore point against
     kind: 'run-range' as const,
     threadId: paused.threadId,
   };
-
   const view = await resolver.resolveView(changeset);
   expect(view).toEqual({
     ok: true,
@@ -338,13 +323,11 @@ test('a rewind preview’s host run range is each root’s restore point against
   const diff = await resolver.fileDiff(ROOT_ID, changeset, 'permitted.txt');
   expect(diff).toMatchObject({ ok: true, value: { path: 'permitted.txt', status: 'modified' } });
   expect(forbiddenPg).not.toHaveBeenCalled();
-
   // A host range ending at a TO run is refused visibly, never approximated.
   const bounded = await resolver.resolveView({ ...changeset, toRunId: paused.runId });
   expect(!bounded.ok && bounded.error).toMatch(/^run-range-unsupported: /);
   expect(forbiddenPg).not.toHaveBeenCalled();
 });
-
 test('a run resolved before its turn start is committed resolves once it is', async () => {
   const gate = Promise.withResolvers<void>();
   const started = await startedHostRun({ startGate: gate.promise });
@@ -355,13 +338,11 @@ test('a run resolved before its turn start is committed resolves once it is', as
     threadId: started.threadId,
   };
   await rowsUntil(started.client, started.threadId, (row) => row.event.type === 'run.started');
-
   // "Last Turn" follows a run the moment it starts, before its turn-start capture lands.
   const early = await resolver.resolveView(changeset);
   expect(!early.ok && early.error).toMatch(
     /^changeset-snapshot-missing: .*recorded no workspace snapshots/
   );
-
   gate.resolve();
   await rowsUntil(
     started.client,
@@ -377,7 +358,6 @@ test('a run resolved before its turn start is committed resolves once it is', as
   });
   expect(forbiddenPg).not.toHaveBeenCalled();
 });
-
 test('a host run whose turn-start capture failed has no Changes review, visibly', async () => {
   const paused = await pausedHostRun({ failStart: true });
   const { resolver } = mainResolver(paused.service, clientSource(paused.client));
@@ -391,7 +371,6 @@ test('a host run whose turn-start capture failed has no Changes review, visibly'
     /^changeset-snapshot-capture-failed: .*the shadow repository is unavailable/
   );
 });
-
 test('a host run that ended without its turn end, or recorded no turn, has no Changes review, visibly', async () => {
   const shadow = await temporaryDirectory('bs-m3-host-changes-shadow-');
   const service = createSnapshotService({
@@ -413,7 +392,9 @@ test('a host run that ended without its turn end, or recorded no turn, has no Ch
       threadId,
     },
     { event: { outcome: 'interrupted', runId: recovered, type: 'run.finished' }, seq: 2, threadId },
-  ].map((row) => HostLogRowSchema.parse(row));
+  ].map((row) =>
+    Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)
+  );
   const { resolver } = mainResolver(service, {
     listThreads: async () => new Set([threadId]),
     readRows: async (_threadId, fromSeq) => rows.filter((row) => row.seq > fromSeq),
@@ -431,7 +412,6 @@ test('a host run that ended without its turn end, or recorded no turn, has no Ch
     /^changeset-snapshot-missing: .*recorded no workspace snapshots/
   );
 });
-
 test('a thread the host does not own refuses instead of reading a retired ledger', async () => {
   const shadow = await temporaryDirectory('bs-m3-host-changes-shadow-');
   const service = createSnapshotService({

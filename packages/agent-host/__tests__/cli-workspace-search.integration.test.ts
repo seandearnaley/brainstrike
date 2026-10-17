@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { refusalError } from '@brainstrike/assistant-contract';
 import { MockLanguageModelV4 } from 'ai/test';
+import { Schema } from 'effect';
 import { expect, test } from 'vitest';
 import { runHostCli } from '../src/cli.js';
 import { attachAgentHost } from '../src/client.js';
@@ -83,7 +84,10 @@ test('CLI ranked text preserves provenance, rejects unsupported scope/mode and j
         },
       }
     );
-    return HOST_RESULT_SCHEMAS['workspace/search'].parse(JSON.parse(output));
+    return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['workspace/search'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(JSON.parse(output));
   };
   try {
     for (const mode of ['bm25', 'trigram']) {
@@ -113,7 +117,6 @@ test('CLI ranked text preserves provenance, rejects unsupported scope/mode and j
       threadId,
     });
     expect((await cli('trigram')).hits[0]?.rootId).toBe('selected');
-
     const controller = new AbortController();
     const pending = client.request(
       'workspace/search',

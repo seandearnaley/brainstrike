@@ -21,7 +21,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
   clearHostedProviderApiKeyCache();
 });
-
 // Recorded c137 missing-key failure: generate and join each cross the utility
 // channel, becoming distinct errors before CanonicalIngestionHost aggregates them.
 async function roundTrip(error: unknown): Promise<unknown> {
@@ -43,7 +42,6 @@ const missing = () =>
   new HostedEmbeddingError('missing-key', 'No API key configured for the embedding provider.', {
     cause: new Error('private fixture diagnostic'),
   });
-
 describe('native missing-key outcome (BST-2008)', () => {
   it('reports the recorded generate failure once with its safe refusal through the channel', async () => {
     const original = missing();
@@ -81,7 +79,11 @@ describe('native missing-key outcome (BST-2008)', () => {
     expect(generate).toBeInstanceOf(BoundaryFailureError);
     const log = vi.fn();
     const failure = nativeIndexBoundaryFailure(generate, log);
-    expect(BoundaryFailureSchema.parse(failure)).toMatchObject({
+    expect(
+      Schema.decodeUnknownSync(BoundaryFailureSchema, { errors: 'all', onExcessProperty: 'error' })(
+        failure
+      )
+    ).toMatchObject({
       category: 'configuration',
       code: 'embedding.missing-key',
       kind: 'refusal',
@@ -137,7 +139,6 @@ describe('native missing-key outcome (BST-2008)', () => {
     ).toThrow();
   });
 });
-
 // Existing hosted adapter HTTP fixtures are exercised through the real provider
 // mapper before generate/join cross the utility boundary; no live call is made.
 it.each([
@@ -197,7 +198,11 @@ it.each([
     const generate = await roundTrip(generated);
     const log = vi.fn();
     const failure = nativeIndexBoundaryFailure(generate, log);
-    expect(BoundaryFailureSchema.parse(failure)).toMatchObject({
+    expect(
+      Schema.decodeUnknownSync(BoundaryFailureSchema, { errors: 'all', onExcessProperty: 'error' })(
+        failure
+      )
+    ).toMatchObject({
       category,
       code: `embedding.${kind}`,
       kind: 'refusal',
@@ -220,7 +225,6 @@ it.each([
   const aggregate = await roundTrip(new AggregateError([missing(), other], 'Independent failures'));
   expect(nativeIndexBoundaryFailure(aggregate, vi.fn())).toMatchObject(INTERNAL_FAULT);
 });
-
 it('retains provider diagnostic facts privately through the real redacting logger', async () => {
   const original = Object.assign(new TypeError('fixture transport refused'), {
     details: { authorization: 'Bearer fake-private-auth', phase: 'connect' },

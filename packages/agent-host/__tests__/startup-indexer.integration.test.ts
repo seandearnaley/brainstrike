@@ -7,8 +7,8 @@ import { RootLock, RootLockedError, StateStore } from '@brainstrike/state-store'
 import recording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json' with {
   type: 'json',
 };
+import { Schema } from 'effect';
 import { expect, test } from 'vitest';
-import { z } from 'zod';
 import { storedHostEvent } from '../src/event-storage.js';
 import type { HostPlatform } from '../src/ports.js';
 import { HostLogRowSchema } from '../src/protocol.js';
@@ -54,7 +54,10 @@ async function interruptedDelete(root: string): Promise<{ threadId: string; rema
     indexer: { ...indexed, dropThread: async () => Promise.reject(failure) },
   });
   try {
-    const captured = z.array(HostLogRowSchema).parse(recording);
+    const captured = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(recording);
     const threadId = captured[0]?.threadId;
     if (!threadId) {
       throw new Error('Core recording has no thread');

@@ -6,7 +6,7 @@
  * Node module.
  */
 import { sha256Hex } from '@brainstrike/utils/crypto';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { storedJson } from './json-value.js';
 import {
   type HostEvent,
@@ -17,7 +17,6 @@ import {
 import { Sha256 } from './workspace-wire.js';
 
 const utf8 = new TextDecoder('utf-8', { fatal: true });
-
 /** A stored body's run snapshot reference, removed from the body it came with. */
 export function takeRunSnapshotRef(body: Readonly<Record<string, unknown>>): {
   readonly body: Readonly<Record<string, unknown>>;
@@ -27,13 +26,12 @@ export function takeRunSnapshotRef(body: Readonly<Record<string, unknown>>): {
     return { body };
   }
   const { blobRefs, snapshotRef, ...rest } = body;
-  const ref = Sha256.parse(snapshotRef);
+  const ref = Schema.decodeUnknownSync(Sha256)(snapshotRef);
   if (body['type'] !== 'run.started' || JSON.stringify(blobRefs) !== JSON.stringify([ref])) {
     throw new Error('Committed run snapshot reference does not match its row');
   }
   return { body: rest, ref };
 }
-
 /** Deep-frozen: one resolved snapshot is shared by every run that references it. */
 function frozen<T>(value: T): T {
   if (value !== null && typeof value === 'object') {
@@ -44,36 +42,36 @@ function frozen<T>(value: T): T {
   }
   return value;
 }
-
 /** A snapshot blob is stored JSON, like a stored row (ADR-0011). */
 const StoredRunSnapshotSchema = hostRunSnapshotSchema(storedJson);
-
 /** A run snapshot blob's committed snapshot: verified against its hash, then decoded and deep-frozen. */
 export function decodeRunSnapshot(hash: string, bytes: Uint8Array): HostRunSnapshot {
   if (sha256Hex(bytes) !== hash) {
     throw new Error('Committed run snapshot blob is damaged');
   }
-  return frozen(StoredRunSnapshotSchema.parse(JSON.parse(utf8.decode(bytes))));
+  return frozen(
+    Schema.decodeUnknownSync(StoredRunSnapshotSchema, { onExcessProperty: 'error' })(
+      JSON.parse(utf8.decode(bytes))
+    )
+  );
 }
-
-const Spool = z.object({
-  blob: z.string().regex(/^[a-f0-9]{64}$/u),
-  blobRefs: z.array(z.string().regex(/^[a-f0-9]{64}$/u)).optional(),
-  bytes: z.number().int().positive(),
-  preview: z.string(),
-  runId: z.string().optional(),
-  type: z.string(),
+const Spool = Schema.Struct({
+  blob: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u)),
+  blobRefs: Schema.optional(
+    Schema.mutable(Schema.Array(Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u))))
+  ),
+  bytes: Schema.Int.check(Schema.isGreaterThan(0)),
+  preview: Schema.String,
+  runId: Schema.optional(Schema.String),
+  type: Schema.String,
 });
-
 export function hostEventSpool(
   stored: Readonly<Record<string, unknown>>
-): z.output<typeof Spool> | undefined {
-  return 'blob' in stored ? Spool.parse(stored) : undefined;
+): (typeof Spool)['Type'] | undefined {
+  return 'blob' in stored ? Schema.decodeUnknownSync(Spool)(stored) : undefined;
 }
-
 /** Stored rows' events, over stored JSON values (ADR-0011). */
 const StoredHostEventSchema = hostEventSchema(storedJson);
-
 /** A stored row's body: the row itself, or the JSON of the blob it spooled to. */
 export function storedHostBody(
   stored: Readonly<Record<string, unknown>>,
@@ -86,7 +84,9 @@ export function storedHostBody(
   if (!(blob && blob.byteLength === spool.bytes && sha256Hex(blob) === spool.blob)) {
     throw new Error('Committed host event blob is damaged');
   }
-  const body = z.record(z.string(), z.unknown()).parse(JSON.parse(utf8.decode(blob)));
+  const body = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(
+    JSON.parse(utf8.decode(blob))
+  );
   if (body['type'] !== spool.type || body['runId'] !== spool.runId) {
     throw new Error('Committed host event blob identity does not match its row');
   }
@@ -95,7 +95,6 @@ export function storedHostBody(
   }
   return body;
 }
-
 /**
  * Shared producer decoder; the caller owns asynchronous or worker-local blob
  * IO, including resolving a run snapshot reference to its committed snapshot.
@@ -106,7 +105,9 @@ export function decodeStoredHostEvent(
   snapshot?: (hash: string) => HostRunSnapshot
 ): HostEvent {
   const { body, ref } = takeRunSnapshotRef(storedHostBody(stored, blob));
-  const event = StoredHostEventSchema.parse(body);
+  const event = Schema.decodeUnknownSync(StoredHostEventSchema, { onExcessProperty: 'error' })(
+    body
+  );
   if (ref === undefined) {
     return event;
   }

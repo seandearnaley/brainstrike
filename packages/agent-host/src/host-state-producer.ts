@@ -13,19 +13,20 @@ import {
   type Unreadable,
 } from '@brainstrike/state-store/event-schema';
 import { modelMessageSchema } from 'ai';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { committedRowAddress, committedRunSource } from './committed-identities.js';
 import { decodeRunSnapshot, decodeStoredHostEvent, hostEventSpool } from './host-event-decoding.js';
 import { type HostEvent, HostEventSchema, type HostLogRow, HostLogRowSchema } from './protocol.js';
-
-export type DecodedHostEvent = (HostEvent & { readonly seq: number }) | Purged | Unreadable;
-
+export type DecodedHostEvent =
+  | (HostEvent & {
+      readonly seq: number;
+    })
+  | Purged
+  | Unreadable;
 /** A committed blob's bytes by content hash; it throws when the blob cannot be read. */
 export type HostBlobRead = (hash: string) => Uint8Array;
-
-const sequence = z.number().int().positive();
-const fields = z.record(z.string(), z.unknown());
-
+const sequence = Schema.Int.check(Schema.isGreaterThan(0));
+const fields = Schema.Record(Schema.String, Schema.Unknown);
 /**
  * BST-1977: Core truth is unversioned. Decode its actual producer shape
  * unchanged. A row that spooled its body or names a run snapshot needs
@@ -34,8 +35,12 @@ const fields = z.record(z.string(), z.unknown());
 export function decodeHostRow(raw: string, mode: Mode, readBlob?: HostBlobRead): DecodedHostEvent {
   let seq = -1;
   try {
-    const stored = fields.parse(JSON.parse(raw));
-    seq = sequence.parse(stored['seq']);
+    const stored = Schema.decodeUnknownSync(fields, { errors: 'all', onExcessProperty: 'error' })(
+      JSON.parse(raw)
+    );
+    seq = Schema.decodeUnknownSync(sequence, { errors: 'all', onExcessProperty: 'error' })(
+      stored['seq']
+    );
     const { seq: _storedSequence, ...body } = stored;
     if (body['type'] === 'purged') {
       return { seq, type: 'purged' };
@@ -58,16 +63,18 @@ export function decodeHostRow(raw: string, mode: Mode, readBlob?: HostBlobRead):
     return { raw, reason, seq, type: 'unreadable' };
   }
 }
-
 function projectedEvent(input: unknown): HostEvent | undefined {
-  const record = fields.parse(input);
+  const record = Schema.decodeUnknownSync(fields, { errors: 'all', onExcessProperty: 'error' })(
+    input
+  );
   if (record['type'] === 'purged' || record['type'] === 'unreadable') {
     return undefined;
   }
   const { seq: _storedSequence, ...event } = record;
-  return HostEventSchema.parse(event);
+  return Schema.decodeUnknownSync(HostEventSchema, { errors: 'all', onExcessProperty: 'error' })(
+    event
+  );
 }
-
 /**
  * A tool payload's string values, one per line. Indexing its JSON text would
  * glue escapes onto words: unicode61 reads `\ntool` as the token `ntool`.
@@ -84,7 +91,6 @@ function payloadText(value: unknown): string {
   }
   return '';
 }
-
 /** Visible tool/decision history belongs to the run's existing assistant message. */
 function runHistoryText(event: HostEvent): string | null {
   switch (event.type) {
@@ -100,7 +106,6 @@ function runHistoryText(event: HostEvent): string | null {
       return null;
   }
 }
-
 /** Recognized committed content only; metadata and gaps contribute no FTS text. */
 export function text(input: unknown): string | null {
   const event = projectedEvent(input);
@@ -117,7 +122,6 @@ export function text(input: unknown): string | null {
       return runHistoryText(event);
   }
 }
-
 /** An assistant message's own text parts; tool calls, results and reasoning are not conversation text. */
 function assistantText(message: unknown): string[] {
   const parsed = modelMessageSchema.parse(message);
@@ -129,15 +133,16 @@ function assistantText(message: unknown): string[] {
   }
   return parsed.content.flatMap((part) => (part.type === 'text' ? [part.text] : []));
 }
-
 /**
  * Committed history under the message the UI already renders: a typed prompt,
  * assistant text, tool result, decision or terminal diagnostic. Regeneration
  * and wake prompts do not introduce another user message.
  */
-export function search(
-  input: unknown
-): { readonly role: 'assistant' | 'user'; readonly runId: string; readonly text: string } | null {
+export function search(input: unknown): {
+  readonly role: 'assistant' | 'user';
+  readonly runId: string;
+  readonly text: string;
+} | null {
   const event = projectedEvent(input);
   if (event?.type === 'run.started') {
     const typed = event.userMessageId === undefined && event.delivery?.via !== 'wake';
@@ -154,16 +159,33 @@ export function search(
       : runHistoryText(event);
   return text ? { role: 'assistant', runId: event.runId, text } : null;
 }
-
 /** Existing command and row addresses; no vendor IDs, timestamp guesses or ID writer. */
 export function messages(
-  input: readonly { readonly threadId: string; readonly seq: number; readonly event: unknown }[]
-): readonly { readonly messageId: string; readonly seq: number }[] {
+  input: readonly {
+    readonly threadId: string;
+    readonly seq: number;
+    readonly event: unknown;
+  }[]
+): readonly {
+  readonly messageId: string;
+  readonly seq: number;
+}[] {
   const rows: HostLogRow[] = input.flatMap((row) => {
     const event = projectedEvent(row.event);
-    return event ? [HostLogRowSchema.parse({ event, seq: row.seq, threadId: row.threadId })] : [];
+    return event
+      ? [
+          Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+            event,
+            seq: row.seq,
+            threadId: row.threadId,
+          }),
+        ]
+      : [];
   });
-  const selected: { messageId: string; seq: number }[] = [];
+  const selected: {
+    messageId: string;
+    seq: number;
+  }[] = [];
   const ids = new Set<string>();
   const append = (messageId: string, seq: number): void => {
     if (ids.has(messageId)) {

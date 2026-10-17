@@ -14,6 +14,7 @@ import {
   type HostParams,
 } from '@brainstrike/agent-host/protocol';
 import recording from '@brainstrike/test-utils/fixtures/committed-host-ended-runs.json';
+import { Schema } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConnectionError, ConnectionErrors, ErrorCodes, ResponseError } from 'vscode-jsonrpc';
 import {
@@ -21,7 +22,9 @@ import {
   HOST_RESTARTED_NOT_SENT,
 } from '../renderer/committed-host-conversation';
 
-const rows = recording.map((row) => HostLogRowSchema.parse(row));
+const rows = recording.map((row) =>
+  Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)
+);
 const threadId = rows[0]?.threadId ?? '';
 const acceptedStart = rows.find(
   ({ event, threadId: owner }) =>
@@ -31,7 +34,6 @@ if (!(threadId && acceptedStart?.type === 'command.accepted')) {
   throw new Error('The recording needs a committed run/start acceptance');
 }
 const acceptedCommandId = acceptedStart.commandId;
-
 function message(text: string): AppendMessage {
   return {
     attachments: [],
@@ -44,12 +46,15 @@ function message(text: string): AppendMessage {
     sourceId: null,
   };
 }
-
 /** A host client serving the recorded log; `runStart` decides the send's fate. */
 function recordedClient(runStart: () => Promise<unknown>) {
   const closed = Promise.withResolvers<void>();
   const request = vi.fn(async (method: HostMethod, params: HostParams<HostMethod>) => {
-    const thread = (params as { readonly threadId?: string }).threadId;
+    const thread = (
+      params as {
+        readonly threadId?: string;
+      }
+    ).threadId;
     const log: HostLogRow[] = rows.filter((row) => row.threadId === thread);
     const answers: Partial<Record<HostMethod, () => unknown>> = {
       'log/subscribe': () => ({ rows: log, telemetry: [] }),
@@ -61,7 +66,10 @@ function recordedClient(runStart: () => Promise<unknown>) {
     if (!answer) {
       throw new Error(`Unexpected host request ${method}`);
     }
-    return HOST_RESULT_SCHEMAS[method].parse(await answer());
+    return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS[method], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(await answer());
   });
   const client = {
     close: vi.fn(async () => closed.resolve()),
@@ -72,7 +80,6 @@ function recordedClient(runStart: () => Promise<unknown>) {
   } as unknown as HostClient;
   return { client, lose: () => closed.resolve(), request };
 }
-
 /**
  * A `run/start` the host never answers: the closed connection rejects it, as the
  * client reads vscode-jsonrpc's rejection. It may arrive before `closed` settles.
@@ -89,7 +96,6 @@ function unansweredStart(lost: Promise<void>) {
       );
     });
 }
-
 /** A `run/start` vscode-jsonrpc refused to send: the connection had already closed. */
 async function unsentStart(): Promise<never> {
   throw fromBoundaryResponseError(
@@ -97,11 +103,9 @@ async function unsentStart(): Promise<never> {
     vi.fn()
   );
 }
-
 afterEach(() => {
   vi.restoreAllMocks();
 });
-
 describe('a send the lost host never answered (BST-2004)', () => {
   it('comes back unsent when the replacement has no record of it', async () => {
     const loss = Promise.withResolvers<void>();
@@ -131,7 +135,6 @@ describe('a send the lost host never answered (BST-2004)', () => {
       conversation.close();
     }
   });
-
   it('settles as sent when the replacement committed it (Core marks the run interrupted)', async () => {
     vi.spyOn(crypto, 'randomUUID').mockReturnValue(
       acceptedCommandId as ReturnType<typeof crypto.randomUUID>
@@ -155,7 +158,6 @@ describe('a send the lost host never answered (BST-2004)', () => {
       conversation.close();
     }
   });
-
   it('settles a send refused before it left from the replacement too, never resending it', async () => {
     const lostHost = recordedClient(unsentStart);
     const replacementHost = recordedClient(async () => ({ runId: 'never' }));
@@ -179,7 +181,6 @@ describe('a send the lost host never answered (BST-2004)', () => {
       conversation.close();
     }
   });
-
   it('settles a send whose folder binding lost the host, never starting the run', async () => {
     const loss = Promise.withResolvers<void>();
     const runStart = vi.fn(async () => ({ runId: 'never' }));
@@ -207,7 +208,6 @@ describe('a send the lost host never answered (BST-2004)', () => {
       conversation.close();
     }
   });
-
   it('keeps a refusal from a live host as it is', async () => {
     const refusal = new Error('The model is not enabled');
     const liveHost = recordedClient(async () => {

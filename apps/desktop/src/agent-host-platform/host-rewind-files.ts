@@ -5,6 +5,7 @@ import type {
   HostTurnSnapshot,
 } from '@brainstrike/agent-host';
 import { createLogger } from '@brainstrike/logging';
+import { Schema } from 'effect';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { listThreadSnapshotChain } from '../assistant-server/snapshot-chains';
 import { execFileSnapshotGitRunner } from '../assistant-server/snapshot-git';
@@ -25,16 +26,13 @@ import {
 } from './platform-wire';
 
 const logger = createLogger('HostRewindFiles');
-
 /** Previews kept for their rewind; an evicted one refuses as `preview-required`. */
 const MAX_STORED_PREVIEWS = 32;
-
 interface StoredPreview {
   /** rootId → path → blob oid of the live work-tree when the preview was shown. */
   readonly fingerprint: ReadonlyMap<string, ReadonlyMap<string, string>>;
   readonly threadId: string;
 }
-
 /** Main's owners a host rewind borrows: the one shadow-git service and the live root owner. */
 export interface HostRewindFilesOwners {
   /** Request one full scan from the existing native workspace owner after disk restoration. */
@@ -43,7 +41,6 @@ export interface HostRewindFilesOwners {
   readonly resolveWorkspaceRoot: (rootId: string) => Promise<string>;
   readonly snapshots: () => SnapshotService | null;
 }
-
 function outcomeOf(rootId: string, outcome: PerFileOutcome): HostRewindFileOutcome {
   switch (outcome.outcome) {
     case 'conflict':
@@ -53,7 +50,6 @@ function outcomeOf(rootId: string, outcome: PerFileOutcome): HostRewindFileOutco
       return { path: outcome.path, rootId, status: outcome.outcome };
   }
 }
-
 function sortedDrift(
   rootId: string,
   recorded: ReadonlyMap<string, string>,
@@ -64,7 +60,6 @@ function sortedDrift(
     .filter((path) => recorded.get(path) !== current.get(path))
     .map((path) => ({ path, rootId }));
 }
-
 /**
  * A host thread's rewind restores over Main's one shadow-git owner, with the
  * legacy rewind engine's rules (`rewind-snapshot-engine.ts`):
@@ -83,7 +78,6 @@ function sortedDrift(
  */
 export function createHostRewindFiles(owners: HostRewindFilesOwners) {
   const previews = new Map<string, StoredPreview>();
-
   async function rootHandle(
     service: SnapshotService,
     target: HostTurnSnapshot
@@ -91,7 +85,6 @@ export function createHostRewindFiles(owners: HostRewindFilesOwners) {
     const path = await owners.resolveWorkspaceRoot(target.rootId);
     return await service.ensureShadowRepo({ path, rootId: target.rootId });
   }
-
   /**
    * Request the existing native scanner once per changed root. An index failure
    * remains diagnostic: it does not reverse the completed filesystem restore.
@@ -111,7 +104,6 @@ export function createHostRewindFiles(owners: HostRewindFilesOwners) {
       });
     }
   }
-
   function service(): SnapshotService {
     const owner = owners.snapshots();
     if (!owner) {
@@ -119,7 +111,6 @@ export function createHostRewindFiles(owners: HostRewindFilesOwners) {
     }
     return owner;
   }
-
   function storedPreview(threadId: string, previewId: string): StoredPreview {
     const stored = previews.get(previewId);
     if (!stored || stored.threadId !== threadId) {
@@ -127,14 +118,16 @@ export function createHostRewindFiles(owners: HostRewindFilesOwners) {
     }
     return stored;
   }
-
   /** Each root's pre-revert snapshot for `rewindId`, with its handle. */
   async function preRevertOf(
     owner: SnapshotService,
     threadId: string,
     rewindId: string,
     target: HostTurnSnapshot
-  ): Promise<{ readonly handle: ShadowRepoHandle; readonly preRevertOid: string }> {
+  ): Promise<{
+    readonly handle: ShadowRepoHandle;
+    readonly preRevertOid: string;
+  }> {
     const handle = await rootHandle(owner, target);
     const chain = await listThreadSnapshotChain(execFileSnapshotGitRunner, handle, threadId);
     const preRevert = chain.find(
@@ -147,7 +140,6 @@ export function createHostRewindFiles(owners: HostRewindFilesOwners) {
     }
     return { handle, preRevertOid: preRevert.commitOid };
   }
-
   /** A root's redo plan: a fresh diff anchor, and conflicts against the target turn. */
   async function redoPlan(
     owner: SnapshotService,
@@ -166,7 +158,6 @@ export function createHostRewindFiles(owners: HostRewindFilesOwners) {
       .map((action) => ({ path: action.path, rootId: target.rootId }));
     return { conflicts, currentHashes, handle, plan, turnStartHashes };
   }
-
   return {
     apply: async (request: {
       readonly previewId: string;
@@ -212,7 +203,9 @@ export function createHostRewindFiles(owners: HostRewindFilesOwners) {
     preview: async (request: {
       readonly targets: readonly HostTurnSnapshot[];
       readonly threadId: string;
-    }): Promise<{ previewId: string }> => {
+    }): Promise<{
+      previewId: string;
+    }> => {
       const owner = service();
       const fingerprint = new Map<string, ReadonlyMap<string, string>>();
       for (const target of request.targets) {
@@ -278,14 +271,11 @@ export function createHostRewindFiles(owners: HostRewindFilesOwners) {
     },
   };
 }
-
 export type HostRewindFilesOwner = ReturnType<typeof createHostRewindFiles>;
-
 type Execute = <T>(
   token: CancellationToken,
   work: (signal: AbortSignal) => Promise<T>
 ) => Promise<T>;
-
 /**
  * Serve a host thread's rewind restores (`platform/rewind/*`) over Main's
  * snapshot owner. Rewinds run with no admitted selection; each root is
@@ -321,22 +311,68 @@ export function serveHostRewindFiles(
     );
   };
   serve('platform/rewind/preview', async (input) =>
-    PlatformRewindPreviewResultSchema.parse(
-      await files.preview(PlatformRewindPreviewSchema.parse(input))
+    Schema.decodeUnknownSync(PlatformRewindPreviewResultSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(
+      await files.preview(
+        Schema.decodeUnknownSync(PlatformRewindPreviewSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input)
+      )
     )
   );
   serve('platform/rewind/drift', async (input) =>
-    PlatformRewindConflictsSchema.parse(await files.drift(PlatformRewindDriftSchema.parse(input)))
+    Schema.decodeUnknownSync(PlatformRewindConflictsSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(
+      await files.drift(
+        Schema.decodeUnknownSync(PlatformRewindDriftSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input)
+      )
+    )
   );
   serve('platform/rewind/apply', async (input) =>
-    PlatformRewindOutcomesSchema.parse(await files.apply(PlatformRewindApplySchema.parse(input)))
+    Schema.decodeUnknownSync(PlatformRewindOutcomesSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(
+      await files.apply(
+        Schema.decodeUnknownSync(PlatformRewindApplySchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input)
+      )
+    )
   );
   serve('platform/rewind/redo-conflicts', async (input) =>
-    PlatformRewindConflictsSchema.parse(
-      await files.redoConflicts(PlatformRewindRedoConflictsSchema.parse(input))
+    Schema.decodeUnknownSync(PlatformRewindConflictsSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(
+      await files.redoConflicts(
+        Schema.decodeUnknownSync(PlatformRewindRedoConflictsSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input)
+      )
     )
   );
   serve('platform/rewind/redo', async (input) =>
-    PlatformRewindOutcomesSchema.parse(await files.redo(PlatformRewindRedoSchema.parse(input)))
+    Schema.decodeUnknownSync(PlatformRewindOutcomesSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(
+      await files.redo(
+        Schema.decodeUnknownSync(PlatformRewindRedoSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input)
+      )
+    )
   );
 }

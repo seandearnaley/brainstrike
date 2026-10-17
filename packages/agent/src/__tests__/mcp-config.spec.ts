@@ -1,3 +1,4 @@
+import { Schema, SchemaIssue } from 'effect';
 import { describe, expect, it } from 'vitest';
 import {
   type McpConfig,
@@ -45,7 +46,6 @@ describe('MCP config parser', () => {
     expect(s1?.transport).toBe('streamable-http');
     expect(s2?.transport).toBe('sse');
   });
-
   it('does not infer an HTTP transport from the URL path', () => {
     const cfg = parseMcpConfig(
       JSON.stringify({
@@ -63,15 +63,12 @@ describe('MCP config parser', () => {
         ],
       })
     );
-
     expect(cfg.servers.map((server) => server.transport)).toEqual(['streamable-http', 'sse']);
   });
-
   it('defaults omitted protocol policy visibly and preserves the effective policy on reload', () => {
     const raw = JSON.stringify({
       servers: [{ command: 'node', name: 'legacy-by-migration', transport: 'stdio' }],
     });
-
     const first = parseMcpConfigWithMigrations(raw);
     expect(first.config.servers[0]?.protocol).toBe('legacy');
     expect(first.migrations).toEqual([
@@ -81,12 +78,10 @@ describe('MCP config parser', () => {
         serverName: 'legacy-by-migration',
       },
     ]);
-
     const reloaded = parseMcpConfigWithMigrations(JSON.stringify(first.config));
     expect(reloaded.config).toEqual(first.config);
     expect(reloaded.migrations).toEqual([]);
   });
-
   it('accepts every explicit protocol mode and rejects incompatible or unknown modes', () => {
     const parseServers = (servers: unknown[]) => parseMcpConfig(JSON.stringify({ servers }));
     const config = parseServers([
@@ -107,7 +102,6 @@ describe('MCP config parser', () => {
     expect(toMcpVersionNegotiation('legacy')).toEqual({ mode: 'legacy' });
     expect(toMcpVersionNegotiation('auto')).toEqual({ mode: 'auto' });
     expect(toMcpVersionNegotiation('2026-07-28')).toEqual({ mode: { pin: '2026-07-28' } });
-
     expect(() =>
       parseServers([
         { name: 'invalid-sse', protocol: 'auto', transport: 'sse', url: 'https://example.com/sse' },
@@ -117,7 +111,6 @@ describe('MCP config parser', () => {
       parseServers([{ command: 'node', name: 'future', protocol: 'future', transport: 'stdio' }])
     ).toThrow(/invalid_mcp_config/u);
   });
-
   it('recognizes versioned and platform-shim mcp-remote forms without overriding explicit startup', () => {
     const detected = parseMcpConfig(
       JSON.stringify({
@@ -149,7 +142,6 @@ describe('MCP config parser', () => {
       'automatic',
     ]);
   });
-
   it('rejects user-paced stdio authorization with auto negotiation at config load', () => {
     expect(() =>
       parseMcpConfig(
@@ -167,7 +159,6 @@ describe('MCP config parser', () => {
       )
     ).toThrow('user-paced stdio authorization requires protocol');
   });
-
   it('rejects duplicate server names across different transports at the duplicate path', () => {
     const config = {
       servers: [
@@ -179,13 +170,15 @@ describe('MCP config parser', () => {
         },
       ],
     };
-
-    const result = McpConfigSchema.safeParse(config);
-    expect(result.success).toBe(false);
-    if (result.success) {
+    const result = Schema.decodeUnknownResult(McpConfigSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(config);
+    expect(result._tag === 'Success').toBe(false);
+    if (result._tag === 'Success') {
       throw new Error('Expected duplicate MCP server names to be rejected');
     }
-    expect(result.error.issues).toContainEqual(
+    expect(SchemaIssue.makeFormatterStandardSchemaV1()(result.failure.issue).issues).toContainEqual(
       expect.objectContaining({
         message: 'duplicate server name',
         path: ['servers', 1, 'name'],
@@ -198,14 +191,12 @@ describe('MCP config parser', () => {
       })
     );
   });
-
   it('accepts the explicit empty authority and rejects unknown config fields', () => {
     expect(parseMcpConfig(JSON.stringify({ servers: [] }))).toEqual({ servers: [] });
     expect(() => parseMcpConfig(JSON.stringify({ ignored: true, servers: [] }))).toThrow(
       'invalid_mcp_config'
     );
   });
-
   it('reports malformed JSON without echoing configuration contents', () => {
     const secret = 'secret-looking-value';
     let error: unknown;
@@ -214,7 +205,6 @@ describe('MCP config parser', () => {
     } catch (caught) {
       error = caught;
     }
-
     expect(error).toMatchObject({
       code: 'invalid_mcp_config',
       issues: [{ message: 'invalid JSON syntax', path: '' }],

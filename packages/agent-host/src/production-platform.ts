@@ -16,7 +16,7 @@ import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import { decodeVectorProfile, type VectorProfile } from '@brainstrike/indexer';
 import type { LanguageModel, Tool } from 'ai';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { committedRunMessages, createHostToolDiscovery } from './adapters/host-tool-discovery.js';
 import { createMcpHostToolAdapter } from './adapters/mcp.js';
 import type { HostMemory } from './adapters/memory.js';
@@ -48,7 +48,6 @@ import type {
 import type { HostObserverAwaitingReason, HostRunSnapshot } from './protocol.js';
 import { prepareHostProviderTools } from './provider-schema-selection.js';
 import type { HostStartupContext } from './runtime.js';
-
 /** Existing settings/context/native catalog owners resolve this once per admitted run. */
 export interface ProductionHostRunConfiguration {
   /** The platform's workspace snapshot owner, for each run's turn boundaries. */
@@ -88,7 +87,6 @@ export interface ProductionHostRunConfiguration {
   readonly tools: Readonly<Record<string, HostTool>>;
   readonly toolTimeoutMs: number;
 }
-
 /**
  * The admission's pure preconditions for a request: the selection, observer
  * resolution, recall-embedder plan and memory credentials `readConfiguration`
@@ -96,9 +94,14 @@ export interface ProductionHostRunConfiguration {
  * `run/start` would fail with.
  */
 export type HostMemoryPreconditions =
-  | { readonly ready: false; readonly reason: string }
-  | { readonly observation: HostObservationSource; readonly ready: true };
-
+  | {
+      readonly ready: false;
+      readonly reason: string;
+    }
+  | {
+      readonly observation: HostObservationSource;
+      readonly ready: true;
+    };
 export interface ProductionHostPlatformOptions {
   /** The host's credential authority, where this host owns a credential store. */
   readonly auth?: HostPlatform['auth'];
@@ -141,7 +144,6 @@ export interface ProductionHostPlatformOptions {
   readonly startup: HostStartupContext;
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
 }
-
 function rootModel(
   configuration: RuntimeData,
   auth: ProviderAuthInput | undefined
@@ -155,19 +157,19 @@ function rootModel(
   );
   return materializeHostProviderModel(model);
 }
-
 /** The provider's own web search, built with the chat model's auth; Core decides its use. */
 function admittedNativeWebSearch(
   provider: string,
   auth: ProviderAuthInput | undefined
-): { readonly nativeWebSearch?: Tool } {
+): {
+  readonly nativeWebSearch?: Tool;
+} {
   if (!providerSupportsNativeWebSearch(provider)) {
     return {};
   }
   const tool = createProviderNativeWebSearchTool(provider, auth) as unknown as Tool | undefined;
   return tool ? { nativeWebSearch: tool } : {};
 }
-
 /** The provider's auth: the admission's own resolver when it brings one, else the host's. */
 async function admittedProviderAuth(
   options: Pick<ProductionHostPlatformOptions, 'resolveProviderAuth'>,
@@ -178,7 +180,6 @@ async function admittedProviderAuth(
     ? await selected.resolveProviderAuth(provider)
     : await options.resolveProviderAuth(provider);
 }
-
 /** The run's concrete model. */
 async function admittedModel(
   options: Pick<ProductionHostPlatformOptions, 'resolveModel'>,
@@ -190,13 +191,11 @@ async function admittedModel(
     ? await options.resolveModel(configuration, auth)
     : rootModel(configuration, auth);
 }
-
 function unavailableMcpServers(
   borrowed: HostMcpToolSelection | undefined
 ): Pick<HostRunAdmission, 'unavailableMcpServers'> {
   return borrowed?.unavailable.length ? { unavailableMcpServers: borrowed.unavailable } : {};
 }
-
 async function closeMcpAdmission(
   adapter: ReturnType<typeof createMcpHostToolAdapter>,
   borrowed: HostMcpToolSelection
@@ -218,7 +217,6 @@ async function closeMcpAdmission(
     throw new AggregateError(failures, 'Production MCP admission cleanup failed');
   }
 }
-
 /** Native catalog, MCP and native Memory tools share one identity namespace. */
 function mergeToolCatalogs(
   ...catalogs: readonly Readonly<Record<string, HostTool>>[]
@@ -234,7 +232,6 @@ function mergeToolCatalogs(
   }
   return merged;
 }
-
 /**
  * BST-1932: the shipped child Memory. A run that withholds working memory
  * (a read-only persona's child) keeps every other Memory option.
@@ -254,7 +251,6 @@ export function hostRunMemoryOptions<Memory extends Pick<StateStoreHostMemoryOpt
     },
   };
 }
-
 /** thread/memory/read: the preconditions, then the observation record they locate. */
 function productionMemoryReadiness(
   options: Pick<ProductionHostPlatformOptions, 'readMemoryPreconditions' | 'startup'>
@@ -280,20 +276,16 @@ function productionMemoryReadiness(
     },
   };
 }
-
 type ProductionConfiguration = Omit<ProductionHostPlatformOptions, 'startup' | 'memoryResourceIds'>;
-
 interface StagedProductionOptions<Configuration extends ProductionConfiguration> {
   readonly configure: (startup: HostStartupContext) => Promise<Configuration>;
   readonly memoryResourceIds: readonly string[];
   readonly startup: HostStartupContext;
 }
-
 interface StagedProductionPlatform<Configuration extends ProductionConfiguration> {
   readonly configuration: Configuration;
   readonly platform: HostPlatform;
 }
-
 /** Node-only production composition; Core remains the sole dispatcher and event writer. */
 export function createProductionHostPlatform(
   options: ProductionHostPlatformOptions
@@ -428,7 +420,6 @@ export async function createProductionHostPlatform<Configuration extends Product
   input.startup.signal.throwIfAborted();
   const index = indexed.value;
   options = { ...configured.value, startup: input.startup };
-
   // One run's captured vector bridge over the host's own state index.
   const runVectorBridge = (
     selected: ProductionHostRunConfiguration,
@@ -574,9 +565,13 @@ export async function createProductionHostPlatform<Configuration extends Product
                 ...buildModelSettingsOption(configuration).modelSettings,
                 ...(providerOptions
                   ? {
-                      providerOptions: z
-                        .record(z.string(), z.record(z.string(), z.json()))
-                        .parse(providerOptions),
+                      providerOptions: Schema.decodeUnknownSync(
+                        Schema.Record(
+                          Schema.String,
+                          Schema.Record(Schema.String, Schema.MutableJson)
+                        ),
+                        { errors: 'all', onExcessProperty: 'error' }
+                      )(providerOptions),
                     }
                   : {}),
                 messages: [...messages],

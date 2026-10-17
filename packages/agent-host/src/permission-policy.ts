@@ -1,27 +1,29 @@
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import type { StateStore } from '@brainstrike/state-store';
+import { Schema } from 'effect';
 import type { HostMethodHandler } from './auth-connection.js';
 import type { HostClientOrigin } from './ports.js';
 import {
   type HostPermissionPolicy,
   HostPermissionPolicySchema,
 } from './protocol-permission-policy.js';
-
 /** The host's StateStore settings, where it alone keeps the saved permission policy. */
 export type HostPermissionPolicyStore = Pick<
   StateStore,
   'deleteSetting' | 'getSetting' | 'setSetting'
 >;
-
 const POLICY_KEY = 'permissions/policy';
-
 export async function readHostPermissionPolicy(
   store: HostPermissionPolicyStore
 ): Promise<HostPermissionPolicy | null> {
   const value = await store.getSetting(POLICY_KEY);
-  return value === undefined ? null : HostPermissionPolicySchema.parse(JSON.parse(value));
+  return value === undefined
+    ? null
+    : Schema.decodeUnknownSync(HostPermissionPolicySchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(JSON.parse(value));
 }
-
 /** Saves the policy, or with null clears it so the shipped default applies. */
 export async function writeHostPermissionPolicy(
   store: HostPermissionPolicyStore,
@@ -31,9 +33,16 @@ export async function writeHostPermissionPolicy(
     await store.deleteSetting(POLICY_KEY);
     return;
   }
-  await store.setSetting(POLICY_KEY, JSON.stringify(HostPermissionPolicySchema.parse(policy)));
+  await store.setSetting(
+    POLICY_KEY,
+    JSON.stringify(
+      Schema.decodeUnknownSync(HostPermissionPolicySchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(policy)
+    )
+  );
 }
-
 /** The gate a saved policy enforces: with enforcement off, everything is allowed. */
 export function hostPermissionGate(policy: HostPermissionPolicy): PermissionToolGateSnapshot {
   return {
@@ -44,7 +53,6 @@ export function hostPermissionGate(policy: HostPermissionPolicy): PermissionTool
       : {}),
   };
 }
-
 /**
  * The saved permission policy on one authenticated connection. Only the
  * desktop's private client reaches it: a client attached over the public

@@ -9,7 +9,7 @@ import {
   ListToolsResultSchema,
   ReadResourceResultSchema,
 } from '@modelcontextprotocol/core';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import type { McpHostCatalog, McpHostCloseReport, McpHostOperationResult } from './mcp-host.js';
 import { McpHostErrorSchema } from './mcp-host.js';
 import {
@@ -20,60 +20,94 @@ import {
   McpNegotiatedStatusSchema,
 } from './mcp-host-status.js';
 import type { McpNegotiatedStatus } from './mcp-status.js';
+import { sdkSchema } from './sdk-schema.js';
 
-const McpHostOperationResultEnvelopeSchema = z.discriminatedUnion('type', [
-  z.strictObject({ result: ListToolsResultSchema, type: z.literal('tools/list') }),
-  z.strictObject({ result: CallToolResultSchema, type: z.literal('tools/call') }),
-  z.strictObject({ result: ListResourcesResultSchema, type: z.literal('resources/list') }),
-  z.strictObject({
-    result: ListResourceTemplatesResultSchema,
-    type: z.literal('resources/templates/list'),
-  }),
-  z.strictObject({ result: ReadResourceResultSchema, type: z.literal('resources/read') }),
-  z.strictObject({ result: ListPromptsResultSchema, type: z.literal('prompts/list') }),
-  z.strictObject({ result: GetPromptResultSchema, type: z.literal('prompts/get') }),
-  z.strictObject({ result: CompleteResultSchema, type: z.literal('completion/complete') }),
-  z.strictObject({ result: EmptyResultSchema, type: z.literal('resources/subscribe') }),
-  z.strictObject({ result: EmptyResultSchema, type: z.literal('resources/unsubscribe') }),
-]);
-const McpHostCloseCounterSchema = z.number().int().nonnegative().safe();
-const McpHostCloseReportSchema: z.ZodType<McpHostCloseReport> = z.strictObject({
+const McpHostOperationResultEnvelopeSchema = Schema.Union(
+  [
+    Schema.Struct({ result: sdkSchema(ListToolsResultSchema), type: Schema.Literal('tools/list') }),
+    Schema.Struct({ result: sdkSchema(CallToolResultSchema), type: Schema.Literal('tools/call') }),
+    Schema.Struct({
+      result: sdkSchema(ListResourcesResultSchema),
+      type: Schema.Literal('resources/list'),
+    }),
+    Schema.Struct({
+      result: sdkSchema(ListResourceTemplatesResultSchema),
+      type: Schema.Literal('resources/templates/list'),
+    }),
+    Schema.Struct({
+      result: sdkSchema(ReadResourceResultSchema),
+      type: Schema.Literal('resources/read'),
+    }),
+    Schema.Struct({
+      result: sdkSchema(ListPromptsResultSchema),
+      type: Schema.Literal('prompts/list'),
+    }),
+    Schema.Struct({
+      result: sdkSchema(GetPromptResultSchema),
+      type: Schema.Literal('prompts/get'),
+    }),
+    Schema.Struct({
+      result: sdkSchema(CompleteResultSchema),
+      type: Schema.Literal('completion/complete'),
+    }),
+    Schema.Struct({
+      result: sdkSchema(EmptyResultSchema),
+      type: Schema.Literal('resources/subscribe'),
+    }),
+    Schema.Struct({
+      result: sdkSchema(EmptyResultSchema),
+      type: Schema.Literal('resources/unsubscribe'),
+    }),
+  ],
+  { mode: 'oneOf' }
+);
+const McpHostCloseCounterSchema = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+const McpHostCloseReportSchema: Schema.ConstraintDecoder<McpHostCloseReport> = Schema.Struct({
   callbacksClosed: McpHostCloseCounterSchema,
   childProcessesClosed: McpHostCloseCounterSchema,
   clientsClosed: McpHostCloseCounterSchema,
-  failures: z.array(McpHostErrorSchema),
+  failures: Schema.mutable(Schema.Array(McpHostErrorSchema)),
   loopbackPortsClosed: McpHostCloseCounterSchema,
   probesClosed: McpHostCloseCounterSchema,
   requestsSettled: McpHostCloseCounterSchema,
   subscriptionsClosed: McpHostCloseCounterSchema,
 });
-const McpHostCatalogSchema = z.strictObject({
+const McpHostCatalogSchema = Schema.Struct({
   errors: McpHostCatalogErrorsSchema,
   features: McpHostServerFeaturesSchema,
-  prompts: ListPromptsResultSchema.optional(),
-  resources: ListResourcesResultSchema.optional(),
-  resourceTemplates: ListResourceTemplatesResultSchema.optional(),
+  prompts: Schema.optional(sdkSchema(ListPromptsResultSchema)),
+  resources: Schema.optional(sdkSchema(ListResourcesResultSchema)),
+  resourceTemplates: Schema.optional(sdkSchema(ListResourceTemplatesResultSchema)),
   subscription: McpHostSubscriptionStatusSchema,
-  tools: ListToolsResultSchema.optional(),
+  tools: Schema.optional(sdkSchema(ListToolsResultSchema)),
 });
 export function parseMcpHostOperationResult(value: unknown): McpHostOperationResult {
   assertMcpHostStrictJson(value);
-  return McpHostOperationResultEnvelopeSchema.parse(value) as McpHostOperationResult;
+  return Schema.decodeUnknownSync(McpHostOperationResultEnvelopeSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value) as McpHostOperationResult;
 }
-
 export function parseMcpHostCatalog(value: unknown): McpHostCatalog {
   assertMcpHostStrictJson(value);
-  return McpHostCatalogSchema.parse(value) as McpHostCatalog;
+  return Schema.decodeUnknownSync(McpHostCatalogSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value) as McpHostCatalog;
 }
-
 export function parseMcpHostCloseReport(value: unknown): McpHostCloseReport {
   assertMcpHostStrictJson(value);
-  return McpHostCloseReportSchema.parse(value);
+  return Schema.decodeUnknownSync(McpHostCloseReportSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value);
 }
-
 export function parseMcpNegotiatedStatus(value: unknown): McpNegotiatedStatus {
   assertMcpHostStrictJson(value);
-  const parsed = McpNegotiatedStatusSchema.parse(value);
+  const parsed = Schema.decodeUnknownSync(McpNegotiatedStatusSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value);
   const serverIdentity = parsed.serverIdentity;
   return {
     ...(parsed.advertisedCapabilityIds === undefined

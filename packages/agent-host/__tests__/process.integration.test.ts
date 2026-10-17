@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { decodeHostRecord, decodeStartupMessage, type HostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock, StateStore } from '@brainstrike/state-store';
+import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { attachAgentHost, authenticateHostClient, type HostClient } from '../src/client.js';
 import { type HostEvent, HostLogRowSchema } from '../src/protocol.js';
@@ -39,12 +40,10 @@ const cliPids = new Map<string, number[]>();
 const controls = new Map<string, FixtureCloseControl>();
 const ownerControls = new Map<string, FixtureCloseControl>();
 const observations = new Map<ChildProcess, ReturnType<typeof observeFixtureChild>>();
-
 function environment(root: string): NodeJS.ProcessEnv {
   const control = controls.get(root);
   return { ...process.env, ...(control ? fixtureControlEnvironment(control) : {}) };
 }
-
 function spawnHost(
   entry: string,
   args: string[],
@@ -64,7 +63,6 @@ function spawnHost(
     stdio: [stdio, stdio, stdio, 'ipc'],
   });
 }
-
 function observe(child: ChildProcess, stdout = true): ReturnType<typeof observeFixtureChild> {
   const value = observeFixtureChild(
     child,
@@ -80,7 +78,6 @@ function observe(child: ChildProcess, stdout = true): ReturnType<typeof observeF
   observations.set(child, value);
   return value;
 }
-
 async function receipt(name: string, value: unknown): Promise<void> {
   const directory = process.env['BRAINSTRIKE_M3_PROCESS_ARTIFACT_DIR'];
   if (!directory) {
@@ -89,7 +86,6 @@ async function receipt(name: string, value: unknown): Promise<void> {
   await mkdir(directory, { recursive: true });
   await writeFile(join(directory, `${name}.json`), JSON.stringify(value, null, 2));
 }
-
 async function freshRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-process-'));
   roots.push(root);
@@ -159,13 +155,36 @@ async function event<T extends HostEvent['type']>(
   client: HostClient,
   threadId: string,
   type: T
-): Promise<Extract<HostEvent, { type: T }>> {
-  let found: Extract<HostEvent, { type: T }> | undefined;
+): Promise<
+  Extract<
+    HostEvent,
+    {
+      type: T;
+    }
+  >
+> {
+  let found:
+    | Extract<
+        HostEvent,
+        {
+          type: T;
+        }
+      >
+    | undefined;
   await expect
     .poll(async () => {
       found = (await client.request('thread/read', { fromSeq: 0, threadId })).rows
         .map((row) => row.event)
-        .find((item): item is Extract<HostEvent, { type: T }> => item.type === type);
+        .find(
+          (
+            item
+          ): item is Extract<
+            HostEvent,
+            {
+              type: T;
+            }
+          > => item.type === type
+        );
       return found !== undefined;
     })
     .toBe(true);
@@ -174,7 +193,6 @@ async function event<T extends HostEvent['type']>(
   }
   return found;
 }
-
 afterEach(async (context) => {
   await Promise.all(clients.splice(0).map((client) => client.close()));
   // Join persistent owners cooperatively before disposing their observation pipes.
@@ -199,7 +217,6 @@ afterEach(async (context) => {
   ownerControls.clear();
   observations.clear();
 });
-
 test('ordinary CLI starts a separate persistent host, reuses it after client loss and Stop joins a real child', async () => {
   const root = await freshRoot();
   await cli(root, ['host', 'start'], 'child');
@@ -214,9 +231,10 @@ test('ordinary CLI starts a separate persistent host, reuses it after client los
     String(owner.pid),
   ]);
   const thread = await cli(root, ['thread', 'start']);
-  const { threadId } = (await import('../src/protocol.js')).HOST_RESULT_SCHEMAS[
-    'thread/start'
-  ].parse(thread);
+  const { threadId } = Schema.decodeUnknownSync(
+    (await import('../src/protocol.js')).HOST_RESULT_SCHEMAS['thread/start'],
+    { onExcessProperty: 'error' }
+  )(thread);
   const client = await attachAgentHost(owner);
   clients.push(client);
   const run = await cli(root, [
@@ -229,9 +247,10 @@ test('ordinary CLI starts a separate persistent host, reuses it after client los
     '--prompt',
     'Run the native child.',
   ]);
-  const { runId } = (await import('../src/protocol.js')).HOST_RESULT_SCHEMAS['run/start'].parse(
-    run
-  );
+  const { runId } = Schema.decodeUnknownSync(
+    (await import('../src/protocol.js')).HOST_RESULT_SCHEMAS['run/start'],
+    { onExcessProperty: 'error' }
+  )(run);
   const approval = await event(client, threadId, 'interaction.requested');
   const follower = spawn(
     process.execPath,
@@ -300,15 +319,18 @@ test('ordinary CLI starts a separate persistent host, reuses it after client los
     await store.close();
   }
 });
-
 test('CLI-owned run survives its client, restarts a fresh host at the committed approval and executes once', async () => {
   const root = await freshRoot();
   const { HOST_RESULT_SCHEMAS } = await import('../src/protocol.js');
-  const { threadId } = HOST_RESULT_SCHEMAS['thread/start'].parse(
-    await cli(root, ['thread', 'start'])
-  );
+  const { threadId } = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/start'], {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(await cli(root, ['thread', 'start']));
   await released(root);
-  const { runId } = HOST_RESULT_SCHEMAS['run/start'].parse(
+  const { runId } = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['run/start'], {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(
     await cli(root, [
       'run',
       'start',
@@ -378,7 +400,6 @@ test('CLI-owned run survives its client, restarts a fresh host at the committed 
     await store.close();
   }
 });
-
 test('a plain Node process serves the same authenticated schema through a symlink entry over actual stdio and socket clients', async () => {
   const root = await freshRoot();
   const alias = join(root, 'host-entry-alias.mjs');
@@ -440,7 +461,7 @@ test('a plain Node process serves the same authenticated schema through a symlin
   const socketRows = (await socket.request('thread/read', { fromSeq: 0, threadId })).rows;
   expect(
     (await stdio.request('thread/read', { fromSeq: 0, threadId })).rows.map((row) =>
-      HostLogRowSchema.parse(row)
+      Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)
     )
   ).toEqual(socketRows);
   expect(socketRows.some((row) => row.event.type === 'effect.started')).toBe(false);
@@ -457,7 +478,6 @@ test('a plain Node process serves the same authenticated schema through a symlin
     threadId,
   });
 });
-
 test('configured startup failure is returned to CLI after the failed starter process is joined', async () => {
   const root = await freshRoot();
   await expect(cli(root, ['host', 'start'], 'fail')).rejects.toMatchObject({ code: 1 });
@@ -470,7 +490,6 @@ test('configured startup failure is returned to CLI after the failed starter pro
     processJoined: true,
   });
 });
-
 test('a losing standalone root contender never constructs a second platform or disturbs the live owner', async () => {
   const root = await freshRoot();
   await cli(root, ['host', 'start']);

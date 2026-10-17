@@ -1,23 +1,4 @@
-/**
- * Browser-safe MCP elicitation wire contract (BST-1584).
- *
- * Desktop main owns the elicitation presenter authority
- * (`apps/desktop/src/mcp/elicitation-presenter.ts`); this module carries the
- * shapes that cross the preload bridge so the renderer consent dialog never
- * imports desktop-main or SDK code:
- *
- * - `McpElicitationPresentationWire` mirrors `McpElicitationPresentation`
- *   structurally (copied, not imported — the presenter's shape is derived from
- *   the official SDK's `ElicitRequestFormParams['requestedSchema']`, whose
- *   optional members admit `undefined`, so the schema wire types do too).
- * - `parseMcpElicitationSettlement` validates the renderer's answer into exactly
- *   the presenter's `settle()` input: unknown keys are rejected, `content` is
- *   accepted only with `action: 'accept'` and only carries the SDK's primitive
- *   elicitation values (string, number, boolean, string array), and
- *   `generation` must be a safe integer so a forged settlement can never bind a
- *   stale authority.
- */
-import { z } from 'zod';
+import { Effect, Schema, SchemaIssue } from 'effect';
 import {
   type ConfiguredMcpServerId,
   type McpHostOperation,
@@ -25,12 +6,10 @@ import {
 } from './mcp-host.js';
 import type { McpConfiguredProtocol, McpStatusTransport } from './mcp-status.js';
 import type { McpTaskHandle } from './mcp-task-presentation.js';
-
 export const MCP_ELICITATION_PRESENTATION_ID_MAX_LENGTH = 256;
 export const MCP_ELICITATION_REQUEST_ID_MAX_LENGTH = 256;
 export const MCP_ELICITATION_STRING_FORMATS = ['email', 'uri', 'date', 'date-time'] as const;
 export type McpElicitationStringFormat = (typeof MCP_ELICITATION_STRING_FORMATS)[number];
-
 interface McpElicitationSchemaBaseWire {
   readonly description?: string | undefined;
   readonly title?: string | undefined;
@@ -69,14 +48,19 @@ export interface McpElicitationTitledSingleSelectSchemaWire extends McpElicitati
 }
 export interface McpElicitationUntitledMultiSelectSchemaWire extends McpElicitationSchemaBaseWire {
   readonly default?: readonly string[] | undefined;
-  readonly items: { readonly enum: readonly string[]; readonly type: 'string' };
+  readonly items: {
+    readonly enum: readonly string[];
+    readonly type: 'string';
+  };
   readonly maxItems?: number | undefined;
   readonly minItems?: number | undefined;
   readonly type: 'array';
 }
 export interface McpElicitationTitledMultiSelectSchemaWire extends McpElicitationSchemaBaseWire {
   readonly default?: readonly string[] | undefined;
-  readonly items: { readonly anyOf: readonly McpElicitationTitledOptionWire[] };
+  readonly items: {
+    readonly anyOf: readonly McpElicitationTitledOptionWire[];
+  };
   readonly maxItems?: number | undefined;
   readonly minItems?: number | undefined;
   readonly type: 'array';
@@ -90,11 +74,12 @@ export type McpElicitationPrimitiveSchemaWire =
   | McpElicitationUntitledMultiSelectSchemaWire
   | McpElicitationUntitledSingleSelectSchemaWire;
 export interface McpElicitationRequestedSchemaWire {
-  readonly properties: { readonly [name: string]: McpElicitationPrimitiveSchemaWire };
+  readonly properties: {
+    readonly [name: string]: McpElicitationPrimitiveSchemaWire;
+  };
   readonly required?: readonly string[] | undefined;
   readonly type: 'object';
 }
-
 export interface McpElicitationOperationWire {
   readonly target?: string;
   readonly type: McpHostOperation['type'];
@@ -135,61 +120,77 @@ export interface McpUrlElicitationPresentationWire {
 export type McpElicitationPresentationWire =
   | McpFormElicitationPresentationWire
   | McpUrlElicitationPresentationWire;
-
 /** Main → renderer push when a pending presentation is finalized without the renderer's settlement. */
 export interface McpElicitationRetiredWire {
   readonly code: string;
   readonly id: string;
 }
-
 /** Accepted form values mirror the SDK's `ElicitResult['content']` primitive set. */
 export type McpElicitationContentValue = boolean | number | string | string[];
-const McpElicitationContentValueSchema: z.ZodType<McpElicitationContentValue> = z.union([
-  z.string(),
-  z.number(),
-  z.boolean(),
-  z.array(z.string()),
-]);
-const SafeIntegerSchema = z
-  .number()
-  .int()
-  .refine((value) => Number.isSafeInteger(value), 'must be a safe integer');
-const RequestIdSchema = z.union([
-  z.string().max(MCP_ELICITATION_REQUEST_ID_MAX_LENGTH),
+const McpElicitationContentValueSchema: Schema.ConstraintDecoder<McpElicitationContentValue> =
+  Schema.Union([
+    Schema.String,
+    Schema.Finite,
+    Schema.Boolean,
+    Schema.mutable(Schema.Array(Schema.String)),
+  ]);
+const SafeIntegerSchema = Schema.Int.check(
+  Schema.makeFilter((value) =>
+    Number.isSafeInteger(value) ? undefined : { issue: 'must be a safe integer', path: [] }
+  )
+);
+const RequestIdSchema = Schema.Union([
+  Schema.String.check(Schema.isMaxCodePoints(MCP_ELICITATION_REQUEST_ID_MAX_LENGTH)),
   SafeIntegerSchema,
 ]);
 const SettlementBase = {
-  configuredServerId: z.string().transform((value, ctx): ConfiguredMcpServerId => {
-    try {
-      return parseConfiguredMcpServerId(value);
-    } catch {
-      ctx.addIssue({ code: 'custom', message: 'must be a configured MCP server id' });
-      return z.NEVER;
+  configuredServerId: Schema.declareConstructor<ConfiguredMcpServerId, string>()(
+    [],
+    () => (value, _ast, options) => {
+      try {
+        return Effect.succeed(parseConfiguredMcpServerId(value));
+      } catch {
+        return Effect.fail(
+          new SchemaIssue.InvalidValue(
+            { message: 'must be a configured MCP server id' },
+            undefined,
+            options
+          )
+        );
+      }
     }
-  }),
+  ),
   generation: SafeIntegerSchema,
-  id: z.string().min(1).max(MCP_ELICITATION_PRESENTATION_ID_MAX_LENGTH),
+  id: Schema.String.check(Schema.isMinCodePoints(1)).check(
+    Schema.isMaxCodePoints(MCP_ELICITATION_PRESENTATION_ID_MAX_LENGTH)
+  ),
   requestId: RequestIdSchema,
 } as const;
-const McpElicitationSettlementSchema = z.discriminatedUnion('action', [
-  z.strictObject({
-    ...SettlementBase,
-    action: z.literal('accept'),
-    content: z.record(z.string(), McpElicitationContentValueSchema).optional(),
-  }),
-  z.strictObject({ ...SettlementBase, action: z.literal('cancel') }),
-  z.strictObject({ ...SettlementBase, action: z.literal('decline') }),
-]);
-
-export type McpElicitationSettlement = z.output<typeof McpElicitationSettlementSchema>;
-
+const McpElicitationSettlementSchema = Schema.Union(
+  [
+    Schema.Struct({
+      ...SettlementBase,
+      action: Schema.Literal('accept'),
+      content: Schema.optional(Schema.Record(Schema.String, McpElicitationContentValueSchema)),
+    }),
+    Schema.Struct({ ...SettlementBase, action: Schema.Literal('cancel') }),
+    Schema.Struct({ ...SettlementBase, action: Schema.Literal('decline') }),
+  ],
+  { mode: 'oneOf' }
+);
+export type McpElicitationSettlement = (typeof McpElicitationSettlementSchema)['Type'];
 export function parseMcpElicitationSettlement(value: unknown): McpElicitationSettlement {
-  const result = McpElicitationSettlementSchema.safeParse(value);
-  if (!result.success) {
-    const diagnostics = result.error.issues
-      .map(({ message, path }) => (path.length > 0 ? `${path.join('.')}: ${message}` : message))
+  const result = Schema.decodeUnknownResult(McpElicitationSettlementSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value);
+  if (!(result._tag === 'Success')) {
+    const diagnostics = SchemaIssue.makeFormatterStandardSchemaV1()(result.failure.issue)
+      .issues.map(({ message, path = [] }) =>
+        path.length > 0 ? `${path.join('.')}: ${message}` : message
+      )
       .join('; ');
     throw new Error(`Invalid MCP elicitation settlement: ${diagnostics}`);
   }
-  return result.data;
+  return result.success;
 }

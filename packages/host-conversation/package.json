@@ -9,7 +9,8 @@
     "@brainstrike/assistant-data": "workspace:*",
     "@brainstrike/assistant-ui": "workspace:*",
     "@brainstrike/logging": "workspace:*",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
@@ -21,7 +22,8 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "@effect/tsgo": "catalog:"
   },
   "exports": {
     ".": {
@@ -45,7 +47,7 @@
     "test": "vitest run",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },
   "sideEffects": false,
   "turbo": {

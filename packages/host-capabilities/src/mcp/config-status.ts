@@ -3,26 +3,17 @@ import type { LoadedMcpConfig } from './config-file.js';
 
 /** Settings' view of a loaded MCP config: path, load state and server summaries. */
 export function toMcpConfigStatus(config: LoadedMcpConfig): McpConfigStatus {
-  const status: McpConfigStatus = {
+  const servers = config.servers ?? config.config?.servers;
+  return {
     exists: config.exists,
     path: config.path,
+    ...(config.error === undefined ? {} : { error: config.error }),
+    ...(config.loadedAt === undefined ? {} : { loadedAt: config.loadedAt }),
+    ...(config.migrations?.length ? { migrations: config.migrations } : {}),
+    ...(servers === undefined
+      ? {}
+      : {
+          servers: servers.map(({ name, protocol, transport }) => ({ name, protocol, transport })),
+        }),
   };
-  if (config.error !== undefined) {
-    status.error = config.error;
-  }
-  if (config.loadedAt !== undefined) {
-    status.loadedAt = config.loadedAt;
-  }
-  if (config.migrations && config.migrations.length > 0) {
-    status.migrations = config.migrations;
-  }
-  const servers = config.servers ?? config.config?.servers;
-  if (servers !== undefined) {
-    status.servers = servers.map(({ name, protocol, transport }) => ({
-      name,
-      protocol,
-      transport,
-    }));
-  }
-  return status;
 }

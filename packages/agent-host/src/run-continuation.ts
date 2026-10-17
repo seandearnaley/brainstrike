@@ -9,7 +9,7 @@ import {
   modelMessageSchema,
   type ToolContent,
 } from 'ai';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { toBoundaryFailure } from './boundary-wire.js';
 
 const logger = createLogger('AgentHost');
@@ -35,10 +35,19 @@ import {
 import { ensureHostRunAdmission, hostRunToolDecision, hostRunTools } from './run-admission.js';
 import { hostStartPosition } from './run-branch.js';
 
-type Action = Extract<HostEvent, { type: 'effect.started' }>;
-type Interaction = Extract<HostEvent, { type: 'interaction.requested' }>;
+type Action = Extract<
+  HostEvent,
+  {
+    type: 'effect.started';
+  }
+>;
+type Interaction = Extract<
+  HostEvent,
+  {
+    type: 'interaction.requested';
+  }
+>;
 type Dispatch = (action: Action, input: unknown, resumeData?: unknown) => Promise<unknown>;
-
 /** Core supplies the original append, boundary sync and fold, in that order. */
 export async function commitHostModelMessages(
   run: Run,
@@ -61,7 +70,6 @@ export async function commitHostModelMessages(
   await sync();
   fold(row);
 }
-
 /** The answered call's tool must be unchanged; any grant must match the call. */
 function answeredGrant(
   run: Run,
@@ -82,7 +90,6 @@ function answeredGrant(
   });
   return grant;
 }
-
 /**
  * A resume's grant: only a network consent that stood in for an approval
  * (it carries the call's risk) may carry one, and, as legacy's approval grant
@@ -100,10 +107,12 @@ function resumedGrant(
   if (pending.event.kind !== 'network' || pending.event.risk === undefined) {
     throw new Error('Only a network consent that stood in for an approval carries a grant');
   }
-  const { action } = HostNetworkConsentSchema.parse(resumed);
+  const { action } = Schema.decodeUnknownSync(HostNetworkConsentSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(resumed);
   return answeredGrant(run, pending, grant, action === 'allow' ? 'approve' : 'deny');
 }
-
 /** Core supplies its sole acceptance writer and continuation owner. */
 export async function commitHostInteractionResponse(
   run: Run,
@@ -111,7 +120,9 @@ export async function commitHostInteractionResponse(
   params: HostParams<'interaction/respond'> | HostParams<'interaction/resume'>,
   accept: (events: readonly HostEvent[]) => Promise<void>,
   continueRun: () => Promise<void>
-): Promise<{ accepted: true }> {
+): Promise<{
+  accepted: true;
+}> {
   const pending = run.approvals.get(params.interactionId);
   const approval = 'decision' in params;
   if (
@@ -165,15 +176,20 @@ export async function commitHostInteractionResponse(
   run.task.catch(() => undefined);
   return { accepted: true };
 }
-
 /** A plan interaction's committed answer: the submitPlan resume shape. */
-const PlanDecisionSchema = z.looseObject({
-  action: z.enum(['approved', 'rejected']),
-  feedback: z.string().optional(),
-});
-
+const PlanDecisionSchema = Schema.StructWithRest(
+  Schema.Struct({
+    action: Schema.Literals(['approved', 'rejected']),
+    feedback: Schema.optional(Schema.String),
+  }),
+  [Schema.Record(Schema.String, Schema.Unknown)]
+);
 /** A plan-mode run's approved plan, once its plan interaction was answered with approval. */
-export function approvedHostPlan(run: Run): { readonly feedback?: string } | undefined {
+export function approvedHostPlan(run: Run):
+  | {
+      readonly feedback?: string;
+    }
+  | undefined {
   if (!run.planMode) {
     return;
   }
@@ -181,18 +197,22 @@ export function approvedHostPlan(run: Run): { readonly feedback?: string } | und
     if (pending.event.kind !== 'plan' || !Object.hasOwn(pending, 'resumeData')) {
       continue;
     }
-    const { action, feedback } = PlanDecisionSchema.parse(pending.resumeData);
+    const { action, feedback } = Schema.decodeUnknownSync(PlanDecisionSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(pending.resumeData);
     if (action === 'approved') {
       return feedback ? { feedback } : {};
     }
   }
   return;
 }
-
 /** The follow-up `run/start` an approved plan continues with, out of plan mode. */
 export function approvedHostPlanRunParams(
   run: Run,
-  plan: { readonly feedback?: string }
+  plan: {
+    readonly feedback?: string;
+  }
 ): HostParams<'run/start'> {
   return {
     commandId: randomUUID(),
@@ -203,7 +223,6 @@ export function approvedHostPlanRunParams(
     threadId: run.threadId,
   };
 }
-
 /**
  * The thread's next run, started by the host: an approved plan carried out,
  * or a child's human input (BST-1932). A next run that cannot start is
@@ -228,7 +247,6 @@ export async function startHostNextRun(
     return false;
   }
 }
-
 /** A next run that could not start, committed as started then failed with its cause. */
 export function failedHostStartEvents(
   runs: Iterable<Run>,
@@ -250,14 +268,18 @@ export function failedHostStartEvents(
     },
   ];
 }
-
 /** A continuation that threw ends its run: stopped, interrupted on lost approval input, or failed. */
 export function hostContinuationFailure(
   run: Run,
   cause: unknown
 ): {
   readonly detail: string;
-  readonly outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'];
+  readonly outcome: Extract<
+    HostEvent,
+    {
+      type: 'run.finished';
+    }
+  >['outcome'];
 } {
   const outcome = run.stopped
     ? 'stopped'
@@ -273,12 +295,14 @@ export function hostContinuationFailure(
     outcome,
   };
 }
-
 /** A grant names exactly the approved call's own risk category or tool, never another. */
 function assertHostGrantMatchesCall(
   grant: HostPermissionGrant,
   decision: 'approve' | 'deny',
-  call: { readonly risk: ToolRiskCategory; readonly toolId: string }
+  call: {
+    readonly risk: ToolRiskCategory;
+    readonly toolId: string;
+  }
 ): void {
   const matches =
     grant.scope === 'session' ? grant.category === call.risk : grant.toolId === call.toolId;
@@ -286,7 +310,6 @@ function assertHostGrantMatchesCall(
     throw new Error('Permission grant does not match the approved call');
   }
 }
-
 /**
  * ADR-0010 (AT-03, AT-22): after a decision lands, a still-pending approval the
  * root's live policy now allows (a session grant, a per-tool allow) is answered
@@ -330,7 +353,6 @@ export async function approveHostRunByPolicy(
     continueRun
   );
 }
-
 // Continuation calculations reuse Core's owned run and dispatch; no log writer lives here.
 export async function validateHostInteractionResume(
   run: Run,
@@ -342,7 +364,10 @@ export async function validateHostInteractionResume(
     if (!tool?.consent || tool.identity !== pending.event.toolIdentity) {
       throw new Error('Network consent tool identity changed');
     }
-    return HostNetworkConsentSchema.parse(value);
+    return Schema.decodeUnknownSync(HostNetworkConsentSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(value);
   }
   if (
     !tool ||
@@ -361,7 +386,6 @@ export async function validateHostInteractionResume(
   }
   return result.value;
 }
-
 export async function resolveHostApprovalInput(run: Run, event: Interaction): Promise<unknown> {
   const approval = run.approvals.get(event.interactionId);
   if (!approval) {
@@ -376,7 +400,6 @@ export async function resolveHostApprovalInput(run: Run, event: Interaction): Pr
   };
   return approval.runtimeInput.value;
 }
-
 async function modelResult(
   run: Run,
   toolCallId: string,
@@ -396,7 +419,6 @@ async function modelResult(
     type: 'tool-result',
   };
 }
-
 export async function resolveApprovedHostCall(
   run: Run,
   pending: PendingInteraction,
@@ -431,7 +453,6 @@ export async function resolveApprovedHostCall(
     : await dispatch(action, input, resumeData);
   return modelResult(run, event.toolCallId, event.toolId, input, output);
 }
-
 /** Resolve already-issued calls at the existing step limit without another model request. */
 export async function finishApprovedHostResults(
   run: Run,
@@ -446,7 +467,6 @@ export async function finishApprovedHostResults(
   }
   return results.length > 0 ? [{ content: results, role: 'tool' }] : [];
 }
-
 export async function createHostApprovalResponses(
   run: Run,
   platform: HostPlatform,
@@ -485,13 +505,17 @@ export async function createHostApprovalResponses(
   }
   return responses;
 }
-
 /** Core's seams for one run's continuation, bound to that run. */
 export interface HostRunContinuationPorts {
   readonly commitMessages: (messages: readonly ModelMessage[]) => Promise<void>;
   readonly dispatch: Dispatch;
   readonly finish: (
-    outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'],
+    outcome: Extract<
+      HostEvent,
+      {
+        type: 'run.finished';
+      }
+    >['outcome'],
     detail?: string
   ) => Promise<void>;
   readonly loop: (model: LanguageModel) => Promise<void>;
@@ -499,7 +523,6 @@ export interface HostRunContinuationPorts {
   readonly platform: HostPlatform;
   readonly startNextRun: (params: HostParams<'run/start'>) => Promise<boolean>;
 }
-
 /**
  * Continue a run once every decision it waits on is answered: commit the
  * approved calls' results, then start an approved plan's run, finish at the

@@ -1,31 +1,42 @@
-import { z } from 'zod';
+import { Schema, SchemaGetter } from 'effect';
+import { omitUndefinedOptional } from './schema-boundary.js';
 
-const Id = z.string().refine((value) => value.trim().length > 0);
-
+const Id = Schema.String.check(
+  Schema.makeFilter((value) =>
+    value.trim().length > 0 ? undefined : { issue: 'Invalid input', path: [] }
+  )
+);
 /** Existing thread metadata keys; paths are display hints, never grants. */
-export const ThreadWorkspaceBindingSchema = z
-  .strictObject({
-    checkoutBranch: Id.optional(),
-    checkoutLocalRootId: Id.optional(),
-    checkoutMode: z.enum(['local', 'worktree']).optional(),
-    checkoutWorktreeId: Id.optional(),
-    checkoutWorktreePath: Id.optional(),
-    forgePrUrl: Id.optional(),
-    forgePrWatch: z.boolean().optional(),
-    operatingRootDisplayName: Id.optional(),
-    operatingRootId: Id.optional(),
-    operatingRootPath: Id.optional(),
-    secondaryRootIds: z
-      .array(Id)
-      .transform((ids) => [...new Set(ids)])
-      .optional(),
-  })
-  .superRefine((binding, context) => {
+export const ThreadWorkspaceBindingSchema = Schema.Struct({
+  checkoutBranch: omitUndefinedOptional(Id),
+  checkoutLocalRootId: omitUndefinedOptional(Id),
+  checkoutMode: omitUndefinedOptional(Schema.Literals(['local', 'worktree'])),
+  checkoutWorktreeId: omitUndefinedOptional(Id),
+  checkoutWorktreePath: omitUndefinedOptional(Id),
+  forgePrUrl: omitUndefinedOptional(Id),
+  forgePrWatch: omitUndefinedOptional(Schema.Boolean),
+  operatingRootDisplayName: omitUndefinedOptional(Id),
+  operatingRootId: omitUndefinedOptional(Id),
+  operatingRootPath: omitUndefinedOptional(Id),
+  secondaryRootIds: omitUndefinedOptional(
+    Schema.mutable(Schema.Array(Id)).pipe(
+      Schema.decode({
+        decode: SchemaGetter.transform((ids) => [...new Set(ids)]),
+        encode: SchemaGetter.passthrough(),
+      })
+    )
+  ),
+}).check(
+  Schema.makeFilter((binding) => {
+    const issues: {
+      issue: string;
+      path: readonly PropertyKey[];
+    }[] = [];
     if (
       (binding.operatingRootId || binding.operatingRootPath || binding.operatingRootDisplayName) &&
       !(binding.operatingRootId && binding.operatingRootDisplayName)
     ) {
-      context.addIssue({ code: 'custom', message: 'Incomplete thread operating-root metadata' });
+      issues.push({ issue: 'Incomplete thread operating-root metadata', path: [] });
     }
     const hasCheckout = Boolean(
       binding.checkoutBranch ||
@@ -35,7 +46,7 @@ export const ThreadWorkspaceBindingSchema = z
         binding.checkoutWorktreePath
     );
     if (!hasCheckout) {
-      return;
+      return issues;
     }
     if (
       !binding.checkoutMode ||
@@ -48,21 +59,12 @@ export const ThreadWorkspaceBindingSchema = z
       (binding.checkoutMode === 'local' &&
         (binding.checkoutLocalRootId || binding.checkoutWorktreeId || binding.checkoutWorktreePath))
     ) {
-      context.addIssue({
-        code: 'custom',
-        message: 'Incomplete or inconsistent thread checkout metadata',
-      });
+      issues.push({ issue: 'Incomplete or inconsistent thread checkout metadata', path: [] });
     }
+    return issues;
   })
-  .transform(
-    (binding) =>
-      Object.fromEntries(Object.entries(binding).filter(([, value]) => value !== undefined)) as {
-        [Key in keyof typeof binding]?: Exclude<(typeof binding)[Key], undefined>;
-      }
-  );
-
-export type ThreadWorkspaceBinding = z.output<typeof ThreadWorkspaceBindingSchema>;
-
+);
+export type ThreadWorkspaceBinding = (typeof ThreadWorkspaceBindingSchema)['Type'];
 /** Changes to scope require the live existing catalog/registry owner before commit. */
 export function changesThreadWorkspaceScope(patch: ThreadWorkspaceBinding): boolean {
   return (

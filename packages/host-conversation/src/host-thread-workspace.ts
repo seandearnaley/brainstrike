@@ -12,12 +12,11 @@ import {
   type ThreadWorkspaceRepository,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
-
+import { Schema } from 'effect';
 /** The client of the host that owns a thread; undefined for a thread no host here owns. */
 export type HostThreadClient = (
   threadId: string
 ) => Promise<Pick<HostClient, 'request'> | undefined>;
-
 export function hostThreadWorkspaceRepository(
   threadClient: HostThreadClient
 ): ThreadWorkspaceRepository {
@@ -50,7 +49,10 @@ export function hostThreadWorkspaceRepository(
       }
       await host.request('thread/workspace/set', {
         commandId: crypto.randomUUID(),
-        snapshot: WorkspaceSnapshotSchema.parse(snapshot),
+        snapshot: Schema.decodeUnknownSync(WorkspaceSnapshotSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(snapshot),
         threadId,
       });
     },

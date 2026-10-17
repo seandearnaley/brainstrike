@@ -1,44 +1,56 @@
 import type { ModelChoicePort, ModelChoiceResult } from '@brainstrike/state-store';
+import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
-import { z } from 'zod';
 import { sendCatalogRequest } from './request.js';
 
-const Id = z.string().min(1);
-const ModelChoice = z.strictObject({ enabled: z.boolean(), modelId: Id, providerId: Id });
-const ProviderChoice = z.strictObject({ enabled: z.boolean(), providerId: Id });
-const Request = z.discriminatedUnion('operation', [
-  z.strictObject({ operation: z.literal('snapshot') }),
-  z.strictObject({ operation: z.literal('provider'), ...ProviderChoice.shape }),
-  z.strictObject({ models: z.array(ModelChoice).min(1), operation: z.literal('models') }),
-  z.strictObject({
-    modelIds: z.array(Id),
-    operation: z.literal('initialize'),
-    policy: z.enum(['all', 'seed']),
-    providerId: Id,
-  }),
-]);
-const Snapshot = z.strictObject({
-  models: z.array(ModelChoice),
-  providers: z.array(ProviderChoice),
+const Id = Schema.String.check(Schema.isMinCodePoints(1));
+const ModelChoice = Schema.Struct({ enabled: Schema.Boolean, modelId: Id, providerId: Id });
+const ProviderChoice = Schema.Struct({ enabled: Schema.Boolean, providerId: Id });
+const Request = Schema.Union(
+  [
+    Schema.Struct({ operation: Schema.Literal('snapshot') }),
+    Schema.Struct({ operation: Schema.Literal('provider'), ...ProviderChoice.fields }),
+    Schema.Struct({
+      models: Schema.mutable(Schema.Array(ModelChoice)).check(Schema.isMinLength(1)),
+      operation: Schema.Literal('models'),
+    }),
+    Schema.Struct({
+      modelIds: Schema.mutable(Schema.Array(Id)),
+      operation: Schema.Literal('initialize'),
+      policy: Schema.Literals(['all', 'seed']),
+      providerId: Id,
+    }),
+  ],
+  { mode: 'oneOf' }
+);
+const Snapshot = Schema.Struct({
+  models: Schema.mutable(Schema.Array(ModelChoice)),
+  providers: Schema.mutable(Schema.Array(ProviderChoice)),
 });
-const Result = Snapshot.extend({
-  outcome: z.enum(['initialized', 'preserved']).optional(),
-  previous: Snapshot.optional(),
+const Result = Schema.Struct({
+  ...Snapshot.fields,
+  ...{
+    outcome: Schema.optional(Schema.Literals(['initialized', 'preserved'])),
+    previous: Schema.optional(Snapshot),
+  },
 });
 const METHOD = 'host/model-choices';
-
 /** Catalog identities are validated before reaching the one acquired host writer. */
 export function serveModelChoiceStore(
   connection: Pick<MessageConnection, 'onRequest'>,
   store: ModelChoicePort
-): { close(): Promise<void> } {
+): {
+  close(): Promise<void>;
+} {
   let closing: Promise<void> | undefined;
   const pending = new Set<Promise<ModelChoiceResult>>();
   const subscription = connection.onRequest(METHOD, async (input: unknown) => {
     if (closing) {
       throw new Error('Model choice endpoint is closing');
     }
-    const request = Request.parse(input);
+    const request = Schema.decodeUnknownSync(Request, { errors: 'all', onExcessProperty: 'error' })(
+      input
+    );
     const work = store.modelChoices(request);
     pending.add(work);
     try {
@@ -59,12 +71,15 @@ export function serveModelChoiceStore(
     },
   };
 }
-
 export function createModelChoiceClient(connection: MessageConnection): ModelChoicePort {
   return {
     modelChoices: async (request) => {
-      const result = Result.parse(
-        await sendCatalogRequest(connection, METHOD, Request.parse(request))
+      const result = Schema.decodeUnknownSync(Result, { errors: 'all', onExcessProperty: 'error' })(
+        await sendCatalogRequest(
+          connection,
+          METHOD,
+          Schema.decodeUnknownSync(Request, { errors: 'all', onExcessProperty: 'error' })(request)
+        )
       );
       return {
         models: result.models,

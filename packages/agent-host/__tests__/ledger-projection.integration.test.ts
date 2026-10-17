@@ -14,6 +14,7 @@ import recording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs
   type: 'json',
 };
 import { MockLanguageModelV4 } from 'ai/test';
+import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import { attachAgentHost } from '../src/client.js';
@@ -64,12 +65,12 @@ function foldedLog(rows: readonly HostLogRow[]) {
 test('a recorded log reads back through ledger/read as the renderer folded it', async () => {
   const root = await stateRoot();
   // The recorded runs with a catalog model, as desktop admits one.
-  const captured = z
-    .array(HostLogRowSchema)
-    .parse(recording)
-    .map((row) =>
-      row.event.type === 'run.started' ? { ...row, event: { ...row.event, modelId: MODEL } } : row
-    );
+  const captured = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(recording).map((row) =>
+    row.event.type === 'run.started' ? { ...row, event: { ...row.event, modelId: MODEL } } : row
+  );
   const store = await StateStore.open(root);
   await store.append(captured.map((row) => storedHostEvent(row.threadId, row.event)));
   await store.close();

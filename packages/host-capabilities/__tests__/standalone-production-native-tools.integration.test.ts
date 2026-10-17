@@ -7,6 +7,7 @@ import { HOST_RESULT_SCHEMAS } from '@brainstrike/agent-host/protocol';
 import { removeFixtureRoot } from '@brainstrike/agent-host/test-fixtures/cooperative-host';
 import { decodeHostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
+import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 
@@ -18,11 +19,13 @@ afterEach(async () => {
     await close();
   }
 });
-
 const EDIT = { content: 'written by the standalone host\n', path: 'notes.txt' };
-
 function command(dataRoot: string, args: readonly string[]) {
-  return new Promise<{ code: number; stderr: string; stdout: string }>((resolve, reject) => {
+  return new Promise<{
+    code: number;
+    stderr: string;
+    stdout: string;
+  }>((resolve, reject) => {
     execFile(
       process.execPath,
       [bin, '--data-root', dataRoot, ...args],
@@ -54,13 +57,14 @@ function command(dataRoot: string, args: readonly string[]) {
     );
   });
 }
-
 async function rows(dataRoot: string, threadId: string) {
   const shown = await command(dataRoot, ['threads', 'show', '--thread', threadId]);
   expect(shown).toMatchObject({ code: 0, stderr: '' });
-  return HOST_RESULT_SCHEMAS['thread/read'].parse(JSON.parse(shown.stdout)).rows;
+  return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/read'], {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(JSON.parse(shown.stdout)).rows;
 }
-
 test('the standalone CLI host runs the shared file tool over its --workspace launch root', async () => {
   const dataRoot = await mkdtemp(join(tmpdir(), 'bs-m3-standalone-native-data-'));
   const workspace = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-standalone-native-ws-')));
@@ -79,7 +83,6 @@ test('the standalone CLI host runs the shared file tool over its --workspace lau
     }
   });
   await writeFile(join(workspace, 'notes.txt'), 'original notes\n');
-
   expect(await command(dataRoot, ['host', 'start', '--workspace', workspace])).toMatchObject({
     code: 0,
     stderr: '',
@@ -116,7 +119,6 @@ test('the standalone CLI host runs the shared file tool over its --workspace lau
     },
   });
   expect(await readFile(join(workspace, 'notes.txt'), 'utf8')).toBe('original notes\n');
-
   expect(
     await command(dataRoot, [
       'interaction',

@@ -5,13 +5,32 @@
     "declaration": true,
     "declarationMap": true,
     "incremental": true,
-    "lib": ["ES2022", "WebWorker"],
+    "lib": [
+      "ES2022",
+      "WebWorker"
+    ],
     "outDir": "dist",
     "rootDir": "src",
     "strictNullChecks": true,
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
-    "types": []
+    "types": [],
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "diagnosticSeverity": {
+          "apiStabilityLeak": "error",
+          "experimentalApiUsage": "error",
+          "unstableApiUsage": "error"
+        }
+      }
+    ]
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["dist", "node_modules", "src/**/__tests__/**"]
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "src/**/__tests__/**"
+  ]
 }

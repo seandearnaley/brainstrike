@@ -34,6 +34,7 @@ import {
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import { type NativeChild, observeNativeChildren } from '@brainstrike/state-store/native-children';
+import { Schema } from 'effect';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
 import { mainPlatformConnection } from './connection';
@@ -61,10 +62,9 @@ import {
 import { IndexSearchResultSchema } from './retrieval-wire';
 
 const logger = createLogger('DesktopNodePlatform');
-
-function desktopRuntimeConfiguration(
-  selected: DesktopRunSelection
-): RuntimeData & { readonly provider: SupportedProvider } {
+function desktopRuntimeConfiguration(selected: DesktopRunSelection): RuntimeData & {
+  readonly provider: SupportedProvider;
+} {
   const provider = selected.configuration.provider;
   if (!isSupportedProvider(provider)) {
     throw refusalError(
@@ -90,13 +90,11 @@ function desktopRuntimeConfiguration(
       : {}),
   };
 }
-
 export type PlatformRequest = (
   method: string,
   input: unknown,
   signal?: AbortSignal
 ) => Promise<unknown>;
-
 /**
  * ADR-0007: Node never runs local inference. A thread's admitted recall
  * embedder borrows Main's hidden embedding host; JSON-RPC cancellation carries
@@ -110,7 +108,9 @@ export type PlatformRequest = (
 export function borrowedLocalInference(
   request: PlatformRequest,
   selected: DesktopRunSelection
-): { readonly embedding: LocalEmbeddingHostClient } {
+): {
+  readonly embedding: LocalEmbeddingHostClient;
+} {
   return {
     embedding: {
       queryEmbedding: async ({ query }, options) => {
@@ -139,7 +139,6 @@ export function borrowedLocalInference(
     },
   };
 }
-
 /**
  * BST-1930 stage e: Main's facts, read over the private connection for the
  * host's run admission. A workspace borrow is Main's until the host releases
@@ -149,7 +148,10 @@ export function mainAdmissionReads(request: PlatformRequest): DesktopAdmissionRe
   return {
     acquireWorkspace: async ({ binding, signal, threadId }) => {
       const leaseId = randomUUID();
-      const { roots } = PlatformWorkspaceAcquireResultSchema.parse(
+      const { roots } = Schema.decodeUnknownSync(PlatformWorkspaceAcquireResultSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(
         await request(
           'platform/admission/workspace/acquire',
           { binding, leaseId, threadId },
@@ -169,19 +171,25 @@ export function mainAdmissionReads(request: PlatformRequest): DesktopAdmissionRe
       };
     },
     catalogModel: async (target, signal) =>
-      PlatformCatalogModelResultSchema.parse(
-        await request('platform/admission/catalog-model', target, signal)
-      ),
+      Schema.decodeUnknownSync(PlatformCatalogModelResultSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(await request('platform/admission/catalog-model', target, signal)),
     enabledObservers: async (candidates, signal) =>
-      PlatformObserverCandidatesResultSchema.parse(
-        await request('platform/admission/observers', { candidates }, signal)
-      ),
+      Schema.decodeUnknownSync(PlatformObserverCandidatesResultSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(await request('platform/admission/observers', { candidates }, signal)),
     liveWorkspaceRoots: async (signal) =>
-      CliWorkspaceRootsSchema.parse(await request('platform/admission/roots', {}, signal)),
+      Schema.decodeUnknownSync(CliWorkspaceRootsSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(await request('platform/admission/roots', {}, signal)),
     memoryVectors: async (settings, signal) => {
-      const resolved = PlatformMemoryVectorsResultSchema.parse(
-        await request('platform/admission/memory-vectors', { settings }, signal)
-      );
+      const resolved = Schema.decodeUnknownSync(PlatformMemoryVectorsResultSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(await request('platform/admission/memory-vectors', { settings }, signal));
       return resolved
         ? { profile: resolved.profile, ...(resolved.local ? { local: resolved.local } : {}) }
         : undefined;
@@ -190,12 +198,10 @@ export function mainAdmissionReads(request: PlatformRequest): DesktopAdmissionRe
       z.boolean().parse(await request('platform/admission/worktrees', {}, signal)),
   };
 }
-
 interface DesktopHostConfiguration
   extends Omit<ProductionHostPlatformOptions, 'startup' | 'memoryResourceIds'> {
   confirmMainReady(): Promise<void>;
 }
-
 export async function createDesktopHostConfiguration(
   startup: HostStartupContext,
   platformOptions?: HostPlatformLaunchOptions
@@ -374,7 +380,10 @@ export async function createDesktopHostConfiguration(
         // review. Unsignalled: a stopped run's turn still ends with snapshots.
         // A turn starts on the roots this admission holds, revalidated.
         captureTurnBoundary: async (boundary) =>
-          PlatformTurnSnapshotResultSchema.parse(
+          Schema.decodeUnknownSync(PlatformTurnSnapshotResultSchema, {
+            errors: 'all',
+            onExcessProperty: 'error',
+          })(
             await request(
               'platform/snapshot/capture',
               boundary.boundary === 'turn-start'
@@ -438,18 +447,36 @@ export async function createDesktopHostConfiguration(
     // Main's shadow-git owner restores a host thread's rewind and its redo.
     rewindFiles: {
       apply: async (input) =>
-        PlatformRewindOutcomesSchema.parse(await request('platform/rewind/apply', input)),
+        Schema.decodeUnknownSync(PlatformRewindOutcomesSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(await request('platform/rewind/apply', input)),
       drift: async (input) =>
-        PlatformRewindConflictsSchema.parse(await request('platform/rewind/drift', input)),
+        Schema.decodeUnknownSync(PlatformRewindConflictsSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(await request('platform/rewind/drift', input)),
       preview: async (input) =>
-        PlatformRewindPreviewResultSchema.parse(await request('platform/rewind/preview', input)),
+        Schema.decodeUnknownSync(PlatformRewindPreviewResultSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(await request('platform/rewind/preview', input)),
       redo: async (input) =>
-        PlatformRewindOutcomesSchema.parse(await request('platform/rewind/redo', input)),
+        Schema.decodeUnknownSync(PlatformRewindOutcomesSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(await request('platform/rewind/redo', input)),
       redoConflicts: async (input) =>
-        PlatformRewindConflictsSchema.parse(await request('platform/rewind/redo-conflicts', input)),
+        Schema.decodeUnknownSync(PlatformRewindConflictsSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(await request('platform/rewind/redo-conflicts', input)),
     },
     searchWorkspace: async (input, signal) => {
-      const result = IndexSearchResultSchema.parse(
+      const result = Schema.decodeUnknownSync(IndexSearchResultSchema, {
+        errors: 'all',
+        onExcessProperty: 'ignore',
+      })(
         await request(
           'desktop-read/index/search',
           {

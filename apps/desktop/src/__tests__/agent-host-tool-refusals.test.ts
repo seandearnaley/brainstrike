@@ -11,31 +11,28 @@ import { join } from 'node:path';
 import type { HostTool, HostToolContext } from '@brainstrike/agent-host';
 import { buildNativeToolRiskMap, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
+import { Schema } from 'effect';
 import { afterEach, expect, test, vi } from 'vitest';
 import { desktopHostSharedTools } from '../agent-host-platform/desktop-host-shared-tools';
 import { PlatformSelectionSchema } from '../agent-host-platform/platform-wire';
 
 const GENERIC_FAILURE = 'The tool did not complete successfully. Try another approach.';
-
 const directories: string[] = [];
 afterEach(async () => {
   for (const directory of directories.splice(0)) {
     await rm(directory, { force: true, recursive: true });
   }
 });
-
 async function directory(prefix: string): Promise<string> {
   const created = await realpath(await mkdtemp(join(tmpdir(), prefix)));
   directories.push(created);
   return created;
 }
-
 interface Root {
   readonly displayName: string;
   readonly path: string;
   readonly rootId: string;
 }
-
 const TOOL_IDS = [
   NATIVE_TOOL_ID.deleteWorkspaceFile,
   NATIVE_TOOL_ID.grepSearch,
@@ -46,13 +43,15 @@ const TOOL_IDS = [
 ];
 /** Each tool's catalog risk, which the host binding requires its descriptor to match. */
 const risks = buildNativeToolRiskMap();
-
 function hostTools(
   roots: readonly Root[],
   request: (method: string, input: unknown) => Promise<unknown>,
   native: Record<string, unknown> = {}
 ): Record<string, HostTool> {
-  const selected = PlatformSelectionSchema.parse({
+  const selected = Schema.decodeUnknownSync(PlatformSelectionSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({
     configuration: { model: 'gpt-6-sol', provider: 'openai' },
     contextWindow: 32_000,
     durableConfiguration: {},
@@ -106,7 +105,6 @@ function hostTools(
     threadId: 'host-thread',
   });
 }
-
 function execution(): HostToolContext {
   return {
     edits: { track: async (_edit, mutate) => await mutate() },
@@ -121,7 +119,6 @@ function execution(): HostToolContext {
     toolCallId: 'refusal-call',
   };
 }
-
 function tool(tools: Record<string, HostTool>, id: string): HostTool {
   const found = tools[id.replace('.', '_')];
   if (!found) {
@@ -129,11 +126,9 @@ function tool(tools: Record<string, HostTool>, id: string): HostTool {
   }
   return found;
 }
-
 function refusal(toolName: string, message: string) {
   return { error: { code: 'tool_input_invalid', message, toolName }, ok: false };
 }
-
 /** Main answers only the admission's root revalidation; any other request fails loudly. */
 function rootsOnly(roots: readonly Root[]) {
   return vi.fn(async (method: string, _input: unknown) => {
@@ -143,7 +138,6 @@ function rootsOnly(roots: readonly Root[]) {
     throw new Error(`Unexpected Main request ${method}`);
   });
 }
-
 test('the recorded out-of-scope filePaths grep returns its actionable refusal to the model', async () => {
   // Recorded in the #3567 smoke (12 Oct 2026): a thread bound to alpha-root
   // grepped absolute filePaths spanning both open folders, and the model got
@@ -170,7 +164,6 @@ test('the recorded out-of-scope filePaths grep returns its actionable refusal to
     hostTools(roots, request, { boundWorkspaceRootId: 'root-alpha' }),
     NATIVE_TOOL_ID.grepSearch
   );
-
   const output = await grep.execute(
     {
       filePaths: [
@@ -186,7 +179,6 @@ test('the recorded out-of-scope filePaths grep returns its actionable refusal to
     },
     execution()
   );
-
   expect(output).toEqual(
     refusal(
       NATIVE_TOOL_ID.grepSearch,
@@ -197,7 +189,6 @@ test('the recorded out-of-scope filePaths grep returns its actionable refusal to
   // Refused before the indexed half was asked for.
   expect(request.mock.calls.map(([method]) => method)).not.toContain('desktop-read/grep-index');
 });
-
 test('an unexpected executor error still reaches the model only as the redacted generic text', async () => {
   const root = await directory('bs-m6-refusal-fault-');
   await writeFile(join(root, 'notes.txt'), 'needle on disk\n');
@@ -210,9 +201,7 @@ test('an unexpected executor error still reaches the model only as the redacted 
     throw new Error(leak);
   });
   const grep = tool(hostTools(roots, request), NATIVE_TOOL_ID.grepSearch);
-
   const output = await grep.execute({ outputMode: 'files', pattern: 'needle' }, execution());
-
   expect(output).toEqual({
     error: { code: 'tool_failed', message: GENERIC_FAILURE, toolName: NATIVE_TOOL_ID.grepSearch },
     ok: false,
@@ -222,7 +211,6 @@ test('an unexpected executor error still reaches the model only as the redacted 
     expect(serialized).not.toContain(secret);
   }
 });
-
 test('deliberate path, read, write and context refusals reach the model verbatim', async () => {
   const root = await directory('bs-m6-refusal-paths-');
   const outside = await directory('bs-m6-refusal-outside-');
@@ -242,7 +230,6 @@ test('deliberate path, read, write and context refusals reach the model verbatim
   const tools = hostTools(roots, rootsOnly(roots), { workspaceRootPath: root });
   const call = (id: string, input: Record<string, unknown>) =>
     tool(tools, id).execute(input, execution());
-
   const cases: Array<readonly [string, Record<string, unknown>, string]> = [
     [
       NATIVE_TOOL_ID.readWorkspaceFile,
@@ -310,7 +297,6 @@ test('deliberate path, read, write and context refusals reach the model verbatim
     outcomes.push(await call(id, input));
   }
   expect(outcomes).toEqual(cases.map(([id, , message]) => refusal(id, message)));
-
   // The input schema admits this regex (it compiles); the matcher's ReDoS guard
   // refuses it, and that refusal is the model's to correct.
   expect(await call(NATIVE_TOOL_ID.grepSearch, { isRegex: true, pattern: '(a+)+b' })).toEqual(

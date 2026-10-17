@@ -6,6 +6,7 @@
  */
 import { createHash } from 'node:crypto';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { standardInputSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import {
   type AssistantPersonaDefinition,
   delegationDescriptionForPersona,
@@ -15,38 +16,38 @@ import {
 } from '@brainstrike/assistant-contract/personas';
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import type { ModelMessage } from 'ai';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { hostAnswerText } from './child-answer.js';
 import { type HostChildWorkQueue, hostPermitModel } from './child-work-queue.js';
 import { canonical, jsonValue } from './json-value.js';
 import type { HostDelegation, HostRunAdmission, HostTool } from './ports.js';
 import type { HostEvent } from './protocol.js';
-
 /**
  * The shipped Mastra delegation input, less its model-controlled memory/step
  * overrides. `_background` keeps the shipped foreground opt-out; retries and
  * timeouts stay host-owned, so they are not offered.
  */
-export const HostDelegationInputSchema = z.object({
-  _background: z
-    .object({
-      disposition: z
-        .enum(['foreground', 'deferred', 'awaited'])
-        .optional()
-        .describe('Run this delegation inline (foreground) or in the background (deferred).'),
-      enabled: z.boolean().optional().describe('false runs this delegation in the foreground.'),
+export const HostDelegationInputSchema = Schema.Struct({
+  _background: Schema.optional(
+    Schema.Struct({
+      disposition: Schema.optional(Schema.Literals(['foreground', 'deferred', 'awaited'])).annotate(
+        { description: 'Run this delegation inline (foreground) or in the background (deferred).' }
+      ),
+      enabled: Schema.optional(Schema.Boolean).annotate({
+        description: 'false runs this delegation in the foreground.',
+      }),
     })
-    .optional()
-    .describe('Optional: override how this delegation executes. Omit it in most cases.'),
-  prompt: z.string().min(1),
+  ).annotate({
+    description: 'Optional: override how this delegation executes. Omit it in most cases.',
+  }),
+  prompt: Schema.String.check(Schema.isMinCodePoints(1)),
 });
-
 /**
  * Report section 4: a root delegation runs in the background unless the
  * model opts out; a child's own delegations run in the foreground (B5).
  */
 export function hostDelegationRunsInBackground(
-  input: z.infer<typeof HostDelegationInputSchema>,
+  input: (typeof HostDelegationInputSchema)['Type'],
   parentIsChild: boolean
 ): boolean {
   const override = input._background;
@@ -57,11 +58,9 @@ export function hostDelegationRunsInBackground(
     override?.disposition === 'awaited'
   );
 }
-
-export const HostChildResultSchema = z.strictObject({
-  /** Absent only for a refused delegation, which starts no child. */
-  childThreadId: z.string().min(1).optional(),
-  status: z.enum([
+export const HostChildResultSchema = Schema.Struct({
+  childThreadId: Schema.optional(Schema.String.check(Schema.isMinCodePoints(1))),
+  status: Schema.Literals([
     'started',
     'completed',
     'no-answer',
@@ -70,10 +69,9 @@ export const HostChildResultSchema = z.strictObject({
     'interrupted',
     'rejected',
   ]),
-  text: z.string(),
+  text: Schema.String,
 });
-export type HostChildResult = z.infer<typeof HostChildResultSchema>;
-
+export type HostChildResult = (typeof HostChildResultSchema)['Type'];
 function personaIdentity(persona: AssistantPersonaDefinition, settings: RuntimeSubagentSettings) {
   const digest = createHash('sha256')
     .update(canonical(jsonValue({ persona, settings })))
@@ -81,12 +79,10 @@ function personaIdentity(persona: AssistantPersonaDefinition, settings: RuntimeS
     .slice(0, 16);
   return `delegation:${persona.id}:${digest}`;
 }
-
 /** The shipped refusal when a turn's invocation budget is spent (BST-1751). */
 export function hostInvocationLimitText(settings: RuntimeSubagentSettings): string {
   return `[Delegation Rejected] Delegation invocation limit reached (${settings.maxInvocations} per original turn).`;
 }
-
 /**
  * One HostCore-dispatched `agent-<persona>` tool per persona. Spawning never
  * asks (report §4 "Spawn and parallel"); the child's own tools pass the gate.
@@ -100,18 +96,22 @@ export function createHostDelegationTools(delegation: HostDelegation): Record<st
         description: delegationDescriptionForPersona(persona, delegation.settings),
         execute: () => Promise.reject(new Error('HostCore dispatches persona delegation')),
         identity: personaIdentity(persona, delegation.settings),
-        inputSchema: HostDelegationInputSchema,
+        inputSchema: standardInputSchema(HostDelegationInputSchema, {
+          jsonSchemaOnExcessProperty: 'error',
+          onExcessProperty: 'ignore',
+        }),
         risk: 'read',
         // Only the child's final text enters the parent's context (report §4).
         toModelOutput: ({ output }) => ({
           type: 'text',
-          value: HostChildResultSchema.parse(output).text,
+          value: Schema.decodeUnknownSync(HostChildResultSchema, { onExcessProperty: 'error' })(
+            output
+          ).text,
         }),
       },
     ])
   );
 }
-
 /** `tools` plus the delegation catalog, refusing an identity collision. */
 export function withHostDelegationTools(
   tools: Readonly<Record<string, HostTool>>,
@@ -128,7 +128,6 @@ export function withHostDelegationTools(
   }
   return admitted;
 }
-
 /**
  * The child's authority: the parent's admitted executors narrowed by the
  * persona (the shipped selectCandidateTools rule). A read-only persona keeps
@@ -155,7 +154,6 @@ export function narrowHostChildTools(
     })
   );
 }
-
 /**
  * The shipped wrap-up feedback (packages/agent/src/mastra/build-persona-subagents.ts,
  * removed with BST-1935): a child's last step is reserved for its summary.
@@ -165,7 +163,6 @@ export const CHILD_WRAP_UP_FEEDBACK =
   'Using ONLY what you already found above, write your summary now: what you looked for, ' +
   'what you found, and the concrete file paths. If you covered only part of the task, say ' +
   'exactly which part you covered and which you did not.';
-
 /** Each child tool execution holds one permit of the turn's work queue (C4). */
 function queuedHostTools(
   tools: Readonly<Record<string, HostTool>>,
@@ -188,7 +185,6 @@ function queuedHostTools(
     ])
   );
 }
-
 /**
  * A child admission derived from its parent's: same model and provider
  * request hygiene, the persona's instructions ahead of the parent's host
@@ -272,7 +268,6 @@ export function deriveHostChildAdmission(
     tools,
   };
 }
-
 function toolCallCount(messages: readonly ModelMessage[]): number {
   return messages.reduce(
     (count, message) =>
@@ -282,7 +277,6 @@ function toolCallCount(messages: readonly ModelMessage[]): number {
     0
   );
 }
-
 // Wording ported from the shipped delegation hook
 // (packages/agent/src/mastra/subagent-delegation.ts, removed with BST-1935).
 function missingAnswerText(persona: AssistantPersonaDefinition, calls: number): string {
@@ -301,7 +295,6 @@ function missingAnswerText(persona: AssistantPersonaDefinition, calls: number): 
     'gather the remainder directly.'
   );
 }
-
 /** The shipped Mastra acknowledgement for a background dispatch. */
 export function hostChildStarted(childThreadId: string, toolName: string): HostChildResult {
   return {
@@ -310,12 +303,16 @@ export function hostChildStarted(childThreadId: string, toolName: string): HostC
     text: `Background task started. Task ID: ${childThreadId}. The tool "${toolName}" is running in the background. You will be notified when it completes.`,
   };
 }
-
 /** What the parent's model reads for a settled child; never an empty success. */
 export function hostChildResult(
   childThreadId: string,
   persona: AssistantPersonaDefinition,
-  outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'],
+  outcome: Extract<
+    HostEvent,
+    {
+      type: 'run.finished';
+    }
+  >['outcome'],
   messages: readonly ModelMessage[]
 ): HostChildResult {
   if (outcome === 'completed') {

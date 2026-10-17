@@ -1,16 +1,13 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
 import type { HostClient } from './client.js';
 import { HOST_METHOD_SCHEMAS, type HostParams, type HostResults } from './protocol.js';
-
 /** The committed input a CLI command addresses: thread, run and the requested interaction. */
 export interface CliMcpInputAddress {
   readonly interactionId: string;
   readonly runId: string;
   readonly threadId: string;
 }
-
-const ActionSchema = z.enum(['accept', 'decline', 'cancel']);
-
+const ActionSchema = Schema.Literals(['accept', 'decline', 'cancel']);
 /** `mcp input read`: the committed status, plus its presentation while the input is live. */
 export function readCliMcpInput(
   client: HostClient,
@@ -18,7 +15,6 @@ export function readCliMcpInput(
 ): Promise<HostResults['mcp/input/read']> {
   return client.request('mcp/input/read', address);
 }
-
 /**
  * `mcp input settle`: an accept stages its content, then settles, on this one
  * connection (Core binds a staged answer to the client that staged it). A
@@ -33,12 +29,18 @@ export async function settleCliMcpInput(
     readonly content: string | undefined;
   }
 ): Promise<HostResults['mcp/input/settle']> {
-  const action = ActionSchema.parse(options.action);
+  const action = Schema.decodeUnknownSync(ActionSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(options.action);
   if (action !== 'accept' && options.content !== undefined) {
     throw new Error('--content applies only to --action accept');
   }
   if (action === 'accept') {
-    const stage: HostParams<'mcp/input/stage'> = HOST_METHOD_SCHEMAS['mcp/input/stage'].parse({
+    const stage: HostParams<'mcp/input/stage'> = Schema.decodeUnknownSync(
+      HOST_METHOD_SCHEMAS['mcp/input/stage'],
+      { errors: 'all', onExcessProperty: 'error' }
+    )({
       ...address,
       ...(options.content === undefined ? {} : { content: JSON.parse(options.content) }),
     });

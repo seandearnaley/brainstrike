@@ -162,7 +162,7 @@
   },
   "scripts": {
     "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:integration:routine": "vitest run --config vitest.integration.config.mts __tests__/host.integration.test.ts __tests__/permission-grant.integration.test.ts",
@@ -188,7 +188,8 @@
     "@napi-rs/keyring": "2.1.1",
     "ai": "catalog:",
     "vscode-jsonrpc": "catalog:",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
@@ -196,6 +197,7 @@
     "@vitest/coverage-v8": "catalog:",
     "esbuild": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "@effect/tsgo": "catalog:"
   }
 }

@@ -1,12 +1,14 @@
 // @vitest-environment node
 import type { LocalEmbeddingHostClient } from '@brainstrike/agent/provider-runtime';
 import type { VectorProfile } from '@brainstrike/indexer';
+import { Schema } from 'effect';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { createDesktopHostMemoryConfiguration } from '../agent-host-platform/memory-model-configuration';
 import {
   type PlatformSelection,
   PlatformSelectionSchema,
 } from '../agent-host-platform/platform-wire';
+import type { MutableFixture } from './fixtures/mutable-schema-fixture';
 
 // The workspace index's one profile rule: a local token cap is optional.
 const localProfile: VectorProfile = {
@@ -23,12 +25,14 @@ const hostedProfile: VectorProfile = {
   modelId: 'text-embedding-3-small',
   provider: 'openai',
 };
-
 function selection(
   vectorProfile: VectorProfile | undefined,
   scope: 'thread' | 'resource' = 'thread'
-): PlatformSelection {
-  return PlatformSelectionSchema.parse({
+): MutableFixture<PlatformSelection> {
+  return Schema.decodeUnknownSync(PlatformSelectionSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({
     configuration: { model: 'gpt-4.1-mini', provider: 'openai' },
     contextWindow: 128_000,
     durableConfiguration: {},
@@ -66,7 +70,6 @@ function selection(
     toolTimeoutMs: 10_000,
   });
 }
-
 function borrowed(queryEmbedding: LocalEmbeddingHostClient['queryEmbedding']) {
   return {
     embedding: { queryEmbedding },
@@ -81,7 +84,6 @@ function borrowed(queryEmbedding: LocalEmbeddingHostClient['queryEmbedding']) {
     signal: new AbortController().signal,
   };
 }
-
 const fetch = vi.fn<typeof globalThis.fetch>(async () => {
   throw new Error('Live inference is forbidden in deterministic configuration proofs');
 });
@@ -92,11 +94,13 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
 });
-
 test.each(['thread', 'resource'] as const)(
   'local %s recall borrows Main’s embedding host for the admitted profile and the caller signal',
   async (scope) => {
-    const queries: { payload: unknown; signal: AbortSignal | undefined }[] = [];
+    const queries: {
+      payload: unknown;
+      signal: AbortSignal | undefined;
+    }[] = [];
     const auth = vi.fn(async () => undefined);
     const configured = await createDesktopHostMemoryConfiguration(
       selection(localProfile, scope),
@@ -129,7 +133,6 @@ test.each(['thread', 'resource'] as const)(
     expect(fetch).not.toHaveBeenCalled();
   }
 );
-
 test('hosted recall embeds in Node with the resolved credential for the admitted profile', async () => {
   fetch.mockImplementationOnce(async () =>
     Response.json({
@@ -153,7 +156,6 @@ test('hosted recall embeds in Node with the resolved credential for the admitted
   expect(request.url).toMatch(/\/embeddings$/u);
   expect(request.headers.get('authorization')).toBe('Bearer offline-fixture-key');
 });
-
 test('missing vector capabilities refuse visibly without substituting a model', async () => {
   const noProfile = selection(localProfile);
   const { vectorProfile: _omitted, ...memory } = noProfile.memory;
@@ -174,7 +176,6 @@ test('missing vector capabilities refuse visibly without substituting a model', 
   );
   expect(fetch).not.toHaveBeenCalled();
 });
-
 test('disabled recall and existing observer messages/off options preserve provider model and thresholds', async () => {
   const admitted = selection(undefined);
   const disabled = await createDesktopHostMemoryConfiguration(admitted, async () => undefined);

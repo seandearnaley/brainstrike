@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import type { HostCliOutput } from './cli.js';
 import type { HostClient } from './client.js';
 import type { HostLogRow, HostRunTelemetry } from './protocol.js';
@@ -21,11 +21,9 @@ const INTERACTION_PROMPTS: Readonly<Record<PendingHostApproval['kind'], string>>
   plan: 'Decide with JSON {"action":"approved"|"rejected","feedback":"optional text"}, or stop: ',
   question: 'Answer with JSON {"answer":"text"} or {"answer":["choice"]}, or stop: ',
 };
-
 function errorText(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
-
 export class HostCliExitError extends Error {
   constructor(
     message: string,
@@ -35,17 +33,17 @@ export class HostCliExitError extends Error {
     this.name = 'HostCliExitError';
   }
 }
-
 export interface HostCliSessionOptions {
   readonly client: HostClient;
   readonly interactive: boolean;
   readonly json: boolean;
   readonly output: HostCliOutput;
   readonly runId?: string;
-  readonly startRun?: () => Promise<{ runId: string }>;
+  readonly startRun?: () => Promise<{
+    runId: string;
+  }>;
   readonly threadId: string;
 }
-
 /** A failed or interrupted run ends the CLI with its committed detail. */
 export function hostRunExitError(run: HostRunView): HostCliExitError | undefined {
   if (run.status !== 'failed' && run.status !== 'interrupted') {
@@ -58,7 +56,6 @@ export function hostRunExitError(run: HostRunView): HostCliExitError | undefined
     1
   );
 }
-
 /** The run's oldest MCP input with neither a committed answer intent nor a settlement. */
 function pendingMcpInput(
   rows: readonly HostLogRow[],
@@ -81,7 +78,6 @@ function pendingMcpInput(
   }
   return;
 }
-
 /**
  * A run's answer prints once: live from `run/telemetry` text deltas, or, for a
  * step this terminal did not watch (replay, attach), from its committed
@@ -93,7 +89,6 @@ class HostCliAnswerText {
   private readonly printedLive = new Set<string>();
   /** Runs with a committed step start and no step commit yet. */
   private readonly openSteps = new Set<string>();
-
   live(telemetry: HostRunTelemetry, output: HostCliOutput): void {
     const chunk = telemetry.chunk;
     if (
@@ -107,7 +102,6 @@ class HostCliAnswerText {
       this.printedLive.add(telemetry.runId);
     }
   }
-
   committed(row: HostLogRow, output: HostCliOutput): void {
     const event = row.event;
     if (event.type === 'stream.chunk' && isHostStepStart(event.chunk)) {
@@ -127,7 +121,6 @@ class HostCliAnswerText {
     output.write(committedAssistantText(event.messages));
   }
 }
-
 function displayRow(
   row: HostLogRow,
   output: HostCliOutput,
@@ -155,7 +148,6 @@ function displayRow(
     output.write('\n');
   }
 }
-
 /** The terminal observes committed rows and sends decisions to the same host owner. */
 export async function runHostCliSession(options: HostCliSessionOptions): Promise<void> {
   const { client, threadId, output } = options;
@@ -294,9 +286,12 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
     const interaction = pending;
     let request: Promise<unknown>;
     if (interaction.kind !== 'approval') {
-      let resumeData: z.infer<ReturnType<typeof z.json>>;
+      let resumeData: typeof Schema.MutableJson.Type;
       try {
-        resumeData = z.json().parse(JSON.parse(answer));
+        resumeData = Schema.decodeUnknownSync(Schema.MutableJson, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(JSON.parse(answer));
       } catch (cause) {
         process.stderr.write(`Invalid JSON response: ${errorText(cause)}\n`);
         return;

@@ -12,15 +12,17 @@ import {
   type HostParams,
 } from '@brainstrike/agent-host/protocol';
 import recording from '@brainstrike/test-utils/fixtures/committed-host-rewinds.json';
+import { Schema } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import { openHostThreadContext } from '../renderer/host-thread-context';
 
-const rows = recording.map((row) => HostLogRowSchema.parse(row));
+const rows = recording.map((row) =>
+  Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)
+);
 const threadId = rows[0]?.threadId ?? '';
 const [runA, runB, runC] = rows.flatMap(({ event }) =>
   event.type === 'run.started' ? [event.runId] : []
 );
-
 function recordedClient(subscribe: () => Promise<unknown> = async () => ({ rows, telemetry: [] })) {
   const closed = Promise.withResolvers<void>();
   const request = vi.fn(async (method: HostMethod, _params: HostParams<HostMethod>) => {
@@ -32,7 +34,10 @@ function recordedClient(subscribe: () => Promise<unknown> = async () => ({ rows,
     if (!answer) {
       throw new Error(`Unexpected host request ${method}`);
     }
-    return HOST_RESULT_SCHEMAS[method].parse(await answer());
+    return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS[method], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(await answer());
   });
   const client = {
     closed: closed.promise,
@@ -42,7 +47,6 @@ function recordedClient(subscribe: () => Promise<unknown> = async () => ({ rows,
   };
   return { client, lose: () => closed.resolve(), request };
 }
-
 describe('openHostThreadContext', () => {
   it("folds the thread's log on its displayed branch, and releases only its own subscription", async () => {
     const { client, request } = recordedClient();
@@ -59,7 +63,6 @@ describe('openHostThreadContext', () => {
     source.close();
     expect(request).toHaveBeenCalledWith('log/unsubscribe', { threadId });
   });
-
   it('keeps the map and says so when the host connection closes', async () => {
     const { client, lose } = recordedClient();
     const source = openHostThreadContext(client, threadId);
@@ -71,7 +74,6 @@ describe('openHostThreadContext', () => {
     expect(source.getSnapshot().record?.branchRunIds).toEqual([runA, runC]);
     source.close();
   });
-
   it('reports a refused subscription as a failure, never as an empty thread', async () => {
     const { client } = recordedClient(async () => {
       throw new Error('subscription refused');

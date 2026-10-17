@@ -6,6 +6,7 @@ import {
   createSharedNativeHostTools,
   type ReadWorkspaceFileCursorRegistry,
 } from '@brainstrike/host-capabilities/native-tools';
+import { Schema } from 'effect';
 import { getEditDiagnostics } from '../assistant-server/lsp-diagnostics';
 import {
   desktopHostToolExecutors,
@@ -13,7 +14,6 @@ import {
   isHostExecutedNativeToolId,
 } from './host-executed-tools';
 import type { PlatformSelection } from './platform-wire';
-
 /**
  * The admitted shared native tools, executed in this host process with Core's
  * edit tracker and thread state. Their descriptors must match these
@@ -55,7 +55,11 @@ export function desktopHostSharedTools(options: {
       selected.nativeRuntime,
       options.appPaths
     ),
-    freshRoots: async () => CliWorkspaceRootsSchema.parse(await options.freshRoots()),
+    freshRoots: async () =>
+      Schema.decodeUnknownSync(CliWorkspaceRootsSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(await options.freshRoots()),
     ids,
     readFileCursorRegistry: options.readFileCursorRegistry,
     resolvedToolResultBudget: resolveScaledToolResultBudget(selected.contextWindow),

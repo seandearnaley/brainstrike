@@ -1,19 +1,21 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { AsyncEntry, findCredentialsAsync } from '@napi-rs/keyring';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import {
   type KeyringNativeRequest,
   KeyringNativeRequestSchema,
 } from './keyring-native-protocol.js';
 
-const { service } = z.object({ service: z.string().min(1) }).parse(workerData);
+const { service } = Schema.decodeUnknownSync(
+  Schema.Struct({ service: Schema.String.check(Schema.isMinCodePoints(1)) }),
+  { errors: 'all', onExcessProperty: 'error' }
+)(workerData);
 const port = parentPort;
 if (!port) {
   throw new Error('Credential worker requires its private owner channel');
 }
 const pending = new Set<Promise<unknown>>();
 let closing = false;
-
 async function execute(
   request: KeyringNativeRequest
 ): Promise<string | boolean | readonly string[] | null> {
@@ -43,9 +45,11 @@ async function execute(
       return await entry.deleteCredential();
   }
 }
-
 port.on('message', (input: unknown) => {
-  const request = KeyringNativeRequestSchema.parse(input);
+  const request = Schema.decodeUnknownSync(KeyringNativeRequestSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(input);
   const operation = execute(request);
   if (request.operation !== 'close') {
     pending.add(operation);

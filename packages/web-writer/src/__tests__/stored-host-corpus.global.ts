@@ -4,8 +4,8 @@ import plan from '@brainstrike/test-utils/fixtures/committed-host-plan.json' wit
 import rich from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json' with {
   type: 'json',
 };
+import { Schema } from 'effect';
 import type { TestProject } from 'vitest/node';
-
 /** Recorded committed host runs, stored as Core stores them (`storedHostEvent`), for the browser tests to append. */
 export interface StoredHostCorpus {
   readonly blobs: readonly (readonly [hash: string, content: string])[];
@@ -13,13 +13,11 @@ export interface StoredHostCorpus {
   readonly rows: readonly (readonly [string, string, string | null, string, null, 0 | 1])[];
   readonly threadIds: readonly string[];
 }
-
 declare module 'vitest' {
   export interface ProvidedContext {
     storedHostCorpus: StoredHostCorpus;
   }
 }
-
 /**
  * Core's encoder is Node code, so the corpus is stored here, in Node, and
  * handed to the browser page. The first tool result is inflated past the
@@ -32,7 +30,10 @@ export default function setup(project: TestProject): void {
   let inflated = false;
   for (const recorded of [rich, plan] as readonly (readonly unknown[])[]) {
     for (const input of recorded) {
-      const row = HostLogRowSchema.parse(input);
+      const row = Schema.decodeUnknownSync(HostLogRowSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input);
       const event: HostEvent =
         !inflated && row.event.type === 'effect.finished'
           ? { ...row.event, output: `large tool output ✓\n${'x'.repeat(40_000)}` }
@@ -42,7 +43,11 @@ export default function setup(project: TestProject): void {
       for (const blob of stored.blobs ?? []) {
         blobs.set(blob.hash, blob.content);
       }
-      const runId = (stored.event as { runId?: unknown }).runId;
+      const runId = (
+        stored.event as {
+          runId?: unknown;
+        }
+      ).runId;
       rows.push([
         row.threadId,
         stored.event.type,

@@ -7,7 +7,6 @@
  * restart derive a run's branch through the same fold, and a run's model
  * context is its selected path only: a sibling branch is never on it.
  */
-
 import { refusalError } from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
@@ -16,7 +15,7 @@ import {
 } from '@brainstrike/assistant-contract/assistant-attachments';
 import { sha256Hex } from '@brainstrike/utils/crypto';
 import { type ModelMessage, modelMessageSchema, type UserModelMessage } from 'ai';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { overlayHostChildOutcomes, withHostDeliveryLedger } from './child-delivery.js';
 import {
   createHostRunState,
@@ -39,12 +38,16 @@ import {
 } from './protocol.js';
 
 /** The configuration a committed run command carried; its other fields have their own readers. */
-const CommittedRunInputSchema = z.looseObject({
-  configuration: z.record(z.string(), storedJson()).optional(),
-});
-
-type Started = Extract<HostEvent, { type: 'run.started' }>;
-
+const CommittedRunInputSchema = Schema.StructWithRest(
+  Schema.Struct({ configuration: Schema.optional(Schema.Record(Schema.String, storedJson())) }),
+  [Schema.Record(Schema.String, Schema.Unknown)]
+);
+type Started = Extract<
+  HostEvent,
+  {
+    type: 'run.started';
+  }
+>;
 /**
  * The run/start or run/regenerate command whose acceptance admitted a run, or
  * (BST-1932) a host admission without a client command: the delegation that
@@ -57,7 +60,6 @@ export interface HostRunAdmissionCommand {
   readonly input?: HostRunInput;
   readonly method: string;
 }
-
 /**
  * The branch a committed run.started places its run on. Live admission and
  * restart both derive it here, from the same committed event and the runs
@@ -109,7 +111,6 @@ export function foldHostRunBranch(
     userMessageId: admission.commandId,
   };
 }
-
 /** BST-1932: an automated wake follows the committed tip it was admitted after. */
 function wakeHostRunBranch(
   prior: readonly HostRunState[],
@@ -129,7 +130,6 @@ function wakeHostRunBranch(
     userMessageId: admission.commandId,
   };
 }
-
 /** A user message: its prompt alone, or its prompt (when it has one) followed by its images. */
 function hostUserMessage(branch: HostRunBranch): UserModelMessage {
   if (!branch.attachments) {
@@ -146,7 +146,6 @@ function hostUserMessage(branch: HostRunBranch): UserModelMessage {
     role: 'user',
   };
 }
-
 /** The shared attachment contract, checked before a user message is admitted. */
 function assertHostAttachments(attachments: readonly HostImageAttachment[]): void {
   let total = 0;
@@ -160,7 +159,6 @@ function assertHostAttachments(attachments: readonly HostImageAttachment[]): voi
     );
   }
 }
-
 /**
  * The selected path's committed model context for `run`: each ancestor's user
  * message and own messages, root first, then this run's. Sibling branches are
@@ -178,7 +176,6 @@ export function hostRunContext(
     ...overlayHostChildOutcomes(turn.id, turn.messages, delivered),
   ]);
 }
-
 /** `run`'s ancestor runs on its committed branch, root first. */
 export function hostRunAncestors(
   runs: ReadonlyMap<string, HostRunState>,
@@ -200,7 +197,6 @@ export function hostRunAncestors(
   }
   return chain.reverse();
 }
-
 /** Omitted: the current tip (the thread's latest run); null: the thread root. */
 function resolveHostBranchParent(
   runs: Iterable<HostRunState>,
@@ -220,7 +216,6 @@ function resolveHostBranchParent(
   }
   return requested;
 }
-
 /** Committed user message `userMessageId` (its run/start command ID). */
 function committedHostUserMessage(
   runs: Iterable<HostRunState>,
@@ -238,7 +233,6 @@ function committedHostUserMessage(
     'Regenerate references no committed user message in this thread'
   );
 }
-
 /** A started run's state, on the branch its committed run.started records. */
 export function startedHostRun(
   /** The thread's earlier runs, in commit order. */
@@ -267,11 +261,15 @@ export function startedHostRun(
   }
   return run;
 }
-
 /** Pure transcript fold into the run that committed it; HostCore owns the runs. */
 export function foldHostConversationMessages(
   runs: ReadonlyMap<string, HostRunState>,
-  event: Extract<HostEvent, { type: 'model.step' | 'model.messages' }>
+  event: Extract<
+    HostEvent,
+    {
+      type: 'model.step' | 'model.messages';
+    }
+  >
 ): void {
   const run = runs.get(event.runId);
   if (!run) {
@@ -281,14 +279,19 @@ export function foldHostConversationMessages(
   foldHostRunMessages(run, event, messages, hostRunContext(runs, run).length);
   run.messages.push(...messages);
 }
-
 /** Where a new run's user message goes. */
 export type HostRunPosition = {
   readonly attachments?: HostImageAttachment[];
   readonly delivery?: HostChildDelivery;
   readonly prompt: string;
-} & ({ readonly parentMessageId: string | null } | { readonly userMessageId: string });
-
+} & (
+  | {
+      readonly parentMessageId: string | null;
+    }
+  | {
+      readonly userMessageId: string;
+    }
+);
 /** A start follows its requested parent (omitted: the current tip; null: the root). */
 export function hostStartPosition(
   runs: Iterable<HostRunState>,
@@ -303,7 +306,6 @@ export function hostStartPosition(
     prompt: params.prompt,
   };
 }
-
 /** A regeneration answers its committed user message again. */
 export function hostRegeneratePosition(
   runs: Iterable<HostRunState>,
@@ -320,7 +322,6 @@ export function hostRegeneratePosition(
     userMessageId: params.userMessageId,
   };
 }
-
 /** What a command's run keeps to start a follow-up with: its settings and its client. */
 export function hostRunInput(
   configuration: HostRunInput['configuration'] | undefined,
@@ -328,7 +329,6 @@ export function hostRunInput(
 ): HostRunInput {
   return { ...(configuration ? { configuration } : {}), ...(origin ? { origin } : {}) };
 }
-
 /** The run.started an admission commits, and its run's state on that branch. */
 export function admittedHostRun(
   /** The admitting thread's earlier runs, in commit order. */
@@ -343,7 +343,10 @@ export function admittedHostRun(
   grants: HostThreadGrants,
   snapshot: HostRunSnapshot,
   controller: AbortController
-): { readonly run: HostRunState; readonly started: Started } {
+): {
+  readonly run: HostRunState;
+  readonly started: Started;
+} {
   const started: Started = {
     ...position,
     modelId: admission.modelId,
@@ -363,32 +366,40 @@ export function admittedHostRun(
   );
   return { run, started };
 }
-
 /** Remembers a committed run admission for its run.started in the same fold batch. */
 export function foldHostRunAdmission(
   admitted: Map<string, HostRunAdmissionCommand>,
   conversationIds: Set<string>,
-  event: Extract<HostEvent, { type: 'command.accepted' }>
+  event: Extract<
+    HostEvent,
+    {
+      type: 'command.accepted';
+    }
+  >
 ): void {
   if (event.method !== 'run/start' && event.method !== 'run/regenerate') {
     return;
   }
   recordHostConversationId(conversationIds, event.commandId);
-  const { runId } = HOST_RESULT_SCHEMAS[event.method].parse(event.result);
+  const { runId } = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS[event.method], {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(event.result);
   // Only a live client supplies an origin; a replayed command keeps its configuration.
-  const { configuration } = CommittedRunInputSchema.parse(event.payload);
+  const { configuration } = Schema.decodeUnknownSync(CommittedRunInputSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(event.payload);
   admitted.set(runId, {
     commandId: event.commandId,
     ...(configuration ? { input: { configuration } } : {}),
     method: event.method,
   });
 }
-
 /** The admission of a child thread's first run: its delegation, keyed by the child threadId. */
 export function delegatedHostRunAdmission(threadId: string): HostRunAdmissionCommand {
   return { commandId: threadId, method: 'delegation' };
 }
-
 /**
  * Folds a committed run.started into `runs`, consuming its admission command.
  * BST-1932: a child thread's first run is admitted by its delegation, and a
@@ -422,7 +433,6 @@ export function foldHostStartedRun(
   runs.set(event.runId, run);
   return run;
 }
-
 /** One root run at a time per thread, once the thread's previous run has settled. */
 export function assertHostRunStartAvailable(runs: Iterable<HostRunState>, threadId: string): void {
   const threadRuns = [...runs].filter((run) => run.threadId === threadId);
@@ -431,7 +441,6 @@ export function assertHostRunStartAvailable(runs: Iterable<HostRunState>, thread
   }
   assertHostThreadSettled(threadRuns);
 }
-
 /**
  * A finished run's memory still settling: Core joins it before admitting the
  * thread's next run or rewind, so this refuses only one that raced its end.
@@ -447,13 +456,15 @@ export function assertHostThreadSettled(threadRuns: Iterable<HostRunState>): voi
     }
   }
 }
-
 /** A new run needs its thread, no active run there, and an unused command identity. */
 export function assertHostRunAdmissible(
   threads: ReadonlySet<string>,
   runs: Iterable<HostRunState>,
   conversationIds: ReadonlySet<string>,
-  params: { readonly commandId: string; readonly threadId: string }
+  params: {
+    readonly commandId: string;
+    readonly threadId: string;
+  }
 ): void {
   if (!threads.has(params.threadId)) {
     throw refusalError('input', 'thread.unknown', 'Unknown thread');
@@ -467,15 +478,14 @@ export function assertHostRunAdmissible(
     );
   }
 }
-
 type HostStartParams = HostParams<'run/start'>;
 type HostStartImage = NonNullable<HostStartParams['attachments']>[number];
-
 /** run/start as recorded: each image named by digest instead of its bytes. */
 export type HostStartCommandRecord = Omit<HostStartParams, 'attachments'> & {
-  readonly attachments?: readonly (Omit<HostStartImage, 'data'> & { readonly sha256: string })[];
+  readonly attachments?: readonly (Omit<HostStartImage, 'data'> & {
+    readonly sha256: string;
+  })[];
 };
-
 /**
  * The durable record of a run/start command. An image is stored once: its bytes
  * are the run's (run.started), and the command record names it by digest, which

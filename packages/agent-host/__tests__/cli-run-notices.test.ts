@@ -4,13 +4,16 @@
 import recording from '@brainstrike/test-utils/fixtures/committed-host-run-attempts.json' with {
   type: 'json',
 };
+import { Schema } from 'effect';
 import { expect, test } from 'vitest';
-import { z } from 'zod';
 import { hostRunExitError } from '../src/cli-session.js';
 import { HostLogRowSchema } from '../src/protocol.js';
 import { foldHostRuns, HostRunNotices } from '../src/thread-view.js';
 
-const rows = z.array(HostLogRowSchema).parse(recording);
+const rows = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+  errors: 'all',
+  onExcessProperty: 'error',
+})(recording);
 const stalled = 'The model stream stalled after 400ms without output.';
 const warning =
   'Provider ignored an unsupported setting: temperature: temperature is not supported for reasoning models';

@@ -22,7 +22,7 @@ import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-met
 import { z } from 'zod';
 import type { PlatformSelectionSchema } from './platform-wire';
 
-export type DesktopToolDescriptor = z.input<typeof PlatformSelectionSchema>['tools'][string];
+export type DesktopToolDescriptor = (typeof PlatformSelectionSchema)['Encoded']['tools'][string];
 
 /** What an admission decided that changes which tools exist. */
 export interface DesktopToolAdmission {

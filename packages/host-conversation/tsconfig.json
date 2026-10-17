@@ -7,7 +7,17 @@
     "outDir": "dist",
     "rootDir": "src",
     "strictNullChecks": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "diagnosticSeverity": {
+          "apiStabilityLeak": "error",
+          "experimentalApiUsage": "error",
+          "unstableApiUsage": "error"
+        }
+      }
+    ]
   },
   "exclude": [
     "dist",

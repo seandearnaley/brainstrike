@@ -1,3 +1,5 @@
+import { Schema } from 'effect';
+import type { MutableFixture } from './fixtures/mutable-schema-fixture';
 // @vitest-environment node
 import './assistant-server/_windows-command-fixture';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
@@ -19,9 +21,14 @@ afterEach(async () => {
     await rm(directory, { force: true, recursive: true });
   }
 });
-
-function selection(root: string, native: Record<string, unknown> = {}) {
-  return PlatformSelectionSchema.parse({
+function selection(
+  root: string,
+  native: Record<string, unknown> = {}
+): MutableFixture<typeof PlatformSelectionSchema.Type> {
+  return Schema.decodeUnknownSync(PlatformSelectionSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({
     configuration: { model: 'gpt-6-sol', provider: 'openai' },
     contextWindow: 32_000,
     durableConfiguration: {},
@@ -124,7 +131,6 @@ function selection(root: string, native: Record<string, unknown> = {}) {
     toolTimeoutMs: 5000,
   });
 }
-
 function execution(): HostToolContext {
   return {
     edits: { track: async () => Promise.reject(new Error('A host read never edits')) },
@@ -139,7 +145,6 @@ function execution(): HostToolContext {
     toolCallId: 'inspect-call',
   };
 }
-
 test('the desktop host runs lspInspect in its own process, revalidating roots through Main only', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-lsp-')));
   directories.push(root);
@@ -173,7 +178,6 @@ test('the desktop host runs lspInspect in its own process, revalidating roots th
     'admission/fresh-roots',
   ]);
 });
-
 test('the desktop host reads named workspace context files in its own process', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-context-')));
   directories.push(root);
@@ -204,7 +208,6 @@ test('the desktop host reads named workspace context files in its own process', 
     'admission/fresh-roots',
   ]);
 });
-
 test('the desktop host runs executeCommand in its own process and correlates worktree commands through Main', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-shell-')));
   directories.push(root);
@@ -241,7 +244,6 @@ test('the desktop host runs executeCommand in its own process and correlates wor
     'admission/fresh-roots',
     'admission/fresh-roots',
   ]);
-
   // A worktree-shaped command snapshots Main's paths first, then reports its completion.
   request.mockClear();
   const command = 'git worktree prune --dry-run 2>/dev/null; printf done';
@@ -259,7 +261,6 @@ test('the desktop host runs executeCommand in its own process and correlates wor
   );
   expect(request.mock.calls.map(([method]) => method)).toContain('platform/worktree/paths');
 });
-
 test('the desktop host greps in its own process, reading only the indexed half from Main', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-grep-')));
   directories.push(root);
@@ -322,7 +323,6 @@ test('the desktop host greps in its own process, reading only the indexed half f
     new Set(['admission/fresh-roots', 'desktop-read/grep-index'])
   );
 });
-
 test('the desktop host runs the worktree tools in its own process over Main’s worktree calls, under the host run’s identity', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-worktree-')));
   directories.push(root);
@@ -442,7 +442,6 @@ test('the desktop host runs the worktree tools in its own process over Main’s 
     threadId: 'host-thread',
   });
 });
-
 test('the desktop host runs the browser tools, asking Main to drive the window-bound pane', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-browser-')));
   directories.push(root);
@@ -497,7 +496,6 @@ test('the desktop host runs the browser tools, asking Main to drive the window-b
     expect.any(AbortSignal)
   );
 });
-
 test('the desktop host runs queryDiagnostics, reading only Main’s diagnostics store through a typed read', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-self-')));
   directories.push(root);
@@ -553,7 +551,6 @@ test('the desktop host runs queryDiagnostics, reading only Main’s diagnostics 
     threadId: 'host-thread',
   });
 });
-
 test('the desktop host runs run_python against the bundled runtime its launch app paths name', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-python-')));
   const resourcesPath = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-resources-')));
@@ -595,8 +592,10 @@ test('the desktop host runs run_python against the bundled runtime its launch ap
     new Set(['admission/fresh-roots'])
   );
 });
-
-async function skillWorkspace(): Promise<{ readonly home: string; readonly root: string }> {
+async function skillWorkspace(): Promise<{
+  readonly home: string;
+  readonly root: string;
+}> {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-skills-')));
   const home = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-skills-home-')));
   directories.push(root, home);
@@ -611,7 +610,6 @@ async function skillWorkspace(): Promise<{ readonly home: string; readonly root:
   await writeFile(join(skill, 'scripts', 'hello.sh'), 'printf hello-from-skill\n');
   return { home, root };
 }
-
 function admitSkills(root: string, home: string, provider: string) {
   return prepareAdmittedSkills({
     fs: createSecureSkillsFs([root, home]),
@@ -622,7 +620,6 @@ function admitSkills(root: string, home: string, provider: string) {
     },
   });
 }
-
 test('the desktop host activates, reads and runs the skills Main admitted, reading their files itself', async () => {
   const { home, root } = await skillWorkspace();
   // Main's one scan for this run: its enabled skills are what the host may use.
@@ -687,7 +684,6 @@ test('the desktop host activates, reads and runs the skills Main admitted, readi
     new Set(['admission/fresh-roots'])
   );
 });
-
 test('a run on the built-in local provider is admitted without workspace skills', async () => {
   const { home, root } = await skillWorkspace();
   expect(admitSkills(root, home, 'local')).toEqual({});
@@ -711,7 +707,6 @@ test('a run on the built-in local provider is admitted without workspace skills'
     })
   ).toThrow('No host executor is registered for native tool skill');
 });
-
 test('the desktop host runs webExtract with its own Tavily key owner, refusing internal URLs before any key read', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-extract-')));
   directories.push(root);

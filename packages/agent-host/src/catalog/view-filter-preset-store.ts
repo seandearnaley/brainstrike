@@ -1,15 +1,16 @@
 import type { ViewFilterPresetPort } from '@brainstrike/state-store';
 import type { ViewFilterPresetReply } from '@brainstrike/types';
 import { parseViewFilterPresetRequest } from '@brainstrike/types/catalog-args';
+import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import { sendCatalogRequest } from './request.js';
 
-const Preset = z.strictObject({
-  createdAt: z.iso.datetime(),
-  description: z.string().nullable(),
-  excludes: z.array(z.string()),
-  icon: z.enum([
+const Preset = Schema.Struct({
+  createdAt: Schema.String.check(Schema.isPattern(z.regexes.datetime({}))),
+  description: Schema.NullOr(Schema.String),
+  excludes: Schema.mutable(Schema.Array(Schema.String)),
+  icon: Schema.Literals([
     'file',
     'file-code',
     'file-text',
@@ -27,20 +28,25 @@ const Preset = z.strictObject({
     'flask-conical',
     'test-tube',
   ]),
-  id: z.string(),
-  includes: z.array(z.string()),
-  isDefault: z.boolean(),
-  name: z.string(),
-  sortOrder: z.number().int(),
-  updatedAt: z.iso.datetime(),
-  useRegex: z.boolean(),
+  id: Schema.String,
+  includes: Schema.mutable(Schema.Array(Schema.String)),
+  isDefault: Schema.Boolean,
+  name: Schema.String,
+  sortOrder: Schema.Int,
+  updatedAt: Schema.String.check(Schema.isPattern(z.regexes.datetime({}))),
+  useRegex: Schema.Boolean,
 });
-const Reply = z.strictObject({ deleted: z.boolean().optional(), presets: z.array(Preset) });
+const Reply = Schema.Struct({
+  deleted: Schema.optional(Schema.Boolean),
+  presets: Schema.mutable(Schema.Array(Preset)),
+});
 const METHOD = 'host/view-filter-presets';
 export function serveViewFilterPresets(
   connection: Pick<MessageConnection, 'onRequest'>,
   store: ViewFilterPresetPort
-): { close(): Promise<void> } {
+): {
+  close(): Promise<void>;
+} {
   let closing: Promise<void> | undefined;
   const pending = new Set<Promise<ViewFilterPresetReply>>();
   const subscription = connection.onRequest(METHOD, async (input: unknown) => {
@@ -70,7 +76,7 @@ export function serveViewFilterPresets(
 export function createViewFilterPresetClient(connection: MessageConnection): ViewFilterPresetPort {
   return {
     viewFilterPresets: async (request) => {
-      const result = Reply.parse(
+      const result = Schema.decodeUnknownSync(Reply, { errors: 'all', onExcessProperty: 'error' })(
         await sendCatalogRequest(connection, METHOD, parseViewFilterPresetRequest(request))
       );
       return {

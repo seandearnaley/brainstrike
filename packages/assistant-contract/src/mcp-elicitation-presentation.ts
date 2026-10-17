@@ -2,7 +2,7 @@ import {
   ElicitRequestFormParamsSchema,
   ElicitRequestURLParamsSchema,
 } from '@modelcontextprotocol/core';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import type { McpElicitationPresentationWire } from './mcp-elicitation.js';
 import {
   ConfiguredMcpServerIdSchema,
@@ -10,17 +10,18 @@ import {
   McpStatusTransportSchema,
 } from './mcp-host.js';
 import { McpTaskHandleSchema } from './mcp-task-presentation.js';
+import { sdkSchema } from './sdk-schema.js';
 
-const Id = z.string().min(1);
-const ProvenanceSchema = z.strictObject({
+const Id = Schema.String.check(Schema.isMinCodePoints(1));
+const ProvenanceSchema = Schema.Struct({
   configuredProtocol: McpConfiguredProtocolSchema,
   configuredServerId: ConfiguredMcpServerIdSchema,
-  generation: z.number().int().positive().safe(),
+  generation: Schema.Int.check(Schema.isGreaterThan(0)),
   invocationId: Id,
   negotiatedRevision: Id,
-  operation: z.strictObject({
-    target: z.string().optional(),
-    type: z.enum([
+  operation: Schema.Struct({
+    target: Schema.optional(Schema.String),
+    type: Schema.Literals([
       'tools/list',
       'tools/call',
       'resources/list',
@@ -33,42 +34,47 @@ const ProvenanceSchema = z.strictObject({
       'resources/unsubscribe',
     ]),
   }),
-  requestId: z.union([Id, z.number().int().safe()]),
-  serverIdentity: z
-    .strictObject({
+  requestId: Schema.Union([Id, Schema.Int]),
+  serverIdentity: Schema.optional(
+    Schema.Struct({
       name: Id,
-      title: Id.optional(),
-      version: z.string(),
-      websiteOrigin: z.string().optional(),
+      title: Schema.optional(Id),
+      version: Schema.String,
+      websiteOrigin: Schema.optional(Schema.String),
     })
-    .optional(),
-  taskHandle: McpTaskHandleSchema.optional(),
+  ),
+  taskHandle: Schema.optional(McpTaskHandleSchema),
   transport: McpStatusTransportSchema,
 });
 const PresentationBase = {
   id: Id,
-  message: ElicitRequestFormParamsSchema.shape.message,
+  message: sdkSchema(ElicitRequestFormParamsSchema.shape.message),
   provenance: ProvenanceSchema,
 };
-export const McpElicitationPresentationSchema = z.discriminatedUnion('mode', [
-  z.strictObject({
-    ...PresentationBase,
-    mode: z.literal('form'),
-    requestedSchema: ElicitRequestFormParamsSchema.shape.requestedSchema,
-  }),
-  z.strictObject({
-    ...PresentationBase,
-    mode: z.literal('url'),
-    url: ElicitRequestURLParamsSchema.shape.url,
-  }),
-]);
-
+export const McpElicitationPresentationSchema = Schema.Union(
+  [
+    Schema.Struct({
+      ...PresentationBase,
+      mode: Schema.Literal('form'),
+      requestedSchema: sdkSchema(ElicitRequestFormParamsSchema.shape.requestedSchema),
+    }),
+    Schema.Struct({
+      ...PresentationBase,
+      mode: Schema.Literal('url'),
+      url: sdkSchema(ElicitRequestURLParamsSchema.shape.url),
+    }),
+  ],
+  { mode: 'oneOf' }
+);
 export function parseMcpElicitationPresentation(input: unknown): McpElicitationPresentationWire {
-  const result = McpElicitationPresentationSchema.safeParse(input);
-  if (!result.success) {
+  const result = Schema.decodeUnknownResult(McpElicitationPresentationSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(input);
+  if (!(result._tag === 'Success')) {
     throw new Error('MCP input presentation is unavailable or stale');
   }
-  const parsed = result.data;
+  const parsed = result.success;
   const { operation, serverIdentity, taskHandle, ...provenance } = parsed.provenance;
   return {
     ...parsed,

@@ -17,6 +17,7 @@ import { HOST_RESULT_SCHEMAS, type HostLogRow } from '@brainstrike/agent-host/pr
 import { removeFixtureRoot } from '@brainstrike/agent-host/test-fixtures/cooperative-host';
 import { ResourceOwner } from '@brainstrike/host-lease';
 import { STATE_DB } from '@brainstrike/state-store';
+import { Schema } from 'effect';
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { z } from 'zod';
 // @boundaries-ignore Test-only lab type: the verifier must stay outside the application dependency graph (docs/agents/mcp-conformance.md).
@@ -39,7 +40,9 @@ const bin = join(
 const lab: {
   startMcpLabScenario(
     id: 'legacy-reference' | 'modern-reference' | 'tasks-reference',
-    options: { readonly execution: 'loopback' }
+    options: {
+      readonly execution: 'loopback';
+    }
   ): Promise<McpLabSession>;
 } = await import(
   pathToFileURL(resolve(import.meta.dirname, '../../../../packages/mcp-test-lab/dist/index.js'))
@@ -49,7 +52,6 @@ const SERVER = 'reference';
 const TOOL = `${SERVER}_test_simple_text`;
 const MODEL = 'openai::gpt-6-sol';
 const FINAL = 'The reference server answered.';
-
 let resources = new ResourceOwner();
 beforeEach(() => {
   resources = new ResourceOwner();
@@ -57,7 +59,6 @@ beforeEach(() => {
 afterEach(async () => {
   await resources.close();
 });
-
 function cli(dataRoot: string, environment: Record<string, string>): StandaloneCli {
   return (args) =>
     new Promise((resolveRun, reject) => {
@@ -88,13 +89,14 @@ function cli(dataRoot: string, environment: Record<string, string>): StandaloneC
       );
     });
 }
-
 async function rows(run: StandaloneCli, threadId: string): Promise<HostLogRow[]> {
   const shown = await run(['threads', 'show', '--thread', threadId]);
   expect(shown).toMatchObject({ code: 0, stderr: '' });
-  return HOST_RESULT_SCHEMAS['thread/read'].parse(JSON.parse(shown.stdout)).rows;
+  return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/read'], {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(JSON.parse(shown.stdout)).rows;
 }
-
 async function labUrl(
   id: 'legacy-reference' | 'modern-reference' | 'tasks-reference'
 ): Promise<string> {
@@ -109,7 +111,6 @@ async function labUrl(
   }
   return session.endpoint.url.href;
 }
-
 /** A loopback port nothing listens on: every connection is refused. */
 async function refusedUrl(): Promise<string> {
   const probe = createServer();
@@ -121,7 +122,6 @@ async function refusedUrl(): Promise<string> {
   }
   return `http://127.0.0.1:${address.port}/mcp`;
 }
-
 /** A started standalone host over `servers`, whose model calls `tool` once. */
 async function startHost(servers: readonly Record<string, string>[], tool = TOOL) {
   const owner = resources;
@@ -169,7 +169,6 @@ async function startHost(servers: readonly Record<string, string>[], tool = TOOL
   });
   return { dataRoot, mcpConfig, run, shim };
 }
-
 /** One completed `run --json` over the reference tool; its committed run identity. */
 async function runReferenceTool(run: StandaloneCli) {
   const finished = await run([
@@ -186,7 +185,6 @@ async function runReferenceTool(run: StandaloneCli) {
     .parse(JSON.parse(finished.stdout.split('\n')[0] ?? ''));
   return { runId, threadId };
 }
-
 async function referenceToolEvents(run: StandaloneCli, threadId: string) {
   const events = (await rows(run, threadId)).map((row) => row.event);
   const started = events.find((event) => event.type === 'effect.started' && event.toolId === TOOL);
@@ -203,7 +201,6 @@ async function referenceToolEvents(run: StandaloneCli, threadId: string) {
   });
   return events;
 }
-
 test('a standalone host composes --mcp-config servers and runs their tools', async ({ signal }) => {
   const { mcpConfig, run, shim } = await startHost([
     { name: SERVER, url: await labUrl('modern-reference') },
@@ -225,7 +222,6 @@ test('a standalone host composes --mcp-config servers and runs their tools', asy
   }
   expect(attached.value.code).toBe(1);
   expect(attached.value.stderr).toContain('--mcp-config requires a new host');
-
   const { runId, threadId } = finished.value;
   // The committed-history read and this refused mutation are independent.
   signal.throwIfAborted();
@@ -265,12 +261,10 @@ test('a standalone host composes --mcp-config servers and runs their tools', asy
   });
   expect(events.some((event) => event.type === 'mcp.tools.unavailable')).toBe(false);
   expect(shim.refusals()).toEqual([]);
-
   // `mcp input settle` refuses content on anything but an accept before a mutation RPC.
   expect(refused.value.code).toBe(1);
   expect(refused.value.stderr).toContain('--content applies only to --action accept');
 });
-
 test('a run skips each unavailable MCP server visibly and keeps the reachable ones', async ({
   signal,
 }) => {
@@ -280,7 +274,6 @@ test('a run skips each unavailable MCP server visibly and keeps the reachable on
     // A legacy-era server configured as modern: its protocol does not match.
     { name: 'mismatched', url: await labUrl('legacy-reference') },
   ]);
-
   signal.throwIfAborted();
   const { runId, threadId } = await runReferenceTool(run);
   signal.throwIfAborted();
@@ -306,13 +299,11 @@ test('a run skips each unavailable MCP server visibly and keeps the reachable on
     expect(event).toMatchObject({ reason: expect.any(String), runId });
   }
   expect(shim.refusals()).toEqual([]);
-
   // The CLI names each skipped server when it shows the run.
   expect(shown.value.code, shown.value.stderr).toBe(0);
   expect(shown.value.stderr).toContain('MCP server down unavailable:');
   expect(shown.value.stderr).toContain('MCP server mismatched unavailable:');
 });
-
 // Eight CLI processes and one host: each process start costs seconds on a loaded machine.
 test('a standalone host runs an MCP Task to its input, and the CLI settles it', {
   timeout: 60_000,
@@ -322,7 +313,6 @@ test('a standalone host runs an MCP Task to its input, and the CLI settles it', 
     [{ name: tasksServer, url: await labUrl('tasks-reference') }],
     `${tasksServer}_start_task`
   );
-
   // A non-interactive run stops at the committed input and names how to answer it.
   const started = await run([
     'run',
@@ -348,10 +338,14 @@ test('a standalone host runs an MCP Task to its input, and the CLI settles it', 
   const interactionId = requested && 'interactionId' in requested ? requested.interactionId : '';
   const address = ['--thread', threadId, '--run', runId, '--interaction', interactionId];
   expect(started.stderr).toContain(`mcp input settle ${address.join(' ')}`);
-
   const read = await run(['mcp', 'input', 'read', ...address]);
   expect(read.code, read.stderr).toBe(0);
-  expect(HOST_RESULT_SCHEMAS['mcp/input/read'].parse(JSON.parse(read.stdout))).toMatchObject({
+  expect(
+    Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['mcp/input/read'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(JSON.parse(read.stdout))
+  ).toMatchObject({
     presentation: { message: 'Approve the reference task?', mode: 'form' },
     status: 'requested',
   });
@@ -366,7 +360,6 @@ test('a standalone host runs an MCP Task to its input, and the CLI settles it', 
     JSON.stringify({ approved: true }),
   ]);
   expect(settled.code, settled.stderr).toBe(0);
-
   const finished = await run([
     'attach',
     '--thread',
@@ -402,7 +395,6 @@ test('a standalone host runs an MCP Task to its input, and the CLI settles it', 
     outcome: 'completed',
   });
   expect(shim.refusals()).toEqual([]);
-
   // The task row lives in the host's StateStore, bound to the thread whose run created it.
   const db = new DatabaseSync(join(dataRoot, STATE_DB), { readOnly: true });
   try {

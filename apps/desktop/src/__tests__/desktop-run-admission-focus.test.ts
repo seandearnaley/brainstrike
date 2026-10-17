@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HostRunAdmissionRequest } from '@brainstrike/agent-host';
+import { Schema } from 'effect';
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import { createDesktopRunAdmission } from '../agent-host-platform/desktop-run-admission';
@@ -14,11 +15,9 @@ interface Root {
   readonly path: string;
   readonly rootId: string;
 }
-
 let directory = '';
 let alpha: Root;
 let bravo: Root;
-
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'bs-m6-admission-focus-'));
   alpha = { displayName: 'alpha', path: join(directory, 'alpha'), rootId: 'root-a' };
@@ -27,7 +26,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(directory, { force: true, recursive: true });
 });
-
 /** Main's reads for a thread bound to folder A, with `mounted` the workspace's live folders. */
 function admission(mounted: readonly Root[]) {
   return createDesktopRunAdmission(
@@ -42,7 +40,6 @@ function admission(mounted: readonly Root[]) {
     async () => undefined
   );
 }
-
 /** A send from a thread bound to folder A while the explorer focuses `focusedRootId`. */
 function send(focusedRootId: string): HostRunAdmissionRequest {
   return {
@@ -57,7 +54,6 @@ function send(focusedRootId: string): HostRunAdmissionRequest {
     workspaceBinding: { operatingRootDisplayName: 'alpha', operatingRootId: 'root-a' },
   };
 }
-
 test('a thread bound to folder A runs there while the explorer focuses folder B', async () => {
   const selected = await admission([alpha, bravo]).readConfiguration(send('root-b'));
   try {
@@ -73,7 +69,6 @@ test('a thread bound to folder A runs there while the explorer focuses folder B'
     await selected.close();
   }
 });
-
 test('a focus on one of the thread’s folders scopes the run’s selection', async () => {
   const selected = await admission([alpha, bravo]).readConfiguration(send('root-a'));
   try {
@@ -86,13 +81,11 @@ test('a focus on one of the thread’s folders scopes the run’s selection', as
     await selected.close();
   }
 });
-
 test('a focus on a folder the workspace no longer mounts refuses the run', async () => {
   await expect(admission([alpha]).readConfiguration(send('root-gone'))).rejects.toThrow(
     'The selected workspace root is no longer mounted'
   );
 });
-
 test('an unbound new chat with no mounted folders admits an empty workspace', async () => {
   const request = send('root-gone');
   const selected = await createDesktopRunAdmission(
@@ -113,14 +106,16 @@ test('an unbound new chat with no mounted folders admits an empty workspace', as
     await selected.close();
   }
 });
-
 test('an explicit selection from an unavailable folder is refused even for an unbound chat', async () => {
   const request = send('root-gone');
   await expect(
     createDesktopRunAdmission(mainReads(), async () => undefined).readConfiguration({
-      configuration: z
-        .record(z.string(), z.json())
-        .parse(PlatformClientConfigurationSchema.parse(request.configuration)),
+      configuration: z.record(z.string(), z.json()).parse(
+        Schema.decodeUnknownSync(PlatformClientConfigurationSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(request.configuration)
+      ),
       modelId: request.modelId,
       runId: request.runId,
       signal: request.signal,
@@ -128,7 +123,6 @@ test('an explicit selection from an unavailable folder is refused even for an un
     })
   ).rejects.toThrow();
 });
-
 test('a changed model selection returns a typed refusal with a remedy', async () => {
   const request = send('root-a');
   await expect(

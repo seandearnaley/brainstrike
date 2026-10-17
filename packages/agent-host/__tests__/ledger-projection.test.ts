@@ -4,6 +4,7 @@ import approvedRecording from '@brainstrike/test-utils/fixtures/committed-approv
 import richRecording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json' with {
   type: 'json',
 };
+import { Schema } from 'effect';
 import { describe, expect, test } from 'vitest';
 import {
   foldLatestRun,
@@ -18,7 +19,10 @@ import { type HostLogRow, HostLogRowSchema } from '../src/protocol.js';
 const MODEL = 'openrouter::anthropic/claude-sonnet-4.6';
 const BASE = Date.parse('2026-10-08T12:00:00Z');
 const rows: HostLogRow[] = richRecording.map((raw) => {
-  const row = HostLogRowSchema.parse(raw);
+  const row = Schema.decodeUnknownSync(HostLogRowSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(raw);
   const event = row.event.type === 'run.started' ? { ...row.event, modelId: MODEL } : row.event;
   return { ...row, event, ts: BASE + row.seq * 1000 };
 });
@@ -29,7 +33,6 @@ if (first?.event.type !== 'run.started') {
   throw new Error('The recording has no run');
 }
 const { runId } = first.event;
-
 function folded(log: readonly HostLogRow[]) {
   const fold = new ThreadLedgerFold();
   for (const row of log) {
@@ -37,7 +40,6 @@ function folded(log: readonly HostLogRow[]) {
   }
   return fold.read();
 }
-
 /** The recording, with `events` committed right after the first run starts. */
 const insertAfterStart = (...events: Record<string, unknown>[]): HostLogRow[] => {
   const at = rows.indexOf(first) + 1;
@@ -46,16 +48,21 @@ const insertAfterStart = (...events: Record<string, unknown>[]): HostLogRow[] =>
     ...events.map((event) => ({ event, seq: 0, threadId })),
     ...rows.slice(at),
   ].map((row, index) =>
-    HostLogRowSchema.parse({ ...row, seq: index + 1, ts: BASE + (index + 1) * 1000 })
+    Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+      ...row,
+      seq: index + 1,
+      ts: BASE + (index + 1) * 1000,
+    })
   );
 };
-
 /** The recording with its first run's start replaced by `event`'s fields. */
 const startedWith = (event: Record<string, unknown>): HostLogRow[] => {
-  const replaced = HostLogRowSchema.parse({ ...first, event: { ...first.event, ...event } });
+  const replaced = Schema.decodeUnknownSync(HostLogRowSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({ ...first, event: { ...first.event, ...event } });
   return rows.map((row) => (row === first ? replaced : row));
 };
-
 test('a committed log folds into ledger runs and per-call usage', () => {
   const { runs, usage } = folded(rows);
   expect(runs).toHaveLength(2);
@@ -97,7 +104,6 @@ test('a committed log folds into ledger runs and per-call usage', () => {
     provider: 'openrouter',
   });
 });
-
 test("a compaction summarizer's side call counts within its run and as a provider call", () => {
   // Core commits it before the run's first request, in memory.usage's shape:
   // the run's own model and the SDK totalUsage as reported.
@@ -128,7 +134,6 @@ test("a compaction summarizer's side call counts within its run and as a provide
     provider: 'openrouter',
   });
 });
-
 test('a run still open folds as running', () => {
   const second = started[1];
   if (!second) {
@@ -141,7 +146,6 @@ test('a run still open folds as running', () => {
     status: 'running',
   });
 });
-
 describe("a thread's per-model subtotals for the meter's thread total", () => {
   test('chat steps sum per model; the subtotals read stable until a costed call', () => {
     const fold = new ThreadLedgerFold();
@@ -175,7 +179,6 @@ describe("a thread's per-model subtotals for the meter's thread total", () => {
     expect(fold.perModel()).toBe(perModel);
     expect(fold.read().perModel).toBe(perModel);
   });
-
   test('a compaction side call is its own source under the run model', () => {
     const { perModel } = folded(
       insertAfterStart({
@@ -194,7 +197,6 @@ describe("a thread's per-model subtotals for the meter's thread total", () => {
       { inputTokens: 4, outputTokens: 100, runKind: 'chat' },
     ]);
   });
-
   test('observer usage under a catalog model is an observation source; any other id is not costed', () => {
     const observation = {
       kind: 'observation',
@@ -223,7 +225,6 @@ describe("a thread's per-model subtotals for the meter's thread total", () => {
     });
   });
 });
-
 describe("the Task Ledger's and cost views' share of a host run", () => {
   const hash = (digit: string): string => digit.repeat(64);
   const edit = (entryId: string, path: string) => ({
@@ -240,7 +241,6 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
     toolId: 'brainstrike.writeFile',
     type: 'workspace.edit.recorded',
   });
-
   test('its committed edits and reverts count in its ledger row, each revert once', () => {
     const revert = (commandId: string) => ({
       commandId,
@@ -264,7 +264,6 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
       revertedEditCount: 1,
     });
   });
-
   test("its provider calls count toward its bound root's cost; an unbound run's are unattributed", () => {
     const { rootUsage } = folded(
       startedWith({
@@ -304,14 +303,12 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
       },
     ]);
   });
-
   test('threads sum per (root, provider, model) in the cross-root order', () => {
     const { rootUsage } = folded(rows);
     expect(mergeRootUsage([rootUsage, rootUsage])).toMatchObject([
       { inputTokens: 8, outputTokens: 200, rootId: null },
     ]);
   });
-
   test("an unbound run's provider calls count toward the root focused at its Send", () => {
     // The desktop's durable run configuration commits the Send intent, focused root included.
     const { rootUsage } = folded(
@@ -331,12 +328,14 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
       ['root-b', null],
     ]);
   });
-
   test("an observer call costs under the catalog id it commits, not its run's resolved target", () => {
     const costedSources = (modelId: string) => {
       const at = rows.indexOf(first);
       // The run still records the observer target its admission resolved.
-      const observing = HostLogRowSchema.parse({
+      const observing = Schema.decodeUnknownSync(HostLogRowSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })({
         ...first,
         event: {
           ...first.event,
@@ -366,7 +365,11 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
           { event: observation, seq: 0, threadId },
           ...rows.slice(at + 1),
         ].map((row, index) =>
-          HostLogRowSchema.parse({ ...row, seq: index + 1, ts: BASE + (index + 1) * 1000 })
+          Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+            ...row,
+            seq: index + 1,
+            ts: BASE + (index + 1) * 1000,
+          })
         )
       ).perModel.map(({ model, provider, runKind }) => [provider, model, runKind]);
     };
@@ -386,9 +389,10 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
     ]);
   });
 });
-
 describe("a thread's latest root run", () => {
-  const approved = approvedRecording.map((row) => HostLogRowSchema.parse(row));
+  const approved = approvedRecording.map((row) =>
+    Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)
+  );
   const indexOf = (log: readonly HostLogRow[], type: string): number => {
     const index = log.findIndex((row) => row.event.type === type);
     if (index < 0) {
@@ -409,7 +413,6 @@ describe("a thread's latest root run", () => {
         : row
     );
   };
-
   test('runs until its own finish; a recording without commit times invents no finish time', () => {
     // The real recording, as a log whose rows carry no commit times.
     const untimed = approved.map(({ ts: _ts, ...row }) => row);
@@ -427,7 +430,6 @@ describe("a thread's latest root run", () => {
       status: 'completed',
     });
   });
-
   test('the latest of several runs decides; its finish time is the committed row time', () => {
     const second = rows.findLastIndex((row) => row.event.type === 'run.started');
     expect(latest(rows.slice(0, second + 1))?.status).toBe('running');
@@ -437,12 +439,10 @@ describe("a thread's latest root run", () => {
       status: 'failed',
     });
   });
-
   test('outcomes read as the legacy run statuses: Stop is cancelled, an interruption failed', () => {
     expect(latest(finishedAs('stopped'))?.status).toBe('cancelled');
     expect(latest(finishedAs('interrupted'))?.status).toBe('failed');
   });
-
   test('a run waiting on its user needs input until the committed response', () => {
     expect(latest(approved.slice(0, indexOf(approved, 'interaction.requested') + 1))).toMatchObject(
       { needsInput: true, status: 'running' }
@@ -452,7 +452,6 @@ describe("a thread's latest root run", () => {
     ).toBe(false);
   });
 });
-
 describe("Core's projection of every thread", () => {
   test('lists each thread it folded until the thread is forgotten', () => {
     const projection = new HostLedgerProjection();
@@ -465,7 +464,6 @@ describe("Core's projection of every thread", () => {
     expect(projection.read()).toEqual({ threads: [] });
     expect(projection.readLatestRun(threadId)).toBeUndefined();
   });
-
   test('a row its ledger cannot fold fails every ledger read, naming the thread and row', () => {
     const projection = new HostLedgerProjection();
     const step = rows.find((row) => row.event.type === 'model.step');

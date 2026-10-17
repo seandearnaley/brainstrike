@@ -1,81 +1,101 @@
 import type { SourceCatalogPort, SourceCatalogReply } from '@brainstrike/state-store';
+import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import { sendCatalogRequest } from './request.js';
 
-const Id = z.string().min(1);
-const Hash = z.string().regex(/^[a-f0-9]{64}$/);
-const Stat = z.strictObject({
-  mtimeMs: z.number().nonnegative().nullable(),
-  size: z.number().int().nonnegative(),
+const Id = Schema.String.check(Schema.isMinCodePoints(1));
+const Hash = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
+const Stat = Schema.Struct({
+  mtimeMs: Schema.NullOr(Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))),
+  size: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 });
-const Source = z.strictObject({
-  content: z.string(),
+const Source = Schema.Struct({
+  content: Schema.String,
   contentHash: Hash,
   fileName: Id,
   path: Id,
   stat: Stat,
 });
-const Record = z.strictObject({
-  chunksCount: z.number().int().nonnegative().nullable(),
-  chunksProcessed: z.boolean(),
-  content: z.string().nullable(),
+const Record = Schema.Struct({
+  chunksCount: Schema.NullOr(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  chunksProcessed: Schema.Boolean,
+  content: Schema.NullOr(Schema.String),
   contentHash: Hash,
-  createdAt: z.string().datetime(),
-  embeddingSetId: Id.nullable(),
+  createdAt: Schema.String.check(Schema.isPattern(z.regexes.datetime({}))),
+  embeddingSetId: Schema.NullOr(Id),
   fileId: Id,
   fileName: Id,
   path: Id,
-  rootId: Id.nullable(),
+  rootId: Schema.NullOr(Id),
   stat: Stat,
-  updatedAt: z.string().datetime(),
+  updatedAt: Schema.String.check(Schema.isPattern(z.regexes.datetime({}))),
 });
-const Request = z.discriminatedUnion('operation', [
-  z.strictObject({ operation: z.literal('list') }),
-  z.strictObject({ embeddingSetId: Id.nullable(), operation: z.literal('inventory') }),
-  z.strictObject({
-    fileIds: z.array(Id).max(250),
-    maxContentBytes: z.number().int().nonnegative().optional(),
-    operation: z.literal('read'),
-  }),
-  z.strictObject({
-    embeddingSetId: Id.nullable(),
-    files: z.array(Source).max(250),
-    operation: z.literal('import'),
-  }),
-  z.strictObject({
-    embeddingSetId: Id.nullable(),
-    files: z.array(Source).max(250),
-    operation: z.literal('prepare'),
-    rootId: Id,
-  }),
-  z.strictObject({
-    files: z.array(z.strictObject({ expected: Record, source: Source })).max(250),
-    operation: z.literal('replace'),
-  }),
-  z.strictObject({
-    files: z
-      .array(z.strictObject({ chunkCount: z.number().int().nonnegative(), expected: Record }))
-      .max(250),
-    operation: z.literal('complete'),
-  }),
-  z.strictObject({ files: z.array(Record).max(250), operation: z.literal('remove') }),
-]);
-const Reply = z.strictObject({ files: z.array(Record), imported: z.array(z.boolean()).optional() });
+const Request = Schema.Union(
+  [
+    Schema.Struct({ operation: Schema.Literal('list') }),
+    Schema.Struct({ embeddingSetId: Schema.NullOr(Id), operation: Schema.Literal('inventory') }),
+    Schema.Struct({
+      fileIds: Schema.mutable(Schema.Array(Id)).check(Schema.isMaxLength(250)),
+      maxContentBytes: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+      operation: Schema.Literal('read'),
+    }),
+    Schema.Struct({
+      embeddingSetId: Schema.NullOr(Id),
+      files: Schema.mutable(Schema.Array(Source)).check(Schema.isMaxLength(250)),
+      operation: Schema.Literal('import'),
+    }),
+    Schema.Struct({
+      embeddingSetId: Schema.NullOr(Id),
+      files: Schema.mutable(Schema.Array(Source)).check(Schema.isMaxLength(250)),
+      operation: Schema.Literal('prepare'),
+      rootId: Id,
+    }),
+    Schema.Struct({
+      files: Schema.mutable(
+        Schema.Array(Schema.Struct({ expected: Record, source: Source }))
+      ).check(Schema.isMaxLength(250)),
+      operation: Schema.Literal('replace'),
+    }),
+    Schema.Struct({
+      files: Schema.mutable(
+        Schema.Array(
+          Schema.Struct({
+            chunkCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+            expected: Record,
+          })
+        )
+      ).check(Schema.isMaxLength(250)),
+      operation: Schema.Literal('complete'),
+    }),
+    Schema.Struct({
+      files: Schema.mutable(Schema.Array(Record)).check(Schema.isMaxLength(250)),
+      operation: Schema.Literal('remove'),
+    }),
+  ],
+  { mode: 'oneOf' }
+);
+const Reply = Schema.Struct({
+  files: Schema.mutable(Schema.Array(Record)),
+  imported: Schema.optional(Schema.mutable(Schema.Array(Schema.Boolean))),
+});
 const METHOD = 'host/source-catalog';
-
 /** Authenticated clients borrow the existing source catalog writer. */
 export function serveSourceCatalogStore(
   connection: Pick<MessageConnection, 'onRequest'>,
   store: SourceCatalogPort
-): { close(): Promise<void> } {
+): {
+  close(): Promise<void>;
+} {
   let closing: Promise<void> | undefined;
   const pending = new Set<Promise<SourceCatalogReply>>();
   const subscription = connection.onRequest(METHOD, async (input: unknown) => {
     if (closing) {
       throw new Error('Source catalog endpoint is closing');
     }
-    const request = Request.parse(input);
+    const request = Schema.decodeUnknownSync(Request, { errors: 'all', onExcessProperty: 'error' })(
+      input
+    );
     const normalized =
       request.operation === 'read'
         ? {
@@ -106,12 +126,15 @@ export function serveSourceCatalogStore(
     },
   };
 }
-
 export function createSourceCatalogClient(connection: MessageConnection): SourceCatalogPort {
   return {
     sourceCatalog: async (request) => {
-      const reply = Reply.parse(
-        await sendCatalogRequest(connection, METHOD, Request.parse(request))
+      const reply = Schema.decodeUnknownSync(Reply, { errors: 'all', onExcessProperty: 'error' })(
+        await sendCatalogRequest(
+          connection,
+          METHOD,
+          Schema.decodeUnknownSync(Request, { errors: 'all', onExcessProperty: 'error' })(request)
+        )
       );
       return {
         files: reply.files,

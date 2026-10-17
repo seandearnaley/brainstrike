@@ -26,16 +26,15 @@ import {
   LiveShellOutputs,
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
+import { Schema } from 'effect';
 import { z } from 'zod';
 
 const logger = createLogger('CommittedHostConversation');
-
 /** A committed run.started the host admitted to deliver child results (a wake). */
 const HostWakeStartSchema = z.object({
   delivery: z.object({ via: z.literal('wake') }),
   type: z.literal('run.started'),
 });
-
 /** A composer image as the host's user-message attachment; anything else is refused. */
 function hostImageAttachment(
   attachment: NonNullable<AppendMessage['attachments']>[number]
@@ -44,14 +43,16 @@ function hostImageAttachment(
   if (attachment.type !== 'image' || !image) {
     throw new Error('The agent host accepts image attachments only');
   }
-  return HostImageAttachmentSchema.parse({
+  return Schema.decodeUnknownSync(HostImageAttachmentSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({
     data: image.image,
     mediaType: attachment.contentType?.toLowerCase(),
     name: attachment.name,
     type: 'image',
   });
 }
-
 /** The view's message identities for a committed run, from its host's own identities. */
 export function committedConversationIdentity(
   rows: readonly HostLogRow[],
@@ -74,7 +75,6 @@ export function committedConversationIdentity(
   }
   return identity;
 }
-
 /** A host refusal's JSON-RPC code; undefined for a failure that never reached the host. */
 export function hostErrorCode(cause: unknown): number | undefined {
   const response = cause instanceof BoundaryFailureError ? cause.cause : cause;
@@ -84,7 +84,6 @@ export function hostErrorCode(cause: unknown): number | undefined {
       : undefined;
   return typeof code === 'number' ? code : undefined;
 }
-
 /**
  * BST-1990 (D4): the host refused the run before admitting it (its JSON-RPC
  * code says so), so nothing was committed and the user's message may be sent
@@ -93,7 +92,6 @@ export function hostErrorCode(cause: unknown): number | undefined {
 function isRunNotAdmitted(cause: unknown): cause is Error {
   return cause instanceof Error && hostErrorCode(cause) === HOST_RUN_NOT_ADMITTED_CODE;
 }
-
 export interface CommittedHostThreadOptions {
   /**
    * Before a send's `run/start` (desktop binds the thread to its folder, as
@@ -115,7 +113,6 @@ export interface CommittedHostThreadOptions {
   readonly settleLost?: (commandId: string) => Promise<void>;
   readonly threadId: string;
 }
-
 export interface CommittedHostThread {
   /** Release this view's subscription; the client belongs to its caller. */
   close(): void;
@@ -135,7 +132,6 @@ export interface CommittedHostThread {
   readonly source: CommittedThreadSession;
   readonly store: CommittedAssistantLogStore;
 }
-
 /** Construct alongside the attached client, outside React render. */
 export function createCommittedHostThread(
   options: CommittedHostThreadOptions

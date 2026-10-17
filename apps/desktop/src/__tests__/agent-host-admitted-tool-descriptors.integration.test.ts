@@ -7,6 +7,7 @@ import {
   DEFAULT_PERMISSION_POLICIES,
   DESKTOP_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
+import { Schema } from 'effect';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 
@@ -37,8 +38,11 @@ vi.mock('../db-main', () => ({
 }));
 vi.mock('../provider-api-key', () => ({ readProviderCredential: owner.credential }));
 vi.mock('../ipc-mcp', () => ({
-  readDesktopMcpHostSnapshot: async (runtime: { host: { snapshot(): unknown } }) =>
-    structuredClone(runtime.host.snapshot()),
+  readDesktopMcpHostSnapshot: async (runtime: {
+    host: {
+      snapshot(): unknown;
+    };
+  }) => structuredClone(runtime.host.snapshot()),
 }));
 // Tool executor code: the shared native-tools barrel (its executor map) and
 // every desktop executor factory the agent host composes.
@@ -107,7 +111,6 @@ function desktopAdmission(
 ) {
   return createDesktopAdmission({ ...catalog.services, ...dependencies }, ...rest);
 }
-
 beforeEach(async () => {
   catalog.modelRead.mockImplementation(async () => admissionModelSnapshot());
   directory = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'bs-m3-tool-descriptors-')));
@@ -126,15 +129,22 @@ afterEach(async () => {
   await fs.rm(directory, { force: true, recursive: true });
   expect(owner.credential).not.toHaveBeenCalled();
 });
-
 const HOSTED = { model: 'gpt-6-sol', provider: 'openai' } as const;
-
 /** Every catalog tool enabled, so each admission shows exactly what its own rules keep. */
 function request(
-  model: { readonly model: string; readonly provider: string },
-  options: { readonly planMode?: boolean; readonly skills?: boolean } = {}
+  model: {
+    readonly model: string;
+    readonly provider: string;
+  },
+  options: {
+    readonly planMode?: boolean;
+    readonly skills?: boolean;
+  } = {}
 ): HostRunAdmissionRequest {
-  const configuration = PlatformClientConfigurationSchema.parse({
+  const configuration = Schema.decodeUnknownSync(PlatformClientConfigurationSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({
     agentLoop: { inputTokenLimit: 7000, maxSteps: 3 },
     enabledNativeToolIds: [...DESKTOP_NATIVE_TOOL_IDS],
     memoryOptions: {
@@ -172,17 +182,14 @@ function request(
     threadId: 'host-thread',
   };
 }
-
 const worktreeService = {
   list: async () => ({ ok: true as const, value: [] }),
 };
-
 const ADMISSIONS = {
   hosted: { request: request(HOSTED, { skills: true }), worktrees: true },
   'no-worktree-service': { request: request(HOSTED), worktrees: false },
   'plan-mode': { request: request(HOSTED, { planMode: true, skills: true }), worktrees: true },
 } as const;
-
 test('Main describes each admission’s tools exactly as recorded from real admissions', async () => {
   const observed: Record<string, unknown> = {};
   for (const [name, admission] of Object.entries(ADMISSIONS)) {
@@ -198,7 +205,6 @@ test('Main describes each admission’s tools exactly as recorded from real admi
   }
   expect(observed).toEqual(recorded);
 });
-
 test('Main’s admission loads no tool executor code: it describes, the host executes', async () => {
   const captured = await desktopAdmission({
     resolveForgeService: () => null,

@@ -9,6 +9,7 @@ import {
 } from '@brainstrike/assistant-contract/boundary-failure';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { _electron } from '@playwright/test';
+import { Schema } from 'effect';
 import { build } from 'esbuild';
 import { expect, it } from 'vitest';
 import type { ElectronAppContext } from '../../e2e/utils/electron-helpers.mts';
@@ -117,7 +118,9 @@ it('carries real fenced invalidation data through sandboxed production preload a
     });
     const publicBatch = await page.evaluate(async () => {
       const api = window as unknown as {
-        __brainstrikeTestHooks__: { indexSearch: IndexSearchCapability };
+        __brainstrikeTestHooks__: {
+          indexSearch: IndexSearchCapability;
+        };
       };
       return await api.__brainstrikeTestHooks__.indexSearch.coverageBatch([{ rootIds: ['root'] }]);
     });
@@ -128,7 +131,9 @@ it('carries real fenced invalidation data through sandboxed production preload a
     expect(records).toHaveLength(1);
     const coverageRefusal = await page.evaluate(async () => {
       const api = window as unknown as {
-        __brainstrikeTestHooks__: { indexSearch: IndexSearchCapability };
+        __brainstrikeTestHooks__: {
+          indexSearch: IndexSearchCapability;
+        };
       };
       try {
         await api.__brainstrikeTestHooks__.indexSearch.coverage({ rootIds: ['root'] });
@@ -140,7 +145,11 @@ it('carries real fenced invalidation data through sandboxed production preload a
         throw error;
       }
     });
-    expect(BoundaryFailureSchema.parse(coverageRefusal)).toMatchObject({
+    expect(
+      Schema.decodeUnknownSync(BoundaryFailureSchema, { errors: 'all', onExcessProperty: 'error' })(
+        coverageRefusal
+      )
+    ).toMatchObject({
       category: 'availability',
       code: 'native-index-transitioning',
       kind: 'refusal',
@@ -149,7 +158,9 @@ it('carries real fenced invalidation data through sandboxed production preload a
       // Electron 44.4.5 exposes this getter at runtime (proved by the native control),
       // while its public declarations omit it. This assertion is fixture-only.
       const contents = Window.getAllWindows()[0]?.webContents as unknown as
-        | { getLastWebPreferences(): Electron.WebPreferences }
+        | {
+            getLastWebPreferences(): Electron.WebPreferences;
+          }
         | undefined;
       return contents?.getLastWebPreferences();
     });

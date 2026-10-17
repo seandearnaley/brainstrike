@@ -8,7 +8,8 @@ import {
   parseMcpElicitationPresentation,
   parseMcpElicitationSettlement,
 } from '@brainstrike/assistant-contract';
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { opaqueWireSchema } from './opaque-wire-schema.js';
 
 /**
  * The desktop's MCP presentations (BST-1930 c5c): durable Tasks status cards
@@ -17,31 +18,31 @@ import { z } from 'zod';
  * desktop's windows read and answer them through these methods and hear each
  * change through `mcp/presentation/event`.
  */
-const McpElicitationPresentationWireSchema: z.ZodType<McpElicitationPresentationWire> = z
-  .unknown()
-  .transform((value): McpElicitationPresentationWire => parseMcpElicitationPresentation(value));
-const McpElicitationSettlementWireSchema: z.ZodType<McpElicitationSettlement> = z
-  .unknown()
-  .transform((value): McpElicitationSettlement => parseMcpElicitationSettlement(value));
-
+const McpElicitationPresentationWireSchema: Schema.ConstraintDecoder<McpElicitationPresentationWire> =
+  opaqueWireSchema(
+    (value): McpElicitationPresentationWire => parseMcpElicitationPresentation(value)
+  );
+const McpElicitationSettlementWireSchema: Schema.ConstraintDecoder<McpElicitationSettlement> =
+  opaqueWireSchema((value): McpElicitationSettlement => parseMcpElicitationSettlement(value));
 /** Host -> subscribed client: a task's presentation changed, or server input arrived or ended. */
 export const MCP_PRESENTATION_EVENT = 'mcp/presentation/event';
-export const McpPresentationEventSchema = z.discriminatedUnion('type', [
-  z.strictObject({ task: McpTaskPresentationSchema, type: z.literal('task') }),
-  z.strictObject({
-    presentation: McpElicitationPresentationWireSchema,
-    type: z.literal('elicitation.requested'),
-  }),
-  z.strictObject({
-    code: z.string().min(1),
-    id: z.string().min(1),
-    type: z.literal('elicitation.retired'),
-  }),
-]);
-export type McpPresentationEvent = z.infer<typeof McpPresentationEventSchema>;
-
-const None = z.strictObject({});
-
+export const McpPresentationEventSchema = Schema.Union(
+  [
+    Schema.Struct({ task: McpTaskPresentationSchema, type: Schema.Literal('task') }),
+    Schema.Struct({
+      presentation: McpElicitationPresentationWireSchema,
+      type: Schema.Literal('elicitation.requested'),
+    }),
+    Schema.Struct({
+      code: Schema.String.check(Schema.isMinCodePoints(1)),
+      id: Schema.String.check(Schema.isMinCodePoints(1)),
+      type: Schema.Literal('elicitation.retired'),
+    }),
+  ],
+  { mode: 'oneOf' }
+);
+export type McpPresentationEvent = (typeof McpPresentationEventSchema)['Type'];
+const None = Schema.Record(Schema.String, Schema.Never);
 export const MCP_PRESENTATION_METHOD_SCHEMAS = {
   /** Answer one presented server input: accept (with content), decline or cancel. */
   'mcp/elicitation/settle': McpElicitationSettlementWireSchema,
@@ -50,9 +51,8 @@ export const MCP_PRESENTATION_METHOD_SCHEMAS = {
   'mcp/tasks/act': McpTaskActionRequestSchema,
   'mcp/tasks/list': None,
 } as const;
-
 export const MCP_PRESENTATION_RESULT_SCHEMAS = {
-  'mcp/elicitation/settle': z.strictObject({ settled: z.literal(true) }),
+  'mcp/elicitation/settle': Schema.Struct({ settled: Schema.Literal(true) }),
   'mcp/presentation/subscribe': McpTaskListResultSchema,
   'mcp/tasks/act': McpTaskActionResultSchema,
   'mcp/tasks/list': McpTaskListResultSchema,

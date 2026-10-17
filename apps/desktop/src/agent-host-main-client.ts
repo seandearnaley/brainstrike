@@ -7,14 +7,13 @@ import {
   type HostResults,
 } from '@brainstrike/agent-host/protocol';
 import type { HostAttachment } from '@brainstrike/host-lease';
+import { Schema } from 'effect';
 import type { MessagePortMain } from 'electron';
 import { mainPlatformConnection } from './agent-host-platform/connection';
-
 export interface AgentHostMainClient {
   close(): Promise<void>;
   request<M extends HostMethod>(method: M, params: HostParams<M>): Promise<HostResults[M]>;
 }
-
 /**
  * Main's own client of the host this app launched, on a private port: the
  * desktop origin. Settings credential writes, provider sign-in and subscription
@@ -40,7 +39,12 @@ export function createAgentHostMainClient(
     const closed = new Promise<void>((resolve) => port.once('close', () => resolve()));
     const connection = mainPlatformConnection(port);
     connection.onRequest(CLIENT_OPEN_EXTERNAL, async (input: unknown) => {
-      await openExternal(ClientOpenExternalParamsSchema.parse(input).url);
+      await openExternal(
+        Schema.decodeUnknownSync(ClientOpenExternalParamsSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input).url
+      );
       return { opened: true };
     });
     // A closed port rejects pending requests instead of leaving them unanswered.

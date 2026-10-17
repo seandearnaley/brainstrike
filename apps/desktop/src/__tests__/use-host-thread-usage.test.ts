@@ -4,6 +4,7 @@ import { type HostLogRow, HostLogRowSchema } from '@brainstrike/agent-host/proto
 import { EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY } from '@brainstrike/assistant-data';
 import richRecording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json';
 import { act, renderHook } from '@testing-library/react';
+import { Schema } from 'effect';
 import { expect, test } from 'vitest';
 import { HostThreadLedger } from '../renderer/host-thread-ledger';
 import { useHostThreadUsage } from '../renderer/use-host-thread-usage';
@@ -13,7 +14,10 @@ import { useHostThreadUsage } from '../renderer/use-host-thread-usage';
 const BASE = Date.parse('2026-10-08T12:00:00Z');
 function recordedRows(modelId: string) {
   return richRecording.map((raw) => {
-    const row = HostLogRowSchema.parse(raw);
+    const row = Schema.decodeUnknownSync(HostLogRowSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(raw);
     const event = row.event.type === 'run.started' ? { ...row.event, modelId } : row.event;
     return { ...row, event, ts: BASE + row.seq * 1000 };
   });
@@ -21,7 +25,6 @@ function recordedRows(modelId: string) {
 const rows = recordedRows('openrouter::anthropic/claude-sonnet-4.6');
 const threadId = rows[0]?.threadId ?? '';
 const firstStart = rows.findIndex((row) => row.event.type === 'run.started');
-
 /** Core's `ledger/read` of this one thread, committed through `log`. */
 function seed(ledger: HostThreadLedger, log: readonly HostLogRow[]): void {
   const fold = new ThreadLedgerFold();
@@ -30,7 +33,6 @@ function seed(ledger: HostThreadLedger, log: readonly HostLogRow[]): void {
   }
   ledger.seed([{ threadId, ...fold.read() }]);
 }
-
 test("the meter's thread total follows the committed log, priced at the catalog rate", () => {
   const ledger = new HostThreadLedger();
   const { result } = renderHook(() => useHostThreadUsage(ledger, threadId));
@@ -51,7 +53,6 @@ test("the meter's thread total follows the committed log, priced at the catalog 
     totalTokens: 104,
   });
 });
-
 test('a model without a catalog rate shows its tokens and no cost', () => {
   const ledger = new HostThreadLedger();
   const unpriced = recordedRows('openrouter::example/unlisted-model');
@@ -62,12 +63,11 @@ test('a model without a catalog rate shows its tokens and no cost', () => {
     totalTokens: 104,
   });
 });
-
 test('Luna cache writes preserve the rendered meter and price recorded usage', () => {
   const ledger = new HostThreadLedger();
   const cached = recordedRows('openai::gpt-6-luna').map((row) =>
     row.event.type === 'model.step'
-      ? HostLogRowSchema.parse({
+      ? Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
           ...row,
           event: {
             ...row.event,

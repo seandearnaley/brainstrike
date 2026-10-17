@@ -4,6 +4,7 @@ import {
   describeReferencedFileFailure,
   ReferencedFileFailureSchema,
 } from '@brainstrike/assistant-contract';
+import { Schema } from 'effect';
 import { readHookSkips } from './committed-host-event-readers';
 
 interface FileNotice {
@@ -15,18 +16,18 @@ export function committedFileNotices(
   event: Readonly<Record<string, unknown>>
 ): FileNotice[] | undefined {
   if (event['type'] === 'references.unavailable') {
-    return ReferencedFileFailureSchema.array()
-      .min(1)
-      .parse(event['files'])
-      .map((file, index) => ({
-        event: {
-          ...describeReferencedFileFailure(file),
-          kind: 'reference.unavailable',
-          metadata: { code: file.failure.code, path: file.path, rootId: file.rootId },
-          status: 'failed',
-        },
-        key: `reference:${index}`,
-      }));
+    return Schema.decodeUnknownSync(
+      Schema.mutable(Schema.Array(ReferencedFileFailureSchema)).check(Schema.isMinLength(1)),
+      { errors: 'all', onExcessProperty: 'error' }
+    )(event['files']).map((file, index) => ({
+      event: {
+        ...describeReferencedFileFailure(file),
+        kind: 'reference.unavailable',
+        metadata: { code: file.failure.code, path: file.path, rootId: file.rootId },
+        status: 'failed',
+      },
+      key: `reference:${index}`,
+    }));
   }
   if (event['type'] !== 'hooks.skipped') {
     return;

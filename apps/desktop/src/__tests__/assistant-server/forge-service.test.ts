@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { ForgeCachePort } from '@brainstrike/state-store';
 import type { ForgePullRequest } from '@brainstrike/types';
+import { Schema } from 'effect';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ForgeCacheReplySchema } from '../../agent-host-platform/worktree-forge-store';
 import type { ForgeCommandRun, ForgeCommandRunner } from '../../assistant-server/forge-gh-client';
@@ -15,7 +16,6 @@ import { desktopAssistantServerLogger } from '../../assistant-server/logger';
 
 const ROOT_ID = 'root-1';
 const COMMON_DIR = '/repos/widgets/.git';
-
 const prJson = (overrides: Record<string, unknown> = {}): string =>
   JSON.stringify([
     {
@@ -32,7 +32,6 @@ const prJson = (overrides: Record<string, unknown> = {}): string =>
       ...overrides,
     },
   ]);
-
 function resolver(
   overrides: Partial<{
     branch: string | null;
@@ -56,9 +55,10 @@ function resolver(
     },
   });
 }
-
 /** In-memory stand-in for `brainstrike_forge_prs`, keyed like the real PK. */
-function fakeDatabase(): ForgeCachePort & { readonly rows: Map<string, unknown> } {
+function fakeDatabase(): ForgeCachePort & {
+  readonly rows: Map<string, unknown>;
+} {
   const rows = new Map<string, unknown>();
   return {
     forgeCache: async (request) => {
@@ -66,40 +66,46 @@ function fakeDatabase(): ForgeCachePort & { readonly rows: Map<string, unknown> 
       if (request.operation === 'write') {
         rows.set(key, { observedAt: request.observedAt, pullRequest: request.pullRequest });
       }
-      return ForgeCacheReplySchema.parse({ entry: rows.get(key) ?? null });
+      return Schema.decodeUnknownSync(ForgeCacheReplySchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })({ entry: rows.get(key) ?? null });
     },
     forgeCacheSnapshot: async () => [],
     rows,
   };
 }
-
 function ghRunner(byCommand: Readonly<Record<string, ForgeCommandRun>>): ForgeCommandRunner {
   return vi.fn(async ({ args }) => {
     const key = args[0] === 'pr' ? 'pr' : (args[0] ?? '');
     return byCommand[key] ?? { exitCode: 1, stderr: `unstubbed gh ${args.join(' ')}`, stdout: '' };
   });
 }
-
 /** Count of invocations of a mocked `ForgeCommandRunner` whose first arg matches. */
 function countArgCalls(run: ForgeCommandRunner, firstArg: string): number {
   return (
-    run as unknown as { mock: { calls: readonly [{ args: readonly string[] }][] } }
+    run as unknown as {
+      mock: {
+        calls: readonly [
+          {
+            args: readonly string[];
+          },
+        ][];
+      };
+    }
   ).mock.calls.filter(([params]) => params.args[0] === firstArg).length;
 }
-
 const HEALTHY_GH: Readonly<Record<string, ForgeCommandRun>> = {
   '--version': { exitCode: 0, stderr: '', stdout: 'gh version 2.60.0' },
   auth: { exitCode: 0, stderr: '', stdout: '' },
   pr: { exitCode: 0, stderr: '', stdout: prJson() },
 };
-
 describe('createForgeService', () => {
   let clock = 1_000_000;
   beforeEach(() => {
     clock = 1_000_000;
   });
   const now = () => clock;
-
   it('never free-runs: the module contains only the sanctioned shutdown timer', () => {
     const source = readFileSync(
       path.join(import.meta.dirname, '../../assistant-server/forge-service.ts'),
@@ -109,7 +115,6 @@ describe('createForgeService', () => {
     expect(source.match(/setTimeout\(/gu)).toHaveLength(1);
     expect(source).toContain('AbortSignal.any([params.signal, abortController.signal])');
   });
-
   it('fetches, caches and reports a pull request', async () => {
     const database = fakeDatabase();
     const service = createForgeService({
@@ -127,7 +132,6 @@ describe('createForgeService', () => {
     ).toBe(42);
     expect(database.rows.size).toBe(1);
   });
-
   it('sources the `gh pr list --repo` pin from the resolved target.identity, not a hardcoded default', async () => {
     // Distinct from forge-gh-client.test.ts's `--repo` assertion, which only
     // proves fetchForgePullRequest FORMATS a given owner/repo/host into the
@@ -146,7 +150,15 @@ describe('createForgeService', () => {
     });
     await service.refresh(ROOT_ID, 'user');
     const prCall = (
-      run as unknown as { mock: { calls: readonly [{ args: readonly string[] }][] } }
+      run as unknown as {
+        mock: {
+          calls: readonly [
+            {
+              args: readonly string[];
+            },
+          ][];
+        };
+      }
     ).mock.calls.find(([params]) => params.args[0] === 'pr');
     expect(prCall).toBeDefined();
     const args = prCall?.[0].args ?? [];
@@ -154,7 +166,6 @@ describe('createForgeService', () => {
     expect(repoFlagIndex).toBeGreaterThanOrEqual(0);
     expect(args[repoFlagIndex + 1]).toBe('github.com/acme/widgets');
   });
-
   it('reports the first observation as an "opened" transition', async () => {
     const onPrUpdated = vi.fn();
     const service = createForgeService({
@@ -173,7 +184,6 @@ describe('createForgeService', () => {
       })
     );
   });
-
   it('reports a checks transition when the rollup changes on the same head', async () => {
     const database = fakeDatabase();
     const onPrUpdated = vi.fn();
@@ -205,7 +215,6 @@ describe('createForgeService', () => {
       expect.objectContaining({ transitions: ['checks'] })
     );
   });
-
   it('reports a merged transition and keeps the row', async () => {
     const database = fakeDatabase();
     const onPrUpdated = vi.fn();
@@ -233,7 +242,6 @@ describe('createForgeService', () => {
     );
     expect(database.rows.size).toBe(1);
   });
-
   it('durably records an observed absence instead of deleting the row (R1/R7)', async () => {
     const database = fakeDatabase();
     const queue = [
@@ -258,11 +266,11 @@ describe('createForgeService', () => {
     // The row survives — as a durable "none" observation, not a deletion.
     expect(database.rows.size).toBe(1);
     expect(
-      ForgeCacheReplySchema.parse({ entry: database.rows.get(`${COMMON_DIR}\0feature/bar`) }).entry
-        ?.pullRequest
+      Schema.decodeUnknownSync(ForgeCacheReplySchema, { errors: 'all', onExcessProperty: 'error' })(
+        { entry: database.rows.get(`${COMMON_DIR}\0feature/bar`) }
+      ).entry?.pullRequest
     ).toBeNull();
   });
-
   it('reports the SAME durable "none" observedAt on an immediate prStatus read (R1)', async () => {
     const database = fakeDatabase();
     const run: ForgeCommandRunner = vi.fn(async ({ args }) =>
@@ -282,12 +290,10 @@ describe('createForgeService', () => {
     const observedAt =
       refreshed.ok && refreshed.value.kind === 'none' ? refreshed.value.observedAt : null;
     expect(observedAt).not.toBeNull();
-
     const status = await service.prStatus(ROOT_ID);
     expect(status.ok && status.value.kind).toBe('none');
     expect(status.ok && status.value.kind === 'none' && status.value.observedAt).toBe(observedAt);
   });
-
   it('still reports "none" for a brand-new service reading the same durable row after a restart (R1)', async () => {
     const database = fakeDatabase();
     const run: ForgeCommandRunner = vi.fn(async ({ args }) =>
@@ -303,7 +309,6 @@ describe('createForgeService', () => {
       run,
     });
     await first.refresh(ROOT_ID, 'user');
-
     const restarted = createForgeService({
       getForgeCache: async () => database,
       now,
@@ -317,7 +322,6 @@ describe('createForgeService', () => {
     const status = await restarted.prStatus(ROOT_ID);
     expect(status.ok && status.value.kind).toBe('none');
   });
-
   it('returns the last-known PR as STALE with the failure when gh fails', async () => {
     const database = fakeDatabase();
     const queue = [
@@ -344,7 +348,6 @@ describe('createForgeService', () => {
     );
     expect(stale.ok && stale.value.kind === 'stale' && stale.value.pullRequest?.number).toBe(42);
   });
-
   it('returns the durable cache as STALE (not bare unavailable) when a REFRESH auth preflight fails (R6)', async () => {
     const database = fakeDatabase();
     database.rows.set(`${COMMON_DIR}\0feature/bar`, {
@@ -380,7 +383,6 @@ describe('createForgeService', () => {
     );
     expect(status.ok && status.value.kind === 'stale' && status.value.pullRequest?.number).toBe(42);
   });
-
   it('throttles a window refresh but never an invalidation or a user refresh', async () => {
     const run = ghRunner(HEALTHY_GH);
     const service = createForgeService({
@@ -391,21 +393,52 @@ describe('createForgeService', () => {
       run,
     });
     await service.refresh(ROOT_ID, 'window');
-    const afterFirst = (run as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    const afterFirst = (
+      run as unknown as {
+        mock: {
+          calls: unknown[];
+        };
+      }
+    ).mock.calls.length;
     await service.refresh(ROOT_ID, 'window');
-    expect((run as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(afterFirst);
+    expect(
+      (
+        run as unknown as {
+          mock: {
+            calls: unknown[];
+          };
+        }
+      ).mock.calls.length
+    ).toBe(afterFirst);
     await service.refresh(ROOT_ID, 'invalidation');
-    expect((run as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBeGreaterThan(
-      afterFirst
-    );
+    expect(
+      (
+        run as unknown as {
+          mock: {
+            calls: unknown[];
+          };
+        }
+      ).mock.calls.length
+    ).toBeGreaterThan(afterFirst);
     clock += FORGE_REFRESH_MIN_INTERVAL_MS.window + 1;
-    const beforeWindow = (run as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    const beforeWindow = (
+      run as unknown as {
+        mock: {
+          calls: unknown[];
+        };
+      }
+    ).mock.calls.length;
     await service.refresh(ROOT_ID, 'window');
-    expect((run as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBeGreaterThan(
-      beforeWindow
-    );
+    expect(
+      (
+        run as unknown as {
+          mock: {
+            calls: unknown[];
+          };
+        }
+      ).mock.calls.length
+    ).toBeGreaterThan(beforeWindow);
   });
-
   it('is unavailable with a reason on a detached HEAD', async () => {
     const service = createForgeService({
       getForgeCache: async () => fakeDatabase(),
@@ -420,7 +453,6 @@ describe('createForgeService', () => {
       'detached-head'
     );
   });
-
   it('is unavailable with the git reason when the repository has no usable remote', async () => {
     const service = createForgeService({
       getForgeCache: async () => fakeDatabase(),
@@ -438,7 +470,6 @@ describe('createForgeService', () => {
       reason: 'no-remote',
     });
   });
-
   it('is unavailable with a parse reason on an unparsable remote', async () => {
     const service = createForgeService({
       getForgeCache: async () => fakeDatabase(),
@@ -452,7 +483,6 @@ describe('createForgeService', () => {
       'unparsable-remote'
     );
   });
-
   it('says GitLab is not supported yet instead of running gh against it', async () => {
     const run = ghRunner(HEALTHY_GH);
     const service = createForgeService({
@@ -471,7 +501,6 @@ describe('createForgeService', () => {
     ).toContain('GitLab');
     expect(run).not.toHaveBeenCalled();
   });
-
   it('refreshes only the repositories it has already resolved when a repo is invalidated', async () => {
     const run = ghRunner(HEALTHY_GH);
     const service = createForgeService({
@@ -485,16 +514,27 @@ describe('createForgeService', () => {
     await Promise.resolve();
     expect(run).not.toHaveBeenCalled();
     await service.prStatus(ROOT_ID);
-    const before = (run as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    const before = (
+      run as unknown as {
+        mock: {
+          calls: unknown[];
+        };
+      }
+    ).mock.calls.length;
     service.onRepositoryInvalidated(COMMON_DIR);
     await new Promise((resolve) => queueMicrotask(() => resolve(null)));
     await vi.waitFor(() =>
-      expect((run as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBeGreaterThan(
-        before
-      )
+      expect(
+        (
+          run as unknown as {
+            mock: {
+              calls: unknown[];
+            };
+          }
+        ).mock.calls.length
+      ).toBeGreaterThan(before)
     );
   });
-
   it('reports identity separately so the BranchChip can explain a missing chip', async () => {
     const service = createForgeService({
       getForgeCache: async () => fakeDatabase(),
@@ -509,7 +549,6 @@ describe('createForgeService', () => {
     expect(identity.ok && identity.value.repoCommonDir).toBe(COMMON_DIR);
     expect(identity.ok && identity.value.failure?.reason).toBe('unparsable-remote');
   });
-
   it('propagates a repository resolution failure as an error result', async () => {
     const service = createForgeService({
       getForgeCache: async () => fakeDatabase(),
@@ -523,7 +562,6 @@ describe('createForgeService', () => {
       ok: false,
     });
   });
-
   it('reports "unknown" instead of a fabricated "none" before anything has ever been fetched', async () => {
     const service = createForgeService({
       getForgeCache: async () => fakeDatabase(),
@@ -535,7 +573,6 @@ describe('createForgeService', () => {
     const status = await service.prStatus(ROOT_ID);
     expect(status.ok && status.value.kind).toBe('unknown');
   });
-
   it('does not re-fire "opened" on restart for a PR already recorded in the durable cache', async () => {
     const database = fakeDatabase();
     const first = createForgeService({
@@ -547,7 +584,6 @@ describe('createForgeService', () => {
     });
     await first.refresh(ROOT_ID, 'user');
     expect(database.rows.size).toBe(1);
-
     // A brand-new service instance over the SAME durable database — the
     // in-memory maps a fresh instance starts with must not be mistaken for
     // "this PR has never been observed".
@@ -562,7 +598,6 @@ describe('createForgeService', () => {
     await restarted.refresh(ROOT_ID, 'user');
     expect(onPrUpdated).toHaveBeenCalledWith(expect.objectContaining({ transitions: [] }));
   });
-
   it('degrades to delivering the fetched PR uncached when the cache write throws', async () => {
     const throwingDatabase: ForgeCachePort = {
       forgeCache: () => Promise.reject(new Error('StateStore not ready')),
@@ -582,7 +617,6 @@ describe('createForgeService', () => {
     expect(result.ok && result.value.kind === 'pr' && result.value.pullRequest.number).toBe(42);
     expect(onPrUpdated).toHaveBeenCalledWith(expect.objectContaining({ transitions: ['opened'] }));
   });
-
   it('reports a transition when the head sha changes with the rollup unchanged', async () => {
     const database = fakeDatabase();
     const onPrUpdated = vi.fn();
@@ -609,7 +643,6 @@ describe('createForgeService', () => {
       expect.objectContaining({ transitions: ['checks'] })
     );
   });
-
   it('dedupes concurrent refreshes for the same key into one gh invocation', async () => {
     const run = ghRunner(HEALTHY_GH);
     const service = createForgeService({
@@ -627,7 +660,6 @@ describe('createForgeService', () => {
     expect(b.ok && b.value.kind).toBe('pr');
     expect(countArgCalls(run, 'pr')).toBe(1);
   });
-
   it('stops new refresh work, aborts an in-flight gh command, and drains before resolving', async () => {
     const loggerInfo = vi.spyOn(desktopAssistantServerLogger, 'info').mockImplementation(() => {});
     const database = fakeDatabase();
@@ -661,12 +693,10 @@ describe('createForgeService', () => {
       resolveRepository: resolver(),
       run,
     });
-
     try {
       const refresh = service.refresh(ROOT_ID, 'user');
       const signal = await prStarted;
       const stop = service.stop();
-
       expect(signal.aborted).toBe(true);
       await expect(stop).resolves.toBeUndefined();
       await expect(refresh).resolves.toEqual({ error: 'Forge service has stopped.', ok: false });
@@ -685,7 +715,6 @@ describe('createForgeService', () => {
       loggerInfo.mockRestore();
     }
   });
-
   it('records structured abort evidence when an in-flight gh command rejects on shutdown', async () => {
     const loggerInfo = vi.spyOn(desktopAssistantServerLogger, 'info').mockImplementation(() => {});
     let resolvePrStarted: (() => void) | undefined;
@@ -715,12 +744,10 @@ describe('createForgeService', () => {
       resolveRepository: resolver(),
       run,
     });
-
     try {
       const refresh = service.refresh(ROOT_ID, 'user');
       await prStarted;
       await service.stop();
-
       await expect(refresh).resolves.toEqual({ error: 'Forge service has stopped.', ok: false });
       expect(loggerInfo).toHaveBeenCalledWith('Forge gh command aborted during shutdown', {
         command: 'pr',
@@ -731,7 +758,6 @@ describe('createForgeService', () => {
       loggerInfo.mockRestore();
     }
   });
-
   it('does not label a normally completed gh command as aborted when shutdown follows', async () => {
     const loggerInfo = vi.spyOn(desktopAssistantServerLogger, 'info').mockImplementation(() => {});
     let resolvePr: ((run: ForgeCommandRun) => void) | undefined;
@@ -756,13 +782,11 @@ describe('createForgeService', () => {
       resolveRepository: resolver(),
       run,
     });
-
     try {
       const refresh = service.refresh(ROOT_ID, 'user');
       await prStarted;
       resolvePr?.(HEALTHY_GH['pr'] as ForgeCommandRun);
       const stop = service.stop();
-
       await stop;
       await expect(refresh).resolves.toEqual({ error: 'Forge service has stopped.', ok: false });
       expect(loggerInfo).not.toHaveBeenCalledWith(
@@ -774,7 +798,6 @@ describe('createForgeService', () => {
       loggerInfo.mockRestore();
     }
   });
-
   it('bounds stop when an aborted gh command does not settle and fences its late continuation from the database', async () => {
     vi.useFakeTimers();
     const loggerError = vi
@@ -821,7 +844,6 @@ describe('createForgeService', () => {
       },
       run,
     });
-
     try {
       const refresh = service.refresh(ROOT_ID, 'user');
       const signal = await prStarted;
@@ -831,7 +853,6 @@ describe('createForgeService', () => {
       const stop = service.stop().then(() => {
         stopSettled = true;
       });
-
       expect(signal.aborted).toBe(true);
       resolveIdentity?.();
       await expect(identity).resolves.toEqual({ error: 'Forge service has stopped.', ok: false });
@@ -844,7 +865,6 @@ describe('createForgeService', () => {
         'Forge service stop timed out while draining in-flight operations',
         { drainTimeoutMs: FORGE_STOP_DRAIN_TIMEOUT_MS, pendingOperations: 1 }
       );
-
       resolvePr?.(HEALTHY_GH['pr'] as ForgeCommandRun);
       await expect(refresh).resolves.toEqual({ error: 'Forge service has stopped.', ok: false });
       expect(getForgeCache).toHaveBeenCalledTimes(1);
@@ -855,7 +875,6 @@ describe('createForgeService', () => {
       vi.useRealTimers();
     }
   });
-
   it('fails loudly on a corrupted cached review decision rather than silently coercing to null', async () => {
     const database = fakeDatabase();
     database.rows.set(`${COMMON_DIR}\0feature/bar`, {
@@ -889,7 +908,6 @@ describe('createForgeService', () => {
     ).toContain('reviewDecision');
   });
 });
-
 describe('ForgePullRequest cache round trip', () => {
   it('keeps the rollup derivable from the stored checks', () => {
     const pullRequest: ForgePullRequest = {

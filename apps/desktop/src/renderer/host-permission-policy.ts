@@ -1,10 +1,10 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import { HostPermissionPolicySchema } from '@brainstrike/agent-host/protocol';
+import { Schema } from 'effect';
 import { z } from 'zod';
 import type { StateStorage } from 'zustand/middleware';
 
 const PersistedEnvelopeSchema = z.object({ state: z.unknown() });
-
 /**
  * The permission policy store's persistence on the desktop (BST-1930 stage e):
  * the agent host keeps the saved policy in its StateStore, and this window
@@ -42,7 +42,10 @@ export function hostPermissionPolicyPersistence(
     setItem: async (_name, value) => {
       const { state } = PersistedEnvelopeSchema.parse(JSON.parse(value));
       await (await client()).request('permissions/policy/write', {
-        policy: HostPermissionPolicySchema.parse(state),
+        policy: Schema.decodeUnknownSync(HostPermissionPolicySchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(state),
       });
     },
   };

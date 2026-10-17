@@ -1,11 +1,19 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-const RoleSchema = z.object({ role: z.string() });
-const AssistantContentSchema = z.object({
-  content: z.union([z.string(), z.array(z.looseObject({ type: z.string() }))]),
+const RoleSchema = Schema.Struct({ role: Schema.String });
+const AssistantContentSchema = Schema.Struct({
+  content: Schema.Union([
+    Schema.String,
+    Schema.mutable(
+      Schema.Array(
+        Schema.StructWithRest(Schema.Struct({ type: Schema.String }), [
+          Schema.Record(Schema.String, Schema.Unknown),
+        ])
+      )
+    ),
+  ]),
 });
-const TextPartSchema = z.object({ text: z.string(), type: z.literal('text') });
-
+const TextPartSchema = Schema.Struct({ text: Schema.String, type: Schema.Literal('text') });
 /**
  * The answer in a run's committed model messages: the trimmed text of the last
  * assistant message, or undefined when these messages hold none, so a fold
@@ -15,16 +23,20 @@ const TextPartSchema = z.object({ text: z.string(), type: z.literal('text') });
  * answer as `no-answer`.
  */
 export function hostAnswerText(messages: readonly unknown[]): string | undefined {
-  const last = messages.findLast((message) => RoleSchema.parse(message).role === 'assistant');
+  const last = messages.findLast(
+    (message) => Schema.decodeUnknownSync(RoleSchema)(message).role === 'assistant'
+  );
   if (last === undefined) {
     return;
   }
-  const { content } = AssistantContentSchema.parse(last);
+  const { content } = Schema.decodeUnknownSync(AssistantContentSchema)(last);
   if (typeof content === 'string') {
     return content.trim();
   }
   return content
-    .flatMap((part) => (part.type === 'text' ? [TextPartSchema.parse(part).text] : []))
+    .flatMap((part) =>
+      part.type === 'text' ? [Schema.decodeUnknownSync(TextPartSchema)(part).text] : []
+    )
     .join('')
     .trim();
 }

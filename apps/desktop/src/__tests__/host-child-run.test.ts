@@ -2,8 +2,8 @@
 import { type HostLogRow, HostLogRowSchema } from '@brainstrike/agent-host/protocol';
 import answerless from '@brainstrike/test-utils/fixtures/committed-host-answerless-runs.json';
 import answered from '@brainstrike/test-utils/fixtures/committed-host-incremental-tool-input.json';
+import { Schema } from 'effect';
 import { expect, test } from 'vitest';
-import { z } from 'zod';
 import { HostChildListingFailures, HostChildRunFold } from '../renderer/host-child-run';
 
 const row = (seq: number, event: Record<string, unknown>): HostLogRow =>
@@ -104,7 +104,11 @@ test('a child that has not started reports no delegated invocation', () => {
 //   (completed, no text), then a run that streams nothing (the empty-response
 //   guard fails it);
 // - incremental tool input: a run whose last step writes its answer.
-const recorded = (recording: unknown): HostLogRow[] => z.array(HostLogRowSchema).parse(recording);
+const recorded = (recording: unknown): HostLogRow[] =>
+  Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(recording);
 
 test('a child that completes without writing an answer reads no-answer, never finished', () => {
   const rows = recorded(answerless);

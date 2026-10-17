@@ -13,8 +13,8 @@ import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { createStateStoreIndexer, openIndexer } from '@brainstrike/indexer';
 import { StateStore } from '@brainstrike/state-store';
 import { MockLanguageModelV4 } from 'ai/test';
+import { Schema } from 'effect';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { z } from 'zod';
 import { runHostCli } from '../src/cli.js';
 import { committedRunIdentity } from '../src/committed-identities.js';
 import { HostCore } from '../src/core.js';
@@ -26,19 +26,20 @@ import { fixturePlatform } from './fixtures/child-run-host.js';
 import history from './fixtures/committed-history-search.json' with { type: 'json' };
 import judgments from './fixtures/history-search-judgments.json' with { type: 'json' };
 
-const recorded = z.array(HostLogRowSchema).parse(history);
+const recorded = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+  errors: 'all',
+  onExcessProperty: 'error',
+})(history);
 const threadIds = [...new Set(recorded.map(({ threadId }) => threadId))];
 const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
 type Port = Awaited<ReturnType<typeof openIndexer>>;
 type SearchResult = Awaited<ReturnType<typeof searchHostThreads>>;
-
 let root: string;
 let port: Port;
 let store: StateStore;
 let core: HostCore;
 /** Until the CLI case hands the Root to a host, the replay's own Core owns it. */
 let coreOwnsRoot = true;
-
 /** Replays each recorded thread in its own append, so their store times differ. */
 beforeAll(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m6-history-fusion-')));
@@ -75,7 +76,6 @@ beforeAll(async () => {
     () => () => undefined
   );
 }, 60_000);
-
 afterAll(async () => {
   if (coreOwnsRoot) {
     await core?.close();
@@ -84,20 +84,16 @@ afterAll(async () => {
   await port?.close();
   await rm(root, { force: true, recursive: true });
 });
-
 const search = (params: Parameters<typeof searchHostThreads>[3]): Promise<SearchResult> =>
   searchHostThreads(core, (request) => port.searchState(request), undefined, params);
-
 function reciprocalRank(ranked: readonly string[], relevant: ReadonlySet<string>): number {
   const index = ranked.findIndex((id) => relevant.has(id));
   return index < 0 ? 0 : 1 / (index + 1);
 }
-
 function recallAt(ranked: readonly string[], relevant: ReadonlySet<string>, k: number): number {
   const top = new Set(ranked.slice(0, k));
   return [...relevant].filter((id) => top.has(id)).length / relevant.size;
 }
-
 /** The message a judged row belongs to: the run's user message, or its answer. */
 async function judgedMessage(threadId: string, seq: number): Promise<string> {
   const rows: HostLogRow[] = await core.read(threadId, 0);
@@ -108,7 +104,6 @@ async function judgedMessage(threadId: string, seq: number): Promise<string> {
   const identity = committedRunIdentity(rows, event.runId);
   return event.type === 'run.started' ? identity.userMessageId : identity.assistantMessageId;
 }
-
 describe('fused history search', () => {
   test('ranks judged threads and messages at least as well as the best single arm', async () => {
     const totals = {
@@ -172,7 +167,6 @@ describe('fused history search', () => {
       );
     }
   });
-
   test('matches any word only when no message or title holds every word, and says so', async () => {
     const every = await search({ query: 'notarytool' });
     expect(every.lexical).toBe('all-words');
@@ -188,7 +182,6 @@ describe('fused history search', () => {
     const nothing = await search({ query: 'zeppelin quasar' });
     expect(nothing).toMatchObject({ lexical: 'all-words', messages: [], results: [], titles: [] });
   });
-
   test('matches any word against whole title words, not letters inside them', async () => {
     // Smoke of #3566: "zeppelin e" listed every title holding the letter e.
     const letter = await search({ query: 'zeppelin e' });
@@ -201,7 +194,6 @@ describe('fused history search', () => {
       'Kitchen renovation budget',
     ]);
   });
-
   test('keeps only threads bound to the requested workspace root', async () => {
     const release = '854d96a7-d175-401e-bba5-9ef6dc3335fa';
     await core.updateWorkspaceBinding({
@@ -220,7 +212,6 @@ describe('fused history search', () => {
       titles: [],
     });
   });
-
   test('keeps messages and titles inside the requested time window', async () => {
     const release = '854d96a7-d175-401e-bba5-9ef6dc3335fa';
     const untitled = '6a417da2-0612-44d5-98da-9a867f9545dd';
@@ -242,7 +233,6 @@ describe('fused history search', () => {
     const titled = await search({ query: 'kitchen budget', since: untitledStart });
     expect(titled.titles).toEqual([]);
   });
-
   test('brainstrike threads search prints the fused lexical list from the Root owner', async () => {
     // The Root's owner becomes a standalone host over the same committed threads and index.
     coreOwnsRoot = false;
@@ -263,7 +253,10 @@ describe('fused history search', () => {
           output += value;
         },
       });
-      return HOST_RESULT_SCHEMAS['thread/search'].parse(JSON.parse(output));
+      return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/search'], {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(JSON.parse(output));
     };
     try {
       expect(await cli(['--query', 'notarytool', '--scope-root', 'release-root'])).toMatchObject({

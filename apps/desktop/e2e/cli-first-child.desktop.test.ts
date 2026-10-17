@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { HOST_RESULT_SCHEMAS } from '@brainstrike/agent-host/protocol';
+import { Schema } from 'effect';
 import { expect, test } from './fixtures/electron-fixture';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { resolveProviderEgressEnvironment } from './utils/model-provider-shim';
@@ -16,7 +17,6 @@ const executable = path.join(
 );
 const execute = promisify(execFile);
 test.use({ electronEnv: { BRAINSTRIKE_OPENAI_API_KEY: 'offline-cli-first-fixture' } });
-
 test('CLI-created children appear in the GUI and retain their identity through CLI follow-up', async ({
   electron,
   modelProvider,
@@ -37,7 +37,13 @@ test('CLI-created children appear in the GUI and retain their identity through C
       })
     ).stdout;
   modelProvider.setScript(({ messages, requestBody, toolNames }) => {
-    if ((requestBody as { stream?: unknown }).stream !== true) {
+    if (
+      (
+        requestBody as {
+          stream?: unknown;
+        }
+      ).stream !== true
+    ) {
       return { finalText: 'CLI child parent' };
     }
     const history = JSON.stringify(messages);
@@ -77,10 +83,14 @@ test('CLI-created children appear in the GUI and retain their identity through C
       ])
     );
     started = true;
-    const thread = HOST_RESULT_SCHEMAS['thread/start'].parse(
-      JSON.parse(await command(['thread', 'start']))
-    );
-    const run = HOST_RESULT_SCHEMAS['run/start'].parse(
+    const thread = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/start'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(JSON.parse(await command(['thread', 'start'])));
+    const run = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['run/start'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(
       JSON.parse(
         await command([
           'run',
@@ -104,9 +114,10 @@ test('CLI-created children appear in the GUI and retain their identity through C
       '--non-interactive',
     ]);
     const children = async () =>
-      HOST_RESULT_SCHEMAS['thread/children'].parse(
-        JSON.parse(await command(['children', 'list', '--thread', thread.threadId]))
-      ).children;
+      Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/children'], {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(JSON.parse(await command(['children', 'list', '--thread', thread.threadId]))).children;
     await expect.poll(async () => (await children()).length).toBe(1);
     const child = (await children())[0];
     if (!child) {

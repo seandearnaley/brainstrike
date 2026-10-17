@@ -11,6 +11,7 @@ import type {
   IndexerStatus,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
+import { Schema } from 'effect';
 import { expect, test, vi } from 'vitest';
 import { mainPlatformConnection } from '../agent-host-platform/connection';
 import { desktopHostSharedTools } from '../agent-host-platform/desktop-host-shared-tools';
@@ -114,7 +115,6 @@ const space = {
 } as const;
 const queryVector = Array.from({ length: profile.dimensions }, () => 0.1);
 const roots = [{ displayName: 'A', path: '/workspace/a', rootId: 'root-a' }];
-
 function coverage(scope: IndexerCoverageRequest) {
   return {
     ...(scope.collectionId === undefined
@@ -127,11 +127,13 @@ function coverage(scope: IndexerCoverageRequest) {
     vectorCoverageComplete: true,
   };
 }
-
 /** Main's typed reads for one host thread, as host-tool-services answers them; and the admission's roots. */
 function mainReads() {
   return vi.fn(async (method: string, input: unknown): Promise<unknown> => {
-    const { request, threadId } = (input ?? {}) as { request?: unknown; threadId?: string };
+    const { request, threadId } = (input ?? {}) as {
+      request?: unknown;
+      threadId?: string;
+    };
     // Every index and catalog read names the thread it serves.
     if (method.startsWith('desktop-read/') && threadId !== 'host-thread') {
       throw new Error(`Unscoped read ${method}`);
@@ -166,7 +168,6 @@ function mainReads() {
     }
   });
 }
-
 function hostTools(request: MainRequest): Record<string, HostTool> {
   const descriptor = (id: string) => ({
     description: id,
@@ -180,7 +181,10 @@ function hostTools(request: MainRequest): Record<string, HostTool> {
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
-    selected: PlatformSelectionSchema.parse({
+    selected: Schema.decodeUnknownSync(PlatformSelectionSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })({
       configuration: { model: 'gpt-6-sol', provider: 'openai' },
       contextWindow: 32_000,
       durableConfiguration: {},
@@ -224,7 +228,6 @@ function hostTools(request: MainRequest): Record<string, HostTool> {
     threadId: 'host-thread',
   });
 }
-
 function execution(): HostToolContext {
   return {
     edits: { track: async () => Promise.reject(new Error('A host read never edits')) },
@@ -235,7 +238,6 @@ function execution(): HostToolContext {
     toolCallId: 'retrieval-call',
   };
 }
-
 function tool(tools: Record<string, HostTool>, name: string): HostTool {
   const found = tools[name];
   if (!found) {
@@ -243,7 +245,6 @@ function tool(tools: Record<string, HostTool>, name: string): HostTool {
   }
   return found;
 }
-
 /** Only the admission's roots, Main's typed reads and the renderer query embedding are asked for. */
 function expectOnlyReads(request: ReturnType<typeof mainReads>): void {
   for (const [method] of request.mock.calls) {
@@ -252,7 +253,6 @@ function expectOnlyReads(request: ReturnType<typeof mainReads>): void {
     );
   }
 }
-
 test('the desktop host runs queryEmbeddingSpace in its own process over Main’s index reads', async () => {
   const request = mainReads();
   const output = await tool(hostTools(request), 'brainstrike_queryEmbeddingSpace').execute(
@@ -267,7 +267,6 @@ test('the desktop host runs queryEmbeddingSpace in its own process over Main’s
   );
   expectOnlyReads(request);
 });
-
 test('the desktop host runs hybridSearch in its own process over Main’s index reads', async () => {
   const request = mainReads();
   const output = await tool(hostTools(request), 'brainstrike_hybridSearch').execute(
@@ -280,7 +279,6 @@ test('the desktop host runs hybridSearch in its own process over Main’s index 
   expect(request.mock.calls.map(([method]) => method)).toContain('desktop-read/index/grep');
   expectOnlyReads(request);
 });
-
 test('hybridSearch without an explicit set searches the native index’s one authorized collection', async () => {
   // Host runs carry no renderer-sent workspace-index set: the native index status names it.
   const request = mainReads();
@@ -299,7 +297,6 @@ test('hybridSearch without an explicit set searches the native index’s one aut
   });
   expectOnlyReads(request);
 });
-
 test('the desktop host runs listEmbeddingSpaces in its own process over Main’s catalog read', async () => {
   const request = mainReads();
   const output = await tool(hostTools(request), 'brainstrike_listEmbeddingSpaces').execute(
@@ -316,9 +313,7 @@ test('the desktop host runs listEmbeddingSpaces in its own process over Main’s
   });
   expectOnlyReads(request);
 });
-
 const GENERIC_FAILURE = 'The tool did not complete successfully. Try another approach.';
-
 /** Main's workspace index, answering as the typed reads above do. */
 const mainIndex: IndexSearchCapability = {
   coverage: async (scope) => coverage(scope),
@@ -328,7 +323,6 @@ const mainIndex: IndexSearchCapability = {
   search: async () => result,
   status: async () => status,
 };
-
 /**
  * Main's real platform server over a real port pair, as the host's connection
  * reaches it in the app. JSON-RPC carries an error's message but never its
@@ -371,13 +365,10 @@ function servedMain(main: {
     tools: hostTools(request),
   };
 }
-
 function refusal(toolName: string, message: string) {
   return { error: { code: 'tool_input_invalid', message, toolName }, ok: false };
 }
-
 const LEAK = 'sk-live-BST1996LEAK at /Users/someone/Library/profile';
-
 test.each([
   ['an unreadable stored key', new SecretReadError('decrypt_failed', 'openai')],
   [
@@ -416,7 +407,6 @@ test.each([
     }
   }
 );
-
 test.each([
   [
     'a provider status',
@@ -451,7 +441,6 @@ test.each([
     await main.close();
   }
 });
-
 test('a refusal Main’s retrieval catalog raises reaches the model verbatim', async () => {
   const refused = new ToolInputError('Main refused this catalog read; retry without stats.');
   const main = servedMain({ embeddingSpaces: () => Promise.reject(refused) });
@@ -465,7 +454,6 @@ test('a refusal Main’s retrieval catalog raises reaches the model verbatim', a
     await main.close();
   }
 });
-
 test('an unexpected Main retrieval catalog fault stays redacted', async () => {
   const fault = new Error(`relation "embedding_sets" is unreadable: ${LEAK}`);
   const main = servedMain({ embeddingSpaces: () => Promise.reject(fault) });
@@ -486,7 +474,6 @@ test('an unexpected Main retrieval catalog fault stays redacted', async () => {
     await main.close();
   }
 });
-
 test('Main’s real reads answer the host’s retrieval as in the app', async () => {
   const main = servedMain({});
   try {

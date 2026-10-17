@@ -11,6 +11,7 @@ import questionRecording from '@brainstrike/test-utils/fixtures/committed-host-q
 // A completed run whose first attempt stalled and recovered, then a run whose
 // stalled attempt was refused (it had tool parts) and failed.
 import attemptsRecording from '@brainstrike/test-utils/fixtures/committed-host-run-attempts.json';
+import { Schema } from 'effect';
 import { describe, expect, test, vi } from 'vitest';
 import {
   collectHostThreadDebugBundleData,
@@ -19,12 +20,17 @@ import {
 
 const MODEL = 'openrouter::anthropic/claude-sonnet-4.6';
 const rows: HostLogRow[] = attemptsRecording.map((raw) => {
-  const row = HostLogRowSchema.parse(raw);
+  const row = Schema.decodeUnknownSync(HostLogRowSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(raw);
   return row.event.type === 'run.started'
     ? { ...row, event: { ...row.event, modelId: MODEL } }
     : row;
 });
-const childRows = questionRecording.map((raw) => HostLogRowSchema.parse(raw));
+const childRows = questionRecording.map((raw) =>
+  Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(raw)
+);
 const threadId = rows[0]?.threadId ?? '';
 const childThreadId = childRows[0]?.threadId ?? '';
 const [completedRun, failedRun] = rows.flatMap((row) =>
@@ -34,7 +40,6 @@ if (!(completedRun && failedRun && childThreadId !== threadId)) {
   throw new Error('The recordings need two runs and a second thread');
 }
 const STALL = 'The model stream stalled after 400ms without output.';
-
 /** The host's read methods over recorded logs; the root delegated to the child. */
 function recordedHost(): Pick<HostClient, 'request'> {
   const logs = new Map([
@@ -78,16 +83,17 @@ function recordedHost(): Pick<HostClient, 'request'> {
       method: Method,
       params: HostParams<Method>
     ): Promise<HostResults[Method]> =>
-      HOST_RESULT_SCHEMAS[method].parse(answer(method, params)) as HostResults[Method],
+      Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS[method], {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(answer(method, params)) as HostResults[Method],
   };
 }
-
 /** The renderer diagnostic store with no correlated events. */
 const noDiagnostics = {
   countByFingerprint: vi.fn(async () => ({ count: 0, firstSeenMs: null, lastSeenMs: null })),
   queryEvents: vi.fn(async () => []),
 };
-
 describe("a host thread's debug bundle, from its committed log", () => {
   test('selects the failed run: its finish detail, refused attempt and no provider call', () => {
     const data = collectHostThreadDebugBundleData(rows, { runId: null, threadId });
@@ -109,7 +115,6 @@ describe("a host thread's debug bundle, from its committed log", () => {
     // Both prompts and the completed run's step messages, oldest first.
     expect(data.messages.map((message) => message.role)).toEqual(['user', 'assistant', 'user']);
   });
-
   test('a named run: its recovered attempt, its step without the messages, and its usage', () => {
     const data = collectHostThreadDebugBundleData(rows, { runId: completedRun, threadId });
     expect(data.run).toMatchObject({ error: null, id: completedRun, status: 'completed' });
@@ -129,14 +134,13 @@ describe("a host thread's debug bundle, from its committed log", () => {
       }),
     ]);
   });
-
   test('the run configuration is the generation settings its Send captured', () => {
     // The desktop's durable run configuration: the Send intent under `intent`.
     const modelSettings = { maxOutputTokens: 733, temperature: 0.35 };
     const providerOptions = { openrouter: { reasoning: { effort: 'low' } } };
     const captured = rows.map((row) =>
       row.event.type === 'run.started' && row.event.runId === failedRun
-        ? HostLogRowSchema.parse({
+        ? Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
             ...row,
             event: {
               ...row.event,
@@ -162,7 +166,6 @@ describe("a host thread's debug bundle, from its committed log", () => {
     const data = collectHostThreadDebugBundleData(captured, { runId: failedRun, threadId });
     expect(data.run).toMatchObject({ modelSettings, providerOptions });
   });
-
   test('the Copy debug bundle formats it with the legacy bundle sections', async () => {
     const binding = createHostDebugBundleBinding(recordedHost(), threadId, noDiagnostics);
     const bundle = await binding.buildBundle({ runId: null });
@@ -179,7 +182,6 @@ describe("a host thread's debug bundle, from its committed log", () => {
     }
     expect(bundle).toContain(`### Event ${refused.seq} — run.attempt / refused`);
   });
-
   test('the thread pack holds the root and delegated child logs with their manifest', async () => {
     const binding = createHostDebugBundleBinding(recordedHost(), threadId, noDiagnostics);
     if (!binding.buildThreadPack) {

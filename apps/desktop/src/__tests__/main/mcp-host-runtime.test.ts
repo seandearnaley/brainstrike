@@ -18,6 +18,7 @@ import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import { openExternalWithElectron } from '../../mcp/open-external';
+import type { MutableFixture } from '../fixtures/mutable-schema-fixture';
 
 const REF = '00000000-0000-4000-8000-000000000001';
 const UNKNOWN = '00000000-0000-4000-8000-000000000099';
@@ -64,7 +65,7 @@ type HttpServer = Extract<ResolvedMcpServer, { transport: 'streamable-http' }>;
 type StdioServer = Extract<ResolvedMcpServer, { transport: 'stdio' }>;
 type ActorContext = Parameters<McpServerActorClientFactory>[0];
 type TransportConnectOptions = Parameters<ExplicitHttpMcpClient['connect']>[0];
-const http = (patch: Partial<HttpServer> = {}): HttpServer => ({
+const http = (patch: Partial<HttpServer> = {}): MutableFixture<HttpServer> => ({
   headers: { Authorization: 'Bearer private-token' },
   name: parseConfiguredMcpServerId('team.linear.prod'),
   protocol: 'auto',
@@ -711,7 +712,7 @@ describe('DesktopMcpHostRuntime', () => {
       invalidate = context.onUnexpectedClose;
       observedServers.push(structuredClone(server));
       if (server.transport === 'streamable-http' && server.headers) {
-        server.headers['Authorization'] = 'Bearer actor-mutated';
+        expect(Reflect.set(server.headers, 'Authorization', 'Bearer actor-mutated')).toBe(true);
       }
       const actorClient = client();
       if (created === 1) {

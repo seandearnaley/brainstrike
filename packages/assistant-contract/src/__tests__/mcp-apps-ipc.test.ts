@@ -1,8 +1,8 @@
+import { Schema } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createMcpAppToolInvocationResult,
   McpAppPrepareRequestSchema,
-  McpAppToolInvocationResultSchema,
   parseMcpAppPrepareResult,
   parseMcpAppShellPrepareRequest,
   parseMcpAppShellPrepareResult,
@@ -13,14 +13,12 @@ import {
 afterEach(() => {
   vi.restoreAllMocks();
 });
-
 const origin = {
   mimeType: 'text/html;profile=mcp-app',
   resourceUri: 'ui://get-time/mcp-app.html',
   serverId: 'apps-example',
   toolName: 'get-time',
 } as const;
-
 describe('MCP Apps IPC contract', () => {
   it('round-trips the persisted app tool result exactly and rejects near misses', () => {
     const marker = createMcpAppToolInvocationResult(origin, { time: '2026-09-02T00:00:00Z' });
@@ -35,29 +33,41 @@ describe('MCP Apps IPC contract', () => {
       createMcpAppToolInvocationResult({ ...origin, resourceUri: 'https://x' }, {})
     ).toThrow();
   });
-
   it('never schema-walks a result that does not carry the app marker kind', () => {
-    const safeParse = vi.spyOn(McpAppToolInvocationResultSchema, 'safeParse');
+    let payloadReads = 0;
     const large = {
       content: Array.from({ length: 5000 }, (_, index) => ({ text: `row ${index}`, type: 'text' })),
       structuredContent: { rows: Array.from({ length: 5000 }, (_, index) => ({ index })) },
     };
+    Object.defineProperty(large, 'result', {
+      get: () => {
+        payloadReads += 1;
+        return {};
+      },
+    });
     expect(readMcpAppToolInvocationResult(large)).toBeUndefined();
     expect(readMcpAppToolInvocationResult({ ...large, kind: 'mcp-task' })).toBeUndefined();
     expect(readMcpAppToolInvocationResult('mcp-app')).toBeUndefined();
     expect(readMcpAppToolInvocationResult(null)).toBeUndefined();
     expect(readMcpAppToolInvocationResult(['mcp-app'])).toBeUndefined();
-    expect(safeParse).not.toHaveBeenCalled();
-
+    expect(payloadReads).toBe(0);
     // The right kind still goes through the exact-shape schema: a near miss
     // stays an ordinary result (undefined), never a throw.
-    expect(readMcpAppToolInvocationResult({ kind: 'mcp-app', result: {} })).toBeUndefined();
-    expect(safeParse).toHaveBeenCalledTimes(1);
+    expect(
+      readMcpAppToolInvocationResult(
+        Object.defineProperty({ app: origin, kind: 'mcp-app' }, 'result', {
+          get: () => {
+            payloadReads += 1;
+            return;
+          },
+        })
+      )
+    ).toBeUndefined();
+    expect(payloadReads).toBe(1);
     const marker = createMcpAppToolInvocationResult(origin, {});
     expect(readMcpAppToolInvocationResult(marker)).toEqual(marker);
-    expect(safeParse).toHaveBeenCalledTimes(2);
+    expect(payloadReads).toBe(1);
   });
-
   it('validates prepare requests and results strictly', () => {
     const request = {
       arguments: {},
@@ -66,14 +76,37 @@ describe('MCP Apps IPC contract', () => {
       threadId: 'thread-a',
       toolName: 'get-time',
     };
-    expect(McpAppPrepareRequestSchema.parse(request)).toEqual(request);
-    expect(() => McpAppPrepareRequestSchema.parse({ ...request, decision: 'allow' })).toThrow();
-    expect(() => McpAppPrepareRequestSchema.parse({ ...request, preparationId: '' })).toThrow();
+    expect(
+      Schema.decodeUnknownSync(McpAppPrepareRequestSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(request)
+    ).toEqual(request);
+    expect(() =>
+      Schema.decodeUnknownSync(McpAppPrepareRequestSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })({ ...request, decision: 'allow' })
+    ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(McpAppPrepareRequestSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })({ ...request, preparationId: '' })
+    ).toThrow();
     // The owning thread is mandatory: admission is resolved per thread.
-    expect(() => McpAppPrepareRequestSchema.parse({ ...request, threadId: '' })).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(McpAppPrepareRequestSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })({ ...request, threadId: '' })
+    ).toThrow();
     expect(() => {
       const { threadId: _omitted, ...withoutThread } = request;
-      McpAppPrepareRequestSchema.parse(withoutThread);
+      Schema.decodeUnknownSync(McpAppPrepareRequestSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(withoutThread);
     }).toThrow();
     expect(parseMcpAppPrepareResult({ decision: 'ask', riskCategory: 'ordinary' })).toEqual({
       decision: 'ask',
@@ -81,7 +114,6 @@ describe('MCP Apps IPC contract', () => {
     });
     expect(() => parseMcpAppPrepareResult({ decision: 'deny', riskCategory: 'x' })).toThrow();
   });
-
   it('validates shell registration strictly and pins the served URL shape', () => {
     const request = {
       contentSecurityPolicy: "default-src 'none'",
@@ -94,7 +126,6 @@ describe('MCP Apps IPC contract', () => {
     expect(() =>
       parseMcpAppShellPrepareRequest({ ...request, contentSecurityPolicy: '' })
     ).toThrow();
-
     const token = 'a'.repeat(32);
     const result = { shellUrl: `brainstrike-mcp-app://${token}/`, token };
     expect(parseMcpAppShellPrepareResult(result)).toEqual(result);

@@ -21,7 +21,8 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "catalog:",
     "streamdown": "catalog:",
-    "zustand": "catalog:"
+    "zustand": "catalog:",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/config": "workspace:*",
@@ -42,7 +43,8 @@
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "@effect/tsgo": "catalog:"
   },
   "peerDependencies": {
     "react": "^19.3.0",
@@ -135,7 +137,7 @@
     "test:browser": "vitest run --project browser",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },
   "turbo": {
     "outputs": [

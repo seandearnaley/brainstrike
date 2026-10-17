@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { decodeHostRecord, type HostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock, StateStore } from '@brainstrike/state-store';
+import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import { attachAgentHost, type HostClient } from '../src/client.js';
@@ -61,12 +62,10 @@ const WindowsOwnerJoinMessage = z.discriminatedUnion('event', [
     start: z.string().regex(/^\d+$/),
   }),
 ]);
-
 function environment(dataRoot: string): NodeJS.ProcessEnv {
   const control = controls.get(dataRoot);
   return { ...process.env, ...(control ? fixtureControlEnvironment(control) : {}) };
 }
-
 function observe(child: ChildProcess): ReturnType<typeof observeFixtureChild> {
   const value = observeFixtureChild(child, (pid) => {
     const start = processStartTime(pid);
@@ -78,7 +77,6 @@ function observe(child: ChildProcess): ReturnType<typeof observeFixtureChild> {
   observations.set(child, value);
   return value;
 }
-
 async function root(): Promise<string> {
   const value = await mkdtemp(join(tmpdir(), 'bs-m3-ordinary-cli-'));
   roots.push(value);
@@ -87,7 +85,6 @@ async function root(): Promise<string> {
   }
   return value;
 }
-
 async function owner(dataRoot: string): Promise<HostRecord> {
   const value = decodeHostRecord(JSON.parse(await readFile(join(dataRoot, 'host.json'), 'utf8')));
   if (!owners.some((item) => item.pid === value.pid && item.start === value.start)) {
@@ -103,7 +100,6 @@ async function owner(dataRoot: string): Promise<HostRecord> {
   });
   return value;
 }
-
 function startCli(
   dataRoot: string,
   args: string[],
@@ -124,7 +120,7 @@ function startCli(
     consoles.push(terminal);
     // Creation FILETIME provides actual target startup time, excluding broker compilation.
     const spawned = terminal.identity.then(({ start }) =>
-      Number((BigInt(start) - 116444736000000000n) / 10_000n)
+      Number((BigInt(start) - 116444736000000000n) / 10000n)
     );
     const done = terminal.done.then(async ({ code }) => {
       await terminal.dispose();
@@ -179,7 +175,6 @@ function startCli(
     },
   };
 }
-
 async function cli(dataRoot: string, args: string[]): Promise<unknown> {
   const invocation = exec(
     process.execPath,
@@ -195,7 +190,6 @@ async function cli(dataRoot: string, args: string[]): Promise<unknown> {
     await observed.done;
   }
 }
-
 async function waitForWindowsOwnerVerification(
   output: FixtureOutput,
   ownerRecord: Pick<HostRecord, 'pid' | 'start'>
@@ -211,7 +205,6 @@ async function waitForWindowsOwnerVerification(
     start: ownerRecord.start,
   });
 }
-
 async function pinWindowsOwner(ownerRecord: HostRecord): Promise<PinnedWindowsOwner> {
   const powershell = process.env['M3_WINDOWS_POWERSHELL'] ?? 'pwsh.exe';
   const child = spawn(
@@ -270,7 +263,6 @@ async function pinWindowsOwner(ownerRecord: HostRecord): Promise<PinnedWindowsOw
   });
   return pinned;
 }
-
 async function stop(ownerRecord: HostRecord): Promise<void> {
   const pinned =
     process.platform === 'win32'
@@ -302,7 +294,6 @@ async function stop(ownerRecord: HostRecord): Promise<void> {
   }
   await expect.poll(() => processStartTime(ownerRecord.pid)).not.toBe(ownerRecord.start);
 }
-
 afterEach(async (context) => {
   for (const client of clients.splice(0)) {
     await client.close();
@@ -343,7 +334,6 @@ afterEach(async (context) => {
   observations.clear();
   windowsOwnerJoins.clear();
 });
-
 test.each(['before closing brace', 'before newline'] as const)(
   'Windows owner verification waits for a newline-terminated record (%s)',
   async (split) => {
@@ -380,7 +370,6 @@ test.each(['before closing brace', 'before newline'] as const)(
     }
   }
 );
-
 test.each(['approve', 'deny'] as const)(
   'ordinary run and attach share the committed CLI decision (%s)',
   async (decision) => {
@@ -395,12 +384,18 @@ test.each(['approve', 'deny'] as const)(
     ]);
     expect(await run.done).toBe(2);
     const receipt: unknown = JSON.parse(run.stdout().split('\n')[0]!);
-    const { threadId } = HOST_RESULT_SCHEMAS['thread/start'].parse(
+    const { threadId } = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/start'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(
       receipt && typeof receipt === 'object' && 'threadId' in receipt
         ? { threadId: receipt.threadId }
         : null
     );
-    const { runId } = HOST_RESULT_SCHEMAS['run/start'].parse(
+    const { runId } = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['run/start'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(
       receipt && typeof receipt === 'object' && 'runId' in receipt ? { runId: receipt.runId } : null
     );
     const record = await owner(dataRoot);
@@ -412,9 +407,10 @@ test.each(['approve', 'deny'] as const)(
     expect(await cli(dataRoot, ['threads', 'list'])).toMatchObject({
       threads: [{ latestRun: { needsInput: true, status: 'running' }, threadId }],
     });
-    const displayed = HOST_RESULT_SCHEMAS['thread/read'].parse(
-      await cli(dataRoot, ['threads', 'show', '--thread', threadId])
-    );
+    const displayed = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/read'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(await cli(dataRoot, ['threads', 'show', '--thread', threadId]));
     expect(displayed.rows.some(({ event }) => event.type === 'interaction.requested')).toBe(true);
     const attached = startCli(dataRoot, [
       'attach',
@@ -432,7 +428,11 @@ test.each(['approve', 'deny'] as const)(
       .stdout()
       .trim()
       .split('\n')
-      .map((line) => HostLogRowSchema.parse(JSON.parse(line)));
+      .map((line) =>
+        Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(
+          JSON.parse(line)
+        )
+      );
     expect(liveRows.at(-1)?.event).toMatchObject({
       outcome: 'completed',
       runId,
@@ -464,7 +464,6 @@ test.each(['approve', 'deny'] as const)(
     await expect.poll(() => RootLock.inspect(dataRoot)?.owner.released).toBe(true);
   }
 );
-
 test('ordinary run SIGINT joins its real native child before the CLI exits', async () => {
   const dataRoot = await root();
   const run = startCli(
@@ -498,7 +497,11 @@ test('ordinary run SIGINT joins its real native child before the CLI exits', asy
     .trim()
     .split('\n')
     .slice(1)
-    .map((line) => HostLogRowSchema.parse(JSON.parse(line)));
+    .map((line) =>
+      Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(
+        JSON.parse(line)
+      )
+    );
   expect(rows.at(-1)?.event).toMatchObject({ outcome: 'stopped', type: 'run.finished' });
   await stop(record);
   expect(RootLock.inspect(dataRoot)?.owner.released).toBe(true);
@@ -509,7 +512,6 @@ test('ordinary run SIGINT joins its real native child before the CLI exits', asy
     });
   }
 });
-
 test('terminal EOF leaves its unanswered approval owned by the host for reconnection', async () => {
   const dataRoot = await root();
   const run = startCli(dataRoot, [

@@ -12,6 +12,7 @@ import {
   WEB_SEARCH_TOOL_ID,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import type { StepResult, ToolSet } from 'ai';
+import { Schema } from 'effect';
 import { leaseHostAdmission } from './admission-lease.js';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import { withHostDelegationTools } from './child-runs.js';
@@ -33,7 +34,6 @@ import { HostRunSnapshotSchema } from './protocol.js';
 import { createHostSdkTools } from './sdk-tools.js';
 import { settleHostToolOutputs } from './tool-artifacts.js';
 import { bindHostRunWorkspace, validateHostRunWorkspaceBinding } from './workspace-state.js';
-
 /** Provider instructions and public Memory context share the same SDK system input. */
 export function combineHostSystemContext(...context: readonly (string | undefined)[]): {
   readonly system?: string;
@@ -41,7 +41,6 @@ export function combineHostSystemContext(...context: readonly (string | undefine
   const sections = context.filter((section): section is string => Boolean(section));
   return sections.length > 0 ? { system: sections.join('\n\n') } : {};
 }
-
 export function prepareHostProviderStep(
   provider: HostPreparedModelRequest,
   memorySystem: string | undefined,
@@ -55,7 +54,6 @@ export function prepareHostProviderStep(
     ...combineHostSystemContext(provider.system, memorySystem, hookContext),
   };
 }
-
 /** Distinguish rejected selection from a resource owner that failed to join. */
 export class HostRunAdmissionCleanupError extends AggregateError {
   constructor(cause: unknown, cleanup: unknown) {
@@ -63,7 +61,6 @@ export class HostRunAdmissionCleanupError extends AggregateError {
     this.name = 'HostRunAdmissionCleanupError';
   }
 }
-
 /**
  * A run owner joined all of its work, and these failures are the run's outcome.
  * Only this releases a run whose owner close rejected; any other rejection is
@@ -75,7 +72,6 @@ export class HostRunOwnerFailure extends AggregateError {
     this.name = 'HostRunOwnerFailure';
   }
 }
-
 /** A run owner's open acquired resources and then failed to join them. */
 export class HostRunOwnerCleanupError extends AggregateError {
   constructor(cause: unknown, cleanup: unknown, message = 'Run owner open and cleanup failed') {
@@ -83,7 +79,6 @@ export class HostRunOwnerCleanupError extends AggregateError {
     this.name = 'HostRunOwnerCleanupError';
   }
 }
-
 /** Copy data records; credentials/functions and native capabilities stay process-local. */
 function immutableData<T>(input: T): T {
   if (Array.isArray(input)) {
@@ -102,7 +97,6 @@ function immutableData<T>(input: T): T {
     )
   ) as T;
 }
-
 /** Retain the selected executors and configuration without freezing the source registry. */
 export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmission {
   const mcpAuthorities = Object.fromEntries(
@@ -129,10 +123,12 @@ export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmi
       ? { provider: Object.freeze({ prepare: selected.provider.prepare.bind(selected.provider) }) }
       : {}),
     snapshot: immutableData(
-      HostRunSnapshotSchema.parse({
-        ...selected.snapshot,
-        ...(Object.keys(mcpAuthorities).length > 0 ? { mcpAuthorities } : {}),
-      })
+      Schema.decodeUnknownSync(HostRunSnapshotSchema, { errors: 'all', onExcessProperty: 'error' })(
+        {
+          ...selected.snapshot,
+          ...(Object.keys(mcpAuthorities).length > 0 ? { mcpAuthorities } : {}),
+        }
+      )
     ),
     tools: Object.freeze(
       Object.fromEntries(
@@ -141,12 +137,16 @@ export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmi
     ),
   });
 }
-
 /** The run proceeds without each unavailable MCP server; its log names each one. */
 export function hostMcpUnavailableEvents(
   admission: HostRunAdmission,
   runId: string
-): Extract<HostEvent, { type: 'mcp.tools.unavailable' }>[] {
+): Extract<
+  HostEvent,
+  {
+    type: 'mcp.tools.unavailable';
+  }
+>[] {
   return (admission.unavailableMcpServers ?? []).map(({ reason, serverId }) => ({
     reason,
     runId,
@@ -154,7 +154,6 @@ export function hostMcpUnavailableEvents(
     type: 'mcp.tools.unavailable',
   }));
 }
-
 /** What a new run command would be admitted with; only a live client supplies an origin. */
 export function hostRunIntentRequest(
   params: {
@@ -178,17 +177,17 @@ export function hostRunIntentRequest(
     threadId: params.threadId,
   };
 }
-
 /** A new run command's admission request: its intent, for the run being admitted. */
 export function hostRunCommandRequest(
-  params: Parameters<typeof hostRunIntentRequest>[0] & { readonly runId: string },
+  params: Parameters<typeof hostRunIntentRequest>[0] & {
+    readonly runId: string;
+  },
   origin: HostClientOrigin | undefined,
   prompt: string | undefined,
   signal: AbortSignal
 ): Omit<HostRunAdmissionRequest, 'workspaceBinding'> {
   return { ...hostRunIntentRequest(params, origin, prompt, signal), runId: params.runId };
 }
-
 /** The platform's fixed default selection, for hosts without a per-run `admitRun`. */
 async function defaultHostRunAdmission(
   platform: HostPlatform,
@@ -214,7 +213,6 @@ async function defaultHostRunAdmission(
     tools: admitted,
   };
 }
-
 export async function acquireHostRunAdmission(
   platform: HostPlatform,
   request: HostRunAdmissionRequest
@@ -261,7 +259,6 @@ export async function acquireHostRunAdmission(
     return await rejectHostRunSelection(selected, cause);
   }
 }
-
 /**
  * A tool the saved policy explicitly denies is not offered to the model or
  * admitted to the run. Recovery compares the result with the committed
@@ -288,7 +285,6 @@ function omitDeniedHostTools(
     tools: kept(selected.tools),
   };
 }
-
 /** Join a selection that failed after acquisition, then rethrow its failure. */
 async function rejectHostRunSelection(selected: HostRunAdmission, cause: unknown): Promise<never> {
   try {
@@ -298,7 +294,6 @@ async function rejectHostRunSelection(selected: HostRunAdmission, cause: unknown
   }
   throw cause;
 }
-
 /**
  * The run's owner (its public Memory), opened once over its admission. A run
  * whose owner close has begun is never reopened: Core releases a joined owner.
@@ -321,7 +316,6 @@ export function openHostRunOwner(
   });
   return run.owner;
 }
-
 /**
  * The owner's work joined before the run's end. Only an owner with a
  * foreground phase (`endTurn`) settles the rest after it; any other owner, a
@@ -349,7 +343,6 @@ export async function endHostRunTurn(
     run.ownerFailure ??= cause;
   }
 }
-
 /**
  * The Core retains this promise; both owners are attempted even when one join
  * fails. A joined failure after `run.finished` is the settlement's own fact.
@@ -410,7 +403,6 @@ export async function closeHostRunResources(
   run.owner = undefined;
   run.ownerJoined = true;
 }
-
 /**
  * The run's admission as Core uses it: oversized tool outputs reach the model
  * as durable artifact pages over the committed output (legacy settlement), and
@@ -428,7 +420,6 @@ export async function bindHostRunAdmission(
   run.admission = admission;
   return admission;
 }
-
 /** The request that reopens a committed run's selection from its snapshot. */
 export function hostRunReopenRequest(
   run: Pick<HostRunState, 'id' | 'modelId' | 'planMode' | 'snapshot' | 'threadId'>,
@@ -444,7 +435,6 @@ export function hostRunReopenRequest(
     threadId: run.threadId,
   };
 }
-
 export async function ensureHostRunAdmission(
   platform: HostPlatform,
   run: HostRunState
@@ -461,14 +451,12 @@ export async function ensureHostRunAdmission(
   );
   return run.admissionTask;
 }
-
 /** The catalog web search's provider tool name in this run's registry. */
 function hostWebSearchToolId(admission: HostRunAdmission): string | undefined {
   return Object.entries(admission.tools).find(
     ([id, tool]) => (tool.permissionToolId ?? id) === WEB_SEARCH_TOOL_ID
   )?.[0];
 }
-
 /**
  * Decide once, at admission, whether the provider's own web search replaces
  * the catalog tool. Only an `allow` qualifies: a provider-executed tool runs
@@ -497,7 +485,6 @@ async function admitHostNativeWebSearch(
   const decision = await hostToolDecision(platform, run, admission.tools, toolId);
   return decision === 'allow' ? { tool, toolId } : undefined;
 }
-
 /**
  * A provider-executed tool has no execute for the per-call permission
  * re-check, so each step re-reads the live policy instead: once web search no
@@ -528,19 +515,22 @@ export async function hostStepActiveTools(
   const surface = discovered.filter((id) => id !== native.toolId);
   return nativeAllowed ? [...surface, native.toolId] : surface;
 }
-
 export function hostRunTools(run: HostRunState): HostRunAdmission['tools'] {
   if (!run.admission) {
     throw new Error('Run executors were not acquired');
   }
   return run.admission.tools;
 }
-
 /** A finished step's answerable approval requests, each bound to its registered tool. */
 export function hostStepInteractions(
   run: HostRunState,
   content: StepResult<ToolSet>['content']
-): Extract<HostEvent, { type: 'interaction.requested' }>[] {
+): Extract<
+  HostEvent,
+  {
+    type: 'interaction.requested';
+  }
+>[] {
   return content.flatMap((part) => {
     if (part.type !== 'tool-approval-request' || part.isAutomatic === true) {
       return [];
@@ -577,7 +567,6 @@ export function hostStepInteractions(
     ];
   });
 }
-
 /**
  * Discovery's own tools sit outside the permission catalog: legacy added them
  * after its permission gate, so its ask set never held them (approval-gate.ts).
@@ -585,7 +574,6 @@ export function hostStepInteractions(
 function isHostDiscoveryTool(run: HostRunState, toolId: string): boolean {
   return run.admission?.discovery?.toolIds.has(toolId) === true;
 }
-
 /** Keep revocation live while taking risk and executor identity from admission. */
 export function hostRunToolDecision(
   platform: HostPlatform,
@@ -594,7 +582,6 @@ export function hostRunToolDecision(
 ): Promise<'allow' | 'ask' | 'deny'> {
   return hostToolDecision(platform, run, hostRunTools(run), toolId);
 }
-
 /** `tools` is passed because admission decides before it retains the run's tools. */
 async function hostToolDecision(
   platform: HostPlatform,
@@ -626,7 +613,6 @@ async function hostToolDecision(
     registered.permissionToolId ?? toolId
   );
 }
-
 /**
  * One tool's decision under the saved policy and its thread's grants: a deny
  * (the tool's own, or its category's) wins, and the grants add to the rest.
@@ -653,12 +639,16 @@ export function hostPolicyDecision(
     yolo: policy.yolo,
   });
 }
-
 /** Callbacks retain the existing Core writer and dispatcher; this owns no effects. */
 export function createAdmittedHostSdkTools(
   run: HostRunState,
   dispatch: (
-    action: Extract<HostEvent, { type: 'effect.started' }>,
+    action: Extract<
+      HostEvent,
+      {
+        type: 'effect.started';
+      }
+    >,
     input: unknown
   ) => Promise<unknown>
 ): ToolSet {
@@ -687,14 +677,25 @@ export function createAdmittedHostSdkTools(
   const native = run.nativeWebSearch;
   return native ? { ...tools, [native.toolId]: native.tool } : tools;
 }
-
 /** Uses the existing Core-owned run; permission calculation has no log writer. */
 export async function decideHostSdkApproval(
   run: HostRunState,
   platform: HostPlatform,
-  call: { toolName: string; toolCallId: string; input: unknown; providerExecuted?: boolean }
+  call: {
+    toolName: string;
+    toolCallId: string;
+    input: unknown;
+    providerExecuted?: boolean;
+  }
 ): Promise<
-  'approved' | 'denied' | 'not-applicable' | 'user-approval' | { type: 'denied'; reason: string }
+  | 'approved'
+  | 'denied'
+  | 'not-applicable'
+  | 'user-approval'
+  | {
+      type: 'denied';
+      reason: string;
+    }
 > {
   run.controller.signal.throwIfAborted();
   // The provider already ran its own search; admission and each step's active
@@ -706,7 +707,12 @@ export async function decideHostSdkApproval(
   if (!registered) {
     throw new Error('Unknown tool');
   }
-  const action: Extract<HostEvent, { type: 'effect.started' }> = {
+  const action: Extract<
+    HostEvent,
+    {
+      type: 'effect.started';
+    }
+  > = {
     input: jsonValue(call.input),
     runId: run.id,
     ...(registered.permissionToolId ? { toolCatalogId: registered.permissionToolId } : {}),
@@ -766,7 +772,6 @@ export async function decideHostSdkApproval(
   run.permits.set(call.toolCallId, action);
   return 'approved';
 }
-
 /** One model step and its answerable interactions, committed together by Core. */
 export function hostModelStepEvents(run: HostRunState, step: StepResult<ToolSet>): HostEvent[] {
   // The same fields Hosted Web returns for a browser-recorded run (BST-1940).
@@ -783,7 +788,6 @@ export function hostModelStepEvents(run: HostRunState, step: StepResult<ToolSet>
     ...hostStepInteractions(run, step.content),
   ];
 }
-
 /** One committed admission batch; recovery reads the log rather than rereading references. */
 export function hostReferencedFileEvents(admission: HostRunAdmission, runId: string): HostEvent[] {
   if (!admission.referencedFileFailures?.length) {

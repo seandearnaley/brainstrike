@@ -1,5 +1,4 @@
-import { z } from 'zod';
-
+import { Schema } from 'effect';
 /**
  * The one failure shape that crosses a process boundary (Main, agent host,
  * renderer, hidden hosts). A `refusal` is a request understood and declined for
@@ -7,9 +6,8 @@ import { z } from 'zod';
  * `fault` is an operation that failed; its inner cause stays in the sender's log
  * under `correlationId` and never travels.
  *
- * zod, not Effect Schema: it is the agent-host protocol's library, and Effect
- * stays out of the renderer bundle, the preload and the tool guard
- * (docs/agents/effect-boundary.md). Effect-framed utility faults map in at Main.
+ * Effect Schema owns this wire grammar. Preload consumers use its types only;
+ * Effect-framed utility faults map in at Main (docs/agents/effect-boundary.md).
  */
 export const BOUNDARY_FAILURE_CATEGORIES = [
   'input',
@@ -20,14 +18,11 @@ export const BOUNDARY_FAILURE_CATEGORIES = [
   'timeout',
   'internal',
 ] as const;
-
 export type BoundaryFailureCategory = (typeof BOUNDARY_FAILURE_CATEGORIES)[number];
-
 /** A namespaced, stable code: `area.reason`, lower-case words joined by dashes. */
-const BoundaryFailureCode = z.union([
-  z.string().regex(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/),
-  // Existing native-index refusal codes are consumed by the Ready re-run seam.
-  z.enum([
+const BoundaryFailureCode = Schema.Union([
+  Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/)),
+  Schema.Literals([
     'EMBEDDING_DEVICE_LOST',
     'native-index-transitioning',
     'native-index-closed',
@@ -36,10 +31,9 @@ const BoundaryFailureCode = z.union([
     'native-index-source-failure',
   ]),
 ]);
-
 /** The facts of a lost child process; none of them is a path or a message. */
-const ProcessLostFacts = z.strictObject({
-  child: z.enum([
+const ProcessLostFacts = Schema.Struct({
+  child: Schema.Literals([
     'agent-host',
     'db-host',
     'index-utility',
@@ -47,30 +41,30 @@ const ProcessLostFacts = z.strictObject({
     'chunking-host',
     'parser-host',
   ]),
-  exitCode: z.number().int().optional(),
-  reason: z.string().min(1).max(64).optional(),
-  signal: z.string().min(1).max(32).optional(),
+  exitCode: Schema.optional(Schema.Int),
+  reason: Schema.optional(
+    Schema.String.check(Schema.isMinCodePoints(1)).check(Schema.isMaxCodePoints(64))
+  ),
+  signal: Schema.optional(
+    Schema.String.check(Schema.isMinCodePoints(1)).check(Schema.isMaxCodePoints(32))
+  ),
 });
-
-export type BoundaryChild = z.infer<typeof ProcessLostFacts>['child'];
-
-export const BoundaryFailureSchema = z.strictObject({
-  category: z.enum(BOUNDARY_FAILURE_CATEGORIES),
+export type BoundaryChild = (typeof ProcessLostFacts)['Type']['child'];
+export const BoundaryFailureSchema = Schema.Struct({
+  category: Schema.Literals(BOUNDARY_FAILURE_CATEGORIES),
   code: BoundaryFailureCode,
-  /** Links a fault to its inner cause in the sender's log. */
-  correlationId: z.string().uuid().optional(),
-  kind: z.enum(['refusal', 'fault']),
-  /** The typed text a user or model is shown. Never a raw error message. */
-  message: z.string().min(1).max(1000),
-  process: ProcessLostFacts.optional(),
-  /** Deliberate, secret-redacted provider response evidence, bounded at its producer. */
-  providerEvidence: z.string().min(1).max(600).optional(),
-  /** What the user can do about it, when there is something. */
-  remedy: z.string().min(1).max(500).optional(),
+  correlationId: Schema.optional(Schema.String.check(Schema.isUUID())),
+  kind: Schema.Literals(['refusal', 'fault']),
+  message: Schema.String.check(Schema.isMinCodePoints(1)).check(Schema.isMaxCodePoints(1000)),
+  process: Schema.optional(ProcessLostFacts),
+  providerEvidence: Schema.optional(
+    Schema.String.check(Schema.isMinCodePoints(1)).check(Schema.isMaxCodePoints(600))
+  ),
+  remedy: Schema.optional(
+    Schema.String.check(Schema.isMinCodePoints(1)).check(Schema.isMaxCodePoints(500))
+  ),
 });
-
-export type BoundaryFailure = z.infer<typeof BoundaryFailureSchema>;
-
+export type BoundaryFailure = (typeof BoundaryFailureSchema)['Type'];
 /** What a receiver shows for any failure that arrived untyped or malformed. */
 export const INTERNAL_FAULT: BoundaryFailure = Object.freeze({
   category: 'internal',
@@ -78,7 +72,6 @@ export const INTERNAL_FAULT: BoundaryFailure = Object.freeze({
   kind: 'fault',
   message: 'Something went wrong. The details were recorded in the diagnostic log.',
 });
-
 /**
  * Decode a failure as it arrived. Anything missing or malformed is the fixed
  * internal fault (`valid: false`, so the receiver logs what it got); its raw
@@ -88,12 +81,14 @@ export function decodeBoundaryFailure(wire: unknown): {
   readonly failure: BoundaryFailure;
   readonly valid: boolean;
 } {
-  const parsed = BoundaryFailureSchema.safeParse(wire);
-  return parsed.success
-    ? { failure: parsed.data, valid: true }
+  const parsed = Schema.decodeUnknownResult(BoundaryFailureSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(wire);
+  return parsed._tag === 'Success'
+    ? { failure: parsed.success, valid: true }
     : { failure: INTERNAL_FAULT, valid: false };
 }
-
 /** Text past the schema's bounds is cut, never refused: a long folder list still renders. */
 const bounded = <
   T extends Pick<BoundaryFailure, 'message'> & Partial<Pick<BoundaryFailure, 'remedy'>>,
@@ -104,21 +99,24 @@ const bounded = <
   message: failure.message.slice(0, 1000),
   ...(failure.remedy === undefined ? {} : { remedy: failure.remedy.slice(0, 500) }),
 });
-
 export function refusal(
   failure: Pick<BoundaryFailure, 'category' | 'code' | 'message'> &
     Partial<Pick<BoundaryFailure, 'remedy' | 'providerEvidence'>>
 ): BoundaryFailure {
-  return BoundaryFailureSchema.parse({ ...bounded(failure), kind: 'refusal' });
+  return Schema.decodeUnknownSync(BoundaryFailureSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({ ...bounded(failure), kind: 'refusal' });
 }
-
 export function fault(
   failure: Pick<BoundaryFailure, 'category' | 'code' | 'message'> &
     Partial<Pick<BoundaryFailure, 'correlationId' | 'remedy' | 'providerEvidence'>>
 ): BoundaryFailure {
-  return BoundaryFailureSchema.parse({ ...bounded(failure), kind: 'fault' });
+  return Schema.decodeUnknownSync(BoundaryFailureSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({ ...bounded(failure), kind: 'fault' });
 }
-
 const CHILD_NAMES: Readonly<Record<BoundaryChild, string>> = {
   'agent-host': 'The agent host',
   'chunking-host': 'The chunking host',
@@ -127,10 +125,12 @@ const CHILD_NAMES: Readonly<Record<BoundaryChild, string>> = {
   'index-utility': 'The index process',
   'parser-host': 'The parser host',
 };
-
 /** The cause a supervisor reports when its child exits without being asked. */
-export function processLost(facts: z.infer<typeof ProcessLostFacts>): BoundaryFailure {
-  return BoundaryFailureSchema.parse({
+export function processLost(facts: (typeof ProcessLostFacts)['Type']): BoundaryFailure {
+  return Schema.decodeUnknownSync(BoundaryFailureSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({
     category: 'availability',
     code: 'process.lost',
     kind: 'fault',
@@ -138,7 +138,6 @@ export function processLost(facts: z.infer<typeof ProcessLostFacts>): BoundaryFa
     process: facts,
   });
 }
-
 /**
  * A failure thrown inside one process on its way to a boundary. Its message is
  * the typed message; the inner cause rides `cause` and stays local.
@@ -146,15 +145,18 @@ export function processLost(facts: z.infer<typeof ProcessLostFacts>): BoundaryFa
 export class BoundaryFailureError extends Error {
   readonly failure: BoundaryFailure;
   readonly code: string;
-
-  constructor(failure: BoundaryFailure, options?: { readonly cause?: unknown }) {
+  constructor(
+    failure: BoundaryFailure,
+    options?: {
+      readonly cause?: unknown;
+    }
+  ) {
     super(failure.message, options);
     this.name = 'BoundaryFailureError';
     this.failure = failure;
     this.code = failure.code;
   }
 }
-
 /**
  * A typed refusal: the owner declined the work (closed, preparing, invalid
  * input), which callers report as unavailability rather than a fault.
@@ -162,7 +164,6 @@ export class BoundaryFailureError extends Error {
 export function isBoundaryRefusal(cause: unknown): cause is BoundaryFailureError {
   return cause instanceof BoundaryFailureError && cause.failure.kind === 'refusal';
 }
-
 /** A typed refusal ready to throw: `throw refusalError('conflict', 'run.already-active', '…')`. */
 export function refusalError(
   category: BoundaryFailureCategory,
@@ -174,11 +175,9 @@ export function refusalError(
     refusal({ category, code, message, ...(remedy === undefined ? {} : { remedy }) })
   );
 }
-
 export function isBoundaryFailureError(value: unknown): value is BoundaryFailureError {
   return value instanceof BoundaryFailureError;
 }
-
 /** Render only validated public failure fields; causes and stacks never participate. */
 export function describeBoundaryFailure(failure: BoundaryFailure): string {
   return [
@@ -191,7 +190,6 @@ export function describeBoundaryFailure(failure: BoundaryFailure): string {
     .filter((part) => part !== undefined)
     .join(' ');
 }
-
 export function describeBoundaryError(cause: unknown): string {
   return describeBoundaryFailure(
     cause instanceof BoundaryFailureError ? cause.failure : INTERNAL_FAULT

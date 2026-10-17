@@ -14,7 +14,6 @@ import type {
 import { isChunkingStrategy } from '@brainstrike/text-splitter';
 import { Schema } from 'effect';
 import { hostedEmbeddingFailure } from './hosted-embedding-error';
-
 export const CANONICAL_CHANNEL = 'canonical-ingestion-v1';
 export const MAX_CANONICAL_MESSAGE_BYTES = 32 * 1024 * 1024;
 export const MAX_CANONICAL_PENDING = 64;
@@ -474,7 +473,10 @@ export interface CanonicalFault {
   readonly name: string;
 }
 const boundaryFailureSchema = Schema.declare(
-  (input: unknown): input is BoundaryFailure => BoundaryFailureSchema.safeParse(input).success
+  (input: unknown): input is BoundaryFailure =>
+    Schema.decodeUnknownResult(BoundaryFailureSchema, { errors: 'all', onExcessProperty: 'error' })(
+      input
+    )._tag === 'Success'
 );
 export const faultSchema: Schema.Codec<CanonicalFault> = Schema.Struct({
   cause: Schema.optionalKey(Schema.suspend(() => faultSchema)),
@@ -545,7 +547,14 @@ export function canonicalFault(
   const failure =
     error instanceof BoundaryFailureError ? error.failure : hostedEmbeddingFailure(error);
   return {
-    ...(failure === undefined ? {} : { failure: BoundaryFailureSchema.parse(failure) }),
+    ...(failure === undefined
+      ? {}
+      : {
+          failure: Schema.decodeUnknownSync(BoundaryFailureSchema, {
+            errors: 'all',
+            onExcessProperty: 'error',
+          })(failure),
+        }),
     ...(error instanceof Error && error.cause !== undefined
       ? { cause: canonicalFault(error.cause, visited) }
       : {}),

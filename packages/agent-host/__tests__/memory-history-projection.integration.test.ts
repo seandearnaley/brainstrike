@@ -34,8 +34,8 @@ import rich from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json
   type: 'json',
 };
 import type { MastraDBMessage } from '@mastra/core/agent';
+import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
-import { z } from 'zod';
 import { committedMemoryTranscript } from '../src/adapters/committed-memory-transcript.js';
 import { StateStoreMemoryStorage } from '../src/adapters/memory-storage.js';
 import {
@@ -161,7 +161,10 @@ test("a run's projected history equals the store's decoded rows, at commit and a
   });
   // Recorded runtime rows reach Core through hydration.
   for (const recording of recordings) {
-    const rows = z.array(HostLogRowSchema).parse(recording);
+    const rows = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(recording);
     await store.append(rows.map((row) => storedHostEvent(row.threadId, row.event)));
   }
 

@@ -14,6 +14,7 @@ import {
 } from '@brainstrike/host-lease';
 import { processStartTime, RootLock, RootLockedError, StateStore } from '@brainstrike/state-store';
 import { modelMessageSchema } from 'ai';
+import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import { attachAgentHost, type HostClient } from '../src/client.js';
@@ -401,16 +402,17 @@ windowsTest(
     // The answerable approval commits before the SDK consumer necessarily drains.
     // This first owner's platform.close snapshot follows Core's joined run tasks,
     // while its same StateStore is still open; no second writer captures history.
-    const drained = z
-      .array(HostLogRowSchema)
-      .parse(
-        JSON.parse(
-          await readFile(
-            join(root, `drained-history-${first.host.identity.pid}-${threadId}.json`),
-            'utf8'
-          )
+    const drained = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(
+      JSON.parse(
+        await readFile(
+          join(root, `drained-history-${first.host.identity.pid}-${threadId}.json`),
+          'utf8'
         )
-      );
+      )
+    );
     expect(drained.slice(0, before.length)).toEqual(before);
     expect(
       drained.flatMap((row) => (row.event.type === 'interaction.requested' ? [row.event] : []))

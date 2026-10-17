@@ -5,10 +5,10 @@ import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
 import type { ManagedWorktreeRow } from '@brainstrike/types';
+import { Schema } from 'effect';
 
 type BindingRequest = Parameters<NonNullable<HostPlatform['validateWorkspaceBinding']>>[0];
 type RuntimeWorkspaceRoot = NonNullable<RuntimeData['workspaceRoots']>[number];
-
 export interface DesktopWorkspaceBindingDependencies {
   borrowRoot(root: RuntimeWorkspaceRoot): Promise<CanonicalWorkspaceLease>;
   /** The catalog's display name for each id it still records, live or not. */
@@ -16,15 +16,12 @@ export interface DesktopWorkspaceBindingDependencies {
   readRoots(): Promise<readonly RuntimeWorkspaceRoot[]>;
   readWorktree(id: string): Promise<ManagedWorktreeRow | null>;
 }
-
 /** A thread folder the workspace no longer serves, named when the catalog still knows it. */
 export interface RemovedThreadRoot {
   readonly displayName?: string;
   readonly rootId: string;
 }
-
 const FOLDER_LIST = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' });
-
 function removedRootsMessage(roots: readonly RemovedThreadRoot[]): string {
   const named = roots.flatMap((root) => (root.displayName ? [`"${root.displayName}"`] : []));
   const unnamed = roots.length - named.length;
@@ -40,7 +37,6 @@ function removedRootsMessage(roots: readonly RemovedThreadRoot[]): string {
     ? `The folder ${list} was removed from the workspace. Re-add it, or remove it from this thread in the composer's folder menu.`
     : `The folders ${list} were removed from the workspace. Re-add them, or remove them from this thread in the composer's folder menu.`;
 }
-
 /**
  * BST-1990: the thread's binding names folders the workspace no longer serves.
  * Every bound folder must be live, so the run or binding write is refused; the
@@ -48,7 +44,6 @@ function removedRootsMessage(roots: readonly RemovedThreadRoot[]): string {
  */
 export class ThreadRootsRemovedError extends BoundaryFailureError {
   override readonly name = 'ThreadRootsRemovedError';
-
   constructor(readonly roots: readonly RemovedThreadRoot[]) {
     super(
       refusal({
@@ -59,29 +54,24 @@ export class ThreadRootsRemovedError extends BoundaryFailureError {
     );
   }
 }
-
 export interface DesktopWorkspaceBindingBorrow {
   close(): Promise<void>;
   revalidate(signal: AbortSignal): Promise<void>;
   readonly roots: readonly RuntimeWorkspaceRoot[];
 }
-
 /** Borrows the existing catalog and pinned mount; owns no root, grant or writer. */
 export class DesktopWorkspaceBindingAuthority {
   private readonly stopping = new AbortController();
   private readonly pending = new Set<Promise<unknown>>();
   private readonly borrows = new Set<() => Promise<void>>();
   private closing: Promise<void> | undefined;
-
   constructor(private readonly dependencies: DesktopWorkspaceBindingDependencies) {}
-
   readonly validateWorkspaceBinding: NonNullable<HostPlatform['validateWorkspaceBinding']> = async (
     request
   ) => {
     const borrowed = await this.acquire(request);
     await borrowed.close();
   };
-
   acquire(request: BindingRequest): Promise<DesktopWorkspaceBindingBorrow> {
     const signal = AbortSignal.any([request.signal, this.stopping.signal]);
     signal.throwIfAborted();
@@ -93,7 +83,6 @@ export class DesktopWorkspaceBindingAuthority {
     work.then(settled, settled);
     return work;
   }
-
   close(): Promise<void> {
     this.stopping.abort(new Error('Desktop workspace binding owner is closing'));
     this.closing ??= (async () => {
@@ -109,9 +98,11 @@ export class DesktopWorkspaceBindingAuthority {
     })();
     return this.closing;
   }
-
   private async acquireOwned(request: BindingRequest): Promise<DesktopWorkspaceBindingBorrow> {
-    const binding = ThreadWorkspaceBindingSchema.parse(request.binding);
+    const binding = Schema.decodeUnknownSync(ThreadWorkspaceBindingSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(request.binding);
     if (binding.checkoutMode && !binding.operatingRootId) {
       throw new Error('Checkout requires a committed operating root');
     }

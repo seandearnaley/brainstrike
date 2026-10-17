@@ -20,14 +20,13 @@ import {
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
 import { DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW } from '@brainstrike/assistant-contract/context-budget';
-import type { z } from 'zod';
+import { Schema } from 'effect';
 import type { DesktopAdmissionReads, DesktopRunSelection } from './desktop-run-admission';
 import type { DesktopMemoryVectorSelection } from './memory-vector-selection';
 import {
   PlatformClientConfigurationSchema,
   type PlatformModelConfigurationSchema,
 } from './platform-wire';
-
 /**
  * A desktop run's preconditions (BST-1930 stage e): the catalog model, the
  * captured intent, the observer the memory settings resolve to, and the
@@ -38,11 +37,10 @@ export interface DesktopCatalogSelection {
   readonly model: string;
   readonly provider: SupportedProvider;
 }
-
 export function desktopInputTokenLimit(
   definition: DesktopCatalogSelection['definition'],
-  intent: z.output<typeof PlatformClientConfigurationSchema>,
-  configuration: z.output<typeof PlatformModelConfigurationSchema>
+  intent: (typeof PlatformClientConfigurationSchema)['Type'],
+  configuration: (typeof PlatformModelConfigurationSchema)['Type']
 ): number {
   const limit =
     intent.agentLoop?.inputTokenLimit ??
@@ -56,7 +54,6 @@ export function desktopInputTokenLimit(
   }
   return limit;
 }
-
 /**
  * Ollama and LM Studio models are discovered live from the local server: the
  * picker offers exactly what the runtime lists, and neither the models table
@@ -75,7 +72,6 @@ function localRuntimeModelDefinition(model: string): DesktopCatalogSelection['de
     vision: 'unknown',
   };
 }
-
 export async function readDesktopCatalogSelection(
   reads: DesktopAdmissionReads,
   modelId: string,
@@ -107,19 +103,19 @@ export async function readDesktopCatalogSelection(
   }
   return { definition, model, provider };
 }
-
 export async function readDesktopIntent(
   request: HostRunIntentRequest,
   catalog: DesktopCatalogSelection,
   readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>,
   readCliOwnerIntent?: DesktopAdmissionReads['cliOwnerIntent']
-): Promise<z.output<typeof PlatformClientConfigurationSchema>> {
+): Promise<(typeof PlatformClientConfigurationSchema)['Type']> {
   const workspaceInput = readCliWorkspaceRunInput(request.configuration);
   if (workspaceInput) {
     if (request.snapshot) {
-      const committed = PlatformClientConfigurationSchema.parse(
-        request.snapshot.configuration['intent']
-      );
+      const committed = Schema.decodeUnknownSync(PlatformClientConfigurationSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(request.snapshot.configuration['intent']);
       if (!isDeepStrictEqual(committed.cliWorkspace, workspaceInput.workspace)) {
         throw new Error('CLI workspace recovery does not match its committed selection');
       }
@@ -139,15 +135,24 @@ export async function readDesktopIntent(
         '[ERR_CLI_WORKSPACE_OWNER_INTENT_UNAVAILABLE] The full intent owner supplied no CLI intent'
       );
     }
-    return PlatformClientConfigurationSchema.parse(
+    return Schema.decodeUnknownSync(PlatformClientConfigurationSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(
       materializeCliWorkspaceIntent(
-        PlatformClientConfigurationSchema.parse(ownerIntent),
+        Schema.decodeUnknownSync(PlatformClientConfigurationSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(ownerIntent),
         workspaceInput.workspace
       )
     );
   }
   const captured = request.configuration ?? request.snapshot?.configuration['intent'];
-  return PlatformClientConfigurationSchema.parse(
+  return Schema.decodeUnknownSync(PlatformClientConfigurationSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(
     captured ?? {
       enabledNativeToolIds: DESKTOP_NATIVE_TOOLS.map((tool) => tool.id),
       memoryOptions: {
@@ -168,7 +173,6 @@ export async function readDesktopIntent(
     }
   );
 }
-
 /** The chat provider's own auto-observer candidates, in preference order (never another provider). */
 export function autoObserverCandidates(provider: string): readonly string[] {
   return listAutoObservationalMemoryCandidates({
@@ -176,7 +180,6 @@ export function autoObserverCandidates(provider: string): readonly string[] {
     providersWithKeys: [provider],
   });
 }
-
 /**
  * The auto-observer candidates the model catalog has enabled: provider and
  * model rows enabled and the model an LLM, the gate the memory settings
@@ -192,11 +195,10 @@ async function readEnabledObserverCandidates(
   }
   return new Set(await reads.enabledObservers(candidates, signal));
 }
-
 /** A disabled observer resolves no target, so the catalog is read only for an enabled auto one. */
 export function readEnabledObservers(
   reads: DesktopAdmissionReads,
-  intent: z.output<typeof PlatformClientConfigurationSchema>,
+  intent: (typeof PlatformClientConfigurationSchema)['Type'],
   provider: string,
   signal: AbortSignal
 ): Promise<ReadonlySet<string>> {
@@ -205,13 +207,12 @@ export function readEnabledObservers(
     ? readEnabledObserverCandidates(reads, autoObserverCandidates(provider), signal)
     : Promise.resolve(new Set());
 }
-
 export function resolveDesktopMemorySettings(
-  intent: z.output<typeof PlatformClientConfigurationSchema>,
+  intent: (typeof PlatformClientConfigurationSchema)['Type'],
   provider: string,
   enabledObservers: ReadonlySet<string>
 ): {
-  memorySettings: z.output<typeof PlatformClientConfigurationSchema>['memorySettings'];
+  memorySettings: (typeof PlatformClientConfigurationSchema)['Type']['memorySettings'];
   observerTarget: string | null;
 } {
   const observation = intent.memorySettings.observationalMemory;
@@ -230,16 +231,15 @@ export function resolveDesktopMemorySettings(
   };
   return { memorySettings, observerTarget };
 }
-
 /**
  * The admitted Memory selection. Observations wait when 'auto' resolved no
  * observer, for the reason legacy's settings resolver gives: the chat provider
  * has no auto candidate, or none of its candidates is enabled in the catalog.
  */
 export function desktopMemorySelection(
-  intent: z.output<typeof PlatformClientConfigurationSchema>,
+  intent: (typeof PlatformClientConfigurationSchema)['Type'],
   provider: string,
-  settings: z.output<typeof PlatformClientConfigurationSchema>['memorySettings'],
+  settings: (typeof PlatformClientConfigurationSchema)['Type']['memorySettings'],
   observerTarget: string | null,
   vectors: DesktopMemoryVectorSelection | undefined
 ): DesktopRunSelection['memory'] {

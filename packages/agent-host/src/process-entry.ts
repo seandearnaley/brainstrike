@@ -14,7 +14,7 @@ import {
   RootLock,
   RootLockedError,
 } from '@brainstrike/state-store';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import {
   type HostPlatformLaunchOptions,
   HostPlatformLaunchOptionsSchema,
@@ -22,13 +22,11 @@ import {
 import type { HostPlatform } from './ports.js';
 import { isProcessEntrypoint } from './process-entrypoint.js';
 import { type AgentHost, type HostStartupContext, startAgentHost } from './runtime.js';
-
 export type HostPlatformFactory = (
   options: HostStartOptions,
   context: HostStartupContext,
   platformOptions?: HostPlatformLaunchOptions
 ) => HostPlatform | Promise<HostPlatform>;
-
 /** Launcher control only; client commands still use the authenticated JSON-RPC schema. */
 export interface HostProcessParent {
   listen(cancel: () => void): () => void;
@@ -36,9 +34,10 @@ export interface HostProcessParent {
   /** The launching parent may bind private client transports once Core is open. */
   started?(host: AgentHost): void;
 }
-
-const Factory = z.custom<HostPlatformFactory>((value: unknown) => typeof value === 'function');
-const Platform = z.custom<HostPlatform>((value: unknown) => {
+const Factory = Schema.declare(
+  (value: unknown): value is HostPlatformFactory => typeof value === 'function'
+);
+const Platform = Schema.declare((value: unknown): value is HostPlatform => {
   if (!(value && typeof value === 'object')) {
     return false;
   }
@@ -59,7 +58,6 @@ const Platform = z.custom<HostPlatform>((value: unknown) => {
         value.maxSteps > 0))
   );
 });
-
 /** Explicit trusted composition module. Its credentials/capabilities stay in this process. */
 export async function loadHostPlatform(
   modulePath: string,
@@ -71,10 +69,13 @@ export async function loadHostPlatform(
   if (!(module && typeof module === 'object' && 'createHostPlatform' in module)) {
     throw new Error('Configured host module must export createHostPlatform');
   }
-  const factory = Factory.parse(module.createHostPlatform);
-  return Platform.parse(await factory(options, context, platformOptions));
+  const factory = Schema.decodeUnknownSync(Factory, { errors: 'all', onExcessProperty: 'error' })(
+    module.createHostPlatform
+  );
+  return Schema.decodeUnknownSync(Platform, { errors: 'all', onExcessProperty: 'error' })(
+    await factory(options, context, platformOptions)
+  );
 }
-
 async function report(message: StartupMessage): Promise<void> {
   if (!(process.send && process.connected)) {
     return;
@@ -83,7 +84,6 @@ async function report(message: StartupMessage): Promise<void> {
     process.send?.(message, (error: Error | null) => (error ? reject(error) : done()));
   });
 }
-
 async function reportProcessFailures(
   failures: readonly unknown[],
   root: string | undefined,
@@ -118,7 +118,6 @@ async function reportProcessFailures(
   }
   throw cause;
 }
-
 /** The same Node entry serves socket clients and an optional transparent stdio transport. */
 export async function runAgentHostProcess(
   args: readonly string[],
@@ -193,7 +192,10 @@ export async function runAgentHostProcess(
     const platformOptions =
       privateArgs.length === 0
         ? undefined
-        : HostPlatformLaunchOptionsSchema.parse(JSON.parse(privateArgs[1] ?? 'null'));
+        : Schema.decodeUnknownSync(HostPlatformLaunchOptionsSchema, {
+            errors: 'all',
+            onExcessProperty: 'error',
+          })(JSON.parse(privateArgs[1] ?? 'null'));
     host = await startAgentHost(
       options,
       (context) => loadHostPlatform(modulePath, options, context, platformOptions),
@@ -242,7 +244,6 @@ export async function runAgentHostProcess(
   }
   await reportProcessFailures(failures, root, publish);
 }
-
 if (isProcessEntrypoint(import.meta.url)) {
   runAgentHostProcess(process.argv.slice(2)).catch((cause: unknown) => {
     process.exitCode = 1;

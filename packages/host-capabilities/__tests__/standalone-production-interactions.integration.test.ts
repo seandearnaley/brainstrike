@@ -13,6 +13,7 @@ import plan from '@brainstrike/test-utils/fixtures/committed-host-plan.json' wit
 import question from '@brainstrike/test-utils/fixtures/committed-host-question.json' with {
   type: 'json',
 };
+import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 
@@ -32,18 +33,19 @@ const STANDALONE_NATIVE_TOOL_IDS = [
   NATIVE_TOOL_ID.findWorkspaceSymbol,
   NATIVE_TOOL_ID.readToolOutputArtifact,
 ];
-
 const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
 const httpFixture = new URL('./fixtures/standalone-production-http.mjs', import.meta.url).href;
 const roots: string[] = [];
-
 interface OfflineInteraction {
   readonly kind: 'question' | 'plan';
   readonly receipt: string;
 }
-
 function command(dataRoot: string, args: readonly string[], http: OfflineInteraction) {
-  return new Promise<{ code: number; stderr: string; stdout: string }>((resolve, reject) => {
+  return new Promise<{
+    code: number;
+    stderr: string;
+    stdout: string;
+  }>((resolve, reject) => {
     execFile(
       process.execPath,
       [bin, '--data-root', dataRoot, ...args],
@@ -74,25 +76,21 @@ function command(dataRoot: string, args: readonly string[], http: OfflineInterac
     );
   });
 }
-
 async function owner(dataRoot: string) {
   return decodeHostRecord(JSON.parse(await readFile(join(dataRoot, 'host.json'), 'utf8')));
 }
-
 async function receipts(http: OfflineInteraction) {
   return (await readFile(http.receipt, 'utf8'))
     .trim()
     .split('\n')
     .map((line) => z.record(z.string(), z.json()).parse(JSON.parse(line)));
 }
-
 async function stop(dataRoot: string, http: OfflineInteraction) {
   const selected = await owner(dataRoot);
   expect(await command(dataRoot, ['host', 'stop'], http)).toMatchObject({ code: 0 });
   expect(RootLock.inspect(dataRoot)?.owner.released).toBe(true);
   await expect.poll(() => processStartTime(selected.pid)).toBeNull();
 }
-
 afterEach(async () => {
   for (const dataRoot of roots.splice(0)) {
     const selected = RootLock.inspect(dataRoot)?.owner;
@@ -102,13 +100,14 @@ afterEach(async () => {
     await removeFixtureRoot(dataRoot);
   }
 });
-
 async function readRows(dataRoot: string, threadId: string, http: OfflineInteraction) {
   const result = await command(dataRoot, ['threads', 'show', '--thread', threadId], http);
   expect(result).toMatchObject({ code: 0, stderr: '' });
-  return HOST_RESULT_SCHEMAS['thread/read'].parse(JSON.parse(result.stdout)).rows;
+  return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/read'], {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(JSON.parse(result.stdout)).rows;
 }
-
 test.each(
   [
     { kind: 'question' as const, output: { answer: 'Local' }, resumeData: { answer: 'Local' } },
@@ -136,9 +135,10 @@ test.each(
     const execute = (args: readonly string[]) => command(dataRoot, args, http);
     expect(await execute(['host', 'start'])).toMatchObject({ code: 0, stderr: '' });
     const firstOwner = await owner(dataRoot);
-    const recordedRows = HostLogRowSchema.array().parse(
-      fixture.kind === 'question' ? question : plan
-    );
+    const recordedRows = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(fixture.kind === 'question' ? question : plan);
     const recorded = recordedRows.find(
       ({ event }) => event.type === 'interaction.requested'
     )?.event;

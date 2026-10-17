@@ -5,16 +5,47 @@
     "outDir": "dist",
     "rootDir": "src",
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
-    "types": ["node"],
-    "lib": ["ESNext", "DOM"]
+    "types": [
+      "node"
+    ],
+    "lib": [
+      "ESNext",
+      "DOM"
+    ],
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "diagnosticSeverity": {
+          "apiStabilityLeak": "error",
+          "experimentalApiUsage": "error",
+          "unstableApiUsage": "error"
+        }
+      }
+    ]
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["dist", "node_modules", "__tests__"],
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "__tests__"
+  ],
   "references": [
-    { "path": "../assistant-contract" },
-    { "path": "../host-lease" },
-    { "path": "../indexer" },
-    { "path": "../state-store" },
-    { "path": "../types" }
+    {
+      "path": "../assistant-contract"
+    },
+    {
+      "path": "../host-lease"
+    },
+    {
+      "path": "../indexer"
+    },
+    {
+      "path": "../state-store"
+    },
+    {
+      "path": "../types"
+    }
   ]
 }

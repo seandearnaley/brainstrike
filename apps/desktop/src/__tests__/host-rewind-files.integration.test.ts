@@ -8,6 +8,7 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HostLogRow, HostTurnSnapshot } from '@brainstrike/agent-host/protocol';
+import { Schema } from 'effect';
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { createHostRewindFiles } from '../agent-host-platform/host-rewind-files';
 import { execFileSnapshotGitRunner } from '../assistant-server/snapshot-git';
@@ -16,28 +17,22 @@ import { createSnapshotService, type SnapshotService } from '../assistant-server
 const THREAD = 'host-rewind-thread';
 const ROOT_ID = 'root-1';
 const HEAVY_TIMEOUT_MS = 60_000;
-
 let root: string;
 let shadow: string;
 let service: SnapshotService;
-
 beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), 'bs-host-rewind-root-')));
   shadow = await realpath(await mkdtemp(join(tmpdir(), 'bs-host-rewind-shadow-')));
   service = createSnapshotService({ runner: execFileSnapshotGitRunner, snapshotsBaseDir: shadow });
   reindexed = [];
 });
-
 afterEach(async () => {
   await rm(root, { force: true, recursive: true });
   await rm(shadow, { force: true, recursive: true });
 });
-
 const read = (name: string) => readFile(join(root, name), 'utf8').catch(() => null);
-
 /** Every reindex action the restores feed, in order. */
 let reindexed: string[] = [];
-
 function owner(mounted = true) {
   return createHostRewindFiles({
     refreshWorkspaceIndex: async (rootId) => {
@@ -52,7 +47,6 @@ function owner(mounted = true) {
     snapshots: () => service,
   });
 }
-
 /** The target turn: notes at v1; then the run rewrites notes and creates a file. */
 async function turn() {
   await writeFile(join(root, 'notes.txt'), 'v1\n');
@@ -66,7 +60,6 @@ async function turn() {
   await writeFile(join(root, 'made.txt'), 'made by the run\n');
   return [{ commitOid, rootId: ROOT_ID, rootPath: root }];
 }
-
 test('a rewind restores the turn, refuses drift until acknowledged, and redo undoes it from its pre-revert snapshot alone', {
   timeout: HEAVY_TIMEOUT_MS,
 }, async () => {
@@ -78,7 +71,6 @@ test('a rewind restores the turn, refuses drift until acknowledged, and redo und
   expect(await files.drift({ previewId, threadId: THREAD })).toEqual([
     { path: 'late.txt', rootId: ROOT_ID },
   ]);
-
   const outcomes = await files.apply({
     previewId,
     rewindId: 'rewind-1',
@@ -99,7 +91,6 @@ test('a rewind restores the turn, refuses drift until acknowledged, and redo und
   reindexed = [];
   // A preview binds one apply.
   await expect(files.drift({ previewId, threadId: THREAD })).rejects.toThrow('preview-required');
-
   // A fresh owner (a restart) finds the pre-revert snapshot by the rewind's ID alone.
   const restarted = owner();
   expect(
@@ -111,7 +102,6 @@ test('a rewind restores the turn, refuses drift until acknowledged, and redo und
   expect(await read('late.txt')).toBe('written after the preview\n');
   expect(reindexed).toEqual([ROOT_ID]);
 });
-
 test('a redo names paths changed after the rewind, and forces only those acknowledged', {
   timeout: HEAVY_TIMEOUT_MS,
 }, async () => {
@@ -120,7 +110,6 @@ test('a redo names paths changed after the rewind, and forces only those acknowl
   const { previewId } = await files.preview({ targets, threadId: THREAD });
   await files.apply({ previewId, rewindId: 'rewind-1', targets, threadId: THREAD });
   await writeFile(join(root, 'notes.txt'), 'edited after the rewind\n');
-
   const request = { rewindId: 'rewind-1', targets, threadId: THREAD };
   const conflicts = await files.redoConflicts(request);
   expect(conflicts).toEqual([{ path: 'notes.txt', rootId: ROOT_ID }]);
@@ -134,7 +123,6 @@ test('a redo names paths changed after the rewind, and forces only those acknowl
   await files.redo({ ...request, acknowledged: conflicts });
   expect(await read('notes.txt')).toBe('v2\n');
 });
-
 test('an unmounted root, an unknown preview, or a missing pre-revert snapshot refuses visibly', {
   timeout: HEAVY_TIMEOUT_MS,
 }, async () => {
@@ -150,7 +138,6 @@ test('an unmounted root, an unknown preview, or a missing pre-revert snapshot re
   ).rejects.toThrow('snapshot-missing');
   expect(await read('notes.txt')).toBe('v2\n');
 });
-
 test('startup GC preserves an outstanding host redo target older than the retention ring', {
   timeout: HEAVY_TIMEOUT_MS,
 }, async () => {
@@ -172,7 +159,7 @@ test('startup GC preserves an outstanding host redo target older than the retent
       targets.push(capture);
     }
     rows.push(
-      HostLogRowSchema.parse({
+      Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
         event: {
           boundary: 'turn-start',
           roots: [capture],
@@ -188,7 +175,7 @@ test('startup GC preserves an outstanding host redo target older than the retent
   const { previewId } = await files.preview({ targets, threadId: THREAD });
   const rewindId = 'pending-old-turn';
   rows.push(
-    HostLogRowSchema.parse({
+    Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
       event: {
         commandId: 'rewind-command',
         headId: null,

@@ -1,4 +1,5 @@
 import type { ForgeCachePort } from '@brainstrike/state-store';
+import { Schema } from 'effect';
 /**
  * `requireGh` behavior: gh install/auth detection, session memoization, the
  * R2 probe-rate bound, and R3's never-reject settlement. Split out of
@@ -17,7 +18,6 @@ import {
 
 const ROOT_ID = 'root-1';
 const COMMON_DIR = '/repos/widgets/.git';
-
 const prJson = (overrides: Record<string, unknown> = {}): string =>
   JSON.stringify([
     {
@@ -34,7 +34,6 @@ const prJson = (overrides: Record<string, unknown> = {}): string =>
       ...overrides,
     },
   ]);
-
 function resolver(
   overrides: Partial<{
     branch: string | null;
@@ -58,9 +57,10 @@ function resolver(
     },
   });
 }
-
 /** In-memory stand-in for `brainstrike_forge_prs`, keyed like the real PK. */
-function fakeDatabase(): ForgeCachePort & { readonly rows: Map<string, unknown> } {
+function fakeDatabase(): ForgeCachePort & {
+  readonly rows: Map<string, unknown>;
+} {
   const rows = new Map<string, unknown>();
   return {
     forgeCache: async (request) => {
@@ -68,40 +68,46 @@ function fakeDatabase(): ForgeCachePort & { readonly rows: Map<string, unknown> 
       if (request.operation === 'write') {
         rows.set(key, { observedAt: request.observedAt, pullRequest: request.pullRequest });
       }
-      return ForgeCacheReplySchema.parse({ entry: rows.get(key) ?? null });
+      return Schema.decodeUnknownSync(ForgeCacheReplySchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })({ entry: rows.get(key) ?? null });
     },
     forgeCacheSnapshot: async () => [],
     rows,
   };
 }
-
 function ghRunner(byCommand: Readonly<Record<string, ForgeCommandRun>>): ForgeCommandRunner {
   return vi.fn(async ({ args }) => {
     const key = args[0] === 'pr' ? 'pr' : (args[0] ?? '');
     return byCommand[key] ?? { exitCode: 1, stderr: `unstubbed gh ${args.join(' ')}`, stdout: '' };
   });
 }
-
 /** Count of invocations of a mocked `ForgeCommandRunner` whose first arg matches. */
 function countArgCalls(run: ForgeCommandRunner, firstArg: string): number {
   return (
-    run as unknown as { mock: { calls: readonly [{ args: readonly string[] }][] } }
+    run as unknown as {
+      mock: {
+        calls: readonly [
+          {
+            args: readonly string[];
+          },
+        ][];
+      };
+    }
   ).mock.calls.filter(([params]) => params.args[0] === firstArg).length;
 }
-
 const HEALTHY_GH: Readonly<Record<string, ForgeCommandRun>> = {
   '--version': { exitCode: 0, stderr: '', stdout: 'gh version 2.60.0' },
   auth: { exitCode: 0, stderr: '', stdout: '' },
   pr: { exitCode: 0, stderr: '', stdout: prJson() },
 };
-
 describe('createForgeService — gh detection/auth probing (requireGh)', () => {
   let clock = 1_000_000;
   beforeEach(() => {
     clock = 1_000_000;
   });
   const now = () => clock;
-
   it('promotes an unlabelled enterprise host once gh authenticates for it', async () => {
     const run = ghRunner(HEALTHY_GH);
     const service = createForgeService({
@@ -117,7 +123,6 @@ describe('createForgeService — gh detection/auth probing (requireGh)', () => {
       expect.objectContaining({ args: ['auth', 'status', '--hostname', 'git.acme.internal'] })
     );
   });
-
   it('is unavailable with an install hint when gh is missing, and probes only once across repeated refreshes', async () => {
     const run: ForgeCommandRunner = vi.fn(async () => ({
       exitCode: null,
@@ -139,7 +144,6 @@ describe('createForgeService — gh detection/auth probing (requireGh)', () => {
     );
     expect(run).toHaveBeenCalledTimes(1);
   });
-
   it('never spawns gh on a pure prStatus read, even when gh is missing (R2a)', async () => {
     const run: ForgeCommandRunner = vi.fn(async () => ({
       exitCode: null,
@@ -158,7 +162,6 @@ describe('createForgeService — gh detection/auth probing (requireGh)', () => {
     expect(status.ok && status.value.kind).toBe('unknown');
     expect(run).not.toHaveBeenCalled();
   });
-
   it('never spawns gh on a pure prStatus read while unauthenticated (R2a)', async () => {
     const run: ForgeCommandRunner = vi.fn(async ({ args }) =>
       args[0] === 'auth'
@@ -175,7 +178,6 @@ describe('createForgeService — gh detection/auth probing (requireGh)', () => {
     await service.prStatus(ROOT_ID);
     expect(run).not.toHaveBeenCalled();
   });
-
   it('serves a failed auth probe from cache for 30s instead of re-spawning gh, across two window refreshes (R2b)', async () => {
     const run: ForgeCommandRunner = vi.fn(async ({ args }) =>
       args[0] === 'auth'
@@ -194,7 +196,6 @@ describe('createForgeService — gh detection/auth probing (requireGh)', () => {
     await service.refresh(ROOT_ID, 'window');
     expect(countArgCalls(run, 'auth')).toBe(1);
   });
-
   it('re-probes auth once the failure TTL has elapsed (R2b)', async () => {
     const run: ForgeCommandRunner = vi.fn(async ({ args }) =>
       args[0] === 'auth'
@@ -213,7 +214,6 @@ describe('createForgeService — gh detection/auth probing (requireGh)', () => {
     await service.refresh(ROOT_ID, 'invalidation');
     expect(countArgCalls(run, 'auth')).toBe(2);
   });
-
   it('never rejects when the command runner itself throws, and recovers on the next healthy user refresh (R3)', async () => {
     let shouldReject = true;
     const run: ForgeCommandRunner = vi.fn(async ({ args }) => {
@@ -238,12 +238,10 @@ describe('createForgeService — gh detection/auth probing (requireGh)', () => {
     const first = await service.refresh(ROOT_ID, 'user');
     expect(first.ok).toBe(true);
     expect(first.ok && first.value.kind).toBe('unavailable');
-
     shouldReject = false;
     const recovered = await service.refresh(ROOT_ID, 'user');
     expect(recovered.ok && recovered.value.kind).toBe('pr');
   });
-
   it('recovers from a cached gh-unauthenticated failure on an explicit user refresh', async () => {
     const authQueue: ForgeCommandRun[] = [
       { exitCode: 1, stderr: 'You are not logged into any GitHub hosts.', stdout: '' },
@@ -272,7 +270,6 @@ describe('createForgeService — gh detection/auth probing (requireGh)', () => {
     const second = await service.refresh(ROOT_ID, 'user');
     expect(second.ok && second.value.kind).toBe('pr');
   });
-
   it('does not re-probe a cached successful auth on window/invalidation refreshes', async () => {
     const run = ghRunner(HEALTHY_GH);
     const service = createForgeService({

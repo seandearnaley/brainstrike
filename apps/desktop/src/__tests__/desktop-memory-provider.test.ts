@@ -1,6 +1,7 @@
 // @vitest-environment node
 import type { ProductionHostRunConfiguration } from '@brainstrike/agent-host';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract';
+import { Schema } from 'effect';
 import { afterEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { createDesktopHostMemoryConfiguration } from '../agent-host-platform/memory-model-configuration';
@@ -29,12 +30,10 @@ async function invokeObserver(memory: ProductionHostRunConfiguration['memory']):
     ],
   });
 }
-
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
-
 test.each(['openai', 'anthropic', 'google', 'openrouter'] as const)(
   'the configured %s observer sends its selected credential through the real SDK',
   async (provider) => {
@@ -47,7 +46,11 @@ test.each(['openai', 'anthropic', 'google', 'openrouter'] as const)(
     ]) {
       vi.stubEnv(name, 'synthetic-unselected-ambient-key');
     }
-    const captures: { body: Record<string, unknown>; headers: Headers; url: URL }[] = [];
+    const captures: {
+      body: Record<string, unknown>;
+      headers: Headers;
+      url: URL;
+    }[] = [];
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
       captures.push({
@@ -59,7 +62,10 @@ test.each(['openai', 'anthropic', 'google', 'openrouter'] as const)(
       return new Response(null, { status: 400, statusText: 'Offline observer fixture' });
     });
     const modelId = provider === 'openrouter' ? 'vendor/observer-fixture' : 'observer-fixture';
-    const selection = PlatformSelectionSchema.parse({
+    const selection = Schema.decodeUnknownSync(PlatformSelectionSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })({
       configuration: { model: 'chat-fixture', provider: 'anthropic' },
       contextWindow: 32_000,
       durableConfiguration: {},

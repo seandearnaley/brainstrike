@@ -19,6 +19,7 @@ import {
   createCommittedHostThread,
 } from '@brainstrike/host-conversation';
 import { createLogger } from '@brainstrike/logging';
+import { Schema } from 'effect';
 import { z } from 'zod';
 import { CommittedHostCheckpoints } from './committed-host-checkpoints';
 import { CommittedHostMcpInput } from './committed-host-mcp-input';
@@ -27,23 +28,23 @@ import { respondToHostApproval, resumeHostInteraction } from './host-approval-re
 import { HostTreeApprovals } from './host-tree-approvals';
 
 const logger = createLogger('CommittedHostConversation');
-
 /** BST-2004: the lost host's replacement has no record of the send. */
 export const HOST_RESTARTED_NOT_SENT = 'Not sent: the agent host restarted.';
-
 /** The view's message identities for a committed run (`@brainstrike/host-conversation`). */
 export { committedConversationIdentity };
 
 /** A child input's image as the host's user-message attachment; anything else is refused. */
 function childImageAttachment(attachment: AssistantChildAttachment): HostImageAttachment {
-  return HostImageAttachmentSchema.parse({
+  return Schema.decodeUnknownSync(HostImageAttachmentSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })({
     data: attachment.data,
     mediaType: attachment.mediaType.toLowerCase(),
     name: attachment.filename,
     type: 'image',
   });
 }
-
 export interface CommittedHostConversation {
   /** BST-1932: the approvals waiting in this thread and every thread delegated beneath it. */
   readonly approvals: HostTreeApprovals;
@@ -69,7 +70,6 @@ export interface CommittedHostConversation {
   /** The thread's committed run verdicts, recorded through the host. */
   readonly verdicts: CommittedHostVerdicts;
 }
-
 /** What the next run this view starts takes from the composer's current settings. */
 export interface HostRunSettingsSource {
   readonly modelId: string;
@@ -78,7 +78,6 @@ export interface HostRunSettingsSource {
   /** Plan mode for the next run this view starts; absent is off. */
   readonly readPlanMode?: () => boolean;
 }
-
 /** The model, configuration and plan mode a `run/start` from these settings sends. */
 export function hostRunSettings(
   settings: HostRunSettingsSource
@@ -95,7 +94,6 @@ export function hostRunSettings(
     ...(settings.readPlanMode?.() ? { planMode: true as const } : {}),
   };
 }
-
 /** Construct alongside the attached client, outside React render. */
 export function createCommittedHostConversation(
   options: HostRunSettingsSource & {

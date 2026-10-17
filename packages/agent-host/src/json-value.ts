@@ -1,27 +1,24 @@
-import { z } from 'zod';
-
-export type Json = z.infer<ReturnType<typeof z.json>>;
-
+import { Schema } from 'effect';
+export type Json = (typeof Schema.MutableJson)['Type'];
 /**
- * The JSON value schema an event schema is built over: `z.json` for producers
+ * The JSON value schema an event schema is built over: `Schema.MutableJson` for producers
  * and the wire, or the stored-row reader's, which accepts JSON.parse output as
  * it is (ADR-0011).
  */
-export type JsonSchemaFactory = () => z.ZodType<Json>;
-
+export type JsonSchemaFactory = () => Schema.ConstraintDecoder<Json>;
 /**
  * ADR-0011: a stored row's JSON values came out of JSON.parse, which yields
- * nothing `z.json()` rejects, so stored-row decoding accepts them without
+ * nothing `Schema.MutableJson` rejects, so stored-row decoding accepts them without
  * walking them again. A missing value is still refused, and every structural
  * field around it is still validated.
  */
 export const storedJson: JsonSchemaFactory = () =>
-  z.custom<Json>((value) => value !== undefined, { message: 'Expected a stored JSON value' });
-
+  Schema.declare((value: unknown): value is Json => value !== undefined, {
+    message: 'Expected a stored JSON value',
+  });
 export function jsonValue(value: unknown): Json {
-  return z.json().parse(JSON.parse(JSON.stringify(value)));
+  return Schema.decodeUnknownSync(Schema.MutableJson)(JSON.parse(JSON.stringify(value)));
 }
-
 export function canonical(value: Json): string {
   if (Array.isArray(value)) {
     return `[${value.map(canonical).join(',')}]`;

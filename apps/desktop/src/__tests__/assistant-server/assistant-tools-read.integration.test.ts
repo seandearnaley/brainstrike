@@ -32,8 +32,8 @@ import type {
   IndexerGrepResult,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
+import { Schema } from 'effect';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { z } from 'zod';
 import { refusalOutcome } from '../../agent-host-platform/host-tool-services';
 import { GrepIndexRequestSchema } from '../../agent-host-platform/host-tool-wire';
 import { nativeGrepIndex } from '../../agent-host-platform/native-grep-index';
@@ -166,7 +166,9 @@ function mainRequest(
   return async (method, input) => {
     switch (method) {
       case 'desktop-read/index/status': {
-        threadScoped(z.strictObject({})).parse(input);
+        Schema.decodeUnknownSync(threadScoped(Schema.Record(Schema.String, Schema.Never)), {
+          onExcessProperty: 'error',
+        })(input);
         if (!services.indexSearch) {
           throw new Error('Main has no workspace index for host threads');
         }
@@ -180,9 +182,10 @@ function mainRequest(
         return overWire(await services.grepIndex(options));
       }
       case 'desktop-read/retrieval/embedding-spaces': {
-        const { request } = threadScoped(z.strictObject({ includeStats: z.boolean() })).parse(
-          input
-        );
+        const { request } = Schema.decodeUnknownSync(
+          threadScoped(Schema.Struct({ includeStats: Schema.Boolean })),
+          { onExcessProperty: 'error' }
+        )(input);
         return overWire(
           await refusalOutcome(() => pgliteRetrievalStore().embeddingSpaces(request))
         );

@@ -3,12 +3,15 @@ import { type HostLogRow, HostLogRowSchema } from '@brainstrike/agent-host/proto
 // two runs that both finished.
 import paused from '@brainstrike/test-utils/fixtures/committed-host-hooks-skipped.json';
 import finished from '@brainstrike/test-utils/fixtures/committed-host-run-attempts.json';
+import { Schema } from 'effect';
 import { expect, test } from 'vitest';
-import { z } from 'zod';
 import { CommittedHostCheckpoints } from '../renderer/committed-host-checkpoints';
 
 function checkpoints(recording: unknown) {
-  const rows: readonly HostLogRow[] = z.array(HostLogRowSchema).parse(recording);
+  const rows: readonly HostLogRow[] = Schema.decodeUnknownSync(
+    Schema.mutable(Schema.Array(HostLogRowSchema)),
+    { errors: 'all', onExcessProperty: 'error' }
+  )(recording);
   const snapshot = {
     connected: true,
     error: undefined,

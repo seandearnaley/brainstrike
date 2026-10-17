@@ -9,7 +9,8 @@ import type {
   ListToolsResultSchema,
   ReadResourceResultSchema,
 } from '@modelcontextprotocol/core';
-import { z } from 'zod';
+import { Effect, Schema, SchemaIssue } from 'effect';
+import type { z } from 'zod';
 import type {
   McpElicitationPresentationWire,
   McpElicitationSettlement,
@@ -22,39 +23,56 @@ import type {
   McpStatusTransport,
 } from './mcp-status.js';
 import type { McpTaskHandle } from './mcp-task-presentation.js';
-
-export type ConfiguredMcpServerId = string & {
-  readonly __configuredMcpServerId: 'ConfiguredMcpServerId';
-};
-
 export const MCP_CONFIGURED_SERVER_ID_MAX_LENGTH = 128;
 const RESERVED_CONFIGURED_SERVER_IDS = new Set(['__proto__', 'constructor', 'prototype']);
 const UNICODE_CONTROL_OR_FORMAT_PATTERN = /[\p{Cc}\p{Cf}]/u;
-
-export const ConfiguredMcpServerIdSchema = z
-  .string()
-  .min(1, 'must not be empty')
-  .refine(
-    (value) => [...value].length <= MCP_CONFIGURED_SERVER_ID_MAX_LENGTH,
-    `must contain at most ${MCP_CONFIGURED_SERVER_ID_MAX_LENGTH} Unicode code points`
+export const ConfiguredMcpServerIdSchema = Schema.String.check(
+  Schema.isMinCodePoints(1, { message: 'must not be empty' })
+)
+  .check(
+    Schema.makeFilter((value) =>
+      [...value].length <= MCP_CONFIGURED_SERVER_ID_MAX_LENGTH
+        ? undefined
+        : {
+            issue: `must contain at most ${MCP_CONFIGURED_SERVER_ID_MAX_LENGTH} Unicode code points`,
+            path: [],
+          }
+    )
   )
-  .refine((value) => value.trim() === value, 'invalid surrounding whitespace')
-  .refine((value) => !RESERVED_CONFIGURED_SERVER_IDS.has(value), 'reserved server name')
-  .refine(
-    (value) => !UNICODE_CONTROL_OR_FORMAT_PATTERN.test(value),
-    'must not contain a Unicode control or format character'
+  .check(
+    Schema.makeFilter((value) =>
+      value.trim() === value ? undefined : { issue: 'invalid surrounding whitespace', path: [] }
+    )
   )
-  .transform((value) => value as ConfiguredMcpServerId);
-
+  .check(
+    Schema.makeFilter((value) =>
+      RESERVED_CONFIGURED_SERVER_IDS.has(value)
+        ? { issue: 'reserved server name', path: [] }
+        : undefined
+    )
+  )
+  .check(
+    Schema.makeFilter((value) =>
+      UNICODE_CONTROL_OR_FORMAT_PATTERN.test(value)
+        ? { issue: 'must not contain a Unicode control or format character', path: [] }
+        : undefined
+    )
+  )
+  .pipe(Schema.brand('ConfiguredMcpServerId'));
+export type ConfiguredMcpServerId = typeof ConfiguredMcpServerIdSchema.Type;
 export function parseConfiguredMcpServerId(value: unknown): ConfiguredMcpServerId {
-  const result = ConfiguredMcpServerIdSchema.safeParse(value);
-  if (!result.success) {
-    const diagnostics = result.error.issues.map(({ message }) => message).join('; ');
+  const result = Schema.decodeUnknownResult(ConfiguredMcpServerIdSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value);
+  if (!(result._tag === 'Success')) {
+    const diagnostics = SchemaIssue.makeFormatterStandardSchemaV1()(result.failure.issue)
+      .issues.map(({ message }) => message)
+      .join('; ');
     throw new Error(`Invalid configured MCP server id: ${diagnostics}`);
   }
-  return result.data;
+  return result.success;
 }
-
 export const MCP_STABLE_ERROR_CATEGORIES = [
   'authentication',
   'authorization',
@@ -67,15 +85,16 @@ export const MCP_STABLE_ERROR_CATEGORIES = [
   'transport',
 ] as const;
 export type McpStableErrorCategory = (typeof MCP_STABLE_ERROR_CATEGORIES)[number];
-export const McpStableErrorCategorySchema = z.enum(MCP_STABLE_ERROR_CATEGORIES);
+export const McpStableErrorCategorySchema = Schema.Literals(MCP_STABLE_ERROR_CATEGORIES);
 export type McpHostJsonValue =
   | boolean
   | null
   | number
   | string
   | readonly McpHostJsonValue[]
-  | { readonly [key: string]: McpHostJsonValue };
-
+  | {
+      readonly [key: string]: McpHostJsonValue;
+    };
 export interface McpHostError {
   category: McpStableErrorCategory;
   code: string;
@@ -95,15 +114,16 @@ export interface McpHostBearerAuthSnapshot {
   type: 'bearer';
 }
 export type McpHostAuthSnapshot =
-  | { type: 'none' }
+  | {
+      type: 'none';
+    }
   | McpHostBearerAuthSnapshot
   | McpHostOAuthAuthSnapshot;
-export const McpHostErrorSchema: z.ZodType<McpHostError> = z.strictObject({
+export const McpHostErrorSchema: Schema.ConstraintDecoder<McpHostError> = Schema.Struct({
   category: McpStableErrorCategorySchema,
-  code: z.string(),
-  message: z.string(),
+  code: Schema.String,
+  message: Schema.String,
 });
-
 export const MCP_CORE_SERVER_PROJECTION = Object.freeze({
   completion: Object.freeze({
     operations: Object.freeze(['completion/complete'] as const),
@@ -125,7 +145,6 @@ export const MCP_CORE_SERVER_PROJECTION = Object.freeze({
     visibility: 'user-or-authorized-assistant' as const,
   }),
 });
-
 interface McpHostServerSnapshotBase {
   auth?: McpHostAuthSnapshot;
   configuredProtocol: McpConfiguredProtocol;
@@ -175,7 +194,6 @@ export interface McpHostSubscriptionStatus {
   mode: 'legacy-unsolicited' | 'modern-listen' | 'none';
   state: 'closed' | 'listening' | 'retrying' | 'unsupported';
 }
-
 type SdkListToolsResult = z.output<typeof ListToolsResultSchema>;
 type SdkCallToolResult = z.output<typeof CallToolResultSchema>;
 type SdkListResourcesResult = z.output<typeof ListResourcesResultSchema>;
@@ -185,7 +203,6 @@ type SdkListPromptsResult = z.output<typeof ListPromptsResultSchema>;
 type SdkGetPromptResult = z.output<typeof GetPromptResultSchema>;
 type SdkCompleteResult = z.output<typeof CompleteResultSchema>;
 type SdkEmptyResult = z.output<typeof EmptyResultSchema>;
-
 export interface McpHostCatalog {
   errors: McpHostCatalogErrors;
   features: McpHostServerFeatures;
@@ -198,8 +215,13 @@ export interface McpHostCatalog {
 type PendingMcpConnectionState = Exclude<McpConnectionState, 'connected' | 'error'>;
 export type McpHostServerSnapshot = McpHostServerSnapshotBase &
   (
-    | { state: PendingMcpConnectionState }
-    | { error: McpHostError; state: Extract<McpConnectionState, 'error'> }
+    | {
+        state: PendingMcpConnectionState;
+      }
+    | {
+        error: McpHostError;
+        state: Extract<McpConnectionState, 'error'>;
+      }
     | {
         catalog?: McpHostCatalog | undefined;
         negotiated: McpNegotiatedStatus;
@@ -210,12 +232,20 @@ export interface McpHostSnapshot {
   revision: number;
   servers: readonly McpHostServerSnapshot[];
 }
-
 type McpHostControlAction = McpHostControlRequest['action'];
-type McpHostOAuthSnapshot = Extract<McpHostAuthSnapshot, { type: 'oauth-user' }>;
-
+type McpHostOAuthSnapshot = Extract<
+  McpHostAuthSnapshot,
+  {
+    type: 'oauth-user';
+  }
+>;
 function resolveOAuthErrorActions(
-  server: Extract<McpHostServerSnapshot, { state: 'error' }>,
+  server: Extract<
+    McpHostServerSnapshot,
+    {
+      state: 'error';
+    }
+  >,
   auth: McpHostOAuthSnapshot
 ): readonly McpHostControlAction[] {
   const credentialsStored = auth.credentialState === 'stored';
@@ -224,7 +254,6 @@ function resolveOAuthErrorActions(
   }
   return credentialsStored ? ['retry', 'disconnect'] : ['retry'];
 }
-
 function resolveOAuthControlActions(
   server: McpHostServerSnapshot,
   auth: McpHostOAuthSnapshot
@@ -243,7 +272,6 @@ function resolveOAuthControlActions(
   }
   return [];
 }
-
 export function resolveMcpHostControlActions(
   server: McpHostServerSnapshot
 ): readonly McpHostControlAction[] {
@@ -261,165 +289,216 @@ export function resolveMcpHostControlActions(
   }
   return [];
 }
-
-const JsonObjectSchema = z.record(z.string(), z.json());
-const RequestMetaSchema = JsonObjectSchema.optional();
-const CursorSchema = z.string().optional();
+const JsonObjectSchema = Schema.Record(Schema.String, Schema.MutableJson);
+const RequestMetaSchema = Schema.optional(JsonObjectSchema);
+const CursorSchema = Schema.optional(Schema.String);
 const ServerOperationBase = {
   _meta: RequestMetaSchema,
   configuredServerId: ConfiguredMcpServerIdSchema,
 };
-export const McpResourceUriSchema = z
-  .string()
-  .min(1)
-  .refine((value) => value.trim() === value, 'invalid surrounding whitespace');
-const McpHostOperationSchema = z.discriminatedUnion('type', [
-  z.strictObject({
-    ...ServerOperationBase,
-    cursor: CursorSchema,
-    type: z.literal('tools/list'),
-  }),
-  z.strictObject({
-    ...ServerOperationBase,
-    arguments: JsonObjectSchema.optional(),
-    task: z.strictObject({ ttl: z.number().optional() }).optional(),
-    toolName: z.string().min(1),
-    type: z.literal('tools/call'),
-  }),
-  z.strictObject({
-    ...ServerOperationBase,
-    cursor: CursorSchema,
-    type: z.literal('resources/list'),
-  }),
-  z.strictObject({
-    ...ServerOperationBase,
-    cursor: CursorSchema,
-    type: z.literal('resources/templates/list'),
-  }),
-  z.strictObject({
-    ...ServerOperationBase,
-    type: z.literal('resources/read'),
-    uri: McpResourceUriSchema,
-  }),
-  z.strictObject({
-    ...ServerOperationBase,
-    cursor: CursorSchema,
-    type: z.literal('prompts/list'),
-  }),
-  z.strictObject({
-    ...ServerOperationBase,
-    arguments: z.record(z.string(), z.string()).optional(),
-    name: z.string().min(1),
-    type: z.literal('prompts/get'),
-  }),
-  z.strictObject({
-    ...ServerOperationBase,
-    argument: z.strictObject({ name: z.string().min(1), value: z.string() }),
-    context: z.strictObject({ arguments: z.record(z.string(), z.string()) }).optional(),
-    ref: z.discriminatedUnion('type', [
-      z.strictObject({ name: z.string().min(1), type: z.literal('ref/prompt') }),
-      z.strictObject({ type: z.literal('ref/resource'), uri: McpResourceUriSchema }),
-    ]),
-    type: z.literal('completion/complete'),
-  }),
-  z.strictObject({
-    ...ServerOperationBase,
-    type: z.literal('resources/subscribe'),
-    uri: McpResourceUriSchema,
-  }),
-  z.strictObject({
-    ...ServerOperationBase,
-    type: z.literal('resources/unsubscribe'),
-    uri: McpResourceUriSchema,
-  }),
-]);
-export type McpHostOperation = z.output<typeof McpHostOperationSchema>;
+export const McpResourceUriSchema = Schema.String.check(Schema.isMinCodePoints(1)).check(
+  Schema.makeFilter((value) =>
+    value.trim() === value ? undefined : { issue: 'invalid surrounding whitespace', path: [] }
+  )
+);
+const McpHostOperationSchema = Schema.Union(
+  [
+    Schema.Struct({
+      ...ServerOperationBase,
+      cursor: CursorSchema,
+      type: Schema.Literal('tools/list'),
+    }),
+    Schema.Struct({
+      ...ServerOperationBase,
+      arguments: Schema.optional(JsonObjectSchema),
+      task: Schema.optional(Schema.Struct({ ttl: Schema.optional(Schema.Finite) })),
+      toolName: Schema.String.check(Schema.isMinCodePoints(1)),
+      type: Schema.Literal('tools/call'),
+    }),
+    Schema.Struct({
+      ...ServerOperationBase,
+      cursor: CursorSchema,
+      type: Schema.Literal('resources/list'),
+    }),
+    Schema.Struct({
+      ...ServerOperationBase,
+      cursor: CursorSchema,
+      type: Schema.Literal('resources/templates/list'),
+    }),
+    Schema.Struct({
+      ...ServerOperationBase,
+      type: Schema.Literal('resources/read'),
+      uri: McpResourceUriSchema,
+    }),
+    Schema.Struct({
+      ...ServerOperationBase,
+      cursor: CursorSchema,
+      type: Schema.Literal('prompts/list'),
+    }),
+    Schema.Struct({
+      ...ServerOperationBase,
+      arguments: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+      name: Schema.String.check(Schema.isMinCodePoints(1)),
+      type: Schema.Literal('prompts/get'),
+    }),
+    Schema.Struct({
+      ...ServerOperationBase,
+      argument: Schema.Struct({
+        name: Schema.String.check(Schema.isMinCodePoints(1)),
+        value: Schema.String,
+      }),
+      context: Schema.optional(
+        Schema.Struct({ arguments: Schema.Record(Schema.String, Schema.String) })
+      ),
+      ref: Schema.Union(
+        [
+          Schema.Struct({
+            name: Schema.String.check(Schema.isMinCodePoints(1)),
+            type: Schema.Literal('ref/prompt'),
+          }),
+          Schema.Struct({ type: Schema.Literal('ref/resource'), uri: McpResourceUriSchema }),
+        ],
+        { mode: 'oneOf' }
+      ),
+      type: Schema.Literal('completion/complete'),
+    }),
+    Schema.Struct({
+      ...ServerOperationBase,
+      type: Schema.Literal('resources/subscribe'),
+      uri: McpResourceUriSchema,
+    }),
+    Schema.Struct({
+      ...ServerOperationBase,
+      type: Schema.Literal('resources/unsubscribe'),
+      uri: McpResourceUriSchema,
+    }),
+  ],
+  { mode: 'oneOf' }
+);
+export type McpHostOperation = (typeof McpHostOperationSchema)['Type'];
 export const parseMcpHostOperation = (value: unknown): McpHostOperation =>
-  McpHostOperationSchema.parse(value);
-
-const ReferenceIdSchema = z.uuid();
-export const McpCredentialReferenceSchema = z.strictObject({
+  Schema.decodeUnknownSync(McpHostOperationSchema, { errors: 'all', onExcessProperty: 'error' })(
+    value
+  );
+const ReferenceIdSchema = Schema.String.check(Schema.isUUID());
+export const McpCredentialReferenceSchema = Schema.Struct({
   id: ReferenceIdSchema,
-  store: z.literal('mcp-credentials'),
+  store: Schema.Literal('mcp-credentials'),
 });
-export const McpOAuthScopeSchema = z
-  .string()
-  .regex(/^[\x21\x23-\x5b\x5d-\x7e]+$/u, 'must be one RFC 6749 scope token');
-export const McpOAuthScopesSchema = z
-  .array(McpOAuthScopeSchema)
-  .min(1)
-  .refine((scopes) => new Set(scopes).size === scopes.length, 'must not contain duplicates');
-export const McpConfiguredAuthSchema = z.discriminatedUnion('type', [
-  z.strictObject({ type: z.literal('none') }),
-  z.strictObject({ scopes: McpOAuthScopesSchema.optional(), type: z.literal('oauth-user') }),
-  z.strictObject({ credential: McpCredentialReferenceSchema, type: z.literal('bearer') }),
-]);
-export const McpConfiguredProtocolSchema = z.enum([
+export const McpOAuthScopeSchema = Schema.String.check(
+  Schema.isPattern(/^[\x21\x23-\x5b\x5d-\x7e]+$/u, { message: 'must be one RFC 6749 scope token' })
+);
+export const McpOAuthScopesSchema = Schema.mutable(Schema.Array(McpOAuthScopeSchema))
+  .check(Schema.isMinLength(1))
+  .check(
+    Schema.makeFilter((scopes) =>
+      new Set(scopes).size === scopes.length
+        ? undefined
+        : { issue: 'must not contain duplicates', path: [] }
+    )
+  );
+export const McpConfiguredAuthSchema = Schema.Union(
+  [
+    Schema.Struct({ type: Schema.Literal('none') }),
+    Schema.Struct({
+      scopes: Schema.optional(McpOAuthScopesSchema),
+      type: Schema.Literal('oauth-user'),
+    }),
+    Schema.Struct({ credential: McpCredentialReferenceSchema, type: Schema.Literal('bearer') }),
+  ],
+  { mode: 'oneOf' }
+);
+export const McpConfiguredProtocolSchema = Schema.Literals([
   'legacy',
   'auto',
   '2026-07-28',
-]) satisfies z.ZodType<McpConfiguredProtocol>;
-export const McpStatusTransportSchema = z.enum([
+]) satisfies Schema.ConstraintDecoder<McpConfiguredProtocol>;
+export const McpStatusTransportSchema = Schema.Literals([
   'stdio',
   'streamable-http',
   'sse',
-]) satisfies z.ZodType<McpStatusTransport>;
-const TransportSchema = z.strictObject({
+]) satisfies Schema.ConstraintDecoder<McpStatusTransport>;
+const TransportSchema = Schema.Struct({
   configRef: ReferenceIdSchema,
   type: McpStatusTransportSchema,
 });
-export const McpStartupPolicySchema = z
-  .enum(['automatic', 'authentication-required'])
-  .default('automatic');
-export type McpStartupPolicy = z.output<typeof McpStartupPolicySchema>;
-const McpConfiguredServerSchema = z
-  .strictObject({
-    auth: McpConfiguredAuthSchema,
-    configuredProtocol: McpConfiguredProtocolSchema,
-    configuredServerId: ConfiguredMcpServerIdSchema,
-    enabledTools: z.array(z.string()).optional(),
-    extensions: McpExtensionEnablementSchema.optional(),
-    startup: McpStartupPolicySchema,
-    transport: TransportSchema,
-  })
-  .refine(
-    ({ configuredProtocol, transport }) =>
-      transport.type !== 'sse' || configuredProtocol === 'legacy',
-    { message: 'SSE transport requires legacy protocol', path: ['configuredProtocol'] }
+export const McpStartupPolicySchema = Schema.Literals(['automatic', 'authentication-required'])
+  .annotate({ default: 'automatic' })
+  .pipe(Schema.withDecodingDefault(Effect.succeed('automatic')));
+export type McpStartupPolicy = (typeof McpStartupPolicySchema)['Type'];
+const McpConfiguredServerSchema = Schema.Struct({
+  auth: McpConfiguredAuthSchema,
+  configuredProtocol: McpConfiguredProtocolSchema,
+  configuredServerId: ConfiguredMcpServerIdSchema,
+  enabledTools: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+  extensions: Schema.optional(McpExtensionEnablementSchema),
+  startup: McpStartupPolicySchema,
+  transport: TransportSchema,
+})
+  .check(
+    Schema.makeFilter(({ configuredProtocol, transport }) =>
+      transport.type !== 'sse' || configuredProtocol === 'legacy'
+        ? undefined
+        : {
+            issue: 'SSE transport requires legacy protocol',
+            path:
+              { message: 'SSE transport requires legacy protocol', path: ['configuredProtocol'] }
+                .path ?? [],
+          }
+    )
   )
-  .refine(
-    ({ auth, startup }) => auth.type !== 'oauth-user' || startup === 'authentication-required',
-    {
-      message: 'OAuth user authentication requires authentication-required startup',
-      path: ['startup'],
-    }
+  .check(
+    Schema.makeFilter(({ auth, startup }) =>
+      auth.type !== 'oauth-user' || startup === 'authentication-required'
+        ? undefined
+        : {
+            issue: 'OAuth user authentication requires authentication-required startup',
+            path:
+              {
+                message: 'OAuth user authentication requires authentication-required startup',
+                path: ['startup'],
+              }.path ?? [],
+          }
+    )
   )
-  .refine(({ auth, transport }) => auth.type !== 'oauth-user' || transport.type !== 'stdio', {
-    message: 'OAuth user authentication requires an HTTP transport',
-    path: ['auth'],
-  });
-const McpHostConfigSchema = z.strictObject({
-  servers: z
-    .array(McpConfiguredServerSchema)
-    .refine(
-      (servers) =>
-        new Set(servers.map(({ configuredServerId }) => configuredServerId)).size ===
-        servers.length,
-      'duplicate configured server id'
-    ),
+  .check(
+    Schema.makeFilter(({ auth, transport }) =>
+      auth.type !== 'oauth-user' || transport.type !== 'stdio'
+        ? undefined
+        : {
+            issue: 'OAuth user authentication requires an HTTP transport',
+            path:
+              {
+                message: 'OAuth user authentication requires an HTTP transport',
+                path: ['auth'],
+              }.path ?? [],
+          }
+    )
+  );
+const McpHostConfigSchema = Schema.Struct({
+  servers: Schema.mutable(Schema.Array(McpConfiguredServerSchema)).check(
+    Schema.makeFilter((servers) =>
+      new Set(servers.map(({ configuredServerId }) => configuredServerId)).size === servers.length
+        ? undefined
+        : { issue: 'duplicate configured server id', path: [] }
+    )
+  ),
 });
-export type McpHostConfig = z.output<typeof McpHostConfigSchema>;
+export type McpHostConfig = (typeof McpHostConfigSchema)['Type'];
 export const parseMcpHostConfig = (value: unknown): McpHostConfig =>
-  McpHostConfigSchema.parse(value);
-
-export const McpHostControlRequestSchema = z.strictObject({
-  action: z.enum(['connect', 'retry', 'cancel', 'disconnect', 'reauthorize']),
+  Schema.decodeUnknownSync(McpHostConfigSchema, { errors: 'all', onExcessProperty: 'error' })(
+    value
+  );
+export const McpHostControlRequestSchema = Schema.Struct({
+  action: Schema.Literals(['connect', 'retry', 'cancel', 'disconnect', 'reauthorize']),
   configuredServerId: ConfiguredMcpServerIdSchema,
 });
-export type McpHostControlRequest = z.output<typeof McpHostControlRequestSchema>;
+export type McpHostControlRequest = (typeof McpHostControlRequestSchema)['Type'];
 export const parseMcpHostControlRequest = (value: unknown): McpHostControlRequest =>
-  McpHostControlRequestSchema.parse(value);
-
+  Schema.decodeUnknownSync(McpHostControlRequestSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(value);
 type BrowserSafe<T> = unknown extends T
   ? McpHostJsonValue
   : T extends (...args: never[]) => unknown
@@ -429,23 +508,51 @@ type BrowserSafe<T> = unknown extends T
       : T extends readonly (infer Item)[]
         ? readonly BrowserSafe<Item>[]
         : T extends object
-          ? { readonly [Key in keyof T]: BrowserSafe<T[Key]> }
+          ? {
+              readonly [Key in keyof T]: BrowserSafe<T[Key]>;
+            }
           : never;
 export type McpHostOperationResult =
-  | { readonly result: BrowserSafe<SdkListToolsResult>; readonly type: 'tools/list' }
-  | { readonly result: BrowserSafe<SdkCallToolResult>; readonly type: 'tools/call' }
-  | { readonly result: BrowserSafe<SdkListResourcesResult>; readonly type: 'resources/list' }
+  | {
+      readonly result: BrowserSafe<SdkListToolsResult>;
+      readonly type: 'tools/list';
+    }
+  | {
+      readonly result: BrowserSafe<SdkCallToolResult>;
+      readonly type: 'tools/call';
+    }
+  | {
+      readonly result: BrowserSafe<SdkListResourcesResult>;
+      readonly type: 'resources/list';
+    }
   | {
       readonly result: BrowserSafe<SdkListResourceTemplatesResult>;
       readonly type: 'resources/templates/list';
     }
-  | { readonly result: BrowserSafe<SdkReadResourceResult>; readonly type: 'resources/read' }
-  | { readonly result: BrowserSafe<SdkListPromptsResult>; readonly type: 'prompts/list' }
-  | { readonly result: BrowserSafe<SdkGetPromptResult>; readonly type: 'prompts/get' }
-  | { readonly result: BrowserSafe<SdkCompleteResult>; readonly type: 'completion/complete' }
-  | { readonly result: BrowserSafe<SdkEmptyResult>; readonly type: 'resources/subscribe' }
-  | { readonly result: BrowserSafe<SdkEmptyResult>; readonly type: 'resources/unsubscribe' };
-
+  | {
+      readonly result: BrowserSafe<SdkReadResourceResult>;
+      readonly type: 'resources/read';
+    }
+  | {
+      readonly result: BrowserSafe<SdkListPromptsResult>;
+      readonly type: 'prompts/list';
+    }
+  | {
+      readonly result: BrowserSafe<SdkGetPromptResult>;
+      readonly type: 'prompts/get';
+    }
+  | {
+      readonly result: BrowserSafe<SdkCompleteResult>;
+      readonly type: 'completion/complete';
+    }
+  | {
+      readonly result: BrowserSafe<SdkEmptyResult>;
+      readonly type: 'resources/subscribe';
+    }
+  | {
+      readonly result: BrowserSafe<SdkEmptyResult>;
+      readonly type: 'resources/unsubscribe';
+    };
 export interface McpHostWatchFilter {
   configuredServerIds?: readonly ConfiguredMcpServerId[];
 }
@@ -527,5 +634,4 @@ export interface McpHostPort {
   snapshot(): McpHostSnapshot;
   watch(filter: McpHostWatchFilter, listener: (event: McpHostWatchEvent) => void): () => void;
 }
-
 export { MCP_CONNECTION_STATES, type McpConnectionState } from './mcp-status.js';

@@ -2,12 +2,15 @@ import { INTERNAL_FAULT, refusalError } from '@brainstrike/assistant-contract';
 import recording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json' with {
   type: 'json',
 };
+import { Schema } from 'effect';
 import { expect, test } from 'vitest';
-import { z } from 'zod';
 import { HostLogRowSchema, type HostRunTelemetry } from '../src/protocol.js';
 import { CommittedThreadSession, CommittedThreadView, foldHostRuns } from '../src/thread-view.js';
 
-const rows = z.array(HostLogRowSchema).parse(recording);
+const rows = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+  errors: 'all',
+  onExcessProperty: 'error',
+})(recording);
 const threadId = rows[0]?.threadId;
 if (!threadId) {
   throw new Error('The runtime recording has no thread');

@@ -15,6 +15,7 @@ import { removeFixtureRoot } from '@brainstrike/agent-host/test-fixtures/coopera
 import { HostRunNotices } from '@brainstrike/agent-host/thread-view';
 import { decodeHostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
+import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import { writeStdoutHook } from './fixtures/native-hook-command.js';
@@ -23,9 +24,12 @@ const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
 const httpFixture = new URL('./fixtures/standalone-production-http.mjs', import.meta.url).href;
 const REASON = 'Questions are disabled in this workspace';
 const cleanup: (() => Promise<void>)[] = [];
-
 function command(dataRoot: string, home: string, args: readonly string[]) {
-  return new Promise<{ code: number; stderr: string; stdout: string }>((resolve, reject) => {
+  return new Promise<{
+    code: number;
+    stderr: string;
+    stdout: string;
+  }>((resolve, reject) => {
     execFile(
       process.execPath,
       [bin, '--data-root', dataRoot, ...args],
@@ -59,13 +63,11 @@ function command(dataRoot: string, home: string, args: readonly string[]) {
     );
   });
 }
-
 afterEach(async () => {
   for (const step of cleanup.splice(0).reverse()) {
     await step();
   }
 });
-
 /** A started CLI host under an optional global hooks file and launch workspace root. */
 async function startCliHost(options: {
   readonly hooks?: (home: string) => Record<string, unknown>;
@@ -118,24 +120,24 @@ async function startCliHost(options: {
       .object({ runId: z.string(), threadId: z.string() })
       .parse(JSON.parse(result.stdout.split('\n')[0] ?? ''));
     const shown = await cli(['threads', 'show', '--thread', threadId]);
-    const { rows } = HOST_RESULT_SCHEMAS['thread/read'].parse(JSON.parse(shown.stdout));
+    const { rows } = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/read'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(JSON.parse(shown.stdout));
     return { code: result.code, rows, runId, stderr: result.stderr };
   };
   return { cli, run };
 }
-
 /** A CLI host under a global hooks file, running the offline question fixture once. */
 async function runUnderHooks(hooks: (home: string) => Record<string, unknown>) {
   return await (await startCliHost({ hooks })).run();
 }
-
 /** The question tool, blocked by a PreToolUse hook so the run completes instead of pausing. */
 const blockQuestion = (root: string) => ({
   command: writeStdoutHook(root, { decision: 'block', reason: REASON }, 2),
   matcher: { tool_name: 'askUser' },
   type: 'command',
 });
-
 test('a global PreToolUse hook blocks a tool on the CLI host, with its reason committed', async () => {
   const { code, rows, stderr } = await runUnderHooks((home) => ({
     PreToolUse: [blockQuestion(home)],
@@ -155,7 +157,6 @@ test('a global PreToolUse hook blocks a tool on the CLI host, with its reason co
   );
   expect(responses).toEqual([expect.objectContaining({ approved: false, reason: REASON })]);
 });
-
 test('a Stop hook’s verdict labels the CLI run with a committed hook verdict', async () => {
   const { rows, runId } = await runUnderHooks((home) => ({
     PreToolUse: [blockQuestion(home)],
@@ -179,7 +180,6 @@ test('a Stop hook’s verdict labels the CLI run with a committed hook verdict',
     verdict: 'succeeded',
   });
 });
-
 test('a UserPromptSubmit hook that blocks the prompt ends the CLI run with its reason', async () => {
   const { rows } = await runUnderHooks((home) => ({
     UserPromptSubmit: [
@@ -195,7 +195,6 @@ test('a UserPromptSubmit hook that blocks the prompt ends the CLI run with its r
     outcome: 'failed',
   });
 });
-
 test("a launch root's project hook runs on the CLI host only once hooks trust pins its hash", async () => {
   const workspace = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-hooks-ws-')));
   cleanup.push(() => rm(workspace, { force: true, recursive: true }));
@@ -203,14 +202,17 @@ test("a launch root's project hook runs on the CLI host only once hooks trust pi
   await mkdir(join(workspace, '.brainstrike'));
   await writeFile(join(workspace, '.brainstrike', 'hooks.json'), hooks);
   const sha256 = createHash('sha256').update(hooks).digest('hex');
-  const asked = (rows: readonly { readonly event: { readonly type: string } }[]) =>
-    rows.some(({ event }) => event.type === 'interaction.requested');
+  const asked = (
+    rows: readonly {
+      readonly event: {
+        readonly type: string;
+      };
+    }[]
+  ) => rows.some(({ event }) => event.type === 'interaction.requested');
   const host = await startCliHost({ workspace });
-
   const skipped = (rows: Awaited<ReturnType<typeof host.run>>['rows']) =>
     rows.flatMap(({ event }) => (event.type === 'hooks.skipped' ? [event] : []));
   const hooksPath = join(workspace, '.brainstrike', 'hooks.json');
-
   // Untrusted, the project file adds no hook: the question is asked, and the
   // run names the file it skipped, which the CLI shows with its remedy.
   const untrusted = await host.run();
@@ -235,7 +237,6 @@ test("a launch root's project hook runs on the CLI host only once hooks trust pi
   expect(untrusted.rows.flatMap((row) => notices.read(row))).toEqual([
     `Project hooks not trusted: ${hooksPath}: not trusted — review it with \`brainstrike hooks trust <root dir>\` (desktop roots: Settings > Hooks)`,
   ]);
-
   // Unattended, a trust needs the reviewed hash, and the host refuses a stale one.
   const trust = (...args: string[]) => host.cli(['hooks', 'trust', workspace, ...args]);
   const unreviewed = await trust('--non-interactive');
@@ -244,11 +245,9 @@ test("a launch root's project hook runs on the CLI host only once hooks trust pi
   const stale = await trust('--sha256', '0'.repeat(64));
   expect(stale.code).toBe(1);
   expect(stale.stderr).toContain('changed since it was reviewed');
-
   const trusted = await trust('--sha256', sha256);
   expect(trusted).toMatchObject({ code: 0, stderr: '' });
   expect(JSON.parse(trusted.stdout)).toEqual({ rootId: workspace, sha256, trusted: true });
-
   // Trusted, the project hook blocks the question, so the run completes.
   const blocked = await host.run();
   expect(blocked.code, blocked.stderr).toBe(0);
