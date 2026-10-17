@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { parse } from 'yaml';
+import { parsePnpmLockfile } from '../pnpm-lockfile.mjs';
 
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 const rootRequire = createRequire(`${repoRoot}/package.json`);
@@ -33,7 +33,7 @@ function assertPatched(lockfile) {
 }
 
 test('the full lock graph excludes affected once versions, with negative controls', () => {
-  assertPatched(parse(readFileSync(`${repoRoot}/pnpm-lock.yaml`, 'utf8')));
+  assertPatched(parsePnpmLockfile(readFileSync(`${repoRoot}/pnpm-lock.yaml`, 'utf8')));
   for (const version of ['1.2.0', '2.0.0', '3.0.0']) {
     assert.throws(
       () => assertPatched({ packages: { [`@tootallnate/once@${version}`]: {} } }),

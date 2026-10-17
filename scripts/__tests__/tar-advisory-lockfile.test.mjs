@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { parse as parseYaml } from 'yaml';
+import { parsePnpmLockfile } from '../pnpm-lockfile.mjs';
 
 const lockfilePath = fileURLToPath(new URL('../../pnpm-lock.yaml', import.meta.url));
-const lockfile = parseYaml(readFileSync(lockfilePath, 'utf8'));
+const lockfile = parsePnpmLockfile(readFileSync(lockfilePath, 'utf8'));
 
 test('every resolved tar copy clears BST-886 advisories', () => {
   const packageVersions = Object.keys(lockfile.packages)

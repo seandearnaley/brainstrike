@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { parse } from 'yaml';
+import { parsePnpmLockfile } from '../pnpm-lockfile.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const rootRequire = createRequire(path.join(root, 'package.json'));
@@ -27,7 +27,7 @@ function assertPatched(lock) {
 }
 
 test('every YAML copy clears the current advisory floors, with negative controls', async () => {
-  assertPatched(parse(await readFile(path.join(root, 'pnpm-lock.yaml'), 'utf8')));
+  assertPatched(parsePnpmLockfile(await readFile(path.join(root, 'pnpm-lock.yaml'), 'utf8')));
   for (const version of ['3.15.1', '4.1.1', '4.3.0', '4.3.1']) {
     assert.throws(() => assertPatched({ packages: { [`js-yaml@${version}`]: {} } }), /vulnerable/);
   }

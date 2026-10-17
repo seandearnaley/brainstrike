@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { parse } from 'yaml';
+import { parsePnpmLockfile } from '../pnpm-lockfile.mjs';
 
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 const rootRequire = createRequire(`${repoRoot}/package.json`);
@@ -32,7 +34,7 @@ function assertPatched(lockfile) {
 }
 
 test('the whole lock graph excludes affected Ajv copies, with negative controls', () => {
-  assertPatched(parse(readFileSync(`${repoRoot}/pnpm-lock.yaml`, 'utf8')));
+  assertPatched(parsePnpmLockfile(readFileSync(`${repoRoot}/pnpm-lock.yaml`, 'utf8')));
   for (const version of ['6.13.0', '7.2.4', '8.6.3', '8.17.1']) {
     assert.throws(() => assertPatched({ packages: { [`ajv@${version}`]: {} } }), /vulnerable ajv/);
   }
@@ -67,9 +69,14 @@ test('$data patterns invoke the configured engine with benign input', () => {
 });
 
 function readConfig(source, schema) {
-  const project = new Project({ useInMemoryFileSystem: true });
-  project.createSourceFile('/function.ts', source);
-  return getConfig(project, '/function.ts', schema);
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'brainstrike-static-config-'));
+  const sourcePath = path.join(directory, 'function.ts');
+  try {
+    writeFileSync(sourcePath, source);
+    return getConfig(new Project(), sourcePath, schema);
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
 }
 
 test('public getConfig preserves valid, invalid and missing configuration', () => {

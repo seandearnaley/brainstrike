@@ -29,7 +29,6 @@ const PGLITE_CONSUMER_MANIFESTS = [
   'packages/file-explorer-ui/package.json',
   'packages/file-import/package.json',
   'packages/token-cache/package.json',
-  'packages/vector-management/package.json',
 ] as const;
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 

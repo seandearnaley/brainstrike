@@ -13,7 +13,6 @@
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/worker-runtime": "workspace:*",
-    "@electric-sql/pglite": "catalog:",
     "lucide-react": "catalog:"
   },
   "devDependencies": {

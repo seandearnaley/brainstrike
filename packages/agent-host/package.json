@@ -170,7 +170,6 @@
     "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/assistant-data": "workspace:*",
-    "@brainstrike/assistant-service": "workspace:*",
     "@brainstrike/host-lease": "workspace:*",
     "@brainstrike/indexer": "workspace:*",
     "@brainstrike/logging": "workspace:*",
