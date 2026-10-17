@@ -225,15 +225,6 @@ describe('runtime host boundary', () => {
     }
   });
 
-  it('keeps desktop IPC database tests split by owned responsibility', () => {
-    const databaseIpcTest = readDesktopSource('__tests__/main/ipc-handlers-db.test.ts');
-    const integrityIpcTest = readDesktopSource('__tests__/main/ipc-handlers-db-integrity.test.ts');
-
-    expect(databaseIpcTest.split('\n').length).toBeLessThanOrEqual(2000);
-    expect(integrityIpcTest).toMatch(/DatabaseIntegrityError/);
-    expect(integrityIpcTest.split('\n').length).toBeLessThanOrEqual(2000);
-  });
-
   it('keeps desktop file explorer selection E2E executable specs split by purpose', () => {
     const interactiveSpec = readDesktopE2e('file-explorer-selection.desktop.test.ts');
     const restoreSpec = readDesktopE2e('file-explorer-selection-restore.desktop.test.ts');

@@ -3,6 +3,7 @@ import type {
   UpdateViewFilterPresetInput,
   ViewFilterPreset,
 } from '@brainstrike/types';
+import type { GrepCandidate, GrepCandidateOptions } from '@brainstrike/utils/grep-search';
 import type { EmbeddingDistance, EmbeddingSet } from '../models/embedding-set.js';
 import type {
   ChunkSearchOptions,
@@ -20,7 +21,6 @@ import type {
   FileRecordUpdate,
   ManagedCacheEntryMetadata,
 } from '../models/file-record';
-import type { GrepCandidate, GrepCandidateOptions } from '../models/grep.js';
 
 /**
  * Common interface for all embedding sets repositories

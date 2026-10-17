@@ -1,3 +1,4 @@
+import { escapeLikeLiteral } from '@brainstrike/utils/grep-pattern';
 import { runAtomicStatements } from '../atomic-transaction.js';
 import type {
   MarkThreadMessageEmbeddingErrorInput,
@@ -15,7 +16,6 @@ import type {
   ThreadTitleMatch,
   ThreadTitleSearchOptions,
 } from '../models/thread-search.js';
-import { escapeLikeLiteral } from '../search/grep-pattern.js';
 import { hnswSearchTuningStatements } from './_shared.js';
 
 const PROFILE_ID = 'default';

@@ -9,22 +9,10 @@ import { cleanupDirs, freshDir } from './helpers/fs.js';
 afterEach(() => cleanupDirs());
 
 const C_SMALL = [
-  'brainstrike_assistant_compaction_ranges',
-  'brainstrike_assistant_edit_checkpoints',
-  'brainstrike_assistant_message_tombstones',
-  'brainstrike_assistant_run_errors',
-  'brainstrike_assistant_run_events',
-  'brainstrike_assistant_run_outcomes',
-  'brainstrike_assistant_run_treatments',
-  'brainstrike_assistant_run_usage',
-  'brainstrike_assistant_task_lists',
-  'brainstrike_diagnostic_events',
   'brainstrike_forge_prs',
   'brainstrike_mcp_task_authorities',
   'brainstrike_mcp_tasks',
   'brainstrike_mind_ops',
-  'brainstrike_token_estimate_calibration',
-  'brainstrike_workspace_snapshots',
   'brainstrike_worktrees',
 ];
 const DESKTOP_CATALOG = [
@@ -75,12 +63,6 @@ describe('state DB migrations', () => {
     const cols = (t: string): string[] =>
       (db.prepare(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).map((c) => c.name);
     try {
-      // 089 and 091 appended three budget columns
-      expect(cols('brainstrike_token_estimate_calibration').slice(-3)).toEqual([
-        'resolved_domain_budget_tokens',
-        'resolved_transport_budget_tokens',
-        'prompt_baseline_tokens',
-      ]);
       // 112 appended setup_reason
       expect(cols('brainstrike_worktrees').at(-1)).toBe('setup_reason');
       // 115 dropped generation and appended authority_epoch + blocked_diagnostic; v5 thread_id
@@ -98,21 +80,23 @@ describe('state DB migrations', () => {
   test('CHECK constraints carry over: booleans are 0/1, json columns hold valid JSON, enums are closed', async () => {
     const { db } = await openDb();
     try {
-      const ins = db.prepare(
-        "INSERT INTO brainstrike_assistant_run_treatments (run_id, thread_id, resource_id, injection_status, signal_injected) VALUES (?, 't', 'r', ?, ?)"
+      const pr = db.prepare(
+        "INSERT INTO brainstrike_forge_prs (repo_common_dir, branch, number, url, title, state, is_draft, checks_json, head_sha, observed_at) VALUES ('/repo', ?, 1, 'u', 't', ?, ?, ?, 'sha', ?)"
       );
-      ins.run('ok', 'injected', 1);
-      expect(() => ins.run('bool', 'injected', 2)).toThrow(/CHECK constraint failed/);
-      expect(() => ins.run('consistency', 'no_waste', 1)).toThrow(/CHECK constraint failed/);
-      expect(() => ins.run('enum', 'bogus', 0)).toThrow(/CHECK constraint failed/);
-      const tasks = db.prepare(
-        "INSERT INTO brainstrike_assistant_task_lists (thread_id, resource_id, tasks) VALUES (?, 'r', ?)"
-      );
-      tasks.run('a', '[]');
-      expect(() => tasks.run('b', 'not json')).toThrow(/CHECK constraint failed/);
+      pr.run('ok', 'open', 1, '[]', ISO);
+      expect(() => pr.run('bool', 'open', 2, '[]', ISO)).toThrow(/CHECK constraint failed/);
+      expect(() => pr.run('enum', 'bogus', 0, '[]', ISO)).toThrow(/CHECK constraint failed/);
+      expect(() => pr.run('json', 'open', 0, 'not json', ISO)).toThrow(/CHECK constraint failed/);
+      expect(() =>
+        db
+          .prepare(
+            "INSERT INTO brainstrike_forge_prs (repo_common_dir, branch, number, observed_at) VALUES ('/repo', 'partial', 1, ?)"
+          )
+          .run(ISO)
+      ).toThrow(/CHECK constraint failed/);
       expect(
         db
-          .prepare("SELECT tasks FROM brainstrike_assistant_task_lists WHERE thread_id = 'a'")
+          .prepare("SELECT checks_json FROM brainstrike_forge_prs WHERE branch = 'ok'")
           .pluck()
           .get()
       ).toBe('[]');

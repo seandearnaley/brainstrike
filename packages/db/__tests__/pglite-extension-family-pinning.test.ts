@@ -109,19 +109,14 @@ describe('PGlite extension family pinning', () => {
       expect(dependencyVersion(manifest, '@electric-sql/pglite'), manifestPath).toBe('0.5.10');
     }
 
-    for (const manifestPath of ['apps/desktop/package.json', 'packages/db/package.json'] as const) {
+    for (const manifestPath of ['packages/db/package.json'] as const) {
       const manifest = await readPackageManifest(manifestPath);
       expect(dependencyVersion(manifest, '@electric-sql/pglite-pg_textsearch'), manifestPath).toBe(
         '0.0.12'
       );
     }
 
-    for (const manifestPath of [
-      'apps/desktop/package.json',
-      'apps/web/package.json',
-      'packages/agent/package.json',
-      'packages/db/package.json',
-    ] as const) {
+    for (const manifestPath of ['apps/web/package.json', 'packages/db/package.json'] as const) {
       const manifest = await readPackageManifest(manifestPath);
       expect(dependencyVersion(manifest, '@electric-sql/pglite-pgvector'), manifestPath).toBe(
         '0.0.11'

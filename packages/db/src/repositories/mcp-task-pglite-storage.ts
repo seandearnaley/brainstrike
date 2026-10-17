@@ -1,12 +1,12 @@
 import type {
   McpTaskAuthorityInput,
   McpTaskAuthorityLease,
-  McpTaskDatabase,
   McpTaskIdentity,
   McpTaskInsert,
   McpTaskPatch,
   McpTaskStorage,
-} from './mcp-task-repository.js';
+} from '@brainstrike/assistant-contract/mcp-task-store';
+import type { McpTaskDatabase } from './mcp-task-repository.js';
 
 const TABLE = 'brainstrike_mcp_tasks';
 const AUTHORITY_TABLE = 'brainstrike_mcp_task_authorities';

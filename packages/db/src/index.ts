@@ -10,6 +10,7 @@ export {
   type ResolvedChunkingStrategy,
   resolveChunkingStrategyForFile,
 } from '@brainstrike/indexing-contract';
+export type { GrepCandidate, GrepCandidateOptions } from '@brainstrike/utils/grep-search';
 export * from './architecture/brainstrike-db-client-contract.js';
 export * from './architecture/db-migration-authority.js';
 export * from './architecture/db-runtime-baseline.js';
@@ -151,7 +152,6 @@ export type {
   ImportProgress,
   ManagedCacheEntryMetadata,
 } from './models/file-record.js';
-export type { GrepCandidate, GrepCandidateOptions } from './models/grep.js';
 export {
   buildPromptItemEmbeddingText,
   type CreatePromptItemInput,

@@ -12,13 +12,13 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { extractTrigramLiteral } from '@brainstrike/db';
 import { trackNativeChild } from '@brainstrike/state-store/native-children';
 import {
   BALANCED_UNCONDITIONAL_EXCLUDED_DIRECTORY_SEGMENTS,
   UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES,
   WORKSPACE_SECRET_FILE_PATTERNS,
 } from '@brainstrike/utils';
+import { extractTrigramLiteral } from '@brainstrike/utils/grep-pattern';
 
 let credentialFloorFile: string | undefined;
 

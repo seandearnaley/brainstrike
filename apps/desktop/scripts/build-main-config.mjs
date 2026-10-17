@@ -9,8 +9,8 @@
  * - dist/desktop-*.js       shared bootstrap/profile process owners
  * - dist/preload.js         visible BrowserWindow preload
  * - dist/hidden-preload.js  role-selected hidden renderer capability manifest
- * - dist/db-host-entry.js   utilityProcess.fork target, resolved as a SIBLING
- * - dist/parser-host-entry.js  of the bundled main.js via module.filename
+ * - dist/parser-host-entry.js  utilityProcess.fork target, resolved as a SIBLING
+ *                           of the bundled main.js via module.filename
  * - dist/host-lease-entry.js  shared root-discovery utility process
  * - dist/main-log-transport.js  Pino worker target, unpacked beside app.asar
  * - dist/main-watchdog-worker.js  freeze watchdog, unpacked beside app.asar
@@ -19,13 +19,13 @@
  * a sibling output file from the running bundled module's own on-disk path
  * is safe: the file that's actually running always sits directly in
  * `dist/`, regardless of how Electron was launched. That's now load-bearing
- * at THREE more call sites beyond db-host-entry/parser-host-entry (BST-1459
+ * at THREE more call sites beyond parser-host-entry (BST-1459
  * — `app.getAppPath()` returns launch-mode-dependent values and cannot
  * substitute for this), all three now consolidated into
  * `apps/desktop/src/bundled-sibling-path.ts` (see its docblock for why it
  * uses `__filename`, not `module.filename` — empty under Vitest's module
  * transform — or `import.meta.filename` — empty in this esbuild `cjs`
- * output; db-host-entry/parser-host-entry still use the older
+ * output; parser-host-entry still uses the older
  * `module.filename` shape, tracked as BST-1460 migration debt):
  * - `resolveMainWatchdogWorkerPath` (diagnostics/main-watchdog-path.ts)
  * - `resolveMainLogTransportPath` (diagnostics/main-log-transport-path.ts)
@@ -49,7 +49,6 @@ const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 export const MAIN_PROCESS_ENTRY_POINTS = {
   'agent-host-entry': 'src/agent-host-entry.ts',
-  'db-host-entry': 'src/db-host-entry.ts',
   'desktop-bootstrap-runtime': 'src/desktop-bootstrap-runtime.ts',
   'desktop-database-location': 'src/desktop-database-location.ts',
   'desktop-env': 'src/desktop-env.ts',

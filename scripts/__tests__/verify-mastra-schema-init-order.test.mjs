@@ -112,20 +112,21 @@ test('the pre-filter admits every guarded constant, including the non-"mastra" o
     );
   }
 
-  // The real module that the substring pre-filter used to skip unparsed. Its
-  // path contains "mastra"; its TEXT does not.
-  const reExportModule = readFileSync(
-    path.join(REPO_ROOT, 'packages/agent/src/pglite-mastra-memory/schema.ts'),
+  // A real module the substring pre-filter would skip unparsed: it imports a
+  // guarded constant, and its TEXT contains no lower-case "mastra". (The
+  // original fixture, pglite-mastra-memory/schema.ts, left with BST-2068.)
+  const guardedImporter = readFileSync(
+    path.join(REPO_ROOT, 'packages/host-capabilities/src/native-tools/manage-canvas-tool.ts'),
     'utf8'
   );
   assert.ok(
-    !reExportModule.includes('mastra'),
+    !guardedImporter.includes('mastra'),
     'Fixture assumption broke: that module now contains a lower-case "mastra", so it no longer ' +
-      'demonstrates the blind spot. Pick another module that re-exports the constants.'
+      'demonstrates the blind spot. Pick another module that imports a guarded constant.'
   );
   assert.ok(
-    shouldScanSource(reExportModule, guardedNames),
-    'The re-export module must be parsed by the guard.'
+    shouldScanSource(guardedImporter, guardedNames),
+    'The guarded importer must be parsed by the guard.'
   );
 });
 

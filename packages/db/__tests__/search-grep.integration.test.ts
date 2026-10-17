@@ -6,11 +6,11 @@
  * raw FileChunkRepository candidate query.
  */
 
+import { GrepSearchService } from '@brainstrike/utils/grep-search';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FileChunkInsert } from '../src/models/file-chunk.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
-import { GrepSearchService } from '../src/search/grep-search-service.js';
 import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 describe('grep search (integration)', () => {

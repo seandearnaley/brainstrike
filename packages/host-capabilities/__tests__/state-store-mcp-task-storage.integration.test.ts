@@ -7,7 +7,7 @@ import {
   type McpTaskAuthorityLease,
   McpTaskMetadataTooLargeError,
   McpTaskStore,
-} from '@brainstrike/db';
+} from '@brainstrike/assistant-contract/mcp-task-store';
 import { StateStore } from '@brainstrike/state-store';
 import { afterEach, describe, expect, it } from 'vitest';
 import { stateStoreMcpTaskStorage } from '../src/mcp/state-store-task-storage.js';

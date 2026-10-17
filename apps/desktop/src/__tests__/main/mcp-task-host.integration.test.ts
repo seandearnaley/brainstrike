@@ -14,7 +14,7 @@ import {
 import type { McpClientExtensionRequestContract } from '@brainstrike/agent/mcp-tasks';
 import type { McpTaskPresentation } from '@brainstrike/assistant-contract';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
-import { McpTaskStore } from '@brainstrike/db';
+import { McpTaskStore } from '@brainstrike/assistant-contract/mcp-task-store';
 import type { ResolvedMcpServer } from '@brainstrike/host-capabilities/mcp/config-file';
 import type {
   McpBoundTaskElicitationPresenter,

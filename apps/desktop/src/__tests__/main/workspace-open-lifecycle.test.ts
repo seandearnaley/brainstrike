@@ -281,36 +281,6 @@ vi.mock('electron-store', () => {
   return { default: MockElectronStore };
 });
 
-const { getDatabaseMock } = vi.hoisted(() => ({
-  getDatabaseMock: vi.fn(),
-}));
-
-vi.mock('../../db-main', async () => {
-  const actual = await vi.importActual<typeof import('../../db-main')>('../../db-main');
-  return {
-    ...actual,
-    getDatabase: getDatabaseMock,
-  };
-});
-
-const { probeMock } = vi.hoisted(() => ({
-  probeMock: vi.fn(async () => ({
-    hnswIndexBuild: true,
-    maintenanceSettings: { maintenanceWorkMem: null, maxParallelMaintenanceWorkers: null },
-    progressReporting: true,
-  })),
-}));
-
-vi.mock('../../dimension-index-maintenance-capabilities', async () => {
-  const actual = await vi.importActual<
-    typeof import('../../dimension-index-maintenance-capabilities')
-  >('../../dimension-index-maintenance-capabilities');
-  return {
-    ...actual,
-    probeDimensionIndexRuntimeCapabilities: probeMock,
-  };
-});
-
 const { isDesktopShuttingDownMock } = vi.hoisted(() => ({
   isDesktopShuttingDownMock: vi.fn(() => false),
 }));
@@ -324,20 +294,6 @@ vi.mock('../../desktop-shutdown-state', async () => {
     isDesktopShuttingDown: isDesktopShuttingDownMock,
   };
 });
-
-vi.mock('../../database-maintenance-scheduler', () => ({
-  createDesktopDatabaseMaintenanceScheduler: vi.fn(() => ({
-    start: vi.fn(),
-    stop: vi.fn(),
-  })),
-}));
-
-vi.mock('../../dimension-index-maintenance-scheduler', () => ({
-  createDesktopDimensionIndexMaintenanceScheduler: vi.fn(() => ({
-    start: vi.fn(),
-    stop: vi.fn(),
-  })),
-}));
 
 function findHandler<T extends (...args: never[]) => unknown>(
   onMock: MockOnFn,
@@ -422,7 +378,6 @@ describe('main workspace-open lifecycle', () => {
     mockWindowInstances = [];
     isDesktopShuttingDownMock.mockReturnValue(false);
     mockApp.isPackaged = false;
-    getDatabaseMock.mockResolvedValue({});
     existsSyncMock.mockReturnValue(true);
     statSyncMock.mockReturnValue({ isDirectory: () => true });
     process.env['CI'] = 'false';

@@ -30,9 +30,6 @@
       "path": "../canonical-ingestion"
     },
     {
-      "path": "../db"
-    },
-    {
       "path": "../effect-kit"
     },
     {

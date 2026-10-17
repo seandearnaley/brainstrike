@@ -1,4 +1,4 @@
-import { type McpTaskStorage, pgliteMcpTaskStorage } from '@brainstrike/db';
+import type { McpTaskStorage } from '@brainstrike/assistant-contract/mcp-task-store';
 import {
   createSecretsMcpBearerCredentialAuthority,
   type McpBearerCredentialAuthority,
@@ -14,6 +14,8 @@ export interface DesktopMcpHostPlatformDependencies {
   readonly bearerCredentialAuthority?: McpBearerCredentialAuthority;
   readonly oauthStore?: McpOAuthStore;
   readonly openExternal?: (url: string) => Promise<void>;
+  /** The MCP Tasks store this runtime writes; the agent host composes its own StateStore's. */
+  readonly openTaskStorage?: () => Promise<McpTaskStorage>;
 }
 
 function createDefaultBearerCredentialAuthority(): McpBearerCredentialAuthority {
@@ -42,16 +44,14 @@ function createDefaultOAuthStore(): McpOAuthStore {
   });
 }
 
-/** The conformance client's own process: the PGlite Tasks tables of its profile. */
-function createDefaultTaskStorageOpener(): () => Promise<McpTaskStorage> {
-  return async () => {
-    const { getDatabase } = await import('../db-main');
-    const database = await getDatabase();
-    return pgliteMcpTaskStorage({ query: (sql, params) => database.query(sql, params) });
-  };
+/** A runtime composed without a Tasks store refuses MCP Tasks instead of inventing one. */
+async function refuseTaskStorage(): Promise<McpTaskStorage> {
+  throw new Error(
+    'This desktop MCP runtime was composed without an MCP Tasks store; pass openTaskStorage.'
+  );
 }
 
-/** Only desktop composition may select Electron-backed stores, opener and database. */
+/** Only desktop composition may select Electron-backed stores, opener and Tasks store. */
 export function createDesktopMcpHostPlatform(
   dependencies: DesktopMcpHostPlatformDependencies = {}
 ): McpHostRuntimePlatform {
@@ -61,6 +61,6 @@ export function createDesktopMcpHostPlatform(
       dependencies.bearerCredentialAuthority ?? createDefaultBearerCredentialAuthority(),
     oauthStore: dependencies.oauthStore ?? createDefaultOAuthStore(),
     openExternal: dependencies.openExternal ?? openExternalWithElectron,
-    openTaskStorage: createDefaultTaskStorageOpener(),
+    openTaskStorage: dependencies.openTaskStorage ?? refuseTaskStorage,
   };
 }

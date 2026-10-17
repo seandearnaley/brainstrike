@@ -9,7 +9,7 @@ import {
   type McpTaskPresentationControllerPort,
   parseMcpTaskActionRequest,
 } from '@brainstrike/assistant-contract/mcp-task-presentation';
-import type { McpTaskRecord, McpTaskScope } from '@brainstrike/db';
+import type { McpTaskRecord, McpTaskScope } from '@brainstrike/assistant-contract/mcp-task-store';
 
 export const MCP_TASK_CONTEXT_MAX_BYTES = 2048;
 

@@ -1,4 +1,4 @@
-import type { McpTaskIdentity, McpTaskScope } from '@brainstrike/db';
+import type { McpTaskIdentity, McpTaskScope } from '@brainstrike/assistant-contract/mcp-task-store';
 import {
   parseMcpCancelTaskParams,
   parseMcpUpdateTaskParams,

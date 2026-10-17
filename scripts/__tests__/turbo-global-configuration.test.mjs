@@ -70,6 +70,33 @@ function assertScheduledBefore(graph, taskId, dependencies, reason) {
   }
 }
 
+test('agent emitted-export lanes build their own package and retain source hashing', () => {
+  const graph = turboDryRunFor([
+    'test:integration',
+    'test:coverage',
+    '--filter=@brainstrike/agent',
+  ]);
+  for (const taskId of [
+    '@brainstrike/agent#test:integration',
+    '@brainstrike/agent#test:coverage',
+  ]) {
+    const task = graph.tasks.find((entry) => entry.taskId === taskId);
+    assert.ok(task, `${taskId} must exist in the actual Turbo graph`);
+    for (const dependency of ['@brainstrike/agent#build', '@brainstrike/agent#topo']) {
+      assert.ok(
+        task.dependencies.includes(dependency),
+        `${taskId} must depend on ${dependency} for its emitted exports and source hash`
+      );
+    }
+  }
+  const unit = turboDryRunFor(['test', '--filter=@brainstrike/agent']).tasks.find(
+    (entry) => entry.taskId === '@brainstrike/agent#test'
+  );
+  assert.ok(unit, 'the source-only agent unit task must exist');
+  assert.ok(unit.dependencies.includes('@brainstrike/agent#topo'));
+  assert.ok(!unit.dependencies.includes('@brainstrike/agent#build'));
+});
+
 test('native desktop restart lanes schedule every public fixture dependency build before execution', () => {
   const graph = turboDryRunFor([
     'test:integration',
@@ -108,21 +135,6 @@ test('native desktop restart lanes schedule every public fixture dependency buil
       task.dependencies.includes('@brainstrike/desktop#topo'),
       `${taskId} must retain the inherited source dependency cascade`
     );
-  }
-});
-
-test('agent integration and coverage build the package exports their proofs import', () => {
-  // BST-2089: provider-runtime and tool-guard-exports load packages/agent/dist.
-  const graph = turboDryRunFor([
-    'test:integration',
-    'test:coverage',
-    '--filter=@brainstrike/agent',
-  ]);
-  for (const taskId of [
-    '@brainstrike/agent#test:integration',
-    '@brainstrike/agent#test:coverage',
-  ]) {
-    assertScheduledBefore(graph, taskId, ['@brainstrike/agent#build'], 'its specs import dist');
   }
 });
 

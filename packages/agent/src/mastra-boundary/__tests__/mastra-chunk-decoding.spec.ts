@@ -744,14 +744,13 @@ describe('purity is structural, not just observed', () => {
     expect(synthetic).toMatch(p);
   });
 
-  it('control: the clock, id-minting, and logging probes fire on memory-store.ts', () => {
-    // This control used to read the Mastra agent loop's `agent-streaming.ts`,
-    // which ADR-0022 retired. `pglite-mastra-memory/memory-store.ts` replaces
-    // it on the same two grounds: it genuinely holds these three (and
-    // deliberately no randomness — that asymmetry is why the synthetic control
-    // exists too), and at ~1.8k lines it still proves the comment-stripper
-    // does not blank out real code on a large file.
-    const impure = sourceWithoutComments('../../pglite-mastra-memory/memory-store.ts');
+  it('control: the clock, id-minting, and logging probes fire on fence-executor.ts', () => {
+    // This control read `agent-streaming.ts` until ADR-0022 retired the Mastra
+    // loop, then `pglite-mastra-memory/memory-store.ts` until BST-2068 retired
+    // desktop PGlite. `fence/fence-executor.ts` replaces it on the same two
+    // grounds: it genuinely holds these three, and at ~1k lines it still proves
+    // the comment-stripper does not blank out real code on a large file.
+    const impure = sourceWithoutComments('../../fence/fence-executor.ts');
     expect(impure).toMatch(/\bnew Date\s*\(|\bDate\.now\s*\(/u);
     expect(impure).toMatch(/\bgenerateUUID\s*\(|\brandomUUID\s*\(/u);
     expect(impure).toMatch(/\blogger\s*\.|\bconsole\s*\./u);

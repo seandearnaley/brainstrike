@@ -3,14 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { StateStore } from '@brainstrike/state-store';
-import { expect, test, vi } from 'vitest';
-
-const forbiddenPg = vi.hoisted(() =>
-  vi.fn(async (): Promise<never> => {
-    throw new Error('Desktop PG unavailable');
-  })
-);
-vi.mock('../db-main', () => ({ getDatabase: forbiddenPg }));
+import { expect, test } from 'vitest';
 
 import { productionDesktopCapabilities } from '../agent-host-platform/production-desktop-capabilities';
 import { createCatalogRetrievalStore } from '../assistant-server/retrieval-store-catalog';
@@ -55,7 +48,6 @@ test('Main catalog toggles and Undo use the sole writer and survive full store r
       isEnabled: !first.isEnabled,
       providerId: 'openai',
     });
-    expect(forbiddenPg).not.toHaveBeenCalled();
     await store.close();
     store = await StateStore.open(path);
     const reopened = createDesktopModelCatalog(store);

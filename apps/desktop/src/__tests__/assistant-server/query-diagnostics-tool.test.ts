@@ -7,11 +7,6 @@ import { type DiagnosticEvent, serializeDiagnosticEventLine } from '@brainstrike
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 const logs = vi.hoisted(() => ({ path: '', read: vi.fn() }));
-vi.mock('../../db-main', () => ({
-  getDatabase: () => {
-    throw new Error('PGlite is not a desktop diagnostic owner');
-  },
-}));
 vi.mock('electron', () => ({
   app: {
     getPath: () => {
