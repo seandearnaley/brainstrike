@@ -33,6 +33,11 @@ const layouts = [
   ['packages/pipeline/__tests__', '.test.ts'],
   ['packages/worker-runtime/src/__tests__', '.test.ts'],
   ['packages/file-tree-worker/src', '.test.ts'],
+  ['packages/token-cache/src/__tests__', '.test.tsx'],
+  ['packages/chunking-worker/src/__tests__', '.test.ts'],
+  ['packages/embedding-worker/test', '.spec.ts'],
+  ['packages/embedding-worker/test', '.browser.test.ts'],
+  ['packages/embedding-worker/bench', '.spec.ts'],
 ];
 
 function lint(t, side) {
@@ -68,6 +73,10 @@ function lint(t, side) {
     'packages/pipeline/__tests__',
     'packages/worker-runtime/src',
     'packages/file-tree-worker/src',
+    'packages/token-cache/src',
+    'packages/chunking-worker/src',
+    'packages/embedding-worker/src',
+    'packages/embedding-worker/test',
   ]) {
     cases.push(
       {
@@ -83,6 +92,14 @@ function lint(t, side) {
         rule: 'nursery/useExhaustiveSwitchCases',
       }
     );
+  }
+  for (const directory of ['packages/token-cache/src', 'packages/embedding-worker/test']) {
+    cases.push({
+      bad: 'export function check(pending: Promise<void> | null) { if (pending) { return pending; } return null; }',
+      good: 'export function check(pending: Promise<void> | null) { if (pending !== null) { return pending; } return null; }',
+      path: `${directory}/agent-quality-lint-presence-${token}.ts`,
+      rule: 'nursery/noMisusedPromises',
+    });
   }
   for (const directory of [
     'packages/effect-kit/src',

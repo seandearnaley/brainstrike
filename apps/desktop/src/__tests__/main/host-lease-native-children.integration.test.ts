@@ -7,13 +7,13 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
+import { KILL_GRACE_MS } from '@brainstrike/host-capabilities/native-tools';
 import type { HostAttachment, HostLaunchOptions, HostStartOptions } from '@brainstrike/host-lease';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { type NativeChild, spawnNativeChild } from '@brainstrike/state-store/native-children';
 import type { MessagePortMain } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HostNativeChildren } from '../../agent-host-platform/host-native-children';
-import { KILL_GRACE_MS } from '../../assistant-server/kill-grace';
 
 const launch = vi.hoisted(() => vi.fn());
 vi.mock('@brainstrike/host-lease', async (original) => ({

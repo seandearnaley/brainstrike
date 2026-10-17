@@ -30,6 +30,7 @@ import type {
 } from '@brainstrike/types';
 import { toast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { summarizeGitFailure } from '../git-failure-summary';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { isTerminalBridgeAvailable } from '../terminal-panel/terminal-bridge';
@@ -74,6 +75,11 @@ export interface UseWorktreeModeArgs {
   /** The thread's active run, when it has one, so the operation reaches its timeline. */
   readonly runId: string | null;
   /** Selected thread identity; archive confirmation must never transfer across threads. */
+  /**
+   * Why the root's git status read failed, or null. With `isRepository` false
+   * it means "unknown", not "not a repository" (BST-2133).
+   */
+  readonly statusFailure: string | null;
   readonly threadId: string | null;
 }
 
@@ -366,6 +372,18 @@ function missingWorktreeDiagnostic(input: {
     return `Could not verify the bound worktree because the worktree list is unavailable: ${input.listError}`;
   }
   return `The bound worktree ${input.currentWorktreeId ?? '(unknown)'} is missing from the refreshed worktree list.`;
+}
+
+/**
+ * Why checkout mode is unavailable for a root with no usable repository. A
+ * failed status read names the failure, summarized because the chip's title and
+ * accessible name are no place for raw stderr (the status hook logs it in
+ * full); only a successful read can say "not a repository" (BST-2133).
+ */
+export function unavailableRepositoryReason(statusFailure: string | null): string {
+  return statusFailure === null
+    ? 'Not a git repository'
+    : `Git status could not be read: ${summarizeGitFailure(statusFailure)}`;
 }
 
 export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | undefined {
@@ -800,17 +818,18 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
         : null;
     const disabled = createDisabledReason(args.firstRequestState, settings);
     if (!args.isRepository) {
+      const reason = unavailableRepositoryReason(args.statusFailure);
       return {
         archiveConfirmation: null,
         baseRefs: BASE_REFS,
-        createDisabledReason: 'Not a git repository',
+        createDisabledReason: reason,
         defaultBranchPrefix: 'bs/',
         defaultName: '',
-        disabledReason: 'Not a git repository',
+        disabledReason: reason,
         localPath: args.primaryRootPath,
         managedParentPath,
         onArchive: undefined,
-        onCreate: () => Promise.reject(new Error('Not a git repository')),
+        onCreate: () => Promise.reject(new Error(reason)),
         onCreateBranchHere: undefined,
         onHandOffToLocal: undefined,
         onOpenCreateSheet: () => Promise.resolve(),
@@ -890,6 +909,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     args.isRepository,
     args.primaryRootId,
     args.primaryRootPath,
+    args.statusFailure,
     args.threadId,
     bridge,
     createBranchHereHandler,

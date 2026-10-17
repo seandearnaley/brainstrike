@@ -181,7 +181,11 @@ describe('Embedding Worker - Enhanced Coverage', () => {
       expect(vectors).toHaveLength(2);
       // First vector is zero, will be NaN after normalization
       // Second vector should be normalized
-      const magnitude1 = Math.sqrt(vectors[1].reduce((sum, value) => sum + value * value, 0));
+      const secondVector = vectors[1];
+      if (!secondVector) {
+        throw new Error('Expected second batch vector');
+      }
+      const magnitude1 = Math.sqrt(secondVector.reduce((sum, value) => sum + value * value, 0));
       expect(magnitude1).toBeCloseTo(1, 5);
     });
 
@@ -189,6 +193,9 @@ describe('Embedding Worker - Enhanced Coverage', () => {
       const vector = Float32Array.from([1]);
       const [normalized] = vectorsFromPipelineOutput(vector, 1);
 
+      if (!normalized) {
+        throw new Error('Expected normalized vector');
+      }
       expect(normalized).toHaveLength(1);
       expect(normalized[0]).toBe(1);
     });
@@ -197,6 +204,9 @@ describe('Embedding Worker - Enhanced Coverage', () => {
       const vector = Float32Array.from(Array.from({ length: 1536 }, (_, i) => i / 1536));
       const [normalized] = vectorsFromPipelineOutput(vector, 1536);
 
+      if (!normalized) {
+        throw new Error('Expected normalized vector');
+      }
       expect(normalized).toHaveLength(1536);
       const magnitude = Math.sqrt(normalized.reduce((sum, value) => sum + value * value, 0));
       expect(magnitude).toBeCloseTo(1, 5);

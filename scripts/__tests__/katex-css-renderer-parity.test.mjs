@@ -21,11 +21,9 @@ const CSS_IMPORTER = 'packages/ui';
 const RENDERER_PACKAGE = 'rehype-katex';
 
 // Scope is deliberately the CSS importer + the renderer, NOT the whole lockfile.
-// katex has other, unrelated consumers here — `mermaid` depends on katex
-// ^0.16.45 and `@mermaid-js/mermaid-cli` on ^0.16.25 — and a CLI-only bump that
-// lands a second katex must not fail this lane, because it cannot skew the
-// stylesheet against the markup it styles. A repo-global uniqueness assertion
-// would report someone else's dependency change as a KaTeX rendering fault.
+// Guard renderers used by the shared surface: rehype-katex and Mermaid. A
+// separate CLI consumer is outside this CSS contract; the security guard still
+// checks every KaTeX copy. Mermaid's embedded renderer gets its own behavior test.
 const GUARDED_EXTENSIONS = new Set(['.cjs', '.cts', '.js', '.jsx', '.mjs', '.mts', '.ts', '.tsx']);
 const SCANNED_ROOTS = ['apps', 'packages'];
 
@@ -66,7 +64,7 @@ function collectViolations({ cssVersion, rendererVersions }) {
     }
     if (css && (css.major !== renderer.major || css.minor !== renderer.minor)) {
       violations.push(
-        `katex CSS/renderer skew: ${CSS_IMPORTER} loads the stylesheet from katex@${cssVersion} but ${id} emits markup from katex@${version}. Align the direct katex range with whatever ${RENDERER_PACKAGE} resolves.`
+        `katex CSS/renderer skew: ${CSS_IMPORTER} loads the stylesheet from katex@${cssVersion} but ${id} emits markup from katex@${version}. Upgrade the stylesheet and surface renderers together.`
       );
     }
   }
@@ -88,6 +86,10 @@ function loadActualState() {
   const rendererVersions = Object.entries(lockfile.snapshots ?? {})
     .filter(([id]) => id.startsWith(`${RENDERER_PACKAGE}@`))
     .map(([id, snapshot]) => ({ id, version: snapshot?.dependencies?.katex }));
+  const mermaidVersion = lockfile.importers?.[CSS_IMPORTER]?.dependencies?.mermaid?.version;
+  const mermaid = lockfile.snapshots[`mermaid@${mermaidVersion}`];
+  assert.ok(mermaid, 'expected the UI Mermaid snapshot');
+  rendererVersions.push({ id: `mermaid@${mermaidVersion}`, version: mermaid.dependencies?.katex });
   return {
     cssVersion: lockfile.importers?.[CSS_IMPORTER]?.dependencies?.katex?.version,
     rendererVersions,
@@ -178,9 +180,8 @@ test('money control: a skew in a SECOND rehype-katex snapshot still fails', () =
 });
 
 test('money control: an unrelated katex consumer does NOT fail the lane', () => {
-  // mermaid and @mermaid-js/mermaid-cli both depend on katex. A second katex
-  // arriving through one of them cannot skew the stylesheet against the markup
-  // it styles, so it must not be reported here.
+  // The Mermaid CLI owns a separate stylesheet. Its version is checked by the
+  // full-graph security guard, rather than this shared-surface parity contract.
   assert.deepEqual(
     collectViolations({
       cssVersion: '0.16.47',
@@ -197,5 +198,18 @@ test('money control: a matched pair passes', () => {
       rendererVersions: [{ id: 'rehype-katex@7.0.1', version: '0.16.47' }],
     }),
     []
+  );
+});
+
+test('money control: diagram math cannot drift from markdown math and its CSS', () => {
+  assert.match(
+    collectViolations({
+      cssVersion: '0.18.11',
+      rendererVersions: [
+        { id: 'rehype-katex@7.0.1', version: '0.18.11' },
+        { id: 'mermaid@12.2.0', version: '0.16.47' },
+      ],
+    }).join('\n'),
+    /katex CSS\/renderer skew/
   );
 });

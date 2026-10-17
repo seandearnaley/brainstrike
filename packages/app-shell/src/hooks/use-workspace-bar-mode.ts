@@ -17,6 +17,8 @@ const logger = createLogger('WorkspaceBarMode');
 
 export interface UseWorkspaceBarModeArgs {
   readonly checkout: WorkspaceBarCheckout | undefined;
+  /** Why the primary root's status read failed, or null (`useThreadCheckoutStatus`). */
+  readonly checkoutFailure: string | null;
   /**
    * Whether the primary root's first git status read has settled
    * (`useThreadCheckoutStatus`). Until it has, an undefined `checkout` means
@@ -57,6 +59,7 @@ function branchToName(branch: string): string {
 export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBarModeComposition {
   const {
     checkout,
+    checkoutFailure,
     checkoutSettled,
     foldersPending,
     onHandOffToLocal,
@@ -140,6 +143,7 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
     primaryRootId: primaryRootId ?? null,
     primaryRootPath: primaryRootPath ?? null,
     runId: activeRunId,
+    statusFailure: checkoutFailure,
     threadId: selectedMemoryThreadId ?? null,
   });
   // While the root's first status read is in flight, `isRepository` above is

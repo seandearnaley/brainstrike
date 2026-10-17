@@ -591,7 +591,12 @@ export function useGitPanel(): UseGitPanelResult {
         return { error: 'git-bridge-unavailable: the desktop Git bridge is missing', ok: false };
       }
       try {
-        return await bridge.status(rootId);
+        const result = await bridge.status(rootId);
+        if (!result.ok) {
+          // The switcher shows a one-line summary; the full text lives here.
+          logger.warn('git folder probe failed', { error: result.error, rootId });
+        }
+        return result;
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         logger.error('git folder probe threw', { error: message, rootId });

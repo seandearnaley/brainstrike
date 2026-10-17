@@ -1,29 +1,21 @@
-import './_windows-command-fixture';
 /**
- * The desktop `brainstrike.executeCommand` tool's REAL execute: it spawns the
+ * The `brainstrike.executeCommand` executor's REAL execute: it spawns the
  * native shell, runs a fixture command in a real temp-dir workspace, and
  * streams the subprocess's output live through the writer the host binds for
  * the call.
  *
- * Also proves the REGISTRATION invariant: the tool is always in the map, so
- * shell execution is gated by the permission engine rather than by whether the
- * tool was registered at all.
- *
  * The loop half — that a real loop advertises this tool and dispatches a model
  * call to this execute, with the subprocess's side effect landing on disk — is
- * proven once on the production host path by
- * `src/__tests__/host-live-native-tools.integration.test.ts`. The host's
- * delivery of these written slices to the conversation is proven by
- * `src/__tests__/committed-host-live-shell-output.integration.test.ts`. This
- * file owns the tool's own side of that seam.
+ * proven on Desktop's host path by `apps/desktop/src/__tests__/host-live-native-tools.integration.test.ts`
+ * and on the standalone CLI by `standalone-production-shell.integration.test.ts`.
+ * This file owns the tool's own side of that seam.
  */
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { disposeLiveChildProcesses } from '../../assistant-server/execute-command-tool';
-import { buildHostNativeTools } from './_host-native-tools';
-import { requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
+import { disposeLiveChildProcesses } from '../src/native-tools/index.js';
+import { executeCommandTool, singleRootRuntime } from './fixtures/execute-command.js';
 
 const createdRoots: string[] = [];
 
@@ -54,25 +46,10 @@ afterEach(async () => {
   }
 });
 
-describe('executeCommand registration', () => {
-  // The interim "register only when enforcement is on" gate was removed: the tool
-  // is now ALWAYS registered like every other native tool, and the permission
-  // engine (enforce-on-by-default → execute:ask) suspends the run for per-call
-  // approval before it executes.
-  it('is ALWAYS present in the tool map (gated by the permission engine, not registration)', async () => {
-    const root = await makeWorkspace();
-    const tools = buildHostNativeTools(singleRootRuntime(root));
-    expect(tools['brainstrike.executeCommand']).toBeDefined();
-  });
-});
-
 describe('executeCommand live shell output (real subprocess, real writer)', () => {
   it('streams incremental shell output keyed to the tool call', async () => {
     const root = await makeWorkspace();
-    const tools = buildHostNativeTools(singleRootRuntime(root), {
-      ids: ['brainstrike.executeCommand'],
-    });
-    const execute = requireToolExecute(tools, 'brainstrike.executeCommand');
+    const { execute } = executeCommandTool(singleRootRuntime(root));
 
     // A command that emits a distinctive marker to stdout the tool must stream
     // live, before the final result is captured.

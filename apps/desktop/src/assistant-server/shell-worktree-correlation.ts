@@ -18,19 +18,12 @@
  * docs/agents/assistant-persistence.md.
  */
 import { scanShellCommandForGitSignals } from '@brainstrike/assistant-contract';
+import type { ShellCorrelationCapability } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import type { GitResult, ManagedWorktreeRow } from '@brainstrike/types';
 import type { WorktreeShellReconcileResult } from './worktree-adopt';
 
 const logger = createLogger('ShellWorktreeCorrelation');
-
-export interface ShellCorrelationCapability {
-  readonly onCommandCompleted: (input: {
-    readonly command: string;
-    readonly precedingWorktreePaths: ReadonlySet<string> | undefined;
-    readonly rootId: string;
-  }) => void;
-}
 
 /** The correlation's outcome: the worktrees the ledger adopted from this command. */
 export interface ShellWorktreeCorrelation extends ShellCorrelationCapability {

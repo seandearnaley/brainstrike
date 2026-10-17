@@ -48,6 +48,9 @@ describe('canonical chunking in the browser', () => {
     const browser = await createBrowserChunker()(PYTHON, options);
     expect(browser).toEqual(await createNodeChunker({ parser: 'oxc' })(PYTHON, options));
     // The symbols come from the grammar's parse tree; text splitting has none.
+    if (!browser.symbols) {
+      throw new Error('Expected grammar-derived Python symbols');
+    }
     expect(browser.symbols.map((symbol) => symbol.name)).toEqual(['Greeter', 'main']);
   });
 });

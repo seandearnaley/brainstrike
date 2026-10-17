@@ -1,4 +1,5 @@
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
+import { disposeLiveChildProcesses } from '@brainstrike/host-capabilities/native-tools';
 /**
  * The desktop agent host's process-lifetime tool state: the command sessions
  * its runs start, served to Main's Terminal panel over the platform
@@ -10,7 +11,6 @@ import {
   type CommandSessionManager,
   createCommandSessionManager,
 } from '../assistant-server/command-session-manager';
-import { disposeLiveChildProcesses } from '../assistant-server/execute-command-tool';
 import { disposeLspServers } from '../assistant-server/lsp-diagnostics';
 import { createCommandSessionIpcHandlers } from '../command-session-ipc-handlers';
 import {

@@ -352,6 +352,25 @@ describe('GitPanel focused folder (BST-1897)', () => {
     expect(child).toBeEnabled();
   });
 
+  it('summarizes a multi-line probe failure to its first line', async () => {
+    openWorkspace([PARENT, CHILD], PARENT.rootId);
+    installBridge({
+      [CHILD.rootId]: async () => ({
+        error: 'fatal: unable to read tree\nerror: a\nerror: b',
+        ok: false,
+      }),
+      [PARENT.rootId]: async () => ok(NOT_A_REPO),
+    });
+    render(<GitPanel />);
+
+    const child = await screen.findByRole('button', {
+      name: 'Show app in Git (/work/projects/app)',
+    });
+    await waitFor(() =>
+      expect(child).toHaveAccessibleDescription('Could not check Git: fatal: unable to read tree')
+    );
+  });
+
   it('keeps checking a folder whose root has not reconciled yet', async () => {
     openWorkspace([PARENT, CHILD], PARENT.rootId);
     let childCalls = 0;
