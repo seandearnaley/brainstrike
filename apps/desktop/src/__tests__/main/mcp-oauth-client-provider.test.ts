@@ -11,6 +11,7 @@ import {
   readMcpOAuthAuthProjection,
   registerMcpOAuthStore,
 } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
+import { auth, type FetchLike } from '@modelcontextprotocol/client';
 import { describe, expect, it, vi } from 'vitest';
 
 const identity = {
@@ -895,6 +896,58 @@ describe('MCP OAuth credential boundary', () => {
           tokens: { access_token: 'bound-access', token_type: 'Bearer' },
         },
       });
+    } finally {
+      await provider.close();
+    }
+  });
+
+  it('sends a pathless protected-resource identifier exactly as its metadata publishes it', async () => {
+    const resource = 'https://example.test';
+    const issuer = 'https://auth.example.test';
+    const serverUrl = `${resource}/mcp`;
+    const metadata: Readonly<Record<string, unknown>> = {
+      [`${resource}/.well-known/oauth-protected-resource`]: {
+        authorization_servers: [issuer],
+        resource,
+      },
+      [`${issuer}/.well-known/oauth-authorization-server`]: {
+        authorization_endpoint: `${issuer}/authorize`,
+        code_challenge_methods_supported: ['S256'],
+        issuer,
+        response_types_supported: ['code'],
+        token_endpoint: `${issuer}/token`,
+        token_endpoint_auth_methods_supported: ['none'],
+      },
+    };
+    const tokenBodies: URLSearchParams[] = [];
+    const fetchFn: FetchLike = async (input, init) => {
+      const url = String(input);
+      if (url === `${issuer}/token`) {
+        tokenBodies.push(new URLSearchParams(String(init?.body)));
+        return Response.json({ access_token: 'pathless-access', token_type: 'Bearer' });
+      }
+      return url in metadata ? Response.json(metadata[url]) : new Response(null, { status: 404 });
+    };
+    const opened: string[] = [];
+    const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
+      openExternal: async (authorizationUrl) => {
+        opened.push(authorizationUrl);
+      },
+      preRegisteredClient: { client_id: 'pathless-client', redirect_uris: [] },
+      serverId: identity.serverId,
+      serverUrl,
+      store: createInMemoryMcpOAuthStore(),
+    });
+    try {
+      await expect(auth(provider, { fetchFn, serverUrl })).resolves.toBe('REDIRECT');
+      await expect(
+        auth(provider, { authorizationCode: 'pathless-code', fetchFn, serverUrl })
+      ).resolves.toBe('AUTHORIZED');
+
+      expect(opened.map((url) => new URL(url).searchParams.get('resource'))).toEqual([resource]);
+      expect(tokenBodies.map((body) => body.get('resource'))).toEqual([resource]);
+      await expect(provider.resourceUrl?.()).resolves.toBe(resource);
     } finally {
       await provider.close();
     }

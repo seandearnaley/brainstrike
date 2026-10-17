@@ -10,7 +10,8 @@ import { expect, it } from 'vitest';
 import { MAIN_PROCESS_BUILD_OPTIONS } from '../../../scripts/build-main-config.mjs';
 
 const APP_ROOT = path.resolve(import.meta.dirname, '../../..');
-const MISMATCH_MESSAGE = 'protected-resource metadata does not match the MCP server URL';
+// The SDK's protected-resource check names the published resource it refused.
+const MISMATCH_MESSAGE = 'Protected resource https://evil.example.com/mcp does not match expected';
 
 interface ProcessResult {
   code: number | null;

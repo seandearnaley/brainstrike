@@ -5,6 +5,7 @@ import {
   FILE_MENTION_DIRECTIVE_TYPE,
   parseFileMentionDirectives,
   serializeFileMentionDirective,
+  splitFileMentionSegments,
 } from '../file-mention-directive.js';
 
 describe('encodeFileMentionId / decodeFileMentionId', () => {
@@ -194,6 +195,47 @@ describe('parseFileMentionDirectives', () => {
         path,
         rootId: 'root-1',
       },
+    ]);
+  });
+});
+
+describe('splitFileMentionSegments (BST-2043)', () => {
+  const directive = serializeFileMentionDirective({
+    id: encodeFileMentionId('20e9b88e-5b1f-413e-94ad-5f680aeab4c2', 'docs/context.txt'),
+    label: 'context.txt',
+  });
+
+  it('splits literal text and every file mention in order, losing nothing', () => {
+    const text = `Read ${directive}\n\nthen ${directive} again`;
+    const segments = splitFileMentionSegments(text);
+    expect(segments).toEqual([
+      { kind: 'text', text: 'Read ' },
+      {
+        id: '20e9b88e-5b1f-413e-94ad-5f680aeab4c2::docs/context.txt',
+        kind: 'file',
+        label: 'context.txt',
+        path: 'docs/context.txt',
+        raw: directive,
+        rootId: '20e9b88e-5b1f-413e-94ad-5f680aeab4c2',
+      },
+      { kind: 'text', text: '\n\nthen ' },
+      expect.objectContaining({ kind: 'file', label: 'context.txt' }),
+      { kind: 'text', text: ' again' },
+    ]);
+    expect(
+      segments.map((segment) => (segment.kind === 'text' ? segment.text : segment.raw)).join('')
+    ).toBe(text);
+  });
+
+  it('keeps other directive types and undecodable file ids as literal text', () => {
+    const text = 'Use :cmd[review] and :file[x.ts]{name=no-separator} as typed';
+    expect(splitFileMentionSegments(text)).toEqual([{ kind: 'text', text }]);
+  });
+
+  it('returns no segments for empty text and one literal run without directives', () => {
+    expect(splitFileMentionSegments('')).toEqual([]);
+    expect(splitFileMentionSegments('plain **text**')).toEqual([
+      { kind: 'text', text: 'plain **text**' },
     ]);
   });
 });

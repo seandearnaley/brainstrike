@@ -207,6 +207,50 @@ export function serializeFileMentionDirective(mention: FileMentionDirective): st
   return `:${FILE_MENTION_DIRECTIVE_TYPE}[${mention.label}]${attrs}`;
 }
 
+/** A run of a message's text: literal text, or a file mention decoded from its directive. */
+export type FileMentionTextSegment =
+  | { readonly kind: 'text'; readonly text: string }
+  | ({ readonly kind: 'file'; readonly raw: string } & ParsedFileMention);
+
+/**
+ * Split a message's text into literal runs and file mentions, in order, so a
+ * user message can show each mention as a chip instead of its directive
+ * (BST-2043). Every occurrence is kept. A directive of another type, or a file
+ * directive whose id does not decode, stays literal text: nothing typed is
+ * hidden. Joining each segment's text (or a mention's `raw`) gives back the input.
+ */
+export function splitFileMentionSegments(text: string): FileMentionTextSegment[] {
+  const segments: FileMentionTextSegment[] = [];
+  let literal = '';
+  let lastIndex = 0;
+  DIRECTIVE_RE.lastIndex = 0;
+  let match: RegExpExecArray | null = DIRECTIVE_RE.exec(text);
+  while (match !== null) {
+    const raw = match[0];
+    const label = match[2] ?? '';
+    const id = match[3] ?? label;
+    const decoded =
+      match[1] === FILE_MENTION_DIRECTIVE_TYPE ? decodeFileMentionIdForLabel(id, label) : null;
+    literal += text.slice(lastIndex, match.index);
+    if (decoded) {
+      if (literal) {
+        segments.push({ kind: 'text', text: literal });
+        literal = '';
+      }
+      segments.push({ id, kind: 'file', label, path: decoded.path, raw, rootId: decoded.rootId });
+    } else {
+      literal += raw;
+    }
+    lastIndex = match.index + raw.length;
+    match = DIRECTIVE_RE.exec(text);
+  }
+  literal += text.slice(lastIndex);
+  if (literal) {
+    segments.push({ kind: 'text', text: literal });
+  }
+  return segments;
+}
+
 /**
  * Parse every `:file[…]{name=…}` directive out of a message's text, decoding each
  * id into its `rootId` + `path`. Non-`file` directive types are ignored. A file

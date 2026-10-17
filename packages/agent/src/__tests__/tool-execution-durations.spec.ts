@@ -39,7 +39,7 @@ describe('tool execution durations', () => {
     // call span the human wait.
     const durations = createToolExecutionDurations();
     const tool = {
-      execute: async () => {
+      execute: async (..._args: unknown[]) => {
         await new Promise((resolve) => setTimeout(resolve, 20));
         return { ok: true };
       },
@@ -56,7 +56,7 @@ describe('tool execution durations', () => {
   it('ignores obsolete nested identity instead of borrowing it', async () => {
     const durations = createToolExecutionDurations();
     const guarded = guardToolExecution(
-      { execute: async () => ({ ok: true }) },
+      { execute: async (..._args: unknown[]) => ({ ok: true }) },
       { durations, timeoutMs: 5000, toolName: 't' }
     );
     await guarded.execute({}, { agent: { toolCallId: 'call-nested' } });
@@ -67,11 +67,11 @@ describe('tool execution durations', () => {
     const durations = createToolExecutionDurations();
     const guarded = guardToolExecution(
       {
-        execute: async () => {
+        execute: async (..._args: unknown[]) => {
           throw new Error('boom');
         },
       },
-      { durations, logger: { error: vi.fn() } as never, timeoutMs: 5000, toolName: 't' }
+      { durations, logger: { debug: vi.fn(), error: vi.fn() }, timeoutMs: 5000, toolName: 't' }
     );
 
     await guarded.execute(...ctx('call-fail'));
@@ -84,7 +84,7 @@ describe('tool execution durations', () => {
     // manufactured duration.
     const durations = createToolExecutionDurations();
     const guarded = guardToolExecution(
-      { execute: async () => ({ ok: true }) },
+      { execute: async (..._args: unknown[]) => ({ ok: true }) },
       { timeoutMs: 5000, toolName: 't' }
     );
 
@@ -96,7 +96,7 @@ describe('tool execution durations', () => {
   it('records nothing when the call carries no id', async () => {
     const durations = createToolExecutionDurations();
     const guarded = guardToolExecution(
-      { execute: async () => ({ ok: true }) },
+      { execute: async (..._args: unknown[]) => ({ ok: true }) },
       { durations, timeoutMs: 5000, toolName: 't' }
     );
 
@@ -110,13 +110,11 @@ describe('tool execution durations', () => {
     // the per-tool options would leave every unit above green.
     const durations = createToolExecutionDurations();
     const guarded = applyToolGuards(
-      { myTool: { execute: async () => ({ ok: true }) } },
+      { myTool: { execute: async (..._args: unknown[]) => ({ ok: true }) } },
       { durations, timeoutMs: 5000 }
     );
 
-    await (guarded.myTool as { execute: (...a: unknown[]) => Promise<unknown> }).execute(
-      ...ctx('call-map')
-    );
+    await guarded.myTool.execute(...ctx('call-map'));
 
     expect(durations.read('call-map')).toBeDefined();
   });
@@ -140,7 +138,7 @@ describe('hook short-circuits still record a duration', () => {
     // bills the approval delay.
     const durations = createToolExecutionDurations();
     const hooked = applyToolHooks(
-      { myTool: { execute: async () => ({ ran: true }) } },
+      { myTool: { execute: async (..._args: unknown[]) => ({ ran: true }) } },
       {
         durations,
         hookRunner: hookRunner('block'),
@@ -162,7 +160,7 @@ describe('hook short-circuits still record a duration', () => {
     const guarded = applyToolGuards(
       {
         myTool: {
-          execute: async () => {
+          execute: async (..._args: unknown[]) => {
             await new Promise((resolve) => setTimeout(resolve, 20));
             return { ran: true };
           },

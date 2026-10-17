@@ -1,14 +1,40 @@
 import { Schema } from 'effect';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 import {
+  type McpConfig,
+  type McpConfigInput,
   McpConfigSchema,
   McpConfigValidationError,
+  type McpProtocol,
+  type McpServer,
+  type McpServerInput,
   McpServerSchema,
   parseMcpConfigValue,
   parseMcpServerValue,
 } from '../mcp-config.js';
 
 describe('MCP config contract', () => {
+  it('keeps the public types on the member union, not the transport probe (BST-2084)', () => {
+    // The probe's encoded side is an open record; it must not leak into the inputs.
+    expectTypeOf<
+      string extends keyof McpServerInput ? 'open' : 'closed'
+    >().toEqualTypeOf<'closed'>();
+    expectTypeOf<McpServerInput['transport']>().toEqualTypeOf<
+      'sse' | 'stdio' | 'streamable-http'
+    >();
+    expectTypeOf<
+      Extract<McpServerInput, { transport: 'stdio' }>['command']
+    >().toEqualTypeOf<string>();
+    expectTypeOf<Extract<McpServerInput, { transport: 'sse' }>['url']>().toEqualTypeOf<string>();
+    expectTypeOf<McpServerInput['protocol']>().toEqualTypeOf<McpProtocol | undefined>();
+    expectTypeOf<McpConfigInput['servers'][number]>().toEqualTypeOf<McpServerInput>();
+    // Decoding still resolves every server's protocol and startup.
+    expectTypeOf<McpServer>().toEqualTypeOf<(typeof McpServerSchema)['Type']>();
+    expectTypeOf<McpConfig['servers'][number]>().toEqualTypeOf<McpServer>();
+    expectTypeOf<McpServer['protocol']>().toEqualTypeOf<McpProtocol>();
+    expectTypeOf<McpServer['startup']>().toEqualTypeOf<'authentication-required' | 'automatic'>();
+  });
+
   it.each([
     [' \thttps://exa\nmple.test/mcp\r ', 'https://example.test/mcp'],
     ['https://EXAMPLE.test/a', 'https://EXAMPLE.test/a'],
@@ -184,6 +210,17 @@ describe('MCP config contract', () => {
       { servers: [{ command: 'node', fallback: true, name: 'local', transport: 'stdio' }] },
       [{ message: 'Unrecognized key: "fallback"', path: 'servers.0' }],
     ],
+    [
+      'unknown transport',
+      { servers: [{ name: 'remote', transport: 'websocket' }] },
+      [{ message: 'Expected "stdio" | "streamable-http" | "sse"', path: 'servers.0.transport' }],
+    ],
+    [
+      'missing transport',
+      { servers: [{ command: 'node', name: 'local' }] },
+      [{ message: 'Missing key', path: 'servers.0.transport' }],
+    ],
+    ['non-object server', { servers: [42] }, [{ message: 'Expected object', path: 'servers.0' }]],
     [
       'invalid spawn value',
       { servers: [{ command: 'node\0shell', name: 'local', transport: 'stdio' }] },
