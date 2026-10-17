@@ -64,7 +64,7 @@ export function GitPanel(): ReactElement {
   if (panel.statusError) {
     return (
       <div
-        className="flex h-full flex-col items-center justify-center gap-3 overflow-y-auto p-8 text-center text-sm"
+        className="justify-center-safe flex h-full flex-col items-center gap-3 overflow-y-auto p-8 text-center text-sm"
         data-testid="git-panel-error"
       >
         <p className="font-medium text-destructive">
@@ -84,7 +84,7 @@ export function GitPanel(): ReactElement {
   if (panel.status && !panel.status.isRepository) {
     return (
       <div
-        className="flex h-full flex-col items-center justify-center gap-3 overflow-y-auto p-8 text-center text-muted-foreground text-sm"
+        className="justify-center-safe flex h-full flex-col items-center gap-3 overflow-y-auto p-8 text-center text-muted-foreground text-sm"
         data-testid="git-panel-not-a-repo"
       >
         <p className="font-medium text-foreground">{focusedFolder.name} is not a Git repository.</p>
@@ -100,7 +100,7 @@ export function GitPanel(): ReactElement {
   if (panel.repositoryError) {
     return (
       <div
-        className="flex h-full flex-col items-center justify-center gap-3 overflow-y-auto p-8 text-center text-sm"
+        className="justify-center-safe flex h-full flex-col items-center gap-3 overflow-y-auto p-8 text-center text-sm"
         data-testid="git-panel-error"
       >
         <p className="font-medium text-destructive">

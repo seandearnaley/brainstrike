@@ -253,7 +253,7 @@ test.describe('Git panel (desktop)', () => {
     const notARepo = page.getByTestId('git-panel-not-a-repo');
     await expect(notARepo).toContainText(`${parentName} is not a Git repository.`);
     await expect(notARepo.getByTestId('git-panel-focused-folder')).toHaveText(parent);
-    const showChild = notARepo.getByRole('button', { name: 'Show app in Git' });
+    const showChild = notARepo.getByRole('button', { name: `Show app in Git (${child})` });
     await expect(showChild).toHaveAccessibleDescription('Git repository · main', {
       timeout: 20_000,
     });
@@ -276,7 +276,9 @@ test.describe('Git panel (desktop)', () => {
     await expect(restarted.getByTestId('git-panel-clean')).toBeVisible({ timeout: 20_000 });
     await restarted.getByRole('button', { name: 'Current repository app' }).click();
     await expect(restarted.getByTestId('git-workbench-focused-folder')).toContainText(child);
-    const parentItem = restarted.getByRole('menuitem', { name: `Show ${parentName} in Git` });
+    const parentItem = restarted.getByRole('menuitem', {
+      name: `Show ${parentName} in Git (${parent})`,
+    });
     await expect(parentItem).toHaveAccessibleDescription('Not a Git repository', {
       timeout: 20_000,
     });

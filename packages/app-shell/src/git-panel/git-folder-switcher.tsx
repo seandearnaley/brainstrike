@@ -57,6 +57,11 @@ function presentProbe(probe: GitFolderProbe): ProbePresentation {
   }
 }
 
+/** The path is part of the name: two mounted roots may share a folder name. */
+function switchLabel(folder: GitWorkspaceFolder): string {
+  return `Show ${folder.name} in Git (${folder.path})`;
+}
+
 function MainBadge(): ReactElement {
   return (
     <span className="inline-flex shrink-0 items-center rounded-full bg-secondary px-1.5 font-medium text-[9px] text-secondary-foreground leading-4">
@@ -131,7 +136,7 @@ function SwitchListRow({
     <li>
       <button
         aria-describedby={statusId}
-        aria-label={`Show ${folder.name} in Git`}
+        aria-label={switchLabel(folder)}
         className="flex w-full px-3 py-2 text-left hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
         data-testid="git-folder-switch-item"
         disabled={!presentation.selectable}
@@ -198,7 +203,7 @@ function SwitchMenuItem({
   return (
     <DropdownMenuItem
       aria-describedby={statusId}
-      aria-label={`Show ${folder.name} in Git`}
+      aria-label={switchLabel(folder)}
       data-testid="git-folder-switch-item"
       disabled={!presentation.selectable}
       onSelect={() => onSelect(folder.rootId)}

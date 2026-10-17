@@ -237,7 +237,9 @@ describe('GitPanel focused folder (BST-1897)', () => {
     expect(within(state).getByTestId('git-panel-focused-folder')).toHaveTextContent(
       '/work/projects'
     );
-    const child = within(state).getByRole('button', { name: 'Show app in Git' });
+    const child = within(state).getByRole('button', {
+      name: 'Show app in Git (/work/projects/app)',
+    });
     await waitFor(() => expect(child).toHaveAccessibleDescription('Git repository · main'));
     expect(child).toBeEnabled();
     expect(state).toHaveTextContent('Main stays projects.');
@@ -252,7 +254,9 @@ describe('GitPanel focused folder (BST-1897)', () => {
     const user = userEvent.setup();
     render(<GitPanel />);
 
-    await user.click(await screen.findByRole('button', { name: 'Show app in Git' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Show app in Git (/work/projects/app)' })
+    );
 
     expect(setFocusedRoot).toHaveBeenCalledExactlyOnceWith(CHILD.rootId);
     const panel = await screen.findByTestId('git-panel');
@@ -266,7 +270,9 @@ describe('GitPanel focused folder (BST-1897)', () => {
     expect(await screen.findByTestId('git-workbench-focused-folder')).toHaveTextContent(
       '/work/projects/app'
     );
-    const parent = await screen.findByRole('menuitem', { name: 'Show projects in Git' });
+    const parent = await screen.findByRole('menuitem', {
+      name: 'Show projects in Git (/work/projects)',
+    });
     await waitFor(() => expect(parent).toHaveAccessibleDescription('Not a Git repository'));
     expect(parent).toHaveAttribute('aria-disabled', 'true');
     expect(within(parent).getByText('Main')).toBeInTheDocument();
@@ -287,7 +293,9 @@ describe('GitPanel focused folder (BST-1897)', () => {
     const user = userEvent.setup();
     render(<GitPanel />);
 
-    await user.click(await screen.findByRole('button', { name: 'Show app in Git' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Show app in Git (/work/projects/app)' })
+    );
     expect(await screen.findByTestId('git-panel-loading')).toHaveTextContent('/work/projects/app');
 
     act(() => setFocusedRoot(PARENT.rootId));
@@ -300,7 +308,9 @@ describe('GitPanel focused folder (BST-1897)', () => {
     expect(screen.getByTestId('git-panel-not-a-repo')).toBeInTheDocument();
     expect(screen.queryByText('stale')).not.toBeInTheDocument();
 
-    await user.click(await screen.findByRole('button', { name: 'Show app in Git' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Show app in Git (/work/projects/app)' })
+    );
     const panel = await screen.findByTestId('git-panel');
     await waitFor(() => expect(panel).toHaveTextContent('main'));
     expect(setFocusedRoot).toHaveBeenCalledTimes(3);
@@ -332,10 +342,10 @@ describe('GitPanel focused folder (BST-1897)', () => {
     });
     render(<GitPanel />);
 
-    const notes = await screen.findByRole('button', { name: 'Show notes in Git' });
+    const notes = await screen.findByRole('button', { name: 'Show notes in Git (/work/notes)' });
     await waitFor(() => expect(notes).toHaveAccessibleDescription('Not a Git repository'));
     expect(notes).toBeDisabled();
-    const child = screen.getByRole('button', { name: 'Show app in Git' });
+    const child = screen.getByRole('button', { name: 'Show app in Git (/work/projects/app)' });
     await waitFor(() =>
       expect(child).toHaveAccessibleDescription('Could not check Git: git exploded')
     );
@@ -356,7 +366,9 @@ describe('GitPanel focused folder (BST-1897)', () => {
     });
     render(<GitPanel />);
 
-    const child = await screen.findByRole('button', { name: 'Show app in Git' });
+    const child = await screen.findByRole('button', {
+      name: 'Show app in Git (/work/projects/app)',
+    });
     expect(child).toHaveAccessibleDescription('Checking for a Git repository…');
     await waitFor(() => expect(child).toHaveAccessibleDescription('Git repository · main'), {
       timeout: 3000,
@@ -377,7 +389,30 @@ describe('GitPanel focused folder (BST-1897)', () => {
       '/work/projects'
     );
     expect(within(error).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
-    expect(within(error).getByRole('button', { name: 'Show app in Git' })).toBeInTheDocument();
+    expect(
+      within(error).getByRole('button', { name: 'Show app in Git (/work/projects/app)' })
+    ).toBeInTheDocument();
+  });
+
+  it('tells same-named folders apart by path', async () => {
+    const otherApp = handle('root-other-app', '/work/clients/app');
+    openWorkspace([PARENT, CHILD, otherApp], PARENT.rootId);
+    installBridge({
+      [CHILD.rootId]: async () => ok(repoStatus('main')),
+      [otherApp.rootId]: async () => ok(repoStatus('release')),
+      [PARENT.rootId]: async () => ok(NOT_A_REPO),
+    });
+    const user = userEvent.setup();
+    render(<GitPanel />);
+
+    const clientApp = await screen.findByRole('button', {
+      name: 'Show app in Git (/work/clients/app)',
+    });
+    expect(
+      screen.getByRole('button', { name: 'Show app in Git (/work/projects/app)' })
+    ).toBeInTheDocument();
+    await user.click(clientApp);
+    expect(setFocusedRoot).toHaveBeenLastCalledWith(otherApp.rootId);
   });
 
   it('says so when no other folder is open', async () => {
@@ -400,7 +435,9 @@ describe('GitPanel focused folder (BST-1897)', () => {
     const user = userEvent.setup();
     render(<GitPanel />);
 
-    const child = await screen.findByRole('button', { name: 'Show app in Git' });
+    const child = await screen.findByRole('button', {
+      name: 'Show app in Git (/work/projects/app)',
+    });
     await user.tab();
     expect(child).toHaveFocus();
     await user.keyboard('{Enter}');
@@ -410,8 +447,10 @@ describe('GitPanel focused folder (BST-1897)', () => {
     const trigger = screen.getByRole('button', { name: 'Current repository app' });
     trigger.focus();
     await user.keyboard('{Enter}');
-    const parent = await screen.findByRole('menuitem', { name: 'Show projects in Git' });
-    const notes = screen.getByRole('menuitem', { name: 'Show notes in Git' });
+    const parent = await screen.findByRole('menuitem', {
+      name: 'Show projects in Git (/work/projects)',
+    });
+    const notes = screen.getByRole('menuitem', { name: 'Show notes in Git (/work/notes)' });
     await waitFor(() => expect(parent).toHaveAttribute('aria-disabled', 'true'));
     await waitFor(() => expect(notes).toHaveAccessibleDescription('Git repository · drafts'));
     // Arrow keys skip the disabled parent and land on the other repository.
