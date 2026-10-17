@@ -1,7 +1,11 @@
 import { parseMcpHostCloseReport } from '@brainstrike/assistant-contract/mcp-host-runtime';
 import { parseMcpHostSnapshot } from '@brainstrike/assistant-contract/mcp-host-status';
+import {
+  opaqueWireSchema,
+  wireResultDecoder,
+} from '@brainstrike/assistant-contract/schema-boundary';
+import { Schema } from 'effect';
 import { ResponseError } from 'vscode-jsonrpc';
-import { z } from 'zod';
 
 /**
  * Private Main and Node methods (BST-1930 c5e). Two groups:
@@ -19,7 +23,7 @@ export const MCP_STORE_METHODS = {
 } as const;
 
 /** Only records from the desktop's owned MCP composition cross this adapter. */
-export const McpDiagnosticScopeSchema = z.enum([
+export const McpDiagnosticScopeSchema = Schema.Literals([
   'DesktopMcpHostConnection',
   'DesktopNodeMcpHost',
   'McpConfigFile',
@@ -34,34 +38,46 @@ export const McpDiagnosticScopeSchema = z.enum([
   'McpToolDiscovery',
 ]);
 
-const McpDiagnosticRecordSchema = z.strictObject({
-  args: z.array(z.json()),
-  bindings: z.record(z.string(), z.json()),
-  level: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']),
-  message: z.string().optional(),
+const McpDiagnosticRecordSchema = Schema.Struct({
+  args: Schema.mutable(Schema.Array(Schema.MutableJson)),
+  bindings: Schema.Record(Schema.String, Schema.MutableJson),
+  level: Schema.Literals(['trace', 'debug', 'info', 'warn', 'error', 'fatal']),
+  message: Schema.optional(Schema.String),
   scope: McpDiagnosticScopeSchema,
-  timestamp: z.number().nonnegative(),
+  timestamp: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
 });
-const McpSuccessfulCloseReportSchema = z
-  .unknown()
-  .transform(parseMcpHostCloseReport)
-  .refine((report) => report.failures.length === 0, 'MCP cleanup did not complete successfully');
-const McpResetSnapshotSchema = z
-  .unknown()
-  .transform(parseMcpHostSnapshot)
-  .refine((snapshot) => snapshot.servers.length === 0, 'MCP reset left configured servers');
+const McpSuccessfulCloseReportSchema = opaqueWireSchema(parseMcpHostCloseReport).check(
+  Schema.makeFilter((report) =>
+    report.failures.length === 0
+      ? undefined
+      : { issue: 'MCP cleanup did not complete successfully', path: [] }
+  )
+);
+const McpResetSnapshotSchema = opaqueWireSchema(parseMcpHostSnapshot).check(
+  Schema.makeFilter((snapshot) =>
+    snapshot.servers.length === 0
+      ? undefined
+      : { issue: 'MCP reset left configured servers', path: [] }
+  )
+);
 
 /** Redacted producer records and receipts from actual joined MCP cleanup. */
-export const McpDiagnosticEventSchema = z.discriminatedUnion('type', [
-  z.strictObject({ record: McpDiagnosticRecordSchema, type: z.literal('record') }),
-  z.strictObject({ hostCloseReport: McpSuccessfulCloseReportSchema, type: z.literal('shutdown') }),
-  z.strictObject({
-    hostCloseReport: McpSuccessfulCloseReportSchema,
-    snapshot: McpResetSnapshotSchema,
-    type: z.literal('reset'),
-  }),
-]);
-export type McpDiagnosticEvent = z.infer<typeof McpDiagnosticEventSchema>;
+export const McpDiagnosticEventSchema = Schema.Union(
+  [
+    Schema.Struct({ record: McpDiagnosticRecordSchema, type: Schema.Literal('record') }),
+    Schema.Struct({
+      hostCloseReport: McpSuccessfulCloseReportSchema,
+      type: Schema.Literal('shutdown'),
+    }),
+    Schema.Struct({
+      hostCloseReport: McpSuccessfulCloseReportSchema,
+      snapshot: McpResetSnapshotSchema,
+      type: Schema.Literal('reset'),
+    }),
+  ],
+  { mode: 'oneOf' }
+);
+export type McpDiagnosticEvent = (typeof McpDiagnosticEventSchema)['Type'];
 
 export const MCP_RUNTIME_METHODS = {
   /** Main's native picker chose an MCP config file; the host selects it. */
@@ -75,30 +91,32 @@ export const MCP_RUNTIME_METHODS = {
 } as const;
 
 /** One tool registry entry, exactly as `mcpToolRegistry.getAllTools()` publishes it. */
-export const McpToolRegistryStateSchema = z.record(
-  z.string(),
-  z.array(
-    z.object({
-      description: z.string().optional(),
-      enabled: z.boolean(),
-      id: z.string().min(1),
-      inputSchema: z.json().optional(),
-    })
+export const McpToolRegistryStateSchema = Schema.Record(
+  Schema.String,
+  Schema.mutable(
+    Schema.Array(
+      Schema.Struct({
+        description: Schema.optional(Schema.String),
+        enabled: Schema.Boolean,
+        id: Schema.String.check(Schema.isMinCodePoints(1)),
+        inputSchema: Schema.optional(Schema.MutableJson),
+      })
+    )
   )
 );
-export type McpToolRegistryState = z.infer<typeof McpToolRegistryStateSchema>;
+export type McpToolRegistryState = (typeof McpToolRegistryStateSchema)['Type'];
 
-const ERROR_DATA = z.object({
-  category: z.string().optional(),
-  code: z.union([z.string(), z.number()]).optional(),
-  name: z.string().optional(),
+const ERROR_DATA = Schema.Struct({
+  category: Schema.optional(Schema.String),
+  code: Schema.optional(Schema.Union([Schema.String, Schema.Finite])),
+  name: Schema.optional(Schema.String),
 });
 
 /** A remote failure keeps its typed identity (`code`, `category`, `name`) and message. */
 export class McpHostWireError extends Error {
   readonly category: string | undefined;
   readonly code: string | number | undefined;
-  constructor(message: string, data: z.infer<typeof ERROR_DATA>) {
+  constructor(message: string, data: (typeof ERROR_DATA)['Type']) {
     super(message);
     this.name = data.name ?? 'McpHostWireError';
     this.code = data.code;
@@ -124,8 +142,8 @@ export function decodeMcpRuntimeError(cause: unknown): unknown {
   if (!(cause instanceof ResponseError) || cause.code !== -32_000) {
     return cause;
   }
-  const data = ERROR_DATA.safeParse(cause.data);
-  return new McpHostWireError(cause.message, data.success ? data.data : {});
+  const data = wireResultDecoder(ERROR_DATA)(cause.data);
+  return new McpHostWireError(cause.message, data._tag === 'Success' ? data.success : {});
 }
 
 /** Run a handler body and encode its failure for the private response. */

@@ -1,3 +1,4 @@
+import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import {
   GetTaskRequestSchema,
@@ -24,10 +25,10 @@ describe('MCP Tasks extension schemas', () => {
     const request = { jsonrpc: '2.0', method: 'tasks/get', params: { taskId: 'task-123' } };
 
     for (const id of ['request-1', -1, 0, 1, Number.MAX_SAFE_INTEGER]) {
-      expect(GetTaskRequestSchema.parse({ ...request, id }).id).toBe(id);
+      expect(Schema.decodeUnknownSync(GetTaskRequestSchema)({ ...request, id }).id).toBe(id);
     }
     for (const id of [-1.5, 0.5, 1.5]) {
-      expect(() => GetTaskRequestSchema.parse({ ...request, id })).toThrow();
+      expect(() => Schema.decodeUnknownSync(GetTaskRequestSchema)({ ...request, id })).toThrow();
     }
   });
 

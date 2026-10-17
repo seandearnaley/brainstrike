@@ -279,6 +279,10 @@
     "./schema-boundary": {
       "types": "./dist/schema-boundary.d.ts",
       "default": "./dist/schema-boundary.js"
+    },
+    "./sdk-schema": {
+      "types": "./dist/sdk-schema.d.ts",
+      "default": "./dist/sdk-schema.js"
     }
   },
   "files": [

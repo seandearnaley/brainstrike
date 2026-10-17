@@ -4,8 +4,8 @@ import {
   type McpToolRegistryState,
   McpToolRegistryStateSchema,
 } from '@brainstrike/host-capabilities/mcp/mcp-runtime-wire';
+import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
-import { z } from 'zod';
 
 /** The Node host is not running (or not yet ready), so no MCP request can be served. */
 export class McpRuntimeUnavailableError extends Error {
@@ -29,9 +29,10 @@ export class MainMcpHostControl {
 
   /** Main's native picker chose an MCP config file: the host selects it. */
   async pickConfigPath(path: string): Promise<{ readonly path: string; readonly success: true }> {
-    return z
-      .strictObject({ path: z.string(), success: z.literal(true) })
-      .parse(await this.#call(MCP_RUNTIME_METHODS.configPathPick, { path }));
+    return Schema.decodeUnknownSync(
+      Schema.Struct({ path: Schema.String, success: Schema.Literal(true) }),
+      { onExcessProperty: 'error' }
+    )(await this.#call(MCP_RUNTIME_METHODS.configPathPick, { path }));
   }
 
   /** Factory reset: the host retires its MCP settings lifecycle and keeps a restore point. */
@@ -46,7 +47,9 @@ export class MainMcpHostControl {
 
   /** The host's MCP tools, read once for the caller. */
   async readTools(): Promise<McpToolRegistryState> {
-    return McpToolRegistryStateSchema.parse(await this.#call(MCP_RUNTIME_METHODS.toolsRead, {}));
+    return Schema.decodeUnknownSync(McpToolRegistryStateSchema)(
+      await this.#call(MCP_RUNTIME_METHODS.toolsRead, {})
+    );
   }
 
   /** Main's shutdown: no further request reaches the host. */

@@ -1,3 +1,4 @@
+import { Schema } from 'effect';
 import {
   type CancelTaskParams,
   CancelTaskParamsSchema,
@@ -22,41 +23,41 @@ import {
 export { parseMcpCreateTaskResult } from './task.js';
 
 export function parseMcpGetTaskParams(value: unknown): GetTaskParams {
-  return GetTaskParamsSchema.parse(value);
+  return Schema.decodeUnknownSync(GetTaskParamsSchema)(value);
 }
 
 export function parseMcpGetTaskResult(value: unknown): GetTaskResult {
-  return GetTaskResultSchema.parse(value);
+  return Schema.decodeUnknownSync(GetTaskResultSchema)(value);
 }
 
 export function parseMcpUpdateTaskParams(value: unknown): UpdateTaskParams {
-  return UpdateTaskParamsSchema.parse(value);
+  return Schema.decodeUnknownSync(UpdateTaskParamsSchema)(value);
 }
 
 export function parseMcpUpdateTaskResult(value: unknown): UpdateTaskResult {
-  return UpdateTaskResultSchema.parse(value);
+  return Schema.decodeUnknownSync(UpdateTaskResultSchema)(value);
 }
 
 export function parseMcpCancelTaskParams(value: unknown): CancelTaskParams {
-  return CancelTaskParamsSchema.parse(value);
+  return Schema.decodeUnknownSync(CancelTaskParamsSchema)(value);
 }
 
 export function parseMcpCancelTaskResult(value: unknown): CancelTaskResult {
-  return CancelTaskResultSchema.parse(value);
+  return Schema.decodeUnknownSync(CancelTaskResultSchema)(value);
 }
 
 export function parseMcpTaskStatusNotificationParams(value: unknown): TaskStatusNotificationParams {
-  return TaskStatusNotificationParamsSchema.parse(value);
+  return Schema.decodeUnknownSync(TaskStatusNotificationParamsSchema)(value);
 }
 
 export function parseMcpTaskSubscriptionNotifications(
   value: unknown
 ): TaskSubscriptionNotifications {
-  return TaskSubscriptionNotificationsSchema.parse(value);
+  return Schema.decodeUnknownSync(TaskSubscriptionNotificationsSchema)(value);
 }
 
 export function parseMcpTaskSubscriptionAcknowledgedNotifications(
   value: unknown
 ): TaskSubscriptionAcknowledgedNotifications {
-  return TaskSubscriptionAcknowledgedNotificationsSchema.parse(value);
+  return Schema.decodeUnknownSync(TaskSubscriptionAcknowledgedNotificationsSchema)(value);
 }

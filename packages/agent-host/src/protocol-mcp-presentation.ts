@@ -8,8 +8,8 @@ import {
   parseMcpElicitationPresentation,
   parseMcpElicitationSettlement,
 } from '@brainstrike/assistant-contract';
+import { opaqueWireSchema } from '@brainstrike/assistant-contract/schema-boundary';
 import { Schema } from 'effect';
-import { opaqueWireSchema } from './opaque-wire-schema.js';
 
 /**
  * The desktop's MCP presentations (BST-1930 c5c): durable Tasks status cards

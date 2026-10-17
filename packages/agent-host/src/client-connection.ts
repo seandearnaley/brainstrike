@@ -1,4 +1,5 @@
 import { BoundaryFailureError, INTERNAL_FAULT } from '@brainstrike/assistant-contract';
+import { wireDecoder, wireResultDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import type { HostAttachment, HostRecord } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
 import { Schema, SchemaIssue } from 'effect';
@@ -26,7 +27,6 @@ import {
   McpSettingsEventSchema,
   parseHostParams,
 } from './protocol.js';
-import { wireDecoder, wireResultDecoder } from './wire-decoder.js';
 export interface HostClient extends HostAttachment {
   readonly catalog: HostCatalog;
   /** BST-1932: told the thread whose children changed status; re-read `thread/children`. */

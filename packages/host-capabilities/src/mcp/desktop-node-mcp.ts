@@ -3,7 +3,9 @@ import type { HostStartupContext } from '@brainstrike/agent-host';
 import type { SecretsService } from '@brainstrike/agent-host/credential-contract';
 import { isMcpOAuthCredentialAccount } from '@brainstrike/agent-host/file-credentials';
 import type { McpHostCloseReport, McpHostSnapshot } from '@brainstrike/assistant-contract';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { addLogListener, createLogger, redactSensitiveLogValue } from '@brainstrike/logging';
+import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { createSecretsMcpBearerCredentialAuthority } from './bearer-credential.js';
 import { createMcpConfigFile } from './config-file.js';
@@ -49,7 +51,7 @@ export function createDesktopMcpDiagnostics(request: Request) {
       .catch(failed);
   };
   const remove = addLogListener((record) => {
-    if (!McpDiagnosticScopeSchema.safeParse(record.scope).success) {
+    if (!Schema.is(McpDiagnosticScopeSchema)(record.scope)) {
       return;
     }
     try {
@@ -63,7 +65,12 @@ export function createDesktopMcpDiagnostics(request: Request) {
           })
         )
       );
-      enqueue(McpDiagnosticEventSchema.parse({ record: wireRecord, type: 'record' }));
+      enqueue(
+        wireDecoder(McpDiagnosticEventSchema, { errors: 'all', onExcessProperty: 'error' })({
+          record: wireRecord,
+          type: 'record',
+        })
+      );
     } catch (cause) {
       failed(cause);
     }
@@ -83,12 +90,23 @@ export function createDesktopMcpDiagnostics(request: Request) {
     drain,
     async reset(hostCloseReport: McpHostCloseReport, snapshot: McpHostSnapshot): Promise<void> {
       await drain();
-      enqueue(McpDiagnosticEventSchema.parse({ hostCloseReport, snapshot, type: 'reset' }));
+      enqueue(
+        wireDecoder(McpDiagnosticEventSchema, { errors: 'all', onExcessProperty: 'error' })({
+          hostCloseReport,
+          snapshot,
+          type: 'reset',
+        })
+      );
       await drain();
     },
     async shutdown(hostCloseReport: McpHostCloseReport): Promise<void> {
       await drain();
-      enqueue(McpDiagnosticEventSchema.parse({ hostCloseReport, type: 'shutdown' }));
+      enqueue(
+        wireDecoder(McpDiagnosticEventSchema, { errors: 'all', onExcessProperty: 'error' })({
+          hostCloseReport,
+          type: 'shutdown',
+        })
+      );
       await drain();
     },
   };

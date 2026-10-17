@@ -1,3 +1,4 @@
+import { sdkSchema } from '@brainstrike/assistant-contract/sdk-schema';
 import {
   CreateMessageRequestSchema,
   CreateMessageResultSchema,
@@ -7,13 +8,14 @@ import {
   ListRootsRequestSchema,
   ListRootsResultSchema,
 } from '@modelcontextprotocol/core';
+import { Schema } from 'effect';
 import { z } from 'zod';
 import {
   CancelledTaskSchema,
   CompletedTaskSchema,
   FailedTaskSchema,
-  JSON_VALUE_SCHEMA,
   type JsonObject,
+  jsonObject,
   NOTIFICATION_META_SCHEMA,
   REQUEST_ID_SCHEMA,
   RESULT_META_SCHEMA,
@@ -21,119 +23,143 @@ import {
   WorkingTaskSchema,
 } from './task.js';
 
-const INPUT_REQUEST_VALIDATOR = z.union([
-  CreateMessageRequestSchema.catchall(JSON_VALUE_SCHEMA),
-  ListRootsRequestSchema.catchall(JSON_VALUE_SCHEMA),
-  ElicitRequestSchema.catchall(JSON_VALUE_SCHEMA),
-]);
-const INPUT_RESPONSE_VALIDATOR = z.union([
-  CreateMessageResultWithToolsSchema.catchall(JSON_VALUE_SCHEMA),
-  CreateMessageResultSchema.catchall(JSON_VALUE_SCHEMA),
-  ListRootsResultSchema.catchall(JSON_VALUE_SCHEMA),
-  ElicitResultSchema.catchall(JSON_VALUE_SCHEMA),
-]);
-
-export const TasksExtensionCapabilitySchema = z.strictObject({});
-export const InputRequestsSchema: z.ZodType<Record<string, JsonObject>> = z.record(
-  z.string(),
-  INPUT_REQUEST_VALIDATOR
+const INPUT_REQUEST_VALIDATOR = sdkSchema(
+  z.union([
+    CreateMessageRequestSchema.catchall(z.json()),
+    ListRootsRequestSchema.catchall(z.json()),
+    ElicitRequestSchema.catchall(z.json()),
+  ])
 );
-export const InputResponsesSchema: z.ZodType<Record<string, JsonObject>> = z.record(
-  z.string(),
-  INPUT_RESPONSE_VALIDATOR
+const INPUT_RESPONSE_VALIDATOR = sdkSchema(
+  z.union([
+    CreateMessageResultWithToolsSchema.catchall(z.json()),
+    CreateMessageResultSchema.catchall(z.json()),
+    ListRootsResultSchema.catchall(z.json()),
+    ElicitResultSchema.catchall(z.json()),
+  ])
 );
 
-export const InputRequiredTaskSchema = TaskSchema.extend({
+export const TasksExtensionCapabilitySchema = Schema.Record(Schema.String, Schema.Never);
+export const InputRequestsSchema: Schema.ConstraintDecoder<Record<string, JsonObject>> =
+  Schema.Record(Schema.String, INPUT_REQUEST_VALIDATOR);
+export const InputResponsesSchema: Schema.ConstraintDecoder<Record<string, JsonObject>> =
+  Schema.Record(Schema.String, INPUT_RESPONSE_VALIDATOR);
+
+export const InputRequiredTaskSchema = jsonObject({
+  ...TaskSchema.schema.fields,
   inputRequests: InputRequestsSchema,
-  status: z.literal('input_required'),
+  status: Schema.Literal('input_required'),
 });
-export const DetailedTaskSchema = z.discriminatedUnion('status', [
-  WorkingTaskSchema,
-  InputRequiredTaskSchema,
-  CompletedTaskSchema,
-  FailedTaskSchema,
-  CancelledTaskSchema,
-]);
+export const DetailedTaskSchema = Schema.Union(
+  [
+    WorkingTaskSchema,
+    InputRequiredTaskSchema,
+    CompletedTaskSchema,
+    FailedTaskSchema,
+    CancelledTaskSchema,
+  ],
+  { mode: 'oneOf' }
+);
 
-export const GetTaskParamsSchema = z.object({ taskId: z.string() }).catchall(JSON_VALUE_SCHEMA);
-export const GetTaskResultSchema = z.discriminatedUnion('status', [
-  WorkingTaskSchema.extend({ _meta: RESULT_META_SCHEMA, resultType: z.literal('complete') }),
-  InputRequiredTaskSchema.extend({
-    _meta: RESULT_META_SCHEMA,
-    resultType: z.literal('complete'),
-  }),
-  CompletedTaskSchema.extend({ _meta: RESULT_META_SCHEMA, resultType: z.literal('complete') }),
-  FailedTaskSchema.extend({ _meta: RESULT_META_SCHEMA, resultType: z.literal('complete') }),
-  CancelledTaskSchema.extend({ _meta: RESULT_META_SCHEMA, resultType: z.literal('complete') }),
-]);
-export const UpdateTaskParamsSchema = z
-  .object({ inputResponses: InputResponsesSchema, taskId: z.string() })
-  .catchall(JSON_VALUE_SCHEMA);
-export const UpdateTaskResultSchema = z
-  .object({ _meta: RESULT_META_SCHEMA, resultType: z.literal('complete') })
-  .catchall(JSON_VALUE_SCHEMA);
+export const GetTaskParamsSchema = jsonObject({ taskId: Schema.String });
+export const GetTaskResultSchema = Schema.Union(
+  [
+    jsonObject({
+      ...WorkingTaskSchema.schema.fields,
+      _meta: RESULT_META_SCHEMA,
+      resultType: Schema.Literal('complete'),
+    }),
+    jsonObject({
+      ...InputRequiredTaskSchema.schema.fields,
+      _meta: RESULT_META_SCHEMA,
+      resultType: Schema.Literal('complete'),
+    }),
+    jsonObject({
+      ...CompletedTaskSchema.schema.fields,
+      _meta: RESULT_META_SCHEMA,
+      resultType: Schema.Literal('complete'),
+    }),
+    jsonObject({
+      ...FailedTaskSchema.schema.fields,
+      _meta: RESULT_META_SCHEMA,
+      resultType: Schema.Literal('complete'),
+    }),
+    jsonObject({
+      ...CancelledTaskSchema.schema.fields,
+      _meta: RESULT_META_SCHEMA,
+      resultType: Schema.Literal('complete'),
+    }),
+  ],
+  { mode: 'oneOf' }
+);
+export const UpdateTaskParamsSchema = jsonObject({
+  inputResponses: InputResponsesSchema,
+  taskId: Schema.String,
+});
+export const UpdateTaskResultSchema = jsonObject({
+  _meta: RESULT_META_SCHEMA,
+  resultType: Schema.Literal('complete'),
+});
 export const CancelTaskParamsSchema = GetTaskParamsSchema;
 export const CancelTaskResultSchema = UpdateTaskResultSchema;
-export const TaskStatusNotificationParamsSchema = z.discriminatedUnion('status', [
-  WorkingTaskSchema.extend({ _meta: NOTIFICATION_META_SCHEMA }),
-  InputRequiredTaskSchema.extend({ _meta: NOTIFICATION_META_SCHEMA }),
-  CompletedTaskSchema.extend({ _meta: NOTIFICATION_META_SCHEMA }),
-  FailedTaskSchema.extend({ _meta: NOTIFICATION_META_SCHEMA }),
-  CancelledTaskSchema.extend({ _meta: NOTIFICATION_META_SCHEMA }),
-]);
-export const TaskSubscriptionNotificationsSchema = z
-  .object({ taskIds: z.array(z.string()).optional() })
-  .catchall(JSON_VALUE_SCHEMA);
+export const TaskStatusNotificationParamsSchema = Schema.Union(
+  [
+    jsonObject({ ...WorkingTaskSchema.schema.fields, _meta: NOTIFICATION_META_SCHEMA }),
+    jsonObject({ ...InputRequiredTaskSchema.schema.fields, _meta: NOTIFICATION_META_SCHEMA }),
+    jsonObject({ ...CompletedTaskSchema.schema.fields, _meta: NOTIFICATION_META_SCHEMA }),
+    jsonObject({ ...FailedTaskSchema.schema.fields, _meta: NOTIFICATION_META_SCHEMA }),
+    jsonObject({ ...CancelledTaskSchema.schema.fields, _meta: NOTIFICATION_META_SCHEMA }),
+  ],
+  { mode: 'oneOf' }
+);
+export const TaskSubscriptionNotificationsSchema = jsonObject({
+  taskIds: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+});
 export const TaskSubscriptionAcknowledgedNotificationsSchema = TaskSubscriptionNotificationsSchema;
 
 const JSONRPC_REQUEST_SHAPE = {
   id: REQUEST_ID_SCHEMA,
-  jsonrpc: z.literal('2.0'),
+  jsonrpc: Schema.Literal('2.0'),
 } as const;
 
-export const GetTaskRequestSchema = z
-  .object({ ...JSONRPC_REQUEST_SHAPE, method: z.literal('tasks/get'), params: GetTaskParamsSchema })
-  .catchall(JSON_VALUE_SCHEMA);
-export const UpdateTaskRequestSchema = z
-  .object({
-    ...JSONRPC_REQUEST_SHAPE,
-    method: z.literal('tasks/update'),
-    params: UpdateTaskParamsSchema,
-  })
-  .catchall(JSON_VALUE_SCHEMA);
-export const CancelTaskRequestSchema = z
-  .object({
-    ...JSONRPC_REQUEST_SHAPE,
-    method: z.literal('tasks/cancel'),
-    params: CancelTaskParamsSchema,
-  })
-  .catchall(JSON_VALUE_SCHEMA);
-export const TaskStatusNotificationSchema = z
-  .object({
-    jsonrpc: z.literal('2.0'),
-    method: z.literal('notifications/tasks'),
-    params: TaskStatusNotificationParamsSchema,
-  })
-  .catchall(JSON_VALUE_SCHEMA);
+export const GetTaskRequestSchema = jsonObject({
+  ...JSONRPC_REQUEST_SHAPE,
+  method: Schema.Literal('tasks/get'),
+  params: GetTaskParamsSchema,
+});
+export const UpdateTaskRequestSchema = jsonObject({
+  ...JSONRPC_REQUEST_SHAPE,
+  method: Schema.Literal('tasks/update'),
+  params: UpdateTaskParamsSchema,
+});
+export const CancelTaskRequestSchema = jsonObject({
+  ...JSONRPC_REQUEST_SHAPE,
+  method: Schema.Literal('tasks/cancel'),
+  params: CancelTaskParamsSchema,
+});
+export const TaskStatusNotificationSchema = jsonObject({
+  jsonrpc: Schema.Literal('2.0'),
+  method: Schema.Literal('notifications/tasks'),
+  params: TaskStatusNotificationParamsSchema,
+});
 
-export type TasksExtensionCapability = z.infer<typeof TasksExtensionCapabilitySchema>;
-export type InputRequiredTask = z.infer<typeof InputRequiredTaskSchema>;
-export type DetailedTask = z.infer<typeof DetailedTaskSchema>;
-export type GetTaskParams = z.infer<typeof GetTaskParamsSchema>;
-export type GetTaskResult = z.infer<typeof GetTaskResultSchema>;
-export type UpdateTaskParams = z.infer<typeof UpdateTaskParamsSchema>;
-export type UpdateTaskResult = z.infer<typeof UpdateTaskResultSchema>;
-export type CancelTaskParams = z.infer<typeof CancelTaskParamsSchema>;
-export type CancelTaskResult = z.infer<typeof CancelTaskResultSchema>;
-export type TaskStatusNotificationParams = z.infer<typeof TaskStatusNotificationParamsSchema>;
-export type TaskSubscriptionNotifications = z.infer<typeof TaskSubscriptionNotificationsSchema>;
-export type TaskSubscriptionAcknowledgedNotifications = z.infer<
-  typeof TaskSubscriptionAcknowledgedNotificationsSchema
->;
-export type GetTaskRequest = z.infer<typeof GetTaskRequestSchema>;
-export type UpdateTaskRequest = z.infer<typeof UpdateTaskRequestSchema>;
-export type CancelTaskRequest = z.infer<typeof CancelTaskRequestSchema>;
-export type TaskStatusNotification = z.infer<typeof TaskStatusNotificationSchema>;
+export type TasksExtensionCapability = (typeof TasksExtensionCapabilitySchema)['Type'];
+export type InputRequiredTask = (typeof InputRequiredTaskSchema)['Type'];
+export type DetailedTask = (typeof DetailedTaskSchema)['Type'];
+export type GetTaskParams = (typeof GetTaskParamsSchema)['Type'];
+export type GetTaskResult = (typeof GetTaskResultSchema)['Type'];
+export type UpdateTaskParams = (typeof UpdateTaskParamsSchema)['Type'];
+export type UpdateTaskResult = (typeof UpdateTaskResultSchema)['Type'];
+export type CancelTaskParams = (typeof CancelTaskParamsSchema)['Type'];
+export type CancelTaskResult = (typeof CancelTaskResultSchema)['Type'];
+export type TaskStatusNotificationParams = (typeof TaskStatusNotificationParamsSchema)['Type'];
+export type TaskSubscriptionNotifications = (typeof TaskSubscriptionNotificationsSchema)['Type'];
+export type TaskSubscriptionAcknowledgedNotifications =
+  (typeof TaskSubscriptionAcknowledgedNotificationsSchema)['Type'];
+export type GetTaskRequest = (typeof GetTaskRequestSchema)['Type'];
+export type UpdateTaskRequest = (typeof UpdateTaskRequestSchema)['Type'];
+export type CancelTaskRequest = (typeof CancelTaskRequestSchema)['Type'];
+export type TaskStatusNotification = (typeof TaskStatusNotificationSchema)['Type'];
 
 export {
   type CancelledTask,

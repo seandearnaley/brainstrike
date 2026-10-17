@@ -1,3 +1,5 @@
+import { omitUndefinedOptional } from '@brainstrike/assistant-contract/schema-boundary';
+import { sdkSchema } from '@brainstrike/assistant-contract/sdk-schema';
 import {
   CancelTaskParamsSchema,
   CancelTaskResultSchema,
@@ -28,7 +30,7 @@ import type {
   SubscriptionFilter,
 } from '@modelcontextprotocol/client';
 import { CallToolResultSchema } from '@modelcontextprotocol/core';
-import { z } from 'zod';
+import { Schema, SchemaGetter } from 'effect';
 import type {
   McpClientExtensionContract,
   McpClientExtensionNotificationContract,
@@ -44,31 +46,36 @@ import type {
 const TASKS_WIRE_IMPLEMENTATION = Object.freeze({ exactWireContracts: true as const });
 const NEGOTIATION_PROBE_TASK_ID = 'brainstrike-tasks-negotiation-probe';
 const activeTaskSubscriptions = new WeakSet<Client>();
-const MCP_TASKS_CALL_TOOL_PARAMS_SCHEMA = z
-  .strictObject({
-    arguments: z.record(z.string(), z.json()).optional(),
-    name: z.string().min(1),
-  })
-  .transform(({ arguments: args, name }): JSONObject => {
-    const params: JSONObject = { name };
-    if (args !== undefined) {
-      params['arguments'] = args;
-    }
-    return params;
-  });
-const MCP_TASKS_TOOL_RESULT_SCHEMA = z.union([
-  z
-    .object({ [REGISTERED_EXTENSION_RESULT_KEY]: CreateTaskResultSchema })
-    .transform((value) => value[REGISTERED_EXTENSION_RESULT_KEY]),
-  CallToolResultSchema,
-]);
-const restoreCompleteResult = <Schema extends z.ZodType>(schema: Schema) =>
-  z.preprocess(
-    (value) =>
-      typeof value === 'object' && value !== null && !Array.isArray(value)
-        ? { resultType: 'complete', ...value }
-        : value,
-    schema
+const MCP_TASKS_CALL_TOOL_PARAMS_SCHEMA = Schema.toStandardSchemaV1(
+  Schema.Struct({
+    arguments: omitUndefinedOptional(Schema.Record(Schema.String, Schema.MutableJson)),
+    name: Schema.String.check(Schema.isMinCodePoints(1)),
+  }),
+  { parseOptions: { onExcessProperty: 'error' } }
+);
+const MCP_TASKS_TOOL_RESULT_SCHEMA = Schema.toStandardSchemaV1(
+  Schema.Union([
+    Schema.Struct({ [REGISTERED_EXTENSION_RESULT_KEY]: CreateTaskResultSchema }).pipe(
+      Schema.decodeTo(Schema.toType(CreateTaskResultSchema), {
+        decode: SchemaGetter.transform((value) => value[REGISTERED_EXTENSION_RESULT_KEY]),
+        encode: SchemaGetter.transform((value) => ({ [REGISTERED_EXTENSION_RESULT_KEY]: value })),
+      })
+    ),
+    sdkSchema(CallToolResultSchema),
+  ])
+);
+const restoreCompleteResult = <S extends Schema.ConstraintDecoder<unknown>>(schema: S) =>
+  Schema.toStandardSchemaV1(
+    Schema.Unknown.pipe(
+      Schema.decodeTo(schema, {
+        decode: SchemaGetter.transform((value) =>
+          typeof value === 'object' && value !== null && !Array.isArray(value)
+            ? { resultType: 'complete', ...value }
+            : value
+        ),
+        encode: SchemaGetter.passthrough(),
+      })
+    )
   );
 
 export const MCP_TASKS_GET_REQUEST_CONTRACT: McpClientExtensionRequestContract<
@@ -77,7 +84,7 @@ export const MCP_TASKS_GET_REQUEST_CONTRACT: McpClientExtensionRequestContract<
 > = Object.freeze({
   mcpNameParam: 'taskId',
   method: 'tasks/get',
-  paramsSchema: GetTaskParamsSchema,
+  paramsSchema: Schema.toStandardSchemaV1(GetTaskParamsSchema),
   protocol: '2026-07-28',
   resultSchema: restoreCompleteResult(GetTaskResultSchema),
 });
@@ -88,7 +95,7 @@ export const MCP_TASKS_UPDATE_REQUEST_CONTRACT: McpClientExtensionRequestContrac
 > = Object.freeze({
   mcpNameParam: 'taskId',
   method: 'tasks/update',
-  paramsSchema: UpdateTaskParamsSchema,
+  paramsSchema: Schema.toStandardSchemaV1(UpdateTaskParamsSchema),
   protocol: '2026-07-28',
   resultSchema: restoreCompleteResult(UpdateTaskResultSchema),
 });
@@ -99,7 +106,7 @@ export const MCP_TASKS_CANCEL_REQUEST_CONTRACT: McpClientExtensionRequestContrac
 > = Object.freeze({
   mcpNameParam: 'taskId',
   method: 'tasks/cancel',
-  paramsSchema: CancelTaskParamsSchema,
+  paramsSchema: Schema.toStandardSchemaV1(CancelTaskParamsSchema),
   protocol: '2026-07-28',
   resultSchema: restoreCompleteResult(CancelTaskResultSchema),
 });
@@ -109,7 +116,7 @@ export type McpTasksToolResult = CallToolResult | CreateTaskResult;
 export const MCP_TASKS_STATUS_NOTIFICATION_CONTRACT: McpClientExtensionNotificationContract<TaskStatusNotificationParams> =
   Object.freeze({
     method: 'notifications/tasks',
-    paramsSchema: TaskStatusNotificationParamsSchema,
+    paramsSchema: Schema.toStandardSchemaV1(TaskStatusNotificationParamsSchema),
     protocol: '2026-07-28',
   });
 

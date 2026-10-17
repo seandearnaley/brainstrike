@@ -3593,9 +3593,15 @@ importers:
 
   packages/mcp-tasks-extension:
     dependencies:
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
       '@modelcontextprotocol/core':
         specifier: 'catalog:'
         version: 2.3.1
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.5
       zod:
         specifier: 'catalog:'
         version: 4.6.7
@@ -3603,6 +3609,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@effect/tsgo':
+        specifier: 'catalog:'
+        version: 0.53.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { type TasksExtensionCapability, TasksExtensionCapabilitySchema } from './schema.js';
 
 export * from './parsers.js';
@@ -19,9 +19,9 @@ export const MCP_TASKS_METHODS = Object.freeze([
   ...MCP_TASKS_NOTIFICATION_METHODS,
 ] as const);
 
-export const McpTasksMethodSchema = z.enum(MCP_TASKS_METHODS);
+export const McpTasksMethodSchema = Schema.Literals(MCP_TASKS_METHODS);
 
-export type McpTasksMethod = z.infer<typeof McpTasksMethodSchema>;
+export type McpTasksMethod = (typeof McpTasksMethodSchema)['Type'];
 
 export const McpTasksExtensionSettingsSchema = TasksExtensionCapabilitySchema;
 
@@ -30,9 +30,11 @@ export type McpTasksExtensionSettings = TasksExtensionCapability;
 export const MCP_TASKS_EXTENSION_SETTINGS: McpTasksExtensionSettings = Object.freeze({});
 
 export function parseMcpTasksExtensionSettings(value: unknown): McpTasksExtensionSettings {
-  return McpTasksExtensionSettingsSchema.parse(value);
+  return Schema.decodeUnknownSync(McpTasksExtensionSettingsSchema, { onExcessProperty: 'error' })(
+    value
+  );
 }
 
 export function parseMcpTasksMethod(value: unknown): McpTasksMethod {
-  return McpTasksMethodSchema.parse(value);
+  return Schema.decodeUnknownSync(McpTasksMethodSchema)(value);
 }

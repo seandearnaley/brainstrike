@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { Result, Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import {
   MCP_TASKS_CONTRACT_PROFILE,
@@ -49,13 +50,22 @@ describe('MCP Tasks extension provenance', () => {
   });
 
   it('keeps the reviewed profile synchronized with executable schemas', () => {
-    expect(MCP_TASKS_CONTRACT_PROFILE.task.statuses).toEqual(TaskStatusSchema.options);
-    expect(MCP_TASKS_CONTRACT_PROFILE.task.required.toSorted()).toEqual(
-      Object.entries(TaskSchema.shape)
-        .filter(([, schema]) => !schema.isOptional())
-        .map(([field]) => field)
-        .toSorted()
+    expect(MCP_TASKS_CONTRACT_PROFILE.task.statuses).toEqual(TaskStatusSchema.literals);
+    const baseTask = {
+      createdAt: 'date',
+      lastUpdatedAt: 'date',
+      status: 'working',
+      taskId: 'task',
+      ttlMs: null,
+    };
+    const decode = Schema.decodeUnknownResult(TaskSchema);
+    expect(Result.isSuccess(decode(baseTask))).toBe(true);
+    const required = Object.keys(TaskSchema.schema.fields).filter((field) =>
+      Result.isFailure(
+        decode(Object.fromEntries(Object.entries(baseTask).filter(([name]) => name !== field)))
+      )
     );
+    expect(MCP_TASKS_CONTRACT_PROFILE.task.required.toSorted()).toEqual(required.toSorted());
     expect(MCP_TASKS_CONTRACT_PROFILE.requests.map(({ method }) => method)).toEqual(
       MCP_TASKS_REQUEST_METHODS
     );

@@ -6,6 +6,7 @@ import {
   type McpElicitationPresentationWire,
   type McpElicitationSettlement,
   parseConfiguredMcpServerId,
+  parseMcpElicitationPresentation,
   parseMcpElicitationSettlement,
 } from '../index.js';
 
@@ -129,6 +130,15 @@ describe('parseMcpElicitationSettlement', () => {
       provenance: form.provenance,
       url: 'https://linear.example/authorize?flow=1',
     };
+    expect(parseMcpElicitationPresentation(url)).toEqual(url);
+    for (const provenance of [
+      { ...url.provenance, generation: Number.MAX_SAFE_INTEGER + 1 },
+      { ...url.provenance, requestId: Number.MAX_SAFE_INTEGER + 1 },
+    ]) {
+      expect(() => parseMcpElicitationPresentation({ ...url, provenance })).toThrow(
+        'MCP input presentation is unavailable or stale'
+      );
+    }
     expect(form.mode).toBe('form');
     expect(url.mode).toBe('url');
     expect(MCP_SUPPORT_MATRIX.find(({ id }) => id === 'core:elicitation')).toMatchObject({

@@ -146,7 +146,7 @@ function isJsonRpcRequest(message: JSONRPCMessage): message is JSONRPCRequest {
 
 function assertStandardSchema(value: unknown, label: string): asserts value is StandardSchemaV1 {
   if (
-    typeof value !== 'object' ||
+    (typeof value !== 'object' && typeof value !== 'function') ||
     value === null ||
     !('~standard' in value) ||
     typeof value['~standard'] !== 'object' ||

@@ -8,8 +8,8 @@ import {
   parseMcpHostServerSnapshot,
   parseMcpHostSnapshot,
 } from '@brainstrike/assistant-contract/mcp-host-status';
+import { opaqueWireSchema } from '@brainstrike/assistant-contract/schema-boundary';
 import { Schema } from 'effect';
-import { opaqueWireSchema } from './opaque-wire-schema.js';
 
 /**
  * The desktop host's MCP settings (BST-1930 c5a): the config file, the global
