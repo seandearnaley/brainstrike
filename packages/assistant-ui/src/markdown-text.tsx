@@ -83,16 +83,6 @@ export const MarkdownText = memo(function MarkdownText() {
   return <MarkdownTextImpl preprocess={stripProviderCitationMarkers} />;
 });
 
-/**
- * User-authored markdown. Renders verbatim: the citation strip must never touch
- * content the user typed or pasted. Someone pasting the raw marker sequence to
- * ask about it — or using these private-use codepoints intentionally, they are
- * also Nerd Fonts icon glyphs — must see their own message unaltered.
- */
-export const UserMarkdownText = memo(function UserMarkdownText() {
-  return <MarkdownTextImpl />;
-});
-
 // Module-scope adapter (NOT inline in defaultComponents): an inline component
 // would get a new identity per render and remount every streamed chunk.
 function CodeHeader({ language, code }: CodeHeaderProps) {

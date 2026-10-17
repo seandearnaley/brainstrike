@@ -195,8 +195,10 @@ Owner decisions on how web chat goes on the shared log:
 
 - **The proxy returns its step.** A request that sets
   `runConfig.custom['brainstrike.recordModelSteps']` to `true` receives each
-  completed step of its turn, before the finish, as an `aui-data` part named
-  `brainstrike.model-step`. Its payload is `{ messages, model, stepNumber,
+  completed step of its turn as it completes, ahead of the step's
+  `finish-step` part, as the host commits them. It goes out as an
+  out-of-band data frame (`2:`) named `brainstrike.model-step`, never
+  deferred behind open text. Its payload is `{ messages, model, stepNumber,
   usage }` (`@brainstrike/assistant-contract/model-step`). Those are the
   response messages, model and usage the agent host commits as `model.step`
   for the same AI SDK step result: one mapping (`modelStepFields`) serves both.
@@ -204,18 +206,42 @@ Owner decisions on how web chat goes on the shared log:
   the key refuses as invalid request data; a request without it receives no
   step, so a client keeping its own transcript stores none. The proxy stays
   stateless.
+- **It returns its stream parts too** (extending that decision, so the browser
+  streams and commits a run as the host does). A recording request also
+  receives every AI SDK `fullStream` part of its turn, as each arrives, in an
+  out-of-band data frame (`2:`) named `brainstrike.stream-part`. The frame
+  never slices the turn's visible text, so it needs no deferral. The part is
+  JSON as the host stores it (`jsonValue`). A provider error still ends the
+  turn as its error frame. A `finish-step` part leaves out the provider's
+  response headers, which belong to the server's provider account.
 - **The browser records the run.** The tab that sends commits `run.started`,
   each `model.step` and `run.finished` through the browser writer, as the
-  host's events. The writer is their only writer.
+  host's events. It streams each text and reasoning part as live telemetry and
+  commits every other part as `stream.chunk`, as the host's run loop does. So
+  a step opens as the host's does, and a Stop keeps its partial reply. The
+  writer is the only writer of these events.
 - **The browser serves a host client.** It answers the part of the host
   protocol desktop's thread view uses (`thread/list`, `start`, `read`,
   `update`, `delete`; `log/subscribe`; `run/start`, `run/stop`) over the
   writer and the proxy. Desktop's `CommittedThreadSession` and
   `CommittedAssistantLogStore` then read web threads unchanged.
 - **A run its tab abandons is interrupted.** A run streams in the tab that
-  sent it. If that tab closes mid-run, the run is recorded interrupted when
-  the writer next opens, as the host recovers after an unclean exit;
-  uncommitted output is lost.
+  sent it. If that tab closes mid-run, the run is recorded interrupted, as the
+  host recovers after an unclean exit, and uncommitted output is lost.
+  - **As built:** the recording tab holds a Web Lock for the run's whole
+    life. A host client that closes cleanly records its own run interrupted,
+    keeping the partial reply.
+  - **An abandoned run:** a run whose lock is free is finished by the next tab
+    that opens its host client, or that admits or stops a run on that thread.
+    The rule is `recoverHostRun`'s: a run whose Stop had committed finishes
+    stopped, any other interrupted.
+- **One root run per thread, across tabs** (BST-1940, as built). A tab admits
+  a run under a per-thread Web Lock, after folding every committed row of the
+  thread. So Core's admission check (`run.already-active`) sees every tab's
+  runs, and the run's recording lock is taken before the thread's lock
+  releases. A Stop from any tab commits `run/stop`, and the tab recording the
+  run stops it on folding that command. Live text reaches only the recording
+  tab; another tab sees the run's text when its step commits.
 
 Rejected: the tab rebuilding steps from the UI stream, which can commit
 messages that differ from the host's for the same step; a web-specific thread

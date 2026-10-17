@@ -31,6 +31,7 @@
 import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { json } from 'node:stream/consumers';
 import { AWS_CHAIN_ACTIVATION_ENV_NAMES } from '@brainstrike/assistant-contract';
 import {
   listProviders,
@@ -170,6 +171,8 @@ export interface ModelProviderRefusal {
     | 'unrecorded-exchange';
   readonly requestIndex: number;
   readonly route: string;
+  /** Whether its JSON body asks to stream (runs do, titles do not); `null` without one. */
+  readonly stream: boolean | null;
 }
 
 export interface ModelProviderShim {
@@ -179,7 +182,7 @@ export interface ModelProviderShim {
   readonly close: () => Promise<void>;
   /** Client-aborted cassette exchanges fully served and held open (a Stop scenario waits on one). */
   readonly heldExchanges: () => number;
-  /** Every refused request, oldest first. */
+  /** Every refused request, oldest first by arrival (`requestIndex`). */
   readonly refusals: () => readonly ModelProviderRefusal[];
   readonly requestCount: () => number;
   /** Every scripted request, oldest first, with its parsed wire payload. */
@@ -438,10 +441,7 @@ function toolCallMessage(
     content: null,
     role: 'assistant',
     ['tool_calls']: calls.map((call, index) => ({
-      function: {
-        arguments: JSON.stringify(call.arguments),
-        name: call.name,
-      },
+      function: { arguments: JSON.stringify(call.arguments), name: call.name },
       id: toolCallIds[index],
       type: 'function',
     })),
@@ -921,23 +921,24 @@ export async function startModelProviderShim(
     // which time concurrent requests may have advanced the counter.
     const requestOrdinal = requestCount;
     const { knob, route } = parseRequestPath(request.url);
-    const refuse = (reason: ModelProviderRefusal['reason']): void => {
+    const refuse = async (reason: ModelProviderRefusal['reason']): Promise<void> => {
+      const body: unknown = await json(request).catch(() => null);
       const refusal: ModelProviderRefusal = {
         knob,
         method: request.method ?? 'UNKNOWN',
         reason,
         requestIndex: requestOrdinal,
         route,
+        stream: isRecord(body) ? body['stream'] === true : null,
       };
       refusals.push(refusal);
-      request.resume();
       writeRefusal(response, refusal);
     };
     // Read once: a later setScript must not change how this request is served.
     const recordedScript = script;
     if (isCassetteRouteScript(recordedScript)) {
       if (!knob) {
-        refuse('unsupported-route');
+        void refuse('unsupported-route');
         return;
       }
       void serveCassetteRoute({
@@ -950,12 +951,13 @@ export async function startModelProviderShim(
       }).then((cassette) => {
         if (cassette) {
           const unrecorded: ModelProviderRefusal = {
-            cassette,
+            cassette: { key: cassette.key, unserved: cassette.unserved },
             knob,
             method: request.method ?? 'GET',
             reason: 'unrecorded-exchange',
             requestIndex: requestOrdinal,
             route,
+            stream: cassette.stream,
           };
           refusals.push(unrecorded);
           writeRefusal(response, unrecorded);
@@ -982,7 +984,7 @@ export async function startModelProviderShim(
     }
     const metadata = recordedOpenRouterMetadata(request.method, knob, route);
     if (metadata === 'unrecorded') {
-      refuse('unrecorded-model-metadata');
+      void refuse('unrecorded-model-metadata');
       return;
     }
     if (metadata) {
@@ -995,7 +997,7 @@ export async function startModelProviderShim(
     const wire = wireForRoute(request.method, route);
     const activeScript = recordedScript;
     if (!(wire && activeScript)) {
-      refuse(activeScript ? 'unsupported-route' : 'unscripted');
+      void refuse(activeScript ? 'unsupported-route' : 'unscripted');
       return;
     }
 
@@ -1078,7 +1080,7 @@ export async function startModelProviderShim(
       });
     },
     heldExchanges: () => replay?.holding() ?? 0,
-    refusals: () => [...refusals],
+    refusals: () => [...refusals].sort((a, b) => a.requestIndex - b.requestIndex),
     requestCount: () => requestCount,
     requests: () => [...requests],
     servedMetadata: () => [...servedMetadata],

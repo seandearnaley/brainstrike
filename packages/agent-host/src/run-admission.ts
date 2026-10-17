@@ -5,7 +5,6 @@ import {
   isPermissionDenied,
   NATIVE_TOOL_ID,
   type PermissionToolGateSnapshot,
-  refusalError,
   resolvePermissionDecision,
 } from '@brainstrike/assistant-contract';
 import {
@@ -55,14 +54,6 @@ export function prepareHostProviderStep(
     // A UserPromptSubmit hook's context joins the run's instructions.
     ...combineHostSystemContext(provider.system, memorySystem, hookContext),
   };
-}
-
-export function assertHostRunStartAvailable(runs: Iterable<HostRunState>, threadId: string): void {
-  for (const active of runs) {
-    if (active.threadId === threadId && !active.terminal) {
-      throw refusalError('conflict', 'run.already-active', 'Thread already has an active root run');
-    }
-  }
 }
 
 /** Distinguish rejected selection from a resource owner that failed to join. */
@@ -331,8 +322,42 @@ export function openHostRunOwner(
   return run.owner;
 }
 
-/** The Core retains this promise; both owners are attempted even when one join fails. */
-export async function closeHostRunResources(run: HostRunState): Promise<void> {
+/**
+ * The owner's work joined before the run's end. Only an owner with a
+ * foreground phase (`endTurn`) settles the rest after it; any other owner, a
+ * failed open and a run without one join whole first, as every run did.
+ */
+export async function endHostRunTurn(
+  run: HostRunState,
+  closeOwner: (run: HostRunState) => Promise<void>
+): Promise<void> {
+  let owner: HostRunOwner | undefined;
+  try {
+    owner = await run.owner;
+  } catch {
+    return closeOwner(run);
+  }
+  if (!owner?.endTurn) {
+    return closeOwner(run);
+  }
+  try {
+    await owner.endTurn();
+  } catch (cause) {
+    if (!(cause instanceof HostRunOwnerFailure)) {
+      throw cause;
+    }
+    run.ownerFailure ??= cause;
+  }
+}
+
+/**
+ * The Core retains this promise; both owners are attempted even when one join
+ * fails. A joined failure after `run.finished` is the settlement's own fact.
+ */
+export async function closeHostRunResources(
+  run: HostRunState,
+  reportSettlementFailure: (failure: HostRunOwnerFailure) => Promise<void>
+): Promise<void> {
   const joined = await Promise.allSettled([
     Promise.resolve(run.owner).then(
       async (owner) => {
@@ -344,7 +369,11 @@ export async function closeHostRunResources(run: HostRunState): Promise<void> {
           if (!(cause instanceof HostRunOwnerFailure)) {
             throw cause;
           }
-          run.ownerFailure ??= cause;
+          if (run.terminal) {
+            await reportSettlementFailure(cause);
+          } else {
+            run.ownerFailure ??= cause;
+          }
         }
       },
       (cause: unknown) => {
@@ -379,6 +408,7 @@ export async function closeHostRunResources(run: HostRunState): Promise<void> {
   // Core keeps every run of the process; a joined owner (public Memory, its
   // observational memory and their WebAssembly hashers) must not outlive it.
   run.owner = undefined;
+  run.ownerJoined = true;
 }
 
 /**

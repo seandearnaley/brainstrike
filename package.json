@@ -10,7 +10,7 @@
     "@commitlint/config-conventional": "^21.2.3",
     "@commitlint/types": "^21.2.3",
     "@jacobwolf/biome-unnecessary-effect": "^0.1.1",
-    "@mermaid-js/mermaid-cli": "^11.17.0",
+    "@mermaid-js/mermaid-cli": "^12.0.0",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
     "@typescript-eslint/parser": "^8.71.2",

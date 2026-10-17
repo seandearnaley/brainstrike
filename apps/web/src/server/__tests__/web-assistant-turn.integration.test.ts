@@ -156,7 +156,7 @@ describe('Hosted Web turn over the real route core', () => {
     expect(outcome).toMatchObject({ kind: 'rejection', status: 409 });
   });
 
-  it('returns the completed step, before the finish, to a client that records its runs (BST-1940)', async () => {
+  it('returns each stream part and the completed step, in the order the host commits them, to a client that records its runs (BST-1940)', async () => {
     scriptedParts.push(
       { type: 'stream-start', warnings: [] },
       { id: 't1', type: 'text-start' },
@@ -166,20 +166,29 @@ describe('Hosted Web turn over the real route core', () => {
     );
 
     const decoded = await runTurn('hi', { custom: { 'brainstrike.recordModelSteps': true } });
-    const step = decoded.findIndex(
-      (frame) =>
-        frame.code === 'aui-data' &&
-        (frame.value as { name?: unknown }).name === 'brainstrike.model-step'
+    // Every recorded entry is an out-of-band data frame, sent as it arrives.
+    const recorded = decoded.flatMap((frame) =>
+      frame.code === '2' ? (frame.value as { data: { type?: string }; name: string }[]) : []
     );
 
-    expect(step).toBeGreaterThan(-1);
-    expect(step).toBeLessThan(decoded.length - 1);
     expect(decoded.at(-1)?.code).toBe('d');
-    expect(decoded[step]?.value).toMatchObject({
-      data: {
-        messages: [{ content: [{ text: 'Recorded', type: 'text' }], role: 'assistant' }],
-        stepNumber: 0,
-      },
+    expect(
+      recorded.map((entry) =>
+        entry.name === 'brainstrike.stream-part' ? entry.data.type : entry.name
+      )
+    ).toEqual([
+      'start',
+      'start-step',
+      'text-start',
+      'text-delta',
+      'text-end',
+      'brainstrike.model-step',
+      'finish-step',
+      'finish',
+    ]);
+    expect(recorded.find((entry) => entry.name === 'brainstrike.model-step')?.data).toMatchObject({
+      messages: [{ content: [{ text: 'Recorded', type: 'text' }], role: 'assistant' }],
+      stepNumber: 0,
     });
   });
 
@@ -192,7 +201,7 @@ describe('Hosted Web turn over the real route core', () => {
       { finishReason: { raw: 'stop', unified: 'stop' }, type: 'finish', usage }
     );
     const decoded = await runTurn('hi');
-    expect(decoded.some((frame) => frame.code === 'aui-data')).toBe(false);
+    expect(decoded.some((frame) => frame.code === 'aui-data' || frame.code === '2')).toBe(false);
 
     const outcome = await runWebAssistantPost({
       bodyText: body('hi', { custom: { 'brainstrike.recordModelSteps': 'yes' } }),

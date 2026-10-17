@@ -17,7 +17,10 @@ import { cn } from '@brainstrike/ui';
 import { use, useId, useState } from 'react';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { StepRowHeader } from './activity-step-row';
-import { toolStepStateFor } from './activity-trace-model';
+import { stepVerbText, toolCallRan, toolStepStateFor } from './activity-trace-model';
+import { verbForTool } from './activity-verbs';
+import { resolveToolDisplayPolicy } from './assistant-detail-level';
+import { useAssistantDetailLevel } from './assistant-detail-level-context';
 import { McpTaskToolResult } from './mcp-task-tool-result';
 import {
   isSubagentDelegationToolName,
@@ -25,6 +28,8 @@ import {
   SubagentDelegationCard,
 } from './subagent-tool-cards';
 import { ToolFallback } from './tool-fallback';
+import { FailureReasonChip } from './tool-fallback-row';
+import { failureReasonSummary, resolveErrorMessage } from './tool-fallback-state';
 import { useToolResultRenderers } from './use-tool-result-renderers';
 
 const STATUS_GLYPH: Record<AssistantTaskStatus, string> = {
@@ -123,6 +128,7 @@ export const TaskListToolCard: ToolCallMessagePartComponent = ({
 }) => {
   const [open, setOpen] = useState(false);
   const bodyId = useId();
+  const { detailLevel } = useAssistantDetailLevel();
   const rawArgs = argsText ?? (args === undefined ? '' : JSON.stringify(args, null, 2));
   const rawResult = result === undefined ? undefined : JSON.stringify(result, null, 2);
   // THE shared step state machine (task 5 review, Important 1) — the same one
@@ -130,8 +136,15 @@ export const TaskListToolCard: ToolCallMessagePartComponent = ({
   // done` gave a cancelled or errored call a green Completed while the group
   // that contains it called the same step Stopped/Failed.
   const glyphState = toolStepStateFor({ isError, result, status });
-  const isRunning = glyphState === 'running';
   const hasBody = Boolean(rawArgs) || rawResult !== undefined;
+  // The shared row rules (#3723): a call that never ran reads as its request,
+  // and a failed call says why on its row.
+  const verb = stepVerbText(verbForTool(toolName), glyphState, toolCallRan(toolName, result));
+  const failureReason = failureReasonSummary(
+    glyphState === 'failed',
+    resolveErrorMessage(status, result, isError),
+    resolveToolDisplayPolicy(detailLevel).showResultSummary
+  );
   return (
     <div className="bs-tasklist-tool-card my-1 rounded-md border border-border/60 bg-background/40 text-xs">
       <StepRowHeader
@@ -151,7 +164,8 @@ export const TaskListToolCard: ToolCallMessagePartComponent = ({
         // normalization on the "raw tool id as text" contract every other
         // card in the trace honors verbatim.
         toolName={toolName}
-        verb={isRunning ? 'Updating tasks' : 'Updated tasks'}
+        {...(failureReason ? { trailing: <FailureReasonChip reason={failureReason} /> } : {})}
+        verb={verb}
         // The toggle trio travels together, as it does in ToolFallback (bot
         // round 1, Claude Minor 9): with neither raw args nor a raw result
         // the body would be empty, so the row renders as its non-interactive

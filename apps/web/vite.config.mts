@@ -136,6 +136,8 @@ export default defineConfig({
     terserOptions: {
       // biome-ignore lint/style/useNamingConvention: required for terser drop_console target
       compress: { drop_console: false },
+      // Bound concurrent minifier heaps for the 8 GB build runner.
+      maxWorkers: 1,
     },
   },
   cacheDir: path.resolve(__dirname, '.vite'),

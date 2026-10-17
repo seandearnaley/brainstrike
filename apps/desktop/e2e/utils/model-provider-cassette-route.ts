@@ -60,6 +60,8 @@ export function cassetteReplayFor(script: unknown): ProviderCassetteReplay | und
 /** The request's key and the keys the cassette still held, when a replay refuses it. */
 export interface CassetteRouteRefusal {
   readonly key: string;
+  /** Whether the refused request asked to stream. */
+  readonly stream: boolean;
   readonly unserved: readonly string[];
 }
 
@@ -92,6 +94,7 @@ export async function serveCassetteRoute(input: {
     return refusal
       ? {
           key: describeProviderRequestKey(refusal.key),
+          stream: refusal.key.stream,
           unserved: refusal.unserved.map(describeProviderRequestKey),
         }
       : undefined;

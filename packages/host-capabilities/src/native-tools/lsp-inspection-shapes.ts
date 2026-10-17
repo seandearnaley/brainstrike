@@ -158,6 +158,18 @@ async function readLinePreview(absolutePath: string, line: number): Promise<stri
   }
 }
 
+/**
+ * Whether any of these language-server locations is a credential file
+ * (wherever it lives; the floor's patterns are basenames). A symbol that
+ * resolves into one hovers with that file's literal, so its hover is withheld.
+ */
+export function resolvesIntoCredentialFile(raw: readonly RawLocation[]): boolean {
+  return raw.some((entry) => {
+    const uri = entry.uri ?? entry.targetUri;
+    return uri !== undefined && isWorkspaceSecretFile(path.basename(uriToPath(uri)));
+  });
+}
+
 export async function toInspectLocations(
   raw: RawLocation[],
   rootPath: string

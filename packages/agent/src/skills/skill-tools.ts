@@ -49,7 +49,7 @@ const WRITE_WORKSPACE_FILE_MODEL_NAME = sanitizeToolName(
   NATIVE_TOOL_REGISTRIES.nativeToolId.writeWorkspaceFile
 );
 
-export const BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE = `\n\nBrainstrike execution: run listed skill scripts with ${RUN_SKILL_SCRIPT_MODEL_NAME} using literal args and mounted root/cwd — if that tool is not currently loaded, load it with load_tool using that exact name when available (it becomes callable on your next step in this same response — keep going and call it). Use ${WRITE_WORKSPACE_FILE_MODEL_NAME} for project writes; never construct shell heredocs. If the tool cannot be loaded or a script is declined, continue with native workspace tools and do not retry.`;
+export const BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE = `\n\nBrainstrike execution: run a listed skill script only when these instructions call for it in the user's task, with ${RUN_SKILL_SCRIPT_MODEL_NAME} using literal args and mounted root/cwd — if that tool is not currently loaded, load it with load_tool using that exact name when available (it becomes callable on your next step in this same response — keep going and call it). Use ${WRITE_WORKSPACE_FILE_MODEL_NAME} for project writes; never construct shell heredocs. If the tool cannot be loaded or a script is declined, continue with native workspace tools and do not retry.`;
 
 /** Mirrors countTokensHeuristic (4 chars/token) — same unit as the guard. */
 const APPROX_CHARS_PER_TOKEN = 4;

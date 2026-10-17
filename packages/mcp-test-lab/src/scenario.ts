@@ -3,12 +3,12 @@ import { OFFICIAL_EVERYTHING_PROFILE_SHA256 } from './official-everything-profil
 import { TASKS_PROFILE_SHA256 } from './tasks-profile.js';
 
 export const MCP_LAB_SDK_VERSION = '2.3.1' as const;
-export const MCP_LAB_CONFORMANCE_VERSION = '0.2.0-alpha.10' as const;
+export const MCP_LAB_CONFORMANCE_VERSION = '0.2.0-alpha.12' as const;
 
 export const MCP_LAB_CONFORMANCE_SOURCE = Object.freeze({
-  commitSha: 'a9896553900a2ef61787b57adfcbbe936a8ab1f9',
+  commitSha: 'f44482ba17df816d3176962a11cdf36aec9bda00',
   integrity:
-    'sha512-0V/HZDdWHcg6j0zVBzBsXcPZ571IVi6umKgTpnBhtTx/jm/LONmGF6cIWL2k4Xjyps0OiHV6B37nj2s0pUg0nQ==',
+    'sha512-eXtZFgmtZiU5SsvXty+RGXGnyIqEVm3GLU/HZmg1wMjtKOocPZZgD9HQKd30oJhio5UB0wFJmsc6r8u48Q+EYA==',
   repositoryUrl: 'https://github.com/modelcontextprotocol/conformance.git',
 } as const);
 
@@ -57,7 +57,7 @@ export const MCP_LAB_TASKS_PROFILE_SOURCE = Object.freeze({
   upstream: MCP_LAB_SDK_TASKS_SCHEMA_SOURCE,
 } as const);
 
-/** Pinned official MCP Apps example server (lightweight tag; the tag IS the commit). */
+/** Historical example fixture source; independent of the installed Apps SDK version. */
 export const MCP_LAB_EXT_APPS_SOURCE = Object.freeze({
   commitSha: '92f46a574568a3ddac7600343b7d3c4c4ed7b588',
   repositoryUrl: 'https://github.com/modelcontextprotocol/ext-apps.git',

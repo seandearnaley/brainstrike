@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { readBoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { describe, expect, it, vi } from 'vitest';
@@ -31,6 +32,49 @@ function createIpcRenderer() {
     removeListener: vi.fn(),
   };
 }
+
+// Live smoke 2026-10-16: the renderer warned "MaxListenersExceededWarning: 11
+// forge:prUpdated listeners". Every push subscription added its own
+// ipcRenderer listener, so a dozen mounted PR-cache consumers crossed Node's
+// limit of 10. One listener per channel fans out to every subscription.
+describe('createIpcBridge push fan-out', () => {
+  it('holds one ipcRenderer listener per channel however many subscribe', () => {
+    const emitter = new EventEmitter();
+    const ipcRenderer = {
+      invoke: vi.fn<(channel: string, ...args: unknown[]) => Promise<unknown>>(),
+      on: (channel: string, listener: (event: unknown, payload: unknown) => void) =>
+        emitter.on(channel, listener),
+      removeListener: (channel: string, listener: (event: unknown, payload: unknown) => void) =>
+        emitter.removeListener(channel, listener),
+    };
+    const bridge = createIpcBridge(ipcRenderer, contract);
+    const callbacks = Array.from({ length: 12 }, () => vi.fn());
+    const unsubscribes = callbacks.map((callback) => bridge.changed(callback));
+    // The same callback twice is two subscriptions.
+    const repeated = callbacks[0];
+    if (!repeated) {
+      throw new Error('No callback');
+    }
+    const second = bridge.changed(repeated);
+
+    expect(emitter.listenerCount('fixture:changed')).toBe(1);
+    emitter.emit('fixture:changed', {}, { id: 1 });
+    expect(callbacks.map((callback) => callback.mock.calls.length)).toEqual([
+      2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    ]);
+
+    second();
+    for (const unsubscribe of unsubscribes.slice(1)) {
+      unsubscribe();
+    }
+    emitter.emit('fixture:changed', {}, { id: 2 });
+    expect(repeated).toHaveBeenLastCalledWith({ id: 2 });
+    expect(emitter.listenerCount('fixture:changed')).toBe(1);
+
+    unsubscribes[0]?.();
+    expect(emitter.listenerCount('fixture:changed')).toBe(0);
+  });
+});
 
 describe('createIpcBridge', () => {
   it('routes an ipc-result channel and transports the plain envelope unchanged', async () => {

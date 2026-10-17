@@ -470,7 +470,7 @@ test('writes exact-head prerelease required evidence with only fixed result data
     package: '@modelcontextprotocol/conformance',
     prerelease: true,
     required: true,
-    version: '0.2.0-alpha.10',
+    version: '0.2.0-alpha.12',
   });
   assert.equal(evidence.schemaVersion, '1.0.0');
   assert.equal(evidence.ticket, 'BST-1560');

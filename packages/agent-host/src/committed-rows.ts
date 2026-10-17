@@ -1,4 +1,4 @@
-import { hydratesHostEvent } from './event-storage.js';
+import { hydratesHostEvent } from './host-event-encoding.js';
 import type { HostLogRow } from './protocol.js';
 
 /**

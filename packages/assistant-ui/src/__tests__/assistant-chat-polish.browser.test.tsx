@@ -619,18 +619,11 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
     await screen.findByRole('button', { name: 'Edit message' });
 
     // ...and then settle the bubble TEXT before anything is measured
-    // (BST-1687). UserMessageText resolves `./markdown-text` through a DYNAMIC
-    // import and renders a "Loading message…" placeholder until it lands; that
-    // placeholder is wider than the real text, and column 2 is `auto`, so the
-    // swap widens column 1 -- and with it the bar's right edge -- by exactly
-    // the text-width difference. The reference rect is read before the hover
-    // and the floating rect after it, so a swap landing between the two turns
-    // a pure measurement artifact into a rect mismatch. Whether it lands there
-    // depends only on how warm the module graph already is, i.e. on which
-    // other browser files ran first in the same Chromium page: cold, both
-    // rects were read against the placeholder and agreed; warm, the floating
-    // rect alone was read against the real text and came back a constant
-    // 32.484375px wider.
+    // (BST-1687). The rects must be read against the final text: column 2 is
+    // `auto`, so any text-width change between the reference read and the
+    // floating read shifts the bar's right edge. User text renders as plain
+    // text now (no lazy markdown placeholder), but the wait still pins both
+    // bubbles to their final content before measuring.
     await waitFor(() => {
       const bubbles = screen.getAllByTestId('assistant-user-message-content');
       expect(bubbles).toHaveLength(2);

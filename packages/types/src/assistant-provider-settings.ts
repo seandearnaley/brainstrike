@@ -56,7 +56,7 @@ export const OPENAI_REASONING_EFFORT_VALUES = [
 export type OpenAiReasoningEffort = (typeof OPENAI_REASONING_EFFORT_VALUES)[number];
 export type OpenAiReasoningSummary = 'auto' | 'detailed';
 /**
- * Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.49).
+ * Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.81).
  * `xhigh`/`max` are real wire values — omitting them made the picker offer a
  * strictly narrower range than the provider accepts.
  *
@@ -68,7 +68,7 @@ export type OpenAiReasoningSummary = 'auto' | 'detailed';
 export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 /**
  * Mirrors the `reasoningConfig.maxReasoningEffort` enum of the installed
- * `@ai-sdk/amazon-bedrock` (5.0.76). Structurally identical to
+ * `@ai-sdk/amazon-bedrock` (5.0.117). Structurally identical to
  * `AnthropicEffort` today and deliberately declared separately: they mirror
  * two independent upstream packages, so aliasing one to the other would make
  * an upgrade to either silently redefine the other's picker.

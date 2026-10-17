@@ -80,11 +80,11 @@ describe('MCP test lab package contract', () => {
       '@modelcontextprotocol/client': 'catalog:',
       '@modelcontextprotocol/node': 'catalog:',
       '@modelcontextprotocol/server': 'catalog:',
-      entities: '8.0.0',
+      entities: '8.1.0',
       zod: 'catalog:',
     });
     expect(manifest.devDependencies).toMatchObject({
-      '@modelcontextprotocol/conformance': '0.2.0-alpha.10',
+      '@modelcontextprotocol/conformance': '0.2.0-alpha.12',
     });
   });
 

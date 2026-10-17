@@ -12,6 +12,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./model-stream-telemetry": {
+      "types": "./dist/model-stream-telemetry.d.ts",
+      "default": "./dist/model-stream-telemetry.js"
+    },
     "./protocol": {
       "types": "./dist/protocol.d.ts",
       "default": "./dist/protocol.js"
@@ -47,6 +51,34 @@
     "./event-storage": {
       "types": "./dist/event-storage.d.ts",
       "default": "./dist/event-storage.js"
+    },
+    "./host-event-encoding": {
+      "types": "./dist/host-event-encoding.d.ts",
+      "default": "./dist/host-event-encoding.js"
+    },
+    "./core-state": {
+      "types": "./dist/core-state.d.ts",
+      "default": "./dist/core-state.js"
+    },
+    "./host-event-decoding": {
+      "types": "./dist/host-event-decoding.d.ts",
+      "default": "./dist/host-event-decoding.js"
+    },
+    "./run-branch": {
+      "types": "./dist/run-branch.d.ts",
+      "default": "./dist/run-branch.js"
+    },
+    "./telemetry-replay": {
+      "types": "./dist/telemetry-replay.d.ts",
+      "default": "./dist/telemetry-replay.js"
+    },
+    "./thread-catalog": {
+      "types": "./dist/thread-catalog.d.ts",
+      "default": "./dist/thread-catalog.js"
+    },
+    "./thread-presentation-state": {
+      "types": "./dist/thread-presentation-state.d.ts",
+      "default": "./dist/thread-presentation-state.js"
     },
     "./run-verdicts": {
       "types": "./dist/run-verdicts.d.ts",

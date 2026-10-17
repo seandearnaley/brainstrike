@@ -83,7 +83,10 @@ export default defineConfig({
         resolve: { alias: aliases },
         test: {
           ...browserProject.test,
-          globalSetup: ['./src/__tests__/stored-host-corpus.global.ts'],
+          globalSetup: [
+            './src/__tests__/stored-host-corpus.global.ts',
+            './src/__tests__/recorded-proxy-turn.global.ts',
+          ],
           hookTimeout: 60_000,
           testTimeout: 60_000,
         },

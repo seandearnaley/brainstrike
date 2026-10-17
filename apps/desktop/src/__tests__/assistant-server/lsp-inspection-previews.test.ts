@@ -3,7 +3,10 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { toInspectLocations } from '@brainstrike/host-capabilities/native-tools';
+import {
+  resolvesIntoCredentialFile,
+  toInspectLocations,
+} from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 
 let root: string;
@@ -31,4 +34,17 @@ it('previews an inspected target’s line, never a credential file’s', async (
     { line: 1, path: '/config.ts', preview: 'export const region = "us-east-1";' },
     { line: 1, path: '/.env.local.ts' },
   ]);
+});
+
+// ADR-0016 amendment: a symbol defined in a credential file hovers with that
+// file's literal (TypeScript prints `const key: "sk-live-…"`), so its hover
+// is withheld like the preview.
+it('knows when a symbol resolves into a credential file', () => {
+  const at = (file: string) => ({ uri: pathToFileURL(path.join(root, file)).href });
+  expect(resolvesIntoCredentialFile([at('config.ts')])).toBe(false);
+  expect(resolvesIntoCredentialFile([at('config.ts'), at('.env.local.ts')])).toBe(true);
+  expect(resolvesIntoCredentialFile([{ targetUri: pathToFileURL('/keys/deploy.PEM').href }])).toBe(
+    true
+  );
+  expect(resolvesIntoCredentialFile([])).toBe(false);
 });

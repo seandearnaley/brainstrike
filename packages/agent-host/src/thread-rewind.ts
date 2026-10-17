@@ -37,6 +37,7 @@ import type {
   HostResults,
   HostTurnSnapshot,
 } from './protocol.js';
+import { assertHostThreadSettled } from './run-branch.js';
 
 type Started = Extract<HostEvent, { type: 'thread.rewind.started' }>;
 type Preview = HostResults['thread/rewind/preview'];
@@ -366,15 +367,17 @@ export class HostThreadRewinds {
   }
 
   private assertIdle(threadId: string): void {
-    for (const run of this.ports.owner().runs.values()) {
-      if (run.threadId === threadId && !run.terminal) {
-        throw refusalError(
-          'conflict',
-          'rewind.run-active',
-          'A rewind is refused while the thread has an active run'
-        );
-      }
+    const threadRuns = [...this.ports.owner().runs.values()].filter(
+      (run) => run.threadId === threadId
+    );
+    if (threadRuns.some((run) => !run.terminal)) {
+      throw refusalError(
+        'conflict',
+        'rewind.run-active',
+        'A rewind is refused while the thread has an active run'
+      );
     }
+    assertHostThreadSettled(threadRuns);
   }
 
   /**

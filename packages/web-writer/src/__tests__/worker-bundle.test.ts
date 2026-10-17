@@ -21,6 +21,8 @@ it('bundles the composed writer worker for the browser, with no Node module and 
     entryPoints: [
       resolve(import.meta.dirname, '../web-writer-worker.ts'),
       resolve(import.meta.dirname, '../file-index-worker.ts'),
+      // The tab's host client, which serves desktop's thread view (BST-1940).
+      resolve(import.meta.dirname, '../web-host-client.ts'),
     ],
     format: 'esm',
     logLevel: 'silent',
@@ -68,6 +70,17 @@ it('bundles the composed writer worker for the browser, with no Node module and 
     'src/file-ingestion.ts',
     'canonical-ingestion/src/workspace-runtime.ts',
     'chunking-worker/src/canonical.ts',
+    // The host client's own folds and encoder, as Core runs them.
+    'src/web-host-client.ts',
+    'agent-host/src/thread-catalog.ts',
+    'agent-host/src/host-event-encoding.ts',
+    'agent-host/src/ledger-projection.ts',
+    'state-store/src/large-text.ts',
+    // Its runs: Core's run fold and telemetry replay, and the recorder.
+    'agent-host/src/run-branch.ts',
+    'agent-host/src/telemetry-replay.ts',
+    'src/web-run-recorder.ts',
+    'src/web-run-turn.ts',
     // VECTOR's profile, inference and embedder.
     'canonical-ingestion/src/canonical-profile.ts',
     'src/file-embeddings.ts',

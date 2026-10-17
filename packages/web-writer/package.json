@@ -16,9 +16,11 @@
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/state-store": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@brainstrike/web-state-store": "workspace:*"
+    "@brainstrike/web-state-store": "workspace:*",
+    "zod": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/agent": "workspace:*",
     "@brainstrike/build-utils": "workspace:*",
     "@brainstrike/config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
@@ -26,6 +28,8 @@
     "@types/better-sqlite3": "catalog:",
     "@types/node": "catalog:",
     "@vitest/browser-playwright": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "ai": "catalog:",
     "esbuild": "catalog:",
     "playwright": "catalog:",
     "typescript": "catalog:",
@@ -46,6 +50,7 @@
     "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
