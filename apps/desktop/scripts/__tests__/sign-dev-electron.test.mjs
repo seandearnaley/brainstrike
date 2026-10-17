@@ -9,8 +9,8 @@ import {
   signDevElectron,
 } from '../sign-dev-electron.mjs';
 
-// Run directly: node --test apps/desktop/scripts/__tests__/sign-dev-electron.test.mjs
-// (the desktop vitest config excludes scripts; see measure-boot.test.mjs).
+// The desktop vitest config excludes scripts; the root `pnpm test:scripts` lane
+// runs this suite through scripts/__tests__/desktop-sign-dev-electron.test.mjs.
 
 const IDENTITY = 'Developer ID Application: Example Owner (TEAMID1234)';
 const EXECUTABLE = '/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron';
