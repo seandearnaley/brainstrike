@@ -1,0 +1,75 @@
+# Runs nightly on main (owner decision 2026-10-17).
+# Per-PR hosted CI is off; merges use the local gate in docs/agents/ci-quality.md.
+
+name: Agent Evals
+
+# BST-2069 step 10. The coding-task evals in packages/agent-evals run through the
+# real standalone CLI host; see docs/agents/agent-evals.md. Replay mode runs
+# every task that has a provider cassette, and scripted mode runs every task
+# through the scripted model. Neither makes a provider call: replay serves the
+# committed cassette and refuses any request it does not hold, and scripted
+# refuses all provider egress. Live mode needs the owner's key and never runs
+# in CI. A failed task, a replay mismatch or a host error fails the run.
+on:
+  schedule:
+    - cron: '13 8 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  evals:
+    name: Agent evals
+    if: github.repository == 'seandearnaley/brainstrike'
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+
+      # The eval script builds the package and its dependency closure first.
+      - name: Replay tasks with cassettes
+        timeout-minutes: 12
+        run: pnpm --filter @brainstrike/agent-evals eval --mode replay
+
+      # Runs even when replay failed, so one night reports both modes.
+      - name: Scripted tasks
+        if: ${{ !cancelled() }}
+        timeout-minutes: 12
+        run: pnpm --filter @brainstrike/agent-evals eval --mode scripted
+
+      # One JSON line per task per mode: <UTC date>-replay.jsonl and
+      # <UTC date>-scripted.jsonl. A run that wrote none fails here.
+      - name: Upload eval results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: agent-evals-results
+          path: packages/agent-evals/results/*.jsonl
+          if-no-files-found: error
+          retention-days: 30
+
+  notify-linear:
+    name: Notify Linear
+    needs: [evals]
+    if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
+    uses: ./.github/workflows/nightly-linear-alert.yml
+    with:
+      workflow_name: ${{ github.workflow }}
+      results: evals=${{ needs.evals.result }}
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

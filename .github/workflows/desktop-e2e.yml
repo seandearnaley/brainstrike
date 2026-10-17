@@ -57,8 +57,14 @@ jobs:
         with:
           turbo-cache: 'true'
 
+      # The lane script runs Playwright directly, not through turbo, so the
+      # `test:e2e` task's declared test-only prerequisite
+      # (`@brainstrike/mcp-test-lab#build` in apps/desktop/turbo.json) is not
+      # honored on its own. Seven regression specs import
+      # packages/mcp-test-lab/dist/index.js and failed with ERR_MODULE_NOT_FOUND
+      # (run 39029251733), so build it here with the app.
       - name: Build desktop
-        run: pnpm run build --filter @brainstrike/desktop
+        run: pnpm run build --filter @brainstrike/desktop --filter @brainstrike/mcp-test-lab
 
       # Desktop E2E drives the app through Playwright's Electron API
       # (_electron.launch), which uses the app's OWN bundled Electron/Chromium
@@ -76,6 +82,18 @@ jobs:
 
       - name: Install Chromium system dependencies
         run: pnpm exec playwright install-deps chromium
+
+      # The host's live grep pass resolves `rg` from PATH, and the regression
+      # spec host-thread-search.desktop.test.ts asserts that pass ran as
+      # `liveEngine: 'ripgrep'`. The runner image carries no ripgrep, so the
+      # host took its js-walk path and the spec failed (run 39029251733). Every
+      # developer machine and the Unit lane's fence step provide it; so must this.
+      - name: Install ripgrep
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ripgrep
+          rg --version
 
       # Electron 43 exposes install.js only as a bin and has no install lifecycle,
       # so pnpm cannot provision the binary. Download the prebuilt zip from

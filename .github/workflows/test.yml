@@ -955,6 +955,17 @@ jobs:
       # same way the static job does, so the in-job builds and the browser
       # suites don't oversubscribe the runner.
       TURBO_CONCURRENCY: "4"
+      # The root devDependency @mermaid-js/mermaid-cli pulls in puppeteer,
+      # whose postinstall downloads two Chrome builds that nothing in this lane
+      # uses (the suites run Playwright's Chromium from the image). As pwuser
+      # this image has no `unzip`, so @puppeteer/browsers 3.2.5 falls back to
+      # its yauzl extractor, and with the resolved optional yauzl@2.10.0 a
+      # large zip entry never finishes: the promise never settles, Node exits 13
+      # on the unsettled top-level await, and `pnpm install` fails (run
+      # 39029250373; reproduced offline with a 60 MB entry). Puppeteer's
+      # documented PUPPETEER_SKIP_DOWNLOAD skips that unused download. The
+      # dependency defect itself is BST-2078.
+      PUPPETEER_SKIP_DOWNLOAD: "true"
     steps:
       - name: Require successful admission
         if: needs.admission.result != 'success'

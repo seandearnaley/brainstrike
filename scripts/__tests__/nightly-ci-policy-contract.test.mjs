@@ -25,6 +25,7 @@ const ALERT_GATE = "always() && github.event_name == 'schedule'";
 
 const SCHEDULED = new Map([
   ['actions-storage-cleanup.yml', '17 5 * * *'],
+  ['agent-evals.yml', '13 8 * * *'],
   ['desktop-e2e.yml', '53 7 * * *'],
   ['knip.yml', '37 6 * * 1'],
   ['mcp-verification.yml', '23 8 * * *'],
@@ -178,6 +179,31 @@ test('scheduled workflows run only on schedule and dispatch, under the nightly h
     assertScheduleOnly(file, source);
     assertScheduledHeader(file, source);
   }
+});
+
+function assertDistinctSlots(schedules) {
+  const byMinute = new Map();
+  for (const [file, cron] of schedules) {
+    const [minute, hour] = cron.split(' ');
+    const slot = `${hour}:${minute}`;
+    assert.ok(
+      !byMinute.has(slot),
+      `${file} shares the ${slot} UTC slot with ${byMinute.get(slot)}`
+    );
+    byMinute.set(slot, file);
+  }
+}
+
+test('scheduled workflows start in distinct UTC slots', () => {
+  assertDistinctSlots(SCHEDULED);
+});
+
+test('CONTROL: two workflows in one cron slot fail the slot check', () => {
+  const clashing = new Map([
+    ...SCHEDULED,
+    ['agent-evals.yml', SCHEDULED.get('nightly-coverage.yml')],
+  ]);
+  assert.throws(() => assertDistinctSlots(clashing), /shares the 8:17 UTC slot/u);
 });
 
 test('PR, bot and manual workflows keep their triggers and say they stay disabled', () => {

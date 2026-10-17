@@ -146,10 +146,24 @@ function assertGuardActionIsLinuxOnlyAndRunsTheScript(source = readFileSync(acti
   const steps = Array.isArray(action?.runs?.steps) ? action.runs.steps : [];
   const runner = steps.find((step) => (step?.run ?? '').includes('drop-unused-sources.sh'));
   assert.ok(runner, 'the guard action must run drop-unused-sources.sh');
-  assert.match(
-    runner.run,
+  // The script is addressed through the action's own directory, never a
+  // workspace-relative path: that breaks the moment a caller's working
+  // directory is not the repo root. And it must be the GITHUB_ACTION_PATH
+  // ENVIRONMENT VARIABLE, not the `github.action_path` CONTEXT. In a
+  // `container:` job the context still holds the host path
+  // (/home/runner/work/...), which the container does not mount, while the
+  // runner translates the variable to the container mount (/__w/...)
+  // (actions/runner#716). The context form failed Web E2E and Performance E2E
+  // with exit 127 on their first nightly (run 39029252932). Do not revert it.
+  assert.equal(
+    runner.run.trim(),
+    '"$GITHUB_ACTION_PATH/drop-unused-sources.sh"',
+    'the script must be addressed as "$GITHUB_ACTION_PATH/drop-unused-sources.sh"; a workspace-relative path breaks outside the repo root'
+  );
+  assert.doesNotMatch(
+    source,
     /\$\{\{\s*github\.action_path\s*\}\}/,
-    "the script must be addressed through `github.action_path`; a workspace-relative path breaks the moment a caller's working directory is not the repo root"
+    'the `github.action_path` context resolves to the host path in container jobs (actions/runner#716); use the GITHUB_ACTION_PATH environment variable'
   );
   assert.match(
     String(runner.if ?? ''),
@@ -237,6 +251,35 @@ test('control: an ungated guard action fails the contract', () => {
     () => assertGuardActionIsLinuxOnlyAndRunsTheScript(source),
     /gate it on Linux/,
     'losing the Linux gate must be caught'
+  );
+});
+
+const GUARD_RUN_LINE = `run: '"$GITHUB_ACTION_PATH/drop-unused-sources.sh"'`;
+
+function withGuardRunLine(replacement) {
+  const original = readFileSync(actionPath, 'utf8');
+  const source = original.replace(GUARD_RUN_LINE, replacement);
+  assert.notEqual(source, original, 'control mutation matched no guard run line');
+  return source;
+}
+
+test('control: the host-path `github.action_path` context fails the contract', () => {
+  const source = withGuardRunLine(`run: ${'$'}{{ github.action_path }}/drop-unused-sources.sh`);
+  assert.throws(
+    () => assertGuardActionIsLinuxOnlyAndRunsTheScript(source),
+    /GITHUB_ACTION_PATH/,
+    'restoring the context form that breaks container jobs must be caught'
+  );
+});
+
+test('control: a workspace-relative script path fails the contract', () => {
+  const source = withGuardRunLine(
+    'run: ./.github/actions/apt-drop-unused-sources/drop-unused-sources.sh'
+  );
+  assert.throws(
+    () => assertGuardActionIsLinuxOnlyAndRunsTheScript(source),
+    /workspace-relative path/,
+    'a path that depends on the caller working directory must be caught'
   );
 });
 

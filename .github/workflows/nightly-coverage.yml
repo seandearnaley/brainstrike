@@ -149,6 +149,22 @@ jobs:
           find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
           rm -rf .nyc_output
 
+      # Package coverage runs each package's integration suites, and desktop's
+      # spawn real Electron with its Chromium sandbox on. Ubuntu 24.04 restricts
+      # unprivileged user namespaces through AppArmor, so Chromium falls back
+      # to the SUID helper, which the downloaded Electron does not configure,
+      # and aborts: "The SUID sandbox helper binary was found, but is not
+      # configured correctly" (run 39029257042, 9 desktop failures). The Unit
+      # lane in test.yml lifts the same restriction for the same kernel reason;
+      # it is Ubuntu's documented remediation on an ephemeral runner, and it
+      # changes only whether the sandbox can create its namespace. Every shard
+      # gets it so a package moving shards cannot silently lose it.
+      - name: Allow unprivileged user namespaces
+        run: |
+          set -euo pipefail
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          test "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = 0
+
       - name: Run package shard coverage
         timeout-minutes: 30
         env:
