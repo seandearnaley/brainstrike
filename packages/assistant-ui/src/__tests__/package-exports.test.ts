@@ -30,6 +30,10 @@ describe('@brainstrike/assistant-ui package contract', () => {
     expect(Object.keys(manifest.exports).sort()).toEqual(
       [
         '.',
+        // The pure activity-row model (`deriveActivitySteps`), for the desktop
+        // conversation-shape helper (apps/desktop/src/__tests__/helpers/
+        // conversation-shape.ts): a leaf module with no lazy panel graph.
+        './activity-trace-model',
         // Two leaf modules, imported INSTEAD of the root barrel so a host can
         // provide or read the link seam without dragging the lazy panel graph
         // (assistant-ui-panel, Streamdown, Shiki) into the eager chunk.
