@@ -12,13 +12,17 @@ const windows = { skip: process.platform !== 'win32' };
 const addon = JSON.stringify(path.resolve(__dirname, '..'));
 const member = `const job=require(${addon}); process.send(job.getCurrentProcessIdentity()); process.disconnect(); setInterval(()=>{},1000);`;
 const wrapperPrefix = `const job=require(${addon}); const {spawn}=require('node:child_process'); process.send({event:'READY',identity:job.getCurrentProcessIdentity()});`;
+// The setup wrapper shares the guard's hidden console. With windowsHide and no
+// inherited stdio it would get CREATE_NO_WINDOW and its own conhost.exe, which
+// joins the outer Job before assignment and outlives a killed wrapper briefly,
+// so the outer count after a join would race that conhost's exit.
 const setup = (wrapper) => `
 const assert=require('node:assert/strict');
 const {spawn}=require('node:child_process');
 job.initialize();
 const control=spawn(process.execPath,['-e',${JSON.stringify(`const job=require(${addon}); process.send(job.getCurrentProcessIdentity()); process.on('message',()=>process.send(job.getCurrentProcessIdentity()));`)}],{stdio:['ignore','ignore','ignore','ipc']});
 const controlIdentity=await new Promise(resolve=>control.once('message',resolve));
-const wrapper=spawn(process.execPath,['-e',${JSON.stringify(wrapperPrefix + wrapper)}],{stdio:['ignore','pipe','pipe','ipc'],windowsHide:true});
+const wrapper=spawn(process.execPath,['-e',${JSON.stringify(wrapperPrefix + wrapper)}],{stdio:['ignore','pipe','pipe','ipc']});
 const exited=new Promise(resolve=>wrapper.once('exit',(code,signal)=>resolve({code,signal})));
 const ready=await new Promise(resolve=>wrapper.once('message',resolve));
 assert.equal(ready.event,'READY');
