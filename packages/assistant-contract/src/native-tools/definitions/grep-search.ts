@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { GrepSearchInputSchema } from '../schemas/schemas-search.js';
 
 export const grepSearch = defineNativeTool({
@@ -13,7 +13,7 @@ export const grepSearch = defineNativeTool({
     "Grep indexed and live on-disk file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns matches grouped under one file header per file — 'root:path' when several folders are open — with 'line: text' rows ('-' marks opt-in context rows). Reuse that root and path (and the row's line number as startLine) in readWorkspaceFile calls",
   history: { recencyPrunable: true, staleReplayable: true },
   id: 'brainstrike.grepSearch',
-  inputSchema: providerCompatibleInputSchema(GrepSearchInputSchema),
+  inputSchema: effectToolInputSchema(GrepSearchInputSchema),
   kind: 'desktop',
   localProvider: 'offered',
   returns:

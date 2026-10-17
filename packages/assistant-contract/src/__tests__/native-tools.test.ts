@@ -23,6 +23,7 @@ const CATALOG: readonly NativeToolDefinition[] = NATIVE_TOOLS;
 const DESKTOP_CATALOG: readonly DesktopNativeToolDefinition[] = DESKTOP_NATIVE_TOOLS;
 
 import { deriveNativeToolRegistries } from '../native-tools/registries';
+import { isEffectToolInputSchema } from '../native-tools/schemas/effect-tool-input';
 import { providerCompatibleInputSchema } from '../native-tools/schemas/provider-compatible-input';
 import { NATIVE_TOOL_DEFAULTS } from '../tool-categories';
 import { TOOL_DESCRIPTIONS } from '../tool-descriptions';
@@ -36,6 +37,28 @@ import { UndeterminableToolRiskError } from '../tool-risk';
  * updates this snapshot deliberately, in one place.
  */
 describe('NATIVE_TOOLS catalog', () => {
+  it('registers every search/artifact tool through the Effect producer', () => {
+    const expected = [
+      'hybridSearch',
+      'queryEmbeddingSpace',
+      'grepSearch',
+      'globWorkspace',
+      'webSearch',
+      'webExtract',
+      'lspInspect',
+      'readToolOutputArtifact',
+    ];
+    const selected = CATALOG.filter((tool) =>
+      expected.includes(tool.id.replace('brainstrike.', ''))
+    );
+    expect(selected.map((tool) => tool.id.replace('brainstrike.', '')).sort()).toEqual(
+      [...expected].sort()
+    );
+    for (const tool of selected) {
+      expect(isEffectToolInputSchema(tool.inputSchema), tool.id).toBe(true);
+    }
+  });
+
   it('is the single ordered list of native tool ids', () => {
     expect(NATIVE_TOOLS.map((tool) => tool.id)).toMatchInlineSnapshot(`
       [

@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { WebExtractInputSchema } from '../schemas/schemas-search.js';
 
 // The natural pair to webSearch (report R5): read the page BEHIND a result
@@ -21,7 +21,7 @@ export const webExtract = defineNativeTool({
   discovery: { family: 'web search/extract', namespace: 'web' },
   history: { recencyPrunable: true, staleReplayable: true },
   id: 'brainstrike.webExtract',
-  inputSchema: providerCompatibleInputSchema(WebExtractInputSchema),
+  inputSchema: effectToolInputSchema(WebExtractInputSchema),
   kind: 'desktop',
   returns:
     'Complete per-URL extracted markdown content plus exact URLs and a per-URL failed list (refused/unreachable URLs with exact reasons). Larger results provide an exact brainstrike.readToolOutputArtifact continuation cursor instead of clipping or re-fetching. When no Tavily key is configured, an available: false result with an actionable message. On error/timeout, a non-fatal error result (the run continues).',

@@ -1,9 +1,9 @@
 import { NATIVE_TOOL_INPUT_SCHEMAS, registerToolGuardDeadlineSignal } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { validateToolInputValue } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { expect, it, vi } from 'vitest';
-import type { z } from 'zod';
 import { retrievalToolExecutors } from '../../assistant-server/native-tool-executors-retrieval';
 import type { RetrievalStore } from '../../assistant-server/retrieval-store';
 import { hostExecutionPorts } from './_host-native-tools';
@@ -61,7 +61,7 @@ function entry(
   }
   return tool as {
     execute: (input: unknown, context: unknown) => Promise<unknown>;
-    inputSchema: z.ZodType;
+    inputSchema: unknown;
     description: string;
   };
 }
@@ -118,10 +118,10 @@ it.each([
   async (toolId, options) => {
     const input = { query: 'marker', ...options };
     const native = entry(toolId);
-    expect(native.inputSchema.safeParse(input).success).toBe(false);
+    expect(validateToolInputValue(native.inputSchema, input).success).toBe(false);
     await expect(native.execute(input, {})).rejects.toThrow();
-    expect(entry(toolId, false).inputSchema.safeParse(input).success).toBe(true);
-    expect(NATIVE_TOOL_INPUT_SCHEMAS[toolId].safeParse(input).success).toBe(true);
+    expect(validateToolInputValue(entry(toolId, false).inputSchema, input).success).toBe(true);
+    expect(validateToolInputValue(NATIVE_TOOL_INPUT_SCHEMAS[toolId], input).success).toBe(true);
   }
 );
 it.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch] as const)(
@@ -129,8 +129,11 @@ it.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch] as con
   async (toolId) => {
     const tool = entry(toolId);
     const input = { limit: 10, query: 'marker', root: 'actual-root' };
-    const parsed = tool.inputSchema.parse(input);
-    await tool.execute(parsed, {});
+    const parsed = validateToolInputValue(tool.inputSchema, input);
+    if (!parsed.success) {
+      throw new Error('Expected valid native retrieval input.');
+    }
+    await tool.execute(parsed.value, {});
     expect(
       (toolId === NATIVE_TOOL_ID.hybridSearch ? calls.hybrid : calls.semantic).mock.calls.at(
         -1

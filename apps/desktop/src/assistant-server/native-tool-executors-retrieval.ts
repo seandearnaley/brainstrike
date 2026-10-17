@@ -21,7 +21,6 @@ import {
   type ToolExecuteContext,
   type ToolExecuteInput,
 } from '@brainstrike/host-capabilities/native-tools';
-import type { z } from 'zod';
 import { runHybridSearchWith } from './hybrid-search-core';
 import { runListEmbeddingSpacesWith } from './list-embedding-spaces-core';
 import {
@@ -54,7 +53,7 @@ export function retrievalToolExecutors(
     [NATIVE_TOOL_ID.queryEmbeddingSpace]: (context) => {
       const { dependencies, store } = services(context);
       const { resolveActiveDomainCharBudget, runtimeData } = context;
-      const inputSchema: z.ZodType<QueryEmbeddingSpaceInput> = dependencies.nativeIndexSearch
+      const inputSchema = dependencies.nativeIndexSearch
         ? NativeQueryEmbeddingSpaceInputSchema
         : NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.queryEmbeddingSpace];
       return {
@@ -88,7 +87,7 @@ export function retrievalToolExecutors(
     [NATIVE_TOOL_ID.hybridSearch]: (context) => {
       const { dependencies, store } = services(context);
       const { resolveActiveDomainCharBudget, runtimeData } = context;
-      const inputSchema: z.ZodType<HybridSearchInput> = dependencies.nativeIndexSearch
+      const inputSchema = dependencies.nativeIndexSearch
         ? NativeHybridSearchInputSchema
         : NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.hybridSearch];
       return {

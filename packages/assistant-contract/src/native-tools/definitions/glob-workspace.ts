@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { GlobWorkspaceInputSchema } from '../schemas/schemas-search.js';
 
 // Read-only file enumeration by glob pattern. Explicitly pinned to the 'read'
@@ -17,7 +17,7 @@ export const globWorkspace = defineNativeTool({
     'Enumerate workspace files whose path matches a glob (e.g. **/*.test.ts, src/**/*.tsx). One path per result line, prefixed with its root name when several folders are open. Excludes .git, build output, and gitignored paths by default; pass includeIgnored to see them; read-only',
   history: { recencyPrunable: true, staleReplayable: true },
   id: 'brainstrike.globWorkspace',
-  inputSchema: providerCompatibleInputSchema(GlobWorkspaceInputSchema),
+  inputSchema: effectToolInputSchema(GlobWorkspaceInputSchema),
   kind: 'desktop',
   localProvider: 'offered',
   returns:

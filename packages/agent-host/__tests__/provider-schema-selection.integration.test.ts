@@ -255,6 +255,11 @@ function registeredInputSchema(toolId: string): unknown {
 test('the converted slice really is Effect-authored', () => {
   // Without this the equivalence tests below would pass trivially if the slice
   // were reverted to zod.
+  expect(effectAuthoredSlice.map(([id]) => id).sort()).toEqual(
+    NATIVE_TOOLS.filter((tool) => isEffectToolInputSchema(tool.inputSchema))
+      .map((tool) => tool.id)
+      .sort()
+  );
   for (const [toolId] of effectAuthoredSlice) {
     expect(isEffectToolInputSchema(registeredInputSchema(toolId)), toolId).toBe(true);
   }
@@ -290,9 +295,9 @@ test.each([
       if (!(effect && zodPrepared)) {
         throw new Error('Missing prepared worktree tool');
       }
-      expect(await asSchema(effect.inputSchema).jsonSchema, toolId).toEqual(
-        await asSchema(zodPrepared.inputSchema).jsonSchema
-      );
+      expect
+        .soft(await asSchema(effect.inputSchema).jsonSchema, toolId)
+        .toEqual(await asSchema(zodPrepared.inputSchema).jsonSchema);
       expect(execute).not.toHaveBeenCalled();
     }
   }

@@ -210,8 +210,9 @@ describe('native tool input schema catalog', () => {
       }).success
     ).toBe(false);
     expect(
-      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.grepSearch'].safeParse({ pattern: null })
-        .success
+      validateToolInputValue(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.grepSearch'], {
+        pattern: null,
+      }).success
     ).toBe(false);
     expect(
       validateToolInputValue(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.executeCommand'], {

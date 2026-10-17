@@ -1,5 +1,5 @@
 import { defineNativeTool } from '../define.js';
-import { providerCompatibleInputSchema } from '../schemas/provider-compatible-input.js';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
 import { ReadToolOutputArtifactCursorInputSchema } from '../schemas/schemas-artifacts.js';
 
 export const readToolOutputArtifact = defineNativeTool({
@@ -21,7 +21,7 @@ export const readToolOutputArtifact = defineNativeTool({
   },
   history: { recencyPrunable: true, staleReplayable: true },
   id: 'brainstrike.readToolOutputArtifact',
-  inputSchema: providerCompatibleInputSchema(ReadToolOutputArtifactCursorInputSchema),
+  inputSchema: effectToolInputSchema(ReadToolOutputArtifactCursorInputSchema),
   kind: 'desktop',
   returns:
     'A contiguous page, or compact grep-style matching lines with continuation whenever scanning or rendering is limited.',

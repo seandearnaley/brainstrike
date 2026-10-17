@@ -5,6 +5,7 @@ import {
   TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES,
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
+import { Schema, SchemaIssue } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import {
   decodedTextModelOutputChars,
@@ -82,32 +83,32 @@ describe('tool output artifact reader', () => {
     const cursor = encodeToolOutputArtifactCursor(artifactRef, 1);
 
     expect(
-      ReadToolOutputArtifactInputSchema.safeParse({
+      Schema.decodeUnknownResult(ReadToolOutputArtifactInputSchema, { onExcessProperty: 'error' })({
         artifactRef,
         maxBytes: 4,
         mode: 'artifact',
-      }).success
-    ).toBe(true);
+      })._tag
+    ).toBe('Success');
     expect(
-      ReadToolOutputArtifactInputSchema.safeParse({
+      Schema.decodeUnknownResult(ReadToolOutputArtifactInputSchema, { onExcessProperty: 'error' })({
         cursor,
         maxBytes: 4,
         mode: 'cursor',
-      }).success
-    ).toBe(true);
+      })._tag
+    ).toBe('Success');
     expect(
-      ReadToolOutputArtifactInputSchema.safeParse({
+      Schema.decodeUnknownResult(ReadToolOutputArtifactInputSchema, { onExcessProperty: 'error' })({
         artifactRef,
         cursor,
         mode: 'artifact',
-      }).success
-    ).toBe(false);
+      })._tag
+    ).toBe('Failure');
     expect(
-      ReadToolOutputArtifactInputSchema.safeParse({
+      Schema.decodeUnknownResult(ReadToolOutputArtifactInputSchema, { onExcessProperty: 'error' })({
         cursor,
         mode: 'artifact',
-      }).success
-    ).toBe(false);
+      })._tag
+    ).toBe('Failure');
   });
 
   it('concatenates multi-page UTF-8, CRLF, emoji, and U+0000 content byte-exactly', async () => {
@@ -623,17 +624,19 @@ describe('tool output artifact reader', () => {
     const content = 'irrelevant';
     const artifactRef = referenceFor(content);
 
-    const parsed = ReadToolOutputArtifactInputSchema.safeParse({
+    const parsed = Schema.decodeUnknownResult(ReadToolOutputArtifactInputSchema, {
+      onExcessProperty: 'error',
+    })({
       cursor: encodeToolOutputArtifactCursor(artifactRef, 0),
       isRegex: true,
       mode: 'cursor',
       pattern: '(unterminated[',
     });
-    expect(parsed.success).toBe(false);
-    if (parsed.success) {
+    expect(parsed._tag).toBe('Failure');
+    if (parsed._tag === 'Success') {
       throw new TypeError('Expected schema parse to fail.');
     }
-    expect(parsed.error.issues).toContainEqual(
+    expect(SchemaIssue.makeFormatterStandardSchemaV1()(parsed.failure.issue).issues).toContainEqual(
       expect.objectContaining({
         message: 'pattern is not a valid JavaScript regular expression (isRegex is true)',
         path: ['pattern'],

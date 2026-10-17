@@ -4,7 +4,9 @@ import {
   type ToolProjectionRewriteEntry,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { effectToolInputSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { createLogger } from '@brainstrike/logging';
+import { Schema } from 'effect';
 import {
   type GrepToolResult,
   grepProjectionHeaderPrefix,
@@ -21,6 +23,11 @@ import {
   decodedWorkspaceTextModelOutputChars,
   escapeProjectionPathLineBreaks,
 } from './workspace-model-projection-helpers.js';
+
+const grepInputSchema = effectToolInputSchema(GrepSearchInputSchema);
+const decodeGrepHistory = Schema.decodeUnknownResult(GrepSearchInputSchema, {
+  onExcessProperty: 'error',
+});
 
 const logger = createLogger('ToolProjectionSupersession');
 
@@ -324,16 +331,16 @@ function normalizeGrepKey(
   invocation: PersistedToolInvocation,
   persisted: boolean
 ): string | undefined {
-  const candidate = resolveToolExecuteInputCandidate(GrepSearchInputSchema, invocation.args);
+  const candidate = resolveToolExecuteInputCandidate(grepInputSchema, invocation.args);
   // OpenAI can persist an omitted optional array as null even when the
   // executed grep succeeded. Treat only that representation as omission;
   // required fields and other malformed history still fail schema validation.
   const historyArgs =
     isRecord(candidate) && candidate['filePaths'] === null
-      ? { ...candidate, filePaths: undefined }
+      ? Object.fromEntries(Object.entries(candidate).filter(([key]) => key !== 'filePaths'))
       : candidate;
-  const parsed = GrepSearchInputSchema.safeParse(historyArgs);
-  if (!parsed.success) {
+  const parsed = decodeGrepHistory(historyArgs);
+  if (parsed._tag === 'Failure') {
     if (persisted && shouldWarnMalformed(invocation.toolCallId)) {
       logger.warn('Skipping unparseable persisted grep arguments during supersession detection', {
         code: 'tool_projection_rewrite_malformed_grep_history_args',
@@ -342,7 +349,7 @@ function normalizeGrepKey(
     }
     return;
   }
-  const input = parsed.data;
+  const input = parsed.success;
   return JSON.stringify({
     caseSensitive: input.caseSensitive ?? false,
     contextLines: input.contextLines ?? 0,
