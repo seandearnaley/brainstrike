@@ -52,11 +52,36 @@ meaning onto 1.38's `runOMCommit` commit queue. Flag writes keep that queue. Unp
 1.38 fails every case in `memory-public-lifecycle.test.ts` (ESM and CJS). The
 groups it carries, and the owner cases that fail when a group is reverted, are
 in the BST-2070 PR. Lifecycle groups are owned by `memory-public-lifecycle`,
-`memory-adapter` and `memory-buffer-release`. The Core JSON-array group
+`memory-adapter` and `memory-native-ownership`. The Core JSON-array group
 identities are owned by `observation-memory.integration.test.ts`. The resource
 owner overlay and committed resource groups are owned by
 `observation-host-lifecycle`, `observation-memory` and `observation-projection`. See
 [the M3 memory contract](../../packages/agent-host/src/adapters/memory-m3-contract.md).
+
+The rebase retired five 1.32 lifecycle hunks that no longer have a production
+consumer:
+
+- **The OM `reflect()` wrapper.** Only `finalize()` calls `reflect()`, and nothing
+  calls `finalize()`.
+- **`cleanupStaticMaps`' keep-in-flight branch.** It is reached only from the
+  engine's `clear()`, which nothing calls.
+- **`Memory.settled`'s `finally` vector join.** It is fed only by Mastra
+  `Memory.deleteThread` / `deleteMessages`, which nothing calls, and whose storage
+  deletes `StateStoreMemoryStorage` refuses.
+- **The `ObservationalMemoryProcessor` turn signal.** That processor exists only on
+  `Agent` processor paths.
+- **The idle-buffer signal in `ObservationTurn.end`.** It needs `bufferOnIdle`, and
+  Brainstrike never sets it.
+
+The only production use of the engine is `HostMemory`'s
+`beginTurn`/`start`/`step`/`end`. Neither thread deletion nor factory reset calls
+one of those retired paths:
+
+- Thread deletion goes through `HostCore.deleteThread` and then the StateStore
+  `purge-thread` memory request.
+- Factory reset and content clearing run in desktop main, which imports no
+  `@mastra` package. They stop runtimes, reset the database profile or clear
+  StateStore content, and delete user data.
 
 Two Memory 1.38 storage contracts reach the host adapters:
 
