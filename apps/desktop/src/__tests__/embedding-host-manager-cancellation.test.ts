@@ -234,7 +234,10 @@ describe('document batch manager cancellation', () => {
       await vi.advanceTimersByTimeAsync(50_000);
       manager.acceptDocumentEmbeddingsResponseReport(
         91,
-        createEmbeddingHostDocumentEmbeddingsProgressReport(request, 1)
+        createEmbeddingHostDocumentEmbeddingsProgressReport(request, {
+          completed: 1,
+          stage: 'inference',
+        })
       );
       await vi.advanceTimersByTimeAsync(50_000);
       manager.acceptDocumentEmbeddingsResponseReport(91, {
@@ -244,6 +247,78 @@ describe('document batch manager cancellation', () => {
         type: 'result',
       });
       await expect(result).resolves.toHaveLength(DOCUMENT.texts.length);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('keeps a document batch alive while model setup reports progress past several windows (BST-2104)', async () => {
+    // A first run downloads and loads the model before the first slice can report.
+    vi.useFakeTimers();
+    try {
+      const manager = new EmbeddingHostManager();
+      const result = manager.documentEmbeddings(DOCUMENT);
+      let settled = false;
+      void result.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        }
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      const request = windowMock.webContents.send.mock
+        .calls[0]?.[1] as EmbeddingHostDocumentEmbeddingsRequest;
+      for (let heartbeat = 0; heartbeat < 6; heartbeat += 1) {
+        await vi.advanceTimersByTimeAsync(30_000);
+        manager.acceptDocumentEmbeddingsResponseReport(
+          91,
+          createEmbeddingHostDocumentEmbeddingsProgressReport(request, { stage: 'setup' })
+        );
+      }
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(settled).toBe(false);
+      manager.acceptDocumentEmbeddingsResponseReport(91, {
+        ...request,
+        channel: 'document-embeddings-result',
+        payload: { embeddings: DOCUMENT.texts.map(() => Array.from({ length: 384 }, () => 0.1)) },
+        type: 'result',
+      });
+      await expect(result).resolves.toHaveLength(DOCUMENT.texts.length);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('times a document batch out one window after model setup goes silent (BST-2104)', async () => {
+    vi.useFakeTimers();
+    try {
+      const manager = new EmbeddingHostManager();
+      let settled = false;
+      const failure = manager.documentEmbeddings(DOCUMENT).then(
+        () => {
+          throw new Error('The silent batch resolved.');
+        },
+        (error: unknown) => {
+          settled = true;
+          return error;
+        }
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      const request = windowMock.webContents.send.mock
+        .calls[0]?.[1] as EmbeddingHostDocumentEmbeddingsRequest;
+      await vi.advanceTimersByTimeAsync(30_000);
+      manager.acceptDocumentEmbeddingsResponseReport(
+        91,
+        createEmbeddingHostDocumentEmbeddingsProgressReport(request, { stage: 'setup' })
+      );
+      await vi.advanceTimersByTimeAsync(59_999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      // The timeout leads; this fixture's host cannot acknowledge the Stop that retires it.
+      const error = await failure;
+      const timeout = error instanceof AggregateError ? error.errors[0] : error;
+      expect(timeout).toBeInstanceOf(Error);
+      expect((timeout as Error).message).toContain('timed out after 60000ms');
     } finally {
       vi.useRealTimers();
     }

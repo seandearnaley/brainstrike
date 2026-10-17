@@ -100,11 +100,23 @@ function inbox(child, stdout = false) {
   };
 }
 
+// `deny <mask>` gives the first pinned member a DACL that denies <mask> to
+// Everyone, administrators included. `restrict <pid>` removes SeDebugPrivilege
+// from that actor's token, because OpenProcess ignores the DACL for it: "If the
+// caller has enabled the SeDebugPrivilege privilege, the requested access is
+// granted regardless of the contents of the security descriptor."
+// https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-openprocess
+// .NET enables it in any elevated process that uses System.Diagnostics.Process
+// (the static ProcessManager constructor in dotnet/runtime), and a child copies
+// its parent's token, so a .NET runner or pwsh hands it to the whole test tree.
+// Together the two commands make a denial real for whoever runs the test. The
+// reply reports the actor's prior state: absent, disabled or enabled.
 const processObserverSource = `
 param([string]$ProcessIds)
 $ErrorActionPreference='Stop'
 Add-Type -TypeDefinition @'
 using System;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 public static class DrainProof {
  [DllImport("kernel32.dll", SetLastError=true)] public static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
@@ -113,6 +125,49 @@ public static class DrainProof {
  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool GetExitCodeProcess(IntPtr handle, out uint code);
  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool CloseHandle(IntPtr handle);
  [DllImport("advapi32.dll", SetLastError=true)] public static extern bool SetKernelObjectSecurity(IntPtr handle, uint information, byte[] descriptor);
+ [DllImport("advapi32.dll", SetLastError=true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+ [DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode)] static extern bool LookupPrivilegeValue(string system, string name, out long luid);
+ [DllImport("advapi32.dll", SetLastError=true)] static extern bool AdjustTokenPrivileges(IntPtr token, bool disableAll, ref SinglePrivilege state, uint length, IntPtr previous, IntPtr returned);
+ [DllImport("advapi32.dll", SetLastError=true)] static extern bool GetTokenInformation(IntPtr token, int information, IntPtr buffer, uint length, out uint returned);
+ [StructLayout(LayoutKind.Sequential, Pack=4)] struct SinglePrivilege { public uint Count; public long Luid; public uint Attributes; }
+ static int Attributes(IntPtr token, long luid) {
+  uint size;
+  GetTokenInformation(token, 3, IntPtr.Zero, 0, out size);
+  IntPtr buffer = Marshal.AllocHGlobal((int)size);
+  try {
+   if (!GetTokenInformation(token, 3, buffer, size, out size)) throw new Win32Exception();
+   int count = Marshal.ReadInt32(buffer);
+   for (int i = 0; i < count; i++) {
+    if (Marshal.ReadInt64(buffer, 4 + i * 12) == luid) return Marshal.ReadInt32(buffer, 12 + i * 12);
+   }
+   return -1;
+  } finally { Marshal.FreeHGlobal(buffer); }
+ }
+ public static string RemoveDebugPrivilege(uint pid) {
+  long luid;
+  if (!LookupPrivilegeValue(null, "SeDebugPrivilege", out luid)) throw new Win32Exception();
+  IntPtr process = OpenProcess(0x1000, false, pid);
+  if (process == IntPtr.Zero) throw new Win32Exception();
+  IntPtr token;
+  if (!OpenProcessToken(process, 0x28, out token)) {
+   int error = Marshal.GetLastWin32Error();
+   CloseHandle(process);
+   throw new Win32Exception(error);
+  }
+  try {
+   int prior = Attributes(token, luid);
+   if (prior != -1) {
+    SinglePrivilege removal = new SinglePrivilege();
+    removal.Count = 1; removal.Luid = luid; removal.Attributes = 4;
+    if (!AdjustTokenPrivileges(token, false, ref removal, 0, IntPtr.Zero, IntPtr.Zero) || Marshal.GetLastWin32Error() != 0) throw new Win32Exception();
+   }
+   if (Attributes(token, luid) != -1) throw new InvalidOperationException("SeDebugPrivilege remains in the actor token.");
+   return prior == -1 ? "absent" : ((prior & 2) != 0 ? "enabled" : "disabled");
+  } finally {
+   CloseHandle(token);
+   CloseHandle(process);
+  }
+ }
 }
 '@
 $handles=@();$identities=@()
@@ -128,11 +183,16 @@ try {
  [Console]::WriteLine((@{event='pinned';identities=$identities} | ConvertTo-Json -Compress -Depth 4))
  while($null -ne ($line=[Console]::ReadLine())) {
   if($line -eq 'release'){break}
-  if($line -eq 'deny'){
-   $descriptor=[Security.AccessControl.RawSecurityDescriptor]::new('D:(D;;0x1;;;WD)(A;;GA;;;WD)')
+  if($line -match '^deny (0x[0-9a-f]+)$'){
+   $descriptor=[Security.AccessControl.RawSecurityDescriptor]::new("D:(D;;$($Matches[1]);;;WD)(A;;GA;;;WD)")
    $bytes=[byte[]]::new($descriptor.BinaryLength);$descriptor.GetBinaryForm($bytes,0)
    if(![DrainProof]::SetKernelObjectSecurity($handles[0],4,$bytes)){throw 'Cannot set owned member DACL'}
    [Console]::WriteLine((@{event='denied';identities=$identities} | ConvertTo-Json -Compress -Depth 4))
+   continue
+  }
+  if($line -match '^restrict ([0-9]+)$'){
+   $prior=[DrainProof]::RemoveDebugPrivilege([uint32]$Matches[1])
+   [Console]::WriteLine((@{event='restricted';pid=[int]$Matches[1];debugPrivilege=$prior} | ConvertTo-Json -Compress))
    continue
   }
   if($line -notin @('check','join')){throw 'Unexpected observer command'}
@@ -250,4 +310,4 @@ async function commandFixture(t) {
     root,
   };
 }
-module.exports = { commandFixture, inbox, waitForChildExit };
+module.exports = { commandFixture, inbox, processObserverSource, waitForChildExit };

@@ -20,7 +20,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   TURBO_CACHE_DIR: .turbo
   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-  TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
   NODE_ENV: production
   PORT: "8080"
   BASE_URL: http://127.0.0.1:8080

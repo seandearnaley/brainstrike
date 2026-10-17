@@ -248,10 +248,11 @@ async function handleQueryEmbeddingRequest(options: {
           (inferenceSignal) =>
             request.channel === 'document-embeddings'
               ? serviceState.service.generateEmbeddings(request.payload.texts, {
-                  // Main re-arms the batch window on each slice (liveness, not settlement).
-                  onProgress: (completed) =>
+                  // Main re-arms the batch window on setup heartbeats and on each slice
+                  // (liveness, not settlement).
+                  onProgress: (progress) =>
                     reportDocumentEmbeddingsResponse(
-                      createEmbeddingHostDocumentEmbeddingsProgressReport(request, completed)
+                      createEmbeddingHostDocumentEmbeddingsProgressReport(request, progress)
                     ),
                   signal: inferenceSignal,
                 })

@@ -6,6 +6,7 @@ import {
 } from '@brainstrike/assistant-contract/boundary-failure';
 import { NativeCanonicalInference } from '@brainstrike/canonical-ingestion';
 import { clearHostedProviderApiKeyCache } from '@brainstrike/embeddings/provider-core';
+import { IndexerError } from '@brainstrike/indexer';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { Schema } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -13,6 +14,8 @@ import { CanonicalUtilityChannel } from '../canonical-utility-channel';
 import { canonicalFault, decodeCanonicalFrame } from '../canonical-utility-protocol';
 import { generateHostedEmbeddings, HostedEmbeddingError } from '../hosted-embeddings';
 import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
+import { nativeIndexStateError } from '../native-index-lifecycle-errors';
+import { readNativeIndexSettings } from '../native-index-settings';
 
 vi.mock('../secrets', () => ({
   getSecretsService: () => ({ getKey: async () => 'fake-boundary-test' }),
@@ -271,4 +274,42 @@ it('retains provider diagnostic facts privately through the real redacting logge
   expect(JSON.stringify(diagnostic)).not.toContain('fake-private-auth');
   expect(original.token).toBe('fake-private-provider-token');
   expect(nativeIndexBoundaryFailure(failure, vi.fn())).toMatchObject(INTERNAL_FAULT);
+});
+
+// BST-1878: the agent hears the same remedy the user reads, and the engine's
+// wording stays in Main's log under the refusal's correlation id.
+it('names the rebuild as the remedy for a store that refused its index file', () => {
+  const log = vi.fn();
+  const failure = nativeIndexBoundaryFailure(
+    nativeIndexStateError({
+      cause: {
+        error: new IndexerError(
+          'rebuild-required',
+          'SQLite integrity_check refused the existing derived index.'
+        ),
+        kind: 'source-failure',
+        message: 'SQLite integrity_check refused the existing derived index.',
+      },
+      generation: 3,
+      kind: 'failed',
+      settings: readNativeIndexSettings(
+        '{"state":{"enabled":true,"indexingPolicyPreset":"balanced","managedCollectionId":null,"mode":"root-folder-cache","nativeIndexMode":"TEXT","nativeLocalSelection":null,"paused":false,"worktreeRootIndexingOptInById":{}},"version":6}'
+      ),
+    }),
+    log
+  );
+
+  expect(failure).toMatchObject({
+    category: 'availability',
+    code: 'native-index-rebuild-required',
+    kind: 'refusal',
+    message: 'The search index needs a rebuild.',
+    remedy:
+      'Rebuild the search index in Settings, Search & Indexing. Chats, folders and settings are kept.',
+  });
+  expect(JSON.stringify(failure)).not.toContain('integrity_check');
+  expect(log).toHaveBeenCalledWith(
+    'Native index refusal retained its original cause',
+    expect.objectContaining({ code: 'native-index-rebuild-required' })
+  );
 });

@@ -12,6 +12,7 @@ import {
   createEmbeddingHostCommand,
   createEmbeddingHostDocumentCancellationError,
   createEmbeddingHostDocumentEmbeddingsErrorReport,
+  createEmbeddingHostDocumentEmbeddingsProgressReport,
   createEmbeddingHostDocumentEmbeddingsRequest,
   createEmbeddingHostQueryCancellationError,
   createEmbeddingHostQueryEmbeddingCancel,
@@ -373,5 +374,41 @@ describe('catalog document payload', () => {
     { ...payload, dimensions: 2 },
   ])('refuses unresolved plans and invalid batches', (invalid) => {
     expect(() => assertEmbeddingHostDocumentEmbeddingsPayload(invalid)).toThrow();
+  });
+  it('carries model setup and slice progress as validated liveness (BST-2104)', () => {
+    const request = createEmbeddingHostDocumentEmbeddingsRequest(
+      'runtime',
+      assertEmbeddingHostDocumentEmbeddingsPayload(payload)
+    );
+    for (const progress of [
+      { stage: 'setup' as const },
+      { completed: 0, stage: 'inference' as const },
+      { completed: 64, stage: 'inference' as const },
+    ]) {
+      expect(
+        assertEmbeddingHostDocumentEmbeddingsResponseReport(
+          createEmbeddingHostDocumentEmbeddingsProgressReport(request, progress)
+        )
+      ).toMatchObject({ payload: progress, requestId: request.requestId, type: 'progress' });
+    }
+  });
+  it.each([
+    {},
+    { completed: 1 },
+    { completed: 0, stage: 'setup' },
+    { completed: -1, stage: 'inference' },
+    { completed: 65, stage: 'inference' },
+    { completed: 1.5, stage: 'inference' },
+    { stage: 'download' },
+  ])('refuses malformed document progress %j', (progress) => {
+    expect(() =>
+      assertEmbeddingHostDocumentEmbeddingsResponseReport({
+        channel: 'document-embeddings-progress',
+        payload: progress,
+        requestId: 'request',
+        runtimeId: 'runtime',
+        type: 'progress',
+      })
+    ).toThrow('Invalid document embeddings progress.');
   });
 });

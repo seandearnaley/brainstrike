@@ -416,12 +416,16 @@ export class TransformersBackend {
       const onProgress = options?.onProgress;
       const unsubscribe = onProgress
         ? queue.onProgress((event) => {
-            if (
-              event.type === 'progress' &&
-              event.id === request.id &&
-              event.phase === 'embedding'
-            ) {
-              onProgress(Math.round(event.progress * texts.length));
+            if (event.type !== 'progress' || event.id !== request.id) {
+              return;
+            }
+            if (event.phase === 'initializing') {
+              onProgress({ stage: 'setup' });
+            } else if (event.phase === 'embedding') {
+              onProgress({
+                completed: Math.round(event.progress * texts.length),
+                stage: 'inference',
+              });
             }
           })
         : undefined;

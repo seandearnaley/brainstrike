@@ -139,6 +139,13 @@ export interface UseBackgroundTokenIndexerReturn {
   isReady: boolean;
   /** Current progress */
   progress: IndexingProgress | null;
+  /**
+   * Retire for the owner's terminal lifecycle (factory reset): refuse new work and
+   * settle every pending batch with `retirement`, which `indexFiles` rethrows as is
+   * and never reports as a failure. Callers recognize it by identity. Terminating
+   * the worker stays with this hook's cleanup.
+   */
+  retire: (retirement: Error) => void;
 }
 
 /**
@@ -194,6 +201,10 @@ export function useBackgroundTokenIndexer({
   // just past a fixed reset interval.
   const recoverableRestartHistoryRef = useRef<number[]>([]);
   const pendingBatchTrackersRef = useRef<PendingBatchTracker[]>([]);
+  // The owner's retirement, once issued. Terminal for this hook instance.
+  const retirementRef = useRef<Error | null>(null);
+  // Rejects the startup still waiting for `ready`, so retirement can settle it.
+  const rejectReadinessRef = useRef<((reason: Error) => void) | null>(null);
 
   // Track pending files to enable cancellation
   const pendingFilesRef = useRef<Set<string>>(new Set());
@@ -449,6 +460,9 @@ export function useBackgroundTokenIndexer({
   );
 
   const ensureWorkerReady = useCallback(async (): Promise<Worker> => {
+    if (retirementRef.current) {
+      throw retirementRef.current;
+    }
     const workerFailure =
       terminalWorkerFailureRef.current ?? workerRuntimeRef.current?.getFailure() ?? null;
     if (workerFailure) {
@@ -509,6 +523,7 @@ export function useBackgroundTokenIndexer({
       const transport = runtime.transport;
 
       await new Promise<void>((resolve, reject) => {
+        rejectReadinessRef.current = reject;
         const settleReady = (): void => {
           worker.removeEventListener('messageerror', handleMessageChannelError);
           resolve();
@@ -896,6 +911,10 @@ export function useBackgroundTokenIndexer({
             })
           );
         }
+        // Retirement can land during the cache read; nothing dispatches after it.
+        if (retirementRef.current) {
+          throw retirementRef.current;
+        }
         const requests: IndexerBatchRequest['requests'] = [];
         for (const file of files) {
           pendingFilesRef.current.add(file.compositeKey);
@@ -949,6 +968,13 @@ export function useBackgroundTokenIndexer({
         workerRef.current.postMessage(batchMessage);
         await completionPromise;
       } catch (error) {
+        if (retirementRef.current !== null && error === retirementRef.current) {
+          // The owner retired this indexer: its batch settles as that cancellation.
+          logger.debug('indexFiles settled by owner retirement', { fileCount: files.length });
+          setIsIndexing(false);
+          setProgress(null);
+          throw error;
+        }
         const normalizedError =
           error instanceof Error ? error : new Error(formatErrorMessage(error));
         logger.error('indexFiles failed before dispatch', { error: normalizedError.message });
@@ -984,11 +1010,32 @@ export function useBackgroundTokenIndexer({
     // Worker stays alive - no need to terminate and recreate
   }, [rejectAllPendingBatchTrackers]);
 
+  const retire = useCallback(
+    (retirement: Error) => {
+      if (retirementRef.current) {
+        return;
+      }
+      retirementRef.current = retirement;
+      pendingFilesRef.current.clear();
+      rejectAllPendingBatchTrackers(retirement);
+      // A startup still waiting for `ready` settles with the retirement too, and its
+      // readiness timeout is cancelled so it can never escalate into a worker failure.
+      clearTimerRef(readinessTimerRef);
+      rejectReadinessRef.current?.(retirement);
+      rejectReadinessRef.current = null;
+      setIsIndexing(false);
+      setProgress(null);
+      logger.debug('Background token indexer retired', { reason: retirement.message });
+    },
+    [rejectAllPendingBatchTrackers]
+  );
+
   return {
     cancelIndexing,
     indexFiles,
     isIndexing,
     isReady,
     progress,
+    retire,
   };
 }

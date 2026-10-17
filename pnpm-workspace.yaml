@@ -274,6 +274,19 @@ overrides:
   '@vercel/python-analysis@0.15.0>smol-toml': 1.9.1
   '@vercel/rust@20.0.2>smol-toml': 1.9.1
   '@vercel/container@19.1.2>smol-toml': 1.9.1
+  # BST-887: these owners still pin EOL Undici 5 (and vulnerable busboy 2).
+  # 7.30.1 is maintained, removes busboy, and supports our Node 24/26 engines.
+  # Undici 6 fails the CLI native-fetch/proxy contract on Node 26; keep its regression.
+  # Retire each exception when the owner admits a patched, qualified version unaided.
+  # https://github.com/nodejs/undici/releases/tag/v7.30.1
+  'vercel@64.3.1>undici': 7.30.1
+  '@vercel/node@24.0.2>undici': 7.30.1
+  # W05 follow-up: Typography 0.5.20 still pins selector-parser 6.0.10.
+  # 7.1.6 fixes flat-selector CPU exhaustion (GHSA-rj75-hqrm-r3gf).
+  # Its 7.0 iteration change is qualified against Typography's actual caller
+  # and generated prose CSS in both apps. Retire when the owner admits >=7.1.6.
+  # https://github.com/postcss/postcss-selector-parser/releases/tag/7.1.6
+  '@tailwindcss/typography@0.5.20>postcss-selector-parser': 7.1.6
   # BST-879: python-analysis 0.15.0 still pins vulnerable minimatch 10.1.1.
   # Use the vendor's patched 10.x API; remove when the owner admits >=10.2.3.
   # https://github.com/isaacs/minimatch/security/advisories/GHSA-23c5-xmqv-rm74

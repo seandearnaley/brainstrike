@@ -290,6 +290,7 @@ describe('useViewFilterPresets', () => {
           ...p,
           icon: p.icon,
         })) as unknown as Record<string, unknown>[],
+        rowsMatchQuery: true,
       });
 
       const { result } = renderHook(() => useViewFilterPresets());
@@ -314,6 +315,7 @@ describe('useViewFilterPresets', () => {
         loading: false,
         refresh: vi.fn(),
         rows: null as unknown as Record<string, unknown>[],
+        rowsMatchQuery: true,
       });
 
       const { result } = renderHook(() => useViewFilterPresets());
@@ -336,6 +338,7 @@ describe('useViewFilterPresets', () => {
         loading: true,
         refresh: vi.fn(),
         rows: [],
+        rowsMatchQuery: false,
       });
 
       const { result } = renderHook(() => useViewFilterPresets());
@@ -360,6 +363,7 @@ describe('useViewFilterPresets', () => {
         loading: false,
         refresh: vi.fn(),
         rows: [],
+        rowsMatchQuery: false,
       });
 
       const { result } = renderHook(() => useViewFilterPresets());

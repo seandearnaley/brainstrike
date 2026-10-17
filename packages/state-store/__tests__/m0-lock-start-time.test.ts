@@ -66,3 +66,33 @@ test.skipIf(process.platform === 'win32')(
     }
   }
 );
+
+// BST-2106: an exited child its parent has not reaped yet is a zombie. It holds
+// no descriptors and its pid cannot be reused, but `ps` still lists it with its
+// start time. Electron reaps an exited utility process asynchronously on Linux,
+// so reset saw its joined host "survive". A zombie has no start time: it is gone.
+test.skipIf(process.platform === 'win32')(
+  'L-zombie: an exited child not yet reaped by its parent has no start time',
+  async () => {
+    // The background `sleep 0` exits at once; the exec'd `sleep 5` never waits for it.
+    const parent = spawn('sh', ['-c', 'sleep 0 & echo $!; exec sleep 5'], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    try {
+      const zombie = Number(
+        await new Promise<string>((res) => parent.stdout.once('data', (data) => res(String(data))))
+      );
+      const state = (): string =>
+        createRequire(import.meta.url)('node:child_process')
+          .execFileSync('ps', ['-o', 'stat=', '-p', String(zombie)], { encoding: 'utf8' })
+          .trim();
+      await expect.poll(state, { timeout: 5000 }).toMatch(/^Z/);
+
+      expect(processStartTime(zombie)).toBeNull();
+      expect(processStartTime(parent.pid as number)).not.toBeNull();
+    } finally {
+      parent.kill('SIGKILL');
+    }
+  },
+  60_000
+);

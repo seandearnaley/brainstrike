@@ -314,6 +314,8 @@ interface TransformersRuntime {
     options: {
       readonly device: EmbeddingDevice;
       readonly dtype: EmbeddingDType;
+      // biome-ignore lint/style/useNamingConvention: Transformers.js progress_callback is the vendor API.
+      readonly progress_callback: () => void;
       readonly revision?: string;
       // biome-ignore lint/style/useNamingConvention: Transformers.js session_options is the vendor API.
       readonly session_options?: {
@@ -682,7 +684,8 @@ async function createFeatureExtractor(
   model: string,
   device: EmbeddingDevice,
   dtype: EmbeddingDType,
-  revision?: string
+  revision: string | undefined,
+  onSetupProgress: () => void
 ): Promise<FeatureExtractor> {
   const runtime = await getTransformersRuntime();
   const owned =
@@ -692,6 +695,11 @@ async function createFeatureExtractor(
     result = (await runtime.pipeline('feature-extraction', model, {
       device,
       dtype,
+      // Download and session setup are liveness for the request waiting on them (BST-2104).
+      // biome-ignore lint/style/useNamingConvention: Transformers.js progress_callback is the vendor API.
+      progress_callback: () => {
+        onSetupProgress();
+      },
       ...(revision === undefined ? {} : { revision }),
       ...(owned
         ? {
@@ -782,9 +790,10 @@ async function loadPipeline(
   dtype: EmbeddingDType,
   estimatedModelBytes: number | null,
   diagnostics: {
-    readonly id?: string;
+    readonly id: string;
     readonly sink?: PipelineCacheDiagnosticSink;
-  } = {},
+  },
+  emitProgress: (event: EmbedWorkerProgress) => void,
   revision?: string
 ): Promise<FeatureExtractor> {
   debugLog('Loading pipeline', { device, dtype, model });
@@ -794,6 +803,9 @@ async function loadPipeline(
     dtype,
     estimatedModelBytes,
     model,
+    onSetupProgress: () => {
+      emitProgress({ id: diagnostics.id, phase: 'initializing', progress: 0, type: 'progress' });
+    },
     ...(revision === undefined ? {} : { revision }),
   });
 }
@@ -1025,6 +1037,7 @@ async function processEmbeddings(
     context.dtype,
     context.estimatedModelBytes,
     { id: context.id },
+    workerEmit,
     context.revision
   );
   throwIfWorkerpoolRequestCanceled(context.id);
@@ -1131,6 +1144,7 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
       id: context.id,
       sink: postStreamEvent,
     },
+    postStreamEvent,
     context.revision
   );
   const runtime = await getTransformersRuntime();
