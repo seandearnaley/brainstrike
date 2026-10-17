@@ -53,10 +53,15 @@ const GUARD_USES = './.github/actions/apt-drop-unused-sources';
  * cannot go dark by reading zero files, NOT as the definition of where the
  * guard is required — that is derived from the steps themselves.
  */
-const WORKFLOWS_WITH_APT_SITES = ['test.yml', 'desktop-e2e.yml', 'local-desktop-e2e.yml'];
+const WORKFLOWS_WITH_APT_SITES = [
+  'test.yml',
+  'desktop-e2e.yml',
+  'local-desktop-e2e.yml',
+  'nightly-coverage.yml',
+];
 
-/** The floor that keeps the detector honest: today's six apt steps. */
-const KNOWN_APT_STEP_COUNT = 6;
+/** The floor that keeps the detector honest: today's seven apt steps. */
+const KNOWN_APT_STEP_COUNT = 7;
 
 /**
  * A step that reaches apt. `playwright install-deps` counts: it shells out to

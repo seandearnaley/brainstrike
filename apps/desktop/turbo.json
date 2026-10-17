@@ -27,6 +27,8 @@
       ]
     },
     "test": {
+      // vitest.config.mts imports @brainstrike/build-utils, which exports only dist.
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/build-utils#build"],
       "env": ["$TURBO_EXTENDS$", "DESKTOP_TEST_SHARD", "DESKTOP_TEST_SHARD_REQUIRED"],
       // vite-config.test.ts asserts desktop/web Vite alias parity by reading
       // apps/web/vite.config.mts — a CROSS-PACKAGE file turbo's default input
@@ -42,21 +44,13 @@
       "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/mcp-test-lab#build"]
     },
     "test:integration": {
-      // Native process-restart verifiers resolve public package exports outside
-      // Vitest's source aliases. Build every runtime dependency those spawned
-      // processes load, retaining the inherited source hash cascade. The CJS
-      // retrieval probe loads real contract/DB artifacts under installed Electron.
-      "dependsOn": [
-        "$TURBO_EXTENDS$",
-        "@brainstrike/agent#build",
-        "@brainstrike/agent-host#build",
-        "@brainstrike/assistant-contract#build",
-        "@brainstrike/assistant-data#build",
-        "@brainstrike/assistant-service#build",
-        "@brainstrike/db#build",
-        "@brainstrike/indexer#build",
-        "@brainstrike/sqlite-query#build"
-      ],
+      // These lanes run built artifacts outside Vitest's source aliases: Electron
+      // launches dist/main.js with dist/renderer (`test-built`), spawned processes
+      // load workspace packages' dist, and the MCP proofs start
+      // packages/mcp-test-lab/dist. This package's `build` emits renderer and main
+      // after `^build` (every runtime dependency, build-utils included); the lab
+      // is a test-only prerequisite outside the app's dependency graph.
+      "dependsOn": ["$TURBO_EXTENDS$", "build", "@brainstrike/mcp-test-lab#build"],
       "env": [
         "$TURBO_EXTENDS$",
         "DESKTOP_TEST_SHARD",
@@ -65,18 +59,8 @@
       ]
     },
     "test:coverage": {
-      // Coverage includes the same native process-restart integration test.
-      "dependsOn": [
-        "$TURBO_EXTENDS$",
-        "@brainstrike/agent#build",
-        "@brainstrike/agent-host#build",
-        "@brainstrike/assistant-contract#build",
-        "@brainstrike/assistant-data#build",
-        "@brainstrike/assistant-service#build",
-        "@brainstrike/db#build",
-        "@brainstrike/indexer#build",
-        "@brainstrike/sqlite-query#build"
-      ],
+      // Coverage runs the integration suite too; same built artifacts.
+      "dependsOn": ["$TURBO_EXTENDS$", "build", "@brainstrike/mcp-test-lab#build"],
       // Same cross-package input: the coverage lane runs the full suite
       // including vite-config.test.ts.
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/web/vite.config.mts"]
