@@ -93,6 +93,18 @@ read and inference admission before joining physical owners. Destroy files or
 release a profile only after those joins; independent failures retain ownership
 for explicit retry. Derived rebuild preserves chats, catalog and choices.
 
+A request past its deadline retires its indexer process and is never retried.
+The agent host's state index joins a retired worker's exit and starts a new one
+on its next request; three replacements in a row with none served stop it
+(`state-index.retired`). The Node transport catches threads up as bounded
+`catchUpStateStep` requests before a catch-up, rebuild or thread-scoped read. The
+worker's read itself projects at most one more step and refuses past it as
+`state-behind` (an append raced the last step), and the transport steps again, so
+no single request carries a backlog. A native generation whose startup sync
+fails with a typed `timeout` or `availability` fault re-opens its saved settings
+after 2 s, 10 s and 30 s, shown in its refusal cause; any other failure waits for
+the user (`native-index-reopen.ts`).
+
 Whole-root deletion uses the original mounted root and its acknowledged bindings,
 joins its source/read/inference owners, then removes only that root's canonical
 data. It does not retire the whole agent-host profile.

@@ -1,5 +1,4 @@
 import { realpathSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Worker } from 'node:worker_threads';
@@ -9,12 +8,15 @@ import {
   type StateMessageVectorPort,
   type StateObservationVectorPort,
 } from '@brainstrike/indexer';
-import { createIndexerConnection, type IndexerConnection } from '@brainstrike/indexer/transport';
-import { createLogger } from '@brainstrike/logging';
+import {
+  createIndexerConnection,
+  type IndexerConnection,
+  validateIndexerDeadlines,
+  validateIndexerOptions,
+} from '@brainstrike/indexer/transport';
 import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
+import { createStateIndexOwner } from './host-state-index-owner.js';
 import type { HostStartupContext } from './runtime.js';
-
-const logger = createLogger('AgentHostStateIndex');
 
 /** Derived and rebuildable from the state log; lives inside the host's own state root. */
 export const HOST_STATE_INDEX_FILE = 'state-index.sqlite';
@@ -73,115 +75,69 @@ export async function openHostStateIndex(
     stateResources: memoryResourceIds.map((resourceId) => ({ resourceId, rootId: stateRoot })),
     stateRoot,
   } as const;
-  try {
-    return await connectHostStateIndex(options, startup);
-  } catch (cause) {
-    if (!isRebuildRequired(cause)) {
-      throw cause;
-    }
-    // The index is derived from the state log, so the host rebuilds a store whose
-    // derived identity changed (for example its memory resource grants). Vectors
-    // of a superseded identity are not recoverable and are not carried over.
-    logger.warn('Rebuilding the host state index from the state log', {
-      code: 'host_state_index_rebuilt',
-      reason: cause.message,
-    });
-    await Promise.all(
-      ['', '-wal', '-shm'].map((suffix) => rm(`${dbPath}${suffix}`, { force: true }))
-    );
-    return await connectHostStateIndex(options, startup);
-  }
-}
-
-/**
- * A startup failure carries the writer's remote error code. Match that code, not
- * a class identity, which differs between the root and transport entries'
- * module instances wherever they load separately.
- */
-function isRebuildRequired(cause: unknown): cause is Error {
-  return (
-    cause instanceof Error &&
-    cause.name === 'IndexerError' &&
-    Reflect.get(cause, 'code') === 'rebuild-required'
-  );
-}
-
-async function connectHostStateIndex(
-  options: { readonly dbPath: string; readonly stateRoot: string },
-  startup?: Pick<HostStartupContext, 'register' | 'signal'>
-): Promise<HostStateIndex> {
-  let worker: Worker | undefined;
-  let connection: IndexerConnection | undefined;
-  let closing: Promise<void> | undefined;
-  const close = (): Promise<void> => {
-    closing ??= Promise.resolve().then(async () => {
-      if (connection) {
-        await connection.close();
-      } else if (worker) {
-        await worker.terminate();
-      }
-    });
-    return closing;
-  };
+  const owner = createStateIndexOwner({ dbPath, start: () => startStateIndexWorker(options) });
   // BST-1977: Quit reached the utility while index readiness was still pending,
   // but the former Promise-only acquisition hid Close behind that readiness.
-  // Register the existing connection's physical join before starting its worker.
-  await startup?.register(close);
+  // Register the owner's physical join before starting its worker.
+  await startup?.register(owner.close);
   startup?.signal.throwIfAborted();
-  if (closing) {
-    throw new Error('Host resource owner is closing');
-  }
-  const ownedWorker = new Worker(new URL('host-state-index-worker.js', PACKAGE_DIST));
-  worker = ownedWorker;
   const cancel = (): void => {
     // The startup owner observes the same retained rejection during rollback.
-    void close().catch(() => undefined);
+    void owner.close().catch(() => undefined);
   };
+  startup?.signal.addEventListener('abort', cancel, { once: true });
   try {
-    connection = createIndexerConnection(options, HOST_STATE_INDEX_DEADLINES, {
-      kill: () => {
-        void ownedWorker.terminate();
-        return true;
-      },
-      onError: (listener) => {
-        ownedWorker.on('error', listener);
-        return () => {
-          ownedWorker.off('error', listener);
-        };
-      },
-      onExit: (listener) => {
-        const exited = (): void => listener();
-        ownedWorker.on('exit', exited);
-        return () => {
-          ownedWorker.off('exit', exited);
-        };
-      },
-      onMessage: (listener) => {
-        ownedWorker.on('message', listener);
-        return () => {
-          ownedWorker.off('message', listener);
-        };
-      },
-      send: (message) => ownedWorker.postMessage(message),
-    });
-    startup?.signal.addEventListener('abort', cancel, { once: true });
     if (startup?.signal.aborted) {
       cancel();
     }
-    const port = await connection.ready;
+    await owner.open();
     startup?.signal.throwIfAborted();
-    return {
-      close,
-      indexer: createStateStoreIndexer(port),
-      rootId: options.stateRoot,
-      search: (request) => port.searchState(request),
-      searchVectors: port,
-      vectors: port,
-    };
   } catch (cause) {
-    await close();
+    await owner.close();
     throw startup?.signal.aborted ? startup.signal.reason : cause;
   } finally {
     startup?.signal.removeEventListener('abort', cancel);
   }
+  return {
+    close: owner.close,
+    indexer: createStateStoreIndexer(owner.port),
+    rootId: stateRoot,
+    search: (request) => owner.port.searchState(request),
+    searchVectors: owner.port,
+    vectors: owner.port,
+  };
+}
+
+/** One worker thread and its indexer connection; the connection owns its exit. */
+function startStateIndexWorker(options: { readonly dbPath: string }): IndexerConnection {
+  // Validation is the connection's only synchronous failure: refuse before spawning.
+  const validated = validateIndexerOptions(options);
+  const deadlines = validateIndexerDeadlines(HOST_STATE_INDEX_DEADLINES);
+  const worker = new Worker(new URL('host-state-index-worker.js', PACKAGE_DIST));
+  return createIndexerConnection(validated, deadlines, {
+    kill: () => {
+      void worker.terminate();
+      return true;
+    },
+    onError: (listener) => {
+      worker.on('error', listener);
+      return () => {
+        worker.off('error', listener);
+      };
+    },
+    onExit: (listener) => {
+      const exited = (): void => listener();
+      worker.on('exit', exited);
+      return () => {
+        worker.off('exit', exited);
+      };
+    },
+    onMessage: (listener) => {
+      worker.on('message', listener);
+      return () => {
+        worker.off('message', listener);
+      };
+    },
+    send: (message) => worker.postMessage(message),
+  });
 }

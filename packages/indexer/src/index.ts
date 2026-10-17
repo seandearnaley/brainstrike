@@ -118,7 +118,7 @@ export type {
   TextFileCommit,
   VectorProfile,
 } from './contracts.js';
-export { decodeVectorProfile, IndexerError } from './contracts.js';
+export { decodeVectorProfile, IndexerError, STATE_CATCH_UP_STEP_EVENTS } from './contracts.js';
 export { vectorProfileHash } from './scope-authority.js';
 export type { StateMessageEvent, StateProducerDecoder } from './state-projection.js';
 export type { IndexerDeadlines } from './transport.js';
@@ -177,6 +177,12 @@ export interface StateObservationVectorPort {
 }
 export interface StateIndexerPort {
   catchUpState(threads: readonly string[]): Promise<void>;
+  /**
+   * Projects at most `maxEvents` committed events of `threads`, resuming where the
+   * last step committed. True once every thread is current. The Node transport's
+   * catch-up, rebuild and thread-scoped reads all catch up through it.
+   */
+  catchUpStateStep(threads: readonly string[], maxEvents: number): Promise<boolean>;
   dropStateThread(threadId: string): Promise<readonly string[]>;
   matchState(threadId: string, query: string): Promise<readonly number[]>;
   promptVectors(request: PromptVectorRequest): Promise<PromptVectorReply>;

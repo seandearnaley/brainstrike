@@ -51,6 +51,7 @@ import {
   NativeSourceRetirementFailure,
 } from './native-index-lifecycle-owner';
 import { assertSavedCollection, vectorCollectionId } from './native-index-partition';
+import { createNativeIndexFailures } from './native-index-reopen';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from './native-index-runtime';
 import {
   NATIVE_INDEX_SETTINGS_KEY,
@@ -233,9 +234,9 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     current.observedCatalogFingerprint = catalogFingerprint(current.observedCatalogRecords);
     assertCurrent(current);
     if (!settings.paused) {
-      admitSources(current, port).catch((error: unknown) => {
+      admitSources(current, port).then(failures.started, (error: unknown) => {
         if (!(current.controller.signal.aborted || current.settings.paused)) {
-          recordFailure(current, error);
+          failures.record(current.generation, error, true);
         }
       });
     }
@@ -549,7 +550,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         () => refreshCatalog(current, join),
         (error) => {
           if (graph === current && !current.controller.signal.aborted) {
-            recordFailure(current, error);
+            failures.record(current.generation, error);
             dependencies.onError('catalog refresh after scan', error);
           }
         }
@@ -575,7 +576,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     }
     const scan = current.sources.scanCollection();
     scan.catch((error: unknown) => {
-      recordFailure(current, error);
+      failures.record(current.generation, error);
       dependencies.onError('catalog collection reconciliation', error);
     });
     if (join) {
@@ -613,7 +614,9 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     if (!current.settings.paused) {
       const port = await runtime.acquire();
       assertCurrent(current);
-      admitSources(current, port).catch((error: unknown) => recordFailure(current, error));
+      admitSources(current, port).then(failures.started, (error: unknown) =>
+        failures.record(current.generation, error, true)
+      );
     }
   };
   const lifecycle = createNativeIndexLifecycle(
@@ -668,18 +671,11 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         graph?.controller.abort(new TransitionError('Native owner terminal retirement requested.')),
     }
   );
-  const recordFailure = (current: Graph, error: unknown): void => {
-    lifecycle
-      .then((owner) =>
-        owner.dispatch({
-          error,
-          generation: current.generation,
-          kind: 'failure',
-          message: error instanceof Error ? error.message : String(error),
-        })
-      )
-      .catch((failure: unknown) => dependencies.onError('failure observation', failure));
-  };
+  const failures = createNativeIndexFailures({
+    delaysMs: dependencies.reopenDelaysMs,
+    dispatch: async (event) => (await lifecycle).dispatch(event),
+    onError: dependencies.onError,
+  });
   const currentReader = async (): Promise<Graph> => {
     // Capture this command's input before owner construction can yield to a later save.
     // Only the lifecycle owner may accept it as an initial configuration.
@@ -747,11 +743,13 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   const stopSources = (): Promise<void> =>
     dispatch({ kind: 'stop-sources', reason: 'root-data-deletion' });
   const fenceTerminal = (): void => {
+    failures.cancel();
     dispatch({ kind: 'fence', reason: 'shutdown' }).catch((error: unknown) =>
       dependencies.onError('terminal fence', error)
     );
   };
   const close = async (cause?: unknown): Promise<void> => {
+    failures.cancel();
     await dispatch({ cause, kind: 'terminal', reason: 'profile-retired' });
   };
   const resume = async (signal?: AbortSignal): Promise<void> => {

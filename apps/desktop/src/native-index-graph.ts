@@ -97,5 +97,7 @@ export interface NativeIndexActivationDependencies {
   readonly onError: (operation: string, error: unknown) => void;
   readonly onReceipt?: (receipt: CanonicalScanReceipt) => void;
   readonly profile: DesktopProfileRuntime<HostAttachment>;
+  /** Waits before each automatic re-open of a transient startup failure; defaults apply. */
+  readonly reopenDelaysMs?: readonly number[];
   readonly storage: Pick<ElectronStorageAdapter, 'getItem'>;
 }
