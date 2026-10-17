@@ -28,7 +28,11 @@ export interface EditDiagnostic {
 }
 
 /** Why diagnostics are unavailable (only set when `available` is false). */
-export type LspUnavailableReason = 'unsupported-language' | 'server-unavailable' | 'timeout';
+export type LspUnavailableReason =
+  | 'unsupported-language'
+  | 'server-unavailable'
+  | 'timeout'
+  | 'read-policy';
 
 /**
  * Attached to an edit tool's result. Omitted entirely by the caller when the

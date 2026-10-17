@@ -1,12 +1,9 @@
 // @vitest-environment node
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import {
-  resolvesIntoCredentialFile,
-  toInspectLocations,
-} from '@brainstrike/host-capabilities/native-tools';
+import { toInspectLocations } from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 
 let root: string;
@@ -36,15 +33,33 @@ it('previews an inspected target’s line, never a credential file’s', async (
   ]);
 });
 
-// ADR-0016 amendment: a symbol defined in a credential file hovers with that
-// file's literal (TypeScript prints `const key: "sk-live-…"`), so its hover
-// is withheld like the preview.
-it('knows when a symbol resolves into a credential file', () => {
-  const at = (file: string) => ({ uri: pathToFileURL(path.join(root, file)).href });
-  expect(resolvesIntoCredentialFile([at('config.ts')])).toBe(false);
-  expect(resolvesIntoCredentialFile([at('config.ts'), at('.env.local.ts')])).toBe(true);
-  expect(resolvesIntoCredentialFile([{ targetUri: pathToFileURL('/keys/deploy.PEM').href }])).toBe(
-    true
-  );
-  expect(resolvesIntoCredentialFile([])).toBe(false);
+it('uses the direct-read policy for aliases, nested ignore rules and outside-root targets', async () => {
+  await mkdir(path.join(root, 'nested'));
+  await writeFile(path.join(root, '.llmignore'), 'config.ts\n');
+  await writeFile(path.join(root, 'nested', '.brainstrikeignore'), 'private.ts\n');
+  await writeFile(path.join(root, 'nested', 'private.ts'), 'const secret = "FAKE_NESTED";');
+  await symlink('.env.local.ts', path.join(root, 'alias.ts'));
+  await symlink('config.ts', path.join(root, 'ignored-alias.ts'));
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'bs-lsp-outside-'));
+  try {
+    await writeFile(path.join(outside, 'private.ts'), 'const secret = "FAKE_OUTSIDE";');
+    await symlink(path.join(outside, 'private.ts'), path.join(root, 'escape.ts'));
+    const files = [
+      ...['config.ts', 'nested/private.ts', 'alias.ts', 'ignored-alias.ts', 'escape.ts'].map(
+        (file) => path.join(root, file)
+      ),
+      path.join(outside, 'private.ts'),
+    ];
+    const locations = await toInspectLocations(
+      files.map((file) => ({ uri: pathToFileURL(file).href })),
+      root
+    );
+    expect(locations).toHaveLength(files.length);
+    expect(locations.every((location) => location.preview === undefined)).toBe(true);
+    expect(await toInspectLocations([{ uri: 'file://%invalid' }], root)).toEqual([
+      { line: 1, path: 'file://%invalid' },
+    ]);
+  } finally {
+    await rm(outside, { force: true, recursive: true });
+  }
 });

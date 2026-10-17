@@ -12,12 +12,11 @@
  * connection races each request against them, and the failure message quotes
  * the same number back to the model.
  */
-import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isWorkspaceSecretFile } from '@brainstrike/utils';
 import type { EditDiagnostic, LspUnavailableReason } from './ports.js';
 import { isWithinRoot } from './workspace-path.js';
+import { readWorkspaceTextFile } from './workspace-text-file-reader.js';
 
 /** Overall budget for diagnostics to arrive after opening/updating a file. */
 export const DIAGNOSTIC_TIMEOUT_MS = 6000;
@@ -117,15 +116,6 @@ function uriToPath(uri: string): string {
 const MAX_INSPECT_LOCATIONS = 10;
 const MAX_HOVER_CHARS = 1200;
 const MAX_PREVIEW_CHARS = 200;
-/**
- * Ceiling on a definition/implementation TARGET file we'll read just to build a
- * one-line preview. tsserver routinely resolves into large generated `.d.ts`
- * files; reading a multi-MB target whole into Electron main for a 200-char
- * preview would memory-spike and bypasses the workspace reader's own size
- * guard. Over this, the preview is omitted (path + line are still returned).
- */
-const MAX_PREVIEW_FILE_BYTES = 2 * 1024 * 1024;
-
 /** Workspace-relative "/path" when under root, else the absolute path. */
 function toDisplayPath(absolutePath: string, rootPath: string): string {
   const relative = path.relative(rootPath, absolutePath);
@@ -137,17 +127,23 @@ function toDisplayPath(absolutePath: string, rootPath: string): string {
 
 /**
  * Best-effort bounded preview of a 1-based line (undefined on read error or an
- * oversized target). Stats first so a huge generated `.d.ts` target can't be
- * slurped whole into memory for a 200-char preview — the preview is optional,
+ * oversized target). Uses the shared reader so containment, canonical aliases, agent
+ * ignores, credentials, binary and size limits match direct reads — the preview is optional,
  * so skipping it degrades an accessory field, never the location itself.
  */
-async function readLinePreview(absolutePath: string, line: number): Promise<string | undefined> {
+async function readLinePreview(
+  absolutePath: string,
+  line: number,
+  rootPath: string
+): Promise<string | undefined> {
   try {
-    const stat = await fsPromises.stat(absolutePath);
-    if (!stat.isFile() || stat.size > MAX_PREVIEW_FILE_BYTES) {
+    if (!(path.isAbsolute(absolutePath) && isWithinRoot(rootPath, absolutePath))) {
       return;
     }
-    const fileText = await fsPromises.readFile(absolutePath, 'utf8');
+    const { content: fileText } = await readWorkspaceTextFile({
+      requestedPath: path.relative(rootPath, absolutePath).split(path.sep).join('/'),
+      rootPath,
+    });
     const target = fileText.split('\n')[line - 1]?.trim();
     if (!target) {
       return;
@@ -156,18 +152,6 @@ async function readLinePreview(absolutePath: string, line: number): Promise<stri
   } catch {
     return;
   }
-}
-
-/**
- * Whether any of these language-server locations is a credential file
- * (wherever it lives; the floor's patterns are basenames). A symbol that
- * resolves into one hovers with that file's literal, so its hover is withheld.
- */
-export function resolvesIntoCredentialFile(raw: readonly RawLocation[]): boolean {
-  return raw.some((entry) => {
-    const uri = entry.uri ?? entry.targetUri;
-    return uri !== undefined && isWorkspaceSecretFile(path.basename(uriToPath(uri)));
-  });
 }
 
 export async function toInspectLocations(
@@ -189,11 +173,7 @@ export async function toInspectLocations(
       continue;
     }
     seen.add(dedupeKey);
-    // The language server may resolve into a credential file, wherever it
-    // lives; the floor's patterns are basenames, so that line is never read.
-    const preview = isWorkspaceSecretFile(path.basename(absolutePath))
-      ? undefined
-      : await readLinePreview(absolutePath, line);
+    const preview = await readLinePreview(absolutePath, line, rootPath);
     locations.push({
       line,
       path: toDisplayPath(absolutePath, rootPath),

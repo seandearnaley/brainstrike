@@ -174,6 +174,20 @@ describe('workspace inspection model projections', () => {
     });
   });
 
+  it('keeps a read-policy refusal visible instead of claiming empty semantic results', () => {
+    const result = projectLspInspectModelOutput({
+      available: false,
+      message:
+        'Semantic results withheld; project sources are not readable. Diagnostics are unknown.',
+      path: '/src/caller.ts',
+      reason: 'read-policy',
+      rootName: 'brainstrike',
+    });
+    expect(result.value).toContain('available=false');
+    expect(result.value).toContain('reason=read-policy');
+    expect(result.value).toContain('Diagnostics are unknown');
+  });
+
   it('self-fits oversized LSP sections and reports projection omissions', () => {
     const raw = {
       available: true,
