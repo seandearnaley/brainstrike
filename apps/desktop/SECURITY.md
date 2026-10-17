@@ -452,7 +452,8 @@ dials, so a stale or racing frame can never regain a permission or a download.
     origin — `brainstrike-mcp-app://…` or the `blob:brainstrike-mcp-app://…`
     a shell frame minted. Electron reports no frame for a download, and a blob
     URL is the only carrier of the initiating origin; the packaged host
-    renderer's own blobs are `blob:file:///…` and are untouched. The app
+    renderer's own blobs are `blob:brainstrike-app://bundle/…` and are
+    untouched. The app
     document cannot reach `will-download` at all — its sandbox is exactly
     `allow-scripts`, and without `allow-downloads` Chromium blocks the
     download first (measured, and asserted by the packaged lane). The Canvas

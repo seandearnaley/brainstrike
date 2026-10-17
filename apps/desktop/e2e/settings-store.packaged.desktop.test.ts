@@ -2,7 +2,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { closePackagedDesktop, launchPackagedDesktop } from './utils/packaged-electron';
+import {
+  closePackagedDesktop,
+  launchPackagedDesktop,
+  packagedDesktopExecutablePath,
+} from './utils/packaged-electron';
 
 test('settings and encrypted OAuth records persist across packaged reopen and clear @packaged @destructive', async () => {
   // Three fresh processes share the existing packaged lifecycle lane's total budget.
@@ -17,6 +21,21 @@ test('settings and encrypted OAuth records persist across packaged reopen and cl
   };
   const fakeToken = 'disposable-settings-qualification-token';
   try {
+    // Keep this persistence fixture independent of a cold background unpack.
+    // Windows packages intentionally contain no bundled Python runtime.
+    if (process.platform !== 'win32') {
+      const { resolvePythonBinary } = await import('../src/python-runtime/resolve-python-binary');
+      const executableDirectory = path.dirname(packagedDesktopExecutablePath());
+      const resourcesPath =
+        process.platform === 'darwin'
+          ? path.resolve(executableDirectory, '..', 'Resources')
+          : path.join(executableDirectory, 'resources');
+      await resolvePythonBinary({
+        resourcesDir: path.join(resourcesPath, 'python-runtime'),
+        signal: AbortSignal.timeout(60_000),
+        userDataDir,
+      });
+    }
     for (const phase of ['write', 'reopen-and-clear', 'reopen-cleared'] as const) {
       const context = await launchPackagedDesktop({ userDataDir });
       try {
