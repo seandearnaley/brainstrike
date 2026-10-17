@@ -31,6 +31,8 @@ test('dev renderer sends Luna cache usage and reloads without losing the thread'
   // committed before its crawl reached every import, and each dependency it met later
   // re-optimized and reloaded the renderer mid-launch (BST-2091). This server optimizes
   // cold and commits the scan's result at once, as that runner did, recording each late one.
+  // Its cache is its own, so the forced optimize never rewrites one another spec is serving;
+  // the `.vite` name keeps the React transform's exclusion of optimized chunks.
   const lateOptimizations: string[] = [];
   const logger = createLogger();
   const logInfo = logger.info;
@@ -41,6 +43,7 @@ test('dev renderer sends Luna cache usage and reloads without losing the thread'
     logInfo(message, options);
   };
   const server = await createServer({
+    cacheDir: path.join(profile, '.vite'),
     configFile: path.resolve('vite.config.mts'),
     customLogger: logger,
     optimizeDeps: { force: true, holdUntilCrawlEnd: false },
