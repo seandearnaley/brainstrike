@@ -7,6 +7,7 @@ import { generateText, type LanguageModel, type ModelMessage } from 'ai';
 import type { HostRunState } from './core-state.js';
 import { type Json, jsonValue } from './json-value.js';
 import type { HostEvent, HostLogRow } from './protocol.js';
+import { type HostTelemetryIds, hostTelemetry } from './telemetry/host-telemetry.js';
 
 type Compacted = Extract<HostEvent, { type: 'context.compacted' }>;
 
@@ -229,15 +230,17 @@ function requireUsage(count: number | undefined, field: string): void {
  */
 export async function summarizeHostContext(
   model: LanguageModel,
-  modelId: string,
+  run: HostTelemetryIds & { readonly modelId: string },
   transcript: string,
   signal: AbortSignal
 ): Promise<HostContextSummary> {
+  const { modelId } = run;
   const result = await generateText({
     abortSignal: signal,
     model,
     prompt: transcript,
     system: COMPACTION_SUMMARIZER_INSTRUCTIONS,
+    ...hostTelemetry('brainstrike.context-compaction', run),
   });
   requireUsage(result.totalUsage.inputTokens, 'inputTokens');
   requireUsage(result.totalUsage.outputTokens, 'outputTokens');

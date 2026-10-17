@@ -1,7 +1,7 @@
 # Assistant runtime
 
-Use this contract when changing run execution, stream recovery, approvals, hooks or
-plan mode. Desktop and CLI share the Electron-free agent host; each root or child
+Use this contract when changing run execution, stream recovery, approvals, hooks,
+plan mode or tracing. Desktop and CLI share the Electron-free agent host; each root or child
 run uses the host-owned AI SDK loop. Mastra supplies memory, not a second loop,
 permission engine or transcript writer. See [ADR-0012](../adr/0012-ai-sdk-loop-mastra-memory-library.md)
 and [ADR-0017](../adr/0017-cli-first-agent-host.md).
@@ -49,6 +49,33 @@ not replace the raw tool result. Plan mode admits its read/propose tool set and
 no delegation; unavailable plan-mode capabilities refuse explicitly.
 
 Owner: [host hooks](../../packages/host-capabilities/src/hooks/host-run-hooks.ts).
+
+## Tracing
+
+The host traces its AI SDK calls as OpenTelemetry GenAI spans through the
+vendor's `@ai-sdk/otel` integration: `invoke_agent` per call, `chat` per model
+request, `execute_tool` per tool. Tracing is off unless the standard
+`OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) is set;
+spans then export over OTLP/HTTP JSON as `service.name=brainstrike-agent-host`.
+A set but unusable endpoint, protocol or content setting fails host startup.
+
+- Each call names itself in `gen_ai.agent.name` (`brainstrike.host-run`,
+  `brainstrike.thread-title`, `brainstrike.context-compaction`) and carries
+  `ai.settings.context.runId` and `ai.settings.context.threadId`. A new
+  host-owned `streamText`/`generateText` call spreads `hostTelemetry(...)`.
+- Prompts, responses and tool payloads are excluded unless
+  `BRAINSTRIKE_OTEL_RECORD_CONTENT=1`. Error messages are still recorded.
+- Memory observer and reflector calls run inside Mastra and are not traced.
+
+To view a run locally, start Jaeger and launch desktop with the endpoint set:
+
+```sh
+docker run --rm -p 16686:16686 -p 4318:4318 cr.jaegertracing.io/jaegertracing/jaeger:2.22.0
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 pnpm --filter @brainstrike/desktop dev
+```
+
+Open <http://localhost:16686> and pick `brainstrike-agent-host`. The CLI host
+reads the same variables. Owner: [host tracing](../../packages/agent-host/src/telemetry/otel.ts).
 
 ## Clients and retirement
 
