@@ -1,4 +1,3 @@
-import './_windows-command-fixture';
 /**
  * Real node-pty coverage for persistent command sessions. These tests prove the
  * lifecycle property that mocks cannot: a server remains reachable after
@@ -7,13 +6,14 @@ import './_windows-command-fixture';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { runExecuteCommand } from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   type CommandSessionManager,
   createCommandSessionManager,
 } from '../../assistant-server/command-session-manager';
-import { runExecuteCommand } from '../../assistant-server/execute-command-tool';
 import type { WorkspaceRootResolver } from '../../workspace-root-cwd';
+import { builtWindowsCommandEntry } from './_windows-command-fixture';
 
 const managers: CommandSessionManager[] = [];
 const createdDirectories: string[] = [];
@@ -233,7 +233,8 @@ describe('persistent command session lifecycle', () => {
       },
       {
         workspaceRoots: [{ displayName: 'Integration workspace', path: root, rootId: 'root-a' }],
-      }
+      },
+      { windowsCommandEntry: builtWindowsCommandEntry }
     );
 
     expect(result.exitCode).toBe(0);

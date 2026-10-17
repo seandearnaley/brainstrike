@@ -267,6 +267,7 @@ test('real bin runs the explicit canonical model through production HTTP, commit
               'brainstrike.globWorkspace',
               'brainstrike.findWorkspaceSymbol',
               'brainstrike.readToolOutputArtifact',
+              'brainstrike.executeCommand',
             ],
             remaining: 'unavailable',
           },

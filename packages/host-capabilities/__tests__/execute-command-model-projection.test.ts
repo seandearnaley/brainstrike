@@ -6,11 +6,11 @@ import {
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
 import { describe, expect, it } from 'vitest';
-import { projectExecuteCommandModelOutput } from '../../assistant-server/execute-command-model-projection';
+import { projectExecuteCommandModelOutput } from '../src/native-tools/execute-command-model-projection.js';
 import {
   type ExecuteCommandToolResult,
   TRUNCATION_HINT,
-} from '../../assistant-server/execute-command-tool';
+} from '../src/native-tools/execute-command-tool.js';
 
 function resultFixture(
   overrides: Partial<ExecuteCommandToolResult> = {}

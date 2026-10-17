@@ -18,10 +18,11 @@ import type { ShellOutputStreamer } from '@brainstrike/host-capabilities/native-
 import {
   acquireWorkspaceMutationLease,
   isWithinRoot,
+  runDetachedProcess,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import stripAnsi from 'strip-ansi';
-import { runDetachedProcess } from './execute-command-tool';
+import { resolveBundledSiblingPath } from '../bundled-sibling-path';
 import { resolveWindowsGitBash } from './windows-git-bash';
 import { resolveWorkspaceRoot } from './workspace-roots';
 
@@ -234,6 +235,9 @@ export async function runSkillScript(
         signal: options?.signal,
         streamer: options?.stream,
         timeoutMs: remainingTimeoutMs,
+        // Desktop's own bundled wrapper, emitted beside this host bundle.
+        windowsCommandEntry: () =>
+          resolveBundledSiblingPath('Windows command', 'windows-command-entry.js'),
       });
     } finally {
       if (!transferred) {

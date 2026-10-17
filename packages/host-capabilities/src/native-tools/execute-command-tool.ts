@@ -12,26 +12,31 @@ import {
   requireNativeToolExecutionBudget,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
-import type { ShellOutputStreamer } from '@brainstrike/host-capabilities/native-tools';
-import {
-  acquireWorkspaceMutationLease,
-  isWithinRoot,
-} from '@brainstrike/host-capabilities/native-tools';
-import { createLogger } from '@brainstrike/logging';
-import { spawnNativeChild } from '@brainstrike/state-store/native-children';
-import stripAnsi from 'strip-ansi';
-import treeKill from 'tree-kill';
-import { resolveBundledSiblingPath } from '../bundled-sibling-path';
-import { createCredentialIsolatedChildEnvironment } from '../desktop-env';
-import { KILL_GRACE_MS } from './kill-grace';
-import { createWindowsCommandProcess, type WindowsCommandJob } from './windows-command-process';
+import { createCredentialIsolatedChildEnvironment } from '@brainstrike/assistant-contract/credential-child-environment';
 import {
   describeOpenRootTopology,
   type OpenRootTopology,
   resolveWorkspaceRoot,
-} from './workspace-roots';
+} from '@brainstrike/assistant-service/node-workspace-services';
+import { createLogger } from '@brainstrike/logging';
+import { spawnNativeChild } from '@brainstrike/state-store/native-children';
+import stripAnsi from 'strip-ansi';
+import treeKill from 'tree-kill';
+import { createWindowsCommandProcess, type WindowsCommandJob } from '../windows-command-process.js';
+import { KILL_GRACE_MS } from './kill-grace.js';
+import type { ShellOutputStreamer } from './tool-execute-support.js';
+import { acquireWorkspaceMutationLease } from './workspace-mutation-lease.js';
+import { isWithinRoot } from './workspace-path.js';
 
 export const EXECUTE_COMMAND_TOOL_ID = NATIVE_TOOL_ID.executeCommand;
+
+/**
+ * Where the shell's trusted Windows command wrapper lives: the Node entry that
+ * joins each finite command to a kill-on-close Job before user work starts.
+ * Each shell supplies its own (Desktop's bundled sibling, the CLI's package
+ * entry); it is read only on Windows.
+ */
+export type WindowsCommandEntry = () => string;
 
 const logger = createLogger('ExecuteCommandTool');
 const REDACTED_COMMAND_LOG_VALUE = { redacted: true } as const;
@@ -197,8 +202,9 @@ function killProcessTree(pid: number, signal: NodeJS.Signals): void {
 }
 
 /**
- * Reap every still-live child spawned by this tool. Wired into the desktop
- * shutdown / factory-reset lifecycle so no orphaned subprocess survives the app.
+ * Reap every still-live child spawned by this tool. Wired into each host's
+ * close (and Desktop's shutdown / factory-reset lifecycle) so no orphaned
+ * subprocess survives it.
  * Returns the number of owners joined (for logging/observability). Failed
  * retirement leaves that owner retained and rejects disposal.
  */
@@ -342,6 +348,7 @@ interface ProcessArguments {
   signal: AbortSignal | undefined;
   streamer: ShellOutputStreamer | undefined;
   timeoutMs: number;
+  windowsCommandEntry: WindowsCommandEntry;
   windowsVerbatimArguments?: boolean;
 }
 
@@ -391,7 +398,7 @@ function runWindowsCommand(args: ProcessArguments): Promise<SpawnOutcome> {
         )
       );
       wrapperEnvironment['ELECTRON_RUN_AS_NODE'] = '1';
-      const wrapperPath = resolveBundledSiblingPath('Windows command', 'windows-command-entry.js');
+      const wrapperPath = args.windowsCommandEntry();
       const owner = createWindowsCommandProcess({
         command: {
           // Match Node's cmd.exe shell convention only at this finite-command
@@ -636,6 +643,7 @@ function runShellCommand(args: {
   signal: AbortSignal | undefined;
   streamer: ShellOutputStreamer | undefined;
   releaseWorkspaceLease: () => void;
+  windowsCommandEntry: WindowsCommandEntry;
 }): Promise<SpawnOutcome> {
   const { command, cwd, timeoutMs, signal, streamer } = args;
   const invocation = resolveShellInvocation(command);
@@ -647,6 +655,7 @@ function runShellCommand(args: {
     signal,
     streamer,
     timeoutMs,
+    windowsCommandEntry: args.windowsCommandEntry,
     windowsVerbatimArguments: process.platform === 'win32',
   });
 }
@@ -866,7 +875,11 @@ function buildResult(args: {
 export async function runExecuteCommand(
   input: ExecuteCommandInput,
   runtimeData: RuntimeData | undefined,
-  options?: { signal?: AbortSignal | undefined; stream?: ShellOutputStreamer | undefined }
+  options: {
+    readonly signal?: AbortSignal | undefined;
+    readonly stream?: ShellOutputStreamer | undefined;
+    readonly windowsCommandEntry: WindowsCommandEntry;
+  }
 ): Promise<ExecuteCommandToolResult> {
   const topology = describeOpenRootTopology(runtimeData);
   const { cwd, rootId, rootName, rootPath } = await resolveCommandCwd(
@@ -879,7 +892,7 @@ export async function runExecuteCommand(
   const startedAt = Date.now();
   // Queueing is part of the same call budget; an expired waiter must never spawn.
   const deadline = AbortSignal.timeout(timeoutMs);
-  const admissionSignal = options?.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
+  const admissionSignal = options.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
   let spawned = false;
   const outcome = await (async () => {
     const release = await acquireWorkspaceMutationLease(rootPath, 'opaque', admissionSignal);
@@ -898,9 +911,10 @@ export async function runExecuteCommand(
         command: input.command,
         cwd,
         releaseWorkspaceLease: release,
-        signal: options?.signal,
-        streamer: options?.stream,
+        signal: options.signal,
+        streamer: options.stream,
         timeoutMs: remainingTimeoutMs,
+        windowsCommandEntry: options.windowsCommandEntry,
       });
     } finally {
       if (!transferred) {
@@ -910,7 +924,7 @@ export async function runExecuteCommand(
   })().catch((error: unknown) => {
     if (!spawned && admissionSignal.aborted) {
       throw new ToolInputError(
-        options?.signal?.aborted
+        options.signal?.aborted
           ? 'The command was aborted before execution.'
           : 'The command timed out while waiting for workspace ownership; it was not run.'
       );

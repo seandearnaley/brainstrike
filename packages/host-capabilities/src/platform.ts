@@ -1,4 +1,5 @@
 import { realpath, stat } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { basename } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
@@ -46,13 +47,15 @@ import { getGlobalHooksPath } from './hooks/config.js';
 import { loadHostRunHooks, trustedHookRoots } from './hooks/host-run-hooks.js';
 import {
   createSharedNativeHostTools,
+  disposeLiveChildProcesses,
+  executeCommandExecutor,
   forgetSharedNativeToolThread,
   ReadWorkspaceFileCursorRegistry,
   selectHostProjectionRewrites,
 } from './native-tools/index.js';
 import { createStandaloneHumanTools, STANDALONE_HUMAN_TOOL_IDS } from './standalone-human-tools.js';
 
-/** The shared native tools a standalone host runs over its launch roots. */
+/** The native tools a standalone host runs over its launch roots: the shared ones and its shell. */
 const STANDALONE_WORKSPACE_TOOL_IDS = [
   NATIVE_TOOL_ID.readWorkspaceFile,
   NATIVE_TOOL_ID.readWorkspaceDirectory,
@@ -65,6 +68,7 @@ const STANDALONE_WORKSPACE_TOOL_IDS = [
   NATIVE_TOOL_ID.globWorkspace,
   NATIVE_TOOL_ID.findWorkspaceSymbol,
   NATIVE_TOOL_ID.readToolOutputArtifact,
+  NATIVE_TOOL_ID.executeCommand,
 ] as const;
 const STANDALONE_NATIVE_TOOL_IDS = [...STANDALONE_HUMAN_TOOL_IDS, ...STANDALONE_WORKSPACE_TOOL_IDS];
 
@@ -79,6 +83,20 @@ const standaloneCapabilities = {
   tasks: 'unavailable',
   vectorMemory: 'unavailable',
   workspaceInstructions: 'unavailable',
+};
+
+/**
+ * executeCommand as Desktop composes it: the same executor, schema, cwd fence
+ * and `execute` risk. This host ships the package's own Windows command
+ * wrapper (as its hooks resolve it) and has no worktree ledger to correlate.
+ */
+const STANDALONE_SHELL_EXECUTORS = {
+  [NATIVE_TOOL_ID.executeCommand]: executeCommandExecutor({
+    windowsCommandEntry: () =>
+      createRequire(import.meta.url).resolve(
+        '@brainstrike/host-capabilities/windows-command-entry'
+      ),
+  }),
 };
 
 /** The standalone host has no plan mode; it refuses one rather than run unplanned. */
@@ -160,7 +178,7 @@ function standaloneSystemPrompt(
     ? ', and the configured MCP servers with their Tasks (text Apps only)'
     : '';
   const unavailableMcp = configuredMcp ? '' : 'configured MCP/Tasks, ';
-  return `This standalone host supports the shared persona children with narrowed tools and tree budgets, the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob and symbol search, the task list, canvases and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. Content search, language-server inspection and shell tools, ${unavailableMcp}Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
+  return `This standalone host supports the shared persona children with narrowed tools and tree budgets, the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob and symbol search, the task list, canvases, shell commands started in a workspace root and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. Content search, language-server inspection, ${unavailableMcp}Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
 }
 
 /**
@@ -293,9 +311,21 @@ export async function createHostPlatform(
   return createProductionHostPlatform({
     auth: host.auth,
     close: async () => {
-      // MCP cleanup can still write OAuth records through the credential store.
-      await mcp?.close();
-      await host.close();
+      const outcomes = await Promise.allSettled([
+        // The commands this host's runs left live, retired before Root is released.
+        Promise.resolve().then(disposeLiveChildProcesses),
+        (async () => {
+          // MCP cleanup can still write OAuth records through the credential store.
+          await mcp?.close();
+          await host.close();
+        })(),
+      ]);
+      const failures = outcomes.flatMap((outcome) =>
+        outcome.status === 'rejected' ? [outcome.reason] : []
+      );
+      if (failures.length > 0) {
+        throw new AggregateError(failures, 'Standalone platform close failed');
+      }
     },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     providers: host.providers,
@@ -373,6 +403,7 @@ export async function createHostPlatform(
       );
       const bindings = createStandaloneHumanTools(resolvedToolResultBudget);
       const workspaceTools = createSharedNativeHostTools({
+        executors: STANDALONE_SHELL_EXECUTORS,
         ids: STANDALONE_WORKSPACE_TOOL_IDS,
         readFileCursorRegistry,
         resolvedToolResultBudget,

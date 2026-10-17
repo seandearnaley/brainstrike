@@ -40,10 +40,12 @@ import type { HostLogRow } from '@brainstrike/agent-host/protocol';
 import { scriptedToolSequence } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import { foldHostRuns } from '@brainstrike/agent-host/thread-view';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
-import type { WebSearchToolDependencies } from '@brainstrike/host-capabilities/native-tools';
+import {
+  disposeLiveChildProcesses,
+  type WebSearchToolDependencies,
+} from '@brainstrike/host-capabilities/native-tools';
 import { getAdjustedTimeout } from '@brainstrike/test-utils';
 import { afterEach, expect, test, vi } from 'vitest';
-import { disposeLiveChildProcesses } from '../assistant-server/execute-command-tool';
 import { buildHostNativeTools } from './assistant-server/_host-native-tools';
 import { singleRootRuntime } from './assistant-server/_tool-test-helpers';
 

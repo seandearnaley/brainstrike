@@ -3288,6 +3288,9 @@ importers:
       '@brainstrike/tokenization':
         specifier: workspace:*
         version: link:../tokenization
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
@@ -3309,6 +3312,9 @@ importers:
       strip-ansi:
         specifier: 7.2.0
         version: 7.2.0
+      tree-kill:
+        specifier: 1.2.2
+        version: 1.2.2
       vscode-jsonrpc:
         specifier: 'catalog:'
         version: 9.0.3(patch_hash=df2075051190294761e76039366b12d72ab41c3ac815f5073d97de7c00806034)
