@@ -327,8 +327,8 @@ describe('MCP runtime client', () => {
     const healthyClient = {
       callTool: vi.fn(
         async (
-          _params: unknown,
-          options?: { onprogress?: (progress: unknown) => void }
+          _params: ExplicitHttpMcpCallToolParams,
+          options?: ExplicitHttpMcpRequestOptions
         ): Promise<ExplicitHttpMcpCallToolResult> => {
           options?.onprogress?.({ progress: 1, total: 2 });
           return {
@@ -415,10 +415,12 @@ describe('MCP runtime client', () => {
       type: 'object',
     };
     const remote = {
-      callTool: vi.fn(async () => ({
-        content: [{ text: 'ok', type: 'text' }],
-        structuredContent: { ok: true },
-      })),
+      callTool: vi.fn(
+        async (): Promise<ExplicitHttpMcpCallToolResult> => ({
+          content: [{ text: 'ok', type: 'text' }],
+          structuredContent: { ok: true },
+        })
+      ),
       close: vi.fn().mockResolvedValue(undefined),
       listTools: vi.fn().mockResolvedValue({
         tools: [{ inputSchema: schema, name: 'complex' }],
@@ -430,9 +432,11 @@ describe('MCP runtime client', () => {
     const tool = requireExecutableTool(discovered?.toolsets['remote']?.['complex']);
 
     expect(discovered?.errors).toEqual({});
-    expect((tool.inputSchema as StandardSchemaWithJSON)['~standard'].jsonSchema.input({})).toEqual(
-      schema
-    );
+    expect(
+      tool.inputSchema['~standard'].jsonSchema.input({
+        target: 'draft-2020-12',
+      })
+    ).toEqual(schema);
     expect(tool.inputSchema?.['~standard'].validate({ id: 'x', mode: 'invalid' })).toMatchObject({
       issues: expect.any(Array),
     });
@@ -467,7 +471,11 @@ describe('MCP runtime client', () => {
       {},
       {
         toolCallId: 'progress-call',
-        writer: { custom: async (part: unknown) => writes.push(part) },
+        writer: {
+          custom: async (part: unknown) => {
+            writes.push(part);
+          },
+        },
       }
     );
 
@@ -873,9 +881,10 @@ describe('MCP runtime client', () => {
         { configuredServerId: 'remote', execution, result: createdTask, toolName: 'export' },
         abortController.signal
       );
-      await expect(tool.execute({}, { brainstrikeMcp: { bindTask: 'no' } })).rejects.toThrow(
-        'The agent host supplied a malformed MCP execution capability'
-      );
+      // Exercise malformed runtime authority without pretending it is a typed host context.
+      await expect(
+        Reflect.apply(tool.execute, tool, [{}, { brainstrikeMcp: { bindTask: 'no' } }])
+      ).rejects.toThrow('The agent host supplied a malformed MCP execution capability');
     });
 
     it('throws for an app-originated task on a host without task tracking', async () => {

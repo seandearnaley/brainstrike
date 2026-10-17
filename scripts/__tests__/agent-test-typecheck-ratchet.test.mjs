@@ -21,6 +21,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { verifyTestTsconfigProgram } from '../verify-test-tsconfig-program.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const agentRoot = path.join(repoRoot, 'packages/agent');
@@ -34,15 +35,41 @@ const testConfigPath = path.join(agentRoot, 'tsconfig.test.json');
  * excluded specs outright. They were drained by DELETION rather than by fixing
  * their type errors, which is still a drain — the debt is gone either way — but
  * it is worth naming so the drop does not read as 15 files repaired.
+ * BST-2095 returns four cancellation regressions to checking after BST-2068's
+ * deletion of more legacy specs. The remaining cohort is counted below.
  */
-const MAX_EXCLUDED_LEGACY_FILES = 53;
+const MAX_EXCLUDED_LEGACY_FILES = 42;
 
 /** Not legacy debt — the ordinary build-output exclusions every project carries. */
 const NON_LEGACY_EXCLUDES = new Set(['dist', 'node_modules']);
+const CANCELLATION_REGRESSIONS = [
+  'src/__tests__/mcp-runtime-client.spec.ts',
+  'src/__tests__/run-python-tool.spec.ts',
+  'src/__tests__/tool-execution-durations.spec.ts',
+  'src/__tests__/mcp-tool-guard-cancellation.integration.spec.ts',
+];
 
 function readTestConfig() {
   return JSON.parse(readFileSync(testConfigPath, 'utf8'));
 }
+
+test('cancellation regression files belong to the actual compiler program', () => {
+  const result = verifyTestTsconfigProgram({
+    checkTypes: false,
+    cwd: agentRoot,
+    minTestFiles: 1,
+    project: 'tsconfig.test.json',
+  });
+  assert.equal(result.ok, true, result.message);
+  const selected = new Set(
+    result.testFiles.map((file) => path.relative(agentRoot, file).replaceAll('\\', '/'))
+  );
+  assert.deepEqual(
+    CANCELLATION_REGRESSIONS.filter((file) => !selected.has(file)),
+    [],
+    'cancellation regressions must be checked even when the numeric exclusion ceiling permits them'
+  );
+});
 
 test('packages/agent has a test project at all', () => {
   assert.ok(

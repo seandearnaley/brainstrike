@@ -11,7 +11,7 @@ import type {
   HostToolDefinitions,
   HostToolExecutionContext,
 } from '../../host-tool-definition';
-import type { ExplicitHttpMcpCallToolResult } from '../../mcp/explicit-http-client';
+import type { ExplicitHttpMcpClient } from '../../mcp/explicit-http-client';
 
 export type ExecutableTool = HostToolDefinition & {
   execute: (input: unknown, context?: HostToolExecutionContext) => Promise<unknown>;
@@ -34,7 +34,7 @@ export function requireExecutableTool(
 }
 
 interface TestHostClient {
-  callTool: (...args: unknown[]) => Promise<ExplicitHttpMcpCallToolResult>;
+  callTool: ExplicitHttpMcpClient['callTool'];
   close: ReturnType<typeof vi.fn>;
   listTools: () => Promise<{ tools: unknown[] }>;
   release?: () => void;

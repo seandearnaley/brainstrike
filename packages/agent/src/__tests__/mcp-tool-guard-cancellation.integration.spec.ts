@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type McpHostPort, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
+import { parseMcpHostOperationResult } from '@brainstrike/assistant-contract/mcp-host-runtime';
 import { describe, expect, it } from 'vitest';
 import type { HostToolExecutionContext } from '../host-tool-definition';
 import { ExplicitStdioMcpClient } from '../mcp/explicit-stdio-client';
@@ -90,6 +91,9 @@ function createStdioMcpHost(
         subscriptionsClosed: 0,
       };
     },
+    control: async () => {
+      throw new Error('Test MCP host controls are not supported');
+    },
     async invoke(operation, options) {
       if (operation.configuredServerId !== configuredServerId) {
         throw new Error(`Unexpected MCP server id: ${operation.configuredServerId}`);
@@ -99,12 +103,15 @@ function createStdioMcpHost(
         ...(options?.signal ? { signal: options.signal } : {}),
       };
       if (operation.type === 'tools/list') {
-        return { result: await client.listTools(requestOptions), type: operation.type };
+        return parseMcpHostOperationResult({
+          result: await client.listTools(requestOptions),
+          type: operation.type,
+        });
       }
       if (operation.type !== 'tools/call') {
         throw new Error(`Unexpected MCP operation: ${operation.type}`);
       }
-      return {
+      return parseMcpHostOperationResult({
         result: await client.callTool(
           {
             ...(operation.arguments ? { arguments: operation.arguments } : {}),
@@ -113,7 +120,7 @@ function createStdioMcpHost(
           { ...requestOptions, resetTimeoutOnProgress: true }
         ),
         type: operation.type,
-      };
+      });
     },
     replaceConfig: async () => {
       throw new Error('Test MCP host config is immutable');
