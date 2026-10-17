@@ -41,12 +41,10 @@ describe('MCP test lab package contract', () => {
     expect(manifest.scripts['test:integration']).toBe(
       'vitest run --config vitest.integration.config.mts'
     );
-    // The verifier consumes the Tasks contract's built declarations, and the
-    // lab's own `tsc -b` has no project references, so a fresh checkout must
-    // build that workspace dependency first (the scheduled exhaustive job only
-    // installs before `verify:mcp`).
+    // The lab and Tasks need their complete transitive workspace build closure,
+    // including assistant-contract's SDK adapter, on a fresh checkout.
     expect(manifest.scripts['verify']).toBe(
-      'pnpm --filter @brainstrike/mcp-tasks-extension build && pnpm run build && node dist/runner-cli.js'
+      'pnpm --filter @brainstrike/mcp-test-lab... build && node dist/runner-cli.js'
     );
     expect(manifest.files).toEqual(['dist', 'fixtures']);
     expect(manifest.types).toBe('./dist/index.d.ts');
