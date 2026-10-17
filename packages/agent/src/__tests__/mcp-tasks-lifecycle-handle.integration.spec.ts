@@ -8,6 +8,7 @@ import {
   McpTaskLifecycleStoppedError,
   type McpTaskPollingClient,
 } from '../mcp/tasks-lifecycle';
+import { type TaskRequestResponder, validatedTaskRequest } from './fixtures/mcp-task-request';
 
 const AUTHORITY_INPUT = {
   connectionGeneration: 1,
@@ -45,7 +46,7 @@ describe('MCP task lifecycle handles (review of #2915)', () => {
   it('persists a detail-less completed create result and fetches its detail at once', async () => {
     const database = await openDb();
     const repository = new McpTaskRepository(database);
-    const requestExtension = vi.fn(async () => detailedCompleted('task-1'));
+    const requestExtension = vi.fn<TaskRequestResponder>(async () => detailedCompleted('task-1'));
     const client = { requestExtension } as unknown as McpTaskPollingClient;
     const authority = await repository.openAuthority(AUTHORITY_INPUT);
     const lifecycle = new McpTaskLifecycle({
@@ -82,11 +83,13 @@ describe('MCP task lifecycle handles (review of #2915)', () => {
     const repository = new McpTaskRepository(database);
     const createSpy = vi.spyOn(repository, 'create');
     const gate = Promise.withResolvers<GetTaskResult>();
-    const requestExtension = vi.fn(() => gate.promise);
+    const requestExtension = vi.fn<TaskRequestResponder>(() => gate.promise);
     const authority = await repository.openAuthority(AUTHORITY_INPUT);
     const lifecycle = new McpTaskLifecycle({
       authority,
-      client: { requestExtension } as unknown as McpTaskPollingClient,
+      client: {
+        requestExtension: validatedTaskRequest(requestExtension),
+      } as unknown as McpTaskPollingClient,
       onUpdate: () => undefined,
       repository,
     });
@@ -129,7 +132,11 @@ describe('MCP task lifecycle handles (review of #2915)', () => {
     const authority = await repository.openAuthority(AUTHORITY_INPUT);
     const lifecycle = new McpTaskLifecycle({
       authority,
-      client: { requestExtension: vi.fn(() => Promise.reject(new Error('poll must not start'))) },
+      client: {
+        requestExtension: validatedTaskRequest(
+          vi.fn<TaskRequestResponder>(() => Promise.reject(new Error('poll must not start')))
+        ),
+      },
       onUpdate: () => undefined,
       repository,
     });
@@ -141,7 +148,11 @@ describe('MCP task lifecycle handles (review of #2915)', () => {
     expect(rebound.authorityEpoch).toBe(authority.authorityEpoch);
     const recovered = new McpTaskLifecycle({
       authority: rebound,
-      client: { requestExtension: vi.fn(async () => detailedCompleted('task-3')) },
+      client: {
+        requestExtension: validatedTaskRequest(
+          vi.fn<TaskRequestResponder>(async () => detailedCompleted('task-3'))
+        ),
+      },
       onUpdate: () => undefined,
       repository,
     });
@@ -157,7 +168,11 @@ describe('MCP task lifecycle handles (review of #2915)', () => {
     const authority = await repository.openAuthority(AUTHORITY_INPUT);
     const lifecycle = new McpTaskLifecycle({
       authority,
-      client: { requestExtension: vi.fn(() => Promise.reject(new Error('poll must not start'))) },
+      client: {
+        requestExtension: validatedTaskRequest(
+          vi.fn<TaskRequestResponder>(() => Promise.reject(new Error('poll must not start')))
+        ),
+      },
       onUpdate: () => undefined,
       repository,
     });

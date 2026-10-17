@@ -17,11 +17,6 @@
     "src/__tests__/mcp-explicit-http-auth.integration.spec.ts",
     "src/__tests__/mcp-explicit-http-client.integration.spec.ts",
     "src/__tests__/mcp-modern-http-extension.integration.spec.ts",
-    "src/__tests__/mcp-task-presentation.spec.ts",
-    "src/__tests__/mcp-tasks-interaction.spec.ts",
-    "src/__tests__/mcp-tasks-lifecycle-exits.integration.spec.ts",
-    "src/__tests__/mcp-tasks-lifecycle-handle.integration.spec.ts",
-    "src/__tests__/mcp-tasks-lifecycle.integration.spec.ts",
     "src/__tests__/run-python-tool.integration.spec.ts"
   ]
 }

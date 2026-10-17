@@ -18,6 +18,7 @@ function record(overrides: Partial<McpTaskRecord> = {}): McpTaskRecord {
   const createdAt = new Date('2026-09-01T05:00:00.000Z');
   return {
     ...SCOPE,
+    blockedDiagnostic: null,
     createdAt,
     history: [{ at: createdAt, status: 'working' }],
     inputMetadata: null,
