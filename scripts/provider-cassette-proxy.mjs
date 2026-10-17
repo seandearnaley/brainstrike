@@ -11,7 +11,7 @@
 //
 // See docs/agents/provider-cassettes.md.
 import { writeFile } from 'node:fs/promises';
-import { homedir, userInfo } from 'node:os';
+import { homedir } from 'node:os';
 import { basename } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
@@ -86,8 +86,7 @@ async function finish() {
   }
   const findings = [
     ...providerCassetteFindings(cassette, [
-      { rule: 'home-directory', value: homedir() },
-      { rule: 'user-name', value: userInfo().username },
+      { bounded: true, rule: 'home-directory', value: homedir() },
     ]),
     ...scanText({ filePath: values.out, text: encodeProviderCassette(cassette) }).map(
       ({ line, ruleId }) => ({ exchange: null, part: `line ${line}`, rule: ruleId })

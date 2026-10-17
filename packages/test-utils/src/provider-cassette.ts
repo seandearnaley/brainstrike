@@ -567,8 +567,9 @@ export interface ProviderCassetteReplay {
 export interface ProviderCassetteReplayOptions {
   /**
    * 0 (default) serves each chunk on the next task; 1 waits out the recorded
-   * arrival times, so concurrent conversations (background children) settle
-   * in their recorded order. Values between scale those times.
+   * times, each response no earlier than its recorded start after the first
+   * request, so concurrent conversations (background children) settle in
+   * their recorded order. Values between scale those times.
    */
   readonly pace?: number;
   readonly substitutions?: readonly ProviderCassetteSubstitution[];
@@ -578,13 +579,15 @@ const nextTask = (): Promise<void> => new Promise((resolve) => setImmediate(reso
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Writes a recorded response's head and chunks, paced by `pace`. Resolves false
- * when the client hung up first; an unanswered response (status null) writes nothing.
+ * Writes a recorded response's head and chunks, paced by `pace` from
+ * `notBefore` (or from now, if that has passed). Resolves false when the client
+ * hung up first; an unanswered response (status null) writes nothing.
  */
 async function writeRecorded(
   recorded: ProviderCassetteResponse,
   response: ServerResponse,
-  pace: number
+  pace: number,
+  notBefore: number
 ): Promise<boolean> {
   if (recorded.status !== null) {
     response.writeHead(
@@ -593,7 +596,7 @@ async function writeRecorded(
     );
   }
   const bytes = Buffer.from(recorded.body, 'utf8');
-  const servedAt = Date.now();
+  const servedAt = Math.max(Date.now(), notBefore);
   let offset = 0;
   for (const chunk of recorded.chunks) {
     const wait = chunk.atMs * pace - (Date.now() - servedAt);
@@ -627,6 +630,9 @@ export function createProviderCassetteReplay(
   const substitutions = options.substitutions ?? [];
   const pace = options.pace ?? 0;
   const remaining = [...cassette.exchanges];
+  const firstStartedAtMs = Math.min(...cassette.exchanges.map((exchange) => exchange.startedAtMs));
+  /** When the first request was served: the recording's first arrival, replayed. */
+  let replayStartedAt: number | undefined;
   let holding = 0;
   return {
     holding: () => holding,
@@ -640,7 +646,10 @@ export function createProviderCassetteReplay(
       }
       remaining.splice(index, 1);
       const recorded = exchange.response;
-      if (!(await writeRecorded(recorded, response, pace))) {
+      replayStartedAt ??= Date.now();
+      // Never before its recorded start, so concurrent exchanges finish in their recorded order.
+      const notBefore = replayStartedAt + (exchange.startedAtMs - firstStartedAtMs) * pace;
+      if (!(await writeRecorded(recorded, response, pace, notBefore))) {
         return;
       }
       if (recorded.ended === 'complete') {
@@ -706,15 +715,31 @@ export interface ProviderCassetteFinding {
   readonly rule: string;
 }
 
+/** An identifying literal to look for in a cassette. */
+export interface ProviderCassetteLiteral {
+  /** Found only as a whole path or name, never inside a longer one: `path/root` is not the home `/root`. */
+  readonly bounded?: true;
+  readonly rule: string;
+  readonly value: string;
+}
+
+function containsLiteral(text: string, { bounded, value }: ProviderCassetteLiteral): boolean {
+  if (!bounded) {
+    return text.includes(value);
+  }
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\w.-])${escaped}(?![\\w.-])`, 'u').test(text);
+}
+
 /**
  * Identifying literals left in a cassette (the recording machine's home
- * directory and user, a workspace path, the recorder's key), located without
- * echoing them. Secret-looking strings are the repository secret scanner's to
- * find (`scripts/secret-scan.mjs`); callers run it over the encoded cassette.
+ * directory, a workspace path, the recorder's key), located without echoing
+ * them. Secret-looking strings are the repository secret scanner's to find
+ * (`scripts/secret-scan.mjs`); callers run it over the encoded cassette.
  */
 export function providerCassetteFindings(
   cassette: Pick<ProviderCassette, 'exchanges' | 'toolSets'>,
-  literals: readonly { readonly rule: string; readonly value: string }[]
+  literals: readonly ProviderCassetteLiteral[]
 ): readonly ProviderCassetteFinding[] {
   const texts: [number | null, ProviderCassetteFinding['part'], string][] = [
     ...cassette.exchanges.flatMap(
@@ -728,7 +753,7 @@ export function providerCassetteFindings(
   ];
   return texts.flatMap(([exchange, part, text]) =>
     literals
-      .filter(({ value }) => value && text.includes(value))
+      .filter((literal) => literal.value && containsLiteral(text, literal))
       .map(({ rule }) => ({ exchange, part, rule }))
   );
 }

@@ -6,7 +6,7 @@
  */
 import { execFile } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { homedir, tmpdir, userInfo } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
   encodeProviderCassette,
@@ -45,17 +45,17 @@ export function recordingUpstreams(): Readonly<Record<ProviderCassetteKnob, stri
 }
 
 /**
- * The recording's local paths and key, if it holds any. A disposable workspace
- * path a model echoes is not private; whether the recording still replays is
- * the replay's to say.
+ * The recording's home directory and key, if it holds them. The home is found
+ * only as a whole path, and a bare login is not checked: `root` or `dev` is
+ * ordinary text. A disposable workspace path a model echoes is not private;
+ * whether the recording still replays is the replay's to say.
  */
 export function recordingFindings(
   cassette: ProviderCassette,
   key: string
 ): readonly ProviderCassetteFinding[] {
   return providerCassetteFindings(cassette, [
-    { rule: 'home-directory', value: homedir() },
-    { rule: 'user-name', value: userInfo().username },
+    { bounded: true, rule: 'home-directory', value: homedir() },
     { rule: 'recorder-credential', value: key },
   ]);
 }

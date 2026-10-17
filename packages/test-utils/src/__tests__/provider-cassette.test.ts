@@ -7,6 +7,7 @@ import {
   encodeProviderCassette,
   PROVIDER_CASSETTE_FORMAT,
   type ProviderCassette,
+  type ProviderCassetteExchange,
   type ProviderCassetteKnob,
   type ProviderCassetteRecorder,
   type ProviderCassetteReplay,
@@ -343,6 +344,52 @@ describe('provider cassette replay', () => {
     expect(await elapsed(0)).toBeLessThan(recordedMs);
   });
 
+  it('keeps concurrent exchanges in their recorded finishing order when paced, whatever order they arrive in', async () => {
+    const provider = await startStandInProvider();
+    const recorder = await startProviderCassetteRecorder({ upstreams: upstreamsAt(provider.url) });
+    recorders.push(recorder);
+    for (const content of ['Read a.txt', 'Read b.txt']) {
+      await readChunks(
+        await fetch(`${recorder.baseUrlFor('OPENROUTER_BASE_URL')}/chat/completions`, {
+          body: JSON.stringify(turn(content)),
+          method: 'POST',
+        })
+      );
+    }
+    // As recorded: a starts at 0 and ends at 150 ms; b starts at 200 and ends at 220 ms.
+    const timed = (exchange: ProviderCassetteExchange, startedAtMs: number, lastAtMs: number) => ({
+      ...exchange,
+      response: {
+        ...exchange.response,
+        chunks: exchange.response.chunks.map((chunk, index, all) => ({
+          ...chunk,
+          atMs: Math.round((lastAtMs * index) / (all.length - 1)),
+        })),
+      },
+      startedAtMs,
+    });
+    const recorded = cassetteOf(recorder);
+    const [a, b] = recorded.exchanges;
+    if (!(a && b)) {
+      throw new Error('expected two exchanges');
+    }
+    const cassette = { ...recorded, exchanges: [timed(a, 0, 150), timed(b, 200, 20)] };
+    const server = await startReplay(createProviderCassetteReplay(cassette, { pace: 1 }));
+    const finished: string[] = [];
+    const request = (content: string) =>
+      fetch(`${server.url}/OPENROUTER_BASE_URL/chat/completions`, {
+        body: JSON.stringify(turn(content)),
+        method: 'POST',
+      })
+        .then(readChunks)
+        .then(() => finished.push(content));
+    // b arrives first and a 30 ms later: served from each arrival, b would finish first.
+    const bDone = request('Read b.txt');
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await Promise.all([request('Read a.txt'), bDone]);
+    expect(finished).toEqual(['Read a.txt', 'Read b.txt']);
+  });
+
   it('keeps a request the client abandoned before any answer, and replays it unanswered', async () => {
     const provider = await startStandInProvider({ silent: true });
     const recorder = await startProviderCassetteRecorder({ upstreams: upstreamsAt(provider.url) });
@@ -495,6 +542,35 @@ describe('provider cassette findings', () => {
       { exchange: null, part: 'tool-sets', rule: 'home-directory' },
     ]);
     expect(JSON.stringify(findings)).not.toContain('fixture-user');
+  });
+
+  it('finds a bounded literal only as a whole path, never inside a longer one', () => {
+    const cassette = parseProviderCassette(
+      JSON.stringify({
+        exchanges: [
+          'describes path/root/startLine',
+          'cwd /root/project',
+          'opened file:///root/a',
+        ].map((note) => ({
+          key: {},
+          request: { body: { note }, headers: {} },
+          response: { body: 'x', chunks: [{ atMs: 0, bytes: 1 }] },
+        })),
+        format: PROVIDER_CASSETTE_FORMAT,
+        recordedAt: '2026-10-16T00:00:00.000Z',
+        scenario: 'fixture',
+        toolSets: {},
+      }),
+      'fixture.json'
+    );
+    expect(
+      providerCassetteFindings(cassette, [
+        { bounded: true, rule: 'home-directory', value: '/root' },
+      ])
+    ).toEqual([
+      { exchange: 1, part: 'request', rule: 'home-directory' },
+      { exchange: 2, part: 'request', rule: 'home-directory' },
+    ]);
   });
 
   it('refuses a cassette whose chunks do not cover its body', () => {

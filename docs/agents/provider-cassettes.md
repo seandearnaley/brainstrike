@@ -92,8 +92,9 @@ approves it for that task. Choose one route:
 Either route writes a cassette only if it passes four checks:
 
 1. Neither the requests nor the responses trip the secret scanner
-   (`scripts/secret-scan.mjs`), and nothing holds the home directory, user name
-   or the key itself. Requests keep only protocol headers, never
+   (`scripts/secret-scan.mjs`), and nothing holds the home directory (as a
+   whole path) or the key itself. A bare login is not checked: `root` or `dev`
+   cannot be told apart from ordinary text. Requests keep only protocol headers, never
    auth. A tool result in a request can carry a leaked key.
 2. It shows the behavior its scenario exists for (`exhibits`), for example
    GLM's empty-arguments tool frame.
