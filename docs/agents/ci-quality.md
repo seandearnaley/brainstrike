@@ -34,8 +34,11 @@ biome check <affected paths>` while editing; package lint scripts currently run
 the root lane. Preserve real rejection ownership rather than adding `void` to
 silence a finding. Narrow cause/import/boolean rules follow the scanner's proved
 scope; TypeScript, Effect diagnostics and React Compiler checks remain separate.
-Run `pnpm exec node --test scripts/__tests__/agent-quality-lint.test.mjs` when
+Run `pnpm exec node --test scripts/__tests__/isolated/agent-quality-lint.test.mjs` when
 changing these overrides: real new-file fixtures verify inclusion and semantics.
+`test:scripts` runs these checkout-mutating fixtures to completion first, then
+runs the other script files in parallel. Keep repository scans out of the fixture
+phase so they cannot observe temporary bad files or race their cleanup.
 All agent `src/__tests__` layouts, including nested `.spec.ts`, `.test.ts`, `.mts`
 and `.mjs` files, enforce async assertions, Promise predicates and exhaustive
 switches. The scoped rejection rule rejects literal non-Error failures while
