@@ -109,7 +109,13 @@ describe('workspace root manifest', () => {
   });
 
   it('does not spend the compact local-model context budget on the hosted manifest', () => {
-    const messages = [{ parts: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }];
+    const messages = [
+      {
+        id: 'user-local',
+        parts: [{ text: 'Hello', type: 'text' as const }],
+        role: 'user' as const,
+      },
+    ];
     expect(
       injectWorkspaceRootManifestContext(messages, {
         provider: 'local',

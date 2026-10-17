@@ -112,10 +112,12 @@ describe('unknown stream-chunk diagnostics', () => {
     try {
       const mapper = new DataStreamMapper('msg-unknown-chunk');
       expect([
-        ...mapper.handleChunk({ type: 'future-brainstrike-stream-chunk' } as StreamChunk),
+        // @ts-expect-error A future wire variant deliberately violates the known chunk union.
+        ...mapper.handleChunk({ type: 'future-brainstrike-stream-chunk' }),
       ]).toEqual([]);
       expect([
-        ...mapper.handleChunk({ type: 'future-brainstrike-stream-chunk' } as StreamChunk),
+        // @ts-expect-error A future wire variant deliberately violates the known chunk union.
+        ...mapper.handleChunk({ type: 'future-brainstrike-stream-chunk' }),
       ]).toEqual([]);
     } finally {
       removeLogListener();

@@ -32,7 +32,14 @@ function promptWithCalls(
   ]);
 }
 
-function entry(overrides: Partial<ToolProjectionRewriteEntry> = {}): ToolProjectionRewriteEntry {
+function entry(
+  overrides:
+    | Partial<Extract<ToolProjectionRewriteEntry, { kind: 'supersession' }>>
+    | Extract<ToolProjectionRewriteEntry, { kind: 'prune' }> = {}
+): ToolProjectionRewriteEntry {
+  if (overrides.kind === 'prune') {
+    return overrides;
+  }
   return {
     kind: 'supersession',
     markerText: 'read src/a.ts lines 1-20/20 [superseded — see the later read of this file]',
