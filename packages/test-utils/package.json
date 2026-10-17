@@ -2,8 +2,8 @@
   "name": "@brainstrike/test-utils",
   "version": "0.1.0",
   "devDependencies": {
-    "@mastra/core": "1.71.0",
-    "@mastra/memory": "1.32.1",
+    "@mastra/core": "1.78.0",
+    "@mastra/memory": "1.38.0",
     "@playwright/test": "catalog:",
     "@stryker-mutator/api": "catalog:",
     "@stryker-mutator/core": "catalog:",

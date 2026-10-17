@@ -10,6 +10,7 @@ import {
   resolveRuntimeBaseUrl,
 } from '@brainstrike/local-runtime';
 import {
+  type IdentifiedModelConfig,
   type MastraModelConfig,
   ModelRouterLanguageModel,
   type OpenAICompatibleConfig,
@@ -69,7 +70,11 @@ export function toMastraModelConfiguration(model: ProviderModelConfiguration): M
   return model;
 }
 
-export type ConcreteLanguageModel = Exclude<MastraModelConfig, string | OpenAICompatibleConfig>;
+/** A model object; Mastra 1.78's `{ model, id }` label wraps one but is not one. */
+export type ConcreteLanguageModel = Exclude<
+  MastraModelConfig,
+  string | OpenAICompatibleConfig | IdentifiedModelConfig
+>;
 const PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS = new Set<SupportedProvider>([
   'openai',
   'anthropic',
@@ -342,7 +347,8 @@ export function createProvider(
       const resolvedKey = pickApiKey(bearerApiKeyOnly(auth, validatedProvider), ollamaOptions);
       return {
         apiKey: resolvedKey ?? 'ollama',
-        id: `ollama/${modelName}`,
+        modelId: modelName,
+        providerId: 'ollama',
         url,
       };
     }
@@ -359,7 +365,8 @@ export function createProvider(
       const resolvedKey = pickApiKey(bearerApiKeyOnly(auth, validatedProvider), lmStudioOptions);
       return {
         apiKey: resolvedKey ?? 'lmstudio',
-        id: `lmstudio/${modelName}`,
+        modelId: modelName,
+        providerId: 'lmstudio',
         url,
       };
     }

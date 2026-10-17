@@ -70,7 +70,8 @@ describe('createProvider ProviderAuthInput seam (BST-1352)', () => {
     it('keeps the ollama dummy-key substitution when the api_key is empty', () => {
       expect(createProvider('ollama', { apiKey: '', kind: 'api_key' }, 'qwen2.5:latest')).toEqual({
         apiKey: 'ollama',
-        id: 'ollama/qwen2.5:latest',
+        modelId: 'qwen2.5:latest',
+        providerId: 'ollama',
         url: 'http://127.0.0.1:11434/v1',
       });
     });

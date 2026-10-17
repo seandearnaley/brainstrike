@@ -1,0 +1,36 @@
+diff --git a/dist/storage-7mYy2C-B.js b/dist/storage-7mYy2C-B.js
+index 3cb8e8e19831e24d47f9093893c35c0c86a12b24..b0c9941a9bff90dfe8f56d1c08a668a84dfc83e9 100644
+--- a/dist/storage-7mYy2C-B.js
++++ b/dist/storage-7mYy2C-B.js
+@@ -2018,7 +2018,12 @@ var AgentThreadStreamRuntime = class {
+ 		const state = this.#getState(pubsub);
+ 		const abortController = new AbortController();
+ 		const upstreamAbortSignal = options.abortSignal;
+-		const abort = () => abortController.abort();
++		// Brainstrike: forward the caller's abort reason. 1.71 skipped threadless runs;
++		// 1.78 prepares every run with a runId here, so Memory's internal observer and
++		// reflector streams received a generic AbortError instead of the run's reason.
++		// Remove when upstream passes memory-public-lifecycle's owner-signal cases.
++		// https://github.com/mastra-ai/mastra/blob/@mastra/core@1.78.0/packages/core/src/agent/thread-stream-runtime.ts
++		const abort = () => abortController.abort(upstreamAbortSignal?.reason);
+ 		if (upstreamAbortSignal?.aborted) abort();
+ 		else upstreamAbortSignal?.addEventListener("abort", abort, { once: true });
+ 		const preparedRun = {
+diff --git a/dist/storage-Cfz_oB2T.cjs b/dist/storage-Cfz_oB2T.cjs
+index 7fdc8c52c6a249e90de2ccf032adb33b55e3b077..eb48d6eafa77185f7e36df2c5a3c1b00a6f63589 100644
+--- a/dist/storage-Cfz_oB2T.cjs
++++ b/dist/storage-Cfz_oB2T.cjs
+@@ -2018,7 +2018,12 @@ var AgentThreadStreamRuntime = class {
+ 		const state = this.#getState(pubsub);
+ 		const abortController = new AbortController();
+ 		const upstreamAbortSignal = options.abortSignal;
+-		const abort = () => abortController.abort();
++		// Brainstrike: forward the caller's abort reason. 1.71 skipped threadless runs;
++		// 1.78 prepares every run with a runId here, so Memory's internal observer and
++		// reflector streams received a generic AbortError instead of the run's reason.
++		// Remove when upstream passes memory-public-lifecycle's owner-signal cases.
++		// https://github.com/mastra-ai/mastra/blob/@mastra/core@1.78.0/packages/core/src/agent/thread-stream-runtime.ts
++		const abort = () => abortController.abort(upstreamAbortSignal?.reason);
+ 		if (upstreamAbortSignal?.aborted) abort();
+ 		else upstreamAbortSignal?.addEventListener("abort", abort, { once: true });
+ 		const preparedRun = {
