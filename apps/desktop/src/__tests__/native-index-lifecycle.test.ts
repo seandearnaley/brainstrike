@@ -1,11 +1,15 @@
+import { IndexerError } from '@brainstrike/indexer';
+import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { describe, expect, it } from 'vitest';
 import {
+  NATIVE_INDEX_REBUILD_REQUIRED_MESSAGE,
   type NativeIndexEvent,
   type NativeIndexState,
   nativeIndexObservation,
   nativeIndexReadiness,
   reduceNativeIndex,
 } from '../native-index-lifecycle';
+import { nativeIndexStateError } from '../native-index-lifecycle-errors';
 import { readNativeIndexSettings } from '../native-index-settings';
 
 // Recorded from Main's storage reads while the desktop app chose Text search,
@@ -320,6 +324,60 @@ describe('automatic re-open', () => {
       cause: { kind: 'source-failure', message: 'Initial native workspace scan was aborted.' },
       generation: 3,
       kind: 'refused',
+    });
+  });
+});
+
+// BST-1878: the store refuses a file that fails `integrity_check` or has a layout
+// it does not support. Re-opening it fails the same way, so the refusal names
+// the rebuild and what it keeps, not the engine's wording.
+describe('a store that refused its index file', () => {
+  const refusedFile = new IndexerError(
+    'rebuild-required',
+    'SQLite integrity_check refused the existing derived index.'
+  );
+  const failedOpen = (error: unknown) =>
+    reduceNativeIndex(ready, {
+      error,
+      generation: 3,
+      kind: 'failure',
+      message: error instanceof Error ? error.message : String(error),
+    }).state;
+
+  it('asks for a rebuild in plain words, keeping the engine error as the cause', () => {
+    const state = failedOpen(refusedFile);
+
+    expect(nativeIndexObservation(state)).toEqual({
+      cause: { kind: 'rebuild-required', message: NATIVE_INDEX_REBUILD_REQUIRED_MESSAGE },
+      generation: 3,
+      kind: 'refused',
+    });
+    const error = nativeIndexStateError(state);
+    expect(error).toBeInstanceOf(NativeIndexRefusalError);
+    expect(error).toMatchObject({
+      cause: refusedFile,
+      code: 'native-index-rebuild-required',
+      message: NATIVE_INDEX_REBUILD_REQUIRED_MESSAGE,
+    });
+  });
+
+  it('finds the refusal behind an error that wraps it', () => {
+    const state = failedOpen(new Error('Native index activation failed.', { cause: refusedFile }));
+
+    expect(nativeIndexObservation(state)).toMatchObject({ cause: { kind: 'rebuild-required' } });
+  });
+
+  it('leaves any other indexer failure a source failure with its own message', () => {
+    const state = failedOpen(new IndexerError('indexer-failed', 'The writer stopped.'));
+
+    expect(nativeIndexObservation(state)).toEqual({
+      cause: { kind: 'source-failure', message: 'The writer stopped.' },
+      generation: 3,
+      kind: 'refused',
+    });
+    expect(nativeIndexStateError(state)).toMatchObject({
+      code: 'native-index-source-failure',
+      message: 'The writer stopped.',
     });
   });
 });

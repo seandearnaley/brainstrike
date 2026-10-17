@@ -19,6 +19,12 @@ const descriptions: Readonly<
     message: 'The search index is closed.',
     remedy: 'Reopen the workspace to search again.',
   },
+  'rebuild-required': {
+    category: 'availability',
+    message: 'The search index needs a rebuild.',
+    remedy:
+      'Rebuild the search index in Settings, Search & Indexing. Chats, folders and settings are kept.',
+  },
   'settings-invalid': {
     category: 'configuration',
     message: 'The search index settings are invalid.',
