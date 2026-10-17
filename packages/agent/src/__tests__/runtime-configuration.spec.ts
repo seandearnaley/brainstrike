@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ProviderAuthInput } from '../providers/provider-auth-input';
 import { listProviders, providerAuthType, providerEnvKeys } from '../providers/types';
 import { resolveRuntimeConfiguration } from '../runtime-configuration';
 

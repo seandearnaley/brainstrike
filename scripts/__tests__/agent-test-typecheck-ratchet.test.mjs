@@ -38,11 +38,20 @@ const testConfigPath = path.join(agentRoot, 'tsconfig.test.json');
  * BST-2095 returns four cancellation regressions to checking after BST-2068's
  * deletion of more legacy specs. The remaining cohort is counted below.
  */
-const MAX_EXCLUDED_LEGACY_FILES = 28;
+const MAX_EXCLUDED_LEGACY_FILES = 20;
 
 /** Not legacy debt — the ordinary build-output exclusions every project carries. */
 const NON_LEGACY_EXCLUDES = new Set(['dist', 'node_modules']);
 const REQUIRED_REGRESSIONS = [
+  'src/__tests__/bedrock-prompt-caching.spec.ts',
+  'src/__tests__/native-web-search.spec.ts',
+  'src/__tests__/openai-tool-search-history-compat.spec.ts',
+  'src/__tests__/openrouter-strict-content.spec.ts',
+  'src/__tests__/provider-factory.anthropic-caching.spec.ts',
+  'src/__tests__/provider-factory.auth-input.spec.ts',
+  'src/__tests__/provider-factory.bedrock.spec.ts',
+  'src/__tests__/runtime-configuration.spec.ts',
+
   'src/__tests__/mcp-tool-loader.spec.ts',
   'src/__tests__/tool-search-runtime.spec.ts',
   'src/__tests__/tool-sanitizer.spec.ts',

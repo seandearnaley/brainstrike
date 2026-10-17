@@ -1,5 +1,4 @@
 import { createOpenAI } from '@ai-sdk/openai';
-import type { LanguageModelV4Prompt } from '@ai-sdk/provider';
 import type { ProcessLLMRequestArgs } from '@mastra/core/processors';
 import { describe, expect, it } from 'vitest';
 import {
@@ -7,10 +6,46 @@ import {
   OpenAIToolSearchHistoryCompat,
 } from '../mastra-processors/openai-tool-search-history-compat';
 
+import { scriptedAgentModel } from '../test-fixtures/scripted-agent-model';
+
+type Prompt = ProcessLLMRequestArgs['prompt'];
+type AssistantMessage = Extract<Prompt[number], { role: 'assistant' }>;
+type PersistedPart = Extract<
+  AssistantMessage['content'][number],
+  { type: 'tool-call' | 'tool-result' }
+> & {
+  providerMetadata?: { openai: { itemId: string } } | undefined;
+};
+type PersistedPrompt = { role: 'assistant'; content: PersistedPart[] }[];
+type OpenAIPrompt = Parameters<
+  ReturnType<ReturnType<typeof createOpenAI>['responses']>['doGenerate']
+>[0]['prompt'];
+
+/** Only the call/result variants in this regression cross the V2 -> V4 seam. */
+function toOpenAIPrompt(prompt: Prompt): OpenAIPrompt {
+  return prompt.map((message) => {
+    if (message.role !== 'assistant') {
+      throw new Error('Expected assistant tool history');
+    }
+    return {
+      content: message.content.map((part) => {
+        if (part.type === 'tool-call') {
+          return { ...part };
+        }
+        if (part.type === 'tool-result' && part.output.type === 'json') {
+          return { ...part, output: { type: 'json', value: part.output.value } };
+        }
+        throw new Error('Expected tool call or JSON result');
+      }),
+      role: 'assistant',
+    };
+  });
+}
+
 const TOOL_SEARCH_CALL_ITEM_ID = 'tsc_hosted_123';
 const TOOL_SEARCH_OUTPUT_ITEM_ID = 'tso_hosted_456';
 
-function createPersistedPrompt(): ProcessLLMRequestArgs['prompt'] {
+function createPersistedPrompt(): PersistedPrompt {
   return [
     {
       content: [
@@ -44,7 +79,7 @@ function createPersistedPrompt(): ProcessLLMRequestArgs['prompt'] {
  * hydrated onto the call as well — so the call advertises the `tso_` OUTPUT id
  * rather than its own `tsc_` id.
  */
-function createMastraHydratedPrompt(): ProcessLLMRequestArgs['prompt'] {
+function createMastraHydratedPrompt(): PersistedPrompt {
   const prompt = createPersistedPrompt();
   const assistant = prompt[0];
   if (!(assistant && assistant.role === 'assistant')) {
@@ -66,7 +101,7 @@ function createMastraHydratedPrompt(): ProcessLLMRequestArgs['prompt'] {
  * conflict checks both pass — and the request still serializes as two identical
  * `item_reference`s, which OpenAI rejects far downstream of here.
  */
-function createSymmetricallyHydratedPrompt(): ProcessLLMRequestArgs['prompt'] {
+function createSymmetricallyHydratedPrompt(): PersistedPrompt {
   const prompt = createPersistedPrompt();
   const assistant = prompt[0];
   if (!(assistant && assistant.role === 'assistant')) {
@@ -107,7 +142,7 @@ async function captureRequestBody(prompt: ProcessLLMRequestArgs['prompt']): Prom
     },
   });
   await provider.responses('gpt-5.6-luna').doGenerate({
-    prompt: prompt as LanguageModelV4Prompt,
+    prompt: toOpenAIPrompt(prompt),
     providerOptions: { openai: { store: true } },
   });
   return capturedBody;
@@ -122,7 +157,9 @@ function processPrompt(
   };
   const result = processor.processLLMRequest({
     abort,
-    model: {} as ProcessLLMRequestArgs['model'],
+    model: scriptedAgentModel(() => {
+      throw new Error('History processing must not call the model');
+    }).model,
     prompt,
     retryCount: 0,
     state: {},
