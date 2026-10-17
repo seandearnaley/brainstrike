@@ -55,7 +55,10 @@ function referencedProjects(project, selected = new Set()) {
 
 /**
  * effect-tsgo skips every file of a project whose effective options, `extends`
- * chain included, lack the language-service plugin, and still exits 0.
+ * chain included, lack the language-service plugin, and still exits 0. The
+ * plugin's `diagnostics` option ("Controls Effect diagnostics", default true;
+ * node_modules/@effect/tsgo/README.md "Plugin Options" and schema.json) set to
+ * false reports every file checked but emits no Effect diagnostics.
  */
 export function enablesEffectLanguageService(project) {
   const failures = [];
@@ -71,7 +74,9 @@ export function enablesEffectLanguageService(project) {
     );
     throw new Error(`Cannot resolve Effect diagnostics project ${project}: ${reasons.join('; ')}`);
   }
-  return (parsed.options.plugins ?? []).some((plugin) => plugin?.name === LANGUAGE_SERVICE_PLUGIN);
+  return (parsed.options.plugins ?? []).some(
+    (plugin) => plugin?.name === LANGUAGE_SERVICE_PLUGIN && plugin.diagnostics !== false
+  );
 }
 
 export function canonicalTestPrograms(pkg) {

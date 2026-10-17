@@ -120,6 +120,13 @@ test('an effect-tsgo step covers nothing unless its resolved tsconfig enables th
     include: ['src/seed.spec.ts'],
   });
   assert.deepEqual(inventoryTestPrograms(f.directory).missing, []);
+  // `diagnostics: false` reports every file checked yet emits no Effect diagnostics.
+  f.write('modules/fixture/tsconfig.base.json', {
+    compilerOptions: { plugins: [{ diagnostics: false, name: '@effect/language-service' }] },
+  });
+  assert.deepEqual(inventoryTestPrograms(f.directory).missing, [
+    { axis: 'effect', path: 'modules/fixture/src/seed.spec.ts' },
+  ]);
 });
 
 test('new workspace layouts cannot escape discovery and missing commands are uncovered', (t) => {
