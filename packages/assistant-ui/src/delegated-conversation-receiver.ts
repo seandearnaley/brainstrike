@@ -14,6 +14,7 @@ import {
   type AssistantStreamChunk,
   DataStreamDecoder,
 } from 'assistant-stream';
+import { Schema } from 'effect';
 import { deferMessageFinishUntilFlush } from './defer-message-finish';
 import { delegatedTaskTerminalError } from './delegated-terminal-status';
 
@@ -114,7 +115,9 @@ function readContinuationEnvelope(value: unknown): ChildEnvelope {
   const baseline =
     value['baseline'] === undefined
       ? undefined
-      : delegatedConversationBaselineSchema.parse(value['baseline']);
+      : Schema.decodeUnknownSync(delegatedConversationBaselineSchema, { errors: 'all' })(
+          value['baseline']
+        );
   if (baseline && baseline.threadId !== value['threadId']) {
     throw new Error('Child continuation history belongs to another thread.');
   }
@@ -307,7 +310,9 @@ class ChildReceiver {
       if (this.receivedFrames) {
         throw new Error('Delegated history baseline changed within one stream leg.');
       }
-      this.baseline = delegatedConversationBaselineSchema.parse(envelope.baseline);
+      this.baseline = Schema.decodeUnknownSync(delegatedConversationBaselineSchema, {
+        errors: 'all',
+      })(envelope.baseline);
     }
     this.receivedFrames = true;
     this.messageId = envelope.messageId;

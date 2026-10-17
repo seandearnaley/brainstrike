@@ -1,48 +1,45 @@
-/**
- * Wire shapes of Main's Terminal panel reaching the desktop agent host's
- * command sessions (`host/command-sessions/*`): the same inventory bridge the
- * panel already speaks, served by the host's own session registry. Requests
- * are parsed by the host, results by Main. Imports nothing Main-only.
- */
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-const Id = z.string().min(1);
+const Id = Schema.String.check(Schema.isMinCodePoints(1));
 
 const Identity = { rootId: Id, sessionId: Id };
 
-export const HostCommandSessionListRequestSchema = z.strictObject({ rootId: Id });
-export const HostCommandSessionReadRequestSchema = z.strictObject({
+export const HostCommandSessionListRequestSchema = Schema.Struct({ rootId: Id });
+export const HostCommandSessionReadRequestSchema = Schema.Struct({
   ...Identity,
-  cursor: z.number().exactOptional(),
+  cursor: Schema.optionalKey(Schema.Finite),
 });
-export const HostCommandSessionWriteRequestSchema = z.strictObject({
+export const HostCommandSessionWriteRequestSchema = Schema.Struct({
   ...Identity,
-  data: z.string(),
+  data: Schema.String,
 });
-export const HostCommandSessionIdentitySchema = z.strictObject(Identity);
+export const HostCommandSessionIdentitySchema = Schema.Struct(Identity);
 
 const SessionBase = {
-  createdAt: z.number(),
-  cwd: z.string(),
+  createdAt: Schema.Finite,
+  cwd: Schema.String,
   id: Id,
-  pid: z.number().int(),
+  pid: Schema.Int,
   rootId: Id,
 };
 
-const CommandSessionInfoSchema = z.discriminatedUnion('status', [
-  z.object({ ...SessionBase, status: z.literal('running') }),
-  z.object({
-    ...SessionBase,
-    exitCode: z.number().int(),
-    exitedAt: z.number(),
-    signal: z.number().int().nullable(),
-    status: z.literal('exited'),
-  }),
-]);
+const CommandSessionInfoSchema = Schema.Union(
+  [
+    Schema.Struct({ ...SessionBase, status: Schema.Literal('running') }),
+    Schema.Struct({
+      ...SessionBase,
+      exitCode: Schema.Int,
+      exitedAt: Schema.Finite,
+      signal: Schema.NullOr(Schema.Int),
+      status: Schema.Literal('exited'),
+    }),
+  ],
+  { mode: 'oneOf' }
+);
 
-const Failure = z.object({
-  error: z.object({
-    code: z.enum([
+const Failure = Schema.Struct({
+  error: Schema.Struct({
+    code: Schema.Literals([
       'aborted',
       'cursor-out-of-range',
       'cwd-not-found',
@@ -58,41 +55,50 @@ const Failure = z.object({
       'stop-failed',
       'workspace-busy',
     ]),
-    message: z.string(),
+    message: Schema.String,
   }),
-  ok: z.literal(false),
+  ok: Schema.Literal(false),
 });
 
-export const HostCommandSessionListResultSchema = z.discriminatedUnion('ok', [
-  z.object({
-    ok: z.literal(true),
-    value: z.object({ rootId: Id, sessions: z.array(CommandSessionInfoSchema) }),
-  }),
-  Failure,
-]);
-
-export const HostCommandSessionReadResultSchema = z.discriminatedUnion('ok', [
-  z.object({
-    ok: z.literal(true),
-    value: z.object({
-      bufferStartCursor: z.number(),
-      hasMore: z.boolean(),
-      nextCursor: z.number(),
-      output: z.string(),
-      requestedCursor: z.number(),
-      session: CommandSessionInfoSchema,
-      truncatedBeforeCursor: z.boolean(),
+export const HostCommandSessionListResultSchema = Schema.Union(
+  [
+    Schema.Struct({
+      ok: Schema.Literal(true),
+      value: Schema.Struct({
+        rootId: Id,
+        sessions: Schema.mutable(Schema.Array(CommandSessionInfoSchema)),
+      }),
     }),
-  }),
-  Failure,
-]);
+    Failure,
+  ],
+  { mode: 'oneOf' }
+);
 
-export const HostCommandSessionDoneResultSchema = z.discriminatedUnion('ok', [
-  z.object({ ok: z.literal(true) }),
-  Failure,
-]);
+export const HostCommandSessionReadResultSchema = Schema.Union(
+  [
+    Schema.Struct({
+      ok: Schema.Literal(true),
+      value: Schema.Struct({
+        bufferStartCursor: Schema.Finite,
+        hasMore: Schema.Boolean,
+        nextCursor: Schema.Finite,
+        output: Schema.String,
+        requestedCursor: Schema.Finite,
+        session: CommandSessionInfoSchema,
+        truncatedBeforeCursor: Schema.Boolean,
+      }),
+    }),
+    Failure,
+  ],
+  { mode: 'oneOf' }
+);
+
+export const HostCommandSessionDoneResultSchema = Schema.Union(
+  [Schema.Struct({ ok: Schema.Literal(true) }), Failure],
+  { mode: 'oneOf' }
+);
 
 /** The host reaped and forgot this many sessions in a disconnected root. */
-export const HostCommandSessionDisposeRootResultSchema = z.object({
-  disposed: z.number().int().nonnegative(),
+export const HostCommandSessionDisposeRootResultSchema = Schema.Struct({
+  disposed: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 });

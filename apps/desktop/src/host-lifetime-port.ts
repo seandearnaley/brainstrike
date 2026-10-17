@@ -1,34 +1,37 @@
-/**
- * The host utility's end of its lifetime channel (ADR-0017: a host forked by the app dies with the
- * app). Electron Main keeps the other end until it has joined the host, so this port's 'close'
- * means Main let the host go or Main's process died (MessagePortMain 'close': "the remote end ...
- * becomes disconnected"). On POSIX Chromium also ends a utility at once when Main dies; Windows has
- * no such tie for an unsandboxed utility, and parentPort itself reports no disconnect.
- */
-import { z } from 'zod';
+import {
+  strictWireSchema,
+  wireResultDecoder,
+} from '@brainstrike/assistant-contract/schema-boundary';
+import { Schema } from 'effect';
 
 interface LifetimePort {
   on(event: 'close', listener: () => void): unknown;
   start(): void;
 }
-const Message = z.object({
-  data: z.strictObject({ event: z.literal('lifetime') }),
-  ports: z
-    .array(
-      z.custom<LifetimePort>(
-        (value) => typeof value === 'object' && value !== null && 'on' in value && 'start' in value
+const Message = Schema.Struct({
+  data: strictWireSchema(Schema.Struct({ event: Schema.Literal('lifetime') })),
+  ports: Schema.mutable(
+    Schema.Array(
+      Schema.declare<LifetimePort>(
+        (value): value is LifetimePort =>
+          typeof value === 'object' &&
+          value !== null &&
+          'on' in value &&
+          typeof value.on === 'function' &&
+          'start' in value &&
+          typeof value.start === 'function'
       )
     )
-    .length(1),
+  ).check(Schema.isMinLength(1), Schema.isMaxLength(1)),
 });
 
 /** True when `input` was Main's lifetime port, whose close now runs `lost`. */
 export function installHostLifetimePort(input: unknown, lost: () => void): boolean {
-  const message = Message.safeParse(input);
-  if (!message.success) {
+  const message = wireResultDecoder(Message, { errors: 'all' })(input);
+  if (!(message._tag === 'Success')) {
     return false;
   }
-  const port = message.data.ports[0];
+  const port = message.success.ports[0];
   if (!port) {
     throw new Error('Host lifetime message has no transferred port');
   }

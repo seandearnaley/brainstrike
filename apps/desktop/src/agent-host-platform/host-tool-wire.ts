@@ -13,125 +13,138 @@ import {
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { validateToolInputValue } from '@brainstrike/assistant-contract/native-tool-schemas';
-import { z } from 'zod';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
+import { Schema } from 'effect';
 
-const Id = z.string().min(1);
+const Id = Schema.String.check(Schema.isMinCodePoints(1));
 
-export const PlatformShellCompletedSchema = z.strictObject({
-  command: z.string(),
-  precedingWorktreePaths: z.array(z.string()).nullable(),
+export const PlatformShellCompletedSchema = Schema.Struct({
+  command: Schema.String,
+  precedingWorktreePaths: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
   rootId: Id,
-  runId: Id.optional(),
+  runId: Schema.optional(Id),
   threadId: Id,
 });
 
 /** The worktrees Main's ledger adopted from the command, for the host to commit. */
-export const PlatformShellCompletedResultSchema = z.strictObject({
-  adopted: z.array(z.strictObject({ branch: Id.nullable(), path: Id, worktreeId: Id })),
+export const PlatformShellCompletedResultSchema = Schema.Struct({
+  adopted: Schema.mutable(
+    Schema.Array(Schema.Struct({ branch: Schema.NullOr(Id), path: Id, worktreeId: Id }))
+  ),
 });
 
-export const WorktreePathsResultSchema = z.strictObject({
-  paths: z.array(z.string()).nullable(),
+export const WorktreePathsResultSchema = Schema.Struct({
+  paths: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
 });
 
 /** `GrepSearchOptions` of the indexed grep half (`@brainstrike/db`). */
-export const GrepIndexOptionsSchema = z.strictObject({
-  candidateLimit: z.number().int().positive().exactOptional(),
-  caseSensitive: z.boolean().exactOptional(),
-  contextLines: z.number().int().nonnegative().exactOptional(),
-  embeddingSetId: Id.exactOptional(),
-  filePaths: z.array(z.string()).exactOptional(),
-  isRegex: z.boolean().exactOptional(),
-  maxResults: z.number().int().positive().exactOptional(),
-  pattern: z.string().min(1),
-  rootId: Id.exactOptional(),
-  rootIds: z.array(Id).exactOptional(),
+export const GrepIndexOptionsSchema = Schema.Struct({
+  candidateLimit: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
+  caseSensitive: Schema.optionalKey(Schema.Boolean),
+  contextLines: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  embeddingSetId: Schema.optionalKey(Id),
+  filePaths: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String))),
+  isRegex: Schema.optionalKey(Schema.Boolean),
+  maxResults: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
+  pattern: Schema.String.check(Schema.isMinCodePoints(1)),
+  rootId: Schema.optionalKey(Id),
+  rootIds: Schema.optionalKey(Schema.mutable(Schema.Array(Id))),
 });
 
-export const GrepIndexRequestSchema = z.strictObject({
+export const GrepIndexRequestSchema = Schema.Struct({
   options: GrepIndexOptionsSchema,
   threadId: Id,
 });
 
 /** `GrepSearchResult` of the indexed grep half (`@brainstrike/db`). */
-export const GrepIndexResultSchema = z.strictObject({
-  candidatesTruncated: z.boolean(),
-  matches: z.array(
-    z.strictObject({
-      after: z.array(z.string()),
-      before: z.array(z.string()),
-      chunkEndLine: z.number().int().exactOptional(),
-      chunkId: z.string().exactOptional(),
-      chunkStartLine: z.number().int().exactOptional(),
-      line: z.number().int(),
-      lineText: z.string(),
-      path: z.string(),
-      rootId: z.string().nullable().exactOptional(),
-      rootName: z.string().nullable().exactOptional(),
-    })
+export const GrepIndexResultSchema = Schema.Struct({
+  candidatesTruncated: Schema.Boolean,
+  matches: Schema.mutable(
+    Schema.Array(
+      Schema.Struct({
+        after: Schema.mutable(Schema.Array(Schema.String)),
+        before: Schema.mutable(Schema.Array(Schema.String)),
+        chunkEndLine: Schema.optionalKey(Schema.Int),
+        chunkId: Schema.optionalKey(Schema.String),
+        chunkStartLine: Schema.optionalKey(Schema.Int),
+        line: Schema.Int,
+        lineText: Schema.String,
+        path: Schema.String,
+        rootId: Schema.optionalKey(Schema.NullOr(Schema.String)),
+        rootName: Schema.optionalKey(Schema.NullOr(Schema.String)),
+      })
+    )
   ),
-  scanLimited: z.boolean(),
-  skippedMissingLineMetadata: z.number().int().nonnegative(),
-  totalMatches: z.number().int().nonnegative(),
-  truncated: z.boolean(),
+  scanLimited: Schema.Boolean,
+  skippedMissingLineMetadata: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  totalMatches: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  truncated: Schema.Boolean,
 });
 
-const GitError = z.object({ error: z.string(), ok: z.literal(false) });
-function gitResult<T extends z.ZodType>(value: T) {
-  return z.discriminatedUnion('ok', [z.object({ ok: z.literal(true), value }), GitError]);
+const GitError = Schema.Struct({ error: Schema.String, ok: Schema.Literal(false) });
+function gitResult<T extends Schema.Constraint>(value: T) {
+  return Schema.Union([Schema.Struct({ ok: Schema.Literal(true), value }), GitError], {
+    mode: 'oneOf',
+  });
 }
 
 export const WorktreeListResultSchema = gitResult(
-  z.array(
-    z.object({
-      branch: z.string().nullable(),
-      detached: z.boolean(),
-      disabledReason: z.string().nullable(),
-      externalTool: z.string().nullable(),
-      id: z.string().nullable(),
-      managed: z.boolean(),
-      name: z.string(),
-      path: z.string(),
-      primary: z.boolean(),
-      provenance: z.string(),
-      repoCommonDir: z.string(),
-      repositoryRoot: z.string(),
-      rootId: z.string().nullable(),
-      usable: z.boolean(),
-    })
+  Schema.mutable(
+    Schema.Array(
+      Schema.Struct({
+        branch: Schema.NullOr(Schema.String),
+        detached: Schema.Boolean,
+        disabledReason: Schema.NullOr(Schema.String),
+        externalTool: Schema.NullOr(Schema.String),
+        id: Schema.NullOr(Schema.String),
+        managed: Schema.Boolean,
+        name: Schema.String,
+        path: Schema.String,
+        primary: Schema.Boolean,
+        provenance: Schema.String,
+        repoCommonDir: Schema.String,
+        repositoryRoot: Schema.String,
+        rootId: Schema.NullOr(Schema.String),
+        usable: Schema.Boolean,
+      })
+    )
   )
 );
 
 export const WorktreeCreateResultSchema = gitResult(
-  z.object({
-    setup: z.object({ reason: z.string().nullable(), status: z.string() }),
-    worktree: z.object({ branch: z.string().nullable(), id: z.string(), path: z.string() }),
+  Schema.Struct({
+    setup: Schema.Struct({ reason: Schema.NullOr(Schema.String), status: Schema.String }),
+    worktree: Schema.Struct({
+      branch: Schema.NullOr(Schema.String),
+      id: Schema.String,
+      path: Schema.String,
+    }),
   })
 );
 
 export const WorktreeArchiveResultSchema = gitResult(
-  z.object({ snapshotRef: z.string(), worktree: z.object({ id: z.string() }) })
+  Schema.Struct({ snapshotRef: Schema.String, worktree: Schema.Struct({ id: Schema.String }) })
 );
 
-export const WorktreeCreateRequestSchema = z.strictObject({
-  params: z.strictObject({
-    baseRef: z.string().min(1),
-    branch: z.string().min(1),
-    name: z.string().min(1),
+export const WorktreeCreateRequestSchema = Schema.Struct({
+  params: Schema.Struct({
+    baseRef: Schema.String.check(Schema.isMinCodePoints(1)),
+    branch: Schema.String.check(Schema.isMinCodePoints(1)),
+    name: Schema.String.check(Schema.isMinCodePoints(1)),
     rootId: Id,
   }),
-  runId: Id.exactOptional(),
+  runId: Schema.optionalKey(Id),
   threadId: Id,
 });
 
-export const WorktreeArchiveRequestSchema = z.strictObject({
-  params: z.strictObject({ force: z.boolean().exactOptional(), worktreeId: Id }),
-  runId: Id.exactOptional(),
+export const WorktreeArchiveRequestSchema = Schema.Struct({
+  params: Schema.Struct({ force: Schema.optionalKey(Schema.Boolean), worktreeId: Id }),
+  runId: Schema.optionalKey(Id),
   threadId: Id,
 });
 
-const BrowserFailure = z.object({
-  error: z.enum([
+const BrowserFailure = Schema.Struct({
+  error: Schema.Literals([
     'blocked_url',
     'browser_unavailable',
     'driver_failed',
@@ -139,21 +152,26 @@ const BrowserFailure = z.object({
     'load_timeout',
     'navigate_failed',
   ]),
-  hint: z.string(),
-  ok: z.literal(false),
+  hint: Schema.String,
+  ok: Schema.Literal(false),
 });
-function browserResult<T extends z.ZodRawShape>(shape: T) {
-  return z.discriminatedUnion('ok', [z.object({ ok: z.literal(true), ...shape }), BrowserFailure]);
+function browserResult<T extends Schema.Struct.Fields>(shape: T) {
+  return Schema.Union([Schema.Struct({ ok: Schema.Literal(true), ...shape }), BrowserFailure], {
+    mode: 'oneOf',
+  });
 }
 
-export const BrowserNavigateResultSchema = browserResult({ title: z.string(), url: z.string() });
+export const BrowserNavigateResultSchema = browserResult({
+  title: Schema.String,
+  url: Schema.String,
+});
 export const BrowserReadPageResultSchema = browserResult({
-  tree: z.string(),
-  truncated: z.boolean(),
+  tree: Schema.String,
+  truncated: Schema.Boolean,
 });
 export const BrowserPageTextResultSchema = browserResult({
-  text: z.string(),
-  truncated: z.boolean(),
+  text: Schema.String,
+  truncated: Schema.Boolean,
 });
 
 /**
@@ -161,18 +179,17 @@ export const BrowserPageTextResultSchema = browserResult({
  * with — so a hallucinated parameter is refused on this side of the window
  * boundary too, not only in the host.
  *
- * The input CANNOT be embedded as a zod field any more. A registered catalog
- * schema is authored in Effect Schema or zod (ADR-0004, amended 2026-10-15),
- * and `z.strictObject` rejects a non-zod element at its first parse ("expected
- * a Zod schema") — lazily, so it would have thrown on the first browser tool
- * call rather than at construction. The envelope stays zod; the input goes
- * through the catalog's own producer-neutral validator.
+ * The envelope is first-party Effect Schema. The catalog's registered input
+ * owns provider normalization and validation, so read it through that boundary.
  */
-const BrowserRequestEnvelopeSchema = z.strictObject({ input: z.json(), threadId: Id });
+const BrowserRequestEnvelopeSchema = Schema.Struct({ input: Schema.MutableJson, threadId: Id });
 
 function browserRequestParser<Input>(toolId: keyof typeof NATIVE_TOOL_INPUT_SCHEMAS) {
   return (value: unknown): { readonly input: Input; readonly threadId: string } => {
-    const envelope = BrowserRequestEnvelopeSchema.parse(value);
+    const envelope = wireDecoder(BrowserRequestEnvelopeSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(value);
     const parsed = validateToolInputValue(NATIVE_TOOL_INPUT_SCHEMAS[toolId], envelope.input);
     if (!parsed.success) {
       throw new Error(
@@ -200,56 +217,62 @@ export const parseBrowserPageTextRequest = browserRequestParser<BrowserGetPageTe
   NATIVE_TOOL_ID.browserGetPageText
 );
 
-const Severity = z.enum(['warn', 'error', 'fatal']);
+const Severity = Schema.Literals(['warn', 'error', 'fatal']);
 
-export const DiagnosticsReadRequestSchema = z.strictObject({
-  filter: z.strictObject({
-    fingerprint: z.string().min(1).exactOptional(),
-    limit: z.number().int().min(1).max(200).exactOptional(),
-    runId: z.string().min(1).exactOptional(),
-    severity: Severity.exactOptional(),
-    sinceMs: z.number().exactOptional(),
-    threadId: z.string().min(1).exactOptional(),
-    untilMs: z.number().exactOptional(),
+export const DiagnosticsReadRequestSchema = Schema.Struct({
+  filter: Schema.Struct({
+    fingerprint: Schema.optionalKey(Schema.String.check(Schema.isMinCodePoints(1))),
+    limit: Schema.optionalKey(
+      Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)).check(Schema.isLessThanOrEqualTo(200))
+    ),
+    runId: Schema.optionalKey(Schema.String.check(Schema.isMinCodePoints(1))),
+    severity: Schema.optionalKey(Severity),
+    sinceMs: Schema.optionalKey(Schema.Finite),
+    threadId: Schema.optionalKey(Schema.String.check(Schema.isMinCodePoints(1))),
+    untilMs: Schema.optionalKey(Schema.Finite),
   }),
   threadId: Id,
 });
 
-export const DiagnosticEventItemsSchema = z.array(
-  z.object({
-    causeChainJson: z.string().nullable(),
-    causeChainTruncated: z.boolean(),
-    code: z.string().nullable(),
-    contextJson: z.string().nullable(),
-    contextTruncated: z.boolean(),
-    fingerprint: z.string(),
-    id: z.string(),
-    message: z.string(),
-    messageTruncated: z.boolean(),
-    occurredAt: z.number(),
-    resourceId: z.string().nullable(),
-    rootId: z.string().nullable(),
-    runId: z.string().nullable(),
-    scope: z.string().nullable(),
-    sessionId: z.string(),
-    severity: Severity,
-    source: z.string(),
-    stack: z.string().nullable(),
-    stackTruncated: z.boolean(),
-    threadId: z.string().nullable(),
-  })
+export const DiagnosticEventItemsSchema = Schema.mutable(
+  Schema.Array(
+    Schema.Struct({
+      causeChainJson: Schema.NullOr(Schema.String),
+      causeChainTruncated: Schema.Boolean,
+      code: Schema.NullOr(Schema.String),
+      contextJson: Schema.NullOr(Schema.String),
+      contextTruncated: Schema.Boolean,
+      fingerprint: Schema.String,
+      id: Schema.String,
+      message: Schema.String,
+      messageTruncated: Schema.Boolean,
+      occurredAt: Schema.Finite,
+      resourceId: Schema.NullOr(Schema.String),
+      rootId: Schema.NullOr(Schema.String),
+      runId: Schema.NullOr(Schema.String),
+      scope: Schema.NullOr(Schema.String),
+      sessionId: Schema.String,
+      severity: Severity,
+      source: Schema.String,
+      stack: Schema.NullOr(Schema.String),
+      stackTruncated: Schema.Boolean,
+      threadId: Schema.NullOr(Schema.String),
+    })
+  )
 );
 
-export const DiagnosticFingerprintItemsSchema = z.array(
-  z.object({
-    code: z.string().nullable(),
-    count: z.number(),
-    fingerprint: z.string(),
-    firstSeenMs: z.number(),
-    lastSeenMs: z.number(),
-    latestMessage: z.string(),
-    latestMessageTruncated: z.boolean(),
-    severity: Severity,
-    source: z.string(),
-  })
+export const DiagnosticFingerprintItemsSchema = Schema.mutable(
+  Schema.Array(
+    Schema.Struct({
+      code: Schema.NullOr(Schema.String),
+      count: Schema.Finite,
+      fingerprint: Schema.String,
+      firstSeenMs: Schema.Finite,
+      lastSeenMs: Schema.Finite,
+      latestMessage: Schema.String,
+      latestMessageTruncated: Schema.Boolean,
+      severity: Severity,
+      source: Schema.String,
+    })
+  )
 );

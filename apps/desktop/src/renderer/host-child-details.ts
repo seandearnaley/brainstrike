@@ -2,16 +2,17 @@ import { tokensOf } from '@brainstrike/agent-host/ledger-projection';
 import type { HostLogRow } from '@brainstrike/agent-host/protocol';
 import type { HostChildToolbarDetails } from '@brainstrike/app-shell';
 import { readChildExecutionConfiguration } from '@brainstrike/assistant-contract';
-import { z } from 'zod';
+import { wireResultDecoder } from '@brainstrike/assistant-contract/schema-boundary';
+import { Schema } from 'effect';
 
 /** The desktop's committed run configuration names the model settings the run was admitted with. */
-const CommittedIntentSchema = z.object({ intent: z.unknown() });
-const CommittedModelConfigurationSchema = z.object({
-  modelConfiguration: z.object({
-    model: z.string(),
-    modelSettings: z.unknown().optional(),
-    provider: z.string(),
-    providerOptions: z.unknown().optional(),
+const CommittedIntentSchema = Schema.Struct({ intent: Schema.Unknown });
+const CommittedModelConfigurationSchema = Schema.Struct({
+  modelConfiguration: Schema.Struct({
+    model: Schema.String,
+    modelSettings: Schema.optional(Schema.Unknown),
+    provider: Schema.String,
+    providerOptions: Schema.optional(Schema.Unknown),
   }),
 });
 
@@ -20,15 +21,17 @@ function admittedExecution(
   configuration: unknown,
   planMode: boolean
 ): Pick<HostChildToolbarDetails, 'execution' | 'executionUnreadable'> {
-  const committed = CommittedIntentSchema.safeParse(configuration);
-  if (!committed.success) {
+  const committed = wireResultDecoder(CommittedIntentSchema, { errors: 'all' })(configuration);
+  if (!(committed._tag === 'Success')) {
     return {};
   }
-  const parsed = CommittedModelConfigurationSchema.safeParse(committed.data.intent);
-  if (!parsed.success) {
+  const parsed = wireResultDecoder(CommittedModelConfigurationSchema, { errors: 'all' })(
+    committed.success.intent
+  );
+  if (!(parsed._tag === 'Success')) {
     return { executionUnreadable: true };
   }
-  const { model, modelSettings, provider, providerOptions } = parsed.data.modelConfiguration;
+  const { model, modelSettings, provider, providerOptions } = parsed.success.modelConfiguration;
   try {
     return {
       execution: readChildExecutionConfiguration({

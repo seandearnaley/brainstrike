@@ -1,9 +1,10 @@
+import { wireResultDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { createLogger } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { LayoutLoadResult, LayoutPersistenceResult } from '@brainstrike/ui';
+import { Schema, SchemaIssue } from 'effect';
 import { ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
-import { z } from 'zod';
 import { isElectronE2ETestMode } from '../electron-e2e-test-mode';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry, registerDomain } from '../platform/desktop-ipc-registry';
@@ -29,24 +30,27 @@ interface RegisterStoragePreferencesIpcHandlersOptions {
 
 const logger = createLogger('StoragePreferencesIpc');
 
-const panelPersistenceStateSchema = z.object({
-  showConsole: z.boolean(),
-  showLeftPanel: z.boolean(),
-  showRightPanel: z.boolean(),
-  sizes: z.array(
-    z.number().superRefine((value, ctx) => {
-      if (Number.isFinite(value)) {
-        return;
-      }
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Panel size must be a finite number',
-      });
-    })
+const panelPersistenceStateSchema = Schema.Struct({
+  showConsole: Schema.Boolean,
+  showLeftPanel: Schema.Boolean,
+  showRightPanel: Schema.Boolean,
+  sizes: Schema.mutable(
+    Schema.Array(
+      Schema.Finite.check(
+        Schema.makeFilter((value) => {
+          const issues: { issue: string; path: readonly PropertyKey[] }[] = [];
+          if (Number.isFinite(value)) {
+            return issues;
+          }
+          issues.push({ issue: 'Panel size must be a finite number', path: [] });
+          return issues;
+        })
+      )
+    )
   ),
 });
 
-type PanelPersistenceState = z.infer<typeof panelPersistenceStateSchema>;
+type PanelPersistenceState = (typeof panelPersistenceStateSchema)['Type'];
 interface PanelLayoutEnvelope {
   readonly v1: PanelPersistenceState;
 }
@@ -145,13 +149,15 @@ export function registerStoragePreferencesIpcHandlers({
           return { data: null, success: true };
         }
 
-        const parsed = panelPersistenceStateSchema.safeParse(candidate);
-        if (!parsed.success) {
-          logger.warn('Invalid panel layout data in store', { issues: parsed.error.issues });
+        const parsed = wireResultDecoder(panelPersistenceStateSchema, { errors: 'all' })(candidate);
+        if (!(parsed._tag === 'Success')) {
+          logger.warn('Invalid panel layout data in store', {
+            issues: SchemaIssue.makeFormatterStandardSchemaV1()(parsed.failure.issue).issues,
+          });
           return { message: 'Invalid panel layout data', success: false };
         }
 
-        return { data: parsed.data, success: true };
+        return { data: parsed.success, success: true };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         logger.warn('Failed to load panel layout', { error: message });
@@ -165,14 +171,16 @@ export function registerStoragePreferencesIpcHandlers({
         return { message: 'Store not initialized', success: false };
       }
 
-      const parsed = panelPersistenceStateSchema.safeParse(state);
-      if (!parsed.success) {
-        logger.warn('Invalid panel layout payload', { issues: parsed.error.issues });
+      const parsed = wireResultDecoder(panelPersistenceStateSchema, { errors: 'all' })(state);
+      if (!(parsed._tag === 'Success')) {
+        logger.warn('Invalid panel layout payload', {
+          issues: SchemaIssue.makeFormatterStandardSchemaV1()(parsed.failure.issue).issues,
+        });
         return { message: 'Invalid panel layout payload', success: false };
       }
 
       try {
-        store.set('panelLayout', { v1: parsed.data });
+        store.set('panelLayout', { v1: parsed.success });
         return { success: true };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

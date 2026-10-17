@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { Effect, Schema, SchemaGetter } from 'effect';
 
 // Pre-compiled Intl.Collator for sorting results by title
 // This avoids the massive performance overhead of inline localeCompare inside the sorting callback.
@@ -201,23 +201,43 @@ function tokenizeQuery(query: string): string[] {
   return tokenize(query).slice(0, MAX_QUERY_TOKENS);
 }
 
-export const searchDocsInputSchema = z.object({
-  limit: z.number().int().positive().max(MAX_SEARCH_LIMIT).default(DEFAULT_SEARCH_LIMIT),
-  query: z
-    .string()
-    .min(2, 'Query must be at least 2 characters')
-    .max(MAX_QUERY_LENGTH, `Query must be at most ${MAX_QUERY_LENGTH} characters`)
-    .transform((value) => value.trim())
-    .refine((value) => !value.includes('\0'), 'Query cannot contain null bytes')
-    .refine((value) => value.length >= 2, 'Query must be at least 2 characters'),
+export const searchDocsInputSchema = Schema.Struct({
+  limit: Schema.Int.check(Schema.isGreaterThan(0))
+    .check(Schema.isLessThanOrEqualTo(MAX_SEARCH_LIMIT))
+    .annotate({ default: DEFAULT_SEARCH_LIMIT })
+    .pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_SEARCH_LIMIT))),
+  query: Schema.String.check(
+    Schema.isMinCodePoints(2, { message: 'Query must be at least 2 characters' })
+  )
+    .check(
+      Schema.isMaxCodePoints(MAX_QUERY_LENGTH, {
+        message: `Query must be at most ${MAX_QUERY_LENGTH} characters`,
+      })
+    )
+    .pipe(
+      Schema.decode({
+        decode: SchemaGetter.transform((value) => value.trim()),
+        encode: SchemaGetter.passthrough(),
+      })
+    )
+    .check(
+      Schema.makeFilter((value) =>
+        value.includes('\0') ? { issue: 'Query cannot contain null bytes', path: [] } : undefined
+      )
+    )
+    .check(
+      Schema.makeFilter((value) =>
+        value.length >= 2 ? undefined : { issue: 'Query must be at least 2 characters', path: [] }
+      )
+    ),
 });
 
-export const docSummaryInputSchema = z.object({
-  docId: z.string().min(1).max(120),
+export const docSummaryInputSchema = Schema.Struct({
+  docId: Schema.String.check(Schema.isMinCodePoints(1)).check(Schema.isMaxCodePoints(120)),
 });
 
 export async function searchDocsExecute(
-  input: z.infer<typeof searchDocsInputSchema>,
+  input: (typeof searchDocsInputSchema)['Type'],
   customIndex?: readonly WebDocEntry[]
 ): Promise<SearchResponse> {
   const query = (input.query ?? '').trim();
@@ -275,7 +295,7 @@ export async function searchDocsExecute(
 }
 
 export async function docSummaryExecute(
-  input: z.infer<typeof docSummaryInputSchema>,
+  input: (typeof docSummaryInputSchema)['Type'],
   customIndex?: readonly WebDocEntry[]
 ): Promise<DocSummaryResponse> {
   const docId = (input.docId ?? '').trim();

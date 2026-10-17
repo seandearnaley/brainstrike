@@ -35,9 +35,10 @@ import {
   NATIVE_TOOL_ID,
   refusalError,
 } from '@brainstrike/assistant-contract';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import type { HostStartOptions } from '@brainstrike/host-lease';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { createHostCapabilities } from './capabilities.js';
 import { resolveHostDelegation } from './delegation.js';
 import { getGlobalHooksPath } from './hooks/config.js';
@@ -260,7 +261,10 @@ export async function createHostPlatform(
       }
       // Coordinator-approved stateless CLI policy: explicit selection is separate
       // from Main's saved enabled-model preference. Existing hosts keep their owner.
-      const intent = z.record(z.string(), z.json()).parse({
+      const intent = wireDecoder(Schema.Record(Schema.String, Schema.MutableJson), {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })({
         agentLoop: { inputTokenLimit, maxSteps: DEFAULT_AGENT_MAX_STEPS },
         enabledNativeToolIds: STANDALONE_NATIVE_TOOL_IDS,
         memoryOptions: {

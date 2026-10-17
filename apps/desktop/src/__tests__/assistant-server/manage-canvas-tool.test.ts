@@ -6,6 +6,7 @@
  */
 import type { ManageCanvasInput, RuntimeData } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import {
   CANVAS_STATE_KEY_PREFIX,
   HostCanvasVersionSchema,
@@ -27,7 +28,9 @@ function runtimeWithThread(threadId = 'thread-1', resourceId = 'resource-1'): Ru
 function storedCanvases(state: ThreadState) {
   return state
     .entries(CANVAS_STATE_KEY_PREFIX)
-    .map(([, value]) => HostCanvasVersionSchema.parse(value));
+    .map(([, value]) =>
+      wireDecoder(HostCanvasVersionSchema, { errors: 'all', onExcessProperty: 'error' })(value)
+    );
 }
 
 async function run(

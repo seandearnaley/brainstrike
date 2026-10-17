@@ -14,10 +14,11 @@ import {
   type ReferencedFileFailure,
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/ports';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
 import { createLogger } from '@brainstrike/logging';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import {
   type AttachedMentionFolders,
   readReferencedFilesContext,
@@ -74,8 +75,14 @@ export async function readDesktopHostSystemContext(options: {
   if (options.request.snapshot) {
     // Recovery (and a wake) consumes the already committed text, without re-reading files.
     const committed = options.request.snapshot.configuration;
-    const system = z.string().optional().parse(committed['system']);
-    const childSystem = z.string().optional().parse(committed['childSystem']);
+    const system = wireDecoder(Schema.optional(Schema.String), {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(committed['system']);
+    const childSystem = wireDecoder(Schema.optional(Schema.String), {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(committed['childSystem']);
     return {
       ...(childSystem === undefined ? {} : { childSystem }),
       ...(system === undefined ? {} : { system }),

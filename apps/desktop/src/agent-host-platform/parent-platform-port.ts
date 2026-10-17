@@ -1,16 +1,17 @@
-import { z } from 'zod';
+import {
+  strictWireSchema,
+  wireResultDecoder,
+} from '@brainstrike/assistant-contract/schema-boundary';
+import { Schema } from 'effect';
 import type { PlatformMessagePort } from './connection';
+import { PlatformMessagePortSchema } from './connection';
 
-const Message = z.object({
-  data: z.strictObject({ event: z.literal('platform-capabilities') }),
-  ports: z
-    .array(
-      z.custom<PlatformMessagePort>(
-        (value) =>
-          typeof value === 'object' && value !== null && 'postMessage' in value && 'on' in value
-      )
-    )
-    .length(1),
+const Message = Schema.Struct({
+  data: strictWireSchema(Schema.Struct({ event: Schema.Literal('platform-capabilities') })),
+  ports: Schema.mutable(Schema.Array(PlatformMessagePortSchema)).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(1)
+  ),
 });
 const key = Symbol.for('brainstrike.agent-host.desktop-platform-port');
 interface PlatformProcess extends NodeJS.Process {
@@ -23,11 +24,11 @@ function deferred(): ReturnType<typeof Promise.withResolvers<PlatformMessagePort
 }
 /** The separate bundle and utility entry share one process-local capability, never a durable ID. */
 export function installParentPlatformPort(input: unknown): boolean {
-  const message = Message.safeParse(input);
-  if (!message.success) {
+  const message = wireResultDecoder(Message, { errors: 'all' })(input);
+  if (!(message._tag === 'Success')) {
     return false;
   }
-  const port = message.data.ports[0];
+  const port = message.success.ports[0];
   if (!port) {
     throw new Error('Desktop platform message has no transferred port');
   }

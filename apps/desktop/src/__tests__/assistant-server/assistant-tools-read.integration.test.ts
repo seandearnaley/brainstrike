@@ -19,6 +19,7 @@ import {
   ToolInputError,
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { encodeToolOutputArtifactCursor } from '@brainstrike/assistant-contract/tool-output-artifact';
 import {
   decodedWorkspaceTextModelOutputChars,
@@ -175,7 +176,10 @@ function mainRequest(
         return overWire(await services.indexSearch.status());
       }
       case 'desktop-read/grep-index': {
-        const { options } = GrepIndexRequestSchema.parse(input);
+        const { options } = wireDecoder(GrepIndexRequestSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input);
         if (!services.grepIndex) {
           throw new Error('Main has no grep index for host threads');
         }

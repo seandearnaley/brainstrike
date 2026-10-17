@@ -1,3 +1,4 @@
+import { Result, Schema, SchemaIssue } from 'effect';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type ParsedEmbeddingModel,
@@ -54,7 +55,11 @@ function modelWithout(key: string): Record<string, unknown> {
 
 describe('ProviderCatalogSchema', () => {
   it('accepts a well-formed catalog', () => {
-    expect(() => ProviderCatalogSchema.parse(catalogWith(WELL_FORMED_MODEL))).not.toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(ProviderCatalogSchema, { errors: 'all', onExcessProperty: 'error' })(
+        catalogWith(WELL_FORMED_MODEL)
+      )
+    ).not.toThrow();
   });
 
   it('preserves the qualified local embedding profile fields', () => {
@@ -80,27 +85,49 @@ describe('ProviderCatalogSchema', () => {
   });
 
   it('rejects an LLM model entry that omits the required vision capability', () => {
-    expect(() => ProviderCatalogSchema.parse(catalogWith(modelWithout('vision')))).toThrowError(
-      /"path":\s*\[\s*0,\s*"models",\s*0,\s*"vision"\s*\]/
+    const result = Schema.decodeUnknownResult(ProviderCatalogSchema, { onExcessProperty: 'error' })(
+      catalogWith(modelWithout('vision'))
     );
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(
+        SchemaIssue.makeFormatterStandardSchemaV1()(result.failure.issue).issues
+      ).toContainEqual({
+        message: 'Missing key',
+        path: [0, 'models', 0, 'vision'],
+      });
+    }
   });
 
   it('rejects an LLM model entry that omits the required contextWindow', () => {
     expect(() =>
-      ProviderCatalogSchema.parse(catalogWith(modelWithout('contextWindow')))
+      Schema.decodeUnknownSync(ProviderCatalogSchema, { errors: 'all', onExcessProperty: 'error' })(
+        catalogWith(modelWithout('contextWindow'))
+      )
     ).toThrowError(/"contextWindow"/);
   });
 
   it('rejects an unknown key rather than silently dropping it', () => {
     expect(() =>
-      ProviderCatalogSchema.parse(catalogWith({ ...WELL_FORMED_MODEL, visoin: 'supported' }))
+      Schema.decodeUnknownSync(ProviderCatalogSchema, { errors: 'all', onExcessProperty: 'error' })(
+        catalogWith({ ...WELL_FORMED_MODEL, visoin: 'supported' })
+      )
     ).toThrowError(/visoin/);
   });
 
   it('rejects a vision value outside the declared union', () => {
-    expect(() =>
-      ProviderCatalogSchema.parse(catalogWith({ ...WELL_FORMED_MODEL, vision: 'maybe' }))
-    ).toThrowError(/invalid_value|invalid_union/);
+    const result = Schema.decodeUnknownResult(ProviderCatalogSchema, { onExcessProperty: 'error' })(
+      catalogWith({ ...WELL_FORMED_MODEL, vision: 'maybe' })
+    );
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(
+        SchemaIssue.makeFormatterStandardSchemaV1()(result.failure.issue).issues
+      ).toContainEqual({
+        message: 'Expected "supported" | "unsupported" | "unknown"',
+        path: [0, 'models', 0, 'vision'],
+      });
+    }
   });
 });
 

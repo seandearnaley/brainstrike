@@ -1,3 +1,4 @@
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 /**
  * The desktop agent host's process-lifetime tool state: the command sessions
  * its runs start, served to Main's Terminal panel over the platform
@@ -34,25 +35,51 @@ export function hostCommandSessionManager(): CommandSessionManager {
 export function serveHostCommandSessions(connection: MessageConnection): void {
   const handlers = createCommandSessionIpcHandlers({ manager: hostCommandSessionManager() });
   connection.onRequest('host/command-sessions/list', (input: unknown): unknown =>
-    handlers.list(HostCommandSessionListRequestSchema.parse(input))
+    handlers.list(
+      wireDecoder(HostCommandSessionListRequestSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input)
+    )
   );
   connection.onRequest('host/command-sessions/read', (input: unknown): unknown =>
-    handlers.read(HostCommandSessionReadRequestSchema.parse(input))
+    handlers.read(
+      wireDecoder(HostCommandSessionReadRequestSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input)
+    )
   );
   connection.onRequest('host/command-sessions/write', (input: unknown): unknown =>
-    handlers.write(HostCommandSessionWriteRequestSchema.parse(input))
+    handlers.write(
+      wireDecoder(HostCommandSessionWriteRequestSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input)
+    )
   );
   connection.onRequest('host/command-sessions/stop', (input: unknown): unknown =>
-    handlers.stop(HostCommandSessionIdentitySchema.parse(input))
+    handlers.stop(
+      wireDecoder(HostCommandSessionIdentitySchema, { errors: 'all', onExcessProperty: 'error' })(
+        input
+      )
+    )
   );
   connection.onRequest('host/command-sessions/remove', (input: unknown): unknown =>
-    handlers.remove(HostCommandSessionIdentitySchema.parse(input))
+    handlers.remove(
+      wireDecoder(HostCommandSessionIdentitySchema, { errors: 'all', onExcessProperty: 'error' })(
+        input
+      )
+    )
   );
   // A root disconnected in Main stops and forgets this host's sessions there.
   connection.onRequest(
     'host/command-sessions/dispose-root',
     async (input: unknown): Promise<unknown> => {
-      const { rootId } = HostCommandSessionListRequestSchema.parse(input);
+      const { rootId } = wireDecoder(HostCommandSessionListRequestSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input);
       return { disposed: await hostCommandSessionManager().disposeRoot(rootId) };
     }
   );

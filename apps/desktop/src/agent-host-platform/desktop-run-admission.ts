@@ -17,12 +17,12 @@ import {
   isPermissionDenied,
   refusalError,
 } from '@brainstrike/assistant-contract';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/ports';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
 import { Schema } from 'effect';
-import { z } from 'zod';
 import type { AttachedMentionFolders } from '../assistant-server/referenced-files-context';
 import {
   type PreparedAdmittedSkills,
@@ -152,7 +152,10 @@ function desktopDurableConfiguration(
   cliWorkspaceRoots?: RuntimeData['workspaceRoots'],
   boundWorkspaceRoots?: RuntimeData['workspaceRoots']
 ): DesktopRunSelection['durableConfiguration'] {
-  return z.record(z.string(), z.json()).parse(
+  return wireDecoder(Schema.Record(Schema.String, Schema.MutableJson), {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(
     JSON.parse(
       JSON.stringify({
         intent,

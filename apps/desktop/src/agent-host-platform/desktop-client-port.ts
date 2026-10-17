@@ -1,17 +1,17 @@
 import type { AgentHost } from '@brainstrike/agent-host';
-import { z } from 'zod';
-import { mainPlatformConnection, type PlatformMessagePort } from './connection';
+import {
+  strictWireSchema,
+  wireResultDecoder,
+} from '@brainstrike/assistant-contract/schema-boundary';
+import { Schema } from 'effect';
+import { mainPlatformConnection, PlatformMessagePortSchema } from './connection';
 
-const Message = z.object({
-  data: z.strictObject({ event: z.literal('client-port') }),
-  ports: z
-    .array(
-      z.custom<PlatformMessagePort>(
-        (value) =>
-          typeof value === 'object' && value !== null && 'postMessage' in value && 'on' in value
-      )
-    )
-    .length(1),
+const Message = Schema.Struct({
+  data: strictWireSchema(Schema.Struct({ event: Schema.Literal('client-port') })),
+  ports: Schema.mutable(Schema.Array(PlatformMessagePortSchema)).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(1)
+  ),
 });
 
 /**
@@ -20,11 +20,11 @@ const Message = z.object({
  * Returns false for any other parent message.
  */
 export function bindDesktopClientPort(input: unknown, host: AgentHost | undefined): boolean {
-  const message = Message.safeParse(input);
-  if (!message.success) {
+  const message = wireResultDecoder(Message, { errors: 'all' })(input);
+  if (!(message._tag === 'Success')) {
     return false;
   }
-  const port = message.data.ports[0];
+  const port = message.success.ports[0];
   if (!port) {
     throw new Error('Desktop client message has no transferred port');
   }

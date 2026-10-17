@@ -1,116 +1,135 @@
 import { OPENAI_REASONING_EFFORT_VALUES } from '@brainstrike/types';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { findProviderDefinition } from './provider-registry.js';
 
-const id = z.string().trim().min(1).max(512);
-const provider = id.refine((value) => findProviderDefinition(value) !== undefined);
-const effort = z.enum(OPENAI_REASONING_EFFORT_VALUES);
-const summary = z.enum(['auto', 'detailed']);
-const count = z.number().int().nonnegative();
+const id = Schema.String.pipe(Schema.decodeTo(Schema.Trim))
+  .check(Schema.isMinCodePoints(1))
+  .check(Schema.isMaxCodePoints(512));
+const provider = id.check(
+  Schema.makeFilter((value) =>
+    findProviderDefinition(value) === undefined ? { issue: 'Invalid input', path: [] } : undefined
+  )
+);
+const effort = Schema.Literals(OPENAI_REASONING_EFFORT_VALUES);
+const summary = Schema.Literals(['auto', 'detailed']);
+const count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 /** The same generation fields represented by RuntimeData; transport credentials are excluded. */
-export const childGenerationOptionsSchema = z.strictObject({
-  anthropic: z
-    .strictObject({
-      effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
-      thinking: z
-        .discriminatedUnion('type', [
-          z.strictObject({
-            display: z.enum(['omitted', 'summarized', 'updates']).optional(),
-            type: z.literal('adaptive'),
-          }),
-          z.strictObject({ budgetTokens: count, type: z.literal('enabled') }),
-          z.strictObject({ type: z.literal('disabled') }),
-        ])
-        .optional(),
+export const childGenerationOptionsSchema = Schema.Struct({
+  anthropic: Schema.optional(
+    Schema.Struct({
+      effort: Schema.optional(Schema.Literals(['low', 'medium', 'high', 'xhigh', 'max'])),
+      thinking: Schema.optional(
+        Schema.Union(
+          [
+            Schema.Struct({
+              display: Schema.optional(Schema.Literals(['omitted', 'summarized', 'updates'])),
+              type: Schema.Literal('adaptive'),
+            }),
+            Schema.Struct({ budgetTokens: count, type: Schema.Literal('enabled') }),
+            Schema.Struct({ type: Schema.Literal('disabled') }),
+          ],
+          { mode: 'oneOf' }
+        )
+      ),
     })
-    .optional(),
-  bedrock: z
-    .strictObject({
-      reasoningConfig: z
-        .strictObject({
-          budgetTokens: count.optional(),
-          display: z.enum(['omitted', 'summarized']).optional(),
-          maxReasoningEffort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
-          type: z.enum(['adaptive', 'disabled', 'enabled']),
+  ),
+  bedrock: Schema.optional(
+    Schema.Struct({
+      reasoningConfig: Schema.optional(
+        Schema.Struct({
+          budgetTokens: Schema.optional(count),
+          display: Schema.optional(Schema.Literals(['omitted', 'summarized'])),
+          maxReasoningEffort: Schema.optional(
+            Schema.Literals(['low', 'medium', 'high', 'xhigh', 'max'])
+          ),
+          type: Schema.Literals(['adaptive', 'disabled', 'enabled']),
         })
-        .optional(),
+      ),
     })
-    .optional(),
-  google: z
-    .strictObject({
-      thinkingConfig: z
-        .strictObject({
-          includeThoughts: z.boolean().optional(),
-          thinkingBudget: z.number().int().min(-1).optional(),
-          thinkingLevel: z.enum(['minimal', 'low', 'medium', 'high']).optional(),
+  ),
+  google: Schema.optional(
+    Schema.Struct({
+      thinkingConfig: Schema.optional(
+        Schema.Struct({
+          includeThoughts: Schema.optional(Schema.Boolean),
+          thinkingBudget: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(-1))),
+          thinkingLevel: Schema.optional(Schema.Literals(['minimal', 'low', 'medium', 'high'])),
         })
-        .optional(),
+      ),
     })
-    .optional(),
-  local: z
-    .strictObject({ thinking: z.strictObject({ enabled: z.boolean().optional() }).optional() })
-    .optional(),
-  openai: z
-    .strictObject({ reasoningEffort: effort.optional(), reasoningSummary: summary.optional() })
-    .optional(),
-  openrouter: z
-    .strictObject({
-      // biome-ignore lint/style/useNamingConvention: OpenRouter wire field.
-      provider: z.strictObject({ require_parameters: z.literal(true) }),
-      reasoning: z
-        .strictObject({
-          effort: effort.optional(),
-          enabled: z.boolean().optional(),
-          exclude: z.boolean().optional(),
-          summary: summary.optional(),
+  ),
+  local: Schema.optional(
+    Schema.Struct({
+      thinking: Schema.optional(Schema.Struct({ enabled: Schema.optional(Schema.Boolean) })),
+    })
+  ),
+  openai: Schema.optional(
+    Schema.Struct({
+      reasoningEffort: Schema.optional(effort),
+      reasoningSummary: Schema.optional(summary),
+    })
+  ),
+  openrouter: Schema.optional(
+    Schema.Struct({
+      provider: Schema.Struct({ ['require_parameters']: Schema.Literal(true) }),
+      reasoning: Schema.optional(
+        Schema.Struct({
+          effort: Schema.optional(effort),
+          enabled: Schema.optional(Schema.Boolean),
+          exclude: Schema.optional(Schema.Boolean),
+          summary: Schema.optional(summary),
         })
-        .optional(),
+      ),
     })
-    .optional(),
+  ),
 });
-export const childModelSettingsSchema = z.strictObject({
-  frequencyPenalty: z.number().finite().optional(),
-  maxOutputTokens: count.positive().optional(),
-  presencePenalty: z.number().finite().optional(),
-  temperature: z.number().finite().optional(),
-  topP: z.number().finite().optional(),
+export const childModelSettingsSchema = Schema.Struct({
+  frequencyPenalty: Schema.optional(Schema.Finite),
+  maxOutputTokens: Schema.optional(count.check(Schema.isGreaterThan(0))),
+  presencePenalty: Schema.optional(Schema.Finite),
+  temperature: Schema.optional(Schema.Finite),
+  topP: Schema.optional(Schema.Finite),
 });
 /** Requested settings can only reduce tools. The caller cannot supply a permission snapshot. */
-export const childNextRunSchema = z.strictObject({
-  disabledToolIds: z.array(id).optional(),
-  model: z.strictObject({ modelId: id, provider }).optional(),
-  modelSettings: childModelSettingsSchema.optional(),
-  planMode: z.boolean().optional(),
-  providerOptions: childGenerationOptionsSchema.optional(),
-  requestedReasoningEffort: effort.optional(),
+export const childNextRunSchema = Schema.Struct({
+  disabledToolIds: Schema.optional(Schema.mutable(Schema.Array(id))),
+  model: Schema.optional(Schema.Struct({ modelId: id, provider })),
+  modelSettings: Schema.optional(childModelSettingsSchema),
+  planMode: Schema.optional(Schema.Boolean),
+  providerOptions: Schema.optional(childGenerationOptionsSchema),
+  requestedReasoningEffort: Schema.optional(effort),
 });
-export type ChildNextRun = z.output<typeof childNextRunSchema>;
-const decision = z.enum(['allow', 'ask', 'deny']);
-const risk = z.enum(['read', 'edit', 'execute', 'mcp']);
-const permissionSchema = z.strictObject({
-  defaultRisk: risk.optional(),
-  perToolOverrides: z.record(z.string(), decision).optional(),
-  policies: z.strictObject({ edit: decision, execute: decision, mcp: decision, read: decision }),
-  riskByTool: z.record(z.string(), risk).optional(),
-  sessionGrants: z.array(risk).optional(),
-  yolo: z.boolean(),
+export type ChildNextRun = (typeof childNextRunSchema)['Type'];
+const decision = Schema.Literals(['allow', 'ask', 'deny']);
+const risk = Schema.Literals(['read', 'edit', 'execute', 'mcp']);
+const permissionSchema = Schema.Struct({
+  defaultRisk: Schema.optional(risk),
+  perToolOverrides: Schema.optional(Schema.Record(Schema.String, decision)),
+  policies: Schema.Struct({ edit: decision, execute: decision, mcp: decision, read: decision }),
+  riskByTool: Schema.optional(Schema.Record(Schema.String, risk)),
+  sessionGrants: Schema.optional(Schema.mutable(Schema.Array(risk))),
+  yolo: Schema.Boolean,
 });
-export const childExecutionConfigurationSchema = z.strictObject({
+export const childExecutionConfigurationSchema = Schema.Struct({
   model: id,
-  modelSettings: childModelSettingsSchema.optional(),
-  permissionPolicy: permissionSchema.optional(),
-  planMode: z.boolean(),
+  modelSettings: Schema.optional(childModelSettingsSchema),
+  permissionPolicy: Schema.optional(permissionSchema),
+  planMode: Schema.Boolean,
   provider,
-  providerOptions: childGenerationOptionsSchema.optional(),
-  requestedReasoningEffort: effort.optional(),
+  providerOptions: Schema.optional(childGenerationOptionsSchema),
+  requestedReasoningEffort: Schema.optional(effort),
 });
 export type ChildExecutionConfiguration = Defined<
-  z.output<typeof childExecutionConfigurationSchema>
+  (typeof childExecutionConfigurationSchema)['Type']
 >;
 export function readChildExecutionConfiguration(value: unknown): ChildExecutionConfiguration {
-  return omitUndefined(childExecutionConfigurationSchema.parse(value));
+  return omitUndefined(
+    Schema.decodeUnknownSync(childExecutionConfigurationSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(value)
+  );
 }
-
 // Zod's optional fields admit explicit undefined; RuntimeData's exact optional
 // contract admits only absence. Preserve every defined value while normalizing that boundary.
 type Defined<T> = T extends readonly (infer Item)[]

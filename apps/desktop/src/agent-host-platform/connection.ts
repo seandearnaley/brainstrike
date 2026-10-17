@@ -1,3 +1,5 @@
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
+import { Schema } from 'effect';
 import {
   AbstractMessageReader,
   AbstractMessageWriter,
@@ -7,7 +9,6 @@ import {
   type Message,
   type MessageConnection,
 } from 'vscode-jsonrpc/node';
-import { z } from 'zod';
 
 export interface PlatformMessagePort {
   close(): void;
@@ -18,6 +19,22 @@ export interface PlatformMessagePort {
   postMessage(message: unknown): void;
   start(): void;
 }
+/** The transferred object is a capability: validate methods and retain its identity/prototype. */
+export const PlatformMessagePortSchema = Schema.declare<PlatformMessagePort>(
+  (value): value is PlatformMessagePort =>
+    typeof value === 'object' &&
+    value !== null &&
+    'close' in value &&
+    typeof value.close === 'function' &&
+    'off' in value &&
+    typeof value.off === 'function' &&
+    'on' in value &&
+    typeof value.on === 'function' &&
+    'postMessage' in value &&
+    typeof value.postMessage === 'function' &&
+    'start' in value &&
+    typeof value.start === 'function'
+);
 class MainPortReader extends AbstractMessageReader {
   constructor(private readonly port: PlatformMessagePort) {
     super();
@@ -25,7 +42,14 @@ class MainPortReader extends AbstractMessageReader {
   listen(callback: DataCallback): Disposable {
     const receive = (event: { readonly data: unknown }): void => {
       try {
-        callback(z.object({ jsonrpc: z.string() }).passthrough().parse(event.data));
+        callback(
+          wireDecoder(
+            Schema.StructWithRest(Schema.Struct({ jsonrpc: Schema.String }), [
+              Schema.Record(Schema.String, Schema.Unknown),
+            ]),
+            { errors: 'all', onExcessProperty: 'error' }
+          )(event.data)
+        );
       } catch (cause) {
         this.fireError(cause instanceof Error ? cause : new Error('Invalid platform frame'));
       }

@@ -10,6 +10,7 @@ import type {
   AssistantChildAttachment,
   AssistantChildInput,
 } from '@brainstrike/assistant-contract';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import type {
   CommittedAssistantCommands,
   CommittedAssistantLogStore,
@@ -20,7 +21,6 @@ import {
 } from '@brainstrike/host-conversation';
 import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
-import { z } from 'zod';
 import { CommittedHostCheckpoints } from './committed-host-checkpoints';
 import { CommittedHostMcpInput } from './committed-host-mcp-input';
 import { CommittedHostVerdicts } from './committed-host-verdicts';
@@ -85,9 +85,10 @@ export function hostRunSettings(
   return {
     ...(settings.readConfiguration
       ? {
-          configuration: z
-            .record(z.string(), z.json())
-            .parse(JSON.parse(JSON.stringify(settings.readConfiguration()))),
+          configuration: wireDecoder(Schema.Record(Schema.String, Schema.MutableJson), {
+            errors: 'all',
+            onExcessProperty: 'error',
+          })(JSON.parse(JSON.stringify(settings.readConfiguration()))),
         }
       : {}),
     modelId: settings.readModelId?.() ?? settings.modelId,

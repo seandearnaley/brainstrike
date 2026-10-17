@@ -1,5 +1,6 @@
+import { wireDecoder, wireResultDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { sanitizeStdioDiagnosticLine } from '@brainstrike/host-capabilities/mcp/stdio-diagnostics';
-import { z } from 'zod';
+import { Schema, SchemaGetter } from 'effect';
 import {
   parseOfficialCustomHeaderContext,
   runProductionMcpConformanceClient,
@@ -13,15 +14,30 @@ const FAILURE_CAUSE_MAX_DEPTH = 4;
 const FAILURE_CAUSE_MAX_PARTS = 6;
 const FAILURE_CAUSE_MAX_AGGREGATED = 3;
 
-const ProcessInputSchema = z.strictObject({
-  context: z.string().optional(),
-  protocolVersion: z.enum(['2025-11-25', '2026-07-28']),
-  scenario: z.string().min(1),
-  serverUrl: z
-    .url({ protocol: /^https?$/u })
-    .refine((value) => new URL(value).username === '' && new URL(value).password === '', {
-      message: 'server URL must not include credentials',
-    }),
+const ProcessInputSchema = Schema.Struct({
+  context: Schema.optional(Schema.String),
+  protocolVersion: Schema.Literals(['2025-11-25', '2026-07-28']),
+  scenario: Schema.String.check(Schema.isMinCodePoints(1)),
+  serverUrl: Schema.String.pipe(
+    Schema.decodeTo(Schema.String, {
+      decode: SchemaGetter.transform((value) => value.trim().replace(/[\t\n\r]/gu, '')),
+      encode: SchemaGetter.passthrough(),
+    })
+  ).check(
+    Schema.makeFilter((value) => {
+      if (!URL.canParse(value)) {
+        return 'Invalid URL';
+      }
+      const url = new URL(value);
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        return 'Invalid URL';
+      }
+      if (url.username !== '' || url.password !== '') {
+        return 'server URL must not include credentials';
+      }
+      return;
+    })
+  ),
 });
 
 interface ProcessDependencies {
@@ -32,20 +48,23 @@ interface ProcessDependencies {
 export function parseOfficialConformanceProcessInput(
   argv: readonly string[],
   environment: NodeJS.ProcessEnv
-): z.output<typeof ProcessInputSchema> {
+): (typeof ProcessInputSchema)['Type'] {
   if (argv.length !== 1) {
     throw new Error('Production MCP conformance client requires exactly one server URL');
   }
   const context = environment['MCP_CONFORMANCE_CONTEXT'];
-  const parsed = ProcessInputSchema.parse({
+  const parsed = wireDecoder(ProcessInputSchema, { errors: 'all', onExcessProperty: 'error' })({
     ...(context === undefined ? {} : { context }),
     protocolVersion: environment['MCP_CONFORMANCE_PROTOCOL_VERSION'],
     scenario: environment['MCP_CONFORMANCE_SCENARIO'],
     serverUrl: argv[0],
   });
-  const authScenario = AllOfficialAuthScenarioNameSchema.safeParse(parsed.scenario);
-  if (authScenario.success) {
-    parseOfficialAuthScenarioContext(authScenario.data, context);
+  const authScenario = wireResultDecoder(AllOfficialAuthScenarioNameSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(parsed.scenario);
+  if (authScenario._tag === 'Success') {
+    parseOfficialAuthScenarioContext(authScenario.success, context);
   } else if (parsed.scenario === 'http-custom-headers') {
     parseOfficialCustomHeaderContext(context);
   } else if (context !== undefined) {
@@ -93,7 +112,7 @@ export async function runOfficialConformanceProcess(
   dependencies: ProcessDependencies = {}
 ): Promise<number> {
   const writeError = dependencies.writeError ?? process.stderr.write.bind(process.stderr);
-  let input: z.output<typeof ProcessInputSchema>;
+  let input: (typeof ProcessInputSchema)['Type'];
   try {
     // Process input can carry credential-bearing auth context; never echo any
     // parse detail for it.

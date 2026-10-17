@@ -1,7 +1,8 @@
 import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host/protocol';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import type { HostAttachment } from '@brainstrike/host-lease';
+import { Schema } from 'effect';
 import { ipcMain, type MessagePortMain } from 'electron';
-import { z } from 'zod';
 import {
   type AgentHostPortRelay,
   openAgentHostChildRelay,
@@ -32,7 +33,10 @@ export function registerAgentHostClientIpc(
     { roles: ['visible-ui'] },
     (event, requestId: unknown) => {
       const operation = (async (): Promise<void> => {
-        const id = z.string().uuid().parse(requestId);
+        const id = wireDecoder(Schema.String.check(Schema.isUUID()), {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(requestId);
         if (closing) {
           throw new Error('Agent client bridge is closing');
         }

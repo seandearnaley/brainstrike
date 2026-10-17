@@ -1,40 +1,41 @@
 import { createHash } from 'node:crypto';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { calculateRRFContribution, RRF_K_DEFAULT } from '@brainstrike/db';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { aggregateMetrics, evaluateTestCase } from './metrics';
 import type { AggregateMetrics, TestCaseResult } from './types';
 
-const sourceSchema = z.object({
-  relativePath: z.string().min(1),
-  sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+const sourceSchema = Schema.Struct({
+  relativePath: Schema.String.check(Schema.isMinCodePoints(1)),
+  sha256: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u)),
 });
-const judgmentSchema = z.object({
-  endLine: z.number().int().positive(),
-  evidence: z.string().min(1),
-  id: z.string().min(1),
-  rationale: z.string().min(1),
-  relativePath: z.string().min(1),
-  startLine: z.number().int().positive(),
+const judgmentSchema = Schema.Struct({
+  endLine: Schema.Int.check(Schema.isGreaterThan(0)),
+  evidence: Schema.String.check(Schema.isMinCodePoints(1)),
+  id: Schema.String.check(Schema.isMinCodePoints(1)),
+  rationale: Schema.String.check(Schema.isMinCodePoints(1)),
+  relativePath: Schema.String.check(Schema.isMinCodePoints(1)),
+  startLine: Schema.Int.check(Schema.isGreaterThan(0)),
 });
-export const repositoryRetrievalFixtureSchema = z.object({
-  judgmentMethod: z.string().min(1),
-  name: z.string().min(1),
-  queries: z
-    .array(
-      z.object({
-        id: z.string().min(1),
-        intent: z.string().min(1),
-        judgments: z.array(judgmentSchema).min(1),
-        kind: z.enum(['exact', 'fuzzy', 'semantic', 'mixed']),
-        query: z.string().min(1),
+export const repositoryRetrievalFixtureSchema = Schema.Struct({
+  judgmentMethod: Schema.String.check(Schema.isMinCodePoints(1)),
+  name: Schema.String.check(Schema.isMinCodePoints(1)),
+  queries: Schema.mutable(
+    Schema.Array(
+      Schema.Struct({
+        id: Schema.String.check(Schema.isMinCodePoints(1)),
+        intent: Schema.String.check(Schema.isMinCodePoints(1)),
+        judgments: Schema.mutable(Schema.Array(judgmentSchema)).check(Schema.isMinLength(1)),
+        kind: Schema.Literals(['exact', 'fuzzy', 'semantic', 'mixed']),
+        query: Schema.String.check(Schema.isMinCodePoints(1)),
       })
     )
-    .min(1),
-  sourceCommit: z.string().regex(/^[a-f0-9]{40}$/u),
-  sources: z.array(sourceSchema).min(1),
-  version: z.string().min(1),
+  ).check(Schema.isMinLength(1)),
+  sourceCommit: Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/u)),
+  sources: Schema.mutable(Schema.Array(sourceSchema)).check(Schema.isMinLength(1)),
+  version: Schema.String.check(Schema.isMinCodePoints(1)),
 });
-export type RepositoryRetrievalFixture = z.infer<typeof repositoryRetrievalFixtureSchema>;
+export type RepositoryRetrievalFixture = (typeof repositoryRetrievalFixtureSchema)['Type'];
 export type JudgedQuery = RepositoryRetrievalFixture['queries'][number];
 export type RetrievalArm = 'bm25' | 'grep' | 'trigram' | 'vector';
 export type EvaluationMode = RetrievalArm | 'lexical' | 'hybrid';
@@ -63,15 +64,15 @@ export interface EvaluationEmbeddingProfile {
   revision: string;
   tokenCap: number;
 }
-const embeddingProfileSchema = z.object({
-  device: z.enum(['wasm', 'webgpu']),
-  dimensions: z.literal(384),
-  dtype: z.enum(['q8', 'fp16', 'fp32']),
-  modelId: z.string().min(1),
-  normalization: z.literal('l2'),
-  pooling: z.enum(['mean', 'cls']),
-  revision: z.string().regex(/^[a-f0-9]{40}$/u),
-  tokenCap: z.number().int().positive(),
+const embeddingProfileSchema = Schema.Struct({
+  device: Schema.Literals(['wasm', 'webgpu']),
+  dimensions: Schema.Literal(384),
+  dtype: Schema.Literals(['q8', 'fp16', 'fp32']),
+  modelId: Schema.String.check(Schema.isMinCodePoints(1)),
+  normalization: Schema.Literal('l2'),
+  pooling: Schema.Literals(['mean', 'cls']),
+  revision: Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/u)),
+  tokenCap: Schema.Int.check(Schema.isGreaterThan(0)),
 });
 export function validateFixtureSources(
   fixture: RepositoryRetrievalFixture,
@@ -213,18 +214,24 @@ export function checkRetrievalImprovement(
 }
 const ARMS: readonly RetrievalArm[] = ['bm25', 'grep', 'trigram', 'vector'];
 const MODES: readonly EvaluationMode[] = [...ARMS, 'lexical', 'hybrid'];
-const chunkingPolicySchema = z.discriminatedUnion('kind', [
-  z.object({ chunkLines: z.number().int().positive(), kind: z.literal('line') }),
-  z.object({
-    kind: z.literal('canonical-host'),
-    maxTokens: z.number().int().positive(),
-    maxTokensCap: z.number().int().positive(),
-    overlap: z.number().int().nonnegative(),
-    producerSourceCommit: z.string().regex(/^[a-f0-9]{40}$/u),
-    tokenTrueSizing: z.boolean(),
-  }),
-]);
-export type EvaluationChunkingPolicy = z.infer<typeof chunkingPolicySchema>;
+const chunkingPolicySchema = Schema.Union(
+  [
+    Schema.Struct({
+      chunkLines: Schema.Int.check(Schema.isGreaterThan(0)),
+      kind: Schema.Literal('line'),
+    }),
+    Schema.Struct({
+      kind: Schema.Literal('canonical-host'),
+      maxTokens: Schema.Int.check(Schema.isGreaterThan(0)),
+      maxTokensCap: Schema.Int.check(Schema.isGreaterThan(0)),
+      overlap: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+      producerSourceCommit: Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/u)),
+      tokenTrueSizing: Schema.Boolean,
+    }),
+  ],
+  { mode: 'oneOf' }
+);
+export type EvaluationChunkingPolicy = (typeof chunkingPolicySchema)['Type'];
 export interface RepositoryEvaluationOptions {
   chunking: EvaluationChunkingPolicy;
   corpusSources: RepositoryRetrievalFixture['sources'];
@@ -353,12 +360,12 @@ export async function runRepositoryRetrievalEvaluation(
   fixture: RepositoryRetrievalFixture,
   options: RepositoryEvaluationOptions
 ): Promise<RepositoryEvaluationReport> {
-  embeddingProfileSchema.parse(options.profile);
+  wireDecoder(embeddingProfileSchema, { errors: 'all' })(options.profile);
   if (!/^[a-f0-9]{64}$/u.test(options.profileHash)) {
     throw new Error('Invalid evaluation profile hash');
   }
   validateFixtureSources(fixture, options.readSource);
-  chunkingPolicySchema.parse(options.chunking);
+  wireDecoder(chunkingPolicySchema, { errors: 'all' })(options.chunking);
   if (options.corpusSources.length === 0) {
     throw new Error('Evaluation corpus must be explicit and nonempty');
   }

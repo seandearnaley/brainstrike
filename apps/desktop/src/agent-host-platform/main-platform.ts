@@ -2,11 +2,11 @@ import type { HostPlatform } from '@brainstrike/agent-host';
 import { toBoundaryResponseError } from '@brainstrike/agent-host/boundary-wire';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract';
+import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { createLogger } from '@brainstrike/logging';
 import type { NativeChildObserver } from '@brainstrike/state-store/native-children';
 import { Schema } from 'effect';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
-import { z } from 'zod';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
@@ -148,7 +148,10 @@ function serveAdmissionReads(
   );
   connection.onRequest('platform/admission/roots', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
-      z.strictObject({}).parse(input);
+      wireDecoder(Schema.Record(Schema.String, Schema.Never), {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input);
       return Schema.decodeUnknownSync(CliWorkspaceRootsSchema, {
         errors: 'all',
         onExcessProperty: 'error',
@@ -160,8 +163,13 @@ function serveAdmissionReads(
     // The explicit result type keeps vscode-jsonrpc from narrowing it to a boolean literal.
     (input: unknown, token: CancellationToken): Promise<unknown> =>
       execute(token, async (signal) => {
-        z.strictObject({}).parse(input);
-        return z.boolean().parse(await reads.worktreesAvailable(signal));
+        wireDecoder(Schema.Record(Schema.String, Schema.Never), {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input);
+        return wireDecoder(Schema.Boolean, { errors: 'all', onExcessProperty: 'error' })(
+          await reads.worktreesAvailable(signal)
+        );
       })
   );
   connection.onRequest(
@@ -293,7 +301,10 @@ export function serveDesktopPlatform(
   };
   connection.onRequest('platform/ready', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
-      z.strictObject({}).parse(input);
+      wireDecoder(Schema.Record(Schema.String, Schema.Never), {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input);
       signal.throwIfAborted();
       return null;
     })
@@ -334,7 +345,10 @@ export function serveDesktopPlatform(
   );
   connection.onRequest('platform/workspace/root', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const { rootId } = z.strictObject({ rootId: z.string().min(1) }).parse(input);
+      const { rootId } = wireDecoder(
+        Schema.Struct({ rootId: Schema.String.check(Schema.isMinCodePoints(1)) }),
+        { errors: 'all', onExcessProperty: 'error' }
+      )(input);
       if (!capabilities.resolveWorkspaceRoot) {
         throw new Error('Desktop has no live workspace root owner');
       }
