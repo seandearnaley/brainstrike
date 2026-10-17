@@ -11,6 +11,7 @@
       "packages/{effect-kit,assistant-contract,agent-host}/**/*.{ts,tsx,mts,mjs}",
       "packages/agent/src/__tests__/**/*.{ts,tsx,mts,mjs}",
       "scripts/__tests__/agent-quality-lint*.{mts,mjs}",
+      "scripts/__tests__/isolated/agent-quality-lint*.{mts,mjs}",
       "**/e2e/**/*.{ts,tsx}",
       "!!spikes/m0-a1-qualification/original",
       "!!.muse/worktrees",
@@ -554,7 +555,8 @@
         "apps/desktop/src/__tests__/assistant-server/tool-execute-support.test.ts",
         "apps/desktop/src/__tests__/assistant-server/native-tool-prompt-budget.test.ts",
         "apps/desktop/src/__tests__/assistant-server/manage-task-list-tool.test.ts",
-        "scripts/__tests__/agent-quality-lint*"
+        "scripts/__tests__/agent-quality-lint*",
+        "scripts/__tests__/isolated/agent-quality-lint*"
       ],
       "linter": {
         "rules": {
