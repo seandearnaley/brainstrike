@@ -16,6 +16,9 @@ import { Schema } from 'effect';
 import type { DesktopMcpHostRuntimeDependencies } from './host-runtime';
 
 const NonEmpty = Schema.String.check(Schema.isMinCodePoints(1));
+const AbsoluteUrl = Schema.String.check(
+  Schema.makeFilter((value) => (URL.canParse(value) ? undefined : 'Invalid URL'))
+);
 const CIMD_CLIENT_METADATA_URL = 'https://conformance-test.local/client-metadata.json';
 export const OFFICIAL_AUTH_SCENARIO_NAMES = OFFICIAL_AUTH_BASELINE_SCENARIOS;
 export const MODERN_ONLY_OFFICIAL_AUTH_SCENARIO_NAMES = OFFICIAL_AUTH_MODERN_CLOSEOUT_SCENARIOS;
@@ -43,6 +46,7 @@ const OfficialConformanceOAuthContextSchema = Schema.Union(
     Schema.Struct({
       client_id: NonEmpty,
       client_secret: NonEmpty,
+      issuer: AbsoluteUrl,
       name: Schema.Literal('auth/pre-registration'),
     }),
     Schema.Struct({
@@ -125,8 +129,12 @@ export function createEphemeralOfficialConformanceOAuthRuntime(options: {
     ? {
         client_id: context.client_id,
         client_secret: context.client_secret,
-        // alpha.10's pre-registration fixture advertises only client_secret_basic
-        // and supplies credentials, not a registered redirect URI. The production
+        // Pre-registered credentials are bound to the authorization server that
+        // issued them (2026-07-28 client registration, Authorization Server
+        // Binding); the production provider offers them to no other issuer.
+        issuer: context.issuer,
+        // The pre-registration fixture advertises only client_secret_basic and
+        // supplies credentials, not a registered redirect URI. The production
         // provider publishes its live loopback URI through clientMetadata.
         redirect_uris: [],
         token_endpoint_auth_method: 'client_secret_basic',

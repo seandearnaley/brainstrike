@@ -1038,7 +1038,10 @@ describe('desktop-main MCP OAuthClientProvider', () => {
       store: createInMemoryMcpOAuthStore(),
     });
     const { client, transport } = await createClient(provider, server.url);
-    await expect(client.connect(transport)).rejects.toThrow('protected-resource metadata');
+    // The SDK's own protected-resource check refuses the mismatch.
+    await expect(client.connect(transport)).rejects.toThrow(
+      `Protected resource ${new URL('/other', server.url).href} does not match expected ${server.url.href} (or origin)`
+    );
     expect(server.authorizationRequests).toHaveLength(0);
     expect(server.dcrRequests).toHaveLength(0);
     await client.close().catch(() => undefined);
@@ -1051,13 +1054,14 @@ describe('desktop-main MCP OAuthClientProvider', () => {
       resourceMismatch: true,
     });
     const connectionFailures: unknown[] = [];
+    const serverUrl = server.url.href.replace('127.0.0.1', 'localhost');
 
     await expect(
       runProductionMcpConformanceClient(
         {
           protocolVersion: '2026-07-28',
           scenario: 'auth/resource-mismatch',
-          serverUrl: server.url.href.replace('127.0.0.1', 'localhost'),
+          serverUrl,
         },
         {
           createRuntime: (dependencies) =>
@@ -1078,7 +1082,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
     expect(connectionFailures).toEqual([
       expect.objectContaining({
         cause: expect.objectContaining({
-          message: 'MCP OAuth protected-resource metadata does not match the MCP server URL.',
+          message: `Protected resource ${new URL('/other', server.url).href} does not match expected ${serverUrl} (or origin)`,
         }),
       }),
     ]);

@@ -7,7 +7,6 @@ import {
 } from '@brainstrike/agent-host/credential-contract';
 import type { McpHostOAuthAuthSnapshot } from '@brainstrike/assistant-contract';
 import {
-  checkResourceAllowed,
   type FetchLike,
   type OAuthClientInformationContext,
   type OAuthClientMetadata,
@@ -963,16 +962,10 @@ export async function createMcpOAuthClientProvider(
       }
       return tokens;
     },
-    async validateResourceURL(server, resource) {
-      const expected = resourceUrlFromServerUrl(server);
-      if (
-        resource &&
-        !checkResourceAllowed({ configuredResource: resource, requestedResource: expected })
-      ) {
-        throw new Error('MCP OAuth protected-resource metadata does not match the MCP server URL.');
-      }
-      return expected;
-    },
+    // No validateResourceURL: the SDK checks the protected-resource metadata
+    // against the server URL and sends its `resource` verbatim (RFC 9728 §3.3).
+    // An override can only return a URL, which serializes a pathless identifier
+    // with a trailing slash.
   };
   if (options.signal) {
     actorAbortListener = addAbortListener(options.signal, () => {

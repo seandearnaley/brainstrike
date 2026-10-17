@@ -8,9 +8,11 @@ import {
   parseOfficialConformanceOAuthContext,
 } from '../../mcp/official-conformance-oauth.js';
 
+const PRE_REGISTRATION_ISSUER = 'http://localhost:42002';
 const PRE_REGISTRATION_CONTEXT = JSON.stringify({
   client_id: 'pre-registered-client',
   client_secret: 'pre-registered-secret',
+  issuer: PRE_REGISTRATION_ISSUER,
   name: 'auth/pre-registration',
 });
 
@@ -209,6 +211,7 @@ describe('official conformance ephemeral OAuth adapter', () => {
     {
       client_id: 'pre-registered-client',
       client_secret: 'pre-registered-secret',
+      issuer: 'http://localhost:42002',
       name: 'auth/pre-registration',
     },
     {
@@ -227,7 +230,7 @@ describe('official conformance ephemeral OAuth adapter', () => {
       valid_jwt: 'valid-jwt',
       wrong_audience_jwt: 'wrong-audience-jwt',
     },
-  ])('parses the exact alpha.10 $name context', (context) => {
+  ])('parses the exact alpha.12 $name context', (context) => {
     expect(parseOfficialConformanceOAuthContext(JSON.stringify(context))).toEqual(context);
   });
 
@@ -238,6 +241,19 @@ describe('official conformance ephemeral OAuth adapter', () => {
     JSON.stringify({
       client_id: '',
       client_secret: 'secret-must-not-appear',
+      issuer: PRE_REGISTRATION_ISSUER,
+      name: 'auth/pre-registration',
+    }),
+    // The pre-alpha.12 shape names no issuing authorization server to bind.
+    JSON.stringify({
+      client_id: 'pre-registered-client',
+      client_secret: 'secret-must-not-appear',
+      name: 'auth/pre-registration',
+    }),
+    JSON.stringify({
+      client_id: 'pre-registered-client',
+      client_secret: 'secret-must-not-appear',
+      issuer: 'not-an-absolute-url',
       name: 'auth/pre-registration',
     }),
   ])('rejects malformed context without echoing secret material', (raw) => {
@@ -272,12 +288,16 @@ describe('official conformance ephemeral OAuth adapter', () => {
       store: runtime.oauthStore,
     });
     try {
-      const client = await provider.clientInformation({
-        issuer: 'http://127.0.0.1:38198',
-      });
+      // Pre-registered credentials are bound to the authorization server that
+      // issued them, so another discovered issuer is never offered them.
+      await expect(
+        provider.clientInformation({ issuer: 'http://localhost:42003' })
+      ).resolves.toBeUndefined();
+      const client = await provider.clientInformation({ issuer: PRE_REGISTRATION_ISSUER });
       expect(client).toMatchObject({
         client_id: 'pre-registered-client',
         client_secret: 'pre-registered-secret',
+        issuer: PRE_REGISTRATION_ISSUER,
         redirect_uris: [],
         token_endpoint_auth_method: 'client_secret_basic',
       });
