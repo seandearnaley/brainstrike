@@ -10,6 +10,11 @@
       "**/*.test.{ts,tsx}",
       "packages/{effect-kit,assistant-contract,agent-host}/**/*.{ts,tsx,mts,mjs}",
       "packages/agent/src/__tests__/**/*.{ts,tsx,mts,mjs}",
+      "packages/token-cache/src/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/{worker-runtime,file-tree-worker}/src/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/test-utils/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/queue/{src,test}/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/pipeline/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
       "scripts/__tests__/agent-quality-lint*.{mts,mjs}",
       "scripts/__tests__/isolated/agent-quality-lint*.{mts,mjs}",
       "**/e2e/**/*.{ts,tsx}",
@@ -152,7 +157,9 @@
       ],
       "linter": {
         "rules": {
-          "correctness": { "noUndeclaredDependencies": "off" }
+          "correctness": {
+            "noUndeclaredDependencies": "off"
+          }
         }
       }
     },
@@ -627,6 +634,52 @@
     },
     {
       "includes": ["packages/agent/src/__tests__/**"],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error",
+            "useExhaustiveSwitchCases": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/test-utils/src/**",
+        "packages/test-utils/__tests__/**",
+        "packages/queue/src/**",
+        "packages/queue/test/**",
+        "packages/pipeline/src/**",
+        "packages/pipeline/__tests__/**"
+      ],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error",
+            "useExhaustiveSwitchCases": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/worker-runtime/src/**",
+        "packages/file-tree-worker/src/**"
+      ],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "error",
+            "noMisusedPromises": "error",
+            "useExhaustiveSwitchCases": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/token-cache/src/**"],
       "linter": {
         "rules": {
           "nursery": {

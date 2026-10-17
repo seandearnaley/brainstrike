@@ -28,17 +28,35 @@
  * from the tool result's `rootId` degrades to an empty delta — a missed
  * breadcrumb, not a wrong one, and within this feature's stated best-effort
  * contract.
+ *
+ * Both ports are optional: a shell without a worktree ledger (the standalone
+ * CLI host) supplies neither, so nothing is snapshotted or correlated.
  */
 import type { ExecuteCommandInput, RuntimeData } from '@brainstrike/agent';
 import { scanShellCommandForGitSignals } from '@brainstrike/assistant-contract';
-import type { ShellOutputStreamer } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import type { GitResult } from '@brainstrike/types';
-import type { ExecuteCommandToolResult } from './execute-command-tool';
-import { runExecuteCommand } from './execute-command-tool';
-import type { ShellCorrelationCapability } from './shell-worktree-correlation';
+import {
+  type ExecuteCommandToolResult,
+  runExecuteCommand,
+  type WindowsCommandEntry,
+} from './execute-command-tool.js';
+import type { ShellOutputStreamer } from './tool-execute-support.js';
 
 const logger = createLogger('ExecuteCommandCorrelation');
+
+/**
+ * The shell's worktree/forge correlator (Desktop's worktree ledger). It hears
+ * each completed command with the pre-command snapshot, and never blocks or
+ * fails the call it describes.
+ */
+export interface ShellCorrelationCapability {
+  readonly onCommandCompleted: (input: {
+    readonly command: string;
+    readonly precedingWorktreePaths: ReadonlySet<string> | undefined;
+    readonly rootId: string;
+  }) => void;
+}
 
 /** The worktree listing the pre-command snapshot reads; only paths are needed. */
 export interface WorktreePathListing {
@@ -76,6 +94,7 @@ export async function runExecuteCommandWithShellCorrelation(
   options: {
     readonly signal?: AbortSignal | undefined;
     readonly stream?: ShellOutputStreamer | undefined;
+    readonly windowsCommandEntry: WindowsCommandEntry;
   },
   dependencies: ShellCorrelationDependencies
 ): Promise<ExecuteCommandToolResult> {

@@ -5,14 +5,15 @@
  */
 import type { HostLogRow, HostResults } from '@brainstrike/agent-host/protocol';
 import { DEFAULT_THREAD_TITLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
-import {
-  ASSISTANT_THREAD_COLOR_IDS,
-  ASSISTANT_THREAD_ICON_IDS,
-  type AssistantMemoryThread,
-  type AssistantThreadColorId,
-  type AssistantThreadIconId,
-} from '@brainstrike/assistant-data';
+// Types only from the assistant-data barrel: its values reach the PGlite
+// repositories, which no browser bundle of this package may load (BST-2106).
+import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
 import { createLogger } from '@brainstrike/logging';
+import { ASSISTANT_THREAD_ICON_IDS, type AssistantThreadIconId } from '@brainstrike/types';
+import {
+  AGENT_SEMANTIC_COLOR_IDS as ASSISTANT_THREAD_COLOR_IDS,
+  type AgentSemanticColor as AssistantThreadColorId,
+} from '@brainstrike/types/agent-color';
 
 const logger = createLogger('HostThreadCatalog');
 

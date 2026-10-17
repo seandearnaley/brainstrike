@@ -1,44 +1,33 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installMockWorkers } from '../worker.js';
 
-const originalWindow = (globalThis as { window?: unknown }).window;
-const originalWorker = globalThis.Worker;
-
-const restoreGlobals = () => {
-  if (originalWindow === undefined) {
-    (globalThis as { window?: unknown }).window = undefined;
-  } else {
-    (globalThis as { window?: unknown }).window = originalWindow;
-  }
-
-  if (originalWorker === undefined) {
-    (globalThis as { Worker?: typeof Worker }).Worker = undefined;
-  } else {
-    (globalThis as { Worker?: typeof Worker }).Worker = originalWorker;
-  }
-};
+beforeEach(() => {
+  vi.stubGlobal('Worker', globalThis.Worker);
+  vi.stubGlobal('window', globalThis.window);
+});
 
 afterEach(() => {
-  restoreGlobals();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
 describe('installMockWorkers', () => {
   it('installs mock workers and restores originals on teardown', async () => {
-    const OriginalWindowWorker = vi.fn() as unknown as typeof Worker;
-    const OriginalGlobalWorker = vi.fn() as unknown as typeof Worker;
+    const OriginalWindowWorker = vi.fn();
+    const OriginalGlobalWorker = vi.fn();
 
-    const windowStub = { Worker: OriginalWindowWorker } as unknown as Window & typeof globalThis;
-    (globalThis as unknown as { window: Window & typeof globalThis }).window = windowStub;
-    (globalThis as { Worker?: typeof Worker }).Worker = OriginalGlobalWorker;
+    const windowStub = { Worker: OriginalWindowWorker };
+    vi.stubGlobal('window', windowStub);
+    vi.stubGlobal('Worker', OriginalGlobalWorker);
 
     const { teardown } = installMockWorkers({ maxWorkers: 3 });
 
-    const InstalledWindowWorker = windowStub.Worker as unknown as typeof Worker;
-    const installedGlobalWorker = (globalThis as { Worker: typeof Worker }).Worker;
+    const InstalledWindowWorker = globalThis.Worker;
+    const installedGlobalWorker = globalThis.Worker;
 
     expect(InstalledWindowWorker).not.toBe(OriginalWindowWorker);
     expect(installedGlobalWorker).toBe(InstalledWindowWorker);
+    expect(windowStub.Worker).toBe(InstalledWindowWorker);
 
     const workerInstance = new InstalledWindowWorker('mock.js');
     const terminateSpy = workerInstance.terminate;
@@ -49,18 +38,18 @@ describe('installMockWorkers', () => {
     await Promise.resolve();
     expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ data: { type: 'ready' } }));
 
-    new (globalThis as { Worker: typeof Worker }).Worker('global.js');
+    new globalThis.Worker('global.js');
 
     teardown();
 
     expect(terminateSpy).toHaveBeenCalled();
     expect(windowStub.Worker).toBe(OriginalWindowWorker);
-    expect((globalThis as { Worker?: typeof Worker }).Worker).toBe(OriginalGlobalWorker);
+    expect(globalThis.Worker).toBe(OriginalGlobalWorker);
   });
 
   it('enforces the configured worker limit', () => {
     const { teardown } = installMockWorkers({ maxWorkers: 1 });
-    const MockWorker = (globalThis as { Worker: typeof Worker }).Worker;
+    const MockWorker = globalThis.Worker;
     new MockWorker('first.js');
     expect(() => new MockWorker('second.js')).toThrow(/Too many workers created/);
     teardown();

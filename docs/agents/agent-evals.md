@@ -21,6 +21,10 @@ A task is a folder, `packages/agent-evals/tasks/<id>/`:
 
 `src/task.ts` decodes all of this with Effect Schema and refuses unknown fields.
 
+`regenerate-with-shell` needs the standalone host's `executeCommand`: its
+verifier passes only when the agent regenerated a generated file by running the
+repository's own script.
+
 ## Runner
 
 ```sh
@@ -34,7 +38,8 @@ The command builds the package and its dependencies first. For each task:
 3. Start the host with `--workspace <copy>` and run the prompt with
    `run --json --non-interactive`.
 4. Approve each pause through the CLI. Default policy holds every write
-   (`edit: ask`), and the CLI has no pre-approval flag. A paused run exits 2.
+   (`edit: ask`) and every shell command (`execute: ask`), and the CLI has no
+   pre-approval flag. A paused run exits 2.
    The runner then calls `interaction respond --decision approve` for each
    pending approval, followed by `attach`, until the run ends. A question,
    plan or network interaction fails the task, because an eval cannot answer it.
@@ -110,6 +115,5 @@ artifact, and a red scheduled run files a `nightly-alert` issue in Linear.
 
 ## Not yet
 
-- The standalone host has no shell tool, so no task runs a command (BST-2073).
 - Only `parallel-read` has a cassette; the owner records the rest with
   `record`.

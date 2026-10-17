@@ -8,10 +8,8 @@ import {
   WorkspaceSnapshotSchema,
   type WorkspaceSnapshotV1,
 } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
-import {
-  type ThreadWorkspaceRepository,
-  WORKSPACE_MEMORY_RESOURCE_ID,
-} from '@brainstrike/assistant-data';
+import type { ThreadWorkspaceRepository } from '@brainstrike/assistant-data';
+import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import { Schema } from 'effect';
 /** The client of the host that owns a thread; undefined for a thread no host here owns. */
 export type HostThreadClient = (

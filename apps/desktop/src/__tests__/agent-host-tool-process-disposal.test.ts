@@ -7,7 +7,8 @@ const owners = vi.hoisted(() => ({
   sessions: vi.fn<() => Promise<void>>(),
 }));
 
-vi.mock('../assistant-server/execute-command-tool', () => ({
+vi.mock('@brainstrike/host-capabilities/native-tools', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/host-capabilities/native-tools')>()),
   disposeLiveChildProcesses: owners.commands,
 }));
 vi.mock('../assistant-server/lsp-diagnostics', () => ({

@@ -27,6 +27,13 @@ const layouts = [
   ['packages/agent/src/__tests__', '.test.ts'],
   ['packages/agent/src/__tests__', '.mts'],
   ['packages/agent/src/__tests__', '.mjs'],
+  ['packages/test-utils/src/__tests__', '.test.ts'],
+  ['packages/test-utils/__tests__', '.spec.mts'],
+  ['packages/queue/test', '.spec.ts'],
+  ['packages/pipeline/__tests__', '.test.ts'],
+  ['packages/worker-runtime/src/__tests__', '.test.ts'],
+  ['packages/file-tree-worker/src', '.test.ts'],
+  ['packages/token-cache/src/__tests__', '.test.tsx'],
 ];
 
 function lint(t, side) {
@@ -54,7 +61,16 @@ function lint(t, side) {
     path: `${nested}/future.spec.ts`,
     rule: 'nursery/noFloatingPromises',
   });
-  for (const directory of ['packages/agent-host/src', 'packages/agent/src/__tests__']) {
+  for (const directory of [
+    'packages/agent-host/src',
+    'packages/agent/src/__tests__',
+    'packages/test-utils/src',
+    'packages/queue/test',
+    'packages/pipeline/__tests__',
+    'packages/worker-runtime/src',
+    'packages/file-tree-worker/src',
+    'packages/token-cache/src',
+  ]) {
     cases.push(
       {
         bad: 'export function check() { return [1, 2].filter(async (value) => value > 0); }',
@@ -70,6 +86,12 @@ function lint(t, side) {
       }
     );
   }
+  cases.push({
+    bad: 'export function check(pending: Promise<void> | null) { if (pending) { return pending; } return null; }',
+    good: 'export function check(pending: Promise<void> | null) { if (pending !== null) { return pending; } return null; }',
+    path: `packages/token-cache/src/agent-quality-lint-presence-${token}.ts`,
+    rule: 'nursery/noMisusedPromises',
+  });
   for (const directory of [
     'packages/effect-kit/src',
     'packages/assistant-contract/src/native-tools/schemas',

@@ -78,10 +78,6 @@ vi.mock(
   owner.record('native-tool-executors-sessions')
 );
 vi.mock(
-  '../assistant-server/native-tool-executors-shell',
-  owner.record('native-tool-executors-shell')
-);
-vi.mock(
   '../assistant-server/native-tool-executors-skills',
   owner.record('native-tool-executors-skills')
 );

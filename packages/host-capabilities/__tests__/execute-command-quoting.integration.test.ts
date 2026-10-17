@@ -1,20 +1,16 @@
-import './_windows-command-fixture';
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
-import {
-  disposeLiveChildProcesses,
-  runExecuteCommand,
-} from '../../assistant-server/execute-command-tool';
-import { singleRootRuntime } from './_tool-test-helpers';
+import { disposeLiveChildProcesses } from '../src/native-tools/index.js';
+import { runCommand, singleRootRuntime } from './fixtures/execute-command.js';
 
 test('preserves quoted native script paths and spaced argv through the actual shell', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'brainstrike-exec-spaced root-')));
   try {
     const script = join(root, 'quoted command.cjs');
     await writeFile(script, 'process.stdout.write(JSON.stringify(process.argv.slice(2)));');
-    const result = await runExecuteCommand(
+    const result = await runCommand(
       { command: `node "${script}" "first spaced argument" "second argument"` },
       singleRootRuntime(root)
     );

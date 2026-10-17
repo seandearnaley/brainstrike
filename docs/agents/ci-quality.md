@@ -9,6 +9,12 @@ material, not a request to run them.
 
 ## Choose useful checks
 
+`test:scripts` compares TypeScript tests and supporting fixtures on disk with the
+actual canonical compiler and Effect programs. Existing omissions have exact
+paths and owners in `scripts/test-program-debt.json`; admission removes those
+paths. New omissions and stale debt fail the guard. Candidate eval assets keep
+their explicit execution owner rather than becoming ordinary package tests.
+
 Use judgment about the changed behavior, affected dependencies and failure risk.
 Start with existing focused tests. Add tests for a real regression or meaningful
 new behavior, not for documentation wording, source layout or arbitrary counts.

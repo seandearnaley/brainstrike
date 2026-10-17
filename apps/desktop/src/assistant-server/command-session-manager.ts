@@ -17,6 +17,7 @@ import path from 'node:path';
 import {
   acquireWorkspaceMutationLease,
   isWithinRoot,
+  resolveShellInvocation,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import { trackNativeChild } from '@brainstrike/state-store/native-children';
@@ -25,7 +26,6 @@ import * as pty from 'node-pty';
 import treeKill from 'tree-kill';
 import { resolveRootCwd, type WorkspaceRootResolver } from '../workspace-root-cwd';
 import { CommandSessionError, commandSessionStartError } from './command-session-error';
-import { resolveShellInvocation } from './execute-command-tool';
 
 const logger = createLogger('CommandSessionManager');
 

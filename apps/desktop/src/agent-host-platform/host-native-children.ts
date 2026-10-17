@@ -8,9 +8,9 @@
  * the Root refused.
  */
 import { setTimeout as delay } from 'node:timers/promises';
+import { KILL_GRACE_MS } from '@brainstrike/host-capabilities/native-tools';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
 import type { NativeChild } from '@brainstrike/state-store/native-children';
-import { KILL_GRACE_MS } from '../assistant-server/kill-grace';
 
 export interface HostNativeChildren {
   /** Lease close: SIGKILL what remains, join it, then require the Root's flock free (POSIX). */

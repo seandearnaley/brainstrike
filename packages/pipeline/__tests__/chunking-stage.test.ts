@@ -147,6 +147,10 @@ describe('createChunkingStage', () => {
               chunkType: 'code',
               content: 'chunk content',
               contentHash: 'abc123',
+              endLine: 1,
+              endOffset: 13,
+              startLine: 1,
+              startOffset: 0,
               tokenCount: 10,
             },
             {
@@ -155,6 +159,10 @@ describe('createChunkingStage', () => {
               chunkType: 'code',
               content: 'more content',
               contentHash: 'def456',
+              endLine: 1,
+              endOffset: 12,
+              startLine: 1,
+              startOffset: 0,
               tokenCount: 8,
             },
           ],
@@ -225,8 +233,8 @@ describe('createChunkingStage', () => {
         workerPort,
       });
 
-      const input = createChunkingInput();
-      (input as Record<string, unknown>).strategy = undefined;
+      const { strategy: _strategy, ...input } = createChunkingInput();
+      // @ts-expect-error -- JavaScript callers can omit the required strategy; exercise its runtime default.
       await stage.chunkFile(input);
 
       // The worker should have been called with the default strategy

@@ -5,19 +5,12 @@
  * without adding an exclusion. JavaScript lint policy is a separate contract.
  */
 import assert from 'node:assert/strict';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { discoverTypeScriptTests } from '../test-program-membership.mjs';
 import { verifyTestTsconfigProgram } from '../verify-test-tsconfig-program.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -29,23 +22,6 @@ const MAX_EXCLUDED_LEGACY_FILES = 0;
 
 /** Not legacy debt — the ordinary build-output exclusions every project carries. */
 const NON_LEGACY_EXCLUDES = new Set(['dist', 'node_modules']);
-const TYPESCRIPT_TEST_PATTERN = /(?:^|\/)(?:__tests__\/.*|[^/]+\.(?:test|spec)\.[cm]?tsx?)$/u;
-
-function discoverTypeScriptTests(root, relative = '') {
-  return readdirSync(path.join(root, relative), { withFileTypes: true }).flatMap((entry) => {
-    const file = path.posix.join(relative, entry.name);
-    if (entry.name === 'node_modules' || file === 'dist') {
-      return [];
-    }
-    if (entry.isDirectory()) {
-      return discoverTypeScriptTests(root, file);
-    }
-    return entry.isFile() && /\.[cm]?tsx?$/u.test(file) && TYPESCRIPT_TEST_PATTERN.test(file)
-      ? [file]
-      : [];
-  });
-}
-
 function missingTestFiles(root) {
   const result = verifyTestTsconfigProgram({
     checkTypes: false,

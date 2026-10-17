@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkerFileNode, WorkerToMainMessage } from './types';
 
 const perfTiming = vi.hoisted(() => ({
-  checkBudget: vi.fn<[string, number, string], boolean>(),
+  checkBudget: vi.fn<(name: string, duration: number, operation: string) => boolean>(),
   durationMs: 0,
 }));
 

@@ -36,9 +36,14 @@ function createDirectoryNode(overrides: Partial<WorkerFileNode> = {}): WorkerFil
   };
 }
 
+function createDirectoryWithoutChildren(overrides: Partial<WorkerFileNode>): WorkerFileNode {
+  const { children: _children, ...node } = createDirectoryNode(overrides);
+  return node;
+}
+
 describe('BFSEngine expanded-path index', () => {
   let messages: WorkerToMainMessage[];
-  let engine: BFSEngine;
+  let engine: InstanceType<typeof BFSEngine>;
 
   beforeEach(() => {
     messages = [];
@@ -50,8 +55,7 @@ describe('BFSEngine expanded-path index', () => {
 
   it('does not scan unrelated expanded siblings for each directory update', () => {
     const siblingDirectories = Array.from({ length: 5000 }, (_, index) =>
-      createDirectoryNode({
-        children: undefined,
+      createDirectoryWithoutChildren({
         name: `sibling-${index}`,
         path: `/root/sibling-${index}`,
       })
@@ -81,8 +85,7 @@ describe('BFSEngine expanded-path index', () => {
   });
 
   it('observes descendant checks when an indexed nested node is updated', () => {
-    const target = createDirectoryNode({
-      children: undefined,
+    const target = createDirectoryWithoutChildren({
       depth: 2,
       name: 'target',
       path: '/root/parent/target',

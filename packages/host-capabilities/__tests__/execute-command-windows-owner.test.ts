@@ -1,25 +1,23 @@
 // @vitest-environment node
 import fsPromises from 'node:fs/promises';
-import { acquireWorkspaceMutationLease } from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import {
+  acquireWorkspaceMutationLease,
   disposeLiveChildProcesses,
   runDetachedProcess,
   runExecuteCommand,
-} from '../../assistant-server/execute-command-tool';
-import { runSkillScript } from '../../assistant-server/run-skill-script-tool';
-import type { createWindowsCommandProcess } from '../../assistant-server/windows-command-process';
-import { singleRootRuntime } from './_tool-test-helpers';
+} from '../src/native-tools/index.js';
+import type { createWindowsCommandProcess } from '../src/windows-command-process.js';
+import { singleRootRuntime } from './fixtures/execute-command.js';
 
 type OwnerOptions = Parameters<typeof createWindowsCommandProcess>[0];
 const controls = vi.hoisted(() => ({
   create: vi.fn<typeof createWindowsCommandProcess>(),
   path: vi.fn(() => '/trusted/dist/windows-command-entry.js'),
 }));
-vi.mock('../../assistant-server/windows-command-process', () => ({
+vi.mock('../src/windows-command-process.js', () => ({
   createWindowsCommandProcess: controls.create,
 }));
-vi.mock('../../bundled-sibling-path', () => ({ resolveBundledSiblingPath: controls.path }));
 
 const retained: OwnerOptions[] = [];
 beforeEach(() => {
@@ -59,6 +57,7 @@ test('pre-owner preparation failure releases its transferred workspace lease exa
         signal: undefined,
         streamer: undefined,
         timeoutMs: 30_000,
+        windowsCommandEntry: controls.path,
       })
     ).rejects.toBe(preparationFailure);
     expect(release).toHaveBeenCalledTimes(1);
@@ -70,59 +69,37 @@ test('pre-owner preparation failure releases its transferred workspace lease exa
   }
 });
 
-test.each(['command', 'skill'] as const)(
-  '%s does not release its real lease when retained retirement rejects',
-  async (kind) => {
-    const root = `/windows-${kind}-retained-failure`;
-    const failure = new Error('Native Job cleanup denied');
-    controls.create.mockImplementation((options) => {
-      retained.push(options);
-      return { retire: () => Promise.reject(failure), start: () => Promise.reject(failure) };
-    });
-    const runtime = singleRootRuntime(root);
-    const result =
-      kind === 'command'
-        ? runExecuteCommand({ command: 'node command.cjs' }, runtime)
-        : runSkillScript(
-            {
-              cwd: '.',
-              root,
-              runtime: 'node',
-              scriptPath: 'scripts/task.cjs',
-              skillName: 'fixture',
-            },
-            runtime,
-            {
-              resolveScriptExecution: async () => ({
-                absolutePath: `${root}/skill/scripts/task.cjs`,
-                policy: 'matched-allowed-tools',
-                scriptPath: 'scripts/task.cjs',
-                skillName: 'fixture',
-                skillRootPath: `${root}/skill`,
-                sourceTier: 'global-claude',
-              }),
-            }
-          );
-    await expect(result).rejects.toBe(failure);
-    await expect(disposeLiveChildProcesses()).rejects.toMatchObject({ errors: [failure] });
-    const stopWaiting = new AbortController();
-    let admitted = false;
-    const waiter = acquireWorkspaceMutationLease(root, 'files', stopWaiting.signal).then(
-      (release) => {
-        admitted = true;
-        release();
-      },
-      (error: unknown) => error
-    );
-    await Promise.resolve();
-    expect(admitted).toBe(false);
-    stopWaiting.abort(failure);
-    expect(await waiter).toBe(failure);
-    expect(controls.create).toHaveBeenCalledTimes(1);
-  }
-);
+test('a command does not release its real lease when retained retirement rejects', async () => {
+  const root = '/windows-command-retained-failure';
+  const failure = new Error('Native Job cleanup denied');
+  controls.create.mockImplementation((options) => {
+    retained.push(options);
+    return { retire: () => Promise.reject(failure), start: () => Promise.reject(failure) };
+  });
+  const result = runExecuteCommand({ command: 'node command.cjs' }, singleRootRuntime(root), {
+    windowsCommandEntry: controls.path,
+  });
+  await expect(result).rejects.toBe(failure);
+  await expect(disposeLiveChildProcesses()).rejects.toMatchObject({ errors: [failure] });
+  const stopWaiting = new AbortController();
+  let admitted = false;
+  const waiter = acquireWorkspaceMutationLease(root, 'files', stopWaiting.signal).then(
+    (release) => {
+      admitted = true;
+      release();
+    },
+    (error: unknown) => error
+  );
+  await Promise.resolve();
+  expect(admitted).toBe(false);
+  stopWaiting.abort(failure);
+  expect(await waiter).toBe(failure);
+  expect(controls.create).toHaveBeenCalledTimes(1);
+  // The shell's own wrapper, read once for the one owner.
+  expect(controls.path).toHaveBeenCalledTimes(1);
+});
 
-test('finite cmd quoting is private to its verbatim boundary; skill argv stays exact', async () => {
+test('finite cmd quoting is private to its verbatim boundary; direct argv stays exact', async () => {
   controls.create.mockImplementation((options) => {
     retained.push(options);
     return {
@@ -134,7 +111,9 @@ test('finite cmd quoting is private to its verbatim boundary; skill argv stays e
     };
   });
   const command = 'node "C:\\workspace with spaces\\task.cjs" "argument with spaces"';
-  await runExecuteCommand({ command }, singleRootRuntime('/quoted-command'));
+  await runExecuteCommand({ command }, singleRootRuntime('/quoted-command'), {
+    windowsCommandEntry: controls.path,
+  });
   expect(retained[0]?.command.argv).toEqual(['/d', '/s', '/c', `"${command}"`]);
   expect(retained[0]?.command.windowsVerbatimArguments).toBe(true);
   await runDetachedProcess({
@@ -144,6 +123,7 @@ test('finite cmd quoting is private to its verbatim boundary; skill argv stays e
     signal: undefined,
     streamer: undefined,
     timeoutMs: 30_000,
+    windowsCommandEntry: controls.path,
   });
   expect(retained[1]?.command.argv).toEqual([
     'C:\\workspace with spaces\\task.cjs',

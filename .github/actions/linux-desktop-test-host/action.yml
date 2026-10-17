@@ -1,0 +1,70 @@
+name: Linux desktop test host
+description: >-
+  BST-2127. The one Linux host provisioning for every lane that runs the Unit
+  suites or their coverage (test.yml `unit-shard`, nightly-coverage.yml
+  `package-coverage`): the real OS-fence dependencies, an X server for
+  desktop's real-app proofs and, when asked, the desktop test model cache.
+  Callers MUST check out and run `setup-workspace` first: the model cache is
+  provisioned by a desktop package script under the installed Electron.
+# ONE host, two lanes. Nightly Coverage gained xvfb and the model cache in #3813
+# while the Unit lane kept its own fence-only copy, so the first hosted Unit run
+# (Test run 39066362173) failed desktop's integration proofs at launch
+# ("Missing X server or $DISPLAY", "BRAINSTRIKE_M3_TRANSFORMERS_CACHE_ORIGIN must
+# identify an existing app-origin transformers-cache"). Both lanes call this
+# action, so they cannot drift again; scripts/__tests__/
+# linux-desktop-test-host-contract.test.mjs fails any lane that runs desktop's
+# integration without it.
+inputs:
+  model-cache:
+    description: >-
+      'true' provisions apps/desktop/test-cache/transformers-cache, which the
+      ordinary vector-search proof copies into its disposable profile.
+    required: false
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    # BST-1715: an unused third-party apt source with an inconsistent index
+    # makes the apt-get update below exit non-zero.
+    - uses: ./.github/actions/apt-drop-unused-sources
+
+    # THE LINUX HALF OF THE FENCE SECURITY SUITES (BST-1071). packages/agent's
+    # fence-executor, run-python-tool and escape-resistance suites run against
+    # @anthropic-ai/sandbox-runtime's bubblewrap backend, which shells out to
+    # `bwrap`, `socat` (network bridge) and `rg` (mandatory-deny scan). Without
+    # them the suites skip themselves green; BRAINSTRIKE_FENCE_DEPS_REQUIRED on
+    # the Unit lane's integration steps turns that skip into a failure.
+    #
+    # `kernel.apparmor_restrict_unprivileged_userns=0` is load-bearing. On
+    # Ubuntu 24.04 (kernel 6.14.0-azure, bubblewrap 0.9.0) the binaries install
+    # and the dependency check passes, but bwrap cannot build a sandbox
+    # ("bwrap: setting up uid map: Permission denied"), and Chromium aborts
+    # ("The SUID sandbox helper binary was found, but is not configured
+    # correctly"). The image ships no AppArmor profile granting bwrap
+    # `userns create`. Lifting the restriction is Ubuntu's documented
+    # remediation on an ephemeral VM; it changes only whether bwrap can build
+    # its namespace, not what the fence denies inside it.
+    #
+    # xvfb: desktop's real-app proofs launch Electron, which needs an X server.
+    # Callers wrap those commands in `xvfb-run --auto-servernum`.
+    - name: Install the Linux OS-fence and display dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends bubblewrap socat ripgrep xvfb
+        sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+        # Fail HERE, with the kernel's own message, rather than 40 assertion
+        # failures deep inside a security suite.
+        bwrap --ro-bind / / --dev /dev --unshare-all --die-with-parent /bin/echo bwrap-ok
+        # The fence suites need an interpreter to fence, and skip without one.
+        # Asserting it here names a future image that drops it as provisioning.
+        python3 --version
+
+    # Electron itself downloads the model into the app origin's Cache Storage
+    # (apps/desktop/scripts/provision-test-model-cache.mjs), so it needs the X
+    # server too. The proof never downloads a model itself.
+    - name: Provision the desktop test model cache
+      if: ${{ inputs.model-cache == 'true' }}
+      shell: bash
+      run: xvfb-run --auto-servernum pnpm --filter @brainstrike/desktop provision:test-model-cache

@@ -2,20 +2,33 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushAllTimersAndMicrotasks, flushMicrotasks } from '../async.js';
 
 describe('async utilities', () => {
+  const scheduled: Promise<unknown>[] = [];
+  const track = (promise: Promise<unknown>) => {
+    scheduled.push(promise);
+  };
+
   beforeEach(() => {
     vi.useFakeTimers();
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
+  afterEach(async () => {
+    try {
+      while (scheduled.length > 0) {
+        await Promise.all(scheduled.splice(0));
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   describe('flushMicrotasks', () => {
     it('should flush pending microtasks once by default', async () => {
       let completed = false;
-      Promise.resolve().then(() => {
-        completed = true;
-      });
+      track(
+        Promise.resolve().then(() => {
+          completed = true;
+        })
+      );
 
       expect(completed).toBe(false);
 
@@ -27,15 +40,21 @@ describe('async utilities', () => {
     it('should flush microtasks multiple times when specified', async () => {
       let count = 0;
 
-      Promise.resolve().then(() => {
-        count += 1;
+      track(
         Promise.resolve().then(() => {
           count += 1;
-          Promise.resolve().then(() => {
-            count += 1;
-          });
-        });
-      });
+          track(
+            Promise.resolve().then(() => {
+              count += 1;
+              track(
+                Promise.resolve().then(() => {
+                  count += 1;
+                })
+              );
+            })
+          );
+        })
+      );
 
       await flushMicrotasks(3);
 
@@ -45,12 +64,16 @@ describe('async utilities', () => {
     it('should handle nested microtasks', async () => {
       const results: string[] = [];
 
-      Promise.resolve().then(() => {
-        results.push('first');
+      track(
         Promise.resolve().then(() => {
-          results.push('second');
-        });
-      });
+          results.push('first');
+          track(
+            Promise.resolve().then(() => {
+              results.push('second');
+            })
+          );
+        })
+      );
 
       await flushMicrotasks(2);
 
@@ -59,9 +82,11 @@ describe('async utilities', () => {
 
     it('should work with zero flushes', async () => {
       let completed = false;
-      Promise.resolve().then(() => {
-        completed = true;
-      });
+      track(
+        Promise.resolve().then(() => {
+          completed = true;
+        })
+      );
 
       await flushMicrotasks(0);
 
@@ -80,9 +105,11 @@ describe('async utilities', () => {
         timerRan = true;
       }, 1000);
 
-      Promise.resolve().then(() => {
-        microtaskRan = true;
-      });
+      track(
+        Promise.resolve().then(() => {
+          microtaskRan = true;
+        })
+      );
 
       await flushAllTimersAndMicrotasks();
 
@@ -94,12 +121,16 @@ describe('async utilities', () => {
       let count = 0;
 
       setTimeout(() => {
-        Promise.resolve().then(() => {
-          count += 1;
+        track(
           Promise.resolve().then(() => {
             count += 1;
-          });
-        });
+            track(
+              Promise.resolve().then(() => {
+                count += 1;
+              })
+            );
+          })
+        );
       }, 100);
 
       await flushAllTimersAndMicrotasks(2);
@@ -126,15 +157,21 @@ describe('async utilities', () => {
       let count = 0;
 
       setTimeout(() => {
-        Promise.resolve().then(() => {
-          count += 1;
+        track(
           Promise.resolve().then(() => {
             count += 1;
-            Promise.resolve().then(() => {
-              count += 1;
-            });
-          });
-        });
+            track(
+              Promise.resolve().then(() => {
+                count += 1;
+                track(
+                  Promise.resolve().then(() => {
+                    count += 1;
+                  })
+                );
+              })
+            );
+          })
+        );
       }, 100);
 
       await flushAllTimersAndMicrotasks(3);

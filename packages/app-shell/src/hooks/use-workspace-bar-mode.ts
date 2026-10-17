@@ -18,6 +18,12 @@ const logger = createLogger('WorkspaceBarMode');
 export interface UseWorkspaceBarModeArgs {
   readonly checkout: WorkspaceBarCheckout | undefined;
   /**
+   * Whether the primary root's first git status read has settled
+   * (`useThreadCheckoutStatus`). Until it has, an undefined `checkout` means
+   * "not known yet", not "not a git repository".
+   */
+  readonly checkoutSettled: boolean;
+  /**
    * True while the selected thread's folder set is still resolving (its
    * binding metadata, or the MAIN-root fallback for an unbound thread). A
    * Worktree Map intent waits for it: a bind derived before the primary folder
@@ -51,6 +57,7 @@ function branchToName(branch: string): string {
 export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBarModeComposition {
   const {
     checkout,
+    checkoutSettled,
     foldersPending,
     onHandOffToLocal,
     onSelectWorktree,
@@ -124,7 +131,7 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
   const activeRunId =
     selectedThread?.latestRun?.status === 'running' ? selectedThread.latestRun.id : null;
 
-  const mode = useWorktreeMode({
+  const resolvedMode = useWorktreeMode({
     checkout: worktreeCheckout,
     firstRequestState,
     isRepository: checkout !== undefined,
@@ -135,6 +142,11 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
     runId: activeRunId,
     threadId: selectedMemoryThreadId ?? null,
   });
+  // While the root's first status read is in flight, `isRepository` above is
+  // false only because nothing is known yet. Withhold the chip until it
+  // settles, as the branch chip does (BST-1400), instead of briefly offering
+  // the "Not a git repository" diagnostic (BST-2129).
+  const mode = checkoutSettled ? resolvedMode : undefined;
   const onSwitchInNewWorktree = useCallback(
     (branch: string): void => {
       if (!mode) {
