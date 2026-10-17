@@ -34,7 +34,7 @@
  * mutated copy of the source: a guard never observed failing is not evidence.
  */
 import assert from 'node:assert/strict';
-import { accessSync, constants, readFileSync } from 'node:fs';
+import { accessSync, constants, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -53,12 +53,15 @@ const GUARD_USES = './.github/actions/apt-drop-unused-sources';
  * cannot go dark by reading zero files, NOT as the definition of where the
  * guard is required — that is derived from the steps themselves.
  */
-const WORKFLOWS_WITH_APT_SITES = [
-  'test.yml',
-  'desktop-e2e.yml',
-  'local-desktop-e2e.yml',
-  'nightly-coverage.yml',
-];
+const WORKFLOWS_WITH_APT_SITES = ['test.yml', 'desktop-e2e.yml', 'local-desktop-e2e.yml'];
+
+/**
+ * Every local composite action is scanned too: a composite step runs in its
+ * caller's job, so an apt site inside one needs the guard ahead of it inside
+ * the same composite (BST-2127 moved the Unit and Nightly Coverage host
+ * provisioning into linux-desktop-test-host).
+ */
+const actionsDir = path.join(repoRoot, '.github', 'actions');
 
 /** The floor that keeps the detector honest: today's seven apt steps. */
 const KNOWN_APT_STEP_COUNT = 7;
@@ -93,8 +96,18 @@ function readWorkflow(file) {
   return readFileSync(path.join(workflowsDir, file), 'utf8');
 }
 
+function compositeActionSources() {
+  return readdirSync(actionsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join('.github', 'actions', entry.name, 'action.yml'))
+    .map((file) => [file, readFileSync(path.join(repoRoot, file), 'utf8')]);
+}
+
 function workflowSources() {
-  return new Map(WORKFLOWS_WITH_APT_SITES.map((file) => [file, readWorkflow(file)]));
+  return new Map([
+    ...WORKFLOWS_WITH_APT_SITES.map((file) => [file, readWorkflow(file)]),
+    ...compositeActionSources(),
+  ]);
 }
 
 function stepUsesGuard(step) {
@@ -105,7 +118,11 @@ function stepUsesGuard(step) {
 function aptSteps(sources) {
   const found = [];
   for (const [file, source] of sources) {
-    const jobs = parseYaml(source)?.jobs ?? {};
+    const parsed = parseYaml(source);
+    const composite = Array.isArray(parsed?.runs?.steps)
+      ? { composite: { steps: parsed.runs.steps } }
+      : {};
+    const jobs = parsed?.jobs ?? composite;
     for (const [jobName, job] of Object.entries(jobs)) {
       const steps = Array.isArray(job?.steps) ? job.steps : [];
       steps.forEach((step, index) => {
@@ -221,6 +238,24 @@ test('control: an apt site with the guard removed fails the contract', () => {
     () => assertEveryAptSiteIsGuarded(sources),
     /runs apt with no earlier/,
     'the contract must fail when a single apt site loses its guard'
+  );
+});
+
+test('control: a composite action apt site without the guard fails the contract', () => {
+  const sources = workflowSources();
+  const file = path.join('.github', 'actions', 'linux-desktop-test-host', 'action.yml');
+  const original = sources.get(file);
+  assert.ok(original, `${file} must be scanned`);
+  const mutated = original.replace(
+    / {4}- uses: \.\/\.github\/actions\/apt-drop-unused-sources\n/,
+    ''
+  );
+  assert.notEqual(mutated, original, 'mutation did not remove the composite guard step');
+  sources.set(file, mutated);
+  assert.throws(
+    () => assertEveryAptSiteIsGuarded(sources),
+    /linux-desktop-test-host.*runs apt with no earlier/,
+    'an apt site inside a composite action must carry its own guard'
   );
 });
 
